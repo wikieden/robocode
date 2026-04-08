@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "robocode-cli",
+    "robocode-core",
+    "robocode-model",
+    "robocode-permissions",
+    "robocode-session",
+    "robocode-tools",
+    "robocode-types",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+authors = ["wiki"]
