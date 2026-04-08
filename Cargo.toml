@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "robocode-cli",
+    "robocode-config",
     "robocode-core",
     "robocode-model",
     "robocode-permissions",

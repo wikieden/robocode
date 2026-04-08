@@ -2,8 +2,10 @@ use std::env;
 use std::process::Command;
 
 use robocode_types::{
-    Message, ModelEvent, ModelRequest, Role, ToolCall, fresh_id, parse_tool_input,
+    Message, ModelEvent, ModelRequest, Role, ToolCall, ToolInput, ToolSpec, decode_tool_input,
+    fresh_id, parse_tool_input,
 };
+use serde_json::{Map, Value, json};
 
 pub trait ModelProvider: Send {
     fn provider_name(&self) -> &str;
@@ -50,6 +52,8 @@ pub struct ProviderConfig {
     pub model: String,
     pub api_base: Option<String>,
     pub api_key: Option<String>,
+    pub request_timeout_secs: u64,
+    pub max_retries: u32,
 }
 
 impl ProviderConfig {
@@ -69,7 +73,40 @@ impl ProviderConfig {
             model,
             api_base,
             api_key,
+            request_timeout_secs: env::var("ROBOCODE_REQUEST_TIMEOUT_SECS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(90),
+            max_retries: env::var("ROBOCODE_MAX_RETRIES")
+                .ok()
+                .and_then(|value| value.parse::<u32>().ok())
+                .unwrap_or(1),
         }
+    }
+
+    pub fn from_settings(
+        provider: &str,
+        model: Option<&str>,
+        api_base: Option<&str>,
+        api_key: Option<&str>,
+        request_timeout_secs: u64,
+        max_retries: u32,
+    ) -> Result<Self, String> {
+        let kind = ProviderKind::parse(provider)
+            .ok_or_else(|| format!("Unknown provider `{provider}`"))?;
+        Ok(Self {
+            kind,
+            model: model
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(default_model_for(kind))
+                .to_string(),
+            api_base: api_base.map(ToString::to_string),
+            api_key: api_key
+                .map(ToString::to_string)
+                .or_else(|| resolve_api_key(kind)),
+            request_timeout_secs: request_timeout_secs.max(1),
+            max_retries,
+        })
     }
 
     pub fn with_overrides(
@@ -106,7 +143,7 @@ impl ProviderConfig {
 
     pub fn summary(&self) -> String {
         format!(
-            "provider={} model={} api_base={} key={}",
+            "provider={} model={} api_base={} key={} timeout={}s retries={}",
             self.kind.as_str(),
             self.model,
             self.api_base.as_deref().unwrap_or("<default>"),
@@ -114,7 +151,9 @@ impl ProviderConfig {
                 "present"
             } else {
                 "missing"
-            }
+            },
+            self.request_timeout_secs,
+            self.max_retries,
         )
     }
 }
@@ -159,6 +198,8 @@ impl AnthropicProvider {
             model: model.into(),
             api_base: None,
             api_key: resolve_api_key(ProviderKind::Anthropic),
+            request_timeout_secs: 90,
+            max_retries: 1,
         };
         Self {
             inner: HttpProvider::anthropic(config),
@@ -228,6 +269,8 @@ struct HttpProvider {
     model: String,
     api_base: String,
     api_key: Option<String>,
+    request_timeout_secs: u64,
+    max_retries: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,6 +290,8 @@ impl HttpProvider {
                 .api_base
                 .unwrap_or_else(|| "https://api.anthropic.com".to_string()),
             api_key: config.api_key,
+            request_timeout_secs: config.request_timeout_secs,
+            max_retries: config.max_retries,
         }
     }
 
@@ -261,6 +306,8 @@ impl HttpProvider {
             api_key: config
                 .api_key
                 .or_else(|| resolve_api_key(ProviderKind::OpenAi)),
+            request_timeout_secs: config.request_timeout_secs,
+            max_retries: config.max_retries,
         }
     }
 
@@ -273,6 +320,8 @@ impl HttpProvider {
                 .api_base
                 .unwrap_or_else(|| "https://api.openai.com".to_string()),
             api_key: config.api_key,
+            request_timeout_secs: config.request_timeout_secs,
+            max_retries: config.max_retries,
         }
     }
 
@@ -285,6 +334,8 @@ impl HttpProvider {
                 .api_base
                 .unwrap_or_else(|| "http://localhost:11434".to_string()),
             api_key: config.api_key,
+            request_timeout_secs: config.request_timeout_secs,
+            max_retries: config.max_retries,
         }
     }
 }
@@ -316,9 +367,9 @@ impl ModelProvider for HttpProvider {
         }
 
         let body = match self.mode {
-            HttpMode::Anthropic => build_anthropic_body(&self.model, &request.messages),
-            HttpMode::OpenAiCompatible => build_openai_body(&self.model, &request.messages),
-            HttpMode::Ollama => build_ollama_body(&self.model, &request.messages),
+            HttpMode::Anthropic => build_anthropic_body(&self.model, request),
+            HttpMode::OpenAiCompatible => build_openai_body(&self.model, request),
+            HttpMode::Ollama => build_ollama_body(&self.model, request),
         };
         let path = match self.mode {
             HttpMode::Anthropic => "/v1/messages",
@@ -341,24 +392,44 @@ impl ModelProvider for HttpProvider {
             }
             HttpMode::Ollama => {}
         }
-        let response = post_json(&self.api_base, path, &headers, &body)?;
-        let content = match self.mode {
-            HttpMode::Anthropic => parse_anthropic_response(&response),
-            HttpMode::OpenAiCompatible => parse_openai_response(&response),
-            HttpMode::Ollama => parse_ollama_response(&response),
+        let response = post_json(
+            &self.api_base,
+            path,
+            &headers,
+            &body,
+            self.request_timeout_secs,
+            self.max_retries,
+        )?;
+        if response.status_code >= 400 {
+            let message = extract_error_message(&response.body).unwrap_or_else(|| {
+                format!(
+                    "{} returned HTTP {}",
+                    self.provider_name(),
+                    response.status_code
+                )
+            });
+            return Err(format!("API error ({}): {}", response.status_code, message));
         }
-        .or_else(|| extract_error_message(&response).map(|message| format!("API error: {message}")))
+        let mut events = match self.mode {
+            HttpMode::Anthropic => parse_anthropic_events(&response.body),
+            HttpMode::OpenAiCompatible => parse_openai_events(&response.body),
+            HttpMode::Ollama => parse_ollama_events(&response.body),
+        }
         .unwrap_or_else(|| {
-            format!(
-                "{} returned a response, but RoboCode could not parse assistant content.\n\nRaw response:\n{}",
-                self.provider_name(),
-                response
-            )
+            vec![ModelEvent::AssistantText {
+                content: extract_error_message(&response.body)
+                    .map(|message| format!("API error: {message}"))
+                    .unwrap_or_else(|| {
+                        format!(
+                            "{} returned a response, but RoboCode could not parse assistant content.\n\nRaw response:\n{}",
+                            self.provider_name(),
+                            response.body
+                        )
+                    }),
+            }]
         });
-        Ok(vec![
-            ModelEvent::AssistantText { content },
-            ModelEvent::Done,
-        ])
+        events.push(ModelEvent::Done);
+        Ok(events)
     }
 }
 
@@ -438,55 +509,153 @@ fn parse_explicit_tool_call(input: &str) -> Option<ToolCall> {
     None
 }
 
-fn build_anthropic_body(model: &str, messages: &[Message]) -> String {
-    format!(
-        "{{\"model\":\"{}\",\"max_tokens\":2048,\"system\":\"{}\",\"messages\":[{}]}}",
-        escape_json(model),
-        escape_json(&provider_system_prompt()),
-        render_message_array(messages, true)
-    )
+fn build_anthropic_body(model: &str, request: &ModelRequest) -> String {
+    let mut payload = json!({
+        "model": model,
+        "max_tokens": 2048,
+        "system": provider_system_prompt(),
+        "messages": render_anthropic_messages(&request.messages),
+    });
+    if !request.tools.is_empty() {
+        payload["tools"] = Value::Array(render_anthropic_tools(&request.tools));
+    }
+    serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
 }
 
-fn build_openai_body(model: &str, messages: &[Message]) -> String {
-    format!(
-        "{{\"model\":\"{}\",\"messages\":[{{\"role\":\"system\",\"content\":\"{}\"}},{}],\"temperature\":0.2}}",
-        escape_json(model),
-        escape_json(&provider_system_prompt()),
-        render_message_array(messages, false)
-    )
+fn build_openai_body(model: &str, request: &ModelRequest) -> String {
+    let mut messages = vec![json!({
+        "role": "system",
+        "content": provider_system_prompt(),
+    })];
+    messages.extend(render_openai_messages(&request.messages));
+    let mut payload = json!({
+        "model": model,
+        "messages": messages,
+        "temperature": 0.2,
+    });
+    if !request.tools.is_empty() {
+        payload["tools"] = Value::Array(render_openai_tools(&request.tools));
+    }
+    serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
 }
 
-fn build_ollama_body(model: &str, messages: &[Message]) -> String {
-    format!(
-        "{{\"model\":\"{}\",\"stream\":false,\"messages\":[{{\"role\":\"system\",\"content\":\"{}\"}},{}]}}",
-        escape_json(model),
-        escape_json(&provider_system_prompt()),
-        render_message_array(messages, false)
-    )
+fn build_ollama_body(model: &str, request: &ModelRequest) -> String {
+    let mut messages = vec![json!({
+        "role": "system",
+        "content": provider_system_prompt(),
+    })];
+    messages.extend(render_simple_messages(&request.messages));
+    let payload = json!({
+        "model": model,
+        "stream": false,
+        "messages": messages,
+    });
+    serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
 }
 
-fn render_message_array(messages: &[Message], anthropic_style: bool) -> String {
+fn render_anthropic_messages(messages: &[Message]) -> Vec<Value> {
     let mut rendered = Vec::new();
     for message in messages {
-        let role = match message.role {
-            Role::Assistant => "assistant",
-            Role::User => "user",
-            Role::System | Role::Tool => {
-                if anthropic_style {
-                    "user"
-                } else {
-                    "user"
-                }
-            }
-        };
-        let content = normalized_message_content(message);
-        rendered.push(format!(
-            "{{\"role\":\"{}\",\"content\":\"{}\"}}",
-            role,
-            escape_json(&content)
-        ));
+        if message.role == Role::Tool {
+            rendered.push(json!({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": message.tool_call_id.clone().unwrap_or_else(|| fresh_id("tool")),
+                    "content": message.content,
+                }],
+            }));
+            continue;
+        }
+        if message.role == Role::Assistant
+            && message.tool_name.is_some()
+            && message.tool_call_id.is_some()
+        {
+            rendered.push(json!({
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": message.tool_call_id.clone().unwrap_or_else(|| fresh_id("tool")),
+                    "name": message.tool_name.clone().unwrap_or_else(|| "tool".to_string()),
+                    "input": tool_input_to_json(&decode_tool_input(&message.content)),
+                }],
+            }));
+            continue;
+        }
+        rendered.push(json!({
+            "role": match message.role {
+                Role::Assistant => "assistant",
+                Role::User => "user",
+                Role::System | Role::Tool => "user",
+            },
+            "content": [{
+                "type": "text",
+                "text": normalized_message_content(message),
+            }],
+        }));
     }
-    rendered.join(",")
+    rendered
+}
+
+fn render_openai_messages(messages: &[Message]) -> Vec<Value> {
+    let mut rendered = Vec::new();
+    for message in messages {
+        match message.role {
+            Role::Tool => {
+                rendered.push(json!({
+                    "role": "tool",
+                    "tool_call_id": message.tool_call_id.clone().unwrap_or_else(|| fresh_id("tool")),
+                    "content": message.content,
+                }));
+            }
+            Role::Assistant if message.tool_name.is_some() && message.tool_call_id.is_some() => {
+                rendered.push(json!({
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": message.tool_call_id.clone().unwrap_or_else(|| fresh_id("tool")),
+                        "type": "function",
+                        "function": {
+                            "name": message.tool_name.clone().unwrap_or_else(|| "tool".to_string()),
+                            "arguments": serde_json::to_string(&tool_input_to_json(&decode_tool_input(&message.content)))
+                                .unwrap_or_else(|_| "{}".to_string()),
+                        }
+                    }],
+                }));
+            }
+            Role::System => {
+                rendered.push(json!({
+                    "role": "user",
+                    "content": normalized_message_content(message),
+                }));
+            }
+            Role::Assistant | Role::User => {
+                rendered.push(json!({
+                    "role": match message.role {
+                        Role::Assistant => "assistant",
+                        _ => "user",
+                    },
+                    "content": normalized_message_content(message),
+                }));
+            }
+        }
+    }
+    rendered
+}
+
+fn render_simple_messages(messages: &[Message]) -> Vec<Value> {
+    messages
+        .iter()
+        .map(|message| {
+            json!({
+                "role": match message.role {
+                    Role::Assistant => "assistant",
+                    _ => "user",
+                },
+                "content": normalized_message_content(message),
+            })
+        })
+        .collect()
 }
 
 fn normalized_message_content(message: &Message) -> String {
@@ -501,69 +670,324 @@ fn normalized_message_content(message: &Message) -> String {
     }
 }
 
+fn render_openai_tools(tools: &[ToolSpec]) -> Vec<Value> {
+    tools
+        .iter()
+        .map(|tool| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool_parameters_schema(tool),
+                }
+            })
+        })
+        .collect()
+}
+
+fn render_anthropic_tools(tools: &[ToolSpec]) -> Vec<Value> {
+    tools
+        .iter()
+        .map(|tool| {
+            json!({
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool_parameters_schema(tool),
+            })
+        })
+        .collect()
+}
+
+fn tool_parameters_schema(tool: &ToolSpec) -> Value {
+    let mut properties = Map::new();
+    for key in extract_input_keys(&tool.input_schema_hint) {
+        properties.insert(
+            key.clone(),
+            json!({
+                "type": "string",
+                "description": format!("Input field `{}` for {}", key, tool.name),
+            }),
+        );
+    }
+    json!({
+        "type": "object",
+        "properties": properties,
+        "additionalProperties": { "type": "string" },
+    })
+}
+
+fn extract_input_keys(hint: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    for segment in hint.split_whitespace() {
+        let cleaned = segment.trim_matches(|char: char| char == ',' || char == ';');
+        if let Some((key, _)) = cleaned.split_once('=') {
+            let key = key
+                .trim()
+                .trim_matches(|char: char| char == '\'' || char == '"');
+            if !key.is_empty()
+                && key
+                    .chars()
+                    .all(|char| char.is_ascii_alphanumeric() || char == '_' || char == '-')
+                && !keys.iter().any(|existing| existing == key)
+            {
+                keys.push(key.to_string());
+            }
+        }
+    }
+    keys
+}
+
+fn tool_input_to_json(input: &ToolInput) -> Value {
+    let mut object = Map::new();
+    for (key, value) in input {
+        object.insert(key.clone(), Value::String(value.clone()));
+    }
+    Value::Object(object)
+}
+
 fn provider_system_prompt() -> String {
     [
         "You are RoboCode, a coding assistant running in a terminal.",
-        "When you need a tool, respond with exactly one line in this format:",
+        "When native tool calling is available, prefer the provided tool interface.",
+        "If native tool calling is unavailable, respond with exactly one line in this format:",
         "tool <tool_name> key=value key=value",
         "Do not wrap tool calls in JSON or markdown fences.",
-        "Available tools include shell, read_file, write_file, edit_file, glob, grep.",
+        "Available tools include shell, read_file, write_file, edit_file, glob, grep, and git helpers.",
         "If no tool is required, answer normally in plain text.",
     ]
     .join("\n")
 }
 
-fn post_json(api_base: &str, path: &str, headers: &[String], body: &str) -> Result<String, String> {
+struct HttpResponse {
+    status_code: u16,
+    body: String,
+}
+
+fn post_json(
+    api_base: &str,
+    path: &str,
+    headers: &[String],
+    body: &str,
+    timeout_secs: u64,
+    max_retries: u32,
+) -> Result<HttpResponse, String> {
     let url = format!("{}{}", api_base.trim_end_matches('/'), path);
-    let mut command = Command::new("curl");
-    command
-        .arg("--silent")
-        .arg("--show-error")
-        .arg("--fail-with-body")
-        .arg("--max-time")
-        .arg("90")
-        .arg("-X")
-        .arg("POST")
-        .arg(url);
-    for header in headers {
-        command.arg("-H").arg(header);
+    let mut last_error = String::new();
+    for attempt in 0..=max_retries {
+        let mut command = Command::new("curl");
+        command
+            .arg("--silent")
+            .arg("--show-error")
+            .arg("--max-time")
+            .arg(timeout_secs.to_string())
+            .arg("-X")
+            .arg("POST")
+            .arg("-w")
+            .arg("\n%{http_code}")
+            .arg(url.clone());
+        for header in headers {
+            command.arg("-H").arg(header);
+        }
+        command.arg("-d").arg(body);
+        let output = command.output().map_err(|err| err.to_string())?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            last_error = if !stderr.is_empty() { stderr } else { stdout };
+            if attempt < max_retries {
+                continue;
+            }
+            return Err(if last_error.is_empty() {
+                format!("curl failed with status {}", output.status)
+            } else {
+                last_error
+            });
+        }
+        let rendered = String::from_utf8_lossy(&output.stdout).to_string();
+        if let Some((body, status_code)) = split_response_and_status(&rendered) {
+            if status_code >= 500 && attempt < max_retries {
+                last_error = format!("HTTP {}", status_code);
+                continue;
+            }
+            return Ok(HttpResponse { status_code, body });
+        }
+        last_error = "Could not parse HTTP status from curl output".to_string();
     }
-    command.arg("-d").arg(body);
-    let output = command.output().map_err(|err| err.to_string())?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let error_text = if !stdout.is_empty() { stdout } else { stderr };
-        return Err(if error_text.is_empty() {
-            format!("curl failed with status {}", output.status)
-        } else {
-            error_text
-        });
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Err(last_error)
 }
 
-fn parse_anthropic_response(response: &str) -> Option<String> {
-    extract_string_after(response, "\"text\":\"")
+fn split_response_and_status(rendered: &str) -> Option<(String, u16)> {
+    let trimmed = rendered.trim_end_matches('\n');
+    let (body, status) = trimmed.rsplit_once('\n')?;
+    let status_code = status.trim().parse::<u16>().ok()?;
+    Some((body.to_string(), status_code))
 }
 
-fn parse_openai_response(response: &str) -> Option<String> {
-    if let Some(idx) = response.find("\"message\":") {
-        extract_string_after(&response[idx..], "\"content\":\"")
+fn parse_anthropic_events(response: &str) -> Option<Vec<ModelEvent>> {
+    let value: Value = serde_json::from_str(response).ok()?;
+    let content_blocks = value.get("content")?.as_array()?;
+    let mut tool_calls = Vec::new();
+    let mut text_parts = Vec::new();
+    for block in content_blocks {
+        match block.get("type")?.as_str()? {
+            "tool_use" => {
+                let name = block.get("name")?.as_str()?.to_string();
+                let id = block
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| fresh_id("tool"));
+                let input = json_value_to_tool_input(block.get("input").unwrap_or(&Value::Null));
+                tool_calls.push(ModelEvent::ToolCall(ToolCall { id, name, input }));
+            }
+            "text" => {
+                if let Some(text) = block.get("text").and_then(Value::as_str) {
+                    if !text.trim().is_empty() {
+                        text_parts.push(text.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if !tool_calls.is_empty() {
+        Some(tool_calls)
+    } else if text_parts.is_empty() {
+        None
     } else {
-        extract_string_after(response, "\"content\":\"")
+        Some(vec![ModelEvent::AssistantText {
+            content: text_parts.join("\n\n"),
+        }])
     }
 }
 
-fn parse_ollama_response(response: &str) -> Option<String> {
-    if let Some(idx) = response.find("\"message\":") {
-        extract_string_after(&response[idx..], "\"content\":\"")
+fn parse_openai_events(response: &str) -> Option<Vec<ModelEvent>> {
+    let value: Value = serde_json::from_str(response).ok()?;
+    let message = value.get("choices")?.as_array()?.first()?.get("message")?;
+    if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
+        let events: Vec<ModelEvent> = tool_calls
+            .iter()
+            .filter_map(|tool_call| {
+                let function = tool_call.get("function")?;
+                let name = function.get("name")?.as_str()?.to_string();
+                let id = tool_call
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| fresh_id("tool"));
+                let arguments = function
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .unwrap_or("{}");
+                Some(ModelEvent::ToolCall(ToolCall {
+                    id,
+                    name,
+                    input: parse_json_tool_arguments(arguments),
+                }))
+            })
+            .collect();
+        if !events.is_empty() {
+            return Some(events);
+        }
+    }
+    extract_openai_content(message).map(|content| vec![ModelEvent::AssistantText { content }])
+}
+
+fn parse_ollama_events(response: &str) -> Option<Vec<ModelEvent>> {
+    let value: Value = serde_json::from_str(response).ok()?;
+    if let Some(message) = value.get("message") {
+        if let Some(content) = message.get("content").and_then(Value::as_str) {
+            if !content.trim().is_empty() {
+                return Some(vec![ModelEvent::AssistantText {
+                    content: content.to_string(),
+                }]);
+            }
+        }
+    }
+    if let Some(content) = value.get("response").and_then(Value::as_str) {
+        if !content.trim().is_empty() {
+            return Some(vec![ModelEvent::AssistantText {
+                content: content.to_string(),
+            }]);
+        }
+    }
+    None
+}
+
+fn extract_openai_content(message: &Value) -> Option<String> {
+    if let Some(content) = message.get("content").and_then(Value::as_str) {
+        if !content.trim().is_empty() {
+            return Some(content.to_string());
+        }
+    }
+    if let Some(parts) = message.get("content").and_then(Value::as_array) {
+        let text = parts
+            .iter()
+            .filter_map(|part| {
+                if part.get("type").and_then(Value::as_str) == Some("text") {
+                    part.get("text")
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        if !text.trim().is_empty() {
+            return Some(text);
+        }
+    }
+    None
+}
+
+fn parse_json_tool_arguments(arguments: &str) -> ToolInput {
+    if let Ok(value) = serde_json::from_str::<Value>(arguments) {
+        json_value_to_tool_input(&value)
     } else {
-        extract_string_after(response, "\"response\":\"")
+        parse_tool_input(arguments)
+    }
+}
+
+fn json_value_to_tool_input(value: &Value) -> ToolInput {
+    let mut input = ToolInput::new();
+    if let Some(object) = value.as_object() {
+        for (key, value) in object {
+            input.insert(key.clone(), json_value_to_string(value));
+        }
+    }
+    input
+}
+
+fn json_value_to_string(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(boolean) => boolean.to_string(),
+        Value::Number(number) => number.to_string(),
+        Value::String(string) => string.clone(),
+        Value::Array(_) | Value::Object(_) => {
+            serde_json::to_string(value).unwrap_or_else(|_| String::new())
+        }
     }
 }
 
 fn extract_error_message(response: &str) -> Option<String> {
+    if let Ok(value) = serde_json::from_str::<Value>(response) {
+        if let Some(message) = value
+            .get("error")
+            .and_then(|error| error.get("message").or_else(|| error.get("error")))
+            .and_then(Value::as_str)
+        {
+            return Some(message.to_string());
+        }
+        if let Some(message) = value.get("message").and_then(Value::as_str) {
+            return Some(message.to_string());
+        }
+        if let Some(error) = value.get("error").and_then(Value::as_str) {
+            return Some(error.to_string());
+        }
+    }
     extract_string_after(response, "\"message\":\"")
         .or_else(|| extract_string_after(response, "\"error\":\""))
 }
@@ -596,21 +1020,6 @@ fn extract_string_after(input: &str, marker: &str) -> Option<String> {
         index += 1;
     }
     None
-}
-
-fn escape_json(input: &str) -> String {
-    let mut out = String::new();
-    for ch in input.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            other => out.push(other),
-        }
-    }
-    out
 }
 
 fn default_model_for(kind: ProviderKind) -> &'static str {
@@ -657,6 +1066,21 @@ mod tests {
     }
 
     #[test]
+    fn from_settings_applies_timeout_and_retries() {
+        let config = ProviderConfig::from_settings(
+            "openai",
+            Some("gpt-5.2"),
+            Some("https://api.openai.com"),
+            Some("secret"),
+            120,
+            3,
+        )
+        .unwrap();
+        assert_eq!(config.request_timeout_secs, 120);
+        assert_eq!(config.max_retries, 3);
+    }
+
+    #[test]
     fn explicit_tool_syntax_still_creates_tool_calls() {
         let call = parse_explicit_tool_call("tool read_file path=Cargo.toml").unwrap();
         assert_eq!(call.name, "read_file");
@@ -669,10 +1093,57 @@ mod tests {
     #[test]
     fn openai_response_parser_extracts_content() {
         let response = r#"{"choices":[{"message":{"role":"assistant","content":"hello world"}}]}"#;
-        assert_eq!(
-            parse_openai_response(response).as_deref(),
-            Some("hello world")
-        );
+        let events = parse_openai_events(response).unwrap();
+        assert!(matches!(
+            &events[0],
+            ModelEvent::AssistantText { content } if content == "hello world"
+        ));
+    }
+
+    #[test]
+    fn openai_response_parser_extracts_tool_calls() {
+        let response = r#"{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_123","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"Cargo.toml\",\"max_bytes\":\"1024\"}"}}]}}]}"#;
+        let events = parse_openai_events(response).unwrap();
+        assert!(matches!(
+            &events[0],
+            ModelEvent::ToolCall(call)
+                if call.id == "call_123"
+                    && call.name == "read_file"
+                    && call.input.get("path").map(String::as_str) == Some("Cargo.toml")
+        ));
+    }
+
+    #[test]
+    fn anthropic_response_parser_extracts_tool_use() {
+        let response = r#"{"content":[{"type":"tool_use","id":"toolu_1","name":"grep","input":{"pattern":"main","path":"src"}}]}"#;
+        let events = parse_anthropic_events(response).unwrap();
+        assert!(matches!(
+            &events[0],
+            ModelEvent::ToolCall(call)
+                if call.id == "toolu_1"
+                    && call.name == "grep"
+                    && call.input.get("pattern").map(String::as_str) == Some("main")
+        ));
+    }
+
+    #[test]
+    fn build_openai_body_includes_tools() {
+        let request = ModelRequest {
+            session_id: "session_test".to_string(),
+            model: "gpt-5.2".to_string(),
+            messages: vec![Message::new(Role::User, "inspect Cargo.toml")],
+            tools: vec![ToolSpec {
+                name: "read_file".to_string(),
+                description: "Read a file".to_string(),
+                is_mutating: false,
+                input_schema_hint: "path=file max_bytes=8192".to_string(),
+            }],
+            permission_mode: PermissionMode::Default,
+        };
+        let body = build_openai_body("gpt-5.2", &request);
+        assert!(body.contains("\"tools\""));
+        assert!(body.contains("\"read_file\""));
+        assert!(body.contains("\"path\""));
     }
 
     #[test]
@@ -682,6 +1153,8 @@ mod tests {
             model: "gpt-5.2".to_string(),
             api_base: Some("https://api.openai.com".to_string()),
             api_key: None,
+            request_timeout_secs: 90,
+            max_retries: 1,
         });
         let events = provider
             .next_events(&ModelRequest {
@@ -700,5 +1173,12 @@ mod tests {
         assert!(
             matches!(&events[0], ModelEvent::AssistantText { content } if content.contains("fallback mode"))
         );
+    }
+
+    #[test]
+    fn split_response_and_status_parses_curl_suffix() {
+        let response = split_response_and_status("{\"ok\":true}\n200").unwrap();
+        assert_eq!(response.0, "{\"ok\":true}");
+        assert_eq!(response.1, 200);
     }
 }

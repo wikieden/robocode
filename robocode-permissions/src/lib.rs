@@ -69,6 +69,16 @@ impl PermissionEngine {
     pub fn decide(&self, tool: &ToolSpec, input: &ToolInput) -> PermissionDecision {
         let scoped_paths = extract_paths(input);
         if !scoped_paths.iter().all(|path| self.is_path_in_scope(path)) {
+            if tool.name == "git_worktree_add" || tool.name == "git_worktree_remove" {
+                return PermissionDecision::Ask(PermissionAskDecision {
+                    message: format!(
+                        "Approve {} outside the current working directory?",
+                        tool.name
+                    ),
+                    updated_input: None,
+                    decision_reason: Some(PermissionDecisionReason::RequiresApproval),
+                });
+            }
             return PermissionDecision::Deny(PermissionDenyDecision {
                 message: "Path is outside the allowed working directory scope".to_string(),
                 decision_reason: PermissionDecisionReason::OutOfScopePath,
@@ -297,5 +307,15 @@ mod tests {
         engine.add_directory("/tmp/shared", PermissionRuleSource::Session);
         let decision = engine.decide(&tool("read_file", false), &input("/tmp/shared/file.txt"));
         assert!(matches!(decision, PermissionDecision::Allow(_)));
+    }
+
+    #[test]
+    fn git_worktree_out_of_scope_path_asks_instead_of_denying() {
+        let engine = PermissionEngine::new("/tmp/project");
+        let decision = engine.decide(
+            &tool("git_worktree_add", true),
+            &input("/tmp/project-worktrees/feature-demo"),
+        );
+        assert!(matches!(decision, PermissionDecision::Ask(_)));
     }
 }

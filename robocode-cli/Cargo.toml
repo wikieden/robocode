@@ -6,8 +6,8 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+robocode-config = { path = "../robocode-config" }
 robocode-core = { path = "../robocode-core" }
 robocode-model = { path = "../robocode-model" }
 robocode-tools = { path = "../robocode-tools" }
 robocode-types = { path = "../robocode-types" }
-

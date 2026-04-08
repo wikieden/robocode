@@ -41,11 +41,23 @@ impl ToolRegistry {
         registry.register(GlobTool);
         registry.register(GrepTool);
         registry.register(ShellTool);
+        registry.register(WebSearchTool);
+        registry.register(WebFetchTool);
         registry.register(GitStatusTool);
         registry.register(GitDiffTool);
         registry.register(GitBranchTool);
         registry.register(GitSwitchTool);
+        registry.register(GitAddTool);
+        registry.register(GitRestoreTool);
         registry.register(GitCommitTool);
+        registry.register(GitPushTool);
+        registry.register(GitStashListTool);
+        registry.register(GitStashPushTool);
+        registry.register(GitStashPopTool);
+        registry.register(GitStashDropTool);
+        registry.register(GitWorktreeListTool);
+        registry.register(GitWorktreeAddTool);
+        registry.register(GitWorktreeRemoveTool);
         registry
     }
 
@@ -109,11 +121,23 @@ struct EditFileTool;
 struct GlobTool;
 struct GrepTool;
 struct ShellTool;
+struct WebSearchTool;
+struct WebFetchTool;
 struct GitStatusTool;
 struct GitDiffTool;
 struct GitBranchTool;
 struct GitSwitchTool;
+struct GitAddTool;
+struct GitRestoreTool;
 struct GitCommitTool;
+struct GitPushTool;
+struct GitStashListTool;
+struct GitStashPushTool;
+struct GitStashPopTool;
+struct GitStashDropTool;
+struct GitWorktreeListTool;
+struct GitWorktreeAddTool;
+struct GitWorktreeRemoveTool;
 
 impl BuiltinTool for ReadFileTool {
     fn spec(&self) -> ToolSpec {
@@ -353,6 +377,106 @@ impl BuiltinTool for ShellTool {
     }
 }
 
+impl BuiltinTool for WebSearchTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "web_search".to_string(),
+            description: "Search the web and return the top results".to_string(),
+            is_mutating: false,
+            input_schema_hint: "query='rust http client' limit=5 site=optional/domain".to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        _ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let query = input
+            .get("query")
+            .ok_or_else(|| "web_search requires `query`".to_string())?;
+        let limit = input
+            .get("limit")
+            .and_then(|raw| raw.parse::<usize>().ok())
+            .unwrap_or(5)
+            .clamp(1, 10);
+        let site = input.get("site").map(String::as_str);
+        let scoped_query = if let Some(site) = site {
+            format!("site:{site} {query}")
+        } else {
+            query.clone()
+        };
+        let url = format!(
+            "https://html.duckduckgo.com/html/?q={}",
+            url_encode(&scoped_query)
+        );
+        let html = fetch_url(&url, 30)?;
+        let results = parse_duckduckgo_results(&html, limit);
+        Ok(ToolExecutionOutput {
+            output: if results.is_empty() {
+                "No search results found.".to_string()
+            } else {
+                results
+                    .iter()
+                    .enumerate()
+                    .map(|(index, result)| {
+                        format!(
+                            "{}. {}\n   {}\n   {}",
+                            index + 1,
+                            result.title,
+                            result.url,
+                            result.snippet
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            },
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for WebFetchTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "web_fetch".to_string(),
+            description: "Fetch a web page and return extracted text".to_string(),
+            is_mutating: false,
+            input_schema_hint: "url=https://example.com max_bytes=20000 raw=false".to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        _ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let url = input
+            .get("url")
+            .ok_or_else(|| "web_fetch requires `url`".to_string())?;
+        let max_bytes = input
+            .get("max_bytes")
+            .and_then(|raw| raw.parse::<usize>().ok())
+            .unwrap_or(20_000);
+        let raw = input
+            .get("raw")
+            .map(|value| value == "true")
+            .unwrap_or(false);
+        let response = fetch_url(url, 30)?;
+        let output = if raw {
+            truncate_bytes(&response, max_bytes)
+        } else {
+            html_to_text(&response, max_bytes)
+        };
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
 impl BuiltinTool for GitStatusTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
@@ -530,6 +654,392 @@ impl BuiltinTool for GitCommitTool {
     }
 }
 
+impl BuiltinTool for GitAddTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_add".to_string(),
+            description: "Stage files in git".to_string(),
+            is_mutating: true,
+            input_schema_hint: "path=file paths='a\\nb' all=false path=optional/repo/root"
+                .to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let repo = resolve_git_base(ctx, input)?;
+        let all = input
+            .get("all")
+            .map(|value| value == "true")
+            .unwrap_or(false);
+        let mut args = vec!["add".to_string()];
+        if all {
+            args.push("--all".to_string());
+        }
+        for path in collect_git_paths(input) {
+            args.push(path_relative_to_repo(&repo, &ctx.cwd, &path)?);
+        }
+        if args.len() == 1 {
+            return Err("git_add requires at least one path or `all=true`".to_string());
+        }
+        let output = run_git_capture_owned(&repo, &args)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for GitPushTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_push".to_string(),
+            description: "Push the current branch to a git remote".to_string(),
+            is_mutating: true,
+            input_schema_hint:
+                "remote=origin branch=current set_upstream=false path=optional/repo/root"
+                    .to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let repo = resolve_git_base(ctx, input)?;
+        let remote = input
+            .get("remote")
+            .cloned()
+            .unwrap_or_else(|| "origin".to_string());
+        let branch = input
+            .get("branch")
+            .cloned()
+            .unwrap_or(current_git_branch(&repo)?);
+        let set_upstream = input
+            .get("set_upstream")
+            .map(|value| value == "true")
+            .unwrap_or(false);
+        let mut args = vec!["push".to_string()];
+        if set_upstream {
+            args.push("--set-upstream".to_string());
+        }
+        args.push(remote);
+        args.push(branch);
+        let output = run_git_capture_owned(&repo, &args)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for GitRestoreTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_restore".to_string(),
+            description: "Restore files from git HEAD or another source".to_string(),
+            is_mutating: true,
+            input_schema_hint:
+                "path=file paths='a\\nb' staged=false worktree=true source=HEAD path=optional/repo/root"
+                    .to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let repo = resolve_git_base(ctx, input)?;
+        let staged = input
+            .get("staged")
+            .map(|value| value == "true")
+            .unwrap_or(false);
+        let worktree = input
+            .get("worktree")
+            .map(|value| value != "false")
+            .unwrap_or(true);
+        if !staged && !worktree {
+            return Err("git_restore requires `staged=true` or `worktree=true`".to_string());
+        }
+        let paths = collect_git_paths(input);
+        if paths.is_empty() {
+            return Err("git_restore requires at least one path".to_string());
+        }
+        let mut args = vec!["restore".to_string()];
+        if staged {
+            args.push("--staged".to_string());
+        }
+        if worktree && staged {
+            args.push("--worktree".to_string());
+        }
+        if let Some(source) = input.get("source") {
+            args.push("--source".to_string());
+            args.push(source.clone());
+        }
+        args.push("--".to_string());
+        for path in paths {
+            args.push(path_relative_to_repo(&repo, &ctx.cwd, &path)?);
+        }
+        let output = run_git_capture_owned(&repo, &args)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for GitStashListTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_stash_list".to_string(),
+            description: "List git stashes".to_string(),
+            is_mutating: false,
+            input_schema_hint: "path=optional/repo/root".to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let repo = resolve_git_base(ctx, input)?;
+        let output = run_git_capture(&repo, &["stash", "list"])?;
+        Ok(ToolExecutionOutput {
+            output: if output.trim().is_empty() {
+                "No stashes".to_string()
+            } else {
+                output
+            },
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for GitStashPushTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_stash_push".to_string(),
+            description: "Create a git stash".to_string(),
+            is_mutating: true,
+            input_schema_hint:
+                "message='stash message' include_untracked=false path=file paths='a\\nb' path=optional/repo/root"
+                    .to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let repo = resolve_git_base(ctx, input)?;
+        let mut args = vec!["stash".to_string(), "push".to_string()];
+        if input
+            .get("include_untracked")
+            .map(|value| value == "true")
+            .unwrap_or(false)
+        {
+            args.push("--include-untracked".to_string());
+        }
+        if let Some(message) = input.get("message") {
+            args.push("-m".to_string());
+            args.push(message.clone());
+        }
+        let paths = collect_git_paths(input);
+        if !paths.is_empty() {
+            args.push("--".to_string());
+            for path in paths {
+                args.push(path_relative_to_repo(&repo, &ctx.cwd, &path)?);
+            }
+        }
+        let output = run_git_capture_owned(&repo, &args)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for GitStashPopTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_stash_pop".to_string(),
+            description: "Apply and drop a git stash".to_string(),
+            is_mutating: true,
+            input_schema_hint: "stash=stash@{0} path=optional/repo/root".to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let repo = resolve_git_base(ctx, input)?;
+        let mut args = vec!["stash".to_string(), "pop".to_string()];
+        if let Some(stash) = input.get("stash") {
+            args.push(stash.clone());
+        }
+        let output = run_git_capture_owned(&repo, &args)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for GitStashDropTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_stash_drop".to_string(),
+            description: "Drop a git stash without applying it".to_string(),
+            is_mutating: true,
+            input_schema_hint: "stash=stash@{0} path=optional/repo/root".to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let repo = resolve_git_base(ctx, input)?;
+        let stash = input
+            .get("stash")
+            .cloned()
+            .unwrap_or_else(|| "stash@{0}".to_string());
+        let args = vec!["stash".to_string(), "drop".to_string(), stash];
+        let output = run_git_capture_owned(&repo, &args)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for GitWorktreeListTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_worktree_list".to_string(),
+            description: "List git worktrees for the current repository".to_string(),
+            is_mutating: false,
+            input_schema_hint: "repo=optional/repo/root".to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let repo = resolve_git_base_by_key(ctx, input, "repo")?;
+        let output = run_git_capture(&repo, &["worktree", "list"])?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for GitWorktreeAddTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_worktree_add".to_string(),
+            description: "Create a git worktree".to_string(),
+            is_mutating: true,
+            input_schema_hint: "path=../checkout branch=name create=false repo=optional/root"
+                .to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let repo = resolve_git_base_by_key(ctx, input, "repo")?;
+        let target = input
+            .get("path")
+            .ok_or_else(|| "git_worktree_add requires `path`".to_string())?;
+        let target_path = resolve_path(&ctx.cwd, target);
+        let branch = input.get("branch").cloned();
+        let create = input
+            .get("create")
+            .map(|value| value == "true")
+            .unwrap_or(false);
+        let mut args = vec!["worktree".to_string(), "add".to_string()];
+        if create {
+            let branch = branch.clone().ok_or_else(|| {
+                "git_worktree_add with `create=true` requires `branch`".to_string()
+            })?;
+            args.push("-b".to_string());
+            args.push(branch);
+        }
+        args.push(target_path.to_string_lossy().to_string());
+        if let Some(branch) = branch.filter(|_| !create) {
+            args.push(branch);
+        }
+        let output = run_git_capture_owned(&repo, &args)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for GitWorktreeRemoveTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_worktree_remove".to_string(),
+            description: "Remove a git worktree".to_string(),
+            is_mutating: true,
+            input_schema_hint: "path=../checkout force=false repo=optional/root".to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let repo = resolve_git_base_by_key(ctx, input, "repo")?;
+        let target = input
+            .get("path")
+            .ok_or_else(|| "git_worktree_remove requires `path`".to_string())?;
+        let target_path = resolve_path(&ctx.cwd, target);
+        let force = input
+            .get("force")
+            .map(|value| value == "true")
+            .unwrap_or(false);
+        let mut args = vec!["worktree".to_string(), "remove".to_string()];
+        if force {
+            args.push("--force".to_string());
+        }
+        args.push(target_path.to_string_lossy().to_string());
+        let output = run_git_capture_owned(&repo, &args)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
 fn resolve_required_path(ctx: &ToolExecutionContext, input: &ToolInput) -> Result<PathBuf, String> {
     let raw = input
         .get("path")
@@ -547,8 +1057,16 @@ fn resolve_optional_base(ctx: &ToolExecutionContext, input: &ToolInput) -> Resul
 }
 
 fn resolve_git_base(ctx: &ToolExecutionContext, input: &ToolInput) -> Result<PathBuf, String> {
+    resolve_git_base_by_key(ctx, input, "path")
+}
+
+fn resolve_git_base_by_key(
+    ctx: &ToolExecutionContext,
+    input: &ToolInput,
+    key: &str,
+) -> Result<PathBuf, String> {
     let candidate = input
-        .get("path")
+        .get(key)
         .map(|path| resolve_path(&ctx.cwd, path))
         .unwrap_or_else(|| ctx.cwd.clone());
     let probe = if candidate.is_dir() {
@@ -578,12 +1096,74 @@ fn resolve_git_base(ctx: &ToolExecutionContext, input: &ToolInput) -> Result<Pat
     ))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SearchResult {
+    title: String,
+    url: String,
+    snippet: String,
+}
+
 fn resolve_path(cwd: &Path, raw: &str) -> PathBuf {
     let path = PathBuf::from(raw);
     if path.is_absolute() {
         path
     } else {
         cwd.join(path)
+    }
+}
+
+fn collect_git_paths(input: &ToolInput) -> Vec<String> {
+    let mut paths = Vec::new();
+    if let Some(path) = input.get("path") {
+        paths.push(path.clone());
+    }
+    if let Some(raw_paths) = input.get("paths") {
+        for path in raw_paths.lines() {
+            let trimmed = path.trim();
+            if !trimmed.is_empty() {
+                paths.push(trimmed.to_string());
+            }
+        }
+    }
+    paths
+}
+
+fn path_relative_to_repo(repo: &Path, cwd: &Path, raw: &str) -> Result<String, String> {
+    let resolved = normalize_path_for_repo(resolve_path(cwd, raw));
+    let repo = normalize_path_for_repo(repo.to_path_buf());
+    let relative = resolved
+        .strip_prefix(&repo)
+        .map_err(|_| format!("Path is outside the repository: {}", resolved.display()))?;
+    let rendered = relative.to_string_lossy().replace('\\', "/");
+    Ok(if rendered.is_empty() {
+        ".".to_string()
+    } else {
+        rendered
+    })
+}
+
+fn normalize_path_for_repo(path: PathBuf) -> PathBuf {
+    if let Ok(canonical) = fs::canonicalize(&path) {
+        return canonical;
+    }
+    if let Some(parent) = path
+        .parent()
+        .and_then(|parent| fs::canonicalize(parent).ok())
+    {
+        if let Some(name) = path.file_name() {
+            return parent.join(name);
+        }
+        return parent;
+    }
+    path
+}
+
+fn current_git_branch(repo: &Path) -> Result<String, String> {
+    let branch = run_git_capture(repo, &["branch", "--show-current"])?;
+    if branch.trim().is_empty() {
+        Err("Could not determine the current branch".to_string())
+    } else {
+        Ok(branch)
     }
 }
 
@@ -617,6 +1197,221 @@ fn run_git_capture(repo: &Path, args: &[&str]) -> Result<String, String> {
 fn run_git_capture_owned(repo: &Path, args: &[String]) -> Result<String, String> {
     let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
     run_git_capture(repo, &borrowed)
+}
+
+fn fetch_url(url: &str, timeout_secs: u64) -> Result<String, String> {
+    let output = Command::new("curl")
+        .arg("--location")
+        .arg("--silent")
+        .arg("--show-error")
+        .arg("--max-time")
+        .arg(timeout_secs.to_string())
+        .arg("--user-agent")
+        .arg("RoboCode/0.1 (+https://github.com/wikieden/robocode)")
+        .arg(url)
+        .output()
+        .map_err(|err| err.to_string())?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("curl failed with status {}", output.status)
+        } else {
+            stderr
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn url_encode(input: &str) -> String {
+    let mut output = String::new();
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                output.push(byte as char)
+            }
+            b' ' => output.push('+'),
+            other => output.push_str(&format!("%{:02X}", other)),
+        }
+    }
+    output
+}
+
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut output = String::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => {
+                output.push(' ');
+                index += 1;
+            }
+            b'%' if index + 2 < bytes.len() => {
+                let hex = &input[index + 1..index + 3];
+                if let Ok(value) = u8::from_str_radix(hex, 16) {
+                    output.push(value as char);
+                    index += 3;
+                } else {
+                    output.push('%');
+                    index += 1;
+                }
+            }
+            byte => {
+                output.push(byte as char);
+                index += 1;
+            }
+        }
+    }
+    output
+}
+
+fn parse_duckduckgo_results(html: &str, limit: usize) -> Vec<SearchResult> {
+    let mut results = Vec::new();
+    let mut offset = 0;
+    while results.len() < limit {
+        let Some(anchor_start_rel) = html[offset..].find("result__a") else {
+            break;
+        };
+        let anchor_start = offset + anchor_start_rel;
+        let href_search_start = html[..anchor_start].rfind("<a").unwrap_or(anchor_start);
+        let Some(href_rel) = html[href_search_start..].find("href=\"") else {
+            offset = anchor_start + 8;
+            continue;
+        };
+        let href_start = href_search_start + href_rel + 6;
+        let Some(href_end_rel) = html[href_start..].find('"') else {
+            break;
+        };
+        let href_end = href_start + href_end_rel;
+        let raw_href = &html[href_start..href_end];
+        let Some(title_end_rel) = html[href_end..].find("</a>") else {
+            break;
+        };
+        let title_end = href_end + title_end_rel;
+        let title_html = html[href_end + 2..title_end].trim_start_matches('>');
+        let title = clean_html_fragment(title_html);
+        let snippet = extract_result_snippet(&html[title_end..]);
+        let url = normalize_search_result_url(raw_href);
+        if !title.is_empty() && !url.is_empty() {
+            results.push(SearchResult {
+                title,
+                url,
+                snippet,
+            });
+        }
+        offset = title_end + 4;
+    }
+    results
+}
+
+fn extract_result_snippet(html: &str) -> String {
+    let Some(snippet_rel) = html.find("result__snippet") else {
+        return String::new();
+    };
+    let snippet_start = snippet_rel;
+    let Some(tag_end_rel) = html[snippet_start..].find('>') else {
+        return String::new();
+    };
+    let content_start = snippet_start + tag_end_rel + 1;
+    let Some(content_end_rel) = html[content_start..].find("</") else {
+        return String::new();
+    };
+    clean_html_fragment(&html[content_start..content_start + content_end_rel])
+}
+
+fn normalize_search_result_url(raw_href: &str) -> String {
+    if let Some(uddg_index) = raw_href.find("uddg=") {
+        let encoded = &raw_href[uddg_index + 5..];
+        let encoded = encoded.split('&').next().unwrap_or(encoded);
+        return percent_decode(encoded);
+    }
+    percent_decode(raw_href)
+}
+
+fn html_to_text(html: &str, max_bytes: usize) -> String {
+    let stripped = strip_html_tags(&remove_html_noise(html));
+    let decoded = decode_html_entities(&stripped);
+    let normalized = normalize_whitespace(&decoded);
+    truncate_bytes(&normalized, max_bytes)
+}
+
+fn remove_html_noise(html: &str) -> String {
+    let without_script = remove_tag_block(html, "script");
+    let without_style = remove_tag_block(&without_script, "style");
+    remove_tag_block(&without_style, "noscript")
+}
+
+fn remove_tag_block(input: &str, tag: &str) -> String {
+    let mut output = String::new();
+    let mut cursor = 0;
+    let start_marker = format!("<{tag}");
+    let end_marker = format!("</{tag}>");
+    while let Some(start_rel) = input[cursor..].to_ascii_lowercase().find(&start_marker) {
+        let start = cursor + start_rel;
+        output.push_str(&input[cursor..start]);
+        if let Some(end_rel) = input[start..].to_ascii_lowercase().find(&end_marker) {
+            cursor = start + end_rel + end_marker.len();
+        } else {
+            cursor = input.len();
+        }
+    }
+    output.push_str(&input[cursor..]);
+    output
+}
+
+fn strip_html_tags(input: &str) -> String {
+    let mut output = String::new();
+    let mut in_tag = false;
+    for ch in input.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                output.push(' ');
+            }
+            _ if !in_tag => output.push(ch),
+            _ => {}
+        }
+    }
+    output
+}
+
+fn decode_html_entities(input: &str) -> String {
+    input
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&nbsp;", " ")
+}
+
+fn normalize_whitespace(input: &str) -> String {
+    input
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string()
+}
+
+fn clean_html_fragment(input: &str) -> String {
+    normalize_whitespace(&decode_html_entities(&strip_html_tags(input)))
+}
+
+fn truncate_bytes(input: &str, max_bytes: usize) -> String {
+    if input.len() <= max_bytes {
+        return input.to_string();
+    }
+    let mut output = String::new();
+    for ch in input.chars() {
+        if output.len() + ch.len_utf8() > max_bytes.saturating_sub(3) {
+            break;
+        }
+        output.push(ch);
+    }
+    output.push_str("...");
+    output
 }
 
 fn walk(root: &Path, f: &mut dyn FnMut(&Path)) -> Result<(), String> {
@@ -770,6 +1565,41 @@ mod tests {
     }
 
     #[test]
+    fn parse_duckduckgo_results_extracts_links_and_titles() {
+        let html = r#"
+        <div class="results">
+          <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.rust-lang.org%2F">Rust Programming Language</a>
+          <a class="result__snippet">Fast and reliable systems programming language.</a>
+        </div>
+        "#;
+        let results = parse_duckduckgo_results(html, 5);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Rust Programming Language");
+        assert_eq!(results[0].url, "https://www.rust-lang.org/");
+        assert!(results[0].snippet.contains("systems programming"));
+    }
+
+    #[test]
+    fn html_to_text_strips_tags_and_entities() {
+        let html = r#"
+        <html>
+          <head><title>Test</title><style>.x { color: red; }</style></head>
+          <body><h1>Hello &amp; Welcome</h1><p>Rust &quot;rocks&quot;.</p></body>
+        </html>
+        "#;
+        let text = html_to_text(html, 10_000);
+        assert!(text.contains("Hello & Welcome"));
+        assert!(text.contains("Rust \"rocks\"."));
+        assert!(!text.contains("<h1>"));
+    }
+
+    #[test]
+    fn url_encode_escapes_spaces_and_symbols() {
+        assert_eq!(url_encode("rust cli"), "rust+cli");
+        assert_eq!(url_encode("site:docs.rs tokio"), "site%3Adocs.rs+tokio");
+    }
+
+    #[test]
     fn git_status_and_diff_work_in_repo() {
         let cwd = temp_dir("git_repo");
         let status = Command::new("git")
@@ -907,5 +1737,359 @@ mod tests {
             result.output.contains("update tracked file")
                 || result.output.contains("files changed")
         );
+    }
+
+    #[test]
+    fn git_add_stages_requested_paths() {
+        let cwd = temp_dir("git_add");
+        let init = Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        fs::write(cwd.join("notes.txt"), "hello\n").unwrap();
+
+        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let registry = ToolRegistry::builtin();
+
+        let mut add_input = ToolInput::new();
+        add_input.insert("path".into(), "notes.txt".into());
+        registry
+            .execute(
+                &ToolCall {
+                    id: "tool_git_add".into(),
+                    name: "git_add".into(),
+                    input: add_input,
+                },
+                &ctx,
+            )
+            .unwrap();
+
+        let status = Command::new("git")
+            .args(["status", "--short"])
+            .current_dir(&cwd)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&status.stdout);
+        assert!(stdout.contains("A  notes.txt"));
+    }
+
+    #[test]
+    fn git_push_pushes_current_branch_to_remote() {
+        let remote = temp_dir("git_remote");
+        let bare = Command::new("git")
+            .arg("init")
+            .arg("--bare")
+            .current_dir(&remote)
+            .status()
+            .unwrap();
+        assert!(bare.success());
+
+        let cwd = temp_dir("git_push");
+        let init = Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let email = Command::new("git")
+            .args(["config", "user.email", "robocode@example.com"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(email.success());
+        let name = Command::new("git")
+            .args(["config", "user.name", "RoboCode"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(name.success());
+        let origin = Command::new("git")
+            .args(["remote", "add", "origin", remote.to_string_lossy().as_ref()])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(origin.success());
+        fs::write(cwd.join("tracked.txt"), "first\n").unwrap();
+        let add = Command::new("git")
+            .args(["add", "tracked.txt"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(add.success());
+        let commit = Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(commit.success());
+
+        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let registry = ToolRegistry::builtin();
+        let mut push_input = ToolInput::new();
+        push_input.insert("set_upstream".into(), "true".into());
+        let result = registry
+            .execute(
+                &ToolCall {
+                    id: "tool_git_push".into(),
+                    name: "git_push".into(),
+                    input: push_input,
+                },
+                &ctx,
+            )
+            .unwrap();
+        assert!(
+            result.output.contains("main")
+                || result.output.contains("branch")
+                || result.output.contains("up to date")
+        );
+
+        let remote_refs = Command::new("git")
+            .args(["show-ref"])
+            .current_dir(&remote)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&remote_refs.stdout);
+        assert!(stdout.contains("refs/heads/main"));
+    }
+
+    #[test]
+    fn git_restore_reverts_worktree_file() {
+        let cwd = temp_dir("git_restore");
+        let init = Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let email = Command::new("git")
+            .args(["config", "user.email", "robocode@example.com"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(email.success());
+        let name = Command::new("git")
+            .args(["config", "user.name", "RoboCode"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(name.success());
+        fs::write(cwd.join("tracked.txt"), "first\n").unwrap();
+        let add = Command::new("git")
+            .args(["add", "tracked.txt"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(add.success());
+        let commit = Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(commit.success());
+        fs::write(cwd.join("tracked.txt"), "second\n").unwrap();
+
+        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let registry = ToolRegistry::builtin();
+        let mut restore_input = ToolInput::new();
+        restore_input.insert("path".into(), "tracked.txt".into());
+        registry
+            .execute(
+                &ToolCall {
+                    id: "tool_git_restore".into(),
+                    name: "git_restore".into(),
+                    input: restore_input,
+                },
+                &ctx,
+            )
+            .unwrap();
+
+        let contents = fs::read_to_string(cwd.join("tracked.txt")).unwrap();
+        assert_eq!(contents, "first\n");
+    }
+
+    #[test]
+    fn git_stash_push_list_and_pop_work() {
+        let cwd = temp_dir("git_stash");
+        let init = Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let email = Command::new("git")
+            .args(["config", "user.email", "robocode@example.com"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(email.success());
+        let name = Command::new("git")
+            .args(["config", "user.name", "RoboCode"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(name.success());
+        fs::write(cwd.join("tracked.txt"), "first\n").unwrap();
+        let add = Command::new("git")
+            .args(["add", "tracked.txt"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(add.success());
+        let commit = Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(commit.success());
+        fs::write(cwd.join("tracked.txt"), "second\n").unwrap();
+
+        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let registry = ToolRegistry::builtin();
+
+        let mut push_input = ToolInput::new();
+        push_input.insert("message".into(), "save work".into());
+        let push_result = registry
+            .execute(
+                &ToolCall {
+                    id: "tool_git_stash_push".into(),
+                    name: "git_stash_push".into(),
+                    input: push_input,
+                },
+                &ctx,
+            )
+            .unwrap();
+        assert!(push_result.output.contains("save work") || push_result.output.contains("stash"));
+
+        let list_result = registry
+            .execute(
+                &ToolCall {
+                    id: "tool_git_stash_list".into(),
+                    name: "git_stash_list".into(),
+                    input: ToolInput::new(),
+                },
+                &ctx,
+            )
+            .unwrap();
+        assert!(list_result.output.contains("save work"));
+
+        let pop_result = registry
+            .execute(
+                &ToolCall {
+                    id: "tool_git_stash_pop".into(),
+                    name: "git_stash_pop".into(),
+                    input: ToolInput::new(),
+                },
+                &ctx,
+            )
+            .unwrap();
+        assert!(pop_result.output.contains("tracked.txt") || pop_result.output.contains("Dropped"));
+
+        let contents = fs::read_to_string(cwd.join("tracked.txt")).unwrap();
+        assert_eq!(contents, "second\n");
+    }
+
+    #[test]
+    fn git_worktree_add_list_and_remove_work() {
+        let cwd = temp_dir("git_worktree_repo");
+        let init = Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let email = Command::new("git")
+            .args(["config", "user.email", "robocode@example.com"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(email.success());
+        let name = Command::new("git")
+            .args(["config", "user.name", "RoboCode"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(name.success());
+        fs::write(cwd.join("tracked.txt"), "first\n").unwrap();
+        let add = Command::new("git")
+            .args(["add", "tracked.txt"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(add.success());
+        let commit = Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(commit.success());
+
+        let worktree_path = cwd
+            .parent()
+            .unwrap()
+            .join("robocode_tools_worktree_checkout");
+        if worktree_path.exists() {
+            fs::remove_dir_all(&worktree_path).unwrap();
+        }
+
+        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let registry = ToolRegistry::builtin();
+
+        let mut add_input = ToolInput::new();
+        add_input.insert("path".into(), worktree_path.to_string_lossy().to_string());
+        add_input.insert("branch".into(), "feature/worktree".into());
+        add_input.insert("create".into(), "true".into());
+        registry
+            .execute(
+                &ToolCall {
+                    id: "tool_git_worktree_add".into(),
+                    name: "git_worktree_add".into(),
+                    input: add_input,
+                },
+                &ctx,
+            )
+            .unwrap();
+        assert!(worktree_path.exists());
+
+        let list_result = registry
+            .execute(
+                &ToolCall {
+                    id: "tool_git_worktree_list".into(),
+                    name: "git_worktree_list".into(),
+                    input: ToolInput::new(),
+                },
+                &ctx,
+            )
+            .unwrap();
+        assert!(
+            list_result
+                .output
+                .contains(worktree_path.to_string_lossy().as_ref())
+        );
+
+        let mut remove_input = ToolInput::new();
+        remove_input.insert("path".into(), worktree_path.to_string_lossy().to_string());
+        registry
+            .execute(
+                &ToolCall {
+                    id: "tool_git_worktree_remove".into(),
+                    name: "git_worktree_remove".into(),
+                    input: remove_input,
+                },
+                &ctx,
+            )
+            .unwrap();
+        assert!(!worktree_path.exists());
     }
 }

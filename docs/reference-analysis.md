@@ -52,6 +52,8 @@ Rust reimplementation.
 - Resume support.
 - Provider abstraction that can target multiple API families instead of locking
   the runtime to a single vendor.
+- Built-in web lookup tools for search and fetch, implemented through the same
+  permission-aware runtime path as local tools.
 
 ## Postpone
 
@@ -61,7 +63,6 @@ Rust reimplementation.
 - Cron and automations.
 - Voice.
 - Team agents and swarms.
-- Web search and web fetch.
 - Rich terminal UI overlays.
 
 ## Drop Or Simplify

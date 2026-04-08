@@ -6,8 +6,8 @@ use robocode_session::SessionStore;
 use robocode_tools::{ToolExecutionContext, ToolRegistry};
 use robocode_types::{
     ApprovalResponse, CommandLogEntry, Message, ModelEvent, ModelRequest, PermissionDecision,
-    PermissionLogEntry, PermissionMode, Role, SessionMetaEntry, ToolCall, ToolResult,
-    TranscriptEntry, fresh_id, now_timestamp,
+    PermissionLogEntry, PermissionMode, Role, SessionMetaEntry, SessionSummary, ToolCall,
+    ToolResult, TranscriptEntry, fresh_id, now_timestamp,
 };
 
 #[derive(Debug, Clone)]
@@ -73,6 +73,11 @@ impl SessionEngine {
 
     pub fn mode(&self) -> PermissionMode {
         self.permissions.mode()
+    }
+
+    pub fn set_permission_mode(&mut self, mode: PermissionMode) -> Result<(), String> {
+        self.permissions.set_mode(mode);
+        self.persist_meta("permission_mode", mode.cli_name())
     }
 
     pub fn process_input_with_approval<F>(
@@ -150,6 +155,18 @@ impl SessionEngine {
             .spec(&call.name)
             .ok_or_else(|| format!("Model requested unknown tool `{}`", call.name))?;
         self.store_entry(TranscriptEntry::ToolCall { call: call.clone() })?;
+        let assistant_tool_call = Message {
+            id: fresh_id("msg"),
+            role: Role::Assistant,
+            content: robocode_types::encode_tool_input(&call.input),
+            timestamp: now_timestamp(),
+            tool_name: Some(call.name.clone()),
+            tool_call_id: Some(call.id.clone()),
+        };
+        self.messages.push(assistant_tool_call.clone());
+        self.store_entry(TranscriptEntry::Message {
+            message: assistant_tool_call,
+        })?;
         events.push(EngineEvent::ToolCall(format!(
             "{} {}",
             call.name,
@@ -291,6 +308,7 @@ impl SessionEngine {
                     }
                 )
             }
+            "/sessions" => self.handle_sessions()?,
             "/resume" => self.handle_resume(args.first().map(String::as_str))?,
             "/diff" => {
                 if let Some(diff) = self.last_diff.clone() {
@@ -302,6 +320,7 @@ impl SessionEngine {
                     }
                 }
             }
+            "/web" => self.handle_web_command(&args, approver)?,
             "/git" => self.handle_git_command(&args, approver)?,
             _ => format!("Unknown command `{command}`. Use /help."),
         };
@@ -316,10 +335,21 @@ impl SessionEngine {
         Ok(vec![EngineEvent::Command(output)])
     }
 
+    fn handle_sessions(&self) -> Result<String, String> {
+        let sessions = self.store.list_sessions_for_cwd()?;
+        Ok(self.render_session_list(&sessions))
+    }
+
     fn handle_resume(&mut self, selector: Option<&str>) -> Result<String, String> {
+        let Some(selector) = selector else {
+            return self.handle_sessions();
+        };
+        if selector == "list" {
+            return self.handle_sessions();
+        }
         let loaded = match selector {
-            Some("latest") | None => self.store.load_latest_for_cwd()?,
-            Some(session_id) => self.store.load_by_id_for_cwd(session_id)?,
+            "latest" => self.store.load_latest_for_cwd()?,
+            other => self.resolve_resume_selector(other)?,
         };
         let Some((summary, entries)) = loaded else {
             return Ok("No resumable sessions found for the current project.".to_string());
@@ -339,6 +369,67 @@ impl SessionEngine {
             summary.session_id,
             summary.title.unwrap_or_else(|| "untitled".to_string())
         ))
+    }
+
+    fn resolve_resume_selector(
+        &self,
+        selector: &str,
+    ) -> Result<Option<(SessionSummary, Vec<TranscriptEntry>)>, String> {
+        let sessions = self.store.list_sessions_for_cwd()?;
+        if sessions.is_empty() {
+            return Ok(None);
+        }
+
+        if let Some(loaded) = self.store.load_by_id_for_cwd(selector)? {
+            return Ok(Some(loaded));
+        }
+
+        let matches: Vec<_> = sessions
+            .iter()
+            .filter(|summary| {
+                summary.session_id != self.session_id()
+                    && (summary.session_id.starts_with(selector)
+                        || summary
+                            .session_id
+                            .trim_start_matches("session_")
+                            .starts_with(selector))
+            })
+            .cloned()
+            .collect();
+        match matches.as_slice() {
+            [] => self.resolve_resume_index(&sessions, selector),
+            [summary] => {
+                let entries = SessionStore::load_entries_from_path(std::path::Path::new(
+                    &summary.transcript_path,
+                ))?;
+                Ok(Some((summary.clone(), entries)))
+            }
+            _ => Err(format!(
+                "Session selector `{selector}` is ambiguous.\n\n{}",
+                self.render_session_list(matches.as_slice())
+            )),
+        }
+    }
+
+    fn resolve_resume_index(
+        &self,
+        sessions: &[SessionSummary],
+        selector: &str,
+    ) -> Result<Option<(SessionSummary, Vec<TranscriptEntry>)>, String> {
+        let index_selector = selector.strip_prefix('#').unwrap_or(selector);
+        let Ok(index) = index_selector.parse::<usize>() else {
+            return Ok(None);
+        };
+        if index == 0 {
+            return Err("Session indexes start at 1.".to_string());
+        }
+        if let Some(summary) = sessions.get(index - 1) {
+            let entries = SessionStore::load_entries_from_path(std::path::Path::new(
+                &summary.transcript_path,
+            ))?;
+            return Ok(Some((summary.clone(), entries)));
+        }
+        Err(format!("No session found at index {index}."))
     }
 
     fn hydrate(&mut self, entries: Vec<TranscriptEntry>) {
@@ -438,6 +529,74 @@ impl SessionEngine {
                 self.run_named_tool("git_diff", input, approver)
             }
             "branch" => self.run_named_tool("git_branch", Default::default(), approver),
+            "add" => {
+                let all = args.iter().any(|arg| arg == "--all" || arg == "-A");
+                let paths: Vec<String> = args
+                    .iter()
+                    .skip(1)
+                    .filter(|arg| arg.as_str() != "--all" && arg.as_str() != "-A")
+                    .cloned()
+                    .collect();
+                if paths.is_empty() && !all {
+                    return Err("Usage: /git add [--all|-A] <path...>".to_string());
+                }
+                let mut input = robocode_types::ToolInput::new();
+                if all {
+                    input.insert("all".to_string(), "true".to_string());
+                }
+                if let Some(path) = paths.first() {
+                    input.insert("path".to_string(), path.clone());
+                }
+                if paths.len() > 1 {
+                    input.insert("paths".to_string(), paths.join("\n"));
+                }
+                self.run_named_tool("git_add", input, approver)
+            }
+            "restore" => {
+                let staged = args.iter().any(|arg| arg == "--staged");
+                let worktree = !args.iter().any(|arg| arg == "--worktree=false");
+                let mut source = None;
+                let mut paths = Vec::new();
+                let mut iter = args.iter().skip(1);
+                while let Some(arg) = iter.next() {
+                    match arg.as_str() {
+                        "--staged" | "--worktree" => {}
+                        "--worktree=false" => {}
+                        "--source" => {
+                            source = Some(iter.next().cloned().ok_or_else(|| {
+                                "Usage: /git restore [--staged] [--source <ref>] <path...>"
+                                    .to_string()
+                            })?);
+                        }
+                        other if other.starts_with("--source=") => {
+                            source = Some(other.trim_start_matches("--source=").to_string());
+                        }
+                        other => paths.push(other.to_string()),
+                    }
+                }
+                if paths.is_empty() {
+                    return Err(
+                        "Usage: /git restore [--staged] [--source <ref>] <path...>".to_string()
+                    );
+                }
+                let mut input = robocode_types::ToolInput::new();
+                if staged {
+                    input.insert("staged".to_string(), "true".to_string());
+                }
+                if !worktree {
+                    input.insert("worktree".to_string(), "false".to_string());
+                }
+                if let Some(source) = source {
+                    input.insert("source".to_string(), source);
+                }
+                if let Some(path) = paths.first() {
+                    input.insert("path".to_string(), path.clone());
+                }
+                if paths.len() > 1 {
+                    input.insert("paths".to_string(), paths.join("\n"));
+                }
+                self.run_named_tool("git_restore", input, approver)
+            }
             "switch" | "checkout" => {
                 let branch = args
                     .get(1)
@@ -469,9 +628,248 @@ impl SessionEngine {
                 }
                 self.run_named_tool("git_commit", input, approver)
             }
+            "push" => {
+                let set_upstream = args
+                    .iter()
+                    .any(|arg| arg == "--set-upstream" || arg == "-u");
+                let positional: Vec<String> = args
+                    .iter()
+                    .skip(1)
+                    .filter(|arg| arg.as_str() != "--set-upstream" && arg.as_str() != "-u")
+                    .cloned()
+                    .collect();
+                let mut input = robocode_types::ToolInput::new();
+                if set_upstream {
+                    input.insert("set_upstream".to_string(), "true".to_string());
+                }
+                match positional.as_slice() {
+                    [] => {}
+                    [branch] => {
+                        input.insert("branch".to_string(), branch.clone());
+                    }
+                    [remote, branch] => {
+                        input.insert("remote".to_string(), remote.clone());
+                        input.insert("branch".to_string(), branch.clone());
+                    }
+                    _ => {
+                        return Err(
+                            "Usage: /git push [branch] | [remote branch] [--set-upstream|-u]"
+                                .to_string(),
+                        );
+                    }
+                }
+                self.run_named_tool("git_push", input, approver)
+            }
+            "stash" => {
+                let Some(action) = args.get(1).map(String::as_str) else {
+                    return Ok(self.render_git_stash_help());
+                };
+                match action {
+                    "help" => Ok(self.render_git_stash_help()),
+                    "list" => self.run_named_tool("git_stash_list", Default::default(), approver),
+                    "push" | "save" => {
+                        let mut include_untracked = false;
+                        let mut message = None;
+                        let mut paths = Vec::new();
+                        let mut iter = args.iter().skip(2);
+                        while let Some(arg) = iter.next() {
+                            match arg.as_str() {
+                                "--include-untracked" | "-u" => include_untracked = true,
+                                "--message" | "-m" => {
+                                    message = Some(iter.next().cloned().ok_or_else(|| {
+                                        "Usage: /git stash push [-m <message>] [-u] [path...]"
+                                            .to_string()
+                                    })?);
+                                }
+                                other if other.starts_with("--message=") => {
+                                    message =
+                                        Some(other.trim_start_matches("--message=").to_string());
+                                }
+                                other => paths.push(other.to_string()),
+                            }
+                        }
+                        let mut input = robocode_types::ToolInput::new();
+                        if include_untracked {
+                            input.insert("include_untracked".to_string(), "true".to_string());
+                        }
+                        if let Some(message) = message {
+                            input.insert("message".to_string(), message);
+                        }
+                        if let Some(path) = paths.first() {
+                            input.insert("path".to_string(), path.clone());
+                        }
+                        if paths.len() > 1 {
+                            input.insert("paths".to_string(), paths.join("\n"));
+                        }
+                        self.run_named_tool("git_stash_push", input, approver)
+                    }
+                    "pop" => {
+                        let mut input = robocode_types::ToolInput::new();
+                        if let Some(stash) = args.get(2) {
+                            input.insert("stash".to_string(), stash.clone());
+                        }
+                        self.run_named_tool("git_stash_pop", input, approver)
+                    }
+                    "drop" => {
+                        let mut input = robocode_types::ToolInput::new();
+                        if let Some(stash) = args.get(2) {
+                            input.insert("stash".to_string(), stash.clone());
+                        }
+                        self.run_named_tool("git_stash_drop", input, approver)
+                    }
+                    _ => Ok(format!(
+                        "Unknown git stash subcommand `{action}`.\n\n{}",
+                        self.render_git_stash_help()
+                    )),
+                }
+            }
+            "worktree" => {
+                let Some(action) = args.get(1).map(String::as_str) else {
+                    return Ok(self.render_git_worktree_help());
+                };
+                match action {
+                    "help" => Ok(self.render_git_worktree_help()),
+                    "list" => {
+                        self.run_named_tool("git_worktree_list", Default::default(), approver)
+                    }
+                    "add" => {
+                        let path = args.get(2).cloned().ok_or_else(|| {
+                            "Usage: /git worktree add <path> [branch] [--create]".to_string()
+                        })?;
+                        let create = args.iter().any(|arg| arg == "--create" || arg == "-b");
+                        let branch = args
+                            .iter()
+                            .skip(3)
+                            .find(|arg| arg.as_str() != "--create" && arg.as_str() != "-b")
+                            .cloned()
+                            .or_else(|| {
+                                args.get(3)
+                                    .filter(|arg| {
+                                        arg.as_str() != "--create" && arg.as_str() != "-b"
+                                    })
+                                    .cloned()
+                            });
+                        let mut input = robocode_types::ToolInput::new();
+                        input.insert("path".to_string(), path);
+                        if let Some(branch) = branch {
+                            input.insert("branch".to_string(), branch);
+                        }
+                        if create {
+                            input.insert("create".to_string(), "true".to_string());
+                        }
+                        self.run_named_tool("git_worktree_add", input, approver)
+                    }
+                    "remove" => {
+                        let path = args.get(2).cloned().ok_or_else(|| {
+                            "Usage: /git worktree remove <path> [--force]".to_string()
+                        })?;
+                        let force = args.iter().any(|arg| arg == "--force" || arg == "-f");
+                        let mut input = robocode_types::ToolInput::new();
+                        input.insert("path".to_string(), path);
+                        if force {
+                            input.insert("force".to_string(), "true".to_string());
+                        }
+                        self.run_named_tool("git_worktree_remove", input, approver)
+                    }
+                    _ => Ok(format!(
+                        "Unknown git worktree subcommand `{action}`.\n\n{}",
+                        self.render_git_worktree_help()
+                    )),
+                }
+            }
             _ => Ok(format!(
                 "Unknown git subcommand `{subcommand}`.\n\n{}",
                 self.render_git_help()
+            )),
+        }
+    }
+
+    fn handle_web_command<F>(&mut self, args: &[String], approver: &mut F) -> Result<String, String>
+    where
+        F: FnMut(robocode_types::PermissionPrompt) -> ApprovalResponse,
+    {
+        let Some(subcommand) = args.first().map(String::as_str) else {
+            return Ok(self.render_web_help());
+        };
+        match subcommand {
+            "help" => Ok(self.render_web_help()),
+            "search" => {
+                let mut limit = None;
+                let mut site = None;
+                let mut query_parts = Vec::new();
+                let mut iter = args.iter().skip(1);
+                while let Some(arg) = iter.next() {
+                    match arg.as_str() {
+                        "--limit" => {
+                            limit = Some(iter.next().cloned().ok_or_else(|| {
+                                "Usage: /web search <query> [--limit <n>] [--site <domain>]"
+                                    .to_string()
+                            })?);
+                        }
+                        "--site" => {
+                            site = Some(iter.next().cloned().ok_or_else(|| {
+                                "Usage: /web search <query> [--limit <n>] [--site <domain>]"
+                                    .to_string()
+                            })?);
+                        }
+                        other if other.starts_with("--limit=") => {
+                            limit = Some(other.trim_start_matches("--limit=").to_string());
+                        }
+                        other if other.starts_with("--site=") => {
+                            site = Some(other.trim_start_matches("--site=").to_string());
+                        }
+                        other => query_parts.push(other.to_string()),
+                    }
+                }
+                if query_parts.is_empty() {
+                    return Err(
+                        "Usage: /web search <query> [--limit <n>] [--site <domain>]".to_string()
+                    );
+                }
+                let mut input = robocode_types::ToolInput::new();
+                input.insert("query".to_string(), query_parts.join(" "));
+                if let Some(limit) = limit {
+                    input.insert("limit".to_string(), limit);
+                }
+                if let Some(site) = site {
+                    input.insert("site".to_string(), site);
+                }
+                self.run_named_tool("web_search", input, approver)
+            }
+            "fetch" => {
+                let url = args.get(1).cloned().ok_or_else(|| {
+                    "Usage: /web fetch <url> [--max-bytes <n>] [--raw]".to_string()
+                })?;
+                let mut max_bytes = None;
+                let mut raw = false;
+                let mut iter = args.iter().skip(2);
+                while let Some(arg) = iter.next() {
+                    match arg.as_str() {
+                        "--raw" => raw = true,
+                        "--max-bytes" => {
+                            max_bytes = Some(iter.next().cloned().ok_or_else(|| {
+                                "Usage: /web fetch <url> [--max-bytes <n>] [--raw]".to_string()
+                            })?);
+                        }
+                        other if other.starts_with("--max-bytes=") => {
+                            max_bytes = Some(other.trim_start_matches("--max-bytes=").to_string());
+                        }
+                        _ => {}
+                    }
+                }
+                let mut input = robocode_types::ToolInput::new();
+                input.insert("url".to_string(), url);
+                if let Some(max_bytes) = max_bytes {
+                    input.insert("max_bytes".to_string(), max_bytes);
+                }
+                if raw {
+                    input.insert("raw".to_string(), "true".to_string());
+                }
+                self.run_named_tool("web_fetch", input, approver)
+            }
+            _ => Ok(format!(
+                "Unknown web subcommand `{subcommand}`.\n\n{}",
+                self.render_web_help()
             )),
         }
     }
@@ -484,9 +882,11 @@ impl SessionEngine {
             "  /model [name]        Show or change the active model label",
             "  /permissions [mode]  Show or change permission mode",
             "  /plan [on|off]       Toggle plan mode",
-            "  /resume [id|latest]  Resume a prior session for this project",
+            "  /sessions            List prior sessions for this project",
+            "  /resume [selector]   List or resume by latest, #index, or id prefix",
             "  /diff                Show the latest file diff recorded in session",
-            "  /git <subcommand>    Git status/diff/branch/switch/commit",
+            "  /web <subcommand>    Search or fetch web content",
+            "  /git <subcommand>    Git status/diff/add/push/worktree flows",
             "",
             "Fallback tool syntax:",
             "  tool read_file path=Cargo.toml",
@@ -501,15 +901,104 @@ impl SessionEngine {
             "  /git status",
             "  /git diff [path]",
             "  /git branch",
+            "  /git add [--all|-A] <path...>",
+            "  /git restore [--staged] [--source <ref>] <path...>",
             "  /git switch <branch> [--create]",
             "  /git commit [--all] <message>",
+            "  /git push [branch] | [remote branch] [--set-upstream|-u]",
+            "  /git stash <list|push|pop|drop>",
+            "  /git worktree <list|add|remove>",
         ]
         .join("\n")
+    }
+
+    fn render_web_help(&self) -> String {
+        [
+            "Web commands:",
+            "  /web search <query> [--limit <n>] [--site <domain>]",
+            "  /web fetch <url> [--max-bytes <n>] [--raw]",
+        ]
+        .join("\n")
+    }
+
+    fn render_git_stash_help(&self) -> String {
+        [
+            "Git stash commands:",
+            "  /git stash list",
+            "  /git stash push [-m <message>] [-u] [path...]",
+            "  /git stash pop [stash@{0}]",
+            "  /git stash drop [stash@{0}]",
+        ]
+        .join("\n")
+    }
+
+    fn render_git_worktree_help(&self) -> String {
+        [
+            "Git worktree commands:",
+            "  /git worktree list",
+            "  /git worktree add <path> [branch] [--create]",
+            "  /git worktree remove <path> [--force]",
+        ]
+        .join("\n")
+    }
+
+    fn render_session_list(&self, sessions: &[SessionSummary]) -> String {
+        if sessions.is_empty() {
+            return "No resumable sessions found for the current project.".to_string();
+        }
+        let mut lines = vec![
+            "Sessions for this project:".to_string(),
+            "  Use `/resume latest`, `/resume #<index>`, or `/resume <session-id-prefix>`."
+                .to_string(),
+        ];
+        for (index, summary) in sessions.iter().enumerate() {
+            let title = summary
+                .title
+                .clone()
+                .unwrap_or_else(|| "untitled".to_string());
+            let preview = summary
+                .last_preview
+                .clone()
+                .unwrap_or_else(|| "No preview available".to_string());
+            let current = if summary.session_id == self.session_id() {
+                " [current]"
+            } else {
+                ""
+            };
+            lines.push(format!(
+                "  {}. {}{}  {}  {}",
+                index + 1,
+                summary.session_id,
+                current,
+                format_relative_age(summary.last_updated_at),
+                title
+            ));
+            lines.push(format!("     {}", preview));
+        }
+        lines.join("\n")
+    }
+}
+
+fn format_relative_age(timestamp: u64) -> String {
+    let now = now_timestamp();
+    if timestamp >= now {
+        return "just now".to_string();
+    }
+    let delta = now - timestamp;
+    if delta < 60 {
+        format!("{delta}s ago")
+    } else if delta < 60 * 60 {
+        format!("{}m ago", delta / 60)
+    } else if delta < 60 * 60 * 24 {
+        format!("{}h ago", delta / 3_600)
+    } else {
+        format!("{}d ago", delta / 86_400)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::collections::VecDeque;
     use std::fs;
 
@@ -682,6 +1171,126 @@ mod tests {
     }
 
     #[test]
+    fn sessions_command_lists_recent_sessions() {
+        let home = temp_dir("sessions_home");
+        let cwd = temp_dir("sessions_cwd");
+
+        let provider_a = Box::new(SequenceProvider::new(vec![vec![
+            ModelEvent::AssistantText {
+                content: "first reply".to_string(),
+            },
+        ]]));
+        let mut engine_a =
+            SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        engine_a
+            .process_input_with_approval("inspect the workspace", &mut approver)
+            .unwrap();
+
+        let provider_b = Box::new(SequenceProvider::new(vec![]));
+        let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
+        let output = engine_b
+            .process_input_with_approval("/sessions", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("Sessions for this project")
+                    && text.contains("inspect the workspace")
+        )));
+    }
+
+    #[test]
+    fn web_help_command_is_available() {
+        let home = temp_dir("web_help_home");
+        let cwd = temp_dir("web_help_cwd");
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let output = engine
+            .process_input_with_approval("/web", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text) if text.contains("Web commands:")
+        )));
+    }
+
+    #[test]
+    fn resume_without_selector_lists_sessions() {
+        let home = temp_dir("resume_list_home");
+        let cwd = temp_dir("resume_list_cwd");
+
+        let provider_a = Box::new(SequenceProvider::new(vec![vec![
+            ModelEvent::AssistantText {
+                content: "reply".to_string(),
+            },
+        ]]));
+        let mut engine_a =
+            SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        engine_a
+            .process_input_with_approval("draft a plan", &mut approver)
+            .unwrap();
+
+        let provider_b = Box::new(SequenceProvider::new(vec![]));
+        let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
+        let output = engine_b
+            .process_input_with_approval("/resume", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("Use `/resume latest`")
+                    && text.contains("#<index>")
+                    && text.contains("draft a plan")
+        )));
+    }
+
+    #[test]
+    fn resume_by_prefix_restores_matching_session() {
+        let home = temp_dir("resume_prefix_home");
+        let cwd = temp_dir("resume_prefix_cwd");
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+
+        let provider_a = Box::new(SequenceProvider::new(vec![vec![
+            ModelEvent::AssistantText {
+                content: "reply a".to_string(),
+            },
+        ]]));
+        let mut engine_a =
+            SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+        engine_a
+            .process_input_with_approval("session alpha", &mut approver)
+            .unwrap();
+        let session_id = engine_a.session_id().to_string();
+
+        let provider_b = Box::new(SequenceProvider::new(vec![]));
+        let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
+        let prefix = session_id.trim_start_matches("session_");
+        let prefix = &prefix[..prefix.len().min(10)];
+        let output = engine_b
+            .process_input_with_approval(&format!("/resume {prefix}"), &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text) if text.contains(&session_id)
+        )));
+    }
+
+    #[test]
     fn git_status_command_uses_tool_runtime() {
         let home = temp_dir("git_status_home");
         let cwd = temp_dir("git_status_cwd");
@@ -746,5 +1355,241 @@ mod tests {
         assert!(events.iter().any(
             |event| matches!(event, EngineEvent::Command(text) if text.contains("Switched") || text.contains("feature/demo"))
         ));
+    }
+
+    #[test]
+    fn git_add_requests_approval_and_stages_file() {
+        let home = temp_dir("git_add_home");
+        let cwd = temp_dir("git_add_cwd");
+        let init = std::process::Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        std::fs::write(cwd.join("demo.txt"), "hello\n").unwrap();
+
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approvals = 0usize;
+        let mut approver = |_prompt| {
+            approvals += 1;
+            ApprovalResponse {
+                approved: true,
+                feedback: None,
+            }
+        };
+        let events = engine
+            .process_input_with_approval("/git add demo.txt", &mut approver)
+            .unwrap();
+        assert_eq!(approvals, 1);
+        assert!(events.iter().any(
+            |event| matches!(event, EngineEvent::Command(text) if text.contains("git add") || text.contains("demo.txt"))
+        ));
+
+        let output = std::process::Command::new("git")
+            .args(["status", "--short"])
+            .current_dir(&cwd)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("A  demo.txt"));
+    }
+
+    #[test]
+    fn git_restore_requests_approval_and_reverts_file() {
+        let home = temp_dir("git_restore_home");
+        let cwd = temp_dir("git_restore_cwd");
+        let init = std::process::Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let email = std::process::Command::new("git")
+            .args(["config", "user.email", "robocode@example.com"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(email.success());
+        let name = std::process::Command::new("git")
+            .args(["config", "user.name", "RoboCode"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(name.success());
+        std::fs::write(cwd.join("demo.txt"), "hello\n").unwrap();
+        let add = std::process::Command::new("git")
+            .args(["add", "demo.txt"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(add.success());
+        let commit = std::process::Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(commit.success());
+        std::fs::write(cwd.join("demo.txt"), "changed\n").unwrap();
+
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approvals = 0usize;
+        let mut approver = |_prompt| {
+            approvals += 1;
+            ApprovalResponse {
+                approved: true,
+                feedback: None,
+            }
+        };
+        let events = engine
+            .process_input_with_approval("/git restore demo.txt", &mut approver)
+            .unwrap();
+        assert_eq!(approvals, 1);
+        assert!(events.iter().any(
+            |event| matches!(event, EngineEvent::Command(text) if text.contains("restore") || text.contains("demo.txt"))
+        ));
+        let contents = std::fs::read_to_string(cwd.join("demo.txt")).unwrap();
+        assert_eq!(contents, "hello\n");
+    }
+
+    #[test]
+    fn git_stash_push_requests_approval_and_list_is_visible() {
+        let home = temp_dir("git_stash_home");
+        let cwd = temp_dir("git_stash_cwd");
+        let init = std::process::Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let email = std::process::Command::new("git")
+            .args(["config", "user.email", "robocode@example.com"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(email.success());
+        let name = std::process::Command::new("git")
+            .args(["config", "user.name", "RoboCode"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(name.success());
+        std::fs::write(cwd.join("demo.txt"), "hello\n").unwrap();
+        let add = std::process::Command::new("git")
+            .args(["add", "demo.txt"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(add.success());
+        let commit = std::process::Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(commit.success());
+        std::fs::write(cwd.join("demo.txt"), "changed\n").unwrap();
+
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let approvals = Cell::new(0usize);
+        let mut approver = |_prompt| {
+            approvals.set(approvals.get() + 1);
+            ApprovalResponse {
+                approved: true,
+                feedback: None,
+            }
+        };
+        engine
+            .process_input_with_approval("/git stash push -m save-work", &mut approver)
+            .unwrap();
+        assert_eq!(approvals.get(), 1);
+        let list_output = engine
+            .process_input_with_approval("/git stash list", &mut approver)
+            .unwrap();
+        assert!(list_output.iter().any(
+            |event| matches!(event, EngineEvent::Command(text) if text.contains("save-work"))
+        ));
+    }
+
+    #[test]
+    fn git_worktree_add_requests_approval_and_creates_checkout() {
+        let home = temp_dir("git_worktree_home");
+        let cwd = temp_dir("git_worktree_cwd");
+        let init = std::process::Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let email = std::process::Command::new("git")
+            .args(["config", "user.email", "robocode@example.com"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(email.success());
+        let name = std::process::Command::new("git")
+            .args(["config", "user.name", "RoboCode"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(name.success());
+        std::fs::write(cwd.join("demo.txt"), "hello\n").unwrap();
+        let add = std::process::Command::new("git")
+            .args(["add", "demo.txt"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(add.success());
+        let commit = std::process::Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap();
+        assert!(commit.success());
+
+        let worktree = cwd
+            .parent()
+            .unwrap()
+            .join("robocode_core_worktree_checkout");
+        if worktree.exists() {
+            std::fs::remove_dir_all(&worktree).unwrap();
+        }
+
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approvals = 0usize;
+        let mut approver = |_prompt| {
+            approvals += 1;
+            ApprovalResponse {
+                approved: true,
+                feedback: None,
+            }
+        };
+        let command = format!(
+            "/git worktree add {} feature/worktree --create",
+            worktree.to_string_lossy()
+        );
+        let events = engine
+            .process_input_with_approval(&command, &mut approver)
+            .unwrap();
+        assert_eq!(approvals, 1);
+        assert!(events.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("Preparing worktree")
+                    || text.contains("feature/worktree")
+                    || text.contains("HEAD is now at")
+        )));
+        assert!(worktree.exists());
     }
 }

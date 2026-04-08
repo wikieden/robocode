@@ -1,8 +1,10 @@
+use robocode_config::{CliOverrides, load_config};
 use robocode_core::{EngineEvent, SessionEngine};
 use robocode_model::{ProviderConfig, create_provider, list_supported_provider_strings};
 use robocode_types::{ApprovalResponse, PermissionPrompt};
 use std::env;
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 fn main() {
     if let Err(err) = run() {
@@ -19,14 +21,47 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
     let startup = parse_startup_options(&args)?;
-    let provider_config = ProviderConfig::from_env().with_overrides(
-        startup.provider.as_deref(),
-        startup.model.as_deref(),
-        startup.api_base.as_deref(),
-        startup.api_key.as_deref(),
+    let cli_config = CliOverrides {
+        provider: startup.provider.clone(),
+        model: startup.model.clone(),
+        api_base: startup.api_base.clone(),
+        api_key: startup.api_key.clone(),
+        permission_mode: startup.permission_mode,
+        session_home: startup.session_home.clone(),
+        request_timeout_secs: startup.request_timeout_secs,
+        max_retries: startup.max_retries,
+        config_path: startup.config_path.clone(),
+    };
+    let resolved_config = load_config(&cwd, &cli_config)?;
+    let provider_config = ProviderConfig::from_settings(
+        &resolved_config.provider,
+        resolved_config.model.as_deref(),
+        resolved_config.api_base.as_deref(),
+        resolved_config.api_key.as_deref(),
+        resolved_config.request_timeout_secs,
+        resolved_config.max_retries,
     )?;
-    let provider_summary = provider_config.summary();
-    let mut engine = SessionEngine::new(cwd, create_provider(provider_config))?;
+    let provider_summary = format!(
+        "{} | config={} | files={}",
+        provider_config.summary(),
+        resolved_config.summary(),
+        if resolved_config.loaded_files.is_empty() {
+            "<none>".to_string()
+        } else {
+            resolved_config
+                .loaded_files
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    );
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        create_provider(provider_config),
+        resolved_config.session_home.clone(),
+    )?;
+    engine.set_permission_mode(resolved_config.permission_mode)?;
 
     if let Some(selector) = startup.resume_selector.as_deref() {
         let mut approver = |prompt: PermissionPrompt| prompt_for_approval(prompt);
@@ -74,6 +109,11 @@ struct StartupOptions {
     model: Option<String>,
     api_base: Option<String>,
     api_key: Option<String>,
+    permission_mode: Option<robocode_types::PermissionMode>,
+    session_home: Option<PathBuf>,
+    request_timeout_secs: Option<u64>,
+    max_retries: Option<u32>,
+    config_path: Option<PathBuf>,
     resume_selector: Option<String>,
 }
 
@@ -97,6 +137,45 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--api-key" => {
                 index += 1;
                 options.api_key = Some(required_flag_value(args, index, "--api-key")?);
+            }
+            "--permissions" => {
+                index += 1;
+                let value = required_flag_value(args, index, "--permissions")?;
+                options.permission_mode = Some(
+                    robocode_types::PermissionMode::parse_cli(&value)
+                        .ok_or_else(|| format!("Unknown permission mode `{value}`"))?,
+                );
+            }
+            "--session-home" => {
+                index += 1;
+                options.session_home = Some(PathBuf::from(required_flag_value(
+                    args,
+                    index,
+                    "--session-home",
+                )?));
+            }
+            "--request-timeout" => {
+                index += 1;
+                let value = required_flag_value(args, index, "--request-timeout")?;
+                options.request_timeout_secs = Some(
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| "--request-timeout must be an integer".to_string())?,
+                );
+            }
+            "--max-retries" => {
+                index += 1;
+                let value = required_flag_value(args, index, "--max-retries")?;
+                options.max_retries = Some(
+                    value
+                        .parse::<u32>()
+                        .map_err(|_| "--max-retries must be an integer".to_string())?,
+                );
+            }
+            "--config" => {
+                index += 1;
+                options.config_path =
+                    Some(PathBuf::from(required_flag_value(args, index, "--config")?));
             }
             "--resume" => {
                 let next = args.get(index + 1);
@@ -129,6 +208,11 @@ fn print_startup_help() {
     println!("  --model <name>       Override model name");
     println!("  --api-base <url>     Override provider base URL");
     println!("  --api-key <value>    Override API key");
+    println!("  --permissions <mode> Set default permission mode");
+    println!("  --session-home <dir> Override transcript/index home");
+    println!("  --request-timeout <s> Override provider HTTP timeout");
+    println!("  --max-retries <n>    Override provider retry count");
+    println!("  --config <path>      Load config from an explicit TOML file");
     println!("  --resume [id|latest] Resume a prior session");
     println!();
     println!(
@@ -138,6 +222,8 @@ fn print_startup_help() {
     println!();
     println!("Environment variables:");
     println!("  ROBOCODE_PROVIDER, ROBOCODE_MODEL, ROBOCODE_API_BASE, ROBOCODE_API_KEY");
+    println!("  ROBOCODE_PERMISSION_MODE, ROBOCODE_SESSION_HOME");
+    println!("  ROBOCODE_REQUEST_TIMEOUT_SECS, ROBOCODE_MAX_RETRIES, ROBOCODE_CONFIG");
     println!("  ANTHROPIC_API_KEY, OPENAI_API_KEY");
 }
 
