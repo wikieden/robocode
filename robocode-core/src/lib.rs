@@ -980,14 +980,7 @@ impl SessionEngine {
     }
 
     fn render_doctor(&self) -> String {
-        [
-            "Environment diagnostics:".to_string(),
-            format!("  git: {}", dependency_status("git")),
-            format!("  rg: {}", dependency_status("rg")),
-            format!("  sqlite3: {}", dependency_status("sqlite3")),
-            format!("  curl: {}", dependency_status("curl")),
-        ]
-        .join("\n")
+        DoctorReport::from_probe(system_dependency_status).render()
     }
 
     fn render_git_help(&self) -> String {
@@ -1084,11 +1077,58 @@ impl SessionEngine {
     }
 }
 
-fn dependency_status(tool: &str) -> &'static str {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DependencyStatus {
+    Ok,
+    Missing,
+    #[cfg_attr(not(test), allow(dead_code))]
+    NotRequired,
+}
+
+impl DependencyStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Missing => "missing",
+            Self::NotRequired => "not required for current path",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DoctorReport {
+    checks: Vec<(&'static str, DependencyStatus)>,
+}
+
+impl DoctorReport {
+    fn from_probe<F>(mut probe: F) -> Self
+    where
+        F: FnMut(&str) -> DependencyStatus,
+    {
+        Self {
+            checks: ["git", "rg", "sqlite3", "curl"]
+                .into_iter()
+                .map(|tool| (tool, probe(tool)))
+                .collect(),
+        }
+    }
+
+    fn render(&self) -> String {
+        let mut lines = vec!["Environment diagnostics:".to_string()];
+        lines.extend(
+            self.checks
+                .iter()
+                .map(|(tool, status)| format!("  {tool}: {}", status.label())),
+        );
+        lines.join("\n")
+    }
+}
+
+fn system_dependency_status(tool: &str) -> DependencyStatus {
     match Command::new(tool).arg("--version").output() {
-        Ok(output) if output.status.success() => "ok",
-        Ok(_) => "missing",
-        Err(_) => "missing",
+        Ok(output) if output.status.success() => DependencyStatus::Ok,
+        Ok(_) => DependencyStatus::Missing,
+        Err(_) => DependencyStatus::Missing,
     }
 }
 
@@ -1490,6 +1530,25 @@ mod tests {
                     && text.contains("sqlite3:")
                     && text.contains("curl:")
         )));
+    }
+
+    #[test]
+    fn doctor_report_renders_injected_dependency_probe_results() {
+        let report = DoctorReport::from_probe(|tool| match tool {
+            "git" => DependencyStatus::Ok,
+            "rg" => DependencyStatus::Missing,
+            "sqlite3" => DependencyStatus::NotRequired,
+            "curl" => DependencyStatus::Ok,
+            other => panic!("unexpected dependency probe for {other}"),
+        });
+
+        let rendered = report.render();
+
+        assert!(rendered.contains("Environment diagnostics:"));
+        assert!(rendered.contains("git: ok"));
+        assert!(rendered.contains("rg: missing"));
+        assert!(rendered.contains("sqlite3: not required for current path"));
+        assert!(rendered.contains("curl: ok"));
     }
 
     #[test]
