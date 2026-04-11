@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::Command;
 
 use robocode_model::ModelProvider;
 use robocode_permissions::PermissionEngine;
@@ -6,8 +7,8 @@ use robocode_session::SessionStore;
 use robocode_tools::{ToolExecutionContext, ToolRegistry};
 use robocode_types::{
     ApprovalResponse, CommandLogEntry, Message, ModelEvent, ModelRequest, PermissionDecision,
-    PermissionLogEntry, PermissionMode, Role, SessionMetaEntry, SessionSummary, ToolCall,
-    ToolResult, TranscriptEntry, fresh_id, now_timestamp,
+    PermissionLogEntry, PermissionMode, Role, RuntimeSnapshot, SessionMetaEntry, SessionSummary,
+    ToolCall, ToolResult, TranscriptEntry, fresh_id, now_timestamp,
 };
 
 #[derive(Debug, Clone)]
@@ -27,6 +28,7 @@ pub struct SessionEngine {
     store: SessionStore,
     messages: Vec<Message>,
     last_diff: Option<String>,
+    runtime_snapshot: RuntimeSnapshot,
 }
 
 impl SessionEngine {
@@ -38,6 +40,30 @@ impl SessionEngine {
         cwd: impl Into<PathBuf>,
         provider: Box<dyn ModelProvider>,
         home_override: Option<PathBuf>,
+    ) -> Result<Self, String> {
+        let cwd = cwd.into();
+        let default_snapshot = RuntimeSnapshot {
+            cwd: cwd.clone(),
+            provider_family: provider.provider_name().to_string(),
+            model_label: provider.model().to_string(),
+            permission_mode: PermissionMode::Default,
+            config_summary: format!(
+                "provider={} model={} permission_mode={} session_home=<default> timeout=<unknown> retries=<unknown>",
+                provider.provider_name(),
+                provider.model(),
+                PermissionMode::Default.cli_name()
+            ),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+        };
+        Self::new_with_home_and_snapshot(cwd, provider, home_override, default_snapshot)
+    }
+
+    pub fn new_with_home_and_snapshot(
+        cwd: impl Into<PathBuf>,
+        provider: Box<dyn ModelProvider>,
+        home_override: Option<PathBuf>,
+        runtime_snapshot: RuntimeSnapshot,
     ) -> Result<Self, String> {
         let cwd = cwd.into();
         let store = match home_override {
@@ -52,6 +78,7 @@ impl SessionEngine {
             store,
             messages: Vec::new(),
             last_diff: None,
+            runtime_snapshot,
         };
         engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;
         let model = engine.provider.model().to_string();
@@ -276,12 +303,16 @@ impl SessionEngine {
                 self.provider.provider_name(),
                 self.provider.model()
             ),
+            "/status" => self.render_status(),
+            "/config" => self.render_config(),
+            "/doctor" => self.render_doctor(),
             "/permissions" => {
                 if let Some(mode) = args.first() {
                     let parsed = PermissionMode::parse_cli(mode)
                         .ok_or_else(|| format!("Unknown permission mode `{mode}`"))?;
                     self.permissions.set_mode(parsed);
                     self.persist_meta("permission_mode", parsed.cli_name())?;
+                    self.runtime_snapshot.permission_mode = parsed;
                     format!("Permission mode set to {}", parsed.cli_name())
                 } else {
                     format!(
@@ -299,6 +330,7 @@ impl SessionEngine {
                 };
                 self.permissions.set_mode(next_mode);
                 self.persist_meta("permission_mode", next_mode.cli_name())?;
+                self.runtime_snapshot.permission_mode = next_mode;
                 format!(
                     "Plan mode is now {}",
                     if next_mode == PermissionMode::Plan {
@@ -453,9 +485,13 @@ impl SessionEngine {
                     "permission_mode" => {
                         if let Some(mode) = PermissionMode::parse_cli(&entry.value) {
                             self.permissions.set_mode(mode);
+                            self.runtime_snapshot.permission_mode = mode;
                         }
                     }
-                    "model" => self.provider.set_model(entry.value),
+                    "model" => {
+                        self.provider.set_model(entry.value.clone());
+                        self.runtime_snapshot.model_label = self.provider.model().to_string();
+                    }
                     _ => {}
                 },
                 _ => {}
@@ -879,6 +915,9 @@ impl SessionEngine {
             "RoboCode commands:",
             "  /help                Show available commands",
             "  /provider            Show current provider and model",
+            "  /status              Show current runtime status",
+            "  /config              Show resolved runtime configuration",
+            "  /doctor              Check local dependency availability",
             "  /model [name]        Show or change the active model label",
             "  /permissions [mode]  Show or change permission mode",
             "  /plan [on|off]       Toggle plan mode",
@@ -891,6 +930,56 @@ impl SessionEngine {
             "Fallback tool syntax:",
             "  tool read_file path=Cargo.toml",
             "  tool grep pattern=fn path=src",
+        ]
+        .join("\n")
+    }
+
+    fn render_status(&self) -> String {
+        [
+            "Runtime status:".to_string(),
+            format!("  Session: {}", self.session_id()),
+            format!("  CWD: {}", self.cwd.display()),
+            format!("  Provider: {}", self.provider.provider_name()),
+            format!("  Model: {}", self.provider.model()),
+            format!("  Permission mode: {}", self.permissions.mode().cli_name()),
+            format!("  Transcript: {}", self.store.transcript_path().display()),
+            format!("  Session home: {}", self.store.home_dir().display()),
+        ]
+        .join("\n")
+    }
+
+    fn render_config(&self) -> String {
+        let loaded_files = if self.runtime_snapshot.loaded_config_files.is_empty() {
+            "<none>".to_string()
+        } else {
+            self.runtime_snapshot
+                .loaded_config_files
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let overrides = if self.runtime_snapshot.startup_overrides.is_empty() {
+            "<none>".to_string()
+        } else {
+            self.runtime_snapshot.startup_overrides.join(", ")
+        };
+        [
+            "Runtime configuration:".to_string(),
+            format!("  {}", self.runtime_snapshot.config_summary),
+            format!("  Loaded config files: {}", loaded_files),
+            format!("  Startup overrides: {}", overrides),
+        ]
+        .join("\n")
+    }
+
+    fn render_doctor(&self) -> String {
+        [
+            "Environment diagnostics:".to_string(),
+            format!("  git: {}", dependency_status("git")),
+            format!("  rg: {}", dependency_status("rg")),
+            format!("  sqlite3: {}", dependency_status("sqlite3")),
+            format!("  curl: {}", dependency_status("curl")),
         ]
         .join("\n")
     }
@@ -973,9 +1062,27 @@ impl SessionEngine {
                 format_relative_age(summary.last_updated_at),
                 title
             ));
+            lines.push(format!(
+                "     messages={} tools={} commands={} last={}",
+                summary.message_count,
+                summary.tool_call_count,
+                summary.command_count,
+                summary
+                    .last_activity_kind
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string())
+            ));
             lines.push(format!("     {}", preview));
         }
         lines.join("\n")
+    }
+}
+
+fn dependency_status(tool: &str) -> &'static str {
+    match Command::new(tool).arg("--version").output() {
+        Ok(output) if output.status.success() => "ok",
+        Ok(_) => "missing",
+        Err(_) => "missing",
     }
 }
 
@@ -1204,6 +1311,40 @@ mod tests {
     }
 
     #[test]
+    fn sessions_command_includes_activity_metadata() {
+        let home = temp_dir("sessions_meta_home");
+        let cwd = temp_dir("sessions_meta_cwd");
+
+        let provider_a = Box::new(SequenceProvider::new(vec![vec![
+            ModelEvent::AssistantText {
+                content: "session reply".to_string(),
+            },
+        ]]));
+        let mut engine_a =
+            SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        engine_a
+            .process_input_with_approval("inspect metadata", &mut approver)
+            .unwrap();
+
+        let provider_b = Box::new(SequenceProvider::new(vec![]));
+        let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
+        let output = engine_b
+            .process_input_with_approval("/sessions", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("messages=")
+                    && text.contains("commands=")
+                    && text.contains("last=")
+        )));
+    }
+
+    #[test]
     fn web_help_command_is_available() {
         let home = temp_dir("web_help_home");
         let cwd = temp_dir("web_help_cwd");
@@ -1219,6 +1360,97 @@ mod tests {
         assert!(output.iter().any(|event| matches!(
             event,
             EngineEvent::Command(text) if text.contains("Web commands:")
+        )));
+    }
+
+    #[test]
+    fn status_command_reports_current_runtime_state() {
+        let home = temp_dir("status_home");
+        let cwd = temp_dir("status_cwd");
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let output = engine
+            .process_input_with_approval("/status", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("Session:")
+                    && text.contains("Provider:")
+                    && text.contains("Permission mode:")
+                    && text.contains("Transcript:")
+        )));
+    }
+
+    #[test]
+    fn config_command_reports_runtime_configuration_summary() {
+        let home = temp_dir("config_home");
+        let cwd = temp_dir("config_cwd");
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let output = engine
+            .process_input_with_approval("/config", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("Runtime configuration:")
+                    && text.contains("provider=")
+                    && text.contains("Loaded config files:")
+        )));
+    }
+
+    #[test]
+    fn doctor_command_reports_dependency_checks() {
+        let home = temp_dir("doctor_home");
+        let cwd = temp_dir("doctor_cwd");
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let output = engine
+            .process_input_with_approval("/doctor", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("Environment diagnostics:")
+                    && text.contains("git:")
+                    && text.contains("rg:")
+                    && text.contains("sqlite3:")
+                    && text.contains("curl:")
+        )));
+    }
+
+    #[test]
+    fn help_output_lists_runtime_inspection_commands() {
+        let home = temp_dir("help_home");
+        let cwd = temp_dir("help_cwd");
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let output = engine
+            .process_input_with_approval("/help", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("/status")
+                    && text.contains("/config")
+                    && text.contains("/doctor")
         )));
     }
 

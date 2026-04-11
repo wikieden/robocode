@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type SessionId = String;
@@ -409,8 +410,24 @@ pub struct SessionSummary {
     pub transcript_path: String,
     pub title: Option<String>,
     pub last_preview: Option<String>,
+    pub message_count: usize,
+    pub tool_call_count: usize,
+    pub command_count: usize,
+    pub last_activity_kind: Option<String>,
+    pub last_activity_preview: Option<String>,
     pub created_at: u64,
     pub last_updated_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeSnapshot {
+    pub cwd: PathBuf,
+    pub provider_family: String,
+    pub model_label: String,
+    pub permission_mode: PermissionMode,
+    pub config_summary: String,
+    pub loaded_config_files: Vec<PathBuf>,
+    pub startup_overrides: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

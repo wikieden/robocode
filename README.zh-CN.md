@@ -83,6 +83,9 @@ max_retries = 2
 ```text
 /help
 /provider
+/status
+/config
+/doctor
 /permissions
 /sessions
 /resume latest

@@ -83,6 +83,9 @@ Useful commands:
 ```text
 /help
 /provider
+/status
+/config
+/doctor
 /permissions
 /sessions
 /resume latest

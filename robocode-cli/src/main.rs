@@ -1,7 +1,7 @@
 use robocode_config::{CliOverrides, load_config};
 use robocode_core::{EngineEvent, SessionEngine};
 use robocode_model::{ProviderConfig, create_provider, list_supported_provider_strings};
-use robocode_types::{ApprovalResponse, PermissionPrompt};
+use robocode_types::{ApprovalResponse, PermissionPrompt, RuntimeSnapshot};
 use std::env;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -56,10 +56,23 @@ fn run() -> Result<(), String> {
                 .join(", ")
         }
     );
-    let mut engine = SessionEngine::new_with_home(
+    let runtime_snapshot = RuntimeSnapshot {
+        cwd: cwd.clone(),
+        provider_family: resolved_config.provider.clone(),
+        model_label: resolved_config
+            .model
+            .clone()
+            .unwrap_or_else(|| provider_config.model.clone()),
+        permission_mode: resolved_config.permission_mode,
+        config_summary: resolved_config.summary(),
+        loaded_config_files: resolved_config.loaded_files.clone(),
+        startup_overrides: startup.summary_overrides(),
+    };
+    let mut engine = SessionEngine::new_with_home_and_snapshot(
         &cwd,
         create_provider(provider_config),
         resolved_config.session_home.clone(),
+        runtime_snapshot,
     )?;
     engine.set_permission_mode(resolved_config.permission_mode)?;
 
@@ -115,6 +128,43 @@ struct StartupOptions {
     max_retries: Option<u32>,
     config_path: Option<PathBuf>,
     resume_selector: Option<String>,
+}
+
+impl StartupOptions {
+    fn summary_overrides(&self) -> Vec<String> {
+        let mut overrides = Vec::new();
+        if self.provider.is_some() {
+            overrides.push("--provider".to_string());
+        }
+        if self.model.is_some() {
+            overrides.push("--model".to_string());
+        }
+        if self.api_base.is_some() {
+            overrides.push("--api-base".to_string());
+        }
+        if self.api_key.is_some() {
+            overrides.push("--api-key".to_string());
+        }
+        if self.permission_mode.is_some() {
+            overrides.push("--permissions".to_string());
+        }
+        if self.session_home.is_some() {
+            overrides.push("--session-home".to_string());
+        }
+        if self.request_timeout_secs.is_some() {
+            overrides.push("--request-timeout".to_string());
+        }
+        if self.max_retries.is_some() {
+            overrides.push("--max-retries".to_string());
+        }
+        if self.config_path.is_some() {
+            overrides.push("--config".to_string());
+        }
+        if self.resume_selector.is_some() {
+            overrides.push("--resume".to_string());
+        }
+        overrides
+    }
 }
 
 fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {

@@ -156,6 +156,11 @@ impl SessionStore {
             project_key TEXT NOT NULL,
             title TEXT,
             last_preview TEXT,
+            message_count INTEGER NOT NULL DEFAULT 0,
+            tool_call_count INTEGER NOT NULL DEFAULT 0,
+            command_count INTEGER NOT NULL DEFAULT 0,
+            last_activity_kind TEXT,
+            last_activity_preview TEXT,
             transcript_path TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             last_updated_at INTEGER NOT NULL
@@ -181,15 +186,20 @@ impl SessionStore {
         self.ensure_index()?;
         let sql = format!(
             "INSERT INTO sessions (
-                session_id, cwd, project_key, title, last_preview, transcript_path, created_at, last_updated_at
+                session_id, cwd, project_key, title, last_preview, message_count, tool_call_count, command_count, last_activity_kind, last_activity_preview, transcript_path, created_at, last_updated_at
             ) VALUES (
-                '{session_id}', '{cwd}', '{project_key}', {title}, {last_preview}, '{transcript_path}', {created_at}, {last_updated_at}
+                '{session_id}', '{cwd}', '{project_key}', {title}, {last_preview}, {message_count}, {tool_call_count}, {command_count}, {last_activity_kind}, {last_activity_preview}, '{transcript_path}', {created_at}, {last_updated_at}
             )
             ON CONFLICT(session_id) DO UPDATE SET
                 cwd=excluded.cwd,
                 project_key=excluded.project_key,
                 title=excluded.title,
                 last_preview=excluded.last_preview,
+                message_count=excluded.message_count,
+                tool_call_count=excluded.tool_call_count,
+                command_count=excluded.command_count,
+                last_activity_kind=excluded.last_activity_kind,
+                last_activity_preview=excluded.last_activity_preview,
                 transcript_path=excluded.transcript_path,
                 last_updated_at=excluded.last_updated_at;",
             session_id = sql_quote(&summary.session_id),
@@ -197,6 +207,11 @@ impl SessionStore {
             project_key = sql_quote(&project_key(Path::new(&summary.cwd))),
             title = sql_value(summary.title.as_deref()),
             last_preview = sql_value(summary.last_preview.as_deref()),
+            message_count = summary.message_count,
+            tool_call_count = summary.tool_call_count,
+            command_count = summary.command_count,
+            last_activity_kind = sql_value(summary.last_activity_kind.as_deref()),
+            last_activity_preview = sql_value(summary.last_activity_preview.as_deref()),
             transcript_path = sql_quote(&summary.transcript_path),
             created_at = summary.created_at,
             last_updated_at = summary.last_updated_at,
@@ -209,17 +224,20 @@ impl SessionStore {
             return Ok(Vec::new());
         }
         let sql = format!(
-            "SELECT session_id, cwd, transcript_path, title, last_preview, created_at, last_updated_at
+            "SELECT session_id, cwd, transcript_path, title, last_preview, message_count, tool_call_count, command_count, last_activity_kind, last_activity_preview, created_at, last_updated_at
              FROM sessions
              WHERE project_key = '{project_key}'
              ORDER BY last_updated_at DESC;",
             project_key = sql_quote(&project_key(&self.cwd))
         );
-        let output = run_sql(&self.paths.index_db_path, &sql)?;
+        let output = match run_sql(&self.paths.index_db_path, &sql) {
+            Ok(output) => output,
+            Err(_) => return Ok(Vec::new()),
+        };
         let mut summaries = Vec::new();
         for line in output.lines().filter(|line| !line.trim().is_empty()) {
             let parts: Vec<_> = line.split('|').collect();
-            if parts.len() != 7 {
+            if parts.len() != 12 {
                 continue;
             }
             summaries.push(SessionSummary {
@@ -228,8 +246,13 @@ impl SessionStore {
                 transcript_path: parts[2].to_string(),
                 title: empty_to_none(parts[3]),
                 last_preview: empty_to_none(parts[4]),
-                created_at: parts[5].parse().unwrap_or_default(),
-                last_updated_at: parts[6].parse().unwrap_or_default(),
+                message_count: parts[5].parse().unwrap_or_default(),
+                tool_call_count: parts[6].parse().unwrap_or_default(),
+                command_count: parts[7].parse().unwrap_or_default(),
+                last_activity_kind: empty_to_none(parts[8]),
+                last_activity_preview: empty_to_none(parts[9]),
+                created_at: parts[10].parse().unwrap_or_default(),
+                last_updated_at: parts[11].parse().unwrap_or_default(),
             });
         }
         Ok(summaries)
@@ -286,19 +309,39 @@ fn summary_from_entries(
 
     let mut title = None;
     let mut last_preview = None;
+    let mut message_count = 0usize;
+    let mut tool_call_count = 0usize;
+    let mut command_count = 0usize;
+    let mut last_activity_kind = None;
+    let mut last_activity_preview = None;
     for entry in entries {
         match entry {
             TranscriptEntry::Message { message } => {
+                message_count += 1;
                 if title.is_none() && message.role == Role::User {
                     title = Some(truncate_for_preview(&message.content, 48));
                 }
-                last_preview = Some(truncate_for_preview(&message.content, 80));
+                let preview = truncate_for_preview(&message.content, 80);
+                last_preview = Some(preview.clone());
+                last_activity_preview = Some(preview);
+                last_activity_kind = Some(format!("message:{}", message.role.as_str()));
+            }
+            TranscriptEntry::ToolCall { .. } => {
+                tool_call_count += 1;
+                last_activity_kind = Some("tool_call".to_string());
             }
             TranscriptEntry::ToolResult { result } => {
-                last_preview = Some(truncate_for_preview(&result.output, 80));
+                let preview = truncate_for_preview(&result.output, 80);
+                last_preview = Some(preview.clone());
+                last_activity_preview = Some(preview);
+                last_activity_kind = Some("tool_result".to_string());
             }
             TranscriptEntry::Command { entry } => {
-                last_preview = Some(truncate_for_preview(&entry.output, 80));
+                command_count += 1;
+                let preview = truncate_for_preview(&entry.output, 80);
+                last_preview = Some(preview.clone());
+                last_activity_preview = Some(preview);
+                last_activity_kind = Some("command".to_string());
             }
             _ => {}
         }
@@ -310,6 +353,11 @@ fn summary_from_entries(
         transcript_path: transcript_path.display().to_string(),
         title,
         last_preview,
+        message_count,
+        tool_call_count,
+        command_count,
+        last_activity_kind,
+        last_activity_preview,
         created_at,
         last_updated_at,
     })
