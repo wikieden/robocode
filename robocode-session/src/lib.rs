@@ -76,6 +76,10 @@ impl SessionStore {
         &self.paths.home_dir
     }
 
+    pub fn index_db_path(&self) -> &Path {
+        &self.paths.index_db_path
+    }
+
     pub fn append_entry(&self, entry: &TranscriptEntry) -> Result<(), String> {
         let mut payload = entry.to_json_line();
         payload.push('\n');

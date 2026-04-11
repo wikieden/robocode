@@ -950,6 +950,7 @@ impl SessionEngine {
             format!("  Permission mode: {}", self.permissions.mode().cli_name()),
             format!("  Transcript: {}", self.store.transcript_path().display()),
             format!("  Session home: {}", self.store.home_dir().display()),
+            format!("  Index: {}", self.store.index_db_path().display()),
         ]
         .join("\n")
     }
@@ -1483,6 +1484,7 @@ mod tests {
                     && text.contains("Provider:")
                     && text.contains("Permission mode:")
                     && text.contains("Transcript:")
+                    && text.contains("Index:")
         )));
     }
 
