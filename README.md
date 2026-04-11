@@ -2,6 +2,8 @@
 
 RoboCode is a Rust-first reimplementation of the core local agent CLI patterns from the reference Claude Code project.
 
+Chinese version: [README.zh-CN.md](README.zh-CN.md)
+
 This repository currently includes:
 
 - A multi-crate Rust workspace
@@ -103,7 +105,21 @@ Built-in tool families include:
 Project docs:
 
 - `docs/architecture.md`
+- `docs/architecture.zh-CN.md`
+- `docs/documentation-localization.md`
+- `docs/documentation-localization.zh-CN.md`
 - `docs/reference-analysis.md`
+- `docs/reference-analysis.zh-CN.md`
+- `docs/product-requirements.md`
+- `docs/product-requirements.zh-CN.md`
+- `docs/staged-roadmap.md`
+- `docs/staged-roadmap.zh-CN.md`
+- `docs/ref-gap-matrix.md`
+- `docs/ref-gap-matrix.zh-CN.md`
+- `docs/superpowers/plans/2026-04-11-robocode-plan-index.md`
+- `docs/superpowers/plans/2026-04-11-robocode-plan-index.zh-CN.md`
+- `docs/superpowers/plans/2026-04-11-v2-session-command-enhancement.md`
+- `docs/superpowers/plans/2026-04-11-v2-session-command-enhancement.zh-CN.md`
 
 ## Status
 
