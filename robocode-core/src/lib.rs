@@ -913,19 +913,25 @@ impl SessionEngine {
     fn render_help(&self) -> String {
         [
             "RoboCode commands:",
+            "",
+            "Runtime:",
             "  /help                Show available commands",
             "  /provider            Show current provider and model",
-            "  /status              Show current runtime status",
-            "  /config              Show resolved runtime configuration",
-            "  /doctor              Check local dependency availability",
             "  /model [name]        Show or change the active model label",
             "  /permissions [mode]  Show or change permission mode",
             "  /plan [on|off]       Toggle plan mode",
+            "  /status              Show current runtime status",
+            "  /config              Show resolved runtime configuration",
+            "  /doctor              Check local dependency availability",
+            "",
+            "Sessions:",
             "  /sessions            List prior sessions for this project",
             "  /resume [selector]   List or resume by latest, #index, or id prefix",
             "  /diff                Show the latest file diff recorded in session",
-            "  /web <subcommand>    Search or fetch web content",
+            "",
+            "Repository and web:",
             "  /git <subcommand>    Git status/diff/add/push/worktree flows",
+            "  /web <subcommand>    Search or fetch web content",
             "",
             "Fallback tool syntax:",
             "  tool read_file path=Cargo.toml",
@@ -1505,6 +1511,28 @@ mod tests {
                 if text.contains("/status")
                     && text.contains("/config")
                     && text.contains("/doctor")
+        )));
+    }
+
+    #[test]
+    fn help_output_groups_commands_by_purpose() {
+        let home = temp_dir("help_groups_home");
+        let cwd = temp_dir("help_groups_cwd");
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let output = engine
+            .process_input_with_approval("/help", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("Runtime:")
+                    && text.contains("Sessions:")
+                    && text.contains("Repository and web:")
         )));
     }
 
