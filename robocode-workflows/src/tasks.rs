@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 
 use robocode_types::{TaskId, TaskPriority, TaskRecord, TaskStatus};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskBlocker {
     Task(TaskId),
     Reason(String),
@@ -19,7 +20,7 @@ impl TaskBlocker {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TaskUpdate {
     pub title: Option<String>,
     pub description: Option<Option<String>>,
@@ -29,7 +30,7 @@ pub struct TaskUpdate {
     pub notes: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskEvent {
     Created {
         task_id: TaskId,
@@ -367,7 +368,10 @@ mod tests {
 
         let task = state.task("task_1").unwrap();
         assert_eq!(task.title, "Build workflow event store");
-        assert_eq!(task.description.as_deref(), Some("Canonical JSONL plus index"));
+        assert_eq!(
+            task.description.as_deref(),
+            Some("Canonical JSONL plus index")
+        );
         assert_eq!(task.priority, TaskPriority::Critical);
         assert_eq!(task.labels, vec!["v2", "storage"]);
         assert_eq!(task.assignee_hint.as_deref(), Some("agent"));

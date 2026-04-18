@@ -5,8 +5,9 @@ use std::collections::BTreeMap;
 use robocode_types::{
     MemoryEntry, MemoryId, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskId,
 };
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MemoryEvent {
     Added {
         memory_id: MemoryId,
@@ -300,8 +301,14 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(state.memory("mem_reject").unwrap().status, MemoryStatus::Rejected);
-        assert_eq!(state.memory("mem_prune").unwrap().status, MemoryStatus::Pruned);
+        assert_eq!(
+            state.memory("mem_reject").unwrap().status,
+            MemoryStatus::Rejected
+        );
+        assert_eq!(
+            state.memory("mem_prune").unwrap().status,
+            MemoryStatus::Pruned
+        );
         assert!(state.active_project_memory().is_empty());
     }
 
@@ -340,7 +347,10 @@ mod tests {
 
         assert!(state.active_session_memory("session_1").is_empty());
         assert_eq!(state.active_session_memory("session_2").len(), 1);
-        assert_eq!(state.memory("mem_s1").unwrap().status, MemoryStatus::Superseded);
+        assert_eq!(
+            state.memory("mem_s1").unwrap().status,
+            MemoryStatus::Superseded
+        );
     }
 
     fn suggested_event(memory_id: &str, content: &str, timestamp: u64) -> MemoryEvent {

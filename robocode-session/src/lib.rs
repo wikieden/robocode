@@ -476,7 +476,8 @@ mod tests {
         let home = temp_home("summary_meta");
         let cwd = home.join("workspace");
         fs::create_dir_all(&cwd).unwrap();
-        let store = SessionStore::new_with_home(&home, &cwd, Some("session_summary".into())).unwrap();
+        let store =
+            SessionStore::new_with_home(&home, &cwd, Some("session_summary".into())).unwrap();
         store
             .append_entry(&TranscriptEntry::Message {
                 message: Message::new(Role::User, "inspect summary"),
@@ -511,7 +512,10 @@ mod tests {
         assert_eq!(summary.tool_call_count, 1);
         assert_eq!(summary.command_count, 1);
         assert_eq!(summary.last_activity_kind.as_deref(), Some("command"));
-        assert_eq!(summary.last_activity_preview.as_deref(), Some("status output"));
+        assert_eq!(
+            summary.last_activity_preview.as_deref(),
+            Some("status output")
+        );
     }
 
     #[test]
@@ -519,7 +523,8 @@ mod tests {
         let home = temp_home("sqlite_fallback");
         let cwd = home.join("workspace");
         fs::create_dir_all(&cwd).unwrap();
-        let store = SessionStore::new_with_home(&home, &cwd, Some("session_fallback".into())).unwrap();
+        let store =
+            SessionStore::new_with_home(&home, &cwd, Some("session_fallback".into())).unwrap();
         store
             .append_entry(&TranscriptEntry::Message {
                 message: Message::new(Role::User, "fallback session"),
@@ -542,6 +547,10 @@ mod tests {
         }
 
         let sessions = store.list_sessions_for_cwd().unwrap();
-        assert!(sessions.iter().any(|item| item.session_id == "session_fallback"));
+        assert!(
+            sessions
+                .iter()
+                .any(|item| item.session_id == "session_fallback")
+        );
     }
 }

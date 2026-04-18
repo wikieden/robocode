@@ -8,6 +8,9 @@ use std::process::Command;
 use robocode_session::project_key_for_path;
 use serde::{Deserialize, Serialize};
 
+use crate::memory::{MemoryEvent, MemoryState, reduce_memory_events};
+use crate::tasks::{TaskEvent, TaskState, reduce_task_events};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowPaths {
     pub home_dir: PathBuf,
@@ -78,6 +81,30 @@ impl WorkflowStore {
 
     pub fn load_memory_events(&self) -> Result<Vec<WorkflowMemoryEvent>, String> {
         load_json_lines(&self.paths.memory_log)
+    }
+
+    pub fn append_task_domain_event(&self, event: &TaskEvent) -> Result<(), String> {
+        append_json_line(&self.paths.tasks_log, event)
+    }
+
+    pub fn load_task_domain_events(&self) -> Result<Vec<TaskEvent>, String> {
+        load_json_lines(&self.paths.tasks_log)
+    }
+
+    pub fn load_task_state(&self) -> Result<TaskState, String> {
+        reduce_task_events(&self.load_task_domain_events()?)
+    }
+
+    pub fn append_memory_domain_event(&self, event: &MemoryEvent) -> Result<(), String> {
+        append_json_line(&self.paths.memory_log, event)
+    }
+
+    pub fn load_memory_domain_events(&self) -> Result<Vec<MemoryEvent>, String> {
+        load_json_lines(&self.paths.memory_log)
+    }
+
+    pub fn load_memory_state(&self) -> Result<MemoryState, String> {
+        reduce_memory_events(&self.load_memory_domain_events()?)
     }
 
     pub fn rebuild_index(&self) -> Result<(), String> {
@@ -183,7 +210,10 @@ mod tests {
                 .starts_with(store.paths().projects_dir.clone())
         );
         assert_eq!(store.paths().tasks_log.file_name().unwrap(), "tasks.jsonl");
-        assert_eq!(store.paths().memory_log.file_name().unwrap(), "memory.jsonl");
+        assert_eq!(
+            store.paths().memory_log.file_name().unwrap(),
+            "memory.jsonl"
+        );
         assert_eq!(
             store.paths().index_db_path.file_name().unwrap(),
             "workflow.sqlite3"

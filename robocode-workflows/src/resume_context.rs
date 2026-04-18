@@ -117,8 +117,8 @@ fn suggest_session_memory(
 mod tests {
     use robocode_types::{MemoryKind, MemoryScope, MemorySource, TaskPriority, TaskStatus};
 
-    use crate::memory::{reduce_memory_events, MemoryEvent};
-    use crate::tasks::{reduce_task_events, TaskBlocker, TaskEvent};
+    use crate::memory::{MemoryEvent, reduce_memory_events};
+    use crate::tasks::{TaskBlocker, TaskEvent, reduce_task_events};
 
     use super::*;
 
@@ -177,16 +177,23 @@ mod tests {
 
         assert_eq!(result.snapshot.active_tasks[0].task_id, "task_active");
         assert_eq!(result.snapshot.blocked_tasks[0].task_id, "task_blocked");
-        assert_eq!(result.snapshot.recently_completed_tasks[0].task_id, "task_done");
-        assert_eq!(result.snapshot.relevant_project_memory[0].memory_id, "mem_project");
-        assert_eq!(result.snapshot.recent_session_memory[0].memory_id, "mem_session");
+        assert_eq!(
+            result.snapshot.recently_completed_tasks[0].task_id,
+            "task_done"
+        );
+        assert_eq!(
+            result.snapshot.relevant_project_memory[0].memory_id,
+            "mem_project"
+        );
+        assert_eq!(
+            result.snapshot.recent_session_memory[0].memory_id,
+            "mem_session"
+        );
         assert!(
             result.snapshot.suggested_next_steps[0]
                 .contains("Continue task_active: Continue workflows")
         );
-        assert!(
-            result.snapshot.suggested_session_memory[0].contains("Resume context generated")
-        );
+        assert!(result.snapshot.suggested_session_memory[0].contains("Resume context generated"));
     }
 
     #[test]

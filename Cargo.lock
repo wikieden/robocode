@@ -83,6 +83,7 @@ dependencies = [
  "robocode-session",
  "robocode-tools",
  "robocode-types",
+ "robocode-workflows",
 ]
 
 [[package]]
