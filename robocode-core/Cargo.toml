@@ -11,3 +11,4 @@ robocode-permissions = { path = "../robocode-permissions" }
 robocode-session = { path = "../robocode-session" }
 robocode-tools = { path = "../robocode-tools" }
 robocode-types = { path = "../robocode-types" }
+robocode-workflows = { path = "../robocode-workflows" }
