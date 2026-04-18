@@ -126,8 +126,10 @@ dependencies = [
 name = "robocode-workflows"
 version = "0.1.0"
 dependencies = [
+ "robocode-session",
  "robocode-types",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

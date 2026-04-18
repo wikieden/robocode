@@ -407,6 +407,10 @@ fn project_key(path: &Path) -> String {
     format!("{:x}", hasher.finish())
 }
 
+pub fn project_key_for_path(path: &Path) -> String {
+    project_key(path)
+}
+
 fn sql_quote(input: &str) -> String {
     input.replace('\'', "''")
 }
