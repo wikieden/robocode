@@ -1,12 +1,10 @@
 [package]
-name = "robocode-types"
+name = "robocode-workflows"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [dependencies]
+robocode-types = { path = "../robocode-types" }
 serde = { version = "1", features = ["derive"] }
-
-[dev-dependencies]
-serde_json = "1"

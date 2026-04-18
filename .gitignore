@@ -5,5 +5,6 @@
 /.worktrees
 /.ref
 /.omc
+/.omx
 /.sixth
 .DS_Store

@@ -3,10 +3,14 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
+
 pub type SessionId = String;
 pub type MessageId = String;
 pub type ToolCallId = String;
 pub type ToolInput = BTreeMap<String, String>;
+pub type TaskId = String;
+pub type MemoryId = String;
 
 pub fn now_timestamp() -> u64 {
     SystemTime::now()
@@ -430,6 +434,271 @@ pub struct RuntimeSnapshot {
     pub startup_overrides: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    Todo,
+    InProgress,
+    Blocked,
+    Done,
+    Archived,
+}
+
+impl TaskStatus {
+    pub fn parse_cli(input: &str) -> Option<Self> {
+        match input.trim() {
+            "todo" => Some(Self::Todo),
+            "in_progress" | "in-progress" | "inprogress" => Some(Self::InProgress),
+            "blocked" => Some(Self::Blocked),
+            "done" => Some(Self::Done),
+            "archived" => Some(Self::Archived),
+            _ => None,
+        }
+    }
+
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Self::Todo => "todo",
+            Self::InProgress => "in_progress",
+            Self::Blocked => "blocked",
+            Self::Done => "done",
+            Self::Archived => "archived",
+        }
+    }
+}
+
+impl Display for TaskStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.cli_name())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskPriority {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl TaskPriority {
+    pub fn parse_cli(input: &str) -> Option<Self> {
+        match input.trim() {
+            "low" => Some(Self::Low),
+            "medium" => Some(Self::Medium),
+            "high" => Some(Self::High),
+            "critical" => Some(Self::Critical),
+            _ => None,
+        }
+    }
+
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Critical => "critical",
+        }
+    }
+}
+
+impl Display for TaskPriority {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.cli_name())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryScope {
+    Project,
+    Session,
+}
+
+impl MemoryScope {
+    pub fn parse_cli(input: &str) -> Option<Self> {
+        match input.trim() {
+            "project" => Some(Self::Project),
+            "session" => Some(Self::Session),
+            _ => None,
+        }
+    }
+
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::Session => "session",
+        }
+    }
+}
+
+impl Display for MemoryScope {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.cli_name())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryKind {
+    Fact,
+    Preference,
+    Constraint,
+    Decision,
+    Convention,
+}
+
+impl MemoryKind {
+    pub fn parse_cli(input: &str) -> Option<Self> {
+        match input.trim() {
+            "fact" => Some(Self::Fact),
+            "preference" => Some(Self::Preference),
+            "constraint" => Some(Self::Constraint),
+            "decision" => Some(Self::Decision),
+            "convention" => Some(Self::Convention),
+            _ => None,
+        }
+    }
+
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Self::Fact => "fact",
+            Self::Preference => "preference",
+            Self::Constraint => "constraint",
+            Self::Decision => "decision",
+            Self::Convention => "convention",
+        }
+    }
+}
+
+impl Display for MemoryKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.cli_name())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemorySource {
+    User,
+    AssistantSuggestion,
+    Command,
+    Imported,
+}
+
+impl MemorySource {
+    pub fn parse_cli(input: &str) -> Option<Self> {
+        match input.trim() {
+            "user" => Some(Self::User),
+            "assistant_suggestion" | "assistant-suggestion" => Some(Self::AssistantSuggestion),
+            "command" => Some(Self::Command),
+            "imported" => Some(Self::Imported),
+            _ => None,
+        }
+    }
+
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::AssistantSuggestion => "assistant_suggestion",
+            Self::Command => "command",
+            Self::Imported => "imported",
+        }
+    }
+}
+
+impl Display for MemorySource {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.cli_name())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryStatus {
+    Suggested,
+    Active,
+    Superseded,
+    Pruned,
+    Rejected,
+}
+
+impl MemoryStatus {
+    pub fn parse_cli(input: &str) -> Option<Self> {
+        match input.trim() {
+            "suggested" => Some(Self::Suggested),
+            "active" => Some(Self::Active),
+            "superseded" => Some(Self::Superseded),
+            "pruned" => Some(Self::Pruned),
+            "rejected" => Some(Self::Rejected),
+            _ => None,
+        }
+    }
+
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Self::Suggested => "suggested",
+            Self::Active => "active",
+            Self::Superseded => "superseded",
+            Self::Pruned => "pruned",
+            Self::Rejected => "rejected",
+        }
+    }
+}
+
+impl Display for MemoryStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.cli_name())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskRecord {
+    pub task_id: TaskId,
+    pub title: String,
+    pub description: Option<String>,
+    pub status: TaskStatus,
+    pub priority: TaskPriority,
+    pub labels: Vec<String>,
+    pub assignee_hint: Option<String>,
+    pub parent_task_id: Option<TaskId>,
+    pub dependency_ids: Vec<TaskId>,
+    pub blocked_by: Option<String>,
+    pub notes: Vec<String>,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub last_session_id: Option<SessionId>,
+    pub last_seen_at: Option<u64>,
+    pub archived_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryEntry {
+    pub memory_id: MemoryId,
+    pub scope: MemoryScope,
+    pub session_id: Option<SessionId>,
+    pub kind: MemoryKind,
+    pub content: String,
+    pub source: MemorySource,
+    pub status: MemoryStatus,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub related_task_ids: Vec<TaskId>,
+    pub confidence_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeContextSnapshot {
+    pub active_tasks: Vec<TaskRecord>,
+    pub blocked_tasks: Vec<TaskRecord>,
+    pub recently_completed_tasks: Vec<TaskRecord>,
+    pub relevant_project_memory: Vec<MemoryEntry>,
+    pub recent_session_memory: Vec<MemoryEntry>,
+    pub suggested_next_steps: Vec<String>,
+    pub suggested_session_memory: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PermissionPrompt {
     pub tool_name: String,
@@ -573,5 +842,89 @@ fn extract_bool_field(line: &str, field: &str) -> Result<bool, String> {
         Ok(false)
     } else {
         Err(format!("Invalid bool in `{field}`"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workflow_enums_roundtrip_through_cli_names_and_json() {
+        assert_eq!(
+            TaskStatus::parse_cli("in_progress"),
+            Some(TaskStatus::InProgress)
+        );
+        assert_eq!(TaskStatus::Blocked.cli_name(), "blocked");
+        assert_eq!(
+            TaskPriority::parse_cli("critical"),
+            Some(TaskPriority::Critical)
+        );
+        assert_eq!(
+            MemoryScope::parse_cli("session"),
+            Some(MemoryScope::Session)
+        );
+        assert_eq!(MemoryKind::Decision.cli_name(), "decision");
+        assert_eq!(
+            MemorySource::parse_cli("assistant_suggestion"),
+            Some(MemorySource::AssistantSuggestion)
+        );
+        assert_eq!(MemoryStatus::Active.cli_name(), "active");
+
+        let encoded = serde_json::to_string(&TaskStatus::InProgress).unwrap();
+        assert_eq!(encoded, "\"in_progress\"");
+        let decoded: TaskStatus = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, TaskStatus::InProgress);
+    }
+
+    #[test]
+    fn workflow_records_are_serializable() {
+        let task = TaskRecord {
+            task_id: "task_1".to_string(),
+            title: "Design workflow state".to_string(),
+            description: Some("Capture durable task state".to_string()),
+            status: TaskStatus::Todo,
+            priority: TaskPriority::High,
+            labels: vec!["v2".to_string(), "workflow".to_string()],
+            assignee_hint: Some("agent".to_string()),
+            parent_task_id: None,
+            dependency_ids: vec!["task_0".to_string()],
+            blocked_by: Some("waiting on spec review".to_string()),
+            notes: vec!["Use append-only logs".to_string()],
+            created_at: 10,
+            updated_at: 11,
+            last_session_id: Some("session_1".to_string()),
+            last_seen_at: Some(12),
+            archived_at: None,
+        };
+
+        let memory = MemoryEntry {
+            memory_id: "mem_1".to_string(),
+            scope: MemoryScope::Project,
+            session_id: None,
+            kind: MemoryKind::Convention,
+            content: "Use JSONL as canonical workflow storage".to_string(),
+            source: MemorySource::User,
+            status: MemoryStatus::Active,
+            created_at: 20,
+            updated_at: 21,
+            related_task_ids: vec![task.task_id.clone()],
+            confidence_hint: Some("high".to_string()),
+        };
+
+        let snapshot = ResumeContextSnapshot {
+            active_tasks: vec![task],
+            blocked_tasks: Vec::new(),
+            recently_completed_tasks: Vec::new(),
+            relevant_project_memory: vec![memory],
+            recent_session_memory: Vec::new(),
+            suggested_next_steps: vec!["Continue Task 1".to_string()],
+            suggested_session_memory: vec!["Task 1 started".to_string()],
+        };
+
+        let encoded = serde_json::to_string(&snapshot).unwrap();
+        let decoded: ResumeContextSnapshot = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.suggested_next_steps, vec!["Continue Task 1"]);
+        assert_eq!(decoded.active_tasks[0].priority, TaskPriority::High);
     }
 }

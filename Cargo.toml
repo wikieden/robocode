@@ -8,6 +8,7 @@ members = [
     "robocode-session",
     "robocode-tools",
     "robocode-types",
+    "robocode-workflows",
 ]
 resolver = "2"
 
