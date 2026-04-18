@@ -87,6 +87,13 @@ impl WorkflowStore {
         append_json_line(&self.paths.tasks_log, event)
     }
 
+    pub fn append_task_domain_event_checked(&self, event: &TaskEvent) -> Result<(), String> {
+        let mut events = self.load_task_domain_events()?;
+        events.push(event.clone());
+        reduce_task_events(&events)?;
+        self.append_task_domain_event(event)
+    }
+
     pub fn load_task_domain_events(&self) -> Result<Vec<TaskEvent>, String> {
         load_json_lines(&self.paths.tasks_log)
     }
@@ -97,6 +104,13 @@ impl WorkflowStore {
 
     pub fn append_memory_domain_event(&self, event: &MemoryEvent) -> Result<(), String> {
         append_json_line(&self.paths.memory_log, event)
+    }
+
+    pub fn append_memory_domain_event_checked(&self, event: &MemoryEvent) -> Result<(), String> {
+        let mut events = self.load_memory_domain_events()?;
+        events.push(event.clone());
+        reduce_memory_events(&events)?;
+        self.append_memory_domain_event(event)
     }
 
     pub fn load_memory_domain_events(&self) -> Result<Vec<MemoryEvent>, String> {

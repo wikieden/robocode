@@ -426,7 +426,7 @@ impl SessionEngine {
                 }
                 let task_id = fresh_id("task");
                 self.workflows
-                    .append_task_domain_event(&TaskEvent::Created {
+                    .append_task_domain_event_checked(&TaskEvent::Created {
                         task_id: task_id.clone(),
                         title: title.clone(),
                         description: None,
@@ -463,7 +463,7 @@ impl SessionEngine {
                     return Ok(denied);
                 }
                 self.workflows
-                    .append_task_domain_event(&TaskEvent::Updated {
+                    .append_task_domain_event_checked(&TaskEvent::Updated {
                         task_id: task_id.clone(),
                         update: TaskUpdate {
                             title: Some(title.clone()),
@@ -488,7 +488,7 @@ impl SessionEngine {
                     return Ok(denied);
                 }
                 self.workflows
-                    .append_task_domain_event(&TaskEvent::StatusChanged {
+                    .append_task_domain_event_checked(&TaskEvent::StatusChanged {
                         task_id: task_id.clone(),
                         status,
                         timestamp: now_timestamp(),
@@ -509,7 +509,7 @@ impl SessionEngine {
                     return Ok(denied);
                 }
                 self.workflows
-                    .append_task_domain_event(&TaskEvent::Linked {
+                    .append_task_domain_event_checked(&TaskEvent::Linked {
                         task_id: task_id.clone(),
                         depends_on_id: depends_on_id.clone(),
                         timestamp: now_timestamp(),
@@ -533,7 +533,7 @@ impl SessionEngine {
                     return Ok(denied);
                 }
                 self.workflows
-                    .append_task_domain_event(&TaskEvent::Blocked {
+                    .append_task_domain_event_checked(&TaskEvent::Blocked {
                         task_id: task_id.clone(),
                         blocker: TaskBlocker::Reason(reason.clone()),
                         timestamp: now_timestamp(),
@@ -551,7 +551,7 @@ impl SessionEngine {
                     return Ok(denied);
                 }
                 self.workflows
-                    .append_task_domain_event(&TaskEvent::Unblocked {
+                    .append_task_domain_event_checked(&TaskEvent::Unblocked {
                         task_id: task_id.clone(),
                         timestamp: now_timestamp(),
                         origin_session_id: Some(self.session_id().to_string()),
@@ -568,7 +568,7 @@ impl SessionEngine {
                     return Ok(denied);
                 }
                 self.workflows
-                    .append_task_domain_event(&TaskEvent::Archived {
+                    .append_task_domain_event_checked(&TaskEvent::Archived {
                         task_id: task_id.clone(),
                         timestamp: now_timestamp(),
                         origin_session_id: Some(self.session_id().to_string()),
@@ -585,7 +585,7 @@ impl SessionEngine {
                     return Ok(denied);
                 }
                 self.workflows
-                    .append_task_domain_event(&TaskEvent::Restored {
+                    .append_task_domain_event_checked(&TaskEvent::Restored {
                         task_id: task_id.clone(),
                         timestamp: now_timestamp(),
                         origin_session_id: Some(self.session_id().to_string()),
@@ -602,7 +602,7 @@ impl SessionEngine {
                     now: now_timestamp(),
                 });
                 for event in &result.derived_task_events {
-                    self.workflows.append_task_domain_event(event)?;
+                    self.workflows.append_task_domain_event_checked(event)?;
                 }
                 Ok(render_resume_context(&result.snapshot))
             }
@@ -634,7 +634,7 @@ impl SessionEngine {
                 }
                 let memory_id = fresh_id("mem");
                 self.workflows
-                    .append_memory_domain_event(&MemoryEvent::Suggested {
+                    .append_memory_domain_event_checked(&MemoryEvent::Suggested {
                         memory_id: memory_id.clone(),
                         kind: MemoryKind::Fact,
                         content: content.clone(),
@@ -657,7 +657,7 @@ impl SessionEngine {
                     return Ok(denied);
                 }
                 self.workflows
-                    .append_memory_domain_event(&MemoryEvent::Confirmed {
+                    .append_memory_domain_event_checked(&MemoryEvent::Confirmed {
                         memory_id: memory_id.clone(),
                         timestamp: now_timestamp(),
                         origin_session_id: Some(self.session_id().to_string()),
@@ -674,7 +674,7 @@ impl SessionEngine {
                     return Ok(denied);
                 }
                 self.workflows
-                    .append_memory_domain_event(&MemoryEvent::Rejected {
+                    .append_memory_domain_event_checked(&MemoryEvent::Rejected {
                         memory_id: memory_id.clone(),
                         timestamp: now_timestamp(),
                         origin_session_id: Some(self.session_id().to_string()),
@@ -691,7 +691,7 @@ impl SessionEngine {
                     return Ok(denied);
                 }
                 self.workflows
-                    .append_memory_domain_event(&MemoryEvent::Pruned {
+                    .append_memory_domain_event_checked(&MemoryEvent::Pruned {
                         memory_id: memory_id.clone(),
                         timestamp: now_timestamp(),
                         origin_session_id: Some(self.session_id().to_string()),
@@ -711,7 +711,7 @@ impl SessionEngine {
                 }
                 let memory_id = fresh_id("mem");
                 self.workflows
-                    .append_memory_domain_event(&MemoryEvent::Added {
+                    .append_memory_domain_event_checked(&MemoryEvent::Added {
                         memory_id: memory_id.clone(),
                         scope: MemoryScope::Session,
                         session_id: Some(self.session_id().to_string()),
