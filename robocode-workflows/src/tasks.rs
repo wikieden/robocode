@@ -81,6 +81,11 @@ pub enum TaskEvent {
         timestamp: u64,
         origin_session_id: Option<String>,
     },
+    Seen {
+        task_id: TaskId,
+        timestamp: u64,
+        origin_session_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -111,6 +116,13 @@ impl TaskState {
         self.tasks
             .values()
             .filter(|task| task.status == TaskStatus::Archived)
+            .collect()
+    }
+
+    pub fn completed_tasks(&self) -> Vec<&TaskRecord> {
+        self.tasks
+            .values()
+            .filter(|task| task.status == TaskStatus::Done)
             .collect()
     }
 
@@ -274,6 +286,15 @@ fn apply_event(state: &mut TaskState, event: &TaskEvent) -> Result<(), String> {
             }
             task.status = TaskStatus::Todo;
             task.archived_at = None;
+            touch_task(task, *timestamp, origin_session_id);
+        }
+        TaskEvent::Seen {
+            task_id,
+            timestamp,
+            origin_session_id,
+        } => {
+            let task = require_task_mut(state, task_id)?;
+            task.last_seen_at = Some(*timestamp);
             touch_task(task, *timestamp, origin_session_id);
         }
     }
