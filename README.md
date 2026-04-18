@@ -12,6 +12,7 @@ This repository currently includes:
 - Session persistence with JSONL transcripts and a SQLite index
 - A permission-aware tool runtime
 - Built-in local tools for shell, files, search, web access, and Git workflows including worktrees and stash/restore flows
+- Project-level workflow state for tasks, session memory, project memory suggestions, and resume context
 - A provider abstraction with support for multiple API families and native tool-calling where available
 
 ## Workspace
@@ -24,6 +25,7 @@ This repository currently includes:
 - `robocode-permissions`: permission modes and decision logic
 - `robocode-session`: transcript storage and resume support
 - `robocode-types`: shared domain types
+- `robocode-workflows`: project tasks, memory, resume-context, and workflow event storage
 
 ## Development
 
@@ -94,6 +96,12 @@ Useful commands:
 /git stash list
 /web search rust language --limit 3
 /web fetch https://www.rust-lang.org --max-bytes 500
+/task add Build workflow commands
+/tasks
+/task resume-context
+/memory suggest Keep project memory explicit
+/memory confirm mem_<id>
+/memory export
 ```
 
 The `/resume` command also supports `/resume #<index>` and `/resume <session-id-prefix>`.
@@ -103,6 +111,7 @@ Built-in tool families include:
 - file and search tools: `read_file`, `write_file`, `edit_file`, `glob`, `grep`
 - web tools: `web_search`, `web_fetch`
 - Git tools: status, diff, branch, add, switch, commit, push, restore, stash, and worktree flows
+- workflow commands: project tasks, task lifecycle changes, session memory, project memory suggestions, and resume context
 - shell execution with platform-specific adapters for POSIX and PowerShell
 
 Project docs:
