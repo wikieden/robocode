@@ -22,8 +22,8 @@
 | Plugins | 内置和第三方插件加载 | 未开始 | 带清晰信任边界的 plugin loading 和管理 | 高 | V3 | 行为相似，Rust 原生实现 |
 | 多 Agent / Teams | Agent tool、coordinator、team workflows、inter-agent messaging | 未开始 | 在共享运行时保证下的协调式委派工作流 | 高 | V3 | 高相似度对标 |
 | Bridge / Remote | IDE bridge、remote session manager、server-oriented flows | 未开始 | 可复用的 remote / bridge 层，具备 permission callbacks | 高 | V3 | 高相似度对标 |
-| Memory | persistent memory 支持 | 未开始 | 与长期工作流绑定的显式 memory 模型 | 高 | V2 | 行为相似，首版可简化 |
-| Tasks | task 创建与管理 | 未开始 | 融入 session、后续扩展到 agents 的 task lifecycle | 高 | V2 | 先于大平台能力，是高价值项 |
+| Memory | persistent memory 支持 | V2-C active / partial implementation：已有 project/session memory、suggestion confirmation、event logs | 与长期工作流绑定的显式 memory 模型 | 中 | V2 | 已在 `codex/v2-memory-task-workflows` 实现；仍比参考平台更轻 |
+| Tasks | task 创建与管理 | V2-C active / partial implementation：已有 lifecycle reducer、blockers、archive/restore、resume context | 融入 session、后续扩展到 agents 的 task lifecycle | 中 | V2 | 已在 `codex/v2-memory-task-workflows` 实现；agent integration 仍是未来工作 |
 | Automation / Cron | 定时与 durable automation 流程 | 未开始 | session 和 durable automation 支持 | 高 | V3 | 应放在核心工作流成熟之后 |
 | Voice | 语音输入与状态管理 | 未开始 | voice-assisted workflow layer | 高 | 远期 | 参考工程有，但优先级较低 |
 | TUI / Screens | 丰富 Ink UI、screens、structured diff、专项视图 | 当前只有极简 REPL 和文本帮助 | 更丰富的 diff、sessions、permissions、integrations TUI | 高 | V2 | UX 意图对齐，不要求同框架 |

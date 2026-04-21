@@ -21,6 +21,9 @@
 
 ### Plan 1: V2-A Session and Command Enhancement
 
+Status:
+- complete on the current V2 branch
+
 Purpose:
 - broaden the local command surface
 - make sessions easier to inspect and resume
@@ -38,6 +41,9 @@ Output:
 
 ### Plan 2: V2-B LSP Foundation
 
+Status:
+- next implementation target after V2-C is published or merged
+
 Purpose:
 - introduce semantic code intelligence without breaking the existing tool loop
 
@@ -48,7 +54,14 @@ Expected files:
 - `robocode-tools/src/lib.rs`
 - `robocode-types/src/lib.rs`
 
+Output:
+- detailed plan saved as `docs/superpowers/plans/2026-04-21-v2-lsp-foundation.md`
+
 ### Plan 3: V2-C Memory and Task Workflows
+
+Status:
+- active implementation on `codex/v2-memory-task-workflows`
+- implementation exists; branch publication/merge is the immediate checkpoint
 
 Purpose:
 - add long-lived memory and task state tied to sessions
@@ -104,9 +117,12 @@ Expected files:
 
 ## Execution Order
 
-- [ ] Execute Plan 1 first.
-- [ ] After Plan 1 lands, decide whether semantic assistance or workflow continuity is more urgent and choose Plan 2 or Plan 3 next.
-- [ ] Delay Plan 5 through Plan 7 until the V2 command/session surface is stable enough to host integrations safely.
+- [x] Execute Plan 1 first.
+- [x] Execute Plan 3 before Plan 2 because workflow continuity became the higher-priority V2 slice.
+- [ ] Finish Plan 3 publication or merge: run workspace verification, push the three unpublished commits, and decide whether to open a PR or merge locally.
+- [ ] Execute Plan 2 next: V2-B LSP Foundation.
+- [ ] Execute Plan 4 after LSP has enough semantic output to justify richer structured views.
+- [ ] Delay Plan 5 through Plan 7 until the V2 command, session, workflow, and LSP surfaces are stable enough to host integrations safely.
 
 ## Exit Condition
 
@@ -117,4 +133,3 @@ This index is complete when every major subsystem from:
 - `docs/ref-gap-matrix.md`
 
 has a corresponding detailed implementation plan with an explicit execution order.
-

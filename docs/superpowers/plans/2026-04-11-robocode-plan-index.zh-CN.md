@@ -23,6 +23,10 @@
 
 ### Plan 1：V2-A Session 与命令面增强
 
+状态：
+
+- 已在当前 V2 分支完成
+
 目的：
 
 - 扩展本地命令面
@@ -43,6 +47,10 @@
 
 ### Plan 2：V2-B LSP 基础能力
 
+状态：
+
+- V2-C 发布或合并后的下一项实现目标
+
 目的：
 
 - 在不破坏现有工具循环的前提下引入语义级代码智能
@@ -55,7 +63,16 @@
 - `robocode-tools/src/lib.rs`
 - `robocode-types/src/lib.rs`
 
+输出：
+
+- 详细计划文件：`docs/superpowers/plans/2026-04-21-v2-lsp-foundation.md`
+
 ### Plan 3：V2-C Memory 与 Task 工作流
+
+状态：
+
+- 正在 `codex/v2-memory-task-workflows` 上实现
+- 实现已存在；当前直接检查点是发布或合并分支
 
 目的：
 
@@ -121,9 +138,12 @@
 
 ## 执行顺序
 
-- [ ] 先执行 Plan 1。
-- [ ] Plan 1 完成后，再在语义能力与 workflow continuity 之间判断优先级，并选择 Plan 2 或 Plan 3。
-- [ ] 在 V2 命令面和 session 面稳定之前，延后 Plan 5 到 Plan 7。
+- [x] 先执行 Plan 1。
+- [x] 因 workflow continuity 优先级更高，先于 Plan 2 执行 Plan 3。
+- [ ] 完成 Plan 3 发布或合并：运行 workspace 验证，推送三个未发布提交，并决定开 PR 还是本地合并。
+- [ ] 下一步执行 Plan 2：V2-B LSP 基础能力。
+- [ ] LSP 产生足够语义输出后再执行 Plan 4。
+- [ ] 在 V2 命令面、session 面、workflow 面和 LSP 面稳定之前，延后 Plan 5 到 Plan 7。
 
 ## 退出条件
 
