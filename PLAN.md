@@ -13,34 +13,31 @@ RoboCode has a working V1 local CLI core:
 - session listing and resume selectors
 - file, search, shell, web, and Git tool families
 - V2-A runtime/session commands: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`
+- V2-C workflow continuity: `robocode-workflows`, project tasks, project/session memory, `/tasks`, `/task ...`, `/memory ...`, `/task resume-context`, workflow JSONL logs
 
-Active V2-C work adds:
+Active V2-B work adds:
 
-- `robocode-workflows`
-- project-level tasks
-- project memory and session memory
-- `/tasks`, `/task ...`, and `/memory ...` command families
-- `/task resume-context`
-- workflow JSONL event logs and derived workflow index bootstrap
+- `robocode-lsp`
+- read-only LSP server registry and JSON-RPC framing
+- semantic result contracts in `robocode-types`
+- `lsp_diagnostics`, `lsp_symbols`, and `lsp_references` tools
+- `/lsp status`, `/lsp diagnostics`, `/lsp symbols`, and `/lsp references`
 
 ## Near-Term Plan
 
-1. Finish and publish V2-C memory/task workflow branch.
-   - Keep project tasks and memory state separate from session transcripts.
-   - Preserve permission and transcript invariants for all workflow commands.
-   - Confirm branch with `cargo test --workspace --quiet` and CLI smoke checks.
-
-2. V2-B LSP Foundation.
+1. Finish V2-B LSP Foundation.
    - Add semantic code intelligence without replacing file/search tools.
    - Keep LSP actions behind the same permission and transcript guarantees.
    - Prefer small read-only actions first: symbol lookup, diagnostics, references.
+   - Replace the current runtime stub with real language-server query execution before claiming mature LSP semantics.
 
-3. V2-D Richer TUI and Structured Views.
+2. V2-D Richer TUI and Structured Views.
    - Improve task, memory, diff, session, and approval rendering.
+   - Add structured views for diagnostics, symbols, and references.
    - Avoid a full UI rewrite until workflows are stable.
    - Keep text output usable in plain terminals.
 
-4. V3 Platform Expansion.
+3. V3 Platform Expansion.
    - MCP runtime and plugin loading.
    - Skills/workflow plugin model.
    - Multi-agent coordinator.
@@ -59,10 +56,12 @@ Completed or substantially covered:
 - transcript and resume model
 - provider abstraction
 - early task/memory workflow layer
+- early LSP foundation with read-only commands/tools
 
 Partial:
 
 - command surface breadth
+- LSP runtime execution depth
 - provider streaming/cancellation maturity
 - session summaries and long-history management
 - task workflows compared with reference task/session model
@@ -71,7 +70,6 @@ Partial:
 Missing:
 
 - MCP
-- LSP
 - skills/plugins
 - multi-agent/team coordinator
 - bridge/remote/server mode
@@ -111,3 +109,7 @@ Current V2-C docs, when present:
 
 - `docs/superpowers/specs/2026-04-11-v2-memory-task-workflows-design.md`
 - `docs/superpowers/plans/2026-04-11-v2-memory-task-workflows.md`
+
+Current V2-B docs, when present:
+
+- `docs/superpowers/plans/2026-04-21-v2-lsp-foundation.md`
