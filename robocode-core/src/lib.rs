@@ -230,6 +230,7 @@ impl SessionEngine {
                     &call,
                     &ToolExecutionContext {
                         cwd: self.cwd.clone(),
+                        semantic: None,
                     },
                 )?;
                 self.persist_tool_result(&result)?;
