@@ -411,10 +411,15 @@ provider 层必须保持厂商无关。
 
 要求：
 
-- persistent memory model
-- task lifecycle management
-- scheduled execution / reminders
-- durable 与 session-scoped automation
+- 通过独立 workflow state 层管理项目级 task lifecycle
+- 明确区分 project memory 与 session memory
+- assistant 建议的 project memory 在显式 confirm 前不能成为 active
+- task 与 memory event logs 必须 append-only、可审计、可重建
+- workflow resume context 必须汇总 active tasks、blockers、relevant memory
+  和 suggested next steps
+- checked append 必须防止无效 task / memory events 污染 workflow log
+- resume-context 生成不能静默修改 task 业务状态
+- scheduled execution、reminders、durable automation 留到后续阶段
 
 阶段优先级：
 - V2：memory 和 tasks
@@ -542,7 +547,25 @@ MCP、remote、多 Agent 这些子系统必须能够插入现有 command、permi
 - 通过显式审批和 scope-aware execution 保证安全
 - 兼容策略上以行为相似度优先，而不是实现相似度
 
-## 验收标准
+## 产品验收标准
+
+完整 RoboCode 产品目标必须满足：
+
+- 所有 user prompts、slash commands、model events、tool calls、workflow
+  commands 都进入共享 runtime path
+- 文件、shell、Git、workflow、memory 以及未来 integration 的 mutating actions
+  都必须先经过 permission gate
+- session transcripts 必须 append-only、可审计，并足以重建 session history 与派生索引
+- workflow task / memory state 必须和 transcripts 分离，以 JSONL 为 canonical
+  storage，并保持 SQLite indexes 可重建
+- provider 可替换且不要求修改 core engine，原生 tool calls 归一化为共享 model event
+  形状
+- 内置本地工具必须有稳定契约、declared mutability，以及 transcript-visible results
+- project memory suggestions 必须经过显式 confirm/reject 才能成为 active 或被 retired
+- 未来 MCP、LSP、plugin、多 Agent、bridge、remote 能力必须插入同一套 command、
+  permission、tool、transcript 模型，而不是建立平行运行时
+
+## 需求文档验收标准
 
 完整需求集必须能回答：
 

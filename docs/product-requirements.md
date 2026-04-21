@@ -420,10 +420,19 @@ Support longer-lived workflows that outlast a single active prompt loop.
 
 Requirements:
 
-- persistent memory model
-- task lifecycle management
-- scheduled execution or reminders
-- durable and session-scoped automation variants
+- project-level task lifecycle management through a dedicated workflow state
+  layer
+- project memory and session memory with separate scope semantics
+- assistant-suggested project memory that remains inactive until explicit
+  confirmation
+- task and memory event logs that are append-only, auditable, and rebuildable
+- workflow resume context that summarizes active tasks, blockers, relevant
+  memory, and suggested next steps
+- checked append behavior so invalid task or memory events do not corrupt the
+  workflow log
+- no silent business-state mutation from resume-context generation
+- scheduled execution, reminders, and durable automation variants in later
+  phases
 
 Phase priority:
 - V2 for memory and tasks
@@ -555,7 +564,29 @@ parallel runtimes.
 - Compatibility strategy that favors behavioral similarity over implementation
   similarity
 
-## Acceptance Criteria
+## Product Acceptance Criteria
+
+The complete RoboCode product target is acceptable only if:
+
+- all user prompts, slash commands, model events, tool calls, and workflow
+  commands enter the shared runtime path
+- mutating file, shell, Git, workflow, memory, and future integration actions
+  are permission-gated before execution
+- session transcripts are append-only, auditable, and sufficient to rebuild
+  session history and derived session indexes
+- workflow task and memory state stays separate from transcripts, uses JSONL as
+  canonical storage, and keeps SQLite indexes rebuildable
+- providers can be swapped without changing core engine logic, and native tool
+  calls normalize into the shared model event shape
+- built-in local tools expose stable contracts, declared mutability, and
+  transcript-visible results
+- project memory suggestions require explicit confirm/reject decisions before
+  becoming active or retired
+- future MCP, LSP, plugin, multi-agent, bridge, and remote capabilities plug
+  into the same command, permission, tool, and transcript model rather than
+  creating parallel runtimes
+
+## Requirements Document Acceptance Criteria
 
 The complete RoboCode requirements set is acceptable only if it answers:
 
@@ -564,4 +595,3 @@ The complete RoboCode requirements set is acceptable only if it answers:
 - which phase each subsystem belongs to
 - what "good enough" behavior means for each major subsystem
 - how RoboCode should stay similar to `.ref` without becoming a literal port
-
