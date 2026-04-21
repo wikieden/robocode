@@ -78,6 +78,7 @@ dependencies = [
 name = "robocode-core"
 version = "0.1.0"
 dependencies = [
+ "robocode-lsp",
  "robocode-model",
  "robocode-permissions",
  "robocode-session",

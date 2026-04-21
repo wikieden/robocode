@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+robocode-lsp = { path = "../robocode-lsp" }
 robocode-model = { path = "../robocode-model" }
 robocode-permissions = { path = "../robocode-permissions" }
 robocode-session = { path = "../robocode-session" }
