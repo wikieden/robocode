@@ -11,6 +11,7 @@ pub type ToolCallId = String;
 pub type ToolInput = BTreeMap<String, String>;
 pub type TaskId = String;
 pub type MemoryId = String;
+pub type LspServerId = String;
 
 pub fn now_timestamp() -> u64 {
     SystemTime::now()
@@ -699,6 +700,44 @@ pub struct ResumeContextSnapshot {
     pub suggested_session_memory: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LspPosition {
+    pub line: u32,
+    pub character: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LspRange {
+    pub start: LspPosition,
+    pub end: LspPosition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LspLocation {
+    pub path: String,
+    pub range: LspRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LspDiagnostic {
+    pub path: String,
+    pub range: LspRange,
+    pub severity: Option<u8>,
+    pub source: Option<String>,
+    pub code: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LspSymbol {
+    pub name: String,
+    pub kind: u32,
+    pub path: String,
+    pub range: LspRange,
+    pub selection_range: Option<LspRange>,
+    pub container_name: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PermissionPrompt {
     pub tool_name: String,
@@ -926,5 +965,30 @@ mod tests {
         let decoded: ResumeContextSnapshot = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.suggested_next_steps, vec!["Continue Task 1"]);
         assert_eq!(decoded.active_tasks[0].priority, TaskPriority::High);
+    }
+
+    #[test]
+    fn lsp_diagnostic_roundtrips_json() {
+        let diagnostic = LspDiagnostic {
+            path: "src/lib.rs".to_string(),
+            range: LspRange {
+                start: LspPosition {
+                    line: 1,
+                    character: 2,
+                },
+                end: LspPosition {
+                    line: 1,
+                    character: 5,
+                },
+            },
+            severity: Some(2),
+            source: Some("rust-analyzer".to_string()),
+            code: Some("E0308".to_string()),
+            message: "mismatched types".to_string(),
+        };
+
+        let encoded = serde_json::to_string(&diagnostic).unwrap();
+        let decoded: LspDiagnostic = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, diagnostic);
     }
 }

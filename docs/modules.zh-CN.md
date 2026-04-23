@@ -3,7 +3,8 @@
 ## Workspace 依赖图
 
 - `robocode-cli` 依赖 config、core、model、tools、types，用来创建终端运行时。
-- `robocode-core` 依赖 model、permissions、session、tools、types、workflows，用来编排 turns 和 commands。
+- `robocode-core` 依赖 LSP、model、permissions、session、tools、types、workflows，用来编排 turns 和 commands。
+- `robocode-lsp` 依赖 types 和 JSON serialization，提供只读语义代码智能。
 - `robocode-model`、`robocode-tools`、`robocode-permissions`、`robocode-session`、`robocode-workflows` 使用 `robocode-types` 作为共享契约。
 - `robocode-workflows` 也使用 `robocode-session` 的 project identity helper。
 
@@ -15,28 +16,31 @@
 - Permission policy：`robocode-permissions`。
 - 工具实现：`robocode-tools`。
 - Provider 协议适配：`robocode-model`。
+- 语义代码智能：`robocode-lsp`。
 - CLI 展示：`robocode-cli`。
 
 ## 当前实现状态
 
 - V1 本地 CLI 基线已实现：REPL、config、providers、permissions、transcripts、resume、file/search/shell/web/Git tools。
 - V2-A session 和 command enhancement 已实现：`/status`、`/config`、`/doctor`、更丰富的 `/sessions`、分组 `/help`。
-- V2-C memory 和 task workflows 在当前分支实现：`robocode-workflows`、`/tasks`、`/task ...`、`/memory ...`、workflow JSONL logs、resume context。
-- V2-B LSP foundation 和 V2-D richer TUI/structured views 仍是下一阶段。
+- V2-C memory 和 task workflows 已在前序分支实现：`robocode-workflows`、`/tasks`、`/task ...`、`/memory ...`、workflow JSONL logs、resume context。
+- V2-B LSP foundation 在当前分支实现：`robocode-lsp`、只读 `lsp_*` tools、`/lsp ...` commands。
+- V2-D richer TUI/structured views 仍是下一阶段。
 
 ## 与 `.ref/claude-code-main` 的差距
 
 已覆盖：session engine 形态、command families、permission modes、local tool registry、transcript/resume model、Git 和 web workflows。
 
-部分覆盖：task workflow 深度、terminal UI 丰富度、provider streaming/cancellation 成熟度、长 session summarization。
+部分覆盖：task workflow 深度、LSP runtime 深度、terminal UI 丰富度、provider streaming/cancellation 成熟度、长 session summarization。
 
-未实现：MCP、LSP、skills/plugins、multi-agent/team coordinator、bridge/remote/server mode、automation/cron、voice、managed settings、analytics、feature flags。
+未实现：MCP、skills/plugins、multi-agent/team coordinator、bridge/remote/server mode、automation/cron、voice、managed settings、analytics、feature flags。
 
 ## 模块文档
 
 - `robocode-cli/README.zh-CN.md`
 - `robocode-config/README.zh-CN.md`
 - `robocode-core/README.zh-CN.md`
+- `robocode-lsp/README.zh-CN.md`
 - `robocode-model/README.zh-CN.md`
 - `robocode-tools/README.zh-CN.md`
 - `robocode-permissions/README.zh-CN.md`

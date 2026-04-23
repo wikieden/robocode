@@ -3,6 +3,7 @@ members = [
     "robocode-cli",
     "robocode-config",
     "robocode-core",
+    "robocode-lsp",
     "robocode-model",
     "robocode-permissions",
     "robocode-session",

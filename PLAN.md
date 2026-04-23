@@ -13,15 +13,15 @@ RoboCode has a working V1 local CLI core:
 - session listing and resume selectors
 - file, search, shell, web, and Git tool families
 - V2-A runtime/session commands: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`
+- V2-C workflow continuity: `robocode-workflows`, project tasks, project/session memory, `/tasks`, `/task ...`, `/memory ...`, `/task resume-context`, workflow JSONL logs
 
 This branch adds an early V2-C workflow layer:
 
-- `robocode-workflows`
-- project-level tasks
-- project memory and session memory
-- `/tasks`, `/task ...`, and `/memory ...` command families
-- `/task resume-context`
-- workflow JSONL event logs and derived workflow index bootstrap
+- `robocode-lsp`
+- read-only LSP server registry and JSON-RPC framing
+- semantic result contracts in `robocode-types`
+- `lsp_diagnostics`, `lsp_symbols`, and `lsp_references` tools
+- `/lsp status`, `/lsp diagnostics`, `/lsp symbols`, and `/lsp references`
 
 This V2-C slice is implemented on `codex/v2-memory-task-workflows`, pushed, and
 still partial relative to the full product target. The gap matrix tracks Memory
@@ -40,13 +40,15 @@ coverage.
    - Add semantic code intelligence without replacing file/search tools.
    - Keep LSP actions behind the same permission and transcript guarantees.
    - Prefer small read-only actions first: symbol lookup, diagnostics, references.
+   - Replace the current runtime stub with real language-server query execution before claiming mature LSP semantics.
 
-3. V2-D Richer TUI and Structured Views.
+2. V2-D Richer TUI and Structured Views.
    - Improve task, memory, diff, session, and approval rendering.
+   - Add structured views for diagnostics, symbols, and references.
    - Avoid a full UI rewrite until workflows are stable.
    - Keep text output usable in plain terminals.
 
-4. V3 Platform Expansion.
+3. V3 Platform Expansion.
    - MCP runtime and plugin loading.
    - Skills/workflow plugin model.
    - Multi-agent coordinator.
@@ -65,10 +67,12 @@ Completed or substantially covered:
 - transcript and resume model
 - provider abstraction
 - early task/memory workflow layer
+- early LSP foundation with read-only commands/tools
 
 Partial:
 
 - command surface breadth
+- LSP runtime execution depth
 - provider streaming/cancellation maturity
 - session summaries and long-history management
 - task workflows compared with reference task/session model
@@ -77,7 +81,6 @@ Partial:
 Missing:
 
 - MCP
-- LSP
 - skills/plugins
 - multi-agent/team coordinator
 - bridge/remote/server mode
