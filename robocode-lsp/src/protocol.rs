@@ -25,6 +25,14 @@ pub fn did_open_text_document(path_uri: &str, language_id: &str, text: &str) -> 
     })
 }
 
+pub fn initialized_notification() -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "initialized",
+        "params": {}
+    })
+}
+
 pub fn document_symbol_request(id: u64, path_uri: &str) -> serde_json::Value {
     serde_json::json!({
         "jsonrpc": "2.0",
@@ -60,6 +68,23 @@ pub fn references_request(
                 "includeDeclaration": true
             }
         }
+    })
+}
+
+pub fn shutdown_request(id: u64) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "shutdown",
+        "params": null
+    })
+}
+
+pub fn exit_notification() -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "exit",
+        "params": null
     })
 }
 

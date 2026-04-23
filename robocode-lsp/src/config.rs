@@ -27,6 +27,10 @@ impl Default for LspServerRegistry {
 }
 
 impl LspServerRegistry {
+    pub fn new(servers: Vec<LspServerConfig>) -> Self {
+        Self { servers }
+    }
+
     pub fn all(&self) -> &[LspServerConfig] {
         &self.servers
     }
