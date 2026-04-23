@@ -523,15 +523,40 @@ fn parse_locations(value: &Value, fallback_uri: &str) -> Result<Vec<LspLocation>
     };
     let mut locations = Vec::new();
     for item in items {
+        let uri = item
+            .get("uri")
+            .and_then(Value::as_str)
+            .or_else(|| item.get("targetUri").and_then(Value::as_str))
+            .unwrap_or(fallback_uri);
+        let range_value = item
+            .get("range")
+            .or_else(|| item.get("targetSelectionRange"))
+            .or_else(|| item.get("targetRange"))
+            .unwrap_or(&Value::Null);
         locations.push(LspLocation {
-            path: uri_to_path_string(
-                item.get("uri")
-                    .and_then(Value::as_str)
-                    .unwrap_or(fallback_uri),
-            ),
-            range: parse_range(item.get("range").unwrap_or(&Value::Null))?,
+            path: uri_to_path_string(uri),
+            range: parse_range(range_value)?,
         });
     }
+    locations.sort_by(|left, right| {
+        (
+            left.path.as_str(),
+            left.range.start.line,
+            left.range.start.character,
+        )
+            .cmp(&(
+                right.path.as_str(),
+                right.range.start.line,
+                right.range.start.character,
+            ))
+    });
+    locations.dedup_by(|left, right| {
+        left.path == right.path
+            && left.range.start.line == right.range.start.line
+            && left.range.start.character == right.range.start.character
+            && left.range.end.line == right.range.end.line
+            && left.range.end.character == right.range.end.character
+    });
     Ok(locations)
 }
 
@@ -860,5 +885,38 @@ while True:
         assert_eq!(stats["initialize"], 1);
         assert_eq!(stats["didOpen"], 1);
         assert_eq!(stats["didChange"], 1);
+    }
+
+    #[test]
+    fn parse_locations_supports_location_links_and_dedups() {
+        let payload = serde_json::json!([
+            {
+                "targetUri": "file:///tmp/project/src/lib.rs",
+                "targetSelectionRange": {
+                    "start": {"line": 3, "character": 2},
+                    "end": {"line": 3, "character": 6}
+                }
+            },
+            {
+                "uri": "file:///tmp/project/src/lib.rs",
+                "range": {
+                    "start": {"line": 3, "character": 2},
+                    "end": {"line": 3, "character": 6}
+                }
+            },
+            {
+                "uri": "file:///tmp/project/src/main.rs",
+                "range": {
+                    "start": {"line": 1, "character": 0},
+                    "end": {"line": 1, "character": 4}
+                }
+            }
+        ]);
+
+        let locations = parse_locations(&payload, "file:///tmp/fallback.rs").unwrap();
+        assert_eq!(locations.len(), 2);
+        assert_eq!(locations[0].path, "/tmp/project/src/lib.rs");
+        assert_eq!(locations[0].range.start.line, 3);
+        assert_eq!(locations[1].path, "/tmp/project/src/main.rs");
     }
 }

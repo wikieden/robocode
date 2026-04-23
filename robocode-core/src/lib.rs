@@ -36,13 +36,13 @@ impl SemanticToolProvider for LspToolAdapter {
     fn diagnostics(&self, cwd: &std::path::Path, path: &std::path::Path) -> Result<String, String> {
         self.runtime
             .diagnostics(cwd, path)
-            .map(|diagnostics| render_lsp_diagnostics(&diagnostics))
+            .map(|diagnostics| render_lsp_diagnostics(cwd, &diagnostics))
     }
 
     fn symbols(&self, cwd: &std::path::Path, path: &std::path::Path) -> Result<String, String> {
         self.runtime
             .symbols(cwd, path)
-            .map(|symbols| render_lsp_symbols(&symbols))
+            .map(|symbols| render_lsp_symbols(cwd, &symbols))
     }
 
     fn references(
@@ -54,7 +54,7 @@ impl SemanticToolProvider for LspToolAdapter {
     ) -> Result<String, String> {
         self.runtime
             .references(cwd, path, LspPosition { line, character })
-            .map(|locations| render_lsp_locations(&locations))
+            .map(|locations| render_lsp_locations(cwd, &locations))
     }
 }
 
@@ -782,7 +782,7 @@ impl SessionEngine {
                     .lsp_runtime
                     .diagnostics(&self.cwd, std::path::Path::new(path))
                 {
-                    Ok(diagnostics) => Ok(render_lsp_diagnostics(&diagnostics)),
+                    Ok(diagnostics) => Ok(render_lsp_diagnostics(&self.cwd, &diagnostics)),
                     Err(error) => Ok(format!("LSP error: {error}")),
                 }
             }
@@ -791,7 +791,7 @@ impl SessionEngine {
                     .get(1)
                     .ok_or_else(|| "Usage: /lsp symbols <path>".to_string())?;
                 match self.lsp_runtime.symbols(&self.cwd, std::path::Path::new(path)) {
-                    Ok(symbols) => Ok(render_lsp_symbols(&symbols)),
+                    Ok(symbols) => Ok(render_lsp_symbols(&self.cwd, &symbols)),
                     Err(error) => Ok(format!("LSP error: {error}")),
                 }
             }
@@ -806,7 +806,7 @@ impl SessionEngine {
                     std::path::Path::new(path),
                     LspPosition { line, character },
                 ) {
-                    Ok(locations) => Ok(render_lsp_locations(&locations)),
+                    Ok(locations) => Ok(render_lsp_locations(&self.cwd, &locations)),
                     Err(error) => Ok(format!("LSP error: {error}")),
                 }
             }
@@ -1783,38 +1783,58 @@ fn parse_lsp_position_arg(raw: Option<&String>, name: &str) -> Result<u32, Strin
         })
 }
 
-fn render_lsp_diagnostics(diagnostics: &[LspDiagnostic]) -> String {
+fn render_lsp_diagnostics(cwd: &std::path::Path, diagnostics: &[LspDiagnostic]) -> String {
     if diagnostics.is_empty() {
         return "LSP diagnostics:\n  <none>".to_string();
     }
     let mut lines = vec!["LSP diagnostics:".to_string()];
     for diagnostic in diagnostics {
         lines.push(format!(
-            "  {}:{}:{} {}",
-            diagnostic.path,
+            "  {}:{}:{} [{}] {}{}{}",
+            render_lsp_path(cwd, &diagnostic.path),
             diagnostic.range.start.line,
             diagnostic.range.start.character,
-            diagnostic.message
+            severity_label(diagnostic.severity),
+            diagnostic.message,
+            diagnostic
+                .source
+                .as_ref()
+                .map(|source| format!(" ({source})"))
+                .unwrap_or_default(),
+            diagnostic
+                .code
+                .as_ref()
+                .map(|code| format!(" code={code}"))
+                .unwrap_or_default()
         ));
     }
     lines.join("\n")
 }
 
-fn render_lsp_symbols(symbols: &[LspSymbol]) -> String {
+fn render_lsp_symbols(cwd: &std::path::Path, symbols: &[LspSymbol]) -> String {
     if symbols.is_empty() {
         return "LSP symbols:\n  <none>".to_string();
     }
     let mut lines = vec!["LSP symbols:".to_string()];
     for symbol in symbols {
         lines.push(format!(
-            "  {} kind={} {}:{}:{}",
-            symbol.name, symbol.kind, symbol.path, symbol.range.start.line, symbol.range.start.character
+            "  {} [{}] {}:{}:{}{}",
+            symbol.name,
+            symbol_kind_label(symbol.kind),
+            render_lsp_path(cwd, &symbol.path),
+            symbol.range.start.line,
+            symbol.range.start.character,
+            symbol
+                .container_name
+                .as_ref()
+                .map(|container| format!(" in {container}"))
+                .unwrap_or_default()
         ));
     }
     lines.join("\n")
 }
 
-fn render_lsp_locations(locations: &[LspLocation]) -> String {
+fn render_lsp_locations(cwd: &std::path::Path, locations: &[LspLocation]) -> String {
     if locations.is_empty() {
         return "LSP references:\n  <none>".to_string();
     }
@@ -1822,10 +1842,45 @@ fn render_lsp_locations(locations: &[LspLocation]) -> String {
     for location in locations {
         lines.push(format!(
             "  {}:{}:{}",
-            location.path, location.range.start.line, location.range.start.character
+            render_lsp_path(cwd, &location.path),
+            location.range.start.line,
+            location.range.start.character
         ));
     }
     lines.join("\n")
+}
+
+fn render_lsp_path(cwd: &std::path::Path, path: &str) -> String {
+    let path_buf = std::path::Path::new(path);
+    path_buf
+        .strip_prefix(cwd)
+        .map(|relative| relative.display().to_string())
+        .unwrap_or_else(|_| path.to_string())
+}
+
+fn severity_label(severity: Option<u8>) -> &'static str {
+    match severity {
+        Some(1) => "error",
+        Some(2) => "warning",
+        Some(3) => "info",
+        Some(4) => "hint",
+        _ => "unknown",
+    }
+}
+
+fn symbol_kind_label(kind: u32) -> &'static str {
+    match kind {
+        5 => "class",
+        6 => "method",
+        10 => "enum",
+        11 => "interface",
+        12 => "function",
+        13 => "variable",
+        19 => "namespace",
+        22 => "field",
+        23 => "struct",
+        _ => "symbol",
+    }
 }
 
 fn render_resume_context(snapshot: &ResumeContextSnapshot) -> String {
@@ -1912,7 +1967,8 @@ mod tests {
 
     use robocode_model::ModelProvider;
     use robocode_types::{
-        ApprovalResponse, ModelEvent, ModelRequest, PermissionMode, ToolCall, ToolInput,
+        ApprovalResponse, LspRange, ModelEvent, ModelRequest, PermissionMode, ToolCall,
+        ToolInput,
     };
 
     use super::*;
@@ -2410,6 +2466,60 @@ mod tests {
             entry,
             TranscriptEntry::Command { entry } if entry.name == "lsp"
         )));
+    }
+
+    #[test]
+    fn render_lsp_symbols_uses_relative_paths_and_kind_labels() {
+        let cwd = temp_dir("lsp_render_symbols");
+        let rendered = render_lsp_symbols(
+            &cwd,
+            &[LspSymbol {
+                name: "main".to_string(),
+                kind: 12,
+                path: cwd.join("src/lib.rs").display().to_string(),
+                range: LspRange {
+                    start: LspPosition {
+                        line: 3,
+                        character: 1,
+                    },
+                    end: LspPosition {
+                        line: 4,
+                        character: 1,
+                    },
+                },
+                selection_range: None,
+                container_name: Some("impl SessionEngine".to_string()),
+            }],
+        );
+        assert!(rendered.contains("main [function] src/lib.rs:3:1 in impl SessionEngine"));
+    }
+
+    #[test]
+    fn render_lsp_diagnostics_includes_severity_source_and_code() {
+        let cwd = temp_dir("lsp_render_diagnostics");
+        let rendered = render_lsp_diagnostics(
+            &cwd,
+            &[LspDiagnostic {
+                path: cwd.join("src/lib.rs").display().to_string(),
+                range: LspRange {
+                    start: LspPosition {
+                        line: 7,
+                        character: 2,
+                    },
+                    end: LspPosition {
+                        line: 7,
+                        character: 6,
+                    },
+                },
+                severity: Some(2),
+                source: Some("rust-analyzer".to_string()),
+                code: Some("E0308".to_string()),
+                message: "mismatched types".to_string(),
+            }],
+        );
+        assert!(rendered.contains(
+            "src/lib.rs:7:2 [warning] mismatched types (rust-analyzer) code=E0308"
+        ));
     }
 
     #[test]
