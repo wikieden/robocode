@@ -14,7 +14,7 @@ RoboCode has a working V1 local CLI core:
 - file, search, shell, web, and Git tool families
 - V2-A runtime/session commands: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`
 
-Active V2-C work adds:
+This branch adds an early V2-C workflow layer:
 
 - `robocode-workflows`
 - project-level tasks
@@ -23,12 +23,18 @@ Active V2-C work adds:
 - `/task resume-context`
 - workflow JSONL event logs and derived workflow index bootstrap
 
+This V2-C slice is implemented on `codex/v2-memory-task-workflows`, pushed, and
+still partial relative to the full product target. The gap matrix tracks Memory
+and Tasks as `V2-C active / partial implementation`, not complete platform
+coverage.
+
 ## Near-Term Plan
 
-1. Finish and publish V2-C memory/task workflow branch.
+1. Merge or otherwise land the current V2-C memory/task workflow branch.
    - Keep project tasks and memory state separate from session transcripts.
    - Preserve permission and transcript invariants for all workflow commands.
-   - Confirm branch with `cargo test --workspace --quiet` and CLI smoke checks.
+   - Treat the branch as an early workflow layer, not a complete memory/task
+     platform.
 
 2. V2-B LSP Foundation.
    - Add semantic code intelligence without replacing file/search tools.
@@ -111,3 +117,8 @@ Current V2-C docs, when present:
 
 - `docs/superpowers/specs/2026-04-11-v2-memory-task-workflows-design.md`
 - `docs/superpowers/plans/2026-04-11-v2-memory-task-workflows.md`
+
+Current branch state:
+
+- `codex/v2-memory-task-workflows` contains the branch-local V2-C
+  implementation and associated doc updates
