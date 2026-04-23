@@ -15,7 +15,7 @@ RoboCode has a working V1 local CLI core:
 - V2-A runtime/session commands: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`
 - V2-C workflow continuity: `robocode-workflows`, project tasks, project/session memory, `/tasks`, `/task ...`, `/memory ...`, `/task resume-context`, workflow JSONL logs
 
-Active V2-B work adds:
+This branch adds an early V2-C workflow layer:
 
 - `robocode-lsp`
 - read-only LSP server registry and JSON-RPC framing
@@ -23,9 +23,20 @@ Active V2-B work adds:
 - `lsp_diagnostics`, `lsp_symbols`, and `lsp_references` tools
 - `/lsp status`, `/lsp diagnostics`, `/lsp symbols`, and `/lsp references`
 
+This V2-C slice is implemented on `codex/v2-memory-task-workflows`, pushed, and
+still partial relative to the full product target. The gap matrix tracks Memory
+and Tasks as `V2-C active / partial implementation`, not complete platform
+coverage.
+
 ## Near-Term Plan
 
-1. Finish V2-B LSP Foundation.
+1. Merge or otherwise land the current V2-C memory/task workflow branch.
+   - Keep project tasks and memory state separate from session transcripts.
+   - Preserve permission and transcript invariants for all workflow commands.
+   - Treat the branch as an early workflow layer, not a complete memory/task
+     platform.
+
+2. V2-B LSP Foundation.
    - Add semantic code intelligence without replacing file/search tools.
    - Keep LSP actions behind the same permission and transcript guarantees.
    - Prefer small read-only actions first: symbol lookup, diagnostics, references.
@@ -110,6 +121,7 @@ Current V2-C docs, when present:
 - `docs/superpowers/specs/2026-04-11-v2-memory-task-workflows-design.md`
 - `docs/superpowers/plans/2026-04-11-v2-memory-task-workflows.md`
 
-Current V2-B docs, when present:
+Current branch state:
 
-- `docs/superpowers/plans/2026-04-21-v2-lsp-foundation.md`
+- `codex/v2-memory-task-workflows` contains the branch-local V2-C
+  implementation and associated doc updates
