@@ -25,6 +25,22 @@ pub fn did_open_text_document(path_uri: &str, language_id: &str, text: &str) -> 
     })
 }
 
+pub fn did_change_text_document(path_uri: &str, version: i32, text: &str) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {
+            "textDocument": {
+                "uri": path_uri,
+                "version": version
+            },
+            "contentChanges": [{
+                "text": text
+            }]
+        }
+    })
+}
+
 pub fn initialized_notification() -> serde_json::Value {
     serde_json::json!({
         "jsonrpc": "2.0",
@@ -108,5 +124,13 @@ mod tests {
         assert_eq!(request["params"]["position"]["line"], 3);
         assert_eq!(request["params"]["position"]["character"], 4);
         assert_eq!(request["params"]["context"]["includeDeclaration"], true);
+    }
+
+    #[test]
+    fn builds_did_change_request_with_versioned_full_text() {
+        let request = did_change_text_document("file:///tmp/project/src/lib.rs", 2, "fn main() {}\n");
+        assert_eq!(request["method"], "textDocument/didChange");
+        assert_eq!(request["params"]["textDocument"]["version"], 2);
+        assert_eq!(request["params"]["contentChanges"][0]["text"], "fn main() {}\n");
     }
 }

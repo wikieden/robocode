@@ -15,8 +15,9 @@ use robocode_types::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbo
 use crate::config::{LspServerConfig, LspServerRegistry};
 use crate::framing::encode_message;
 use crate::protocol::{
-    did_open_text_document, document_symbol_request, exit_notification, initialize_request,
-    initialized_notification, references_request, shutdown_request,
+    did_change_text_document, did_open_text_document, document_symbol_request,
+    exit_notification, initialize_request, initialized_notification, references_request,
+    shutdown_request,
 };
 
 const MESSAGE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -119,11 +120,11 @@ impl LspRuntime {
                     entry.insert(session)
                 }
             };
-            session.notify(&did_open_text_document(
+            session.sync_document(
                 &file_uri,
                 language_id_for_path(&absolute_path),
                 &text,
-            ))?;
+            )?;
             action(session, &file_uri)
         };
 
@@ -195,6 +196,7 @@ struct LspSession {
     stdin: ChildStdin,
     messages: Receiver<Result<Value, String>>,
     next_request_id: u64,
+    open_documents: HashMap<String, i32>,
 }
 
 impl LspSession {
@@ -226,6 +228,7 @@ impl LspSession {
             stdin,
             messages: spawn_reader(stdout),
             next_request_id: 1,
+            open_documents: HashMap::new(),
         })
     }
 
@@ -247,6 +250,22 @@ impl LspSession {
 
     fn notify(&mut self, payload: &Value) -> Result<(), String> {
         self.send(payload)
+    }
+
+    fn sync_document(
+        &mut self,
+        file_uri: &str,
+        language_id: &str,
+        text: &str,
+    ) -> Result<(), String> {
+        if let Some(version) = self.open_documents.get_mut(file_uri) {
+            *version += 1;
+            let next_version = *version;
+            return self.notify(&did_change_text_document(file_uri, next_version, text));
+        }
+        self.notify(&did_open_text_document(file_uri, language_id, text))?;
+        self.open_documents.insert(file_uri.to_string(), 1);
+        Ok(())
     }
 
     fn request(&mut self, payload: Value) -> Result<Value, String> {
@@ -567,15 +586,26 @@ mod tests {
         dir
     }
 
-    fn write_fake_server(workdir: &Path, initialize_counter: Option<&Path>) -> PathBuf {
+    fn write_fake_server(workdir: &Path, stats_path: Option<&Path>) -> PathBuf {
         let script_path = workdir.join("fake_lsp_server.py");
-        let counter_path = initialize_counter
-            .map(|path| format!("COUNTER_PATH = {:?}\n", path.display().to_string()))
-            .unwrap_or_else(|| "COUNTER_PATH = None\n".to_string());
+        let counter_path = stats_path
+            .map(|path| format!("STATS_PATH = {:?}\n", path.display().to_string()))
+            .unwrap_or_else(|| "STATS_PATH = None\n".to_string());
         let script_template = r#"__COUNTER_PATH__
 import json
 import sys
 from pathlib import Path
+
+def update_stats(key):
+    if not STATS_PATH:
+        return
+    stats_file = Path(STATS_PATH)
+    if stats_file.exists():
+        stats = json.loads(stats_file.read_text())
+    else:
+        stats = {}
+    stats[key] = stats.get(key, 0) + 1
+    stats_file.write_text(json.dumps(stats))
 
 def read_message():
     headers = {}
@@ -603,14 +633,12 @@ while True:
         break
     method = message.get("method")
     if method == "initialize":
-        if COUNTER_PATH:
-            counter_file = Path(COUNTER_PATH)
-            count = int(counter_file.read_text() or "0") if counter_file.exists() else 0
-            counter_file.write_text(str(count + 1))
+        update_stats("initialize")
         send({"jsonrpc": "2.0", "id": message["id"], "result": {"capabilities": {}}})
     elif method == "initialized":
         continue
     elif method == "textDocument/didOpen":
+        update_stats("didOpen")
         uri = message["params"]["textDocument"]["uri"]
         send({
             "jsonrpc": "2.0",
@@ -626,6 +654,26 @@ while True:
                     "source": "fake-lsp",
                     "code": "E100",
                     "message": "fake diagnostic"
+                }]
+            }
+        })
+    elif method == "textDocument/didChange":
+        update_stats("didChange")
+        uri = message["params"]["textDocument"]["uri"]
+        send({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": uri,
+                "diagnostics": [{
+                    "range": {
+                        "start": {"line": 1, "character": 4},
+                        "end": {"line": 1, "character": 8}
+                    },
+                    "severity": 2,
+                    "source": "fake-lsp-change",
+                    "code": "E200",
+                    "message": "changed diagnostic"
                 }]
             }
         })
@@ -773,7 +821,7 @@ while True:
     fn runtime_reuses_initialized_session_for_multiple_queries() {
         let cwd = temp_dir("reuse");
         let source = cwd.join("sample.rs");
-        let counter = cwd.join("initialize-count.txt");
+        let counter = cwd.join("stats.json");
         fs::write(&source, "fn main() {\n    let value = 1;\n}\n").unwrap();
         let runtime = LspRuntime::new(fake_registry_with_counter(&cwd, &counter));
 
@@ -789,6 +837,28 @@ while True:
 
         let status = runtime.status();
         assert_eq!(status.running_servers, vec!["fake-rust"]);
-        assert_eq!(fs::read_to_string(counter).unwrap(), "1");
+        let stats: Value = serde_json::from_str(&fs::read_to_string(counter).unwrap()).unwrap();
+        assert_eq!(stats["initialize"], 1);
+        assert_eq!(stats["didOpen"], 1);
+    }
+
+    #[test]
+    fn runtime_uses_did_change_for_repeated_document_sync() {
+        let cwd = temp_dir("did_change");
+        let source = cwd.join("sample.rs");
+        let counter = cwd.join("stats.json");
+        fs::write(&source, "fn main() {\n    let value = 1;\n}\n").unwrap();
+        let runtime = LspRuntime::new(fake_registry_with_counter(&cwd, &counter));
+
+        let first = runtime.diagnostics(&cwd, Path::new("sample.rs")).unwrap();
+        fs::write(&source, "fn main() {\n    let value = 2;\n}\n").unwrap();
+        let second = runtime.diagnostics(&cwd, Path::new("sample.rs")).unwrap();
+
+        assert_eq!(first[0].source.as_deref(), Some("fake-lsp"));
+        assert_eq!(second[0].source.as_deref(), Some("fake-lsp-change"));
+        let stats: Value = serde_json::from_str(&fs::read_to_string(counter).unwrap()).unwrap();
+        assert_eq!(stats["initialize"], 1);
+        assert_eq!(stats["didOpen"], 1);
+        assert_eq!(stats["didChange"], 1);
     }
 }
