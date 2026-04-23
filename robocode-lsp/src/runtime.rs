@@ -2,6 +2,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -43,6 +44,7 @@ pub struct LspRuntimeStatus {
 pub struct LspRuntime {
     registry: LspServerRegistry,
     last_error: Arc<Mutex<Option<String>>>,
+    sessions: Mutex<HashMap<String, LspSession>>,
 }
 
 impl LspRuntime {
@@ -50,10 +52,25 @@ impl LspRuntime {
         Self {
             registry,
             last_error: Arc::new(Mutex::new(None)),
+            sessions: Mutex::new(HashMap::new()),
         }
     }
 
     pub fn status(&self) -> LspRuntimeStatus {
+        let running_servers = self
+            .sessions
+            .lock()
+            .ok()
+            .map(|sessions| {
+                let mut names = sessions
+                    .values()
+                    .map(|session| session.server_id.clone())
+                    .collect::<Vec<_>>();
+                names.sort();
+                names.dedup();
+                names
+            })
+            .unwrap_or_default();
         LspRuntimeStatus {
             configured_servers: self
                 .registry
@@ -61,7 +78,7 @@ impl LspRuntime {
                 .iter()
                 .map(|server| server.id.clone())
                 .collect(),
-            running_servers: Vec::new(),
+            running_servers,
             last_error: self.last_error.lock().ok().and_then(|guard| guard.clone()),
         }
     }
@@ -84,30 +101,55 @@ impl LspRuntime {
     {
         let server = self.server_for_path(path)?;
         let absolute_path = resolve_query_path(cwd, path)?;
-        let mut session = LspSession::start(server, cwd)?;
+        let session_key = session_cache_key(cwd, server)?;
         let file_uri = file_uri(&absolute_path)?;
         let text = fs::read_to_string(&absolute_path).map_err(|err| err.to_string())?;
 
-        let result = (|| {
-            session.initialize(cwd)?;
-            session.notify(&initialized_notification())?;
+        let result = {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| "Failed to lock LSP session cache".to_string())?;
+            let session = match sessions.entry(session_key.clone()) {
+                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let mut session = LspSession::start(server, cwd)?;
+                    session.initialize(cwd)?;
+                    session.notify(&initialized_notification())?;
+                    entry.insert(session)
+                }
+            };
             session.notify(&did_open_text_document(
                 &file_uri,
                 language_id_for_path(&absolute_path),
                 &text,
             ))?;
-            action(&mut session, &file_uri)
-        })();
+            action(session, &file_uri)
+        };
 
-        let _ = session.shutdown();
         match result {
             Ok(value) => {
                 self.set_last_error(None);
                 Ok(value)
             }
             Err(error) => {
+                if let Ok(mut sessions) = self.sessions.lock() {
+                    if let Some(mut session) = sessions.remove(&session_key) {
+                        let _ = session.shutdown();
+                    }
+                }
                 self.set_last_error(Some(error.clone()));
                 Err(error)
+            }
+        }
+    }
+}
+
+impl Drop for LspRuntime {
+    fn drop(&mut self) {
+        if let Ok(mut sessions) = self.sessions.lock() {
+            for (_, mut session) in sessions.drain() {
+                let _ = session.shutdown();
             }
         }
     }
@@ -148,6 +190,7 @@ impl SemanticProvider for LspRuntime {
 }
 
 struct LspSession {
+    server_id: String,
     child: Child,
     stdin: ChildStdin,
     messages: Receiver<Result<Value, String>>,
@@ -178,6 +221,7 @@ impl LspSession {
             .take()
             .ok_or_else(|| "Failed to capture language server stdout".to_string())?;
         Ok(Self {
+            server_id: server.id.clone(),
             child,
             stdin,
             messages: spawn_reader(stdout),
@@ -331,6 +375,11 @@ fn resolve_query_path(cwd: &Path, path: &Path) -> Result<PathBuf, String> {
         cwd.join(path)
     };
     candidate.canonicalize().map_err(|err| err.to_string())
+}
+
+fn session_cache_key(cwd: &Path, server: &LspServerConfig) -> Result<String, String> {
+    let absolute_cwd = cwd.canonicalize().map_err(|err| err.to_string())?;
+    Ok(format!("{}::{}", absolute_cwd.display(), server.id))
 }
 
 fn language_id_for_path(path: &Path) -> &'static str {
@@ -518,11 +567,15 @@ mod tests {
         dir
     }
 
-    fn write_fake_server(workdir: &Path) -> PathBuf {
+    fn write_fake_server(workdir: &Path, initialize_counter: Option<&Path>) -> PathBuf {
         let script_path = workdir.join("fake_lsp_server.py");
-        let script = r#"
+        let counter_path = initialize_counter
+            .map(|path| format!("COUNTER_PATH = {:?}\n", path.display().to_string()))
+            .unwrap_or_else(|| "COUNTER_PATH = None\n".to_string());
+        let script_template = r#"__COUNTER_PATH__
 import json
 import sys
+from pathlib import Path
 
 def read_message():
     headers = {}
@@ -550,6 +603,10 @@ while True:
         break
     method = message.get("method")
     if method == "initialize":
+        if COUNTER_PATH:
+            counter_file = Path(COUNTER_PATH)
+            count = int(counter_file.read_text() or "0") if counter_file.exists() else 0
+            counter_file.write_text(str(count + 1))
         send({"jsonrpc": "2.0", "id": message["id"], "result": {"capabilities": {}}})
     elif method == "initialized":
         continue
@@ -620,12 +677,23 @@ while True:
     elif method == "exit":
         break
 "#;
+        let script = script_template.replace("__COUNTER_PATH__", &counter_path);
         fs::write(&script_path, script).unwrap();
         script_path
     }
 
     fn fake_registry(workdir: &Path) -> LspServerRegistry {
-        let script_path = write_fake_server(workdir);
+        let script_path = write_fake_server(workdir, None);
+        LspServerRegistry::new(vec![LspServerConfig {
+            id: "fake-rust".to_string(),
+            command: env::var("PYTHON3").unwrap_or_else(|_| "python3".to_string()),
+            args: vec![script_path.to_string_lossy().to_string()],
+            file_extensions: vec!["rs".to_string()],
+        }])
+    }
+
+    fn fake_registry_with_counter(workdir: &Path, counter: &Path) -> LspServerRegistry {
+        let script_path = write_fake_server(workdir, Some(counter));
         LspServerRegistry::new(vec![LspServerConfig {
             id: "fake-rust".to_string(),
             command: env::var("PYTHON3").unwrap_or_else(|_| "python3".to_string()),
@@ -699,5 +767,28 @@ while True:
         assert_eq!(locations.len(), 1);
         assert_eq!(locations[0].range.start.line, 1);
         assert_eq!(locations[0].range.start.character, 4);
+    }
+
+    #[test]
+    fn runtime_reuses_initialized_session_for_multiple_queries() {
+        let cwd = temp_dir("reuse");
+        let source = cwd.join("sample.rs");
+        let counter = cwd.join("initialize-count.txt");
+        fs::write(&source, "fn main() {\n    let value = 1;\n}\n").unwrap();
+        let runtime = LspRuntime::new(fake_registry_with_counter(&cwd, &counter));
+
+        let _ = runtime.symbols(&cwd, Path::new("sample.rs")).unwrap();
+        let _ = runtime.references(
+            &cwd,
+            Path::new("sample.rs"),
+            LspPosition {
+                line: 1,
+                character: 4,
+            },
+        ).unwrap();
+
+        let status = runtime.status();
+        assert_eq!(status.running_servers, vec!["fake-rust"]);
+        assert_eq!(fs::read_to_string(counter).unwrap(), "1");
     }
 }
