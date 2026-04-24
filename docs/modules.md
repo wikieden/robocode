@@ -21,11 +21,20 @@
 
 ## Current Implementation Status
 
+Mainline landed:
+
 - V1 local CLI baseline is implemented: REPL, config, providers, permissions, transcripts, resume, file/search/shell/web/Git tools.
 - V2-A session and command enhancement is implemented: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`.
+
+Current dev baseline:
+
 - V2-C memory and task workflows are implemented on the preceding branch: `robocode-workflows`, `/tasks`, `/task ...`, `/memory ...`, workflow JSONL logs, and resume context.
-- V2-B LSP foundation is active on this branch: `robocode-lsp`, read-only `lsp_*` tools, and `/lsp ...` commands.
-- V2-D richer TUI/structured views are still next.
+- V2-B LSP foundation is active on this branch: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document sync.
+
+Next planned slice:
+
+- V2-D structured views has a planning branch at `codex/v2-d-structured-views`.
+- V2-D implementation has not started yet.
 
 ## Gap vs `.ref/claude-code-main`
 

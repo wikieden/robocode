@@ -2,7 +2,7 @@
 
 ## Current State
 
-RoboCode has a working V1 local CLI core:
+Mainline landed status:
 
 - lightweight REPL and slash-command runtime
 - layered config resolution
@@ -15,18 +15,27 @@ RoboCode has a working V1 local CLI core:
 - V2-A runtime/session commands: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`
 - V2-C workflow continuity: `robocode-workflows`, project tasks, project/session memory, `/tasks`, `/task ...`, `/memory ...`, `/task resume-context`, workflow JSONL logs
 
-This branch adds an early V2-C workflow layer:
+Current dev baseline on `codex/v2-lsp-foundation`:
 
 - `robocode-lsp`
-- read-only LSP server registry and JSON-RPC framing
+- LSP server registry and JSON-RPC framing
 - semantic result contracts in `robocode-types`
 - `lsp_diagnostics`, `lsp_symbols`, and `lsp_references` tools
-- `/lsp status`, `/lsp diagnostics`, `/lsp symbols`, and `/lsp references`
+- `/lsp status`, `/lsp diagnostics`, `/lsp symbols`, and `/lsp references` commands
+- real semantic queries through language-server stdio
+- initialized session reuse per workspace/server
+- document version sync through `didChange`
+- reference normalization and more readable terminal output
 
-This V2-C slice is implemented on `codex/v2-memory-task-workflows`, pushed, and
-still partial relative to the full product target. The gap matrix tracks Memory
-and Tasks as `V2-C active / partial implementation`, not complete platform
-coverage.
+Implemented on preceding branch:
+
+- `codex/v2-memory-task-workflows` contains the early V2-C workflow continuity slice
+- V2-C remains partial relative to the full product target
+
+Next planned slice:
+
+- `codex/v2-d-structured-views` exists as the planning branch for structured terminal views
+- V2-D implementation has not started yet
 
 ## Near-Term Plan
 
@@ -39,16 +48,16 @@ coverage.
 2. V2-B LSP Foundation.
    - Add semantic code intelligence without replacing file/search tools.
    - Keep LSP actions behind the same permission and transcript guarantees.
-   - Prefer small read-only actions first: symbol lookup, diagnostics, references.
-   - Replace the current runtime stub with real language-server query execution before claiming mature LSP semantics.
+   - Keep maturing the runtime from an early implementation toward a stable merge target.
+   - Focus next on robustness, output quality, and long-lived session behavior rather than broadening scope.
 
-2. V2-D Richer TUI and Structured Views.
+3. V2-D Richer TUI and Structured Views.
    - Improve task, memory, diff, session, and approval rendering.
    - Add structured views for diagnostics, symbols, and references.
    - Avoid a full UI rewrite until workflows are stable.
    - Keep text output usable in plain terminals.
 
-3. V3 Platform Expansion.
+4. V3 Platform Expansion.
    - MCP runtime and plugin loading.
    - Skills/workflow plugin model.
    - Multi-agent coordinator.
@@ -67,7 +76,7 @@ Completed or substantially covered:
 - transcript and resume model
 - provider abstraction
 - early task/memory workflow layer
-- early LSP foundation with read-only commands/tools
+- early LSP foundation with real semantic queries and normalized terminal output
 
 Partial:
 
@@ -121,7 +130,10 @@ Current V2-C docs, when present:
 - `docs/superpowers/specs/2026-04-11-v2-memory-task-workflows-design.md`
 - `docs/superpowers/plans/2026-04-11-v2-memory-task-workflows.md`
 
-Current branch state:
+Current V2-B docs, when present:
 
-- `codex/v2-memory-task-workflows` contains the branch-local V2-C
-  implementation and associated doc updates
+- `docs/superpowers/plans/2026-04-21-v2-lsp-foundation.md`
+
+Current V2-D docs, when present:
+
+- `docs/superpowers/plans/2026-04-23-v2-d-structured-views.md`

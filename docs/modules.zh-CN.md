@@ -21,11 +21,20 @@
 
 ## 当前实现状态
 
+Mainline landed：
+
 - V1 本地 CLI 基线已实现：REPL、config、providers、permissions、transcripts、resume、file/search/shell/web/Git tools。
 - V2-A session 和 command enhancement 已实现：`/status`、`/config`、`/doctor`、更丰富的 `/sessions`、分组 `/help`。
+
+Current dev baseline：
+
 - V2-C memory 和 task workflows 已在前序分支实现：`robocode-workflows`、`/tasks`、`/task ...`、`/memory ...`、workflow JSONL logs、resume context。
-- V2-B LSP foundation 在当前分支实现：`robocode-lsp`、只读 `lsp_*` tools、`/lsp ...` commands。
-- V2-D richer TUI/structured views 仍是下一阶段。
+- V2-B LSP foundation 在当前分支实现：`robocode-lsp`、`lsp_*` tools、`/lsp ...` commands、真实 semantic queries、session reuse、document sync。
+
+Next planned slice：
+
+- V2-D structured views 已有 planning branch：`codex/v2-d-structured-views`。
+- V2-D implementation 尚未开始。
 
 ## 与 `.ref/claude-code-main` 的差距
 

@@ -8,6 +8,13 @@
 
 RoboCode 不是逐文件移植。它追求的是用户可感知运行模型、命令面和子系统边界上的高相似度，同时允许内部用 Rust 原生方式重构。
 
+当前实现说明：
+
+- `main` 已落地 early V1 baseline 和核心 V2-A command/session work
+- 前序 `codex/v2-memory-task-workflows` 分支已实现 early V2-C workflow continuity slice
+- 当前 `codex/v2-lsp-foundation` 分支已实现 early V2-B semantic code intelligence slice
+- `codex/v2-d-structured-views` 是下一阶段 V2-D terminal-view slice 的 planning branch
+
 ## 产品定义
 
 ### 定位

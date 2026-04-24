@@ -42,7 +42,8 @@ Output:
 ### Plan 2: V2-B LSP Foundation
 
 Status:
-- next implementation target after V2-C is published or merged
+- active implementation target on `codex/v2-lsp-foundation`
+- current dev baseline for semantic code intelligence
 
 Purpose:
 - introduce semantic code intelligence without breaking the existing tool loop
@@ -60,8 +61,8 @@ Output:
 ### Plan 3: V2-C Memory and Task Workflows
 
 Status:
-- active implementation on `codex/v2-memory-task-workflows`
-- implementation exists; branch publication/merge is the immediate checkpoint
+- implemented on preceding branch `codex/v2-memory-task-workflows`
+- pending merge into the broader current dev baseline
 
 Purpose:
 - add long-lived memory and task state tied to sessions
@@ -74,6 +75,10 @@ Expected files:
 
 ### Plan 4: V2-D Rich TUI and Structured Views
 
+Status:
+- planning branch active on `codex/v2-d-structured-views`
+- should start with structured rendering in the existing REPL before any full-screen TUI work
+
 Purpose:
 - improve session browsing, diff viewing, and approval ergonomics
 
@@ -81,6 +86,9 @@ Expected files:
 - `robocode-cli/src/main.rs`
 - new presentation modules or crate for TUI concerns
 - `robocode-core/src/lib.rs`
+
+Output:
+- detailed plan saved as `docs/superpowers/plans/2026-04-23-v2-d-structured-views.md`
 
 ### Plan 5: V3-A MCP and Plugin Runtime
 
@@ -119,9 +127,10 @@ Expected files:
 
 - [x] Execute Plan 1 first.
 - [x] Execute Plan 3 before Plan 2 because workflow continuity became the higher-priority V2 slice.
-- [ ] Finish Plan 3 publication or merge: run workspace verification, push the three unpublished commits, and decide whether to open a PR or merge locally.
-- [ ] Execute Plan 2 next: V2-B LSP Foundation.
-- [ ] Execute Plan 4 after LSP has enough semantic output to justify richer structured views.
+- [ ] Finish Plan 3 merge or equivalent landing into the broader current dev baseline.
+- [ ] Continue Plan 2 until the current LSP branch is ready to merge.
+- [ ] Begin Plan 4 once the current LSP branch is stable enough for UI-focused follow-on work.
+- [ ] Start Plan 4 with structured renderers inside the current REPL before considering a heavier TUI shell or new crate.
 - [ ] Delay Plan 5 through Plan 7 until the V2 command, session, workflow, and LSP surfaces are stable enough to host integrations safely.
 
 ## Exit Condition

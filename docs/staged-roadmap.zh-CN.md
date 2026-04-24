@@ -95,7 +95,7 @@
 
 ## 当前仓库映射
 
-当前仓库已经建立了一个早期 V1 基线，包括：
+Mainline landed：
 
 - REPL 和命令循环
 - config resolution
@@ -104,4 +104,10 @@
 - transcripts 与 resume
 - Git 和 Web 工具
 
-这并不改变路线图顺序。它只说明 RoboCode 已经开始进入 V1，而不是应该过早把后续阶段提前。
+Current dev baseline：
+
+- 前序 V2-C 分支已经补上 task、memory、resume-context 等 workflow continuity
+- 当前 V2-B 分支已经补上基于 LSP 的 semantic assistance，包括 real queries、session reuse、document synchronization
+- V2-D 分支已经存在，但目前仍是 structured terminal views 的 planning-only branch
+
+这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。
