@@ -39,6 +39,8 @@ pub trait SemanticProvider: Send + Sync {
 pub struct LspRuntimeStatus {
     pub configured_servers: Vec<String>,
     pub running_servers: Vec<String>,
+    pub cached_sessions: usize,
+    pub open_documents: usize,
     pub last_error: Option<String>,
 }
 
@@ -58,7 +60,7 @@ impl LspRuntime {
     }
 
     pub fn status(&self) -> LspRuntimeStatus {
-        let running_servers = self
+        let (running_servers, cached_sessions, open_documents) = self
             .sessions
             .lock()
             .ok()
@@ -69,7 +71,11 @@ impl LspRuntime {
                     .collect::<Vec<_>>();
                 names.sort();
                 names.dedup();
-                names
+                let open_documents = sessions
+                    .values()
+                    .map(|session| session.open_documents.len())
+                    .sum();
+                (names, sessions.len(), open_documents)
             })
             .unwrap_or_default();
         LspRuntimeStatus {
@@ -80,6 +86,8 @@ impl LspRuntime {
                 .map(|server| server.id.clone())
                 .collect(),
             running_servers,
+            cached_sessions,
+            open_documents,
             last_error: self.last_error.lock().ok().and_then(|guard| guard.clone()),
         }
     }
@@ -834,6 +842,8 @@ while True:
         let status = runtime.status();
         assert_eq!(status.configured_servers, vec!["rust-analyzer"]);
         assert!(status.running_servers.is_empty());
+        assert_eq!(status.cached_sessions, 0);
+        assert_eq!(status.open_documents, 0);
         assert!(status.last_error.is_none());
     }
 
@@ -915,6 +925,8 @@ while True:
 
         let status = runtime.status();
         assert_eq!(status.running_servers, vec!["fake-rust"]);
+        assert_eq!(status.cached_sessions, 1);
+        assert_eq!(status.open_documents, 1);
         let stats: Value = serde_json::from_str(&fs::read_to_string(counter).unwrap()).unwrap();
         assert_eq!(stats["initialize"], 1);
         assert_eq!(stats["didOpen"], 1);

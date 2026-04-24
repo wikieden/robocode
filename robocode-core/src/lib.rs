@@ -1642,6 +1642,8 @@ impl SessionEngine {
             "LSP status:".to_string(),
             format!("  configured: {configured}"),
             format!("  running: {running}"),
+            format!("  cached_sessions: {}", status.cached_sessions),
+            format!("  open_documents: {}", status.open_documents),
             format!(
                 "  last_error: {}",
                 status.last_error.unwrap_or_else(|| "<none>".to_string())
@@ -2408,6 +2410,8 @@ mod tests {
             EngineEvent::Command(text)
                 if text.contains("LSP status:")
                     && text.contains("configured: rust-analyzer")
+                    && text.contains("cached_sessions: 0")
+                    && text.contains("open_documents: 0")
         )));
     }
 
