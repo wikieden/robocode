@@ -16,7 +16,7 @@ the current RoboCode repository and the intended target state.
 | Git workflows | Commit-oriented commands plus broader workflow helpers | Status, diff, switch, add, commit, push, restore, stash, worktree exist | Deeper review and workflow support | Medium | V1 / V2 | High similarity target for core flows |
 | Web tools | Search and fetch built into tool system | Implemented | Improve quality and source handling | Low | V1 / V2 | Already on target family-wise |
 | MCP | Server management and MCP-backed tool invocation | Not started | Full MCP lifecycle, discovery, invocation, and admin surface | High | V3 | High similarity target |
-| LSP | Language server integration and recommendations | Not started | Semantic code intelligence integrated with local workflows | High | V2 | High similarity target |
+| LSP | Language server integration and recommendations | V2-B active / partial implementation with real semantic queries, session reuse, document sync, and normalized output | Semantic code intelligence integrated with local workflows | Medium | V2 | Implemented on `codex/v2-lsp-foundation`; still lighter than the reference platform |
 | Skills | Reusable workflow system | Not started | Local skill discovery and execution model | High | V3 | Similar behavior, Rust-native implementation |
 | Plugins | Built-in and third-party plugin loading | Not started | Plugin loading and management with clear trust boundaries | High | V3 | Similar behavior, Rust-native implementation |
 | Multi-agent / teams | Agent tool, coordinator, team workflows, inter-agent messaging | Not started | Coordinated delegated workflows under shared runtime guarantees | High | V3 | High similarity target |
@@ -40,11 +40,11 @@ spine:
 - provider abstraction
 - high-value local developer tools
 
-The largest remaining gaps are platform-level subsystems rather than core local
-CLI behavior:
+The largest remaining gaps are platform-level subsystems and maturity gaps
+rather than core local CLI behavior:
 
 - MCP
-- LSP
+- deeper LSP platform maturity
 - skills and plugins
 - multi-agent coordination
 - bridge and remote operation

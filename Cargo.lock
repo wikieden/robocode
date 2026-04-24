@@ -78,12 +78,22 @@ dependencies = [
 name = "robocode-core"
 version = "0.1.0"
 dependencies = [
+ "robocode-lsp",
  "robocode-model",
  "robocode-permissions",
  "robocode-session",
  "robocode-tools",
  "robocode-types",
  "robocode-workflows",
+]
+
+[[package]]
+name = "robocode-lsp"
+version = "0.1.0"
+dependencies = [
+ "robocode-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

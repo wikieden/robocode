@@ -12,6 +12,8 @@
 - `robocode-permissions`：权限模式、规则和审批决策
 - `robocode-session`：JSONL transcript 和 SQLite 索引
 - `robocode-types`：共享领域类型
+- `robocode-workflows`：项目级 task、memory、resume-context 与 workflow log 状态
+- `robocode-lsp`：language server 配置、协议 framing、语义查询执行和结果归一化
 
 整个 workspace 中，`robocode-session` 的 JSONL transcript 是持久化事实源；SQLite 只是可重建的索引，用来更快地列会话和恢复会话。
 
@@ -151,6 +153,9 @@ HTTP provider 使用系统 `curl`，因此 workspace 能保持依赖轻量且可
 - `git_worktree_list`
 - `git_worktree_add`
 - `git_worktree_remove`
+- `lsp_diagnostics`
+- `lsp_symbols`
+- `lsp_references`
 
 每个工具都定义：
 
@@ -173,6 +178,16 @@ CLI 当前也通过 slash commands 暴露这些工具面：
 - `/diff`
 - `/git ...`
 - `/web ...`
+- `/tasks`
+- `/task ...`
+- `/memory ...`
+- `/lsp ...`
+
+当前 workflow / LSP 说明：
+
+- `robocode-workflows` 把 task / memory state 放在 canonical transcript 之外，但仍保持 JSONL event logs 可重建。
+- `robocode-lsp` 当前通过 language-server stdio sessions 提供 query-driven 的 semantic code intelligence。
+- 当前 LSP runtime 已覆盖 real queries、session reuse、document synchronization 和 normalized output，但仍属于 early implementation，而不是完整成熟的长期 LSP 平台层。
 
 ## 平台说明
 

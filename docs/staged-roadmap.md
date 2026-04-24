@@ -101,7 +101,7 @@ Exit criteria:
 
 ## Current Repository Mapping
 
-The current repository already establishes an early V1 baseline through:
+Mainline landed:
 
 - the REPL and command loop
 - config resolution
@@ -110,6 +110,12 @@ The current repository already establishes an early V1 baseline through:
 - transcripts and resume
 - Git and web tools
 
-That does not change the roadmap ordering. It means RoboCode has started V1,
-not that the later stages should be pulled forward prematurely.
+Current dev baseline:
 
+- the preceding V2-C branch adds workflow continuity through tasks, memory, and resume-context
+- the current V2-B branch adds LSP-backed semantic assistance through real queries, session reuse, and document synchronization
+- the V2-D branch exists as a planning-only branch for structured terminal views
+
+That does not change the roadmap ordering. It means RoboCode has moved beyond an
+early V1-only repository state, but later phases should still be pulled
+forward only in sequence.

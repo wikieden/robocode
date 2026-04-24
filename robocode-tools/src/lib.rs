@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use robocode_types::{ToolCall, ToolInput, ToolResult, ToolSpec};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ToolExecutionContext {
     pub cwd: PathBuf,
+    pub semantic: Option<Arc<dyn SemanticToolProvider>>,
 }
 
 #[derive(Debug, Clone)]
@@ -16,6 +17,20 @@ pub struct ToolExecutionOutput {
     pub output: String,
     pub diff: Option<String>,
     pub success: bool,
+}
+
+pub trait SemanticToolProvider: Send + Sync {
+    fn diagnostics(&self, cwd: &Path, path: &Path) -> Result<String, String>;
+
+    fn symbols(&self, cwd: &Path, path: &Path) -> Result<String, String>;
+
+    fn references(
+        &self,
+        cwd: &Path,
+        path: &Path,
+        line: u32,
+        character: u32,
+    ) -> Result<String, String>;
 }
 
 pub trait BuiltinTool: Send + Sync {
@@ -58,6 +73,9 @@ impl ToolRegistry {
         registry.register(GitWorktreeListTool);
         registry.register(GitWorktreeAddTool);
         registry.register(GitWorktreeRemoveTool);
+        registry.register(LspDiagnosticsTool);
+        registry.register(LspSymbolsTool);
+        registry.register(LspReferencesTool);
         registry
     }
 
@@ -138,6 +156,9 @@ struct GitStashDropTool;
 struct GitWorktreeListTool;
 struct GitWorktreeAddTool;
 struct GitWorktreeRemoveTool;
+struct LspDiagnosticsTool;
+struct LspSymbolsTool;
+struct LspReferencesTool;
 
 impl BuiltinTool for ReadFileTool {
     fn spec(&self) -> ToolSpec {
@@ -1040,6 +1061,108 @@ impl BuiltinTool for GitWorktreeRemoveTool {
     }
 }
 
+impl BuiltinTool for LspDiagnosticsTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "lsp_diagnostics".to_string(),
+            description: "Read diagnostics for a source file from the semantic provider".to_string(),
+            is_mutating: false,
+            input_schema_hint: "path=file".to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let path = required_raw_path(input)?;
+        let output = semantic_provider(ctx)?.diagnostics(&ctx.cwd, &path)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for LspSymbolsTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "lsp_symbols".to_string(),
+            description: "Read document symbols for a source file from the semantic provider"
+                .to_string(),
+            is_mutating: false,
+            input_schema_hint: "path=file".to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let path = required_raw_path(input)?;
+        let output = semantic_provider(ctx)?.symbols(&ctx.cwd, &path)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+impl BuiltinTool for LspReferencesTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "lsp_references".to_string(),
+            description: "Read references for a source location from the semantic provider"
+                .to_string(),
+            is_mutating: false,
+            input_schema_hint: "path=file line=0 character=0".to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let path = required_raw_path(input)?;
+        let line = parse_required_u32(input, "line", "lsp_references")?;
+        let character = parse_required_u32(input, "character", "lsp_references")?;
+        let output = semantic_provider(ctx)?.references(&ctx.cwd, &path, line, character)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+        })
+    }
+}
+
+fn required_raw_path(input: &ToolInput) -> Result<PathBuf, String> {
+    input
+        .get("path")
+        .map(PathBuf::from)
+        .ok_or_else(|| "tool requires `path`".to_string())
+}
+
+fn parse_required_u32(input: &ToolInput, key: &str, tool_name: &str) -> Result<u32, String> {
+    input
+        .get(key)
+        .ok_or_else(|| format!("{tool_name} requires `{key}`"))?
+        .parse::<u32>()
+        .map_err(|_| format!("{tool_name} requires numeric `{key}`"))
+}
+
+fn semantic_provider(
+    ctx: &ToolExecutionContext,
+) -> Result<&Arc<dyn SemanticToolProvider>, String> {
+    ctx.semantic
+        .as_ref()
+        .ok_or_else(|| "LSP semantic provider is not available".to_string())
+}
+
 fn resolve_required_path(ctx: &ToolExecutionContext, input: &ToolInput) -> Result<PathBuf, String> {
     let raw = input
         .get("path")
@@ -1491,6 +1614,7 @@ fn render_diff(before: &str, after: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -1501,10 +1625,114 @@ mod tests {
         dir
     }
 
+    #[derive(Debug)]
+    struct MockSemanticProvider;
+
+    impl SemanticToolProvider for MockSemanticProvider {
+        fn diagnostics(&self, _cwd: &Path, path: &Path) -> Result<String, String> {
+            Ok(format!("diagnostics for {}", path.display()))
+        }
+
+        fn symbols(&self, _cwd: &Path, path: &Path) -> Result<String, String> {
+            Ok(format!("symbols for {}", path.display()))
+        }
+
+        fn references(
+            &self,
+            _cwd: &Path,
+            path: &Path,
+            line: u32,
+            character: u32,
+        ) -> Result<String, String> {
+            Ok(format!("references for {}:{line}:{character}", path.display()))
+        }
+    }
+
+    #[test]
+    fn lsp_tool_specs_are_read_only() {
+        let registry = ToolRegistry::builtin();
+        for name in ["lsp_diagnostics", "lsp_symbols", "lsp_references"] {
+            let spec = registry.spec(name).unwrap();
+            assert!(!spec.is_mutating, "{name} must be read-only");
+        }
+    }
+
+    #[test]
+    fn lsp_diagnostics_requires_semantic_provider() {
+        let ctx = ToolExecutionContext {
+            cwd: temp_dir("lsp_missing_provider"),
+            semantic: None,
+        };
+        let mut input = ToolInput::new();
+        input.insert("path".into(), "src/lib.rs".into());
+
+        let error = ToolRegistry::builtin()
+            .execute(
+                &ToolCall {
+                    id: "tool_lsp_diagnostics".into(),
+                    name: "lsp_diagnostics".into(),
+                    input,
+                },
+                &ctx,
+            )
+            .unwrap_err();
+        assert_eq!(error, "LSP semantic provider is not available");
+    }
+
+    #[test]
+    fn lsp_references_validates_line_and_character() {
+        let ctx = ToolExecutionContext {
+            cwd: temp_dir("lsp_bad_position"),
+            semantic: Some(Arc::new(MockSemanticProvider)),
+        };
+        let mut input = ToolInput::new();
+        input.insert("path".into(), "src/lib.rs".into());
+        input.insert("line".into(), "abc".into());
+        input.insert("character".into(), "0".into());
+
+        let error = ToolRegistry::builtin()
+            .execute(
+                &ToolCall {
+                    id: "tool_lsp_references".into(),
+                    name: "lsp_references".into(),
+                    input,
+                },
+                &ctx,
+            )
+            .unwrap_err();
+        assert_eq!(error, "lsp_references requires numeric `line`");
+    }
+
+    #[test]
+    fn lsp_symbols_returns_mock_semantic_output() {
+        let ctx = ToolExecutionContext {
+            cwd: temp_dir("lsp_symbols"),
+            semantic: Some(Arc::new(MockSemanticProvider)),
+        };
+        let mut input = ToolInput::new();
+        input.insert("path".into(), "src/lib.rs".into());
+
+        let result = ToolRegistry::builtin()
+            .execute(
+                &ToolCall {
+                    id: "tool_lsp_symbols".into(),
+                    name: "lsp_symbols".into(),
+                    input,
+                },
+                &ctx,
+            )
+            .unwrap();
+        assert!(result.success);
+        assert_eq!(result.output, "symbols for src/lib.rs");
+    }
+
     #[test]
     fn read_write_edit_round_trip() {
         let cwd = temp_dir("files");
-        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let ctx = ToolExecutionContext {
+            cwd: cwd.clone(),
+            semantic: None,
+        };
         let registry = ToolRegistry::builtin();
 
         let mut write_input = ToolInput::new();
@@ -1637,7 +1865,10 @@ mod tests {
         assert!(commit.success());
         fs::write(cwd.join("demo.txt"), "hello again\n").unwrap();
 
-        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let ctx = ToolExecutionContext {
+            cwd: cwd.clone(),
+            semantic: None,
+        };
         let registry = ToolRegistry::builtin();
 
         let status_result = registry
@@ -1702,7 +1933,10 @@ mod tests {
             .unwrap();
         assert!(commit.success());
 
-        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let ctx = ToolExecutionContext {
+            cwd: cwd.clone(),
+            semantic: None,
+        };
         let registry = ToolRegistry::builtin();
 
         let mut switch_input = ToolInput::new();
@@ -1752,7 +1986,10 @@ mod tests {
         assert!(init.success());
         fs::write(cwd.join("notes.txt"), "hello\n").unwrap();
 
-        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let ctx = ToolExecutionContext {
+            cwd: cwd.clone(),
+            semantic: None,
+        };
         let registry = ToolRegistry::builtin();
 
         let mut add_input = ToolInput::new();
@@ -1829,7 +2066,10 @@ mod tests {
             .unwrap();
         assert!(commit.success());
 
-        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let ctx = ToolExecutionContext {
+            cwd: cwd.clone(),
+            semantic: None,
+        };
         let registry = ToolRegistry::builtin();
         let mut push_input = ToolInput::new();
         push_input.insert("set_upstream".into(), "true".into());
@@ -1896,7 +2136,10 @@ mod tests {
         assert!(commit.success());
         fs::write(cwd.join("tracked.txt"), "second\n").unwrap();
 
-        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let ctx = ToolExecutionContext {
+            cwd: cwd.clone(),
+            semantic: None,
+        };
         let registry = ToolRegistry::builtin();
         let mut restore_input = ToolInput::new();
         restore_input.insert("path".into(), "tracked.txt".into());
@@ -1953,7 +2196,10 @@ mod tests {
         assert!(commit.success());
         fs::write(cwd.join("tracked.txt"), "second\n").unwrap();
 
-        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let ctx = ToolExecutionContext {
+            cwd: cwd.clone(),
+            semantic: None,
+        };
         let registry = ToolRegistry::builtin();
 
         let mut push_input = ToolInput::new();
@@ -2043,7 +2289,10 @@ mod tests {
             fs::remove_dir_all(&worktree_path).unwrap();
         }
 
-        let ctx = ToolExecutionContext { cwd: cwd.clone() };
+        let ctx = ToolExecutionContext {
+            cwd: cwd.clone(),
+            semantic: None,
+        };
         let registry = ToolRegistry::builtin();
 
         let mut add_input = ToolInput::new();

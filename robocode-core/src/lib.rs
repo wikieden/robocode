@@ -1,15 +1,18 @@
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 
+use robocode_lsp::{LspRuntime, LspServerRegistry, SemanticProvider};
 use robocode_model::ModelProvider;
 use robocode_permissions::PermissionEngine;
 use robocode_session::SessionStore;
-use robocode_tools::{ToolExecutionContext, ToolRegistry};
+use robocode_tools::{SemanticToolProvider, ToolExecutionContext, ToolRegistry};
 use robocode_types::{
-    ApprovalResponse, CommandLogEntry, MemoryKind, MemoryScope, MemorySource, Message, ModelEvent,
-    ModelRequest, PermissionDecision, PermissionLogEntry, PermissionMode, ResumeContextSnapshot,
-    Role, RuntimeSnapshot, SessionMetaEntry, SessionSummary, TaskPriority, TaskStatus, ToolCall,
-    ToolInput, ToolResult, ToolSpec, TranscriptEntry, fresh_id, now_timestamp,
+    ApprovalResponse, CommandLogEntry, LspDiagnostic, LspLocation, LspPosition, LspSymbol,
+    MemoryKind, MemoryScope, MemorySource, Message, ModelEvent, ModelRequest, PermissionDecision,
+    PermissionLogEntry, PermissionMode, ResumeContextSnapshot, Role, RuntimeSnapshot,
+    SessionMetaEntry, SessionSummary, TaskPriority, TaskStatus, ToolCall, ToolInput, ToolResult,
+    ToolSpec, TranscriptEntry, fresh_id, now_timestamp,
 };
 use robocode_workflows::memory::MemoryEvent;
 use robocode_workflows::resume_context::{ResumeContextInput, build_resume_context};
@@ -25,6 +28,36 @@ pub enum EngineEvent {
     Command(String),
 }
 
+struct LspToolAdapter {
+    runtime: Arc<LspRuntime>,
+}
+
+impl SemanticToolProvider for LspToolAdapter {
+    fn diagnostics(&self, cwd: &std::path::Path, path: &std::path::Path) -> Result<String, String> {
+        self.runtime
+            .diagnostics(cwd, path)
+            .map(|diagnostics| render_lsp_diagnostics(cwd, &diagnostics))
+    }
+
+    fn symbols(&self, cwd: &std::path::Path, path: &std::path::Path) -> Result<String, String> {
+        self.runtime
+            .symbols(cwd, path)
+            .map(|symbols| render_lsp_symbols(cwd, &symbols))
+    }
+
+    fn references(
+        &self,
+        cwd: &std::path::Path,
+        path: &std::path::Path,
+        line: u32,
+        character: u32,
+    ) -> Result<String, String> {
+        self.runtime
+            .references(cwd, path, LspPosition { line, character })
+            .map(|locations| render_lsp_locations(cwd, &locations))
+    }
+}
+
 pub struct SessionEngine {
     cwd: PathBuf,
     provider: Box<dyn ModelProvider>,
@@ -32,6 +65,7 @@ pub struct SessionEngine {
     permissions: PermissionEngine,
     store: SessionStore,
     workflows: WorkflowStore,
+    lsp_runtime: Arc<LspRuntime>,
     messages: Vec<Message>,
     last_diff: Option<String>,
     runtime_snapshot: RuntimeSnapshot,
@@ -84,6 +118,7 @@ impl SessionEngine {
             permissions: PermissionEngine::new(&cwd),
             store,
             workflows,
+            lsp_runtime: Arc::new(LspRuntime::new(LspServerRegistry::default())),
             messages: Vec::new(),
             last_diff: None,
             runtime_snapshot,
@@ -230,6 +265,9 @@ impl SessionEngine {
                     &call,
                     &ToolExecutionContext {
                         cwd: self.cwd.clone(),
+                        semantic: Some(Arc::new(LspToolAdapter {
+                            runtime: Arc::clone(&self.lsp_runtime),
+                        })),
                     },
                 )?;
                 self.persist_tool_result(&result)?;
@@ -365,6 +403,7 @@ impl SessionEngine {
             }
             "/web" => self.handle_web_command(&args, approver)?,
             "/git" => self.handle_git_command(&args, approver)?,
+            "/lsp" => self.handle_lsp_command(&args)?,
             _ => format!("Unknown command `{command}`. Use /help."),
         };
         self.store_entry(TranscriptEntry::Command {
@@ -725,6 +764,56 @@ impl SessionEngine {
                 Ok(format!("Added session memory {memory_id} {content}"))
             }
             _ => self.render_project_memory(),
+        }
+    }
+
+    fn handle_lsp_command(&self, args: &[String]) -> Result<String, String> {
+        let Some(subcommand) = args.first().map(String::as_str) else {
+            return Ok(self.render_lsp_help());
+        };
+        match subcommand {
+            "help" => Ok(self.render_lsp_help()),
+            "status" => Ok(self.render_lsp_status()),
+            "diagnostics" => {
+                let path = args
+                    .get(1)
+                    .ok_or_else(|| "Usage: /lsp diagnostics <path>".to_string())?;
+                match self
+                    .lsp_runtime
+                    .diagnostics(&self.cwd, std::path::Path::new(path))
+                {
+                    Ok(diagnostics) => Ok(render_lsp_diagnostics(&self.cwd, &diagnostics)),
+                    Err(error) => Ok(format!("LSP error: {error}")),
+                }
+            }
+            "symbols" => {
+                let path = args
+                    .get(1)
+                    .ok_or_else(|| "Usage: /lsp symbols <path>".to_string())?;
+                match self.lsp_runtime.symbols(&self.cwd, std::path::Path::new(path)) {
+                    Ok(symbols) => Ok(render_lsp_symbols(&self.cwd, &symbols)),
+                    Err(error) => Ok(format!("LSP error: {error}")),
+                }
+            }
+            "references" => {
+                let path = args
+                    .get(1)
+                    .ok_or_else(|| "Usage: /lsp references <path> <line> <character>".to_string())?;
+                let line = parse_lsp_position_arg(args.get(2), "line")?;
+                let character = parse_lsp_position_arg(args.get(3), "character")?;
+                match self.lsp_runtime.references(
+                    &self.cwd,
+                    std::path::Path::new(path),
+                    LspPosition { line, character },
+                ) {
+                    Ok(locations) => Ok(render_lsp_locations(&self.cwd, &locations)),
+                    Err(error) => Ok(format!("LSP error: {error}")),
+                }
+            }
+            _ => Ok(format!(
+                "Unknown LSP subcommand `{subcommand}`.\n\n{}",
+                self.render_lsp_help()
+            )),
         }
     }
 
@@ -1426,6 +1515,12 @@ impl SessionEngine {
             "  /git <subcommand>    Git status/diff/add/push/worktree flows",
             "  /web <subcommand>    Search or fetch web content",
             "",
+            "Code intelligence:",
+            "  /lsp status          Show language server configuration",
+            "  /lsp diagnostics <path>",
+            "  /lsp symbols <path>",
+            "  /lsp references <path> <line> <character>",
+            "",
             "Workflows:",
             "  /tasks               List active project tasks",
             "  /task <subcommand>   Manage tasks or render resume context",
@@ -1514,6 +1609,45 @@ impl SessionEngine {
             "Web commands:",
             "  /web search <query> [--limit <n>] [--site <domain>]",
             "  /web fetch <url> [--max-bytes <n>] [--raw]",
+        ]
+        .join("\n")
+    }
+
+    fn render_lsp_help(&self) -> String {
+        [
+            "LSP commands:",
+            "  /lsp status",
+            "  /lsp diagnostics <path>",
+            "  /lsp symbols <path>",
+            "  /lsp references <path> <line> <character>",
+            "",
+            "Positions are zero-based LSP line and character offsets.",
+        ]
+        .join("\n")
+    }
+
+    fn render_lsp_status(&self) -> String {
+        let status = self.lsp_runtime.status();
+        let configured = if status.configured_servers.is_empty() {
+            "<none>".to_string()
+        } else {
+            status.configured_servers.join(", ")
+        };
+        let running = if status.running_servers.is_empty() {
+            "<none>".to_string()
+        } else {
+            status.running_servers.join(", ")
+        };
+        [
+            "LSP status:".to_string(),
+            format!("  configured: {configured}"),
+            format!("  running: {running}"),
+            format!("  cached_sessions: {}", status.cached_sessions),
+            format!("  open_documents: {}", status.open_documents),
+            format!(
+                "  last_error: {}",
+                status.last_error.unwrap_or_else(|| "<none>".to_string())
+            ),
         ]
         .join("\n")
     }
@@ -1641,6 +1775,116 @@ fn system_dependency_status(tool: &str) -> DependencyStatus {
     }
 }
 
+fn parse_lsp_position_arg(raw: Option<&String>, name: &str) -> Result<u32, String> {
+    raw.ok_or_else(|| "Usage: /lsp references <path> <line> <character>".to_string())?
+        .parse::<u32>()
+        .map_err(|_| {
+            format!(
+                "Usage: /lsp references <path> <line> <character>; line and character must be zero-based integers (`{name}` was invalid)"
+            )
+        })
+}
+
+fn render_lsp_diagnostics(cwd: &std::path::Path, diagnostics: &[LspDiagnostic]) -> String {
+    if diagnostics.is_empty() {
+        return "LSP diagnostics:\n  <none>".to_string();
+    }
+    let mut lines = vec!["LSP diagnostics:".to_string()];
+    for diagnostic in diagnostics {
+        lines.push(format!(
+            "  {}:{}:{} [{}] {}{}{}",
+            render_lsp_path(cwd, &diagnostic.path),
+            diagnostic.range.start.line,
+            diagnostic.range.start.character,
+            severity_label(diagnostic.severity),
+            diagnostic.message,
+            diagnostic
+                .source
+                .as_ref()
+                .map(|source| format!(" ({source})"))
+                .unwrap_or_default(),
+            diagnostic
+                .code
+                .as_ref()
+                .map(|code| format!(" code={code}"))
+                .unwrap_or_default()
+        ));
+    }
+    lines.join("\n")
+}
+
+fn render_lsp_symbols(cwd: &std::path::Path, symbols: &[LspSymbol]) -> String {
+    if symbols.is_empty() {
+        return "LSP symbols:\n  <none>".to_string();
+    }
+    let mut lines = vec!["LSP symbols:".to_string()];
+    for symbol in symbols {
+        lines.push(format!(
+            "  {} [{}] {}:{}:{}{}",
+            symbol.name,
+            symbol_kind_label(symbol.kind),
+            render_lsp_path(cwd, &symbol.path),
+            symbol.range.start.line,
+            symbol.range.start.character,
+            symbol
+                .container_name
+                .as_ref()
+                .map(|container| format!(" in {container}"))
+                .unwrap_or_default()
+        ));
+    }
+    lines.join("\n")
+}
+
+fn render_lsp_locations(cwd: &std::path::Path, locations: &[LspLocation]) -> String {
+    if locations.is_empty() {
+        return "LSP references:\n  <none>".to_string();
+    }
+    let mut lines = vec!["LSP references:".to_string()];
+    for location in locations {
+        lines.push(format!(
+            "  {}:{}:{}",
+            render_lsp_path(cwd, &location.path),
+            location.range.start.line,
+            location.range.start.character
+        ));
+    }
+    lines.join("\n")
+}
+
+fn render_lsp_path(cwd: &std::path::Path, path: &str) -> String {
+    let path_buf = std::path::Path::new(path);
+    path_buf
+        .strip_prefix(cwd)
+        .map(|relative| relative.display().to_string())
+        .unwrap_or_else(|_| path.to_string())
+}
+
+fn severity_label(severity: Option<u8>) -> &'static str {
+    match severity {
+        Some(1) => "error",
+        Some(2) => "warning",
+        Some(3) => "info",
+        Some(4) => "hint",
+        _ => "unknown",
+    }
+}
+
+fn symbol_kind_label(kind: u32) -> &'static str {
+    match kind {
+        5 => "class",
+        6 => "method",
+        10 => "enum",
+        11 => "interface",
+        12 => "function",
+        13 => "variable",
+        19 => "namespace",
+        22 => "field",
+        23 => "struct",
+        _ => "symbol",
+    }
+}
+
 fn render_resume_context(snapshot: &ResumeContextSnapshot) -> String {
     let mut lines = vec!["Resume context:".to_string()];
     lines.push("  Active tasks:".to_string());
@@ -1725,7 +1969,8 @@ mod tests {
 
     use robocode_model::ModelProvider;
     use robocode_types::{
-        ApprovalResponse, ModelEvent, ModelRequest, PermissionMode, ToolCall, ToolInput,
+        ApprovalResponse, LspRange, ModelEvent, ModelRequest, PermissionMode, ToolCall,
+        ToolInput,
     };
 
     use super::*;
@@ -2122,6 +2367,163 @@ mod tests {
         assert!(rendered.contains("rg: missing"));
         assert!(rendered.contains("sqlite3: not required for current path"));
         assert!(rendered.contains("curl: ok"));
+    }
+
+    #[test]
+    fn help_output_lists_lsp_commands() {
+        let home = temp_dir("lsp_help_home");
+        let cwd = temp_dir("lsp_help_cwd");
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let output = engine
+            .process_input_with_approval("/help", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("/lsp status")
+                    && text.contains("/lsp diagnostics")
+                    && text.contains("/lsp symbols")
+                    && text.contains("/lsp references")
+        )));
+    }
+
+    #[test]
+    fn lsp_status_reports_configured_servers() {
+        let home = temp_dir("lsp_status_home");
+        let cwd = temp_dir("lsp_status_cwd");
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let output = engine
+            .process_input_with_approval("/lsp status", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("LSP status:")
+                    && text.contains("configured: rust-analyzer")
+                    && text.contains("cached_sessions: 0")
+                    && text.contains("open_documents: 0")
+        )));
+    }
+
+    #[test]
+    fn lsp_diagnostics_unconfigured_path_fails_cleanly() {
+        let home = temp_dir("lsp_diagnostics_home");
+        let cwd = temp_dir("lsp_diagnostics_cwd");
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let output = engine
+            .process_input_with_approval("/lsp diagnostics README.md", &mut approver)
+            .unwrap();
+        assert!(output.iter().any(|event| matches!(
+            event,
+            EngineEvent::Command(text)
+                if text.contains("LSP error:")
+                    && text.contains("No configured language server for README.md")
+        )));
+    }
+
+    #[test]
+    fn lsp_references_validates_position_arguments() {
+        let home = temp_dir("lsp_refs_home");
+        let cwd = temp_dir("lsp_refs_cwd");
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let error = engine
+            .process_input_with_approval("/lsp references src/lib.rs abc 1", &mut approver)
+            .unwrap_err();
+        assert!(error.contains("line and character must be zero-based integers"));
+    }
+
+    #[test]
+    fn lsp_command_entries_are_written_to_transcript() {
+        let home = temp_dir("lsp_transcript_home");
+        let cwd = temp_dir("lsp_transcript_cwd");
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        engine
+            .process_input_with_approval("/lsp status", &mut approver)
+            .unwrap();
+        let entries = engine.store.load_entries().unwrap();
+        assert!(entries.iter().any(|entry| matches!(
+            entry,
+            TranscriptEntry::Command { entry } if entry.name == "lsp"
+        )));
+    }
+
+    #[test]
+    fn render_lsp_symbols_uses_relative_paths_and_kind_labels() {
+        let cwd = temp_dir("lsp_render_symbols");
+        let rendered = render_lsp_symbols(
+            &cwd,
+            &[LspSymbol {
+                name: "main".to_string(),
+                kind: 12,
+                path: cwd.join("src/lib.rs").display().to_string(),
+                range: LspRange {
+                    start: LspPosition {
+                        line: 3,
+                        character: 1,
+                    },
+                    end: LspPosition {
+                        line: 4,
+                        character: 1,
+                    },
+                },
+                selection_range: None,
+                container_name: Some("impl SessionEngine".to_string()),
+            }],
+        );
+        assert!(rendered.contains("main [function] src/lib.rs:3:1 in impl SessionEngine"));
+    }
+
+    #[test]
+    fn render_lsp_diagnostics_includes_severity_source_and_code() {
+        let cwd = temp_dir("lsp_render_diagnostics");
+        let rendered = render_lsp_diagnostics(
+            &cwd,
+            &[LspDiagnostic {
+                path: cwd.join("src/lib.rs").display().to_string(),
+                range: LspRange {
+                    start: LspPosition {
+                        line: 7,
+                        character: 2,
+                    },
+                    end: LspPosition {
+                        line: 7,
+                        character: 6,
+                    },
+                },
+                severity: Some(2),
+                source: Some("rust-analyzer".to_string()),
+                code: Some("E0308".to_string()),
+                message: "mismatched types".to_string(),
+            }],
+        );
+        assert!(rendered.contains(
+            "src/lib.rs:7:2 [warning] mismatched types (rust-analyzer) code=E0308"
+        ));
     }
 
     #[test]

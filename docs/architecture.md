@@ -10,6 +10,8 @@
 - `robocode-permissions`: permission modes, rules, and approval decisions.
 - `robocode-session`: JSONL transcripts plus SQLite indexing.
 - `robocode-types`: shared domain types.
+- `robocode-workflows`: project task, memory, resume-context, and workflow-log state.
+- `robocode-lsp`: language-server configuration, protocol framing, semantic query execution, and result normalization.
 
 The root workspace keeps `robocode-session` JSONL transcripts as the durable
 source of truth. SQLite is a rebuildable index used for listing and resuming
@@ -171,6 +173,9 @@ Builtin tools:
 - `git_worktree_list`
 - `git_worktree_add`
 - `git_worktree_remove`
+- `lsp_diagnostics`
+- `lsp_symbols`
+- `lsp_references`
 
 Every tool declares:
 
@@ -194,6 +199,16 @@ The CLI currently exposes these tool surfaces through slash commands as well:
 - `/diff`
 - `/git ...`
 - `/web ...`
+- `/tasks`
+- `/task ...`
+- `/memory ...`
+- `/lsp ...`
+
+Current workflow/LSP notes:
+
+- `robocode-workflows` keeps task and memory state outside the canonical transcript while remaining rebuildable from JSONL event logs.
+- `robocode-lsp` currently supports query-driven semantic code intelligence through language-server stdio sessions.
+- The current LSP runtime already covers real queries, session reuse, document synchronization, and normalized output, but it is still an early implementation rather than a fully mature long-lived LSP platform layer.
 
 ## Platform Notes
 

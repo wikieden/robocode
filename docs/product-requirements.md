@@ -10,6 +10,13 @@ RoboCode is not a file-by-file port. It aims for high behavioral similarity in
 the user-facing runtime model, command surface, and subsystem boundaries while
 allowing a Rust-native internal architecture.
 
+Current implementation note:
+
+- main has landed the early V1 baseline plus core V2-A command/session work
+- the preceding `codex/v2-memory-task-workflows` branch implements an early V2-C workflow continuity slice
+- the current `codex/v2-lsp-foundation` branch implements an early V2-B semantic code intelligence slice
+- `codex/v2-d-structured-views` exists as the planning branch for the next V2-D terminal-view slice
+
 ## Product Definition
 
 ### Positioning

@@ -17,7 +17,7 @@
 | Git 工作流 | commit 导向命令和更广 workflow helpers | 已有 status、diff、switch、add、commit、push、restore、stash、worktree | 更深的 review 与 workflow 支持 | 中 | V1 / V2 | 核心流程高相似度 |
 | Web 工具 | search 和 fetch 原生进入工具系统 | 已实现 | 继续增强质量和来源处理 | 低 | V1 / V2 | 在工具家族层面已达标 |
 | MCP | server 管理和 MCP-backed tool invocation | 未开始 | 完整 MCP lifecycle、discovery、invocation 和管理命令面 | 高 | V3 | 高相似度对标 |
-| LSP | 语言服务器集成与推荐逻辑 | 未开始 | 与本地工作流整合的语义级代码智能 | 高 | V2 | 高相似度对标 |
+| LSP | 语言服务器集成与推荐逻辑 | V2-B active / partial implementation：已有 real semantic queries、session reuse、document sync、normalized output | 与本地工作流整合的语义级代码智能 | 中 | V2 | 已在 `codex/v2-lsp-foundation` 实现；仍比参考平台更轻 |
 | Skills | 可复用 workflow system | 未开始 | 本地 skill discovery 与执行模型 | 高 | V3 | 行为相似，Rust 原生实现 |
 | Plugins | 内置和第三方插件加载 | 未开始 | 带清晰信任边界的 plugin loading 和管理 | 高 | V3 | 行为相似，Rust 原生实现 |
 | 多 Agent / Teams | Agent tool、coordinator、team workflows、inter-agent messaging | 未开始 | 在共享运行时保证下的协调式委派工作流 | 高 | V3 | 高相似度对标 |
@@ -40,10 +40,10 @@ RoboCode 已经覆盖了参考工程最重要的架构主梁：
 - provider abstraction
 - 高价值本地开发工具
 
-当前最大的缺口主要不是“本地 CLI 核心”，而是平台级子系统：
+当前最大的缺口主要不是“本地 CLI 核心”，而是平台级子系统和成熟度缺口：
 
 - MCP
-- LSP
+- 更成熟的 LSP 平台层
 - skills 与 plugins
 - 多 Agent 协调
 - bridge 与 remote

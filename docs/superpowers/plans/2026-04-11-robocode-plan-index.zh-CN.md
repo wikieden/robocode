@@ -49,7 +49,8 @@
 
 状态：
 
-- V2-C 发布或合并后的下一项实现目标
+- `codex/v2-lsp-foundation` 上的 active implementation target
+- 当前 semantic code intelligence 的 dev baseline
 
 目的：
 
@@ -71,8 +72,8 @@
 
 状态：
 
-- 正在 `codex/v2-memory-task-workflows` 上实现
-- 实现已存在；当前直接检查点是发布或合并分支
+- 已在前序分支 `codex/v2-memory-task-workflows` 实现
+- 当前待并入更广的 current dev baseline
 
 目的：
 
@@ -87,6 +88,11 @@
 
 ### Plan 4：V2-D 丰富 TUI 与结构化视图
 
+状态：
+
+- planning branch active on `codex/v2-d-structured-views`
+- 应先在现有 REPL 中做 structured rendering，再考虑 full-screen TUI
+
 目的：
 
 - 提升 session 浏览、diff 展示和审批体验
@@ -96,6 +102,10 @@
 - `robocode-cli/src/main.rs`
 - 新建面向 TUI 的展示模块或 crate
 - `robocode-core/src/lib.rs`
+
+输出：
+
+- 详细计划文件：`docs/superpowers/plans/2026-04-23-v2-d-structured-views.md`
 
 ### Plan 5：V3-A MCP 与 Plugin Runtime
 
@@ -140,9 +150,10 @@
 
 - [x] 先执行 Plan 1。
 - [x] 因 workflow continuity 优先级更高，先于 Plan 2 执行 Plan 3。
-- [ ] 完成 Plan 3 发布或合并：运行 workspace 验证，推送三个未发布提交，并决定开 PR 还是本地合并。
-- [ ] 下一步执行 Plan 2：V2-B LSP 基础能力。
-- [ ] LSP 产生足够语义输出后再执行 Plan 4。
+- [ ] 完成 Plan 3 的 merge 或等价落地，使其并入更广的 current dev baseline。
+- [ ] 持续推进 Plan 2，直到当前 LSP 分支可合并。
+- [ ] 当前 LSP 分支足够稳定后，再开始 Plan 4。
+- [ ] Plan 4 的起步阶段先做现有 REPL 中的 structured renderers，不要先上 heavier TUI shell 或新 crate。
 - [ ] 在 V2 命令面、session 面、workflow 面和 LSP 面稳定之前，延后 Plan 5 到 Plan 7。
 
 ## 退出条件
