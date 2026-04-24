@@ -98,51 +98,73 @@ impl LspRuntime {
 
     fn with_open_document<T, F>(&self, cwd: &Path, path: &Path, action: F) -> Result<T, String>
     where
-        F: FnOnce(&mut LspSession, &str) -> Result<T, String>,
+        F: Fn(&mut LspSession, &str) -> Result<T, String>,
     {
         let server = self.server_for_path(path)?;
         let absolute_path = resolve_query_path(cwd, path)?;
         let session_key = session_cache_key(cwd, server)?;
         let file_uri = file_uri(&absolute_path)?;
         let text = fs::read_to_string(&absolute_path).map_err(|err| err.to_string())?;
-
-        let result = {
-            let mut sessions = self
-                .sessions
-                .lock()
-                .map_err(|_| "Failed to lock LSP session cache".to_string())?;
-            let session = match sessions.entry(session_key.clone()) {
-                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    let mut session = LspSession::start(server, cwd)?;
-                    session.initialize(cwd)?;
-                    session.notify(&initialized_notification())?;
-                    entry.insert(session)
-                }
-            };
-            session.sync_document(
-                &file_uri,
-                language_id_for_path(&absolute_path),
-                &text,
-            )?;
-            action(session, &file_uri)
-        };
-
-        match result {
-            Ok(value) => {
-                self.set_last_error(None);
-                Ok(value)
-            }
-            Err(error) => {
-                if let Ok(mut sessions) = self.sessions.lock() {
-                    if let Some(mut session) = sessions.remove(&session_key) {
-                        let _ = session.shutdown();
+        for attempt in 0..2 {
+            let result = {
+                let mut sessions = self
+                    .sessions
+                    .lock()
+                    .map_err(|_| "Failed to lock LSP session cache".to_string())?;
+                let session = match sessions.entry(session_key.clone()) {
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        if entry.get_mut().is_dead()? {
+                            let _ = entry.get_mut().shutdown();
+                            let mut session = LspSession::start(server, cwd)?;
+                            session.initialize(cwd)?;
+                            session.notify(&initialized_notification())?;
+                            let _ = entry.insert(session);
+                        }
+                        entry.into_mut()
                     }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        let mut session = LspSession::start(server, cwd)?;
+                        session.initialize(cwd)?;
+                        session.notify(&initialized_notification())?;
+                        entry.insert(session)
+                    }
+                };
+                session.sync_document(
+                    &file_uri,
+                    language_id_for_path(&absolute_path),
+                    &text,
+                )?;
+                action(session, &file_uri)
+            };
+
+            match result {
+                Ok(value) => {
+                    self.set_last_error(None);
+                    return Ok(value);
                 }
-                self.set_last_error(Some(error.clone()));
                 Err(error)
+                    if attempt == 0
+                        && error == "Language server closed the message stream" =>
+                {
+                    if let Ok(mut sessions) = self.sessions.lock() {
+                        if let Some(mut session) = sessions.remove(&session_key) {
+                            let _ = session.shutdown();
+                        }
+                    }
+                    continue;
+                }
+                Err(error) => {
+                    if let Ok(mut sessions) = self.sessions.lock() {
+                        if let Some(mut session) = sessions.remove(&session_key) {
+                            let _ = session.shutdown();
+                        }
+                    }
+                    self.set_last_error(Some(error.clone()));
+                    return Err(error);
+                }
             }
         }
+        Err("Language server retry loop exhausted unexpectedly".to_string())
     }
 }
 
@@ -317,6 +339,14 @@ impl LspSession {
                 let _ = self.child.wait();
                 Ok(())
             }
+            Err(err) => Err(err.to_string()),
+        }
+    }
+
+    fn is_dead(&mut self) -> Result<bool, String> {
+        match self.child.try_wait() {
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => Ok(false),
             Err(err) => Err(err.to_string()),
         }
     }
@@ -611,12 +641,21 @@ mod tests {
         dir
     }
 
-    fn write_fake_server(workdir: &Path, stats_path: Option<&Path>) -> PathBuf {
+    fn write_fake_server(
+        workdir: &Path,
+        stats_path: Option<&Path>,
+        exit_after_symbol: bool,
+    ) -> PathBuf {
         let script_path = workdir.join("fake_lsp_server.py");
         let counter_path = stats_path
             .map(|path| format!("STATS_PATH = {:?}\n", path.display().to_string()))
             .unwrap_or_else(|| "STATS_PATH = None\n".to_string());
-        let script_template = r#"__COUNTER_PATH__
+        let exit_after_symbol_line = if exit_after_symbol {
+            "EXIT_AFTER_SYMBOL = True\n"
+        } else {
+            "EXIT_AFTER_SYMBOL = False\n"
+        };
+        let script_template = r#"__COUNTER_PATH____EXIT_AFTER_SYMBOL__
 import json
 import sys
 from pathlib import Path
@@ -732,6 +771,8 @@ while True:
                 }]
             }]
         })
+        if EXIT_AFTER_SYMBOL:
+            break
     elif method == "textDocument/references":
         uri = message["params"]["textDocument"]["uri"]
         send({
@@ -750,13 +791,15 @@ while True:
     elif method == "exit":
         break
 "#;
-        let script = script_template.replace("__COUNTER_PATH__", &counter_path);
+        let script = script_template
+            .replace("__COUNTER_PATH__", &counter_path)
+            .replace("__EXIT_AFTER_SYMBOL__", exit_after_symbol_line);
         fs::write(&script_path, script).unwrap();
         script_path
     }
 
     fn fake_registry(workdir: &Path) -> LspServerRegistry {
-        let script_path = write_fake_server(workdir, None);
+        let script_path = write_fake_server(workdir, None, false);
         LspServerRegistry::new(vec![LspServerConfig {
             id: "fake-rust".to_string(),
             command: env::var("PYTHON3").unwrap_or_else(|_| "python3".to_string()),
@@ -766,7 +809,17 @@ while True:
     }
 
     fn fake_registry_with_counter(workdir: &Path, counter: &Path) -> LspServerRegistry {
-        let script_path = write_fake_server(workdir, Some(counter));
+        let script_path = write_fake_server(workdir, Some(counter), false);
+        LspServerRegistry::new(vec![LspServerConfig {
+            id: "fake-rust".to_string(),
+            command: env::var("PYTHON3").unwrap_or_else(|_| "python3".to_string()),
+            args: vec![script_path.to_string_lossy().to_string()],
+            file_extensions: vec!["rs".to_string()],
+        }])
+    }
+
+    fn fake_registry_exits_after_symbol(workdir: &Path, counter: &Path) -> LspServerRegistry {
+        let script_path = write_fake_server(workdir, Some(counter), true);
         LspServerRegistry::new(vec![LspServerConfig {
             id: "fake-rust".to_string(),
             command: env::var("PYTHON3").unwrap_or_else(|_| "python3".to_string()),
@@ -885,6 +938,24 @@ while True:
         assert_eq!(stats["initialize"], 1);
         assert_eq!(stats["didOpen"], 1);
         assert_eq!(stats["didChange"], 1);
+    }
+
+    #[test]
+    fn runtime_restarts_dead_session_before_reuse() {
+        let cwd = temp_dir("restart_dead");
+        let source = cwd.join("sample.rs");
+        let counter = cwd.join("stats.json");
+        fs::write(&source, "fn main() {\n    let value = 1;\n}\n").unwrap();
+        let runtime = LspRuntime::new(fake_registry_exits_after_symbol(&cwd, &counter));
+
+        let first = runtime.symbols(&cwd, Path::new("sample.rs")).unwrap();
+        let second = runtime.symbols(&cwd, Path::new("sample.rs")).unwrap();
+
+        assert_eq!(first[0].name, "main");
+        assert_eq!(second[0].name, "main");
+        let stats: Value = serde_json::from_str(&fs::read_to_string(counter).unwrap()).unwrap();
+        assert_eq!(stats["initialize"], 2);
+        assert_eq!(stats["didOpen"], 2);
     }
 
     #[test]
