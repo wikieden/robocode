@@ -171,6 +171,25 @@ The first implementation only needs sources 1 and 2 to be live, but the host
 API should be designed so source 3 can be added later without redesigning the
 registry contract.
 
+### Runtime Registry Reload
+
+The provider host must support runtime registry refresh.
+
+Phase-1 requirement:
+
+- the process can rescan plugin sources and rebuild the provider registry
+- newly loaded providers become available to new provider instances without
+  restarting the whole application
+
+Phase-1 does not require:
+
+- automatic hot replacement of provider instances already bound into active
+  sessions
+- implicit migration of existing sessions to a newly loaded provider
+
+This keeps runtime loading useful without forcing unsafe in-place mutation of
+already-running provider instances.
+
 ### Native Dynamic Libraries
 
 The first dynamic execution mode uses native dynamic libraries:
@@ -216,6 +235,23 @@ The expected later evolution is:
 - keep the same provider host/registry shape
 - replace or supplement the native loader with a WASM runtime
 - reuse the same descriptor and message contract with minimal redesign
+
+## Provider Binding Model
+
+Provider selection must be instance-scoped, not process-global.
+
+Rules:
+
+- each `SessionEngine` or agent runtime owns its own `ModelProvider` instance
+- multiple concurrent agents in the same process may use different providers at
+  the same time
+- the registry is shared lookup state, but active provider bindings are local
+  to the session/agent instance
+- the system must not depend on one mutable global \"current provider\"
+
+This is required both for multi-agent correctness and for runtime plugin
+loading. A registry reload may change what future sessions can select without
+forcing existing sessions to switch providers.
 
 ## Protocol Family Requirement
 
@@ -316,13 +352,17 @@ The completed product behavior for this slice should satisfy:
 2. DeepSeek can be selected as `provider=deepseek`.
 3. DeepSeek v4 can be constructed through the plugin system without modifying
    `SessionEngine`.
-4. Anthropic-style and OpenAI-style providers both still function through the
+4. The process can refresh the provider registry at runtime, and newly loaded
+   providers become available to new provider instances.
+5. Multiple concurrent agents or sessions can use different providers in the
+   same process.
+6. Anthropic-style and OpenAI-style providers both still function through the
    normalized provider contract.
-5. Provider-specific config takes precedence over generic fallback config.
-6. Plugin load failures are surfaced as structured errors, not host crashes.
-7. Adding a new provider that reuses an existing protocol adapter should not
+7. Provider-specific config takes precedence over generic fallback config.
+8. Plugin load failures are surfaced as structured errors, not host crashes.
+9. Adding a new provider that reuses an existing protocol adapter should not
    require core-engine changes.
-8. The plugin contract does not expose unstable Rust trait ABI across the
+10. The plugin contract does not expose unstable Rust trait ABI across the
    dynamic boundary.
 
 ## Risks and Constraints

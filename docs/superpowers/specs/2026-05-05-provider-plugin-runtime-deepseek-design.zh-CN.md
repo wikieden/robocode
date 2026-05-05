@@ -157,6 +157,22 @@ registry 必须支持多种来源：
 
 首版实现只要求 1 和 2 可用，但 host API 要按未来支持 3 的方式设计，避免再改一轮 registry contract。
 
+### 运行中 Registry Reload
+
+provider host 必须支持运行中刷新 registry。
+
+Phase 1 的要求：
+
+- 当前进程可以重新扫描 plugin sources 并重建 provider registry
+- 新加载出来的 provider 无需重启整个应用，就能被新创建的 provider instance 使用
+
+Phase 1 不要求：
+
+- 自动热替换已经绑定到活跃 session 中的 provider instance
+- 隐式把已有 session 迁移到新加载的 provider
+
+这样可以先让运行中动态加载变得可用，而不必一开始就承担已运行对象原地切换的一致性风险。
+
 ### 原生动态库
 
 首版动态执行模式使用原生动态库：
@@ -195,6 +211,20 @@ ABI 边界不能直接暴露内部 Rust traits，也不能依赖不稳定的 Rus
 - 保持相同的 provider host/registry 结构
 - 用 WASM runtime 替换或补充 native loader
 - 基本复用同一套 descriptor 和消息协议，而不必重新设计
+
+## Provider 绑定模型
+
+provider 选择必须是 instance-scoped，而不是 process-global。
+
+规则：
+
+- 每个 `SessionEngine` 或 agent runtime 都持有自己的 `ModelProvider` instance
+- 同一进程中的多个并发 agents 可以同时使用不同 provider
+- registry 是共享的 lookup state，但活动中的 provider binding 属于各自 session/agent instance
+- 系统不能依赖一个可变的全局 “current provider”
+
+这同时是 multi-agent correctness 与 runtime plugin loading 的要求。  
+也就是说，registry reload 可以改变“未来新 session 能选什么”，但不能强制已有 session 立刻切换 provider。
 
 ## 协议族要求
 
@@ -288,11 +318,13 @@ host 用这些声明来做配置校验和用户可读错误提示。
 1. RoboCode 能列出 built-in 与 dynamically loaded providers。
 2. DeepSeek 可以通过 `provider=deepseek` 被选择。
 3. DeepSeek v4 能通过 plugin system 正常构造 provider，而无需改 `SessionEngine`。
-4. Anthropic-style 与 OpenAI-style providers 都仍能通过统一 provider contract 正常工作。
-5. provider-specific config 优先于 generic fallback config。
-6. plugin load failures 以结构化错误呈现，而不是 host crash。
-7. 对于复用现有 protocol adapter 的新 provider，不需要 core-engine 改动。
-8. plugin contract 不直接把不稳定的 Rust trait ABI 暴露到动态边界之外。
+4. 当前进程可以在运行中刷新 provider registry，且新加载的 provider 能被新的 provider instance 使用。
+5. 多个并发 agents 或 sessions 可以在同一进程中同时使用不同 provider。
+6. Anthropic-style 与 OpenAI-style providers 都仍能通过统一 provider contract 正常工作。
+7. provider-specific config 优先于 generic fallback config。
+8. plugin load failures 以结构化错误呈现，而不是 host crash。
+9. 对于复用现有 protocol adapter 的新 provider，不需要 core-engine 改动。
+10. plugin contract 不直接把不稳定的 Rust trait ABI 暴露到动态边界之外。
 
 ## 风险与约束
 
