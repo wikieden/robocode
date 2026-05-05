@@ -280,6 +280,22 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    fn default_config_path_for_test(root: &Path) -> PathBuf {
+        if cfg!(windows) {
+            root.join("AppData")
+                .join("Roaming")
+                .join("robocode")
+                .join("config.toml")
+        } else if cfg!(target_os = "macos") {
+            root.join("Library")
+                .join("Application Support")
+                .join("robocode")
+                .join("config.toml")
+        } else {
+            root.join(".config").join("robocode").join("config.toml")
+        }
+    }
+
     fn map_env(values: &[(&str, &str)]) -> BTreeMap<String, String> {
         values
             .iter()
@@ -290,19 +306,12 @@ mod tests {
     #[test]
     fn project_file_overrides_global_file_and_env_overrides_files() {
         let root = std::env::temp_dir().join(format!("robocode_config_{}", std::process::id()));
+        let global_config_path = default_config_path_for_test(&root);
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(
-            root.join("Library")
-                .join("Application Support")
-                .join("robocode"),
-        )
-        .unwrap();
+        fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
         fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
         fs::write(
-            root.join("Library")
-                .join("Application Support")
-                .join("robocode")
-                .join("config.toml"),
+            global_config_path,
             "provider = 'anthropic'\nmodel = 'global-model'\npermission_mode = 'default'\n",
         )
         .unwrap();

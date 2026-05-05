@@ -1,7 +1,11 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 
+mod presentation;
+
+use presentation::{join_lines, render_section_title, render_subsection_title};
 use robocode_lsp::{LspRuntime, LspServerRegistry, SemanticProvider};
 use robocode_model::ModelProvider;
 use robocode_permissions::PermissionEngine;
@@ -1789,58 +1793,93 @@ fn render_lsp_diagnostics(cwd: &std::path::Path, diagnostics: &[LspDiagnostic]) 
     if diagnostics.is_empty() {
         return "LSP diagnostics:\n  <none>".to_string();
     }
-    let mut lines = vec!["LSP diagnostics:".to_string()];
+
+    let mut grouped = BTreeMap::<String, Vec<&LspDiagnostic>>::new();
     for diagnostic in diagnostics {
-        lines.push(format!(
-            "  {}:{}:{} [{}] {}{}{}",
-            render_lsp_path(cwd, &diagnostic.path),
-            diagnostic.range.start.line,
-            diagnostic.range.start.character,
-            severity_label(diagnostic.severity),
-            diagnostic.message,
-            diagnostic
+        grouped
+            .entry(render_lsp_path(cwd, &diagnostic.path))
+            .or_default()
+            .push(diagnostic);
+    }
+
+    let mut lines = vec![render_section_title("LSP diagnostics")
+        .trim_end()
+        .to_string()];
+
+    for (path, entries) in grouped {
+        lines.push(render_subsection_title(&path));
+        for diagnostic in entries {
+            let source = diagnostic
                 .source
                 .as_ref()
-                .map(|source| format!(" ({source})"))
-                .unwrap_or_default(),
-            diagnostic
-                .code
-                .as_ref()
-                .map(|code| format!(" code={code}"))
-                .unwrap_or_default()
-        ));
+                .map(|source| {
+                    diagnostic
+                        .code
+                        .as_ref()
+                        .map(|code| format!("{source}/{code}"))
+                        .unwrap_or_else(|| source.clone())
+                })
+                .or_else(|| diagnostic.code.as_ref().cloned())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            lines.push(format!(
+                "  {}:{} {} [{}] {}",
+                diagnostic.range.start.line,
+                diagnostic.range.start.character,
+                severity_label(diagnostic.severity),
+                source,
+                diagnostic.message
+            ));
+        }
     }
-    lines.join("\n")
+
+    join_lines(&lines)
 }
 
 fn render_lsp_symbols(cwd: &std::path::Path, symbols: &[LspSymbol]) -> String {
     if symbols.is_empty() {
         return "LSP symbols:\n  <none>".to_string();
     }
-    let mut lines = vec!["LSP symbols:".to_string()];
+
+    let mut grouped = BTreeMap::<String, Vec<&LspSymbol>>::new();
     for symbol in symbols {
-        lines.push(format!(
-            "  {} [{}] {}:{}:{}{}",
-            symbol.name,
-            symbol_kind_label(symbol.kind),
-            render_lsp_path(cwd, &symbol.path),
-            symbol.range.start.line,
-            symbol.range.start.character,
-            symbol
-                .container_name
-                .as_ref()
-                .map(|container| format!(" in {container}"))
-                .unwrap_or_default()
-        ));
+        grouped
+            .entry(render_lsp_path(cwd, &symbol.path))
+            .or_default()
+            .push(symbol);
     }
-    lines.join("\n")
+
+    let mut lines = vec![render_section_title("LSP symbols")
+        .trim_end()
+        .to_string()];
+    for (path, entries) in grouped {
+        lines.push(render_subsection_title(&path));
+        for symbol in entries {
+            lines.push(format!(
+                "  {} [{}] {}:{}{}",
+                symbol.name,
+                symbol_kind_label(symbol.kind),
+                symbol.range.start.line,
+                symbol.range.start.character,
+                symbol
+                    .container_name
+                    .as_ref()
+                    .map(|container| format!(" in {container}"))
+                    .unwrap_or_default()
+            ));
+        }
+    }
+
+    join_lines(&lines)
 }
 
 fn render_lsp_locations(cwd: &std::path::Path, locations: &[LspLocation]) -> String {
     if locations.is_empty() {
         return "LSP references:\n  <none>".to_string();
     }
-    let mut lines = vec!["LSP references:".to_string()];
+    let mut lines = vec![render_section_title("LSP references")
+        .trim_end()
+        .to_string()];
     for location in locations {
         lines.push(format!(
             "  {}:{}:{}",
@@ -1849,7 +1888,7 @@ fn render_lsp_locations(cwd: &std::path::Path, locations: &[LspLocation]) -> Str
             location.range.start.character
         ));
     }
-    lines.join("\n")
+    join_lines(&lines)
 }
 
 fn render_lsp_path(cwd: &std::path::Path, path: &str) -> String {
@@ -2495,7 +2534,128 @@ mod tests {
                 container_name: Some("impl SessionEngine".to_string()),
             }],
         );
-        assert!(rendered.contains("main [function] src/lib.rs:3:1 in impl SessionEngine"));
+        assert!(rendered.contains("src/lib.rs:"));
+        assert!(rendered.contains("  main [function] 3:1 in impl SessionEngine"));
+    }
+
+    #[test]
+    fn render_lsp_symbols_groups_entries_under_file_headers() {
+        let cwd = temp_dir("lsp_render_symbols_grouped");
+        let rendered = render_lsp_symbols(
+            &cwd,
+            &[
+                LspSymbol {
+                    name: "main".to_string(),
+                    kind: 12,
+                    path: cwd.join("src/lib.rs").display().to_string(),
+                    range: LspRange {
+                        start: LspPosition {
+                            line: 3,
+                            character: 1,
+                        },
+                        end: LspPosition {
+                            line: 4,
+                            character: 1,
+                        },
+                    },
+                    selection_range: None,
+                    container_name: None,
+                },
+                LspSymbol {
+                    name: "value".to_string(),
+                    kind: 13,
+                    path: cwd.join("src/lib.rs").display().to_string(),
+                    range: LspRange {
+                        start: LspPosition {
+                            line: 4,
+                            character: 5,
+                        },
+                        end: LspPosition {
+                            line: 4,
+                            character: 10,
+                        },
+                    },
+                    selection_range: None,
+                    container_name: Some("main".to_string()),
+                },
+                LspSymbol {
+                    name: "run".to_string(),
+                    kind: 12,
+                    path: cwd.join("src/engine.rs").display().to_string(),
+                    range: LspRange {
+                        start: LspPosition {
+                            line: 8,
+                            character: 2,
+                        },
+                        end: LspPosition {
+                            line: 9,
+                            character: 2,
+                        },
+                    },
+                    selection_range: None,
+                    container_name: Some("Engine".to_string()),
+                },
+            ],
+        );
+
+        assert_eq!(
+            rendered,
+            [
+                "LSP symbols:",
+                "src/engine.rs:",
+                "  run [function] 8:2 in Engine",
+                "src/lib.rs:",
+                "  main [function] 3:1",
+                "  value [variable] 4:5 in main",
+            ]
+            .join("\n")
+        );
+    }
+
+    #[test]
+    fn render_lsp_locations_keeps_relative_sorted_lines() {
+        let cwd = temp_dir("lsp_render_locations_grouped");
+        let rendered = render_lsp_locations(
+            &cwd,
+            &[
+                LspLocation {
+                    path: cwd.join("src/lib.rs").display().to_string(),
+                    range: LspRange {
+                        start: LspPosition {
+                            line: 4,
+                            character: 5,
+                        },
+                        end: LspPosition {
+                            line: 4,
+                            character: 9,
+                        },
+                    },
+                },
+                LspLocation {
+                    path: cwd.join("src/engine.rs").display().to_string(),
+                    range: LspRange {
+                        start: LspPosition {
+                            line: 18,
+                            character: 9,
+                        },
+                        end: LspPosition {
+                            line: 18,
+                            character: 13,
+                        },
+                    },
+                },
+            ],
+        );
+
+        assert_eq!(
+            rendered,
+            [
+                "LSP references:",
+                "  src/lib.rs:4:5",
+                "  src/engine.rs:18:9",
+            ]
+            .join("\n")
+        );
     }
 
     #[test]
@@ -2521,9 +2681,57 @@ mod tests {
                 message: "mismatched types".to_string(),
             }],
         );
-        assert!(rendered.contains(
-            "src/lib.rs:7:2 [warning] mismatched types (rust-analyzer) code=E0308"
-        ));
+        assert!(rendered.contains("src/lib.rs:"));
+        assert!(rendered.contains("  7:2 warning [rust-analyzer/E0308] mismatched types"));
+    }
+
+    #[test]
+    fn render_lsp_diagnostics_groups_entries_by_file() {
+        let cwd = temp_dir("lsp_render_diagnostics_grouped");
+        let rendered = render_lsp_diagnostics(
+            &cwd,
+            &[
+                LspDiagnostic {
+                    path: cwd.join("src/lib.rs").display().to_string(),
+                    range: LspRange {
+                        start: LspPosition {
+                            line: 2,
+                            character: 4,
+                        },
+                        end: LspPosition {
+                            line: 2,
+                            character: 8,
+                        },
+                    },
+                    severity: Some(1),
+                    source: Some("rust-analyzer".to_string()),
+                    code: Some("E0001".to_string()),
+                    message: "first issue".to_string(),
+                },
+                LspDiagnostic {
+                    path: cwd.join("src/lib.rs").display().to_string(),
+                    range: LspRange {
+                        start: LspPosition {
+                            line: 7,
+                            character: 1,
+                        },
+                        end: LspPosition {
+                            line: 7,
+                            character: 5,
+                        },
+                    },
+                    severity: Some(2),
+                    source: Some("clippy".to_string()),
+                    code: None,
+                    message: "second issue".to_string(),
+                },
+            ],
+        );
+
+        assert!(rendered.contains("LSP diagnostics:"));
+        assert!(rendered.contains("src/lib.rs:"));
+        assert!(rendered.contains("  2:4 error [rust-analyzer/E0001] first issue"));
+        assert!(rendered.contains("  7:1 warning [clippy] second issue"));
     }
 
     #[test]
