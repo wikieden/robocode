@@ -1,9 +1,11 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 
 mod presentation;
 
+use presentation::{join_lines, render_section_title, render_subsection_title};
 use robocode_lsp::{LspRuntime, LspServerRegistry, SemanticProvider};
 use robocode_model::ModelProvider;
 use robocode_permissions::PermissionEngine;
@@ -1791,28 +1793,47 @@ fn render_lsp_diagnostics(cwd: &std::path::Path, diagnostics: &[LspDiagnostic]) 
     if diagnostics.is_empty() {
         return "LSP diagnostics:\n  <none>".to_string();
     }
-    let mut lines = vec!["LSP diagnostics:".to_string()];
+
+    let mut grouped = BTreeMap::<String, Vec<&LspDiagnostic>>::new();
     for diagnostic in diagnostics {
-        lines.push(format!(
-            "  {}:{}:{} [{}] {}{}{}",
-            render_lsp_path(cwd, &diagnostic.path),
-            diagnostic.range.start.line,
-            diagnostic.range.start.character,
-            severity_label(diagnostic.severity),
-            diagnostic.message,
-            diagnostic
+        grouped
+            .entry(render_lsp_path(cwd, &diagnostic.path))
+            .or_default()
+            .push(diagnostic);
+    }
+
+    let mut lines = vec![render_section_title("LSP diagnostics")
+        .trim_end()
+        .to_string()];
+
+    for (path, entries) in grouped {
+        lines.push(render_subsection_title(&path));
+        for diagnostic in entries {
+            let source = diagnostic
                 .source
                 .as_ref()
-                .map(|source| format!(" ({source})"))
-                .unwrap_or_default(),
-            diagnostic
-                .code
-                .as_ref()
-                .map(|code| format!(" code={code}"))
-                .unwrap_or_default()
-        ));
+                .map(|source| {
+                    diagnostic
+                        .code
+                        .as_ref()
+                        .map(|code| format!("{source}/{code}"))
+                        .unwrap_or_else(|| source.clone())
+                })
+                .or_else(|| diagnostic.code.as_ref().cloned())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            lines.push(format!(
+                "  {}:{} {} [{}] {}",
+                diagnostic.range.start.line,
+                diagnostic.range.start.character,
+                severity_label(diagnostic.severity),
+                source,
+                diagnostic.message
+            ));
+        }
     }
-    lines.join("\n")
+
+    join_lines(&lines)
 }
 
 fn render_lsp_symbols(cwd: &std::path::Path, symbols: &[LspSymbol]) -> String {
@@ -2523,9 +2544,57 @@ mod tests {
                 message: "mismatched types".to_string(),
             }],
         );
-        assert!(rendered.contains(
-            "src/lib.rs:7:2 [warning] mismatched types (rust-analyzer) code=E0308"
-        ));
+        assert!(rendered.contains("src/lib.rs:"));
+        assert!(rendered.contains("  7:2 warning [rust-analyzer/E0308] mismatched types"));
+    }
+
+    #[test]
+    fn render_lsp_diagnostics_groups_entries_by_file() {
+        let cwd = temp_dir("lsp_render_diagnostics_grouped");
+        let rendered = render_lsp_diagnostics(
+            &cwd,
+            &[
+                LspDiagnostic {
+                    path: cwd.join("src/lib.rs").display().to_string(),
+                    range: LspRange {
+                        start: LspPosition {
+                            line: 2,
+                            character: 4,
+                        },
+                        end: LspPosition {
+                            line: 2,
+                            character: 8,
+                        },
+                    },
+                    severity: Some(1),
+                    source: Some("rust-analyzer".to_string()),
+                    code: Some("E0001".to_string()),
+                    message: "first issue".to_string(),
+                },
+                LspDiagnostic {
+                    path: cwd.join("src/lib.rs").display().to_string(),
+                    range: LspRange {
+                        start: LspPosition {
+                            line: 7,
+                            character: 1,
+                        },
+                        end: LspPosition {
+                            line: 7,
+                            character: 5,
+                        },
+                    },
+                    severity: Some(2),
+                    source: Some("clippy".to_string()),
+                    code: None,
+                    message: "second issue".to_string(),
+                },
+            ],
+        );
+
+        assert!(rendered.contains("LSP diagnostics:"));
+        assert!(rendered.contains("src/lib.rs:"));
+        assert!(rendered.contains("  2:4 error [rust-analyzer/E0001] first issue"));
+        assert!(rendered.contains("  7:1 warning [clippy] second issue"));
     }
 
     #[test]
