@@ -2,6 +2,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 
+mod presentation;
+
 use robocode_lsp::{LspRuntime, LspServerRegistry, SemanticProvider};
 use robocode_model::ModelProvider;
 use robocode_permissions::PermissionEngine;
