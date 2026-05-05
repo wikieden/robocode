@@ -13,14 +13,14 @@ This repository currently includes:
 - A permission-aware tool runtime
 - Built-in local tools for shell, files, search, web access, and Git workflows including worktrees and stash/restore flows
 - Project-level workflow state for tasks, session memory, project memory suggestions, and resume context
-- A provider abstraction with support for multiple API families and native tool-calling where available
+- A provider abstraction with support for multiple API families, native tool-calling where available, and an evolving provider-plugin runtime
 
 ## Workspace
 
 - `robocode-cli`: command-line entrypoint and REPL
 - `robocode-config`: config loading and precedence resolution
 - `robocode-core`: session engine and orchestration
-- `robocode-model`: model provider abstraction and implementations
+- `robocode-model`: provider host/runtime, protocol adapters, and model implementations
 - `robocode-tools`: built-in tools and execution adapters
 - `robocode-permissions`: permission modes and decision logic
 - `robocode-session`: transcript storage and resume support
@@ -71,14 +71,22 @@ Supported provider families:
 - `anthropic`
 - `openai`
 - `openai-compatible`
+- `deepseek` as an independent provider family using the OpenAI-style protocol
 - `ollama`
 - `fallback`
 
-Native tool-calling currently maps:
+Current protocol families and tool-calling mappings:
 
 - Anthropic `tool_use`
-- OpenAI and OpenAI-compatible `tool_calls`
+- OpenAI-style `tool_calls` for OpenAI-compatible providers, including DeepSeek
 - `fallback` and `ollama` text-first local flows
+
+Provider runtime direction:
+
+- built-in providers remain supported
+- provider descriptors and runtime loading are being extended toward a plugin-based model
+- provider bindings are session/agent scoped rather than process-global
+- the runtime is being designed for native dynamic loading first and WASM migration later
 
 Useful commands:
 
@@ -135,4 +143,4 @@ Project docs:
 
 ## Status
 
-This is an actively developing V1 implementation focused on a reliable local CLI core before broader platform features.
+This is an actively developing local-first CLI platform. Mainline already includes V1 plus core V2 session/workflow/LSP slices, and the next architecture expansion is a plugin-extensible provider runtime with DeepSeek v4 as the first target.

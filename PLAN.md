@@ -8,34 +8,26 @@ Mainline landed status:
 - layered config resolution
 - multi-provider model abstraction
 - native tool-calling support for Anthropic and OpenAI-style providers
+- provider-plugin runtime and DeepSeek v4 design are defined, but implementation has not landed yet
 - permission-aware local tool runtime
 - JSONL transcripts plus rebuildable SQLite session index
 - session listing and resume selectors
 - file, search, shell, web, and Git tool families
 - V2-A runtime/session commands: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`
 - V2-C workflow continuity: `robocode-workflows`, project tasks, project/session memory, `/tasks`, `/task ...`, `/memory ...`, `/task resume-context`, workflow JSONL logs
+- V2-B LSP foundation: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document synchronization
+- V2-D first structured view slice: grouped diagnostics, grouped symbols, compact references, and `robocode-core` presentation helpers
 
-Current dev baseline on `codex/v2-lsp-foundation`:
+Current planning baseline:
 
-- `robocode-lsp`
-- LSP server registry and JSON-RPC framing
-- semantic result contracts in `robocode-types`
-- `lsp_diagnostics`, `lsp_symbols`, and `lsp_references` tools
-- `/lsp status`, `/lsp diagnostics`, `/lsp symbols`, and `/lsp references` commands
-- real semantic queries through language-server stdio
-- initialized session reuse per workspace/server
-- document version sync through `didChange`
-- reference normalization and more readable terminal output
-
-Implemented on preceding branch:
-
-- `codex/v2-memory-task-workflows` contains the early V2-C workflow continuity slice
-- V2-C remains partial relative to the full product target
+- provider-plugin runtime and DeepSeek v4 spec are defined on `main`
+- implementation plan exists for the provider-platform slice
+- no provider-plugin runtime code has landed yet
 
 Next planned slice:
 
-- `codex/v2-d-structured-views` exists as the planning branch for structured terminal views
-- V2-D implementation has not started yet
+- provider-plugin runtime and DeepSeek v4
+- after that, later V2-D work extends structured views into sessions, tasks, memory, diff, and approvals
 
 ## Near-Term Plan
 
@@ -51,13 +43,19 @@ Next planned slice:
    - Keep maturing the runtime from an early implementation toward a stable merge target.
    - Focus next on robustness, output quality, and long-lived session behavior rather than broadening scope.
 
-3. V2-D Richer TUI and Structured Views.
+3. Provider Plugin Runtime + DeepSeek v4.
+   - Add a dynamic provider registry and provider host/runtime.
+   - Support runtime registry refresh for newly loaded providers.
+   - Keep provider binding instance-scoped so multiple agents can use different providers in the same process.
+   - Land DeepSeek as the first independent plugin-backed provider using the OpenAI-style protocol family.
+
+4. V2-D Richer TUI and Structured Views.
    - Improve task, memory, diff, session, and approval rendering.
    - Add structured views for diagnostics, symbols, and references.
    - Avoid a full UI rewrite until workflows are stable.
    - Keep text output usable in plain terminals.
 
-4. V3 Platform Expansion.
+5. V3 Platform Expansion.
    - MCP runtime and plugin loading.
    - Skills/workflow plugin model.
    - Multi-agent coordinator.
@@ -75,6 +73,7 @@ Completed or substantially covered:
 - Git and web command families
 - transcript and resume model
 - provider abstraction
+- provider plugin runtime and dynamic registry
 - early task/memory workflow layer
 - early LSP foundation with real semantic queries and normalized terminal output
 
@@ -83,6 +82,7 @@ Partial:
 - command surface breadth
 - LSP runtime execution depth
 - provider streaming/cancellation maturity
+- dynamic provider loading and plugin hardening
 - session summaries and long-history management
 - task workflows compared with reference task/session model
 - structured terminal UI
@@ -90,7 +90,7 @@ Partial:
 Missing:
 
 - MCP
-- skills/plugins
+- general skills/plugins beyond provider plugins
 - multi-agent/team coordinator
 - bridge/remote/server mode
 - cron/automation

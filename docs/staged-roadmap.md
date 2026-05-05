@@ -41,6 +41,7 @@ Required capabilities:
 - broader command surface
 - better session browsing and summaries
 - stronger Git and diff workflows
+- plugin-extensible provider runtime with dynamic provider loading
 - LSP integration
 - memory and task management
 - richer TUI and interaction patterns
@@ -49,6 +50,7 @@ Exit criteria:
 
 - users can complete more of the development workflow without dropping to ad
   hoc shell usage
+- provider growth does not require repeated core-engine changes
 - semantic code assistance exists beyond grep and file editing
 - session and task continuity feel deliberate instead of incidental
 
@@ -114,7 +116,8 @@ Current dev baseline:
 
 - the preceding V2-C branch adds workflow continuity through tasks, memory, and resume-context
 - the current V2-B branch adds LSP-backed semantic assistance through real queries, session reuse, and document synchronization
-- the V2-D branch exists as a planning-only branch for structured terminal views
+- main has already landed the first V2-D structured LSP terminal views
+- provider-plugin runtime and DeepSeek v4 are now specified as the next provider-platform slice
 
 That does not change the roadmap ordering. It means RoboCode has moved beyond an
 early V1-only repository state, but later phases should still be pulled

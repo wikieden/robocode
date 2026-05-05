@@ -10,10 +10,8 @@ RoboCode 不是逐文件移植。它追求的是用户可感知运行模型、�
 
 当前实现说明：
 
-- `main` 已落地 early V1 baseline 和核心 V2-A command/session work
-- 前序 `codex/v2-memory-task-workflows` 分支已实现 early V2-C workflow continuity slice
-- 当前 `codex/v2-lsp-foundation` 分支已实现 early V2-B semantic code intelligence slice
-- `codex/v2-d-structured-views` 是下一阶段 V2-D terminal-view slice 的 planning branch
+- `main` 已落地 V1 基线、V2-A session work、V2-C workflow continuity、V2-B semantic code intelligence，以及 V2-D 的第一批 structured LSP terminal-view 切片
+- 下一条架构扩展切片是 provider-plugin runtime 与 DeepSeek v4
 
 ## 产品定义
 
@@ -168,8 +166,17 @@ provider 层必须保持厂商无关。
 - Anthropic
 - OpenAI
 - OpenAI-compatible APIs
+- DeepSeek，作为独立 provider family
 - Ollama 或等价本地模型后端
 - fallback / offline development mode
+
+provider 目标还包括 plugin-extensible provider runtime：
+
+- built-in providers 只是 registry 的一种来源
+- dynamic provider loading 是正式需求
+- provider identity 与 protocol family 必须保持分离
+- provider bindings 以 session/agent 为作用域，而不是 process-global
+- runtime registry refresh 必须允许新加载 provider 被新的 provider instances 使用，而不强制已有 session 热切换
 
 ### 统一工具运行时
 

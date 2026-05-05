@@ -12,10 +12,8 @@ allowing a Rust-native internal architecture.
 
 Current implementation note:
 
-- main has landed the early V1 baseline plus core V2-A command/session work
-- the preceding `codex/v2-memory-task-workflows` branch implements an early V2-C workflow continuity slice
-- the current `codex/v2-lsp-foundation` branch implements an early V2-B semantic code intelligence slice
-- `codex/v2-d-structured-views` exists as the planning branch for the next V2-D terminal-view slice
+- main has landed the V1 baseline plus V2-A session work, V2-C workflow continuity, V2-B semantic code intelligence, and the first V2-D structured LSP terminal-view slice
+- the next architecture expansion is the provider-plugin runtime and DeepSeek v4 slice
 
 ## Product Definition
 
@@ -179,8 +177,18 @@ The product target includes support for:
 - Anthropic
 - OpenAI
 - OpenAI-compatible APIs
+- DeepSeek as an independent provider family
 - Ollama or equivalent local model backends
 - fallback or offline development mode
+
+The provider target also includes a plugin-extensible provider runtime:
+
+- built-in providers are only one registry source
+- dynamic provider loading is a first-class requirement
+- provider identity and protocol family remain separate concerns
+- provider bindings are session/agent scoped rather than process-global
+- runtime registry refresh must allow newly loaded providers to be used by new
+  provider instances without forcing existing sessions to hot-swap
 
 ### Unified Tool Runtime
 

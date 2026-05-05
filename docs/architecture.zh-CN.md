@@ -7,7 +7,7 @@
 - `robocode-cli`：面向用户的 REPL 和 slash commands
 - `robocode-config`：配置加载、优先级合并和启动默认值
 - `robocode-core`：会话引擎和 turn 编排
-- `robocode-model`：provider 抽象、HTTP 适配和 tool-calling 协议转换
+- `robocode-model`：provider host/runtime、HTTP 适配、动态 provider registry，以及 tool-calling 协议转换
 - `robocode-tools`：内置本地工具和执行适配器
 - `robocode-permissions`：权限模式、规则和审批决策
 - `robocode-session`：JSONL transcript 和 SQLite 索引
@@ -33,6 +33,7 @@
 - model name
 - API base URL
 - API key
+- provider-scoped config 与 generic fallback
 - permission mode
 - session home
 - request timeout
@@ -90,7 +91,7 @@ transcript 是 append-only。SQLite 存储派生摘要，始终可以从 JSONL �
 
 权限系统里还包含少量特例。例如 Git worktree 可能会操作仓库根目录之外的路径，因此这些路径会进入审批，而不是直接被视为 out-of-scope deny。
 
-## Provider 抽象
+## Provider Runtime
 
 模型层暴露一个 provider trait，接收：
 
@@ -111,8 +112,17 @@ provider 返回流式或批式事件：
 - `anthropic`
 - `openai`
 - `openai-compatible`
+- `deepseek`，作为独立 provider family，复用 OpenAI-style protocol family
 - `ollama`
 - `fallback`
+
+provider runtime 正在从小型 built-in factory 演进为 provider host/runtime，包含：
+
+- built-in provider descriptors
+- dynamic provider registry
+- 将 protocol adapters 与 provider identity 分离
+- 先支持 native dynamic loading、后续可迁移到 WASM 的 plugin contract
+- instance-scoped provider binding，使同一进程中的不同 sessions/agents 能并发使用不同 provider
 
 HTTP provider 使用系统 `curl`，因此 workspace 能保持依赖轻量且可离线编译。provider 配置中也包含 timeout 和 retry，HTTP 路径会对瞬时失败做重试，并返回结构化错误。
 
@@ -121,10 +131,17 @@ HTTP provider 使用系统 `curl`，因此 workspace 能保持依赖轻量且可
 - Anthropic 原生 `tool_use`
 - OpenAI 原生 `tool_calls`
 - OpenAI-compatible 的相同工具调用消息形状
+- DeepSeek 作为独立 provider identity，绑定到 OpenAI-style adapter family
 - Ollama 的纯文本聊天流
 - 本地 `fallback` 行为，用于离线与 smoke test
 
 即使没有配置凭证，RoboCode 仍然可以通过 deterministic fallback 启动，而不是直接失败。
+
+运行时 provider 加载目标：
+
+- 进程运行中可刷新 registry
+- 新加载的 provider 可被新建的 provider instances 使用
+- 活跃 session 保持自己已经绑定的 provider instance，而不是原地热替换
 
 ## 工具系统
 

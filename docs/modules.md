@@ -15,7 +15,7 @@
 - Shared contracts: `robocode-types`.
 - Permission policy: `robocode-permissions`.
 - Tool implementation: `robocode-tools`.
-- Provider protocol adaptation: `robocode-model`.
+- Provider host/runtime, protocol adaptation, and dynamic registry: `robocode-model`.
 - Semantic code intelligence: `robocode-lsp`.
 - CLI presentation: `robocode-cli`.
 
@@ -25,24 +25,23 @@ Mainline landed:
 
 - V1 local CLI baseline is implemented: REPL, config, providers, permissions, transcripts, resume, file/search/shell/web/Git tools.
 - V2-A session and command enhancement is implemented: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`.
-
-Current dev baseline:
-
-- V2-C memory and task workflows are implemented on the preceding branch: `robocode-workflows`, `/tasks`, `/task ...`, `/memory ...`, workflow JSONL logs, and resume context.
-- V2-B LSP foundation is active on this branch: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document sync.
+- V2-C workflow continuity is implemented: `robocode-workflows`, `/tasks`, `/task ...`, `/memory ...`, workflow JSONL logs, and resume context.
+- V2-B LSP foundation is implemented: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document sync.
+- V2-D first structured terminal view slice is implemented: grouped diagnostics, grouped symbols, compact references, and `robocode-core` presentation helpers.
+- Provider-plugin runtime and DeepSeek v4 are specified at the design level, but implementation has not landed on main yet.
 
 Next planned slice:
 
-- V2-D structured views has a planning branch at `codex/v2-d-structured-views`.
-- V2-D implementation has not started yet.
+- provider-plugin runtime and DeepSeek v4.
+- later V2-D work extends structured views into sessions, tasks, memory, diff, and approvals.
 
 ## Gap vs `.ref/claude-code-main`
 
 Covered: session engine shape, command families, permission modes, local tool registry, transcript/resume model, Git and web workflows.
 
-Partial: task workflow depth, LSP runtime depth, terminal UI richness, provider streaming/cancellation maturity, long-session summarization.
+Partial: task workflow depth, LSP runtime depth, terminal UI richness, provider streaming/cancellation maturity, provider-plugin runtime, and long-session summarization.
 
-Missing: MCP, skills/plugins, multi-agent/team coordinator, bridge/remote/server mode, automation/cron, voice, managed settings, analytics, feature flags.
+Missing: MCP, general skills/plugins beyond provider plugins, multi-agent/team coordinator, bridge/remote/server mode, automation/cron, voice, managed settings, analytics, feature flags.
 
 ## Module Docs
 

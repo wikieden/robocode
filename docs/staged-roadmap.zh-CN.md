@@ -40,6 +40,7 @@
 - 更广的命令面
 - 更好的 session 浏览和 summary
 - 更强的 Git 与 diff 流程
+- 支持 dynamic provider loading 的 plugin-extensible provider runtime
 - LSP 集成
 - memory 与 task 管理
 - 更丰富的 TUI 和交互
@@ -47,6 +48,7 @@
 退出标准：
 
 - 用户可以在不频繁回退到 ad hoc shell 的情况下完成更多开发流程
+- provider 的增长不再需要反复修改 core-engine
 - 具备超越 grep / file editing 的语义级代码辅助
 - session 和 task 的连续性从“能用”提升到“有意设计”
 
@@ -108,6 +110,7 @@ Current dev baseline：
 
 - 前序 V2-C 分支已经补上 task、memory、resume-context 等 workflow continuity
 - 当前 V2-B 分支已经补上基于 LSP 的 semantic assistance，包括 real queries、session reuse、document synchronization
-- V2-D 分支已经存在，但目前仍是 structured terminal views 的 planning-only branch
+- main 已经落地 V2-D 的第一批 structured LSP terminal views
+- provider-plugin runtime 与 DeepSeek v4 已被定义为下一条 provider 平台切片
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

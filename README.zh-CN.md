@@ -13,14 +13,14 @@ RoboCode 是一个用 Rust 实现的、本地优先的开发者 Agent CLI，目�
 - 带权限控制的统一工具运行时
 - 内置本地工具：shell、文件、搜索、Web、Git，以及 worktree / stash / restore 流程
 - 项目级 workflow 状态：tasks、session memory、project memory suggestions、resume context
-- 支持多家 API 与原生 tool-calling 的 provider 抽象
+- 支持多家 API、原生 tool-calling，以及正在演进中的 provider-plugin runtime 的 provider 抽象
 
 ## 工作区结构
 
 - `robocode-cli`：命令行入口和 REPL
 - `robocode-config`：配置加载和优先级解析
 - `robocode-core`：会话引擎和编排逻辑
-- `robocode-model`：模型 provider 抽象与实现
+- `robocode-model`：provider host/runtime、协议适配器与模型实现
 - `robocode-tools`：内置工具与执行适配器
 - `robocode-permissions`：权限模式与决策逻辑
 - `robocode-session`：transcript 存储与 resume 支持
@@ -71,14 +71,22 @@ max_retries = 2
 - `anthropic`
 - `openai`
 - `openai-compatible`
+- `deepseek`，作为独立 provider family，复用 OpenAI-style 协议
 - `ollama`
 - `fallback`
 
-当前原生 tool-calling 映射：
+当前协议族与 tool-calling 映射：
 
 - Anthropic `tool_use`
-- OpenAI / OpenAI-compatible `tool_calls`
+- OpenAI-style `tool_calls`，用于 OpenAI-compatible providers，包括 DeepSeek
 - `fallback` 与 `ollama` 的文本优先本地流程
+
+当前 provider runtime 方向：
+
+- 继续支持 built-in providers
+- provider descriptors 与 runtime loading 正在向 plugin-based 模式演进
+- provider 绑定是 session/agent scoped，而不是 process-global
+- 执行模型先支持 native dynamic loading，后续再迁移到 WASM
 
 常用命令：
 
@@ -133,4 +141,4 @@ max_retries = 2
 
 ## 当前状态
 
-这是一个正在持续演进的 V1 实现，当前重点仍然是把本地 CLI 核心打磨稳定，再逐步扩展更大的平台能力。
+这是一个正在持续演进的本地优先 CLI 平台。mainline 已经包含 V1 以及核心 V2 session/workflow/LSP 切片，下一步架构扩展重点是 plugin-extensible provider runtime，DeepSeek v4 将作为第一个目标 provider。

@@ -5,7 +5,7 @@
 - `robocode-cli`: user-facing REPL and slash commands.
 - `robocode-config`: config loading, merge precedence, and startup defaults.
 - `robocode-core`: session engine and turn orchestration.
-- `robocode-model`: provider abstraction, HTTP adapters, and tool-calling protocol translation.
+- `robocode-model`: provider host/runtime, HTTP adapters, dynamic provider registry, and tool-calling protocol translation.
 - `robocode-tools`: builtin local tools and execution adapters.
 - `robocode-permissions`: permission modes, rules, and approval decisions.
 - `robocode-session`: JSONL transcripts plus SQLite indexing.
@@ -33,6 +33,7 @@ The resolved config currently covers:
 - model name
 - API base URL
 - API key
+- provider-scoped config with generic fallback
 - permission mode
 - session home
 - request timeout
@@ -106,7 +107,7 @@ example, Git worktree operations can target paths outside the current repository
 root, so those paths ask for approval instead of being treated as an automatic
 out-of-scope deny.
 
-## Provider Abstraction
+## Provider Runtime
 
 The model layer exposes a provider trait that accepts:
 
@@ -127,8 +128,20 @@ V1 includes a provider factory with these backend families:
 - `anthropic`
 - `openai`
 - `openai-compatible`
+- `deepseek` as an independent provider family using the OpenAI-style protocol family
 - `ollama`
 - `fallback`
+
+The provider runtime is evolving from a small built-in factory into a provider
+host/runtime with:
+
+- built-in provider descriptors
+- dynamic provider registry
+- protocol adapters separated from provider identity
+- a plugin contract designed for native dynamic loading first and WASM
+  migration later
+- instance-scoped provider binding so different sessions/agents can use
+  different providers concurrently in the same process
 
 The HTTP-backed providers use the system `curl` binary so the workspace remains
 dependency-light and offline-compilable. The provider config includes request
@@ -140,11 +153,20 @@ Current protocol support:
 - Anthropic native `tool_use`
 - OpenAI native `tool_calls`
 - OpenAI-compatible tool calling using the same message shape
+- DeepSeek as an independent provider identity bound to the OpenAI-style
+  adapter family
 - Ollama text-only chat flow
 - local `fallback` behavior for offline use and smoke testing
 
 If credentials are missing, RoboCode can still run against deterministic local
 fallback behavior instead of failing to start.
+
+Runtime provider loading target:
+
+- the registry can be refreshed while the process is running
+- newly loaded providers become available to newly created provider instances
+- active sessions keep their bound provider instances instead of hot-swapping in
+  place
 
 ## Tool System
 
