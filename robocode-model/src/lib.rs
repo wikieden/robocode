@@ -1,161 +1,31 @@
-use std::env;
+mod adapters;
+mod config;
+mod descriptor;
+mod http;
+mod plugin;
+mod registry;
+
 use std::process::Command;
 
+use adapters::{builtin_default_api_base, builtin_provider_id, builtin_provider_ids};
+use config::resolve_api_key;
 use robocode_types::{
     Message, ModelEvent, ModelRequest, Role, ToolCall, ToolInput, ToolSpec, decode_tool_input,
     fresh_id, parse_tool_input,
 };
 use serde_json::{Map, Value, json};
 
+pub use config::{ProviderConfig, ProviderKind};
+pub use descriptor::{
+    ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings,
+};
+pub use registry::ProviderRegistry;
+
 pub trait ModelProvider: Send {
     fn provider_name(&self) -> &str;
     fn model(&self) -> &str;
     fn set_model(&mut self, model: String);
     fn next_events(&mut self, request: &ModelRequest) -> Result<Vec<ModelEvent>, String>;
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderKind {
-    Anthropic,
-    OpenAi,
-    OpenAiCompatible,
-    Ollama,
-    Fallback,
-}
-
-impl ProviderKind {
-    pub fn parse(input: &str) -> Option<Self> {
-        match input.trim().to_ascii_lowercase().as_str() {
-            "anthropic" => Some(Self::Anthropic),
-            "openai" => Some(Self::OpenAi),
-            "openai-compatible" | "openai_compatible" | "compat" => Some(Self::OpenAiCompatible),
-            "ollama" => Some(Self::Ollama),
-            "fallback" | "local" => Some(Self::Fallback),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Anthropic => "anthropic",
-            Self::OpenAi => "openai",
-            Self::OpenAiCompatible => "openai-compatible",
-            Self::Ollama => "ollama",
-            Self::Fallback => "fallback",
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ProviderConfig {
-    pub kind: ProviderKind,
-    pub model: String,
-    pub api_base: Option<String>,
-    pub api_key: Option<String>,
-    pub request_timeout_secs: u64,
-    pub max_retries: u32,
-}
-
-impl ProviderConfig {
-    pub fn from_env() -> Self {
-        let kind = env::var("ROBOCODE_PROVIDER")
-            .ok()
-            .and_then(|value| ProviderKind::parse(&value))
-            .unwrap_or(ProviderKind::Anthropic);
-        let model = env::var("ROBOCODE_MODEL")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| default_model_for(kind).to_string());
-        let api_base = env::var("ROBOCODE_API_BASE").ok();
-        let api_key = resolve_api_key(kind);
-        Self {
-            kind,
-            model,
-            api_base,
-            api_key,
-            request_timeout_secs: env::var("ROBOCODE_REQUEST_TIMEOUT_SECS")
-                .ok()
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or(90),
-            max_retries: env::var("ROBOCODE_MAX_RETRIES")
-                .ok()
-                .and_then(|value| value.parse::<u32>().ok())
-                .unwrap_or(1),
-        }
-    }
-
-    pub fn from_settings(
-        provider: &str,
-        model: Option<&str>,
-        api_base: Option<&str>,
-        api_key: Option<&str>,
-        request_timeout_secs: u64,
-        max_retries: u32,
-    ) -> Result<Self, String> {
-        let kind = ProviderKind::parse(provider)
-            .ok_or_else(|| format!("Unknown provider `{provider}`"))?;
-        Ok(Self {
-            kind,
-            model: model
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or(default_model_for(kind))
-                .to_string(),
-            api_base: api_base.map(ToString::to_string),
-            api_key: api_key
-                .map(ToString::to_string)
-                .or_else(|| resolve_api_key(kind)),
-            request_timeout_secs: request_timeout_secs.max(1),
-            max_retries,
-        })
-    }
-
-    pub fn with_overrides(
-        mut self,
-        provider: Option<&str>,
-        model: Option<&str>,
-        api_base: Option<&str>,
-        api_key: Option<&str>,
-    ) -> Result<Self, String> {
-        if let Some(provider) = provider {
-            self.kind = ProviderKind::parse(provider)
-                .ok_or_else(|| format!("Unknown provider `{provider}`"))?;
-            if self.model == default_model_for(ProviderKind::Anthropic)
-                || self.model == default_model_for(ProviderKind::OpenAi)
-                || self.model == default_model_for(ProviderKind::OpenAiCompatible)
-                || self.model == default_model_for(ProviderKind::Ollama)
-                || self.model == default_model_for(ProviderKind::Fallback)
-            {
-                self.model = default_model_for(self.kind).to_string();
-            }
-            self.api_key = resolve_api_key(self.kind);
-        }
-        if let Some(model) = model {
-            self.model = model.to_string();
-        }
-        if let Some(api_base) = api_base {
-            self.api_base = Some(api_base.to_string());
-        }
-        if let Some(api_key) = api_key {
-            self.api_key = Some(api_key.to_string());
-        }
-        Ok(self)
-    }
-
-    pub fn summary(&self) -> String {
-        format!(
-            "provider={} model={} api_base={} key={} timeout={}s retries={}",
-            self.kind.as_str(),
-            self.model,
-            self.api_base.as_deref().unwrap_or("<default>"),
-            if self.api_key.is_some() {
-                "present"
-            } else {
-                "missing"
-            },
-            self.request_timeout_secs,
-            self.max_retries,
-        )
-    }
 }
 
 pub fn create_provider(config: ProviderConfig) -> Box<dyn ModelProvider> {
@@ -169,13 +39,7 @@ pub fn create_provider(config: ProviderConfig) -> Box<dyn ModelProvider> {
 }
 
 pub fn list_supported_provider_strings() -> &'static [&'static str] {
-    &[
-        "anthropic",
-        "openai",
-        "openai-compatible",
-        "ollama",
-        "fallback",
-    ]
+    builtin_provider_ids()
 }
 
 #[derive(Debug, Clone)]
@@ -234,7 +98,7 @@ struct FallbackProvider {
 impl FallbackProvider {
     fn from_config(config: ProviderConfig) -> Self {
         Self {
-            provider_name: config.kind.as_str().to_string(),
+            provider_name: builtin_provider_id(config.kind).to_string(),
             model: config.model,
         }
     }
@@ -283,12 +147,16 @@ enum HttpMode {
 impl HttpProvider {
     fn anthropic(config: ProviderConfig) -> Self {
         Self {
-            provider_name: "anthropic".to_string(),
+            provider_name: builtin_provider_id(ProviderKind::Anthropic).to_string(),
             mode: HttpMode::Anthropic,
             model: config.model,
             api_base: config
                 .api_base
-                .unwrap_or_else(|| "https://api.anthropic.com".to_string()),
+                .unwrap_or_else(|| {
+                    builtin_default_api_base(ProviderKind::Anthropic)
+                        .expect("anthropic builtin API base should exist")
+                        .to_string()
+                }),
             api_key: config.api_key,
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
@@ -297,12 +165,16 @@ impl HttpProvider {
 
     fn openai(config: ProviderConfig) -> Self {
         Self {
-            provider_name: "openai".to_string(),
+            provider_name: builtin_provider_id(ProviderKind::OpenAi).to_string(),
             mode: HttpMode::OpenAiCompatible,
             model: config.model,
             api_base: config
                 .api_base
-                .unwrap_or_else(|| "https://api.openai.com".to_string()),
+                .unwrap_or_else(|| {
+                    builtin_default_api_base(ProviderKind::OpenAi)
+                        .expect("openai builtin API base should exist")
+                        .to_string()
+                }),
             api_key: config
                 .api_key
                 .or_else(|| resolve_api_key(ProviderKind::OpenAi)),
@@ -313,12 +185,16 @@ impl HttpProvider {
 
     fn openai_compatible(config: ProviderConfig) -> Self {
         Self {
-            provider_name: "openai-compatible".to_string(),
+            provider_name: builtin_provider_id(ProviderKind::OpenAiCompatible).to_string(),
             mode: HttpMode::OpenAiCompatible,
             model: config.model,
             api_base: config
                 .api_base
-                .unwrap_or_else(|| "https://api.openai.com".to_string()),
+                .unwrap_or_else(|| {
+                    builtin_default_api_base(ProviderKind::OpenAiCompatible)
+                        .expect("openai-compatible builtin API base should exist")
+                        .to_string()
+                }),
             api_key: config.api_key,
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
@@ -327,12 +203,16 @@ impl HttpProvider {
 
     fn ollama(config: ProviderConfig) -> Self {
         Self {
-            provider_name: "ollama".to_string(),
+            provider_name: builtin_provider_id(ProviderKind::Ollama).to_string(),
             mode: HttpMode::Ollama,
             model: config.model,
             api_base: config
                 .api_base
-                .unwrap_or_else(|| "http://localhost:11434".to_string()),
+                .unwrap_or_else(|| {
+                    builtin_default_api_base(ProviderKind::Ollama)
+                        .expect("ollama builtin API base should exist")
+                        .to_string()
+                }),
             api_key: config.api_key,
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
@@ -1022,28 +902,6 @@ fn extract_string_after(input: &str, marker: &str) -> Option<String> {
     None
 }
 
-fn default_model_for(kind: ProviderKind) -> &'static str {
-    match kind {
-        ProviderKind::Anthropic => "claude-sonnet-4-6",
-        ProviderKind::OpenAi => "gpt-5.2",
-        ProviderKind::OpenAiCompatible => "gpt-4o-mini",
-        ProviderKind::Ollama => "llama3.1",
-        ProviderKind::Fallback => "fallback-local",
-    }
-}
-
-fn resolve_api_key(kind: ProviderKind) -> Option<String> {
-    env::var("ROBOCODE_API_KEY").ok().or_else(|| match kind {
-        ProviderKind::Anthropic => env::var("ANTHROPIC_API_KEY")
-            .ok()
-            .or_else(|| env::var("ROBOCODE_ANTHROPIC_API_KEY").ok()),
-        ProviderKind::OpenAi | ProviderKind::OpenAiCompatible => env::var("OPENAI_API_KEY")
-            .ok()
-            .or_else(|| env::var("ROBOCODE_OPENAI_API_KEY").ok()),
-        ProviderKind::Ollama | ProviderKind::Fallback => None,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1172,6 +1030,72 @@ mod tests {
             .unwrap();
         assert!(
             matches!(&events[0], ModelEvent::AssistantText { content } if content.contains("fallback mode"))
+        );
+    }
+
+    #[test]
+    fn registry_lists_builtin_provider_ids() {
+        let registry = ProviderRegistry::with_builtins();
+        let ids = registry.provider_ids();
+        assert!(ids.contains(&"anthropic".to_string()));
+        assert!(ids.contains(&"openai".to_string()));
+        assert!(ids.contains(&"fallback".to_string()));
+    }
+
+    #[test]
+    fn provider_kind_parse_roundtrips_builtin_provider_ids() {
+        for provider_id in list_supported_provider_strings() {
+            let kind = ProviderKind::parse(provider_id)
+                .expect("every builtin provider id should parse through shared metadata");
+            assert_eq!(builtin_provider_id(kind), *provider_id);
+        }
+    }
+
+    #[test]
+    fn supported_provider_strings_match_builtin_registry_ids() {
+        let registry = ProviderRegistry::with_builtins();
+        let ids = registry.provider_ids();
+        let supported = list_supported_provider_strings()
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(supported, ids);
+    }
+
+    #[test]
+    fn descriptor_keeps_provider_identity_separate_from_protocol_family() {
+        let descriptor = ProviderDescriptor {
+            provider_id: "deepseek".to_string(),
+            display_name: "DeepSeek".to_string(),
+            version: "1".to_string(),
+            protocol_family: ProtocolFamily::OpenAi,
+            default_api_base: Some("https://api.deepseek.com".to_string()),
+            default_model: Some("deepseek-v4".to_string()),
+            env_mappings: ProviderEnvMappings::default(),
+            capabilities: ProviderCapabilities::default(),
+            config_schema_version: 1,
+        };
+
+        assert_eq!(descriptor.provider_id, "deepseek");
+        assert_eq!(descriptor.protocol_family, ProtocolFamily::OpenAi);
+    }
+
+    #[test]
+    fn builtin_openai_descriptor_matches_runtime_api_base_behavior() {
+        let registry = ProviderRegistry::with_builtins();
+        let descriptor = registry
+            .descriptors()
+            .iter()
+            .find(|descriptor| descriptor.provider_id == "openai")
+            .expect("openai descriptor should exist");
+
+        assert_eq!(
+            descriptor.default_api_base.as_deref(),
+            builtin_default_api_base(ProviderKind::OpenAi)
+        );
+        assert_eq!(
+            descriptor.env_mappings.api_base_env.as_deref(),
+            Some("ROBOCODE_API_BASE")
         );
     }
 

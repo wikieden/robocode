@@ -101,6 +101,7 @@ name = "robocode-model"
 version = "0.1.0"
 dependencies = [
  "robocode-types",
+ "serde",
  "serde_json",
 ]
 
