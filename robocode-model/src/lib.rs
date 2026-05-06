@@ -37,8 +37,7 @@ pub fn create_provider(config: ProviderConfig) -> Box<dyn ModelProvider> {
 }
 
 pub fn list_supported_provider_strings() -> Vec<String> {
-    ProviderRegistry::with_builtins()
-        .creatable_provider_ids()
+    ProviderRegistry::with_builtins().creatable_provider_ids()
 }
 
 #[derive(Debug, Clone)]
@@ -207,6 +206,24 @@ impl HttpProvider {
             api_key: config
                 .api_key
                 .or_else(|| resolve_api_key(ProviderKind::DeepSeek)),
+            request_timeout_secs: config.request_timeout_secs,
+            max_retries: config.max_retries,
+        }
+    }
+
+    fn deepseek_anthropic(config: ProviderConfig) -> Self {
+        Self {
+            provider_name: builtin_provider_id(ProviderKind::DeepSeekAnthropic).to_string(),
+            mode: HttpMode::Anthropic,
+            model: config.model,
+            api_base: config.api_base.unwrap_or_else(|| {
+                builtin_default_api_base(ProviderKind::DeepSeekAnthropic)
+                    .expect("deepseek anthropic-compatible builtin API base should exist")
+                    .to_string()
+            }),
+            api_key: config
+                .api_key
+                .or_else(|| resolve_api_key(ProviderKind::DeepSeekAnthropic)),
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -929,6 +946,7 @@ pub(crate) fn load_builtin_provider(
     let provider: Box<dyn ModelProvider> = match config.kind {
         ProviderKind::Anthropic => Box::new(HttpProvider::anthropic(config)),
         ProviderKind::DeepSeek => Box::new(HttpProvider::deepseek(config)),
+        ProviderKind::DeepSeekAnthropic => Box::new(HttpProvider::deepseek_anthropic(config)),
         ProviderKind::OpenAi => Box::new(HttpProvider::openai(config)),
         ProviderKind::OpenAiCompatible => Box::new(HttpProvider::openai_compatible(config)),
         ProviderKind::Ollama => Box::new(HttpProvider::ollama(config)),
@@ -1105,7 +1123,7 @@ mod tests {
             version: "1".to_string(),
             protocol_family: ProtocolFamily::OpenAi,
             default_api_base: Some("https://api.deepseek.com".to_string()),
-            default_model: Some("deepseek-v4".to_string()),
+            default_model: Some("deepseek-v4-flash".to_string()),
             env_mappings: ProviderEnvMappings::default(),
             capabilities: ProviderCapabilities::default(),
             config_schema_version: 1,
@@ -1149,6 +1167,22 @@ mod tests {
     }
 
     #[test]
+    fn deepseek_anthropic_provider_uses_official_anthropic_endpoint() {
+        let registry = ProviderRegistry::with_builtins();
+        let descriptor = registry.descriptor("deepseek-anthropic").unwrap();
+        assert_eq!(descriptor.provider_id, "deepseek-anthropic");
+        assert_eq!(descriptor.protocol_family, ProtocolFamily::Anthropic);
+        assert_eq!(
+            descriptor.default_api_base.as_deref(),
+            Some("https://api.deepseek.com/anthropic")
+        );
+        assert_eq!(
+            descriptor.default_model.as_deref(),
+            Some("deepseek-v4-flash")
+        );
+    }
+
+    #[test]
     fn provider_host_can_refresh_registry_without_replacing_existing_provider_instance() {
         let mut host = ProviderHost::with_builtins();
         let before_registry = host.registry();
@@ -1183,8 +1217,8 @@ mod tests {
                 .any(|descriptor| descriptor.provider_id == "openai-compatible")
         );
         assert_eq!(provider.provider_name(), "openai-compatible");
-        provider.set_model("deepseek-v4".to_string());
-        assert_eq!(provider.model(), "deepseek-v4");
+        provider.set_model("deepseek-v4-pro".to_string());
+        assert_eq!(provider.model(), "deepseek-v4-pro");
     }
 
     #[test]
@@ -1217,10 +1251,10 @@ mod tests {
             )
             .unwrap();
 
-        first.set_model("deepseek-v4".to_string());
+        first.set_model("deepseek-v4-pro".to_string());
 
         assert_eq!(first.provider_name(), "openai-compatible");
-        assert_eq!(first.model(), "deepseek-v4");
+        assert_eq!(first.model(), "deepseek-v4-pro");
         assert_eq!(second.provider_name(), "openai-compatible");
         assert_eq!(second.model(), "deepseek-chat");
     }

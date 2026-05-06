@@ -128,7 +128,8 @@ V1 includes a provider factory with these backend families:
 - `anthropic`
 - `openai`
 - `openai-compatible`
-- `deepseek` as an independent provider family using the OpenAI-style protocol family
+- `deepseek` as an independent provider family using the official OpenAI-style API surface
+- `deepseek-anthropic` for DeepSeek's official Anthropic-compatible API surface
 - `ollama`
 - `fallback`
 
@@ -153,8 +154,10 @@ Current protocol support:
 - Anthropic native `tool_use`
 - OpenAI native `tool_calls`
 - OpenAI-compatible tool calling using the same message shape
-- DeepSeek as an independent provider identity bound to the OpenAI-style
-  adapter family
+- DeepSeek as an independent provider identity with:
+  - `deepseek` bound to the OpenAI-style adapter family at `https://api.deepseek.com`
+  - `deepseek-anthropic` bound to the Anthropic-style adapter family at `https://api.deepseek.com/anthropic`
+- DeepSeek V4 defaults to `deepseek-v4-flash`; `deepseek-v4-pro` is selectable explicitly
 - Ollama text-only chat flow
 - local `fallback` behavior for offline use and smoke testing
 

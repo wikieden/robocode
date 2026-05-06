@@ -8,6 +8,7 @@ use crate::adapters::{
 pub enum ProviderKind {
     Anthropic,
     DeepSeek,
+    DeepSeekAnthropic,
     OpenAi,
     OpenAiCompatible,
     Ollama,
@@ -141,7 +142,7 @@ pub(crate) fn resolve_api_key(kind: ProviderKind) -> Option<String> {
         ProviderKind::Anthropic => env::var("ANTHROPIC_API_KEY")
             .ok()
             .or_else(|| env::var("ROBOCODE_ANTHROPIC_API_KEY").ok()),
-        ProviderKind::DeepSeek => env::var("DEEPSEEK_API_KEY")
+        ProviderKind::DeepSeek | ProviderKind::DeepSeekAnthropic => env::var("DEEPSEEK_API_KEY")
             .ok()
             .or_else(|| env::var("ROBOCODE_DEEPSEEK_API_KEY").ok())
             .or_else(|| env::var("ROBOCODE_API_KEY").ok()),

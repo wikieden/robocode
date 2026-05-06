@@ -51,8 +51,7 @@ impl ProviderRegistry {
         self.descriptors
             .iter()
             .filter_map(|descriptor| {
-                ProviderKind::parse(&descriptor.provider_id)
-                    .map(|_| descriptor.provider_id.clone())
+                ProviderKind::parse(&descriptor.provider_id).map(|_| descriptor.provider_id.clone())
             })
             .collect()
     }

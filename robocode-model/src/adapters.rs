@@ -2,7 +2,10 @@ use crate::config::ProviderKind;
 use crate::descriptor::{
     ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings,
 };
-use crate::http::{ANTHROPIC_API_BASE, DEEPSEEK_API_BASE, OLLAMA_API_BASE, OPENAI_API_BASE};
+use crate::http::{
+    ANTHROPIC_API_BASE, DEEPSEEK_ANTHROPIC_API_BASE, DEEPSEEK_API_BASE, OLLAMA_API_BASE,
+    OPENAI_API_BASE,
+};
 
 #[derive(Debug, Clone, Copy)]
 struct BuiltinProviderMetadata {
@@ -61,7 +64,19 @@ const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
         display_name: "DeepSeek",
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some(DEEPSEEK_API_BASE),
-        default_model: "deepseek-v4",
+        default_model: "deepseek-v4-flash",
+        api_key_env: Some("DEEPSEEK_API_KEY"),
+        api_base_env: Some("DEEPSEEK_API_BASE"),
+        supports_streaming: true,
+        supports_native_tool_calling: true,
+    },
+    BuiltinProviderMetadata {
+        kind: ProviderKind::DeepSeekAnthropic,
+        provider_id: "deepseek-anthropic",
+        display_name: "DeepSeek Anthropic-Compatible",
+        protocol_family: ProtocolFamily::Anthropic,
+        default_api_base: Some(DEEPSEEK_ANTHROPIC_API_BASE),
+        default_model: "deepseek-v4-flash",
         api_key_env: Some("DEEPSEEK_API_KEY"),
         api_base_env: Some("DEEPSEEK_API_BASE"),
         supports_streaming: true,

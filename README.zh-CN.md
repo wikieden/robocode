@@ -70,13 +70,19 @@ provider-scoped config 可以覆盖通用 API 字段：
 
 ```toml
 provider = "deepseek"
-model = "deepseek-v4"
+model = "deepseek-v4-flash"
 api_base = "https://generic.example"
 
 [providers.deepseek]
 api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
+
+DeepSeek V4 模型名以官方 API 文档为准：
+
+- `deepseek-v4-flash` 是 RoboCode 的默认 DeepSeek 模型
+- `deepseek-v4-pro` 可显式配置，用于更强的 V4 模型
+- 旧的 `deepseek-chat` 与 `deepseek-reasoner` 只作为兼容模型名保留，并已进入 DeepSeek 侧弃用计划
 
 DeepSeek 的 API 字段优先级：
 
@@ -91,6 +97,7 @@ DeepSeek 的 API 字段优先级：
 - `openai`
 - `openai-compatible`
 - `deepseek`，作为独立 provider family，复用 OpenAI-style 协议
+- `deepseek-anthropic`，用于 DeepSeek 的 Anthropic-compatible endpoint：`https://api.deepseek.com/anthropic`
 - `ollama`
 - `fallback`
 
@@ -98,6 +105,7 @@ DeepSeek 的 API 字段优先级：
 
 - Anthropic `tool_use`
 - OpenAI-style `tool_calls`，用于 OpenAI-compatible providers，包括 DeepSeek
+- DeepSeek Anthropic-compatible `tool_use`，通过 `deepseek-anthropic`
 - `fallback` 与 `ollama` 的文本优先本地流程
 
 当前 provider runtime 方向：

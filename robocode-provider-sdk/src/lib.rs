@@ -48,7 +48,7 @@ mod tests {
             version: "1".to_string(),
             protocol_family: ProtocolFamily::OpenAi,
             default_api_base: Some("https://api.deepseek.com".to_string()),
-            default_model: Some("deepseek-v4".to_string()),
+            default_model: Some("deepseek-v4-flash".to_string()),
             env_mappings: ProviderEnvMappings {
                 api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
                 api_base_env: Some("DEEPSEEK_API_BASE".to_string()),

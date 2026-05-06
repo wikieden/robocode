@@ -85,7 +85,7 @@ fn descriptor_keeps_provider_identity_separate_from_protocol_family() {
         version: "1".to_string(),
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://api.deepseek.com".to_string()),
-        default_model: Some("deepseek-v4".to_string()),
+        default_model: Some("deepseek-v4-flash".to_string()),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         config_schema_version: 1,
@@ -264,7 +264,7 @@ git commit -m "Split robocode-model into provider runtime modules"
 
 - [ ] **Step 1: Write the failing plugin manifest roundtrip test**
 
-Add to `robocode-provider-sdk/src/lib.rs`:
+Create `robocode-provider-sdk/src/lib.rs` with a failing test first:
 
 ```rust
 #[cfg(test)]
@@ -279,7 +279,7 @@ mod tests {
             version: "1".to_string(),
             protocol_family: "openai".to_string(),
             default_api_base: Some("https://api.deepseek.com".to_string()),
-            default_model: Some("deepseek-v4".to_string()),
+            default_model: Some("deepseek-v4-flash".to_string()),
             api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
             api_base_env: Some("DEEPSEEK_API_BASE".to_string()),
         };
@@ -300,7 +300,7 @@ Run:
 cargo test -p robocode-provider-sdk plugin_descriptor_roundtrips_through_json
 ```
 
-Expected: FAIL because the crate does not exist yet.
+Expected: FAIL because `PluginDescriptor` does not exist yet in the new file.
 
 - [ ] **Step 3: Add the SDK crate and plugin ABI types**
 
@@ -309,8 +309,10 @@ Create `robocode-provider-sdk/Cargo.toml`:
 ```toml
 [package]
 name = "robocode-provider-sdk"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -389,9 +391,10 @@ Run:
 
 ```bash
 cargo test -p robocode-provider-sdk plugin_descriptor_roundtrips_through_json
+cargo check -p robocode-model
 ```
 
-Expected: PASS.
+Expected: PASS. The SDK test passes, and `robocode-model` still compiles with the new plugin skeleton and dependencies.
 
 - [ ] **Step 5: Commit**
 
@@ -581,7 +584,7 @@ fn provider_host_can_refresh_registry_without_replacing_existing_provider_instan
 fn different_provider_configs_create_independent_provider_instances() {
     let host = ProviderHost::with_builtins();
     let deepseek = host
-        .create(ProviderConfig::from_settings("deepseek", Some("deepseek-v4"), None, None, 90, 1).unwrap())
+        .create(ProviderConfig::from_settings("deepseek", Some("deepseek-v4-flash"), None, None, 90, 1).unwrap())
         .unwrap();
     let anthropic = host
         .create(ProviderConfig::from_settings("anthropic", Some("claude-sonnet-4-5"), None, None, 90, 1).unwrap())
@@ -746,7 +749,7 @@ static DESCRIPTOR_JSON: &str = r#"{
   "version":"1",
   "protocol_family":"openai",
   "default_api_base":"https://api.deepseek.com",
-  "default_model":"deepseek-v4",
+  "default_model":"deepseek-v4-flash",
   "api_key_env":"DEEPSEEK_API_KEY",
   "api_base_env":"DEEPSEEK_API_BASE"
 }"#;
@@ -760,7 +763,7 @@ pub extern "C" fn robocode_provider_descriptor_json() -> *const c_char {
         "\"version\":\"1\",",
         "\"protocol_family\":\"openai\",",
         "\"default_api_base\":\"https://api.deepseek.com\",",
-        "\"default_model\":\"deepseek-v4\",",
+        "\"default_model\":\"deepseek-v4-flash\",",
         "\"api_key_env\":\"DEEPSEEK_API_KEY\",",
         "\"api_base_env\":\"DEEPSEEK_API_BASE\"",
         "}\0"
@@ -783,7 +786,7 @@ ProviderDescriptor {
     version: "builtin".to_string(),
     protocol_family: ProtocolFamily::OpenAi,
     default_api_base: Some("https://api.deepseek.com".to_string()),
-    default_model: Some("deepseek-v4".to_string()),
+    default_model: Some("deepseek-v4-flash".to_string()),
     env_mappings: ProviderEnvMappings {
         api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
         api_base_env: Some("DEEPSEEK_API_BASE".to_string()),
@@ -911,4 +914,3 @@ Type consistency:
 
 - `ProviderDescriptor`, `ProtocolFamily`, `ProviderRegistry`, `ProviderHost`, and `PluginDescriptor` are introduced before later tasks depend on them
 - `robocode-config` changes stay on the config side; `SessionEngine` remains untouched throughout the plan
-

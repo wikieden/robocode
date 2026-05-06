@@ -112,7 +112,8 @@ provider 返回流式或批式事件：
 - `anthropic`
 - `openai`
 - `openai-compatible`
-- `deepseek`，作为独立 provider family，复用 OpenAI-style protocol family
+- `deepseek`，作为独立 provider family，使用官方 OpenAI-style API surface
+- `deepseek-anthropic`，用于 DeepSeek 官方 Anthropic-compatible API surface
 - `ollama`
 - `fallback`
 
@@ -131,7 +132,10 @@ HTTP provider 使用系统 `curl`，因此 workspace 能保持依赖轻量且可
 - Anthropic 原生 `tool_use`
 - OpenAI 原生 `tool_calls`
 - OpenAI-compatible 的相同工具调用消息形状
-- DeepSeek 作为独立 provider identity，绑定到 OpenAI-style adapter family
+- DeepSeek 作为独立 provider identity，提供：
+  - `deepseek`：绑定 OpenAI-style adapter family，endpoint 为 `https://api.deepseek.com`
+  - `deepseek-anthropic`：绑定 Anthropic-style adapter family，endpoint 为 `https://api.deepseek.com/anthropic`
+- DeepSeek V4 默认使用 `deepseek-v4-flash`；可显式选择 `deepseek-v4-pro`
 - Ollama 的纯文本聊天流
 - 本地 `fallback` 行为，用于离线与 smoke test
 

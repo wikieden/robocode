@@ -24,7 +24,8 @@ Current dev baseline on `codex/provider-plugin-runtime-deepseek`:
 - dynamic descriptor discovery scaffolding
 - `robocode-provider-sdk`
 - `robocode-provider-deepseek`
-- DeepSeek as an independent provider family using the OpenAI-style protocol family
+- DeepSeek as an independent provider family with official `deepseek-v4-flash` / `deepseek-v4-pro` model names
+- `deepseek` for OpenAI-style access and `deepseek-anthropic` for DeepSeek's Anthropic-compatible endpoint
 - provider-scoped config and DeepSeek precedence
 
 Next planned slice:
@@ -50,7 +51,7 @@ Next planned slice:
    - Add a dynamic provider registry and provider host/runtime.
    - Support runtime registry refresh for newly loaded providers.
    - Keep provider binding instance-scoped so multiple agents can use different providers in the same process.
-   - Land DeepSeek as the first independent plugin-backed provider using the OpenAI-style protocol family.
+   - Land DeepSeek as the first independent plugin-backed provider using the official OpenAI-style and Anthropic-compatible API surfaces.
 
 4. Merge and harden the provider runtime slice.
    - Validate branch behavior against broader workspace tests and real plugin loading paths.

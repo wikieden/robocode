@@ -70,13 +70,19 @@ Provider-scoped config can override generic API fields:
 
 ```toml
 provider = "deepseek"
-model = "deepseek-v4"
+model = "deepseek-v4-flash"
 api_base = "https://generic.example"
 
 [providers.deepseek]
 api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
+
+DeepSeek V4 model names follow the official API docs:
+
+- `deepseek-v4-flash` is RoboCode's default DeepSeek model
+- `deepseek-v4-pro` can be selected explicitly for the higher-capability V4 model
+- legacy `deepseek-chat` and `deepseek-reasoner` remain compatibility names only and are scheduled for DeepSeek-side deprecation
 
 DeepSeek precedence for API fields is:
 
@@ -91,6 +97,7 @@ Supported provider families:
 - `openai`
 - `openai-compatible`
 - `deepseek` as an independent provider family using the OpenAI-style protocol
+- `deepseek-anthropic` for DeepSeek's Anthropic-compatible endpoint at `https://api.deepseek.com/anthropic`
 - `ollama`
 - `fallback`
 
@@ -98,6 +105,7 @@ Current protocol families and tool-calling mappings:
 
 - Anthropic `tool_use`
 - OpenAI-style `tool_calls` for OpenAI-compatible providers, including DeepSeek
+- DeepSeek Anthropic-compatible `tool_use` through `deepseek-anthropic`
 - `fallback` and `ollama` text-first local flows
 
 Provider runtime direction:

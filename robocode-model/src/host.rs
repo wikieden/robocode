@@ -3,9 +3,7 @@ use std::sync::{Arc, LazyLock, RwLock};
 use crate::{ModelProvider, ProviderConfig, ProviderRegistry, load_builtin_provider};
 
 static BUILTIN_PROVIDER_REGISTRY: LazyLock<RwLock<Arc<ProviderRegistry>>> =
-    LazyLock::new(|| {
-        RwLock::new(Arc::new(ProviderRegistry::with_builtins()))
-    });
+    LazyLock::new(|| RwLock::new(Arc::new(ProviderRegistry::with_builtins())));
 
 pub struct ProviderHost {
     registry: &'static RwLock<Arc<ProviderRegistry>>,
