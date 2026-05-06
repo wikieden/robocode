@@ -116,7 +116,7 @@ provider 返回流式或批式事件：
 - `ollama`
 - `fallback`
 
-provider runtime 正在从小型 built-in factory 演进为 provider host/runtime，包含：
+当前分支上的 provider runtime 正在从小型 built-in factory 演进为 provider host/runtime，包含：
 
 - built-in provider descriptors
 - dynamic provider registry
@@ -142,6 +142,7 @@ HTTP provider 使用系统 `curl`，因此 workspace 能保持依赖轻量且可
 - 进程运行中可刷新 registry
 - 新加载的 provider 可被新建的 provider instances 使用
 - 活跃 session 保持自己已经绑定的 provider instance，而不是原地热替换
+- 在当前分支上，built-in 与动态发现的 descriptors 已经进入同一个 registry，但完整的 plugin-backed execution 仍在继续加固
 
 ## 工具系统
 

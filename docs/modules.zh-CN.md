@@ -28,12 +28,12 @@ Mainline landed：
 - V2-C workflow continuity 已实现：`robocode-workflows`、`/tasks`、`/task ...`、`/memory ...`、workflow JSONL logs、resume context。
 - V2-B LSP foundation 已实现：`robocode-lsp`、`lsp_*` tools、`/lsp ...` commands、真实 semantic queries、session reuse、document sync。
 - V2-D 首批 structured terminal views 已实现：分组 diagnostics、分组 symbols、紧凑 references，以及 `robocode-core` presentation helpers。
-- provider-plugin runtime 与 DeepSeek v4 已完成设计层定义，但实现尚未落到 main。
+- provider-plugin runtime 与 DeepSeek v4 已在当前分支实现，尚待合并到 main。
 
 Next planned slice：
 
-- provider-plugin runtime 与 DeepSeek v4。
-- 后续 V2-D 工作继续扩展到 sessions、tasks、memory、diff、approvals。
+- 先合并并加固 provider-plugin runtime 切片。
+- 之后再继续 V2-D，扩展到 sessions、tasks、memory、diff、approvals。
 
 ## 与 `.ref/claude-code-main` 的差距
 

@@ -28,12 +28,12 @@ Mainline landed:
 - V2-C workflow continuity is implemented: `robocode-workflows`, `/tasks`, `/task ...`, `/memory ...`, workflow JSONL logs, and resume context.
 - V2-B LSP foundation is implemented: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document sync.
 - V2-D first structured terminal view slice is implemented: grouped diagnostics, grouped symbols, compact references, and `robocode-core` presentation helpers.
-- Provider-plugin runtime and DeepSeek v4 are specified at the design level, but implementation has not landed on main yet.
+- Provider-plugin runtime and DeepSeek v4 are implemented on the current branch, pending merge to main.
 
 Next planned slice:
 
-- provider-plugin runtime and DeepSeek v4.
-- later V2-D work extends structured views into sessions, tasks, memory, diff, and approvals.
+- merge and harden the provider-plugin runtime slice.
+- after that, later V2-D work extends structured views into sessions, tasks, memory, diff, and approvals.
 
 ## Gap vs `.ref/claude-code-main`
 

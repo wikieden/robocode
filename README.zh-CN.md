@@ -13,7 +13,7 @@ RoboCode 是一个用 Rust 实现的、本地优先的开发者 Agent CLI，目�
 - 带权限控制的统一工具运行时
 - 内置本地工具：shell、文件、搜索、Web、Git，以及 worktree / stash / restore 流程
 - 项目级 workflow 状态：tasks、session memory、project memory suggestions、resume context
-- 支持多家 API、原生 tool-calling，以及正在演进中的 provider-plugin runtime 的 provider 抽象
+- 支持多家 API、原生 tool-calling，以及当前分支上 provider-plugin runtime 的 provider 抽象
 
 ## 工作区结构
 
@@ -160,4 +160,4 @@ DeepSeek 的 API 字段优先级：
 
 ## 当前状态
 
-这是一个正在持续演进的本地优先 CLI 平台。mainline 已经包含 V1 以及核心 V2 session/workflow/LSP 切片，下一步架构扩展重点是 plugin-extensible provider runtime，DeepSeek v4 将作为第一个目标 provider。
+这是一个正在持续演进的本地优先 CLI 平台。mainline 已经包含 V1 以及核心 V2 session/workflow/LSP 切片，而当前分支正在加入第一批 provider-plugin runtime 能力，DeepSeek v4 作为首个目标 provider。

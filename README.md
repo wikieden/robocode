@@ -13,7 +13,7 @@ This repository currently includes:
 - A permission-aware tool runtime
 - Built-in local tools for shell, files, search, web access, and Git workflows including worktrees and stash/restore flows
 - Project-level workflow state for tasks, session memory, project memory suggestions, and resume context
-- A provider abstraction with support for multiple API families, native tool-calling where available, and an evolving provider-plugin runtime
+- A provider abstraction with support for multiple API families, native tool-calling where available, and a provider-plugin runtime on the current branch
 
 ## Workspace
 
@@ -162,4 +162,4 @@ Project docs:
 
 ## Status
 
-This is an actively developing local-first CLI platform. Mainline already includes V1 plus core V2 session/workflow/LSP slices, and the next architecture expansion is a plugin-extensible provider runtime with DeepSeek v4 as the first target.
+This is an actively developing local-first CLI platform. Mainline already includes V1 plus core V2 session/workflow/LSP slices, while this branch adds the first provider-plugin runtime slice with DeepSeek v4 as the first target provider.

@@ -132,8 +132,8 @@ V1 includes a provider factory with these backend families:
 - `ollama`
 - `fallback`
 
-The provider runtime is evolving from a small built-in factory into a provider
-host/runtime with:
+The provider runtime on the current branch is evolving from a small built-in
+factory into a provider host/runtime with:
 
 - built-in provider descriptors
 - dynamic provider registry
@@ -167,6 +167,9 @@ Runtime provider loading target:
 - newly loaded providers become available to newly created provider instances
 - active sessions keep their bound provider instances instead of hot-swapping in
   place
+- on the current branch, built-in and dynamically discovered descriptors already
+  flow through one registry, while full plugin-backed execution continues to
+  harden
 
 ## Tool System
 
