@@ -6,6 +6,7 @@ members = [
     "robocode-lsp",
     "robocode-model",
     "robocode-permissions",
+    "robocode-provider-deepseek",
     "robocode-provider-sdk",
     "robocode-session",
     "robocode-tools",

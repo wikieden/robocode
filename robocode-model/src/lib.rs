@@ -1,13 +1,14 @@
 mod adapters;
 mod config;
 mod descriptor;
+mod host;
 mod http;
 mod plugin;
 mod registry;
 
 use std::process::Command;
 
-use adapters::{builtin_default_api_base, builtin_provider_id, builtin_provider_ids};
+use adapters::{builtin_default_api_base, builtin_provider_id};
 use config::resolve_api_key;
 use robocode_types::{
     Message, ModelEvent, ModelRequest, Role, ToolCall, ToolInput, ToolSpec, decode_tool_input,
@@ -19,6 +20,7 @@ pub use config::{ProviderConfig, ProviderKind};
 pub use descriptor::{
     ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings,
 };
+pub use host::ProviderHost;
 pub use registry::ProviderRegistry;
 
 pub trait ModelProvider: Send {
@@ -29,17 +31,14 @@ pub trait ModelProvider: Send {
 }
 
 pub fn create_provider(config: ProviderConfig) -> Box<dyn ModelProvider> {
-    match config.kind {
-        ProviderKind::Anthropic => Box::new(HttpProvider::anthropic(config)),
-        ProviderKind::OpenAi => Box::new(HttpProvider::openai(config)),
-        ProviderKind::OpenAiCompatible => Box::new(HttpProvider::openai_compatible(config)),
-        ProviderKind::Ollama => Box::new(HttpProvider::ollama(config)),
-        ProviderKind::Fallback => Box::new(FallbackProvider::from_config(config)),
-    }
+    ProviderHost::with_builtins()
+        .create(config)
+        .expect("builtin provider construction should succeed")
 }
 
-pub fn list_supported_provider_strings() -> &'static [&'static str] {
-    builtin_provider_ids()
+pub fn list_supported_provider_strings() -> Vec<String> {
+    ProviderRegistry::with_builtins()
+        .creatable_provider_ids()
 }
 
 #[derive(Debug, Clone)]
@@ -150,13 +149,11 @@ impl HttpProvider {
             provider_name: builtin_provider_id(ProviderKind::Anthropic).to_string(),
             mode: HttpMode::Anthropic,
             model: config.model,
-            api_base: config
-                .api_base
-                .unwrap_or_else(|| {
-                    builtin_default_api_base(ProviderKind::Anthropic)
-                        .expect("anthropic builtin API base should exist")
-                        .to_string()
-                }),
+            api_base: config.api_base.unwrap_or_else(|| {
+                builtin_default_api_base(ProviderKind::Anthropic)
+                    .expect("anthropic builtin API base should exist")
+                    .to_string()
+            }),
             api_key: config.api_key,
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
@@ -168,13 +165,11 @@ impl HttpProvider {
             provider_name: builtin_provider_id(ProviderKind::OpenAi).to_string(),
             mode: HttpMode::OpenAiCompatible,
             model: config.model,
-            api_base: config
-                .api_base
-                .unwrap_or_else(|| {
-                    builtin_default_api_base(ProviderKind::OpenAi)
-                        .expect("openai builtin API base should exist")
-                        .to_string()
-                }),
+            api_base: config.api_base.unwrap_or_else(|| {
+                builtin_default_api_base(ProviderKind::OpenAi)
+                    .expect("openai builtin API base should exist")
+                    .to_string()
+            }),
             api_key: config
                 .api_key
                 .or_else(|| resolve_api_key(ProviderKind::OpenAi)),
@@ -188,14 +183,30 @@ impl HttpProvider {
             provider_name: builtin_provider_id(ProviderKind::OpenAiCompatible).to_string(),
             mode: HttpMode::OpenAiCompatible,
             model: config.model,
-            api_base: config
-                .api_base
-                .unwrap_or_else(|| {
-                    builtin_default_api_base(ProviderKind::OpenAiCompatible)
-                        .expect("openai-compatible builtin API base should exist")
-                        .to_string()
-                }),
+            api_base: config.api_base.unwrap_or_else(|| {
+                builtin_default_api_base(ProviderKind::OpenAiCompatible)
+                    .expect("openai-compatible builtin API base should exist")
+                    .to_string()
+            }),
             api_key: config.api_key,
+            request_timeout_secs: config.request_timeout_secs,
+            max_retries: config.max_retries,
+        }
+    }
+
+    fn deepseek(config: ProviderConfig) -> Self {
+        Self {
+            provider_name: builtin_provider_id(ProviderKind::DeepSeek).to_string(),
+            mode: HttpMode::OpenAiCompatible,
+            model: config.model,
+            api_base: config.api_base.unwrap_or_else(|| {
+                builtin_default_api_base(ProviderKind::DeepSeek)
+                    .expect("deepseek builtin API base should exist")
+                    .to_string()
+            }),
+            api_key: config
+                .api_key
+                .or_else(|| resolve_api_key(ProviderKind::DeepSeek)),
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -206,13 +217,11 @@ impl HttpProvider {
             provider_name: builtin_provider_id(ProviderKind::Ollama).to_string(),
             mode: HttpMode::Ollama,
             model: config.model,
-            api_base: config
-                .api_base
-                .unwrap_or_else(|| {
-                    builtin_default_api_base(ProviderKind::Ollama)
-                        .expect("ollama builtin API base should exist")
-                        .to_string()
-                }),
+            api_base: config.api_base.unwrap_or_else(|| {
+                builtin_default_api_base(ProviderKind::Ollama)
+                    .expect("ollama builtin API base should exist")
+                    .to_string()
+            }),
             api_key: config.api_key,
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
@@ -902,6 +911,32 @@ fn extract_string_after(input: &str, marker: &str) -> Option<String> {
     None
 }
 
+pub(crate) fn load_builtin_provider(
+    registry: &ProviderRegistry,
+    config: ProviderConfig,
+) -> Result<Box<dyn ModelProvider>, String> {
+    let provider_id = builtin_provider_id(config.kind);
+    if !registry
+        .descriptors()
+        .iter()
+        .any(|descriptor| descriptor.provider_id == provider_id)
+    {
+        return Err(format!(
+            "Provider `{provider_id}` is not registered in the active provider host"
+        ));
+    }
+
+    let provider: Box<dyn ModelProvider> = match config.kind {
+        ProviderKind::Anthropic => Box::new(HttpProvider::anthropic(config)),
+        ProviderKind::DeepSeek => Box::new(HttpProvider::deepseek(config)),
+        ProviderKind::OpenAi => Box::new(HttpProvider::openai(config)),
+        ProviderKind::OpenAiCompatible => Box::new(HttpProvider::openai_compatible(config)),
+        ProviderKind::Ollama => Box::new(HttpProvider::ollama(config)),
+        ProviderKind::Fallback => Box::new(FallbackProvider::from_config(config)),
+    };
+    Ok(provider)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1038,6 +1073,7 @@ mod tests {
         let registry = ProviderRegistry::with_builtins();
         let ids = registry.provider_ids();
         assert!(ids.contains(&"anthropic".to_string()));
+        assert!(ids.contains(&"deepseek".to_string()));
         assert!(ids.contains(&"openai".to_string()));
         assert!(ids.contains(&"fallback".to_string()));
     }
@@ -1045,20 +1081,19 @@ mod tests {
     #[test]
     fn provider_kind_parse_roundtrips_builtin_provider_ids() {
         for provider_id in list_supported_provider_strings() {
-            let kind = ProviderKind::parse(provider_id)
+            let kind = ProviderKind::parse(&provider_id)
                 .expect("every builtin provider id should parse through shared metadata");
-            assert_eq!(builtin_provider_id(kind), *provider_id);
+            assert_eq!(builtin_provider_id(kind), provider_id);
         }
     }
 
     #[test]
     fn supported_provider_strings_match_builtin_registry_ids() {
         let registry = ProviderRegistry::with_builtins();
-        let ids = registry.provider_ids();
-        let supported = list_supported_provider_strings()
-            .iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>();
+        let mut ids = registry.provider_ids();
+        let mut supported = list_supported_provider_strings();
+        ids.sort();
+        supported.sort();
         assert_eq!(supported, ids);
     }
 
@@ -1097,6 +1132,97 @@ mod tests {
             descriptor.env_mappings.api_base_env.as_deref(),
             Some("ROBOCODE_API_BASE")
         );
+    }
+
+    #[test]
+    fn registry_exposes_deepseek_as_independent_provider_id() {
+        let registry = ProviderRegistry::with_builtins();
+        assert!(registry.provider_ids().contains(&"deepseek".to_string()));
+    }
+
+    #[test]
+    fn deepseek_provider_uses_openai_protocol_family() {
+        let registry = ProviderRegistry::with_builtins();
+        let descriptor = registry.descriptor("deepseek").unwrap();
+        assert_eq!(descriptor.provider_id, "deepseek");
+        assert_eq!(descriptor.protocol_family, ProtocolFamily::OpenAi);
+    }
+
+    #[test]
+    fn provider_host_can_refresh_registry_without_replacing_existing_provider_instance() {
+        let mut host = ProviderHost::with_builtins();
+        let before_registry = host.registry();
+        let mut provider = host
+            .create(
+                ProviderConfig::from_settings(
+                    "openai-compatible",
+                    Some("deepseek-chat"),
+                    None,
+                    None,
+                    90,
+                    1,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        host.refresh().unwrap();
+        let after_registry = host.registry();
+
+        let mut before_ids = before_registry.provider_ids();
+        let mut after_ids = after_registry.provider_ids();
+        before_ids.sort();
+        after_ids.sort();
+
+        assert!(!std::sync::Arc::ptr_eq(&before_registry, &after_registry));
+        assert_eq!(after_ids, before_ids);
+        assert!(
+            after_registry
+                .descriptors()
+                .iter()
+                .any(|descriptor| descriptor.provider_id == "openai-compatible")
+        );
+        assert_eq!(provider.provider_name(), "openai-compatible");
+        provider.set_model("deepseek-v4".to_string());
+        assert_eq!(provider.model(), "deepseek-v4");
+    }
+
+    #[test]
+    fn provider_host_creates_independent_provider_instances_per_engine() {
+        let host = ProviderHost::with_builtins();
+        let mut first = host
+            .create(
+                ProviderConfig::from_settings(
+                    "openai-compatible",
+                    Some("deepseek-chat"),
+                    None,
+                    None,
+                    90,
+                    1,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let second = host
+            .create(
+                ProviderConfig::from_settings(
+                    "openai-compatible",
+                    Some("deepseek-chat"),
+                    None,
+                    None,
+                    90,
+                    1,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        first.set_model("deepseek-v4".to_string());
+
+        assert_eq!(first.provider_name(), "openai-compatible");
+        assert_eq!(first.model(), "deepseek-v4");
+        assert_eq!(second.provider_name(), "openai-compatible");
+        assert_eq!(second.model(), "deepseek-chat");
     }
 
     #[test]

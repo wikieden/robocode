@@ -1,0 +1,13 @@
+[package]
+name = "robocode-provider-deepseek"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+robocode-provider-sdk = { path = "../robocode-provider-sdk" }
+serde_json = "1"

@@ -131,6 +131,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "robocode-provider-deepseek"
+version = "0.1.0"
+dependencies = [
+ "robocode-provider-sdk",
+ "serde_json",
+]
+
+[[package]]
 name = "robocode-provider-sdk"
 version = "0.1.0"
 dependencies = [

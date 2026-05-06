@@ -1,10 +1,8 @@
-use std::sync::LazyLock;
-
 use crate::config::ProviderKind;
 use crate::descriptor::{
     ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings,
 };
-use crate::http::{ANTHROPIC_API_BASE, OLLAMA_API_BASE, OPENAI_API_BASE};
+use crate::http::{ANTHROPIC_API_BASE, DEEPSEEK_API_BASE, OLLAMA_API_BASE, OPENAI_API_BASE};
 
 #[derive(Debug, Clone, Copy)]
 struct BuiltinProviderMetadata {
@@ -58,6 +56,18 @@ const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
         supports_native_tool_calling: true,
     },
     BuiltinProviderMetadata {
+        kind: ProviderKind::DeepSeek,
+        provider_id: "deepseek",
+        display_name: "DeepSeek",
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: Some(DEEPSEEK_API_BASE),
+        default_model: "deepseek-v4",
+        api_key_env: Some("DEEPSEEK_API_KEY"),
+        api_base_env: Some("DEEPSEEK_API_BASE"),
+        supports_streaming: true,
+        supports_native_tool_calling: true,
+    },
+    BuiltinProviderMetadata {
         kind: ProviderKind::Ollama,
         provider_id: "ollama",
         display_name: "Ollama",
@@ -83,22 +93,11 @@ const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
     },
 ];
 
-static BUILTIN_PROVIDER_IDS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    BUILTIN_PROVIDER_METADATA
-        .iter()
-        .map(|metadata| metadata.provider_id)
-        .collect()
-});
-
 fn builtin_provider_metadata(kind: ProviderKind) -> &'static BuiltinProviderMetadata {
     BUILTIN_PROVIDER_METADATA
         .iter()
         .find(|metadata| metadata.kind == kind)
         .expect("builtin provider metadata should exist for every ProviderKind")
-}
-
-pub(crate) fn builtin_provider_ids() -> &'static [&'static str] {
-    BUILTIN_PROVIDER_IDS.as_slice()
 }
 
 pub(crate) fn builtin_provider_kind(provider_id: &str) -> Option<ProviderKind> {

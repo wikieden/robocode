@@ -1,4 +1,5 @@
 use std::ffi::CStr;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use libloading::{Library, Symbol};
@@ -42,6 +43,12 @@ pub fn dynamic_library_suffixes() -> &'static [&'static str] {
     {
         &["dll"]
     }
+}
+
+fn default_plugin_search_dirs() -> Vec<PathBuf> {
+    std::env::var_os("ROBOCODE_PROVIDER_PLUGIN_DIRS")
+        .map(|raw| std::env::split_paths(&raw).collect())
+        .unwrap_or_default()
 }
 
 fn into_provider_descriptor(descriptor: PluginDescriptor) -> ProviderDescriptor {
@@ -109,4 +116,26 @@ pub fn load_plugin_descriptor(path: &Path) -> Result<LoadedPluginDescriptor, Str
         descriptor: into_provider_descriptor(descriptor),
         _library: library,
     })
+}
+
+pub fn discover_plugin_descriptors() -> Result<Vec<LoadedPluginDescriptor>, String> {
+    let mut loaded = Vec::new();
+    for dir in default_plugin_search_dirs() {
+        if !dir.exists() {
+            continue;
+        }
+        let entries = std::fs::read_dir(&dir)
+            .map_err(|err| format!("Failed to read provider plugin dir {}: {err}", dir.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|err| err.to_string())?;
+            let path = entry.path();
+            let Some(ext) = path.extension().and_then(OsStr::to_str) else {
+                continue;
+            };
+            if dynamic_library_suffixes().iter().any(|suffix| suffix == &ext) {
+                loaded.push(load_plugin_descriptor(&path)?);
+            }
+        }
+    }
+    Ok(loaded)
 }
