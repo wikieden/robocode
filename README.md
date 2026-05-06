@@ -66,6 +66,25 @@ request_timeout_secs = 120
 max_retries = 2
 ```
 
+Provider-scoped config can override generic API fields:
+
+```toml
+provider = "deepseek"
+model = "deepseek-v4"
+api_base = "https://generic.example"
+
+[providers.deepseek]
+api_base = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_API_KEY"
+```
+
+DeepSeek precedence for API fields is:
+
+- CLI `--api-key` / `--api-base`
+- `[providers.deepseek]` config
+- `DEEPSEEK_API_KEY` / `DEEPSEEK_API_BASE`
+- generic `api_key` / `api_base`
+
 Supported provider families:
 
 - `anthropic`

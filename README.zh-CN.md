@@ -66,6 +66,25 @@ request_timeout_secs = 120
 max_retries = 2
 ```
 
+provider-scoped config 可以覆盖通用 API 字段：
+
+```toml
+provider = "deepseek"
+model = "deepseek-v4"
+api_base = "https://generic.example"
+
+[providers.deepseek]
+api_base = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_API_KEY"
+```
+
+DeepSeek 的 API 字段优先级：
+
+- CLI `--api-key` / `--api-base`
+- `[providers.deepseek]` 配置
+- `DEEPSEEK_API_KEY` / `DEEPSEEK_API_BASE`
+- 通用 `api_key` / `api_base`
+
 当前支持的 provider 家族：
 
 - `anthropic`
