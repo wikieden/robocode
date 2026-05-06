@@ -794,15 +794,18 @@ impl SessionEngine {
                 let path = args
                     .get(1)
                     .ok_or_else(|| "Usage: /lsp symbols <path>".to_string())?;
-                match self.lsp_runtime.symbols(&self.cwd, std::path::Path::new(path)) {
+                match self
+                    .lsp_runtime
+                    .symbols(&self.cwd, std::path::Path::new(path))
+                {
                     Ok(symbols) => Ok(render_lsp_symbols(&self.cwd, &symbols)),
                     Err(error) => Ok(format!("LSP error: {error}")),
                 }
             }
             "references" => {
-                let path = args
-                    .get(1)
-                    .ok_or_else(|| "Usage: /lsp references <path> <line> <character>".to_string())?;
+                let path = args.get(1).ok_or_else(|| {
+                    "Usage: /lsp references <path> <line> <character>".to_string()
+                })?;
                 let line = parse_lsp_position_arg(args.get(2), "line")?;
                 let character = parse_lsp_position_arg(args.get(3), "character")?;
                 match self.lsp_runtime.references(
@@ -1802,9 +1805,11 @@ fn render_lsp_diagnostics(cwd: &std::path::Path, diagnostics: &[LspDiagnostic]) 
             .push(diagnostic);
     }
 
-    let mut lines = vec![render_section_title("LSP diagnostics")
-        .trim_end()
-        .to_string()];
+    let mut lines = vec![
+        render_section_title("LSP diagnostics")
+            .trim_end()
+            .to_string(),
+    ];
 
     for (path, entries) in grouped {
         lines.push(render_subsection_title(&path));
@@ -1849,9 +1854,7 @@ fn render_lsp_symbols(cwd: &std::path::Path, symbols: &[LspSymbol]) -> String {
             .push(symbol);
     }
 
-    let mut lines = vec![render_section_title("LSP symbols")
-        .trim_end()
-        .to_string()];
+    let mut lines = vec![render_section_title("LSP symbols").trim_end().to_string()];
     for (path, entries) in grouped {
         lines.push(render_subsection_title(&path));
         for symbol in entries {
@@ -1877,9 +1880,11 @@ fn render_lsp_locations(cwd: &std::path::Path, locations: &[LspLocation]) -> Str
     if locations.is_empty() {
         return "LSP references:\n  <none>".to_string();
     }
-    let mut lines = vec![render_section_title("LSP references")
-        .trim_end()
-        .to_string()];
+    let mut lines = vec![
+        render_section_title("LSP references")
+            .trim_end()
+            .to_string(),
+    ];
     for location in locations {
         lines.push(format!(
             "  {}:{}:{}",
@@ -2008,8 +2013,7 @@ mod tests {
 
     use robocode_model::ModelProvider;
     use robocode_types::{
-        ApprovalResponse, LspRange, ModelEvent, ModelRequest, PermissionMode, ToolCall,
-        ToolInput,
+        ApprovalResponse, LspRange, ModelEvent, ModelRequest, PermissionMode, ToolCall, ToolInput,
     };
 
     use super::*;

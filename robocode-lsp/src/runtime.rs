@@ -1,8 +1,8 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -15,12 +15,11 @@ use robocode_types::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbo
 use crate::config::{LspServerConfig, LspServerRegistry};
 use crate::framing::encode_message;
 use crate::protocol::{
-    did_change_text_document, did_open_text_document, document_symbol_request,
-    exit_notification, initialize_request, initialized_notification, references_request,
-    shutdown_request,
+    did_change_text_document, did_open_text_document, document_symbol_request, exit_notification,
+    initialize_request, initialized_notification, references_request, shutdown_request,
 };
 
-const MESSAGE_TIMEOUT: Duration = Duration::from_secs(2);
+const MESSAGE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub trait SemanticProvider: Send + Sync {
     fn diagnostics(&self, cwd: &Path, path: &Path) -> Result<Vec<LspDiagnostic>, String>;
@@ -137,11 +136,7 @@ impl LspRuntime {
                         entry.insert(session)
                     }
                 };
-                session.sync_document(
-                    &file_uri,
-                    language_id_for_path(&absolute_path),
-                    &text,
-                )?;
+                session.sync_document(&file_uri, language_id_for_path(&absolute_path), &text)?;
                 action(session, &file_uri)
             };
 
@@ -151,8 +146,7 @@ impl LspRuntime {
                     return Ok(value);
                 }
                 Err(error)
-                    if attempt == 0
-                        && error == "Language server closed the message stream" =>
+                    if attempt == 0 && error == "Language server closed the message stream" =>
                 {
                     if let Ok(mut sessions) = self.sessions.lock() {
                         if let Some(mut session) = sessions.remove(&session_key) {
@@ -324,7 +318,10 @@ impl LspSession {
                     {
                         let params = message.get("params").unwrap_or(&Value::Null);
                         if params.get("uri").and_then(Value::as_str) == Some(file_uri) {
-                            return parse_diagnostics(params.get("diagnostics").unwrap_or(&Value::Null), file_uri);
+                            return parse_diagnostics(
+                                params.get("diagnostics").unwrap_or(&Value::Null),
+                                file_uri,
+                            );
                         }
                     }
                 }
@@ -361,7 +358,9 @@ impl LspSession {
 
     fn send(&mut self, payload: &Value) -> Result<(), String> {
         let bytes = encode_message(payload)?;
-        self.stdin.write_all(&bytes).map_err(|err| err.to_string())?;
+        self.stdin
+            .write_all(&bytes)
+            .map_err(|err| err.to_string())?;
         self.stdin.flush().map_err(|err| err.to_string())
     }
 
@@ -421,8 +420,12 @@ fn read_lsp_message(reader: &mut BufReader<ChildStdout>) -> Result<Option<Value>
     }
     let length = content_length.ok_or_else(|| "Missing Content-Length header".to_string())?;
     let mut body = vec![0_u8; length];
-    reader.read_exact(&mut body).map_err(|err| err.to_string())?;
-    serde_json::from_slice(&body).map_err(|err| err.to_string()).map(Some)
+    reader
+        .read_exact(&mut body)
+        .map_err(|err| err.to_string())?;
+    serde_json::from_slice(&body)
+        .map_err(|err| err.to_string())
+        .map(Some)
 }
 
 fn resolve_query_path(cwd: &Path, path: &Path) -> Result<PathBuf, String> {
@@ -494,7 +497,11 @@ fn parse_diagnostics(value: &Value, file_uri: &str) -> Result<Vec<LspDiagnostic>
 }
 
 fn parse_symbol_response(response: &Value, file_uri: &str) -> Result<Vec<LspSymbol>, String> {
-    parse_symbols(response.get("result").unwrap_or(&Value::Null), &uri_to_path_string(file_uri), None)
+    parse_symbols(
+        response.get("result").unwrap_or(&Value::Null),
+        &uri_to_path_string(file_uri),
+        None,
+    )
 }
 
 fn parse_symbols(
@@ -516,10 +523,7 @@ fn parse_symbols(
                     .to_string(),
                 kind: item.get("kind").and_then(Value::as_u64).unwrap_or(0) as u32,
                 path: uri_to_path_string(
-                    location
-                        .get("uri")
-                        .and_then(Value::as_str)
-                        .unwrap_or(path),
+                    location.get("uri").and_then(Value::as_str).unwrap_or(path),
                 ),
                 range: parse_range(location.get("range").unwrap_or(&Value::Null))?,
                 selection_range: None,
@@ -536,10 +540,7 @@ fn parse_symbols(
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
-        let selection_range = item
-            .get("selectionRange")
-            .map(parse_range)
-            .transpose()?;
+        let selection_range = item.get("selectionRange").map(parse_range).transpose()?;
         symbols.push(LspSymbol {
             name: name.clone(),
             kind: item.get("kind").and_then(Value::as_u64).unwrap_or(0) as u32,
@@ -914,14 +915,16 @@ while True:
         let runtime = LspRuntime::new(fake_registry_with_counter(&cwd, &counter));
 
         let _ = runtime.symbols(&cwd, Path::new("sample.rs")).unwrap();
-        let _ = runtime.references(
-            &cwd,
-            Path::new("sample.rs"),
-            LspPosition {
-                line: 1,
-                character: 4,
-            },
-        ).unwrap();
+        let _ = runtime
+            .references(
+                &cwd,
+                Path::new("sample.rs"),
+                LspPosition {
+                    line: 1,
+                    character: 4,
+                },
+            )
+            .unwrap();
 
         let status = runtime.status();
         assert_eq!(status.running_servers, vec!["fake-rust"]);
