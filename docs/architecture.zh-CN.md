@@ -2,6 +2,43 @@
 
 英文版： [architecture.md](architecture.md)
 
+## 目标架构
+
+RoboCode 是 local-first developer agent runtime。CLI 是入口；
+`robocode-core` 负责 agent loop；持久化状态、工具、权限、workflow、
+LSP 和模型 provider 都通过清晰的子系统边界接入。
+
+```mermaid
+flowchart TB
+    User["User / Developer"] --> CLI["robocode-cli<br/>REPL / Slash Commands / Terminal Views"]
+
+    CLI --> Core["robocode-core<br/>SessionEngine / Command Router / Agent Loop"]
+
+    Core --> Config["robocode-config<br/>Layered Config / Provider-Scoped Config"]
+    Core --> Perm["robocode-permissions<br/>Permission Modes / Approval Gate"]
+    Core --> Session["robocode-session<br/>JSONL Transcript / SQLite Index / Resume"]
+    Core --> Workflows["robocode-workflows<br/>Tasks / Memory / Resume Context"]
+    Core --> Tools["robocode-tools<br/>File / Search / Shell / Web / Git / LSP Tools"]
+    Core --> Model["robocode-model<br/>ProviderHost / Registry / Protocol Adapters"]
+
+    Tools --> LSP["robocode-lsp<br/>Diagnostics / Symbols / References"]
+    Tools --> LocalOS["Local OS<br/>Filesystem / Shell / Git / Network"]
+
+    Model --> ProviderSDK["robocode-provider-sdk<br/>Plugin ABI / Descriptor Contract"]
+    Model --> Builtins["Built-in Providers<br/>Anthropic / OpenAI / Ollama / Fallback"]
+    Model --> DeepSeek["robocode-provider-deepseek<br/>DeepSeek Plugin"]
+
+    ProviderSDK --> DynamicPlugins["Dynamic Provider Plugins<br/>Native dylib / so / dll now<br/>WASM later"]
+
+    Builtins --> APIs["Model APIs"]
+    DeepSeek --> APIs
+    DynamicPlugins --> APIs
+
+    APIs --> Anthropic["Anthropic-style<br/>tool_use"]
+    APIs --> OpenAI["OpenAI-style<br/>tool_calls"]
+    APIs --> DeepSeekAPI["DeepSeek<br/>deepseek-v4-flash / deepseek-v4-pro<br/>OpenAI + Anthropic endpoints"]
+```
+
 ## Workspace 布局
 
 - `robocode-cli`：面向用户的 REPL 和 slash commands
@@ -147,6 +184,39 @@ HTTP provider 使用系统 `curl`，因此 workspace 能保持依赖轻量且可
 - 新加载的 provider 可被新建的 provider instances 使用
 - 活跃 session 保持自己已经绑定的 provider instance，而不是原地热替换
 - 在当前分支上，built-in 与动态发现的 descriptors 已经进入同一个 registry，但完整的 plugin-backed execution 仍在继续加固
+
+### Provider Plugin Runtime
+
+provider runtime 把 provider identity 和 protocol behavior 分离。registry
+回答“有哪些 provider 可用”；host 为每个 session 或 agent 创建
+instance-scoped provider。
+
+```mermaid
+flowchart TB
+    Core["robocode-core<br/>SessionEngine / Agent Runtime"] --> Host["robocode-model::ProviderHost"]
+
+    Host --> Registry["ProviderRegistry<br/>provider lookup / reload / collision checks"]
+    Host --> Factory["Provider Factory<br/>per-session provider instances"]
+
+    Registry --> Builtin["Built-in descriptors<br/>anthropic / openai / ollama / fallback / deepseek"]
+    Registry --> PluginLoader["Dynamic Plugin Loader<br/>scan plugin dirs"]
+    PluginLoader --> NativeLib["Native plugins<br/>dylib / so / dll"]
+    NativeLib --> Descriptor["PluginDescriptor JSON<br/>stable ABI boundary"]
+
+    Factory --> AdapterChoice["Protocol Adapter Binding"]
+    AdapterChoice --> AnthropicAdapter["Anthropic-style adapter<br/>tool_use"]
+    AdapterChoice --> OpenAIAdapter["OpenAI-style adapter<br/>tool_calls"]
+
+    Builtin --> DeepSeekOpenAI["deepseek<br/>OpenAI-style<br/>https://api.deepseek.com"]
+    Builtin --> DeepSeekAnthropic["deepseek-anthropic<br/>Anthropic-style<br/>https://api.deepseek.com/anthropic"]
+
+    OpenAIAdapter --> APIs["External Model APIs"]
+    AnthropicAdapter --> APIs
+
+    APIs --> DeepSeekAPI["DeepSeek<br/>deepseek-v4-flash / deepseek-v4-pro"]
+    APIs --> OpenAIAPI["OpenAI / compatible"]
+    APIs --> AnthropicAPI["Anthropic / compatible"]
+```
 
 ## 工具系统
 
