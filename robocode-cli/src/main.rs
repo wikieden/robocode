@@ -3,7 +3,7 @@ use robocode_core::{EngineEvent, SessionEngine};
 use robocode_model::{ProviderConfig, ProviderHost, list_supported_provider_strings};
 use robocode_types::{ApprovalResponse, PermissionPrompt, RuntimeSnapshot};
 use std::env;
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 fn main() {
@@ -93,17 +93,15 @@ fn run() -> Result<(), String> {
     );
     println!("Startup provider: {provider_summary}");
 
+    let stdin = io::stdin();
+    let mut stdin = stdin.lock();
     loop {
         print!("robocode> ");
         io::stdout().flush().map_err(|err| err.to_string())?;
-        let mut line = String::new();
-        let read = io::stdin()
-            .read_line(&mut line)
-            .map_err(|err| err.to_string())?;
-        if read == 0 {
+        let Some(line) = read_lossy_line(&mut stdin).map_err(|err| err.to_string())? else {
             println!();
             break;
-        }
+        };
         let trimmed = line.trim();
         if trimmed.eq_ignore_ascii_case("exit") || trimmed.eq_ignore_ascii_case("quit") {
             break;
@@ -286,18 +284,28 @@ fn prompt_for_approval(prompt: PermissionPrompt) -> ApprovalResponse {
     println!("{}", prompt.input_preview);
     print!("Allow? [y/N]: ");
     io::stdout().flush().ok();
-    let mut response = String::new();
-    if io::stdin().read_line(&mut response).is_err() {
+    let stdin = io::stdin();
+    let mut stdin = stdin.lock();
+    let Ok(Some(response)) = read_lossy_line(&mut stdin) else {
         return ApprovalResponse {
             approved: false,
             feedback: None,
         };
-    }
+    };
     let approved = matches!(response.trim(), "y" | "Y" | "yes" | "YES");
     ApprovalResponse {
         approved,
         feedback: None,
     }
+}
+
+fn read_lossy_line(reader: &mut impl BufRead) -> io::Result<Option<String>> {
+    let mut bytes = Vec::new();
+    let read = reader.read_until(b'\n', &mut bytes)?;
+    if read == 0 {
+        return Ok(None);
+    }
+    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
 }
 
 fn render_event(event: EngineEvent) {
@@ -307,5 +315,25 @@ fn render_event(event: EngineEvent) {
         EngineEvent::ToolCall(text) => println!("[tool-call] {text}"),
         EngineEvent::ToolResult(text) => println!("[tool-result]\n{text}"),
         EngineEvent::Command(text) => println!("{text}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+
+    #[test]
+    fn read_lossy_line_replaces_invalid_utf8() {
+        let mut input = Cursor::new(vec![b'o', b'k', 0xff, b'\n']);
+        let line = read_lossy_line(&mut input).unwrap().unwrap();
+        assert_eq!(line, "ok\u{fffd}\n");
+    }
+
+    #[test]
+    fn read_lossy_line_returns_none_on_eof() {
+        let mut input = Cursor::new(Vec::<u8>::new());
+        assert_eq!(read_lossy_line(&mut input).unwrap(), None);
     }
 }
