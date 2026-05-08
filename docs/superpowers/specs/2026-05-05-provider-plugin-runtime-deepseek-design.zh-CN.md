@@ -248,10 +248,15 @@ DeepSeek 必须作为一等 provider family，至少包含：
 
 - `provider_id = "deepseek"`
 - `display_name = "DeepSeek"`
-- `protocol_family = "openai"`
-- 默认模型目标 `deepseek-v4`
+- 主协议族 `protocol_family = "openai"`
+- 默认模型目标 `deepseek-v4-flash`
+- 官方 V4 模型：`deepseek-v4-flash` 与 `deepseek-v4-pro`
 
 即使 DeepSeek 复用 OpenAI-style adapter，产品层也必须把它视为独立 provider，而不是 `openai` 的一个未文档化 endpoint 变体。
+
+DeepSeek 也提供官方 Anthropic-compatible API surface，endpoint 为
+`https://api.deepseek.com/anthropic`。RoboCode 应显式暴露
+`deepseek-anthropic`，而不是要求用户手动改写通用 `anthropic` provider endpoint。
 
 ### 配置解析
 
@@ -269,6 +274,8 @@ DeepSeek 配置优先级建议为：
 
 RoboCode 仍应允许用户显式把 generic OpenAI-compatible provider 指向 DeepSeek endpoint 并正常工作。  
 但这种兼容路径不能替代或弱化 DeepSeek 作为独立 provider 的正式产品面。
+
+RoboCode 也应支持 DeepSeek Anthropic-compatible 路径，让需要 Claude-style request 与 tool-call 语义的用户能继续使用 DeepSeek 凭证。
 
 ## 配置模型
 

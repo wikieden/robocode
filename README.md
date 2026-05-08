@@ -13,7 +13,7 @@ This repository currently includes:
 - A permission-aware tool runtime
 - Built-in local tools for shell, files, search, web access, and Git workflows including worktrees and stash/restore flows
 - Project-level workflow state for tasks, session memory, project memory suggestions, and resume context
-- A provider abstraction with support for multiple API families, native tool-calling where available, and an evolving provider-plugin runtime
+- A provider abstraction with support for multiple API families, native tool-calling where available, and a provider-plugin runtime on the current branch
 
 ## Workspace
 
@@ -66,12 +66,38 @@ request_timeout_secs = 120
 max_retries = 2
 ```
 
+Provider-scoped config can override generic API fields:
+
+```toml
+provider = "deepseek"
+model = "deepseek-v4-flash"
+api_base = "https://generic.example"
+
+[providers.deepseek]
+api_base = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_API_KEY"
+```
+
+DeepSeek V4 model names follow the official API docs:
+
+- `deepseek-v4-flash` is RoboCode's default DeepSeek model
+- `deepseek-v4-pro` can be selected explicitly for the higher-capability V4 model
+- legacy `deepseek-chat` and `deepseek-reasoner` remain compatibility names only and are scheduled for DeepSeek-side deprecation
+
+DeepSeek precedence for API fields is:
+
+- CLI `--api-key` / `--api-base`
+- `[providers.deepseek]` config
+- `DEEPSEEK_API_KEY` / `DEEPSEEK_API_BASE`
+- generic `api_key` / `api_base`
+
 Supported provider families:
 
 - `anthropic`
 - `openai`
 - `openai-compatible`
 - `deepseek` as an independent provider family using the OpenAI-style protocol
+- `deepseek-anthropic` for DeepSeek's Anthropic-compatible endpoint at `https://api.deepseek.com/anthropic`
 - `ollama`
 - `fallback`
 
@@ -79,6 +105,7 @@ Current protocol families and tool-calling mappings:
 
 - Anthropic `tool_use`
 - OpenAI-style `tool_calls` for OpenAI-compatible providers, including DeepSeek
+- DeepSeek Anthropic-compatible `tool_use` through `deepseek-anthropic`
 - `fallback` and `ollama` text-first local flows
 
 Provider runtime direction:
@@ -143,4 +170,4 @@ Project docs:
 
 ## Status
 
-This is an actively developing local-first CLI platform. Mainline already includes V1 plus core V2 session/workflow/LSP slices, and the next architecture expansion is a plugin-extensible provider runtime with DeepSeek v4 as the first target.
+This is an actively developing local-first CLI platform. Mainline already includes V1 plus core V2 session/workflow/LSP slices, while this branch adds the first provider-plugin runtime slice with DeepSeek v4 as the first target provider.

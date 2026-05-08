@@ -276,12 +276,18 @@ DeepSeek must be a first-class provider family with:
 
 - `provider_id = "deepseek"`
 - `display_name = "DeepSeek"`
-- `protocol_family = "openai"`
-- default model target `deepseek-v4`
+- primary `protocol_family = "openai"`
+- default model target `deepseek-v4-flash`
+- supported official V4 models: `deepseek-v4-flash` and `deepseek-v4-pro`
 
 DeepSeek must remain usable even though it uses the OpenAI-style adapter
 family. The user-facing product should treat it as a distinct provider, not as
 an undocumented endpoint variation of `openai`.
+
+DeepSeek also provides an official Anthropic-compatible API surface at
+`https://api.deepseek.com/anthropic`. RoboCode should expose that path
+explicitly as `deepseek-anthropic` rather than forcing users to override the
+generic `anthropic` provider endpoint.
 
 ### Configuration Resolution
 
@@ -302,6 +308,9 @@ RoboCode should also continue to support pointing a generic OpenAI-compatible
 provider configuration at a DeepSeek endpoint when the user explicitly wants
 that path. But this must not replace or weaken the independent DeepSeek product
 surface.
+
+RoboCode should also support a DeepSeek Anthropic-compatible path for users who
+want Claude-style request and tool-call semantics with DeepSeek credentials.
 
 ## Configuration Model
 

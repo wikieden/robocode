@@ -64,6 +64,21 @@ impl ResolvedConfig {
     }
 }
 
+#[derive(Debug, Default, Deserialize, Clone)]
+struct ProviderScopedFileConfig {
+    api_base: Option<String>,
+    api_key: Option<String>,
+    api_key_env: Option<String>,
+    default_model: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+struct ProvidersFileConfig {
+    deepseek: Option<ProviderScopedFileConfig>,
+    anthropic: Option<ProviderScopedFileConfig>,
+    openai: Option<ProviderScopedFileConfig>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct FileConfig {
     provider: Option<String>,
@@ -75,6 +90,7 @@ struct FileConfig {
     session_home: Option<String>,
     request_timeout_secs: Option<u64>,
     max_retries: Option<u32>,
+    providers: Option<ProvidersFileConfig>,
 }
 
 pub fn load_config(cwd: &Path, cli: &CliOverrides) -> Result<ResolvedConfig, String> {
@@ -91,15 +107,23 @@ where
 {
     let mut resolved = ResolvedConfig::default();
     let mut loaded_files = Vec::new();
+    let mut merged_providers = ProvidersFileConfig::default();
 
     for path in config_paths(cwd, cli, env_lookup)? {
         if let Some(file_config) = read_config_file(&path, env_lookup)? {
+            if let Some(providers) = file_config.providers.clone() {
+                merge_provider_configs(&mut merged_providers, providers);
+            }
             apply_file_config(&mut resolved, file_config, cwd)?;
             loaded_files.push(path);
         }
     }
 
     apply_env_config(&mut resolved, env_lookup)?;
+    apply_cli_provider_selection(&mut resolved, cli);
+    let provider = resolved.provider.clone();
+    apply_provider_specific_env_config(&mut resolved, env_lookup);
+    apply_provider_scoped_config(&mut resolved, &provider, &merged_providers, env_lookup);
     apply_cli_config(&mut resolved, cli);
     resolved.loaded_files = loaded_files;
     Ok(resolved)
@@ -239,6 +263,86 @@ where
     Ok(())
 }
 
+fn apply_provider_specific_env_config<F>(resolved: &mut ResolvedConfig, env_lookup: &F)
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if matches!(
+        resolved.provider.as_str(),
+        "deepseek" | "deepseek-anthropic"
+    ) {
+        if let Some(api_key) = env_lookup("DEEPSEEK_API_KEY") {
+            resolved.api_key = Some(api_key);
+        }
+        if let Some(api_base) = env_lookup("DEEPSEEK_API_BASE") {
+            resolved.api_base = Some(api_base);
+        }
+    }
+}
+
+fn apply_provider_scoped_config<F>(
+    resolved: &mut ResolvedConfig,
+    provider: &str,
+    providers: &ProvidersFileConfig,
+    env_lookup: &F,
+) where
+    F: Fn(&str) -> Option<String>,
+{
+    let scoped = match provider {
+        "deepseek" | "deepseek-anthropic" => providers.deepseek.as_ref(),
+        "anthropic" => providers.anthropic.as_ref(),
+        "openai" | "openai-compatible" => providers.openai.as_ref(),
+        _ => None,
+    };
+
+    if let Some(scoped) = scoped {
+        if let Some(api_base) = &scoped.api_base {
+            resolved.api_base = Some(api_base.clone());
+        }
+        if let Some(api_key) = &scoped.api_key {
+            resolved.api_key = Some(api_key.clone());
+        }
+        if let Some(api_key_env) = &scoped.api_key_env {
+            if let Some(value) = env_lookup(api_key_env) {
+                resolved.api_key = Some(value);
+            }
+        }
+        if let Some(default_model) = &scoped.default_model {
+            if resolved.model.is_none() {
+                resolved.model = Some(default_model.clone());
+            }
+        }
+    }
+}
+
+fn merge_provider_configs(target: &mut ProvidersFileConfig, incoming: ProvidersFileConfig) {
+    merge_provider_scoped_config(&mut target.deepseek, incoming.deepseek);
+    merge_provider_scoped_config(&mut target.anthropic, incoming.anthropic);
+    merge_provider_scoped_config(&mut target.openai, incoming.openai);
+}
+
+fn merge_provider_scoped_config(
+    target: &mut Option<ProviderScopedFileConfig>,
+    incoming: Option<ProviderScopedFileConfig>,
+) {
+    let Some(incoming) = incoming else {
+        return;
+    };
+    let entry = target.get_or_insert_with(ProviderScopedFileConfig::default);
+    if incoming.api_base.is_some() {
+        entry.api_base = incoming.api_base;
+    }
+    if incoming.api_key.is_some() {
+        entry.api_key = incoming.api_key;
+    }
+    if incoming.api_key_env.is_some() {
+        entry.api_key_env = incoming.api_key_env;
+    }
+    if incoming.default_model.is_some() {
+        entry.default_model = incoming.default_model;
+    }
+}
+
 fn apply_cli_config(resolved: &mut ResolvedConfig, cli: &CliOverrides) {
     if let Some(provider) = &cli.provider {
         resolved.provider = provider.clone();
@@ -263,6 +367,12 @@ fn apply_cli_config(resolved: &mut ResolvedConfig, cli: &CliOverrides) {
     }
     if let Some(max_retries) = cli.max_retries {
         resolved.max_retries = max_retries;
+    }
+}
+
+fn apply_cli_provider_selection(resolved: &mut ResolvedConfig, cli: &CliOverrides) {
+    if let Some(provider) = &cli.provider {
+        resolved.provider = provider.clone();
     }
 }
 
@@ -354,5 +464,148 @@ mod tests {
         assert_eq!(config.permission_mode, PermissionMode::AcceptEdits);
         assert_eq!(config.request_timeout_secs, 120);
         assert_eq!(config.max_retries, 3);
+    }
+
+    #[test]
+    fn deepseek_provider_specific_env_overrides_generic_api_fields() {
+        let cwd = std::env::temp_dir().join("robocode_deepseek_config_test");
+        let _ = fs::remove_dir_all(&cwd);
+        fs::create_dir_all(cwd.join(".robocode")).unwrap();
+        fs::write(
+            cwd.join(".robocode").join("config.toml"),
+            r#"
+provider = "deepseek"
+api_key = "generic-key"
+api_base = "https://generic.example"
+[providers.deepseek]
+api_base = "https://provider.example"
+"#,
+        )
+        .unwrap();
+
+        let env_map = map_env(&[("DEEPSEEK_API_KEY", "provider-key")]);
+
+        let config = load_config_with_env(&cwd, &CliOverrides::default(), &|key| {
+            env_map.get(key).cloned()
+        })
+        .unwrap();
+
+        assert_eq!(config.provider, "deepseek");
+        assert_eq!(config.api_key.as_deref(), Some("provider-key"));
+        assert_eq!(config.api_base.as_deref(), Some("https://provider.example"));
+    }
+
+    #[test]
+    fn deepseek_provider_scoped_config_from_global_applies_after_project_provider_selection() {
+        let root =
+            std::env::temp_dir().join(format!("robocode_deepseek_global_{}", std::process::id()));
+        let global_config_path = default_config_path_for_test(&root);
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
+        fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
+        fs::write(
+            &global_config_path,
+            r#"
+[providers.deepseek]
+api_base = "https://global-provider.example"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("project").join(".robocode").join("config.toml"),
+            r#"
+provider = "deepseek"
+api_base = "https://generic-project.example"
+"#,
+        )
+        .unwrap();
+
+        let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+        let config =
+            load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+                env_map.get(key).cloned()
+            })
+            .unwrap();
+
+        assert_eq!(config.provider, "deepseek");
+        assert_eq!(
+            config.api_base.as_deref(),
+            Some("https://global-provider.example")
+        );
+    }
+
+    #[test]
+    fn deepseek_provider_scoped_config_applies_when_provider_is_selected_by_cli() {
+        let root =
+            std::env::temp_dir().join(format!("robocode_deepseek_cli_{}", std::process::id()));
+        let global_config_path = default_config_path_for_test(&root);
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
+        fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
+        fs::write(
+            &global_config_path,
+            r#"
+[providers.deepseek]
+api_base = "https://global-provider.example"
+"#,
+        )
+        .unwrap();
+
+        let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+        let cli = CliOverrides {
+            provider: Some("deepseek".to_string()),
+            ..CliOverrides::default()
+        };
+        let config = load_config_with_env(&root.join("project"), &cli, &|key| {
+            env_map.get(key).cloned()
+        })
+        .unwrap();
+
+        assert_eq!(config.provider, "deepseek");
+        assert_eq!(
+            config.api_base.as_deref(),
+            Some("https://global-provider.example")
+        );
+    }
+
+    #[test]
+    fn deepseek_anthropic_uses_deepseek_scoped_config() {
+        let root = std::env::temp_dir().join(format!(
+            "robocode_deepseek_anthropic_{}",
+            std::process::id()
+        ));
+        let global_config_path = default_config_path_for_test(&root);
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
+        fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
+        fs::write(
+            &global_config_path,
+            r#"
+[providers.deepseek]
+api_base = "https://api.deepseek.com/anthropic"
+api_key_env = "DEEPSEEK_API_KEY"
+"#,
+        )
+        .unwrap();
+
+        let env_map = map_env(&[
+            ("HOME", root.to_string_lossy().as_ref()),
+            ("DEEPSEEK_API_KEY", "deepseek-provider-key"),
+        ]);
+        let cli = CliOverrides {
+            provider: Some("deepseek-anthropic".to_string()),
+            ..CliOverrides::default()
+        };
+        let config = load_config_with_env(&root.join("project"), &cli, &|key| {
+            env_map.get(key).cloned()
+        })
+        .unwrap();
+
+        assert_eq!(config.provider, "deepseek-anthropic");
+        assert_eq!(
+            config.api_base.as_deref(),
+            Some("https://api.deepseek.com/anthropic")
+        );
+        assert_eq!(config.api_key.as_deref(), Some("deepseek-provider-key"));
     }
 }

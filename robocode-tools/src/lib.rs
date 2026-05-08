@@ -1065,7 +1065,8 @@ impl BuiltinTool for LspDiagnosticsTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "lsp_diagnostics".to_string(),
-            description: "Read diagnostics for a source file from the semantic provider".to_string(),
+            description: "Read diagnostics for a source file from the semantic provider"
+                .to_string(),
             is_mutating: false,
             input_schema_hint: "path=file".to_string(),
         }
@@ -1155,9 +1156,7 @@ fn parse_required_u32(input: &ToolInput, key: &str, tool_name: &str) -> Result<u
         .map_err(|_| format!("{tool_name} requires numeric `{key}`"))
 }
 
-fn semantic_provider(
-    ctx: &ToolExecutionContext,
-) -> Result<&Arc<dyn SemanticToolProvider>, String> {
+fn semantic_provider(ctx: &ToolExecutionContext) -> Result<&Arc<dyn SemanticToolProvider>, String> {
     ctx.semantic
         .as_ref()
         .ok_or_else(|| "LSP semantic provider is not available".to_string())
@@ -1644,7 +1643,10 @@ mod tests {
             line: u32,
             character: u32,
         ) -> Result<String, String> {
-            Ok(format!("references for {}:{line}:{character}", path.display()))
+            Ok(format!(
+                "references for {}:{line}:{character}",
+                path.display()
+            ))
         }
     }
 

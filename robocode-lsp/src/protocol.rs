@@ -62,12 +62,7 @@ pub fn document_symbol_request(id: u64, path_uri: &str) -> serde_json::Value {
     })
 }
 
-pub fn references_request(
-    id: u64,
-    path_uri: &str,
-    line: u32,
-    character: u32,
-) -> serde_json::Value {
+pub fn references_request(id: u64, path_uri: &str, line: u32, character: u32) -> serde_json::Value {
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
@@ -128,9 +123,13 @@ mod tests {
 
     #[test]
     fn builds_did_change_request_with_versioned_full_text() {
-        let request = did_change_text_document("file:///tmp/project/src/lib.rs", 2, "fn main() {}\n");
+        let request =
+            did_change_text_document("file:///tmp/project/src/lib.rs", 2, "fn main() {}\n");
         assert_eq!(request["method"], "textDocument/didChange");
         assert_eq!(request["params"]["textDocument"]["version"], 2);
-        assert_eq!(request["params"]["contentChanges"][0]["text"], "fn main() {}\n");
+        assert_eq!(
+            request["params"]["contentChanges"][0]["text"],
+            "fn main() {}\n"
+        );
     }
 }

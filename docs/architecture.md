@@ -1,5 +1,43 @@
 # RoboCode Architecture
 
+## Target Architecture
+
+RoboCode is organized as a local-first developer agent runtime. The CLI is the
+entrypoint; `robocode-core` owns the agent loop; durable state, tools,
+permissions, workflows, LSP, and model providers stay behind explicit subsystem
+boundaries.
+
+```mermaid
+flowchart TB
+    User["User / Developer"] --> CLI["robocode-cli<br/>REPL / Slash Commands / Terminal Views"]
+
+    CLI --> Core["robocode-core<br/>SessionEngine / Command Router / Agent Loop"]
+
+    Core --> Config["robocode-config<br/>Layered Config / Provider-Scoped Config"]
+    Core --> Perm["robocode-permissions<br/>Permission Modes / Approval Gate"]
+    Core --> Session["robocode-session<br/>JSONL Transcript / SQLite Index / Resume"]
+    Core --> Workflows["robocode-workflows<br/>Tasks / Memory / Resume Context"]
+    Core --> Tools["robocode-tools<br/>File / Search / Shell / Web / Git / LSP Tools"]
+    Core --> Model["robocode-model<br/>ProviderHost / Registry / Protocol Adapters"]
+
+    Tools --> LSP["robocode-lsp<br/>Diagnostics / Symbols / References"]
+    Tools --> LocalOS["Local OS<br/>Filesystem / Shell / Git / Network"]
+
+    Model --> ProviderSDK["robocode-provider-sdk<br/>Plugin ABI / Descriptor Contract"]
+    Model --> Builtins["Built-in Providers<br/>Anthropic / OpenAI / Ollama / Fallback"]
+    Model --> DeepSeek["robocode-provider-deepseek<br/>DeepSeek Plugin"]
+
+    ProviderSDK --> DynamicPlugins["Dynamic Provider Plugins<br/>Native dylib / so / dll now<br/>WASM later"]
+
+    Builtins --> APIs["Model APIs"]
+    DeepSeek --> APIs
+    DynamicPlugins --> APIs
+
+    APIs --> Anthropic["Anthropic-style<br/>tool_use"]
+    APIs --> OpenAI["OpenAI-style<br/>tool_calls"]
+    APIs --> DeepSeekAPI["DeepSeek<br/>deepseek-v4-flash / deepseek-v4-pro<br/>OpenAI + Anthropic endpoints"]
+```
+
 ## Workspace Layout
 
 - `robocode-cli`: user-facing REPL and slash commands.
@@ -128,12 +166,13 @@ V1 includes a provider factory with these backend families:
 - `anthropic`
 - `openai`
 - `openai-compatible`
-- `deepseek` as an independent provider family using the OpenAI-style protocol family
+- `deepseek` as an independent provider family using the official OpenAI-style API surface
+- `deepseek-anthropic` for DeepSeek's official Anthropic-compatible API surface
 - `ollama`
 - `fallback`
 
-The provider runtime is evolving from a small built-in factory into a provider
-host/runtime with:
+The provider runtime on the current branch is evolving from a small built-in
+factory into a provider host/runtime with:
 
 - built-in provider descriptors
 - dynamic provider registry
@@ -153,8 +192,10 @@ Current protocol support:
 - Anthropic native `tool_use`
 - OpenAI native `tool_calls`
 - OpenAI-compatible tool calling using the same message shape
-- DeepSeek as an independent provider identity bound to the OpenAI-style
-  adapter family
+- DeepSeek as an independent provider identity with:
+  - `deepseek` bound to the OpenAI-style adapter family at `https://api.deepseek.com`
+  - `deepseek-anthropic` bound to the Anthropic-style adapter family at `https://api.deepseek.com/anthropic`
+- DeepSeek V4 defaults to `deepseek-v4-flash`; `deepseek-v4-pro` is selectable explicitly
 - Ollama text-only chat flow
 - local `fallback` behavior for offline use and smoke testing
 
@@ -167,6 +208,42 @@ Runtime provider loading target:
 - newly loaded providers become available to newly created provider instances
 - active sessions keep their bound provider instances instead of hot-swapping in
   place
+- on the current branch, built-in and dynamically discovered descriptors already
+  flow through one registry, while full plugin-backed execution continues to
+  harden
+
+### Provider Plugin Runtime
+
+The provider runtime separates provider identity from protocol behavior. The
+registry answers "what providers exist"; the host creates instance-scoped
+providers for each session or agent.
+
+```mermaid
+flowchart TB
+    Core["robocode-core<br/>SessionEngine / Agent Runtime"] --> Host["robocode-model::ProviderHost"]
+
+    Host --> Registry["ProviderRegistry<br/>provider lookup / reload / collision checks"]
+    Host --> Factory["Provider Factory<br/>per-session provider instances"]
+
+    Registry --> Builtin["Built-in descriptors<br/>anthropic / openai / ollama / fallback / deepseek"]
+    Registry --> PluginLoader["Dynamic Plugin Loader<br/>scan plugin dirs"]
+    PluginLoader --> NativeLib["Native plugins<br/>dylib / so / dll"]
+    NativeLib --> Descriptor["PluginDescriptor JSON<br/>stable ABI boundary"]
+
+    Factory --> AdapterChoice["Protocol Adapter Binding"]
+    AdapterChoice --> AnthropicAdapter["Anthropic-style adapter<br/>tool_use"]
+    AdapterChoice --> OpenAIAdapter["OpenAI-style adapter<br/>tool_calls"]
+
+    Builtin --> DeepSeekOpenAI["deepseek<br/>OpenAI-style<br/>https://api.deepseek.com"]
+    Builtin --> DeepSeekAnthropic["deepseek-anthropic<br/>Anthropic-style<br/>https://api.deepseek.com/anthropic"]
+
+    OpenAIAdapter --> APIs["External Model APIs"]
+    AnthropicAdapter --> APIs
+
+    APIs --> DeepSeekAPI["DeepSeek<br/>deepseek-v4-flash / deepseek-v4-pro"]
+    APIs --> OpenAIAPI["OpenAI / compatible"]
+    APIs --> AnthropicAPI["Anthropic / compatible"]
+```
 
 ## Tool System
 

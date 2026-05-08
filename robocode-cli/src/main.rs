@@ -1,6 +1,6 @@
 use robocode_config::{CliOverrides, load_config};
 use robocode_core::{EngineEvent, SessionEngine};
-use robocode_model::{ProviderConfig, create_provider, list_supported_provider_strings};
+use robocode_model::{ProviderConfig, ProviderHost, list_supported_provider_strings};
 use robocode_types::{ApprovalResponse, PermissionPrompt, RuntimeSnapshot};
 use std::env;
 use std::io::{self, Write};
@@ -68,9 +68,11 @@ fn run() -> Result<(), String> {
         loaded_config_files: resolved_config.loaded_files.clone(),
         startup_overrides: startup.summary_overrides(),
     };
+    let provider_host = ProviderHost::load_default()?;
+    let provider = provider_host.create(provider_config)?;
     let mut engine = SessionEngine::new_with_home_and_snapshot(
         &cwd,
-        create_provider(provider_config),
+        provider,
         resolved_config.session_home.clone(),
         runtime_snapshot,
     )?;
@@ -274,7 +276,7 @@ fn print_startup_help() {
     println!("  ROBOCODE_PROVIDER, ROBOCODE_MODEL, ROBOCODE_API_BASE, ROBOCODE_API_KEY");
     println!("  ROBOCODE_PERMISSION_MODE, ROBOCODE_SESSION_HOME");
     println!("  ROBOCODE_REQUEST_TIMEOUT_SECS, ROBOCODE_MAX_RETRIES, ROBOCODE_CONFIG");
-    println!("  ANTHROPIC_API_KEY, OPENAI_API_KEY");
+    println!("  ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, DEEPSEEK_API_BASE");
 }
 
 fn prompt_for_approval(prompt: PermissionPrompt) -> ApprovalResponse {

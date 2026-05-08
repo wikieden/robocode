@@ -13,7 +13,7 @@ RoboCode 是一个用 Rust 实现的、本地优先的开发者 Agent CLI，目�
 - 带权限控制的统一工具运行时
 - 内置本地工具：shell、文件、搜索、Web、Git，以及 worktree / stash / restore 流程
 - 项目级 workflow 状态：tasks、session memory、project memory suggestions、resume context
-- 支持多家 API、原生 tool-calling，以及正在演进中的 provider-plugin runtime 的 provider 抽象
+- 支持多家 API、原生 tool-calling，以及当前分支上 provider-plugin runtime 的 provider 抽象
 
 ## 工作区结构
 
@@ -66,12 +66,38 @@ request_timeout_secs = 120
 max_retries = 2
 ```
 
+provider-scoped config 可以覆盖通用 API 字段：
+
+```toml
+provider = "deepseek"
+model = "deepseek-v4-flash"
+api_base = "https://generic.example"
+
+[providers.deepseek]
+api_base = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_API_KEY"
+```
+
+DeepSeek V4 模型名以官方 API 文档为准：
+
+- `deepseek-v4-flash` 是 RoboCode 的默认 DeepSeek 模型
+- `deepseek-v4-pro` 可显式配置，用于更强的 V4 模型
+- 旧的 `deepseek-chat` 与 `deepseek-reasoner` 只作为兼容模型名保留，并已进入 DeepSeek 侧弃用计划
+
+DeepSeek 的 API 字段优先级：
+
+- CLI `--api-key` / `--api-base`
+- `[providers.deepseek]` 配置
+- `DEEPSEEK_API_KEY` / `DEEPSEEK_API_BASE`
+- 通用 `api_key` / `api_base`
+
 当前支持的 provider 家族：
 
 - `anthropic`
 - `openai`
 - `openai-compatible`
 - `deepseek`，作为独立 provider family，复用 OpenAI-style 协议
+- `deepseek-anthropic`，用于 DeepSeek 的 Anthropic-compatible endpoint：`https://api.deepseek.com/anthropic`
 - `ollama`
 - `fallback`
 
@@ -79,6 +105,7 @@ max_retries = 2
 
 - Anthropic `tool_use`
 - OpenAI-style `tool_calls`，用于 OpenAI-compatible providers，包括 DeepSeek
+- DeepSeek Anthropic-compatible `tool_use`，通过 `deepseek-anthropic`
 - `fallback` 与 `ollama` 的文本优先本地流程
 
 当前 provider runtime 方向：
@@ -141,4 +168,4 @@ max_retries = 2
 
 ## 当前状态
 
-这是一个正在持续演进的本地优先 CLI 平台。mainline 已经包含 V1 以及核心 V2 session/workflow/LSP 切片，下一步架构扩展重点是 plugin-extensible provider runtime，DeepSeek v4 将作为第一个目标 provider。
+这是一个正在持续演进的本地优先 CLI 平台。mainline 已经包含 V1 以及核心 V2 session/workflow/LSP 切片，而当前分支正在加入第一批 provider-plugin runtime 能力，DeepSeek v4 作为首个目标 provider。
