@@ -93,12 +93,11 @@ fn run() -> Result<(), String> {
     );
     println!("Startup provider: {provider_summary}");
 
-    let stdin = io::stdin();
-    let mut stdin = stdin.lock();
     loop {
         print!("robocode> ");
         io::stdout().flush().map_err(|err| err.to_string())?;
-        let Some(line) = read_lossy_line(&mut stdin).map_err(|err| err.to_string())? else {
+        let stdin = io::stdin();
+        let Some(line) = read_lossy_line(&mut stdin.lock()).map_err(|err| err.to_string())? else {
             println!();
             break;
         };
