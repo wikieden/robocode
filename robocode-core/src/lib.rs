@@ -23,6 +23,8 @@ use robocode_workflows::resume_context::{ResumeContextInput, build_resume_contex
 use robocode_workflows::stores::WorkflowStore;
 use robocode_workflows::tasks::{TaskBlocker, TaskEvent, TaskUpdate};
 
+const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
+
 #[derive(Debug, Clone)]
 pub enum EngineEvent {
     System(String),
@@ -224,15 +226,24 @@ impl SessionEngine {
     where
         F: FnMut(robocode_types::PermissionPrompt) -> ApprovalResponse,
     {
+        let mut call = call;
+        let reasoning_content = call.input.remove(PROVIDER_REASONING_CONTENT_KEY);
         let tool_spec = self
             .tools
             .spec(&call.name)
             .ok_or_else(|| format!("Model requested unknown tool `{}`", call.name))?;
         self.store_entry(TranscriptEntry::ToolCall { call: call.clone() })?;
+        let mut assistant_input = call.input.clone();
+        if let Some(reasoning_content) = reasoning_content {
+            assistant_input.insert(
+                PROVIDER_REASONING_CONTENT_KEY.to_string(),
+                reasoning_content,
+            );
+        }
         let assistant_tool_call = Message {
             id: fresh_id("msg"),
             role: Role::Assistant,
-            content: robocode_types::encode_tool_input(&call.input),
+            content: robocode_types::encode_tool_input(&assistant_input),
             timestamp: now_timestamp(),
             tool_name: Some(call.name.clone()),
             tool_call_id: Some(call.id.clone()),

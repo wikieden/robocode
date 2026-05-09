@@ -88,11 +88,7 @@ fn deepseek_generates_python_hello_world_from_natural_language() {
 
     let cwd = temp_dir("deepseek_hello_world");
     let session_home = temp_dir("deepseek_hello_world_sessions");
-    let prompt = "\
-Create a file named hello_world.py in the current directory.
-The file must be valid Python and print exactly: Hello, world!
-Use the write_file tool. Do not only describe the code.
-";
+    let prompt = "Create a file named hello_world.py in the current directory. Use the write_file tool. The file must contain exactly this Python source: print(\"Hello, world!\"). Do not describe the code.";
 
     let stdout = run_robocode(
         &cwd,

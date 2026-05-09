@@ -78,8 +78,11 @@ fn run() -> Result<(), String> {
     )?;
     engine.set_permission_mode(resolved_config.permission_mode)?;
 
+    let stdin = io::stdin();
+    let mut stdin = stdin.lock();
+
     if let Some(selector) = startup.resume_selector.as_deref() {
-        let mut approver = |prompt: PermissionPrompt| prompt_for_approval(prompt);
+        let mut approver = |prompt: PermissionPrompt| prompt_for_approval(prompt, &mut stdin);
         for event in
             engine.process_input_with_approval(&format!("/resume {selector}"), &mut approver)?
         {
@@ -96,8 +99,7 @@ fn run() -> Result<(), String> {
     loop {
         print!("robocode> ");
         io::stdout().flush().map_err(|err| err.to_string())?;
-        let stdin = io::stdin();
-        let Some(line) = read_lossy_line(&mut stdin.lock()).map_err(|err| err.to_string())? else {
+        let Some(line) = read_lossy_line(&mut stdin).map_err(|err| err.to_string())? else {
             println!();
             break;
         };
@@ -105,7 +107,7 @@ fn run() -> Result<(), String> {
         if trimmed.eq_ignore_ascii_case("exit") || trimmed.eq_ignore_ascii_case("quit") {
             break;
         }
-        let mut approver = |prompt: PermissionPrompt| prompt_for_approval(prompt);
+        let mut approver = |prompt: PermissionPrompt| prompt_for_approval(prompt, &mut stdin);
         let events = engine.process_input_with_approval(trimmed, &mut approver)?;
         for event in events {
             render_event(event);
@@ -276,16 +278,14 @@ fn print_startup_help() {
     println!("  ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, DEEPSEEK_API_BASE");
 }
 
-fn prompt_for_approval(prompt: PermissionPrompt) -> ApprovalResponse {
+fn prompt_for_approval(prompt: PermissionPrompt, stdin: &mut impl BufRead) -> ApprovalResponse {
     println!();
     println!("Permission request for `{}`", prompt.tool_name);
     println!("{}", prompt.message);
     println!("{}", prompt.input_preview);
     print!("Allow? [y/N]: ");
     io::stdout().flush().ok();
-    let stdin = io::stdin();
-    let mut stdin = stdin.lock();
-    let Ok(Some(response)) = read_lossy_line(&mut stdin) else {
+    let Ok(Some(response)) = read_lossy_line(stdin) else {
         return ApprovalResponse {
             approved: false,
             feedback: None,

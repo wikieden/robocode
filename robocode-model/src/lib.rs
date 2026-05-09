@@ -23,6 +23,8 @@ pub use descriptor::{
 pub use host::ProviderHost;
 pub use registry::ProviderRegistry;
 
+const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
+
 pub trait ModelProvider: Send {
     fn provider_name(&self) -> &str;
     fn model(&self) -> &str;
@@ -515,19 +517,25 @@ fn render_openai_messages(messages: &[Message]) -> Vec<Value> {
                 }));
             }
             Role::Assistant if message.tool_name.is_some() && message.tool_call_id.is_some() => {
-                rendered.push(json!({
+                let mut input = decode_tool_input(&message.content);
+                let reasoning_content = input.remove(PROVIDER_REASONING_CONTENT_KEY);
+                let mut rendered_message = json!({
                     "role": "assistant",
-                    "content": "",
+                    "content": Value::Null,
                     "tool_calls": [{
                         "id": message.tool_call_id.clone().unwrap_or_else(|| fresh_id("tool")),
                         "type": "function",
                         "function": {
                             "name": message.tool_name.clone().unwrap_or_else(|| "tool".to_string()),
-                            "arguments": serde_json::to_string(&tool_input_to_json(&decode_tool_input(&message.content)))
+                            "arguments": serde_json::to_string(&tool_input_to_json(&input))
                                 .unwrap_or_else(|_| "{}".to_string()),
                         }
                     }],
-                }));
+                });
+                if let Some(reasoning_content) = reasoning_content {
+                    rendered_message["reasoning_content"] = Value::String(reasoning_content);
+                }
+                rendered.push(rendered_message);
             }
             Role::System => {
                 rendered.push(json!({
@@ -786,11 +794,16 @@ fn parse_openai_events(response: &str) -> Option<Vec<ModelEvent>> {
                     .get("arguments")
                     .and_then(Value::as_str)
                     .unwrap_or("{}");
-                Some(ModelEvent::ToolCall(ToolCall {
-                    id,
-                    name,
-                    input: parse_json_tool_arguments(arguments),
-                }))
+                let mut input = parse_json_tool_arguments(arguments);
+                if let Some(reasoning_content) =
+                    message.get("reasoning_content").and_then(Value::as_str)
+                {
+                    input.insert(
+                        PROVIDER_REASONING_CONTENT_KEY.to_string(),
+                        reasoning_content.to_string(),
+                    );
+                }
+                Some(ModelEvent::ToolCall(ToolCall { id, name, input }))
             })
             .collect();
         if !events.is_empty() {
@@ -1025,6 +1038,18 @@ mod tests {
     }
 
     #[test]
+    fn openai_response_parser_preserves_reasoning_content_for_tool_calls() {
+        let response = r#"{"choices":[{"message":{"role":"assistant","reasoning_content":"need to create the requested file","tool_calls":[{"id":"call_123","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"hello_world.py\",\"content\":\"print(\\\"Hello, world!\\\")\"}"}}]}}]}"#;
+        let events = parse_openai_events(response).unwrap();
+        assert!(matches!(
+            &events[0],
+            ModelEvent::ToolCall(call)
+                if call.input.get(PROVIDER_REASONING_CONTENT_KEY).map(String::as_str)
+                    == Some("need to create the requested file")
+        ));
+    }
+
+    #[test]
     fn anthropic_response_parser_extracts_tool_use() {
         let response = r#"{"content":[{"type":"tool_use","id":"toolu_1","name":"grep","input":{"pattern":"main","path":"src"}}]}"#;
         let events = parse_anthropic_events(response).unwrap();
@@ -1055,6 +1080,89 @@ mod tests {
         assert!(body.contains("\"tools\""));
         assert!(body.contains("\"read_file\""));
         assert!(body.contains("\"path\""));
+    }
+
+    #[test]
+    fn build_openai_body_renders_tool_call_turns_with_null_content() {
+        let request = ModelRequest {
+            session_id: "session_test".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            messages: vec![
+                Message::new(Role::User, "create a file"),
+                Message {
+                    id: "msg_tool_call".to_string(),
+                    role: Role::Assistant,
+                    content: "path=hello_world.py content=print('Hello')".to_string(),
+                    timestamp: 1,
+                    tool_name: Some("write_file".to_string()),
+                    tool_call_id: Some("call_123".to_string()),
+                },
+                Message {
+                    id: "msg_tool_result".to_string(),
+                    role: Role::Tool,
+                    content: "Wrote hello_world.py".to_string(),
+                    timestamp: 2,
+                    tool_name: Some("write_file".to_string()),
+                    tool_call_id: Some("call_123".to_string()),
+                },
+            ],
+            tools: vec![ToolSpec {
+                name: "write_file".to_string(),
+                description: "Write a file".to_string(),
+                is_mutating: true,
+                input_schema_hint: "path=file content=text".to_string(),
+            }],
+            permission_mode: PermissionMode::Default,
+        };
+
+        let body: Value = serde_json::from_str(&build_openai_body("deepseek-v4-flash", &request))
+            .expect("openai body should be valid json");
+        let messages = body["messages"].as_array().unwrap();
+        let assistant = messages
+            .iter()
+            .find(|message| message["tool_calls"][0]["id"] == "call_123")
+            .unwrap();
+        assert!(assistant["content"].is_null());
+        let tool_index = messages
+            .iter()
+            .position(|message| message["role"] == "tool")
+            .unwrap();
+        assert_eq!(messages[tool_index]["tool_call_id"], "call_123");
+        assert_eq!(messages[tool_index - 1]["tool_calls"][0]["id"], "call_123");
+    }
+
+    #[test]
+    fn build_openai_body_replays_reasoning_content_without_tool_argument_leak() {
+        let request = ModelRequest {
+            session_id: "session_test".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            messages: vec![Message {
+                id: "msg_tool_call".to_string(),
+                role: Role::Assistant,
+                content: format!(
+                    "path=hello_world.py\tcontent=print('Hello')\t{PROVIDER_REASONING_CONTENT_KEY}=need a file"
+                ),
+                timestamp: 1,
+                tool_name: Some("write_file".to_string()),
+                tool_call_id: Some("call_123".to_string()),
+            }],
+            tools: Vec::new(),
+            permission_mode: PermissionMode::Default,
+        };
+
+        let body: Value = serde_json::from_str(&build_openai_body("deepseek-v4-flash", &request))
+            .expect("openai body should be valid json");
+        let assistant = body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["tool_calls"][0]["id"] == "call_123")
+            .unwrap();
+        assert_eq!(assistant["reasoning_content"], "need a file");
+        let arguments = assistant["tool_calls"][0]["function"]["arguments"]
+            .as_str()
+            .unwrap();
+        assert!(!arguments.contains(PROVIDER_REASONING_CONTENT_KEY));
     }
 
     #[test]
