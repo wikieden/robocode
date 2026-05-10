@@ -145,6 +145,50 @@ enum HttpMode {
 }
 
 impl HttpProvider {
+    fn from_descriptor(
+        descriptor: &ProviderDescriptor,
+        model: Option<&str>,
+        api_base: Option<&str>,
+        api_key: Option<&str>,
+        request_timeout_secs: u64,
+        max_retries: u32,
+    ) -> Result<Self, String> {
+        let mode = match descriptor.protocol_family {
+            ProtocolFamily::Anthropic => HttpMode::Anthropic,
+            ProtocolFamily::OpenAi => HttpMode::OpenAiCompatible,
+        };
+        let model = model
+            .filter(|value| !value.trim().is_empty())
+            .or(descriptor.default_model.as_deref())
+            .ok_or_else(|| {
+                format!(
+                    "Provider `{}` does not define a default model; pass a model explicitly",
+                    descriptor.provider_id
+                )
+            })?;
+        let api_base = api_base
+            .filter(|value| !value.trim().is_empty())
+            .or(descriptor.default_api_base.as_deref())
+            .ok_or_else(|| {
+                format!(
+                    "Provider `{}` does not define a default API base; pass an API base explicitly",
+                    descriptor.provider_id
+                )
+            })?;
+        let api_key = api_key
+            .map(ToString::to_string)
+            .or_else(|| resolve_env_mapping(descriptor.env_mappings.api_key_env.as_deref()));
+        Ok(Self {
+            provider_name: descriptor.provider_id.clone(),
+            mode,
+            model: model.to_string(),
+            api_base: api_base.to_string(),
+            api_key,
+            request_timeout_secs: request_timeout_secs.max(1),
+            max_retries,
+        })
+    }
+
     fn anthropic(config: ProviderConfig) -> Self {
         Self {
             provider_name: builtin_provider_id(ProviderKind::Anthropic).to_string(),
@@ -968,6 +1012,48 @@ pub(crate) fn load_builtin_provider(
     Ok(provider)
 }
 
+pub(crate) fn load_registered_provider(
+    registry: &ProviderRegistry,
+    provider_id: &str,
+    model: Option<&str>,
+    api_base: Option<&str>,
+    api_key: Option<&str>,
+    request_timeout_secs: u64,
+    max_retries: u32,
+) -> Result<Box<dyn ModelProvider>, String> {
+    if let Some(kind) = ProviderKind::parse(provider_id) {
+        return load_builtin_provider(
+            registry,
+            ProviderConfig {
+                kind,
+                model: model
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| adapters::builtin_default_model(kind))
+                    .to_string(),
+                api_base: api_base.map(ToString::to_string),
+                api_key: api_key.map(ToString::to_string),
+                request_timeout_secs: request_timeout_secs.max(1),
+                max_retries,
+            },
+        );
+    }
+    let descriptor = registry
+        .descriptor(provider_id)
+        .ok_or_else(|| format!("Provider `{provider_id}` is not registered"))?;
+    Ok(Box::new(HttpProvider::from_descriptor(
+        descriptor,
+        model,
+        api_base,
+        api_key,
+        request_timeout_secs,
+        max_retries,
+    )?))
+}
+
+fn resolve_env_mapping(env_name: Option<&str>) -> Option<String> {
+    env_name.and_then(|name| std::env::var(name).ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1463,6 +1549,74 @@ mod tests {
         assert_eq!(first.model(), "deepseek-v4-pro");
         assert_eq!(second.provider_name(), "openai-compatible");
         assert_eq!(second.model(), "deepseek-chat");
+    }
+
+    #[test]
+    fn provider_host_creates_dynamic_openai_provider_from_registry_descriptor() {
+        let plugin_descriptor = ProviderDescriptor {
+            provider_id: "custom-openai".to_string(),
+            display_name: "Custom OpenAI".to_string(),
+            version: "1".to_string(),
+            protocol_family: ProtocolFamily::OpenAi,
+            default_api_base: Some("https://models.example.com".to_string()),
+            default_model: Some("custom-model".to_string()),
+            env_mappings: ProviderEnvMappings::default(),
+            capabilities: ProviderCapabilities {
+                supports_streaming: true,
+                supports_native_tool_calling: true,
+            },
+            config_schema_version: 1,
+        };
+        let registry = ProviderRegistry::from_descriptor_sources(
+            adapters::builtin_provider_descriptors(),
+            vec![plugin_descriptor],
+        )
+        .unwrap();
+        let host = ProviderHost::with_registry(registry);
+
+        let provider = host
+            .create_registered("custom-openai", None, None, None, 90, 1)
+            .unwrap();
+
+        assert_eq!(provider.provider_name(), "custom-openai");
+        assert_eq!(provider.model(), "custom-model");
+    }
+
+    #[test]
+    fn provider_host_keeps_dynamic_provider_instances_independent() {
+        let plugin_descriptor = ProviderDescriptor {
+            provider_id: "team-provider".to_string(),
+            display_name: "Team Provider".to_string(),
+            version: "1".to_string(),
+            protocol_family: ProtocolFamily::Anthropic,
+            default_api_base: Some("https://team.example.com".to_string()),
+            default_model: Some("team-default".to_string()),
+            env_mappings: ProviderEnvMappings::default(),
+            capabilities: ProviderCapabilities {
+                supports_streaming: true,
+                supports_native_tool_calling: true,
+            },
+            config_schema_version: 1,
+        };
+        let registry = ProviderRegistry::from_descriptor_sources(
+            adapters::builtin_provider_descriptors(),
+            vec![plugin_descriptor],
+        )
+        .unwrap();
+        let host = ProviderHost::with_registry(registry);
+        let mut first = host
+            .create_registered("team-provider", Some("agent-a-model"), None, None, 90, 1)
+            .unwrap();
+        let second = host
+            .create_registered("team-provider", Some("agent-b-model"), None, None, 90, 1)
+            .unwrap();
+
+        first.set_model("agent-a-updated".to_string());
+
+        assert_eq!(first.provider_name(), "team-provider");
+        assert_eq!(first.model(), "agent-a-updated");
+        assert_eq!(second.provider_name(), "team-provider");
+        assert_eq!(second.model(), "agent-b-model");
     }
 
     #[test]

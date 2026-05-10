@@ -1,12 +1,15 @@
 use std::sync::{Arc, LazyLock, RwLock};
 
-use crate::{ModelProvider, ProviderConfig, ProviderRegistry, load_builtin_provider};
+use crate::{
+    ModelProvider, ProviderConfig, ProviderRegistry, load_builtin_provider,
+    load_registered_provider,
+};
 
-static BUILTIN_PROVIDER_REGISTRY: LazyLock<RwLock<Arc<ProviderRegistry>>> =
-    LazyLock::new(|| RwLock::new(Arc::new(ProviderRegistry::with_builtins())));
+static BUILTIN_PROVIDER_REGISTRY: LazyLock<Arc<RwLock<Arc<ProviderRegistry>>>> =
+    LazyLock::new(|| Arc::new(RwLock::new(Arc::new(ProviderRegistry::with_builtins()))));
 
 pub struct ProviderHost {
-    registry: &'static RwLock<Arc<ProviderRegistry>>,
+    registry: Arc<RwLock<Arc<ProviderRegistry>>>,
 }
 
 impl ProviderHost {
@@ -19,13 +22,20 @@ impl ProviderHost {
             *global = Arc::clone(&registry);
         }
         Ok(Self {
-            registry: &BUILTIN_PROVIDER_REGISTRY,
+            registry: Arc::clone(&BUILTIN_PROVIDER_REGISTRY),
         })
     }
 
     pub fn with_builtins() -> Self {
         Self {
-            registry: &BUILTIN_PROVIDER_REGISTRY,
+            registry: Arc::clone(&BUILTIN_PROVIDER_REGISTRY),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_registry(registry: ProviderRegistry) -> Self {
+        Self {
+            registry: Arc::new(RwLock::new(Arc::new(registry))),
         }
     }
 
@@ -49,5 +59,26 @@ impl ProviderHost {
     pub fn create(&self, config: ProviderConfig) -> Result<Box<dyn ModelProvider>, String> {
         let registry = self.registry();
         load_builtin_provider(registry.as_ref(), config)
+    }
+
+    pub fn create_registered(
+        &self,
+        provider_id: &str,
+        model: Option<&str>,
+        api_base: Option<&str>,
+        api_key: Option<&str>,
+        request_timeout_secs: u64,
+        max_retries: u32,
+    ) -> Result<Box<dyn ModelProvider>, String> {
+        let registry = self.registry();
+        load_registered_provider(
+            registry.as_ref(),
+            provider_id,
+            model,
+            api_base,
+            api_key,
+            request_timeout_secs,
+            max_retries,
+        )
     }
 }
