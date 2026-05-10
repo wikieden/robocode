@@ -126,7 +126,15 @@ pub fn load_plugin_descriptor(path: &Path) -> Result<LoadedPluginDescriptor, Str
 
 pub fn discover_plugin_descriptors() -> Result<Vec<LoadedPluginDescriptor>, String> {
     let mut loaded = Vec::new();
-    for dir in default_plugin_search_dirs() {
+    for path in discover_plugin_paths(default_plugin_search_dirs())? {
+        loaded.push(load_plugin_descriptor(&path)?);
+    }
+    Ok(loaded)
+}
+
+fn discover_plugin_paths(dirs: Vec<PathBuf>) -> Result<Vec<PathBuf>, String> {
+    let mut discovered = Vec::new();
+    for dir in dirs {
         if !dir.exists() {
             continue;
         }
@@ -146,9 +154,55 @@ pub fn discover_plugin_descriptors() -> Result<Vec<LoadedPluginDescriptor>, Stri
                 .iter()
                 .any(|suffix| suffix == &ext)
             {
-                loaded.push(load_plugin_descriptor(&path)?);
+                discovered.push(path);
             }
         }
     }
-    Ok(loaded)
+    discovered.sort();
+    Ok(discovered)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("robocode_plugin_{name}_{nanos}"));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn discovery_skips_missing_plugin_dirs() {
+        let dir = temp_dir("missing_parent").join("missing");
+        let paths = discover_plugin_paths(vec![dir]).unwrap();
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn discovery_filters_to_platform_dynamic_libraries() {
+        let dir = temp_dir("suffix_filter");
+        let expected = dir.join(format!("provider.{}", dynamic_library_suffixes()[0]));
+        std::fs::write(&expected, b"not a real library").unwrap();
+        std::fs::write(dir.join("provider.txt"), b"ignored").unwrap();
+        std::fs::write(dir.join("provider"), b"ignored").unwrap();
+
+        let paths = discover_plugin_paths(vec![dir]).unwrap();
+        assert_eq!(paths, vec![expected]);
+    }
+
+    #[test]
+    fn discovery_reports_unreadable_plugin_dir_path() {
+        let path = temp_dir("not_a_dir").join("plugin-dir-file");
+        std::fs::write(&path, b"not a directory").unwrap();
+
+        let err = discover_plugin_paths(vec![path.clone()]).unwrap_err();
+        assert!(err.contains(&path.display().to_string()), "{err}");
+    }
 }

@@ -1285,6 +1285,61 @@ mod tests {
     }
 
     #[test]
+    fn registry_rejects_plugin_descriptor_that_conflicts_with_builtin_provider_id() {
+        let plugin_descriptor = ProviderDescriptor {
+            provider_id: "openai".to_string(),
+            display_name: "Conflicting OpenAI".to_string(),
+            version: "1".to_string(),
+            protocol_family: ProtocolFamily::OpenAi,
+            default_api_base: Some("https://example.com".to_string()),
+            default_model: Some("conflict-model".to_string()),
+            env_mappings: ProviderEnvMappings::default(),
+            capabilities: ProviderCapabilities::default(),
+            config_schema_version: 1,
+        };
+
+        let err = ProviderRegistry::from_descriptor_sources(
+            adapters::builtin_provider_descriptors(),
+            vec![plugin_descriptor],
+        )
+        .unwrap_err();
+        assert!(err.contains("conflicts"), "{err}");
+    }
+
+    #[test]
+    fn registry_accepts_valid_non_builtin_plugin_descriptor() {
+        let plugin_descriptor = ProviderDescriptor {
+            provider_id: "custom-openai".to_string(),
+            display_name: "Custom OpenAI".to_string(),
+            version: "1".to_string(),
+            protocol_family: ProtocolFamily::OpenAi,
+            default_api_base: Some("https://models.example.com".to_string()),
+            default_model: Some("custom-model".to_string()),
+            env_mappings: ProviderEnvMappings {
+                api_key_env: Some("CUSTOM_OPENAI_API_KEY".to_string()),
+                api_base_env: Some("CUSTOM_OPENAI_API_BASE".to_string()),
+            },
+            capabilities: ProviderCapabilities {
+                supports_streaming: true,
+                supports_native_tool_calling: true,
+            },
+            config_schema_version: 1,
+        };
+
+        let registry = ProviderRegistry::from_descriptor_sources(
+            adapters::builtin_provider_descriptors(),
+            vec![plugin_descriptor],
+        )
+        .unwrap();
+        assert!(registry.descriptor("custom-openai").is_some());
+        assert!(
+            registry
+                .provider_ids()
+                .contains(&"custom-openai".to_string())
+        );
+    }
+
+    #[test]
     fn builtin_openai_descriptor_matches_runtime_api_base_behavior() {
         let registry = ProviderRegistry::with_builtins();
         let descriptor = registry

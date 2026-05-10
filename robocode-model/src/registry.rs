@@ -18,20 +18,31 @@ impl ProviderRegistry {
     }
 
     pub fn load_default() -> Result<Self, String> {
+        let plugin_descriptors = discover_plugin_descriptors()?
+            .into_iter()
+            .map(|loaded| loaded.descriptor)
+            .collect();
+        Self::from_descriptor_sources(builtin_provider_descriptors(), plugin_descriptors)
+    }
+
+    pub(crate) fn from_descriptor_sources(
+        builtin_descriptors: Vec<ProviderDescriptor>,
+        plugin_descriptors: Vec<ProviderDescriptor>,
+    ) -> Result<Self, String> {
         let mut by_id = BTreeMap::<String, ProviderDescriptor>::new();
-        for descriptor in builtin_provider_descriptors() {
+        for descriptor in builtin_descriptors {
             validate_provider_descriptor(&descriptor)?;
             by_id.insert(descriptor.provider_id.clone(), descriptor);
         }
-        for loaded in discover_plugin_descriptors()? {
-            validate_provider_descriptor(&loaded.descriptor)?;
-            if by_id.contains_key(&loaded.descriptor.provider_id) {
+        for descriptor in plugin_descriptors {
+            validate_provider_descriptor(&descriptor)?;
+            if by_id.contains_key(&descriptor.provider_id) {
                 return Err(format!(
                     "Provider plugin `{}` conflicts with an existing provider id",
-                    loaded.descriptor.provider_id
+                    descriptor.provider_id
                 ));
             }
-            by_id.insert(loaded.descriptor.provider_id.clone(), loaded.descriptor);
+            by_id.insert(descriptor.provider_id.clone(), descriptor);
         }
         Ok(Self {
             descriptors: by_id.into_values().collect(),
