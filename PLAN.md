@@ -8,7 +8,7 @@ Mainline landed status:
 - layered config resolution
 - multi-provider model abstraction
 - native tool-calling support for Anthropic and OpenAI-style providers
-- provider-plugin runtime and DeepSeek v4 implementation are active on the current branch
+- provider-plugin runtime and DeepSeek v4 support, including `deepseek`, `deepseek-anthropic`, provider-scoped config, and official `deepseek-v4-flash` / `deepseek-v4-pro` model names
 - permission-aware local tool runtime
 - JSONL transcripts plus rebuildable SQLite session index
 - session listing and resume selectors
@@ -18,24 +18,35 @@ Mainline landed status:
 - V2-B LSP foundation: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document synchronization
 - V2-D first structured view slice: grouped diagnostics, grouped symbols, compact references, and `robocode-core` presentation helpers
 
-Current dev baseline on `codex/provider-plugin-runtime-deepseek`:
-
-- `ProviderHost`-based provider construction
-- dynamic descriptor discovery scaffolding
-- `robocode-provider-sdk`
-- `robocode-provider-deepseek`
-- DeepSeek as an independent provider family with official `deepseek-v4-flash` / `deepseek-v4-pro` model names
-- `deepseek` for OpenAI-style access and `deepseek-anthropic` for DeepSeek's Anthropic-compatible endpoint
-- provider-scoped config and DeepSeek precedence
-
 Next planned slice:
 
-- provider-plugin runtime and DeepSeek v4
+- provider runtime hardening: dynamic provider loading, registry refresh coverage, plugin descriptor validation, provider streaming/cancellation, and multi-agent provider binding tests
 - after that, later V2-D work extends structured views into sessions, tasks, memory, diff, and approvals
 
 ## Near-Term Plan
 
-1. Merge or otherwise land the current V2-C memory/task workflow branch.
+1. Provider Runtime Hardening.
+   - Validate real dynamic provider loading paths beyond built-in descriptors.
+   - Add registry refresh and collision tests.
+   - Keep provider binding instance-scoped so multiple sessions or agents can use different providers in the same process.
+   - Harden OpenAI-style and Anthropic-style protocol compatibility, including DeepSeek reasoning/tool-call turns.
+
+2. V2-D Richer TUI and Structured Views.
+   - Improve task, memory, diff, session, and approval rendering.
+   - Add structured views for diagnostics, symbols, and references.
+   - Avoid a full UI rewrite until workflows are stable.
+   - Keep text output usable in plain terminals.
+
+3. V3 Platform Expansion.
+   - MCP runtime and plugin loading.
+   - Skills/workflow plugin model.
+   - Multi-agent coordinator.
+   - Bridge, remote, and server mode.
+   - Automation only after workflow state is reliable.
+
+## Landed Phase Notes
+
+1. V2-C Memory and Task Workflows.
    - Keep project tasks and memory state separate from session transcripts.
    - Preserve permission and transcript invariants for all workflow commands.
    - Treat the branch as an early workflow layer, not a complete memory/task
@@ -47,28 +58,11 @@ Next planned slice:
    - Keep maturing the runtime from an early implementation toward a stable merge target.
    - Focus next on robustness, output quality, and long-lived session behavior rather than broadening scope.
 
-3. Provider Plugin Runtime + DeepSeek v4, current branch.
+3. Provider Plugin Runtime + DeepSeek v4.
    - Add a dynamic provider registry and provider host/runtime.
    - Support runtime registry refresh for newly loaded providers.
    - Keep provider binding instance-scoped so multiple agents can use different providers in the same process.
    - Land DeepSeek as the first independent plugin-backed provider using the official OpenAI-style and Anthropic-compatible API surfaces.
-
-4. Merge and harden the provider runtime slice.
-   - Validate branch behavior against broader workspace tests and real plugin loading paths.
-   - Resolve any remaining plugin/runtime edge cases before merge.
-
-5. V2-D Richer TUI and Structured Views.
-   - Improve task, memory, diff, session, and approval rendering.
-   - Add structured views for diagnostics, symbols, and references.
-   - Avoid a full UI rewrite until workflows are stable.
-   - Keep text output usable in plain terminals.
-
-6. V3 Platform Expansion.
-   - MCP runtime and plugin loading.
-   - Skills/workflow plugin model.
-   - Multi-agent coordinator.
-   - Bridge, remote, and server mode.
-   - Automation only after workflow state is reliable.
 
 ## Gap vs `.ref/claude-code-main`
 
@@ -81,7 +75,8 @@ Completed or substantially covered:
 - Git and web command families
 - transcript and resume model
 - provider abstraction
-- provider plugin runtime and dynamic registry on the current branch
+- provider plugin runtime and dynamic registry
+- DeepSeek v4 as an independent provider family
 - early task/memory workflow layer
 - early LSP foundation with real semantic queries and normalized terminal output
 

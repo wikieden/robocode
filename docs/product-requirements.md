@@ -12,8 +12,8 @@ allowing a Rust-native internal architecture.
 
 Current implementation note:
 
-- main has landed the V1 baseline plus V2-A session work, V2-C workflow continuity, V2-B semantic code intelligence, and the first V2-D structured LSP terminal-view slice
-- the next architecture expansion is the provider-plugin runtime and DeepSeek v4 slice
+- main has landed the V1 baseline plus V2-A session work, V2-C workflow continuity, V2-B semantic code intelligence, the first V2-D structured LSP terminal-view slice, and the provider-plugin runtime with DeepSeek v4
+- the next architecture work is provider-runtime hardening: real dynamic loading paths, registry refresh coverage, streaming, cancellation, and broader plugin compatibility
 
 ## Product Definition
 

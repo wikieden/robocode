@@ -105,19 +105,17 @@ Exit criteria:
 
 Mainline landed:
 
-- the REPL and command loop
-- config resolution
-- provider abstraction
-- permissions
-- transcripts and resume
-- Git and web tools
+- V1 local CLI core: REPL, config resolution, provider abstraction, permissions, transcripts/resume, Git tools, and web tools
+- V2-A session commands: `/status`, `/config`, `/doctor`, richer `/sessions`, and grouped `/help`
+- V2-C workflow continuity: project tasks, project/session memory, workflow JSONL logs, and resume context
+- V2-B LSP foundation: real semantic queries, session reuse, document synchronization, `lsp_*` tools, and `/lsp ...` commands
+- V2-D first structured terminal views: grouped diagnostics, grouped symbols, compact references, and presentation helpers
+- Provider-platform slice: provider host/runtime registry, provider-scoped config, and DeepSeek v4 as the first independent provider target
 
-Current dev baseline:
+Next planned:
 
-- the preceding V2-C branch adds workflow continuity through tasks, memory, and resume-context
-- the current V2-B branch adds LSP-backed semantic assistance through real queries, session reuse, and document synchronization
-- main has already landed the first V2-D structured LSP terminal views
-- provider-plugin runtime and DeepSeek v4 are now specified as the next provider-platform slice
+- provider runtime hardening: dynamic loading, registry refresh, descriptor validation, streaming, cancellation, and multi-agent provider binding behavior
+- continued V2-D structured views for sessions, tasks, memory, diff, and approvals
 
 That does not change the roadmap ordering. It means RoboCode has moved beyond an
 early V1-only repository state, but later phases should still be pulled

@@ -10,8 +10,8 @@ RoboCode 不是逐文件移植。它追求的是用户可感知运行模型、�
 
 当前实现说明：
 
-- `main` 已落地 V1 基线、V2-A session work、V2-C workflow continuity、V2-B semantic code intelligence，以及 V2-D 的第一批 structured LSP terminal-view 切片
-- 下一条架构扩展切片是 provider-plugin runtime 与 DeepSeek v4
+- `main` 已落地 V1 基线、V2-A session work、V2-C workflow continuity、V2-B semantic code intelligence、V2-D 的第一批 structured LSP terminal-view 切片，以及 provider-plugin runtime 与 DeepSeek v4
+- 下一条架构工作是 provider-runtime hardening：真实 dynamic loading 路径、registry refresh 覆盖、streaming、cancellation 与更广 plugin 兼容性
 
 ## 产品定义
 

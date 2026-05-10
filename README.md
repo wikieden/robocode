@@ -13,7 +13,7 @@ This repository currently includes:
 - A permission-aware tool runtime
 - Built-in local tools for shell, files, search, web access, and Git workflows including worktrees and stash/restore flows
 - Project-level workflow state for tasks, session memory, project memory suggestions, and resume context
-- A provider abstraction with support for multiple API families, native tool-calling where available, and a provider-plugin runtime on the current branch
+- A provider abstraction with support for multiple API families, native tool-calling where available, and a provider-plugin runtime with DeepSeek as the first independent provider family
 
 ## Workspace
 
@@ -108,12 +108,13 @@ Current protocol families and tool-calling mappings:
 - DeepSeek Anthropic-compatible `tool_use` through `deepseek-anthropic`
 - `fallback` and `ollama` text-first local flows
 
-Provider runtime direction:
+Provider runtime status and direction:
 
 - built-in providers remain supported
-- provider descriptors and runtime loading are being extended toward a plugin-based model
+- provider descriptors now flow through the provider host/runtime registry
 - provider bindings are session/agent scoped rather than process-global
-- the runtime is being designed for native dynamic loading first and WASM migration later
+- the next hardening work is real dynamic plugin loading, registry refresh coverage, streaming, and cancellation
+- the runtime is designed for native dynamic loading first and WASM migration later
 
 Useful commands:
 
@@ -170,4 +171,4 @@ Project docs:
 
 ## Status
 
-This is an actively developing local-first CLI platform. Mainline already includes V1 plus core V2 session/workflow/LSP slices, while this branch adds the first provider-plugin runtime slice with DeepSeek v4 as the first target provider.
+This is an actively developing local-first CLI platform. Mainline already includes V1 plus core V2 session/workflow/LSP slices, the provider-plugin runtime, and DeepSeek v4 as the first independent provider target. The next provider-platform work is hardening dynamic loading, registry refresh, streaming, cancellation, and broader plugin compatibility.

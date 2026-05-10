@@ -13,7 +13,7 @@ RoboCode 是一个用 Rust 实现的、本地优先的开发者 Agent CLI，目�
 - 带权限控制的统一工具运行时
 - 内置本地工具：shell、文件、搜索、Web、Git，以及 worktree / stash / restore 流程
 - 项目级 workflow 状态：tasks、session memory、project memory suggestions、resume context
-- 支持多家 API、原生 tool-calling，以及当前分支上 provider-plugin runtime 的 provider 抽象
+- 支持多家 API、原生 tool-calling，以及 provider-plugin runtime 的 provider 抽象；DeepSeek 已作为首个独立 provider family 落地
 
 ## 工作区结构
 
@@ -108,12 +108,13 @@ DeepSeek 的 API 字段优先级：
 - DeepSeek Anthropic-compatible `tool_use`，通过 `deepseek-anthropic`
 - `fallback` 与 `ollama` 的文本优先本地流程
 
-当前 provider runtime 方向：
+当前 provider runtime 状态与方向：
 
 - 继续支持 built-in providers
-- provider descriptors 与 runtime loading 正在向 plugin-based 模式演进
+- provider descriptors 已经通过 provider host/runtime registry 统一流转
 - provider 绑定是 session/agent scoped，而不是 process-global
-- 执行模型先支持 native dynamic loading，后续再迁移到 WASM
+- 下一步 hardening 聚焦真实 dynamic plugin loading、registry refresh 覆盖、streaming 与 cancellation
+- 执行模型以 native dynamic loading 优先，后续再考虑 WASM 迁移
 
 常用命令：
 
@@ -168,4 +169,4 @@ DeepSeek 的 API 字段优先级：
 
 ## 当前状态
 
-这是一个正在持续演进的本地优先 CLI 平台。mainline 已经包含 V1 以及核心 V2 session/workflow/LSP 切片，而当前分支正在加入第一批 provider-plugin runtime 能力，DeepSeek v4 作为首个目标 provider。
+这是一个正在持续演进的本地优先 CLI 平台。mainline 已经包含 V1、核心 V2 session/workflow/LSP 切片、provider-plugin runtime，以及 DeepSeek v4 作为首个独立 provider 目标。下一步 provider 平台工作是加固 dynamic loading、registry refresh、streaming、cancellation 与更广的 plugin 兼容性。

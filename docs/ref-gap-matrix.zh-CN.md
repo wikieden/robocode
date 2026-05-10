@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|---|
 | 核心会话引擎 | 共享 query loop，支持 tool-call continuation 和 transcript 驱动运行时 | 已实现共享 engine 和统一工具循环 | 在所有主要运行时路径上对齐参考行为 | 低 | V1 | 高相似度对标 |
 | 配置系统 | 启动编排和复杂环境/bootstrap 逻辑 | 已实现确定性配置合并；managed settings 缺失 | 稳定的本地/全局配置，并为 managed settings 预留空间 | 中 | V1 / 远期 | bootstrap 内部允许 Rust 化简化 |
-| Provider 系统 | 以 Anthropic 为中心，产品集成很深 | 已有多 provider 抽象和原生 tool-calling；plugin-extensible provider runtime 与 DeepSeek 设计已明确但未实现 | 更成熟的多 provider 层，支持 dynamic provider loading、streaming 与更强兼容性 | 中 | V1 / V2 | 保持 vendor-agnostic core，并分离 provider identity 与 protocol family |
+| Provider 系统 | 以 Anthropic 为中心，产品集成很深 | main 已实现多 provider 抽象、原生 tool-calling、provider host/runtime registry，以及 DeepSeek 作为独立 provider family；dynamic loading 与 streaming/cancellation 仍需加固 | 更成熟的多 provider 层，支持 dynamic provider loading、streaming 与更强兼容性 | 中 | V1 / V2 | 保持 vendor-agnostic core，并分离 provider identity 与 protocol family |
 | 工具运行时 | 大型工具 registry，统一权限化执行 | 已有本地工具的统一 registry | 保持统一运行时并继续扩展工具族 | 中 | V1 / V2 / V3 | 高相似度对标 |
 | 权限系统 | 一等模式、规则、提示和边界处理 | 已有核心模式和规则；策略深度还较轻 | 覆盖本地、remote、集成流程的成熟规则系统 | 中 | V1 / V2 / V3 | 高相似度对标 |
 | Session 存储与恢复 | JSONL 事实源，带 resume 和 metadata | 已实现 JSONL + SQLite；浏览深度还基础 | 更强的 summaries、selectors 和管理能力 | 中 | V1 / V2 | 高相似度对标 |
