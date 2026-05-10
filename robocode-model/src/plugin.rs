@@ -8,7 +8,10 @@ use robocode_provider_sdk::{
     ROBOCODE_PLUGIN_DESCRIPTOR_SYMBOL,
 };
 
-use crate::{ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings};
+use crate::{
+    ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings,
+    descriptor::validate_provider_descriptor,
+};
 
 pub struct LoadedPluginDescriptor {
     pub source_path: PathBuf,
@@ -110,10 +113,13 @@ pub fn load_plugin_descriptor(path: &Path) -> Result<LoadedPluginDescriptor, Str
             path.display()
         )
     })?;
+    let descriptor = into_provider_descriptor(descriptor);
+    validate_provider_descriptor(&descriptor)
+        .map_err(|err| format!("Invalid provider descriptor from {}: {err}", path.display()))?;
 
     Ok(LoadedPluginDescriptor {
         source_path: path.to_path_buf(),
-        descriptor: into_provider_descriptor(descriptor),
+        descriptor,
         _library: library,
     })
 }

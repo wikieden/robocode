@@ -1242,6 +1242,49 @@ mod tests {
     }
 
     #[test]
+    fn provider_descriptor_validation_rejects_invalid_plugin_identity() {
+        let descriptor = ProviderDescriptor {
+            provider_id: "../bad".to_string(),
+            display_name: "Bad Plugin".to_string(),
+            version: "1".to_string(),
+            protocol_family: ProtocolFamily::OpenAi,
+            default_api_base: Some("https://example.com".to_string()),
+            default_model: Some("bad-model".to_string()),
+            env_mappings: ProviderEnvMappings::default(),
+            capabilities: ProviderCapabilities::default(),
+            config_schema_version: 1,
+        };
+
+        let err = descriptor::validate_provider_descriptor(&descriptor).unwrap_err();
+        assert!(err.contains("provider_id"), "{err}");
+    }
+
+    #[test]
+    fn provider_descriptor_validation_rejects_unsupported_schema_version() {
+        let descriptor = ProviderDescriptor {
+            provider_id: "future-provider".to_string(),
+            display_name: "Future Provider".to_string(),
+            version: "1".to_string(),
+            protocol_family: ProtocolFamily::OpenAi,
+            default_api_base: Some("https://example.com".to_string()),
+            default_model: Some("future-model".to_string()),
+            env_mappings: ProviderEnvMappings::default(),
+            capabilities: ProviderCapabilities::default(),
+            config_schema_version: 99,
+        };
+
+        let err = descriptor::validate_provider_descriptor(&descriptor).unwrap_err();
+        assert!(err.contains("config_schema_version"), "{err}");
+    }
+
+    #[test]
+    fn provider_descriptor_validation_accepts_builtin_deepseek_shape() {
+        let registry = ProviderRegistry::with_builtins();
+        let descriptor = registry.descriptor("deepseek").unwrap();
+        descriptor::validate_provider_descriptor(descriptor).unwrap();
+    }
+
+    #[test]
     fn builtin_openai_descriptor_matches_runtime_api_base_behavior() {
         let registry = ProviderRegistry::with_builtins();
         let descriptor = registry

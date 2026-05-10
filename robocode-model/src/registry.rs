@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     adapters::builtin_provider_descriptors, config::ProviderKind, descriptor::ProviderDescriptor,
-    plugin::discover_plugin_descriptors,
+    descriptor::validate_provider_descriptor, plugin::discover_plugin_descriptors,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -20,9 +20,11 @@ impl ProviderRegistry {
     pub fn load_default() -> Result<Self, String> {
         let mut by_id = BTreeMap::<String, ProviderDescriptor>::new();
         for descriptor in builtin_provider_descriptors() {
+            validate_provider_descriptor(&descriptor)?;
             by_id.insert(descriptor.provider_id.clone(), descriptor);
         }
         for loaded in discover_plugin_descriptors()? {
+            validate_provider_descriptor(&loaded.descriptor)?;
             if by_id.contains_key(&loaded.descriptor.provider_id) {
                 return Err(format!(
                     "Provider plugin `{}` conflicts with an existing provider id",
