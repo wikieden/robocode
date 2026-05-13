@@ -1,4 +1,5 @@
 use super::*;
+use std::process::Command;
 use std::sync::Arc;
 
 fn temp_dir(name: &str) -> PathBuf {
