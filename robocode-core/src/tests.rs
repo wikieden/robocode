@@ -4,7 +4,8 @@ use std::fs;
 
 use robocode_model::ModelProvider;
 use robocode_types::{
-    ApprovalResponse, LspRange, ModelEvent, ModelRequest, PermissionMode, ToolCall, ToolInput,
+    ApprovalResponse, LspDiagnostic, LspLocation, LspRange, LspSymbol, ModelEvent, ModelRequest,
+    PermissionMode, ToolCall, ToolInput,
 };
 
 use super::*;
