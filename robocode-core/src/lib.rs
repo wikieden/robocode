@@ -1,10 +1,13 @@
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::Arc;
 
+mod doctor;
 mod lsp_tools;
 mod presentation;
 
+#[cfg(test)]
+pub(crate) use doctor::DependencyStatus;
+pub(crate) use doctor::{DoctorReport, system_dependency_status};
 use lsp_tools::{
     LspToolAdapter, parse_lsp_position_arg, render_lsp_diagnostics, render_lsp_locations,
     render_lsp_symbols,
@@ -1708,61 +1711,6 @@ impl SessionEngine {
             lines.push(format!("     {}", preview));
         }
         lines.join("\n")
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DependencyStatus {
-    Ok,
-    Missing,
-    #[cfg_attr(not(test), allow(dead_code))]
-    NotRequired,
-}
-
-impl DependencyStatus {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Ok => "ok",
-            Self::Missing => "missing",
-            Self::NotRequired => "not required for current path",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DoctorReport {
-    checks: Vec<(&'static str, DependencyStatus)>,
-}
-
-impl DoctorReport {
-    fn from_probe<F>(mut probe: F) -> Self
-    where
-        F: FnMut(&str) -> DependencyStatus,
-    {
-        Self {
-            checks: ["git", "rg", "sqlite3", "curl"]
-                .into_iter()
-                .map(|tool| (tool, probe(tool)))
-                .collect(),
-        }
-    }
-
-    fn render(&self) -> String {
-        let mut lines = vec!["Environment diagnostics:".to_string()];
-        lines.extend(
-            self.checks
-                .iter()
-                .map(|(tool, status)| format!("  {tool}: {}", status.label())),
-        );
-        lines.join("\n")
-    }
-}
-
-fn system_dependency_status(tool: &str) -> DependencyStatus {
-    match Command::new(tool).arg("--version").output() {
-        Ok(output) if output.status.success() => DependencyStatus::Ok,
-        Ok(_) => DependencyStatus::Missing,
-        Err(_) => DependencyStatus::Missing,
     }
 }
 
