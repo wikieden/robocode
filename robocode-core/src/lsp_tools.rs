@@ -5,6 +5,7 @@ use robocode_lsp::{LspRuntime, SemanticProvider};
 use robocode_tools::SemanticToolProvider;
 use robocode_types::{LspDiagnostic, LspLocation, LspPosition, LspSymbol};
 
+use crate::SessionEngine;
 use crate::presentation::{join_lines, render_section_title, render_subsection_title};
 
 pub(crate) struct LspToolAdapter {
@@ -34,6 +35,100 @@ impl SemanticToolProvider for LspToolAdapter {
         self.runtime
             .references(cwd, path, LspPosition { line, character })
             .map(|locations| render_lsp_locations(cwd, &locations))
+    }
+}
+
+impl SessionEngine {
+    pub(super) fn handle_lsp_command(&self, args: &[String]) -> Result<String, String> {
+        let Some(subcommand) = args.first().map(String::as_str) else {
+            return Ok(self.render_lsp_help());
+        };
+        match subcommand {
+            "help" => Ok(self.render_lsp_help()),
+            "status" => Ok(self.render_lsp_status()),
+            "diagnostics" => {
+                let path = args
+                    .get(1)
+                    .ok_or_else(|| "Usage: /lsp diagnostics <path>".to_string())?;
+                match self
+                    .lsp_runtime
+                    .diagnostics(&self.cwd, std::path::Path::new(path))
+                {
+                    Ok(diagnostics) => Ok(render_lsp_diagnostics(&self.cwd, &diagnostics)),
+                    Err(error) => Ok(format!("LSP error: {error}")),
+                }
+            }
+            "symbols" => {
+                let path = args
+                    .get(1)
+                    .ok_or_else(|| "Usage: /lsp symbols <path>".to_string())?;
+                match self
+                    .lsp_runtime
+                    .symbols(&self.cwd, std::path::Path::new(path))
+                {
+                    Ok(symbols) => Ok(render_lsp_symbols(&self.cwd, &symbols)),
+                    Err(error) => Ok(format!("LSP error: {error}")),
+                }
+            }
+            "references" => {
+                let path = args.get(1).ok_or_else(|| {
+                    "Usage: /lsp references <path> <line> <character>".to_string()
+                })?;
+                let line = parse_lsp_position_arg(args.get(2), "line")?;
+                let character = parse_lsp_position_arg(args.get(3), "character")?;
+                match self.lsp_runtime.references(
+                    &self.cwd,
+                    std::path::Path::new(path),
+                    LspPosition { line, character },
+                ) {
+                    Ok(locations) => Ok(render_lsp_locations(&self.cwd, &locations)),
+                    Err(error) => Ok(format!("LSP error: {error}")),
+                }
+            }
+            _ => Ok(format!(
+                "Unknown LSP subcommand `{subcommand}`.\n\n{}",
+                self.render_lsp_help()
+            )),
+        }
+    }
+
+    fn render_lsp_help(&self) -> String {
+        [
+            "LSP commands:",
+            "  /lsp status",
+            "  /lsp diagnostics <path>",
+            "  /lsp symbols <path>",
+            "  /lsp references <path> <line> <character>",
+            "",
+            "Positions are zero-based LSP line and character offsets.",
+        ]
+        .join("\n")
+    }
+
+    fn render_lsp_status(&self) -> String {
+        let status = self.lsp_runtime.status();
+        let configured = if status.configured_servers.is_empty() {
+            "<none>".to_string()
+        } else {
+            status.configured_servers.join(", ")
+        };
+        let running = if status.running_servers.is_empty() {
+            "<none>".to_string()
+        } else {
+            status.running_servers.join(", ")
+        };
+        [
+            "LSP status:".to_string(),
+            format!("  configured: {configured}"),
+            format!("  running: {running}"),
+            format!("  cached_sessions: {}", status.cached_sessions),
+            format!("  open_documents: {}", status.open_documents),
+            format!(
+                "  last_error: {}",
+                status.last_error.unwrap_or_else(|| "<none>".to_string())
+            ),
+        ]
+        .join("\n")
     }
 }
 

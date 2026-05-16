@@ -2,10 +2,11 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::fs;
 
+use crate::lsp_tools::{render_lsp_diagnostics, render_lsp_locations, render_lsp_symbols};
 use robocode_model::ModelProvider;
 use robocode_types::{
-    ApprovalResponse, LspDiagnostic, LspLocation, LspRange, LspSymbol, ModelEvent, ModelRequest,
-    PermissionMode, ToolCall, ToolInput,
+    ApprovalResponse, LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol, ModelEvent,
+    ModelRequest, PermissionMode, ToolCall, ToolInput,
 };
 
 use super::*;

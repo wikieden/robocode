@@ -13,20 +13,16 @@ mod workflow_commands;
 pub(crate) use doctor::DependencyStatus;
 pub(crate) use doctor::{DoctorReport, system_dependency_status};
 use formatting::{format_relative_age, render_resume_context, render_task_detail};
-use lsp_tools::{
-    LspToolAdapter, parse_lsp_position_arg, render_lsp_diagnostics, render_lsp_locations,
-    render_lsp_symbols,
-};
-use robocode_lsp::{LspRuntime, LspServerRegistry, SemanticProvider};
+use lsp_tools::LspToolAdapter;
+use robocode_lsp::{LspRuntime, LspServerRegistry};
 use robocode_model::ModelProvider;
 use robocode_permissions::PermissionEngine;
 use robocode_session::SessionStore;
 use robocode_tools::{ToolExecutionContext, ToolRegistry};
 use robocode_types::{
-    ApprovalResponse, CommandLogEntry, LspPosition, Message, ModelEvent, ModelRequest,
-    PermissionDecision, PermissionLogEntry, PermissionMode, Role, RuntimeSnapshot,
-    SessionMetaEntry, SessionSummary, ToolCall, ToolResult, TranscriptEntry, fresh_id,
-    now_timestamp,
+    ApprovalResponse, CommandLogEntry, Message, ModelEvent, ModelRequest, PermissionDecision,
+    PermissionLogEntry, PermissionMode, Role, RuntimeSnapshot, SessionMetaEntry, SessionSummary,
+    ToolCall, ToolResult, TranscriptEntry, fresh_id, now_timestamp,
 };
 use robocode_workflows::stores::WorkflowStore;
 
@@ -414,59 +410,6 @@ impl SessionEngine {
         Ok(self.render_session_list(&sessions))
     }
 
-    fn handle_lsp_command(&self, args: &[String]) -> Result<String, String> {
-        let Some(subcommand) = args.first().map(String::as_str) else {
-            return Ok(self.render_lsp_help());
-        };
-        match subcommand {
-            "help" => Ok(self.render_lsp_help()),
-            "status" => Ok(self.render_lsp_status()),
-            "diagnostics" => {
-                let path = args
-                    .get(1)
-                    .ok_or_else(|| "Usage: /lsp diagnostics <path>".to_string())?;
-                match self
-                    .lsp_runtime
-                    .diagnostics(&self.cwd, std::path::Path::new(path))
-                {
-                    Ok(diagnostics) => Ok(render_lsp_diagnostics(&self.cwd, &diagnostics)),
-                    Err(error) => Ok(format!("LSP error: {error}")),
-                }
-            }
-            "symbols" => {
-                let path = args
-                    .get(1)
-                    .ok_or_else(|| "Usage: /lsp symbols <path>".to_string())?;
-                match self
-                    .lsp_runtime
-                    .symbols(&self.cwd, std::path::Path::new(path))
-                {
-                    Ok(symbols) => Ok(render_lsp_symbols(&self.cwd, &symbols)),
-                    Err(error) => Ok(format!("LSP error: {error}")),
-                }
-            }
-            "references" => {
-                let path = args.get(1).ok_or_else(|| {
-                    "Usage: /lsp references <path> <line> <character>".to_string()
-                })?;
-                let line = parse_lsp_position_arg(args.get(2), "line")?;
-                let character = parse_lsp_position_arg(args.get(3), "character")?;
-                match self.lsp_runtime.references(
-                    &self.cwd,
-                    std::path::Path::new(path),
-                    LspPosition { line, character },
-                ) {
-                    Ok(locations) => Ok(render_lsp_locations(&self.cwd, &locations)),
-                    Err(error) => Ok(format!("LSP error: {error}")),
-                }
-            }
-            _ => Ok(format!(
-                "Unknown LSP subcommand `{subcommand}`.\n\n{}",
-                self.render_lsp_help()
-            )),
-        }
-    }
-
     fn handle_resume(&mut self, selector: Option<&str>) -> Result<String, String> {
         let Some(selector) = selector else {
             return self.handle_sessions();
@@ -759,45 +702,6 @@ impl SessionEngine {
             "Web commands:",
             "  /web search <query> [--limit <n>] [--site <domain>]",
             "  /web fetch <url> [--max-bytes <n>] [--raw]",
-        ]
-        .join("\n")
-    }
-
-    fn render_lsp_help(&self) -> String {
-        [
-            "LSP commands:",
-            "  /lsp status",
-            "  /lsp diagnostics <path>",
-            "  /lsp symbols <path>",
-            "  /lsp references <path> <line> <character>",
-            "",
-            "Positions are zero-based LSP line and character offsets.",
-        ]
-        .join("\n")
-    }
-
-    fn render_lsp_status(&self) -> String {
-        let status = self.lsp_runtime.status();
-        let configured = if status.configured_servers.is_empty() {
-            "<none>".to_string()
-        } else {
-            status.configured_servers.join(", ")
-        };
-        let running = if status.running_servers.is_empty() {
-            "<none>".to_string()
-        } else {
-            status.running_servers.join(", ")
-        };
-        [
-            "LSP status:".to_string(),
-            format!("  configured: {configured}"),
-            format!("  running: {running}"),
-            format!("  cached_sessions: {}", status.cached_sessions),
-            format!("  open_documents: {}", status.open_documents),
-            format!(
-                "  last_error: {}",
-                status.last_error.unwrap_or_else(|| "<none>".to_string())
-            ),
         ]
         .join("\n")
     }
