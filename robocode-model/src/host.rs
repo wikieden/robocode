@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, RwLock};
 
 use crate::providers::{load_builtin_provider, load_registered_provider};
@@ -21,6 +22,14 @@ impl ProviderHost {
         }
         Ok(Self {
             registry: Arc::clone(&BUILTIN_PROVIDER_REGISTRY),
+        })
+    }
+
+    pub fn load_from_dirs(plugin_dirs: Vec<PathBuf>) -> Result<Self, String> {
+        Ok(Self {
+            registry: Arc::new(RwLock::new(Arc::new(ProviderRegistry::load_from_dirs(
+                plugin_dirs,
+            )?))),
         })
     }
 
@@ -51,6 +60,16 @@ impl ProviderHost {
             .write()
             .map_err(|_| "builtin registry write lock poisoned".to_string())?;
         *global = rebuilt;
+        Ok(())
+    }
+
+    pub fn refresh_from_dirs(&mut self, plugin_dirs: Vec<PathBuf>) -> Result<(), String> {
+        let rebuilt = Arc::new(ProviderRegistry::load_from_dirs(plugin_dirs)?);
+        let mut registry = self
+            .registry
+            .write()
+            .map_err(|_| "provider registry write lock poisoned".to_string())?;
+        *registry = rebuilt;
         Ok(())
     }
 

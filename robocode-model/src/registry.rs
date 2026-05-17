@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 use crate::{
     adapters::builtin_provider_descriptors, config::ProviderKind, descriptor::ProviderDescriptor,
     descriptor::validate_provider_descriptor, plugin::discover_plugin_descriptors,
+    plugin::discover_plugin_descriptors_in_dirs,
 };
+use std::path::PathBuf;
 
 #[derive(Debug, Default, Clone)]
 pub struct ProviderRegistry {
@@ -19,6 +21,14 @@ impl ProviderRegistry {
 
     pub fn load_default() -> Result<Self, String> {
         let plugin_descriptors = discover_plugin_descriptors()?
+            .into_iter()
+            .map(|loaded| loaded.descriptor)
+            .collect();
+        Self::from_descriptor_sources(builtin_provider_descriptors(), plugin_descriptors)
+    }
+
+    pub fn load_from_dirs(plugin_dirs: Vec<PathBuf>) -> Result<Self, String> {
+        let plugin_descriptors = discover_plugin_descriptors_in_dirs(plugin_dirs)?
             .into_iter()
             .map(|loaded| loaded.descriptor)
             .collect();

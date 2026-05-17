@@ -125,8 +125,14 @@ pub fn load_plugin_descriptor(path: &Path) -> Result<LoadedPluginDescriptor, Str
 }
 
 pub fn discover_plugin_descriptors() -> Result<Vec<LoadedPluginDescriptor>, String> {
+    discover_plugin_descriptors_in_dirs(default_plugin_search_dirs())
+}
+
+pub(crate) fn discover_plugin_descriptors_in_dirs(
+    dirs: Vec<PathBuf>,
+) -> Result<Vec<LoadedPluginDescriptor>, String> {
     let mut loaded = Vec::new();
-    for path in discover_plugin_paths(default_plugin_search_dirs())? {
+    for path in discover_plugin_paths(dirs)? {
         loaded.push(load_plugin_descriptor(&path)?);
     }
     Ok(loaded)

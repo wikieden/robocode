@@ -1,4 +1,64 @@
 use super::*;
+use crate::plugin::dynamic_library_suffixes;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn temp_dir(name: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("robocode_provider_host_{name}_{nanos}"));
+    let _ = std::fs::remove_dir_all(&path);
+    std::fs::create_dir_all(&path).unwrap();
+    path
+}
+
+fn compile_runtime_provider_plugin(plugin_dir: &Path) -> PathBuf {
+    let source = plugin_dir.join("runtime_provider_plugin.rs");
+    let library = plugin_dir.join(format!(
+        "libruntime_provider_plugin.{}",
+        dynamic_library_suffixes()[0]
+    ));
+    std::fs::write(
+        &source,
+        r#"
+use std::ffi::c_char;
+
+#[no_mangle]
+pub extern "C" fn robocode_provider_descriptor_json() -> *const c_char {
+    static DESCRIPTOR_JSON: &str = concat!(
+        "{\"provider_id\":\"runtime-provider\",",
+        "\"display_name\":\"Runtime Provider\",",
+        "\"version\":\"1\",",
+        "\"protocol_family\":\"OpenAi\",",
+        "\"default_api_base\":\"https://runtime.example.com\",",
+        "\"default_model\":\"runtime-default\",",
+        "\"env_mappings\":{\"api_key_env\":\"RUNTIME_PROVIDER_API_KEY\",\"api_base_env\":null},",
+        "\"capabilities\":{\"supports_streaming\":false,\"supports_native_tool_calling\":true},",
+        "\"config_schema_version\":1}\0"
+    );
+    DESCRIPTOR_JSON.as_ptr().cast()
+}
+"#,
+    )
+    .unwrap();
+    let output = Command::new("rustc")
+        .args(["--edition=2021", "--crate-type", "cdylib"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&library)
+        .output()
+        .unwrap_or_else(|err| panic!("failed to launch rustc for provider plugin test: {err}"));
+    assert!(
+        output.status.success(),
+        "failed to compile provider plugin test dylib\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    library
+}
 
 #[test]
 fn provider_host_can_refresh_registry_without_replacing_existing_provider_instance() {
@@ -143,4 +203,34 @@ fn provider_host_keeps_dynamic_provider_instances_independent() {
     assert_eq!(first.model(), "agent-a-updated");
     assert_eq!(second.provider_name(), "team-provider");
     assert_eq!(second.model(), "agent-b-model");
+}
+
+#[test]
+fn provider_host_refresh_loads_new_dynamic_provider_from_plugin_dir() {
+    let plugin_dir = temp_dir("runtime_refresh");
+    let mut host = ProviderHost::load_from_dirs(vec![plugin_dir.clone()]).unwrap();
+    let before_registry = host.registry();
+    let mut existing = host
+        .create_registered("openai-compatible", Some("agent-a"), None, None, 90, 1)
+        .unwrap();
+
+    assert!(before_registry.descriptor("runtime-provider").is_none());
+
+    let plugin_path = compile_runtime_provider_plugin(&plugin_dir);
+    host.refresh_from_dirs(vec![plugin_dir]).unwrap();
+    let after_registry = host.registry();
+
+    assert!(plugin_path.exists());
+    assert!(!std::sync::Arc::ptr_eq(&before_registry, &after_registry));
+    assert!(after_registry.descriptor("runtime-provider").is_some());
+
+    let loaded = host
+        .create_registered("runtime-provider", None, None, None, 90, 1)
+        .unwrap();
+    existing.set_model("agent-a-updated".to_string());
+
+    assert_eq!(existing.provider_name(), "openai-compatible");
+    assert_eq!(existing.model(), "agent-a-updated");
+    assert_eq!(loaded.provider_name(), "runtime-provider");
+    assert_eq!(loaded.model(), "runtime-default");
 }

@@ -84,6 +84,63 @@ fn provider_descriptor_validation_rejects_unsupported_schema_version() {
 }
 
 #[test]
+fn provider_descriptor_validation_rejects_empty_default_model() {
+    let descriptor = ProviderDescriptor {
+        provider_id: "empty-model-provider".to_string(),
+        display_name: "Empty Model Provider".to_string(),
+        version: "1".to_string(),
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: Some("https://example.com".to_string()),
+        default_model: Some("   ".to_string()),
+        env_mappings: ProviderEnvMappings::default(),
+        capabilities: ProviderCapabilities::default(),
+        config_schema_version: 1,
+    };
+
+    let err = descriptor::validate_provider_descriptor(&descriptor).unwrap_err();
+    assert!(err.contains("default_model"), "{err}");
+}
+
+#[test]
+fn provider_descriptor_validation_rejects_invalid_api_base() {
+    let descriptor = ProviderDescriptor {
+        provider_id: "invalid-base-provider".to_string(),
+        display_name: "Invalid Base Provider".to_string(),
+        version: "1".to_string(),
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: Some("ftp://example.com".to_string()),
+        default_model: Some("model".to_string()),
+        env_mappings: ProviderEnvMappings::default(),
+        capabilities: ProviderCapabilities::default(),
+        config_schema_version: 1,
+    };
+
+    let err = descriptor::validate_provider_descriptor(&descriptor).unwrap_err();
+    assert!(err.contains("default_api_base"), "{err}");
+}
+
+#[test]
+fn provider_descriptor_validation_rejects_invalid_env_mapping() {
+    let descriptor = ProviderDescriptor {
+        provider_id: "invalid-env-provider".to_string(),
+        display_name: "Invalid Env Provider".to_string(),
+        version: "1".to_string(),
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: Some("https://example.com".to_string()),
+        default_model: Some("model".to_string()),
+        env_mappings: ProviderEnvMappings {
+            api_key_env: Some("1BAD_ENV".to_string()),
+            api_base_env: None,
+        },
+        capabilities: ProviderCapabilities::default(),
+        config_schema_version: 1,
+    };
+
+    let err = descriptor::validate_provider_descriptor(&descriptor).unwrap_err();
+    assert!(err.contains("api_key_env"), "{err}");
+}
+
+#[test]
 fn provider_descriptor_validation_accepts_builtin_deepseek_shape() {
     let registry = ProviderRegistry::with_builtins();
     let descriptor = registry.descriptor("deepseek").unwrap();
