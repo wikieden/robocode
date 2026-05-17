@@ -1,4 +1,5 @@
 use super::*;
+use robocode_types::SessionSummary;
 
 impl SessionEngine {
     pub(super) fn render_help(&self) -> String {
