@@ -10,6 +10,7 @@ pub struct CliOverrides {
     pub model: Option<String>,
     pub api_base: Option<String>,
     pub api_key: Option<String>,
+    pub provider_plugin_dirs: Vec<PathBuf>,
     pub permission_mode: Option<PermissionMode>,
     pub session_home: Option<PathBuf>,
     pub request_timeout_secs: Option<u64>,
@@ -23,6 +24,7 @@ pub struct ResolvedConfig {
     pub model: Option<String>,
     pub api_base: Option<String>,
     pub api_key: Option<String>,
+    pub provider_plugin_dirs: Vec<PathBuf>,
     pub permission_mode: PermissionMode,
     pub session_home: Option<PathBuf>,
     pub request_timeout_secs: u64,
@@ -37,6 +39,7 @@ impl Default for ResolvedConfig {
             model: None,
             api_base: None,
             api_key: None,
+            provider_plugin_dirs: Vec::new(),
             permission_mode: PermissionMode::Default,
             session_home: None,
             request_timeout_secs: 90,
@@ -49,9 +52,10 @@ impl Default for ResolvedConfig {
 impl ResolvedConfig {
     pub fn summary(&self) -> String {
         format!(
-            "provider={} model={} permission_mode={} session_home={} timeout={}s retries={}",
+            "provider={} model={} plugin_dirs={} permission_mode={} session_home={} timeout={}s retries={}",
             self.provider,
             self.model.as_deref().unwrap_or("<default>"),
+            format_path_list(&self.provider_plugin_dirs),
             self.permission_mode.cli_name(),
             self.session_home
                 .as_deref()
@@ -86,6 +90,7 @@ struct FileConfig {
     api_base: Option<String>,
     api_key: Option<String>,
     api_key_env: Option<String>,
+    provider_plugin_dirs: Option<Vec<String>>,
     permission_mode: Option<String>,
     session_home: Option<String>,
     request_timeout_secs: Option<u64>,
@@ -208,6 +213,12 @@ fn apply_file_config(
     if let Some(api_key) = file.api_key {
         resolved.api_key = Some(api_key);
     }
+    if let Some(provider_plugin_dirs) = file.provider_plugin_dirs {
+        resolved.provider_plugin_dirs = provider_plugin_dirs
+            .into_iter()
+            .map(|path| resolve_path(cwd, &path))
+            .collect();
+    }
     if let Some(permission_mode) = file.permission_mode {
         resolved.permission_mode = PermissionMode::parse_cli(&permission_mode)
             .ok_or_else(|| format!("Unknown permission mode `{permission_mode}` in config"))?;
@@ -241,6 +252,9 @@ where
     }
     if let Some(api_key) = env_lookup("ROBOCODE_API_KEY") {
         resolved.api_key = Some(api_key);
+    }
+    if let Some(plugin_dirs) = env_lookup("ROBOCODE_PROVIDER_PLUGIN_DIRS") {
+        resolved.provider_plugin_dirs = std::env::split_paths(&plugin_dirs).collect();
     }
     if let Some(permission_mode) = env_lookup("ROBOCODE_PERMISSION_MODE") {
         resolved.permission_mode = PermissionMode::parse_cli(&permission_mode)
@@ -356,6 +370,9 @@ fn apply_cli_config(resolved: &mut ResolvedConfig, cli: &CliOverrides) {
     if let Some(api_key) = &cli.api_key {
         resolved.api_key = Some(api_key.clone());
     }
+    if !cli.provider_plugin_dirs.is_empty() {
+        resolved.provider_plugin_dirs = cli.provider_plugin_dirs.clone();
+    }
     if let Some(permission_mode) = cli.permission_mode {
         resolved.permission_mode = permission_mode;
     }
@@ -383,6 +400,17 @@ fn resolve_path(cwd: &Path, raw: &str) -> PathBuf {
     } else {
         cwd.join(path)
     }
+}
+
+fn format_path_list(paths: &[PathBuf]) -> String {
+    if paths.is_empty() {
+        return "<default>".to_string();
+    }
+    paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[cfg(test)]

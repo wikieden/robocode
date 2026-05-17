@@ -60,9 +60,11 @@ fn project_file_overrides_global_file_and_env_overrides_files() {
 #[test]
 fn cli_overrides_win() {
     let cwd = std::env::temp_dir();
+    let plugin_dir = cwd.join("cli-provider-plugins");
     let cli = CliOverrides {
         provider: Some("openai".to_string()),
         model: Some("gpt-5.2".to_string()),
+        provider_plugin_dirs: vec![plugin_dir.clone()],
         permission_mode: Some(PermissionMode::AcceptEdits),
         request_timeout_secs: Some(120),
         max_retries: Some(3),
@@ -72,9 +74,56 @@ fn cli_overrides_win() {
     let config = load_config_with_env(&cwd, &cli, &|key| env_map.get(key).cloned()).unwrap();
     assert_eq!(config.provider, "openai");
     assert_eq!(config.model.as_deref(), Some("gpt-5.2"));
+    assert_eq!(config.provider_plugin_dirs, vec![plugin_dir]);
     assert_eq!(config.permission_mode, PermissionMode::AcceptEdits);
     assert_eq!(config.request_timeout_secs, 120);
     assert_eq!(config.max_retries, 3);
+}
+
+#[test]
+fn provider_plugin_dirs_resolve_from_file_env_and_cli_precedence() {
+    let cwd = std::env::temp_dir().join(format!(
+        "robocode_plugin_dirs_config_{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&cwd);
+    fs::create_dir_all(cwd.join(".robocode")).unwrap();
+    fs::write(
+        cwd.join(".robocode").join("config.toml"),
+        r#"
+provider_plugin_dirs = ["relative-plugins", "/absolute-plugins"]
+"#,
+    )
+    .unwrap();
+
+    let file_config = load_config_with_env(&cwd, &CliOverrides::default(), &|_| None).unwrap();
+    assert_eq!(
+        file_config.provider_plugin_dirs,
+        vec![
+            cwd.join("relative-plugins"),
+            PathBuf::from("/absolute-plugins")
+        ]
+    );
+
+    let env_dirs = std::env::join_paths([cwd.join("env-a"), cwd.join("env-b")]).unwrap();
+    let env_dirs = env_dirs.to_string_lossy().to_string();
+    let env_map = map_env(&[("ROBOCODE_PROVIDER_PLUGIN_DIRS", env_dirs.as_str())]);
+    let env_config = load_config_with_env(&cwd, &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+    assert_eq!(
+        env_config.provider_plugin_dirs,
+        vec![cwd.join("env-a"), cwd.join("env-b")]
+    );
+
+    let cli_dir = cwd.join("cli-plugins");
+    let cli = CliOverrides {
+        provider_plugin_dirs: vec![cli_dir.clone()],
+        ..CliOverrides::default()
+    };
+    let cli_config = load_config_with_env(&cwd, &cli, &|key| env_map.get(key).cloned()).unwrap();
+    assert_eq!(cli_config.provider_plugin_dirs, vec![cli_dir]);
 }
 
 #[test]
