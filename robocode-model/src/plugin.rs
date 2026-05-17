@@ -204,6 +204,34 @@ mod tests {
     }
 
     #[test]
+    fn discovery_returns_stable_sorted_paths_across_multiple_dirs() {
+        let first_dir = temp_dir("multi_dir_z");
+        let second_dir = temp_dir("multi_dir_a");
+        let suffix = dynamic_library_suffixes()[0];
+        let later = first_dir.join(format!("z_provider.{suffix}"));
+        let earlier = second_dir.join(format!("a_provider.{suffix}"));
+        let middle = second_dir.join(format!("m_provider.{suffix}"));
+        std::fs::write(&later, b"not a real library").unwrap();
+        std::fs::write(&earlier, b"not a real library").unwrap();
+        std::fs::write(&middle, b"not a real library").unwrap();
+
+        let paths = discover_plugin_paths(vec![first_dir, second_dir]).unwrap();
+
+        assert_eq!(paths, vec![earlier, middle, later]);
+    }
+
+    #[test]
+    fn loading_invalid_dynamic_library_reports_source_path() {
+        let dir = temp_dir("invalid_library");
+        let path = dir.join(format!("broken.{}", dynamic_library_suffixes()[0]));
+        std::fs::write(&path, b"not a real library").unwrap();
+
+        let err = load_plugin_descriptor(&path).unwrap_err();
+
+        assert!(err.contains(&path.display().to_string()), "{err}");
+    }
+
+    #[test]
     fn discovery_reports_unreadable_plugin_dir_path() {
         let path = temp_dir("not_a_dir").join("plugin-dir-file");
         std::fs::write(&path, b"not a directory").unwrap();
