@@ -4,6 +4,7 @@ use std::fs;
 use robocode_model::ModelProvider;
 use robocode_types::{
     ApprovalResponse, ModelEvent, ModelRequest, PermissionMode, ToolCall, ToolInput,
+    TranscriptEntry, fresh_id,
 };
 
 use super::*;

@@ -1,4 +1,5 @@
 use super::*;
+use robocode_types::ApprovalResponse;
 
 impl SessionEngine {
     pub(super) fn handle_web_command<F>(
