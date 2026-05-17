@@ -16,34 +16,61 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 fn compile_runtime_provider_plugin(plugin_dir: &Path) -> PathBuf {
-    let source = plugin_dir.join("runtime_provider_plugin.rs");
-    let library = plugin_dir.join(format!(
-        "libruntime_provider_plugin.{}",
-        dynamic_library_suffixes()[0]
-    ));
-    std::fs::write(
-        &source,
-        r#"
+    compile_provider_plugin(
+        plugin_dir,
+        "runtime_provider_plugin",
+        "runtime-provider",
+        "Runtime Provider",
+        "https://runtime.example.com",
+        "runtime-default",
+    )
+}
+
+fn compile_invalid_provider_plugin(plugin_dir: &Path) -> PathBuf {
+    compile_provider_plugin(
+        plugin_dir,
+        "invalid_provider_plugin",
+        "invalid-provider",
+        "Invalid Provider",
+        "ftp://invalid.example.com",
+        "invalid-default",
+    )
+}
+
+fn compile_provider_plugin(
+    plugin_dir: &Path,
+    crate_name: &str,
+    provider_id: &str,
+    display_name: &str,
+    api_base: &str,
+    default_model: &str,
+) -> PathBuf {
+    let source = plugin_dir.join(format!("{crate_name}.rs"));
+    let library = plugin_dir.join(format!("lib{crate_name}.{}", dynamic_library_suffixes()[0]));
+    let source_text = r#"
 use std::ffi::c_char;
 
 #[no_mangle]
 pub extern "C" fn robocode_provider_descriptor_json() -> *const c_char {
     static DESCRIPTOR_JSON: &str = concat!(
-        "{\"provider_id\":\"runtime-provider\",",
-        "\"display_name\":\"Runtime Provider\",",
+        "{\"provider_id\":\"__PROVIDER_ID__\",",
+        "\"display_name\":\"__DISPLAY_NAME__\",",
         "\"version\":\"1\",",
         "\"protocol_family\":\"OpenAi\",",
-        "\"default_api_base\":\"https://runtime.example.com\",",
-        "\"default_model\":\"runtime-default\",",
+        "\"default_api_base\":\"__API_BASE__\",",
+        "\"default_model\":\"__DEFAULT_MODEL__\",",
         "\"env_mappings\":{\"api_key_env\":\"RUNTIME_PROVIDER_API_KEY\",\"api_base_env\":null},",
         "\"capabilities\":{\"supports_streaming\":false,\"supports_native_tool_calling\":true},",
         "\"config_schema_version\":1}\0"
     );
     DESCRIPTOR_JSON.as_ptr().cast()
 }
-"#,
-    )
-    .unwrap();
+"#
+    .replace("__PROVIDER_ID__", provider_id)
+    .replace("__DISPLAY_NAME__", display_name)
+    .replace("__API_BASE__", api_base)
+    .replace("__DEFAULT_MODEL__", default_model);
+    std::fs::write(&source, source_text).unwrap();
     let output = Command::new("rustc")
         .args(["--edition=2021", "--crate-type", "cdylib"])
         .arg(&source)
@@ -233,4 +260,22 @@ fn provider_host_refresh_loads_new_dynamic_provider_from_plugin_dir() {
     assert_eq!(existing.model(), "agent-a-updated");
     assert_eq!(loaded.provider_name(), "runtime-provider");
     assert_eq!(loaded.model(), "runtime-default");
+}
+
+#[test]
+fn provider_host_refresh_failure_keeps_previous_registry_active() {
+    let good_dir = temp_dir("refresh_good");
+    compile_runtime_provider_plugin(&good_dir);
+    let mut host = ProviderHost::load_from_dirs(vec![good_dir]).unwrap();
+    let before_registry = host.registry();
+    let invalid_dir = temp_dir("refresh_invalid");
+    compile_invalid_provider_plugin(&invalid_dir);
+
+    let err = host.refresh_from_dirs(vec![invalid_dir]).unwrap_err();
+    let after_registry = host.registry();
+
+    assert!(err.contains("Invalid provider descriptor"), "{err}");
+    assert!(std::sync::Arc::ptr_eq(&before_registry, &after_registry));
+    assert!(after_registry.descriptor("runtime-provider").is_some());
+    assert!(after_registry.descriptor("invalid-provider").is_none());
 }

@@ -170,6 +170,40 @@ fn registry_rejects_plugin_descriptor_that_conflicts_with_builtin_provider_id() 
 }
 
 #[test]
+fn registry_rejects_duplicate_plugin_provider_ids() {
+    let first = ProviderDescriptor {
+        provider_id: "duplicate-provider".to_string(),
+        display_name: "Duplicate Provider A".to_string(),
+        version: "1".to_string(),
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: Some("https://a.example.com".to_string()),
+        default_model: Some("model-a".to_string()),
+        env_mappings: ProviderEnvMappings::default(),
+        capabilities: ProviderCapabilities::default(),
+        config_schema_version: 1,
+    };
+    let second = ProviderDescriptor {
+        provider_id: "duplicate-provider".to_string(),
+        display_name: "Duplicate Provider B".to_string(),
+        version: "1".to_string(),
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: Some("https://b.example.com".to_string()),
+        default_model: Some("model-b".to_string()),
+        env_mappings: ProviderEnvMappings::default(),
+        capabilities: ProviderCapabilities::default(),
+        config_schema_version: 1,
+    };
+
+    let err = ProviderRegistry::from_descriptor_sources(
+        adapters::builtin_provider_descriptors(),
+        vec![first, second],
+    )
+    .unwrap_err();
+    assert!(err.contains("duplicate-provider"), "{err}");
+    assert!(err.contains("conflicts"), "{err}");
+}
+
+#[test]
 fn registry_accepts_valid_non_builtin_plugin_descriptor() {
     let plugin_descriptor = ProviderDescriptor {
         provider_id: "custom-openai".to_string(),
