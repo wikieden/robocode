@@ -30,8 +30,9 @@ Provider runtime 分为两层：
 - 内建 providers 通过稳定 Rust 代码注册，目前包括 Anthropic、OpenAI、
   OpenAI-compatible、Ollama、fallback、DeepSeek，以及 DeepSeek
   Anthropic-compatible。
-- 动态 provider plugins 从 `ROBOCODE_PROVIDER_PLUGIN_DIRS` 指定的目录发现。
-  该变量使用平台 path separator，因此可以配置多个目录。
+- 动态 provider plugins 从解析后的 plugin 目录发现。CLI/config 层支持
+  `provider_plugin_dirs`、`ROBOCODE_PROVIDER_PLUGIN_DIRS`，以及可重复的
+  `--provider-plugin-dir <dir>`。
 
 动态加载是 descriptor-driven。原生 plugin 暴露
 `robocode_provider_descriptor_json` symbol，并返回序列化 provider

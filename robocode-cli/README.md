@@ -13,6 +13,8 @@
 ## Public Surface
 
 - CLI startup flags and environment handoff.
+- `--provider-plugin-dir <dir>` for repeatable dynamic provider plugin
+  discovery paths.
 - Runtime snapshot construction.
 - REPL rendering of `EngineEvent` output.
 
@@ -20,6 +22,8 @@
 
 - Never bypass `robocode-core` for commands or mutating actions.
 - Preserve config precedence from `robocode-config`.
+- Build the startup `ProviderHost` from resolved config, including explicit
+  provider plugin directories.
 - Keep terminal output usable without a rich TUI.
 
 ## Reference Alignment

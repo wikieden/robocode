@@ -28,6 +28,7 @@ fn run() -> Result<(), String> {
         model: startup.model.clone(),
         api_base: startup.api_base.clone(),
         api_key: startup.api_key.clone(),
+        provider_plugin_dirs: startup.provider_plugin_dirs.clone(),
         permission_mode: startup.permission_mode,
         session_home: startup.session_home.clone(),
         request_timeout_secs: startup.request_timeout_secs,
@@ -35,7 +36,11 @@ fn run() -> Result<(), String> {
         config_path: startup.config_path.clone(),
     };
     let resolved_config = load_config(&cwd, &cli_config)?;
-    let provider_host = ProviderHost::load_default()?;
+    let provider_host = if resolved_config.provider_plugin_dirs.is_empty() {
+        ProviderHost::load_default()?
+    } else {
+        ProviderHost::load_from_dirs(resolved_config.provider_plugin_dirs.clone())?
+    };
     let provider_selection = create_startup_provider(&provider_host, &resolved_config)?;
     let provider_summary = format!(
         "{} | config={} | files={}",
@@ -211,6 +216,7 @@ struct StartupOptions {
     model: Option<String>,
     api_base: Option<String>,
     api_key: Option<String>,
+    provider_plugin_dirs: Vec<PathBuf>,
     permission_mode: Option<robocode_types::PermissionMode>,
     session_home: Option<PathBuf>,
     request_timeout_secs: Option<u64>,
@@ -233,6 +239,9 @@ impl StartupOptions {
         }
         if self.api_key.is_some() {
             overrides.push("--api-key".to_string());
+        }
+        if !self.provider_plugin_dirs.is_empty() {
+            overrides.push("--provider-plugin-dir".to_string());
         }
         if self.permission_mode.is_some() {
             overrides.push("--permissions".to_string());
@@ -276,6 +285,16 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--api-key" => {
                 index += 1;
                 options.api_key = Some(required_flag_value(args, index, "--api-key")?);
+            }
+            "--provider-plugin-dir" => {
+                index += 1;
+                options
+                    .provider_plugin_dirs
+                    .push(PathBuf::from(required_flag_value(
+                        args,
+                        index,
+                        "--provider-plugin-dir",
+                    )?));
             }
             "--permissions" => {
                 index += 1;
@@ -347,6 +366,8 @@ fn print_startup_help() {
     println!("  --model <name>       Override model name");
     println!("  --api-base <url>     Override provider base URL");
     println!("  --api-key <value>    Override API key");
+    println!("  --provider-plugin-dir <dir>");
+    println!("                       Add a dynamic provider plugin directory");
     println!("  --permissions <mode> Set default permission mode");
     println!("  --session-home <dir> Override transcript/index home");
     println!("  --request-timeout <s> Override provider HTTP timeout");
@@ -361,6 +382,7 @@ fn print_startup_help() {
     println!();
     println!("Environment variables:");
     println!("  ROBOCODE_PROVIDER, ROBOCODE_MODEL, ROBOCODE_API_BASE, ROBOCODE_API_KEY");
+    println!("  ROBOCODE_PROVIDER_PLUGIN_DIRS");
     println!("  ROBOCODE_PERMISSION_MODE, ROBOCODE_SESSION_HOME");
     println!("  ROBOCODE_REQUEST_TIMEOUT_SECS, ROBOCODE_MAX_RETRIES, ROBOCODE_CONFIG");
     println!("  ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, DEEPSEEK_API_BASE");
@@ -422,5 +444,26 @@ mod tests {
     fn read_lossy_line_returns_none_on_eof() {
         let mut input = Cursor::new(Vec::<u8>::new());
         assert_eq!(read_lossy_line(&mut input).unwrap(), None);
+    }
+
+    #[test]
+    fn parse_startup_options_collects_provider_plugin_dirs() {
+        let args = vec![
+            "--provider-plugin-dir".to_string(),
+            "plugins-a".to_string(),
+            "--provider-plugin-dir".to_string(),
+            "plugins-b".to_string(),
+        ];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert_eq!(
+            options.provider_plugin_dirs,
+            vec![PathBuf::from("plugins-a"), PathBuf::from("plugins-b")]
+        );
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--provider-plugin-dir".to_string()]
+        );
     }
 }

@@ -30,9 +30,9 @@ The provider runtime has two layers:
 - Built-in providers are registered through stable Rust code and currently
   include Anthropic, OpenAI, OpenAI-compatible, Ollama, fallback, DeepSeek, and
   DeepSeek Anthropic-compatible entries.
-- Dynamic provider plugins are discovered from directories listed in
-  `ROBOCODE_PROVIDER_PLUGIN_DIRS`. The value uses the platform path separator,
-  so multiple directories can be supplied.
+- Dynamic provider plugins are discovered from resolved plugin directories. The
+  CLI/config layer supports `provider_plugin_dirs`, `ROBOCODE_PROVIDER_PLUGIN_DIRS`,
+  and repeatable `--provider-plugin-dir <dir>` inputs.
 
 Dynamic loading is descriptor-driven. A native plugin exposes the
 `robocode_provider_descriptor_json` symbol and returns a serialized provider
