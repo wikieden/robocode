@@ -45,13 +45,17 @@ Registry refresh 对调用方保持原子语义：
 
 - `ProviderHost::refresh` 从默认 plugin 目录重建 registry。
 - `ProviderHost::refresh_from_dirs` 从显式目录重建 registry。
+- `ProviderHost::refresh_diagnostic` 和
+  `ProviderHost::refresh_from_dirs_diagnostic` 会为运行时 reload diagnostics
+  保留结构化 `ProviderPluginError` 细节。
 - refresh 失败时返回错误，并保留之前可用的 registry。
 - 已创建的 provider 实例在 refresh 后仍保持独立；新 provider 实例使用刷新后的
   registry。
 
 Plugin loader 失败使用 `ProviderPluginError` 结构化表达，包含 kind、path 和
 message。Registry/host API 为兼容性仍返回可读字符串，同时 diagnostic
-host/registry constructors 会保留结构化错误，供 CLI diagnostics 使用。
+host/registry constructors 和 refresh API 会保留结构化错误，供 CLI diagnostics
+使用。
 
 当前边界：动态 plugins 注册 descriptors，并复用 host 侧 OpenAI 或 Anthropic
 protocol adapters。完整的 plugin-backed request execution、streaming、

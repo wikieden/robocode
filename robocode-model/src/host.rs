@@ -66,21 +66,33 @@ impl ProviderHost {
     }
 
     pub fn refresh(&mut self) -> Result<(), String> {
-        let rebuilt = Arc::new(ProviderRegistry::load_default()?);
+        self.refresh_diagnostic().map_err(|err| err.to_string())
+    }
+
+    pub fn refresh_diagnostic(&mut self) -> Result<(), ProviderPluginError> {
+        let rebuilt = Arc::new(ProviderRegistry::load_default_diagnostic()?);
         let mut global = self
             .registry
             .write()
-            .map_err(|_| "builtin registry write lock poisoned".to_string())?;
+            .map_err(|_| ProviderPluginError::registry("builtin registry write lock poisoned"))?;
         *global = rebuilt;
         Ok(())
     }
 
     pub fn refresh_from_dirs(&mut self, plugin_dirs: Vec<PathBuf>) -> Result<(), String> {
-        let rebuilt = Arc::new(ProviderRegistry::load_from_dirs(plugin_dirs)?);
+        self.refresh_from_dirs_diagnostic(plugin_dirs)
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn refresh_from_dirs_diagnostic(
+        &mut self,
+        plugin_dirs: Vec<PathBuf>,
+    ) -> Result<(), ProviderPluginError> {
+        let rebuilt = Arc::new(ProviderRegistry::load_from_dirs_diagnostic(plugin_dirs)?);
         let mut registry = self
             .registry
             .write()
-            .map_err(|_| "provider registry write lock poisoned".to_string())?;
+            .map_err(|_| ProviderPluginError::registry("provider registry write lock poisoned"))?;
         *registry = rebuilt;
         Ok(())
     }
