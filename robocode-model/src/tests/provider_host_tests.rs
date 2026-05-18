@@ -45,8 +45,6 @@ fn compile_provider_plugin(
     api_base: &str,
     default_model: &str,
 ) -> PathBuf {
-    let source = plugin_dir.join(format!("{crate_name}.rs"));
-    let library = plugin_dir.join(format!("lib{crate_name}.{}", dynamic_library_suffixes()[0]));
     let source_text = r#"
 use std::ffi::c_char;
 
@@ -70,6 +68,12 @@ pub extern "C" fn robocode_provider_descriptor_json() -> *const c_char {
     .replace("__DISPLAY_NAME__", display_name)
     .replace("__API_BASE__", api_base)
     .replace("__DEFAULT_MODEL__", default_model);
+    compile_raw_provider_plugin(plugin_dir, crate_name, &source_text)
+}
+
+fn compile_raw_provider_plugin(plugin_dir: &Path, crate_name: &str, source_text: &str) -> PathBuf {
+    let source = plugin_dir.join(format!("{crate_name}.rs"));
+    let library = plugin_dir.join(format!("lib{crate_name}.{}", dynamic_library_suffixes()[0]));
     std::fs::write(&source, source_text).unwrap();
     let output = Command::new("rustc")
         .args(["--edition=2021", "--crate-type", "cdylib"])
@@ -289,5 +293,104 @@ fn provider_host_diagnostic_load_exposes_plugin_error_kind_and_path() {
     let err = ProviderHost::load_from_dirs_diagnostic(vec![plugin_dir]).unwrap_err();
 
     assert_eq!(err.kind, ProviderPluginErrorKind::LoadLibrary);
+    assert_eq!(err.path, plugin_path);
+}
+
+#[test]
+fn provider_host_diagnostic_load_reports_missing_descriptor_symbol() {
+    let plugin_dir = temp_dir("diagnostic_missing_symbol");
+    let plugin_path = compile_raw_provider_plugin(
+        &plugin_dir,
+        "missing_symbol_provider_plugin",
+        r#"
+#[no_mangle]
+pub extern "C" fn unrelated_symbol() -> usize {
+    1
+}
+"#,
+    );
+
+    let err = ProviderHost::load_from_dirs_diagnostic(vec![plugin_dir]).unwrap_err();
+
+    assert_eq!(err.kind, ProviderPluginErrorKind::MissingDescriptorSymbol);
+    assert_eq!(err.path, plugin_path);
+}
+
+#[test]
+fn provider_host_diagnostic_load_reports_null_descriptor() {
+    let plugin_dir = temp_dir("diagnostic_null_descriptor");
+    let plugin_path = compile_raw_provider_plugin(
+        &plugin_dir,
+        "null_descriptor_provider_plugin",
+        r#"
+use std::ffi::c_char;
+
+#[no_mangle]
+pub extern "C" fn robocode_provider_descriptor_json() -> *const c_char {
+    std::ptr::null()
+}
+"#,
+    );
+
+    let err = ProviderHost::load_from_dirs_diagnostic(vec![plugin_dir]).unwrap_err();
+
+    assert_eq!(err.kind, ProviderPluginErrorKind::NullDescriptor);
+    assert_eq!(err.path, plugin_path);
+}
+
+#[test]
+fn provider_host_diagnostic_load_reports_non_utf8_descriptor() {
+    let plugin_dir = temp_dir("diagnostic_non_utf8_descriptor");
+    let plugin_path = compile_raw_provider_plugin(
+        &plugin_dir,
+        "non_utf8_descriptor_provider_plugin",
+        r#"
+use std::ffi::c_char;
+
+#[no_mangle]
+pub extern "C" fn robocode_provider_descriptor_json() -> *const c_char {
+    static BYTES: [u8; 2] = [0xff, 0x00];
+    BYTES.as_ptr().cast::<c_char>()
+}
+"#,
+    );
+
+    let err = ProviderHost::load_from_dirs_diagnostic(vec![plugin_dir]).unwrap_err();
+
+    assert_eq!(err.kind, ProviderPluginErrorKind::NonUtf8Descriptor);
+    assert_eq!(err.path, plugin_path);
+}
+
+#[test]
+fn provider_host_diagnostic_load_reports_decode_descriptor() {
+    let plugin_dir = temp_dir("diagnostic_decode_descriptor");
+    let plugin_path = compile_raw_provider_plugin(
+        &plugin_dir,
+        "decode_descriptor_provider_plugin",
+        r#"
+use std::ffi::c_char;
+
+#[no_mangle]
+pub extern "C" fn robocode_provider_descriptor_json() -> *const c_char {
+    static DESCRIPTOR_JSON: &str = "not-json\0";
+    DESCRIPTOR_JSON.as_ptr().cast()
+}
+"#,
+    );
+
+    let err = ProviderHost::load_from_dirs_diagnostic(vec![plugin_dir]).unwrap_err();
+
+    assert_eq!(err.kind, ProviderPluginErrorKind::DecodeDescriptor);
+    assert_eq!(err.path, plugin_path);
+}
+
+#[test]
+fn provider_host_diagnostic_load_reports_invalid_descriptor() {
+    let plugin_dir = temp_dir("diagnostic_invalid_descriptor");
+    let plugin_path = compile_invalid_provider_plugin(&plugin_dir);
+
+    let err = ProviderHost::load_from_dirs_diagnostic(vec![plugin_dir]).unwrap_err();
+
+    assert_eq!(err.kind, ProviderPluginErrorKind::InvalidDescriptor);
     assert_eq!(err.path, plugin_path);
 }
