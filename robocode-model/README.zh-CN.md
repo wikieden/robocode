@@ -49,6 +49,11 @@ Registry refresh 对调用方保持原子语义：
 - 已创建的 provider 实例在 refresh 后仍保持独立；新 provider 实例使用刷新后的
   registry。
 
+Plugin loader 失败在内部使用 `ProviderPluginError` 结构化表达，包含 kind、path
+和 message。Registry/host API 为兼容性仍返回可读字符串，但 loader 测试会锁定
+结构化 kind/path 契约，方便后续 CLI diagnostics 渲染更清晰的错误，而不需要重新
+解析文本。
+
 当前边界：动态 plugins 注册 descriptors，并复用 host 侧 OpenAI 或 Anthropic
 protocol adapters。完整的 plugin-backed request execution、streaming、
 cancellation、signing、sandboxing、marketplace/distribution 属于后续

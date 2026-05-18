@@ -49,6 +49,11 @@ Registry refresh is atomic from the caller's perspective:
 - Existing provider instances remain independent after refresh; new provider
   instances use the refreshed registry.
 
+Plugin loader failures are structured internally as `ProviderPluginError` with a
+kind, path, and message. Registry/host APIs still expose readable strings for
+compatibility, but loader tests assert the structured kind/path contract so
+future CLI diagnostics can render richer errors without reparsing text.
+
 Current boundary: dynamic plugins register descriptors and reuse host-side
 OpenAI or Anthropic protocol adapters. Full plugin-backed request execution,
 streaming, cancellation, signing, sandboxing, and marketplace/distribution are

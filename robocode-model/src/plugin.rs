@@ -13,6 +13,112 @@ use crate::{
     descriptor::validate_provider_descriptor,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderPluginErrorKind {
+    ReadDirectory,
+    ReadDirectoryEntry,
+    LoadLibrary,
+    MissingDescriptorSymbol,
+    NullDescriptor,
+    NonUtf8Descriptor,
+    DecodeDescriptor,
+    InvalidDescriptor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderPluginError {
+    pub kind: ProviderPluginErrorKind,
+    pub path: PathBuf,
+    pub message: String,
+}
+
+impl ProviderPluginError {
+    fn new(
+        kind: ProviderPluginErrorKind,
+        path: impl Into<PathBuf>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            path: path.into(),
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for ProviderPluginError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.kind {
+            ProviderPluginErrorKind::ReadDirectory => {
+                write!(
+                    f,
+                    "Failed to read provider plugin dir {}: {}",
+                    self.path.display(),
+                    self.message
+                )
+            }
+            ProviderPluginErrorKind::ReadDirectoryEntry => {
+                write!(
+                    f,
+                    "Failed to read provider plugin dir entry under {}: {}",
+                    self.path.display(),
+                    self.message
+                )
+            }
+            ProviderPluginErrorKind::LoadLibrary => {
+                write!(
+                    f,
+                    "Failed to load provider plugin {}: {}",
+                    self.path.display(),
+                    self.message
+                )
+            }
+            ProviderPluginErrorKind::MissingDescriptorSymbol => {
+                write!(
+                    f,
+                    "Failed to load descriptor symbol `{}` from {}: {}",
+                    plugin_descriptor_symbol(),
+                    self.path.display(),
+                    self.message
+                )
+            }
+            ProviderPluginErrorKind::NullDescriptor => {
+                write!(
+                    f,
+                    "Provider plugin {} returned a null descriptor pointer",
+                    self.path.display()
+                )
+            }
+            ProviderPluginErrorKind::NonUtf8Descriptor => {
+                write!(
+                    f,
+                    "Provider plugin {} returned a non-UTF8 descriptor: {}",
+                    self.path.display(),
+                    self.message
+                )
+            }
+            ProviderPluginErrorKind::DecodeDescriptor => {
+                write!(
+                    f,
+                    "Failed to decode provider descriptor from {}: {}",
+                    self.path.display(),
+                    self.message
+                )
+            }
+            ProviderPluginErrorKind::InvalidDescriptor => {
+                write!(
+                    f,
+                    "Invalid provider descriptor from {}: {}",
+                    self.path.display(),
+                    self.message
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ProviderPluginError {}
+
 pub struct LoadedPluginDescriptor {
     pub source_path: PathBuf,
     pub descriptor: ProviderDescriptor,
@@ -78,44 +184,49 @@ fn into_provider_descriptor(descriptor: PluginDescriptor) -> ProviderDescriptor 
 }
 
 #[allow(dead_code)]
-pub fn load_plugin_descriptor(path: &Path) -> Result<LoadedPluginDescriptor, String> {
-    let library = unsafe { Library::new(path) }
-        .map_err(|err| format!("Failed to load provider plugin {}: {err}", path.display()))?;
+pub fn load_plugin_descriptor(path: &Path) -> Result<LoadedPluginDescriptor, ProviderPluginError> {
+    let library = unsafe { Library::new(path) }.map_err(|err| {
+        ProviderPluginError::new(ProviderPluginErrorKind::LoadLibrary, path, err.to_string())
+    })?;
     let descriptor_fn: Symbol<'_, PluginDescriptorFn> = unsafe {
         library
             .get(plugin_descriptor_symbol().as_bytes())
             .map_err(|err| {
-                format!(
-                    "Failed to load descriptor symbol `{}` from {}: {err}",
-                    plugin_descriptor_symbol(),
-                    path.display()
+                ProviderPluginError::new(
+                    ProviderPluginErrorKind::MissingDescriptorSymbol,
+                    path,
+                    err.to_string(),
                 )
             })?
     };
     let descriptor_ptr = unsafe { descriptor_fn() };
     if descriptor_ptr.is_null() {
-        return Err(format!(
-            "Provider plugin {} returned a null descriptor pointer",
-            path.display()
+        return Err(ProviderPluginError::new(
+            ProviderPluginErrorKind::NullDescriptor,
+            path,
+            "descriptor pointer was null",
         ));
     }
     let descriptor_json = unsafe { CStr::from_ptr(descriptor_ptr) }
         .to_str()
         .map_err(|err| {
-            format!(
-                "Provider plugin {} returned a non-UTF8 descriptor: {err}",
-                path.display()
+            ProviderPluginError::new(
+                ProviderPluginErrorKind::NonUtf8Descriptor,
+                path,
+                err.to_string(),
             )
         })?;
     let descriptor = serde_json::from_str::<PluginDescriptor>(descriptor_json).map_err(|err| {
-        format!(
-            "Failed to decode provider descriptor from {}: {err}",
-            path.display()
+        ProviderPluginError::new(
+            ProviderPluginErrorKind::DecodeDescriptor,
+            path,
+            err.to_string(),
         )
     })?;
     let descriptor = into_provider_descriptor(descriptor);
-    validate_provider_descriptor(&descriptor)
-        .map_err(|err| format!("Invalid provider descriptor from {}: {err}", path.display()))?;
+    validate_provider_descriptor(&descriptor).map_err(|err| {
+        ProviderPluginError::new(ProviderPluginErrorKind::InvalidDescriptor, path, err)
+    })?;
 
     Ok(LoadedPluginDescriptor {
         source_path: path.to_path_buf(),
@@ -124,13 +235,13 @@ pub fn load_plugin_descriptor(path: &Path) -> Result<LoadedPluginDescriptor, Str
     })
 }
 
-pub fn discover_plugin_descriptors() -> Result<Vec<LoadedPluginDescriptor>, String> {
+pub fn discover_plugin_descriptors() -> Result<Vec<LoadedPluginDescriptor>, ProviderPluginError> {
     discover_plugin_descriptors_in_dirs(default_plugin_search_dirs())
 }
 
 pub(crate) fn discover_plugin_descriptors_in_dirs(
     dirs: Vec<PathBuf>,
-) -> Result<Vec<LoadedPluginDescriptor>, String> {
+) -> Result<Vec<LoadedPluginDescriptor>, ProviderPluginError> {
     let mut loaded = Vec::new();
     for path in discover_plugin_paths(dirs)? {
         loaded.push(load_plugin_descriptor(&path)?);
@@ -138,20 +249,27 @@ pub(crate) fn discover_plugin_descriptors_in_dirs(
     Ok(loaded)
 }
 
-fn discover_plugin_paths(dirs: Vec<PathBuf>) -> Result<Vec<PathBuf>, String> {
+fn discover_plugin_paths(dirs: Vec<PathBuf>) -> Result<Vec<PathBuf>, ProviderPluginError> {
     let mut discovered = Vec::new();
     for dir in dirs {
         if !dir.exists() {
             continue;
         }
         let entries = std::fs::read_dir(&dir).map_err(|err| {
-            format!(
-                "Failed to read provider plugin dir {}: {err}",
-                dir.display()
+            ProviderPluginError::new(
+                ProviderPluginErrorKind::ReadDirectory,
+                &dir,
+                err.to_string(),
             )
         })?;
         for entry in entries {
-            let entry = entry.map_err(|err| err.to_string())?;
+            let entry = entry.map_err(|err| {
+                ProviderPluginError::new(
+                    ProviderPluginErrorKind::ReadDirectoryEntry,
+                    &dir,
+                    err.to_string(),
+                )
+            })?;
             let path = entry.path();
             let Some(ext) = path.extension().and_then(OsStr::to_str) else {
                 continue;
@@ -228,7 +346,12 @@ mod tests {
 
         let err = load_plugin_descriptor(&path).unwrap_err();
 
-        assert!(err.contains(&path.display().to_string()), "{err}");
+        assert_eq!(err.kind, ProviderPluginErrorKind::LoadLibrary);
+        assert_eq!(err.path, path);
+        assert!(
+            err.to_string().contains(&path.display().to_string()),
+            "{err}"
+        );
     }
 
     #[test]
@@ -237,6 +360,11 @@ mod tests {
         std::fs::write(&path, b"not a directory").unwrap();
 
         let err = discover_plugin_paths(vec![path.clone()]).unwrap_err();
-        assert!(err.contains(&path.display().to_string()), "{err}");
+        assert_eq!(err.kind, ProviderPluginErrorKind::ReadDirectory);
+        assert_eq!(err.path, path);
+        assert!(
+            err.to_string().contains(&path.display().to_string()),
+            "{err}"
+        );
     }
 }
