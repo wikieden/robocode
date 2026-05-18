@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use crate::{
     adapters::builtin_provider_descriptors, config::ProviderKind, descriptor::ProviderDescriptor,
-    descriptor::validate_provider_descriptor, plugin::discover_plugin_descriptors,
-    plugin::discover_plugin_descriptors_in_dirs,
+    descriptor::validate_provider_descriptor, plugin::ProviderPluginError,
+    plugin::discover_plugin_descriptors, plugin::discover_plugin_descriptors_in_dirs,
 };
 use std::path::PathBuf;
 
@@ -20,21 +20,31 @@ impl ProviderRegistry {
     }
 
     pub fn load_default() -> Result<Self, String> {
-        let plugin_descriptors = discover_plugin_descriptors()
-            .map_err(|err| err.to_string())?
+        Self::load_default_diagnostic().map_err(|err| err.to_string())
+    }
+
+    pub fn load_default_diagnostic() -> Result<Self, ProviderPluginError> {
+        let plugin_descriptors = discover_plugin_descriptors()?
             .into_iter()
             .map(|loaded| loaded.descriptor)
             .collect();
         Self::from_descriptor_sources(builtin_provider_descriptors(), plugin_descriptors)
+            .map_err(ProviderPluginError::registry)
     }
 
     pub fn load_from_dirs(plugin_dirs: Vec<PathBuf>) -> Result<Self, String> {
-        let plugin_descriptors = discover_plugin_descriptors_in_dirs(plugin_dirs)
-            .map_err(|err| err.to_string())?
+        Self::load_from_dirs_diagnostic(plugin_dirs).map_err(|err| err.to_string())
+    }
+
+    pub fn load_from_dirs_diagnostic(
+        plugin_dirs: Vec<PathBuf>,
+    ) -> Result<Self, ProviderPluginError> {
+        let plugin_descriptors = discover_plugin_descriptors_in_dirs(plugin_dirs)?
             .into_iter()
             .map(|loaded| loaded.descriptor)
             .collect();
         Self::from_descriptor_sources(builtin_provider_descriptors(), plugin_descriptors)
+            .map_err(ProviderPluginError::registry)
     }
 
     pub(crate) fn from_descriptor_sources(

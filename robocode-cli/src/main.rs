@@ -1,7 +1,8 @@
 use robocode_config::{CliOverrides, load_config};
 use robocode_core::{EngineEvent, SessionEngine};
 use robocode_model::{
-    ModelProvider, ProviderConfig, ProviderHost, ProviderRegistry, list_supported_provider_strings,
+    ModelProvider, ProviderConfig, ProviderHost, ProviderPluginError, ProviderRegistry,
+    list_supported_provider_strings,
 };
 use robocode_types::{ApprovalResponse, PermissionPrompt, RuntimeSnapshot};
 use std::env;
@@ -36,11 +37,7 @@ fn run() -> Result<(), String> {
         config_path: startup.config_path.clone(),
     };
     let resolved_config = load_config(&cwd, &cli_config)?;
-    let provider_host = if resolved_config.provider_plugin_dirs.is_empty() {
-        ProviderHost::load_default()?
-    } else {
-        ProviderHost::load_from_dirs(resolved_config.provider_plugin_dirs.clone())?
-    };
+    let provider_host = load_startup_provider_host(&resolved_config)?;
     let provider_selection = create_startup_provider(&provider_host, &resolved_config)?;
     let provider_summary = format!(
         "{} | config={} | files={}",
@@ -111,6 +108,29 @@ fn run() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn load_startup_provider_host(
+    resolved_config: &robocode_config::ResolvedConfig,
+) -> Result<ProviderHost, String> {
+    if resolved_config.provider_plugin_dirs.is_empty() {
+        ProviderHost::load_default_diagnostic().map_err(format_provider_plugin_error)
+    } else {
+        ProviderHost::load_from_dirs_diagnostic(resolved_config.provider_plugin_dirs.clone())
+            .map_err(format_provider_plugin_error)
+    }
+}
+
+fn format_provider_plugin_error(err: ProviderPluginError) -> String {
+    let path = if err.path.as_os_str().is_empty() {
+        "<registry>".to_string()
+    } else {
+        err.path.display().to_string()
+    };
+    format!(
+        "provider plugin loading failed\n  kind: {:?}\n  path: {}\n  message: {}\n  detail: {}",
+        err.kind, path, err.message, err
+    )
 }
 
 struct StartupProviderSelection {
@@ -432,6 +452,7 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
+    use robocode_model::{ProviderPluginError, ProviderPluginErrorKind};
 
     #[test]
     fn read_lossy_line_replaces_invalid_utf8() {
@@ -464,6 +485,27 @@ mod tests {
         assert_eq!(
             options.summary_overrides(),
             vec!["--provider-plugin-dir".to_string()]
+        );
+    }
+
+    #[test]
+    fn provider_plugin_error_format_includes_structured_diagnostics() {
+        let err = ProviderPluginError {
+            kind: ProviderPluginErrorKind::LoadLibrary,
+            path: PathBuf::from("/tmp/broken-provider.dylib"),
+            message: "not a dynamic library".to_string(),
+        };
+
+        let formatted = format_provider_plugin_error(err);
+
+        assert!(formatted.contains("kind: LoadLibrary"), "{formatted}");
+        assert!(
+            formatted.contains("path: /tmp/broken-provider.dylib"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("message: not a dynamic library"),
+            "{formatted}"
         );
     }
 }
