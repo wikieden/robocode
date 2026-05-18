@@ -285,6 +285,27 @@ fn provider_host_refresh_failure_keeps_previous_registry_active() {
 }
 
 #[test]
+fn provider_host_diagnostic_refresh_failure_keeps_previous_registry_active() {
+    let good_dir = temp_dir("diagnostic_refresh_good");
+    compile_runtime_provider_plugin(&good_dir);
+    let mut host = ProviderHost::load_from_dirs_diagnostic(vec![good_dir]).unwrap();
+    let before_registry = host.registry();
+    let invalid_dir = temp_dir("diagnostic_refresh_invalid");
+    let invalid_plugin_path = compile_invalid_provider_plugin(&invalid_dir);
+
+    let err = host
+        .refresh_from_dirs_diagnostic(vec![invalid_dir])
+        .unwrap_err();
+    let after_registry = host.registry();
+
+    assert_eq!(err.kind, ProviderPluginErrorKind::InvalidDescriptor);
+    assert_eq!(err.path, invalid_plugin_path);
+    assert!(std::sync::Arc::ptr_eq(&before_registry, &after_registry));
+    assert!(after_registry.descriptor("runtime-provider").is_some());
+    assert!(after_registry.descriptor("invalid-provider").is_none());
+}
+
+#[test]
 fn provider_host_diagnostic_load_exposes_plugin_error_kind_and_path() {
     let plugin_dir = temp_dir("diagnostic_load_invalid");
     let plugin_path = plugin_dir.join(format!("broken.{}", dynamic_library_suffixes()[0]));

@@ -45,13 +45,16 @@ Registry refresh is atomic from the caller's perspective:
 
 - `ProviderHost::refresh` rebuilds from the default plugin directories.
 - `ProviderHost::refresh_from_dirs` rebuilds from explicit directories.
+- `ProviderHost::refresh_diagnostic` and
+  `ProviderHost::refresh_from_dirs_diagnostic` preserve structured
+  `ProviderPluginError` details for runtime reload diagnostics.
 - Failed refreshes return an error and keep the previously active registry.
 - Existing provider instances remain independent after refresh; new provider
   instances use the refreshed registry.
 
 Plugin loader failures are structured as `ProviderPluginError` with a kind,
 path, and message. Registry/host APIs still expose readable strings for
-compatibility, while diagnostic host/registry constructors preserve the
+compatibility, while diagnostic host/registry constructors and refresh APIs preserve the
 structured error for CLI diagnostics.
 
 Current boundary: dynamic plugins register descriptors and reuse host-side
