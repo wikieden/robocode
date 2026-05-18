@@ -20,7 +20,8 @@ impl ProviderRegistry {
     }
 
     pub fn load_default() -> Result<Self, String> {
-        let plugin_descriptors = discover_plugin_descriptors()?
+        let plugin_descriptors = discover_plugin_descriptors()
+            .map_err(|err| err.to_string())?
             .into_iter()
             .map(|loaded| loaded.descriptor)
             .collect();
@@ -28,7 +29,8 @@ impl ProviderRegistry {
     }
 
     pub fn load_from_dirs(plugin_dirs: Vec<PathBuf>) -> Result<Self, String> {
-        let plugin_descriptors = discover_plugin_descriptors_in_dirs(plugin_dirs)?
+        let plugin_descriptors = discover_plugin_descriptors_in_dirs(plugin_dirs)
+            .map_err(|err| err.to_string())?
             .into_iter()
             .map(|loaded| loaded.descriptor)
             .collect();
