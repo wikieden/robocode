@@ -23,6 +23,7 @@ pub enum ProviderPluginErrorKind {
     NonUtf8Descriptor,
     DecodeDescriptor,
     InvalidDescriptor,
+    Registry,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +44,10 @@ impl ProviderPluginError {
             path: path.into(),
             message: message.into(),
         }
+    }
+
+    pub(crate) fn registry(message: impl Into<String>) -> Self {
+        Self::new(ProviderPluginErrorKind::Registry, PathBuf::new(), message)
     }
 }
 
@@ -112,6 +117,9 @@ impl std::fmt::Display for ProviderPluginError {
                     self.path.display(),
                     self.message
                 )
+            }
+            ProviderPluginErrorKind::Registry => {
+                write!(f, "Provider registry error: {}", self.message)
             }
         }
     }

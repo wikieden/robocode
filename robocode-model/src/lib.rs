@@ -18,6 +18,7 @@ pub use descriptor::{
     ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings,
 };
 pub use host::ProviderHost;
+pub use plugin::{ProviderPluginError, ProviderPluginErrorKind};
 pub use providers::AnthropicProvider;
 pub use registry::ProviderRegistry;
 

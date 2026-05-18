@@ -1,5 +1,5 @@
 use super::*;
-use crate::plugin::dynamic_library_suffixes;
+use crate::plugin::{ProviderPluginErrorKind, dynamic_library_suffixes};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -278,4 +278,16 @@ fn provider_host_refresh_failure_keeps_previous_registry_active() {
     assert!(std::sync::Arc::ptr_eq(&before_registry, &after_registry));
     assert!(after_registry.descriptor("runtime-provider").is_some());
     assert!(after_registry.descriptor("invalid-provider").is_none());
+}
+
+#[test]
+fn provider_host_diagnostic_load_exposes_plugin_error_kind_and_path() {
+    let plugin_dir = temp_dir("diagnostic_load_invalid");
+    let plugin_path = plugin_dir.join(format!("broken.{}", dynamic_library_suffixes()[0]));
+    std::fs::write(&plugin_path, b"not a real library").unwrap();
+
+    let err = ProviderHost::load_from_dirs_diagnostic(vec![plugin_dir]).unwrap_err();
+
+    assert_eq!(err.kind, ProviderPluginErrorKind::LoadLibrary);
+    assert_eq!(err.path, plugin_path);
 }

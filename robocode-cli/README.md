@@ -15,6 +15,7 @@
 - CLI startup flags and environment handoff.
 - `--provider-plugin-dir <dir>` for repeatable dynamic provider plugin
   discovery paths.
+- Structured startup diagnostics for provider plugin loading failures.
 - Runtime snapshot construction.
 - REPL rendering of `EngineEvent` output.
 
@@ -24,6 +25,8 @@
 - Preserve config precedence from `robocode-config`.
 - Build the startup `ProviderHost` from resolved config, including explicit
   provider plugin directories.
+- Render provider plugin loader errors with kind, path, message, and detail
+  rather than collapsing them into an opaque string.
 - Keep terminal output usable without a rich TUI.
 
 ## Reference Alignment
