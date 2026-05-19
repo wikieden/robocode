@@ -11,6 +11,7 @@ mod config_tests;
 mod fallback_tests;
 mod parse_tests;
 mod provider_host_tests;
+mod provider_plugin_fixtures;
 mod registry_tests;
 mod render_tests;
 mod transport_tests;
