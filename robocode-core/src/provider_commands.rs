@@ -114,24 +114,7 @@ impl SessionEngine {
             .ok_or_else(|| {
                 format!("Provider `{provider_id}` does not define a default model; pass a model")
             })?;
-        let next_provider = match ProviderConfig::from_settings(
-            provider_id,
-            Some(&model),
-            self.provider_api_base.as_deref(),
-            self.provider_api_key.as_deref(),
-            self.provider_request_timeout_secs,
-            self.provider_max_retries,
-        ) {
-            Ok(config) => host.create(config)?,
-            Err(_) => host.create_registered(
-                provider_id,
-                Some(&model),
-                self.provider_api_base.as_deref(),
-                self.provider_api_key.as_deref(),
-                self.provider_request_timeout_secs,
-                self.provider_max_retries,
-            )?,
-        };
+        let next_provider = self.create_provider_from_runtime(provider_id, Some(&model))?;
         self.provider = next_provider;
         self.runtime_snapshot.provider_family = provider_id.to_string();
         self.runtime_snapshot.model_label = self.provider.model().to_string();
@@ -142,6 +125,35 @@ impl SessionEngine {
             self.provider.provider_name(),
             self.provider.model()
         ))
+    }
+
+    pub(super) fn create_provider_from_runtime(
+        &self,
+        provider_id: &str,
+        model: Option<&str>,
+    ) -> Result<Box<dyn robocode_model::ModelProvider>, String> {
+        let Some(host) = self.provider_host.as_ref() else {
+            return Err("Provider runtime is unavailable.".to_string());
+        };
+        let provider = match ProviderConfig::from_settings(
+            provider_id,
+            model,
+            self.provider_api_base.as_deref(),
+            self.provider_api_key.as_deref(),
+            self.provider_request_timeout_secs,
+            self.provider_max_retries,
+        ) {
+            Ok(config) => host.create(config)?,
+            Err(_) => host.create_registered(
+                provider_id,
+                model,
+                self.provider_api_base.as_deref(),
+                self.provider_api_key.as_deref(),
+                self.provider_request_timeout_secs,
+                self.provider_max_retries,
+            )?,
+        };
+        Ok(provider)
     }
 }
 

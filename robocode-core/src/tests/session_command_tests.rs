@@ -1,4 +1,5 @@
 use crate::{EngineEvent, SessionEngine};
+use robocode_model::ProviderHost;
 use robocode_types::{ApprovalResponse, ModelEvent};
 
 use super::{SequenceProvider, temp_dir};
@@ -27,6 +28,37 @@ fn resume_restores_previous_session() {
     let output = engine_b
         .process_input_with_approval(&format!("/resume {session_id}"), &mut approver)
         .unwrap();
+    assert!(output.iter().any(
+        |event| matches!(event, EngineEvent::Command(text) if text.contains("Resumed session"))
+    ));
+}
+
+#[test]
+fn resume_restores_provider_runtime_selection() {
+    let home = temp_dir("resume_provider_runtime_home");
+    let cwd = temp_dir("resume_provider_runtime_cwd");
+    let provider_a = Box::new(SequenceProvider::new(vec![]));
+    let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+    engine_a.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine_a
+        .process_input_with_approval("/provider use fallback resumed-model", &mut approver)
+        .unwrap();
+    let session_id = engine_a.session_id().to_string();
+
+    let provider_b = Box::new(SequenceProvider::new(vec![]));
+    let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
+    engine_b.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let output = engine_b
+        .process_input_with_approval(&format!("/resume {session_id}"), &mut approver)
+        .unwrap();
+
+    assert_eq!(engine_b.provider_name(), "fallback");
+    assert_eq!(engine_b.model_name(), "resumed-model");
     assert!(output.iter().any(
         |event| matches!(event, EngineEvent::Command(text) if text.contains("Resumed session"))
     ));
