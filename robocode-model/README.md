@@ -61,9 +61,11 @@ structured error for CLI diagnostics.
 Current boundary: dynamic plugins register descriptors and reuse host-side
 OpenAI or Anthropic protocol adapters. Request execution supports a shared
 `ModelRequestControl` cancellation signal so core/runtime callers can stop
-provider dispatch and in-flight HTTP subprocesses. Full streaming UI delivery,
-provider-owned execution, signing, sandboxing, and marketplace/distribution are
-future hardening work.
+provider dispatch and in-flight HTTP subprocesses. The same control object can
+request streaming-compatible OpenAI/Anthropic payloads, and the parser can
+normalize SSE text/tool-call deltas back into `ModelEvent`. Full incremental UI
+delivery, provider-owned execution, signing, sandboxing, and
+marketplace/distribution are future hardening work.
 
 ## Invariants
 
@@ -76,6 +78,8 @@ future hardening work.
   failure.
 - Cancellation must be checked before dispatch and while HTTP transport is
   waiting on provider subprocesses.
+- Streaming protocol parsing must preserve the same text/tool-call semantics as
+  non-streaming JSON parsing.
 
 ## Reference Alignment
 

@@ -14,10 +14,47 @@ fn build_openai_body_includes_tools() {
         }],
         permission_mode: PermissionMode::Default,
     };
-    let body = build_openai_body("gpt-5.2", &request);
+    let body = build_openai_body_with_stream("gpt-5.2", &request, false);
     assert!(body.contains("\"tools\""));
     assert!(body.contains("\"read_file\""));
     assert!(body.contains("\"path\""));
+}
+
+#[test]
+fn build_openai_body_can_request_streaming() {
+    let request = ModelRequest {
+        session_id: "session_test".to_string(),
+        model: "gpt-5.2".to_string(),
+        messages: vec![Message::new(Role::User, "hello")],
+        tools: Vec::new(),
+        permission_mode: PermissionMode::Default,
+    };
+
+    let body: Value =
+        serde_json::from_str(&build_openai_body_with_stream("gpt-5.2", &request, true))
+            .expect("openai body should be valid json");
+
+    assert_eq!(body["stream"], true);
+}
+
+#[test]
+fn build_anthropic_body_can_request_streaming() {
+    let request = ModelRequest {
+        session_id: "session_test".to_string(),
+        model: "claude-test".to_string(),
+        messages: vec![Message::new(Role::User, "hello")],
+        tools: Vec::new(),
+        permission_mode: PermissionMode::Default,
+    };
+
+    let body: Value = serde_json::from_str(&build_anthropic_body_with_stream(
+        "claude-test",
+        &request,
+        true,
+    ))
+    .expect("anthropic body should be valid json");
+
+    assert_eq!(body["stream"], true);
 }
 
 #[test]
@@ -53,8 +90,12 @@ fn build_openai_body_renders_tool_call_turns_with_null_content() {
         permission_mode: PermissionMode::Default,
     };
 
-    let body: Value = serde_json::from_str(&build_openai_body("deepseek-v4-flash", &request))
-        .expect("openai body should be valid json");
+    let body: Value = serde_json::from_str(&build_openai_body_with_stream(
+        "deepseek-v4-flash",
+        &request,
+        false,
+    ))
+    .expect("openai body should be valid json");
     let messages = body["messages"].as_array().unwrap();
     let assistant = messages
         .iter()
@@ -88,8 +129,12 @@ fn build_openai_body_replays_reasoning_content_without_tool_argument_leak() {
         permission_mode: PermissionMode::Default,
     };
 
-    let body: Value = serde_json::from_str(&build_openai_body("deepseek-v4-flash", &request))
-        .expect("openai body should be valid json");
+    let body: Value = serde_json::from_str(&build_openai_body_with_stream(
+        "deepseek-v4-flash",
+        &request,
+        false,
+    ))
+    .expect("openai body should be valid json");
     let assistant = body["messages"]
         .as_array()
         .unwrap()

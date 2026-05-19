@@ -3,10 +3,13 @@ use crate::config::{ProviderConfig, ProviderKind, resolve_api_key};
 use crate::descriptor::{ProtocolFamily, ProviderDescriptor};
 use crate::fallback::{fallback_events, parse_explicit_tool_call_from_messages};
 use crate::parse::{
-    extract_error_message, parse_anthropic_events, parse_ollama_events, parse_openai_events,
+    extract_error_message, parse_anthropic_events, parse_anthropic_stream_events,
+    parse_ollama_events, parse_openai_events, parse_openai_stream_events,
 };
 use crate::registry::ProviderRegistry;
-use crate::render::{build_anthropic_body, build_ollama_body, build_openai_body};
+use crate::render::{
+    build_anthropic_body_with_stream, build_ollama_body, build_openai_body_with_stream,
+};
 use crate::transport::post_json_with_control;
 use crate::{ModelProvider, ModelRequestControl};
 use robocode_types::{ModelEvent, ModelRequest};
@@ -305,8 +308,12 @@ impl ModelProvider for HttpProvider {
         }
 
         let body = match self.mode {
-            HttpMode::Anthropic => build_anthropic_body(&self.model, request),
-            HttpMode::OpenAiCompatible => build_openai_body(&self.model, request),
+            HttpMode::Anthropic => {
+                build_anthropic_body_with_stream(&self.model, request, control.prefer_streaming())
+            }
+            HttpMode::OpenAiCompatible => {
+                build_openai_body_with_stream(&self.model, request, control.prefer_streaming())
+            }
             HttpMode::Ollama => build_ollama_body(&self.model, request),
         };
         let path = match self.mode {
@@ -351,8 +358,12 @@ impl ModelProvider for HttpProvider {
             return Err(format!("API error ({}): {}", response.status_code, message));
         }
         let mut events = match self.mode {
-            HttpMode::Anthropic => parse_anthropic_events(&response.body),
-            HttpMode::OpenAiCompatible => parse_openai_events(&response.body),
+            HttpMode::Anthropic => {
+                parse_stream_or_json(&response.body, parse_anthropic_stream_events, parse_anthropic_events)
+            }
+            HttpMode::OpenAiCompatible => {
+                parse_stream_or_json(&response.body, parse_openai_stream_events, parse_openai_events)
+            }
             HttpMode::Ollama => parse_ollama_events(&response.body),
         }
         .unwrap_or_else(|| {
@@ -370,6 +381,18 @@ impl ModelProvider for HttpProvider {
         });
         events.push(ModelEvent::Done);
         Ok(events)
+    }
+}
+
+fn parse_stream_or_json(
+    response: &str,
+    parse_stream: fn(&str) -> Option<Vec<ModelEvent>>,
+    parse_json: fn(&str) -> Option<Vec<ModelEvent>>,
+) -> Option<Vec<ModelEvent>> {
+    if response.trim_start().starts_with("data:") {
+        parse_stream(response)
+    } else {
+        parse_json(response)
     }
 }
 
