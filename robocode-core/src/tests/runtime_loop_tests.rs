@@ -1,6 +1,7 @@
 use std::fs;
 
 use crate::{EngineEvent, SessionEngine};
+use robocode_model::ModelRequestControl;
 use robocode_types::{ApprovalResponse, ModelEvent, PermissionMode, ToolCall, ToolInput};
 
 use super::{SequenceProvider, temp_dir};
@@ -27,6 +28,30 @@ fn single_turn_text_response_is_recorded() {
             .iter()
             .any(|event| matches!(event, EngineEvent::Assistant(text) if text.contains("hello")))
     );
+}
+
+#[test]
+fn cancelled_model_request_stops_before_provider_turn() {
+    let home = temp_dir("cancel_home");
+    let cwd = temp_dir("cancel_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "should not be observed".to_string(),
+        },
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let control = ModelRequestControl::new();
+    control.cancel();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let err = engine
+        .process_input_with_approval_and_control("hi", &mut approver, &control)
+        .unwrap_err();
+
+    assert_eq!(err, "Model request cancelled");
 }
 
 #[test]

@@ -1,21 +1,27 @@
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
+
+use crate::ModelRequestControl;
 
 pub(crate) struct HttpResponse {
     pub(crate) status_code: u16,
     pub(crate) body: String,
 }
 
-pub(crate) fn post_json(
+pub(crate) fn post_json_with_control(
     api_base: &str,
     path: &str,
     headers: &[String],
     body: &str,
     timeout_secs: u64,
     max_retries: u32,
+    control: &ModelRequestControl,
 ) -> Result<HttpResponse, String> {
     let url = format!("{}{}", api_base.trim_end_matches('/'), path);
     let mut last_error = String::new();
     for attempt in 0..=max_retries {
+        control.check_cancelled()?;
         let mut command = Command::new("curl");
         command
             .arg("--silent")
@@ -31,7 +37,7 @@ pub(crate) fn post_json(
             command.arg("-H").arg(header);
         }
         command.arg("-d").arg(body);
-        let output = command.output().map_err(|err| err.to_string())?;
+        let output = run_cancellable(command, control)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -56,6 +62,25 @@ pub(crate) fn post_json(
         last_error = "Could not parse HTTP status from curl output".to_string();
     }
     Err(last_error)
+}
+
+fn run_cancellable(
+    mut command: Command,
+    control: &ModelRequestControl,
+) -> Result<std::process::Output, String> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(|err| err.to_string())?;
+    loop {
+        control.check_cancelled().map_err(|err| {
+            let _ = child.kill();
+            let _ = child.wait();
+            err
+        })?;
+        if child.try_wait().map_err(|err| err.to_string())?.is_some() {
+            return child.wait_with_output().map_err(|err| err.to_string());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
 }
 
 pub(crate) fn split_response_and_status(rendered: &str) -> Option<(String, u16)> {
