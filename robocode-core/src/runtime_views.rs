@@ -11,6 +11,7 @@ impl SessionEngine {
             "  /provider            Show current provider and model",
             "  /provider list       List registered providers",
             "  /provider reload     Reload provider plugin registry",
+            "  /provider use <id>   Switch provider, optionally with a model",
             "  /model [name]        Show or change the active model label",
             "  /permissions [mode]  Show or change permission mode",
             "  /plan [on|off]       Toggle plan mode",

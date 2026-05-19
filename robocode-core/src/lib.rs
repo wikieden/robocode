@@ -41,7 +41,11 @@ pub struct SessionEngine {
     cwd: PathBuf,
     provider: Box<dyn ModelProvider>,
     provider_host: Option<ProviderHost>,
+    provider_api_base: Option<String>,
+    provider_api_key: Option<String>,
     provider_plugin_dirs: Vec<PathBuf>,
+    provider_request_timeout_secs: u64,
+    provider_max_retries: u32,
     tools: ToolRegistry,
     permissions: PermissionEngine,
     store: SessionStore,
@@ -96,7 +100,11 @@ impl SessionEngine {
             cwd: cwd.clone(),
             provider,
             provider_host: None,
+            provider_api_base: None,
+            provider_api_key: None,
             provider_plugin_dirs: Vec::new(),
+            provider_request_timeout_secs: 90,
+            provider_max_retries: 1,
             tools: ToolRegistry::builtin(),
             permissions: PermissionEngine::new(&cwd),
             store,
@@ -128,9 +136,17 @@ impl SessionEngine {
         &mut self,
         provider_host: ProviderHost,
         provider_plugin_dirs: Vec<PathBuf>,
+        api_base: Option<String>,
+        api_key: Option<String>,
+        request_timeout_secs: u64,
+        max_retries: u32,
     ) {
         self.provider_host = Some(provider_host);
         self.provider_plugin_dirs = provider_plugin_dirs;
+        self.provider_api_base = api_base;
+        self.provider_api_key = api_key;
+        self.provider_request_timeout_secs = request_timeout_secs.max(1);
+        self.provider_max_retries = max_retries;
     }
 
     pub fn mode(&self) -> PermissionMode {
