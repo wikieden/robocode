@@ -59,3 +59,32 @@ fn provider_without_key_falls_back_cleanly() {
         matches!(&events[0], ModelEvent::AssistantText { content } if content.contains("fallback mode"))
     );
 }
+
+#[test]
+fn provider_request_control_cancels_before_dispatch() {
+    let mut provider = create_provider(ProviderConfig {
+        kind: ProviderKind::OpenAi,
+        model: "gpt-5.2".to_string(),
+        api_base: Some("https://api.openai.com".to_string()),
+        api_key: None,
+        request_timeout_secs: 90,
+        max_retries: 1,
+    });
+    let control = ModelRequestControl::new();
+    control.cancel();
+
+    let err = provider
+        .next_events_with_control(
+            &ModelRequest {
+                session_id: "session_test".to_string(),
+                model: provider.model().to_string(),
+                messages: vec![Message::new(Role::User, "hello")],
+                tools: Vec::new(),
+                permission_mode: PermissionMode::Default,
+            },
+            &control,
+        )
+        .unwrap_err();
+
+    assert_eq!(err, "Model request cancelled");
+}

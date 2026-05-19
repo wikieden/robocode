@@ -22,6 +22,7 @@ provider construction outside `robocode-core`.
 - `ProviderHost`
 - `ProviderRegistry`
 - `ProviderDescriptor`
+- `ModelRequestControl`
 
 ## Provider Plugin Runtime
 
@@ -58,8 +59,10 @@ compatibility, while diagnostic host/registry constructors and refresh APIs pres
 structured error for CLI diagnostics.
 
 Current boundary: dynamic plugins register descriptors and reuse host-side
-OpenAI or Anthropic protocol adapters. Full plugin-backed request execution,
-streaming, cancellation, signing, sandboxing, and marketplace/distribution are
+OpenAI or Anthropic protocol adapters. Request execution supports a shared
+`ModelRequestControl` cancellation signal so core/runtime callers can stop
+provider dispatch and in-flight HTTP subprocesses. Full streaming UI delivery,
+provider-owned execution, signing, sandboxing, and marketplace/distribution are
 future hardening work.
 
 ## Invariants
@@ -71,6 +74,8 @@ future hardening work.
 - Plugin descriptors are validated before they become visible in the registry.
 - Registry refresh must not silently drop the previous working registry on load
   failure.
+- Cancellation must be checked before dispatch and while HTTP transport is
+  waiting on provider subprocesses.
 
 ## Reference Alignment
 

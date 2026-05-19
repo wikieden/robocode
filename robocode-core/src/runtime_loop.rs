@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     EngineEvent, PROVIDER_REASONING_CONTENT_KEY, SessionEngine, lsp_tools::LspToolAdapter,
 };
+use robocode_model::ModelRequestControl;
 use robocode_permissions::PermissionEngine;
 use robocode_tools::ToolExecutionContext;
 use robocode_types::{
@@ -15,6 +16,18 @@ impl SessionEngine {
         &mut self,
         input: &str,
         approver: &mut F,
+    ) -> Result<Vec<EngineEvent>, String>
+    where
+        F: FnMut(robocode_types::PermissionPrompt) -> ApprovalResponse,
+    {
+        self.process_input_with_approval_and_control(input, approver, &ModelRequestControl::new())
+    }
+
+    pub fn process_input_with_approval_and_control<F>(
+        &mut self,
+        input: &str,
+        approver: &mut F,
+        control: &ModelRequestControl,
     ) -> Result<Vec<EngineEvent>, String>
     where
         F: FnMut(robocode_types::PermissionPrompt) -> ApprovalResponse,
@@ -42,7 +55,7 @@ impl SessionEngine {
                 tools: self.tools.specs(),
                 permission_mode: self.permissions.mode(),
             };
-            let model_events = self.provider.next_events(&request)?;
+            let model_events = self.provider.next_events_with_control(&request, control)?;
             let mut observed_tool_call = false;
             let mut observed_text = false;
             for model_event in model_events {

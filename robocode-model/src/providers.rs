@@ -1,4 +1,3 @@
-use crate::ModelProvider;
 use crate::adapters::{builtin_default_api_base, builtin_default_model, builtin_provider_id};
 use crate::config::{ProviderConfig, ProviderKind, resolve_api_key};
 use crate::descriptor::{ProtocolFamily, ProviderDescriptor};
@@ -8,7 +7,8 @@ use crate::parse::{
 };
 use crate::registry::ProviderRegistry;
 use crate::render::{build_anthropic_body, build_ollama_body, build_openai_body};
-use crate::transport::post_json;
+use crate::transport::post_json_with_control;
+use crate::{ModelProvider, ModelRequestControl};
 use robocode_types::{ModelEvent, ModelRequest};
 
 #[derive(Debug, Clone)]
@@ -55,6 +55,14 @@ impl ModelProvider for AnthropicProvider {
 
     fn next_events(&mut self, request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
         self.inner.next_events(request)
+    }
+
+    fn next_events_with_control(
+        &mut self,
+        request: &ModelRequest,
+        control: &ModelRequestControl,
+    ) -> Result<Vec<ModelEvent>, String> {
+        self.inner.next_events_with_control(request, control)
     }
 }
 
@@ -275,6 +283,15 @@ impl ModelProvider for HttpProvider {
     }
 
     fn next_events(&mut self, request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+        self.next_events_with_control(request, &ModelRequestControl::default())
+    }
+
+    fn next_events_with_control(
+        &mut self,
+        request: &ModelRequest,
+        control: &ModelRequestControl,
+    ) -> Result<Vec<ModelEvent>, String> {
+        control.check_cancelled()?;
         if let Some(tool_call) = parse_explicit_tool_call_from_messages(&request.messages) {
             return Ok(vec![ModelEvent::ToolCall(tool_call), ModelEvent::Done]);
         }
@@ -313,14 +330,16 @@ impl ModelProvider for HttpProvider {
             }
             HttpMode::Ollama => {}
         }
-        let response = post_json(
+        let response = post_json_with_control(
             &self.api_base,
             path,
             &headers,
             &body,
             self.request_timeout_secs,
             self.max_retries,
+            control,
         )?;
+        control.check_cancelled()?;
         if response.status_code >= 400 {
             let message = extract_error_message(&response.body).unwrap_or_else(|| {
                 format!(

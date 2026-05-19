@@ -11,6 +11,11 @@ mod registry;
 mod render;
 mod transport;
 
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
 use robocode_types::{ModelEvent, ModelRequest};
 
 pub use config::{ProviderConfig, ProviderKind};
@@ -29,6 +34,52 @@ pub trait ModelProvider: Send {
     fn model(&self) -> &str;
     fn set_model(&mut self, model: String);
     fn next_events(&mut self, request: &ModelRequest) -> Result<Vec<ModelEvent>, String>;
+
+    fn next_events_with_control(
+        &mut self,
+        request: &ModelRequest,
+        control: &ModelRequestControl,
+    ) -> Result<Vec<ModelEvent>, String> {
+        control.check_cancelled()?;
+        let events = self.next_events(request)?;
+        control.check_cancelled()?;
+        Ok(events)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelRequestControl {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl ModelRequestControl {
+    pub fn new() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    pub fn check_cancelled(&self) -> Result<(), String> {
+        if self.is_cancelled() {
+            Err("Model request cancelled".to_string())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Default for ModelRequestControl {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub fn create_provider(config: ProviderConfig) -> Box<dyn ModelProvider> {

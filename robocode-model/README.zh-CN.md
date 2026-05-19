@@ -22,6 +22,7 @@
 - `ProviderHost`
 - `ProviderRegistry`
 - `ProviderDescriptor`
+- `ModelRequestControl`
 
 ## Provider Plugin Runtime
 
@@ -58,9 +59,10 @@ host/registry constructors 和 refresh API 会保留结构化错误，供 CLI di
 使用。
 
 当前边界：动态 plugins 注册 descriptors，并复用 host 侧 OpenAI 或 Anthropic
-protocol adapters。完整的 plugin-backed request execution、streaming、
-cancellation、signing、sandboxing、marketplace/distribution 属于后续
-hardening 工作。
+protocol adapters。Request execution 已支持共享的 `ModelRequestControl`
+取消信号，core/runtime 调用方可以停止 provider dispatch 和正在运行的 HTTP
+子进程。完整 streaming UI delivery、provider-owned execution、signing、
+sandboxing、marketplace/distribution 属于后续 hardening 工作。
 
 ## 不变量
 
@@ -70,6 +72,8 @@ hardening 工作。
 - Provider identity 与 protocol family 分离。
 - Plugin descriptors 必须先校验，再进入 registry。
 - Registry refresh 失败时不能静默丢掉之前正常工作的 registry。
+- Cancellation 必须在 dispatch 前检查，也必须在 HTTP transport 等待 provider
+  子进程时检查。
 
 ## `.ref` 对齐
 
