@@ -178,6 +178,61 @@ fn provider_use_switches_current_provider_and_model() {
 }
 
 #[test]
+fn provider_binding_is_independent_across_sessions() {
+    let home = temp_dir("provider_binding_home");
+    let cwd_a = temp_dir("provider_binding_cwd_a");
+    let cwd_b = temp_dir("provider_binding_cwd_b");
+    let mut engine_a = SessionEngine::new_with_home(
+        &cwd_a,
+        Box::new(SequenceProvider::new(vec![])),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let mut engine_b =
+        SessionEngine::new_with_home(&cwd_b, Box::new(SequenceProvider::new(vec![])), Some(home))
+            .unwrap();
+    engine_a.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    engine_b.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine_a
+        .process_input_with_approval("/provider use fallback model-a", &mut approver)
+        .unwrap();
+    engine_b
+        .process_input_with_approval("/provider use fallback model-b", &mut approver)
+        .unwrap();
+    engine_a
+        .process_input_with_approval("/provider reload", &mut approver)
+        .unwrap();
+
+    assert_eq!(engine_a.provider_name(), "fallback");
+    assert_eq!(engine_a.model_name(), "model-a");
+    assert_eq!(engine_b.provider_name(), "fallback");
+    assert_eq!(engine_b.model_name(), "model-b");
+
+    let output_a = engine_a
+        .process_input_with_approval("hello from a", &mut approver)
+        .unwrap();
+    let output_b = engine_b
+        .process_input_with_approval("hello from b", &mut approver)
+        .unwrap();
+
+    assert!(output_a.iter().any(|event| matches!(
+        event,
+        EngineEvent::Assistant(text)
+            if text.contains("model `model-a`") && text.contains("hello from a")
+    )));
+    assert!(output_b.iter().any(|event| matches!(
+        event,
+        EngineEvent::Assistant(text)
+            if text.contains("model `model-b`") && text.contains("hello from b")
+    )));
+}
+
+#[test]
 fn provider_use_reports_unknown_provider() {
     let home = temp_dir("provider_use_unknown_home");
     let cwd = temp_dir("provider_use_unknown_cwd");
