@@ -21,6 +21,8 @@
   - `/provider list` renders the active provider registry.
   - `/provider reload` reloads provider plugin descriptors without replacing
     the current provider instance.
+  - `/provider use <id> [model]` switches the current provider instance through
+    the active registry.
 
 ## Invariants
 
@@ -28,6 +30,8 @@
 - Slash commands write `TranscriptEntry::Command`.
 - Provider reload is atomic: a failed reload reports diagnostics and keeps the
   previous registry active.
+- Provider switching must go through the active `ProviderHost`; it must update
+  transcript metadata for provider and model.
 - `/task resume-context` may update derived fields but must not change task business status.
 - Transcript auditability must remain intact.
 

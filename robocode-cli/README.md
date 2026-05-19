@@ -17,7 +17,8 @@
   discovery paths.
 - Structured startup diagnostics for provider plugin loading failures.
 - REPL handoff of provider runtime state so `/provider list` and
-  `/provider reload` can inspect and refresh plugin descriptors.
+  `/provider reload` can inspect and refresh plugin descriptors, and
+  `/provider use <id> [model]` can switch through the same registry.
 - Runtime snapshot construction.
 - REPL rendering of `EngineEvent` output.
 
@@ -29,6 +30,8 @@
   provider plugin directories.
 - Pass the startup provider host and plugin directories into `robocode-core`;
   the CLI must not implement provider reload behavior itself.
+- Pass provider request defaults into `robocode-core` so provider switching uses
+  the same timeout, retry, API base, and API key defaults as startup.
 - Render provider plugin loader errors with kind, path, message, and detail
   rather than collapsing them into an opaque string.
 - Keep terminal output usable without a rich TUI.

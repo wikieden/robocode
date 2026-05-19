@@ -69,7 +69,14 @@ fn run() -> Result<(), String> {
         resolved_config.session_home.clone(),
         runtime_snapshot,
     )?;
-    engine.set_provider_runtime(provider_host, resolved_config.provider_plugin_dirs.clone());
+    engine.set_provider_runtime(
+        provider_host,
+        resolved_config.provider_plugin_dirs.clone(),
+        resolved_config.api_base.clone(),
+        resolved_config.api_key.clone(),
+        resolved_config.request_timeout_secs,
+        resolved_config.max_retries,
+    );
     engine.set_permission_mode(resolved_config.permission_mode)?;
 
     let stdin = io::stdin();

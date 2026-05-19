@@ -75,7 +75,7 @@ fn provider_list_reports_registry_and_current_provider() {
     let cwd = temp_dir("provider_list_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new());
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
     let mut approver = |_prompt| ApprovalResponse {
         approved: true,
         feedback: None,
@@ -100,7 +100,7 @@ fn provider_reload_reports_success_without_replacing_current_provider_instance()
     let cwd = temp_dir("provider_reload_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new());
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
     let mut approver = |_prompt| ApprovalResponse {
         approved: true,
         feedback: None,
@@ -129,6 +129,10 @@ fn provider_reload_failure_reports_diagnostics_and_keeps_previous_registry() {
     engine.set_provider_runtime(
         ProviderHost::load_from_dirs_diagnostic(Vec::new()).unwrap(),
         vec![invalid_plugin_dir],
+        None,
+        None,
+        90,
+        1,
     );
     let mut approver = |_prompt| ApprovalResponse {
         approved: true,
@@ -145,6 +149,55 @@ fn provider_reload_failure_reports_diagnostics_and_keeps_previous_registry() {
             if text.contains("Provider registry reload failed.")
                 && text.contains("kind: ReadDirectory")
                 && text.contains("Previous registry remains active")
+    )));
+}
+
+#[test]
+fn provider_use_switches_current_provider_and_model() {
+    let home = temp_dir("provider_use_home");
+    let cwd = temp_dir("provider_use_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/provider use fallback switched-model", &mut approver)
+        .unwrap();
+
+    assert_eq!(engine.provider_name(), "fallback");
+    assert_eq!(engine.model_name(), "switched-model");
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Provider set to fallback (switched-model)")
+    )));
+}
+
+#[test]
+fn provider_use_reports_unknown_provider() {
+    let home = temp_dir("provider_use_unknown_home");
+    let cwd = temp_dir("provider_use_unknown_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/provider use missing-provider", &mut approver)
+        .unwrap();
+
+    assert_eq!(engine.provider_name(), "sequence");
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Provider `missing-provider` is not registered")
     )));
 }
 

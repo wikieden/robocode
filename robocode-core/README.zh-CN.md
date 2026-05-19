@@ -21,6 +21,7 @@
   - `/provider list` 渲染当前 provider registry。
   - `/provider reload` 重新加载 provider plugin descriptors，但不替换当前
     provider 实例。
+  - `/provider use <id> [model]` 通过当前 registry 切换当前 provider 实例。
 
 ## 不变量
 
@@ -28,6 +29,8 @@
 - Slash commands 写入 `TranscriptEntry::Command`。
 - Provider reload 必须保持原子语义：失败时报告 diagnostics，并保留之前可用的
   registry。
+- Provider switching 必须经过当前 `ProviderHost`，并更新 provider/model 的
+  transcript metadata。
 - `/task resume-context` 可以更新派生字段，但不能改变 task 业务状态。
 - Transcript 审计能力必须保持。
 
