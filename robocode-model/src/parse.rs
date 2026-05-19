@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use robocode_types::{ModelEvent, ToolCall, ToolInput, fresh_id, parse_tool_input};
 use serde_json::Value;
 
@@ -78,6 +80,62 @@ pub(crate) fn parse_openai_events(response: &str) -> Option<Vec<ModelEvent>> {
     extract_openai_content(message).map(|content| vec![ModelEvent::AssistantText { content }])
 }
 
+pub(crate) fn parse_openai_stream_events(response: &str) -> Option<Vec<ModelEvent>> {
+    let mut text_parts = Vec::new();
+    let mut reasoning_parts = Vec::new();
+    let mut tool_calls = BTreeMap::<usize, OpenAiStreamToolCall>::new();
+
+    for payload in sse_payloads(response) {
+        if payload == "[DONE]" {
+            break;
+        }
+        let value: Value = serde_json::from_str(payload).ok()?;
+        let delta = value.get("choices")?.as_array()?.first()?.get("delta")?;
+        if let Some(content) = delta.get("content").and_then(Value::as_str) {
+            if !content.is_empty() {
+                text_parts.push(content.to_string());
+            }
+        }
+        if let Some(reasoning) = delta.get("reasoning_content").and_then(Value::as_str) {
+            if !reasoning.is_empty() {
+                reasoning_parts.push(reasoning.to_string());
+            }
+        }
+        if let Some(delta_tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
+            for tool_call in delta_tool_calls {
+                let index = tool_call
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(tool_calls.len() as u64) as usize;
+                let entry = tool_calls.entry(index).or_default();
+                if let Some(id) = tool_call.get("id").and_then(Value::as_str) {
+                    entry.id = Some(id.to_string());
+                }
+                if let Some(function) = tool_call.get("function") {
+                    if let Some(name) = function.get("name").and_then(Value::as_str) {
+                        entry.name = Some(name.to_string());
+                    }
+                    if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
+                        entry.arguments.push_str(arguments);
+                    }
+                }
+            }
+        }
+    }
+
+    let reasoning_content = joined_non_empty(&reasoning_parts);
+    let calls = tool_calls
+        .into_values()
+        .filter_map(|call| call.into_tool_call(reasoning_content.as_deref()))
+        .map(ModelEvent::ToolCall)
+        .collect::<Vec<_>>();
+    if !calls.is_empty() {
+        Some(calls)
+    } else {
+        joined_non_empty(&text_parts).map(|content| vec![ModelEvent::AssistantText { content }])
+    }
+}
+
 pub(crate) fn parse_ollama_events(response: &str) -> Option<Vec<ModelEvent>> {
     let value: Value = serde_json::from_str(response).ok()?;
     if let Some(message) = value.get("message") {
@@ -97,6 +155,141 @@ pub(crate) fn parse_ollama_events(response: &str) -> Option<Vec<ModelEvent>> {
         }
     }
     None
+}
+
+pub(crate) fn parse_anthropic_stream_events(response: &str) -> Option<Vec<ModelEvent>> {
+    let mut text_blocks = BTreeMap::<usize, String>::new();
+    let mut tool_blocks = BTreeMap::<usize, AnthropicStreamToolCall>::new();
+
+    for payload in sse_payloads(response) {
+        let value: Value = serde_json::from_str(payload).ok()?;
+        match value.get("type").and_then(Value::as_str)? {
+            "content_block_start" => {
+                let index = value.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let block = value.get("content_block")?;
+                match block.get("type").and_then(Value::as_str) {
+                    Some("text") => {
+                        text_blocks.entry(index).or_default();
+                    }
+                    Some("tool_use") => {
+                        tool_blocks.insert(
+                            index,
+                            AnthropicStreamToolCall {
+                                id: block
+                                    .get("id")
+                                    .and_then(Value::as_str)
+                                    .map(ToString::to_string),
+                                name: block
+                                    .get("name")
+                                    .and_then(Value::as_str)
+                                    .map(ToString::to_string),
+                                input_json: String::new(),
+                            },
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            "content_block_delta" => {
+                let index = value.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let delta = value.get("delta")?;
+                match delta.get("type").and_then(Value::as_str) {
+                    Some("text_delta") => {
+                        if let Some(text) = delta.get("text").and_then(Value::as_str) {
+                            text_blocks.entry(index).or_default().push_str(text);
+                        }
+                    }
+                    Some("input_json_delta") => {
+                        if let Some(partial_json) =
+                            delta.get("partial_json").and_then(Value::as_str)
+                        {
+                            tool_blocks
+                                .entry(index)
+                                .or_default()
+                                .input_json
+                                .push_str(partial_json);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            "message_stop" => break,
+            _ => {}
+        }
+    }
+
+    let calls = tool_blocks
+        .into_values()
+        .filter_map(AnthropicStreamToolCall::into_tool_call)
+        .map(ModelEvent::ToolCall)
+        .collect::<Vec<_>>();
+    if !calls.is_empty() {
+        Some(calls)
+    } else {
+        let text_parts = text_blocks.into_values().collect::<Vec<_>>();
+        joined_non_empty(&text_parts).map(|content| vec![ModelEvent::AssistantText { content }])
+    }
+}
+
+#[derive(Default)]
+struct OpenAiStreamToolCall {
+    id: Option<String>,
+    name: Option<String>,
+    arguments: String,
+}
+
+impl OpenAiStreamToolCall {
+    fn into_tool_call(self, reasoning_content: Option<&str>) -> Option<ToolCall> {
+        let name = self.name?;
+        let mut input = parse_json_tool_arguments(&self.arguments);
+        if let Some(reasoning_content) = reasoning_content {
+            input.insert(
+                PROVIDER_REASONING_CONTENT_KEY.to_string(),
+                reasoning_content.to_string(),
+            );
+        }
+        Some(ToolCall {
+            id: self.id.unwrap_or_else(|| fresh_id("tool")),
+            name,
+            input,
+        })
+    }
+}
+
+#[derive(Default)]
+struct AnthropicStreamToolCall {
+    id: Option<String>,
+    name: Option<String>,
+    input_json: String,
+}
+
+impl AnthropicStreamToolCall {
+    fn into_tool_call(self) -> Option<ToolCall> {
+        Some(ToolCall {
+            id: self.id.unwrap_or_else(|| fresh_id("tool")),
+            name: self.name?,
+            input: parse_json_tool_arguments(&self.input_json),
+        })
+    }
+}
+
+fn sse_payloads(response: &str) -> impl Iterator<Item = &str> {
+    response.lines().filter_map(|line| {
+        let trimmed = line.trim();
+        trimmed
+            .strip_prefix("data:")
+            .map(str::trim)
+            .filter(|payload| !payload.is_empty())
+    })
+}
+
+fn joined_non_empty(parts: &[String]) -> Option<String> {
+    let content = parts.join("");
+    if content.trim().is_empty() {
+        None
+    } else {
+        Some(content)
+    }
 }
 
 fn extract_openai_content(message: &Value) -> Option<String> {

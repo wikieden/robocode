@@ -50,12 +50,21 @@ pub trait ModelProvider: Send {
 #[derive(Debug, Clone)]
 pub struct ModelRequestControl {
     cancelled: Arc<AtomicBool>,
+    prefer_streaming: bool,
 }
 
 impl ModelRequestControl {
     pub fn new() -> Self {
         Self {
             cancelled: Arc::new(AtomicBool::new(false)),
+            prefer_streaming: false,
+        }
+    }
+
+    pub fn with_streaming_preference(prefer_streaming: bool) -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+            prefer_streaming,
         }
     }
 
@@ -65,6 +74,10 @@ impl ModelRequestControl {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
+    }
+
+    pub fn prefer_streaming(&self) -> bool {
+        self.prefer_streaming
     }
 
     pub fn check_cancelled(&self) -> Result<(), String> {

@@ -5,20 +5,31 @@ use serde_json::{Map, Value, json};
 
 use crate::PROVIDER_REASONING_CONTENT_KEY;
 
-pub(crate) fn build_anthropic_body(model: &str, request: &ModelRequest) -> String {
+pub(crate) fn build_anthropic_body_with_stream(
+    model: &str,
+    request: &ModelRequest,
+    stream: bool,
+) -> String {
     let mut payload = json!({
         "model": model,
         "max_tokens": 2048,
         "system": provider_system_prompt(),
         "messages": render_anthropic_messages(&request.messages),
     });
+    if stream {
+        payload["stream"] = Value::Bool(true);
+    }
     if !request.tools.is_empty() {
         payload["tools"] = Value::Array(render_anthropic_tools(&request.tools));
     }
     serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
 }
 
-pub(crate) fn build_openai_body(model: &str, request: &ModelRequest) -> String {
+pub(crate) fn build_openai_body_with_stream(
+    model: &str,
+    request: &ModelRequest,
+    stream: bool,
+) -> String {
     let mut messages = vec![json!({
         "role": "system",
         "content": provider_system_prompt(),
@@ -29,6 +40,9 @@ pub(crate) fn build_openai_body(model: &str, request: &ModelRequest) -> String {
         "messages": messages,
         "temperature": 0.2,
     });
+    if stream {
+        payload["stream"] = Value::Bool(true);
+    }
     if !request.tools.is_empty() {
         payload["tools"] = Value::Array(render_openai_tools(&request.tools));
     }
