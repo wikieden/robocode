@@ -7,6 +7,7 @@ mod formatting;
 mod git_commands;
 mod lsp_tools;
 mod presentation;
+mod provider_commands;
 mod runtime_loop;
 mod runtime_views;
 mod session_lifecycle;
@@ -18,7 +19,7 @@ pub(crate) use doctor::DependencyStatus;
 pub(crate) use doctor::{DoctorReport, system_dependency_status};
 use formatting::{format_relative_age, render_resume_context, render_task_detail};
 use robocode_lsp::{LspRuntime, LspServerRegistry};
-use robocode_model::ModelProvider;
+use robocode_model::{ModelProvider, ProviderHost};
 use robocode_permissions::PermissionEngine;
 use robocode_session::SessionStore;
 use robocode_tools::ToolRegistry;
@@ -39,6 +40,8 @@ pub enum EngineEvent {
 pub struct SessionEngine {
     cwd: PathBuf,
     provider: Box<dyn ModelProvider>,
+    provider_host: Option<ProviderHost>,
+    provider_plugin_dirs: Vec<PathBuf>,
     tools: ToolRegistry,
     permissions: PermissionEngine,
     store: SessionStore,
@@ -92,6 +95,8 @@ impl SessionEngine {
         let engine = Self {
             cwd: cwd.clone(),
             provider,
+            provider_host: None,
+            provider_plugin_dirs: Vec::new(),
             tools: ToolRegistry::builtin(),
             permissions: PermissionEngine::new(&cwd),
             store,
@@ -117,6 +122,15 @@ impl SessionEngine {
 
     pub fn model_name(&self) -> &str {
         self.provider.model()
+    }
+
+    pub fn set_provider_runtime(
+        &mut self,
+        provider_host: ProviderHost,
+        provider_plugin_dirs: Vec<PathBuf>,
+    ) {
+        self.provider_host = Some(provider_host);
+        self.provider_plugin_dirs = provider_plugin_dirs;
     }
 
     pub fn mode(&self) -> PermissionMode {

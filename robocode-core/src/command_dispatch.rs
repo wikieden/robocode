@@ -26,11 +26,7 @@ impl SessionEngine {
                     format!("Current model: {}", self.provider.model())
                 }
             }
-            "/provider" => format!(
-                "Current provider: {} ({})",
-                self.provider.provider_name(),
-                self.provider.model()
-            ),
+            "/provider" => self.handle_provider_command(&args)?,
             "/status" => self.render_status(),
             "/config" => self.render_config(),
             "/doctor" => self.render_doctor(),
