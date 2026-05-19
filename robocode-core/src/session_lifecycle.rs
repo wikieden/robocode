@@ -36,7 +36,7 @@ impl SessionEngine {
         self.messages.clear();
         self.last_diff = None;
         self.permissions = PermissionEngine::new(&self.cwd);
-        self.hydrate(entries);
+        self.hydrate(entries)?;
         Ok(format!(
             "Resumed session {} ({})",
             summary.session_id,
@@ -105,7 +105,9 @@ impl SessionEngine {
         Err(format!("No session found at index {index}."))
     }
 
-    fn hydrate(&mut self, entries: Vec<TranscriptEntry>) {
+    fn hydrate(&mut self, entries: Vec<TranscriptEntry>) -> Result<(), String> {
+        let mut provider_meta = None;
+        let mut model_meta = None;
         for entry in entries {
             match entry {
                 TranscriptEntry::Message { message } => self.messages.push(message),
@@ -130,14 +132,40 @@ impl SessionEngine {
                         }
                     }
                     "model" => {
-                        self.provider.set_model(entry.value.clone());
-                        self.runtime_snapshot.model_label = self.provider.model().to_string();
+                        model_meta = Some(entry.value.clone());
+                    }
+                    "provider" => {
+                        provider_meta = Some(entry.value.clone());
                     }
                     _ => {}
                 },
                 _ => {}
             }
         }
+        self.restore_provider_meta(provider_meta.as_deref(), model_meta.as_deref())?;
+        Ok(())
+    }
+
+    fn restore_provider_meta(
+        &mut self,
+        provider_id: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<(), String> {
+        if let Some(provider_id) = provider_id {
+            if self.provider_host.is_some() {
+                let next_provider = self.create_provider_from_runtime(provider_id, model)?;
+                self.provider = next_provider;
+                self.runtime_snapshot.provider_family = provider_id.to_string();
+                self.runtime_snapshot.model_label = self.provider.model().to_string();
+                return Ok(());
+            }
+        }
+        if let Some(model) = model {
+            self.provider.set_model(model.to_string());
+            self.runtime_snapshot.model_label = self.provider.model().to_string();
+        }
+        self.runtime_snapshot.provider_family = self.provider.provider_name().to_string();
+        Ok(())
     }
 
     pub(super) fn persist_meta(&self, key: &str, value: &str) -> Result<(), String> {
