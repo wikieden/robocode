@@ -15,6 +15,8 @@
 - CLI 启动参数和环境传递。
 - `--provider-plugin-dir <dir>`，用于可重复配置动态 provider plugin 发现目录。
 - Provider plugin 加载失败时的结构化启动诊断。
+- 把 provider runtime state 传给 REPL，使 `/provider list` 和
+  `/provider reload` 可以检查并刷新 plugin descriptors。
 - Runtime snapshot 构造。
 - REPL 渲染 `EngineEvent` 输出。
 
@@ -23,6 +25,8 @@
 - 命令和 mutation 不能绕过 `robocode-core`。
 - 保持 `robocode-config` 的配置优先级。
 - 启动时必须根据解析后的配置构造 `ProviderHost`，包括显式 provider plugin 目录。
+- 必须把启动时的 provider host 和 plugin 目录传给 `robocode-core`；CLI 不直接实现
+  provider reload 行为。
 - Provider plugin loader 错误必须渲染 kind、path、message 和 detail，不能退化成
   不透明字符串。
 - 终端输出必须在无 rich TUI 时仍可用。

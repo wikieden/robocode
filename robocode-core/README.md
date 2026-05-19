@@ -15,12 +15,19 @@
 
 - `SessionEngine`
 - `EngineEvent`
-- Runtime/session/Git/Web/task/memory command handling.
+- Runtime/session/provider/Git/Web/task/memory command handling.
+- Provider runtime commands:
+  - `/provider` reports the current provider instance.
+  - `/provider list` renders the active provider registry.
+  - `/provider reload` reloads provider plugin descriptors without replacing
+    the current provider instance.
 
 ## Invariants
 
 - Tool calls and mutating workflow commands must pass permission checks before execution.
 - Slash commands write `TranscriptEntry::Command`.
+- Provider reload is atomic: a failed reload reports diagnostics and keeps the
+  previous registry active.
 - `/task resume-context` may update derived fields but must not change task business status.
 - Transcript auditability must remain intact.
 

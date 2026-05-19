@@ -15,12 +15,19 @@
 
 - `SessionEngine`
 - `EngineEvent`
-- runtime/session/Git/Web/task/memory 命令处理。
+- runtime/session/provider/Git/Web/task/memory 命令处理。
+- Provider runtime commands：
+  - `/provider` 显示当前 provider 实例。
+  - `/provider list` 渲染当前 provider registry。
+  - `/provider reload` 重新加载 provider plugin descriptors，但不替换当前
+    provider 实例。
 
 ## 不变量
 
 - Tool calls 和 mutating workflow commands 执行前必须通过 permission checks。
 - Slash commands 写入 `TranscriptEntry::Command`。
+- Provider reload 必须保持原子语义：失败时报告 diagnostics，并保留之前可用的
+  registry。
 - `/task resume-context` 可以更新派生字段，但不能改变 task 业务状态。
 - Transcript 审计能力必须保持。
 

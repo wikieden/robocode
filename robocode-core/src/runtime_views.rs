@@ -9,6 +9,8 @@ impl SessionEngine {
             "Runtime:",
             "  /help                Show available commands",
             "  /provider            Show current provider and model",
+            "  /provider list       List registered providers",
+            "  /provider reload     Reload provider plugin registry",
             "  /model [name]        Show or change the active model label",
             "  /permissions [mode]  Show or change permission mode",
             "  /plan [on|off]       Toggle plan mode",

@@ -16,6 +16,8 @@
 - `--provider-plugin-dir <dir>` for repeatable dynamic provider plugin
   discovery paths.
 - Structured startup diagnostics for provider plugin loading failures.
+- REPL handoff of provider runtime state so `/provider list` and
+  `/provider reload` can inspect and refresh plugin descriptors.
 - Runtime snapshot construction.
 - REPL rendering of `EngineEvent` output.
 
@@ -25,6 +27,8 @@
 - Preserve config precedence from `robocode-config`.
 - Build the startup `ProviderHost` from resolved config, including explicit
   provider plugin directories.
+- Pass the startup provider host and plugin directories into `robocode-core`;
+  the CLI must not implement provider reload behavior itself.
 - Render provider plugin loader errors with kind, path, message, and detail
   rather than collapsing them into an opaque string.
 - Keep terminal output usable without a rich TUI.

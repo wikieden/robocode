@@ -1,4 +1,5 @@
 use crate::{DependencyStatus, DoctorReport, EngineEvent, SessionEngine};
+use robocode_model::ProviderHost;
 use robocode_types::ApprovalResponse;
 
 use super::{SequenceProvider, temp_dir};
@@ -65,6 +66,85 @@ fn config_command_reports_runtime_configuration_summary() {
             if text.contains("Runtime configuration:")
                 && text.contains("provider=")
                 && text.contains("Loaded config files:")
+    )));
+}
+
+#[test]
+fn provider_list_reports_registry_and_current_provider() {
+    let home = temp_dir("provider_list_home");
+    let cwd = temp_dir("provider_list_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new());
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/provider list", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Provider registry:")
+                && text.contains("Current provider: sequence (test-model)")
+                && text.contains("openai-compatible")
+    )));
+}
+
+#[test]
+fn provider_reload_reports_success_without_replacing_current_provider_instance() {
+    let home = temp_dir("provider_reload_home");
+    let cwd = temp_dir("provider_reload_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new());
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/provider reload", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Provider registry reloaded:")
+                && text.contains("Current provider instance remains sequence (test-model)")
+    )));
+}
+
+#[test]
+fn provider_reload_failure_reports_diagnostics_and_keeps_previous_registry() {
+    let home = temp_dir("provider_reload_failure_home");
+    let cwd = temp_dir("provider_reload_failure_cwd");
+    let invalid_plugin_dir = cwd.join("provider-plugin-dir-file");
+    std::fs::write(&invalid_plugin_dir, b"not a directory").unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(
+        ProviderHost::load_from_dirs_diagnostic(Vec::new()).unwrap(),
+        vec![invalid_plugin_dir],
+    );
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/provider reload", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Provider registry reload failed.")
+                && text.contains("kind: ReadDirectory")
+                && text.contains("Previous registry remains active")
     )));
 }
 
