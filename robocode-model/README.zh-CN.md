@@ -42,6 +42,15 @@ provider-id 冲突，并通过已注册的 protocol adapter 创建运行时 prov
 实例。这样 plugin boundary 保持为序列化、由 host 中介的边界，而不是暴露不稳定
 的 Rust trait-object ABI。
 
+动态 provider 的 API base 按以下优先级解析：
+
+1. 显式 runtime config 或 CLI override。
+2. Descriptor `env_mappings.api_base_env`。
+3. Descriptor `default_api_base`。
+
+解析后的 API base 必须以 `http://` 或 `https://` 开头。来自环境变量的无效值会让
+provider construction 失败，不会继续传给 HTTP transport。
+
 Registry refresh 对调用方保持原子语义：
 
 - `ProviderHost::refresh` 从默认 plugin 目录重建 registry。
@@ -73,6 +82,7 @@ marketplace/distribution 属于后续 hardening 工作。
 - HTTP/provider 失败返回错误，不 panic。
 - Provider identity 与 protocol family 分离。
 - Plugin descriptors 必须先校验，再进入 registry。
+- Dynamic provider API base 解析必须保持 explicit-over-env-over-default 优先级。
 - Registry refresh 失败时不能静默丢掉之前正常工作的 registry。
 - Cancellation 必须在 dispatch 前检查，也必须在 HTTP transport 等待 provider
   子进程时检查。

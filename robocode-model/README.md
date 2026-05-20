@@ -42,6 +42,16 @@ provider-id collisions, and creates runtime provider instances through the
 registered protocol adapter. This keeps the plugin boundary serialized and
 host-mediated instead of exposing an unstable Rust trait-object ABI.
 
+Dynamic provider API base resolution uses this precedence:
+
+1. Explicit runtime config or CLI override.
+2. Descriptor `env_mappings.api_base_env`.
+3. Descriptor `default_api_base`.
+
+The resolved API base must start with `http://` or `https://`. Invalid
+environment-derived values fail provider construction instead of being passed to
+HTTP transport.
+
 Registry refresh is atomic from the caller's perspective:
 
 - `ProviderHost::refresh` rebuilds from the default plugin directories.
@@ -74,6 +84,7 @@ marketplace/distribution are future hardening work.
 - HTTP/provider failures return errors, not panics.
 - Provider identity is separate from protocol family.
 - Plugin descriptors are validated before they become visible in the registry.
+- Dynamic provider API base resolution must preserve explicit-over-env-over-default precedence.
 - Registry refresh must not silently drop the previous working registry on load
   failure.
 - Cancellation must be checked before dispatch and while HTTP transport is

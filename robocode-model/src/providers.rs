@@ -146,15 +146,7 @@ impl HttpProvider {
                     descriptor.provider_id
                 )
             })?;
-        let api_base = api_base
-            .filter(|value| !value.trim().is_empty())
-            .or(descriptor.default_api_base.as_deref())
-            .ok_or_else(|| {
-                format!(
-                    "Provider `{}` does not define a default API base; pass an API base explicitly",
-                    descriptor.provider_id
-                )
-            })?;
+        let api_base = resolve_descriptor_api_base(descriptor, api_base)?;
         let api_key = api_key
             .map(ToString::to_string)
             .or_else(|| resolve_env_mapping(descriptor.env_mappings.api_key_env.as_deref()));
@@ -162,7 +154,7 @@ impl HttpProvider {
             provider_name: descriptor.provider_id.clone(),
             mode,
             model: model.to_string(),
-            api_base: api_base.to_string(),
+            api_base,
             api_key,
             request_timeout_secs: request_timeout_secs.max(1),
             max_retries,
@@ -463,4 +455,47 @@ pub(crate) fn load_registered_provider(
 
 fn resolve_env_mapping(env_name: Option<&str>) -> Option<String> {
     env_name.and_then(|name| std::env::var(name).ok())
+}
+
+fn resolve_descriptor_api_base(
+    descriptor: &ProviderDescriptor,
+    explicit_api_base: Option<&str>,
+) -> Result<String, String> {
+    let (api_base, source) = explicit_api_base
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| (value.to_string(), "explicit API base".to_string()))
+        .or_else(|| {
+            let env_name = descriptor.env_mappings.api_base_env.as_deref()?;
+            resolve_env_mapping(Some(env_name))
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| (value, format!("environment variable `{env_name}`")))
+        })
+        .or_else(|| {
+            descriptor
+                .default_api_base
+                .clone()
+                .map(|value| (value, "descriptor default_api_base".to_string()))
+        })
+        .ok_or_else(|| {
+            format!(
+                "Provider `{}` does not define a default API base; pass an API base explicitly",
+                descriptor.provider_id
+            )
+        })?;
+
+    validate_resolved_api_base(&descriptor.provider_id, &api_base, &source)?;
+    Ok(api_base)
+}
+
+fn validate_resolved_api_base(
+    provider_id: &str,
+    api_base: &str,
+    source: &str,
+) -> Result<(), String> {
+    if !(api_base.starts_with("https://") || api_base.starts_with("http://")) {
+        return Err(format!(
+            "Provider `{provider_id}` resolved API base from {source} as `{api_base}`, but it must start with http:// or https://"
+        ));
+    }
+    Ok(())
 }

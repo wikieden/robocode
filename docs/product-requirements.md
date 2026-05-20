@@ -185,6 +185,8 @@ The provider target also includes a plugin-extensible provider runtime:
 
 - built-in providers are only one registry source
 - dynamic provider loading is a first-class requirement
+- dynamic provider API base resolution follows explicit config, descriptor
+  environment mapping, then descriptor default
 - provider identity and protocol family remain separate concerns
 - provider bindings are session/agent scoped rather than process-global
 - runtime registry refresh must allow newly loaded providers to be used by new

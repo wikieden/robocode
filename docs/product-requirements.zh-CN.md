@@ -174,6 +174,7 @@ provider 目标还包括 plugin-extensible provider runtime：
 
 - built-in providers 只是 registry 的一种来源
 - dynamic provider loading 是正式需求
+- dynamic provider API base 按 explicit config、descriptor environment mapping、descriptor default 的顺序解析
 - provider identity 与 protocol family 必须保持分离
 - provider bindings 以 session/agent 为作用域，而不是 process-global
 - runtime registry refresh 必须允许新加载 provider 被新的 provider instances 使用，而不强制已有 session 热切换
