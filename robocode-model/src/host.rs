@@ -1,12 +1,9 @@
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 use crate::ProviderPluginError;
 use crate::providers::{load_builtin_provider, load_registered_provider};
 use crate::{ModelProvider, ProviderConfig, ProviderRegistry};
-
-static BUILTIN_PROVIDER_REGISTRY: LazyLock<Arc<RwLock<Arc<ProviderRegistry>>>> =
-    LazyLock::new(|| Arc::new(RwLock::new(Arc::new(ProviderRegistry::with_builtins()))));
 
 #[derive(Debug)]
 pub struct ProviderHost {
@@ -19,15 +16,10 @@ impl ProviderHost {
     }
 
     pub fn load_default_diagnostic() -> Result<Self, ProviderPluginError> {
-        let registry = Arc::new(ProviderRegistry::load_default_diagnostic()?);
-        {
-            let mut global = BUILTIN_PROVIDER_REGISTRY.write().map_err(|_| {
-                ProviderPluginError::registry("builtin registry write lock poisoned")
-            })?;
-            *global = Arc::clone(&registry);
-        }
         Ok(Self {
-            registry: Arc::clone(&BUILTIN_PROVIDER_REGISTRY),
+            registry: Arc::new(RwLock::new(Arc::new(
+                ProviderRegistry::load_default_diagnostic()?,
+            ))),
         })
     }
 
@@ -47,7 +39,7 @@ impl ProviderHost {
 
     pub fn with_builtins() -> Self {
         Self {
-            registry: Arc::clone(&BUILTIN_PROVIDER_REGISTRY),
+            registry: Arc::new(RwLock::new(Arc::new(ProviderRegistry::with_builtins()))),
         }
     }
 
@@ -74,7 +66,7 @@ impl ProviderHost {
         let mut global = self
             .registry
             .write()
-            .map_err(|_| ProviderPluginError::registry("builtin registry write lock poisoned"))?;
+            .map_err(|_| ProviderPluginError::registry("provider registry write lock poisoned"))?;
         *global = rebuilt;
         Ok(())
     }
