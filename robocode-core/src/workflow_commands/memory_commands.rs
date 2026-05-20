@@ -1,6 +1,7 @@
 use super::SessionEngine;
+use crate::presentation::{join_lines, render_section_title, render_subsection_title};
 use robocode_types::{
-    ApprovalResponse, MemoryKind, MemoryScope, MemorySource, fresh_id, now_timestamp,
+    ApprovalResponse, MemoryEntry, MemoryKind, MemoryScope, MemorySource, fresh_id, now_timestamp,
 };
 use robocode_workflows::memory::MemoryEvent;
 
@@ -126,16 +127,11 @@ impl SessionEngine {
         if entries.is_empty() {
             return Ok("Project memory:\n  <none>".to_string());
         }
-        let mut lines = vec!["Project memory:".to_string()];
+        let mut lines = memory_summary_lines("Project memory", "active", entries.len());
         for entry in entries {
-            lines.push(format!(
-                "  {} [{}] {}",
-                entry.memory_id,
-                entry.kind.cli_name(),
-                entry.content
-            ));
+            lines.extend(render_memory_entry(entry));
         }
-        Ok(lines.join("\n"))
+        Ok(join_lines(&lines))
     }
 
     fn render_session_memory(&self) -> Result<String, String> {
@@ -144,16 +140,11 @@ impl SessionEngine {
         if entries.is_empty() {
             return Ok("Session memory:\n  <none>".to_string());
         }
-        let mut lines = vec!["Session memory:".to_string()];
+        let mut lines = memory_summary_lines("Session memory", "active", entries.len());
         for entry in entries {
-            lines.push(format!(
-                "  {} [{}] {}",
-                entry.memory_id,
-                entry.kind.cli_name(),
-                entry.content
-            ));
+            lines.extend(render_memory_entry(entry));
         }
-        Ok(lines.join("\n"))
+        Ok(join_lines(&lines))
     }
 
     fn render_memory_suggestions(&self) -> Result<String, String> {
@@ -162,41 +153,76 @@ impl SessionEngine {
         if entries.is_empty() {
             return Ok("Pending memory suggestions:\n  <none>".to_string());
         }
-        let mut lines = vec!["Pending memory suggestions:".to_string()];
+        let mut lines =
+            memory_summary_lines("Pending memory suggestions", "pending", entries.len());
         for entry in entries {
-            lines.push(format!(
-                "  {} [{}] {}",
-                entry.memory_id,
-                entry.kind.cli_name(),
-                entry.content
-            ));
+            lines.extend(render_memory_entry(entry));
         }
-        Ok(lines.join("\n"))
+        Ok(join_lines(&lines))
     }
 
     fn render_memory_export(&self) -> Result<String, String> {
         let state = self.workflows.load_memory_state()?;
-        let mut lines = vec!["Memory export:".to_string(), "Project memory:".to_string()];
-        for entry in state.active_project_memory() {
-            lines.push(format!(
-                "  - {} [{}] {}",
-                entry.memory_id,
-                entry.kind.cli_name(),
-                entry.content
-            ));
+        let project_entries = state.active_project_memory();
+        let session_entries = state.active_session_memory(self.session_id());
+        let mut lines = vec![
+            render_section_title("Memory export").trim_end().to_string(),
+            format!(
+                "  Summary: project={} session={}",
+                project_entries.len(),
+                session_entries.len()
+            ),
+            String::new(),
+            render_subsection_title("Project memory"),
+        ];
+        for entry in &project_entries {
+            lines.extend(render_memory_entry(entry));
         }
-        lines.push("Session memory:".to_string());
-        for entry in state.active_session_memory(self.session_id()) {
-            lines.push(format!(
-                "  - {} [{}] {}",
-                entry.memory_id,
-                entry.kind.cli_name(),
-                entry.content
-            ));
-        }
-        if lines.len() == 3 {
+        if project_entries.is_empty() {
             lines.push("  <none>".to_string());
         }
-        Ok(lines.join("\n"))
+
+        lines.push(String::new());
+        lines.push(render_subsection_title("Session memory"));
+        for entry in &session_entries {
+            lines.extend(render_memory_entry(entry));
+        }
+        if session_entries.is_empty() {
+            lines.push("  <none>".to_string());
+        }
+        Ok(join_lines(&lines))
     }
+}
+
+fn memory_summary_lines(title: &str, count_label: &str, count: usize) -> Vec<String> {
+    vec![
+        render_section_title(title).trim_end().to_string(),
+        format!("  Summary: {count_label}={count}"),
+        String::new(),
+        render_subsection_title("Memory entries"),
+    ]
+}
+
+fn render_memory_entry(entry: &MemoryEntry) -> Vec<String> {
+    let mut lines = vec![
+        format!("  {}", entry.memory_id),
+        format!("     content: {}", entry.content),
+        format!("     kind: {}", entry.kind.cli_name()),
+        format!("     scope: {}", entry.scope.cli_name()),
+        format!("     status: {}", entry.status.cli_name()),
+        format!("     source: {}", entry.source.cli_name()),
+    ];
+    if let Some(session_id) = &entry.session_id {
+        lines.push(format!("     session: {session_id}"));
+    }
+    if !entry.related_task_ids.is_empty() {
+        lines.push(format!(
+            "     related tasks: {}",
+            entry.related_task_ids.join(", ")
+        ));
+    }
+    if let Some(confidence_hint) = &entry.confidence_hint {
+        lines.push(format!("     confidence: {confidence_hint}"));
+    }
+    lines
 }
