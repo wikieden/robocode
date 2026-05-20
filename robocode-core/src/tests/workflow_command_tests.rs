@@ -46,6 +46,53 @@ fn workflow_task_commands_create_list_and_resume_context() {
 }
 
 #[test]
+fn workflow_tasks_command_uses_structured_view_sections() {
+    let home = temp_dir("workflow_task_structured_home");
+    let cwd = temp_dir("workflow_task_structured_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let created = engine
+        .process_input_with_approval("/task add Structured task rendering", &mut approver)
+        .unwrap();
+    let task_id = created
+        .iter()
+        .find_map(|event| match event {
+            EngineEvent::Command(text) => text
+                .split_whitespace()
+                .find(|part| part.starts_with("task_"))
+                .map(ToString::to_string),
+            _ => None,
+        })
+        .unwrap();
+    engine
+        .process_input_with_approval(
+            &format!("/task status {task_id} in_progress"),
+            &mut approver,
+        )
+        .unwrap();
+
+    let listed = engine
+        .process_input_with_approval("/tasks", &mut approver)
+        .unwrap();
+
+    assert!(listed.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Summary: active=")
+                && text.contains("Task entries:")
+                && text.contains("title: Structured task rendering")
+                && text.contains("status: in_progress")
+                && text.contains("priority: medium")
+                && text.contains("last session:")
+    )));
+}
+
+#[test]
 fn workflow_mutations_respect_plan_mode() {
     let home = temp_dir("workflow_plan_home");
     let cwd = temp_dir("workflow_plan_cwd");

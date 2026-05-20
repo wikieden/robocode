@@ -1,6 +1,9 @@
 use super::SessionEngine;
+use crate::presentation::{join_lines, render_section_title, render_subsection_title};
 use crate::{render_resume_context, render_task_detail};
-use robocode_types::{ApprovalResponse, TaskPriority, TaskStatus, fresh_id, now_timestamp};
+use robocode_types::{
+    ApprovalResponse, TaskPriority, TaskRecord, TaskStatus, fresh_id, now_timestamp,
+};
 use robocode_workflows::resume_context::{ResumeContextInput, build_resume_context};
 use robocode_workflows::tasks::{TaskBlocker, TaskEvent, TaskUpdate};
 
@@ -11,17 +14,29 @@ impl SessionEngine {
         if tasks.is_empty() {
             return Ok("Project tasks:\n  <none>".to_string());
         }
-        let mut lines = vec!["Project tasks:".to_string()];
+        let blocked_count = tasks
+            .iter()
+            .filter(|task| task.status == TaskStatus::Blocked)
+            .count();
+        let in_progress_count = tasks
+            .iter()
+            .filter(|task| task.status == TaskStatus::InProgress)
+            .count();
+        let mut lines = vec![
+            render_section_title("Project tasks").trim_end().to_string(),
+            format!(
+                "  Summary: active={} in_progress={} blocked={}",
+                tasks.len(),
+                in_progress_count,
+                blocked_count
+            ),
+            String::new(),
+            render_subsection_title("Task entries"),
+        ];
         for task in tasks {
-            lines.push(format!(
-                "  {} [{} {}] {}",
-                task.task_id,
-                task.status.cli_name(),
-                task.priority.cli_name(),
-                task.title
-            ));
+            lines.extend(render_task_entry(task));
         }
-        Ok(lines.join("\n"))
+        Ok(join_lines(&lines))
     }
 
     pub(crate) fn handle_task_command<F>(
@@ -234,4 +249,29 @@ impl SessionEngine {
             )),
         }
     }
+}
+
+fn render_task_entry(task: &TaskRecord) -> Vec<String> {
+    let mut lines = vec![
+        format!("  {}", task.task_id),
+        format!("     title: {}", task.title),
+        format!("     status: {}", task.status.cli_name()),
+        format!("     priority: {}", task.priority.cli_name()),
+    ];
+    if let Some(blocked_by) = &task.blocked_by {
+        lines.push(format!("     blocked by: {blocked_by}"));
+    }
+    if !task.dependency_ids.is_empty() {
+        lines.push(format!(
+            "     dependencies: {}",
+            task.dependency_ids.join(", ")
+        ));
+    }
+    if !task.labels.is_empty() {
+        lines.push(format!("     labels: {}", task.labels.join(", ")));
+    }
+    if let Some(last_session_id) = &task.last_session_id {
+        lines.push(format!("     last session: {last_session_id}"));
+    }
+    lines
 }
