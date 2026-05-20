@@ -161,6 +161,88 @@ fn workflow_memory_suggest_confirm_and_project_list() {
 }
 
 #[test]
+fn workflow_memory_commands_use_structured_view_sections() {
+    let home = temp_dir("workflow_memory_structured_home");
+    let cwd = temp_dir("workflow_memory_structured_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let suggested = engine
+        .process_input_with_approval(
+            "/memory suggest Keep provider plugins explicit",
+            &mut approver,
+        )
+        .unwrap();
+    let memory_id = suggested
+        .iter()
+        .find_map(|event| match event {
+            EngineEvent::Command(text) => text
+                .split_whitespace()
+                .find(|part| part.starts_with("mem_"))
+                .map(ToString::to_string),
+            _ => None,
+        })
+        .unwrap();
+
+    let suggestions = engine
+        .process_input_with_approval("/memory suggest", &mut approver)
+        .unwrap();
+    assert!(suggestions.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Pending memory suggestions:")
+                && text.contains("Summary: pending=1")
+                && text.contains("Memory entries:")
+                && text.contains("content: Keep provider plugins explicit")
+                && text.contains("status: suggested")
+                && text.contains("source: assistant_suggestion")
+    )));
+
+    engine
+        .process_input_with_approval(&format!("/memory confirm {memory_id}"), &mut approver)
+        .unwrap();
+    engine
+        .process_input_with_approval(
+            "/memory add Remember session command context",
+            &mut approver,
+        )
+        .unwrap();
+
+    let project_memory = engine
+        .process_input_with_approval("/memory project", &mut approver)
+        .unwrap();
+    assert!(project_memory.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Project memory:")
+                && text.contains("Summary: active=1")
+                && text.contains("Memory entries:")
+                && text.contains("content: Keep provider plugins explicit")
+                && text.contains("kind: fact")
+                && text.contains("scope: project")
+                && text.contains("status: active")
+    )));
+
+    let session_memory = engine
+        .process_input_with_approval("/memory session", &mut approver)
+        .unwrap();
+    assert!(session_memory.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Session memory:")
+                && text.contains("Summary: active=1")
+                && text.contains("Memory entries:")
+                && text.contains("content: Remember session command context")
+                && text.contains("scope: session")
+                && text.contains("session:")
+    )));
+}
+
+#[test]
 fn workflow_task_mutation_subcommands_are_routed() {
     let home = temp_dir("workflow_task_mutations_home");
     let cwd = temp_dir("workflow_task_mutations_cwd");
@@ -275,6 +357,10 @@ fn workflow_memory_reject_prune_and_export_are_routed() {
         .unwrap();
     assert!(exported.iter().any(|event| matches!(
         event,
-        EngineEvent::Command(text) if text.contains("Memory export:")
+        EngineEvent::Command(text)
+            if text.contains("Memory export:")
+                && text.contains("Summary: project=0 session=0")
+                && text.contains("Project memory:")
+                && text.contains("Session memory:")
     )));
 }
