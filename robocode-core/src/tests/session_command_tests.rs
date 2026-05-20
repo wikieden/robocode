@@ -130,6 +130,42 @@ fn sessions_command_includes_activity_metadata() {
 }
 
 #[test]
+fn sessions_command_uses_structured_view_sections() {
+    let home = temp_dir("sessions_structured_home");
+    let cwd = temp_dir("sessions_structured_cwd");
+
+    let provider_a = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "structured reply".to_string(),
+        },
+    ]]));
+    let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine_a
+        .process_input_with_approval("inspect structured sessions", &mut approver)
+        .unwrap();
+
+    let provider_b = Box::new(SequenceProvider::new(vec![]));
+    let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
+    let output = engine_b
+        .process_input_with_approval("/sessions", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Summary: total=")
+                && text.contains("Session entries:")
+                && text.contains("activity: messages=")
+                && text.contains("preview:")
+                && text.contains("last activity:")
+    )));
+}
+
+#[test]
 fn sessions_command_marks_current_session() {
     let home = temp_dir("sessions_current_home");
     let cwd = temp_dir("sessions_current_cwd");
