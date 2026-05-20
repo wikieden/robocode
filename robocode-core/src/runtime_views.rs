@@ -1,4 +1,5 @@
 use super::*;
+use crate::presentation::{join_lines, render_section_title, render_subsection_title};
 use robocode_types::SessionSummary;
 
 impl SessionEngine {
@@ -151,10 +152,24 @@ impl SessionEngine {
         if sessions.is_empty() {
             return "No resumable sessions found for the current project.".to_string();
         }
+        let current_count = sessions
+            .iter()
+            .filter(|summary| summary.session_id == self.session_id())
+            .count();
         let mut lines = vec![
-            "Sessions for this project:".to_string(),
+            render_section_title("Sessions for this project")
+                .trim_end()
+                .to_string(),
+            format!(
+                "  Summary: total={} current={} resumable={}",
+                sessions.len(),
+                current_count,
+                sessions.len().saturating_sub(current_count)
+            ),
             "  Use `/resume latest`, `/resume #<index>`, or `/resume <session-id-prefix>`."
                 .to_string(),
+            String::new(),
+            render_subsection_title("Session entries"),
         ];
         for (index, summary) in sessions.iter().enumerate() {
             let title = summary
@@ -170,26 +185,35 @@ impl SessionEngine {
             } else {
                 ""
             };
+            let last_activity = summary
+                .last_activity_kind
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
+            let last_activity_preview = summary
+                .last_activity_preview
+                .clone()
+                .unwrap_or_else(|| preview.clone());
             lines.push(format!(
-                "  {}. {}{}  {}  {}",
+                "  #{} {}{}",
                 index + 1,
                 summary.session_id,
-                current,
-                format_relative_age(summary.last_updated_at),
-                title
+                current
+            ));
+            lines.push(format!("     title: {title}"));
+            lines.push(format!(
+                "     updated: {}",
+                format_relative_age(summary.last_updated_at)
             ));
             lines.push(format!(
-                "     messages={} tools={} commands={} last={}",
+                "     activity: messages={} tools={} commands={} last={}",
                 summary.message_count,
                 summary.tool_call_count,
                 summary.command_count,
-                summary
-                    .last_activity_kind
-                    .clone()
-                    .unwrap_or_else(|| "unknown".to_string())
+                last_activity
             ));
-            lines.push(format!("     {}", preview));
+            lines.push(format!("     preview: {preview}"));
+            lines.push(format!("     last activity: {last_activity_preview}"));
         }
-        lines.join("\n")
+        join_lines(&lines)
     }
 }
