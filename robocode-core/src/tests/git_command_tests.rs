@@ -78,6 +78,65 @@ fn git_status_command_uses_tool_runtime() {
 }
 
 #[test]
+fn git_diff_command_uses_structured_view_sections() {
+    let home = temp_dir("git_diff_structured_home");
+    let cwd = temp_dir("git_diff_structured_cwd");
+    init_git_repo(&cwd);
+    commit_demo_file(&cwd);
+    std::fs::write(cwd.join("demo.txt"), "hello\nchanged\n").unwrap();
+
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let events = engine
+        .process_input_with_approval("/git diff", &mut approver)
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Git diff:")
+                && text.contains("Summary: files=1 additions=1 deletions=0")
+                && text.contains("Diff:")
+                && text.contains("+changed")
+    )));
+}
+
+#[test]
+fn latest_diff_command_uses_structured_view_sections() {
+    let home = temp_dir("latest_diff_structured_home");
+    let cwd = temp_dir("latest_diff_structured_cwd");
+    init_git_repo(&cwd);
+    commit_demo_file(&cwd);
+    std::fs::write(cwd.join("demo.txt"), "hello\nchanged\n").unwrap();
+
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .process_input_with_approval("/git diff", &mut approver)
+        .unwrap();
+    let events = engine
+        .process_input_with_approval("/diff", &mut approver)
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Latest diff:")
+                && text.contains("Summary: files=1 additions=1 deletions=0")
+                && text.contains("Diff:")
+                && text.contains("+changed")
+    )));
+}
+
+#[test]
 fn git_switch_requests_approval() {
     let home = temp_dir("git_switch_home");
     let cwd = temp_dir("git_switch_cwd");

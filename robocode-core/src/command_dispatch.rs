@@ -1,4 +1,4 @@
-use crate::{EngineEvent, SessionEngine};
+use crate::{EngineEvent, SessionEngine, presentation::render_diff_view};
 use robocode_types::{
     ApprovalResponse, CommandLogEntry, PermissionMode, TranscriptEntry, now_timestamp,
 };
@@ -71,10 +71,10 @@ impl SessionEngine {
             "/memory" => self.handle_memory_command(&args, approver)?,
             "/diff" => {
                 if let Some(diff) = self.last_diff.clone() {
-                    diff
+                    render_diff_view("Latest diff", &diff)
                 } else {
                     match self.run_named_tool("git_diff", Default::default(), approver) {
-                        Ok(output) => output,
+                        Ok(output) => render_diff_view("Latest diff", &output),
                         Err(_) => "No diffs recorded in this session yet.".to_string(),
                     }
                 }

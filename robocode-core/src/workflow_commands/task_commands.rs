@@ -1,5 +1,8 @@
 use super::SessionEngine;
-use crate::presentation::{join_lines, render_section_title, render_subsection_title};
+use crate::presentation::{
+    join_lines, render_empty_section, render_entry_heading, render_field, render_section_title,
+    render_subsection_title, render_summary_fields,
+};
 use crate::{render_resume_context, render_task_detail};
 use robocode_types::{
     ApprovalResponse, TaskPriority, TaskRecord, TaskStatus, fresh_id, now_timestamp,
@@ -12,7 +15,7 @@ impl SessionEngine {
         let state = self.workflows.load_task_state()?;
         let tasks = state.active_tasks();
         if tasks.is_empty() {
-            return Ok("Project tasks:\n  <none>".to_string());
+            return Ok(render_empty_section("Project tasks"));
         }
         let blocked_count = tasks
             .iter()
@@ -24,12 +27,11 @@ impl SessionEngine {
             .count();
         let mut lines = vec![
             render_section_title("Project tasks").trim_end().to_string(),
-            format!(
-                "  Summary: active={} in_progress={} blocked={}",
-                tasks.len(),
-                in_progress_count,
-                blocked_count
-            ),
+            render_summary_fields(&[
+                ("active", tasks.len().to_string()),
+                ("in_progress", in_progress_count.to_string()),
+                ("blocked", blocked_count.to_string()),
+            ]),
             String::new(),
             render_subsection_title("Task entries"),
         ];
@@ -253,25 +255,22 @@ impl SessionEngine {
 
 fn render_task_entry(task: &TaskRecord) -> Vec<String> {
     let mut lines = vec![
-        format!("  {}", task.task_id),
-        format!("     title: {}", task.title),
-        format!("     status: {}", task.status.cli_name()),
-        format!("     priority: {}", task.priority.cli_name()),
+        render_entry_heading(&task.task_id),
+        render_field("title", &task.title),
+        render_field("status", task.status.cli_name()),
+        render_field("priority", task.priority.cli_name()),
     ];
     if let Some(blocked_by) = &task.blocked_by {
-        lines.push(format!("     blocked by: {blocked_by}"));
+        lines.push(render_field("blocked by", blocked_by));
     }
     if !task.dependency_ids.is_empty() {
-        lines.push(format!(
-            "     dependencies: {}",
-            task.dependency_ids.join(", ")
-        ));
+        lines.push(render_field("dependencies", task.dependency_ids.join(", ")));
     }
     if !task.labels.is_empty() {
-        lines.push(format!("     labels: {}", task.labels.join(", ")));
+        lines.push(render_field("labels", task.labels.join(", ")));
     }
     if let Some(last_session_id) = &task.last_session_id {
-        lines.push(format!("     last session: {last_session_id}"));
+        lines.push(render_field("last session", last_session_id));
     }
     lines
 }

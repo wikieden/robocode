@@ -112,7 +112,11 @@ fn workflow_mutations_respect_plan_mode() {
 
     assert!(output.iter().any(|event| matches!(
         event,
-        EngineEvent::Command(text) if text.contains("Permission denied")
+        EngineEvent::Command(text)
+            if text.contains("Permission decision:")
+                && text.contains("Summary: decision=deny")
+                && text.contains("tool: workflow_task_add")
+                && text.contains("reason: PlanMode")
     )));
 }
 

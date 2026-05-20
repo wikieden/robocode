@@ -93,6 +93,20 @@ flowchart TB
 
 这个流程保证所有工具调用都走同一条主路径：校验、权限决策、执行、transcript 记录、模型回注。
 
+## 终端展示
+
+`robocode-core` 负责 plain-text terminal presentation helpers，让 slash-command
+views 保持一致，而不要求立即引入 full-screen TUI。当前 structured views 覆盖：
+
+- LSP diagnostics、symbols、references
+- session 列表
+- project tasks 和 memory
+- 阻断执行的 permission denials / approval outcomes
+- 带 files/additions/deletions 摘要的 `/git diff` 与 `/diff`
+
+renderer 统一管理 section titles、summaries、entry headings、field rows、empty
+states 和 diff summaries。后续 TUI 工作应复用这些输出契约，而不是新增第二套 command-result model。
+
 ## Transcript Schema
 
 canonical transcript 采用 JSONL。每一行都是一个带类型标签的 `TranscriptEntry`：

@@ -103,12 +103,12 @@ Mainline landed：
 - V2-A session commands：`/status`、`/config`、`/doctor`、更丰富的 `/sessions`、分组 `/help`
 - V2-C workflow continuity：project tasks、project/session memory、workflow JSONL logs、resume context
 - V2-B LSP foundation：real semantic queries、session reuse、document synchronization、`lsp_*` tools、`/lsp ...` commands
-- V2-D 第一批 structured terminal views：分组 diagnostics、分组 symbols、紧凑 references、presentation helpers
+- V2-D structured terminal views：分组 diagnostics、分组 symbols、紧凑 references、sessions、tasks、memory、diff、permission denials，以及共享 presentation helpers
 - Provider 平台切片：provider host/runtime registry、provider-scoped config，以及 DeepSeek v4 作为首个独立 provider 目标
 
 Next planned：
 
 - provider runtime hardening：dynamic loading、registry refresh、descriptor validation、streaming、cancellation 与 multi-agent provider binding 行为
-- 继续 V2-D structured views，扩展到 sessions、tasks、memory、diff、approvals
+- provider runtime hardening 仍是下一步，之后再继续 V2-D drilldowns 与 approval ergonomics，补足 plain terminal sections 仍然不够清晰的地方
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

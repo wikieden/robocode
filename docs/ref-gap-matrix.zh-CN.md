@@ -26,7 +26,7 @@
 | Tasks | task 创建与管理 | 已在 main 落地，但深度仍是 partial：已有 lifecycle reducer、blockers、archive/restore、resume context | 融入 session、后续扩展到 agents 的 task lifecycle | 中 | V2 | 已进入 main；agent integration 仍是未来工作 |
 | Automation / Cron | 定时与 durable automation 流程 | 未开始 | session 和 durable automation 支持 | 高 | V3 | 应放在核心工作流成熟之后 |
 | Voice | 语音输入与状态管理 | 未开始 | voice-assisted workflow layer | 高 | 远期 | 参考工程有，但优先级较低 |
-| TUI / Screens | 丰富 Ink UI、screens、structured diff、专项视图 | 当前只有极简 REPL 和文本帮助 | 更丰富的 diff、sessions、permissions、integrations TUI | 高 | V2 | UX 意图对齐，不要求同框架 |
+| TUI / Screens | 丰富 Ink UI、screens、structured diff、专项视图 | 纯 REPL 加结构化 terminal sections，已覆盖 LSP、sessions、tasks、memory、diff 和 permission denials | 更丰富的 drilldowns，以及面向 integrations 的轻量 TUI | 中 | V2 | UX 意图对齐，不要求同框架 |
 | Analytics / feature flags / managed settings | 产品运营、策略、遥测、受管配置 | 当前按设计未实现 | 只在核心产品成熟后按需引入 | 高 | 远期 | 早期不应优先 |
 
 ## 总结

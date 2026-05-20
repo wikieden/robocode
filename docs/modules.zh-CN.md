@@ -27,19 +27,19 @@ Mainline landed：
 - V2-A session 和 command enhancement 已实现：`/status`、`/config`、`/doctor`、更丰富的 `/sessions`、分组 `/help`。
 - V2-C workflow continuity 已实现：`robocode-workflows`、`/tasks`、`/task ...`、`/memory ...`、workflow JSONL logs、resume context。
 - V2-B LSP foundation 已实现：`robocode-lsp`、`lsp_*` tools、`/lsp ...` commands、真实 semantic queries、session reuse、document sync。
-- V2-D 首批 structured terminal views 已实现：分组 diagnostics、分组 symbols、紧凑 references，以及 `robocode-core` presentation helpers。
+- V2-D structured terminal view 切片已实现：分组 diagnostics、分组 symbols、紧凑 references、结构化 sessions/tasks/memory、结构化 permission denials、结构化 `/git diff` 和 `/diff`，以及共享 `robocode-core` presentation helpers。
 - provider-plugin runtime 与 DeepSeek V4 已在 main 落地。mainline 使用官方 DeepSeek 模型名：默认 `deepseek-v4-flash`，可显式选择 `deepseek-v4-pro`。
 
 Next planned slice：
 
 - 加固 provider-plugin runtime：真实 dynamic loading 路径、registry refresh 覆盖、descriptor validation、streaming/cancellation，以及 multi-agent provider binding 测试。
-- 之后再继续 V2-D，扩展到 sessions、tasks、memory、diff、approvals。
+- 之后继续 V2-D drilldowns 与 approval ergonomics，补足 plain terminal sections 仍需更多引导的地方。
 
 ## 与 `.ref/claude-code-main` 的差距
 
 已覆盖：session engine 形态、command families、permission modes、local tool registry、transcript/resume model、Git 和 web workflows。
 
-部分覆盖：task workflow 深度、LSP runtime 深度、terminal UI 丰富度、provider streaming/cancellation 成熟度、dynamic provider loading、更广 plugin hardening、DeepSeek Anthropic-compatible 执行路径加固、长 session summarization。
+部分覆盖：task workflow 深度、LSP runtime 深度、更丰富的 interactive TUI 行为、provider streaming/cancellation 成熟度、dynamic provider loading、更广 plugin hardening、DeepSeek Anthropic-compatible 执行路径加固、长 session summarization。
 
 未实现：MCP、超出 provider plugins 之外的通用 skills/plugins、multi-agent/team coordinator、bridge/remote/server mode、automation/cron、voice、managed settings、analytics、feature flags。
 

@@ -16,12 +16,12 @@ Mainline landed status:
 - V2-A runtime/session commands: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`
 - V2-C workflow continuity: `robocode-workflows`, project tasks, project/session memory, `/tasks`, `/task ...`, `/memory ...`, `/task resume-context`, workflow JSONL logs
 - V2-B LSP foundation: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document synchronization
-- V2-D first structured view slice: grouped diagnostics, grouped symbols, compact references, and `robocode-core` presentation helpers
+- V2-D structured view slices: grouped diagnostics, grouped symbols, compact references, structured sessions/tasks/memory, structured permission denials, structured `/git diff` and `/diff`, and shared `robocode-core` presentation helpers
 
 Next planned slice:
 
 - provider runtime hardening: dynamic provider loading, registry refresh coverage, plugin descriptor validation, provider streaming/cancellation, and multi-agent provider binding tests
-- after that, later V2-D work extends structured views into sessions, tasks, memory, diff, and approvals
+- after that, continue V2-D only where it adds value: richer workflow drilldowns, interactive approval ergonomics, and eventually a lightweight TUI shell without replacing plain terminal output
 
 ## Near-Term Plan
 
@@ -32,8 +32,8 @@ Next planned slice:
    - Harden OpenAI-style and Anthropic-style protocol compatibility, including DeepSeek reasoning/tool-call turns.
 
 2. V2-D Richer TUI and Structured Views.
-   - Improve task, memory, diff, session, and approval rendering.
-   - Add structured views for diagnostics, symbols, and references.
+   - Build on the landed structured views for diagnostics, symbols, references, sessions, tasks, memory, diff, and permission decisions.
+   - Improve drilldown views and approval ergonomics where plain text output is still too dense.
    - Avoid a full UI rewrite until workflows are stable.
    - Keep text output usable in plain terminals.
 
@@ -79,6 +79,7 @@ Completed or substantially covered:
 - DeepSeek v4 as an independent provider family
 - early task/memory workflow layer
 - early LSP foundation with real semantic queries and normalized terminal output
+- structured terminal views for diagnostics, symbols, references, sessions, tasks, memory, diff, and permission denials
 
 Partial:
 
@@ -88,7 +89,7 @@ Partial:
 - dynamic provider loading and plugin hardening
 - session summaries and long-history management
 - task workflows compared with reference task/session model
-- structured terminal UI
+- richer interactive TUI behavior beyond structured plain-text sections
 
 Missing:
 

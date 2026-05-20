@@ -102,6 +102,22 @@ This keeps every tool invocation on one shared path: validation, permission
 decision, execution, transcript logging, and model reinjection all happen in
 the same runtime flow.
 
+## Terminal Presentation
+
+`robocode-core` owns plain-text terminal presentation helpers so slash-command
+views stay consistent without requiring a full-screen TUI. Current structured
+views cover:
+
+- LSP diagnostics, symbols, and references
+- session lists
+- project tasks and memory
+- permission denials and approval outcomes that block execution
+- `/git diff` and `/diff` summaries with file/addition/deletion counts
+
+The renderer keeps section titles, summaries, entry headings, field rows, empty
+states, and diff summaries in one place. Future TUI work should reuse these
+same output contracts rather than creating a second command-result model.
+
 ## Transcript Schema
 
 The canonical transcript is JSONL. Each line is one `TranscriptEntry` tagged by
