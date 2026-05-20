@@ -114,6 +114,174 @@ fn provider_host_creates_dynamic_openai_provider_from_registry_descriptor() {
 }
 
 #[test]
+fn provider_host_uses_dynamic_provider_api_base_env_mapping() {
+    let plugin_descriptor = ProviderDescriptor {
+        provider_id: "env-openai".to_string(),
+        display_name: "Env OpenAI".to_string(),
+        version: "1".to_string(),
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: None,
+        default_model: Some("env-model".to_string()),
+        env_mappings: ProviderEnvMappings {
+            api_key_env: None,
+            api_base_env: Some("ROBOCODE_TEST_ENV_OPENAI_API_BASE".to_string()),
+        },
+        capabilities: ProviderCapabilities {
+            supports_streaming: true,
+            supports_native_tool_calling: true,
+        },
+        config_schema_version: 1,
+    };
+    let registry = ProviderRegistry::from_descriptor_sources(
+        adapters::builtin_provider_descriptors(),
+        vec![plugin_descriptor],
+    )
+    .unwrap();
+    let host = ProviderHost::with_registry(registry);
+
+    unsafe {
+        std::env::set_var(
+            "ROBOCODE_TEST_ENV_OPENAI_API_BASE",
+            "https://env.example.com",
+        );
+    }
+    let provider = host.create_registered("env-openai", None, None, None, 90, 1);
+    unsafe {
+        std::env::remove_var("ROBOCODE_TEST_ENV_OPENAI_API_BASE");
+    }
+    let provider = provider.unwrap();
+
+    assert_eq!(provider.provider_name(), "env-openai");
+    assert_eq!(provider.model(), "env-model");
+}
+
+#[test]
+fn provider_host_prefers_explicit_api_base_over_dynamic_provider_env_mapping() {
+    let plugin_descriptor = ProviderDescriptor {
+        provider_id: "explicit-openai".to_string(),
+        display_name: "Explicit OpenAI".to_string(),
+        version: "1".to_string(),
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: None,
+        default_model: Some("explicit-model".to_string()),
+        env_mappings: ProviderEnvMappings {
+            api_key_env: None,
+            api_base_env: Some("ROBOCODE_TEST_EXPLICIT_OPENAI_API_BASE".to_string()),
+        },
+        capabilities: ProviderCapabilities {
+            supports_streaming: true,
+            supports_native_tool_calling: true,
+        },
+        config_schema_version: 1,
+    };
+    let registry = ProviderRegistry::from_descriptor_sources(
+        adapters::builtin_provider_descriptors(),
+        vec![plugin_descriptor],
+    )
+    .unwrap();
+    let host = ProviderHost::with_registry(registry);
+
+    unsafe {
+        std::env::set_var("ROBOCODE_TEST_EXPLICIT_OPENAI_API_BASE", "not-a-valid-url");
+    }
+    let provider = host.create_registered(
+        "explicit-openai",
+        None,
+        Some("https://explicit.example.com"),
+        None,
+        90,
+        1,
+    );
+    unsafe {
+        std::env::remove_var("ROBOCODE_TEST_EXPLICIT_OPENAI_API_BASE");
+    }
+    let provider = provider.unwrap();
+
+    assert_eq!(provider.provider_name(), "explicit-openai");
+    assert_eq!(provider.model(), "explicit-model");
+}
+
+#[test]
+fn provider_host_rejects_invalid_dynamic_provider_api_base_env_mapping() {
+    let plugin_descriptor = ProviderDescriptor {
+        provider_id: "invalid-env-openai".to_string(),
+        display_name: "Invalid Env OpenAI".to_string(),
+        version: "1".to_string(),
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: None,
+        default_model: Some("invalid-env-model".to_string()),
+        env_mappings: ProviderEnvMappings {
+            api_key_env: None,
+            api_base_env: Some("ROBOCODE_TEST_INVALID_OPENAI_API_BASE".to_string()),
+        },
+        capabilities: ProviderCapabilities {
+            supports_streaming: true,
+            supports_native_tool_calling: true,
+        },
+        config_schema_version: 1,
+    };
+    let registry = ProviderRegistry::from_descriptor_sources(
+        adapters::builtin_provider_descriptors(),
+        vec![plugin_descriptor],
+    )
+    .unwrap();
+    let host = ProviderHost::with_registry(registry);
+    unsafe {
+        std::env::set_var("ROBOCODE_TEST_INVALID_OPENAI_API_BASE", "not-a-valid-url");
+    }
+    let error = host
+        .create_registered("invalid-env-openai", None, None, None, 90, 1)
+        .err()
+        .unwrap()
+        .to_string();
+    unsafe {
+        std::env::remove_var("ROBOCODE_TEST_INVALID_OPENAI_API_BASE");
+    }
+
+    assert!(error.contains("ROBOCODE_TEST_INVALID_OPENAI_API_BASE"));
+    assert!(error.contains("must start with http:// or https://"));
+}
+
+#[test]
+fn provider_host_reports_missing_dynamic_provider_api_base_after_env_lookup() {
+    let plugin_descriptor = ProviderDescriptor {
+        provider_id: "missing-base-openai".to_string(),
+        display_name: "Missing Base OpenAI".to_string(),
+        version: "1".to_string(),
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: None,
+        default_model: Some("missing-base-model".to_string()),
+        env_mappings: ProviderEnvMappings {
+            api_key_env: None,
+            api_base_env: Some("ROBOCODE_TEST_MISSING_OPENAI_API_BASE".to_string()),
+        },
+        capabilities: ProviderCapabilities {
+            supports_streaming: true,
+            supports_native_tool_calling: true,
+        },
+        config_schema_version: 1,
+    };
+    let registry = ProviderRegistry::from_descriptor_sources(
+        adapters::builtin_provider_descriptors(),
+        vec![plugin_descriptor],
+    )
+    .unwrap();
+    let host = ProviderHost::with_registry(registry);
+    unsafe {
+        std::env::remove_var("ROBOCODE_TEST_MISSING_OPENAI_API_BASE");
+    }
+
+    let error = host
+        .create_registered("missing-base-openai", None, None, None, 90, 1)
+        .err()
+        .unwrap()
+        .to_string();
+
+    assert!(error.contains("does not define a default API base"));
+    assert!(error.contains("pass an API base explicitly"));
+}
+
+#[test]
 fn provider_host_keeps_dynamic_provider_instances_independent() {
     let plugin_descriptor = ProviderDescriptor {
         provider_id: "team-provider".to_string(),

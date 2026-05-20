@@ -219,9 +219,14 @@ fn dynamic_provider_summary(
         .unwrap_or("<required>");
     let api_base = resolved_config
         .api_base
-        .as_deref()
-        .or_else(|| descriptor.and_then(|descriptor| descriptor.default_api_base.as_deref()))
-        .unwrap_or("<required>");
+        .clone()
+        .or_else(|| {
+            descriptor
+                .and_then(|descriptor| descriptor.env_mappings.api_base_env.as_deref())
+                .and_then(|name| std::env::var(name).ok())
+        })
+        .or_else(|| descriptor.and_then(|descriptor| descriptor.default_api_base.clone()))
+        .unwrap_or_else(|| "<required>".to_string());
     let key_present = resolved_config.api_key.is_some()
         || descriptor
             .and_then(|descriptor| descriptor.env_mappings.api_key_env.as_deref())
