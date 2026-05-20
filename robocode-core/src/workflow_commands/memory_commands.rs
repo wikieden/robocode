@@ -1,5 +1,8 @@
 use super::SessionEngine;
-use crate::presentation::{join_lines, render_section_title, render_subsection_title};
+use crate::presentation::{
+    join_lines, render_empty_section, render_entry_heading, render_field, render_section_title,
+    render_subsection_title, render_summary_fields,
+};
 use robocode_types::{
     ApprovalResponse, MemoryEntry, MemoryKind, MemoryScope, MemorySource, fresh_id, now_timestamp,
 };
@@ -125,7 +128,7 @@ impl SessionEngine {
         let state = self.workflows.load_memory_state()?;
         let entries = state.active_project_memory();
         if entries.is_empty() {
-            return Ok("Project memory:\n  <none>".to_string());
+            return Ok(render_empty_section("Project memory"));
         }
         let mut lines = memory_summary_lines("Project memory", "active", entries.len());
         for entry in entries {
@@ -138,7 +141,7 @@ impl SessionEngine {
         let state = self.workflows.load_memory_state()?;
         let entries = state.active_session_memory(self.session_id());
         if entries.is_empty() {
-            return Ok("Session memory:\n  <none>".to_string());
+            return Ok(render_empty_section("Session memory"));
         }
         let mut lines = memory_summary_lines("Session memory", "active", entries.len());
         for entry in entries {
@@ -151,7 +154,7 @@ impl SessionEngine {
         let state = self.workflows.load_memory_state()?;
         let entries = state.pending_suggestions();
         if entries.is_empty() {
-            return Ok("Pending memory suggestions:\n  <none>".to_string());
+            return Ok(render_empty_section("Pending memory suggestions"));
         }
         let mut lines =
             memory_summary_lines("Pending memory suggestions", "pending", entries.len());
@@ -167,11 +170,10 @@ impl SessionEngine {
         let session_entries = state.active_session_memory(self.session_id());
         let mut lines = vec![
             render_section_title("Memory export").trim_end().to_string(),
-            format!(
-                "  Summary: project={} session={}",
-                project_entries.len(),
-                session_entries.len()
-            ),
+            render_summary_fields(&[
+                ("project", project_entries.len().to_string()),
+                ("session", session_entries.len().to_string()),
+            ]),
             String::new(),
             render_subsection_title("Project memory"),
         ];
@@ -197,7 +199,7 @@ impl SessionEngine {
 fn memory_summary_lines(title: &str, count_label: &str, count: usize) -> Vec<String> {
     vec![
         render_section_title(title).trim_end().to_string(),
-        format!("  Summary: {count_label}={count}"),
+        render_summary_fields(&[(count_label, count.to_string())]),
         String::new(),
         render_subsection_title("Memory entries"),
     ]
@@ -205,24 +207,24 @@ fn memory_summary_lines(title: &str, count_label: &str, count: usize) -> Vec<Str
 
 fn render_memory_entry(entry: &MemoryEntry) -> Vec<String> {
     let mut lines = vec![
-        format!("  {}", entry.memory_id),
-        format!("     content: {}", entry.content),
-        format!("     kind: {}", entry.kind.cli_name()),
-        format!("     scope: {}", entry.scope.cli_name()),
-        format!("     status: {}", entry.status.cli_name()),
-        format!("     source: {}", entry.source.cli_name()),
+        render_entry_heading(&entry.memory_id),
+        render_field("content", &entry.content),
+        render_field("kind", entry.kind.cli_name()),
+        render_field("scope", entry.scope.cli_name()),
+        render_field("status", entry.status.cli_name()),
+        render_field("source", entry.source.cli_name()),
     ];
     if let Some(session_id) = &entry.session_id {
-        lines.push(format!("     session: {session_id}"));
+        lines.push(render_field("session", session_id));
     }
     if !entry.related_task_ids.is_empty() {
-        lines.push(format!(
-            "     related tasks: {}",
-            entry.related_task_ids.join(", ")
+        lines.push(render_field(
+            "related tasks",
+            entry.related_task_ids.join(", "),
         ));
     }
     if let Some(confidence_hint) = &entry.confidence_hint {
-        lines.push(format!("     confidence: {confidence_hint}"));
+        lines.push(render_field("confidence", confidence_hint));
     }
     lines
 }

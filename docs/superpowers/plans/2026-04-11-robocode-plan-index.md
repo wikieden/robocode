@@ -76,19 +76,21 @@ Expected files:
 ### Plan 4: V2-D Rich TUI and Structured Views
 
 Status:
-- planning branch active on `codex/v2-d-structured-views`
-- should start with structured rendering in the existing REPL before any full-screen TUI work
+- active implementation has landed in slices: LSP diagnostics/symbols/references, sessions, tasks, memory, diff, and permission-denial rendering
+- remaining work should continue with drilldowns and approval ergonomics in the existing REPL before any full-screen TUI work
 
 Purpose:
-- improve session browsing, diff viewing, and approval ergonomics
+- improve session browsing, diff viewing, permission outcomes, and workflow comprehension
 
 Expected files:
-- `robocode-cli/src/main.rs`
-- new presentation modules or crate for TUI concerns
-- `robocode-core/src/lib.rs`
+- `robocode-core/src/presentation.rs`
+- `robocode-core/src/runtime_views.rs`
+- `robocode-core/src/git_commands.rs`
+- `robocode-core/src/workflow_commands/*`
 
 Output:
 - detailed plan saved as `docs/superpowers/plans/2026-04-23-v2-d-structured-views.md`
+- implementation slices landed through focused structured-view branches
 
 ### Plan 5: V3-A MCP and Plugin Runtime
 

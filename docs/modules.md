@@ -27,19 +27,19 @@ Mainline landed:
 - V2-A session and command enhancement is implemented: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`.
 - V2-C workflow continuity is implemented: `robocode-workflows`, `/tasks`, `/task ...`, `/memory ...`, workflow JSONL logs, and resume context.
 - V2-B LSP foundation is implemented: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document sync.
-- V2-D first structured terminal view slice is implemented: grouped diagnostics, grouped symbols, compact references, and `robocode-core` presentation helpers.
+- V2-D structured terminal view slices are implemented: grouped diagnostics, grouped symbols, compact references, structured sessions/tasks/memory, structured permission denials, structured `/git diff` and `/diff`, and shared `robocode-core` presentation helpers.
 - Provider-plugin runtime and DeepSeek V4 are implemented on main. Mainline uses official DeepSeek model names: `deepseek-v4-flash` by default and `deepseek-v4-pro` when selected explicitly.
 
 Next planned slice:
 
 - harden the provider-plugin runtime slice with real dynamic loading paths, registry refresh coverage, descriptor validation, streaming/cancellation, and multi-agent provider binding tests.
-- after that, later V2-D work extends structured views into sessions, tasks, memory, diff, and approvals.
+- after that, continue V2-D with richer drilldowns and approval ergonomics where plain terminal sections need more guidance.
 
 ## Gap vs `.ref/claude-code-main`
 
 Covered: session engine shape, command families, permission modes, local tool registry, transcript/resume model, Git and web workflows.
 
-Partial: task workflow depth, LSP runtime depth, terminal UI richness, provider streaming/cancellation maturity, dynamic provider loading, broader plugin hardening, DeepSeek Anthropic-compatible execution hardening, and long-session summarization.
+Partial: task workflow depth, LSP runtime depth, richer interactive TUI behavior, provider streaming/cancellation maturity, dynamic provider loading, broader plugin hardening, DeepSeek Anthropic-compatible execution hardening, and long-session summarization.
 
 Missing: MCP, general skills/plugins beyond provider plugins, multi-agent/team coordinator, bridge/remote/server mode, automation/cron, voice, managed settings, analytics, feature flags.
 

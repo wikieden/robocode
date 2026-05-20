@@ -25,7 +25,7 @@ the current RoboCode repository and the intended target state.
 | Tasks | Task creation and workflow management | Implemented on main at a partial depth with lifecycle reducer, blockers, archive/restore, and resume context | Task lifecycle integrated into sessions and later agents | Medium | V2 | Landed on main; agent integration remains future work |
 | Automation / cron | Scheduled and durable automation flows | Not started | Session and durable automation support | High | V3 | Keep behind core workflow maturity |
 | Voice | Voice input and state management | Not started | Voice-assisted workflow layer | High | Long-term | Lower priority despite reference support |
-| TUI / screens | Rich Ink UI, screens, structured diff, specialized views | Minimal REPL and textual help | Richer TUI for diff, sessions, permissions, and integrations | High | V2 | Similar UX intent, not necessarily same framework |
+| TUI / screens | Rich Ink UI, screens, structured diff, specialized views | Plain REPL plus structured terminal sections for LSP, sessions, tasks, memory, diff, and permission denials | Richer drilldowns and eventual lightweight TUI for integrations | Medium | V2 | Similar UX intent, not necessarily same framework |
 | Analytics / feature flags / managed settings | Product operations, flags, policy, telemetry, managed config | Not started by design | Selective adoption only after core product maturity | High | Long-term | Do not prioritize early unless product needs demand it |
 
 ## Summary

@@ -1,5 +1,7 @@
 use super::*;
-use crate::presentation::{join_lines, render_section_title, render_subsection_title};
+use crate::presentation::{
+    join_lines, render_field, render_section_title, render_subsection_title, render_summary_fields,
+};
 use robocode_types::SessionSummary;
 
 impl SessionEngine {
@@ -160,12 +162,14 @@ impl SessionEngine {
             render_section_title("Sessions for this project")
                 .trim_end()
                 .to_string(),
-            format!(
-                "  Summary: total={} current={} resumable={}",
-                sessions.len(),
-                current_count,
-                sessions.len().saturating_sub(current_count)
-            ),
+            render_summary_fields(&[
+                ("total", sessions.len().to_string()),
+                ("current", current_count.to_string()),
+                (
+                    "resumable",
+                    sessions.len().saturating_sub(current_count).to_string(),
+                ),
+            ]),
             "  Use `/resume latest`, `/resume #<index>`, or `/resume <session-id-prefix>`."
                 .to_string(),
             String::new(),
@@ -199,20 +203,23 @@ impl SessionEngine {
                 summary.session_id,
                 current
             ));
-            lines.push(format!("     title: {title}"));
-            lines.push(format!(
-                "     updated: {}",
-                format_relative_age(summary.last_updated_at)
+            lines.push(render_field("title", title));
+            lines.push(render_field(
+                "updated",
+                format_relative_age(summary.last_updated_at),
             ));
-            lines.push(format!(
-                "     activity: messages={} tools={} commands={} last={}",
-                summary.message_count,
-                summary.tool_call_count,
-                summary.command_count,
-                last_activity
+            lines.push(render_field(
+                "activity",
+                format!(
+                    "messages={} tools={} commands={} last={}",
+                    summary.message_count,
+                    summary.tool_call_count,
+                    summary.command_count,
+                    last_activity
+                ),
             ));
-            lines.push(format!("     preview: {preview}"));
-            lines.push(format!("     last activity: {last_activity_preview}"));
+            lines.push(render_field("preview", preview));
+            lines.push(render_field("last activity", last_activity_preview));
         }
         join_lines(&lines)
     }

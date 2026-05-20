@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     EngineEvent, PROVIDER_REASONING_CONTENT_KEY, SessionEngine, lsp_tools::LspToolAdapter,
+    presentation::render_permission_denial,
 };
 use robocode_model::ModelRequestControl;
 use robocode_permissions::PermissionEngine;
@@ -160,27 +161,23 @@ impl SessionEngine {
                 unreachable!("ask decisions should be resolved before execution")
             }
             PermissionDecision::Deny(deny) => {
+                let reason = format!("{:?}", deny.decision_reason);
                 self.store_entry(TranscriptEntry::Permission {
                     entry: PermissionLogEntry {
                         timestamp: now_timestamp(),
                         tool_name: call.name.clone(),
                         decision: "deny".to_string(),
-                        reason: format!("{:?}", deny.decision_reason),
+                        reason: reason.clone(),
                         message: Some(deny.message.clone()),
                     },
                 })?;
-                let system_message = Message::new(
-                    Role::System,
-                    format!("Permission denied for {}: {}", call.name, deny.message),
-                );
+                let rendered_denial = render_permission_denial(&call.name, &reason, &deny.message);
+                let system_message = Message::new(Role::System, rendered_denial.clone());
                 self.messages.push(system_message.clone());
                 self.store_entry(TranscriptEntry::Message {
                     message: system_message,
                 })?;
-                events.push(EngineEvent::System(format!(
-                    "Permission denied for {}: {}",
-                    call.name, deny.message
-                )));
+                events.push(EngineEvent::System(rendered_denial));
             }
         }
         Ok(())

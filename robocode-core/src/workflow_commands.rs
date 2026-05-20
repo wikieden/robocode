@@ -2,6 +2,7 @@ mod memory_commands;
 mod task_commands;
 
 use super::SessionEngine;
+use crate::presentation::render_permission_denial;
 use robocode_permissions::PermissionEngine;
 use robocode_types::{
     ApprovalResponse, PermissionDecision, PermissionLogEntry, ToolInput, ToolSpec, TranscriptEntry,
@@ -49,18 +50,20 @@ impl SessionEngine {
             }
             PermissionDecision::Ask(_) => unreachable!("ask decisions should be resolved"),
             PermissionDecision::Deny(deny) => {
+                let reason = format!("{:?}", deny.decision_reason);
                 self.store_entry(TranscriptEntry::Permission {
                     entry: PermissionLogEntry {
                         timestamp: now_timestamp(),
                         tool_name: tool_name.clone(),
                         decision: "deny".to_string(),
-                        reason: format!("{:?}", deny.decision_reason),
+                        reason: reason.clone(),
                         message: Some(deny.message.clone()),
                     },
                 })?;
-                Ok(Some(format!(
-                    "Permission denied for {tool_name}: {}",
-                    deny.message
+                Ok(Some(render_permission_denial(
+                    &tool_name,
+                    &reason,
+                    &deny.message,
                 )))
             }
         }

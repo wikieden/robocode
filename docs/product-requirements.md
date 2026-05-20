@@ -12,7 +12,7 @@ allowing a Rust-native internal architecture.
 
 Current implementation note:
 
-- main has landed the V1 baseline plus V2-A session work, V2-C workflow continuity, V2-B semantic code intelligence, the first V2-D structured LSP terminal-view slice, and the provider-plugin runtime with DeepSeek v4
+- main has landed the V1 baseline plus V2-A session work, V2-C workflow continuity, V2-B semantic code intelligence, V2-D structured terminal-view slices for LSP/session/workflow/diff/permission outputs, and the provider-plugin runtime with DeepSeek v4
 - the next architecture work is provider-runtime hardening: real dynamic loading paths, registry refresh coverage, streaming, cancellation, and broader plugin compatibility
 
 ## Product Definition
@@ -474,9 +474,9 @@ Move beyond a plain REPL when richer interaction improves comprehension.
 
 Requirements:
 
-- better diff presentation
-- session browsers
-- contextual permission prompts
+- structured diff presentation with file/addition/deletion summaries
+- session browsers with grouped entries and summaries
+- contextual permission prompts and structured permission-denial output
 - richer views for MCP, tasks, memory, and remote state
 
 Phase priority:

@@ -115,7 +115,14 @@ fn plan_mode_blocks_mutating_tools() {
     let events = engine
         .process_input_with_approval("write a file", &mut approver)
         .unwrap();
-    assert!(events.iter().any(
-        |event| matches!(event, EngineEvent::System(text) if text.contains("Permission denied"))
-    ));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, EngineEvent::System(text)
+            if text.contains("Permission decision:")
+                && text.contains("Summary: decision=deny")
+                && text.contains("tool: write_file")
+                && text.contains("reason: PlanMode")
+                && text.contains("message: write_file is blocked while plan mode is active")))
+    );
 }

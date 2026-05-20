@@ -90,22 +90,24 @@
 
 状态：
 
-- planning branch active on `codex/v2-d-structured-views`
-- 应先在现有 REPL 中做 structured rendering，再考虑 full-screen TUI
+- 已按切片进入实现：LSP diagnostics/symbols/references、sessions、tasks、memory、diff、permission-denial rendering
+- 剩余工作应继续在现有 REPL 中做 drilldowns 和 approval ergonomics，再考虑 full-screen TUI
 
 目的：
 
-- 提升 session 浏览、diff 展示和审批体验
+- 提升 session 浏览、diff 展示、permission outcomes 和 workflow comprehension
 
 预期文件：
 
-- `robocode-cli/src/main.rs`
-- 新建面向 TUI 的展示模块或 crate
-- `robocode-core/src/lib.rs`
+- `robocode-core/src/presentation.rs`
+- `robocode-core/src/runtime_views.rs`
+- `robocode-core/src/git_commands.rs`
+- `robocode-core/src/workflow_commands/*`
 
 输出：
 
 - 详细计划文件：`docs/superpowers/plans/2026-04-23-v2-d-structured-views.md`
+- 实现切片已通过 focused structured-view branches 逐步落地
 
 ### Plan 5：V3-A MCP 与 Plugin Runtime
 

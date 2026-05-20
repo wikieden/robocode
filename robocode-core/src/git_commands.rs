@@ -1,4 +1,5 @@
 use super::*;
+use crate::presentation::render_diff_view;
 use robocode_types::ApprovalResponse;
 
 impl SessionEngine {
@@ -21,7 +22,8 @@ impl SessionEngine {
                 if let Some(path) = args.get(1) {
                     input.insert("path".to_string(), path.clone());
                 }
-                self.run_named_tool("git_diff", input, approver)
+                let output = self.run_named_tool("git_diff", input, approver)?;
+                Ok(render_diff_view("Git diff", &output))
             }
             "branch" => self.run_named_tool("git_branch", Default::default(), approver),
             "add" => {
