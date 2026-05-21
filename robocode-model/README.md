@@ -89,6 +89,8 @@ marketplace/distribution are future hardening work.
   failure.
 - Cancellation must be checked before dispatch and while HTTP transport is
   waiting on provider subprocesses.
+- Streaming requests must require both caller preference and provider
+  capability support.
 - Streaming protocol parsing must preserve the same text/tool-call semantics as
   non-streaming JSON parsing.
 

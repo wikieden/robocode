@@ -86,6 +86,7 @@ marketplace/distribution 属于后续 hardening 工作。
 - Registry refresh 失败时不能静默丢掉之前正常工作的 registry。
 - Cancellation 必须在 dispatch 前检查，也必须在 HTTP transport 等待 provider
   子进程时检查。
+- Streaming request 必须同时满足 caller preference 和 provider capability support。
 - Streaming protocol parsing 必须保持和非 streaming JSON parser 一致的
   text/tool-call 语义。
 
