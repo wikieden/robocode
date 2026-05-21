@@ -1,4 +1,5 @@
 use super::*;
+use crate::providers::provider_streaming_requested;
 
 #[test]
 fn build_openai_body_includes_tools() {
@@ -55,6 +56,14 @@ fn build_anthropic_body_can_request_streaming() {
     .expect("anthropic body should be valid json");
 
     assert_eq!(body["stream"], true);
+}
+
+#[test]
+fn provider_streaming_preference_is_gated_by_capability() {
+    assert!(provider_streaming_requested(true, true));
+    assert!(!provider_streaming_requested(true, false));
+    assert!(!provider_streaming_requested(false, true));
+    assert!(!provider_streaming_requested(false, false));
 }
 
 #[test]

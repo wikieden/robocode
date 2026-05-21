@@ -113,6 +113,7 @@ struct HttpProvider {
     model: String,
     api_base: String,
     api_key: Option<String>,
+    supports_streaming: bool,
     request_timeout_secs: u64,
     max_retries: u32,
 }
@@ -156,6 +157,7 @@ impl HttpProvider {
             model: model.to_string(),
             api_base,
             api_key,
+            supports_streaming: descriptor.capabilities.supports_streaming,
             request_timeout_secs: request_timeout_secs.max(1),
             max_retries,
         })
@@ -172,6 +174,7 @@ impl HttpProvider {
                     .to_string()
             }),
             api_key: config.api_key,
+            supports_streaming: true,
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -190,6 +193,7 @@ impl HttpProvider {
             api_key: config
                 .api_key
                 .or_else(|| resolve_api_key(ProviderKind::OpenAi)),
+            supports_streaming: true,
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -206,6 +210,7 @@ impl HttpProvider {
                     .to_string()
             }),
             api_key: config.api_key,
+            supports_streaming: true,
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -224,6 +229,7 @@ impl HttpProvider {
             api_key: config
                 .api_key
                 .or_else(|| resolve_api_key(ProviderKind::DeepSeek)),
+            supports_streaming: true,
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -242,6 +248,7 @@ impl HttpProvider {
             api_key: config
                 .api_key
                 .or_else(|| resolve_api_key(ProviderKind::DeepSeekAnthropic)),
+            supports_streaming: true,
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -258,6 +265,7 @@ impl HttpProvider {
                     .to_string()
             }),
             api_key: config.api_key,
+            supports_streaming: false,
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -299,12 +307,14 @@ impl ModelProvider for HttpProvider {
             ));
         }
 
+        let request_streaming =
+            provider_streaming_requested(control.prefer_streaming(), self.supports_streaming);
         let body = match self.mode {
             HttpMode::Anthropic => {
-                build_anthropic_body_with_stream(&self.model, request, control.prefer_streaming())
+                build_anthropic_body_with_stream(&self.model, request, request_streaming)
             }
             HttpMode::OpenAiCompatible => {
-                build_openai_body_with_stream(&self.model, request, control.prefer_streaming())
+                build_openai_body_with_stream(&self.model, request, request_streaming)
             }
             HttpMode::Ollama => build_ollama_body(&self.model, request),
         };
@@ -455,6 +465,13 @@ pub(crate) fn load_registered_provider(
 
 fn resolve_env_mapping(env_name: Option<&str>) -> Option<String> {
     env_name.and_then(|name| std::env::var(name).ok())
+}
+
+pub(crate) fn provider_streaming_requested(
+    prefer_streaming: bool,
+    supports_streaming: bool,
+) -> bool {
+    prefer_streaming && supports_streaming
 }
 
 fn resolve_descriptor_api_base(
