@@ -126,6 +126,56 @@ fn provider_doctor_reports_registry_capabilities_and_env_mappings() {
 }
 
 #[test]
+fn provider_doctor_can_focus_on_one_registered_provider() {
+    let home = temp_dir("provider_doctor_one_home");
+    let cwd = temp_dir("provider_doctor_one_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/provider doctor openrouter", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Provider diagnostics: openrouter")
+                && text.contains("api_key_env=OPENROUTER_API_KEY")
+                && text.contains("streaming=true")
+                && text.contains("tools=true")
+                && !text.contains("  - openai ")
+    )));
+}
+
+#[test]
+fn provider_doctor_reports_unknown_provider() {
+    let home = temp_dir("provider_doctor_unknown_home");
+    let cwd = temp_dir("provider_doctor_unknown_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/provider doctor missing-provider", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Provider `missing-provider` is not registered.")
+    )));
+}
+
+#[test]
 fn provider_reload_reports_success_without_replacing_current_provider_instance() {
     let home = temp_dir("provider_reload_home");
     let cwd = temp_dir("provider_reload_cwd");

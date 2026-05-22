@@ -10,7 +10,7 @@ impl SessionEngine {
                 self.provider.model()
             )),
             Some("list") => Ok(self.render_provider_list()),
-            Some("doctor") => Ok(self.render_provider_doctor()),
+            Some("doctor") => Ok(self.render_provider_doctor(args.get(1).map(String::as_str))),
             Some("reload") => self.reload_provider_registry(),
             Some("use") => self.use_provider(&args[1..]),
             Some("help") => Ok(provider_help()),
@@ -63,7 +63,7 @@ impl SessionEngine {
         lines.join("\n")
     }
 
-    fn render_provider_doctor(&self) -> String {
+    fn render_provider_doctor(&self, provider_id: Option<&str>) -> String {
         let Some(host) = self.provider_host.as_ref() else {
             return [
                 "Provider diagnostics:",
@@ -81,6 +81,24 @@ impl SessionEngine {
         let registry = host.registry();
         let mut descriptors = registry.descriptors().to_vec();
         descriptors.sort_by(|left, right| left.provider_id.cmp(&right.provider_id));
+        if let Some(provider_id) = provider_id {
+            let Some(descriptor) = descriptors
+                .iter()
+                .find(|descriptor| descriptor.provider_id == provider_id)
+            else {
+                return format!("Provider `{provider_id}` is not registered.");
+            };
+            return [
+                format!("Provider diagnostics: {provider_id}"),
+                format!(
+                    "  Current provider: {} ({})",
+                    self.provider.provider_name(),
+                    self.provider.model()
+                ),
+                render_provider_diagnostic(descriptor),
+            ]
+            .join("\n");
+        }
         let mut lines = vec![
             "Provider diagnostics:".to_string(),
             format!("  Registry providers: {}", descriptors.len()),
@@ -252,7 +270,8 @@ fn provider_help() -> String {
         "Provider commands:",
         "  /provider          Show current provider and model",
         "  /provider list     List registered providers",
-        "  /provider doctor   Show provider registry diagnostics",
+        "  /provider doctor [id]",
+        "                     Show provider registry diagnostics",
         "  /provider reload   Reload provider plugin registry",
         "  /provider use <id> [model]",
     ]

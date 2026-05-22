@@ -126,6 +126,7 @@ Provider runtime status and direction:
 - built-in providers remain supported
 - provider descriptors now flow through the provider host/runtime registry
 - `/provider list` shows each registered provider's protocol family, default model, streaming support, and tool-call support
+- `/provider doctor [id]` shows registry diagnostics, or a focused diagnostic for one provider id
 - provider bindings are session/agent scoped rather than process-global
 - permission prompts render tool input as stable fields for easier review
 - the next hardening work is real API compatibility coverage across the expanded provider matrix
@@ -137,6 +138,7 @@ Useful commands:
 /help
 /provider
 /provider doctor
+/provider doctor openrouter
 /status
 /config
 /doctor
