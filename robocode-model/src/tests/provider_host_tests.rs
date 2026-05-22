@@ -400,6 +400,34 @@ fn provider_host_refresh_loads_new_dynamic_provider_from_plugin_dir() {
 }
 
 #[test]
+fn provider_host_refresh_from_dirs_is_instance_scoped_for_builtin_hosts() {
+    let plugin_dir = temp_dir("builtin_host_instance_scoped_refresh");
+    compile_runtime_provider_plugin(&plugin_dir);
+    let mut first_host = ProviderHost::with_builtins();
+    let second_host = ProviderHost::with_builtins();
+    let second_before_registry = second_host.registry();
+
+    first_host.refresh_from_dirs(vec![plugin_dir]).unwrap();
+
+    let first_after_registry = first_host.registry();
+    let second_after_registry = second_host.registry();
+    assert!(
+        first_after_registry
+            .descriptor("runtime-provider")
+            .is_some()
+    );
+    assert!(
+        second_after_registry
+            .descriptor("runtime-provider")
+            .is_none()
+    );
+    assert!(std::sync::Arc::ptr_eq(
+        &second_before_registry,
+        &second_after_registry
+    ));
+}
+
+#[test]
 fn provider_host_loads_multiple_dynamic_providers_from_plugin_dirs() {
     let first_dir = temp_dir("multi_provider_first");
     let second_dir = temp_dir("multi_provider_second");
