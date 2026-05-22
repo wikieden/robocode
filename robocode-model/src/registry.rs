@@ -14,9 +14,8 @@ pub struct ProviderRegistry {
 
 impl ProviderRegistry {
     pub fn with_builtins() -> Self {
-        Self {
-            descriptors: builtin_provider_descriptors(),
-        }
+        Self::from_descriptor_sources(builtin_provider_descriptors(), Vec::new())
+            .expect("builtin provider descriptors should be valid and unique")
     }
 
     pub fn load_default() -> Result<Self, String> {
@@ -53,18 +52,10 @@ impl ProviderRegistry {
     ) -> Result<Self, String> {
         let mut by_id = BTreeMap::<String, ProviderDescriptor>::new();
         for descriptor in builtin_descriptors {
-            validate_provider_descriptor(&descriptor)?;
-            by_id.insert(descriptor.provider_id.clone(), descriptor);
+            insert_descriptor(&mut by_id, descriptor)?;
         }
         for descriptor in plugin_descriptors {
-            validate_provider_descriptor(&descriptor)?;
-            if by_id.contains_key(&descriptor.provider_id) {
-                return Err(format!(
-                    "Provider plugin `{}` conflicts with an existing provider id",
-                    descriptor.provider_id
-                ));
-            }
-            by_id.insert(descriptor.provider_id.clone(), descriptor);
+            insert_descriptor(&mut by_id, descriptor)?;
         }
         Ok(Self {
             descriptors: by_id.into_values().collect(),
@@ -91,4 +82,19 @@ impl ProviderRegistry {
             .iter()
             .find(|descriptor| descriptor.provider_id == provider_id)
     }
+}
+
+fn insert_descriptor(
+    by_id: &mut BTreeMap<String, ProviderDescriptor>,
+    descriptor: ProviderDescriptor,
+) -> Result<(), String> {
+    validate_provider_descriptor(&descriptor)?;
+    if by_id.contains_key(&descriptor.provider_id) {
+        return Err(format!(
+            "Provider descriptor `{}` conflicts with an existing provider id",
+            descriptor.provider_id
+        ));
+    }
+    by_id.insert(descriptor.provider_id.clone(), descriptor);
+    Ok(())
 }

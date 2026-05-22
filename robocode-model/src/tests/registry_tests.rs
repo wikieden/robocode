@@ -216,6 +216,27 @@ fn registry_rejects_plugin_descriptor_that_conflicts_with_builtin_provider_id() 
 }
 
 #[test]
+fn registry_rejects_duplicate_builtin_provider_ids() {
+    let descriptor = ProviderDescriptor {
+        provider_id: "duplicate-builtin".to_string(),
+        display_name: "Duplicate Builtin".to_string(),
+        version: "1".to_string(),
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: Some("https://example.com".to_string()),
+        default_model: Some("model".to_string()),
+        env_mappings: ProviderEnvMappings::default(),
+        capabilities: ProviderCapabilities::default(),
+        config_schema_version: 1,
+    };
+
+    let err =
+        ProviderRegistry::from_descriptor_sources(vec![descriptor.clone(), descriptor], Vec::new())
+            .unwrap_err();
+    assert!(err.contains("duplicate-builtin"), "{err}");
+    assert!(err.contains("conflicts"), "{err}");
+}
+
+#[test]
 fn registry_rejects_duplicate_plugin_provider_ids() {
     let first = ProviderDescriptor {
         provider_id: "duplicate-provider".to_string(),
