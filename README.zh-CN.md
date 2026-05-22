@@ -153,6 +153,15 @@ DeepSeek 的 API 字段优先级：
 /memory export
 ```
 
+真实 provider smoke tests 默认 ignored。要验证某个 provider 的真实 API 路径：
+
+```bash
+ROBOCODE_LIVE_PROVIDER=openrouter \
+ROBOCODE_LIVE_MODEL=openai/gpt-5.2 \
+ROBOCODE_LIVE_API_KEY="$OPENROUTER_API_KEY" \
+cargo test -p robocode-cli selected_live_provider_generates_python_hello_world_from_natural_language -- --ignored
+```
+
 `/resume` 同时支持 `/resume #<index>` 和 `/resume <session-id-prefix>`。
 
 当前内置工具族：

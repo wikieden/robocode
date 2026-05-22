@@ -154,6 +154,16 @@ Useful commands:
 /memory export
 ```
 
+Live provider smoke tests are ignored by default. To verify one provider against
+the real API path:
+
+```bash
+ROBOCODE_LIVE_PROVIDER=openrouter \
+ROBOCODE_LIVE_MODEL=openai/gpt-5.2 \
+ROBOCODE_LIVE_API_KEY="$OPENROUTER_API_KEY" \
+cargo test -p robocode-cli selected_live_provider_generates_python_hello_world_from_natural_language -- --ignored
+```
+
 The `/resume` command also supports `/resume #<index>` and `/resume <session-id-prefix>`.
 
 Built-in tool families include:
