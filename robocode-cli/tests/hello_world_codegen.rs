@@ -89,6 +89,29 @@ fn fallback_tool_codegen_creates_python_hello_world() {
 }
 
 #[test]
+fn fallback_tool_workflow_reads_and_runs_generated_python() {
+    let cwd = temp_dir("fallback_tool_workflow");
+    let session_home = temp_dir("fallback_tool_workflow_sessions");
+
+    let stdout = run_robocode(
+        &cwd,
+        &session_home,
+        &["--provider", "fallback", "--model", "test-local"],
+        "tool write_file path=hello_world.py content=print('Hello,'+chr(32)+'world!')\ny\ntool read_file path=hello_world.py\ntool shell command=python3<hello_world.py\ny\nquit\n",
+    );
+
+    assert!(stdout.contains("write_file"), "stdout:\n{stdout}");
+    assert!(stdout.contains("read_file"), "stdout:\n{stdout}");
+    assert!(stdout.contains("shell"), "stdout:\n{stdout}");
+    assert!(
+        stdout.contains("print('Hello,'+chr(32)+'world!')"),
+        "stdout:\n{stdout}"
+    );
+    assert!(stdout.contains("Hello, world!"), "stdout:\n{stdout}");
+    assert_python_hello_world(&cwd.join("hello_world.py"));
+}
+
+#[test]
 #[ignore = "requires DEEPSEEK_API_KEY and live network access"]
 fn deepseek_generates_python_hello_world_from_natural_language() {
     if std::env::var("DEEPSEEK_API_KEY").is_err() {

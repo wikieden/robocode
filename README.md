@@ -165,6 +165,9 @@ ROBOCODE_LIVE_API_KEY="$OPENROUTER_API_KEY" \
 cargo test -p robocode-cli selected_live_provider_generates_python_hello_world_from_natural_language -- --ignored
 ```
 
+The default CLI smoke suite stays offline and covers a file-tool workflow that
+writes, reads, and runs a generated Python file through the fallback provider.
+
 The `/resume` command also supports `/resume #<index>` and `/resume <session-id-prefix>`.
 
 Built-in tool families include:

@@ -163,6 +163,8 @@ ROBOCODE_LIVE_API_KEY="$OPENROUTER_API_KEY" \
 cargo test -p robocode-cli selected_live_provider_generates_python_hello_world_from_natural_language -- --ignored
 ```
 
+默认 CLI smoke suite 保持离线可重复，并覆盖 fallback provider 下写入、读取、运行生成 Python 文件的 file-tool workflow。
+
 `/resume` 同时支持 `/resume #<index>` 和 `/resume <session-id-prefix>`。
 
 当前内置工具族：
