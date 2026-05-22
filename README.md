@@ -135,6 +135,7 @@ Useful commands:
 ```text
 /help
 /provider
+/provider doctor
 /status
 /config
 /doctor

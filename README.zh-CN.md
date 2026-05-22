@@ -134,6 +134,7 @@ DeepSeek 的 API 字段优先级：
 ```text
 /help
 /provider
+/provider doctor
 /status
 /config
 /doctor

@@ -10,6 +10,7 @@ impl SessionEngine {
                 self.provider.model()
             )),
             Some("list") => Ok(self.render_provider_list()),
+            Some("doctor") => Ok(self.render_provider_doctor()),
             Some("reload") => self.reload_provider_registry(),
             Some("use") => self.use_provider(&args[1..]),
             Some("help") => Ok(provider_help()),
@@ -59,6 +60,49 @@ impl SessionEngine {
             ),
         ];
         lines.extend(descriptors.iter().map(render_provider_descriptor));
+        lines.join("\n")
+    }
+
+    fn render_provider_doctor(&self) -> String {
+        let Some(host) = self.provider_host.as_ref() else {
+            return [
+                "Provider diagnostics:",
+                "  Runtime registry: unavailable",
+                "  Start RoboCode through the CLI to enable provider diagnostics.",
+                "",
+                &format!(
+                    "Current provider: {} ({})",
+                    self.provider.provider_name(),
+                    self.provider.model()
+                ),
+            ]
+            .join("\n");
+        };
+        let registry = host.registry();
+        let mut descriptors = registry.descriptors().to_vec();
+        descriptors.sort_by(|left, right| left.provider_id.cmp(&right.provider_id));
+        let mut lines = vec![
+            "Provider diagnostics:".to_string(),
+            format!("  Registry providers: {}", descriptors.len()),
+            format!(
+                "  Plugin dirs: {}",
+                if self.provider_plugin_dirs.is_empty() {
+                    "<default>".to_string()
+                } else {
+                    self.provider_plugin_dirs
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+            ),
+            format!(
+                "  Current provider: {} ({})",
+                self.provider.provider_name(),
+                self.provider.model()
+            ),
+        ];
+        lines.extend(descriptors.iter().map(render_provider_diagnostic));
         lines.join("\n")
     }
 
@@ -169,6 +213,28 @@ fn render_provider_descriptor(descriptor: &ProviderDescriptor) -> String {
     )
 }
 
+fn render_provider_diagnostic(descriptor: &ProviderDescriptor) -> String {
+    format!(
+        "  - {} family={:?} default_model={} api_base={} api_key_env={} api_base_env={} streaming={} tools={}",
+        descriptor.provider_id,
+        descriptor.protocol_family,
+        descriptor.default_model.as_deref().unwrap_or("<none>"),
+        descriptor.default_api_base.as_deref().unwrap_or("<none>"),
+        render_env_status(descriptor.env_mappings.api_key_env.as_deref()),
+        render_env_status(descriptor.env_mappings.api_base_env.as_deref()),
+        descriptor.capabilities.supports_streaming,
+        descriptor.capabilities.supports_native_tool_calling,
+    )
+}
+
+fn render_env_status(env_name: Option<&str>) -> String {
+    match env_name {
+        Some(name) if std::env::var_os(name).is_some() => format!("{name}(present)"),
+        Some(name) => format!("{name}(missing)"),
+        None => "<none>".to_string(),
+    }
+}
+
 fn format_provider_plugin_error(err: &ProviderPluginError) -> String {
     let path = if err.path.as_os_str().is_empty() {
         "<registry>".to_string()
@@ -186,6 +252,7 @@ fn provider_help() -> String {
         "Provider commands:",
         "  /provider          Show current provider and model",
         "  /provider list     List registered providers",
+        "  /provider doctor   Show provider registry diagnostics",
         "  /provider reload   Reload provider plugin registry",
         "  /provider use <id> [model]",
     ]

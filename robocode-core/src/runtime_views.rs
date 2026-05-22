@@ -13,6 +13,7 @@ impl SessionEngine {
             "  /help                Show available commands",
             "  /provider            Show current provider and model",
             "  /provider list       List registered providers",
+            "  /provider doctor     Show provider registry diagnostics",
             "  /provider reload     Reload provider plugin registry",
             "  /provider use <id>   Switch provider, optionally with a model",
             "  /model [name]        Show or change the active model label",
