@@ -29,10 +29,11 @@ Mainline landed：
 - V2-B LSP foundation 已实现：`robocode-lsp`、`lsp_*` tools、`/lsp ...` commands、真实 semantic queries、session reuse、document sync。
 - V2-D structured terminal view 切片已实现：分组 diagnostics、分组 symbols、紧凑 references、结构化 sessions/tasks/memory、结构化 permission denials、结构化 `/git diff` 和 `/diff`，以及共享 `robocode-core` presentation helpers。
 - provider-plugin runtime 与 DeepSeek V4 已在 main 落地。mainline 使用官方 DeepSeek 模型名：默认 `deepseek-v4-flash`，可显式选择 `deepseek-v4-pro`。
+- provider descriptor 矩阵已加入更多 OpenAI-compatible gateway providers：`openrouter`、`groq`、`mistral`、`together`、`kimi`、`qwen`、`zhipu`、`volcengine`。
 
 Next planned slice：
 
-- 加固 provider-plugin runtime：真实 dynamic loading 路径、registry refresh 覆盖、descriptor validation、streaming/cancellation，以及 multi-agent provider binding 测试。
+- 加固扩展后的 provider 矩阵：覆盖真实 API compatibility、streaming、tool calls、cancellation 与 provider-scoped config。
 - 之后继续 V2-D drilldowns 与 approval ergonomics，补足 plain terminal sections 仍需更多引导的地方。
 
 ## 与 `.ref/claude-code-main` 的差距

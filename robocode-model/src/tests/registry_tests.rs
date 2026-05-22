@@ -6,16 +6,32 @@ fn registry_lists_builtin_provider_ids() {
     let ids = registry.provider_ids();
     assert!(ids.contains(&"anthropic".to_string()));
     assert!(ids.contains(&"deepseek".to_string()));
+    assert!(ids.contains(&"openrouter".to_string()));
+    assert!(ids.contains(&"groq".to_string()));
+    assert!(ids.contains(&"mistral".to_string()));
+    assert!(ids.contains(&"together".to_string()));
+    assert!(ids.contains(&"kimi".to_string()));
+    assert!(ids.contains(&"qwen".to_string()));
+    assert!(ids.contains(&"zhipu".to_string()));
+    assert!(ids.contains(&"volcengine".to_string()));
     assert!(ids.contains(&"openai".to_string()));
     assert!(ids.contains(&"fallback".to_string()));
 }
 
 #[test]
 fn provider_kind_parse_roundtrips_builtin_provider_ids() {
-    for provider_id in list_supported_provider_strings() {
+    for provider_id in [
+        "anthropic",
+        "deepseek",
+        "deepseek-anthropic",
+        "openai",
+        "openai-compatible",
+        "ollama",
+        "fallback",
+    ] {
         let kind = ProviderKind::parse(&provider_id)
             .expect("every builtin provider id should parse through shared metadata");
-        assert_eq!(builtin_provider_id(kind), provider_id);
+        assert_eq!(builtin_provider_id(kind), provider_id.to_string());
     }
 }
 
@@ -27,6 +43,36 @@ fn supported_provider_strings_match_builtin_registry_ids() {
     ids.sort();
     supported.sort();
     assert_eq!(supported, ids);
+}
+
+#[test]
+fn builtin_openai_compatible_gateway_descriptors_expose_capability_matrix() {
+    let registry = ProviderRegistry::with_builtins();
+
+    let openrouter = registry.descriptor("openrouter").unwrap();
+    assert_eq!(openrouter.protocol_family, ProtocolFamily::OpenAi);
+    assert_eq!(
+        openrouter.default_api_base.as_deref(),
+        Some("https://openrouter.ai/api/v1")
+    );
+    assert_eq!(
+        openrouter.env_mappings.api_key_env.as_deref(),
+        Some("OPENROUTER_API_KEY")
+    );
+    assert!(openrouter.capabilities.supports_streaming);
+    assert!(openrouter.capabilities.supports_native_tool_calling);
+
+    let volcengine = registry.descriptor("volcengine").unwrap();
+    assert_eq!(volcengine.protocol_family, ProtocolFamily::OpenAi);
+    assert_eq!(
+        volcengine.default_api_base.as_deref(),
+        Some("https://ark.cn-beijing.volces.com/api/v3")
+    );
+    assert_eq!(
+        volcengine.env_mappings.api_key_env.as_deref(),
+        Some("ARK_API_KEY")
+    );
+    assert_eq!(volcengine.default_model, None);
 }
 
 #[test]

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -76,12 +77,7 @@ struct ProviderScopedFileConfig {
     default_model: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize, Clone)]
-struct ProvidersFileConfig {
-    deepseek: Option<ProviderScopedFileConfig>,
-    anthropic: Option<ProviderScopedFileConfig>,
-    openai: Option<ProviderScopedFileConfig>,
-}
+type ProvidersFileConfig = BTreeMap<String, ProviderScopedFileConfig>;
 
 #[derive(Debug, Default, Deserialize)]
 struct FileConfig {
@@ -281,16 +277,16 @@ fn apply_provider_specific_env_config<F>(resolved: &mut ResolvedConfig, env_look
 where
     F: Fn(&str) -> Option<String>,
 {
-    if matches!(
-        resolved.provider.as_str(),
-        "deepseek" | "deepseek-anthropic"
-    ) {
-        if let Some(api_key) = env_lookup("DEEPSEEK_API_KEY") {
-            resolved.api_key = Some(api_key);
-        }
-        if let Some(api_base) = env_lookup("DEEPSEEK_API_BASE") {
-            resolved.api_base = Some(api_base);
-        }
+    let env_prefix = provider_env_prefix(&resolved.provider);
+    if let Some(api_key) = env_lookup(&format!("{env_prefix}_API_KEY"))
+        .or_else(|| env_lookup(&format!("ROBOCODE_{env_prefix}_API_KEY")))
+    {
+        resolved.api_key = Some(api_key);
+    }
+    if let Some(api_base) = env_lookup(&format!("{env_prefix}_API_BASE"))
+        .or_else(|| env_lookup(&format!("ROBOCODE_{env_prefix}_API_BASE")))
+    {
+        resolved.api_base = Some(api_base);
     }
 }
 
@@ -302,12 +298,9 @@ fn apply_provider_scoped_config<F>(
 ) where
     F: Fn(&str) -> Option<String>,
 {
-    let scoped = match provider {
-        "deepseek" | "deepseek-anthropic" => providers.deepseek.as_ref(),
-        "anthropic" => providers.anthropic.as_ref(),
-        "openai" | "openai-compatible" => providers.openai.as_ref(),
-        _ => None,
-    };
+    let scoped = providers
+        .get(provider)
+        .or_else(|| provider_alias(provider).and_then(|alias| providers.get(alias)));
 
     if let Some(scoped) = scoped {
         if let Some(api_base) = &scoped.api_base {
@@ -330,19 +323,15 @@ fn apply_provider_scoped_config<F>(
 }
 
 fn merge_provider_configs(target: &mut ProvidersFileConfig, incoming: ProvidersFileConfig) {
-    merge_provider_scoped_config(&mut target.deepseek, incoming.deepseek);
-    merge_provider_scoped_config(&mut target.anthropic, incoming.anthropic);
-    merge_provider_scoped_config(&mut target.openai, incoming.openai);
+    for (provider, incoming) in incoming {
+        merge_provider_scoped_config(target.entry(provider).or_default(), incoming);
+    }
 }
 
 fn merge_provider_scoped_config(
-    target: &mut Option<ProviderScopedFileConfig>,
-    incoming: Option<ProviderScopedFileConfig>,
+    entry: &mut ProviderScopedFileConfig,
+    incoming: ProviderScopedFileConfig,
 ) {
-    let Some(incoming) = incoming else {
-        return;
-    };
-    let entry = target.get_or_insert_with(ProviderScopedFileConfig::default);
     if incoming.api_base.is_some() {
         entry.api_base = incoming.api_base;
     }
@@ -355,6 +344,28 @@ fn merge_provider_scoped_config(
     if incoming.default_model.is_some() {
         entry.default_model = incoming.default_model;
     }
+}
+
+fn provider_alias(provider: &str) -> Option<&'static str> {
+    match provider {
+        "deepseek-anthropic" => Some("deepseek"),
+        "openai-compatible" => Some("openai"),
+        _ => None,
+    }
+}
+
+fn provider_env_prefix(provider: &str) -> String {
+    provider_alias(provider)
+        .unwrap_or(provider)
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn apply_cli_config(resolved: &mut ResolvedConfig, cli: &CliOverrides) {

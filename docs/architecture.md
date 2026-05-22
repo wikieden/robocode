@@ -184,6 +184,7 @@ V1 includes a provider factory with these backend families:
 - `openai-compatible`
 - `deepseek` as an independent provider family using the official OpenAI-style API surface
 - `deepseek-anthropic` for DeepSeek's official Anthropic-compatible API surface
+- OpenAI-compatible gateway descriptors for `openrouter`, `groq`, `mistral`, `together`, `kimi`, `qwen`, `zhipu`, and `volcengine`
 - `ollama`
 - `fallback`
 
@@ -192,6 +193,7 @@ provider host/runtime with:
 
 - built-in provider descriptors
 - dynamic provider registry
+- a compatibility matrix for built-in descriptors, including protocol family, default model, streaming capability, and tool-call capability
 - protocol adapters separated from provider identity
 - a plugin contract designed for native dynamic loading first and WASM
   migration later
@@ -208,6 +210,7 @@ Current protocol support:
 - Anthropic native `tool_use`
 - OpenAI native `tool_calls`
 - OpenAI-compatible tool calling using the same message shape
+- OpenAI-compatible gateway providers through shared descriptor-backed HTTP providers
 - DeepSeek as an independent provider identity with:
   - `deepseek` bound to the OpenAI-style adapter family at `https://api.deepseek.com`
   - `deepseek-anthropic` bound to the Anthropic-style adapter family at `https://api.deepseek.com/anthropic`

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    adapters::builtin_provider_descriptors, config::ProviderKind, descriptor::ProviderDescriptor,
+    adapters::builtin_provider_descriptors, descriptor::ProviderDescriptor,
     descriptor::validate_provider_descriptor, plugin::ProviderPluginError,
     plugin::discover_plugin_descriptors, plugin::discover_plugin_descriptors_in_dirs,
 };
@@ -83,12 +83,7 @@ impl ProviderRegistry {
     }
 
     pub fn creatable_provider_ids(&self) -> Vec<String> {
-        self.descriptors
-            .iter()
-            .filter_map(|descriptor| {
-                ProviderKind::parse(&descriptor.provider_id).map(|_| descriptor.provider_id.clone())
-            })
-            .collect()
+        self.provider_ids()
     }
 
     pub fn descriptor(&self, provider_id: &str) -> Option<&ProviderDescriptor> {

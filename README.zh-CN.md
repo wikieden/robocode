@@ -78,6 +78,17 @@ api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
 
+provider-scoped tables 不限于一方内建 provider。任意已注册 provider id 都可以拥有自己的配置表：
+
+```toml
+provider = "openrouter"
+
+[providers.openrouter]
+api_base = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+default_model = "openai/gpt-5.2"
+```
+
 DeepSeek V4 模型名以官方 API 文档为准：
 
 - `deepseek-v4-flash` 是 RoboCode 的默认 DeepSeek 模型
@@ -98,6 +109,7 @@ DeepSeek 的 API 字段优先级：
 - `openai-compatible`
 - `deepseek`，作为独立 provider family，复用 OpenAI-style 协议
 - `deepseek-anthropic`，用于 DeepSeek 的 Anthropic-compatible endpoint：`https://api.deepseek.com/anthropic`
+- OpenAI-compatible gateway descriptors：`openrouter`、`groq`、`mistral`、`together`、`kimi`、`qwen`、`zhipu`、`volcengine`
 - `ollama`
 - `fallback`
 
@@ -112,8 +124,9 @@ DeepSeek 的 API 字段优先级：
 
 - 继续支持 built-in providers
 - provider descriptors 已经通过 provider host/runtime registry 统一流转
+- `/provider list` 会展示每个已注册 provider 的协议族、默认模型、streaming 支持和 tool-call 支持
 - provider 绑定是 session/agent scoped，而不是 process-global
-- 下一步 hardening 聚焦真实 dynamic plugin loading、registry refresh 覆盖、streaming 与 cancellation
+- 下一步 hardening 聚焦扩展 provider 矩阵的真实 API 兼容性覆盖
 - 执行模型以 native dynamic loading 优先，后续再考虑 WASM 迁移
 
 常用命令：

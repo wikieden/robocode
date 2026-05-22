@@ -91,6 +91,9 @@ fn provider_list_reports_registry_and_current_provider() {
             if text.contains("Provider registry:")
                 && text.contains("Current provider: sequence (test-model)")
                 && text.contains("openai-compatible")
+                && text.contains("openrouter")
+                && text.contains("streaming=true")
+                && text.contains("tools=true")
     )));
 }
 

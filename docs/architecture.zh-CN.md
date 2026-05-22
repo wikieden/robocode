@@ -165,6 +165,7 @@ provider 返回流式或批式事件：
 - `openai-compatible`
 - `deepseek`，作为独立 provider family，使用官方 OpenAI-style API surface
 - `deepseek-anthropic`，用于 DeepSeek 官方 Anthropic-compatible API surface
+- OpenAI-compatible gateway descriptors：`openrouter`、`groq`、`mistral`、`together`、`kimi`、`qwen`、`zhipu`、`volcengine`
 - `ollama`
 - `fallback`
 
@@ -172,6 +173,7 @@ main 上的 provider runtime 已经从小型 built-in factory 演进为 provider
 
 - built-in provider descriptors
 - dynamic provider registry
+- built-in descriptors 的兼容矩阵，包括协议族、默认模型、streaming capability 和 tool-call capability
 - 将 protocol adapters 与 provider identity 分离
 - 先支持 native dynamic loading、后续可迁移到 WASM 的 plugin contract
 - instance-scoped provider binding，使同一进程中的不同 sessions/agents 能并发使用不同 provider
@@ -183,6 +185,7 @@ HTTP provider 使用系统 `curl`，因此 workspace 能保持依赖轻量且可
 - Anthropic 原生 `tool_use`
 - OpenAI 原生 `tool_calls`
 - OpenAI-compatible 的相同工具调用消息形状
+- 通过 descriptor-backed HTTP provider 复用 OpenAI-compatible gateway providers
 - DeepSeek 作为独立 provider identity，提供：
   - `deepseek`：绑定 OpenAI-style adapter family，endpoint 为 `https://api.deepseek.com`
   - `deepseek-anthropic`：绑定 Anthropic-style adapter family，endpoint 为 `https://api.deepseek.com/anthropic`

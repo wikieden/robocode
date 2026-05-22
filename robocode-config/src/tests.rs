@@ -266,3 +266,106 @@ api_key_env = "DEEPSEEK_API_KEY"
     );
     assert_eq!(config.api_key.as_deref(), Some("deepseek-provider-key"));
 }
+
+#[test]
+fn arbitrary_provider_scoped_config_applies_to_selected_provider() {
+    let root =
+        std::env::temp_dir().join(format!("robocode_openrouter_scoped_{}", std::process::id()));
+    let global_config_path = default_config_path_for_test(&root);
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
+    fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
+    fs::write(
+        &global_config_path,
+        r#"
+[providers.openrouter]
+api_base = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+default_model = "openai/gpt-5.2"
+"#,
+    )
+    .unwrap();
+
+    let env_map = map_env(&[
+        ("HOME", root.to_string_lossy().as_ref()),
+        ("OPENROUTER_API_KEY", "openrouter-key"),
+    ]);
+    let cli = CliOverrides {
+        provider: Some("openrouter".to_string()),
+        ..CliOverrides::default()
+    };
+    let config = load_config_with_env(&root.join("project"), &cli, &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.provider, "openrouter");
+    assert_eq!(
+        config.api_base.as_deref(),
+        Some("https://openrouter.ai/api/v1")
+    );
+    assert_eq!(config.api_key.as_deref(), Some("openrouter-key"));
+    assert_eq!(config.model.as_deref(), Some("openai/gpt-5.2"));
+}
+
+#[test]
+fn provider_specific_env_uses_normalized_provider_name() {
+    let cwd = std::env::temp_dir().join(format!("robocode_openrouter_env_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&cwd);
+    fs::create_dir_all(cwd.join(".robocode")).unwrap();
+    fs::write(
+        cwd.join(".robocode").join("config.toml"),
+        r#"
+provider = "openrouter"
+api_key = "generic-key"
+api_base = "https://generic.example"
+"#,
+    )
+    .unwrap();
+
+    let env_map = map_env(&[
+        ("OPENROUTER_API_KEY", "provider-key"),
+        ("OPENROUTER_API_BASE", "https://provider.example"),
+    ]);
+    let config = load_config_with_env(&cwd, &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.provider, "openrouter");
+    assert_eq!(config.api_key.as_deref(), Some("provider-key"));
+    assert_eq!(config.api_base.as_deref(), Some("https://provider.example"));
+}
+
+#[test]
+fn provider_specific_env_uses_shared_family_aliases() {
+    let cwd = std::env::temp_dir().join(format!(
+        "robocode_deepseek_anthropic_env_{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&cwd);
+    fs::create_dir_all(cwd.join(".robocode")).unwrap();
+    fs::write(
+        cwd.join(".robocode").join("config.toml"),
+        r#"
+provider = "deepseek-anthropic"
+"#,
+    )
+    .unwrap();
+
+    let env_map = map_env(&[
+        ("DEEPSEEK_API_KEY", "provider-key"),
+        ("DEEPSEEK_API_BASE", "https://api.deepseek.com/anthropic"),
+    ]);
+    let config = load_config_with_env(&cwd, &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.provider, "deepseek-anthropic");
+    assert_eq!(config.api_key.as_deref(), Some("provider-key"));
+    assert_eq!(
+        config.api_base.as_deref(),
+        Some("https://api.deepseek.com/anthropic")
+    );
+}

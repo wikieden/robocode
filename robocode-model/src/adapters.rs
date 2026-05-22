@@ -3,8 +3,9 @@ use crate::descriptor::{
     ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings,
 };
 use crate::http::{
-    ANTHROPIC_API_BASE, DEEPSEEK_ANTHROPIC_API_BASE, DEEPSEEK_API_BASE, OLLAMA_API_BASE,
-    OPENAI_API_BASE,
+    ANTHROPIC_API_BASE, DEEPSEEK_ANTHROPIC_API_BASE, DEEPSEEK_API_BASE, GROQ_API_BASE,
+    KIMI_API_BASE, MISTRAL_API_BASE, OLLAMA_API_BASE, OPENAI_API_BASE, OPENROUTER_API_BASE,
+    QWEN_API_BASE, TOGETHER_API_BASE, VOLCENGINE_API_BASE, ZHIPU_API_BASE,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -108,6 +109,101 @@ const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
     },
 ];
 
+#[derive(Debug, Clone, Copy)]
+struct BuiltinGatewayMetadata {
+    provider_id: &'static str,
+    display_name: &'static str,
+    default_api_base: &'static str,
+    default_model: Option<&'static str>,
+    api_key_env: &'static str,
+    api_base_env: &'static str,
+    supports_streaming: bool,
+    supports_native_tool_calling: bool,
+}
+
+const BUILTIN_GATEWAY_METADATA: &[BuiltinGatewayMetadata] = &[
+    BuiltinGatewayMetadata {
+        provider_id: "openrouter",
+        display_name: "OpenRouter",
+        default_api_base: OPENROUTER_API_BASE,
+        default_model: None,
+        api_key_env: "OPENROUTER_API_KEY",
+        api_base_env: "OPENROUTER_API_BASE",
+        supports_streaming: true,
+        supports_native_tool_calling: true,
+    },
+    BuiltinGatewayMetadata {
+        provider_id: "groq",
+        display_name: "Groq",
+        default_api_base: GROQ_API_BASE,
+        default_model: Some("openai/gpt-oss-20b"),
+        api_key_env: "GROQ_API_KEY",
+        api_base_env: "GROQ_API_BASE",
+        supports_streaming: true,
+        supports_native_tool_calling: true,
+    },
+    BuiltinGatewayMetadata {
+        provider_id: "mistral",
+        display_name: "Mistral AI",
+        default_api_base: MISTRAL_API_BASE,
+        default_model: Some("mistral-medium-latest"),
+        api_key_env: "MISTRAL_API_KEY",
+        api_base_env: "MISTRAL_API_BASE",
+        supports_streaming: true,
+        supports_native_tool_calling: true,
+    },
+    BuiltinGatewayMetadata {
+        provider_id: "together",
+        display_name: "Together AI",
+        default_api_base: TOGETHER_API_BASE,
+        default_model: Some("openai/gpt-oss-20b"),
+        api_key_env: "TOGETHER_API_KEY",
+        api_base_env: "TOGETHER_API_BASE",
+        supports_streaming: true,
+        supports_native_tool_calling: true,
+    },
+    BuiltinGatewayMetadata {
+        provider_id: "kimi",
+        display_name: "Kimi",
+        default_api_base: KIMI_API_BASE,
+        default_model: None,
+        api_key_env: "MOONSHOT_API_KEY",
+        api_base_env: "MOONSHOT_API_BASE",
+        supports_streaming: true,
+        supports_native_tool_calling: true,
+    },
+    BuiltinGatewayMetadata {
+        provider_id: "qwen",
+        display_name: "Qwen",
+        default_api_base: QWEN_API_BASE,
+        default_model: Some("qwen-plus"),
+        api_key_env: "DASHSCOPE_API_KEY",
+        api_base_env: "DASHSCOPE_API_BASE",
+        supports_streaming: true,
+        supports_native_tool_calling: true,
+    },
+    BuiltinGatewayMetadata {
+        provider_id: "zhipu",
+        display_name: "Zhipu GLM",
+        default_api_base: ZHIPU_API_BASE,
+        default_model: Some("glm-4.6"),
+        api_key_env: "ZHIPU_API_KEY",
+        api_base_env: "ZHIPU_API_BASE",
+        supports_streaming: true,
+        supports_native_tool_calling: true,
+    },
+    BuiltinGatewayMetadata {
+        provider_id: "volcengine",
+        display_name: "Volcengine Ark",
+        default_api_base: VOLCENGINE_API_BASE,
+        default_model: None,
+        api_key_env: "ARK_API_KEY",
+        api_base_env: "ARK_API_BASE",
+        supports_streaming: true,
+        supports_native_tool_calling: true,
+    },
+];
+
 fn builtin_provider_metadata(kind: ProviderKind) -> &'static BuiltinProviderMetadata {
     BUILTIN_PROVIDER_METADATA
         .iter()
@@ -137,7 +233,7 @@ pub(crate) fn builtin_default_api_base(kind: ProviderKind) -> Option<&'static st
 }
 
 pub(crate) fn builtin_provider_descriptors() -> Vec<ProviderDescriptor> {
-    BUILTIN_PROVIDER_METADATA
+    let mut descriptors = BUILTIN_PROVIDER_METADATA
         .iter()
         .map(|metadata| ProviderDescriptor {
             provider_id: metadata.provider_id.to_string(),
@@ -156,7 +252,29 @@ pub(crate) fn builtin_provider_descriptors() -> Vec<ProviderDescriptor> {
             },
             config_schema_version: 1,
         })
-        .collect()
+        .collect::<Vec<_>>();
+    descriptors.extend(
+        BUILTIN_GATEWAY_METADATA
+            .iter()
+            .map(|metadata| ProviderDescriptor {
+                provider_id: metadata.provider_id.to_string(),
+                display_name: metadata.display_name.to_string(),
+                version: "builtin".to_string(),
+                protocol_family: ProtocolFamily::OpenAi,
+                default_api_base: Some(metadata.default_api_base.to_string()),
+                default_model: metadata.default_model.map(ToString::to_string),
+                env_mappings: ProviderEnvMappings {
+                    api_key_env: Some(metadata.api_key_env.to_string()),
+                    api_base_env: Some(metadata.api_base_env.to_string()),
+                },
+                capabilities: ProviderCapabilities {
+                    supports_streaming: metadata.supports_streaming,
+                    supports_native_tool_calling: metadata.supports_native_tool_calling,
+                },
+                config_schema_version: 1,
+            }),
+    );
+    descriptors
 }
 
 pub(crate) fn builtin_provider_id(kind: ProviderKind) -> &'static str {

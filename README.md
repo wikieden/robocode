@@ -78,6 +78,18 @@ api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
 
+Provider-scoped tables are not limited to built-in first-party providers. Any
+registered provider id can have its own table:
+
+```toml
+provider = "openrouter"
+
+[providers.openrouter]
+api_base = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+default_model = "openai/gpt-5.2"
+```
+
 DeepSeek V4 model names follow the official API docs:
 
 - `deepseek-v4-flash` is RoboCode's default DeepSeek model
@@ -98,6 +110,7 @@ Supported provider families:
 - `openai-compatible`
 - `deepseek` as an independent provider family using the OpenAI-style protocol
 - `deepseek-anthropic` for DeepSeek's Anthropic-compatible endpoint at `https://api.deepseek.com/anthropic`
+- OpenAI-compatible gateway descriptors: `openrouter`, `groq`, `mistral`, `together`, `kimi`, `qwen`, `zhipu`, and `volcengine`
 - `ollama`
 - `fallback`
 
@@ -112,8 +125,9 @@ Provider runtime status and direction:
 
 - built-in providers remain supported
 - provider descriptors now flow through the provider host/runtime registry
+- `/provider list` shows each registered provider's protocol family, default model, streaming support, and tool-call support
 - provider bindings are session/agent scoped rather than process-global
-- the next hardening work is real dynamic plugin loading, registry refresh coverage, streaming, and cancellation
+- the next hardening work is real API compatibility coverage across the expanded provider matrix
 - the runtime is designed for native dynamic loading first and WASM migration later
 
 Useful commands:

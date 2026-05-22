@@ -159,11 +159,13 @@ impl SessionEngine {
 
 fn render_provider_descriptor(descriptor: &ProviderDescriptor) -> String {
     format!(
-        "  - {} ({}) family={:?} default_model={}",
+        "  - {} ({}) family={:?} default_model={} streaming={} tools={}",
         descriptor.provider_id,
         descriptor.display_name,
         descriptor.protocol_family,
-        descriptor.default_model.as_deref().unwrap_or("<none>")
+        descriptor.default_model.as_deref().unwrap_or("<none>"),
+        descriptor.capabilities.supports_streaming,
+        descriptor.capabilities.supports_native_tool_calling,
     )
 }
 

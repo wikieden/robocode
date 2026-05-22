@@ -29,10 +29,11 @@ Mainline landed:
 - V2-B LSP foundation is implemented: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document sync.
 - V2-D structured terminal view slices are implemented: grouped diagnostics, grouped symbols, compact references, structured sessions/tasks/memory, structured permission denials, structured `/git diff` and `/diff`, and shared `robocode-core` presentation helpers.
 - Provider-plugin runtime and DeepSeek V4 are implemented on main. Mainline uses official DeepSeek model names: `deepseek-v4-flash` by default and `deepseek-v4-pro` when selected explicitly.
+- The provider descriptor matrix includes additional OpenAI-compatible gateway providers: `openrouter`, `groq`, `mistral`, `together`, `kimi`, `qwen`, `zhipu`, and `volcengine`.
 
 Next planned slice:
 
-- harden the provider-plugin runtime slice with real dynamic loading paths, registry refresh coverage, descriptor validation, streaming/cancellation, and multi-agent provider binding tests.
+- harden the expanded provider matrix with real API compatibility coverage across streaming, tool calls, cancellation, and provider-scoped config.
 - after that, continue V2-D with richer drilldowns and approval ergonomics where plain terminal sections need more guidance.
 
 ## Gap vs `.ref/claude-code-main`

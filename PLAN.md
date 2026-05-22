@@ -8,7 +8,7 @@ Mainline landed status:
 - layered config resolution
 - multi-provider model abstraction
 - native tool-calling support for Anthropic and OpenAI-style providers
-- provider-plugin runtime and DeepSeek v4 support, including `deepseek`, `deepseek-anthropic`, provider-scoped config, and official `deepseek-v4-flash` / `deepseek-v4-pro` model names
+- provider-plugin runtime and DeepSeek v4 support, including `deepseek`, `deepseek-anthropic`, expanded OpenAI-compatible gateway descriptors, provider-scoped config, and official `deepseek-v4-flash` / `deepseek-v4-pro` model names
 - permission-aware local tool runtime
 - JSONL transcripts plus rebuildable SQLite session index
 - session listing and resume selectors
@@ -20,14 +20,14 @@ Mainline landed status:
 
 Next planned slice:
 
-- provider runtime hardening: dynamic provider loading, registry refresh coverage, plugin descriptor validation, provider streaming/cancellation, and multi-agent provider binding tests
+- provider runtime hardening: real API compatibility coverage across the expanded provider matrix, plugin descriptor validation, provider streaming/cancellation, and multi-agent provider binding tests
 - after that, continue V2-D only where it adds value: richer workflow drilldowns, interactive approval ergonomics, and eventually a lightweight TUI shell without replacing plain terminal output
 
 ## Near-Term Plan
 
 1. Provider Runtime Hardening.
-   - Validate real dynamic provider loading paths beyond built-in descriptors.
-   - Add registry refresh and collision tests.
+   - Validate real API compatibility across built-in and descriptor-backed OpenAI-compatible providers.
+   - Keep dynamic loading, registry refresh, and collision tests covered.
    - Keep provider binding instance-scoped so multiple sessions or agents can use different providers in the same process.
    - Harden OpenAI-style and Anthropic-style protocol compatibility, including DeepSeek reasoning/tool-call turns.
 
