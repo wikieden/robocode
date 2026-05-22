@@ -32,6 +32,39 @@ fn from_settings_applies_timeout_and_retries() {
 }
 
 #[test]
+fn from_settings_treats_blank_api_key_override_as_missing() {
+    let config =
+        ProviderConfig::from_settings("fallback", Some("test-local"), None, Some("   "), 90, 1)
+            .unwrap();
+
+    assert_eq!(config.api_key, None);
+    assert!(config.summary().contains("key=missing"));
+}
+
+#[test]
+fn blank_builtin_api_key_env_is_treated_as_missing() {
+    let openai_key = std::env::var("OPENAI_API_KEY").ok();
+    let robocode_openai_key = std::env::var("ROBOCODE_OPENAI_API_KEY").ok();
+    let robocode_key = std::env::var("ROBOCODE_API_KEY").ok();
+
+    unsafe {
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::remove_var("ROBOCODE_OPENAI_API_KEY");
+        std::env::set_var("ROBOCODE_API_KEY", "   ");
+    }
+    let config = ProviderConfig::from_settings("openai", Some("gpt-5.2"), None, None, 90, 1);
+    unsafe {
+        restore_env_var("OPENAI_API_KEY", openai_key);
+        restore_env_var("ROBOCODE_OPENAI_API_KEY", robocode_openai_key);
+        restore_env_var("ROBOCODE_API_KEY", robocode_key);
+    }
+    let config = config.unwrap();
+
+    assert_eq!(config.api_key, None);
+    assert!(config.summary().contains("key=missing"));
+}
+
+#[test]
 fn provider_without_key_falls_back_cleanly() {
     let mut provider = create_provider(ProviderConfig {
         kind: ProviderKind::OpenAi,
@@ -58,6 +91,13 @@ fn provider_without_key_falls_back_cleanly() {
     assert!(
         matches!(&events[0], ModelEvent::AssistantText { content } if content.contains("fallback mode"))
     );
+}
+
+unsafe fn restore_env_var(name: &str, value: Option<String>) {
+    match value {
+        Some(value) => unsafe { std::env::set_var(name, value) },
+        None => unsafe { std::env::remove_var(name) },
+    }
 }
 
 #[test]

@@ -156,6 +156,57 @@ fn provider_host_uses_dynamic_provider_api_base_env_mapping() {
 }
 
 #[test]
+fn provider_host_treats_blank_dynamic_provider_api_key_env_as_missing() {
+    let plugin_descriptor = ProviderDescriptor {
+        provider_id: "blank-key-openai".to_string(),
+        display_name: "Blank Key OpenAI".to_string(),
+        version: "1".to_string(),
+        protocol_family: ProtocolFamily::OpenAi,
+        default_api_base: Some("http://127.0.0.1:9".to_string()),
+        default_model: Some("blank-key-model".to_string()),
+        env_mappings: ProviderEnvMappings {
+            api_key_env: Some("ROBOCODE_TEST_BLANK_OPENAI_API_KEY".to_string()),
+            api_base_env: None,
+        },
+        capabilities: ProviderCapabilities {
+            supports_streaming: true,
+            supports_native_tool_calling: true,
+        },
+        config_schema_version: 1,
+    };
+    let registry = ProviderRegistry::from_descriptor_sources(
+        adapters::builtin_provider_descriptors(),
+        vec![plugin_descriptor],
+    )
+    .unwrap();
+    let host = ProviderHost::with_registry(registry);
+
+    unsafe {
+        std::env::set_var("ROBOCODE_TEST_BLANK_OPENAI_API_KEY", "   ");
+    }
+    let mut provider = host
+        .create_registered("blank-key-openai", None, None, None, 1, 0)
+        .unwrap();
+    let events = provider.next_events(&ModelRequest {
+        session_id: "session_blank_key".to_string(),
+        model: "blank-key-model".to_string(),
+        messages: vec![Message::new(Role::User, "hello")],
+        tools: Vec::new(),
+        permission_mode: PermissionMode::Default,
+    });
+    unsafe {
+        std::env::remove_var("ROBOCODE_TEST_BLANK_OPENAI_API_KEY");
+    }
+    let events = events.unwrap();
+
+    assert!(matches!(
+        &events[0],
+        ModelEvent::AssistantText { content }
+            if content.contains("blank-key-openai provider is running in local fallback mode")
+    ));
+}
+
+#[test]
 fn provider_host_prefers_explicit_api_base_over_dynamic_provider_env_mapping() {
     let plugin_descriptor = ProviderDescriptor {
         provider_id: "explicit-openai".to_string(),

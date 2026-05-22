@@ -149,6 +149,7 @@ impl HttpProvider {
             })?;
         let api_base = resolve_descriptor_api_base(descriptor, api_base)?;
         let api_key = api_key
+            .filter(|value| !value.trim().is_empty())
             .map(ToString::to_string)
             .or_else(|| resolve_env_mapping(descriptor.env_mappings.api_key_env.as_deref()));
         Ok(Self {
@@ -464,7 +465,9 @@ pub(crate) fn load_registered_provider(
 }
 
 fn resolve_env_mapping(env_name: Option<&str>) -> Option<String> {
-    env_name.and_then(|name| std::env::var(name).ok())
+    env_name
+        .and_then(|name| std::env::var(name).ok())
+        .filter(|value| !value.trim().is_empty())
 }
 
 pub(crate) fn provider_streaming_requested(
