@@ -180,8 +180,9 @@ Useful commands:
 /memory export
 ```
 
-Live provider smoke tests are ignored by default. To verify one provider against
-the real API path:
+Live provider smoke tests are ignored by default. The full provider matrix,
+environment variables, and result-recording rules live in
+`docs/provider-live-matrix.md`. To verify one provider against the real API path:
 
 ```bash
 ROBOCODE_LIVE_PROVIDER=openrouter \

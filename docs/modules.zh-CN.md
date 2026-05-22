@@ -56,5 +56,6 @@ Next planned slice：
 - `robocode-session/README.zh-CN.md`
 - `robocode-types/README.zh-CN.md`
 - `robocode-workflows/README.zh-CN.md`
+- `docs/provider-live-matrix.zh-CN.md`
 
 完整路线图见 `PLAN.md`、`docs/product-requirements.zh-CN.md`、`docs/staged-roadmap.zh-CN.md`、`docs/ref-gap-matrix.zh-CN.md`。

@@ -23,13 +23,14 @@ Mainline landed status:
 
 Next planned slice:
 
-- finish provider compatibility coverage across the expanded provider matrix, using DeepSeek V4 as the strict compatibility contract
+- finish provider compatibility coverage across the expanded provider matrix, using DeepSeek V4 as the strict compatibility contract and the provider live matrix as the evidence log
 - after that, continue V2-D only where it adds value: richer workflow drilldowns, stronger interactive approval ergonomics, and TUI polish without replacing plain terminal output
 
 ## Near-Term Plan
 
 1. Provider Compatibility Completion.
-   - Validate real API compatibility across built-in and descriptor-backed OpenAI-compatible providers.
+   - Keep the provider live matrix documented and aligned with built-in descriptors.
+   - Validate real API compatibility across built-in and descriptor-backed OpenAI-compatible providers when credentials are available.
    - Keep dynamic loading, registry refresh, descriptor compatibility flags, and collision tests covered.
    - Keep provider binding instance-scoped so multiple sessions or agents can use different providers in the same process.
    - Harden OpenAI-style and Anthropic-style protocol compatibility, including DeepSeek reasoning/tool-call turns.

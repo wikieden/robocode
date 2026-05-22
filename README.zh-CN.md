@@ -174,7 +174,8 @@ DeepSeek 的 API 字段优先级：
 /memory export
 ```
 
-真实 provider smoke tests 默认 ignored。要验证某个 provider 的真实 API 路径：
+真实 provider smoke tests 默认 ignored。完整 provider matrix、环境变量和结果记录规则见
+`docs/provider-live-matrix.zh-CN.md`。要验证某个 provider 的真实 API 路径：
 
 ```bash
 ROBOCODE_LIVE_PROVIDER=openrouter \

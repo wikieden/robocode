@@ -76,6 +76,51 @@ fn builtin_openai_compatible_gateway_descriptors_expose_capability_matrix() {
 }
 
 #[test]
+fn provider_live_matrix_docs_cover_gateway_descriptors() {
+    let english = include_str!("../../../docs/provider-live-matrix.md");
+    let chinese = include_str!("../../../docs/provider-live-matrix.zh-CN.md");
+    let registry = ProviderRegistry::with_builtins();
+
+    for provider_id in [
+        "openrouter",
+        "groq",
+        "mistral",
+        "together",
+        "kimi",
+        "qwen",
+        "zhipu",
+        "volcengine",
+    ] {
+        let descriptor = registry.descriptor(provider_id).unwrap();
+        for doc in [english, chinese] {
+            assert!(doc.contains(provider_id), "{provider_id} missing from doc");
+            assert!(
+                doc.contains(descriptor.default_api_base.as_deref().unwrap()),
+                "{} API base missing from doc",
+                provider_id
+            );
+            assert!(
+                doc.contains(descriptor.env_mappings.api_key_env.as_deref().unwrap()),
+                "{} API key env missing from doc",
+                provider_id
+            );
+            assert!(
+                doc.contains(descriptor.env_mappings.api_base_env.as_deref().unwrap()),
+                "{} API base env missing from doc",
+                provider_id
+            );
+            if let Some(default_model) = descriptor.default_model.as_deref() {
+                assert!(
+                    doc.contains(default_model),
+                    "{} default model missing from doc",
+                    provider_id
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn descriptor_keeps_provider_identity_separate_from_protocol_family() {
     let descriptor = ProviderDescriptor {
         provider_id: "deepseek".to_string(),

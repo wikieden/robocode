@@ -56,5 +56,6 @@ Missing: MCP, general skills/plugins beyond provider plugins, multi-agent/team c
 - `robocode-session/README.md`
 - `robocode-types/README.md`
 - `robocode-workflows/README.md`
+- `docs/provider-live-matrix.md`
 
 See `PLAN.md`, `docs/product-requirements.md`, `docs/staged-roadmap.md`, and `docs/ref-gap-matrix.md` for full roadmap context.
