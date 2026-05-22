@@ -127,6 +127,7 @@ Provider runtime status and direction:
 - provider descriptors now flow through the provider host/runtime registry
 - `/provider list` shows each registered provider's protocol family, default model, streaming support, and tool-call support
 - provider bindings are session/agent scoped rather than process-global
+- permission prompts render tool input as stable fields for easier review
 - the next hardening work is real API compatibility coverage across the expanded provider matrix
 - the runtime is designed for native dynamic loading first and WASM migration later
 

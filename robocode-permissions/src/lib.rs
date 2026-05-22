@@ -164,7 +164,7 @@ impl PermissionEngine {
         PermissionPrompt {
             tool_name: tool_name.to_string(),
             message: decision.message.clone(),
-            input_preview: robocode_types::encode_tool_input(input),
+            input_preview: render_prompt_input(input),
         }
     }
 
@@ -213,6 +213,17 @@ impl PermissionEngine {
             .map(|directory| normalize_path(&self.cwd, &directory.path))
             .any(|directory| resolved.starts_with(directory))
     }
+}
+
+fn render_prompt_input(input: &ToolInput) -> String {
+    if input.is_empty() {
+        return "  <no input>".to_string();
+    }
+    input
+        .iter()
+        .map(|(key, value)| format!("  {key}: {value}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn extract_paths(input: &ToolInput) -> Vec<String> {
@@ -317,5 +328,26 @@ mod tests {
             &input("/tmp/project-worktrees/feature-demo"),
         );
         assert!(matches!(decision, PermissionDecision::Ask(_)));
+    }
+
+    #[test]
+    fn permission_prompt_renders_input_as_stable_fields() {
+        let mut input = ToolInput::new();
+        input.insert("path".to_string(), "hello.py".to_string());
+        input.insert("content".to_string(), "print('Hello')".to_string());
+        let decision = PermissionAskDecision {
+            message: "Approve write_file?".to_string(),
+            updated_input: None,
+            decision_reason: Some(PermissionDecisionReason::RequiresApproval),
+        };
+
+        let prompt = PermissionEngine::prompt_for("write_file", &decision, &input);
+
+        assert_eq!(prompt.tool_name, "write_file");
+        assert_eq!(prompt.message, "Approve write_file?");
+        assert_eq!(
+            prompt.input_preview,
+            "  content: print('Hello')\n  path: hello.py"
+        );
     }
 }

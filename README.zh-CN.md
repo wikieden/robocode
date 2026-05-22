@@ -126,6 +126,7 @@ DeepSeek 的 API 字段优先级：
 - provider descriptors 已经通过 provider host/runtime registry 统一流转
 - `/provider list` 会展示每个已注册 provider 的协议族、默认模型、streaming 支持和 tool-call 支持
 - provider 绑定是 session/agent scoped，而不是 process-global
+- permission prompts 会把 tool input 渲染为稳定字段，便于审批前检查
 - 下一步 hardening 聚焦扩展 provider 矩阵的真实 API 兼容性覆盖
 - 执行模型以 native dynamic loading 优先，后续再考虑 WASM 迁移
 
