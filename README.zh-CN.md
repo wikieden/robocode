@@ -41,6 +41,12 @@ cargo test --workspace
 cargo run -p robocode-cli -- --provider fallback --model test-local
 ```
 
+启动轻量 terminal UI：
+
+```bash
+cargo run -p robocode-cli -- --tui --provider fallback --model test-local
+```
+
 使用显式配置文件启动：
 
 ```bash
@@ -148,6 +154,7 @@ DeepSeek 的 API 字段优先级：
 /provider
 /provider doctor
 /provider doctor openrouter
+/help
 /status
 /config
 /doctor

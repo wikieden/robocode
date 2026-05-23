@@ -17,13 +17,14 @@ Mainline landed status:
 - V2-C workflow continuity: `robocode-workflows`, project tasks, project/session memory, `/tasks`, `/task ...`, `/memory ...`, `/task resume-context`, workflow JSONL logs
 - V2-B LSP foundation: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document synchronization
 - V2-D structured view slices: grouped diagnostics, grouped symbols, compact references, structured sessions/tasks/memory, structured permission denials, structured `/git diff` and `/diff`, and shared `robocode-core` presentation helpers
+- lightweight CLI TUI shell: `--tui` alternate-screen mode with status, transcript, input, and permission approval prompts while reusing the shared `SessionEngine`
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
 Next planned slice:
 
 - finish provider compatibility coverage across the expanded provider matrix, using DeepSeek V4 as the strict compatibility contract
-- after that, continue V2-D only where it adds value: richer workflow drilldowns, interactive approval ergonomics, and eventually a lightweight TUI shell without replacing plain terminal output
+- after that, continue V2-D only where it adds value: richer workflow drilldowns, stronger interactive approval ergonomics, and TUI polish without replacing plain terminal output
 
 ## Near-Term Plan
 
