@@ -41,6 +41,12 @@ Start the CLI:
 cargo run -p robocode-cli -- --provider fallback --model test-local
 ```
 
+To start the lightweight terminal UI:
+
+```bash
+cargo run -p robocode-cli -- --tui --provider fallback --model test-local
+```
+
 Start the CLI with an explicit config file:
 
 ```bash
@@ -154,6 +160,7 @@ Useful commands:
 /provider
 /provider doctor
 /provider doctor openrouter
+/help
 /status
 /config
 /doctor

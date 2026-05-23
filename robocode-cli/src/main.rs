@@ -9,6 +9,8 @@ use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
+mod tui;
+
 fn main() {
     if let Err(err) = run() {
         eprintln!("robocode: {err}");
@@ -89,6 +91,10 @@ fn run() -> Result<(), String> {
         {
             render_event(event);
         }
+    }
+
+    if startup.tui {
+        return tui::run_tui(&mut engine, &provider_summary);
     }
 
     println!(
@@ -256,6 +262,7 @@ struct StartupOptions {
     max_retries: Option<u32>,
     config_path: Option<PathBuf>,
     resume_selector: Option<String>,
+    tui: bool,
 }
 
 impl StartupOptions {
@@ -293,6 +300,9 @@ impl StartupOptions {
         }
         if self.resume_selector.is_some() {
             overrides.push("--resume".to_string());
+        }
+        if self.tui {
+            overrides.push("--tui".to_string());
         }
         overrides
     }
@@ -377,6 +387,9 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
                     options.resume_selector = Some("latest".to_string());
                 }
             }
+            "--tui" => {
+                options.tui = true;
+            }
             unknown if unknown.starts_with("--") => {
                 return Err(format!("Unknown startup flag `{unknown}`"));
             }
@@ -407,6 +420,7 @@ fn print_startup_help() {
     println!("  --max-retries <n>    Override provider retry count");
     println!("  --config <path>      Load config from an explicit TOML file");
     println!("  --resume [id|latest] Resume a prior session");
+    println!("  --tui                Start the lightweight terminal UI");
     println!();
     println!(
         "Supported providers: {}",
@@ -499,6 +513,16 @@ mod tests {
             options.summary_overrides(),
             vec!["--provider-plugin-dir".to_string()]
         );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_flag() {
+        let args = vec!["--tui".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui);
+        assert_eq!(options.summary_overrides(), vec!["--tui".to_string()]);
     }
 
     #[test]

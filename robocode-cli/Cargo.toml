@@ -11,3 +11,4 @@ robocode-core = { path = "../robocode-core" }
 robocode-model = { path = "../robocode-model" }
 robocode-tools = { path = "../robocode-tools" }
 robocode-types = { path = "../robocode-types" }
+crossterm = "0.28"
