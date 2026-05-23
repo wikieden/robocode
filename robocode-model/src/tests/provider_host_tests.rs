@@ -96,6 +96,7 @@ fn provider_host_creates_dynamic_openai_provider_from_registry_descriptor() {
             supports_streaming: true,
             supports_native_tool_calling: true,
         },
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -130,6 +131,7 @@ fn provider_host_uses_dynamic_provider_api_base_env_mapping() {
             supports_streaming: true,
             supports_native_tool_calling: true,
         },
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -172,6 +174,7 @@ fn provider_host_treats_blank_dynamic_provider_api_key_env_as_missing() {
             supports_streaming: true,
             supports_native_tool_calling: true,
         },
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -207,6 +210,66 @@ fn provider_host_treats_blank_dynamic_provider_api_key_env_as_missing() {
 }
 
 #[test]
+#[ignore = "requires DEEPSEEK_API_KEY and live network access"]
+fn deepseek_v4_accepts_replayed_tool_call_reasoning_content() {
+    let api_key = std::env::var("DEEPSEEK_API_KEY")
+        .expect("DEEPSEEK_API_KEY is required for this ignored smoke test");
+    let model =
+        std::env::var("ROBOCODE_LIVE_MODEL").unwrap_or_else(|_| "deepseek-v4-flash".to_string());
+    let mut provider = create_provider(ProviderConfig {
+        kind: ProviderKind::DeepSeek,
+        model: model.clone(),
+        api_base: None,
+        api_key: Some(api_key),
+        request_timeout_secs: 90,
+        max_retries: 1,
+    });
+
+    let events = provider
+        .next_events(&ModelRequest {
+            session_id: "session_live_deepseek_tool_replay".to_string(),
+            model,
+            messages: vec![
+                Message::new(Role::User, "Create hello_world.py with the write_file tool."),
+                Message {
+                    id: "msg_live_tool_call".to_string(),
+                    role: Role::Assistant,
+                    content: format!(
+                        "path=hello_world.py\tcontent=print('Hello, world!')\t{PROVIDER_REASONING_CONTENT_KEY}=Need to create the requested file."
+                    ),
+                    timestamp: 1,
+                    tool_name: Some("write_file".to_string()),
+                    tool_call_id: Some("call_live_123".to_string()),
+                },
+                Message {
+                    id: "msg_live_tool_result".to_string(),
+                    role: Role::Tool,
+                    content: "Wrote hello_world.py".to_string(),
+                    timestamp: 2,
+                    tool_name: Some("write_file".to_string()),
+                    tool_call_id: Some("call_live_123".to_string()),
+                },
+                Message::new(Role::User, "Reply with exactly DONE."),
+            ],
+            tools: vec![ToolSpec {
+                name: "write_file".to_string(),
+                description: "Write a file".to_string(),
+                is_mutating: true,
+                input_schema_hint: "path=file content=text".to_string(),
+            }],
+            permission_mode: PermissionMode::Default,
+        })
+        .expect("DeepSeek V4 Flash should accept replayed tool-call history");
+
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, ModelEvent::AssistantText { content } if content.contains("DONE"))),
+        "expected DONE response, got {events:?}"
+    );
+}
+
+#[test]
 fn provider_host_prefers_explicit_api_base_over_dynamic_provider_env_mapping() {
     let plugin_descriptor = ProviderDescriptor {
         provider_id: "explicit-openai".to_string(),
@@ -223,6 +286,7 @@ fn provider_host_prefers_explicit_api_base_over_dynamic_provider_env_mapping() {
             supports_streaming: true,
             supports_native_tool_calling: true,
         },
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -269,6 +333,7 @@ fn provider_host_rejects_invalid_dynamic_provider_api_base_env_mapping() {
             supports_streaming: true,
             supports_native_tool_calling: true,
         },
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -310,6 +375,7 @@ fn provider_host_reports_missing_dynamic_provider_api_base_after_env_lookup() {
             supports_streaming: true,
             supports_native_tool_calling: true,
         },
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -346,6 +412,7 @@ fn provider_host_keeps_dynamic_provider_instances_independent() {
             supports_streaming: true,
             supports_native_tool_calling: true,
         },
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(

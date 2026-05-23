@@ -17,17 +17,19 @@ Mainline landed status:
 - V2-C workflow continuity: `robocode-workflows`, project tasks, project/session memory, `/tasks`, `/task ...`, `/memory ...`, `/task resume-context`, workflow JSONL logs
 - V2-B LSP foundation: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document synchronization
 - V2-D structured view slices: grouped diagnostics, grouped symbols, compact references, structured sessions/tasks/memory, structured permission denials, structured `/git diff` and `/diff`, and shared `robocode-core` presentation helpers
+- provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
+- DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
 Next planned slice:
 
-- provider runtime hardening: real API compatibility coverage across the expanded provider matrix, plugin descriptor validation, provider streaming/cancellation, and multi-agent provider binding tests
+- finish provider compatibility coverage across the expanded provider matrix, using DeepSeek V4 as the strict compatibility contract
 - after that, continue V2-D only where it adds value: richer workflow drilldowns, interactive approval ergonomics, and eventually a lightweight TUI shell without replacing plain terminal output
 
 ## Near-Term Plan
 
-1. Provider Runtime Hardening.
+1. Provider Compatibility Completion.
    - Validate real API compatibility across built-in and descriptor-backed OpenAI-compatible providers.
-   - Keep dynamic loading, registry refresh, and collision tests covered.
+   - Keep dynamic loading, registry refresh, descriptor compatibility flags, and collision tests covered.
    - Keep provider binding instance-scoped so multiple sessions or agents can use different providers in the same process.
    - Harden OpenAI-style and Anthropic-style protocol compatibility, including DeepSeek reasoning/tool-call turns.
 

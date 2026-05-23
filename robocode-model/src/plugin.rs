@@ -9,8 +9,8 @@ use robocode_provider_sdk::{
 };
 
 use crate::{
-    ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings,
-    descriptor::validate_provider_descriptor,
+    ProtocolFamily, ProviderCapabilities, ProviderCompatibility, ProviderDescriptor,
+    ProviderEnvMappings, descriptor::validate_provider_descriptor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -186,6 +186,17 @@ fn into_provider_descriptor(descriptor: PluginDescriptor) -> ProviderDescriptor 
         capabilities: ProviderCapabilities {
             supports_streaming: descriptor.capabilities.supports_streaming,
             supports_native_tool_calling: descriptor.capabilities.supports_native_tool_calling,
+        },
+        compatibility: ProviderCompatibility {
+            supports_tool_choice: descriptor.compatibility.supports_tool_choice,
+            requires_reasoning_content_for_tool_calls: descriptor
+                .compatibility
+                .requires_reasoning_content_for_tool_calls,
+            requires_non_null_tool_call_content: descriptor
+                .compatibility
+                .requires_non_null_tool_call_content,
+            reasoning_effort_high: descriptor.compatibility.reasoning_effort_high,
+            reasoning_effort_max: descriptor.compatibility.reasoning_effort_max,
         },
         config_schema_version: descriptor.config_schema_version,
     }

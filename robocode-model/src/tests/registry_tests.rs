@@ -86,6 +86,7 @@ fn descriptor_keeps_provider_identity_separate_from_protocol_family() {
         default_model: Some("deepseek-v4-flash".to_string()),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
 
@@ -104,6 +105,7 @@ fn provider_descriptor_validation_rejects_invalid_plugin_identity() {
         default_model: Some("bad-model".to_string()),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
 
@@ -122,6 +124,7 @@ fn provider_descriptor_validation_rejects_unsupported_schema_version() {
         default_model: Some("future-model".to_string()),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 99,
     };
 
@@ -140,6 +143,7 @@ fn provider_descriptor_validation_rejects_empty_default_model() {
         default_model: Some("   ".to_string()),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
 
@@ -158,6 +162,7 @@ fn provider_descriptor_validation_rejects_invalid_api_base() {
         default_model: Some("model".to_string()),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
 
@@ -179,6 +184,7 @@ fn provider_descriptor_validation_rejects_invalid_env_mapping() {
             api_base_env: None,
         },
         capabilities: ProviderCapabilities::default(),
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
 
@@ -204,6 +210,7 @@ fn registry_rejects_plugin_descriptor_that_conflicts_with_builtin_provider_id() 
         default_model: Some("conflict-model".to_string()),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
 
@@ -226,6 +233,7 @@ fn registry_rejects_duplicate_builtin_provider_ids() {
         default_model: Some("model".to_string()),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
 
@@ -247,6 +255,7 @@ fn registry_rejects_duplicate_plugin_provider_ids() {
         default_model: Some("model-a".to_string()),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
     let second = ProviderDescriptor {
@@ -258,6 +267,7 @@ fn registry_rejects_duplicate_plugin_provider_ids() {
         default_model: Some("model-b".to_string()),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
 
@@ -287,6 +297,7 @@ fn registry_accepts_valid_non_builtin_plugin_descriptor() {
             supports_streaming: true,
             supports_native_tool_calling: true,
         },
+        compatibility: ProviderCompatibility::default(),
         config_schema_version: 1,
     };
 
@@ -334,6 +345,28 @@ fn deepseek_provider_uses_openai_protocol_family() {
     let descriptor = registry.descriptor("deepseek").unwrap();
     assert_eq!(descriptor.provider_id, "deepseek");
     assert_eq!(descriptor.protocol_family, ProtocolFamily::OpenAi);
+}
+
+#[test]
+fn deepseek_provider_declares_v4_tool_call_compatibility() {
+    let registry = ProviderRegistry::with_builtins();
+    let descriptor = registry.descriptor("deepseek").unwrap();
+
+    assert!(!descriptor.compatibility.supports_tool_choice);
+    assert!(
+        descriptor
+            .compatibility
+            .requires_reasoning_content_for_tool_calls
+    );
+    assert!(descriptor.compatibility.requires_non_null_tool_call_content);
+    assert_eq!(
+        descriptor.compatibility.reasoning_effort_high.as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        descriptor.compatibility.reasoning_effort_max.as_deref(),
+        Some("max")
+    );
 }
 
 #[test]

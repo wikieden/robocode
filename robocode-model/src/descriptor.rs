@@ -19,6 +19,32 @@ pub struct ProviderCapabilities {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderCompatibility {
+    #[serde(default = "default_true")]
+    pub supports_tool_choice: bool,
+    #[serde(default)]
+    pub requires_reasoning_content_for_tool_calls: bool,
+    #[serde(default)]
+    pub requires_non_null_tool_call_content: bool,
+    #[serde(default)]
+    pub reasoning_effort_high: Option<String>,
+    #[serde(default)]
+    pub reasoning_effort_max: Option<String>,
+}
+
+impl Default for ProviderCompatibility {
+    fn default() -> Self {
+        Self {
+            supports_tool_choice: true,
+            requires_reasoning_content_for_tool_calls: false,
+            requires_non_null_tool_call_content: false,
+            reasoning_effort_high: None,
+            reasoning_effort_max: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProviderDescriptor {
     pub provider_id: String,
     pub display_name: String,
@@ -28,7 +54,13 @@ pub struct ProviderDescriptor {
     pub default_model: Option<String>,
     pub env_mappings: ProviderEnvMappings,
     pub capabilities: ProviderCapabilities,
+    #[serde(default)]
+    pub compatibility: ProviderCompatibility,
     pub config_schema_version: u32,
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 pub(crate) fn validate_provider_descriptor(descriptor: &ProviderDescriptor) -> Result<(), String> {
@@ -46,6 +78,12 @@ pub(crate) fn validate_provider_descriptor(descriptor: &ProviderDescriptor) -> R
     }
     if let Some(api_base_env) = descriptor.env_mappings.api_base_env.as_deref() {
         validate_env_var_name("api_base_env", api_base_env)?;
+    }
+    if let Some(reasoning_effort_high) = descriptor.compatibility.reasoning_effort_high.as_deref() {
+        validate_non_empty("reasoning_effort_high", reasoning_effort_high)?;
+    }
+    if let Some(reasoning_effort_max) = descriptor.compatibility.reasoning_effort_max.as_deref() {
+        validate_non_empty("reasoning_effort_max", reasoning_effort_max)?;
     }
     if descriptor.config_schema_version != 1 {
         return Err(format!(

@@ -1,6 +1,7 @@
 use crate::config::ProviderKind;
 use crate::descriptor::{
-    ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings,
+    ProtocolFamily, ProviderCapabilities, ProviderCompatibility, ProviderDescriptor,
+    ProviderEnvMappings,
 };
 use crate::http::{
     ANTHROPIC_API_BASE, DEEPSEEK_ANTHROPIC_API_BASE, DEEPSEEK_API_BASE, GROQ_API_BASE,
@@ -232,6 +233,24 @@ pub(crate) fn builtin_default_api_base(kind: ProviderKind) -> Option<&'static st
     builtin_provider_metadata(kind).default_api_base
 }
 
+fn builtin_provider_compatibility(kind: ProviderKind) -> ProviderCompatibility {
+    match kind {
+        ProviderKind::DeepSeek => ProviderCompatibility {
+            supports_tool_choice: false,
+            requires_reasoning_content_for_tool_calls: true,
+            requires_non_null_tool_call_content: true,
+            reasoning_effort_high: Some("high".to_string()),
+            reasoning_effort_max: Some("max".to_string()),
+        },
+        ProviderKind::DeepSeekAnthropic => ProviderCompatibility {
+            reasoning_effort_high: Some("high".to_string()),
+            reasoning_effort_max: Some("max".to_string()),
+            ..ProviderCompatibility::default()
+        },
+        _ => ProviderCompatibility::default(),
+    }
+}
+
 pub(crate) fn builtin_provider_descriptors() -> Vec<ProviderDescriptor> {
     let mut descriptors = BUILTIN_PROVIDER_METADATA
         .iter()
@@ -250,6 +269,7 @@ pub(crate) fn builtin_provider_descriptors() -> Vec<ProviderDescriptor> {
                 supports_streaming: metadata.supports_streaming,
                 supports_native_tool_calling: metadata.supports_native_tool_calling,
             },
+            compatibility: builtin_provider_compatibility(metadata.kind),
             config_schema_version: 1,
         })
         .collect::<Vec<_>>();
@@ -271,6 +291,7 @@ pub(crate) fn builtin_provider_descriptors() -> Vec<ProviderDescriptor> {
                     supports_streaming: metadata.supports_streaming,
                     supports_native_tool_calling: metadata.supports_native_tool_calling,
                 },
+                compatibility: ProviderCompatibility::default(),
                 config_schema_version: 1,
             }),
     );

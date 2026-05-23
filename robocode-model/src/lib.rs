@@ -20,7 +20,8 @@ use robocode_types::{ModelEvent, ModelRequest};
 
 pub use config::{ProviderConfig, ProviderKind};
 pub use descriptor::{
-    ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings,
+    ProtocolFamily, ProviderCapabilities, ProviderCompatibility, ProviderDescriptor,
+    ProviderEnvMappings,
 };
 pub use host::ProviderHost;
 pub use plugin::{ProviderPluginError, ProviderPluginErrorKind};

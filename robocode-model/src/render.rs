@@ -5,6 +5,11 @@ use serde_json::{Map, Value, json};
 
 use crate::PROVIDER_REASONING_CONTENT_KEY;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct OpenAiRenderCompatibility {
+    pub requires_non_null_tool_call_content: bool,
+}
+
 pub(crate) fn build_anthropic_body_with_stream(
     model: &str,
     request: &ModelRequest,
@@ -25,16 +30,31 @@ pub(crate) fn build_anthropic_body_with_stream(
     serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
 }
 
+#[cfg(test)]
 pub(crate) fn build_openai_body_with_stream(
     model: &str,
     request: &ModelRequest,
     stream: bool,
 ) -> String {
+    build_openai_body_with_stream_and_compat(
+        model,
+        request,
+        stream,
+        OpenAiRenderCompatibility::default(),
+    )
+}
+
+pub(crate) fn build_openai_body_with_stream_and_compat(
+    model: &str,
+    request: &ModelRequest,
+    stream: bool,
+    compatibility: OpenAiRenderCompatibility,
+) -> String {
     let mut messages = vec![json!({
         "role": "system",
         "content": provider_system_prompt(),
     })];
-    messages.extend(render_openai_messages(&request.messages));
+    messages.extend(render_openai_messages(&request.messages, compatibility));
     let mut payload = json!({
         "model": model,
         "messages": messages,
@@ -107,7 +127,10 @@ fn render_anthropic_messages(messages: &[Message]) -> Vec<Value> {
     rendered
 }
 
-fn render_openai_messages(messages: &[Message]) -> Vec<Value> {
+fn render_openai_messages(
+    messages: &[Message],
+    compatibility: OpenAiRenderCompatibility,
+) -> Vec<Value> {
     let mut rendered = Vec::new();
     for message in messages {
         match message.role {
@@ -123,7 +146,11 @@ fn render_openai_messages(messages: &[Message]) -> Vec<Value> {
                 let reasoning_content = input.remove(PROVIDER_REASONING_CONTENT_KEY);
                 let mut rendered_message = json!({
                     "role": "assistant",
-                    "content": Value::Null,
+                    "content": if compatibility.requires_non_null_tool_call_content {
+                        Value::String(String::new())
+                    } else {
+                        Value::Null
+                    },
                     "tool_calls": [{
                         "id": message.tool_call_id.clone().unwrap_or_else(|| fresh_id("tool")),
                         "type": "function",
