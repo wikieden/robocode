@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use crate::{
     EngineEvent, PROVIDER_REASONING_CONTENT_KEY, SessionEngine, lsp_tools::LspToolAdapter,
-    presentation::render_permission_denial,
+    lsp_tools::render_lsp_diagnostics, presentation::render_permission_denial,
 };
+use robocode_lsp::SemanticProvider;
 use robocode_model::ModelRequestControl;
 use robocode_permissions::PermissionEngine;
 use robocode_tools::ToolExecutionContext;
@@ -154,8 +155,21 @@ impl SessionEngine {
                         })),
                     },
                 )?;
+                let post_edit_diagnostics = if result.success {
+                    self.post_edit_diagnostics_message(&call)
+                } else {
+                    None
+                };
                 self.persist_tool_result(&result)?;
                 events.push(EngineEvent::ToolResult(result.output.clone()));
+                if let Some(message) = post_edit_diagnostics {
+                    let system_message = Message::new(Role::System, message.clone());
+                    self.messages.push(system_message.clone());
+                    self.store_entry(TranscriptEntry::Message {
+                        message: system_message,
+                    })?;
+                    events.push(EngineEvent::System(message));
+                }
             }
             PermissionDecision::Ask(_) => {
                 unreachable!("ask decisions should be resolved before execution")
@@ -181,6 +195,22 @@ impl SessionEngine {
             }
         }
         Ok(())
+    }
+
+    fn post_edit_diagnostics_message(&self, call: &ToolCall) -> Option<String> {
+        if !matches!(call.name.as_str(), "write_file" | "edit_file") {
+            return None;
+        }
+        let path = std::path::Path::new(call.input.get("path")?);
+        let diagnostics = self.lsp_runtime.diagnostics(&self.cwd, path).ok()?;
+        if diagnostics.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "Post-edit LSP diagnostics after `{}`:\n{}",
+            call.name,
+            render_lsp_diagnostics(&self.cwd, &diagnostics)
+        ))
     }
 
     fn persist_tool_result(&mut self, result: &ToolResult) -> Result<(), String> {
