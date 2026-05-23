@@ -96,6 +96,18 @@ DeepSeek V4 model names follow the official API docs:
 - `deepseek-v4-pro` can be selected explicitly for the higher-capability V4 model
 - legacy `deepseek-chat` and `deepseek-reasoner` remain compatibility names only and are scheduled for DeepSeek-side deprecation
 
+DeepSeek V4 compatibility is provider-specific rather than treated as generic
+OpenAI compatibility:
+
+- `deepseek` preserves `reasoning_content` across tool-call turns and keeps it
+  out of tool arguments
+- assistant tool-call messages are rendered with non-null `content`, matching
+  DeepSeek V4 thinking-mode requirements
+- `tool_choice` is not advertised for the built-in `deepseek` descriptor
+- reasoning effort maps to DeepSeek's `high` and `max` values
+- `deepseek-anthropic` remains available when the Anthropic-compatible endpoint
+  is a better fit for a client or workflow
+
 DeepSeek precedence for API fields is:
 
 - CLI `--api-key` / `--api-base`
@@ -129,7 +141,10 @@ Provider runtime status and direction:
 - `/provider doctor [id]` shows registry diagnostics, or a focused diagnostic for one provider id
 - provider bindings are session/agent scoped rather than process-global
 - permission prompts render tool input as stable fields for easier review
-- the next hardening work is real API compatibility coverage across the expanded provider matrix
+- DeepSeek V4 compatibility flags are part of provider descriptors so plugins
+  and built-ins can declare protocol quirks explicitly
+- remaining hardening work is real API compatibility coverage across the
+  expanded provider matrix
 - the runtime is designed for native dynamic loading first and WASM migration later
 
 Useful commands:

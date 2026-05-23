@@ -95,6 +95,15 @@ DeepSeek V4 模型名以官方 API 文档为准：
 - `deepseek-v4-pro` 可显式配置，用于更强的 V4 模型
 - 旧的 `deepseek-chat` 与 `deepseek-reasoner` 只作为兼容模型名保留，并已进入 DeepSeek 侧弃用计划
 
+DeepSeek V4 兼容性是 provider-specific 行为，不按通用
+OpenAI-compatible provider 处理：
+
+- `deepseek` 会在 tool-call 轮次中保留并回放 `reasoning_content`，且不会把它泄漏进 tool arguments
+- assistant tool-call message 会使用非空 `content`，匹配 DeepSeek V4 thinking mode 要求
+- built-in `deepseek` descriptor 不声明 `tool_choice` 支持
+- reasoning effort 映射到 DeepSeek 支持的 `high` 与 `max`
+- 当客户端或工作流更适合 Anthropic-compatible 协议时，仍可使用 `deepseek-anthropic`
+
 DeepSeek 的 API 字段优先级：
 
 - CLI `--api-key` / `--api-base`
@@ -128,7 +137,8 @@ DeepSeek 的 API 字段优先级：
 - `/provider doctor [id]` 会展示 registry 诊断，也可以按 provider id 聚焦单个 provider
 - provider 绑定是 session/agent scoped，而不是 process-global
 - permission prompts 会把 tool input 渲染为稳定字段，便于审批前检查
-- 下一步 hardening 聚焦扩展 provider 矩阵的真实 API 兼容性覆盖
+- DeepSeek V4 兼容标记已经进入 provider descriptors，built-ins 与 plugins 都可以显式声明协议差异
+- 剩余 hardening 聚焦扩展 provider 矩阵的真实 API 兼容性覆盖
 - 执行模型以 native dynamic loading 优先，后续再考虑 WASM 迁移
 
 常用命令：

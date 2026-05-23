@@ -1,6 +1,6 @@
 use crate::adapters::{builtin_default_api_base, builtin_default_model, builtin_provider_id};
 use crate::config::{ProviderConfig, ProviderKind, resolve_api_key};
-use crate::descriptor::{ProtocolFamily, ProviderDescriptor};
+use crate::descriptor::{ProtocolFamily, ProviderCompatibility, ProviderDescriptor};
 use crate::fallback::{fallback_events, parse_explicit_tool_call_from_messages};
 use crate::parse::{
     extract_error_message, parse_anthropic_events, parse_anthropic_stream_events,
@@ -8,7 +8,8 @@ use crate::parse::{
 };
 use crate::registry::ProviderRegistry;
 use crate::render::{
-    build_anthropic_body_with_stream, build_ollama_body, build_openai_body_with_stream,
+    OpenAiRenderCompatibility, build_anthropic_body_with_stream, build_ollama_body,
+    build_openai_body_with_stream_and_compat,
 };
 use crate::transport::post_json_with_control;
 use crate::{ModelProvider, ModelRequestControl};
@@ -114,6 +115,7 @@ struct HttpProvider {
     api_base: String,
     api_key: Option<String>,
     supports_streaming: bool,
+    compatibility: ProviderCompatibility,
     request_timeout_secs: u64,
     max_retries: u32,
 }
@@ -159,6 +161,7 @@ impl HttpProvider {
             api_base,
             api_key,
             supports_streaming: descriptor.capabilities.supports_streaming,
+            compatibility: descriptor.compatibility.clone(),
             request_timeout_secs: request_timeout_secs.max(1),
             max_retries,
         })
@@ -176,6 +179,7 @@ impl HttpProvider {
             }),
             api_key: config.api_key,
             supports_streaming: true,
+            compatibility: ProviderCompatibility::default(),
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -195,6 +199,7 @@ impl HttpProvider {
                 .api_key
                 .or_else(|| resolve_api_key(ProviderKind::OpenAi)),
             supports_streaming: true,
+            compatibility: ProviderCompatibility::default(),
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -212,6 +217,7 @@ impl HttpProvider {
             }),
             api_key: config.api_key,
             supports_streaming: true,
+            compatibility: ProviderCompatibility::default(),
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -231,6 +237,13 @@ impl HttpProvider {
                 .api_key
                 .or_else(|| resolve_api_key(ProviderKind::DeepSeek)),
             supports_streaming: true,
+            compatibility: ProviderCompatibility {
+                supports_tool_choice: false,
+                requires_reasoning_content_for_tool_calls: true,
+                requires_non_null_tool_call_content: true,
+                reasoning_effort_high: Some("high".to_string()),
+                reasoning_effort_max: Some("max".to_string()),
+            },
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -250,6 +263,11 @@ impl HttpProvider {
                 .api_key
                 .or_else(|| resolve_api_key(ProviderKind::DeepSeekAnthropic)),
             supports_streaming: true,
+            compatibility: ProviderCompatibility {
+                reasoning_effort_high: Some("high".to_string()),
+                reasoning_effort_max: Some("max".to_string()),
+                ..ProviderCompatibility::default()
+            },
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -267,6 +285,7 @@ impl HttpProvider {
             }),
             api_key: config.api_key,
             supports_streaming: false,
+            compatibility: ProviderCompatibility::default(),
             request_timeout_secs: config.request_timeout_secs,
             max_retries: config.max_retries,
         }
@@ -314,9 +333,16 @@ impl ModelProvider for HttpProvider {
             HttpMode::Anthropic => {
                 build_anthropic_body_with_stream(&self.model, request, request_streaming)
             }
-            HttpMode::OpenAiCompatible => {
-                build_openai_body_with_stream(&self.model, request, request_streaming)
-            }
+            HttpMode::OpenAiCompatible => build_openai_body_with_stream_and_compat(
+                &self.model,
+                request,
+                request_streaming,
+                OpenAiRenderCompatibility {
+                    requires_non_null_tool_call_content: self
+                        .compatibility
+                        .requires_non_null_tool_call_content,
+                },
+            ),
             HttpMode::Ollama => build_ollama_body(&self.model, request),
         };
         let path = match self.mode {

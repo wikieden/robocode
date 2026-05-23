@@ -21,6 +21,32 @@ pub struct ProviderCapabilities {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderCompatibility {
+    #[serde(default = "default_true")]
+    pub supports_tool_choice: bool,
+    #[serde(default)]
+    pub requires_reasoning_content_for_tool_calls: bool,
+    #[serde(default)]
+    pub requires_non_null_tool_call_content: bool,
+    #[serde(default)]
+    pub reasoning_effort_high: Option<String>,
+    #[serde(default)]
+    pub reasoning_effort_max: Option<String>,
+}
+
+impl Default for ProviderCompatibility {
+    fn default() -> Self {
+        Self {
+            supports_tool_choice: true,
+            requires_reasoning_content_for_tool_calls: false,
+            requires_non_null_tool_call_content: false,
+            reasoning_effort_high: None,
+            reasoning_effort_max: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PluginDescriptor {
     pub provider_id: String,
     pub display_name: String,
@@ -30,7 +56,13 @@ pub struct PluginDescriptor {
     pub default_model: Option<String>,
     pub env_mappings: ProviderEnvMappings,
     pub capabilities: ProviderCapabilities,
+    #[serde(default)]
+    pub compatibility: ProviderCompatibility,
     pub config_schema_version: u32,
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 pub const ROBOCODE_PLUGIN_DESCRIPTOR_SYMBOL: &str = "robocode_provider_descriptor_json";
@@ -57,6 +89,13 @@ mod tests {
                 supports_streaming: true,
                 supports_native_tool_calling: true,
             },
+            compatibility: ProviderCompatibility {
+                supports_tool_choice: false,
+                requires_reasoning_content_for_tool_calls: true,
+                requires_non_null_tool_call_content: true,
+                reasoning_effort_high: Some("high".to_string()),
+                reasoning_effort_max: Some("max".to_string()),
+            },
             config_schema_version: 1,
         };
 
@@ -64,5 +103,6 @@ mod tests {
         let decoded: PluginDescriptor = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.provider_id, "deepseek");
         assert_eq!(decoded.protocol_family, ProtocolFamily::OpenAi);
+        assert!(!decoded.compatibility.supports_tool_choice);
     }
 }

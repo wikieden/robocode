@@ -5,7 +5,10 @@ use crate::parse::{
     parse_anthropic_events, parse_anthropic_stream_events, parse_openai_events,
     parse_openai_stream_events,
 };
-use crate::render::{build_anthropic_body_with_stream, build_openai_body_with_stream};
+use crate::render::{
+    OpenAiRenderCompatibility, build_anthropic_body_with_stream, build_openai_body_with_stream,
+    build_openai_body_with_stream_and_compat,
+};
 use crate::transport::split_response_and_status;
 use robocode_types::{Message, ModelRequest, PermissionMode, Role, ToolSpec};
 use serde_json::Value;

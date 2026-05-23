@@ -1,7 +1,8 @@
 use std::ffi::c_char;
 
 use robocode_provider_sdk::{
-    PluginDescriptor, PluginDescriptorFn, ProtocolFamily, ProviderCapabilities, ProviderEnvMappings,
+    PluginDescriptor, PluginDescriptorFn, ProtocolFamily, ProviderCapabilities,
+    ProviderCompatibility, ProviderEnvMappings,
 };
 
 pub fn descriptor() -> PluginDescriptor {
@@ -20,6 +21,13 @@ pub fn descriptor() -> PluginDescriptor {
             supports_streaming: true,
             supports_native_tool_calling: true,
         },
+        compatibility: ProviderCompatibility {
+            supports_tool_choice: false,
+            requires_reasoning_content_for_tool_calls: true,
+            requires_non_null_tool_call_content: true,
+            reasoning_effort_high: Some("high".to_string()),
+            reasoning_effort_max: Some("max".to_string()),
+        },
         config_schema_version: 1,
     }
 }
@@ -35,6 +43,7 @@ pub extern "C" fn robocode_provider_descriptor_json() -> *const c_char {
         "\"default_model\":\"deepseek-v4-flash\",",
         "\"env_mappings\":{\"api_key_env\":\"DEEPSEEK_API_KEY\",\"api_base_env\":\"DEEPSEEK_API_BASE\"},",
         "\"capabilities\":{\"supports_streaming\":true,\"supports_native_tool_calling\":true},",
+        "\"compatibility\":{\"supports_tool_choice\":false,\"requires_reasoning_content_for_tool_calls\":true,\"requires_non_null_tool_call_content\":true,\"reasoning_effort_high\":\"high\",\"reasoning_effort_max\":\"max\"},",
         "\"config_schema_version\":1}\0"
     );
     let _fn_type: PluginDescriptorFn = robocode_provider_descriptor_json;

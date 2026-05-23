@@ -111,11 +111,13 @@ Mainline landed:
 - V2-B LSP foundation: real semantic queries, session reuse, document synchronization, `lsp_*` tools, and `/lsp ...` commands
 - V2-D structured terminal views: grouped diagnostics, grouped symbols, compact references, sessions, tasks, memory, diff, permission denials, and shared presentation helpers
 - Provider-platform slice: provider host/runtime registry, provider-scoped config, and DeepSeek v4 as the first independent provider target
+- Provider hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
+- DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
 Next planned:
 
-- provider runtime hardening: dynamic loading, registry refresh, descriptor validation, streaming, cancellation, and multi-agent provider binding behavior
-- provider runtime hardening remains next, then continued V2-D drilldowns and approval ergonomics where plain terminal sections are still not enough
+- finish provider compatibility coverage across the expanded provider matrix, using DeepSeek V4 as the strict compatibility contract
+- continue V2-D drilldowns and approval ergonomics where plain terminal sections are still not enough
 
 That does not change the roadmap ordering. It means RoboCode has moved beyond an
 early V1-only repository state, but later phases should still be pulled
