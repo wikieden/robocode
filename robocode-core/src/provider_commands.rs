@@ -221,19 +221,20 @@ impl SessionEngine {
 
 fn render_provider_descriptor(descriptor: &ProviderDescriptor) -> String {
     format!(
-        "  - {} ({}) family={:?} default_model={} streaming={} tools={}",
+        "  - {} ({}) family={:?} default_model={} streaming={} tools={} compat={}",
         descriptor.provider_id,
         descriptor.display_name,
         descriptor.protocol_family,
         descriptor.default_model.as_deref().unwrap_or("<none>"),
         descriptor.capabilities.supports_streaming,
         descriptor.capabilities.supports_native_tool_calling,
+        render_provider_compatibility(descriptor),
     )
 }
 
 fn render_provider_diagnostic(descriptor: &ProviderDescriptor) -> String {
     format!(
-        "  - {} family={:?} default_model={} api_base={} api_key_env={} api_base_env={} streaming={} tools={}",
+        "  - {} family={:?} default_model={} api_base={} api_key_env={} api_base_env={} streaming={} tools={} compat={}",
         descriptor.provider_id,
         descriptor.protocol_family,
         descriptor.default_model.as_deref().unwrap_or("<none>"),
@@ -242,7 +243,33 @@ fn render_provider_diagnostic(descriptor: &ProviderDescriptor) -> String {
         render_env_status(descriptor.env_mappings.api_base_env.as_deref()),
         descriptor.capabilities.supports_streaming,
         descriptor.capabilities.supports_native_tool_calling,
+        render_provider_compatibility(descriptor),
     )
+}
+
+fn render_provider_compatibility(descriptor: &ProviderDescriptor) -> String {
+    let compatibility = &descriptor.compatibility;
+    let mut parts = Vec::new();
+    if !compatibility.supports_tool_choice {
+        parts.push("tool_choice=false".to_string());
+    }
+    if compatibility.requires_reasoning_content_for_tool_calls {
+        parts.push("reasoning_content=required".to_string());
+    }
+    if compatibility.requires_non_null_tool_call_content {
+        parts.push("tool_call_content=non-null".to_string());
+    }
+    if let Some(effort) = compatibility.reasoning_effort_high.as_deref() {
+        parts.push(format!("effort_high={effort}"));
+    }
+    if let Some(effort) = compatibility.reasoning_effort_max.as_deref() {
+        parts.push(format!("effort_max={effort}"));
+    }
+    if parts.is_empty() {
+        "default".to_string()
+    } else {
+        parts.join(", ")
+    }
 }
 
 fn render_env_status(env_name: Option<&str>) -> String {

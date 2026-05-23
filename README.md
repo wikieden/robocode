@@ -137,8 +137,8 @@ Provider runtime status and direction:
 
 - built-in providers remain supported
 - provider descriptors now flow through the provider host/runtime registry
-- `/provider list` shows each registered provider's protocol family, default model, streaming support, and tool-call support
-- `/provider doctor [id]` shows registry diagnostics, or a focused diagnostic for one provider id
+- `/provider list` shows each registered provider's protocol family, default model, streaming support, tool-call support, and compact compatibility flags
+- `/provider doctor [id]` shows registry diagnostics, or a focused diagnostic for one provider id, including provider-specific compatibility requirements
 - provider bindings are session/agent scoped rather than process-global
 - permission prompts render tool input as stable fields for easier review
 - DeepSeek V4 compatibility flags are part of provider descriptors so plugins

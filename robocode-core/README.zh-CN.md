@@ -18,7 +18,10 @@
 - runtime/session/provider/Git/Web/task/memory 命令处理。
 - Provider runtime commands：
   - `/provider` 显示当前 provider 实例。
-  - `/provider list` 渲染当前 provider registry。
+  - `/provider list` 渲染当前 provider registry，并包含紧凑 provider
+    compatibility flags。
+  - `/provider doctor [id]` 渲染 provider diagnostics；传入 id 时会聚焦展示
+    单个 provider 的 compatibility 要求。
   - `/provider reload` 重新加载 provider plugin descriptors，但不替换当前
     provider 实例。
   - `/provider use <id> [model]` 通过当前 registry 切换当前 provider 实例。

@@ -18,7 +18,10 @@
 - Runtime/session/provider/Git/Web/task/memory command handling.
 - Provider runtime commands:
   - `/provider` reports the current provider instance.
-  - `/provider list` renders the active provider registry.
+  - `/provider list` renders the active provider registry, including compact
+    provider compatibility flags.
+  - `/provider doctor [id]` renders provider diagnostics, including focused
+    compatibility requirements for one provider when an id is passed.
   - `/provider reload` reloads provider plugin descriptors without replacing
     the current provider instance.
   - `/provider use <id> [model]` switches the current provider instance through
