@@ -48,6 +48,9 @@ extra platform machinery is not yet needed.
   - update relevant docs whenever behavior, commands, architecture, configuration, or user-visible UI changes;
   - add concise comments for non-obvious control flow, invariants, protocol boundaries, or safety rules;
   - avoid noisy comments that merely restate obvious code.
+- Before finishing any code change, explicitly check whether the diff needs
+  documentation updates or explanatory comments, and include that decision in
+  verification notes when relevant.
 - Follow `docs/development-standards.md` for the project coding standard,
   especially the documentation and code-comment requirements.
 - Keep root docs compact. Put full product detail under `docs/`.

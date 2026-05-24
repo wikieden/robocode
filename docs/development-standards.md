@@ -36,6 +36,11 @@ When editing long-lived user-facing docs, update the matching Simplified
 Chinese `*.zh-CN.md` companion whenever practical. If a translation cannot be
 updated in the same change, call out the gap in the commit or PR notes.
 
+Documentation should describe the current implemented behavior. Do not present
+future plans, placeholders, mock panels, or unverified provider behavior as
+finished features. If a feature is partial, label the current limitation and the
+next expected step.
+
 ## Code Comment Standard
 
 Use comments to explain intent that is not obvious from the code itself:
@@ -49,6 +54,15 @@ Use comments to explain intent that is not obvious from the code itself:
 Avoid comments that only restate what the next line of code already says.
 Prefer clear names and small functions first; add comments where names are not
 enough to protect future maintainers from subtle mistakes.
+
+Before completing a code change, review the diff for two questions:
+
+- Would a maintainer understand why this behavior exists six months from now?
+- Did the change modify a user-facing contract that should be reflected in
+  docs?
+
+If the answer is yes, add the smallest useful comment or documentation update
+in the same change set.
 
 ## Verification Standard
 
