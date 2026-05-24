@@ -75,4 +75,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag }}
-        run: gh release upload "$TAG" dist-upload/* --clobber
+        run: gh release upload "$TAG" dist-upload/* --repo wikieden/robocode --clobber
