@@ -29,6 +29,38 @@ RoboCode 是一个用 Rust 实现的、本地优先的开发者 Agent CLI，目�
 
 ## 开发
 
+## 从 Release 安装
+
+从 GitHub 下载 release 压缩包，然后安装二进制：
+
+```bash
+tar -xzf robocode-v0.1.3-aarch64-apple-darwin.tar.gz
+cd robocode-v0.1.3-aarch64-apple-darwin
+chmod +x robocode-cli
+sudo mv robocode-cli /usr/local/bin/robocode-cli
+robocode-cli --help
+```
+
+运行本地 fallback 冒烟测试：
+
+```bash
+robocode-cli --provider fallback --model test-local
+```
+
+启动 TUI：
+
+```bash
+robocode-cli --tui --provider fallback --model test-local
+```
+
+维护者可以用下面命令在本地构建 release 压缩包：
+
+```bash
+scripts/package-release.sh
+```
+
+## 开发
+
 运行测试：
 
 ```bash

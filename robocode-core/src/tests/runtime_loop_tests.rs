@@ -1,11 +1,13 @@
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{EngineEvent, SessionEngine};
 use robocode_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
-use robocode_model::ModelRequestControl;
-use robocode_types::{ApprovalResponse, ModelEvent, PermissionMode, ToolCall, ToolInput};
+use robocode_model::{ModelProvider, ModelRequestControl};
+use robocode_types::{
+    ApprovalResponse, ModelEvent, ModelRequest, PermissionMode, ToolCall, ToolInput,
+};
 
 use super::{SequenceProvider, temp_dir};
 
@@ -177,6 +179,109 @@ fn plan_mode_blocks_mutating_tools() {
                 && text.contains("reason: PlanMode")
                 && text.contains("message: write_file is blocked while plan mode is active")))
     );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, EngineEvent::ToolResult(text)
+            if text.contains("Permission decision:")
+                && text.contains("decision=deny")
+                && text.contains("tool: write_file")))
+    );
+}
+
+#[test]
+fn denied_tool_calls_are_followed_by_tool_result_messages() {
+    let home = temp_dir("deny_tool_result_home");
+    let cwd = temp_dir("deny_tool_result_cwd");
+    let mut write_input = ToolInput::new();
+    write_input.insert("path".to_string(), "a.txt".to_string());
+    write_input.insert("content".to_string(), "new".to_string());
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingSequenceProvider::new(
+        vec![
+            vec![ModelEvent::ToolCall(ToolCall {
+                id: "tool_write".to_string(),
+                name: "write_file".to_string(),
+                input: write_input,
+            })],
+            vec![ModelEvent::AssistantText {
+                content: "Denied safely".to_string(),
+            }],
+        ],
+        Arc::clone(&requests),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .process_input_with_approval("/plan on", &mut approver)
+        .unwrap();
+
+    let events = engine
+        .process_input_with_approval("write a file", &mut approver)
+        .unwrap();
+
+    assert!(events.iter().any(
+        |event| matches!(event, EngineEvent::Assistant(text) if text.contains("Denied safely"))
+    ));
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    let replay = &requests[1].messages;
+    let tool_call_index = replay
+        .iter()
+        .position(|message| {
+            message.tool_call_id.as_deref() == Some("tool_write")
+                && message.role == robocode_types::Role::Assistant
+        })
+        .expect("assistant tool call message");
+    let tool_result_index = replay
+        .iter()
+        .position(|message| {
+            message.tool_call_id.as_deref() == Some("tool_write")
+                && message.role == robocode_types::Role::Tool
+        })
+        .expect("tool result message");
+    assert_eq!(tool_result_index, tool_call_index + 1);
+}
+
+struct RecordingSequenceProvider {
+    model: String,
+    turns: std::collections::VecDeque<Vec<ModelEvent>>,
+    requests: Arc<Mutex<Vec<ModelRequest>>>,
+}
+
+impl RecordingSequenceProvider {
+    fn new(turns: Vec<Vec<ModelEvent>>, requests: Arc<Mutex<Vec<ModelRequest>>>) -> Self {
+        Self {
+            model: "test-model".to_string(),
+            turns: turns.into(),
+            requests,
+        }
+    }
+}
+
+impl ModelProvider for RecordingSequenceProvider {
+    fn provider_name(&self) -> &str {
+        "recording-sequence"
+    }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    fn set_model(&mut self, model: String) {
+        self.model = model;
+    }
+
+    fn next_events(&mut self, request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+        self.requests.lock().unwrap().push(request.clone());
+        Ok(self
+            .turns
+            .pop_front()
+            .unwrap_or_else(|| vec![ModelEvent::Done]))
+    }
 }
 
 fn fake_lsp_registry(workdir: &Path) -> LspServerRegistry {

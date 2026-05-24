@@ -23,25 +23,39 @@ Mainline landed status:
 
 Next planned slice:
 
-- finish provider compatibility coverage across the expanded provider matrix, using DeepSeek V4 as the strict compatibility contract and the provider live matrix as the evidence log
-- after that, continue V2-D only where it adds value: richer workflow drilldowns, stronger interactive approval ergonomics, and TUI polish without replacing plain terminal output
+- commit the approved TUI/lane design baseline as the current product contract
+- implement the main TUI cockpit screen before expanding companion screens
+- add supervised terminal lanes for real side work before wiring external coding CLIs
+- keep provider compatibility coverage as a parallel quality track, using DeepSeek V4 as the strict compatibility contract and the provider live matrix as the evidence log
 
 ## Near-Term Plan
 
-1. Provider Compatibility Completion.
+1. TUI Cockpit Main Screen.
+   - Land the approved single-screen cockpit: top status rail, transcript timeline, workspace/status right rail, approval modal, composer, and bottom status bar.
+   - Keep `SessionEngine`, permissions, tool execution, and transcript logging on the existing shared path.
+   - Add render snapshots for compact, normal, and wide terminal sizes.
+   - Keep plain terminal output usable outside the TUI.
+
+2. Terminal Lane Runtime.
+   - Add supervised non-interactive terminal lanes before external coding-tool adapters.
+   - Implement `/lane run`, `/lane inspect`, `/lane stop`, and durable lane logs.
+   - Treat companion screens as productive workspaces that show lanes, logs, diagnostics, and review state.
+   - Keep lane completion separate from lane acceptance.
+
+3. External Coding Tool Adapters.
+   - Add task envelopes and config-driven adapters for tools such as `codex`, `claude`, and user-defined CLIs.
+   - Prefer conservative input modes first: prompt-file, stdin, and manual.
+   - Inspect logs, diffs, exit codes, and verification evidence before recommending accept/revise/discard.
+   - Move mutating external lanes toward per-lane worktree isolation.
+
+4. Provider Compatibility Completion.
    - Keep the provider live matrix documented and aligned with built-in descriptors.
    - Validate real API compatibility across built-in and descriptor-backed OpenAI-compatible providers when credentials are available.
    - Keep dynamic loading, registry refresh, descriptor compatibility flags, and collision tests covered.
    - Keep provider binding instance-scoped so multiple sessions or agents can use different providers in the same process.
    - Harden OpenAI-style and Anthropic-style protocol compatibility, including DeepSeek reasoning/tool-call turns.
 
-2. V2-D Richer TUI and Structured Views.
-   - Build on the landed structured views for diagnostics, symbols, references, sessions, tasks, memory, diff, and permission decisions.
-   - Improve drilldown views and approval ergonomics where plain text output is still too dense.
-   - Avoid a full UI rewrite until workflows are stable.
-   - Keep text output usable in plain terminals.
-
-3. V3 Platform Expansion.
+5. V3 Platform Expansion.
    - MCP runtime and plugin loading.
    - Skills/workflow plugin model.
    - Multi-agent coordinator.
@@ -131,6 +145,12 @@ Primary planning docs:
 - `docs/ref-gap-matrix.md`
 - `docs/reference-analysis.md`
 - `docs/architecture.md`
+- `DESIGN.md`
+- `docs/code-agent-benchmark.md`
+- `docs/tui-lane-architecture-plan.md`
+- `docs/tui-lane-architecture-plan.zh-CN.md`
+- `docs/superpowers/plans/2026-05-23-tui-cockpit-terminal-lanes.md`
+- `docs/superpowers/plans/2026-05-23-tui-cockpit-terminal-lanes.zh-CN.md`
 - `docs/superpowers/plans/2026-04-11-robocode-plan-index.md`
 
 Current V2-C docs, when present:

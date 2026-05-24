@@ -1,0 +1,200 @@
+use super::{
+    canvas::Frame,
+    indicators::context_percent,
+    panel::bordered_row,
+    state::TuiState,
+    text::{bottom_border, compact_middle, top_border, truncate},
+};
+
+pub(super) fn render_top_bar(frame: &mut Frame, state: &TuiState) {
+    frame.write_line(0, &top_border(frame.width));
+    let content = top_bar_content(state, frame.width.saturating_sub(4));
+    frame.write_line(1, &bordered_row(&content, frame.width));
+    frame.write_line(2, &bottom_border(frame.width));
+}
+
+pub(super) fn render_side_top_bar(frame: &mut Frame, state: &TuiState) {
+    frame.write_line(0, &top_border(frame.width));
+    let active = active_lane_count(state);
+    let content = side_bar_content(
+        "SIDE-1",
+        &[
+            chip("SESSION", &compact_middle(&state.session_id, 8)),
+            chip("LANES", &format!("{active}/{}", state.lanes.len())),
+            chip("FOCUS", "tail"),
+            chip("LINK", "main"),
+            chip("GIT", &truncate(&state.workspace.git_branch, 10)),
+        ],
+        frame.width.saturating_sub(4),
+    );
+    frame.write_line(
+        1,
+        &bordered_row(&truncate(&content, frame.width - 4), frame.width),
+    );
+    frame.write_line(2, &bottom_border(frame.width));
+}
+
+pub(super) fn render_ops_top_bar(frame: &mut Frame, state: &TuiState) {
+    frame.write_line(0, &top_border(frame.width));
+    let content = side_bar_content(
+        "SIDE-2",
+        &[
+            chip("WORK", &truncate(&state.workspace.display_root, 8)),
+            chip("FILES", &state.workspace.file_count.to_string()),
+            chip("LSP", "0E/0W"),
+            chip("LINK", "side-1"),
+            chip("PROV", &truncate(&state.provider, 7)),
+        ],
+        frame.width.saturating_sub(4),
+    );
+    frame.write_line(
+        1,
+        &bordered_row(&truncate(&content, frame.width - 4), frame.width),
+    );
+    frame.write_line(2, &bottom_border(frame.width));
+}
+
+fn top_bar_content(state: &TuiState, width: usize) -> String {
+    let session = compact_middle(&state.session_id, 8);
+    let branch = truncate(&state.workspace.git_branch, 10);
+    let provider = display_provider(&state.provider);
+    let mut chips = vec![
+        chip("PROVIDER", &format!("● {provider}")),
+        chip("MODEL", &state.model),
+        chip("SESSION", &session),
+        chip("CONTEXT", state.provider_status.context_window.as_str()),
+        chip("GIT", &branch),
+        chip("PERMISSIONS", "@ Suggest ▾"),
+    ];
+    let status = right_status_cluster(state, StatusDensity::Full);
+    let mut content = top_bar_with_status(&chips, &status, width);
+    if top_bar_fits(&chips, &status, width) {
+        return content;
+    }
+
+    chips = vec![
+        chip("PROVIDER", &compact_middle(&format!("● {provider}"), 12)),
+        chip("MODEL", &compact_middle(&state.model, 12)),
+        chip("SESSION", &session),
+        chip("CONTEXT", state.provider_status.context_window.as_str()),
+        chip("GIT", &branch),
+        chip("PERMISSIONS", "Suggest"),
+    ];
+    let status = right_status_cluster(state, StatusDensity::Compact);
+    content = top_bar_with_status(&chips, &status, width);
+    if top_bar_fits(&chips, &status, width) {
+        return content;
+    }
+    chips = vec![
+        chip("PROVIDER", &compact_middle(&format!("● {provider}"), 11)),
+        chip("MODEL", &compact_middle(&state.model, 10)),
+        chip("SESSION", &session),
+        chip("CONTEXT", state.provider_status.context_window.as_str()),
+        chip("GIT", &branch),
+        chip("PERMISSIONS", "Suggest"),
+    ];
+    let status = right_status_cluster(state, StatusDensity::Tiny);
+    content = top_bar_with_status(&chips, &status, width);
+    if top_bar_fits(&chips, &status, width) {
+        return content;
+    }
+    top_bar_without_status(&chips, width)
+}
+
+fn top_bar_fits(chips: &[String], status: &str, width: usize) -> bool {
+    let left = format!("{}  {}", product_label(), chips.join(" "));
+    left.chars().count() + status.chars().count() + 3 <= width
+}
+
+fn top_bar_with_status(chips: &[String], status: &str, width: usize) -> String {
+    let left = format!("{}  {}", product_label(), chips.join(" "));
+    let left_width = left.chars().count();
+    let status_width = status.chars().count();
+    if left_width + status_width + 3 <= width {
+        return format!("{left}   {status}");
+    }
+    left
+}
+
+fn top_bar_without_status(chips: &[String], width: usize) -> String {
+    let mut chips = chips.to_vec();
+    while !chips.is_empty() {
+        let left = format!("{}  {}", product_label(), chips.join(" "));
+        if left.chars().count() <= width {
+            return left;
+        }
+        chips.remove(0);
+    }
+    truncate(&product_label(), width)
+}
+
+fn product_label() -> String {
+    format!("RoboCode  v{}", env!("CARGO_PKG_VERSION"))
+}
+
+#[derive(Debug, Clone, Copy)]
+enum StatusDensity {
+    Full,
+    Compact,
+    Tiny,
+}
+
+fn right_status_cluster(state: &TuiState, density: StatusDensity) -> String {
+    let active = active_lane_count(state);
+    let context = context_percent(state);
+    match density {
+        StatusDensity::Full => {
+            format!(
+                "· auto  CTX {:>2}% {}  L{}",
+                context,
+                context_ticks(context),
+                active
+            )
+        }
+        StatusDensity::Compact => format!(
+            "· auto {:>2}% {} L{}",
+            context,
+            context_ticks(context),
+            active
+        ),
+        StatusDensity::Tiny => format!("· auto {:>2}% L{}", context, active),
+    }
+}
+
+fn chip(label: &str, value: &str) -> String {
+    format!("[{label} {}]", value.trim())
+}
+
+fn display_provider(provider: &str) -> String {
+    match provider {
+        "openai" => "OpenAI".to_string(),
+        "deepseek" => "DeepSeek".to_string(),
+        "anthropic" => "Anthropic".to_string(),
+        value => value.to_string(),
+    }
+}
+
+fn side_bar_content(label: &str, chips: &[String], width: usize) -> String {
+    let mut chips = chips.to_vec();
+    loop {
+        let left = format!("RoboCode  {label}  {}", chips.join(" "));
+        if left.chars().count() <= width || chips.is_empty() {
+            return truncate(&left, width);
+        }
+        chips.pop();
+    }
+}
+
+fn active_lane_count(state: &TuiState) -> usize {
+    state
+        .lanes
+        .iter()
+        .filter(|lane| lane.status == "running" || lane.status == "queued")
+        .count()
+}
+
+fn context_ticks(percent: usize) -> String {
+    let filled = (percent / 20).clamp(1, 5);
+    let empty = 5usize.saturating_sub(filled);
+    format!("{}{}", "▰".repeat(filled), "▱".repeat(empty))
+}

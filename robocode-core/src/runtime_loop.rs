@@ -186,6 +186,15 @@ impl SessionEngine {
                     },
                 })?;
                 let rendered_denial = render_permission_denial(&call.name, &reason, &deny.message);
+                let result = ToolResult {
+                    tool_call_id: call.id.clone(),
+                    name: call.name.clone(),
+                    output: rendered_denial.clone(),
+                    diff: None,
+                    success: false,
+                };
+                self.persist_tool_result(&result)?;
+                events.push(EngineEvent::ToolResult(result.output.clone()));
                 let system_message = Message::new(Role::System, rendered_denial.clone());
                 self.messages.push(system_message.clone());
                 self.store_entry(TranscriptEntry::Message {

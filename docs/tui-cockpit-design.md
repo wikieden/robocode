@@ -1,0 +1,94 @@
+# RoboCode TUI Cockpit Design
+
+This document records the current TUI target so implementation stays aligned
+with the generated reference visuals and the terminal-agent workflow.
+
+## Visual Baseline
+
+- Primary visual state: **no modal open**. Dialogs must inherit the same
+  aurora-cyan cockpit theme instead of introducing a separate palette.
+- Main reference image:
+  `docs/previews/tui-concept-holodeck-v1.png`.
+- Layout target: dense terminal cockpit, not a landing page. The first screen
+  should be useful immediately for coding, reviewing, approval, and agent lane
+  supervision.
+- Color direction: dark blue-black surfaces, cyan borders, green success,
+  yellow attention/permission, red denial/error. Avoid large unrelated black
+  bands or default terminal background leaks.
+
+## Main Screen
+
+- Top bar: product, provider, model, session, context, Git branch, permission
+  mode, token/context status.
+- Transcript: dominant left pane, timeline-styled entries, recent rows kept
+  visible at the bottom.
+- Right rail: workspace, active tasks, diagnostics, provider health, recent
+  files.
+- Composer: always visible at the bottom, with input cursor placed inside the
+  input row, action hints, and approval-mode chips.
+- Bottom status: connection, session, token usage, cost/time, theme/help hints.
+
+## Command Palette
+
+The slash command palette appears above the composer when the input is a single
+slash-prefixed token such as `/` or `/p`.
+
+Keyboard contract:
+
+- `Up` / `Down`: move the selected command.
+- `Tab`: complete the selected command into the composer.
+- `Enter`: complete a partial command; submit an exact command.
+- `Esc`: close the command palette for the current query. Editing the query
+  reopens it.
+- `/exit`, `/quit`, `exit`, and `quit`: leave the TUI.
+
+Rendering contract:
+
+- The palette uses the same cockpit border, title, and row style as the rest of
+  the TUI.
+- It floats directly above the composer and must not obscure the input cursor.
+- It shows command, summary, and selected-row marker.
+
+## Approval Modal
+
+Approval is an interactive overlay, not a passive transcript card.
+
+- `Tab` / `Shift-Tab` and arrow keys move focus across apply-all, deny,
+  diff, and approve controls.
+- Default focus is `Approve`, so `Enter` accepts the common case immediately.
+- `Enter` activates the focused control.
+- `Space` toggles apply-all when the checkbox is focused.
+- `y` approves, `n` / `Esc` / `Ctrl-C` denies.
+- Mouse clicks focus controls; releasing on deny or approve resolves the
+  prompt.
+- After approval or denial, the pending modal must disappear immediately and
+  the transcript/right rail should redraw without style residue.
+
+## Multi-Screen Direction
+
+The TUI supports one main screen plus up to two side screens:
+
+- Main screen: transcript, approvals, command entry, and high-level status.
+- Side screen 1: child-agent / terminal lane monitoring.
+- Side screen 2: diagnostics, build state, files, and ops context.
+
+The core product need is not decoration; it is supervising multiple terminal
+coding tools such as Codex, Claude Code, shell jobs, and DeepSeek-backed lanes.
+Side screens should expose task state, latest output, artifacts, progress, and
+route hints so the main agent can decide follow-up actions.
+
+## Current Implementation Notes
+
+- Resize events trigger redraw for the main and side TUI screens.
+- Row-diff rendering avoids full-screen flicker during typing.
+- The composer uses display-width aware text handling for CJK input.
+- The slash palette is local UI state; model calls are not involved.
+
+## Near-Term Gaps
+
+- Real PTY-backed lanes are still represented by stored lane snapshots and log
+  tails.
+- Command palette currently lists a fixed command registry; command-specific
+  arguments and nested suggestions are future work.
+- Visual parity still needs repeated screenshot comparison against the
+  holodeck reference.

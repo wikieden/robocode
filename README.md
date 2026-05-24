@@ -29,6 +29,38 @@ This repository currently includes:
 
 ## Development
 
+## Install From A Release
+
+Download a release archive from GitHub, then install the binary:
+
+```bash
+tar -xzf robocode-v0.1.3-aarch64-apple-darwin.tar.gz
+cd robocode-v0.1.3-aarch64-apple-darwin
+chmod +x robocode-cli
+sudo mv robocode-cli /usr/local/bin/robocode-cli
+robocode-cli --help
+```
+
+Run the local fallback smoke test:
+
+```bash
+robocode-cli --provider fallback --model test-local
+```
+
+Run the TUI:
+
+```bash
+robocode-cli --tui --provider fallback --model test-local
+```
+
+Maintainers can build a release archive locally with:
+
+```bash
+scripts/package-release.sh
+```
+
+## Development
+
 Run the test suite:
 
 ```bash

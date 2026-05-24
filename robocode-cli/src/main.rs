@@ -39,6 +39,113 @@ fn run() -> Result<(), String> {
         config_path: startup.config_path.clone(),
     };
     let resolved_config = load_config(&cwd, &cli_config)?;
+    let preview_provider = resolved_config.provider.as_str();
+    let preview_model = resolved_config.model.as_deref().unwrap_or("default");
+    if startup.tui_preview || startup.tui_preview_ansi {
+        if startup.tui_preview_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!("{}", tui::render_preview(preview_provider, preview_model));
+        }
+        return Ok(());
+    }
+    if startup.tui_preview_idle || startup.tui_preview_idle_ansi {
+        if startup.tui_preview_idle_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_idle_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_idle_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
+    if startup.tui_preview_command_palette || startup.tui_preview_command_palette_ansi {
+        if startup.tui_preview_command_palette_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_command_palette_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_command_palette_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
+    if startup.tui_preview_lane || startup.tui_preview_lane_ansi {
+        if startup.tui_preview_lane_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_lane_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_lane_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
+    if startup.tui_preview_side || startup.tui_preview_side_ansi {
+        if startup.tui_preview_side_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_side_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_side_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
+    if startup.tui_preview_side_2 || startup.tui_preview_side_2_ansi {
+        if startup.tui_preview_side_2_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_ops_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_ops_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
     let provider_host = load_startup_provider_host(&resolved_config)?;
     let provider_selection = create_startup_provider(&provider_host, &resolved_config)?;
     let provider_summary = format!(
@@ -93,8 +200,24 @@ fn run() -> Result<(), String> {
         }
     }
 
-    if startup.tui {
-        return tui::run_tui(&mut engine, &provider_summary);
+    if startup.tui || startup.tui_screen.is_some() {
+        if let Some(screen) = startup
+            .tui_screen
+            .as_deref()
+            .and_then(tui::SideScreen::parse)
+        {
+            return tui::run_side_tui_with_theme(
+                &engine,
+                &provider_summary,
+                screen,
+                startup.tui_theme.as_deref(),
+            );
+        }
+        return tui::run_tui_with_theme(
+            &mut engine,
+            &provider_summary,
+            startup.tui_theme.as_deref(),
+        );
     }
 
     println!(
@@ -111,7 +234,7 @@ fn run() -> Result<(), String> {
             break;
         };
         let trimmed = line.trim();
-        if trimmed.eq_ignore_ascii_case("exit") || trimmed.eq_ignore_ascii_case("quit") {
+        if is_exit_command(trimmed) {
             break;
         }
         let mut approver = |prompt: PermissionPrompt| prompt_for_approval(prompt, &mut stdin);
@@ -122,6 +245,13 @@ fn run() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn is_exit_command(input: &str) -> bool {
+    matches!(
+        input.trim().to_ascii_lowercase().as_str(),
+        "exit" | "quit" | "/exit" | "/quit"
+    )
 }
 
 fn load_startup_provider_host(
@@ -263,6 +393,20 @@ struct StartupOptions {
     config_path: Option<PathBuf>,
     resume_selector: Option<String>,
     tui: bool,
+    tui_screen: Option<String>,
+    tui_preview: bool,
+    tui_preview_ansi: bool,
+    tui_preview_idle: bool,
+    tui_preview_idle_ansi: bool,
+    tui_preview_command_palette: bool,
+    tui_preview_command_palette_ansi: bool,
+    tui_preview_lane: bool,
+    tui_preview_lane_ansi: bool,
+    tui_preview_side: bool,
+    tui_preview_side_ansi: bool,
+    tui_preview_side_2: bool,
+    tui_preview_side_2_ansi: bool,
+    tui_theme: Option<String>,
 }
 
 impl StartupOptions {
@@ -303,6 +447,48 @@ impl StartupOptions {
         }
         if self.tui {
             overrides.push("--tui".to_string());
+        }
+        if self.tui_screen.is_some() {
+            overrides.push("--tui-screen".to_string());
+        }
+        if self.tui_preview {
+            overrides.push("--tui-preview".to_string());
+        }
+        if self.tui_preview_ansi {
+            overrides.push("--tui-preview-ansi".to_string());
+        }
+        if self.tui_preview_idle {
+            overrides.push("--tui-preview-idle".to_string());
+        }
+        if self.tui_preview_idle_ansi {
+            overrides.push("--tui-preview-idle-ansi".to_string());
+        }
+        if self.tui_preview_command_palette {
+            overrides.push("--tui-preview-command-palette".to_string());
+        }
+        if self.tui_preview_command_palette_ansi {
+            overrides.push("--tui-preview-command-palette-ansi".to_string());
+        }
+        if self.tui_preview_lane {
+            overrides.push("--tui-preview-lane".to_string());
+        }
+        if self.tui_preview_lane_ansi {
+            overrides.push("--tui-preview-lane-ansi".to_string());
+        }
+        if self.tui_preview_side {
+            overrides.push("--tui-preview-side".to_string());
+        }
+        if self.tui_preview_side_ansi {
+            overrides.push("--tui-preview-side-ansi".to_string());
+        }
+        if self.tui_preview_side_2 {
+            overrides.push("--tui-preview-side-2".to_string());
+        }
+        if self.tui_preview_side_2_ansi {
+            overrides.push("--tui-preview-side-2-ansi".to_string());
+        }
+        if self.tui_theme.is_some() {
+            overrides.push("--tui-theme".to_string());
         }
         overrides
     }
@@ -390,6 +576,61 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--tui" => {
                 options.tui = true;
             }
+            "--tui-screen" => {
+                index += 1;
+                let value = required_flag_value(args, index, "--tui-screen")?;
+                if value != "main" && tui::SideScreen::parse(&value).is_none() {
+                    return Err("--tui-screen must be `main`, `side-1`, or `side-2`".to_string());
+                }
+                options.tui_screen = Some(value);
+            }
+            "--tui-preview" => {
+                options.tui_preview = true;
+            }
+            "--tui-preview-ansi" => {
+                options.tui_preview_ansi = true;
+            }
+            "--tui-preview-idle" => {
+                options.tui_preview_idle = true;
+            }
+            "--tui-preview-idle-ansi" => {
+                options.tui_preview_idle_ansi = true;
+            }
+            "--tui-preview-command-palette" => {
+                options.tui_preview_command_palette = true;
+            }
+            "--tui-preview-command-palette-ansi" => {
+                options.tui_preview_command_palette_ansi = true;
+            }
+            "--tui-preview-lane" => {
+                options.tui_preview_lane = true;
+            }
+            "--tui-preview-lane-ansi" => {
+                options.tui_preview_lane_ansi = true;
+            }
+            "--tui-preview-side" => {
+                options.tui_preview_side = true;
+            }
+            "--tui-preview-side-ansi" => {
+                options.tui_preview_side_ansi = true;
+            }
+            "--tui-preview-side-2" => {
+                options.tui_preview_side_2 = true;
+            }
+            "--tui-preview-side-2-ansi" => {
+                options.tui_preview_side_2_ansi = true;
+            }
+            "--tui-theme" => {
+                index += 1;
+                let value = required_flag_value(args, index, "--tui-theme")?;
+                if !tui::is_known_theme(&value) {
+                    return Err(format!(
+                        "--tui-theme must be one of: {}",
+                        tui::theme_names().join(", ")
+                    ));
+                }
+                options.tui_theme = Some(value);
+            }
             unknown if unknown.starts_with("--") => {
                 return Err(format!("Unknown startup flag `{unknown}`"));
             }
@@ -420,7 +661,31 @@ fn print_startup_help() {
     println!("  --max-retries <n>    Override provider retry count");
     println!("  --config <path>      Load config from an explicit TOML file");
     println!("  --resume [id|latest] Resume a prior session");
-    println!("  --tui                Start the lightweight terminal UI");
+    println!("  --tui                Start the cockpit terminal UI");
+    println!("  --tui-screen <main|side-1|side-2>");
+    println!("                       Start a specific TUI screen surface");
+    println!(
+        "  --tui-theme <name>   Select TUI theme: {}",
+        tui::theme_names().join(", ")
+    );
+    println!("  --tui-preview        Print a non-interactive 140x40 TUI preview");
+    println!("  --tui-preview-ansi   Print a themed ANSI 140x40 TUI preview");
+    println!("  --tui-preview-idle   Print a 140x40 TUI preview without modal overlay");
+    println!("  --tui-preview-idle-ansi");
+    println!("                       Print a themed ANSI TUI preview without modal overlay");
+    println!("  --tui-preview-command-palette");
+    println!("                       Print a 140x40 TUI preview with slash command palette");
+    println!("  --tui-preview-command-palette-ansi");
+    println!("                       Print a themed ANSI slash command palette preview");
+    println!("  --tui-preview-lane   Print a 140x40 focused lane-detail preview");
+    println!("  --tui-preview-lane-ansi");
+    println!("                       Print a themed ANSI focused lane-detail preview");
+    println!("  --tui-preview-side   Print a non-interactive 80x40 side-screen preview");
+    println!("  --tui-preview-side-ansi");
+    println!("                       Print a themed ANSI 80x40 side-screen preview");
+    println!("  --tui-preview-side-2 Print a non-interactive 80x40 ops-screen preview");
+    println!("  --tui-preview-side-2-ansi");
+    println!("                       Print a themed ANSI 80x40 ops-screen preview");
     println!();
     println!(
         "Supported providers: {}",
@@ -432,6 +697,7 @@ fn print_startup_help() {
     println!("  ROBOCODE_PROVIDER_PLUGIN_DIRS");
     println!("  ROBOCODE_PERMISSION_MODE, ROBOCODE_SESSION_HOME");
     println!("  ROBOCODE_REQUEST_TIMEOUT_SECS, ROBOCODE_MAX_RETRIES, ROBOCODE_CONFIG");
+    println!("  ROBOCODE_LANE_CODEX_TEMPLATE, ROBOCODE_LANE_CLAUDE_TEMPLATE");
     println!("  ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, DEEPSEEK_API_BASE");
 }
 
@@ -523,6 +789,223 @@ mod tests {
 
         assert!(options.tui);
         assert_eq!(options.summary_overrides(), vec!["--tui".to_string()]);
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_screen_side_flag() {
+        let args = vec!["--tui-screen".to_string(), "side-1".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert_eq!(options.tui_screen.as_deref(), Some("side-1"));
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-screen".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_screen_side_2_flag() {
+        let args = vec!["--tui-screen".to_string(), "side-2".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert_eq!(options.tui_screen.as_deref(), Some("side-2"));
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-screen".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_rejects_unknown_tui_screen() {
+        let args = vec!["--tui-screen".to_string(), "side-3".to_string()];
+
+        let err = match parse_startup_options(&args) {
+            Ok(_) => panic!("unknown TUI screen should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.contains("main`, `side-1`, or `side-2"));
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_flag() {
+        let args = vec!["--tui-preview".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_ansi_flag() {
+        let args = vec!["--tui-preview-ansi".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_ansi);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview-ansi".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_idle_flag() {
+        let args = vec!["--tui-preview-idle".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_idle);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview-idle".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_idle_ansi_flag() {
+        let args = vec!["--tui-preview-idle-ansi".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_idle_ansi);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview-idle-ansi".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_command_palette_flag() {
+        let args = vec!["--tui-preview-command-palette".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_command_palette);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview-command-palette".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_command_palette_ansi_flag() {
+        let args = vec!["--tui-preview-command-palette-ansi".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_command_palette_ansi);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview-command-palette-ansi".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_lane_flag() {
+        let args = vec!["--tui-preview-lane".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_lane);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview-lane".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_lane_ansi_flag() {
+        let args = vec!["--tui-preview-lane-ansi".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_lane_ansi);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview-lane-ansi".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_side_flag() {
+        let args = vec!["--tui-preview-side".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_side);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview-side".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_side_ansi_flag() {
+        let args = vec!["--tui-preview-side-ansi".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_side_ansi);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview-side-ansi".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_side_2_flag() {
+        let args = vec!["--tui-preview-side-2".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_side_2);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview-side-2".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_side_2_ansi_flag() {
+        let args = vec!["--tui-preview-side-2-ansi".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_side_2_ansi);
+        assert_eq!(
+            options.summary_overrides(),
+            vec!["--tui-preview-side-2-ansi".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_theme_flag() {
+        let args = vec!["--tui-theme".to_string(), "ember-gold".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert_eq!(options.tui_theme.as_deref(), Some("ember-gold"));
+        assert_eq!(options.summary_overrides(), vec!["--tui-theme".to_string()]);
+    }
+
+    #[test]
+    fn parse_startup_options_rejects_unknown_tui_theme() {
+        let args = vec!["--tui-theme".to_string(), "unknown".to_string()];
+
+        let err = match parse_startup_options(&args) {
+            Ok(_) => panic!("unknown TUI theme should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.contains("aurora-cyan"), "{err}");
+        assert!(err.contains("monochrome-ice"), "{err}");
     }
 
     #[test]

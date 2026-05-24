@@ -1,0 +1,40 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ RoboCode  SIDE-2  [WORK ~/projec] [FILES 128] [LSP 0E/0W] [LINK side-1]      │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ WORKSPACE ─────────────────────────────────────────────────────────── side-2 ┐
+│ ROOT    ~/projects/robocode                                                  │
+│ BRANCH  main                                                                 │
+│ SCALE   files 128   lines 24531                                              │
+│ TOP FILES                                                                    │
+│   ├ src/                                                                     │
+│   ├ tests/                                                                   │
+│   ├ Cargo.toml                                                               │
+│   ├ README.md                                                                │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ LSP / BUILD ────────────────────────────────────────────────────────────── 0 ┐
+│ JOB check-01   RLS ✓  0E / 0W / 0H   latency 1.2s                            │
+│ JOB test-02    cargo test --workspace     cached ✓                           │
+│ WATCH active   src/config.rs   tests/config_tests.rs                         │
+│ MUX side-1     codex tty + claude tty + ops tty                              │
+│ PRESSURE       build idle   lsp warm   fs quiet                              │
+│ ROUTE          side-2 ops owns diagnostics pressure                          │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ RECENT EVENTS ───────────────────────────────────────────────────────── tail ┐
+│ L1 codex tty  [in_prog]  ▓▓▓░░ pty/01 :: codex exec test fixes :: patched fa │
+│ L2 claude tty [pending]  ░░░░░ pty/02 :: claude -p review diff :: waiting fo │
+│ L3 ops tty    [idle]     ▓▓▓▓▓ pty/ops :: cargo test :: last run green; no f │
+│ main approval [waiting] write_file src/config.rs                             │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ PROVIDER HEALTH ───────────────────────────────────────────────── Configured ┐
+│ PROVIDER  openai / gpt-4o                                                    │
+│ WORKSPACE ~/projects/robocode                                                │
+│ SCREENS   main online   side-1 live   side-2 ops   lanes 2/3                 │
+│ HEALTH    412 ms   TPS 29.3   ▓▓▓▓▓▓░░ 77%                                   │
+│ CONTEXT   128k / 27%   EVENTS 8   CACHE hit 73%                              │
+│ DIAG      ok   THEME aurora-cyan                                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+│ ● CONNECTED SES c4f2b7e  TOK 0.2k    L2                               ? help │

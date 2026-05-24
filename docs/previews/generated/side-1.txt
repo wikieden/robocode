@@ -1,0 +1,40 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ RoboCode  SIDE-1  [SESSION c4f2b7e] [LANES 2/3] [FOCUS tail] [LINK main]     │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ AGENT LANES ───────────────────────────────────────────────────────── side-1 ┐
+│ ┌ ● L1 codex tty   [in_prog]  route main   ▓▓▓░░  64%                        │
+│ │ PTY pty/01  PID 4217   TASK test fixes                                     │
+│ └ CMD codex exec test fixes │ TAIL patched failing tests; rerunning car      │
+│ ┌ ◐ L2 claude tty  [pending]  route side-1 ░░░░░  18%                        │
+│ │ PTY pty/02  PID 4380   TASK review diff                                    │
+│ └ CMD claude -p review diff │ TAIL waiting for review terminal               │
+│ ┌ ○ L3 shell tty   [idle]     route ops    ▓▓▓▓▓ 100%                        │
+│ │ PTY pty/ops  PID 4412   TASK cargo test                                    │
+│ └ CMD cargo test │ TAIL last run green; no failures cached                   │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ LIVE OUTPUT ─────────────────────────────────────────────────────────── tail ┐
+│ MUX side-1 tails pty/01 pty/02 pty/ops │ CONTROL inspect stop route          │
+│ L1 codex tty  [in_prog]  ▓▓▓░░ │ pty/01 :: patched failing tests; rerunning  │
+│ L2 claude tty [pending]  ░░░░░ │ pty/02 :: waiting for review terminal       │
+│ L3 shell tty  [idle]     ▓▓▓▓▓ │ pty/ops :: last run green; no failures cach │
+│ M0 cockpit    [waiting]  ░░░░░ │ gate :: approval write_file                 │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ SIDE STATUS ───────────────────────────────────────────────────── Configured ┐
+│ PROVIDER  openai / gpt-4o                                                    │
+│ WORKSPACE ~/projects/robocode                                                │
+│ SCREENS   main online   side-1 live   side-2 ops   lanes 2/3                 │
+│ HEALTH    412 ms   TPS 29.3   ▓▓▓▓▓▓░░ 77%                                   │
+│ CONTEXT   128k / 27%   EVENTS 8   CACHE hit 73%                              │
+│ DIAG      ok   THEME aurora-cyan                                             │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+│ ● CONNECTED SES c4f2b7e  TOK 0.2k    L2                               ? help │
