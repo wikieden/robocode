@@ -20,6 +20,7 @@ pub(super) fn status_badge(status: &str) -> &'static str {
         "accepted" => "[accepted]",
         "revise" => "[revise]",
         "discarded" => "[discard]",
+        "archived" => "[archive]",
         _ => "[idle]",
     }
 }
@@ -69,6 +70,7 @@ pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
         Some("accept") => decide_lane("accepted", parts.next(), parts.collect(), state),
         Some("revise") => decide_lane("revise", parts.next(), parts.collect(), state),
         Some("discard") => decide_lane("discarded", parts.next(), parts.collect(), state),
+        Some("cleanup") => cleanup_lane(parts.next(), parts.collect(), state),
         Some(_) => queue_lane(input, state),
         None => push_lane_usage(state),
     }
@@ -626,6 +628,150 @@ fn render_lane_decision(
     )
 }
 
+fn cleanup_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(index) = state
+        .lanes
+        .iter()
+        .position(|lane| lane.id.eq_ignore_ascii_case(id))
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let lane = state.lanes[index].clone();
+    if matches!(lane.status.as_str(), "running" | "queued") {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Lane `{}` is {}; stop or finish it before cleanup.",
+                lane.id, lane.status
+            ),
+        });
+        return;
+    }
+    let Some(worktree) = lane.worktree.clone() else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Lane `{}` has no isolated worktree to clean.", lane.id),
+        });
+        return;
+    };
+    let force = args.iter().any(|arg| *arg == "--force" || *arg == "-f");
+    let changed_files = workspace_changed_files(&worktree)
+        .unwrap_or_else(|err| vec![format!("unavailable: {err}")]);
+    if !changed_files.is_empty() && !force {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Refused to clean lane `{}` because its worktree has changes.\nRun `/lane inspect {}` first, then `/lane cleanup {} --force` if you want to delete them.",
+                lane.id, lane.id, lane.id
+            ),
+        });
+        return;
+    }
+    let cleanup_content = render_lane_cleanup(&lane, &worktree, &changed_files, force);
+    let cleanup_path = match lane_artifact_path(state, &lane.id, "cleanup.md") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to prepare cleanup artifact: {err}"),
+            });
+            return;
+        }
+    };
+    if let Err(err) = fs::write(&cleanup_path, cleanup_content) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to write cleanup artifact: {err}"),
+        });
+        return;
+    }
+    match remove_lane_worktree(&state.workspace.root, &worktree, force) {
+        Ok(()) => {
+            state.lanes[index].worktree = None;
+            state.lanes[index].status = "archived".to_string();
+            state.lanes[index].summary = format!(
+                "cleaned worktree {}; cleanup {}",
+                worktree.display(),
+                cleanup_path.display()
+            );
+            persist_lanes(state);
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!(
+                    "Cleaned lane `{}` worktree.\nCleanup: {}",
+                    lane.id,
+                    cleanup_path.display()
+                ),
+            });
+        }
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to clean lane `{}` worktree: {err}", lane.id),
+            });
+        }
+    }
+}
+
+fn render_lane_cleanup(
+    lane: &TerminalLane,
+    worktree: &Path,
+    changed_files: &[String],
+    force: bool,
+) -> String {
+    let changed_files = if changed_files.is_empty() {
+        "  <none>".to_string()
+    } else {
+        changed_files
+            .iter()
+            .map(|file| format!("  {file}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    format!(
+        "# RoboCode Lane Cleanup\n\nLane: {}\nTool: {}\nStatus before cleanup: {}\nWorktree: {}\nForced: {force}\n\n## Changed files before cleanup\n{changed_files}\n",
+        lane.id,
+        lane.tool,
+        lane.status,
+        worktree.display()
+    )
+}
+
+fn remove_lane_worktree(root: &Path, worktree: &Path, force: bool) -> Result<(), String> {
+    if !worktree.exists() {
+        return Ok(());
+    }
+    let mut command = Command::new("git");
+    command.arg("worktree").arg("remove");
+    if force {
+        command.arg("--force");
+    }
+    let output = command
+        .arg(worktree)
+        .current_dir(root)
+        .output()
+        .map_err(|err| format!("failed to run git worktree remove: {err}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            output.status.to_string()
+        } else {
+            stderr
+        })
+    }
+}
+
 fn stop_lane(id: Option<&str>, state: &mut TuiState) {
     let Some(id) = id else {
         push_lane_usage(state);
@@ -722,7 +868,7 @@ pub(super) fn refresh_lanes(state: &mut TuiState) {
 fn push_lane_usage(state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane close"
+        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane cleanup <id> [--force] | /lane close"
             .to_string(),
     });
 }
@@ -917,6 +1063,70 @@ mod tests {
         let inspect = state.entries.last().expect("inspect entry");
         assert!(inspect.body.contains(&worktree.display().to_string()));
         assert!(inspect.body.contains("?? isolated.txt"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_cleanup_requires_force_for_dirty_worktree_and_preserves_artifacts() {
+        let _env = ScopedEnv::set("ROBOCODE_LANE_CODEX_TEMPLATE", "printf dirty > dirty.txt");
+        let root = temp_lane_root();
+        init_git_repo(&root);
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store.clone());
+
+        assert!(handle_tui_command(
+            "/lane codex create dirty file",
+            &mut state
+        ));
+
+        let mut lanes = Vec::new();
+        for _ in 0..40 {
+            lanes = load_lanes(&store);
+            refresh_lane_runtime(&store, &mut lanes);
+            if lanes.first().is_some_and(|lane| lane.status == "completed") {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(25));
+        }
+        state.lanes = lanes;
+        let worktree = state.lanes[0]
+            .worktree
+            .as_ref()
+            .expect("lane worktree")
+            .clone();
+
+        assert!(handle_tui_command(
+            "/lane discard L1 not needed",
+            &mut state
+        ));
+        assert!(worktree.exists(), "discard must preserve worktree changes");
+
+        assert!(handle_tui_command("/lane cleanup L1", &mut state));
+        assert!(
+            worktree.exists(),
+            "plain cleanup must preserve dirty worktree"
+        );
+        assert!(
+            state
+                .entries
+                .last()
+                .expect("cleanup refusal")
+                .body
+                .contains("Refused to clean")
+        );
+
+        assert!(handle_tui_command("/lane cleanup L1 --force", &mut state));
+
+        assert!(!worktree.exists());
+        assert_eq!(state.lanes[0].status, "archived");
+        let cleanup = fs::read_to_string(root.join(".robocode/lanes/L1.cleanup.md"))
+            .expect("cleanup artifact");
+        assert!(cleanup.contains("Forced: true"));
+        assert!(cleanup.contains("?? dirty.txt"));
+        assert!(root.join(".robocode/lanes/L1.decision.md").exists());
 
         let _ = fs::remove_dir_all(root);
     }

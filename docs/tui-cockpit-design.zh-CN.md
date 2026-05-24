@@ -108,6 +108,10 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   exit/log artifact 的 verification evidence，以及显式 lane decision artifact。
 - `/lane accept <id>`、`/lane revise <id>` 和 `/lane discard <id>` 会把操作者的
   明确决策记录到 `.robocode/lanes/<lane-id>.decision.md`。
+- `/lane cleanup <id>` 会通过移除隔离 worktree 来归档 lane，但只有 worktree
+  干净时才会执行。有未提交变更时必须显式使用
+  `/lane cleanup <id> --force`，并且每次 cleanup 都会先写入
+  `.robocode/lanes/<lane-id>.cleanup.md`。
 - Provider health 已接入共享 runtime loop 测量到的模型请求 telemetry：真实
   request 数、成功/失败数、last/average latency、last event count 和最后一次
   provider error。
@@ -135,8 +139,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - 真正 PTY-backed lanes 仍是后续工作；当前 lane 支持非交互 shell 命令，以及
   template-launched Codex/Claude adapter，并持久化 envelope / log / exit-code
   artifacts；Unix 平台支持 process-group stop。
-- worktree cleanup 和 apply/merge 流程仍是明确的后续工作。discard lane 只记录
-  决策，不会默认删除日志、worktree 或变更。
+- apply/merge 流程仍是明确的后续工作。discard lane 只记录决策，不会默认删除
+  日志、worktree 或变更；清理必须通过单独的 `/lane cleanup` 命令执行。
 - Provider token、cost、rate telemetry 尚未接入，所以 live UI 会继续隐藏这些
   指标。
 - Diagnostics 仍需要显式 LSP 来源，例如 `/lsp diagnostics <path>` 或 LSP runtime

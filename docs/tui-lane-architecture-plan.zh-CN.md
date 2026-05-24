@@ -364,8 +364,9 @@ adapter。启动后它们会运行于 per-lane Git worktree，并收到写明 la
 当前状态：Codex/Claude template lane 会使用本地分支
 `codex/lane-<session>-<lane>` 创建 `.robocode/worktrees/<session>-<lane>`。
 inspect 和 decision artifact 会在 lane worktree 存在时从该 worktree 读取
-changed files。cleanup 与 apply/merge 仍是明确的后续工作；discard 目前只记录
-决策。
+changed files。`/lane cleanup <id>` 会移除干净的 worktree 并写 cleanup
+artifact；dirty worktree 必须显式 `--force`，所以 discard 只记录意图而不会删除
+证据。apply/merge 仍是明确的后续工作。
 
 ### Phase 7: 可 Attach 的 Terminal Pane
 

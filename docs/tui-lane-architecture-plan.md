@@ -369,8 +369,10 @@ Acceptance criteria:
 
 Current status: Codex/Claude template lanes create `.robocode/worktrees/<session>-<lane>`
 using local branches named `codex/lane-<session>-<lane>`. Inspect and decision
-artifacts read changed files from the lane worktree when present. Cleanup and
-apply/merge remain explicit follow-up work; discard records intent only.
+artifacts read changed files from the lane worktree when present. `/lane cleanup
+<id>` removes clean worktrees and writes a cleanup artifact; dirty worktrees
+require explicit `--force`, so discard records intent without deleting evidence.
+Apply/merge remains explicit follow-up work.
 
 ### Phase 7: Attachable Terminal Panes
 

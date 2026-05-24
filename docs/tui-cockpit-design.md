@@ -123,6 +123,10 @@ route hints so the main agent can decide follow-up actions.
   exit/log artifacts and any explicit lane decision artifact.
 - `/lane accept <id>`, `/lane revise <id>`, and `/lane discard <id>` record
   explicit operator decisions under `.robocode/lanes/<lane-id>.decision.md`.
+- `/lane cleanup <id>` archives a lane by removing its isolated worktree only
+  when the worktree is clean. Dirty worktrees require explicit
+  `/lane cleanup <id> --force`, and every cleanup writes
+  `.robocode/lanes/<lane-id>.cleanup.md` before removal.
 - Provider health now reflects measured model-request telemetry from the shared
   runtime loop: real request count, success/failure count, last and average
   latency, last event count, and last provider error.
@@ -155,9 +159,9 @@ route hints so the main agent can decide follow-up actions.
   non-interactive shell commands plus template-launched Codex/Claude adapters
   with persisted envelope, log, and exit-code artifacts, plus Unix
   process-group stop.
-- Worktree cleanup and apply/merge flows are still explicit follow-up work.
-  Discarding a lane records the decision but intentionally does not delete its
-  logs, worktree, or changes.
+- Apply/merge flows are still explicit follow-up work. Discarding a lane records
+  the decision but intentionally does not delete its logs, worktree, or changes;
+  cleanup requires a separate `/lane cleanup` command.
 - Provider token, cost, and rate telemetry is not connected yet, so the live UI
   intentionally keeps those metrics hidden.
 - Diagnostics still require an explicit LSP source, such as `/lsp diagnostics

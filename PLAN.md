@@ -46,7 +46,7 @@ Next planned slice:
    - Add task envelopes and config-driven adapters for tools such as `codex`, `claude`, and user-defined CLIs.
    - Prefer conservative input modes first: prompt-file, stdin, and manual.
    - Inspect logs, diffs, exit codes, and verification evidence before recommending accept/revise/discard.
-   - Run template-launched mutating `codex`/`claude` lanes in per-lane worktrees; next, add cleanup and apply/merge workflows.
+   - Run template-launched mutating `codex`/`claude` lanes in per-lane worktrees, with explicit cleanup for archived lanes; next, add apply/merge workflows.
 
 4. Provider Compatibility Completion.
    - Keep the provider live matrix documented and aligned with built-in descriptors.
