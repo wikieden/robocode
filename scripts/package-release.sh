@@ -14,6 +14,10 @@ if [[ -z "$TARGET" ]]; then
 fi
 
 BIN_NAME="robocode-cli"
+BIN_FILE="$BIN_NAME"
+if [[ "$TARGET" == *"windows"* ]]; then
+  BIN_FILE="$BIN_NAME.exe"
+fi
 ARCHIVE_NAME="robocode-v${VERSION}-${TARGET}"
 DIST_DIR="$ROOT/dist/$ARCHIVE_NAME"
 TARGET_ARGS=()
@@ -26,18 +30,44 @@ cargo build -p robocode-cli --release "${TARGET_ARGS[@]}"
 
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
-cp "$ROOT/target/$TARGET/release/$BIN_NAME" "$DIST_DIR/$BIN_NAME"
+cp "$ROOT/target/$TARGET/release/$BIN_FILE" "$DIST_DIR/$BIN_FILE"
 cp "$ROOT/README.md" "$DIST_DIR/README.md"
 cp "$ROOT/README.zh-CN.md" "$DIST_DIR/README.zh-CN.md"
 
-cat >"$DIST_DIR/INSTALL.md" <<EOF
+if [[ "$TARGET" == *"windows"* ]]; then
+  cat >"$DIST_DIR/INSTALL.md" <<EOF
 # RoboCode v${VERSION}
 
-Install:
+Install on Windows PowerShell:
+
+\`\`\`powershell
+New-Item -ItemType Directory -Force "\$env:USERPROFILE\\bin"
+Copy-Item .\\${BIN_FILE} "\$env:USERPROFILE\\bin\\${BIN_FILE}"
+\$env:PATH += ";\$env:USERPROFILE\\bin"
+${BIN_FILE} --help
+\`\`\`
+
+Run fallback smoke test:
+
+\`\`\`powershell
+${BIN_FILE} --provider fallback --model test-local
+\`\`\`
+
+Run TUI:
+
+\`\`\`powershell
+${BIN_FILE} --tui --provider fallback --model test-local
+\`\`\`
+EOF
+else
+  cat >"$DIST_DIR/INSTALL.md" <<EOF
+# RoboCode v${VERSION}
+
+Install on macOS/Linux:
 
 \`\`\`bash
-chmod +x ${BIN_NAME}
-sudo mv ${BIN_NAME} /usr/local/bin/${BIN_NAME}
+chmod +x ${BIN_FILE}
+sudo mv ${BIN_FILE} /usr/local/bin/${BIN_NAME}
 ${BIN_NAME} --help
 \`\`\`
 
@@ -53,11 +83,16 @@ Run TUI:
 ${BIN_NAME} --tui --provider fallback --model test-local
 \`\`\`
 EOF
+fi
 
 (
   cd "$ROOT/dist"
   tar -czf "$ARCHIVE_NAME.tar.gz" "$ARCHIVE_NAME"
-  shasum -a 256 "$ARCHIVE_NAME.tar.gz" >"$ARCHIVE_NAME.tar.gz.sha256"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$ARCHIVE_NAME.tar.gz" >"$ARCHIVE_NAME.tar.gz.sha256"
+  else
+    sha256sum "$ARCHIVE_NAME.tar.gz" >"$ARCHIVE_NAME.tar.gz.sha256"
+  fi
 )
 
 printf '%s\n' "$ROOT/dist/$ARCHIVE_NAME.tar.gz"
