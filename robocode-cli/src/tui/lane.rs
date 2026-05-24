@@ -22,6 +22,7 @@ pub(super) fn status_badge(status: &str) -> &'static str {
         "discarded" => "[discard]",
         "archived" => "[archive]",
         "applied" => "[applied]",
+        "apply_conflict" => "[conflict]",
         "attached" => "[attach]",
         "detached" => "[detach]",
         _ => "[idle]",
@@ -879,7 +880,7 @@ fn apply_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
         return;
     }
     let force = args.iter().any(|arg| *arg == "--force" || *arg == "-f");
-    if lane.status != "accepted" && !force {
+    if !matches!(lane.status.as_str(), "accepted" | "apply_conflict") && !force {
         state.entries.push(TuiEntry {
             label: "system".to_string(),
             body: format!(
@@ -945,10 +946,22 @@ fn apply_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
         return;
     }
     if let Err(err) = git_apply_patch(&state.workspace.root, &patch_path, true) {
+        let conflict_path =
+            match write_lane_apply_conflict(state, &lane, &worktree, &patch_path, &err, force) {
+                Ok(path) => {
+                    state.lanes[index].status = "apply_conflict".to_string();
+                    state.lanes[index].progress = 100;
+                    state.lanes[index].summary =
+                        format!("apply conflict; report {}", path.display());
+                    persist_lanes(state);
+                    path.display().to_string()
+                }
+                Err(write_err) => format!("<failed to write conflict report: {write_err}>"),
+            };
         state.entries.push(TuiEntry {
             label: "system".to_string(),
             body: format!(
-                "Refused to apply lane `{}` because the patch does not apply cleanly.\nPatch: {}\n{err}",
+                "Refused to apply lane `{}` because the patch does not apply cleanly.\nPatch: {}\nConflict report: {conflict_path}\n{err}",
                 lane.id,
                 patch_path.display()
             ),
@@ -1070,6 +1083,16 @@ fn git_apply_patch(root: &Path, patch_path: &Path, check_only: bool) -> Result<(
     run_git_command(command.current_dir(root), "git apply")
 }
 
+fn git_apply_patch_3way_check(root: &Path, patch_path: &Path) -> Result<(), String> {
+    let mut command = Command::new("git");
+    command
+        .arg("apply")
+        .arg("--check")
+        .arg("--3way")
+        .arg(patch_path);
+    run_git_command(command.current_dir(root), "git apply --3way --check")
+}
+
 fn run_git_command(command: &mut Command, name: &str) -> Result<(), String> {
     let output = command
         .output()
@@ -1105,6 +1128,62 @@ fn render_lane_apply(
         worktree.display(),
         patch_path.display(),
         lane.title,
+        lane.id
+    )
+}
+
+fn write_lane_apply_conflict(
+    state: &TuiState,
+    lane: &TerminalLane,
+    worktree: &Path,
+    patch_path: &Path,
+    check_error: &str,
+    forced: bool,
+) -> Result<PathBuf, String> {
+    let conflict_path = lane_artifact_path(state, &lane.id, "apply-conflict.md")?;
+    let three_way_result = git_apply_patch_3way_check(&state.workspace.root, patch_path)
+        .map(|_| "clean".to_string())
+        .unwrap_or_else(|err| err);
+    let main_changed_files = changed_file_rows(&state.workspace.root);
+    let lane_changed_files = changed_file_rows(worktree);
+    fs::write(
+        &conflict_path,
+        render_lane_apply_conflict(
+            lane,
+            worktree,
+            patch_path,
+            check_error,
+            &three_way_result,
+            &main_changed_files,
+            &lane_changed_files,
+            forced,
+        ),
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(conflict_path)
+}
+
+fn render_lane_apply_conflict(
+    lane: &TerminalLane,
+    worktree: &Path,
+    patch_path: &Path,
+    check_error: &str,
+    three_way_result: &str,
+    main_changed_files: &str,
+    lane_changed_files: &str,
+    forced: bool,
+) -> String {
+    format!(
+        "# RoboCode Lane Apply Conflict\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Direct apply check\n{}\n\n## Three-way apply check\n{}\n\n## Main workspace changed files\n{main_changed_files}\n\n## Lane worktree changed files\n{lane_changed_files}\n\n## Follow-up\n- Review the patch and the main workspace diff before retrying.\n- Resolve conflicting files in the main workspace or in the lane worktree.\n- Retry with `/lane apply {}` after the patch applies cleanly.\n- Use `/lane cleanup {}` only after the lane evidence is no longer needed.\n",
+        lane.id,
+        lane.tool,
+        lane.status,
+        worktree.display(),
+        patch_path.display(),
+        lane.title,
+        check_error,
+        three_way_result,
+        lane.id,
         lane.id
     )
 }
@@ -1642,6 +1721,66 @@ mod tests {
             fs::read_to_string(root.join(".robocode/lanes/L1.apply.md"))
                 .expect("apply record")
                 .contains("Cleanup the isolated worktree")
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_apply_conflict_writes_review_artifact_without_mutating_workspace() {
+        let _env = ScopedEnv::set(
+            "ROBOCODE_LANE_CODEX_TEMPLATE",
+            "printf lane-change > README.md",
+        );
+        let root = temp_lane_root();
+        init_git_repo(&root);
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store.clone());
+
+        assert!(handle_tui_command("/lane codex change readme", &mut state));
+
+        let mut lanes = Vec::new();
+        for _ in 0..40 {
+            lanes = load_lanes(&store);
+            refresh_lane_runtime(&store, &mut lanes);
+            if lanes.first().is_some_and(|lane| lane.status == "completed") {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(25));
+        }
+        state.lanes = lanes;
+        fs::write(root.join("README.md"), "main-change\n").expect("conflicting main edit");
+
+        assert!(handle_tui_command("/lane accept L1 looks good", &mut state));
+        assert!(handle_tui_command("/lane apply L1", &mut state));
+
+        assert_eq!(
+            fs::read_to_string(root.join("README.md")).unwrap(),
+            "main-change\n",
+            "failed apply must not mutate the main workspace"
+        );
+        assert_eq!(state.lanes[0].status, "apply_conflict");
+        assert!(
+            state
+                .entries
+                .last()
+                .expect("conflict entry")
+                .body
+                .contains("Conflict report")
+        );
+        let conflict = fs::read_to_string(root.join(".robocode/lanes/L1.apply-conflict.md"))
+            .expect("apply conflict report");
+        assert!(conflict.contains("RoboCode Lane Apply Conflict"));
+        assert!(conflict.contains("Direct apply check"));
+        assert!(conflict.contains("Three-way apply check"));
+        assert!(conflict.contains("Main workspace changed files"));
+        assert!(conflict.contains("Lane worktree changed files"));
+        assert!(
+            fs::read_to_string(root.join(".robocode/lanes/L1.apply.patch"))
+                .expect("apply patch")
+                .contains("lane-change")
         );
 
         let _ = fs::remove_dir_all(root);

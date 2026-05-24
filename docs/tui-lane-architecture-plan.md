@@ -376,8 +376,10 @@ artifacts read changed files from the lane worktree when present. `/lane cleanup
 require explicit `--force`, so discard records intent without deleting evidence.
 `/lane apply <id>` writes `.apply.patch` and `.apply.md`, verifies the patch
 with `git apply --check`, applies it to the main workspace, and leaves commit
-and cleanup as separate operator actions. Rich merge/conflict review remains
-follow-up work.
+and cleanup as separate operator actions. If the patch cannot apply cleanly, it
+marks the lane `apply_conflict` and writes `.apply-conflict.md` with direct and
+three-way apply check output plus changed-file context. Interactive conflict
+resolution remains follow-up work.
 
 ### Phase 7: Attachable Terminal Panes
 

@@ -286,6 +286,7 @@ pub(super) fn refresh_lane_runtime(path: &Path, lanes: &mut [TerminalLane]) {
                 | "revise"
                 | "discarded"
                 | "applied"
+                | "apply_conflict"
                 | "archived"
                 | "attached"
                 | "detached"

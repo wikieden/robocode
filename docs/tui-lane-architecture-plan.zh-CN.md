@@ -370,7 +370,10 @@ changed files。`/lane cleanup <id>` 会移除干净的 worktree 并写 cleanup
 artifact；dirty worktree 必须显式 `--force`，所以 discard 只记录意图而不会删除
 证据。`/lane apply <id>` 会写入 `.apply.patch` 和 `.apply.md`，先通过
 `git apply --check` 验证 patch，再应用到主 workspace；commit 和 cleanup
-仍是单独的操作者动作。更完整的 merge/conflict review 仍是后续工作。
+仍是单独的操作者动作。如果 patch 无法干净应用，它会把 lane 标为
+`apply_conflict`，并写入 `.apply-conflict.md`，包含直接 apply check、
+three-way apply check 和 changed-file 上下文。交互式 conflict resolution
+仍是后续工作。
 
 ### Phase 7: 可 Attach 的 Terminal Pane
 
