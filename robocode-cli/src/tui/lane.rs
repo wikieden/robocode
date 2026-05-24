@@ -3,7 +3,9 @@ use std::{
     process::{Command, Stdio},
 };
 
-use crate::tui::state::{TerminalLane, TuiEntry, TuiState, save_lanes};
+use crate::tui::state::{
+    TerminalLane, TuiEntry, TuiState, lane_runtime_evidence, refresh_lane_runtime, save_lanes,
+};
 
 pub(super) fn status_badge(status: &str) -> &'static str {
     match status {
@@ -199,6 +201,7 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
         push_lane_usage(state);
         return;
     };
+    refresh_lanes(state);
     let Some(lane) = state
         .lanes
         .iter()
@@ -211,10 +214,41 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
         return;
     };
     state.focused_lane = Some(lane.id.clone());
+    let evidence = state
+        .lane_store
+        .as_deref()
+        .and_then(|path| lane_runtime_evidence(path, &lane.id));
+    let log_path = evidence
+        .as_ref()
+        .map(|evidence| evidence.log_path.display().to_string())
+        .unwrap_or_else(|| "<none>".to_string());
+    let done_path = evidence
+        .as_ref()
+        .map(|evidence| evidence.done_path.display().to_string())
+        .unwrap_or_else(|| "<none>".to_string());
+    let exit_code = evidence
+        .as_ref()
+        .and_then(|evidence| evidence.exit_code.as_deref())
+        .unwrap_or("<pending>");
+    let tail = evidence
+        .as_ref()
+        .map(|evidence| {
+            if evidence.log_tail.is_empty() {
+                "  <no log output>".to_string()
+            } else {
+                evidence
+                    .log_tail
+                    .iter()
+                    .map(|line| format!("  {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+        })
+        .unwrap_or_else(|| "  <no lane store>".to_string());
     state.entries.push(TuiEntry {
         label: "system".to_string(),
         body: format!(
-            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nProgress: {}%\nTask: {}\nLast output: {}",
+            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nExit: {exit_code}\nTail:\n{tail}",
             lane.id, lane.tool, lane.status, lane.target, lane.progress, lane.title, lane.summary
         ),
     });
@@ -257,6 +291,14 @@ fn persist_lanes(state: &mut TuiState) {
             body: format!("Failed to persist terminal lanes: {err}"),
         });
     }
+}
+
+pub(super) fn refresh_lanes(state: &mut TuiState) {
+    let Some(path) = state.lane_store.clone() else {
+        return;
+    };
+    refresh_lane_runtime(&path, &mut state.lanes);
+    persist_lanes(state);
 }
 
 fn push_lane_usage(state: &mut TuiState) {
@@ -345,6 +387,8 @@ mod tests {
         assert!(state.entries[0].body.contains("Lane `L1`"));
         assert!(state.entries[0].body.contains("Tool: codex"));
         assert!(state.entries[0].body.contains("Progress: 64%"));
+        assert!(state.entries[0].body.contains("Exit: <pending>"));
+        assert!(state.entries[0].body.contains("Tail:\n  <no lane store>"));
         assert!(
             state.entries[0]
                 .body
@@ -424,6 +468,50 @@ mod tests {
         assert_eq!(lanes[0].status, "completed");
         assert_eq!(lanes[0].progress, 100);
         assert!(lanes[0].summary.contains("lane-ok"));
+
+        state.lanes = lanes;
+        assert!(handle_tui_command("/lane inspect L1", &mut state));
+        let inspect = state.entries.last().expect("inspect entry");
+        assert!(inspect.body.contains("Exit: 0"));
+        assert!(inspect.body.contains("Log:"));
+        assert!(inspect.body.contains("Done:"));
+        assert!(inspect.body.contains("lane-ok"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_run_refreshes_failed_exit_code_and_inspect_tail() {
+        let root = temp_lane_root();
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.lane_store = Some(store.clone());
+
+        assert!(handle_tui_command(
+            "/lane run printf fail-line && exit 7",
+            &mut state
+        ));
+
+        let mut lanes = Vec::new();
+        for _ in 0..40 {
+            lanes = load_lanes(&store);
+            refresh_lane_runtime(&store, &mut lanes);
+            if lanes.first().is_some_and(|lane| lane.status == "failed") {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(25));
+        }
+
+        assert_eq!(lanes[0].status, "failed");
+        assert_eq!(lanes[0].progress, 100);
+        assert!(lanes[0].summary.contains("fail-line"));
+        assert!(lanes[0].summary.contains("exit 7"));
+
+        state.lanes = lanes;
+        assert!(handle_tui_command("/lane inspect L1", &mut state));
+        let inspect = state.entries.last().expect("inspect entry");
+        assert!(inspect.body.contains("Exit: 7"));
+        assert!(inspect.body.contains("fail-line"));
 
         let _ = fs::remove_dir_all(root);
     }

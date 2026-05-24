@@ -201,6 +201,19 @@ First implementation should support `run` and `prompt-file`/`stdin` style adapte
 8. `/lane inspect <id>` summarizes logs, diff, tests, and risks.
 9. User chooses `/lane accept`, `/lane revise`, `/lane attach`, `/lane stop`, or `/lane archive`.
 
+Current implemented slice:
+
+- `/lane run <command>` launches a non-interactive background shell lane.
+- Codex and Claude lanes can launch through `ROBOCODE_LANE_CODEX_TEMPLATE` and
+  `ROBOCODE_LANE_CLAUDE_TEMPLATE`; without those templates they queue with a
+  clear setup hint.
+- Lane state is stored in `.robocode/lanes.tsv`.
+- Runtime artifacts live under `.robocode/lanes/` as `<lane-id>.log` and
+  `<lane-id>.done`.
+- The main TUI and companion screens refresh lane artifacts while idle.
+- `/lane inspect <id>` reports status, progress, log path, done path, persisted
+  exit code, and a short log tail.
+
 ## Safety Model
 
 - External tools never get full transcript or secrets by default.
@@ -277,6 +290,10 @@ Acceptance criteria:
 - logs survive TUI exit;
 - failed commands report exit code and last output;
 - lane states are unit-tested.
+
+Current status: the non-interactive command path, persisted logs, exit-code
+capture, idle refresh, and inspect evidence are implemented. Stop currently
+marks the lane stopped but does not yet kill a running child process.
 
 ### Phase 5: External Tool Adapters
 

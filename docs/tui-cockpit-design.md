@@ -101,14 +101,19 @@ route hints so the main agent can decide follow-up actions.
 - Row-diff rendering avoids full-screen flicker during typing.
 - The composer uses display-width aware text handling for CJK input.
 - The slash palette is local UI state; model calls are not involved.
+- The main screen polls lane artifacts while idle, so background `/lane run`
+  completion, failure, and log-tail state appear without a keypress.
+- `/lane inspect <id>` reads persisted lane artifacts: `.log` tail, `.done`
+  exit code, log path, and done path.
 - Code changes that alter cockpit behavior, commands, architecture, config, or
   UI must update the relevant docs. Comments should document non-obvious
   invariants and safety boundaries, not restate obvious code.
 
 ## Near-Term Gaps
 
-- Real PTY-backed lanes are still represented by stored lane snapshots and log
-  tails.
+- Real PTY-backed lanes are still future work; current lanes support
+  non-interactive shell commands plus template-launched Codex/Claude adapters
+  with persisted log and exit-code artifacts.
 - Provider latency, token, cost, and rate telemetry is not connected yet, so the
   live UI intentionally renders it as unavailable or hidden.
 - Diagnostics are displayed only when collected by a real source; placeholder

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use robocode_core::SessionEngine;
 use robocode_types::PermissionPrompt;
@@ -7,7 +9,7 @@ use super::command_palette::{
     should_complete_on_enter,
 };
 use super::input::{close_focus_on_escape, prompt_for_tui_approval, should_exit};
-use super::lane::handle_tui_command;
+use super::lane::{handle_tui_command, refresh_lanes};
 use super::screen::handle_screen_command;
 use super::state::{
     ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot, entry_from_event, lane_store_path,
@@ -35,6 +37,13 @@ pub(crate) fn run_tui_with_theme(
     terminal.draw(&state)?;
 
     loop {
+        // Poll instead of blocking forever so background lane artifacts can
+        // repaint completion, failure, and log-tail state without a keypress.
+        if !event::poll(Duration::from_millis(750)).map_err(|err| err.to_string())? {
+            refresh_lanes(&mut state);
+            terminal.draw(&state)?;
+            continue;
+        }
         let event = event::read().map_err(|err| err.to_string())?;
         let key = match event {
             Event::Key(key) => key,

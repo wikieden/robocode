@@ -201,6 +201,18 @@ default_timeout_seconds = 1800
 8. `/lane inspect <id>` 汇总日志、diff、测试和风险。
 9. 用户选择 `/lane accept`、`/lane revise`、`/lane attach`、`/lane stop` 或 `/lane archive`。
 
+当前已实现切片：
+
+- `/lane run <command>` 会启动非交互后台 shell lane。
+- Codex 和 Claude lane 可通过 `ROBOCODE_LANE_CODEX_TEMPLATE` 与
+  `ROBOCODE_LANE_CLAUDE_TEMPLATE` 启动；未配置时会排队并给出清晰 setup 提示。
+- Lane 状态存储在 `.robocode/lanes.tsv`。
+- Runtime artifacts 存在 `.robocode/lanes/`，文件为 `<lane-id>.log` 和
+  `<lane-id>.done`。
+- 主 TUI 和副屏 idle 时都会刷新 lane artifacts。
+- `/lane inspect <id>` 展示 status、progress、log path、done path、持久化
+  exit code 和短 log tail。
+
 ## 安全模型
 
 - 默认不把完整 transcript 或 secrets 发给外部工具。
@@ -277,6 +289,9 @@ default_timeout_seconds = 1800
 - TUI 退出后日志仍然存在；
 - 失败命令展示 exit code 和最后输出；
 - lane 状态有单元测试。
+
+当前状态：非交互命令、持久化日志、exit-code 捕获、idle refresh 和 inspect
+证据已实现。`stop` 目前只把 lane 标记为 stopped，还没有杀掉正在运行的子进程。
 
 ### Phase 5: 外部工具 Adapter
 

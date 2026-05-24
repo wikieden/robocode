@@ -43,6 +43,14 @@ pub(super) struct TerminalLane {
     pub(super) summary: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct LaneRuntimeEvidence {
+    pub(super) log_path: PathBuf,
+    pub(super) done_path: PathBuf,
+    pub(super) exit_code: Option<String>,
+    pub(super) log_tail: Vec<String>,
+}
+
 impl TerminalLane {
     pub(super) fn from_command(index: usize, command: &str) -> Option<Self> {
         let mut parts = command.split_whitespace();
@@ -165,21 +173,17 @@ pub(super) fn save_lanes(path: &Path, lanes: &[TerminalLane]) -> Result<(), Stri
 }
 
 pub(super) fn refresh_lane_runtime(path: &Path, lanes: &mut [TerminalLane]) {
-    let Some(parent) = path.parent() else {
-        return;
-    };
-    let artifact_dir = parent.join("lanes");
     for lane in lanes {
-        let log_path = artifact_dir.join(format!("{}.log", lane.id));
-        if let Some(summary) = latest_nonempty_line(&log_path) {
+        let Some(evidence) = lane_runtime_evidence(path, &lane.id) else {
+            continue;
+        };
+        if let Some(summary) = evidence.log_tail.last().cloned() {
             lane.summary = summary;
             lane.progress = lane.progress.max(35).min(95);
         }
-        let done_path = artifact_dir.join(format!("{}.done", lane.id));
-        let Ok(exit_code) = fs::read_to_string(done_path) else {
+        let Some(exit_code) = evidence.exit_code else {
             continue;
         };
-        let exit_code = exit_code.trim();
         lane.progress = 100;
         if exit_code == "0" {
             lane.status = "completed".to_string();
@@ -197,15 +201,36 @@ pub(super) fn refresh_lane_runtime(path: &Path, lanes: &mut [TerminalLane]) {
     }
 }
 
-fn latest_nonempty_line(path: &Path) -> Option<String> {
-    fs::read_to_string(path).ok().and_then(|content| {
-        content
-            .lines()
-            .rev()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .map(|line| line.chars().take(120).collect())
+pub(super) fn lane_runtime_evidence(path: &Path, lane_id: &str) -> Option<LaneRuntimeEvidence> {
+    let artifact_dir = path.parent()?.join("lanes");
+    let log_path = artifact_dir.join(format!("{lane_id}.log"));
+    let done_path = artifact_dir.join(format!("{lane_id}.done"));
+    let log_tail = log_tail(&log_path, 5);
+    let exit_code = fs::read_to_string(&done_path)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    Some(LaneRuntimeEvidence {
+        log_path,
+        done_path,
+        exit_code,
+        log_tail,
     })
+}
+
+fn log_tail(path: &Path, max_lines: usize) -> Vec<String> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut lines = content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.chars().take(120).collect::<String>())
+        .collect::<Vec<_>>();
+    let keep_from = lines.len().saturating_sub(max_lines);
+    lines.drain(0..keep_from);
+    lines
 }
 
 fn escape_tsv(value: &str) -> String {
