@@ -52,8 +52,9 @@ with the generated reference visuals and the terminal-agent workflow.
 
 ## Command Palette
 
-The slash command palette appears above the composer when the input is a single
-slash-prefixed token such as `/` or `/p`.
+The slash command palette appears above the composer for top-level
+slash-prefixed tokens such as `/` or `/p`, and for supported nested command
+queries such as `/lane `, `/lane a`, or `/lane inspect L`.
 
 Keyboard contract:
 
@@ -70,6 +71,9 @@ Rendering contract:
   the TUI.
 - It floats directly above the composer and must not obscure the input cursor.
 - It shows command, summary, and selected-row marker.
+- `/lane` has nested local suggestions for subcommands and known lane IDs, so
+  operators can discover actions such as `/lane apply L1` without memorizing
+  the full command surface.
 
 ## Approval Modal
 
@@ -104,7 +108,9 @@ route hints so the main agent can decide follow-up actions.
 - Resize events trigger redraw for the main and side TUI screens.
 - Row-diff rendering avoids full-screen flicker during typing.
 - The composer uses display-width aware text handling for CJK input.
-- The slash palette is local UI state; model calls are not involved.
+- The slash palette is local UI state; model calls are not involved. It now
+  supports nested `/lane` suggestions, including subcommands and dynamic lane
+  IDs from the current TUI state.
 - The main screen polls lane artifacts while idle, so background `/lane run`
   completion, failure, and log-tail state appear without a keypress.
 - The right-rail `ACTIVE TASKS` panel reads the real workflow task store exposed
@@ -183,7 +189,8 @@ route hints so the main agent can decide follow-up actions.
 - Side-screen launch is real process management, but automatic OS window
   placement across physical monitors is still a launcher-template/manual
   desktop responsibility.
-- Command palette currently lists a fixed command registry; command-specific
-  arguments and nested suggestions are future work.
+- Command palette nested suggestions currently cover `/lane`. Other command
+  families still use the top-level registry and can add command-specific
+  argument suggestions later.
 - Visual parity still needs repeated screenshot comparison against the
   holodeck reference.

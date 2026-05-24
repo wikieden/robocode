@@ -252,7 +252,7 @@ fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState
 
 fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.input = "/p".to_string();
+    state.input = "/lane ".to_string();
     state.command_selection = 0;
     state
 }
@@ -274,7 +274,7 @@ mod tests {
         assert!(main.contains("src/config.rs"));
         assert!(idle.contains("No approval is blocking right now"));
         assert!(command_palette.contains("COMMANDS"));
-        assert!(command_palette.contains("› /provider"));
+        assert!(command_palette.contains("› /lane codex"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));
         assert!(side.contains("~/projects/robocode"));

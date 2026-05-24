@@ -11,14 +11,17 @@ use super::{
 
 const MAX_VISIBLE_COMMANDS: usize = 6;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CommandSuggestion {
-    pub(super) command: &'static str,
-    pub(super) summary: &'static str,
+    pub(super) command: String,
+    pub(super) summary: String,
 }
 
 pub(super) fn is_command_palette_query(input: &str) -> bool {
-    input.starts_with('/') && !input.contains(char::is_whitespace)
+    if !input.starts_with('/') {
+        return false;
+    }
+    !input.contains(char::is_whitespace) || is_lane_command_query(input)
 }
 
 pub(super) fn is_command_palette_visible(state: &TuiState) -> bool {
@@ -29,29 +32,35 @@ pub(super) fn is_command_palette_visible(state: &TuiState) -> bool {
         .command_palette_hidden_for
         .as_ref()
         .is_none_or(|hidden| hidden != &state.input)
-        && !command_suggestions(&state.input).is_empty()
+        && !command_suggestions_for_state(state).is_empty()
 }
 
-pub(super) fn command_suggestions(query: &str) -> Vec<CommandSuggestion> {
+fn command_suggestions_for_state(state: &TuiState) -> Vec<CommandSuggestion> {
+    lane_command_suggestions(&state.input, state)
+        .unwrap_or_else(|| static_command_suggestions(&state.input))
+}
+
+fn static_command_suggestions(query: &str) -> Vec<CommandSuggestion> {
     COMMANDS
         .into_iter()
         .filter(|item| item.command.starts_with(query))
+        .map(command_from_template)
         .collect()
 }
 
 pub(super) fn selected_command(state: &TuiState) -> Option<CommandSuggestion> {
-    let suggestions = command_suggestions(&state.input);
+    let suggestions = command_suggestions_for_state(state);
     let selected = state
         .command_selection
         .min(suggestions.len().saturating_sub(1));
-    suggestions.get(selected).copied()
+    suggestions.get(selected).cloned()
 }
 
 pub(super) fn move_selection(state: &mut TuiState, delta: i8) -> bool {
     if !is_command_palette_visible(state) {
         return false;
     }
-    let count = command_suggestions(&state.input).len();
+    let count = command_suggestions_for_state(state).len();
     if count == 0 {
         state.command_selection = 0;
         return false;
@@ -98,7 +107,7 @@ pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {
     if !is_command_palette_visible(state) {
         return;
     }
-    let suggestions = command_suggestions(&state.input);
+    let suggestions = command_suggestions_for_state(state);
     if suggestions.is_empty() {
         return;
     }
@@ -133,72 +142,214 @@ pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {
     frame.write_block(top, left, &rows);
 }
 
-const COMMANDS: [CommandSuggestion; 16] = [
-    CommandSuggestion {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CommandTemplate {
+    command: &'static str,
+    summary: &'static str,
+}
+
+const COMMANDS: [CommandTemplate; 16] = [
+    CommandTemplate {
         command: "/help",
         summary: "Show commands",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/provider",
         summary: "List or switch providers",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/plan",
         summary: "Toggle planning mode",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/git",
         summary: "Git status, diff, branch ops",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/diff",
         summary: "Show latest diff",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/lsp",
         summary: "Diagnostics and symbols",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/task",
         summary: "Create or update tasks",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/tasks",
         summary: "List active tasks",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/memory",
         summary: "Project and session memory",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/screen",
         summary: "Open side screen route",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/lane",
         summary: "Run or inspect agent lanes",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/status",
         summary: "Runtime status",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/config",
         summary: "Show active config",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/doctor",
         summary: "Check setup health",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/exit",
         summary: "Exit RoboCode",
     },
-    CommandSuggestion {
+    CommandTemplate {
         command: "/quit",
         summary: "Exit RoboCode",
     },
 ];
+
+const LANE_COMMANDS: [CommandTemplate; 13] = [
+    CommandTemplate {
+        command: "/lane codex",
+        summary: "Start Codex lane",
+    },
+    CommandTemplate {
+        command: "/lane claude",
+        summary: "Start Claude lane",
+    },
+    CommandTemplate {
+        command: "/lane run",
+        summary: "Run shell lane",
+    },
+    CommandTemplate {
+        command: "/lane inspect",
+        summary: "Inspect lane evidence",
+    },
+    CommandTemplate {
+        command: "/lane stop",
+        summary: "Stop running lane",
+    },
+    CommandTemplate {
+        command: "/lane attach",
+        summary: "Open lane terminal",
+    },
+    CommandTemplate {
+        command: "/lane detach",
+        summary: "Detach lane terminal",
+    },
+    CommandTemplate {
+        command: "/lane accept",
+        summary: "Accept lane result",
+    },
+    CommandTemplate {
+        command: "/lane revise",
+        summary: "Request revision",
+    },
+    CommandTemplate {
+        command: "/lane discard",
+        summary: "Discard lane result",
+    },
+    CommandTemplate {
+        command: "/lane apply",
+        summary: "Apply accepted patch",
+    },
+    CommandTemplate {
+        command: "/lane cleanup",
+        summary: "Archive worktree",
+    },
+    CommandTemplate {
+        command: "/lane close",
+        summary: "Close lane focus",
+    },
+];
+
+const LANE_ID_COMMANDS: [&str; 9] = [
+    "/lane inspect",
+    "/lane stop",
+    "/lane attach",
+    "/lane detach",
+    "/lane accept",
+    "/lane revise",
+    "/lane discard",
+    "/lane apply",
+    "/lane cleanup",
+];
+
+fn command_from_template(template: CommandTemplate) -> CommandSuggestion {
+    CommandSuggestion {
+        command: template.command.to_string(),
+        summary: template.summary.to_string(),
+    }
+}
+
+fn is_lane_command_query(input: &str) -> bool {
+    input == "/lane " || input.starts_with("/lane ")
+}
+
+fn lane_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    if !is_lane_command_query(query) {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let suggestions = if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
+        LANE_COMMANDS
+            .into_iter()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if words.len() == 2 && !query.ends_with(' ') {
+        LANE_COMMANDS
+            .into_iter()
+            .filter(|item| item.command.starts_with(query))
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if should_suggest_lane_ids(query, &words) {
+        lane_id_suggestions(query, &words, state)
+    } else {
+        Vec::new()
+    };
+    Some(suggestions)
+}
+
+fn should_suggest_lane_ids(query: &str, words: &[&str]) -> bool {
+    if words.len() < 2 || words.len() > 3 {
+        return false;
+    }
+    let base = format!("{} {}", words[0], words[1]);
+    LANE_ID_COMMANDS.contains(&base.as_str())
+        && (query.ends_with(' ')
+            || words
+                .get(2)
+                .is_some_and(|value| value.starts_with('L') || value.starts_with('l')))
+}
+
+fn lane_id_suggestions(query: &str, words: &[&str], state: &TuiState) -> Vec<CommandSuggestion> {
+    let base = format!("{} {}", words[0], words[1]);
+    let partial_id = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    state
+        .lanes
+        .iter()
+        .filter(|lane| {
+            lane.id
+                .to_ascii_lowercase()
+                .starts_with(&partial_id.to_ascii_lowercase())
+        })
+        .map(|lane| CommandSuggestion {
+            command: format!("{base} {}", lane.id),
+            summary: format!("{} [{}]", lane.title, lane.status),
+        })
+        .collect()
+}
 
 fn command_suggestion_row(
     suggestion: &CommandSuggestion,
@@ -211,9 +362,9 @@ fn command_suggestion_row(
     bordered_row(
         &format!(
             "{marker} {}{}{}",
-            pad(suggestion.command, command_width),
+            pad(&suggestion.command, command_width),
             " ".repeat(2),
-            pad(suggestion.summary, detail_width)
+            pad(&suggestion.summary, detail_width)
         ),
         width,
     )
@@ -248,15 +399,57 @@ mod tests {
 
     #[test]
     fn filters_slash_commands_by_prefix() {
-        let suggestions = command_suggestions("/p");
+        let suggestions = static_command_suggestions("/p");
 
         assert_eq!(
             suggestions
                 .iter()
-                .map(|suggestion| suggestion.command)
+                .map(|suggestion| suggestion.command.as_str())
                 .collect::<Vec<_>>(),
             vec!["/provider", "/plan"]
         );
+    }
+
+    #[test]
+    fn suggests_lane_subcommands_after_lane_space() {
+        let state = state_with_input("/lane ");
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(suggestions[0].command, "/lane codex");
+        assert!(suggestions.iter().any(|item| item.command == "/lane apply"));
+        assert!(is_command_palette_visible(&state));
+    }
+
+    #[test]
+    fn filters_lane_subcommands_by_partial_argument() {
+        let state = state_with_input("/lane a");
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(
+            suggestions
+                .iter()
+                .map(|suggestion| suggestion.command.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/lane attach", "/lane accept", "/lane apply"]
+        );
+    }
+
+    #[test]
+    fn suggests_lane_ids_for_lane_actions() {
+        let state = state_with_input("/lane inspect l");
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(
+            suggestions
+                .iter()
+                .map(|suggestion| suggestion.command.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/lane inspect L1", "/lane inspect L2", "/lane inspect L3"]
+        );
+        assert!(suggestions[0].summary.contains("[running]"));
     }
 
     #[test]
@@ -273,12 +466,12 @@ mod tests {
 
     #[test]
     fn completes_selected_command_with_trailing_space() {
-        let mut state = state_with_input("/p");
-        state.command_selection = 1;
+        let mut state = state_with_input("/lane a");
+        state.command_selection = 2;
 
         assert!(complete_selected(&mut state));
 
-        assert_eq!(state.input, "/plan ");
+        assert_eq!(state.input, "/lane apply ");
         assert_eq!(state.command_selection, 0);
     }
 
