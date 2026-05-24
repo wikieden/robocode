@@ -80,6 +80,7 @@ mod tests {
             approval_apply_all: false,
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
+            screens: Vec::new(),
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,
             focused_lane: None,

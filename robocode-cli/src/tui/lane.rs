@@ -450,6 +450,7 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             workspace: WorkspaceSnapshot::fixture(),
+            screens: Vec::new(),
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,

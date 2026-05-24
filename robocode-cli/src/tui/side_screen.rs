@@ -58,7 +58,9 @@ pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
         format!("PROVIDER  {} / {}", state.provider, state.model),
         format!("WORKSPACE {}", truncate(&state.workspace.display_root, 28)),
         format!(
-            "SCREENS   main online   side-1 live   side-2 ops   lanes {active_lanes}/{}",
+            "SCREENS   main online   {}   {}   lanes {active_lanes}/{}",
+            companion_screen_label(state, "side-1"),
+            companion_screen_label(state, "side-2"),
             state.lanes.len()
         ),
         format!(
@@ -73,6 +75,14 @@ pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
         ),
         format!("DIAG      ok   THEME {}", state.theme_name),
     ]
+}
+
+fn companion_screen_label(state: &TuiState, id: &str) -> String {
+    let Some(screen) = state.screens.iter().find(|screen| screen.id == id) else {
+        return format!("{id} off");
+    };
+    let pid = screen.pid.map(|pid| format!(":{pid}")).unwrap_or_default();
+    format!("{} {}{}", screen.id, screen.status, pid)
 }
 
 fn terminal_lane_detail_rows(state: &TuiState) -> Vec<String> {
@@ -138,4 +148,49 @@ fn agent_output_rows(state: &TuiState) -> Vec<String> {
         rows.push("○ no lane output yet".to_string());
     }
     rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui::state::{
+        CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot,
+    };
+
+    #[test]
+    fn side_status_rows_reflect_tracked_companion_screens() {
+        let state = TuiState {
+            session_id: "session".to_string(),
+            provider: "deepseek".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: Vec::<TuiEntry>::new(),
+            workspace: WorkspaceSnapshot::fixture(),
+            screens: vec![CompanionScreen {
+                id: "side-1".to_string(),
+                title: "Agent lanes".to_string(),
+                status: "launched".to_string(),
+                pid: Some(4242),
+                summary: "test screen".to_string(),
+            }],
+            lanes: Vec::<TerminalLane>::new(),
+            lane_store: None,
+            focused_lane: None,
+        };
+
+        let rows = side_status_rows(&state);
+        let screen_row = rows
+            .iter()
+            .find(|row| row.contains("SCREENS"))
+            .expect("screen row");
+
+        assert!(screen_row.contains("side-1 launched:4242"));
+        assert!(screen_row.contains("side-2 off"));
+    }
 }

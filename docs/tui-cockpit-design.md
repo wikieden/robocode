@@ -115,6 +115,16 @@ route hints so the main agent can decide follow-up actions.
 - LSP diagnostics from real core events are parsed by the TUI and persisted to
   `.robocode/diagnostics.txt`, so the main screen and side screens can show the
   same evidence-backed diagnostics snapshot.
+- `/screen side-1` and `/screen side-2` launch real companion TUI processes
+  with the current provider, model, theme, and workspace. The main screen tracks
+  up to two side screens, `/screen list` reports them, and
+  `/screen close <side-1|side-2>` stops tracking and sends a terminate request
+  when a pid is known.
+- `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` can override the default current-binary
+  launcher for desktop-specific workflows, for example opening a new terminal
+  window or routing a side screen to another display. Supported placeholders are
+  `{screen}`, `{provider}`, `{model}`, `{theme}` and their shell-quoted
+  `{name:q}` forms.
 - Code changes that alter cockpit behavior, commands, architecture, config, or
   UI must update the relevant docs. Comments should document non-obvious
   invariants and safety boundaries, not restate obvious code.
@@ -130,6 +140,9 @@ route hints so the main agent can decide follow-up actions.
 - Diagnostics still require an explicit LSP source, such as `/lsp diagnostics
   <path>` or post-edit diagnostics from the LSP runtime. The live TUI does not
   run an automatic background checker yet.
+- Side-screen launch is real process management, but automatic OS window
+  placement across physical monitors is still a launcher-template/manual
+  desktop responsibility.
 - Command palette currently lists a fixed command registry; command-specific
   arguments and nested suggestions are future work.
 - Visual parity still needs repeated screenshot comparison against the

@@ -137,7 +137,10 @@ api_key_env = "DEEPSEEK_API_KEY"
   `d` to focus diff, or use `Tab` / arrow keys to move between actions.
 - Slash commands start with `/`; useful starters include `/help`, `/provider`,
   `/status`, `/config`, `/permissions`, `/sessions`, `/resume latest`, `/task`,
-  and `/memory`.
+  `/memory`, `/lane`, and `/screen`.
+- `/screen side-1` and `/screen side-2` launch companion TUI screens for lane
+  and ops monitoring. Use `/screen list` and `/screen close <side-1|side-2>` to
+  manage tracked side screens.
 
 ## Feedback
 

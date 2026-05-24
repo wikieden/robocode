@@ -439,6 +439,7 @@ mod tests {
                 body: "Permission request for `write_file`\npath: src/lib.rs\nPress y to allow, n/Esc to deny.".to_string(),
             }],
             workspace: WorkspaceSnapshot::fixture(),
+            screens: Vec::new(),
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,
             focused_lane: None,

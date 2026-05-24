@@ -1,12 +1,16 @@
-use std::time::Duration;
+use std::{
+    env,
+    process::{Command, Stdio},
+    time::Duration,
+};
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use robocode_core::SessionEngine;
 
 use super::input::should_exit;
 use super::state::{
-    ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot, lane_store_path,
-    load_lanes, refresh_lane_runtime, save_lanes,
+    CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
+    lane_store_path, load_lanes, refresh_lane_runtime, save_lanes,
 };
 use super::terminal::TerminalGuard;
 
@@ -36,6 +40,7 @@ pub(crate) fn run_side_tui_with_theme(
             body: format!("RoboCode side monitor ready. Esc or Ctrl-C exits.\n{startup_summary}"),
         }],
         workspace: WorkspaceSnapshot::load_current(),
+        screens: vec![current_screen_record(screen)],
         lanes: lane_store
             .as_deref()
             .map(load_lanes)
@@ -94,29 +99,42 @@ impl SideScreen {
             _ => None,
         }
     }
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Lanes => "side-1",
+            Self::Ops => "side-2",
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::Lanes => "Agent lanes",
+            Self::Ops => "Workspace ops",
+        }
+    }
 }
 
 pub(super) fn handle_screen_command(input: &str, state: &mut TuiState) -> bool {
-    if !input.starts_with("/screen") {
+    let mut parts = input.split_whitespace();
+    if parts.next() != Some("/screen") {
         return false;
     }
-    let mut parts = input.split_whitespace();
-    let _ = parts.next();
     match parts.next() {
-        Some("side-1") | Some("side") => push_screen_launch(
-            state,
-            "side-1",
-            "cargo run -p robocode-cli -- --tui-screen side-1",
-        ),
-        Some("side-2") | Some("ops") => push_screen_launch(
-            state,
-            "side-2",
-            "cargo run -p robocode-cli -- --tui-screen side-2",
-        ),
-        Some("main") => push_screen_launch(state, "main", "cargo run -p robocode-cli -- --tui"),
+        Some("side-1") | Some("side") => launch_companion_screen(state, SideScreen::Lanes),
+        Some("side-2") | Some("ops") => launch_companion_screen(state, SideScreen::Ops),
+        Some("list") => push_screen_list(state),
+        Some("close") => match parts.next() {
+            Some(screen) => close_companion_screen(state, screen),
+            None => push_screen_usage(state),
+        },
+        Some("main") => state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: "Screen `main` is this active cockpit. Use `/screen side-1` or `/screen side-2` to attach companions.".to_string(),
+        }),
         _ => state.entries.push(TuiEntry {
             label: "system".to_string(),
-            body: "Usage: /screen main | /screen side-1 | /screen side-2".to_string(),
+            body: screen_usage().to_string(),
         }),
     }
     true
@@ -133,16 +151,211 @@ fn draw_side_screen(
     }
 }
 
-fn push_screen_launch(state: &mut TuiState, screen: &str, command: &str) {
+fn current_screen_record(screen: SideScreen) -> CompanionScreen {
+    CompanionScreen {
+        id: screen.id().to_string(),
+        title: screen.title().to_string(),
+        status: "attached".to_string(),
+        pid: Some(std::process::id()),
+        summary: "current side-screen process".to_string(),
+    }
+}
+
+fn launch_companion_screen(state: &mut TuiState, screen: SideScreen) {
+    let id = screen.id();
+    if state.screens.iter().any(|candidate| candidate.id == id) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Screen `{id}` is already tracked. Use `/screen list` or `/screen close {id}`."
+            ),
+        });
+        return;
+    }
+    if state.screens.len() >= 2 {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: "RoboCode supports at most two companion side screens: side-1 and side-2."
+                .to_string(),
+        });
+        return;
+    }
+    match spawn_companion_screen(state, id) {
+        Ok(pid) => {
+            state.screens.push(CompanionScreen {
+                id: id.to_string(),
+                title: screen.title().to_string(),
+                status: "launched".to_string(),
+                pid: Some(pid),
+                summary: format!("provider={} model={}", state.provider, state.model),
+            });
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!(
+                    "Launched screen `{id}` as pid {pid}.\nUse `/screen list` to inspect or `/screen close {id}` to stop tracking it."
+                ),
+            });
+        }
+        Err(err) => state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to launch screen `{id}`: {err}"),
+        }),
+    }
+}
+
+fn spawn_companion_screen(state: &TuiState, screen: &str) -> Result<u32, String> {
+    if let Ok(template) = env::var("ROBOCODE_SCREEN_LAUNCH_TEMPLATE") {
+        let command = expand_launch_template(&template, screen, state);
+        return spawn_shell_command(&command);
+    }
+    let executable = env::current_exe().map_err(|err| err.to_string())?;
+    let mut command = Command::new(executable);
+    command
+        .arg("--tui-screen")
+        .arg(screen)
+        .arg("--provider")
+        .arg(&state.provider)
+        .arg("--model")
+        .arg(&state.model)
+        .arg("--tui-theme")
+        .arg(&state.theme_name)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if state.workspace.root.is_dir() {
+        command.current_dir(&state.workspace.root);
+    }
+    let child = command.spawn().map_err(|err| err.to_string())?;
+    Ok(child.id())
+}
+
+fn spawn_shell_command(command: &str) -> Result<u32, String> {
+    let mut shell = platform_shell_command(command);
+    shell
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let child = shell.spawn().map_err(|err| err.to_string())?;
+    Ok(child.id())
+}
+
+#[cfg(windows)]
+fn platform_shell_command(command: &str) -> Command {
+    let mut shell = Command::new("cmd");
+    shell.arg("/C").arg(command);
+    shell
+}
+
+#[cfg(not(windows))]
+fn platform_shell_command(command: &str) -> Command {
+    let mut shell = Command::new("sh");
+    shell.arg("-lc").arg(command);
+    shell
+}
+
+fn expand_launch_template(template: &str, screen: &str, state: &TuiState) -> String {
+    template
+        .replace("{screen:q}", &shell_quote(screen))
+        .replace("{provider:q}", &shell_quote(&state.provider))
+        .replace("{model:q}", &shell_quote(&state.model))
+        .replace("{theme:q}", &shell_quote(&state.theme_name))
+        .replace("{screen}", screen)
+        .replace("{provider}", &state.provider)
+        .replace("{model}", &state.model)
+        .replace("{theme}", &state.theme_name)
+}
+
+fn shell_quote(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn push_screen_list(state: &mut TuiState) {
+    let mut rows = vec![
+        "Tracked screens:".to_string(),
+        "main active pid=self".to_string(),
+    ];
+    if state.screens.is_empty() {
+        rows.push("side-1 off".to_string());
+        rows.push("side-2 off".to_string());
+    } else {
+        rows.extend(state.screens.iter().map(|screen| {
+            format!(
+                "{} {} pid={} {}",
+                screen.id,
+                screen.status,
+                screen
+                    .pid
+                    .map(|pid| pid.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                screen.summary
+            )
+        }));
+    }
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: format!("Screen `{screen}` launch command:\n{command}"),
+        body: rows.join("\n"),
     });
+}
+
+fn close_companion_screen(state: &mut TuiState, screen: &str) {
+    let Some(index) = state
+        .screens
+        .iter()
+        .position(|candidate| candidate.id == screen)
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Screen `{screen}` is not tracked. Use `/screen list`."),
+        });
+        return;
+    };
+    let closed = state.screens.remove(index);
+    let stop_note = closed
+        .pid
+        .map(stop_companion_process)
+        .unwrap_or_else(|| "no pid recorded".to_string());
+    state.entries.push(TuiEntry {
+        label: "system".to_string(),
+        body: format!("Closed screen `{}`. {stop_note}", closed.id),
+    });
+}
+
+#[cfg(unix)]
+fn stop_companion_process(pid: u32) -> String {
+    match Command::new("kill")
+        .arg("-TERM")
+        .arg(pid.to_string())
+        .status()
+    {
+        Ok(status) if status.success() => format!("Sent TERM to pid {pid}."),
+        Ok(status) => format!("Tried TERM for pid {pid}; kill exited with {status}."),
+        Err(err) => format!("Could not TERM pid {pid}: {err}."),
+    }
+}
+
+#[cfg(not(unix))]
+fn stop_companion_process(pid: u32) -> String {
+    format!("Stop tracking pid {pid}; process termination is not implemented on this platform yet.")
+}
+
+fn push_screen_usage(state: &mut TuiState) {
+    state.entries.push(TuiEntry {
+        label: "system".to_string(),
+        body: screen_usage().to_string(),
+    });
+}
+
+fn screen_usage() -> &'static str {
+    "Usage: /screen main | /screen side-1 | /screen side-2 | /screen list | /screen close <side-1|side-2>"
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
 
     fn state() -> TuiState {
         TuiState {
@@ -158,6 +371,7 @@ mod tests {
             approval_apply_all: false,
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
+            screens: Vec::new(),
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,
             focused_lane: None,
@@ -165,13 +379,45 @@ mod tests {
     }
 
     #[test]
-    fn screen_command_reports_side_launch_command() {
+    fn screen_command_launches_side_process_and_tracks_it() {
+        let _env = ScopedEnv::set("ROBOCODE_SCREEN_LAUNCH_TEMPLATE", "exit 0");
         let mut state = state();
 
         assert!(handle_screen_command("/screen side-2", &mut state));
 
-        assert!(state.entries[0].body.contains("Screen `side-2`"));
-        assert!(state.entries[0].body.contains("--tui-screen side-2"));
+        assert!(state.entries[0].body.contains("Launched screen `side-2`"));
+        assert_eq!(state.screens.len(), 1);
+        assert_eq!(state.screens[0].id, "side-2");
+        assert_eq!(state.screens[0].title, "Workspace ops");
+        assert_eq!(state.screens[0].status, "launched");
+        assert!(state.screens[0].pid.is_some());
+    }
+
+    #[test]
+    fn screen_command_rejects_duplicate_screen() {
+        let _env = ScopedEnv::set("ROBOCODE_SCREEN_LAUNCH_TEMPLATE", "exit 0");
+        let mut state = state();
+
+        assert!(handle_screen_command("/screen side-1", &mut state));
+        assert!(handle_screen_command("/screen side", &mut state));
+
+        assert_eq!(state.screens.len(), 1);
+        assert!(state.entries[1].body.contains("already tracked"));
+    }
+
+    #[test]
+    fn screen_command_lists_and_closes_tracked_screen() {
+        let _env = ScopedEnv::set("ROBOCODE_SCREEN_LAUNCH_TEMPLATE", "exit 0");
+        let mut state = state();
+
+        assert!(handle_screen_command("/screen side-1", &mut state));
+        assert!(handle_screen_command("/screen list", &mut state));
+        assert!(state.entries[1].body.contains("side-1 launched"));
+
+        assert!(handle_screen_command("/screen close side-1", &mut state));
+
+        assert!(state.screens.is_empty());
+        assert!(state.entries[2].body.contains("Closed screen `side-1`"));
     }
 
     #[test]
@@ -181,5 +427,61 @@ mod tests {
         assert!(handle_screen_command("/screen other", &mut state));
 
         assert!(state.entries[0].body.contains("Usage: /screen"));
+    }
+
+    #[test]
+    fn screen_command_does_not_capture_other_slash_commands() {
+        let mut state = state();
+
+        assert!(!handle_screen_command("/screenshots", &mut state));
+        assert!(state.entries.is_empty());
+    }
+
+    #[test]
+    fn screen_launch_template_quotes_values() {
+        let mut state = state();
+        state.model = "deepseek v4 flash".to_string();
+
+        let command = expand_launch_template("open {screen:q} {model:q}", "side-1", &state);
+
+        assert_eq!(command, "open 'side-1' 'deepseek v4 flash'");
+    }
+
+    struct ScopedEnv {
+        key: &'static str,
+        previous: Option<String>,
+        _guard: MutexGuard<'static, ()>,
+    }
+
+    impl ScopedEnv {
+        fn set(key: &'static str, value: &str) -> Self {
+            let guard = env_lock().lock().expect("env test lock");
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self {
+                key,
+                previous,
+                _guard: guard,
+            }
+        }
+    }
+
+    impl Drop for ScopedEnv {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(value) = &self.previous {
+                    std::env::set_var(self.key, value);
+                } else {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    fn env_lock() -> &'static Mutex<()> {
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
     }
 }

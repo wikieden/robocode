@@ -224,6 +224,7 @@ mod tests {
                 body: "ready".to_string(),
             }],
             workspace: WorkspaceSnapshot::fixture(),
+            screens: Vec::new(),
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,

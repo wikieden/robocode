@@ -1,4 +1,6 @@
-use super::state::{ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot};
+use super::state::{
+    CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
+};
 use super::{render, terminal};
 
 pub(crate) fn render_preview(provider: &str, model: &str) -> String {
@@ -122,6 +124,7 @@ fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
         approval_focus: 0,
         approval_apply_all: false,
         workspace: WorkspaceSnapshot::fixture(),
+        screens: preview_screens(),
         lanes: TerminalLane::preview_lanes(),
         lane_store: None,
         focused_lane: None,
@@ -160,6 +163,25 @@ fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
             },
         ],
     }
+}
+
+fn preview_screens() -> Vec<CompanionScreen> {
+    vec![
+        CompanionScreen {
+            id: "side-1".to_string(),
+            title: "Agent lanes".to_string(),
+            status: "launched".to_string(),
+            pid: Some(4101),
+            summary: "lane cockpit on companion display".to_string(),
+        },
+        CompanionScreen {
+            id: "side-2".to_string(),
+            title: "Workspace ops".to_string(),
+            status: "launched".to_string(),
+            pid: Some(4102),
+            summary: "ops monitor on vertical display".to_string(),
+        },
+    ]
 }
 
 fn focused_lane_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {

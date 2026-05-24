@@ -27,9 +27,19 @@ pub(super) struct TuiState {
     pub(super) approval_apply_all: bool,
     pub(super) entries: Vec<TuiEntry>,
     pub(super) workspace: WorkspaceSnapshot,
+    pub(super) screens: Vec<CompanionScreen>,
     pub(super) lanes: Vec<TerminalLane>,
     pub(super) lane_store: Option<PathBuf>,
     pub(super) focused_lane: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CompanionScreen {
+    pub(super) id: String,
+    pub(super) title: String,
+    pub(super) status: String,
+    pub(super) pid: Option<u32>,
+    pub(super) summary: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

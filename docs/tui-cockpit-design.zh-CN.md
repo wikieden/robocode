@@ -102,6 +102,14 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - TUI 会解析来自 core 真实事件的 LSP diagnostics，并持久化到
   `.robocode/diagnostics.txt`，所以主屏和副屏可以展示同一份有证据来源的
   diagnostics snapshot。
+- `/screen side-1` 和 `/screen side-2` 现在会用当前 provider、model、theme
+  和 workspace 启动真实副屏 TUI 进程。主屏最多跟踪两个副屏，`/screen list`
+  显示状态，`/screen close <side-1|side-2>` 会停止跟踪，并在已知 pid 时发送
+  终止请求。
+- `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` 可以覆盖默认的当前二进制启动方式，用于
+  桌面相关流程，例如打开新 terminal 窗口，或把副屏路由到另一块显示器。支持
+  `{screen}`、`{provider}`、`{model}`、`{theme}` 以及 shell-quoted 的
+  `{name:q}` 占位符。
 - 修改 cockpit 行为、命令、架构、配置或 UI 时，必须同步更新相关文档。注释
   用来说明不明显的不变量和安全边界，不重复解释显而易见的代码。
 
@@ -114,5 +122,7 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   指标。
 - Diagnostics 仍需要显式 LSP 来源，例如 `/lsp diagnostics <path>` 或 LSP runtime
   的 post-edit diagnostics。live TUI 目前不会自动后台跑 checker。
+- 副屏启动已经是真实进程管理，但跨物理显示器的 OS 窗口自动摆放仍由 launcher
+  template 或桌面手动操作负责。
 - 命令提示列表目前是固定命令注册表；命令参数和二级提示待后续扩展。
 - 视觉还需要持续用截图和 holodeck 主参考图对比。

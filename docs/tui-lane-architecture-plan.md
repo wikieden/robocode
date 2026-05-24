@@ -1,6 +1,6 @@
 # TUI and Terminal Lane Architecture Plan
 
-Last refreshed: 2026-05-23
+Last refreshed: 2026-05-25
 
 ## Purpose
 
@@ -101,6 +101,16 @@ Rules:
 - `AGENTS` is optimized for landscape.
 - `OPS` is optimized for portrait.
 - External windows and embedded panes must observe the same registry state.
+
+Current slice:
+
+- Main-screen `/screen side-1` and `/screen side-2` launch real companion TUI
+  processes through the current binary by default.
+- The registry tracks at most two companion screens and exposes `/screen list`
+  plus `/screen close <side-1|side-2>`.
+- `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` allows desktop-specific wrappers such as a
+  new terminal window or monitor-routing script without baking OS automation
+  into the portable core.
 
 ### Terminal Lane
 

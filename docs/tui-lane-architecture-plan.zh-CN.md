@@ -1,6 +1,6 @@
 # TUI 与终端 Lane 架构开发计划
 
-最后刷新：2026-05-23
+最后刷新：2026-05-25
 
 ## 目的
 
@@ -101,6 +101,15 @@ enum ScreenKind {
 - `AGENTS` 优先横屏。
 - `OPS` 优先竖屏。
 - 外部窗口和内嵌 pane 必须观察同一份 registry 状态。
+
+当前切片：
+
+- 主屏 `/screen side-1` 和 `/screen side-2` 默认通过当前二进制启动真实副屏
+  TUI 进程。
+- registry 最多跟踪两个副屏，并暴露 `/screen list` 和
+  `/screen close <side-1|side-2>`。
+- `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` 允许接入桌面特定 wrapper，例如新 terminal
+  窗口或显示器路由脚本，而不把 OS 自动化写死到跨平台核心里。
 
 ### Terminal Lane
 
