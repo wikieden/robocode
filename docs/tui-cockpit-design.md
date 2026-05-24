@@ -113,7 +113,7 @@ route hints so the main agent can decide follow-up actions.
 
 - Real PTY-backed lanes are still future work; current lanes support
   non-interactive shell commands plus template-launched Codex/Claude adapters
-  with persisted log and exit-code artifacts.
+  with persisted log and exit-code artifacts, plus Unix process-group stop.
 - Provider latency, token, cost, and rate telemetry is not connected yet, so the
   live UI intentionally renders it as unavailable or hidden.
 - Diagnostics are displayed only when collected by a real source; placeholder

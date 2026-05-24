@@ -212,6 +212,8 @@ default_timeout_seconds = 1800
 - 主 TUI 和副屏 idle 时都会刷新 lane artifacts。
 - `/lane inspect <id>` 展示 status、progress、log path、done path、持久化
   exit code 和短 log tail。
+- `/lane stop <id>` 会把 lane 标记为 stopped；Unix 平台上如果记录了 pid，
+  会向该 lane process group 发送 `SIGTERM`。
 
 ## 安全模型
 
@@ -290,8 +292,8 @@ default_timeout_seconds = 1800
 - 失败命令展示 exit code 和最后输出；
 - lane 状态有单元测试。
 
-当前状态：非交互命令、持久化日志、exit-code 捕获、idle refresh 和 inspect
-证据已实现。`stop` 目前只把 lane 标记为 stopped，还没有杀掉正在运行的子进程。
+当前状态：非交互命令、持久化日志、exit-code 捕获、idle refresh、inspect
+证据和 Unix process-group stop 已实现。
 
 ### Phase 5: 外部工具 Adapter
 

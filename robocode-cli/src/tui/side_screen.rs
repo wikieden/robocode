@@ -97,7 +97,7 @@ fn terminal_lane_detail_rows(state: &TuiState) -> Vec<String> {
         rows.push(format!(
             "│ PTY {}  PID {:<5}  TASK {}",
             pty_label(&lane.tool),
-            pid_hint(&lane.tool),
+            pid_hint(lane),
             truncate(&lane.title, 43)
         ));
         rows.push(format!(

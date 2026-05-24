@@ -99,7 +99,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 ## 近期缺口
 
 - 真正 PTY-backed lanes 仍是后续工作；当前 lane 支持非交互 shell 命令，以及
-  template-launched Codex/Claude adapter，并持久化 log 和 exit-code artifacts。
+  template-launched Codex/Claude adapter，并持久化 log / exit-code artifacts；
+  Unix 平台支持 process-group stop。
 - Provider latency、token、cost、rate telemetry 尚未接入，所以 live UI 会明确
   显示 unavailable 或暂时隐藏。
 - Diagnostics 只展示真实来源采集到的数据；live 面板不再使用占位 Rust 错误。

@@ -386,7 +386,7 @@ mod tests {
         assert!(rendered.contains("L1 codex"));
         assert!(rendered.contains("[codex tty]"));
         assert!(rendered.contains("PTY    pty/01"));
-        assert!(rendered.contains("PID 4217"));
+        assert!(rendered.contains("PID ----"));
         assert!(rendered.contains("ROUTE main→side-1"));
         assert!(rendered.contains("STATE"));
         assert!(rendered.contains("CMD    codex exec test fixes"));
@@ -459,7 +459,7 @@ mod tests {
         assert!(rendered.contains("SIDE STATUS"));
         assert!(rendered.contains("┌ ● L1 codex"));
         assert!(rendered.contains("PTY pty/01"));
-        assert!(rendered.contains("PID 4217"));
+        assert!(rendered.contains("PID ----"));
         assert!(rendered.contains("TASK test fixes"));
         assert!(rendered.contains("└ CMD codex exec test fixes"));
         assert!(rendered.contains("│ TAIL patched failing tests"));

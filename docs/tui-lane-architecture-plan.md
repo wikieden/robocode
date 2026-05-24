@@ -213,6 +213,8 @@ Current implemented slice:
 - The main TUI and companion screens refresh lane artifacts while idle.
 - `/lane inspect <id>` reports status, progress, log path, done path, persisted
   exit code, and a short log tail.
+- `/lane stop <id>` marks the lane stopped and, on Unix platforms, sends
+  `SIGTERM` to the lane process group when a pid is recorded.
 
 ## Safety Model
 
@@ -292,8 +294,8 @@ Acceptance criteria:
 - lane states are unit-tested.
 
 Current status: the non-interactive command path, persisted logs, exit-code
-capture, idle refresh, and inspect evidence are implemented. Stop currently
-marks the lane stopped but does not yet kill a running child process.
+capture, idle refresh, inspect evidence, and Unix process-group stop are
+implemented.
 
 ### Phase 5: External Tool Adapters
 

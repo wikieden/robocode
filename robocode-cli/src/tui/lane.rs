@@ -3,6 +3,9 @@ use std::{
     process::{Command, Stdio},
 };
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 use crate::tui::state::{
     TerminalLane, TuiEntry, TuiState, lane_runtime_evidence, refresh_lane_runtime, save_lanes,
 };
@@ -35,13 +38,10 @@ pub(super) fn pty_label(tool: &str) -> &'static str {
     }
 }
 
-pub(super) fn pid_hint(tool: &str) -> &'static str {
-    match tool {
-        "codex" => "4217",
-        "claude" => "4380",
-        "shell" | "run" => "4412",
-        _ => "----",
-    }
+pub(super) fn pid_hint(lane: &TerminalLane) -> String {
+    lane_pid(lane)
+        .map(|pid| pid.to_string())
+        .unwrap_or_else(|| "----".to_string())
 }
 
 pub(super) fn command_hint(tool: &str, task: &str) -> String {
@@ -165,14 +165,15 @@ fn start_background_lane(
         shell_quote_path(&log_path),
         shell_quote_path(&done_path)
     );
-    match Command::new("sh")
+    let mut command = Command::new("sh");
+    command
         .arg("-lc")
         .arg(shell)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
+        .stderr(Stdio::null());
+    configure_lane_process_group(&mut command);
+    match command.spawn() {
         Ok(child) => {
             lane.status = "running".to_string();
             lane.progress = 10;
@@ -270,15 +271,61 @@ fn stop_lane(id: Option<&str>, state: &mut TuiState) {
         });
         return;
     };
+    let stop_result = stop_lane_process(lane);
     lane.status = "stopped".to_string();
     lane.progress = lane.progress.min(99);
-    lane.summary = "stopped by operator".to_string();
+    lane.summary = stop_result;
     let lane_id = lane.id.clone();
+    let lane_summary = lane.summary.clone();
     persist_lanes(state);
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: format!("Stopped terminal lane `{lane_id}`."),
+        body: format!("Stopped terminal lane `{lane_id}`: {lane_summary}"),
     });
+}
+
+#[cfg(unix)]
+fn configure_lane_process_group(command: &mut Command) {
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_lane_process_group(_command: &mut Command) {}
+
+fn stop_lane_process(lane: &TerminalLane) -> String {
+    if !matches!(lane.status.as_str(), "running" | "queued") {
+        return "stopped by operator; no running process recorded".to_string();
+    }
+    let Some(pid) = lane_pid(lane) else {
+        return "stopped by operator; no process id recorded".to_string();
+    };
+    match terminate_process_group(pid) {
+        Ok(()) => format!("stopped by operator; sent SIGTERM to process group {pid}"),
+        Err(err) => format!("stopped by operator; failed to signal process group {pid}: {err}"),
+    }
+}
+
+fn lane_pid(lane: &TerminalLane) -> Option<u32> {
+    lane.target.strip_prefix("pid ")?.parse::<u32>().ok()
+}
+
+#[cfg(unix)]
+fn terminate_process_group(pid: u32) -> Result<(), String> {
+    let status = Command::new("kill")
+        .arg("-TERM")
+        .arg(format!("-{pid}"))
+        .status()
+        .map_err(|err| err.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("kill exited with {status}"))
+    }
+}
+
+#[cfg(not(unix))]
+fn terminate_process_group(_pid: u32) -> Result<(), String> {
+    Err("process-group termination is unsupported on this platform".to_string())
 }
 
 fn persist_lanes(state: &mut TuiState) {
@@ -415,7 +462,7 @@ mod tests {
         assert!(handle_tui_command("/lane stop l1", &mut state));
 
         assert_eq!(state.lanes[0].status, "stopped");
-        assert_eq!(state.lanes[0].summary, "stopped by operator");
+        assert!(state.lanes[0].summary.contains("stopped by operator"));
         assert!(state.entries[0].body.contains("Stopped terminal lane `L1`"));
     }
 
@@ -437,7 +484,36 @@ mod tests {
         assert_eq!(lanes[0].tool, "codex");
         assert_eq!(lanes[0].title, "fix persistent state");
         assert_eq!(lanes[0].status, "stopped");
-        assert_eq!(lanes[0].summary, "stopped by operator");
+        assert!(lanes[0].summary.contains("stopped by operator"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lane_stop_terminates_running_process_group() {
+        let root = temp_lane_root();
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.lane_store = Some(store.clone());
+
+        assert!(handle_tui_command(
+            "/lane run sleep 5; printf should-not-finish",
+            &mut state
+        ));
+        assert_eq!(state.lanes[0].status, "running");
+        let done_path = root.join(".robocode").join("lanes").join("L1.done");
+
+        assert!(handle_tui_command("/lane stop L1", &mut state));
+        thread::sleep(std::time::Duration::from_millis(250));
+        refresh_lanes(&mut state);
+
+        assert_eq!(state.lanes[0].status, "stopped");
+        assert!(state.lanes[0].summary.contains("SIGTERM"));
+        assert!(
+            !done_path.exists(),
+            "stopped lane should not write normal completion marker"
+        );
 
         let _ = fs::remove_dir_all(root);
     }

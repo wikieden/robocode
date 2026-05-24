@@ -85,7 +85,7 @@ fn render_lane_modal(frame: &mut Frame, lane: &TerminalLane, right_rail_width: u
         format!(
             "PTY    {}  PID {}     ROUTE {}→{}",
             pty_label(&lane.tool),
-            pid_hint(&lane.tool),
+            pid_hint(lane),
             truncate(&lane.target, 8),
             lane_screen_hint(lane)
         ),
