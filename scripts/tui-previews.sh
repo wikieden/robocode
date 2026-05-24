@@ -257,6 +257,10 @@ assert_contains "$OUT_DIR/multiscreen.txt" "APPROVAL REQUIRED"
 assert_contains "$OUT_DIR/main-idle.txt" "No approval is blocking right now"
 assert_contains "$OUT_DIR/main-command-palette.txt" "COMMANDS"
 assert_contains "$OUT_DIR/main-command-palette.txt" "› /provider"
+assert_contains "$OUT_DIR/main.txt" "diagnostics unavailable"
+assert_contains "$OUT_DIR/main.txt" "TELEMETRY"
+assert_contains "$OUT_DIR/main.txt" "EVENTS"
+assert_contains "$OUT_DIR/main.txt" "LANES"
 if grep -Fq "APPROVAL REQUIRED" "$OUT_DIR/main-idle.txt"; then
   printf 'preview check failed: %s should not contain approval modal\n' "$OUT_DIR/main-idle.txt" >&2
   exit 1
@@ -264,7 +268,7 @@ fi
 assert_contains "$OUT_DIR/multiscreen.txt" "AGENT LANES"
 assert_contains "$OUT_DIR/multiscreen.txt" "LSP / BUILD"
 assert_contains "$OUT_DIR/multiscreen.txt" "pty/01"
-assert_contains "$OUT_DIR/multiscreen.txt" "PRESSURE"
+assert_contains "$OUT_DIR/multiscreen.txt" "diagnostics unavailable"
 assert_contains "$OUT_DIR/main-lane.txt" "LANE DETAIL"
 assert_contains "$OUT_DIR/main-lane.txt" "ROUTE main→side-1"
 assert_contains "$OUT_DIR/main-lane.txt" "CMD    codex exec test fixes"

@@ -1,6 +1,5 @@
 use super::{
     canvas::Frame,
-    indicators::context_percent,
     panel::bordered_row,
     state::TuiState,
     text::{bottom_border, compact_middle, top_border, truncate},
@@ -41,7 +40,7 @@ pub(super) fn render_ops_top_bar(frame: &mut Frame, state: &TuiState) {
         &[
             chip("WORK", &truncate(&state.workspace.display_root, 8)),
             chip("FILES", &state.workspace.file_count.to_string()),
-            chip("LSP", "0E/0W"),
+            chip("DIAG", &state.workspace.diagnostics.len().to_string()),
             chip("LINK", "side-1"),
             chip("PROV", &truncate(&state.provider, 7)),
         ],
@@ -141,23 +140,10 @@ enum StatusDensity {
 
 fn right_status_cluster(state: &TuiState, density: StatusDensity) -> String {
     let active = active_lane_count(state);
-    let context = context_percent(state);
     match density {
-        StatusDensity::Full => {
-            format!(
-                "· auto  CTX {:>2}% {}  L{}",
-                context,
-                context_ticks(context),
-                active
-            )
-        }
-        StatusDensity::Compact => format!(
-            "· auto {:>2}% {} L{}",
-            context,
-            context_ticks(context),
-            active
-        ),
-        StatusDensity::Tiny => format!("· auto {:>2}% L{}", context, active),
+        StatusDensity::Full => format!("· auto  telemetry off  L{active}"),
+        StatusDensity::Compact => format!("· auto telemetry off L{active}"),
+        StatusDensity::Tiny => format!("· auto L{active}"),
     }
 }
 
@@ -191,10 +177,4 @@ fn active_lane_count(state: &TuiState) -> usize {
         .iter()
         .filter(|lane| lane.status == "running" || lane.status == "queued")
         .count()
-}
-
-fn context_ticks(percent: usize) -> String {
-    let filled = (percent / 20).clamp(1, 5);
-    let empty = 5usize.saturating_sub(filled);
-    format!("{}{}", "▰".repeat(filled), "▱".repeat(empty))
 }

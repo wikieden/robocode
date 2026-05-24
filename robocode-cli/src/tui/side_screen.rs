@@ -1,8 +1,6 @@
 use super::{
     canvas::Frame,
-    indicators::{
-        context_percent, latency_label, progress_bar, rate_limit_bar, status_dot, throughput_label,
-    },
+    indicators::{progress_bar, status_dot},
     lane::{command_hint, pid_hint, pty_label, status_badge, terminal_label},
     panel::panel,
     state::TuiState,
@@ -64,24 +62,17 @@ pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
             state.lanes.len()
         ),
         format!(
-            "HEALTH    {}   TPS {}   {}",
-            latency_label(state),
-            throughput_label(state),
-            rate_limit_bar(state)
+            "TELEMETRY {}   EVENTS {}",
+            state.provider_status.telemetry,
+            state.entries.len(),
         ),
         format!(
-            "CONTEXT   {} / {}%   EVENTS {}   CACHE hit {}%",
+            "CONTEXT   {}   DIAGNOSTICS {}",
             state.provider_status.context_window,
-            context_percent(state),
-            state.entries.len(),
-            cache_hit_percent(state)
+            state.workspace.diagnostics.len(),
         ),
         format!("DIAG      ok   THEME {}", state.theme_name),
     ]
-}
-
-fn cache_hit_percent(state: &TuiState) -> usize {
-    (54 + state.entries.len() * 2 + state.lanes.len()).min(96)
 }
 
 fn terminal_lane_detail_rows(state: &TuiState) -> Vec<String> {
@@ -119,8 +110,7 @@ fn terminal_lane_detail_rows(state: &TuiState) -> Vec<String> {
 }
 
 fn agent_output_rows(state: &TuiState) -> Vec<String> {
-    let mut rows =
-        vec!["MUX side-1 tails pty/01 pty/02 pty/ops │ CONTROL inspect stop route".to_string()];
+    let mut rows = vec!["LANES tail persisted logs │ CONTROL inspect stop route".to_string()];
     rows.extend(
         state
             .lanes
@@ -144,6 +134,8 @@ fn agent_output_rows(state: &TuiState) -> Vec<String> {
             })
             .collect::<Vec<_>>(),
     );
-    rows.push("M0 cockpit    [waiting]  ░░░░░ │ gate :: approval write_file".to_string());
+    if rows.len() == 1 {
+        rows.push("○ no lane output yet".to_string());
+    }
     rows
 }

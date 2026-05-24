@@ -84,12 +84,8 @@ fn ops_workspace_rows(state: &TuiState) -> Vec<String> {
 fn ops_diagnostic_rows(state: &TuiState) -> Vec<String> {
     if state.workspace.diagnostics.is_empty() {
         return vec![
-            "JOB check-01   RLS ✓  0E / 0W / 0H   latency 1.2s".to_string(),
-            "JOB test-02    cargo test --workspace     cached ✓".to_string(),
-            "WATCH active   src/config.rs   tests/config_tests.rs".to_string(),
-            "MUX side-1     codex tty + claude tty + ops tty".to_string(),
-            "PRESSURE       build idle   lsp warm   fs quiet".to_string(),
-            "ROUTE          side-2 ops owns diagnostics pressure".to_string(),
+            "diagnostics unavailable".to_string(),
+            "run cargo check or /lsp diagnostics to populate this panel".to_string(),
         ];
     }
     state

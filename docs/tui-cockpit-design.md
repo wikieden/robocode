@@ -18,15 +18,33 @@ with the generated reference visuals and the terminal-agent workflow.
 
 ## Main Screen
 
-- Top bar: product, provider, model, session, context, Git branch, permission
-  mode, token/context status.
+- Top bar: product, provider, model, session, context window, Git branch,
+  permission mode, active-lane count, and telemetry availability.
 - Transcript: dominant left pane, timeline-styled entries, recent rows kept
   visible at the bottom.
 - Right rail: workspace, active tasks, diagnostics, provider health, recent
   files.
 - Composer: always visible at the bottom, with input cursor placed inside the
   input row, action hints, and approval-mode chips.
-- Bottom status: connection, session, token usage, cost/time, theme/help hints.
+- Bottom status: connection, session, event count, active lanes, context window,
+  theme/help hints. Token, cost, latency, and rate metrics should appear only
+  after real provider telemetry is wired.
+
+## Data Truth Contract
+
+- Live TUI panels must not use demo values that look like real runtime state.
+- If runtime data is not connected, render `unavailable`, `0`, or an explicit
+  setup hint instead of invented health, latency, cost, task, or diagnostic
+  values.
+- Demo values are allowed only in explicit `--tui-preview*` fixture paths.
+- Right rail data sources:
+  - workspace: `WorkspaceSnapshot::load_current`.
+  - active tasks: pending approval plus running or queued terminal lanes.
+  - diagnostics: `WorkspaceSnapshot.diagnostics`; empty means unavailable/0.
+  - provider health: `ProviderStatus`; latency, rate, token, and cost stay
+    hidden until real telemetry exists.
+  - recent files: filesystem metadata modification time.
+- Any new cockpit metric must identify its runtime source in code or docs.
 
 ## Command Palette
 
@@ -83,11 +101,18 @@ route hints so the main agent can decide follow-up actions.
 - Row-diff rendering avoids full-screen flicker during typing.
 - The composer uses display-width aware text handling for CJK input.
 - The slash palette is local UI state; model calls are not involved.
+- Code changes that alter cockpit behavior, commands, architecture, config, or
+  UI must update the relevant docs. Comments should document non-obvious
+  invariants and safety boundaries, not restate obvious code.
 
 ## Near-Term Gaps
 
 - Real PTY-backed lanes are still represented by stored lane snapshots and log
   tails.
+- Provider latency, token, cost, and rate telemetry is not connected yet, so the
+  live UI intentionally renders it as unavailable or hidden.
+- Diagnostics are displayed only when collected by a real source; placeholder
+  Rust errors are not used in live panels.
 - Command palette currently lists a fixed command registry; command-specific
   arguments and nested suggestions are future work.
 - Visual parity still needs repeated screenshot comparison against the

@@ -243,28 +243,28 @@ mod tests {
         assert!(rendered.contains("WORKSPACE"));
         assert!(rendered.contains("ACTIVE TASKS"));
         assert!(rendered.contains("LSP DIAGNOSTICS"));
-        assert!(rendered.contains("src/lib.rs:42:15"));
-        assert!(rendered.contains("src/config.rs:8:9"));
+        assert!(rendered.contains("diagnostics unavailable"));
         assert!(rendered.contains("PROVIDER HEALTH"));
         assert!(rendered.contains("LATENCY"));
-        assert!(rendered.contains("THROUGHPUT"));
-        assert!(rendered.contains("RATE"));
+        assert!(rendered.contains("unavailable"));
+        assert!(rendered.contains("TELEMETRY"));
         assert!(rendered.contains("CONTEXT"));
         assert!(!rendered.contains("312 ms"));
         assert!(!rendered.contains("28.4 t/s"));
-        assert!(rendered.contains("Implement load_config"));
-        assert!(rendered.contains("tests/config_tests.rs"));
-        assert!(rendered.contains("[in_prog]"));
+        assert!(!rendered.contains("Implement load_config"));
+        assert!(rendered.contains("L1 ● codex"));
+        assert!(rendered.contains("L2 ◐ claude"));
         assert!(rendered.contains("TOOL CALL"));
         assert!(rendered.contains("FILES    128"));
         assert!(rendered.contains("robocode/"));
         assert!(rendered.contains("LANGUAGE Rust"));
-        assert!(rendered.contains("EDITION   2021"));
+        assert!(rendered.contains("EDITION   2024"));
         assert!(rendered.contains("[GIT main"));
         assert!(!rendered.contains("[SYNC"));
-        assert!(rendered.contains("TOKENS"));
-        assert!(rendered.contains("$0."));
-        assert!(rendered.contains("TIME"));
+        assert!(rendered.contains("EVENTS"));
+        assert!(rendered.contains("LANES"));
+        assert!(!rendered.contains("COST"));
+        assert!(!rendered.contains("TIME"));
         assert!(rendered.contains("CONNECTED"));
         assert!(rendered.contains("Press ? for help"));
         assert!(rendered.contains("ACTIVE TASKS"));
@@ -442,7 +442,7 @@ mod tests {
         assert_no_visual_regressions(&ops);
         assert!(main.contains("[PERMISSIONS"));
         assert!(side.contains("[FOCUS tail]"));
-        assert!(ops.contains("[waiting] write_file src/config.rs"));
+        assert!(ops.contains("diagnostics unavailable"));
     }
 
     #[test]
@@ -463,11 +463,11 @@ mod tests {
         assert!(rendered.contains("TASK test fixes"));
         assert!(rendered.contains("└ CMD codex exec test fixes"));
         assert!(rendered.contains("│ TAIL patched failing tests"));
-        assert!(rendered.contains("MUX side-1 tails pty/01"));
+        assert!(rendered.contains("LANES tail persisted logs"));
         assert!(rendered.contains("CONTROL inspect stop route"));
         assert!(rendered.contains("pty/02 :: waiting for review terminal"));
         assert!(rendered.contains("patched failing tests"));
-        assert!(rendered.contains("approval write_file"));
+        assert!(!rendered.contains("approval write_file"));
         assert!(rendered.contains("CONTEXT"));
         assert!(!rendered.contains("Type instruction"));
 
@@ -497,9 +497,8 @@ mod tests {
         assert!(rendered.contains("PROVIDER HEALTH"));
         assert!(rendered.contains("side-2"));
         assert!(rendered.contains("files 128"));
-        assert!(rendered.contains("JOB check-01"));
-        assert!(rendered.contains("MUX side-1     codex tty + claude tty + ops tty"));
-        assert!(rendered.contains("PRESSURE       build idle"));
+        assert!(rendered.contains("diagnostics unavailable"));
+        assert!(rendered.contains("run cargo check"));
         assert!(rendered.contains("L1 codex tty"));
         assert!(rendered.contains("L2 claude tty"));
         assert!(rendered.contains("pty/01 :: codex exec test fixes"));

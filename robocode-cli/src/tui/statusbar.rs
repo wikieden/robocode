@@ -16,16 +16,14 @@ pub(super) fn render_bottom_bar(frame: &mut Frame, state: &TuiState) {
         .count();
     let left = if frame.width >= 100 {
         format!(
-            "● CONNECTED  ┆ SESSION {session:<8} ┆ TOKENS {tokens:<7}/ {ctx:<5} ┆ COST {cost:<7} ┆ TIME {time:<8}",
-            tokens = token_estimate(state),
+            "● CONNECTED  ┆ SESSION {session:<8} ┆ EVENTS {events:<4} ┆ LANES {active_lanes:<2} ┆ CONTEXT {ctx:<5}",
+            events = state.entries.len(),
             ctx = state.provider_status.context_window,
-            cost = cost_estimate(state),
-            time = elapsed_label(state),
         )
     } else {
         format!(
-            "● CONNECTED SES {session:<8} TOK {tokens:<7} L{active_lanes:<2}",
-            tokens = token_estimate(state),
+            "● CONNECTED SES {session:<8} EVT {events:<3} L{active_lanes:<2}",
+            events = state.entries.len(),
         )
     };
     let right = if frame.width >= 160 {
@@ -60,31 +58,4 @@ fn status_content(left: &str, right: &str, width: usize) -> String {
     }
     let left_width = width.saturating_sub(right_width + 3);
     format!("{}   {right}", truncate(left, left_width))
-}
-
-fn elapsed_label(state: &TuiState) -> String {
-    let seconds = state.entries.len().max(1) as u64 * 13 + state.lanes.len() as u64 * 7;
-    let minutes = seconds / 60;
-    let seconds = seconds % 60;
-    format!("00:{minutes:02}:{seconds:02}")
-}
-
-fn token_estimate(state: &TuiState) -> String {
-    let chars = state
-        .entries
-        .iter()
-        .map(|entry| entry.body.chars().count())
-        .sum::<usize>();
-    let tokens = (chars / 4).max(1);
-    format!("{:.1}k", tokens as f32 / 1000.0)
-}
-
-fn cost_estimate(state: &TuiState) -> String {
-    let tokens = state
-        .entries
-        .iter()
-        .map(|entry| entry.body.chars().count())
-        .sum::<usize>() as f32
-        / 4.0;
-    format!("${:.4}", tokens * 0.0000004)
 }

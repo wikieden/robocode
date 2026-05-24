@@ -15,13 +15,30 @@
 
 ## 主屏幕
 
-- 顶栏：产品、provider、model、session、context、Git 分支、权限模式、
-  token/context 状态。
+- 顶栏：产品、provider、model、session、context window、Git 分支、权限模式、
+  active-lane 数量和 telemetry 可用性。
 - Transcript：左侧主面板，时间线式消息，最近内容固定留在底部可见。
 - 右侧栏：workspace、active tasks、diagnostics、provider health、recent files。
 - Composer：始终在底部可见，输入光标位于输入行内，带 action hints 和
   approval-mode chips。
-- 底部状态栏：连接状态、session、token、cost/time、theme/help 提示。
+- 底部状态栏：连接状态、session、event 数量、active lanes、context window、
+  theme/help 提示。token、cost、latency、rate 指标只有接入真实 provider
+  telemetry 后才能显示。
+
+## 数据真实性契约
+
+- live TUI 面板不能用 demo 值冒充真实运行状态。
+- 运行时数据未接入时，显示 `unavailable`、`0` 或明确 setup 提示，不能编造
+  health、latency、cost、task、diagnostic 等值。
+- demo 值只能出现在明确的 `--tui-preview*` fixture 路径。
+- 右栏数据源：
+  - workspace：`WorkspaceSnapshot::load_current`。
+  - active tasks：pending approval 加 running/queued terminal lanes。
+  - diagnostics：`WorkspaceSnapshot.diagnostics`；为空表示 unavailable/0。
+  - provider health：`ProviderStatus`；真实 telemetry 接入前不显示 latency、
+    rate、token、cost。
+  - recent files：文件系统 metadata 修改时间。
+- 新增 cockpit 指标必须在代码或文档里标明运行时数据来源。
 
 ## 命令提示列表
 
@@ -72,9 +89,14 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - 行级 diff 渲染避免输入时整屏闪烁。
 - composer 已按显示宽度处理中文等 CJK 输入。
 - slash 提示列表是本地 UI 状态，不触发模型调用。
+- 修改 cockpit 行为、命令、架构、配置或 UI 时，必须同步更新相关文档。注释
+  用来说明不明显的不变量和安全边界，不重复解释显而易见的代码。
 
 ## 近期缺口
 
 - 真正 PTY-backed lanes 仍由 lane snapshot 和 log tail 表示。
+- Provider latency、token、cost、rate telemetry 尚未接入，所以 live UI 会明确
+  显示 unavailable 或暂时隐藏。
+- Diagnostics 只展示真实来源采集到的数据；live 面板不再使用占位 Rust 错误。
 - 命令提示列表目前是固定命令注册表；命令参数和二级提示待后续扩展。
 - 视觉还需要持续用截图和 holodeck 主参考图对比。

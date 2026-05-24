@@ -2,7 +2,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use robocode_core::EngineEvent;
@@ -261,9 +261,17 @@ pub(super) struct WorkspaceSnapshot {
     pub(super) git_branch: String,
     pub(super) file_count: usize,
     pub(super) line_count: usize,
-    pub(super) recent_files: Vec<String>,
+    pub(super) recent_files: Vec<RecentFile>,
     pub(super) top_files: Vec<String>,
     pub(super) diagnostics: Vec<String>,
+    pub(super) primary_language: String,
+    pub(super) rust_edition: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RecentFile {
+    pub(super) path: String,
+    pub(super) modified: SystemTime,
 }
 
 impl WorkspaceSnapshot {
@@ -280,10 +288,15 @@ impl WorkspaceSnapshot {
         files.sort_by(|left, right| right.modified.cmp(&left.modified));
         let file_count = files.len();
         let line_count = files.iter().map(|file| file.lines).sum();
+        let primary_language = primary_language(&files);
+        let rust_edition = rust_edition(&root);
         let recent_files = files
             .iter()
             .take(3)
-            .map(|file| file.path.clone())
+            .map(|file| RecentFile {
+                path: file.path.clone(),
+                modified: file.modified,
+            })
             .collect::<Vec<_>>();
         let top_files = files
             .iter()
@@ -301,6 +314,8 @@ impl WorkspaceSnapshot {
             recent_files,
             top_files,
             diagnostics: Vec::new(),
+            primary_language,
+            rust_edition,
         }
     }
 
@@ -312,11 +327,11 @@ impl WorkspaceSnapshot {
             file_count: 128,
             line_count: 24_531,
             recent_files: vec![
-                "src/config.rs".to_string(),
-                "tests/config_tests.rs".to_string(),
-                "src/lib.rs".to_string(),
-                "src/main.rs".to_string(),
-                "Cargo.toml".to_string(),
+                RecentFile::fixture("src/config.rs", 0),
+                RecentFile::fixture("tests/config_tests.rs", 60),
+                RecentFile::fixture("src/lib.rs", 120),
+                RecentFile::fixture("src/main.rs", 180),
+                RecentFile::fixture("Cargo.toml", 240),
             ],
             top_files: vec![
                 "src/".to_string(),
@@ -325,6 +340,19 @@ impl WorkspaceSnapshot {
                 "README.md".to_string(),
             ],
             diagnostics: Vec::new(),
+            primary_language: "Rust".to_string(),
+            rust_edition: Some("2024".to_string()),
+        }
+    }
+}
+
+impl RecentFile {
+    fn fixture(path: &str, offset_seconds: u64) -> Self {
+        Self {
+            path: path.to_string(),
+            modified: SystemTime::now()
+                .checked_sub(Duration::from_secs(offset_seconds))
+                .unwrap_or_else(SystemTime::now),
         }
     }
 }
@@ -405,6 +433,27 @@ fn should_skip(name: &str) -> bool {
 
 fn visible_top_file(path: &str) -> bool {
     !path.starts_with('.') && path.split('/').count() <= 2
+}
+
+fn primary_language(files: &[FileSnapshot]) -> String {
+    let rust_files = files
+        .iter()
+        .filter(|file| file.path.ends_with(".rs"))
+        .count();
+    if rust_files > 0 {
+        "Rust".to_string()
+    } else {
+        "mixed".to_string()
+    }
+}
+
+fn rust_edition(root: &Path) -> Option<String> {
+    let content = fs::read_to_string(root.join("Cargo.toml")).ok()?;
+    content
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("edition = "))
+        .map(|value| value.trim_matches('"').to_string())
 }
 
 fn count_lines(path: &Path, size: u64) -> usize {
