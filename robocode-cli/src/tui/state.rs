@@ -81,6 +81,7 @@ pub(super) struct TerminalLane {
     pub(super) target: String,
     pub(super) progress: u8,
     pub(super) summary: String,
+    pub(super) worktree: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +118,7 @@ impl TerminalLane {
             target: "main".to_string(),
             progress: 0,
             summary: "waiting for terminal adapter".to_string(),
+            worktree: None,
         })
     }
 
@@ -130,6 +132,7 @@ impl TerminalLane {
                 target: "main".to_string(),
                 progress: 64,
                 summary: "patched failing tests; rerunning cargo".to_string(),
+                worktree: None,
             },
             Self {
                 id: "L2".to_string(),
@@ -139,6 +142,7 @@ impl TerminalLane {
                 target: "side-1".to_string(),
                 progress: 18,
                 summary: "waiting for review terminal".to_string(),
+                worktree: None,
             },
             Self {
                 id: "L3".to_string(),
@@ -148,6 +152,7 @@ impl TerminalLane {
                 target: "ops".to_string(),
                 progress: 100,
                 summary: "last run green; no failures cached".to_string(),
+                worktree: None,
             },
         ]
     }
@@ -161,13 +166,20 @@ impl TerminalLane {
             escape_tsv(&self.target),
             self.progress.to_string(),
             escape_tsv(&self.summary),
+            escape_tsv(
+                self.worktree
+                    .as_ref()
+                    .map(|path| path.to_string_lossy())
+                    .as_deref()
+                    .unwrap_or_default(),
+            ),
         ]
         .join("\t")
     }
 
     fn from_tsv(value: &str) -> Option<Self> {
         let fields = value.split('\t').map(unescape_tsv).collect::<Vec<_>>();
-        if fields.len() != 5 && fields.len() != 7 {
+        if fields.len() != 5 && fields.len() != 7 && fields.len() != 8 {
             return None;
         }
         let progress = fields
@@ -179,6 +191,10 @@ impl TerminalLane {
             .get(6)
             .cloned()
             .unwrap_or_else(|| "restored from lane store".to_string());
+        let worktree = fields
+            .get(7)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
         Some(Self {
             id: fields[0].clone(),
             tool: fields[1].clone(),
@@ -187,6 +203,7 @@ impl TerminalLane {
             target: fields[4].clone(),
             progress,
             summary,
+            worktree,
         })
     }
 }
@@ -808,14 +825,16 @@ mod tests {
 
     #[test]
     fn terminal_lane_tsv_round_trips_progress_and_summary() {
-        let lane = TerminalLane::preview_lanes()
+        let mut lane = TerminalLane::preview_lanes()
             .into_iter()
             .next()
             .expect("preview lane");
+        lane.worktree = Some(PathBuf::from("/tmp/robocode-lane"));
         let loaded = TerminalLane::from_tsv(&lane.to_tsv()).expect("lane row should load");
 
         assert_eq!(loaded.progress, 64);
         assert_eq!(loaded.summary, "patched failing tests; rerunning cargo");
+        assert_eq!(loaded.worktree, Some(PathBuf::from("/tmp/robocode-lane")));
     }
 
     #[test]

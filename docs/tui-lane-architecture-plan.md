@@ -48,7 +48,8 @@ flowchart TB
 - The TUI is a client over shared state, not a second agent runtime.
 - Terminal lanes are supervised work units. They can run external tools, but RoboCode owns the envelope, lifecycle, observation, and acceptance decision.
 - External coding tools are collaborators, not trusted authorities. Their output must be inspected through logs, diffs, exit codes, and verification commands.
-- Mutating lanes should prefer isolated worktrees once the lane runtime supports them.
+- Template-launched mutating Codex and Claude lanes run in isolated worktrees;
+  other lane types must make their mutation scope explicit.
 - Companion screens should be useful even without multi-agent orchestration: they can host terminal lanes, logs, diagnostics, and review panels.
 
 ## Proposed Module Shape
@@ -228,6 +229,9 @@ Current implemented slice:
   `ROBOCODE_LANE_CODEX_TEMPLATE` and `ROBOCODE_LANE_CLAUDE_TEMPLATE`; without
   those templates they queue with a clear setup hint while keeping the envelope
   available for inspection.
+- Template-launched Codex and Claude lanes create isolated Git worktrees under
+  `.robocode/worktrees/` and run there, so file mutations do not land directly
+  in the main workspace.
 - Lane state is stored in `.robocode/lanes.tsv`.
 - Runtime artifacts live under `.robocode/lanes/` as `<lane-id>.log` and
   `<lane-id>.done`, with external-tool envelopes as `<lane-id>.envelope.md`.
@@ -240,7 +244,8 @@ Current implemented slice:
 ## Safety Model
 
 - External tools never get full transcript or secrets by default.
-- File-mutating lanes should move toward per-lane worktrees.
+- Template-launched file-mutating Codex and Claude lanes use per-lane
+  worktrees; non-interactive `/lane run` still uses the current workspace.
 - Lane stop/kill is explicit and preserves logs.
 - Lane acceptance is separate from lane completion.
 - Verification evidence beats model-written success claims.
@@ -340,10 +345,12 @@ Acceptance criteria:
 - acceptance is an explicit decision.
 
 Current status: `codex` and `claude` use template-launched prompt-file style
-adapters. `/lane inspect <id>` now includes current workspace changed files,
-exit/log verification evidence, and recorded lane decisions. `/lane accept`,
-`/lane revise`, and `/lane discard` persist explicit decision artifacts without
-claiming to apply or revert changes automatically.
+adapters. When launched, they run inside per-lane Git worktrees and receive
+envelopes that name the lane workspace and mutation scope. `/lane inspect <id>`
+now includes changed files from the relevant workspace, exit/log verification
+evidence, and recorded lane decisions. `/lane accept`, `/lane revise`, and
+`/lane discard` persist explicit decision artifacts without claiming to apply
+or revert changes automatically.
 
 ### Phase 6: Isolation
 
@@ -359,6 +366,11 @@ Acceptance criteria:
 - file-mutating external lanes can run outside the main worktree;
 - lane diff is inspectable before integration;
 - discarded lanes do not delete logs or changes unless explicitly cleaned.
+
+Current status: Codex/Claude template lanes create `.robocode/worktrees/<session>-<lane>`
+using local branches named `codex/lane-<session>-<lane>`. Inspect and decision
+artifacts read changed files from the lane worktree when present. Cleanup and
+apply/merge remain explicit follow-up work; discard records intent only.
 
 ### Phase 7: Attachable Terminal Panes
 

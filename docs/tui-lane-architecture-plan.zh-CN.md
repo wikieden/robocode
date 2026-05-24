@@ -48,7 +48,8 @@ flowchart TB
 - TUI 是共享状态上的客户端，不是第二套 agent runtime。
 - Terminal lane 是被监督的工作单元，可以运行外部工具，但 RoboCode 负责任务信封、生命周期、观测和验收。
 - 外部 coding tool 是协作者，不是可信裁判。结果要看日志、diff、exit code 和验证命令。
-- 会改文件的 lane 后续应优先跑在独立 worktree。
+- template-launched、会改文件的 Codex 和 Claude lane 会跑在隔离 worktree；
+  其他 lane 类型必须明确自己的 mutation scope。
 - 副屏即使没有原生多 agent，也要能承载 terminal lane、日志、诊断和 review 面板。
 
 ## 建议模块形态
@@ -226,6 +227,8 @@ Template 占位符：
 - Codex 和 Claude lane 始终会写 task envelope。它们可通过
   `ROBOCODE_LANE_CODEX_TEMPLATE` 与 `ROBOCODE_LANE_CLAUDE_TEMPLATE` 启动；
   未配置时会排队并给出清晰 setup 提示，同时 envelope 仍可 inspect。
+- template-launched Codex 和 Claude lane 会在 `.robocode/worktrees/` 下创建
+  隔离 Git worktree 并在其中运行，所以文件变更不会直接落进主 workspace。
 - Lane 状态存储在 `.robocode/lanes.tsv`。
 - Runtime artifacts 存在 `.robocode/lanes/`，文件为 `<lane-id>.log` 和
   `<lane-id>.done`；外部工具 envelope 为 `<lane-id>.envelope.md`。
@@ -238,7 +241,8 @@ Template 占位符：
 ## 安全模型
 
 - 默认不把完整 transcript 或 secrets 发给外部工具。
-- 会改文件的 lane 后续应优先使用 per-lane worktree。
+- template-launched、会改文件的 Codex 和 Claude lane 使用 per-lane worktree；
+  非交互 `/lane run` 仍使用当前 workspace。
 - stop/kill 必须显式执行，并保留日志。
 - lane 完成不等于 lane 被接受。
 - 验证证据优先于模型自己的成功声明。
@@ -336,10 +340,11 @@ Unix process-group stop 已实现。主 TUI 也会读取 workflow task store，�
 - acceptance 是显式决策。
 
 当前状态：`codex` 和 `claude` 已使用 template-launched prompt-file 风格
-adapter。`/lane inspect <id>` 现在会展示当前 workspace changed files、exit/log
-verification evidence 和已记录的 lane decision。`/lane accept`、`/lane revise`
-和 `/lane discard` 会持久化显式决策 artifact，但不声称自动 apply 或 revert
-变更。
+adapter。启动后它们会运行于 per-lane Git worktree，并收到写明 lane workspace
+和 mutation scope 的 envelope。`/lane inspect <id>` 现在会展示相关 workspace
+的 changed files、exit/log verification evidence 和已记录的 lane decision。
+`/lane accept`、`/lane revise` 和 `/lane discard` 会持久化显式决策 artifact，
+但不声称自动 apply 或 revert 变更。
 
 ### Phase 6: 隔离
 
@@ -355,6 +360,12 @@ verification evidence 和已记录的 lane decision。`/lane accept`、`/lane re
 - 会改文件的外部 lane 可以跑在主 worktree 外；
 - lane diff 在集成前可审查；
 - discard 不会默认删除日志或变更，除非用户明确清理。
+
+当前状态：Codex/Claude template lane 会使用本地分支
+`codex/lane-<session>-<lane>` 创建 `.robocode/worktrees/<session>-<lane>`。
+inspect 和 decision artifact 会在 lane worktree 存在时从该 worktree 读取
+changed files。cleanup 与 apply/merge 仍是明确的后续工作；discard 目前只记录
+决策。
 
 ### Phase 7: 可 Attach 的 Terminal Pane
 

@@ -100,7 +100,11 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   回退到 preview/demo lane。
 - `/lane inspect <id>` 会读取持久化 lane artifacts：`.log` 尾部、`.done`
   exit code、log path、done path、envelope path 和 envelope preview。
-- `/lane inspect <id>` 还会展示当前 workspace changed-file snapshot、来自
+- template-launched Codex 和 Claude lane 会在 Git `HEAD` 可用时运行于
+  `.robocode/worktrees/` 下的 per-lane 隔离 worktree。task envelope 会记录
+  lane workspace 和 mutation scope。
+- `/lane inspect <id>` 还会展示相关 changed-file snapshot：隔离的外部 lane
+  使用 lane worktree，非隔离 shell lane 使用当前 workspace。它也会展示来自
   exit/log artifact 的 verification evidence，以及显式 lane decision artifact。
 - `/lane accept <id>`、`/lane revise <id>` 和 `/lane discard <id>` 会把操作者的
   明确决策记录到 `.robocode/lanes/<lane-id>.decision.md`。
@@ -120,6 +124,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   桌面相关流程，例如打开新 terminal 窗口，或把副屏路由到另一块显示器。支持
   `{screen}`、`{provider}`、`{model}`、`{theme}` 以及 shell-quoted 的
   `{name:q}` 占位符。
+- `ROBOCODE_LANE_CODEX_TEMPLATE` 和 `ROBOCODE_LANE_CLAUDE_TEMPLATE` 支持
+  `{task}`、`{envelope}`、`{cwd}`、`{worktree}` 以及 shell-quoted 的
+  `{name:q}` 形式。`{cwd}` 和 `{worktree}` 都会解析为真实 lane workspace。
 - 修改 cockpit 行为、命令、架构、配置或 UI 时，必须同步更新相关文档。注释
   用来说明不明显的不变量和安全边界，不重复解释显而易见的代码。
 
@@ -128,6 +135,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - 真正 PTY-backed lanes 仍是后续工作；当前 lane 支持非交互 shell 命令，以及
   template-launched Codex/Claude adapter，并持久化 envelope / log / exit-code
   artifacts；Unix 平台支持 process-group stop。
+- worktree cleanup 和 apply/merge 流程仍是明确的后续工作。discard lane 只记录
+  决策，不会默认删除日志、worktree 或变更。
 - Provider token、cost、rate telemetry 尚未接入，所以 live UI 会继续隐藏这些
   指标。
 - Diagnostics 仍需要显式 LSP 来源，例如 `/lsp diagnostics <path>` 或 LSP runtime

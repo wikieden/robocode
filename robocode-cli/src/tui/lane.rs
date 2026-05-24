@@ -112,31 +112,54 @@ fn queue_lane(input: &str, state: &mut TuiState) {
 fn maybe_start_lane_adapter(mut lane: TerminalLane, state: &mut TuiState) -> TerminalLane {
     let command = match lane.tool.as_str() {
         "run" => lane.title.clone(),
-        "codex" => match templated_agent_command("ROBOCODE_LANE_CODEX_TEMPLATE", &lane, state) {
-            Some(command) => command,
-            None => {
-                lane.summary = queued_adapter_summary(&lane, "ROBOCODE_LANE_CODEX_TEMPLATE", state);
-                return lane;
+        "codex" => {
+            match templated_agent_command("ROBOCODE_LANE_CODEX_TEMPLATE", &mut lane, state) {
+                Ok(Some(command)) => command,
+                Ok(None) => {
+                    lane.summary =
+                        queued_adapter_summary(&lane, "ROBOCODE_LANE_CODEX_TEMPLATE", state);
+                    return lane;
+                }
+                Err(err) => return failed_lane(lane, err),
             }
-        },
-        "claude" => match templated_agent_command("ROBOCODE_LANE_CLAUDE_TEMPLATE", &lane, state) {
-            Some(command) => command,
-            None => {
-                lane.summary =
-                    queued_adapter_summary(&lane, "ROBOCODE_LANE_CLAUDE_TEMPLATE", state);
-                return lane;
+        }
+        "claude" => {
+            match templated_agent_command("ROBOCODE_LANE_CLAUDE_TEMPLATE", &mut lane, state) {
+                Ok(Some(command)) => command,
+                Ok(None) => {
+                    lane.summary =
+                        queued_adapter_summary(&lane, "ROBOCODE_LANE_CLAUDE_TEMPLATE", state);
+                    return lane;
+                }
+                Err(err) => return failed_lane(lane, err),
             }
-        },
+        }
         _ => return lane,
     };
     start_background_lane(lane, state, &command)
 }
 
-fn templated_agent_command(env_key: &str, lane: &TerminalLane, state: &TuiState) -> Option<String> {
-    let template = std::env::var(env_key).ok()?;
-    let envelope_path = write_lane_envelope(lane, state).ok()?;
-    let command = expand_agent_template(&template, &lane.title, Some(envelope_path.as_path()));
-    (!command.trim().is_empty()).then_some(command)
+fn templated_agent_command(
+    env_key: &str,
+    lane: &mut TerminalLane,
+    state: &TuiState,
+) -> Result<Option<String>, String> {
+    let Ok(template) = std::env::var(env_key) else {
+        return Ok(None);
+    };
+    prepare_lane_worktree(lane, state)?;
+    let envelope_path = write_lane_envelope(lane, state)
+        .map_err(|err| format!("failed to write lane envelope: {err}"))?;
+    let cwd = lane_workspace(lane, state);
+    let command = expand_agent_template(&template, &lane.title, Some(envelope_path.as_path()), cwd);
+    Ok((!command.trim().is_empty()).then_some(command))
+}
+
+fn failed_lane(mut lane: TerminalLane, summary: String) -> TerminalLane {
+    lane.status = "failed".to_string();
+    lane.progress = 100;
+    lane.summary = summary;
+    lane
 }
 
 fn queued_adapter_summary(lane: &TerminalLane, env_key: &str, state: &TuiState) -> String {
@@ -150,15 +173,25 @@ fn queued_adapter_summary(lane: &TerminalLane, env_key: &str, state: &TuiState) 
     }
 }
 
-fn expand_agent_template(template: &str, task: &str, envelope_path: Option<&Path>) -> String {
+fn expand_agent_template(
+    template: &str,
+    task: &str,
+    envelope_path: Option<&Path>,
+    cwd: &Path,
+) -> String {
     let envelope = envelope_path
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_default();
+    let cwd = cwd.to_string_lossy().to_string();
     template
         .replace("{task}", task)
         .replace("{task:q}", &shell_quote_value(task))
         .replace("{envelope}", &envelope)
         .replace("{envelope:q}", &shell_quote_value(&envelope))
+        .replace("{cwd}", &cwd)
+        .replace("{cwd:q}", &shell_quote_value(&cwd))
+        .replace("{worktree}", &cwd)
+        .replace("{worktree:q}", &shell_quote_value(&cwd))
 }
 
 fn write_lane_envelope(lane: &TerminalLane, state: &TuiState) -> Result<PathBuf, String> {
@@ -182,15 +215,15 @@ fn lane_artifact_path(state: &TuiState, lane_id: &str, extension: &str) -> Resul
 }
 
 fn render_lane_envelope(lane: &TerminalLane, state: &TuiState) -> String {
+    let workspace = lane_workspace(lane, state).to_string_lossy().to_string();
+    let mutation_scope = if lane.worktree.is_some() {
+        "isolated per-lane worktree"
+    } else {
+        "current workspace"
+    };
     format!(
-        "# RoboCode Lane Task\n\nLane: {}\nTool: {}\nWorkspace: {}\nSession: {}\nProvider: {}\nModel: {}\n\n## Task\n{}\n\n## Handoff\n- summary\n- files changed\n- tests run\n- remaining risks\n- suggested next step\n\n## Constraints\n- Do not assume access to the full RoboCode transcript.\n- Keep changes scoped to the task.\n- Report commands run and verification evidence.\n",
-        lane.id,
-        lane.tool,
-        state.workspace.display_root,
-        state.session_id,
-        state.provider,
-        state.model,
-        lane.title
+        "# RoboCode Lane Task\n\nLane: {}\nTool: {}\nWorkspace: {workspace}\nMutation scope: {mutation_scope}\nSession: {}\nProvider: {}\nModel: {}\n\n## Task\n{}\n\n## Handoff\n- summary\n- files changed\n- tests run\n- remaining risks\n- suggested next step\n\n## Constraints\n- Do not assume access to the full RoboCode transcript.\n- Keep changes scoped to the task.\n- Report commands run and verification evidence.\n",
+        lane.id, lane.tool, state.session_id, state.provider, state.model, lane.title
     )
 }
 
@@ -224,6 +257,7 @@ fn start_background_lane(
     command
         .arg("-lc")
         .arg(shell)
+        .current_dir(lane_workspace(&lane, state))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -233,7 +267,12 @@ fn start_background_lane(
             lane.status = "running".to_string();
             lane.progress = 10;
             lane.target = format!("pid {}", child.id());
-            lane.summary = format!("running {}; log {}", lane.tool, log_path.display());
+            lane.summary = format!(
+                "running {}; cwd {}; log {}",
+                lane.tool,
+                lane_workspace(&lane, state).display(),
+                log_path.display()
+            );
         }
         Err(err) => {
             lane.status = "failed".to_string();
@@ -242,6 +281,95 @@ fn start_background_lane(
         }
     }
     lane
+}
+
+fn prepare_lane_worktree(lane: &mut TerminalLane, state: &TuiState) -> Result<(), String> {
+    if lane.worktree.is_some() {
+        return Ok(());
+    }
+    let Some(store) = state.lane_store.as_deref() else {
+        return Err(
+            "failed to prepare isolated lane worktree: no lane store available".to_string(),
+        );
+    };
+    let Some(parent) = store.parent() else {
+        return Err(
+            "failed to prepare isolated lane worktree: lane store has no parent".to_string(),
+        );
+    };
+    let worktree_dir = parent.join("worktrees").join(format!(
+        "{}-{}",
+        sanitize_ref(&state.session_id),
+        lane.id.to_ascii_lowercase()
+    ));
+    if worktree_dir.exists() {
+        lane.worktree = Some(worktree_dir);
+        return Ok(());
+    }
+    fs::create_dir_all(
+        worktree_dir
+            .parent()
+            .ok_or_else(|| "worktree path has no parent".to_string())?,
+    )
+    .map_err(|err| format!("failed to create worktree parent: {err}"))?;
+    let branch = format!(
+        "codex/lane-{}-{}",
+        sanitize_ref(&state.session_id),
+        lane.id.to_ascii_lowercase()
+    );
+    let output = Command::new("git")
+        .arg("worktree")
+        .arg("add")
+        .arg("-b")
+        .arg(&branch)
+        .arg(&worktree_dir)
+        .arg("HEAD")
+        .current_dir(&state.workspace.root)
+        .output()
+        .map_err(|err| format!("failed to run git worktree add: {err}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format!(
+            "failed to create isolated worktree `{}` on `{branch}`: {}",
+            worktree_dir.display(),
+            if stderr.is_empty() {
+                output.status.to_string()
+            } else {
+                stderr
+            }
+        ));
+    }
+    lane.worktree = Some(worktree_dir);
+    lane.summary = format!("isolated worktree {branch}");
+    Ok(())
+}
+
+fn sanitize_ref(value: &str) -> String {
+    let mut sanitized = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    while sanitized.contains("--") {
+        sanitized = sanitized.replace("--", "-");
+    }
+    sanitized = sanitized.trim_matches('-').to_string();
+    if sanitized.is_empty() {
+        "session".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn lane_workspace<'a>(lane: &'a TerminalLane, state: &'a TuiState) -> &'a Path {
+    lane.worktree
+        .as_deref()
+        .unwrap_or(state.workspace.root.as_path())
 }
 
 fn shell_quote_path(path: &std::path::Path) -> String {
@@ -287,7 +415,7 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
         .filter(|evidence| evidence.envelope_path.exists())
         .map(|evidence| evidence.envelope_path.display().to_string())
         .unwrap_or_else(|| "<none>".to_string());
-    let changed_files = changed_file_rows(state);
+    let changed_files = changed_file_rows_for_lane(lane, state);
     let verification = verification_rows(evidence.as_ref());
     let decision = decision_rows(state, &lane.id);
     let exit_code = evidence
@@ -327,14 +455,28 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
         body: format!(
-            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nEnvelope: {envelope_path}\nExit: {exit_code}\nChanged files:\n{changed_files}\nVerification:\n{verification}\nDecision:\n{decision}\nTail:\n{tail}\nEnvelope preview:\n{envelope}",
-            lane.id, lane.tool, lane.status, lane.target, lane.progress, lane.title, lane.summary
+            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nWorktree: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nEnvelope: {envelope_path}\nExit: {exit_code}\nChanged files:\n{changed_files}\nVerification:\n{verification}\nDecision:\n{decision}\nTail:\n{tail}\nEnvelope preview:\n{envelope}",
+            lane.id,
+            lane.tool,
+            lane.status,
+            lane.target,
+            lane.worktree
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "<none>".to_string()),
+            lane.progress,
+            lane.title,
+            lane.summary
         ),
     });
 }
 
-fn changed_file_rows(state: &TuiState) -> String {
-    match workspace_changed_files(&state.workspace.root) {
+fn changed_file_rows_for_lane(lane: &TerminalLane, state: &TuiState) -> String {
+    changed_file_rows(lane_workspace(lane, state))
+}
+
+fn changed_file_rows(root: &Path) -> String {
+    match workspace_changed_files(root) {
         Ok(files) if files.is_empty() => "  <none>".to_string(),
         Ok(files) => files
             .into_iter()
@@ -472,7 +614,7 @@ fn render_lane_decision(
     lane: &TerminalLane,
     state: &TuiState,
 ) -> String {
-    let changed_files = changed_file_rows(state);
+    let changed_files = changed_file_rows_for_lane(lane, state);
     let evidence = state
         .lane_store
         .as_deref()
@@ -647,14 +789,15 @@ mod tests {
     fn agent_template_quotes_task_placeholder() {
         let envelope = std::path::Path::new("/tmp/task envelope.md");
         let command = expand_agent_template(
-            "codex exec {task:q} --prompt-file {envelope:q}",
+            "codex exec {task:q} --prompt-file {envelope:q} --cwd {cwd:q}",
             "fix 'quoted' task",
             Some(envelope),
+            Path::new("/tmp/lane cwd"),
         );
 
         assert_eq!(
             command,
-            "codex exec 'fix '\\''quoted'\\'' task' --prompt-file '/tmp/task envelope.md'"
+            "codex exec 'fix '\\''quoted'\\'' task' --prompt-file '/tmp/task envelope.md' --cwd '/tmp/lane cwd'"
         );
     }
 
@@ -692,8 +835,10 @@ mod tests {
     fn codex_template_receives_envelope_path_and_runs_against_it() {
         let _env = ScopedEnv::set("ROBOCODE_LANE_CODEX_TEMPLATE", "cat {envelope:q}");
         let root = temp_lane_root();
+        init_git_repo(&root);
         let store = root.join(".robocode").join("lanes.tsv");
         let mut state = test_state();
+        state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
 
         assert!(handle_tui_command(
@@ -703,6 +848,7 @@ mod tests {
 
         assert_eq!(state.lanes[0].tool, "codex");
         assert_eq!(state.lanes[0].status, "running");
+        assert!(state.lanes[0].worktree.is_some());
 
         let mut lanes = Vec::new();
         for _ in 0..40 {
@@ -725,8 +871,52 @@ mod tests {
         assert!(handle_tui_command("/lane inspect L1", &mut state));
         let inspect = state.entries.last().expect("inspect entry");
         assert!(inspect.body.contains("Exit: 0"));
+        assert!(inspect.body.contains("Worktree:"));
         assert!(inspect.body.contains("Envelope preview:"));
         assert!(inspect.body.contains("summarize adapter"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn codex_template_runs_inside_isolated_worktree() {
+        let _env = ScopedEnv::set(
+            "ROBOCODE_LANE_CODEX_TEMPLATE",
+            "printf isolated > isolated.txt; printf '%s' {worktree:q}",
+        );
+        let root = temp_lane_root();
+        init_git_repo(&root);
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store.clone());
+
+        assert!(handle_tui_command(
+            "/lane codex create isolated artifact",
+            &mut state
+        ));
+
+        let mut lanes = Vec::new();
+        for _ in 0..40 {
+            lanes = load_lanes(&store);
+            refresh_lane_runtime(&store, &mut lanes);
+            if lanes.first().is_some_and(|lane| lane.status == "completed") {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(25));
+        }
+
+        let lane = lanes.first().expect("lane");
+        let worktree = lane.worktree.as_ref().expect("lane worktree").clone();
+        assert_eq!(lane.status, "completed");
+        assert!(worktree.join("isolated.txt").exists());
+        assert!(!root.join("isolated.txt").exists());
+
+        state.lanes = lanes;
+        assert!(handle_tui_command("/lane inspect L1", &mut state));
+        let inspect = state.entries.last().expect("inspect entry");
+        assert!(inspect.body.contains(&worktree.display().to_string()));
+        assert!(inspect.body.contains("?? isolated.txt"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -942,6 +1132,7 @@ mod tests {
             target: "main".to_string(),
             progress: 100,
             summary: "completed successfully".to_string(),
+            worktree: None,
         }];
 
         assert!(handle_tui_command("/lane accept L1 looks good", &mut state));
@@ -970,6 +1161,38 @@ mod tests {
             .as_nanos();
         let suffix = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!("robocode-lane-test-{nanos}-{suffix}"))
+    }
+
+    fn init_git_repo(root: &Path) {
+        fs::create_dir_all(root).expect("repo root");
+        assert!(
+            Command::new("git")
+                .arg("init")
+                .current_dir(root)
+                .status()
+                .expect("git init")
+                .success()
+        );
+        fs::write(root.join("README.md"), "fixture\n").expect("fixture file");
+        assert!(
+            Command::new("git")
+                .arg("add")
+                .arg("README.md")
+                .current_dir(root)
+                .status()
+                .expect("git add")
+                .success()
+        );
+        assert!(
+            Command::new("git")
+                .args(["-c", "user.email=robot@example.invalid"])
+                .args(["-c", "user.name=RoboCode Test"])
+                .args(["commit", "-m", "initial"])
+                .current_dir(root)
+                .status()
+                .expect("git commit")
+                .success()
+        );
     }
 
     struct ScopedEnv {

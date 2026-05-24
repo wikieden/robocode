@@ -114,9 +114,13 @@ route hints so the main agent can decide follow-up actions.
   they show an empty state instead of falling back to preview/demo lanes.
 - `/lane inspect <id>` reads persisted lane artifacts: `.log` tail, `.done`
   exit code, log path, done path, envelope path, and envelope preview.
-- `/lane inspect <id>` also reports the current workspace changed-file snapshot,
-  lane verification evidence from exit/log artifacts, and any explicit lane
-  decision artifact.
+- Template-launched Codex and Claude lanes run in isolated per-lane Git
+  worktrees under `.robocode/worktrees/` when a Git `HEAD` is available. The
+  task envelope records the lane workspace and mutation scope.
+- `/lane inspect <id>` also reports the relevant changed-file snapshot, using
+  the lane worktree for isolated external lanes and the current workspace for
+  non-isolated shell lanes. It includes lane verification evidence from
+  exit/log artifacts and any explicit lane decision artifact.
 - `/lane accept <id>`, `/lane revise <id>`, and `/lane discard <id>` record
   explicit operator decisions under `.robocode/lanes/<lane-id>.decision.md`.
 - Provider health now reflects measured model-request telemetry from the shared
@@ -137,6 +141,10 @@ route hints so the main agent can decide follow-up actions.
   window or routing a side screen to another display. Supported placeholders are
   `{screen}`, `{provider}`, `{model}`, `{theme}` and their shell-quoted
   `{name:q}` forms.
+- `ROBOCODE_LANE_CODEX_TEMPLATE` and `ROBOCODE_LANE_CLAUDE_TEMPLATE` support
+  `{task}`, `{envelope}`, `{cwd}`, and `{worktree}` plus shell-quoted
+  `{name:q}` forms. `{cwd}` and `{worktree}` both resolve to the actual lane
+  workspace.
 - Code changes that alter cockpit behavior, commands, architecture, config, or
   UI must update the relevant docs. Comments should document non-obvious
   invariants and safety boundaries, not restate obvious code.
@@ -147,6 +155,9 @@ route hints so the main agent can decide follow-up actions.
   non-interactive shell commands plus template-launched Codex/Claude adapters
   with persisted envelope, log, and exit-code artifacts, plus Unix
   process-group stop.
+- Worktree cleanup and apply/merge flows are still explicit follow-up work.
+  Discarding a lane records the decision but intentionally does not delete its
+  logs, worktree, or changes.
 - Provider token, cost, and rate telemetry is not connected yet, so the live UI
   intentionally keeps those metrics hidden.
 - Diagnostics still require an explicit LSP source, such as `/lsp diagnostics
