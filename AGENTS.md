@@ -48,6 +48,8 @@ extra platform machinery is not yet needed.
   - update relevant docs whenever behavior, commands, architecture, configuration, or user-visible UI changes;
   - add concise comments for non-obvious control flow, invariants, protocol boundaries, or safety rules;
   - avoid noisy comments that merely restate obvious code.
+- Follow `docs/development-standards.md` for the project coding standard,
+  especially the documentation and code-comment requirements.
 - Keep root docs compact. Put full product detail under `docs/`.
 - Do not edit `.ref/`; it is reference material only.
 - Keep `.omx/`, `.robocode/`, `.worktrees/`, `.ref/`, and build artifacts out of tracked source.

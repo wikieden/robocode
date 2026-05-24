@@ -163,6 +163,7 @@ live in the docs:
 - [Reference Analysis](docs/reference-analysis.md)
 - [Provider Live Matrix](docs/provider-live-matrix.md)
 - [TUI Cockpit Design](docs/tui-cockpit-design.md)
+- [Development Standards](docs/development-standards.md)
 
 Maintainers can build a release archive locally with:
 
