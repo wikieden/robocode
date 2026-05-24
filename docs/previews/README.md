@@ -4,6 +4,7 @@ This folder keeps the design references and generated RoboCode TUI preview artif
 
 Reference images:
 
+- `robocode-tui-system-screenshot.svg`
 - `tui-deepseek-reference-v1.png`
 - `tui-concept-holodeck-v1.png`
 - `tui-multiscreen-agents-v1.png`

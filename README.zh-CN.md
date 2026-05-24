@@ -4,6 +4,8 @@ RoboCode 是一个用 Rust 实现的、本地优先的开发者 Agent CLI，目�
 
 英文版： [README.md](README.md)
 
+![RoboCode TUI 系统截图](docs/previews/robocode-tui-system-screenshot.svg)
+
 当前仓库已经包含：
 
 - 一个多 crate 的 Rust workspace
@@ -27,18 +29,43 @@ RoboCode 是一个用 Rust 实现的、本地优先的开发者 Agent CLI，目�
 - `robocode-types`：共享领域类型
 - `robocode-workflows`：项目级 tasks、memory、resume context 与 workflow event storage
 
-## 开发
+## 快速开始
 
-## 从 Release 安装
+### 从 Release 安装
 
-从 GitHub 下载 release 压缩包，然后安装二进制：
+从 GitHub
+[v0.1.3](https://github.com/wikieden/robocode/releases/tag/v0.1.3)
+下载 release 压缩包。
+
+当前 release 包含：
+
+- `aarch64-apple-darwin`：Apple Silicon macOS
+- `x86_64-apple-darwin`：Intel macOS
+- `x86_64-unknown-linux-gnu`：Linux x64
+- `x86_64-pc-windows-msvc`：Windows x64
+
+macOS 或 Linux 安装：
 
 ```bash
-tar -xzf robocode-v0.1.3-aarch64-apple-darwin.tar.gz
-cd robocode-v0.1.3-aarch64-apple-darwin
-chmod +x robocode-cli
-sudo mv robocode-cli /usr/local/bin/robocode-cli
+VERSION=0.1.3
+TARGET=aarch64-apple-darwin
+curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
+tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
+sudo install -m 755 "robocode-v${VERSION}-${TARGET}/robocode-cli" /usr/local/bin/robocode-cli
 robocode-cli --help
+```
+
+Windows PowerShell 安装：
+
+```powershell
+$Version = "0.1.3"
+$Target = "x86_64-pc-windows-msvc"
+Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
+tar -xzf "robocode-v$Version-$Target.tar.gz"
+New-Item -ItemType Directory -Force "$env:USERPROFILE\bin"
+Copy-Item "robocode-v$Version-$Target\robocode-cli.exe" "$env:USERPROFILE\bin\robocode-cli.exe"
+$env:PATH += ";$env:USERPROFILE\bin"
+robocode-cli.exe --help
 ```
 
 运行本地 fallback 冒烟测试：
@@ -52,6 +79,22 @@ robocode-cli --provider fallback --model test-local
 ```bash
 robocode-cli --tui --provider fallback --model test-local
 ```
+
+使用 DeepSeek V4 Flash 启动 TUI：
+
+```bash
+export DEEPSEEK_API_KEY="sk-..."
+robocode-cli --tui --provider deepseek --model deepseek-v4-flash
+```
+
+### TUI 操作
+
+- `Enter` 提交输入区；`Ctrl-J` 是显式发送动作。
+- `Ctrl-K` 清空输入区，`Ctrl-R` 重新生成，`Ctrl-N` 开启新任务。
+- `?` 打开 TUI 内帮助。
+- `Esc` 或 `Ctrl-C` 退出；`/quit` 和 `/exit` 也可以关闭 TUI。
+- 审批弹窗默认停在 `Approve`；按 `y` 通过，`n` 拒绝，`d` 聚焦 diff，也可以用 `Tab` / 方向键在动作间移动。
+- Slash commands 以 `/` 开头；常用入口包括 `/help`、`/provider`、`/status`、`/config`、`/permissions`、`/sessions`、`/resume latest`、`/task`、`/memory`。
 
 维护者可以用下面命令在本地构建 release 压缩包：
 

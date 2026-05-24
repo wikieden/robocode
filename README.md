@@ -4,6 +4,8 @@ RoboCode is a Rust-first reimplementation of the core local agent CLI patterns f
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
+![RoboCode TUI system screenshot](docs/previews/robocode-tui-system-screenshot.svg)
+
 This repository currently includes:
 
 - A multi-crate Rust workspace
@@ -27,18 +29,42 @@ This repository currently includes:
 - `robocode-types`: shared domain types
 - `robocode-workflows`: project tasks, memory, resume-context, and workflow event storage
 
-## Development
+## Quick Start
 
-## Install From A Release
+### Install From A Release
 
-Download a release archive from GitHub, then install the binary:
+Download a release archive from
+[v0.1.3](https://github.com/wikieden/robocode/releases/tag/v0.1.3).
+
+Release archives are available for:
+
+- `aarch64-apple-darwin` for Apple Silicon macOS
+- `x86_64-apple-darwin` for Intel macOS
+- `x86_64-unknown-linux-gnu` for Linux x64
+- `x86_64-pc-windows-msvc` for Windows x64
+
+Install on macOS or Linux:
 
 ```bash
-tar -xzf robocode-v0.1.3-aarch64-apple-darwin.tar.gz
-cd robocode-v0.1.3-aarch64-apple-darwin
-chmod +x robocode-cli
-sudo mv robocode-cli /usr/local/bin/robocode-cli
+VERSION=0.1.3
+TARGET=aarch64-apple-darwin
+curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
+tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
+sudo install -m 755 "robocode-v${VERSION}-${TARGET}/robocode-cli" /usr/local/bin/robocode-cli
 robocode-cli --help
+```
+
+Install on Windows PowerShell:
+
+```powershell
+$Version = "0.1.3"
+$Target = "x86_64-pc-windows-msvc"
+Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
+tar -xzf "robocode-v$Version-$Target.tar.gz"
+New-Item -ItemType Directory -Force "$env:USERPROFILE\bin"
+Copy-Item "robocode-v$Version-$Target\robocode-cli.exe" "$env:USERPROFILE\bin\robocode-cli.exe"
+$env:PATH += ";$env:USERPROFILE\bin"
+robocode-cli.exe --help
 ```
 
 Run the local fallback smoke test:
@@ -52,6 +78,22 @@ Run the TUI:
 ```bash
 robocode-cli --tui --provider fallback --model test-local
 ```
+
+Run the TUI with DeepSeek V4 Flash:
+
+```bash
+export DEEPSEEK_API_KEY="sk-..."
+robocode-cli --tui --provider deepseek --model deepseek-v4-flash
+```
+
+### TUI Controls
+
+- `Enter` submits the composer; `Ctrl-J` is the explicit send action.
+- `Ctrl-K` clears the composer, `Ctrl-R` regenerates, and `Ctrl-N` starts a new task.
+- `?` opens the in-TUI help surface.
+- `Esc` or `Ctrl-C` exits; `/quit` and `/exit` also close the TUI.
+- Approval prompts default to `Approve`; press `y` to approve, `n` to deny, `d` to focus diff, or use `Tab` / arrow keys to move between actions.
+- Slash commands start with `/`; useful starters include `/help`, `/provider`, `/status`, `/config`, `/permissions`, `/sessions`, `/resume latest`, `/task`, and `/memory`.
 
 Maintainers can build a release archive locally with:
 
