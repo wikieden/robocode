@@ -54,7 +54,8 @@ with the generated reference visuals and the terminal-agent workflow.
 
 The slash command palette appears above the composer for top-level
 slash-prefixed tokens such as `/` or `/p`, and for supported nested command
-queries such as `/lane `, `/lane a`, or `/lane inspect L`.
+queries such as `/lane `, `/git st`, `/task status task_`, or
+`/lsp diagnostics src/`.
 
 Keyboard contract:
 
@@ -71,9 +72,10 @@ Rendering contract:
   the TUI.
 - It floats directly above the composer and must not obscure the input cursor.
 - It shows command, summary, and selected-row marker.
-- `/lane` has nested local suggestions for subcommands and known lane IDs, so
-  operators can discover actions such as `/lane apply L1` without memorizing
-  the full command surface.
+- Supported nested command families show local subcommands and known runtime
+  objects. `/lane` suggests lane IDs, `/screen close` suggests tracked side
+  screens, `/task` suggests task IDs and task statuses, and `/lsp` suggests
+  recent workspace files.
 
 ## Approval Modal
 
@@ -109,8 +111,9 @@ route hints so the main agent can decide follow-up actions.
 - Row-diff rendering avoids full-screen flicker during typing.
 - The composer uses display-width aware text handling for CJK input.
 - The slash palette is local UI state; model calls are not involved. It now
-  supports nested `/lane` suggestions, including subcommands and dynamic lane
-  IDs from the current TUI state.
+  supports nested suggestions for `/lane`, `/screen`, `/provider`, `/lsp`,
+  `/task`, `/memory`, and `/git`, with dynamic IDs or recent files where the
+  current TUI state can provide them.
 - The main screen polls lane artifacts while idle, so background `/lane run`
   completion, failure, and log-tail state appear without a keypress.
 - The right-rail `ACTIVE TASKS` panel reads the real workflow task store exposed
@@ -189,8 +192,8 @@ route hints so the main agent can decide follow-up actions.
 - Side-screen launch is real process management, but automatic OS window
   placement across physical monitors is still a launcher-template/manual
   desktop responsibility.
-- Command palette nested suggestions currently cover `/lane`. Other command
-  families still use the top-level registry and can add command-specific
-  argument suggestions later.
+- Command palette nested suggestions cover the main command families. Deeper
+  provider-specific model names, memory IDs, branch names, and arbitrary path
+  completions are still future refinements.
 - Visual parity still needs repeated screenshot comparison against the
   holodeck reference.

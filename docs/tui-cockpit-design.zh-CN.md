@@ -46,8 +46,8 @@
 ## 命令提示列表
 
 当输入是顶层 slash 前缀 token，比如 `/` 或 `/p`，或受支持的二级命令 query，
-比如 `/lane `、`/lane a`、`/lane inspect L`，命令提示列表显示在 composer
-上方。
+比如 `/lane `、`/git st`、`/task status task_`、`/lsp diagnostics src/`，
+命令提示列表显示在 composer 上方。
 
 键盘契约：
 
@@ -62,8 +62,9 @@
 - 提示列表使用与主 TUI 一致的 cockpit 边框、标题和行样式。
 - 浮在 composer 正上方，不能遮挡输入光标。
 - 展示命令、说明和选中行标记。
-- `/lane` 支持本地二级提示：包括子命令和当前已知 lane ID，所以操作者不用
-  记住完整命令，也能发现 `/lane apply L1` 这类动作。
+- 受支持的二级命令族会展示本地子命令和已知运行时对象。`/lane` 会提示 lane
+  ID，`/screen close` 会提示已跟踪副屏，`/task` 会提示 task ID 和 task
+  status，`/lsp` 会提示最近 workspace 文件。
 
 ## 审批弹窗
 
@@ -94,8 +95,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - 主屏和副屏都会响应 resize 事件并重绘。
 - 行级 diff 渲染避免输入时整屏闪烁。
 - composer 已按显示宽度处理中文等 CJK 输入。
-- slash 提示列表是本地 UI 状态，不触发模型调用。它现在支持 `/lane` 的二级
-  提示，包括子命令以及来自当前 TUI state 的动态 lane ID。
+- slash 提示列表是本地 UI 状态，不触发模型调用。它现在支持 `/lane`、
+  `/screen`、`/provider`、`/lsp`、`/task`、`/memory` 和 `/git` 的二级提示；
+  当前 TUI state 能提供对象时，会显示动态 ID 或最近文件。
 - 主屏 idle 时会轮询 lane artifacts，所以后台 `/lane run` 的完成、失败和
   log-tail 状态不需要按键也会刷新。
 - 右侧栏 `ACTIVE TASKS` 面板会读取 `/task` 和 `/tasks` 背后的真实 workflow
@@ -164,6 +166,6 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   的 post-edit diagnostics。live TUI 目前不会自动后台跑 checker。
 - 副屏启动已经是真实进程管理，但跨物理显示器的 OS 窗口自动摆放仍由 launcher
   template 或桌面手动操作负责。
-- 命令提示列表的二级提示目前覆盖 `/lane`。其他命令族仍使用顶层注册表，后续
-  可以继续补充命令参数级提示。
+- 命令提示列表的二级提示已覆盖主要命令族。provider-specific model 名称、
+  memory ID、branch 名称和任意路径补全仍是后续可继续加强的细节。
 - 视觉还需要持续用截图和 holodeck 主参考图对比。

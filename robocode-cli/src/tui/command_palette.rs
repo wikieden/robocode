@@ -21,7 +21,7 @@ pub(super) fn is_command_palette_query(input: &str) -> bool {
     if !input.starts_with('/') {
         return false;
     }
-    !input.contains(char::is_whitespace) || is_lane_command_query(input)
+    !input.contains(char::is_whitespace) || is_nested_command_query(input)
 }
 
 pub(super) fn is_command_palette_visible(state: &TuiState) -> bool {
@@ -36,7 +36,7 @@ pub(super) fn is_command_palette_visible(state: &TuiState) -> bool {
 }
 
 fn command_suggestions_for_state(state: &TuiState) -> Vec<CommandSuggestion> {
-    lane_command_suggestions(&state.input, state)
+    nested_command_suggestions(&state.input, state)
         .unwrap_or_else(|| static_command_suggestions(&state.input))
 }
 
@@ -282,6 +282,269 @@ const LANE_ID_COMMANDS: [&str; 9] = [
     "/lane cleanup",
 ];
 
+const PROVIDER_COMMANDS: [CommandTemplate; 5] = [
+    CommandTemplate {
+        command: "/provider list",
+        summary: "List providers",
+    },
+    CommandTemplate {
+        command: "/provider doctor",
+        summary: "Provider diagnostics",
+    },
+    CommandTemplate {
+        command: "/provider reload",
+        summary: "Reload registry",
+    },
+    CommandTemplate {
+        command: "/provider use",
+        summary: "Switch provider",
+    },
+    CommandTemplate {
+        command: "/provider help",
+        summary: "Provider help",
+    },
+];
+
+const SCREEN_COMMANDS: [CommandTemplate; 5] = [
+    CommandTemplate {
+        command: "/screen main",
+        summary: "Show main screen info",
+    },
+    CommandTemplate {
+        command: "/screen side-1",
+        summary: "Launch side screen 1",
+    },
+    CommandTemplate {
+        command: "/screen side-2",
+        summary: "Launch side screen 2",
+    },
+    CommandTemplate {
+        command: "/screen list",
+        summary: "List side screens",
+    },
+    CommandTemplate {
+        command: "/screen close",
+        summary: "Stop tracking side screen",
+    },
+];
+
+const LSP_COMMANDS: [CommandTemplate; 4] = [
+    CommandTemplate {
+        command: "/lsp status",
+        summary: "LSP runtime status",
+    },
+    CommandTemplate {
+        command: "/lsp diagnostics",
+        summary: "Diagnostics for file",
+    },
+    CommandTemplate {
+        command: "/lsp symbols",
+        summary: "Document symbols",
+    },
+    CommandTemplate {
+        command: "/lsp references",
+        summary: "References at position",
+    },
+];
+
+const TASK_COMMANDS: [CommandTemplate; 10] = [
+    CommandTemplate {
+        command: "/task add",
+        summary: "Create task",
+    },
+    CommandTemplate {
+        command: "/task view",
+        summary: "View task",
+    },
+    CommandTemplate {
+        command: "/task update",
+        summary: "Rename task",
+    },
+    CommandTemplate {
+        command: "/task status",
+        summary: "Set task status",
+    },
+    CommandTemplate {
+        command: "/task link",
+        summary: "Add dependency",
+    },
+    CommandTemplate {
+        command: "/task block",
+        summary: "Block task",
+    },
+    CommandTemplate {
+        command: "/task unblock",
+        summary: "Unblock task",
+    },
+    CommandTemplate {
+        command: "/task archive",
+        summary: "Archive task",
+    },
+    CommandTemplate {
+        command: "/task restore",
+        summary: "Restore task",
+    },
+    CommandTemplate {
+        command: "/task resume-context",
+        summary: "Render resume context",
+    },
+];
+
+const TASK_ID_COMMANDS: [&str; 7] = [
+    "/task view",
+    "/task update",
+    "/task status",
+    "/task block",
+    "/task unblock",
+    "/task archive",
+    "/task restore",
+];
+
+const TASK_STATUS_COMMAND: &str = "/task status";
+
+const TASK_STATUSES: [CommandTemplate; 5] = [
+    CommandTemplate {
+        command: "todo",
+        summary: "Todo",
+    },
+    CommandTemplate {
+        command: "in_progress",
+        summary: "In progress",
+    },
+    CommandTemplate {
+        command: "blocked",
+        summary: "Blocked",
+    },
+    CommandTemplate {
+        command: "done",
+        summary: "Done",
+    },
+    CommandTemplate {
+        command: "archived",
+        summary: "Archived",
+    },
+];
+
+const MEMORY_COMMANDS: [CommandTemplate; 8] = [
+    CommandTemplate {
+        command: "/memory project",
+        summary: "Project memory",
+    },
+    CommandTemplate {
+        command: "/memory session",
+        summary: "Session memory",
+    },
+    CommandTemplate {
+        command: "/memory suggest",
+        summary: "Suggest memory",
+    },
+    CommandTemplate {
+        command: "/memory confirm",
+        summary: "Confirm memory",
+    },
+    CommandTemplate {
+        command: "/memory reject",
+        summary: "Reject memory",
+    },
+    CommandTemplate {
+        command: "/memory prune",
+        summary: "Prune memory",
+    },
+    CommandTemplate {
+        command: "/memory add",
+        summary: "Add session memory",
+    },
+    CommandTemplate {
+        command: "/memory export",
+        summary: "Export memory",
+    },
+];
+
+const GIT_COMMANDS: [CommandTemplate; 11] = [
+    CommandTemplate {
+        command: "/git status",
+        summary: "Working tree status",
+    },
+    CommandTemplate {
+        command: "/git diff",
+        summary: "Show diff",
+    },
+    CommandTemplate {
+        command: "/git branch",
+        summary: "List branches",
+    },
+    CommandTemplate {
+        command: "/git add",
+        summary: "Stage paths",
+    },
+    CommandTemplate {
+        command: "/git restore",
+        summary: "Restore paths",
+    },
+    CommandTemplate {
+        command: "/git switch",
+        summary: "Switch branch",
+    },
+    CommandTemplate {
+        command: "/git commit",
+        summary: "Commit changes",
+    },
+    CommandTemplate {
+        command: "/git push",
+        summary: "Push branch",
+    },
+    CommandTemplate {
+        command: "/git stash",
+        summary: "Stash flows",
+    },
+    CommandTemplate {
+        command: "/git worktree",
+        summary: "Worktree flows",
+    },
+    CommandTemplate {
+        command: "/git help",
+        summary: "Git help",
+    },
+];
+
+const GIT_STASH_COMMANDS: [CommandTemplate; 5] = [
+    CommandTemplate {
+        command: "/git stash list",
+        summary: "List stashes",
+    },
+    CommandTemplate {
+        command: "/git stash push",
+        summary: "Create stash",
+    },
+    CommandTemplate {
+        command: "/git stash pop",
+        summary: "Apply stash",
+    },
+    CommandTemplate {
+        command: "/git stash drop",
+        summary: "Drop stash",
+    },
+    CommandTemplate {
+        command: "/git stash help",
+        summary: "Stash help",
+    },
+];
+
+const GIT_WORKTREE_COMMANDS: [CommandTemplate; 3] = [
+    CommandTemplate {
+        command: "/git worktree list",
+        summary: "List worktrees",
+    },
+    CommandTemplate {
+        command: "/git worktree add",
+        summary: "Add worktree",
+    },
+    CommandTemplate {
+        command: "/git worktree remove",
+        summary: "Remove worktree",
+    },
+];
+
 fn command_from_template(template: CommandTemplate) -> CommandSuggestion {
     CommandSuggestion {
         command: template.command.to_string(),
@@ -289,16 +552,43 @@ fn command_from_template(template: CommandTemplate) -> CommandSuggestion {
     }
 }
 
-fn is_lane_command_query(input: &str) -> bool {
-    input == "/lane " || input.starts_with("/lane ")
+fn is_nested_command_query(input: &str) -> bool {
+    [
+        "/lane",
+        "/screen",
+        "/provider",
+        "/lsp",
+        "/task",
+        "/memory",
+        "/git",
+        "/git stash",
+        "/git worktree",
+    ]
+    .into_iter()
+    .any(|root| input == format!("{root} ") || input.starts_with(&format!("{root} ")))
+}
+
+fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    lane_command_suggestions(query, state)
+        .or_else(|| screen_command_suggestions(query, state))
+        .or_else(|| task_command_suggestions(query, state))
+        .or_else(|| lsp_command_suggestions(query, state))
+        .or_else(|| command_group_suggestions(query, "/git stash", &GIT_STASH_COMMANDS))
+        .or_else(|| command_group_suggestions(query, "/git worktree", &GIT_WORKTREE_COMMANDS))
+        .or_else(|| command_group_suggestions(query, "/provider", &PROVIDER_COMMANDS))
+        .or_else(|| command_group_suggestions(query, "/memory", &MEMORY_COMMANDS))
+        .or_else(|| command_group_suggestions(query, "/git", &GIT_COMMANDS))
 }
 
 fn lane_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
-    if !is_lane_command_query(query) {
-        return None;
-    }
+    query
+        .starts_with("/lane ")
+        .then(|| command_group_or_lane_ids(query, state))
+}
+
+fn command_group_or_lane_ids(query: &str, state: &TuiState) -> Vec<CommandSuggestion> {
     let words = query.split_whitespace().collect::<Vec<_>>();
-    let suggestions = if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
+    if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
         LANE_COMMANDS
             .into_iter()
             .map(command_from_template)
@@ -313,6 +603,33 @@ fn lane_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Command
         lane_id_suggestions(query, &words, state)
     } else {
         Vec::new()
+    }
+}
+
+fn command_group_suggestions(
+    query: &str,
+    root: &str,
+    commands: &[CommandTemplate],
+) -> Option<Vec<CommandSuggestion>> {
+    if !(query == format!("{root} ") || query.starts_with(&format!("{root} "))) {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let suggestions = if words.len() <= root.split_whitespace().count() && query.ends_with(' ') {
+        commands
+            .iter()
+            .copied()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if query.ends_with(' ') {
+        Vec::new()
+    } else {
+        commands
+            .iter()
+            .copied()
+            .filter(|item| item.command.starts_with(query))
+            .map(command_from_template)
+            .collect::<Vec<_>>()
     };
     Some(suggestions)
 }
@@ -351,6 +668,191 @@ fn lane_id_suggestions(query: &str, words: &[&str], state: &TuiState) -> Vec<Com
         .collect()
 }
 
+fn screen_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    if !query.starts_with("/screen ") {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let suggestions = if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
+        SCREEN_COMMANDS
+            .into_iter()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if words.len() == 2 && !query.ends_with(' ') {
+        SCREEN_COMMANDS
+            .into_iter()
+            .filter(|item| item.command.starts_with(query))
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if words.len() <= 3 && words.get(1) == Some(&"close") {
+        screen_id_suggestions(query, &words, state)
+    } else {
+        Vec::new()
+    };
+    Some(suggestions)
+}
+
+fn screen_id_suggestions(query: &str, words: &[&str], state: &TuiState) -> Vec<CommandSuggestion> {
+    let partial_id = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    let mut screens = state
+        .screens
+        .iter()
+        .map(|screen| (screen.id.as_str(), screen.summary.as_str()))
+        .collect::<Vec<_>>();
+    if screens.is_empty() {
+        screens = vec![("side-1", "Side screen 1"), ("side-2", "Side screen 2")];
+    }
+    screens
+        .into_iter()
+        .filter(|(id, _)| id.starts_with(partial_id))
+        .map(|(id, summary)| CommandSuggestion {
+            command: format!("/screen close {id}"),
+            summary: summary.to_string(),
+        })
+        .collect()
+}
+
+fn task_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    if !query.starts_with("/task ") {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let suggestions = if should_suggest_task_status(query, &words) {
+        task_status_suggestions(query, &words)
+    } else if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
+        TASK_COMMANDS
+            .into_iter()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if words.len() == 2 && !query.ends_with(' ') {
+        TASK_COMMANDS
+            .into_iter()
+            .filter(|item| item.command.starts_with(query))
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if should_suggest_task_ids(query, &words) {
+        task_id_suggestions(query, &words, state)
+    } else {
+        Vec::new()
+    };
+    Some(suggestions)
+}
+
+fn should_suggest_task_ids(query: &str, words: &[&str]) -> bool {
+    if words.len() < 2 || words.len() > 3 {
+        return false;
+    }
+    let base = format!("{} {}", words[0], words[1]);
+    TASK_ID_COMMANDS.contains(&base.as_str())
+        && (query.ends_with(' ') || words.get(2).is_some_and(|value| value.starts_with("task")))
+}
+
+fn task_id_suggestions(query: &str, words: &[&str], state: &TuiState) -> Vec<CommandSuggestion> {
+    let base = format!("{} {}", words[0], words[1]);
+    let partial_id = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    state
+        .tasks
+        .iter()
+        .filter(|task| task.task_id.starts_with(partial_id))
+        .map(|task| CommandSuggestion {
+            command: format!("{base} {}", task.task_id),
+            summary: format!("{} [{}]", task.title, task.status),
+        })
+        .collect()
+}
+
+fn should_suggest_task_status(query: &str, words: &[&str]) -> bool {
+    words.len() >= 3
+        && words.len() <= 4
+        && format!("{} {}", words[0], words[1]) == TASK_STATUS_COMMAND
+        && (query.ends_with(' ') || words.len() == 4)
+}
+
+fn task_status_suggestions(query: &str, words: &[&str]) -> Vec<CommandSuggestion> {
+    let task_id = words.get(2).copied().unwrap_or("");
+    let partial_status = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(3).copied().unwrap_or("")
+    };
+    TASK_STATUSES
+        .into_iter()
+        .filter(|status| status.command.starts_with(partial_status))
+        .map(|status| CommandSuggestion {
+            command: format!("/task status {task_id} {}", status.command),
+            summary: status.summary.to_string(),
+        })
+        .collect()
+}
+
+fn lsp_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    if !query.starts_with("/lsp ") {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let suggestions = if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
+        LSP_COMMANDS
+            .into_iter()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if words.len() == 2 && !query.ends_with(' ') {
+        LSP_COMMANDS
+            .into_iter()
+            .filter(|item| item.command.starts_with(query))
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if should_suggest_lsp_paths(query, &words) {
+        lsp_path_suggestions(query, &words, state)
+    } else {
+        Vec::new()
+    };
+    Some(suggestions)
+}
+
+fn should_suggest_lsp_paths(query: &str, words: &[&str]) -> bool {
+    if words.len() < 2 || words.len() > 3 {
+        return false;
+    }
+    matches!(
+        format!("{} {}", words[0], words[1]).as_str(),
+        "/lsp diagnostics" | "/lsp symbols" | "/lsp references"
+    ) && (query.ends_with(' ') || words.get(2).is_some())
+}
+
+fn lsp_path_suggestions(query: &str, words: &[&str], state: &TuiState) -> Vec<CommandSuggestion> {
+    let base = format!("{} {}", words[0], words[1]);
+    let partial_path = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    state
+        .workspace
+        .recent_files
+        .iter()
+        .filter(|file| file.path.starts_with(partial_path))
+        .map(|file| {
+            let suffix = if base == "/lsp references" {
+                " 0 0"
+            } else {
+                ""
+            };
+            CommandSuggestion {
+                command: format!("{base} {}{suffix}", file.path),
+                summary: "Recent file".to_string(),
+            }
+        })
+        .collect()
+}
+
 fn command_suggestion_row(
     suggestion: &CommandSuggestion,
     selected: bool,
@@ -373,7 +875,8 @@ fn command_suggestion_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::state::{ProviderStatus, TerminalLane, WorkspaceSnapshot};
+    use crate::tui::state::{CompanionScreen, ProviderStatus, TerminalLane, WorkspaceSnapshot};
+    use robocode_types::{TaskPriority, TaskRecord, TaskStatus};
 
     fn state_with_input(input: &str) -> TuiState {
         TuiState {
@@ -394,6 +897,27 @@ mod tests {
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,
             focused_lane: None,
+        }
+    }
+
+    fn task(id: &str, title: &str, status: TaskStatus) -> TaskRecord {
+        TaskRecord {
+            task_id: id.to_string(),
+            title: title.to_string(),
+            description: None,
+            status,
+            priority: TaskPriority::Medium,
+            labels: Vec::new(),
+            assignee_hint: None,
+            parent_task_id: None,
+            dependency_ids: Vec::new(),
+            blocked_by: None,
+            notes: Vec::new(),
+            created_at: 1,
+            updated_at: 2,
+            last_session_id: None,
+            last_seen_at: None,
+            archived_at: None,
         }
     }
 
@@ -450,6 +974,92 @@ mod tests {
             vec!["/lane inspect L1", "/lane inspect L2", "/lane inspect L3"]
         );
         assert!(suggestions[0].summary.contains("[running]"));
+    }
+
+    #[test]
+    fn suggests_common_nested_command_families() {
+        let provider = state_with_input("/provider ");
+        let git = state_with_input("/git st");
+        let stash = state_with_input("/git stash p");
+        let memory = state_with_input("/memory ");
+
+        assert!(
+            command_suggestions_for_state(&provider)
+                .iter()
+                .any(|item| item.command == "/provider use")
+        );
+        assert_eq!(
+            command_suggestions_for_state(&git)
+                .iter()
+                .map(|suggestion| suggestion.command.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/git status", "/git stash"]
+        );
+        assert_eq!(
+            command_suggestions_for_state(&stash)[0].command,
+            "/git stash push"
+        );
+        assert!(
+            command_suggestions_for_state(&memory)
+                .iter()
+                .any(|item| item.command == "/memory confirm")
+        );
+    }
+
+    #[test]
+    fn suggests_screen_ids_for_close() {
+        let mut state = state_with_input("/screen close s");
+        state.screens = vec![CompanionScreen {
+            id: "side-1".to_string(),
+            title: "Lane monitor".to_string(),
+            status: "launched".to_string(),
+            pid: Some(4242),
+            summary: "lane monitor".to_string(),
+        }];
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(suggestions[0].command, "/screen close side-1");
+        assert_eq!(suggestions[0].summary, "lane monitor");
+    }
+
+    #[test]
+    fn suggests_task_ids_and_task_statuses() {
+        let mut state = state_with_input("/task status task_");
+        state.tasks = vec![task(
+            "task_load_config",
+            "Implement load_config",
+            TaskStatus::InProgress,
+        )];
+
+        let task_ids = command_suggestions_for_state(&state);
+
+        assert_eq!(task_ids[0].command, "/task status task_load_config");
+        assert!(task_ids[0].summary.contains("[in_progress]"));
+
+        state.input = "/task status task_load_config ".to_string();
+        let statuses = command_suggestions_for_state(&state);
+
+        assert_eq!(statuses[0].command, "/task status task_load_config todo");
+        assert!(
+            statuses
+                .iter()
+                .any(|item| item.command.ends_with(" in_progress"))
+        );
+    }
+
+    #[test]
+    fn suggests_recent_files_for_lsp_commands() {
+        let state = state_with_input("/lsp diagnostics src/");
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(suggestions[0].command, "/lsp diagnostics src/config.rs");
+        assert!(
+            suggestions
+                .iter()
+                .any(|item| item.command == "/lsp diagnostics src/lib.rs")
+        );
     }
 
     #[test]
