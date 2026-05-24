@@ -15,6 +15,8 @@
 
 - `SessionEngine`
 - `EngineEvent`
+- `ProviderTelemetry`, exposed through `SessionEngine::provider_telemetry()`
+  for real model-request counts, latency, event count, and last-error state.
 - Runtime/session/provider/Git/Web/task/memory command handling.
 - Provider runtime commands:
   - `/provider` reports the current provider instance.
@@ -35,6 +37,8 @@
   previous registry active.
 - Provider switching must go through the active `ProviderHost`; it must update
   transcript metadata for provider and model.
+- Provider health surfaces must use `ProviderTelemetry`; do not invent latency,
+  token, cost, or rate values in callers.
 - `/task resume-context` may update derived fields but must not change task business status.
 - Transcript auditability must remain intact.
 

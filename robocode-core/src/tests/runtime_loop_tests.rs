@@ -36,6 +36,59 @@ fn single_turn_text_response_is_recorded() {
 }
 
 #[test]
+fn provider_telemetry_records_successful_model_requests() {
+    let home = temp_dir("telemetry_success_home");
+    let cwd = temp_dir("telemetry_success_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "telemetry response".to_string(),
+        },
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .process_input_with_approval("measure provider", &mut approver)
+        .unwrap();
+
+    let telemetry = engine.provider_telemetry();
+    assert_eq!(telemetry.request_count, 1);
+    assert_eq!(telemetry.success_count, 1);
+    assert_eq!(telemetry.failure_count, 0);
+    assert_eq!(telemetry.last_event_count, 1);
+    assert!(telemetry.last_latency_ms.is_some());
+    assert!(telemetry.average_latency_ms.is_some());
+    assert_eq!(telemetry.last_error, None);
+}
+
+#[test]
+fn provider_telemetry_records_failed_model_requests() {
+    let home = temp_dir("telemetry_failure_home");
+    let cwd = temp_dir("telemetry_failure_cwd");
+    let provider = Box::new(FailingProvider);
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let err = engine
+        .process_input_with_approval("measure provider failure", &mut approver)
+        .unwrap_err();
+
+    let telemetry = engine.provider_telemetry();
+    assert_eq!(err, "provider down");
+    assert_eq!(telemetry.request_count, 1);
+    assert_eq!(telemetry.success_count, 0);
+    assert_eq!(telemetry.failure_count, 1);
+    assert_eq!(telemetry.last_event_count, 0);
+    assert_eq!(telemetry.last_error.as_deref(), Some("provider down"));
+}
+
+#[test]
 fn cancelled_model_request_stops_before_provider_turn() {
     let home = temp_dir("cancel_home");
     let cwd = temp_dir("cancel_cwd");
@@ -281,6 +334,24 @@ impl ModelProvider for RecordingSequenceProvider {
             .turns
             .pop_front()
             .unwrap_or_else(|| vec![ModelEvent::Done]))
+    }
+}
+
+struct FailingProvider;
+
+impl ModelProvider for FailingProvider {
+    fn provider_name(&self) -> &str {
+        "failing"
+    }
+
+    fn model(&self) -> &str {
+        "test-model"
+    }
+
+    fn set_model(&mut self, _model: String) {}
+
+    fn next_events(&mut self, _request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+        Err("provider down".to_string())
     }
 }
 

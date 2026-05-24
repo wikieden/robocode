@@ -140,11 +140,33 @@ enum StatusDensity {
 
 fn right_status_cluster(state: &TuiState, density: StatusDensity) -> String {
     let active = active_lane_count(state);
+    let telemetry = telemetry_status(state);
     match density {
-        StatusDensity::Full => format!("· auto  telemetry off  L{active}"),
-        StatusDensity::Compact => format!("· auto telemetry off L{active}"),
+        StatusDensity::Full => format!("· auto  {telemetry}  L{active}"),
+        StatusDensity::Compact => format!("· auto {telemetry} L{active}"),
         StatusDensity::Tiny => format!("· auto L{active}"),
     }
+}
+
+fn telemetry_status(state: &TuiState) -> String {
+    if state.provider_status.request_count == 0 {
+        return "telemetry idle".to_string();
+    }
+    if state.provider_status.failure_count > 0 {
+        return format!(
+            "REQ {} err {}",
+            state.provider_status.request_count, state.provider_status.failure_count
+        );
+    }
+    format!(
+        "REQ {} {}",
+        state.provider_status.request_count,
+        state
+            .provider_status
+            .last_latency_ms
+            .map(|ms| format!("{ms}ms"))
+            .unwrap_or_else(|| "-".to_string())
+    )
 }
 
 fn chip(label: &str, value: &str) -> String {
@@ -177,4 +199,56 @@ fn active_lane_count(state: &TuiState) -> usize {
         .iter()
         .filter(|lane| lane.status == "running" || lane.status == "queued")
         .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::telemetry_status;
+    use crate::tui::state::{ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot};
+    use robocode_core::ProviderTelemetry;
+
+    fn state_with_status(provider_status: ProviderStatus) -> TuiState {
+        TuiState {
+            session_id: "session_123".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_status,
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: vec![TuiEntry {
+                label: "system".to_string(),
+                body: "ready".to_string(),
+            }],
+            workspace: WorkspaceSnapshot::fixture(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+        }
+    }
+
+    #[test]
+    fn telemetry_status_reflects_real_provider_requests() {
+        let state = state_with_status(ProviderStatus::from_telemetry(&ProviderTelemetry {
+            request_count: 2,
+            success_count: 1,
+            failure_count: 1,
+            last_latency_ms: Some(42),
+            average_latency_ms: Some(21),
+            last_event_count: 3,
+            last_error: Some("provider timeout".to_string()),
+        }));
+
+        assert_eq!(telemetry_status(&state), "REQ 2 err 1");
+    }
+
+    #[test]
+    fn telemetry_status_reports_idle_before_first_request() {
+        let state = state_with_status(ProviderStatus::configured());
+
+        assert_eq!(telemetry_status(&state), "telemetry idle");
+    }
 }

@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use robocode_core::EngineEvent;
+use robocode_core::{EngineEvent, ProviderTelemetry};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TuiEntry {
@@ -286,14 +286,47 @@ pub(super) struct ProviderStatus {
     pub(super) connection: String,
     pub(super) telemetry: String,
     pub(super) context_window: String,
+    pub(super) request_count: u64,
+    pub(super) success_count: u64,
+    pub(super) failure_count: u64,
+    pub(super) last_latency_ms: Option<u128>,
+    pub(super) average_latency_ms: Option<u128>,
+    pub(super) last_event_count: usize,
+    pub(super) last_error: Option<String>,
 }
 
 impl ProviderStatus {
     pub(super) fn configured() -> Self {
+        Self::from_telemetry(&ProviderTelemetry::default())
+    }
+
+    pub(super) fn from_telemetry(telemetry: &ProviderTelemetry) -> Self {
+        let connection = if telemetry.last_error.is_some() {
+            "Error"
+        } else if telemetry.request_count > 0 {
+            "Healthy"
+        } else {
+            "Configured"
+        };
+        let telemetry_label = if telemetry.request_count == 0 {
+            "not sampled".to_string()
+        } else {
+            format!(
+                "{} req / {} ok / {} err",
+                telemetry.request_count, telemetry.success_count, telemetry.failure_count
+            )
+        };
         Self {
-            connection: "Configured".to_string(),
-            telemetry: "not sampled".to_string(),
+            connection: connection.to_string(),
+            telemetry: telemetry_label,
             context_window: "128k".to_string(),
+            request_count: telemetry.request_count,
+            success_count: telemetry.success_count,
+            failure_count: telemetry.failure_count,
+            last_latency_ms: telemetry.last_latency_ms,
+            average_latency_ms: telemetry.average_latency_ms,
+            last_event_count: telemetry.last_event_count,
+            last_error: telemetry.last_error.clone(),
         }
     }
 }

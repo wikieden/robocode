@@ -15,6 +15,8 @@
 
 - `SessionEngine`
 - `EngineEvent`
+- `ProviderTelemetry`，通过 `SessionEngine::provider_telemetry()` 暴露真实
+  model request 数量、latency、event count 和 last-error 状态。
 - runtime/session/provider/Git/Web/task/memory 命令处理。
 - Provider runtime commands：
   - `/provider` 显示当前 provider 实例。
@@ -34,6 +36,8 @@
   registry。
 - Provider switching 必须经过当前 `ProviderHost`，并更新 provider/model 的
   transcript metadata。
+- Provider health 界面必须使用 `ProviderTelemetry`；调用方不能编造 latency、
+  token、cost 或 rate 值。
 - `/task resume-context` 可以更新派生字段，但不能改变 task 业务状态。
 - Transcript 审计能力必须保持。
 

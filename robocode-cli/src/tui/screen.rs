@@ -24,7 +24,7 @@ pub(crate) fn run_side_tui_with_theme(
         session_id: engine.session_id().to_string(),
         provider: engine.provider_name().to_string(),
         model: engine.model_name().to_string(),
-        provider_status: ProviderStatus::configured(),
+        provider_status: ProviderStatus::from_telemetry(&engine.provider_telemetry()),
         theme_name: terminal.theme_name().to_string(),
         input: String::new(),
         command_selection: 0,

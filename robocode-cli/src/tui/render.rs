@@ -124,6 +124,7 @@ mod tests {
         state::{ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot},
         text::char_width,
     };
+    use robocode_core::ProviderTelemetry;
 
     fn render_state() -> TuiState {
         TuiState {
@@ -284,6 +285,29 @@ mod tests {
         assert!(composer_index > recent_index);
         assert!(lines[composer_index - 1].contains('└'));
         assert!(rendered.contains("[Rs] src/config.rs"));
+    }
+
+    #[test]
+    fn render_provider_health_uses_real_request_telemetry() {
+        let mut state = render_state();
+        state.provider_status = ProviderStatus::from_telemetry(&ProviderTelemetry {
+            request_count: 2,
+            success_count: 1,
+            failure_count: 1,
+            last_latency_ms: Some(42),
+            average_latency_ms: Some(21),
+            last_event_count: 3,
+            last_error: Some("provider timeout".to_string()),
+        });
+
+        let rendered = render_frame(&state, 180, 36);
+
+        assert!(rendered.contains("STATUS     Error"));
+        assert!(rendered.contains("REQUESTS   1 ok / 1 err"));
+        assert!(rendered.contains("LATENCY    last 42ms avg 21ms"));
+        assert!(rendered.contains("ERROR      provider timeout"));
+        assert!(!rendered.contains("312 ms"));
+        assert!(!rendered.contains("28.4 t/s"));
     }
 
     #[test]

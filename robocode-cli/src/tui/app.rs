@@ -125,7 +125,7 @@ fn initial_state(
         session_id: engine.session_id().to_string(),
         provider: engine.provider_name().to_string(),
         model: engine.model_name().to_string(),
-        provider_status: ProviderStatus::configured(),
+        provider_status: ProviderStatus::from_telemetry(&engine.provider_telemetry()),
         theme_name: theme_name.to_string(),
         input: String::new(),
         command_selection: 0,
@@ -173,7 +173,7 @@ fn handle_enter(
         .extend(events.into_iter().map(entry_from_event));
     state.provider = engine.provider_name().to_string();
     state.model = engine.model_name().to_string();
-    state.provider_status = ProviderStatus::configured();
+    state.provider_status = ProviderStatus::from_telemetry(&engine.provider_telemetry());
     state.workspace = WorkspaceSnapshot::load_current();
     Ok(false)
 }

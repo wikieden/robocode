@@ -153,13 +153,36 @@ fn diagnostic_rows(state: &TuiState) -> Vec<String> {
 
 fn provider_health_rows(state: &TuiState) -> Vec<String> {
     let provider_label = format!("{} ({})", display_provider(&state.provider), state.model);
-    vec![
+    let mut rows = vec![
         truncate(&provider_label, 31),
         format!("STATUS     {}", state.provider_status.connection),
-        format!("TELEMETRY  {}", state.provider_status.telemetry),
-        "LATENCY    unavailable".to_string(),
-        format!("CONTEXT    {}", state.provider_status.context_window),
-    ]
+        format!(
+            "REQUESTS   {} ok / {} err",
+            state.provider_status.success_count, state.provider_status.failure_count
+        ),
+        format!(
+            "LATENCY    last {} avg {}",
+            format_latency(state.provider_status.last_latency_ms),
+            format_latency(state.provider_status.average_latency_ms)
+        ),
+    ];
+    if let Some(error) = &state.provider_status.last_error {
+        rows.push(format!("ERROR      {}", truncate(error, 20)));
+    } else if state.provider_status.request_count == 0 {
+        rows.push("TELEMETRY  awaiting first request".to_string());
+    } else {
+        rows.push(format!(
+            "EVENTS     {} ctx {}",
+            state.provider_status.last_event_count, state.provider_status.context_window
+        ));
+    }
+    rows
+}
+
+fn format_latency(value: Option<u128>) -> String {
+    value
+        .map(|ms| format!("{ms}ms"))
+        .unwrap_or_else(|| "-".to_string())
 }
 
 fn display_provider(provider: &str) -> String {

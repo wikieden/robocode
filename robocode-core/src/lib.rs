@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use std::sync::Arc;
+use std::{path::PathBuf, time::Duration};
 
 mod command_dispatch;
 mod doctor;
@@ -37,6 +37,61 @@ pub enum EngineEvent {
     Command(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderTelemetry {
+    pub request_count: u64,
+    pub success_count: u64,
+    pub failure_count: u64,
+    pub last_latency_ms: Option<u128>,
+    pub average_latency_ms: Option<u128>,
+    pub last_event_count: usize,
+    pub last_error: Option<String>,
+}
+
+impl ProviderTelemetry {
+    fn record_success(&mut self, latency: Duration, event_count: usize) {
+        self.record_latency(latency);
+        self.success_count += 1;
+        self.last_event_count = event_count;
+        self.last_error = None;
+    }
+
+    fn record_failure(&mut self, latency: Duration, error: &str) {
+        self.record_latency(latency);
+        self.failure_count += 1;
+        self.last_event_count = 0;
+        self.last_error = Some(error.to_string());
+    }
+
+    fn record_latency(&mut self, latency: Duration) {
+        let latency_ms = latency.as_millis();
+        let previous_requests = self.request_count;
+        self.request_count += 1;
+        self.last_latency_ms = Some(latency_ms);
+        self.average_latency_ms = Some(match self.average_latency_ms {
+            Some(previous_average) => {
+                ((previous_average * u128::from(previous_requests)) + latency_ms)
+                    / u128::from(self.request_count)
+            }
+            None => latency_ms,
+        });
+    }
+}
+
+impl Default for ProviderTelemetry {
+    fn default() -> Self {
+        Self {
+            request_count: 0,
+            success_count: 0,
+            failure_count: 0,
+            last_latency_ms: None,
+            average_latency_ms: None,
+            last_event_count: 0,
+            last_error: None,
+        }
+    }
+}
+
 pub struct SessionEngine {
     cwd: PathBuf,
     provider: Box<dyn ModelProvider>,
@@ -54,6 +109,7 @@ pub struct SessionEngine {
     messages: Vec<Message>,
     last_diff: Option<String>,
     runtime_snapshot: RuntimeSnapshot,
+    provider_telemetry: ProviderTelemetry,
 }
 
 impl SessionEngine {
@@ -113,6 +169,7 @@ impl SessionEngine {
             messages: Vec::new(),
             last_diff: None,
             runtime_snapshot,
+            provider_telemetry: ProviderTelemetry::default(),
         };
         engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;
         let model = engine.provider.model().to_string();
@@ -130,6 +187,10 @@ impl SessionEngine {
 
     pub fn model_name(&self) -> &str {
         self.provider.model()
+    }
+
+    pub fn provider_telemetry(&self) -> ProviderTelemetry {
+        self.provider_telemetry.clone()
     }
 
     pub fn set_provider_runtime(

@@ -27,8 +27,8 @@ with the generated reference visuals and the terminal-agent workflow.
 - Composer: always visible at the bottom, with input cursor placed inside the
   input row, action hints, and approval-mode chips.
 - Bottom status: connection, session, event count, active lanes, context window,
-  theme/help hints. Token, cost, latency, and rate metrics should appear only
-  after real provider telemetry is wired.
+  theme/help hints. Token, cost, and rate metrics should appear only after real
+  provider telemetry is wired.
 
 ## Data Truth Contract
 
@@ -41,8 +41,10 @@ with the generated reference visuals and the terminal-agent workflow.
   - workspace: `WorkspaceSnapshot::load_current`.
   - active tasks: pending approval plus running or queued terminal lanes.
   - diagnostics: `WorkspaceSnapshot.diagnostics`; empty means unavailable/0.
-  - provider health: `ProviderStatus`; latency, rate, token, and cost stay
-    hidden until real telemetry exists.
+  - provider health: `ProviderStatus` derived from `SessionEngine`
+    `ProviderTelemetry`; request count, success/failure count, last/average
+    latency, last event count, and last error are real values. Rate, token, and
+    cost stay hidden until their runtime sources exist.
   - recent files: filesystem metadata modification time.
 - Any new cockpit metric must identify its runtime source in code or docs.
 
@@ -105,6 +107,9 @@ route hints so the main agent can decide follow-up actions.
   completion, failure, and log-tail state appear without a keypress.
 - `/lane inspect <id>` reads persisted lane artifacts: `.log` tail, `.done`
   exit code, log path, done path, envelope path, and envelope preview.
+- Provider health now reflects measured model-request telemetry from the shared
+  runtime loop: real request count, success/failure count, last and average
+  latency, last event count, and last provider error.
 - Code changes that alter cockpit behavior, commands, architecture, config, or
   UI must update the relevant docs. Comments should document non-obvious
   invariants and safety boundaries, not restate obvious code.
@@ -115,8 +120,8 @@ route hints so the main agent can decide follow-up actions.
   non-interactive shell commands plus template-launched Codex/Claude adapters
   with persisted envelope, log, and exit-code artifacts, plus Unix
   process-group stop.
-- Provider latency, token, cost, and rate telemetry is not connected yet, so the
-  live UI intentionally renders it as unavailable or hidden.
+- Provider token, cost, and rate telemetry is not connected yet, so the live UI
+  intentionally keeps those metrics hidden.
 - Diagnostics are displayed only when collected by a real source; placeholder
   Rust errors are not used in live panels.
 - Command palette currently lists a fixed command registry; command-specific

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use crate::{
     EngineEvent, PROVIDER_REASONING_CONTENT_KEY, SessionEngine, lsp_tools::LspToolAdapter,
@@ -57,7 +57,19 @@ impl SessionEngine {
                 tools: self.tools.specs(),
                 permission_mode: self.permissions.mode(),
             };
-            let model_events = self.provider.next_events_with_control(&request, control)?;
+            let request_started = Instant::now();
+            let model_events = match self.provider.next_events_with_control(&request, control) {
+                Ok(events) => {
+                    self.provider_telemetry
+                        .record_success(request_started.elapsed(), events.len());
+                    events
+                }
+                Err(err) => {
+                    self.provider_telemetry
+                        .record_failure(request_started.elapsed(), &err);
+                    return Err(err);
+                }
+            };
             let mut observed_tool_call = false;
             let mut observed_text = false;
             for model_event in model_events {
