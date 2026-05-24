@@ -92,15 +92,15 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - 主屏 idle 时会轮询 lane artifacts，所以后台 `/lane run` 的完成、失败和
   log-tail 状态不需要按键也会刷新。
 - `/lane inspect <id>` 会读取持久化 lane artifacts：`.log` 尾部、`.done`
-  exit code、log path 和 done path。
+  exit code、log path、done path、envelope path 和 envelope preview。
 - 修改 cockpit 行为、命令、架构、配置或 UI 时，必须同步更新相关文档。注释
   用来说明不明显的不变量和安全边界，不重复解释显而易见的代码。
 
 ## 近期缺口
 
 - 真正 PTY-backed lanes 仍是后续工作；当前 lane 支持非交互 shell 命令，以及
-  template-launched Codex/Claude adapter，并持久化 log / exit-code artifacts；
-  Unix 平台支持 process-group stop。
+  template-launched Codex/Claude adapter，并持久化 envelope / log / exit-code
+  artifacts；Unix 平台支持 process-group stop。
 - Provider latency、token、cost、rate telemetry 尚未接入，所以 live UI 会明确
   显示 unavailable 或暂时隐藏。
 - Diagnostics 只展示真实来源采集到的数据；live 面板不再使用占位 Rust 错误。

@@ -1,5 +1,6 @@
 use std::{
     fs,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -106,19 +107,18 @@ fn queue_lane(input: &str, state: &mut TuiState) {
 fn maybe_start_lane_adapter(mut lane: TerminalLane, state: &mut TuiState) -> TerminalLane {
     let command = match lane.tool.as_str() {
         "run" => lane.title.clone(),
-        "codex" => match templated_agent_command("ROBOCODE_LANE_CODEX_TEMPLATE", &lane.title) {
+        "codex" => match templated_agent_command("ROBOCODE_LANE_CODEX_TEMPLATE", &lane, state) {
             Some(command) => command,
             None => {
-                lane.summary =
-                    "queued; set ROBOCODE_LANE_CODEX_TEMPLATE to launch Codex".to_string();
+                lane.summary = queued_adapter_summary(&lane, "ROBOCODE_LANE_CODEX_TEMPLATE", state);
                 return lane;
             }
         },
-        "claude" => match templated_agent_command("ROBOCODE_LANE_CLAUDE_TEMPLATE", &lane.title) {
+        "claude" => match templated_agent_command("ROBOCODE_LANE_CLAUDE_TEMPLATE", &lane, state) {
             Some(command) => command,
             None => {
                 lane.summary =
-                    "queued; set ROBOCODE_LANE_CLAUDE_TEMPLATE to launch Claude".to_string();
+                    queued_adapter_summary(&lane, "ROBOCODE_LANE_CLAUDE_TEMPLATE", state);
                 return lane;
             }
         },
@@ -127,16 +127,66 @@ fn maybe_start_lane_adapter(mut lane: TerminalLane, state: &mut TuiState) -> Ter
     start_background_lane(lane, state, &command)
 }
 
-fn templated_agent_command(env_key: &str, task: &str) -> Option<String> {
+fn templated_agent_command(env_key: &str, lane: &TerminalLane, state: &TuiState) -> Option<String> {
     let template = std::env::var(env_key).ok()?;
-    let command = expand_agent_template(&template, task);
+    let envelope_path = write_lane_envelope(lane, state).ok()?;
+    let command = expand_agent_template(&template, &lane.title, Some(envelope_path.as_path()));
     (!command.trim().is_empty()).then_some(command)
 }
 
-fn expand_agent_template(template: &str, task: &str) -> String {
+fn queued_adapter_summary(lane: &TerminalLane, env_key: &str, state: &TuiState) -> String {
+    match write_lane_envelope(lane, state) {
+        Ok(path) => format!(
+            "queued; envelope {}; set {env_key} to launch {}",
+            path.display(),
+            lane.tool
+        ),
+        Err(err) => format!("queued; failed to write envelope: {err}; set {env_key}"),
+    }
+}
+
+fn expand_agent_template(template: &str, task: &str, envelope_path: Option<&Path>) -> String {
+    let envelope = envelope_path
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default();
     template
         .replace("{task}", task)
         .replace("{task:q}", &shell_quote_value(task))
+        .replace("{envelope}", &envelope)
+        .replace("{envelope:q}", &shell_quote_value(&envelope))
+}
+
+fn write_lane_envelope(lane: &TerminalLane, state: &TuiState) -> Result<PathBuf, String> {
+    let path = lane_artifact_path(state, &lane.id, "envelope.md")?;
+    let content = render_lane_envelope(lane, state);
+    fs::write(&path, content).map_err(|err| err.to_string())?;
+    Ok(path)
+}
+
+fn lane_artifact_path(state: &TuiState, lane_id: &str, extension: &str) -> Result<PathBuf, String> {
+    let store = state
+        .lane_store
+        .as_deref()
+        .ok_or_else(|| "no lane store available".to_string())?;
+    let parent = store
+        .parent()
+        .ok_or_else(|| "lane store has no parent".to_string())?;
+    let artifact_dir = parent.join("lanes");
+    fs::create_dir_all(&artifact_dir).map_err(|err| err.to_string())?;
+    Ok(artifact_dir.join(format!("{lane_id}.{extension}")))
+}
+
+fn render_lane_envelope(lane: &TerminalLane, state: &TuiState) -> String {
+    format!(
+        "# RoboCode Lane Task\n\nLane: {}\nTool: {}\nWorkspace: {}\nSession: {}\nProvider: {}\nModel: {}\n\n## Task\n{}\n\n## Handoff\n- summary\n- files changed\n- tests run\n- remaining risks\n- suggested next step\n\n## Constraints\n- Do not assume access to the full RoboCode transcript.\n- Keep changes scoped to the task.\n- Report commands run and verification evidence.\n",
+        lane.id,
+        lane.tool,
+        state.workspace.display_root,
+        state.session_id,
+        state.provider,
+        state.model,
+        lane.title
+    )
 }
 
 fn start_background_lane(
@@ -227,6 +277,11 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
         .as_ref()
         .map(|evidence| evidence.done_path.display().to_string())
         .unwrap_or_else(|| "<none>".to_string());
+    let envelope_path = evidence
+        .as_ref()
+        .filter(|evidence| evidence.envelope_path.exists())
+        .map(|evidence| evidence.envelope_path.display().to_string())
+        .unwrap_or_else(|| "<none>".to_string());
     let exit_code = evidence
         .as_ref()
         .and_then(|evidence| evidence.exit_code.as_deref())
@@ -246,10 +301,25 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
             }
         })
         .unwrap_or_else(|| "  <no lane store>".to_string());
+    let envelope = evidence
+        .as_ref()
+        .map(|evidence| {
+            if evidence.envelope_preview.is_empty() {
+                "  <no envelope>".to_string()
+            } else {
+                evidence
+                    .envelope_preview
+                    .iter()
+                    .map(|line| format!("  {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+        })
+        .unwrap_or_else(|| "  <no lane store>".to_string());
     state.entries.push(TuiEntry {
         label: "system".to_string(),
         body: format!(
-            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nExit: {exit_code}\nTail:\n{tail}",
+            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nEnvelope: {envelope_path}\nExit: {exit_code}\nTail:\n{tail}\nEnvelope preview:\n{envelope}",
             lane.id, lane.tool, lane.status, lane.target, lane.progress, lane.title, lane.summary
         ),
     });
@@ -361,7 +431,9 @@ mod tests {
     use super::*;
     use crate::tui::state::{ProviderStatus, WorkspaceSnapshot, load_lanes, refresh_lane_runtime};
     use std::{
-        fs, thread,
+        fs,
+        sync::{Mutex, MutexGuard, OnceLock},
+        thread,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -387,6 +459,7 @@ mod tests {
 
     #[test]
     fn lane_command_adds_visible_lane_without_model_roundtrip() {
+        let _env = ScopedEnv::unset("ROBOCODE_LANE_CODEX_TEMPLATE");
         let mut state = test_state();
 
         assert!(handle_tui_command(
@@ -408,9 +481,90 @@ mod tests {
 
     #[test]
     fn agent_template_quotes_task_placeholder() {
-        let command = expand_agent_template("codex exec {task:q}", "fix 'quoted' task");
+        let envelope = std::path::Path::new("/tmp/task envelope.md");
+        let command = expand_agent_template(
+            "codex exec {task:q} --prompt-file {envelope:q}",
+            "fix 'quoted' task",
+            Some(envelope),
+        );
 
-        assert_eq!(command, "codex exec 'fix '\\''quoted'\\'' task'");
+        assert_eq!(
+            command,
+            "codex exec 'fix '\\''quoted'\\'' task' --prompt-file '/tmp/task envelope.md'"
+        );
+    }
+
+    #[test]
+    fn codex_lane_writes_auditable_envelope_when_adapter_is_not_configured() {
+        let _env = ScopedEnv::unset("ROBOCODE_LANE_CODEX_TEMPLATE");
+        let root = temp_lane_root();
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.lane_store = Some(store.clone());
+
+        assert!(handle_tui_command(
+            "/lane codex fix persistent state",
+            &mut state
+        ));
+
+        let envelope = root.join(".robocode").join("lanes").join("L1.envelope.md");
+        let content = fs::read_to_string(&envelope).expect("lane envelope");
+        assert!(content.contains("# RoboCode Lane Task"));
+        assert!(content.contains("Lane: L1"));
+        assert!(content.contains("Tool: codex"));
+        assert!(content.contains("fix persistent state"));
+        assert!(state.lanes[0].summary.contains("L1.envelope.md"));
+
+        assert!(handle_tui_command("/lane inspect L1", &mut state));
+        let inspect = state.entries.last().expect("inspect entry");
+        assert!(inspect.body.contains("Envelope:"));
+        assert!(inspect.body.contains("# RoboCode Lane Task"));
+        assert!(inspect.body.contains("fix persistent state"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn codex_template_receives_envelope_path_and_runs_against_it() {
+        let _env = ScopedEnv::set("ROBOCODE_LANE_CODEX_TEMPLATE", "cat {envelope:q}");
+        let root = temp_lane_root();
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.lane_store = Some(store.clone());
+
+        assert!(handle_tui_command(
+            "/lane codex summarize adapter",
+            &mut state
+        ));
+
+        assert_eq!(state.lanes[0].tool, "codex");
+        assert_eq!(state.lanes[0].status, "running");
+
+        let mut lanes = Vec::new();
+        for _ in 0..40 {
+            lanes = load_lanes(&store);
+            refresh_lane_runtime(&store, &mut lanes);
+            if lanes.first().is_some_and(|lane| lane.status == "completed") {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(25));
+        }
+
+        assert_eq!(lanes[0].status, "completed");
+        assert!(
+            fs::read_to_string(root.join(".robocode").join("lanes").join("L1.log"))
+                .expect("lane log")
+                .contains("summarize adapter")
+        );
+
+        state.lanes = lanes;
+        assert!(handle_tui_command("/lane inspect L1", &mut state));
+        let inspect = state.entries.last().expect("inspect entry");
+        assert!(inspect.body.contains("Exit: 0"));
+        assert!(inspect.body.contains("Envelope preview:"));
+        assert!(inspect.body.contains("summarize adapter"));
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -468,6 +622,7 @@ mod tests {
 
     #[test]
     fn lane_commands_persist_created_and_stopped_lanes() {
+        let _env = ScopedEnv::unset("ROBOCODE_LANE_CODEX_TEMPLATE");
         let root = temp_lane_root();
         let store = root.join(".robocode").join("lanes.tsv");
         let mut state = test_state();
@@ -598,5 +753,56 @@ mod tests {
             .expect("system time after unix epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("robocode-lane-test-{nanos}"))
+    }
+
+    struct ScopedEnv {
+        key: &'static str,
+        previous: Option<String>,
+        _guard: MutexGuard<'static, ()>,
+    }
+
+    impl ScopedEnv {
+        fn set(key: &'static str, value: &str) -> Self {
+            let guard = env_lock().lock().expect("env test lock");
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self {
+                key,
+                previous,
+                _guard: guard,
+            }
+        }
+
+        fn unset(key: &'static str) -> Self {
+            let guard = env_lock().lock().expect("env test lock");
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::remove_var(key);
+            }
+            Self {
+                key,
+                previous,
+                _guard: guard,
+            }
+        }
+    }
+
+    impl Drop for ScopedEnv {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(value) = &self.previous {
+                    std::env::set_var(self.key, value);
+                } else {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    fn env_lock() -> &'static Mutex<()> {
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
     }
 }

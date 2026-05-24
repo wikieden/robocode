@@ -189,6 +189,14 @@ default_timeout_seconds = 1800
 
 第一版建议先支持 `/lane run` 和 `prompt-file`/`stdin` 风格 adapter。完整 PTY/tmux attach 应该等生命周期、日志和 inspect 稳定后再做。
 
+Template 占位符：
+
+- `{task}` 和 `{task:q}` 展开为原始 task title 或 shell-quoted task title。
+- `{envelope}` 和 `{envelope:q}` 展开为原始 task envelope 文件路径或
+  shell-quoted envelope 路径。
+- Codex 使用 `ROBOCODE_LANE_CODEX_TEMPLATE`；Claude 使用
+  `ROBOCODE_LANE_CLAUDE_TEMPLATE`。
+
 ## 生命周期
 
 1. 用户输入 `/lane codex "fix failing config tests"` 或 `/lane run cargo test -p robocode-core`。
@@ -204,14 +212,15 @@ default_timeout_seconds = 1800
 当前已实现切片：
 
 - `/lane run <command>` 会启动非交互后台 shell lane。
-- Codex 和 Claude lane 可通过 `ROBOCODE_LANE_CODEX_TEMPLATE` 与
-  `ROBOCODE_LANE_CLAUDE_TEMPLATE` 启动；未配置时会排队并给出清晰 setup 提示。
+- Codex 和 Claude lane 始终会写 task envelope。它们可通过
+  `ROBOCODE_LANE_CODEX_TEMPLATE` 与 `ROBOCODE_LANE_CLAUDE_TEMPLATE` 启动；
+  未配置时会排队并给出清晰 setup 提示，同时 envelope 仍可 inspect。
 - Lane 状态存储在 `.robocode/lanes.tsv`。
 - Runtime artifacts 存在 `.robocode/lanes/`，文件为 `<lane-id>.log` 和
-  `<lane-id>.done`。
+  `<lane-id>.done`；外部工具 envelope 为 `<lane-id>.envelope.md`。
 - 主 TUI 和副屏 idle 时都会刷新 lane artifacts。
-- `/lane inspect <id>` 展示 status、progress、log path、done path、持久化
-  exit code 和短 log tail。
+- `/lane inspect <id>` 展示 status、progress、log path、done path、envelope
+  path、持久化 exit code、短 log tail 和 envelope preview。
 - `/lane stop <id>` 会把 lane 标记为 stopped；Unix 平台上如果记录了 pid，
   会向该 lane process group 发送 `SIGTERM`。
 
@@ -292,8 +301,9 @@ default_timeout_seconds = 1800
 - 失败命令展示 exit code 和最后输出；
 - lane 状态有单元测试。
 
-当前状态：非交互命令、持久化日志、exit-code 捕获、idle refresh、inspect
-证据和 Unix process-group stop 已实现。
+当前状态：非交互命令、Codex/Claude task-envelope artifacts、template-driven
+prompt-file launch、持久化日志、exit-code 捕获、idle refresh、inspect 证据和
+Unix process-group stop 已实现。
 
 ### Phase 5: 外部工具 Adapter
 

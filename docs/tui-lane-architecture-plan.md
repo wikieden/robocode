@@ -189,6 +189,14 @@ Input modes:
 
 First implementation should support `run` and `prompt-file`/`stdin` style adapters before full interactive PTY. PTY/tmux should come after lifecycle, logging, and inspection are stable.
 
+Template placeholders:
+
+- `{task}` and `{task:q}` expand to the raw or shell-quoted task title.
+- `{envelope}` and `{envelope:q}` expand to the raw or shell-quoted task
+  envelope file path.
+- Codex uses `ROBOCODE_LANE_CODEX_TEMPLATE`; Claude uses
+  `ROBOCODE_LANE_CLAUDE_TEMPLATE`.
+
 ## Lifecycle
 
 1. User enters `/lane codex "fix failing config tests"` or `/lane run cargo test -p robocode-core`.
@@ -204,15 +212,16 @@ First implementation should support `run` and `prompt-file`/`stdin` style adapte
 Current implemented slice:
 
 - `/lane run <command>` launches a non-interactive background shell lane.
-- Codex and Claude lanes can launch through `ROBOCODE_LANE_CODEX_TEMPLATE` and
-  `ROBOCODE_LANE_CLAUDE_TEMPLATE`; without those templates they queue with a
-  clear setup hint.
+- Codex and Claude lanes always write a task envelope. They can launch through
+  `ROBOCODE_LANE_CODEX_TEMPLATE` and `ROBOCODE_LANE_CLAUDE_TEMPLATE`; without
+  those templates they queue with a clear setup hint while keeping the envelope
+  available for inspection.
 - Lane state is stored in `.robocode/lanes.tsv`.
 - Runtime artifacts live under `.robocode/lanes/` as `<lane-id>.log` and
-  `<lane-id>.done`.
+  `<lane-id>.done`, with external-tool envelopes as `<lane-id>.envelope.md`.
 - The main TUI and companion screens refresh lane artifacts while idle.
-- `/lane inspect <id>` reports status, progress, log path, done path, persisted
-  exit code, and a short log tail.
+- `/lane inspect <id>` reports status, progress, log path, done path, envelope
+  path, persisted exit code, a short log tail, and an envelope preview.
 - `/lane stop <id>` marks the lane stopped and, on Unix platforms, sends
   `SIGTERM` to the lane process group when a pid is recorded.
 
@@ -293,7 +302,8 @@ Acceptance criteria:
 - failed commands report exit code and last output;
 - lane states are unit-tested.
 
-Current status: the non-interactive command path, persisted logs, exit-code
+Current status: the non-interactive command path, Codex/Claude task-envelope
+artifacts, template-driven prompt-file launch, persisted logs, exit-code
 capture, idle refresh, inspect evidence, and Unix process-group stop are
 implemented.
 

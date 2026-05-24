@@ -47,8 +47,10 @@ pub(super) struct TerminalLane {
 pub(super) struct LaneRuntimeEvidence {
     pub(super) log_path: PathBuf,
     pub(super) done_path: PathBuf,
+    pub(super) envelope_path: PathBuf,
     pub(super) exit_code: Option<String>,
     pub(super) log_tail: Vec<String>,
+    pub(super) envelope_preview: Vec<String>,
 }
 
 impl TerminalLane {
@@ -205,7 +207,9 @@ pub(super) fn lane_runtime_evidence(path: &Path, lane_id: &str) -> Option<LaneRu
     let artifact_dir = path.parent()?.join("lanes");
     let log_path = artifact_dir.join(format!("{lane_id}.log"));
     let done_path = artifact_dir.join(format!("{lane_id}.done"));
+    let envelope_path = artifact_dir.join(format!("{lane_id}.envelope.md"));
     let log_tail = log_tail(&log_path, 5);
+    let envelope_preview = file_head(&envelope_path, 12);
     let exit_code = fs::read_to_string(&done_path)
         .ok()
         .map(|value| value.trim().to_string())
@@ -213,8 +217,10 @@ pub(super) fn lane_runtime_evidence(path: &Path, lane_id: &str) -> Option<LaneRu
     Some(LaneRuntimeEvidence {
         log_path,
         done_path,
+        envelope_path,
         exit_code,
         log_tail,
+        envelope_preview,
     })
 }
 
@@ -231,6 +237,19 @@ fn log_tail(path: &Path, max_lines: usize) -> Vec<String> {
     let keep_from = lines.len().saturating_sub(max_lines);
     lines.drain(0..keep_from);
     lines
+}
+
+fn file_head(path: &Path, max_lines: usize) -> Vec<String> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .take(max_lines)
+        .map(|line| line.chars().take(120).collect::<String>())
+        .collect()
 }
 
 fn escape_tsv(value: &str) -> String {
