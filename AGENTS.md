@@ -44,6 +44,10 @@ extra platform machinery is not yet needed.
   - rerun focused tests.
 - Keep docs bilingual when editing user-facing documentation:
   - update English and `*.zh-CN.md` counterparts together.
+- Treat documentation and code comments as part of the implementation:
+  - update relevant docs whenever behavior, commands, architecture, configuration, or user-visible UI changes;
+  - add concise comments for non-obvious control flow, invariants, protocol boundaries, or safety rules;
+  - avoid noisy comments that merely restate obvious code.
 - Keep root docs compact. Put full product detail under `docs/`.
 - Do not edit `.ref/`; it is reference material only.
 - Keep `.omx/`, `.robocode/`, `.worktrees/`, `.ref/`, and build artifacts out of tracked source.
