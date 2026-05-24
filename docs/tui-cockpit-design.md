@@ -107,6 +107,8 @@ route hints so the main agent can decide follow-up actions.
 - The slash palette is local UI state; model calls are not involved.
 - The main screen polls lane artifacts while idle, so background `/lane run`
   completion, failure, and log-tail state appear without a keypress.
+- Live side screens read only persisted lane state; when no lane store exists
+  they show an empty state instead of falling back to preview/demo lanes.
 - `/lane inspect <id>` reads persisted lane artifacts: `.log` tail, `.done`
   exit code, log path, done path, envelope path, and envelope preview.
 - Provider health now reflects measured model-request telemetry from the shared
@@ -120,6 +122,8 @@ route hints so the main agent can decide follow-up actions.
   up to two side screens, `/screen list` reports them, and
   `/screen close <side-1|side-2>` stops tracking and sends a terminate request
   when a pid is known.
+- The screen registry is persisted in `.robocode/screens.tsv`, so main and
+  side-screen processes can observe the same companion-screen state.
 - `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` can override the default current-binary
   launcher for desktop-specific workflows, for example opening a new terminal
   window or routing a side screen to another display. Supported placeholders are

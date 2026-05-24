@@ -94,6 +94,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - slash 提示列表是本地 UI 状态，不触发模型调用。
 - 主屏 idle 时会轮询 lane artifacts，所以后台 `/lane run` 的完成、失败和
   log-tail 状态不需要按键也会刷新。
+- live 副屏只读取持久化 lane 状态；如果没有 lane store，会显示空状态，而不
+  回退到 preview/demo lane。
 - `/lane inspect <id>` 会读取持久化 lane artifacts：`.log` 尾部、`.done`
   exit code、log path、done path、envelope path 和 envelope preview。
 - Provider health 已接入共享 runtime loop 测量到的模型请求 telemetry：真实
@@ -106,6 +108,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   和 workspace 启动真实副屏 TUI 进程。主屏最多跟踪两个副屏，`/screen list`
   显示状态，`/screen close <side-1|side-2>` 会停止跟踪，并在已知 pid 时发送
   终止请求。
+- screen registry 会持久化到 `.robocode/screens.tsv`，所以主屏和副屏进程可以
+  观察同一份 companion-screen 状态。
 - `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` 可以覆盖默认的当前二进制启动方式，用于
   桌面相关流程，例如打开新 terminal 窗口，或把副屏路由到另一块显示器。支持
   `{screen}`、`{provider}`、`{model}`、`{theme}` 以及 shell-quoted 的

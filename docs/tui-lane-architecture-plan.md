@@ -108,6 +108,8 @@ Current slice:
   processes through the current binary by default.
 - The registry tracks at most two companion screens and exposes `/screen list`
   plus `/screen close <side-1|side-2>`.
+- Registry state is persisted in `.robocode/screens.tsv`, allowing side-screen
+  processes to reload sibling screen state while they poll lane artifacts.
 - `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` allows desktop-specific wrappers such as a
   new terminal window or monitor-routing script without baking OS automation
   into the portable core.

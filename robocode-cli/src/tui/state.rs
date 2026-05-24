@@ -42,6 +42,34 @@ pub(super) struct CompanionScreen {
     pub(super) summary: String,
 }
 
+impl CompanionScreen {
+    fn to_tsv(&self) -> String {
+        [
+            escape_tsv(&self.id),
+            escape_tsv(&self.title),
+            escape_tsv(&self.status),
+            self.pid.map(|pid| pid.to_string()).unwrap_or_default(),
+            escape_tsv(&self.summary),
+        ]
+        .join("\t")
+    }
+
+    fn from_tsv(value: &str) -> Option<Self> {
+        let fields = value.split('\t').map(unescape_tsv).collect::<Vec<_>>();
+        if fields.len() != 5 {
+            return None;
+        }
+        let pid = fields[3].parse::<u32>().ok();
+        Some(Self {
+            id: fields[0].clone(),
+            title: fields[1].clone(),
+            status: fields[2].clone(),
+            pid,
+            summary: fields[4].clone(),
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TerminalLane {
     pub(super) id: String,
@@ -165,6 +193,10 @@ pub(super) fn lane_store_path(root: &Path) -> PathBuf {
     root.join(".robocode").join("lanes.tsv")
 }
 
+pub(super) fn screen_store_path(root: &Path) -> PathBuf {
+    root.join(".robocode").join("screens.tsv")
+}
+
 pub(super) fn diagnostics_store_path(root: &Path) -> PathBuf {
     root.join(".robocode").join("diagnostics.txt")
 }
@@ -199,6 +231,28 @@ pub(super) fn save_lanes(path: &Path, lanes: &[TerminalLane]) -> Result<(), Stri
     let content = lanes
         .iter()
         .map(TerminalLane::to_tsv)
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(path, format!("{content}\n")).map_err(|err| err.to_string())
+}
+
+pub(super) fn load_screens(path: &Path) -> Vec<CompanionScreen> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .filter_map(CompanionScreen::from_tsv)
+        .collect()
+}
+
+pub(super) fn save_screens(path: &Path, screens: &[CompanionScreen]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let content = screens
+        .iter()
+        .map(CompanionScreen::to_tsv)
         .collect::<Vec<_>>()
         .join("\n");
     fs::write(path, format!("{content}\n")).map_err(|err| err.to_string())
@@ -760,6 +814,24 @@ mod tests {
 
         assert_eq!(loaded.progress, 64);
         assert_eq!(loaded.summary, "patched failing tests; rerunning cargo");
+    }
+
+    #[test]
+    fn companion_screen_store_round_trips_registry_rows() {
+        let root = temp_state_root();
+        let path = screen_store_path(&root);
+        let screens = vec![CompanionScreen {
+            id: "side-1".to_string(),
+            title: "Agent lanes".to_string(),
+            status: "launched".to_string(),
+            pid: Some(4242),
+            summary: "provider=deepseek model=deepseek-v4-flash".to_string(),
+        }];
+
+        save_screens(&path, &screens).expect("save screens");
+        let loaded = load_screens(&path);
+
+        assert_eq!(loaded, screens);
     }
 
     fn temp_state_root() -> PathBuf {

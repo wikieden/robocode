@@ -108,6 +108,8 @@ enum ScreenKind {
   TUI 进程。
 - registry 最多跟踪两个副屏，并暴露 `/screen list` 和
   `/screen close <side-1|side-2>`。
+- registry 状态会持久化到 `.robocode/screens.tsv`，副屏进程轮询 lane
+  artifacts 时也能重新读取 sibling screen 状态。
 - `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` 允许接入桌面特定 wrapper，例如新 terminal
   窗口或显示器路由脚本，而不把 OS 自动化写死到跨平台核心里。
 

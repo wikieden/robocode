@@ -1,5 +1,6 @@
 use std::{
     env,
+    path::Path,
     process::{Command, Stdio},
     time::Duration,
 };
@@ -10,7 +11,8 @@ use robocode_core::SessionEngine;
 use super::input::should_exit;
 use super::state::{
     CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
-    lane_store_path, load_lanes, refresh_lane_runtime, save_lanes,
+    lane_store_path, load_lanes, load_screens, refresh_lane_runtime, save_lanes, save_screens,
+    screen_store_path,
 };
 use super::terminal::TerminalGuard;
 
@@ -21,9 +23,9 @@ pub(crate) fn run_side_tui_with_theme(
     theme_name: Option<&str>,
 ) -> Result<(), String> {
     let mut terminal = TerminalGuard::enter_with_theme(theme_name)?;
-    let lane_store = std::env::current_dir()
-        .ok()
-        .map(|root| lane_store_path(&root));
+    let root = std::env::current_dir().ok();
+    let lane_store = root.as_ref().map(|root| lane_store_path(root));
+    let screen_store = root.as_ref().map(|root| screen_store_path(root));
     let mut state = TuiState {
         session_id: engine.session_id().to_string(),
         provider: engine.provider_name().to_string(),
@@ -40,14 +42,14 @@ pub(crate) fn run_side_tui_with_theme(
             body: format!("RoboCode side monitor ready. Esc or Ctrl-C exits.\n{startup_summary}"),
         }],
         workspace: WorkspaceSnapshot::load_current(),
-        screens: vec![current_screen_record(screen)],
-        lanes: lane_store
-            .as_deref()
-            .map(load_lanes)
-            .unwrap_or_else(TerminalLane::preview_lanes),
+        screens: load_side_screens(screen_store.as_deref(), screen),
+        lanes: load_side_lanes(lane_store.as_deref()),
         lane_store,
         focused_lane: None,
     };
+    if let Some(path) = screen_store.as_deref() {
+        let _ = save_screens(path, &state.screens);
+    }
     draw_side_screen(&mut terminal, &state, screen)?;
 
     loop {
@@ -77,6 +79,10 @@ pub(crate) fn run_side_tui_with_theme(
             state.lanes = load_lanes(path);
             refresh_lane_runtime(path, &mut state.lanes);
             let _ = save_lanes(path, &state.lanes);
+        }
+        if let Some(path) = screen_store.as_deref() {
+            state.screens = load_side_screens(Some(path), screen);
+            let _ = save_screens(path, &state.screens);
         }
         state.workspace = WorkspaceSnapshot::load_current();
         draw_side_screen(&mut terminal, &state, screen)?;
@@ -151,6 +157,16 @@ fn draw_side_screen(
     }
 }
 
+fn load_side_lanes(lane_store: Option<&Path>) -> Vec<TerminalLane> {
+    lane_store.map(load_lanes).unwrap_or_default()
+}
+
+fn load_side_screens(screen_store: Option<&Path>, current: SideScreen) -> Vec<CompanionScreen> {
+    let mut screens = screen_store.map(load_screens).unwrap_or_default();
+    upsert_screen(&mut screens, current_screen_record(current));
+    screens
+}
+
 fn current_screen_record(screen: SideScreen) -> CompanionScreen {
     CompanionScreen {
         id: screen.id().to_string(),
@@ -158,6 +174,17 @@ fn current_screen_record(screen: SideScreen) -> CompanionScreen {
         status: "attached".to_string(),
         pid: Some(std::process::id()),
         summary: "current side-screen process".to_string(),
+    }
+}
+
+fn upsert_screen(screens: &mut Vec<CompanionScreen>, screen: CompanionScreen) {
+    if let Some(existing) = screens
+        .iter_mut()
+        .find(|candidate| candidate.id == screen.id)
+    {
+        *existing = screen;
+    } else {
+        screens.push(screen);
     }
 }
 
@@ -189,6 +216,7 @@ fn launch_companion_screen(state: &mut TuiState, screen: SideScreen) {
                 pid: Some(pid),
                 summary: format!("provider={} model={}", state.provider, state.model),
             });
+            persist_screens(state);
             state.entries.push(TuiEntry {
                 label: "system".to_string(),
                 body: format!(
@@ -313,6 +341,7 @@ fn close_companion_screen(state: &mut TuiState, screen: &str) {
         return;
     };
     let closed = state.screens.remove(index);
+    persist_screens(state);
     let stop_note = closed
         .pid
         .map(stop_companion_process)
@@ -321,6 +350,16 @@ fn close_companion_screen(state: &mut TuiState, screen: &str) {
         label: "system".to_string(),
         body: format!("Closed screen `{}`. {stop_note}", closed.id),
     });
+}
+
+fn persist_screens(state: &mut TuiState) {
+    let path = screen_store_path(&state.workspace.root);
+    if let Err(err) = save_screens(&path, &state.screens) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to persist screen registry: {err}"),
+        });
+    }
 }
 
 #[cfg(unix)]
@@ -435,6 +474,56 @@ mod tests {
 
         assert!(!handle_screen_command("/screenshots", &mut state));
         assert!(state.entries.is_empty());
+    }
+
+    #[test]
+    fn side_screen_lanes_do_not_fall_back_to_preview_data() {
+        let root = std::env::temp_dir().join(format!(
+            "robocode-side-lanes-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let missing_store = root.join(".robocode").join("lanes.tsv");
+
+        let lanes = load_side_lanes(Some(&missing_store));
+
+        assert!(lanes.is_empty());
+    }
+
+    #[test]
+    fn side_screen_registry_merges_current_screen_with_persisted_siblings() {
+        let root = std::env::temp_dir().join(format!(
+            "robocode-side-screen-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let path = screen_store_path(&root);
+        save_screens(
+            &path,
+            &[CompanionScreen {
+                id: "side-2".to_string(),
+                title: "Workspace ops".to_string(),
+                status: "launched".to_string(),
+                pid: Some(202),
+                summary: "persisted sibling".to_string(),
+            }],
+        )
+        .expect("save sibling screen");
+
+        let screens = load_side_screens(Some(&path), SideScreen::Lanes);
+
+        assert!(screens.iter().any(|screen| screen.id == "side-1"
+            && screen.status == "attached"
+            && screen.pid == Some(std::process::id())));
+        assert!(
+            screens
+                .iter()
+                .any(|screen| screen.id == "side-2" && screen.summary == "persisted sibling")
+        );
     }
 
     #[test]

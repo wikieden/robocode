@@ -55,11 +55,10 @@ pub(super) fn command_hint(tool: &str, task: &str) -> String {
 }
 
 pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
-    if !input.starts_with("/lane") {
+    let mut parts = input.split_whitespace();
+    if parts.next() != Some("/lane") {
         return false;
     }
-    let mut parts = input.split_whitespace();
-    let _ = parts.next();
     match parts.next() {
         Some("close") => close_lane_focus(state),
         Some("inspect") => inspect_lane(parts.next(), state),
@@ -576,6 +575,15 @@ mod tests {
 
         assert!(state.lanes.is_empty());
         assert!(state.entries[0].body.contains("Usage: /lane codex"));
+    }
+
+    #[test]
+    fn lane_command_does_not_capture_other_slash_commands() {
+        let mut state = test_state();
+
+        assert!(!handle_tui_command("/lanes", &mut state));
+
+        assert!(state.entries.is_empty());
     }
 
     #[test]

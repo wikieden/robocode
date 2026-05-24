@@ -13,7 +13,7 @@ use super::lane::{handle_tui_command, refresh_lanes};
 use super::screen::handle_screen_command;
 use super::state::{
     ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot, entry_from_event, lane_store_path,
-    latest_lsp_diagnostics, load_lanes, save_diagnostics,
+    latest_lsp_diagnostics, load_lanes, load_screens, save_diagnostics, screen_store_path,
 };
 use super::terminal::TerminalGuard;
 
@@ -121,6 +121,8 @@ fn initial_state(
     lanes: Vec<super::state::TerminalLane>,
     theme_name: &str,
 ) -> TuiState {
+    let workspace = WorkspaceSnapshot::load_current();
+    let screens = load_screens(&screen_store_path(&workspace.root));
     TuiState {
         session_id: engine.session_id().to_string(),
         provider: engine.provider_name().to_string(),
@@ -138,8 +140,8 @@ fn initial_state(
                 "RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.\n{startup_summary}"
             ),
         }],
-        workspace: WorkspaceSnapshot::load_current(),
-        screens: Vec::new(),
+        workspace,
+        screens,
         lanes,
         lane_store,
         focused_lane: None,
