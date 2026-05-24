@@ -107,6 +107,9 @@ route hints so the main agent can decide follow-up actions.
 - The slash palette is local UI state; model calls are not involved.
 - The main screen polls lane artifacts while idle, so background `/lane run`
   completion, failure, and log-tail state appear without a keypress.
+- The right-rail `ACTIVE TASKS` panel reads the real workflow task store exposed
+  by `/task` and `/tasks`, then combines those task records with pending
+  approvals and active lanes.
 - Live side screens read only persisted lane state; when no lane store exists
   they show an empty state instead of falling back to preview/demo lanes.
 - `/lane inspect <id>` reads persisted lane artifacts: `.log` tail, `.done`

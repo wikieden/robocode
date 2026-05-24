@@ -23,7 +23,7 @@ use robocode_model::{ModelProvider, ProviderHost};
 use robocode_permissions::PermissionEngine;
 use robocode_session::SessionStore;
 use robocode_tools::ToolRegistry;
-use robocode_types::{Message, PermissionMode, RuntimeSnapshot};
+use robocode_types::{Message, PermissionMode, RuntimeSnapshot, TaskRecord};
 use robocode_workflows::stores::WorkflowStore;
 
 const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
@@ -191,6 +191,16 @@ impl SessionEngine {
 
     pub fn provider_telemetry(&self) -> ProviderTelemetry {
         self.provider_telemetry.clone()
+    }
+
+    pub fn active_task_snapshot(&self) -> Result<Vec<TaskRecord>, String> {
+        Ok(self
+            .workflows
+            .load_task_state()?
+            .active_tasks()
+            .into_iter()
+            .cloned()
+            .collect())
     }
 
     pub fn set_provider_runtime(

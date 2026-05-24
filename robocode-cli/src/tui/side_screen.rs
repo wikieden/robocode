@@ -172,6 +172,7 @@ mod tests {
             approval_apply_all: false,
             entries: Vec::<TuiEntry>::new(),
             workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
             screens: vec![CompanionScreen {
                 id: "side-1".to_string(),
                 title: "Agent lanes".to_string(),

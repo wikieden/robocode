@@ -123,6 +123,7 @@ fn initial_state(
 ) -> TuiState {
     let workspace = WorkspaceSnapshot::load_current();
     let screens = load_screens(&screen_store_path(&workspace.root));
+    let tasks = engine.active_task_snapshot().unwrap_or_default();
     TuiState {
         session_id: engine.session_id().to_string(),
         provider: engine.provider_name().to_string(),
@@ -141,6 +142,7 @@ fn initial_state(
             ),
         }],
         workspace,
+        tasks,
         screens,
         lanes,
         lane_store,
@@ -178,6 +180,7 @@ fn handle_enter(
     state.provider = engine.provider_name().to_string();
     state.model = engine.model_name().to_string();
     state.provider_status = ProviderStatus::from_telemetry(&engine.provider_telemetry());
+    state.tasks = engine.active_task_snapshot().unwrap_or_default();
     state.workspace = WorkspaceSnapshot::load_current();
     Ok(false)
 }
@@ -241,6 +244,7 @@ mod tests {
                 body: "LSP diagnostics:\nsrc/main.rs:\n  1:2 error [fake/E1] broken".to_string(),
             }],
             workspace,
+            tasks: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::<TerminalLane>::new(),
             lane_store: None,

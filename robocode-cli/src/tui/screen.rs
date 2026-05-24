@@ -42,6 +42,7 @@ pub(crate) fn run_side_tui_with_theme(
             body: format!("RoboCode side monitor ready. Esc or Ctrl-C exits.\n{startup_summary}"),
         }],
         workspace: WorkspaceSnapshot::load_current(),
+        tasks: engine.active_task_snapshot().unwrap_or_default(),
         screens: load_side_screens(screen_store.as_deref(), screen),
         lanes: load_side_lanes(lane_store.as_deref()),
         lane_store,
@@ -85,6 +86,7 @@ pub(crate) fn run_side_tui_with_theme(
             let _ = save_screens(path, &state.screens);
         }
         state.workspace = WorkspaceSnapshot::load_current();
+        state.tasks = engine.active_task_snapshot().unwrap_or_default();
         draw_side_screen(&mut terminal, &state, screen)?;
     }
 
@@ -410,6 +412,7 @@ mod tests {
             approval_apply_all: false,
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
             screens: Vec::new(),
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,

@@ -94,6 +94,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - slash 提示列表是本地 UI 状态，不触发模型调用。
 - 主屏 idle 时会轮询 lane artifacts，所以后台 `/lane run` 的完成、失败和
   log-tail 状态不需要按键也会刷新。
+- 右侧栏 `ACTIVE TASKS` 面板会读取 `/task` 和 `/tasks` 背后的真实 workflow
+  task store，并把这些 task record 与 pending approval、active lane 合并展示。
 - live 副屏只读取持久化 lane 状态；如果没有 lane store，会显示空状态，而不
   回退到 preview/demo lane。
 - `/lane inspect <id>` 会读取持久化 lane artifacts：`.log` 尾部、`.done`

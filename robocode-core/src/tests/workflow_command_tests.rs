@@ -33,6 +33,9 @@ fn workflow_task_commands_create_list_and_resume_context() {
             if text.contains("Project tasks:")
                 && text.contains("Build workflow commands")
     )));
+    let active_tasks = engine.active_task_snapshot().unwrap();
+    assert_eq!(active_tasks.len(), 1);
+    assert_eq!(active_tasks[0].title, "Build workflow commands");
 
     let context = engine
         .process_input_with_approval("/task resume-context", &mut approver)

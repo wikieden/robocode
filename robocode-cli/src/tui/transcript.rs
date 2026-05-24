@@ -194,6 +194,7 @@ mod tests {
             approval_apply_all: false,
             entries,
             workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
             screens: Vec::new(),
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,

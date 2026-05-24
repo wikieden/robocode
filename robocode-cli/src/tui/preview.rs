@@ -2,6 +2,7 @@ use super::state::{
     CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
 };
 use super::{render, terminal};
+use robocode_types::{TaskPriority, TaskRecord, TaskStatus};
 
 pub(crate) fn render_preview(provider: &str, model: &str) -> String {
     let state = preview_state(provider, model, "aurora-cyan");
@@ -124,6 +125,7 @@ fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
         approval_focus: 0,
         approval_apply_all: false,
         workspace: WorkspaceSnapshot::fixture(),
+        tasks: preview_tasks(),
         screens: preview_screens(),
         lanes: TerminalLane::preview_lanes(),
         lane_store: None,
@@ -180,6 +182,47 @@ fn preview_screens() -> Vec<CompanionScreen> {
             status: "launched".to_string(),
             pid: Some(4102),
             summary: "ops monitor on vertical display".to_string(),
+        },
+    ]
+}
+
+fn preview_tasks() -> Vec<TaskRecord> {
+    vec![
+        TaskRecord {
+            task_id: "task_load_config".to_string(),
+            title: "Implement load_config".to_string(),
+            description: None,
+            status: TaskStatus::InProgress,
+            priority: TaskPriority::High,
+            labels: vec!["tui".to_string()],
+            assignee_hint: Some("main".to_string()),
+            parent_task_id: None,
+            dependency_ids: Vec::new(),
+            blocked_by: None,
+            notes: Vec::new(),
+            created_at: 1,
+            updated_at: 2,
+            last_session_id: Some("c4f2b7e".to_string()),
+            last_seen_at: None,
+            archived_at: None,
+        },
+        TaskRecord {
+            task_id: "task_review_tests".to_string(),
+            title: "Review config tests".to_string(),
+            description: None,
+            status: TaskStatus::Blocked,
+            priority: TaskPriority::Medium,
+            labels: vec!["review".to_string()],
+            assignee_hint: Some("side-1".to_string()),
+            parent_task_id: None,
+            dependency_ids: Vec::new(),
+            blocked_by: Some("approval".to_string()),
+            notes: Vec::new(),
+            created_at: 1,
+            updated_at: 2,
+            last_session_id: Some("c4f2b7e".to_string()),
+            last_seen_at: None,
+            archived_at: None,
         },
     ]
 }

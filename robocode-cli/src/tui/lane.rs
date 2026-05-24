@@ -431,7 +431,10 @@ mod tests {
     use crate::tui::state::{ProviderStatus, WorkspaceSnapshot, load_lanes, refresh_lane_runtime};
     use std::{
         fs,
-        sync::{Mutex, MutexGuard, OnceLock},
+        sync::{
+            Mutex, MutexGuard, OnceLock,
+            atomic::{AtomicU64, Ordering},
+        },
         thread,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -449,6 +452,7 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),
             lane_store: None,
@@ -757,11 +761,13 @@ mod tests {
     }
 
     fn temp_lane_root() -> std::path::PathBuf {
+        static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time after unix epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("robocode-lane-test-{nanos}"))
+        let suffix = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("robocode-lane-test-{nanos}-{suffix}"))
     }
 
     struct ScopedEnv {

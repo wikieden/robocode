@@ -314,7 +314,8 @@ Template 占位符：
 
 当前状态：非交互命令、Codex/Claude task-envelope artifacts、template-driven
 prompt-file launch、持久化日志、exit-code 捕获、idle refresh、inspect 证据和
-Unix process-group stop 已实现。
+Unix process-group stop 已实现。主 TUI 也会读取 workflow task store，因此
+`ACTIVE TASKS` 面板会把真实 `/task` 记录与审批、lane 一起展示。
 
 ### Phase 5: 外部工具 Adapter
 

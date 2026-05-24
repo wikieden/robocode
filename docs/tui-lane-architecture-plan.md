@@ -317,7 +317,9 @@ Acceptance criteria:
 Current status: the non-interactive command path, Codex/Claude task-envelope
 artifacts, template-driven prompt-file launch, persisted logs, exit-code
 capture, idle refresh, inspect evidence, and Unix process-group stop are
-implemented.
+implemented. The main TUI also reads the workflow task store so the
+`ACTIVE TASKS` panel reflects real `/task` records alongside approvals and
+lanes.
 
 ### Phase 5: External Tool Adapters
 

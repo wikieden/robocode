@@ -125,6 +125,7 @@ mod tests {
         text::char_width,
     };
     use robocode_core::ProviderTelemetry;
+    use robocode_types::{TaskPriority, TaskRecord, TaskStatus};
 
     fn render_state() -> TuiState {
         TuiState {
@@ -139,6 +140,7 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),
             lane_store: None,
@@ -312,6 +314,23 @@ mod tests {
     }
 
     #[test]
+    fn render_right_rail_uses_real_workflow_tasks() {
+        let mut state = render_state();
+        state.tasks = vec![task_record(
+            "task_active",
+            "Ship active task panel",
+            TaskStatus::InProgress,
+        )];
+
+        let rendered = render_frame(&state, 140, 36);
+
+        assert!(rendered.contains("ACTIVE TASKS"));
+        assert!(rendered.contains("task_ac/prog"));
+        assert!(rendered.contains("Ship active task"));
+        assert!(!rendered.contains("○ no active tasks"));
+    }
+
+    #[test]
     fn render_right_rail_uses_real_cached_lsp_diagnostics() {
         let mut state = render_state();
         state.workspace.diagnostics =
@@ -338,6 +357,27 @@ mod tests {
 
         assert!(rendered.contains("event 11"));
         assert!(!rendered.contains("event 0"));
+    }
+
+    fn task_record(task_id: &str, title: &str, status: TaskStatus) -> TaskRecord {
+        TaskRecord {
+            task_id: task_id.to_string(),
+            title: title.to_string(),
+            description: None,
+            status,
+            priority: TaskPriority::Medium,
+            labels: Vec::new(),
+            assignee_hint: None,
+            parent_task_id: None,
+            dependency_ids: Vec::new(),
+            blocked_by: None,
+            notes: Vec::new(),
+            created_at: 1,
+            updated_at: 2,
+            last_session_id: None,
+            last_seen_at: None,
+            archived_at: None,
+        }
     }
 
     #[test]

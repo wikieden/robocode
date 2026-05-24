@@ -6,6 +6,7 @@ use super::{
     text::truncate,
 };
 
+use robocode_types::{TaskRecord, TaskStatus};
 use std::time::SystemTime;
 
 pub(super) fn right_rail(state: &TuiState, width: usize, height: usize) -> Vec<String> {
@@ -94,6 +95,14 @@ fn active_task_rows(state: &TuiState) -> Vec<String> {
             truncate(&approval_tool(approval), 8)
         ));
         rows.push(format!("  {}", truncate(&approval_scope(approval), 31)));
+    }
+    for task in state.tasks.iter().take(3) {
+        rows.push(format!(
+            "{} {:<11} {}",
+            task_status_dot(task.status),
+            task_badge(task),
+            truncate(&task.title, 18)
+        ));
     }
     for lane in state
         .lanes
@@ -217,6 +226,7 @@ fn recent_file_rows(state: &TuiState) -> Vec<String> {
 
 fn active_task_count(state: &TuiState) -> usize {
     usize::from(latest_approval(state).is_some())
+        + state.tasks.len()
         + state
             .lanes
             .iter()
@@ -250,6 +260,30 @@ fn status_dot(status: &str) -> &'static str {
         "failed" => "✕",
         _ => "○",
     }
+}
+
+fn task_status_dot(status: TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Todo => "○",
+        TaskStatus::InProgress => "●",
+        TaskStatus::Blocked => "◆",
+        TaskStatus::Done => "✓",
+        TaskStatus::Archived => "·",
+    }
+}
+
+fn task_badge(task: &TaskRecord) -> String {
+    format!(
+        "{}/{}",
+        truncate(&task.task_id, 7),
+        match task.status {
+            TaskStatus::Todo => "todo",
+            TaskStatus::InProgress => "prog",
+            TaskStatus::Blocked => "block",
+            TaskStatus::Done => "done",
+            TaskStatus::Archived => "arch",
+        }
+    )
 }
 
 fn file_badge(file: &str) -> &'static str {
