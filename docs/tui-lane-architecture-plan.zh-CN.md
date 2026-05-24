@@ -330,7 +330,8 @@ Unix process-group stop 已实现。主 TUI 也会读取 workflow task store，�
 - 当二进制存在时启用 `codex` 和 `claude` preset；
 - 先支持 `stdin`、`prompt-file`、`manual` 输入模式；
 - changed-file 和 diff 检测；
-- `/lane accept`、`/lane revise`、`/lane discard`。
+- `/lane accept`、`/lane revise`、`/lane discard`；
+- 面向 accepted 隔离 lane worktree 的 `/lane apply`。
 
 验收标准：
 
@@ -344,7 +345,8 @@ adapter。启动后它们会运行于 per-lane Git worktree，并收到写明 la
 和 mutation scope 的 envelope。`/lane inspect <id>` 现在会展示相关 workspace
 的 changed files、exit/log verification evidence 和已记录的 lane decision。
 `/lane accept`、`/lane revise` 和 `/lane discard` 会持久化显式决策 artifact，
-但不声称自动 apply 或 revert 变更。
+但不声称自动 revert 变更。`/lane apply <id>` 现在提供 accepted 隔离 lane
+worktree 的显式集成步骤。
 
 ### Phase 6: 隔离
 
@@ -366,7 +368,9 @@ adapter。启动后它们会运行于 per-lane Git worktree，并收到写明 la
 inspect 和 decision artifact 会在 lane worktree 存在时从该 worktree 读取
 changed files。`/lane cleanup <id>` 会移除干净的 worktree 并写 cleanup
 artifact；dirty worktree 必须显式 `--force`，所以 discard 只记录意图而不会删除
-证据。apply/merge 仍是明确的后续工作。
+证据。`/lane apply <id>` 会写入 `.apply.patch` 和 `.apply.md`，先通过
+`git apply --check` 验证 patch，再应用到主 workspace；commit 和 cleanup
+仍是单独的操作者动作。更完整的 merge/conflict review 仍是后续工作。
 
 ### Phase 7: 可 Attach 的 Terminal Pane
 

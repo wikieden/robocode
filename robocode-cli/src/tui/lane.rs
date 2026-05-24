@@ -1,7 +1,7 @@
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
 };
 
 #[cfg(unix)]
@@ -21,6 +21,7 @@ pub(super) fn status_badge(status: &str) -> &'static str {
         "revise" => "[revise]",
         "discarded" => "[discard]",
         "archived" => "[archive]",
+        "applied" => "[applied]",
         "attached" => "[attach]",
         "detached" => "[detach]",
         _ => "[idle]",
@@ -72,6 +73,7 @@ pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
         Some("accept") => decide_lane("accepted", parts.next(), parts.collect(), state),
         Some("revise") => decide_lane("revise", parts.next(), parts.collect(), state),
         Some("discard") => decide_lane("discarded", parts.next(), parts.collect(), state),
+        Some("apply") => apply_lane(parts.next(), parts.collect(), state),
         Some("cleanup") => cleanup_lane(parts.next(), parts.collect(), state),
         Some("attach") => attach_lane(parts.next(), state),
         Some("detach") => detach_lane(parts.next(), state),
@@ -848,6 +850,265 @@ fn render_lane_attach(
     )
 }
 
+fn apply_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(index) = state
+        .lanes
+        .iter()
+        .position(|lane| lane.id.eq_ignore_ascii_case(id))
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let lane = state.lanes[index].clone();
+    if matches!(lane.status.as_str(), "running" | "queued") {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Lane `{}` is {}; stop or finish it before apply.",
+                lane.id, lane.status
+            ),
+        });
+        return;
+    }
+    let force = args.iter().any(|arg| *arg == "--force" || *arg == "-f");
+    if lane.status != "accepted" && !force {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Refused to apply lane `{}` because it is `{}`.\nReview it with `/lane inspect {}` and record `/lane accept {}` first, or use `/lane apply {} --force`.",
+                lane.id, lane.status, lane.id, lane.id, lane.id
+            ),
+        });
+        return;
+    }
+    let Some(worktree) = lane.worktree.clone() else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Lane `{}` has no isolated worktree to apply. Only isolated lane outputs can be patch-applied.",
+                lane.id
+            ),
+        });
+        return;
+    };
+    if !worktree.exists() {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Lane `{}` worktree no longer exists: {}",
+                lane.id,
+                worktree.display()
+            ),
+        });
+        return;
+    }
+    let patch = match lane_diff_patch(&worktree) {
+        Ok(patch) if !patch.trim().is_empty() => patch,
+        Ok(_) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Lane `{}` has no worktree changes to apply.", lane.id),
+            });
+            return;
+        }
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to build apply patch for lane `{}`: {err}", lane.id),
+            });
+            return;
+        }
+    };
+    let patch_path = match lane_artifact_path(state, &lane.id, "apply.patch") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to prepare apply patch artifact: {err}"),
+            });
+            return;
+        }
+    };
+    if let Err(err) = fs::write(&patch_path, patch) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to write apply patch: {err}"),
+        });
+        return;
+    }
+    if let Err(err) = git_apply_patch(&state.workspace.root, &patch_path, true) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Refused to apply lane `{}` because the patch does not apply cleanly.\nPatch: {}\n{err}",
+                lane.id,
+                patch_path.display()
+            ),
+        });
+        return;
+    }
+    if let Err(err) = git_apply_patch(&state.workspace.root, &patch_path, false) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Failed to apply lane `{}` after check passed.\nPatch: {}\n{err}",
+                lane.id,
+                patch_path.display()
+            ),
+        });
+        return;
+    }
+    let apply_path = match lane_artifact_path(state, &lane.id, "apply.md") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Applied lane but failed to prepare apply artifact: {err}"),
+            });
+            return;
+        }
+    };
+    let changed_files = changed_file_rows(&state.workspace.root);
+    if let Err(err) = fs::write(
+        &apply_path,
+        render_lane_apply(&lane, &worktree, &patch_path, &changed_files, force),
+    ) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Applied lane but failed to write apply artifact: {err}"),
+        });
+        return;
+    }
+    state.lanes[index].status = "applied".to_string();
+    state.lanes[index].progress = 100;
+    state.lanes[index].summary = format!(
+        "applied patch {}; cleanup remains separate",
+        patch_path.display()
+    );
+    persist_lanes(state);
+    state.entries.push(TuiEntry {
+        label: "system".to_string(),
+        body: format!(
+            "Applied lane `{}` patch to the current workspace.\nPatch: {}\nApply record: {}\nReview the main workspace diff, then use `/lane cleanup {}` when the isolated worktree is no longer needed.",
+            lane.id,
+            patch_path.display(),
+            apply_path.display(),
+            lane.id
+        ),
+    });
+}
+
+fn lane_diff_patch(worktree: &Path) -> Result<String, String> {
+    let untracked = git_untracked_files(worktree)?;
+    if !untracked.is_empty() {
+        // Intent-to-add makes untracked files appear in the patch without
+        // staging their contents.
+        let mut command = Command::new("git");
+        command.arg("add").arg("-N").arg("--").args(&untracked);
+        run_git_command(command.current_dir(worktree), "git add -N")?;
+    }
+    let diff = {
+        let mut command = Command::new("git");
+        command.arg("diff").arg("--binary").arg("HEAD");
+        command
+            .current_dir(worktree)
+            .output()
+            .map_err(|err| format!("failed to run git diff: {err}"))
+    };
+    if !untracked.is_empty() {
+        let mut command = Command::new("git");
+        command
+            .arg("restore")
+            .arg("--staged")
+            .arg("--")
+            .args(&untracked);
+        let _ = run_git_command(command.current_dir(worktree), "git restore --staged");
+    }
+    let output = diff?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(command_error("git diff", &output))
+    }
+}
+
+fn git_untracked_files(root: &Path) -> Result<Vec<String>, String> {
+    let output = Command::new("git")
+        .arg("ls-files")
+        .arg("--others")
+        .arg("--exclude-standard")
+        .arg("-z")
+        .current_dir(root)
+        .output()
+        .map_err(|err| format!("failed to run git ls-files: {err}"))?;
+    if !output.status.success() {
+        return Err(command_error("git ls-files", &output));
+    }
+    Ok(output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+        .map(|path| String::from_utf8_lossy(path).to_string())
+        .collect())
+}
+
+fn git_apply_patch(root: &Path, patch_path: &Path, check_only: bool) -> Result<(), String> {
+    let mut command = Command::new("git");
+    command.arg("apply");
+    if check_only {
+        command.arg("--check");
+    }
+    command.arg(patch_path);
+    run_git_command(command.current_dir(root), "git apply")
+}
+
+fn run_git_command(command: &mut Command, name: &str) -> Result<(), String> {
+    let output = command
+        .output()
+        .map_err(|err| format!("failed to run {name}: {err}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(command_error(name, &output))
+    }
+}
+
+fn command_error(name: &str, output: &Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if stderr.is_empty() {
+        format!("{name} exited with {}", output.status)
+    } else {
+        stderr
+    }
+}
+
+fn render_lane_apply(
+    lane: &TerminalLane,
+    worktree: &Path,
+    patch_path: &Path,
+    changed_files: &str,
+    forced: bool,
+) -> String {
+    format!(
+        "# RoboCode Lane Apply\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Workspace changed files after apply\n{changed_files}\n\n## Follow-up\n- Review the main workspace diff.\n- Commit separately when satisfied.\n- Cleanup the isolated worktree with `/lane cleanup {}` after integration is no longer needed.\n",
+        lane.id,
+        lane.tool,
+        lane.status,
+        worktree.display(),
+        patch_path.display(),
+        lane.title,
+        lane.id
+    )
+}
+
 fn cleanup_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
     let Some(id) = id else {
         push_lane_usage(state);
@@ -1112,7 +1373,7 @@ pub(super) fn refresh_lanes(state: &mut TuiState) {
 fn push_lane_usage(state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane cleanup <id> [--force] | /lane close"
+        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane cleanup <id> [--force] | /lane close"
             .to_string(),
     });
 }
@@ -1307,6 +1568,81 @@ mod tests {
         let inspect = state.entries.last().expect("inspect entry");
         assert!(inspect.body.contains(&worktree.display().to_string()));
         assert!(inspect.body.contains("?? isolated.txt"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_apply_requires_accept_and_applies_worktree_patch() {
+        let _env = ScopedEnv::set(
+            "ROBOCODE_LANE_CODEX_TEMPLATE",
+            "printf lane > README.md; printf extra > generated.txt",
+        );
+        let root = temp_lane_root();
+        init_git_repo(&root);
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store.clone());
+
+        assert!(handle_tui_command("/lane codex change files", &mut state));
+
+        let mut lanes = Vec::new();
+        for _ in 0..40 {
+            lanes = load_lanes(&store);
+            refresh_lane_runtime(&store, &mut lanes);
+            if lanes.first().is_some_and(|lane| lane.status == "completed") {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(25));
+        }
+        state.lanes = lanes;
+
+        assert_eq!(
+            fs::read_to_string(root.join("README.md")).unwrap(),
+            "fixture\n"
+        );
+        assert!(!root.join("generated.txt").exists());
+
+        assert!(handle_tui_command("/lane apply L1", &mut state));
+        assert!(
+            state
+                .entries
+                .last()
+                .expect("apply refusal")
+                .body
+                .contains("Refused to apply lane")
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("README.md")).unwrap(),
+            "fixture\n"
+        );
+
+        assert!(handle_tui_command("/lane accept L1 looks good", &mut state));
+        assert!(handle_tui_command("/lane apply L1", &mut state));
+
+        assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "lane");
+        assert_eq!(
+            fs::read_to_string(root.join("generated.txt")).unwrap(),
+            "extra"
+        );
+        assert_eq!(state.lanes[0].status, "applied");
+        assert!(
+            state.lanes[0]
+                .worktree
+                .as_ref()
+                .is_some_and(|path| path.exists())
+        );
+        assert!(
+            fs::read_to_string(root.join(".robocode/lanes/L1.apply.patch"))
+                .expect("apply patch")
+                .contains("generated.txt")
+        );
+        assert!(
+            fs::read_to_string(root.join(".robocode/lanes/L1.apply.md"))
+                .expect("apply record")
+                .contains("Cleanup the isolated worktree")
+        );
 
         let _ = fs::remove_dir_all(root);
     }

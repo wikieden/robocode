@@ -18,6 +18,21 @@ agents should follow when changing the project.
 - Treat documentation and code comments as part of the implementation, not as
   optional cleanup.
 
+## Code Change Definition of Done
+
+Every code change should be considered incomplete until the surrounding
+maintainer context is also updated:
+
+- update docs in the same change when behavior, commands, configuration,
+  screenshots, workflows, architecture, packaging, or troubleshooting changes;
+- add or refresh code comments for non-obvious invariants, safety boundaries,
+  rendering rules, protocol compatibility, or concurrency behavior;
+- remove stale comments and stale documentation when implementation changes make
+  them misleading;
+- keep comments concise and specific to the decision or invariant they protect;
+- include documentation and comment review in the final diff check before
+  testing and handoff.
+
 ## Documentation Standard
 
 Update documentation in the same change set whenever a change affects:

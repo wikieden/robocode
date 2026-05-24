@@ -123,6 +123,11 @@ route hints so the main agent can decide follow-up actions.
   exit/log artifacts and any explicit lane decision artifact.
 - `/lane accept <id>`, `/lane revise <id>`, and `/lane discard <id>` record
   explicit operator decisions under `.robocode/lanes/<lane-id>.decision.md`.
+- `/lane apply <id>` applies an accepted isolated-lane worktree back to the
+  current workspace through an auditable Git patch. It writes
+  `.robocode/lanes/<lane-id>.apply.patch` and
+  `.robocode/lanes/<lane-id>.apply.md`, refuses non-accepted lanes unless
+  `--force` is provided, and does not commit or remove the lane worktree.
 - `/lane cleanup <id>` archives a lane by removing its isolated worktree only
   when the worktree is clean. Dirty worktrees require explicit
   `/lane cleanup <id> --force`, and every cleanup writes
@@ -166,7 +171,8 @@ route hints so the main agent can decide follow-up actions.
 - Embedded PTY is still future work; current lanes support non-interactive shell
   commands, template-launched Codex/Claude adapters, external-terminal attach,
   persisted envelope/log/exit-code artifacts, plus Unix process-group stop.
-- Apply/merge flows are still explicit follow-up work. Discarding a lane records
+- Apply currently uses a conservative patch path through `/lane apply <id>`.
+  Rich merge/conflict review is still follow-up work. Discarding a lane records
   the decision but intentionally does not delete its logs, worktree, or changes;
   cleanup requires a separate `/lane cleanup` command.
 - Provider token, cost, and rate telemetry is not connected yet, so the live UI

@@ -279,6 +279,20 @@ pub(super) fn save_screens(path: &Path, screens: &[CompanionScreen]) -> Result<(
 
 pub(super) fn refresh_lane_runtime(path: &Path, lanes: &mut [TerminalLane]) {
     for lane in lanes {
+        // Operator decisions are durable states; runtime artifacts must not downgrade them.
+        if matches!(
+            lane.status.as_str(),
+            "accepted"
+                | "revise"
+                | "discarded"
+                | "applied"
+                | "archived"
+                | "attached"
+                | "detached"
+                | "stopped"
+        ) {
+            continue;
+        }
         let Some(evidence) = lane_runtime_evidence(path, &lane.id) else {
             continue;
         };

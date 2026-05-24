@@ -335,7 +335,8 @@ Add:
 - presets for `codex` and `claude` when binaries exist;
 - input modes: `stdin`, `prompt-file`, and `manual` first;
 - changed-file and diff detection;
-- `/lane accept`, `/lane revise`, `/lane discard`.
+- `/lane accept`, `/lane revise`, `/lane discard`;
+- `/lane apply` for accepted isolated-lane worktrees.
 
 Acceptance criteria:
 
@@ -349,8 +350,9 @@ adapters. When launched, they run inside per-lane Git worktrees and receive
 envelopes that name the lane workspace and mutation scope. `/lane inspect <id>`
 now includes changed files from the relevant workspace, exit/log verification
 evidence, and recorded lane decisions. `/lane accept`, `/lane revise`, and
-`/lane discard` persist explicit decision artifacts without claiming to apply
-or revert changes automatically.
+`/lane discard` persist explicit decision artifacts without claiming to revert
+changes automatically. `/lane apply <id>` now provides the explicit integration
+step for accepted isolated-lane worktrees.
 
 ### Phase 6: Isolation
 
@@ -372,7 +374,10 @@ using local branches named `codex/lane-<session>-<lane>`. Inspect and decision
 artifacts read changed files from the lane worktree when present. `/lane cleanup
 <id>` removes clean worktrees and writes a cleanup artifact; dirty worktrees
 require explicit `--force`, so discard records intent without deleting evidence.
-Apply/merge remains explicit follow-up work.
+`/lane apply <id>` writes `.apply.patch` and `.apply.md`, verifies the patch
+with `git apply --check`, applies it to the main workspace, and leaves commit
+and cleanup as separate operator actions. Rich merge/conflict review remains
+follow-up work.
 
 ### Phase 7: Attachable Terminal Panes
 
