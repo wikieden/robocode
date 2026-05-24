@@ -100,6 +100,10 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   回退到 preview/demo lane。
 - `/lane inspect <id>` 会读取持久化 lane artifacts：`.log` 尾部、`.done`
   exit code、log path、done path、envelope path 和 envelope preview。
+- `/lane inspect <id>` 还会展示当前 workspace changed-file snapshot、来自
+  exit/log artifact 的 verification evidence，以及显式 lane decision artifact。
+- `/lane accept <id>`、`/lane revise <id>` 和 `/lane discard <id>` 会把操作者的
+  明确决策记录到 `.robocode/lanes/<lane-id>.decision.md`。
 - Provider health 已接入共享 runtime loop 测量到的模型请求 telemetry：真实
   request 数、成功/失败数、last/average latency、last event count 和最后一次
   provider error。

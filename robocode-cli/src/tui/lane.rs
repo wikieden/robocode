@@ -17,6 +17,9 @@ pub(super) fn status_badge(status: &str) -> &'static str {
         "queued" => "[pending]",
         "completed" => "[done]",
         "failed" => "[failed]",
+        "accepted" => "[accepted]",
+        "revise" => "[revise]",
+        "discarded" => "[discard]",
         _ => "[idle]",
     }
 }
@@ -63,6 +66,9 @@ pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
         Some("close") => close_lane_focus(state),
         Some("inspect") => inspect_lane(parts.next(), state),
         Some("stop") => stop_lane(parts.next(), state),
+        Some("accept") => decide_lane("accepted", parts.next(), parts.collect(), state),
+        Some("revise") => decide_lane("revise", parts.next(), parts.collect(), state),
+        Some("discard") => decide_lane("discarded", parts.next(), parts.collect(), state),
         Some(_) => queue_lane(input, state),
         None => push_lane_usage(state),
     }
@@ -281,6 +287,9 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
         .filter(|evidence| evidence.envelope_path.exists())
         .map(|evidence| evidence.envelope_path.display().to_string())
         .unwrap_or_else(|| "<none>".to_string());
+    let changed_files = changed_file_rows(state);
+    let verification = verification_rows(evidence.as_ref());
+    let decision = decision_rows(state, &lane.id);
     let exit_code = evidence
         .as_ref()
         .and_then(|evidence| evidence.exit_code.as_deref())
@@ -318,10 +327,161 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
         body: format!(
-            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nEnvelope: {envelope_path}\nExit: {exit_code}\nTail:\n{tail}\nEnvelope preview:\n{envelope}",
+            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nEnvelope: {envelope_path}\nExit: {exit_code}\nChanged files:\n{changed_files}\nVerification:\n{verification}\nDecision:\n{decision}\nTail:\n{tail}\nEnvelope preview:\n{envelope}",
             lane.id, lane.tool, lane.status, lane.target, lane.progress, lane.title, lane.summary
         ),
     });
+}
+
+fn changed_file_rows(state: &TuiState) -> String {
+    match workspace_changed_files(&state.workspace.root) {
+        Ok(files) if files.is_empty() => "  <none>".to_string(),
+        Ok(files) => files
+            .into_iter()
+            .take(8)
+            .map(|file| format!("  {file}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Err(err) => format!("  unavailable: {err}"),
+    }
+}
+
+fn workspace_changed_files(root: &Path) -> Result<Vec<String>, String> {
+    let output = Command::new("git")
+        .arg("status")
+        .arg("--short")
+        .current_dir(root)
+        .output()
+        .map_err(|err| err.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+        .map(ToString::to_string)
+        .collect())
+}
+
+fn verification_rows(evidence: Option<&crate::tui::state::LaneRuntimeEvidence>) -> String {
+    let Some(evidence) = evidence else {
+        return "  <no lane store>".to_string();
+    };
+    let exit = evidence.exit_code.as_deref().unwrap_or("<pending>");
+    let tail = evidence
+        .log_tail
+        .last()
+        .map(String::as_str)
+        .unwrap_or("<no log output>");
+    format!(
+        "  exit: {exit}\n  log: {}\n  tail: {tail}",
+        evidence.log_path.display()
+    )
+}
+
+fn decision_rows(state: &TuiState, lane_id: &str) -> String {
+    let Some(path) = decision_artifact_path(state, lane_id) else {
+        return "  <none>".to_string();
+    };
+    let lines = fs::read_to_string(path)
+        .ok()
+        .map(|content| {
+            content
+                .lines()
+                .filter(|line| line.starts_with("Decision:") || line.starts_with("Summary:"))
+                .map(|line| format!("  {line}"))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if lines.is_empty() {
+        "  <none>".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn decision_artifact_path(state: &TuiState, lane_id: &str) -> Option<PathBuf> {
+    let store = state.lane_store.as_deref()?;
+    Some(
+        store
+            .parent()?
+            .join("lanes")
+            .join(format!("{lane_id}.decision.md")),
+    )
+}
+
+fn decide_lane(action: &str, id: Option<&str>, feedback: Vec<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(index) = state
+        .lanes
+        .iter()
+        .position(|lane| lane.id.eq_ignore_ascii_case(id))
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let lane = state.lanes[index].clone();
+    let summary = if feedback.is_empty() {
+        format!("operator marked lane {}", action)
+    } else {
+        feedback.join(" ")
+    };
+    let content = render_lane_decision(action, &summary, &lane, state);
+    let path = match lane_artifact_path(state, &lane.id, "decision.md") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to prepare lane decision artifact: {err}"),
+            });
+            return;
+        }
+    };
+    if let Err(err) = fs::write(&path, content) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to write lane decision: {err}"),
+        });
+        return;
+    }
+    state.lanes[index].status = action.to_string();
+    state.lanes[index].summary = format!("decision: {summary}");
+    state.lanes[index].progress = 100;
+    persist_lanes(state);
+    state.entries.push(TuiEntry {
+        label: "system".to_string(),
+        body: format!(
+            "Recorded `{action}` decision for lane `{}`.\nDecision: {}",
+            lane.id,
+            path.display()
+        ),
+    });
+}
+
+fn render_lane_decision(
+    action: &str,
+    summary: &str,
+    lane: &TerminalLane,
+    state: &TuiState,
+) -> String {
+    let changed_files = changed_file_rows(state);
+    let evidence = state
+        .lane_store
+        .as_deref()
+        .and_then(|path| lane_runtime_evidence(path, &lane.id));
+    let verification = verification_rows(evidence.as_ref());
+    format!(
+        "# RoboCode Lane Decision\n\nLane: {}\nTool: {}\nDecision: {action}\nSummary: {summary}\n\n## Task\n{}\n\n## Changed files\n{changed_files}\n\n## Verification\n{verification}\n",
+        lane.id, lane.tool, lane.title
+    )
 }
 
 fn stop_lane(id: Option<&str>, state: &mut TuiState) {
@@ -420,7 +580,7 @@ pub(super) fn refresh_lanes(state: &mut TuiState) {
 fn push_lane_usage(state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane close"
+        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane close"
             .to_string(),
     });
 }
@@ -756,6 +916,48 @@ mod tests {
         let inspect = state.entries.last().expect("inspect entry");
         assert!(inspect.body.contains("Exit: 7"));
         assert!(inspect.body.contains("fail-line"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_decision_records_changed_files_and_inspect_evidence() {
+        let root = temp_lane_root();
+        fs::create_dir_all(&root).expect("temp root");
+        Command::new("git")
+            .arg("init")
+            .current_dir(&root)
+            .status()
+            .expect("git init");
+        fs::write(root.join("changed.txt"), "changed\n").expect("changed file");
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store);
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "codex".to_string(),
+            title: "review generated patch".to_string(),
+            status: "completed".to_string(),
+            target: "main".to_string(),
+            progress: 100,
+            summary: "completed successfully".to_string(),
+        }];
+
+        assert!(handle_tui_command("/lane accept L1 looks good", &mut state));
+
+        let decision = fs::read_to_string(root.join(".robocode/lanes/L1.decision.md"))
+            .expect("decision artifact");
+        assert!(decision.contains("Decision: accepted"));
+        assert!(decision.contains("Summary: looks good"));
+        assert!(decision.contains("?? changed.txt"));
+        assert_eq!(state.lanes[0].status, "accepted");
+
+        assert!(handle_tui_command("/lane inspect L1", &mut state));
+        let inspect = state.entries.last().expect("inspect entry");
+        assert!(inspect.body.contains("Changed files:"));
+        assert!(inspect.body.contains("?? changed.txt"));
+        assert!(inspect.body.contains("Decision: accepted"));
 
         let _ = fs::remove_dir_all(root);
     }

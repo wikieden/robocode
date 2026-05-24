@@ -339,6 +339,12 @@ Acceptance criteria:
 - inspection shows changed files and verification evidence;
 - acceptance is an explicit decision.
 
+Current status: `codex` and `claude` use template-launched prompt-file style
+adapters. `/lane inspect <id>` now includes current workspace changed files,
+exit/log verification evidence, and recorded lane decisions. `/lane accept`,
+`/lane revise`, and `/lane discard` persist explicit decision artifacts without
+claiming to apply or revert changes automatically.
+
 ### Phase 6: Isolation
 
 Add:

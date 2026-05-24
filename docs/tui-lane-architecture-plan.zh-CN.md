@@ -335,6 +335,12 @@ Unix process-group stop 已实现。主 TUI 也会读取 workflow task store，�
 - inspect 展示 changed files 和 verification evidence；
 - acceptance 是显式决策。
 
+当前状态：`codex` 和 `claude` 已使用 template-launched prompt-file 风格
+adapter。`/lane inspect <id>` 现在会展示当前 workspace changed files、exit/log
+verification evidence 和已记录的 lane decision。`/lane accept`、`/lane revise`
+和 `/lane discard` 会持久化显式决策 artifact，但不声称自动 apply 或 revert
+变更。
+
 ### Phase 6: 隔离
 
 新增：

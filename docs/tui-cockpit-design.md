@@ -114,6 +114,11 @@ route hints so the main agent can decide follow-up actions.
   they show an empty state instead of falling back to preview/demo lanes.
 - `/lane inspect <id>` reads persisted lane artifacts: `.log` tail, `.done`
   exit code, log path, done path, envelope path, and envelope preview.
+- `/lane inspect <id>` also reports the current workspace changed-file snapshot,
+  lane verification evidence from exit/log artifacts, and any explicit lane
+  decision artifact.
+- `/lane accept <id>`, `/lane revise <id>`, and `/lane discard <id>` record
+  explicit operator decisions under `.robocode/lanes/<lane-id>.decision.md`.
 - Provider health now reflects measured model-request telemetry from the shared
   runtime loop: real request count, success/failure count, last and average
   latency, last event count, and last provider error.
