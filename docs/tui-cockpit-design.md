@@ -40,7 +40,9 @@ with the generated reference visuals and the terminal-agent workflow.
 - Right rail data sources:
   - workspace: `WorkspaceSnapshot::load_current`.
   - active tasks: pending approval plus running or queued terminal lanes.
-  - diagnostics: `WorkspaceSnapshot.diagnostics`; empty means unavailable/0.
+  - diagnostics: `WorkspaceSnapshot.diagnostics`, populated from the persisted
+    `.robocode/diagnostics.txt` cache after real `/lsp diagnostics <path>` or
+    post-edit LSP output; empty means unavailable/0.
   - provider health: `ProviderStatus` derived from `SessionEngine`
     `ProviderTelemetry`; request count, success/failure count, last/average
     latency, last event count, and last error are real values. Rate, token, and
@@ -110,6 +112,9 @@ route hints so the main agent can decide follow-up actions.
 - Provider health now reflects measured model-request telemetry from the shared
   runtime loop: real request count, success/failure count, last and average
   latency, last event count, and last provider error.
+- LSP diagnostics from real core events are parsed by the TUI and persisted to
+  `.robocode/diagnostics.txt`, so the main screen and side screens can show the
+  same evidence-backed diagnostics snapshot.
 - Code changes that alter cockpit behavior, commands, architecture, config, or
   UI must update the relevant docs. Comments should document non-obvious
   invariants and safety boundaries, not restate obvious code.
@@ -122,8 +127,9 @@ route hints so the main agent can decide follow-up actions.
   process-group stop.
 - Provider token, cost, and rate telemetry is not connected yet, so the live UI
   intentionally keeps those metrics hidden.
-- Diagnostics are displayed only when collected by a real source; placeholder
-  Rust errors are not used in live panels.
+- Diagnostics still require an explicit LSP source, such as `/lsp diagnostics
+  <path>` or post-edit diagnostics from the LSP runtime. The live TUI does not
+  run an automatic background checker yet.
 - Command palette currently lists a fixed command registry; command-specific
   arguments and nested suggestions are future work.
 - Visual parity still needs repeated screenshot comparison against the

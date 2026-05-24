@@ -139,7 +139,7 @@ fn diagnostic_rows(state: &TuiState) -> Vec<String> {
     if state.workspace.diagnostics.is_empty() {
         return vec![
             "diagnostics unavailable".to_string(),
-            "run /lsp or cargo check".to_string(),
+            "run /lsp diagnostics <path>".to_string(),
         ];
     }
     state

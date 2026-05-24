@@ -155,6 +155,26 @@ pub(super) fn lane_store_path(root: &Path) -> PathBuf {
     root.join(".robocode").join("lanes.tsv")
 }
 
+pub(super) fn diagnostics_store_path(root: &Path) -> PathBuf {
+    root.join(".robocode").join("diagnostics.txt")
+}
+
+pub(super) fn save_diagnostics(root: &Path, diagnostics: &[String]) -> Result<(), String> {
+    let path = diagnostics_store_path(root);
+    if diagnostics.is_empty() {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err.to_string()),
+        }
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    fs::write(path, format!("{}\n", diagnostics.join("\n"))).map_err(|err| err.to_string())
+}
+
 pub(super) fn load_lanes(path: &Path) -> Vec<TerminalLane> {
     let Ok(content) = fs::read_to_string(path) else {
         return Vec::new();
@@ -381,6 +401,7 @@ impl WorkspaceSnapshot {
             .take(4)
             .map(|file| file.path.clone())
             .collect::<Vec<_>>();
+        let diagnostics = load_diagnostics(&root);
 
         Self {
             root,
@@ -390,7 +411,7 @@ impl WorkspaceSnapshot {
             line_count,
             recent_files,
             top_files,
-            diagnostics: Vec::new(),
+            diagnostics,
             primary_language,
             rust_edition,
         }
@@ -457,6 +478,47 @@ pub(super) fn entry_from_event(event: EngineEvent) -> TuiEntry {
             body: text,
         },
     }
+}
+
+pub(super) fn latest_lsp_diagnostics(entries: &[TuiEntry]) -> Option<Vec<String>> {
+    entries
+        .iter()
+        .rev()
+        .find_map(|entry| parse_lsp_diagnostics(&entry.body))
+}
+
+fn parse_lsp_diagnostics(body: &str) -> Option<Vec<String>> {
+    let mut lines = body.lines().skip_while(|line| {
+        !line
+            .trim_end_matches(':')
+            .trim()
+            .eq_ignore_ascii_case("LSP diagnostics")
+    });
+    lines.next()?;
+
+    let mut current_path = None::<String>;
+    let mut diagnostics = Vec::new();
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed == "<none>" {
+            return Some(Vec::new());
+        }
+        if !line.starts_with(' ') && trimmed.ends_with(':') {
+            current_path = Some(trimmed.trim_end_matches(':').to_string());
+            continue;
+        }
+        if line.starts_with("  ") {
+            let rendered = current_path
+                .as_ref()
+                .map(|path| format!("{path}:{trimmed}"))
+                .unwrap_or_else(|| trimmed.to_string());
+            diagnostics.push(rendered);
+        }
+    }
+    (!diagnostics.is_empty()).then_some(diagnostics)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -578,6 +640,19 @@ fn display_path(path: &Path) -> String {
     path.to_string()
 }
 
+fn load_diagnostics(root: &Path) -> Vec<String> {
+    fs::read_to_string(diagnostics_store_path(root))
+        .map(|content| {
+            content
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -589,6 +664,71 @@ mod tests {
 
         assert_eq!(entry.label, "command");
         assert_eq!(entry.body, "Provider registry:");
+    }
+
+    #[test]
+    fn latest_lsp_diagnostics_extracts_real_rendered_diagnostics() {
+        let entries = vec![
+            TuiEntry {
+                label: "system".to_string(),
+                body: "older".to_string(),
+            },
+            TuiEntry {
+                label: "command".to_string(),
+                body: "LSP diagnostics:\nsrc/lib.rs:\n  7:2 warning [rust-analyzer/E0308] mismatched types\n".to_string(),
+            },
+        ];
+
+        let diagnostics = latest_lsp_diagnostics(&entries).expect("diagnostics");
+
+        assert_eq!(
+            diagnostics,
+            vec!["src/lib.rs:7:2 warning [rust-analyzer/E0308] mismatched types"]
+        );
+    }
+
+    #[test]
+    fn latest_lsp_diagnostics_clears_cache_on_empty_lsp_result() {
+        let entries = vec![TuiEntry {
+            label: "command".to_string(),
+            body: "LSP diagnostics:\n  <none>".to_string(),
+        }];
+
+        let diagnostics = latest_lsp_diagnostics(&entries).expect("empty diagnostics");
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn workspace_snapshot_loads_persisted_diagnostics_cache() {
+        let root = temp_state_root();
+        save_diagnostics(
+            &root,
+            &["src/main.rs:1:2 error [fake/E1] broken value".to_string()],
+        )
+        .expect("save diagnostics");
+
+        let workspace = WorkspaceSnapshot::load(root);
+
+        assert_eq!(
+            workspace.diagnostics,
+            vec!["src/main.rs:1:2 error [fake/E1] broken value"]
+        );
+    }
+
+    #[test]
+    fn save_empty_diagnostics_removes_persisted_cache() {
+        let root = temp_state_root();
+        save_diagnostics(
+            &root,
+            &["src/main.rs:1:2 error [fake/E1] broken value".to_string()],
+        )
+        .expect("save diagnostics");
+        save_diagnostics(&root, &[]).expect("clear diagnostics");
+
+        let workspace = WorkspaceSnapshot::load(root);
+
+        assert!(workspace.diagnostics.is_empty());
     }
 
     #[test]
@@ -610,5 +750,15 @@ mod tests {
 
         assert_eq!(loaded.progress, 64);
         assert_eq!(loaded.summary, "patched failing tests; rerunning cargo");
+    }
+
+    fn temp_state_root() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("robocode-tui-state-test-{nanos}"));
+        fs::create_dir_all(&root).expect("temp root");
+        root
     }
 }

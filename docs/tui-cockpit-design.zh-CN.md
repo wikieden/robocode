@@ -33,7 +33,9 @@
 - 右栏数据源：
   - workspace：`WorkspaceSnapshot::load_current`。
   - active tasks：pending approval 加 running/queued terminal lanes。
-  - diagnostics：`WorkspaceSnapshot.diagnostics`；为空表示 unavailable/0。
+  - diagnostics：`WorkspaceSnapshot.diagnostics`；真实 `/lsp diagnostics <path>`
+    或 post-edit LSP 输出后会写入 `.robocode/diagnostics.txt` cache；为空表示
+    unavailable/0。
   - provider health：`ProviderStatus` 来源于 `SessionEngine` 的
     `ProviderTelemetry`；request 数量、成功/失败数量、last/average latency、
     last event count 和 last error 都是真实值。rate、token、cost 在有真实运行时
@@ -97,6 +99,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - Provider health 已接入共享 runtime loop 测量到的模型请求 telemetry：真实
   request 数、成功/失败数、last/average latency、last event count 和最后一次
   provider error。
+- TUI 会解析来自 core 真实事件的 LSP diagnostics，并持久化到
+  `.robocode/diagnostics.txt`，所以主屏和副屏可以展示同一份有证据来源的
+  diagnostics snapshot。
 - 修改 cockpit 行为、命令、架构、配置或 UI 时，必须同步更新相关文档。注释
   用来说明不明显的不变量和安全边界，不重复解释显而易见的代码。
 
@@ -107,6 +112,7 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   artifacts；Unix 平台支持 process-group stop。
 - Provider token、cost、rate telemetry 尚未接入，所以 live UI 会继续隐藏这些
   指标。
-- Diagnostics 只展示真实来源采集到的数据；live 面板不再使用占位 Rust 错误。
+- Diagnostics 仍需要显式 LSP 来源，例如 `/lsp diagnostics <path>` 或 LSP runtime
+  的 post-edit diagnostics。live TUI 目前不会自动后台跑 checker。
 - 命令提示列表目前是固定命令注册表；命令参数和二级提示待后续扩展。
 - 视觉还需要持续用截图和 holodeck 主参考图对比。

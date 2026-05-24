@@ -13,7 +13,7 @@ use super::lane::{handle_tui_command, refresh_lanes};
 use super::screen::handle_screen_command;
 use super::state::{
     ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot, entry_from_event, lane_store_path,
-    load_lanes,
+    latest_lsp_diagnostics, load_lanes, save_diagnostics,
 };
 use super::terminal::TerminalGuard;
 
@@ -171,11 +171,24 @@ fn handle_enter(
     state
         .entries
         .extend(events.into_iter().map(entry_from_event));
+    refresh_diagnostics_cache(state);
     state.provider = engine.provider_name().to_string();
     state.model = engine.model_name().to_string();
     state.provider_status = ProviderStatus::from_telemetry(&engine.provider_telemetry());
     state.workspace = WorkspaceSnapshot::load_current();
     Ok(false)
+}
+
+fn refresh_diagnostics_cache(state: &mut TuiState) {
+    let Some(diagnostics) = latest_lsp_diagnostics(&state.entries) else {
+        return;
+    };
+    if let Err(err) = save_diagnostics(&state.workspace.root, &diagnostics) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to persist LSP diagnostics: {err}"),
+        });
+    }
 }
 
 fn is_exit_command(input: &str) -> bool {
@@ -187,7 +200,12 @@ fn is_exit_command(input: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_exit_command;
+    use super::{is_exit_command, refresh_diagnostics_cache};
+    use crate::tui::state::{ProviderStatus, TerminalLane, WorkspaceSnapshot};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn exit_command_accepts_slash_aliases() {
@@ -197,5 +215,48 @@ mod tests {
         assert!(is_exit_command("/quit"));
         assert!(is_exit_command(" /QUIT "));
         assert!(!is_exit_command("/help"));
+    }
+
+    #[test]
+    fn refresh_diagnostics_cache_persists_latest_lsp_output() {
+        let root = temp_app_root();
+        let mut workspace = WorkspaceSnapshot::fixture();
+        workspace.root = root.clone();
+        let mut state = super::TuiState {
+            session_id: "session".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: vec![super::TuiEntry {
+                label: "command".to_string(),
+                body: "LSP diagnostics:\nsrc/main.rs:\n  1:2 error [fake/E1] broken".to_string(),
+            }],
+            workspace,
+            lanes: Vec::<TerminalLane>::new(),
+            lane_store: None,
+            focused_lane: None,
+        };
+
+        refresh_diagnostics_cache(&mut state);
+        let persisted = fs::read_to_string(root.join(".robocode").join("diagnostics.txt"))
+            .expect("diagnostics cache");
+
+        assert!(persisted.contains("src/main.rs:1:2 error [fake/E1] broken"));
+    }
+
+    fn temp_app_root() -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("robocode-tui-app-test-{nanos}"));
+        fs::create_dir_all(&root).expect("temp root");
+        root
     }
 }
