@@ -1,42 +1,32 @@
 # RoboCode
 
-RoboCode is a Rust-first reimplementation of the core local agent CLI patterns from the reference Claude Code project.
+RoboCode is a local-first coding agent CLI with a cockpit-style terminal UI,
+permission-aware tool execution, and multi-provider model support.
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
 ![RoboCode TUI system screenshot](docs/previews/robocode-tui-system-screenshot.svg)
 
-This repository currently includes:
+## Highlights
 
-- A multi-crate Rust workspace
-- A lightweight REPL CLI
-- Layered startup configuration with project and global config support
-- Session persistence with JSONL transcripts and a SQLite index
-- A permission-aware tool runtime
-- Built-in local tools for shell, files, search, web access, and Git workflows including worktrees and stash/restore flows
-- Project-level workflow state for tasks, session memory, project memory suggestions, and resume context
-- A provider abstraction with support for multiple API families, native tool-calling where available, and a provider-plugin runtime with DeepSeek as the first independent provider family
+- Cockpit TUI for chat, tool calls, approvals, diagnostics, workspace context,
+  active tasks, and provider health in one terminal screen.
+- Local-first runtime: transcripts, task state, and project memory stay on your
+  machine by default.
+- Permission-aware editing: file, shell, Git, and workflow mutations pass
+  through approval modes before they touch your workspace.
+- Multi-provider model access: DeepSeek, OpenAI, Anthropic, OpenAI-compatible
+  gateways, Ollama, and an offline fallback provider.
+- Developer workflow tools: file read/write/edit, search, shell, web, Git,
+  sessions, resume, tasks, memory, and LSP diagnostics.
+- Multi-platform release binaries for macOS, Linux, and Windows.
 
-## Workspace
-
-- `robocode-cli`: command-line entrypoint and REPL
-- `robocode-config`: config loading and precedence resolution
-- `robocode-core`: session engine and orchestration
-- `robocode-model`: provider host/runtime, protocol adapters, and model implementations
-- `robocode-tools`: built-in tools and execution adapters
-- `robocode-permissions`: permission modes and decision logic
-- `robocode-session`: transcript storage and resume support
-- `robocode-types`: shared domain types
-- `robocode-workflows`: project tasks, memory, resume-context, and workflow event storage
-
-## Quick Start
-
-### Install From A Release
+## Install
 
 Download a release archive from
-[v0.1.3](https://github.com/wikieden/robocode/releases/tag/v0.1.3).
+[RoboCode v0.1.3](https://github.com/wikieden/robocode/releases/tag/v0.1.3).
 
-Release archives are available for:
+Available release targets:
 
 - `aarch64-apple-darwin` for Apple Silicon macOS
 - `x86_64-apple-darwin` for Intel macOS
@@ -67,33 +57,89 @@ $env:PATH += ";$env:USERPROFILE\bin"
 robocode-cli.exe --help
 ```
 
-Run the local fallback smoke test:
+## Usage
+
+Run an offline smoke test:
 
 ```bash
 robocode-cli --provider fallback --model test-local
 ```
 
-Run the TUI:
+Start the TUI with the fallback provider:
 
 ```bash
 robocode-cli --tui --provider fallback --model test-local
 ```
 
-Run the TUI with DeepSeek V4 Flash:
+Start the TUI with DeepSeek V4 Flash:
 
 ```bash
 export DEEPSEEK_API_KEY="sk-..."
 robocode-cli --tui --provider deepseek --model deepseek-v4-flash
 ```
 
-### TUI Controls
+Start from source during development:
+
+```bash
+cargo run -p robocode-cli -- --tui --provider fallback --model test-local
+```
+
+Use an explicit config file:
+
+```bash
+robocode-cli --config .robocode/config.toml
+```
+
+Example provider config:
+
+```toml
+provider = "deepseek"
+model = "deepseek-v4-flash"
+permission_mode = "acceptEdits"
+request_timeout_secs = 120
+max_retries = 2
+
+[providers.deepseek]
+api_base = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_API_KEY"
+```
+
+## TUI Controls
 
 - `Enter` submits the composer; `Ctrl-J` is the explicit send action.
 - `Ctrl-K` clears the composer, `Ctrl-R` regenerates, and `Ctrl-N` starts a new task.
 - `?` opens the in-TUI help surface.
 - `Esc` or `Ctrl-C` exits; `/quit` and `/exit` also close the TUI.
-- Approval prompts default to `Approve`; press `y` to approve, `n` to deny, `d` to focus diff, or use `Tab` / arrow keys to move between actions.
-- Slash commands start with `/`; useful starters include `/help`, `/provider`, `/status`, `/config`, `/permissions`, `/sessions`, `/resume latest`, `/task`, and `/memory`.
+- Approval prompts default to `Approve`; press `y` to approve, `n` to deny,
+  `d` to focus diff, or use `Tab` / arrow keys to move between actions.
+- Slash commands start with `/`; useful starters include `/help`, `/provider`,
+  `/status`, `/config`, `/permissions`, `/sessions`, `/resume latest`, `/task`,
+  and `/memory`.
+
+## Feedback
+
+Please report bugs and feature requests through
+[GitHub Issues](https://github.com/wikieden/robocode/issues).
+
+Helpful issue details:
+
+- RoboCode version or release asset name.
+- Operating system and terminal app.
+- Provider and model, for example `deepseek / deepseek-v4-flash`.
+- The command you ran and the smallest reproduction steps.
+- Relevant logs or screenshots, with API keys and private paths redacted.
+
+## Documentation
+
+README stays focused on product usage. Architecture and implementation details
+live in the docs:
+
+- [Architecture](docs/architecture.md)
+- [Product Requirements](docs/product-requirements.md)
+- [Staged Roadmap](docs/staged-roadmap.md)
+- [Reference Analysis](docs/reference-analysis.md)
+- [Provider Live Matrix](docs/provider-live-matrix.md)
+- [TUI Cockpit Design](docs/tui-cockpit-design.md)
 
 Maintainers can build a release archive locally with:
 
@@ -101,202 +147,12 @@ Maintainers can build a release archive locally with:
 scripts/package-release.sh
 ```
 
-## Development
-
-Run the test suite:
+Run the workspace test suite:
 
 ```bash
 cargo test --workspace
 ```
 
-Start the CLI:
+## License
 
-```bash
-cargo run -p robocode-cli -- --provider fallback --model test-local
-```
-
-To start the lightweight terminal UI:
-
-```bash
-cargo run -p robocode-cli -- --tui --provider fallback --model test-local
-```
-
-Start the CLI with an explicit config file:
-
-```bash
-cargo run -p robocode-cli -- --config .robocode/config.toml
-```
-
-Configuration can come from:
-
-- a global config file
-- a project-local `.robocode/config.toml`
-- environment variables
-- CLI flags
-
-Priority is `CLI > environment > project config > global config > defaults`.
-
-Example config:
-
-```toml
-provider = "openai"
-model = "gpt-5.2"
-permission_mode = "acceptEdits"
-request_timeout_secs = 120
-max_retries = 2
-```
-
-Provider-scoped config can override generic API fields:
-
-```toml
-provider = "deepseek"
-model = "deepseek-v4-flash"
-api_base = "https://generic.example"
-
-[providers.deepseek]
-api_base = "https://api.deepseek.com"
-api_key_env = "DEEPSEEK_API_KEY"
-```
-
-Provider-scoped tables are not limited to built-in first-party providers. Any
-registered provider id can have its own table:
-
-```toml
-provider = "openrouter"
-
-[providers.openrouter]
-api_base = "https://openrouter.ai/api/v1"
-api_key_env = "OPENROUTER_API_KEY"
-default_model = "openai/gpt-5.2"
-```
-
-DeepSeek V4 model names follow the official API docs:
-
-- `deepseek-v4-flash` is RoboCode's default DeepSeek model
-- `deepseek-v4-pro` can be selected explicitly for the higher-capability V4 model
-- legacy `deepseek-chat` and `deepseek-reasoner` remain compatibility names only and are scheduled for DeepSeek-side deprecation
-
-DeepSeek V4 compatibility is provider-specific rather than treated as generic
-OpenAI compatibility:
-
-- `deepseek` preserves `reasoning_content` across tool-call turns and keeps it
-  out of tool arguments
-- assistant tool-call messages are rendered with non-null `content`, matching
-  DeepSeek V4 thinking-mode requirements
-- `tool_choice` is not advertised for the built-in `deepseek` descriptor
-- reasoning effort maps to DeepSeek's `high` and `max` values
-- `deepseek-anthropic` remains available when the Anthropic-compatible endpoint
-  is a better fit for a client or workflow
-
-DeepSeek precedence for API fields is:
-
-- CLI `--api-key` / `--api-base`
-- `[providers.deepseek]` config
-- `DEEPSEEK_API_KEY` / `DEEPSEEK_API_BASE`
-- generic `api_key` / `api_base`
-
-Supported provider families:
-
-- `anthropic`
-- `openai`
-- `openai-compatible`
-- `deepseek` as an independent provider family using the OpenAI-style protocol
-- `deepseek-anthropic` for DeepSeek's Anthropic-compatible endpoint at `https://api.deepseek.com/anthropic`
-- OpenAI-compatible gateway descriptors: `openrouter`, `groq`, `mistral`, `together`, `kimi`, `qwen`, `zhipu`, and `volcengine`
-- `ollama`
-- `fallback`
-
-Current protocol families and tool-calling mappings:
-
-- Anthropic `tool_use`
-- OpenAI-style `tool_calls` for OpenAI-compatible providers, including DeepSeek
-- DeepSeek Anthropic-compatible `tool_use` through `deepseek-anthropic`
-- `fallback` and `ollama` text-first local flows
-
-Provider runtime status and direction:
-
-- built-in providers remain supported
-- provider descriptors now flow through the provider host/runtime registry
-- `/provider list` shows each registered provider's protocol family, default model, streaming support, tool-call support, and compact compatibility flags
-- `/provider doctor [id]` shows registry diagnostics, or a focused diagnostic for one provider id, including provider-specific compatibility requirements
-- provider bindings are session/agent scoped rather than process-global
-- permission prompts render tool input as stable fields for easier review
-- DeepSeek V4 compatibility flags are part of provider descriptors so plugins
-  and built-ins can declare protocol quirks explicitly
-- remaining hardening work is real API compatibility coverage across the
-  expanded provider matrix
-- the runtime is designed for native dynamic loading first and WASM migration later
-
-Useful commands:
-
-```text
-/help
-/provider
-/provider doctor
-/provider doctor openrouter
-/help
-/status
-/config
-/doctor
-/permissions
-/sessions
-/resume latest
-/git status
-/git worktree list
-/git stash list
-/web search rust language --limit 3
-/web fetch https://www.rust-lang.org --max-bytes 500
-/task add Build workflow commands
-/tasks
-/task resume-context
-/memory suggest Keep project memory explicit
-/memory confirm mem_<id>
-/memory export
-```
-
-Live provider smoke tests are ignored by default. The full provider matrix,
-environment variables, and result-recording rules live in
-`docs/provider-live-matrix.md`. To verify one provider against the real API path:
-
-```bash
-ROBOCODE_LIVE_PROVIDER=openrouter \
-ROBOCODE_LIVE_MODEL=openai/gpt-5.2 \
-ROBOCODE_LIVE_API_KEY="$OPENROUTER_API_KEY" \
-cargo test -p robocode-cli selected_live_provider_generates_python_hello_world_from_natural_language -- --ignored
-```
-
-The default CLI smoke suite stays offline and covers a file-tool workflow that
-writes, reads, and runs a generated Python file through the fallback provider.
-
-The `/resume` command also supports `/resume #<index>` and `/resume <session-id-prefix>`.
-
-Built-in tool families include:
-
-- file and search tools: `read_file`, `write_file`, `edit_file`, `glob`, `grep`
-- web tools: `web_search`, `web_fetch`
-- Git tools: status, diff, branch, add, switch, commit, push, restore, stash, and worktree flows
-- workflow commands: project tasks, task lifecycle changes, session memory, project memory suggestions, and resume context
-- shell execution with platform-specific adapters for POSIX and PowerShell
-
-Project docs:
-
-- `docs/architecture.md`
-- `docs/architecture.zh-CN.md`
-- `docs/documentation-localization.md`
-- `docs/documentation-localization.zh-CN.md`
-- `docs/reference-analysis.md`
-- `docs/reference-analysis.zh-CN.md`
-- `docs/product-requirements.md`
-- `docs/product-requirements.zh-CN.md`
-- `docs/staged-roadmap.md`
-- `docs/staged-roadmap.zh-CN.md`
-- `docs/ref-gap-matrix.md`
-- `docs/ref-gap-matrix.zh-CN.md`
-- `docs/superpowers/plans/2026-04-11-robocode-plan-index.md`
-- `docs/superpowers/plans/2026-04-11-robocode-plan-index.zh-CN.md`
-- `docs/superpowers/plans/2026-04-11-v2-session-command-enhancement.md`
-- `docs/superpowers/plans/2026-04-11-v2-session-command-enhancement.zh-CN.md`
-
-## Status
-
-This is an actively developing local-first CLI platform. Mainline already includes V1 plus core V2 session/workflow/LSP slices, the provider-plugin runtime, and DeepSeek v4 as the first independent provider target. The next provider-platform work is hardening dynamic loading, registry refresh, streaming, cancellation, and broader plugin compatibility.
+RoboCode is released under the MIT License. See [LICENSE](LICENSE).
