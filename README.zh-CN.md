@@ -17,6 +17,29 @@ RoboCode 是一个本地优先的编程 Agent CLI，提供 cockpit 风格 TUI、
 
 ## 安装
 
+### Homebrew Tap
+
+macOS 和 Linux 推荐使用：
+
+```bash
+brew tap wikieden/tap
+brew install robocode
+```
+
+也可以一行安装：
+
+```bash
+brew install wikieden/tap/robocode
+```
+
+验证安装：
+
+```bash
+robocode --help
+```
+
+### Release 压缩包
+
 从 [RoboCode v0.1.3](https://github.com/wikieden/robocode/releases/tag/v0.1.3)
 下载 release 压缩包。
 

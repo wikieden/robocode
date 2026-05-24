@@ -23,6 +23,29 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
 ## Install
 
+### Homebrew Tap
+
+Recommended on macOS and Linux:
+
+```bash
+brew tap wikieden/tap
+brew install robocode
+```
+
+Or install in one command:
+
+```bash
+brew install wikieden/tap/robocode
+```
+
+Verify the install:
+
+```bash
+robocode --help
+```
+
+### Release Archive
+
 Download a release archive from
 [RoboCode v0.1.3](https://github.com/wikieden/robocode/releases/tag/v0.1.3).
 
