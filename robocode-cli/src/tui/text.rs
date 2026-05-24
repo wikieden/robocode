@@ -61,7 +61,7 @@ pub(super) fn compact_middle(value: &str, width: usize) -> String {
     format!("{prefix}~{suffix}")
 }
 
-fn display_width(value: char) -> usize {
+pub(super) fn display_width(value: char) -> usize {
     if value == '\0' || value.is_control() {
         0
     } else if is_wide(value) {

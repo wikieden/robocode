@@ -120,7 +120,10 @@ fn is_loose_timeline_connector(row: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::state::{ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot};
+    use crate::tui::{
+        state::{ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot},
+        text::char_width,
+    };
 
     fn render_state() -> TuiState {
         TuiState {
@@ -319,6 +322,29 @@ mod tests {
                 || first_content.contains("APPROVAL"),
             "{first_content}"
         );
+    }
+
+    #[test]
+    fn render_frame_keeps_wide_transcript_text_inside_terminal_width() {
+        let mut state = render_state();
+        state.entries = vec![TuiEntry {
+            label: "assistant".to_string(),
+            body: "我是 **RoboCode**，一个运行在终端里的 AI 编程助手 🤖\n有什么需要帮忙的吗？"
+                .to_string(),
+        }];
+
+        let width = 202usize;
+        let rendered = render_frame(&state, width as u16, 58);
+
+        for line in rendered.lines() {
+            assert!(
+                char_width(line) <= width,
+                "line display width {} exceeded {width}: {line}",
+                char_width(line)
+            );
+        }
+        assert!(rendered.contains("PROVIDER HEALTH"));
+        assert!(rendered.contains("RECENT FILES"));
     }
 
     #[test]

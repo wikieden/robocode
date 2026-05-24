@@ -1,4 +1,4 @@
-use super::text::pad;
+use super::text::{display_width, pad};
 
 #[derive(Debug, Clone)]
 pub(super) struct Frame {
@@ -45,8 +45,22 @@ impl Frame {
         if row >= self.height || col >= self.width {
             return;
         }
-        for (offset, ch) in value.chars().take(self.width - col).enumerate() {
-            self.rows[row][col + offset] = ch;
+        let mut x = col;
+        for ch in value.chars() {
+            let width = display_width(ch);
+            if width == 0 {
+                continue;
+            }
+            if x >= self.width || x + width > self.width {
+                break;
+            }
+            self.rows[row][x] = ch;
+            if width > 1 {
+                for covered in x + 1..x + width {
+                    self.rows[row][covered] = '\0';
+                }
+            }
+            x += width;
         }
     }
 }
@@ -55,12 +69,44 @@ impl std::fmt::Display for Frame {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (index, row) in self.rows.iter().enumerate() {
             for ch in row {
-                formatter.write_str(&ch.to_string())?;
+                if *ch != '\0' {
+                    formatter.write_str(&ch.to_string())?;
+                }
             }
             if index + 1 < self.rows.len() {
                 formatter.write_str("\n")?;
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui::text::char_width;
+
+    #[test]
+    fn wide_characters_occupy_display_cells() {
+        let mut frame = Frame::new(8, 1);
+        frame.write_at(0, 0, "你");
+        frame.write_at(0, 4, "│");
+
+        let rendered = frame.to_string();
+        let separator = rendered.find('│').expect("separator");
+
+        assert_eq!(char_width(&rendered[..separator]), 4);
+        assert_eq!(char_width(&rendered), 8);
+    }
+
+    #[test]
+    fn wide_character_at_right_edge_does_not_overflow() {
+        let mut frame = Frame::new(4, 1);
+        frame.write_at(0, 3, "你");
+
+        let rendered = frame.to_string();
+
+        assert_eq!(rendered, "    ");
+        assert_eq!(char_width(&rendered), 4);
     }
 }
