@@ -384,10 +384,16 @@ Prototype and choose:
 
 Acceptance criteria:
 
-- `/lane attach <id>` enters an interactive lane;
-- `/lane detach` returns to RoboCode TUI without killing the process;
+- `/lane attach <id>` opens an interactive terminal for the lane workspace;
+- `/lane detach <id>` returns RoboCode tracking to detached state without
+  killing the external terminal process;
 - full logs remain captured;
 - terminal attachment is clearly marked in the UI.
+
+Current status: `/lane attach <id>` launches an external terminal through
+`ROBOCODE_LANE_ATTACH_TEMPLATE`, or Terminal.app on macOS by default, and writes
+`<lane-id>.attach.md`. `/lane detach <id>` marks the lane detached without
+killing the external process. Embedded PTY remains future work.
 
 ## Recommended First Implementation Slice
 

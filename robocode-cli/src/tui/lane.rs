@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -21,6 +21,8 @@ pub(super) fn status_badge(status: &str) -> &'static str {
         "revise" => "[revise]",
         "discarded" => "[discard]",
         "archived" => "[archive]",
+        "attached" => "[attach]",
+        "detached" => "[detach]",
         _ => "[idle]",
     }
 }
@@ -71,6 +73,8 @@ pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
         Some("revise") => decide_lane("revise", parts.next(), parts.collect(), state),
         Some("discard") => decide_lane("discarded", parts.next(), parts.collect(), state),
         Some("cleanup") => cleanup_lane(parts.next(), parts.collect(), state),
+        Some("attach") => attach_lane(parts.next(), state),
+        Some("detach") => detach_lane(parts.next(), state),
         Some(_) => queue_lane(input, state),
         None => push_lane_usage(state),
     }
@@ -194,6 +198,32 @@ fn expand_agent_template(
         .replace("{cwd:q}", &shell_quote_value(&cwd))
         .replace("{worktree}", &cwd)
         .replace("{worktree:q}", &shell_quote_value(&cwd))
+}
+
+fn expand_attach_template(
+    template: &str,
+    lane: &TerminalLane,
+    state: &TuiState,
+    attach_log: &Path,
+) -> String {
+    let cwd = lane_workspace(lane, state).to_string_lossy().to_string();
+    let lane_id = lane.id.as_str();
+    let task = lane.title.as_str();
+    let tool = lane.tool.as_str();
+    let log = attach_log.to_string_lossy().to_string();
+    template
+        .replace("{lane:q}", &shell_quote_value(lane_id))
+        .replace("{task:q}", &shell_quote_value(task))
+        .replace("{tool:q}", &shell_quote_value(tool))
+        .replace("{cwd:q}", &shell_quote_value(&cwd))
+        .replace("{worktree:q}", &shell_quote_value(&cwd))
+        .replace("{log:q}", &shell_quote_value(&log))
+        .replace("{lane}", lane_id)
+        .replace("{task}", task)
+        .replace("{tool}", tool)
+        .replace("{cwd}", &cwd)
+        .replace("{worktree}", &cwd)
+        .replace("{log}", &log)
 }
 
 fn write_lane_envelope(lane: &TerminalLane, state: &TuiState) -> Result<PathBuf, String> {
@@ -628,6 +658,196 @@ fn render_lane_decision(
     )
 }
 
+fn attach_lane(id: Option<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(index) = state
+        .lanes
+        .iter()
+        .position(|lane| lane.id.eq_ignore_ascii_case(id))
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let lane = state.lanes[index].clone();
+    let attach_path = match lane_artifact_path(state, &lane.id, "attach.md") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to prepare lane attach artifact: {err}"),
+            });
+            return;
+        }
+    };
+    let attach_log = match lane_artifact_path(state, &lane.id, "attach.log") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to prepare lane attach log: {err}"),
+            });
+            return;
+        }
+    };
+    let command = match lane_attach_command(&lane, state, &attach_log) {
+        Ok(command) => command,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Cannot attach lane `{}`: {err}", lane.id),
+            });
+            return;
+        }
+    };
+    if let Err(err) = fs::write(
+        &attach_path,
+        render_lane_attach(&lane, state, &command, &attach_log),
+    ) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to write lane attach artifact: {err}"),
+        });
+        return;
+    }
+    match spawn_shell_command(&command) {
+        Ok(pid) => {
+            state.lanes[index].status = "attached".to_string();
+            state.lanes[index].target = format!("attach pid {pid}");
+            state.lanes[index].summary = format!(
+                "attached interactive terminal; artifact {}",
+                attach_path.display()
+            );
+            state.focused_lane = Some(lane.id.clone());
+            persist_lanes(state);
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!(
+                    "Attached lane `{}` as pid {pid}.\nDetach with `/lane detach {}`; logs and lane artifacts remain in `.robocode/lanes/`.",
+                    lane.id, lane.id
+                ),
+            });
+        }
+        Err(err) => state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to attach lane `{}`: {err}", lane.id),
+        }),
+    }
+}
+
+fn detach_lane(id: Option<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    let Some(index) = state
+        .lanes
+        .iter()
+        .position(|lane| lane.id.eq_ignore_ascii_case(id))
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let lane_id = state.lanes[index].id.clone();
+    state.lanes[index].status = "detached".to_string();
+    state.lanes[index].summary =
+        "detached from interactive terminal; external process not killed".to_string();
+    state.focused_lane = None;
+    persist_lanes(state);
+    state.entries.push(TuiEntry {
+        label: "system".to_string(),
+        body: format!("Detached lane `{lane_id}` without killing its terminal process."),
+    });
+}
+
+fn lane_attach_command(
+    lane: &TerminalLane,
+    state: &TuiState,
+    attach_log: &Path,
+) -> Result<String, String> {
+    if let Ok(template) = env::var("ROBOCODE_LANE_ATTACH_TEMPLATE") {
+        let command = expand_attach_template(&template, lane, state, attach_log);
+        return (!command.trim().is_empty())
+            .then_some(command)
+            .ok_or_else(|| {
+                "ROBOCODE_LANE_ATTACH_TEMPLATE expanded to an empty command".to_string()
+            });
+    }
+    platform_lane_attach_command(lane, state, attach_log)
+}
+
+#[cfg(target_os = "macos")]
+fn platform_lane_attach_command(
+    lane: &TerminalLane,
+    state: &TuiState,
+    attach_log: &Path,
+) -> Result<String, String> {
+    let cwd = lane_workspace(lane, state).to_string_lossy().to_string();
+    let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let terminal_script = format!(
+        "cd {} && printf '%s\\n' {} >> {} && exec {} -l",
+        shell_quote_value(&cwd),
+        shell_quote_value(&format!(
+            "RoboCode attached lane {}: {}",
+            lane.id, lane.title
+        )),
+        shell_quote_path(attach_log),
+        shell_quote_value(&shell)
+    );
+    Ok(format!(
+        "osascript -e {}",
+        shell_quote_value(&format!(
+            "tell application \"Terminal\" to do script {}",
+            applescript_string(&terminal_script)
+        ))
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn platform_lane_attach_command(
+    _lane: &TerminalLane,
+    _state: &TuiState,
+    _attach_log: &Path,
+) -> Result<String, String> {
+    Err(
+        "set ROBOCODE_LANE_ATTACH_TEMPLATE to open a terminal for this platform, e.g. `tmux new-session -A -s robocode-{lane:q} -c {cwd:q}`"
+            .to_string(),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn applescript_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn render_lane_attach(
+    lane: &TerminalLane,
+    state: &TuiState,
+    command: &str,
+    attach_log: &Path,
+) -> String {
+    format!(
+        "# RoboCode Lane Attach\n\nLane: {}\nTool: {}\nStatus before attach: {}\nWorkspace: {}\nAttach log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Detach\nUse `/lane detach {}` to return RoboCode tracking to detached state without killing the external terminal process.\n",
+        lane.id,
+        lane.tool,
+        lane.status,
+        lane_workspace(lane, state).display(),
+        attach_log.display(),
+        lane.title,
+        command,
+        lane.id
+    )
+}
+
 fn cleanup_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
     let Some(id) = id else {
         push_lane_usage(state);
@@ -772,6 +992,30 @@ fn remove_lane_worktree(root: &Path, worktree: &Path, force: bool) -> Result<(),
     }
 }
 
+fn spawn_shell_command(command: &str) -> Result<u32, String> {
+    let mut shell = platform_shell_command(command);
+    shell
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let child = shell.spawn().map_err(|err| err.to_string())?;
+    Ok(child.id())
+}
+
+#[cfg(windows)]
+fn platform_shell_command(command: &str) -> Command {
+    let mut shell = Command::new("cmd");
+    shell.arg("/C").arg(command);
+    shell
+}
+
+#[cfg(not(windows))]
+fn platform_shell_command(command: &str) -> Command {
+    let mut shell = Command::new("sh");
+    shell.arg("-lc").arg(command);
+    shell
+}
+
 fn stop_lane(id: Option<&str>, state: &mut TuiState) {
     let Some(id) = id else {
         push_lane_usage(state);
@@ -868,7 +1112,7 @@ pub(super) fn refresh_lanes(state: &mut TuiState) {
 fn push_lane_usage(state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane cleanup <id> [--force] | /lane close"
+        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane cleanup <id> [--force] | /lane close"
             .to_string(),
     });
 }
@@ -1127,6 +1371,55 @@ mod tests {
         assert!(cleanup.contains("Forced: true"));
         assert!(cleanup.contains("?? dirty.txt"));
         assert!(root.join(".robocode/lanes/L1.decision.md").exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_attach_uses_template_and_detach_preserves_process() {
+        let _env = ScopedEnv::set(
+            "ROBOCODE_LANE_ATTACH_TEMPLATE",
+            "printf attached-{lane} > {log:q}",
+        );
+        let root = temp_lane_root();
+        fs::create_dir_all(&root).expect("temp root");
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store);
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "codex".to_string(),
+            title: "inspect interactively".to_string(),
+            status: "completed".to_string(),
+            target: "main".to_string(),
+            progress: 100,
+            summary: "completed successfully".to_string(),
+            worktree: None,
+        }];
+
+        assert!(handle_tui_command("/lane attach L1", &mut state));
+
+        assert_eq!(state.lanes[0].status, "attached");
+        assert!(state.lanes[0].target.starts_with("attach pid "));
+        assert_eq!(state.focused_lane.as_deref(), Some("L1"));
+        let attach =
+            fs::read_to_string(root.join(".robocode/lanes/L1.attach.md")).expect("attach artifact");
+        assert!(attach.contains("RoboCode Lane Attach"));
+        assert!(attach.contains("printf attached-L1"));
+
+        assert!(handle_tui_command("/lane detach L1", &mut state));
+
+        assert_eq!(state.lanes[0].status, "detached");
+        assert_eq!(state.focused_lane, None);
+        assert!(
+            state
+                .entries
+                .last()
+                .expect("detach entry")
+                .body
+                .contains("without killing")
+        );
 
         let _ = fs::remove_dir_all(root);
     }

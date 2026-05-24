@@ -378,10 +378,16 @@ artifact；dirty worktree 必须显式 `--force`，所以 discard 只记录意�
 
 验收标准：
 
-- `/lane attach <id>` 进入交互式 lane；
-- `/lane detach` 返回 RoboCode TUI 且不杀进程；
+- `/lane attach <id>` 为 lane workspace 打开交互式 terminal；
+- `/lane detach <id>` 把 RoboCode tracking 恢复为 detached 状态，且不杀外部
+  terminal 进程；
 - 完整日志继续捕获；
 - UI 清楚标记当前正在 attach。
+
+当前状态：`/lane attach <id>` 会通过 `ROBOCODE_LANE_ATTACH_TEMPLATE` 启动外部
+terminal；macOS 默认使用 Terminal.app，并写入 `<lane-id>.attach.md`。
+`/lane detach <id>` 会把 lane 标记为 detached，不会杀掉外部进程。embedded PTY
+仍是后续工作。
 
 ## 推荐第一刀
 

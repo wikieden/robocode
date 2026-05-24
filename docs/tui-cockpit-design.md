@@ -127,6 +127,9 @@ route hints so the main agent can decide follow-up actions.
   when the worktree is clean. Dirty worktrees require explicit
   `/lane cleanup <id> --force`, and every cleanup writes
   `.robocode/lanes/<lane-id>.cleanup.md` before removal.
+- `/lane attach <id>` opens an interactive terminal for the lane workspace and
+  records `.robocode/lanes/<lane-id>.attach.md`. `/lane detach <id>` clears the
+  attached UI state without killing the external terminal process.
 - Provider health now reflects measured model-request telemetry from the shared
   runtime loop: real request count, success/failure count, last and average
   latency, last event count, and last provider error.
@@ -149,16 +152,20 @@ route hints so the main agent can decide follow-up actions.
   `{task}`, `{envelope}`, `{cwd}`, and `{worktree}` plus shell-quoted
   `{name:q}` forms. `{cwd}` and `{worktree}` both resolve to the actual lane
   workspace.
+- `ROBOCODE_LANE_ATTACH_TEMPLATE` can override the default lane attach launcher.
+  It supports `{lane}`, `{task}`, `{tool}`, `{cwd}`, `{worktree}`, `{log}` and
+  shell-quoted `{name:q}` forms. macOS has a default Terminal.app launcher;
+  other platforms should provide this template, for example a tmux or desktop
+  terminal command.
 - Code changes that alter cockpit behavior, commands, architecture, config, or
   UI must update the relevant docs. Comments should document non-obvious
   invariants and safety boundaries, not restate obvious code.
 
 ## Near-Term Gaps
 
-- Real PTY-backed lanes are still future work; current lanes support
-  non-interactive shell commands plus template-launched Codex/Claude adapters
-  with persisted envelope, log, and exit-code artifacts, plus Unix
-  process-group stop.
+- Embedded PTY is still future work; current lanes support non-interactive shell
+  commands, template-launched Codex/Claude adapters, external-terminal attach,
+  persisted envelope/log/exit-code artifacts, plus Unix process-group stop.
 - Apply/merge flows are still explicit follow-up work. Discarding a lane records
   the decision but intentionally does not delete its logs, worktree, or changes;
   cleanup requires a separate `/lane cleanup` command.

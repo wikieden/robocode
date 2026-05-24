@@ -112,6 +112,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   干净时才会执行。有未提交变更时必须显式使用
   `/lane cleanup <id> --force`，并且每次 cleanup 都会先写入
   `.robocode/lanes/<lane-id>.cleanup.md`。
+- `/lane attach <id>` 会为 lane workspace 打开交互式终端，并记录
+  `.robocode/lanes/<lane-id>.attach.md`。`/lane detach <id>` 只清除 attached UI
+  状态，不会杀掉外部 terminal 进程。
 - Provider health 已接入共享 runtime loop 测量到的模型请求 telemetry：真实
   request 数、成功/失败数、last/average latency、last event count 和最后一次
   provider error。
@@ -131,14 +134,18 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - `ROBOCODE_LANE_CODEX_TEMPLATE` 和 `ROBOCODE_LANE_CLAUDE_TEMPLATE` 支持
   `{task}`、`{envelope}`、`{cwd}`、`{worktree}` 以及 shell-quoted 的
   `{name:q}` 形式。`{cwd}` 和 `{worktree}` 都会解析为真实 lane workspace。
+- `ROBOCODE_LANE_ATTACH_TEMPLATE` 可以覆盖默认 lane attach launcher。它支持
+  `{lane}`、`{task}`、`{tool}`、`{cwd}`、`{worktree}`、`{log}` 以及
+  shell-quoted 的 `{name:q}` 形式。macOS 有默认 Terminal.app launcher；其他
+  平台应提供该 template，例如 tmux 或桌面 terminal 命令。
 - 修改 cockpit 行为、命令、架构、配置或 UI 时，必须同步更新相关文档。注释
   用来说明不明显的不变量和安全边界，不重复解释显而易见的代码。
 
 ## 近期缺口
 
-- 真正 PTY-backed lanes 仍是后续工作；当前 lane 支持非交互 shell 命令，以及
-  template-launched Codex/Claude adapter，并持久化 envelope / log / exit-code
-  artifacts；Unix 平台支持 process-group stop。
+- embedded PTY 仍是后续工作；当前 lane 支持非交互 shell 命令、
+  template-launched Codex/Claude adapter、外部 terminal attach，并持久化
+  envelope / log / exit-code artifacts；Unix 平台支持 process-group stop。
 - apply/merge 流程仍是明确的后续工作。discard lane 只记录决策，不会默认删除
   日志、worktree 或变更；清理必须通过单独的 `/lane cleanup` 命令执行。
 - Provider token、cost、rate telemetry 尚未接入，所以 live UI 会继续隐藏这些
