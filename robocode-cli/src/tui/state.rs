@@ -6,7 +6,7 @@ use std::{
 };
 
 use robocode_core::{EngineEvent, ProviderTelemetry};
-use robocode_types::TaskRecord;
+use robocode_types::{MemoryEntry, TaskRecord};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TuiEntry {
@@ -29,6 +29,7 @@ pub(super) struct TuiState {
     pub(super) entries: Vec<TuiEntry>,
     pub(super) workspace: WorkspaceSnapshot,
     pub(super) tasks: Vec<TaskRecord>,
+    pub(super) memory: Vec<MemoryEntry>,
     pub(super) screens: Vec<CompanionScreen>,
     pub(super) lanes: Vec<TerminalLane>,
     pub(super) lane_store: Option<PathBuf>,

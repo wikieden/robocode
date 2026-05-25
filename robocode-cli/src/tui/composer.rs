@@ -81,6 +81,7 @@ mod tests {
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            memory: Vec::new(),
             screens: Vec::new(),
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,

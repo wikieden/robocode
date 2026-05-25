@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use robocode_types::MemoryStatus;
 
 use super::{
     canvas::Frame,
@@ -576,7 +577,7 @@ fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comma
         .or_else(|| command_group_suggestions(query, "/git stash", &GIT_STASH_COMMANDS))
         .or_else(|| command_group_suggestions(query, "/git worktree", &GIT_WORKTREE_COMMANDS))
         .or_else(|| command_group_suggestions(query, "/provider", &PROVIDER_COMMANDS))
-        .or_else(|| command_group_suggestions(query, "/memory", &MEMORY_COMMANDS))
+        .or_else(|| memory_command_suggestions(query, state))
         .or_else(|| command_group_suggestions(query, "/git", &GIT_COMMANDS))
 }
 
@@ -793,6 +794,67 @@ fn task_status_suggestions(query: &str, words: &[&str]) -> Vec<CommandSuggestion
         .collect()
 }
 
+fn memory_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    if !query.starts_with("/memory ") {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let suggestions = if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
+        MEMORY_COMMANDS
+            .into_iter()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if words.len() == 2 && !query.ends_with(' ') {
+        MEMORY_COMMANDS
+            .into_iter()
+            .filter(|item| item.command.starts_with(query))
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if should_suggest_memory_ids(query, &words) {
+        memory_id_suggestions(query, &words, state)
+    } else {
+        Vec::new()
+    };
+    Some(suggestions)
+}
+
+fn should_suggest_memory_ids(query: &str, words: &[&str]) -> bool {
+    if words.len() < 2 || words.len() > 3 {
+        return false;
+    }
+    matches!(
+        format!("{} {}", words[0], words[1]).as_str(),
+        "/memory confirm" | "/memory reject" | "/memory prune"
+    ) && (query.ends_with(' ') || words.get(2).is_some())
+}
+
+fn memory_id_suggestions(query: &str, words: &[&str], state: &TuiState) -> Vec<CommandSuggestion> {
+    let base = format!("{} {}", words[0], words[1]);
+    let partial_id = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    state
+        .memory
+        .iter()
+        .filter(|entry| memory_matches_action(&base, entry.status))
+        .filter(|entry| entry.memory_id.starts_with(partial_id))
+        .map(|entry| CommandSuggestion {
+            command: format!("{base} {}", entry.memory_id),
+            summary: format!("{} [{}]", entry.content, entry.status),
+        })
+        .collect()
+}
+
+fn memory_matches_action(base: &str, status: MemoryStatus) -> bool {
+    match base {
+        "/memory confirm" | "/memory reject" => status == MemoryStatus::Suggested,
+        "/memory prune" => matches!(status, MemoryStatus::Active | MemoryStatus::Suggested),
+        _ => false,
+    }
+}
+
 fn lsp_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
     if !query.starts_with("/lsp ") {
         return None;
@@ -876,7 +938,10 @@ fn command_suggestion_row(
 mod tests {
     use super::*;
     use crate::tui::state::{CompanionScreen, ProviderStatus, TerminalLane, WorkspaceSnapshot};
-    use robocode_types::{TaskPriority, TaskRecord, TaskStatus};
+    use robocode_types::{
+        MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskPriority, TaskRecord,
+        TaskStatus,
+    };
 
     fn state_with_input(input: &str) -> TuiState {
         TuiState {
@@ -893,6 +958,7 @@ mod tests {
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            memory: Vec::new(),
             screens: Vec::new(),
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,
@@ -918,6 +984,22 @@ mod tests {
             last_session_id: None,
             last_seen_at: None,
             archived_at: None,
+        }
+    }
+
+    fn memory(id: &str, content: &str, status: MemoryStatus) -> MemoryEntry {
+        MemoryEntry {
+            memory_id: id.to_string(),
+            scope: MemoryScope::Project,
+            session_id: Some("session_123".to_string()),
+            kind: MemoryKind::Fact,
+            content: content.to_string(),
+            source: MemorySource::AssistantSuggestion,
+            status,
+            created_at: 1,
+            updated_at: 2,
+            related_task_ids: Vec::new(),
+            confidence_hint: None,
         }
     }
 
@@ -1045,6 +1127,40 @@ mod tests {
             statuses
                 .iter()
                 .any(|item| item.command.ends_with(" in_progress"))
+        );
+    }
+
+    #[test]
+    fn suggests_memory_ids_for_confirmation_and_pruning() {
+        let mut state = state_with_input("/memory confirm mem_");
+        state.memory = vec![
+            memory(
+                "mem_pending",
+                "Keep TUI docs current",
+                MemoryStatus::Suggested,
+            ),
+            memory("mem_active", "Use aurora-cyan theme", MemoryStatus::Active),
+        ];
+
+        let confirm = command_suggestions_for_state(&state);
+
+        assert_eq!(confirm[0].command, "/memory confirm mem_pending");
+        assert!(confirm[0].summary.contains("[suggested]"));
+        assert!(
+            !confirm
+                .iter()
+                .any(|item| item.command.contains("mem_active"))
+        );
+
+        state.input = "/memory prune mem_".to_string();
+        let prune = command_suggestions_for_state(&state);
+
+        assert_eq!(
+            prune
+                .iter()
+                .map(|suggestion| suggestion.command.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/memory prune mem_pending", "/memory prune mem_active"]
         );
     }
 

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{path::PathBuf, time::Duration};
 
@@ -23,7 +24,7 @@ use robocode_model::{ModelProvider, ProviderHost};
 use robocode_permissions::PermissionEngine;
 use robocode_session::SessionStore;
 use robocode_tools::ToolRegistry;
-use robocode_types::{Message, PermissionMode, RuntimeSnapshot, TaskRecord};
+use robocode_types::{MemoryEntry, Message, PermissionMode, RuntimeSnapshot, TaskRecord};
 use robocode_workflows::stores::WorkflowStore;
 
 const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
@@ -201,6 +202,21 @@ impl SessionEngine {
             .into_iter()
             .cloned()
             .collect())
+    }
+
+    /// Returns only memory entries that can drive live operator actions.
+    pub fn memory_snapshot(&self) -> Result<Vec<MemoryEntry>, String> {
+        let state = self.workflows.load_memory_state()?;
+        let mut entries = BTreeMap::new();
+        for entry in state
+            .pending_suggestions()
+            .into_iter()
+            .chain(state.active_project_memory())
+            .chain(state.active_session_memory(self.session_id()))
+        {
+            entries.insert(entry.memory_id.clone(), entry.clone());
+        }
+        Ok(entries.into_values().collect())
     }
 
     pub fn set_provider_runtime(

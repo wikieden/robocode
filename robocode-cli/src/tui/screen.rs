@@ -43,6 +43,7 @@ pub(crate) fn run_side_tui_with_theme(
         }],
         workspace: WorkspaceSnapshot::load_current(),
         tasks: engine.active_task_snapshot().unwrap_or_default(),
+        memory: engine.memory_snapshot().unwrap_or_default(),
         screens: load_side_screens(screen_store.as_deref(), screen),
         lanes: load_side_lanes(lane_store.as_deref()),
         lane_store,
@@ -87,6 +88,7 @@ pub(crate) fn run_side_tui_with_theme(
         }
         state.workspace = WorkspaceSnapshot::load_current();
         state.tasks = engine.active_task_snapshot().unwrap_or_default();
+        state.memory = engine.memory_snapshot().unwrap_or_default();
         draw_side_screen(&mut terminal, &state, screen)?;
     }
 
@@ -413,6 +415,7 @@ mod tests {
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            memory: Vec::new(),
             screens: Vec::new(),
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,

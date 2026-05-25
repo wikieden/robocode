@@ -2,7 +2,10 @@ use super::state::{
     CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
 };
 use super::{render, terminal};
-use robocode_types::{TaskPriority, TaskRecord, TaskStatus};
+use robocode_types::{
+    MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskPriority, TaskRecord,
+    TaskStatus,
+};
 
 pub(crate) fn render_preview(provider: &str, model: &str) -> String {
     let state = preview_state(provider, model, "aurora-cyan");
@@ -126,6 +129,7 @@ fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
         approval_apply_all: false,
         workspace: WorkspaceSnapshot::fixture(),
         tasks: preview_tasks(),
+        memory: preview_memory(),
         screens: preview_screens(),
         lanes: TerminalLane::preview_lanes(),
         lane_store: None,
@@ -227,6 +231,37 @@ fn preview_tasks() -> Vec<TaskRecord> {
     ]
 }
 
+fn preview_memory() -> Vec<MemoryEntry> {
+    vec![
+        MemoryEntry {
+            memory_id: "mem_tui_standard".to_string(),
+            scope: MemoryScope::Project,
+            session_id: Some("c4f2b7e".to_string()),
+            kind: MemoryKind::Convention,
+            content: "Keep TUI docs and previews in the same change as UI behavior.".to_string(),
+            source: MemorySource::AssistantSuggestion,
+            status: MemoryStatus::Suggested,
+            created_at: 1,
+            updated_at: 2,
+            related_task_ids: Vec::new(),
+            confidence_hint: Some("preview".to_string()),
+        },
+        MemoryEntry {
+            memory_id: "mem_theme".to_string(),
+            scope: MemoryScope::Session,
+            session_id: Some("c4f2b7e".to_string()),
+            kind: MemoryKind::Preference,
+            content: "Use aurora-cyan as the default cockpit theme.".to_string(),
+            source: MemorySource::Command,
+            status: MemoryStatus::Active,
+            created_at: 1,
+            updated_at: 2,
+            related_task_ids: Vec::new(),
+            confidence_hint: None,
+        },
+    ]
+}
+
 fn focused_lane_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = preview_state(provider, model, theme_name);
     state.focused_lane = Some("L1".to_string());
@@ -252,7 +287,7 @@ fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState
 
 fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.input = "/lane ".to_string();
+    state.input = "/memory confirm mem_".to_string();
     state.command_selection = 0;
     state
 }
@@ -274,7 +309,7 @@ mod tests {
         assert!(main.contains("src/config.rs"));
         assert!(idle.contains("No approval is blocking right now"));
         assert!(command_palette.contains("COMMANDS"));
-        assert!(command_palette.contains("› /lane codex"));
+        assert!(command_palette.contains("› /memory confirm mem_tui_standard"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));
         assert!(side.contains("~/projects/robocode"));

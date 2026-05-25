@@ -1,5 +1,5 @@
 use crate::{EngineEvent, SessionEngine};
-use robocode_types::ApprovalResponse;
+use robocode_types::{ApprovalResponse, MemoryStatus};
 
 use super::{SequenceProvider, temp_dir};
 
@@ -46,6 +46,39 @@ fn workflow_task_commands_create_list_and_resume_context() {
             if text.contains("Resume context:")
                 && text.contains("Suggested next steps:")
     )));
+}
+
+#[test]
+fn memory_snapshot_exposes_operable_memory_entries() {
+    let home = temp_dir("workflow_memory_snapshot_home");
+    let cwd = temp_dir("workflow_memory_snapshot_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .process_input_with_approval(
+            "/memory suggest Keep command palette memory IDs available",
+            &mut approver,
+        )
+        .unwrap();
+    engine
+        .process_input_with_approval("/memory add Use aurora-cyan for TUI", &mut approver)
+        .unwrap();
+
+    let snapshot = engine.memory_snapshot().unwrap();
+
+    assert_eq!(snapshot.len(), 2);
+    assert!(snapshot.iter().any(|entry| {
+        entry.status == MemoryStatus::Suggested
+            && entry.content.contains("command palette memory IDs")
+    }));
+    assert!(snapshot.iter().any(|entry| {
+        entry.status == MemoryStatus::Active && entry.content.contains("aurora-cyan")
+    }));
 }
 
 #[test]

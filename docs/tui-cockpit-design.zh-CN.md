@@ -97,7 +97,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - composer 已按显示宽度处理中文等 CJK 输入。
 - slash 提示列表是本地 UI 状态，不触发模型调用。它现在支持 `/lane`、
   `/screen`、`/provider`、`/lsp`、`/task`、`/memory` 和 `/git` 的二级提示；
-  当前 TUI state 能提供对象时，会显示动态 ID 或最近文件。
+  当前 TUI state 能提供对象时，会显示动态 ID 或最近文件。memory 操作会读取
+  workflow memory snapshot，所以 `/memory confirm`、`/memory reject` 和
+  `/memory prune` 会提示相关 memory ID，不再要求操作者手动复制。
 - 主屏 idle 时会轮询 lane artifacts，所以后台 `/lane run` 的完成、失败和
   log-tail 状态不需要按键也会刷新。
 - 右侧栏 `ACTIVE TASKS` 面板会读取 `/task` 和 `/tasks` 背后的真实 workflow
@@ -171,5 +173,5 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - 副屏启动已经是真实进程管理，但跨物理显示器的 OS 窗口自动摆放仍由 launcher
   template 或桌面手动操作负责。
 - 命令提示列表的二级提示已覆盖主要命令族。provider-specific model 名称、
-  memory ID、branch 名称和任意路径补全仍是后续可继续加强的细节。
+  branch 名称和任意路径补全仍是后续可继续加强的细节。
 - 视觉还需要持续用截图和 holodeck 主参考图对比。

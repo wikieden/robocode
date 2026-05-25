@@ -141,6 +141,7 @@ mod tests {
             approval_apply_all: false,
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),
             lane_store: None,

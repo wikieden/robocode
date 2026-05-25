@@ -113,7 +113,9 @@ route hints so the main agent can decide follow-up actions.
 - The slash palette is local UI state; model calls are not involved. It now
   supports nested suggestions for `/lane`, `/screen`, `/provider`, `/lsp`,
   `/task`, `/memory`, and `/git`, with dynamic IDs or recent files where the
-  current TUI state can provide them.
+  current TUI state can provide them. Memory actions use the workflow memory
+  snapshot, so `/memory confirm`, `/memory reject`, and `/memory prune` suggest
+  relevant memory IDs instead of requiring the operator to copy them manually.
 - The main screen polls lane artifacts while idle, so background `/lane run`
   completion, failure, and log-tail state appear without a keypress.
 - The right-rail `ACTIVE TASKS` panel reads the real workflow task store exposed
@@ -198,7 +200,7 @@ route hints so the main agent can decide follow-up actions.
   placement across physical monitors is still a launcher-template/manual
   desktop responsibility.
 - Command palette nested suggestions cover the main command families. Deeper
-  provider-specific model names, memory IDs, branch names, and arbitrary path
-  completions are still future refinements.
+  provider-specific model names, branch names, and arbitrary path completions
+  are still future refinements.
 - Visual parity still needs repeated screenshot comparison against the
   holodeck reference.

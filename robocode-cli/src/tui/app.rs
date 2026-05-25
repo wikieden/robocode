@@ -124,6 +124,7 @@ fn initial_state(
     let workspace = WorkspaceSnapshot::load_current();
     let screens = load_screens(&screen_store_path(&workspace.root));
     let tasks = engine.active_task_snapshot().unwrap_or_default();
+    let memory = engine.memory_snapshot().unwrap_or_default();
     TuiState {
         session_id: engine.session_id().to_string(),
         provider: engine.provider_name().to_string(),
@@ -143,6 +144,7 @@ fn initial_state(
         }],
         workspace,
         tasks,
+        memory,
         screens,
         lanes,
         lane_store,
@@ -181,6 +183,7 @@ fn handle_enter(
     state.model = engine.model_name().to_string();
     state.provider_status = ProviderStatus::from_telemetry(&engine.provider_telemetry());
     state.tasks = engine.active_task_snapshot().unwrap_or_default();
+    state.memory = engine.memory_snapshot().unwrap_or_default();
     state.workspace = WorkspaceSnapshot::load_current();
     Ok(false)
 }
@@ -245,6 +248,7 @@ mod tests {
             }],
             workspace,
             tasks: Vec::new(),
+            memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::<TerminalLane>::new(),
             lane_store: None,
