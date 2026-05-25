@@ -15,6 +15,12 @@ The north star:
 > TUI for the loop: understand the request, edit code, review the diff, run
 > tests, fix failures, and summarize the result.
 
+Focused benchmark:
+
+- `docs/code-agent-experience-benchmark-2026-05-25.md` compares Codex,
+  Claude Code, DeepSeek-TUI / CodeWhale, and Zed, and is the benchmark source
+  for this release plan.
+
 ## Product Principles
 
 - Optimize for the coding loop, not surface area.
@@ -167,6 +173,21 @@ Before tagging `v0.1.5`, run:
 3. Diff and test evidence in the main coding loop.
 4. Lane inspect/apply/side-screen operator flow.
 5. Context/status polish and final release smoke.
+
+## Benchmark-Aligned Product Decisions
+
+- Keep RoboCode positioned as a local terminal cockpit, not a cloud task runner
+  or full editor replacement.
+- Match Codex and Zed expectations around central diff/review evidence.
+- Match Claude Code expectations around a smooth terminal action loop,
+  permissions, and eventually hooks, but keep `0.1.5` focused on the approval
+  and test loop.
+- Match DeepSeek-TUI's terminal density and DeepSeek V4 Flash provider
+  visibility, but only for panels backed by real runtime state.
+- Treat lanes as supervised work threads. Side screens should show agent lanes,
+  tests, diagnostics, repo state, and recommended next actions.
+- Defer MCP, remote automation, and a full terminal emulator unless they
+  directly unblock the coding loop.
 
 ## Exit Criteria
 

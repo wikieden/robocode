@@ -13,6 +13,11 @@ provider 路径、shell lane、tmux lane 和 release artifacts 可以端到端�
 > 在真实 Rust、JavaScript 或 Python 项目里，用户可以留在 RoboCode TUI 内完成：
 > 理解需求、修改代码、审查 diff、运行测试、修复失败、总结结果。
 
+聚焦对标：
+
+- `docs/code-agent-experience-benchmark-2026-05-25.zh-CN.md` 对比 Codex、
+  Claude Code、DeepSeek-TUI / CodeWhale 和 Zed，是本版本计划的对标来源。
+
 ## 产品原则
 
 - 优先优化写代码闭环，而不是扩大功能表面积。
@@ -154,6 +159,18 @@ Lane 有用的标准是减少上下文切换，而不是多一个看 log 的地�
 3. 主编程闭环里的 diff 和 test evidence。
 4. Lane inspect/apply/side-screen operator flow。
 5. Context/status polish 和 final release smoke。
+
+## 对标后的产品决策
+
+- RoboCode 继续定位为 local terminal cockpit，不做 cloud task runner，也不替代完整 editor。
+- 对齐 Codex 和 Zed 对集中 diff/review evidence 的体验预期。
+- 对齐 Claude Code 对顺滑 terminal action loop、permissions 和后续 hooks 的体验预期，
+  但 `0.1.5` 先聚焦 approval 和 test loop。
+- 对齐 DeepSeek-TUI 的 terminal density 和 DeepSeek V4 Flash provider 可见性，
+  但只做有真实 runtime state 支撑的 panel。
+- Lane 视为受监督的 work threads。副屏应该展示 agent lanes、tests、diagnostics、
+  repo state 和 recommended next actions。
+- MCP、remote automation 和完整 terminal emulator 后置，除非它们直接阻塞编程闭环。
 
 ## Exit Criteria
 
