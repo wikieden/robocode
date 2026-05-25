@@ -406,7 +406,10 @@ Current status: `/lane attach <id>` launches an external terminal through
 `<lane-id>.attach.md`. `/lane tmux <id>` starts or reuses a named tmux session
 for the lane workspace, writes `<lane-id>.tmux.md`, and records the exact
 operator attach command (`tmux attach -t ...`) while leaving the tmux process
-under tmux control. `ROBOCODE_LANE_TMUX_TEMPLATE` and
+under tmux control. The default tmux template pipes pane output into the
+standard `<lane-id>.log`, so side screens and `/lane inspect` can observe live
+tmux output through the same lane evidence path as non-interactive lanes.
+`ROBOCODE_LANE_TMUX_TEMPLATE` and
 `ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE` allow custom terminal-tool launch flows.
 `/lane detach <id>` marks the lane detached without killing the external
 process. Side-1 lane rows and the focused lane modal show either the exact

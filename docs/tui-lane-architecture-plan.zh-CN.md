@@ -399,7 +399,9 @@ conflict report。完整的内联 conflict editor 仍是后续工作。
 terminal；macOS 默认使用 Terminal.app，并写入 `<lane-id>.attach.md`。
 `/lane tmux <id>` 会为 lane workspace 启动或复用一个命名 tmux session，写入
 `<lane-id>.tmux.md`，并记录明确的操作者 attach 命令（`tmux attach -t ...`），
-tmux 进程本身仍交给 tmux 管理。`ROBOCODE_LANE_TMUX_TEMPLATE` 和
+tmux 进程本身仍交给 tmux 管理。默认 tmux template 会把 pane 输出 pipe 到标准
+`<lane-id>.log`，所以副屏和 `/lane inspect` 可以通过和非交互 lane 相同的证据
+路径观察实时 tmux 输出。`ROBOCODE_LANE_TMUX_TEMPLATE` 和
 `ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE` 可用于定制 terminal-tool 启动流程。
 `/lane detach <id>` 会把 lane 标记为 detached，不会杀掉外部进程。side-1 的
 lane 行和聚焦 lane modal 会为 tmux-backed lane 显示明确的

@@ -812,18 +812,18 @@ fn tmux_lane(id: Option<&str>, state: &mut TuiState) {
             return;
         }
     };
-    let tmux_log = match lane_artifact_path(state, &lane.id, "tmux.log") {
+    let runtime_log = match lane_artifact_path(state, &lane.id, "log") {
         Ok(path) => path,
         Err(err) => {
             state.entries.push(TuiEntry {
                 label: "system".to_string(),
-                body: format!("Failed to prepare lane tmux log: {err}"),
+                body: format!("Failed to prepare lane runtime log: {err}"),
             });
             return;
         }
     };
     let session = lane_tmux_session(&lane, state);
-    let command = match lane_tmux_command(&lane, state, &session, &tmux_log) {
+    let command = match lane_tmux_command(&lane, state, &session, &runtime_log) {
         Ok(command) => command,
         Err(err) => {
             state.entries.push(TuiEntry {
@@ -835,7 +835,7 @@ fn tmux_lane(id: Option<&str>, state: &mut TuiState) {
     };
     if let Err(err) = fs::write(
         &tmux_path,
-        render_lane_tmux(&lane, state, &session, &command, &tmux_log),
+        render_lane_tmux(&lane, state, &session, &command, &runtime_log),
     ) {
         state.entries.push(TuiEntry {
             label: "system".to_string(),
@@ -872,13 +872,13 @@ fn lane_tmux_command(
     lane: &TerminalLane,
     state: &TuiState,
     session: &str,
-    tmux_log: &Path,
+    runtime_log: &Path,
 ) -> Result<String, String> {
     let template = env::var("ROBOCODE_LANE_TMUX_TEMPLATE").unwrap_or_else(|_| {
-        "tmux has-session -t {session:q} 2>/dev/null || tmux new-session -d -s {session:q} -c {cwd:q}; tmux send-keys -t {session:q} {command:q} C-m; printf '%s\\n' {session:q} > {log:q}"
+        "tmux has-session -t {session:q} 2>/dev/null || tmux new-session -d -s {session:q} -c {cwd:q}; : > {log:q}; tmux pipe-pane -o -t {session:q} \"cat >> {log:q}\"; tmux send-keys -t {session:q} {command:q} C-m"
             .to_string()
     });
-    let command = expand_tmux_template(&template, lane, state, session, tmux_log);
+    let command = expand_tmux_template(&template, lane, state, session, runtime_log);
     (!command.trim().is_empty())
         .then_some(command)
         .ok_or_else(|| "ROBOCODE_LANE_TMUX_TEMPLATE expanded to an empty command".to_string())
@@ -889,13 +889,13 @@ fn expand_tmux_template(
     lane: &TerminalLane,
     state: &TuiState,
     session: &str,
-    tmux_log: &Path,
+    runtime_log: &Path,
 ) -> String {
     let cwd = lane_workspace(lane, state).to_string_lossy().to_string();
     let command = env::var("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE")
         .map(|template| expand_agent_template(&template, &lane.title, None, Path::new(&cwd)))
         .unwrap_or_else(|_| command_hint(&lane.tool, &lane.title));
-    let log = tmux_log.to_string_lossy().to_string();
+    let log = runtime_log.to_string_lossy().to_string();
     template
         .replace("{session:q}", &shell_quote_value(session))
         .replace("{lane:q}", &shell_quote_value(&lane.id))
@@ -928,15 +928,15 @@ fn render_lane_tmux(
     state: &TuiState,
     session: &str,
     command: &str,
-    tmux_log: &Path,
+    runtime_log: &Path,
 ) -> String {
     format!(
-        "# RoboCode Lane Tmux\n\nLane: {}\nTool: {}\nStatus before tmux: {}\nSession: {session}\nWorkspace: {}\nTmux log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Attach\nUse `tmux attach -t {session}` to enter the interactive lane. Use `/lane detach {}` to return RoboCode tracking to detached state without killing the tmux session.\n",
+        "# RoboCode Lane Tmux\n\nLane: {}\nTool: {}\nStatus before tmux: {}\nSession: {session}\nWorkspace: {}\nRuntime log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Attach\nUse `tmux attach -t {session}` to enter the interactive lane. Pane output is piped into the standard lane runtime log when the default tmux template is used. Use `/lane detach {}` to return RoboCode tracking to detached state without killing the tmux session.\n",
         lane.id,
         lane.tool,
         lane.status,
         lane_workspace(lane, state).display(),
-        tmux_log.display(),
+        runtime_log.display(),
         lane.title,
         command,
         lane.id
@@ -2216,9 +2216,44 @@ mod tests {
             fs::read_to_string(root.join(".robocode/lanes/L1.tmux.md")).expect("tmux artifact");
         assert!(tmux.contains("RoboCode Lane Tmux"));
         assert!(tmux.contains("Session: robocode-session_123-l1"));
+        assert!(tmux.contains("Runtime log:"));
+        assert!(tmux.contains(".robocode/lanes/L1.log"));
         assert!(tmux.contains("codex exec inspect interactively"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_tmux_default_template_pipes_pane_to_standard_log() {
+        let _env = ScopedEnv::set_many(&[
+            ("ROBOCODE_LANE_TMUX_TEMPLATE", None),
+            ("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE", None),
+        ]);
+        let root = temp_lane_root();
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        let lane = TerminalLane {
+            id: "L1".to_string(),
+            tool: "claude".to_string(),
+            title: "review interactively".to_string(),
+            status: "completed".to_string(),
+            target: "main".to_string(),
+            progress: 100,
+            summary: "completed successfully".to_string(),
+            worktree: None,
+        };
+        let runtime_log = root.join(".robocode/lanes/L1.log");
+
+        let command = lane_tmux_command(&lane, &state, "robocode-session_123-l1", &runtime_log)
+            .expect("tmux command");
+
+        assert!(command.contains("tmux pipe-pane -o -t"));
+        assert!(command.contains("robocode-session_123-l1"));
+        assert!(command.contains("cat >>"));
+        assert!(command.contains(".robocode/lanes/L1.log"));
+        assert!(command.contains("tmux send-keys -t"));
+        assert!(command.contains("claude"));
+        assert!(command.contains("review interactively"));
     }
 
     #[test]

@@ -333,7 +333,6 @@ pub(super) fn refresh_lane_runtime(path: &Path, lanes: &mut [TerminalLane]) {
                 | "applied"
                 | "apply_conflict"
                 | "archived"
-                | "attached"
                 | "detached"
                 | "stopped"
         ) {
@@ -1137,6 +1136,37 @@ mod tests {
         assert_eq!(loaded.progress, 64);
         assert_eq!(loaded.summary, "patched failing tests; rerunning cargo");
         assert_eq!(loaded.worktree, Some(PathBuf::from("/tmp/robocode-lane")));
+    }
+
+    #[test]
+    fn refresh_lane_runtime_updates_attached_lane_from_log_tail() {
+        let root = temp_state_root();
+        let lane_store = lane_store_path(&root);
+        let artifact_dir = root.join(".robocode").join("lanes");
+        fs::create_dir_all(&artifact_dir).expect("artifact dir");
+        fs::write(
+            artifact_dir.join("L1.log"),
+            "tmux booted\nlive pane output\n",
+        )
+        .expect("runtime log");
+        let mut lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "claude".to_string(),
+            title: "review interactively".to_string(),
+            status: "attached".to_string(),
+            target: "tmux robocode-session-l1".to_string(),
+            progress: 10,
+            summary: "tmux session ready".to_string(),
+            worktree: None,
+        }];
+
+        refresh_lane_runtime(&lane_store, &mut lanes);
+
+        assert_eq!(lanes[0].status, "attached");
+        assert_eq!(lanes[0].summary, "live pane output");
+        assert_eq!(lanes[0].progress, 35);
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

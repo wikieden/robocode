@@ -309,6 +309,7 @@ mod tests {
     use crate::tui::state::{ProviderStatus, TerminalLane, WorkspaceSnapshot};
     use std::{
         fs,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -424,11 +425,13 @@ mod tests {
     }
 
     fn temp_app_root() -> std::path::PathBuf {
+        static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("robocode-tui-app-test-{nanos}"));
+        let suffix = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!("robocode-tui-app-test-{nanos}-{suffix}"));
         fs::create_dir_all(&root).expect("temp root");
         root
     }

@@ -151,7 +151,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - `/lane tmux <id>` 会为 lane workspace 创建或复用命名 tmux session。side-1
   lane monitor 和聚焦 lane modal 会对已 attached 的 tmux lane 直接显示
   `tmux attach -t ...` 命令；对尚未 attached 的 lane，则显示 `/lane tmux <id>`
-  作为下一步交互入口。
+  作为下一步交互入口。使用默认 tmux template 时，pane 输出会 pipe 到标准 lane
+  `.log`，所以副屏和 `/lane inspect` 可以观察实时 tmux 输出。
 - Provider health 已接入共享 runtime loop 测量到的模型请求 telemetry：真实
   request 数、成功/失败数、last/average latency、last event count、
   provider 返回的 token usage、请求耗时允许时的 token throughput，以及最后一次
