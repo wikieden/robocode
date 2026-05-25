@@ -455,6 +455,7 @@ pub(super) struct WorkspaceSnapshot {
     pub(super) root: PathBuf,
     pub(super) display_root: String,
     pub(super) git_branch: String,
+    pub(super) git_branches: Vec<String>,
     pub(super) file_count: usize,
     pub(super) line_count: usize,
     pub(super) recent_files: Vec<RecentFile>,
@@ -478,6 +479,7 @@ impl WorkspaceSnapshot {
 
     fn load(root: PathBuf) -> Self {
         let git_branch = git_branch(&root).unwrap_or_else(|| "main".to_string());
+        let git_branches = git_branches(&root).unwrap_or_else(|| vec![git_branch.clone()]);
         let display_root = display_path(&root);
         let mut files = Vec::new();
         collect_files(&root, &root, &mut files, 0);
@@ -506,6 +508,7 @@ impl WorkspaceSnapshot {
             root,
             display_root,
             git_branch,
+            git_branches,
             file_count,
             line_count,
             recent_files,
@@ -521,6 +524,11 @@ impl WorkspaceSnapshot {
             root: PathBuf::from("/tmp/robocode"),
             display_root: "~/projects/robocode".to_string(),
             git_branch: "main".to_string(),
+            git_branches: vec![
+                "main".to_string(),
+                "codex/tui-cockpit".to_string(),
+                "release/v0.1.3".to_string(),
+            ],
             file_count: 128,
             line_count: 24_531,
             recent_files: vec![
@@ -726,6 +734,25 @@ fn git_branch(root: &Path) -> Option<String> {
     }
     let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
     (!branch.is_empty()).then_some(branch)
+}
+
+fn git_branches(root: &Path) -> Option<Vec<String>> {
+    let output = Command::new("git")
+        .arg("branch")
+        .arg("--format=%(refname:short)")
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let branches = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    (!branches.is_empty()).then_some(branches)
 }
 
 fn display_path(path: &Path) -> String {

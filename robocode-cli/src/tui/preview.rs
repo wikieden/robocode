@@ -287,7 +287,7 @@ fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState
 
 fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.input = "/memory confirm mem_".to_string();
+    state.input = "/git switch codex/".to_string();
     state.command_selection = 0;
     state
 }
@@ -309,7 +309,7 @@ mod tests {
         assert!(main.contains("src/config.rs"));
         assert!(idle.contains("No approval is blocking right now"));
         assert!(command_palette.contains("COMMANDS"));
-        assert!(command_palette.contains("› /memory confirm mem_tui_standard"));
+        assert!(command_palette.contains("› /git switch codex/tui-cockpit"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));
         assert!(side.contains("~/projects/robocode"));

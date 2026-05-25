@@ -578,7 +578,7 @@ fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comma
         .or_else(|| command_group_suggestions(query, "/git worktree", &GIT_WORKTREE_COMMANDS))
         .or_else(|| command_group_suggestions(query, "/provider", &PROVIDER_COMMANDS))
         .or_else(|| memory_command_suggestions(query, state))
-        .or_else(|| command_group_suggestions(query, "/git", &GIT_COMMANDS))
+        .or_else(|| git_command_suggestions(query, state))
 }
 
 fn lane_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
@@ -853,6 +853,59 @@ fn memory_matches_action(base: &str, status: MemoryStatus) -> bool {
         "/memory prune" => matches!(status, MemoryStatus::Active | MemoryStatus::Suggested),
         _ => false,
     }
+}
+
+fn git_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    if !query.starts_with("/git ") {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let suggestions = if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
+        GIT_COMMANDS
+            .into_iter()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if words.len() == 2 && !query.ends_with(' ') {
+        GIT_COMMANDS
+            .into_iter()
+            .filter(|item| item.command.starts_with(query))
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if should_suggest_git_branches(query, &words) {
+        git_branch_suggestions(query, &words, state)
+    } else {
+        Vec::new()
+    };
+    Some(suggestions)
+}
+
+fn should_suggest_git_branches(query: &str, words: &[&str]) -> bool {
+    words.len() >= 2
+        && words.len() <= 3
+        && format!("{} {}", words[0], words[1]) == "/git switch"
+        && (query.ends_with(' ') || words.get(2).is_some())
+}
+
+fn git_branch_suggestions(query: &str, words: &[&str], state: &TuiState) -> Vec<CommandSuggestion> {
+    let partial_branch = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    state
+        .workspace
+        .git_branches
+        .iter()
+        .filter(|branch| branch.starts_with(partial_branch))
+        .map(|branch| CommandSuggestion {
+            command: format!("/git switch {branch}"),
+            summary: if branch == &state.workspace.git_branch {
+                "Current branch".to_string()
+            } else {
+                "Local branch".to_string()
+            },
+        })
+        .collect()
 }
 
 fn lsp_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
@@ -1162,6 +1215,16 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["/memory prune mem_pending", "/memory prune mem_active"]
         );
+    }
+
+    #[test]
+    fn suggests_git_branches_for_switch() {
+        let state = state_with_input("/git switch codex/");
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(suggestions[0].command, "/git switch codex/tui-cockpit");
+        assert_eq!(suggestions[0].summary, "Local branch");
     }
 
     #[test]
