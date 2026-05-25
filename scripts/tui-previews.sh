@@ -30,6 +30,7 @@ from html import escape
 from pathlib import Path
 import re
 import sys
+import unicodedata
 
 source = Path(sys.argv[1])
 target = Path(sys.argv[2])
@@ -79,11 +80,42 @@ def parse_ansi_line(line):
 
 lines = [parse_ansi_line(line) for line in raw_lines]
 plain_lines = ["".join(text for text, _fg, _bg in line) for line in lines]
+
+def cell_width(char):
+    if unicodedata.combining(char):
+        return 0
+    if char in ("\u200d", "\ufe0e", "\ufe0f"):
+        return 0
+    if unicodedata.east_asian_width(char) in ("F", "W"):
+        return 2
+    code = ord(char)
+    if (
+        0x1F300 <= code <= 0x1FAFF
+        or 0x2600 <= code <= 0x27BF
+    ):
+        return 2
+    return 1
+
+def text_width(text):
+    return sum(cell_width(char) for char in text)
+
+def text_cells(text):
+    pending = ""
+    for char in text:
+        width = cell_width(char)
+        if width == 0:
+            pending += char
+            continue
+        yield pending + char, width
+        pending = ""
+    if pending:
+        yield pending, 0
+
 cell_w = 10
 cell_h = 19
 pad_x = 24
 pad_y = 30
-width = pad_x * 2 + max(len(line) for line in plain_lines) * cell_w
+width = pad_x * 2 + max(text_width(line) for line in plain_lines) * cell_w
 height = pad_y * 2 + len(lines) * cell_h
 rows = []
 for index, line in enumerate(lines):
@@ -93,12 +125,16 @@ for index, line in enumerate(lines):
         if not text:
             continue
         x = pad_x + col * cell_w
+        span_width = text_width(text)
         if bg:
             rows.append(
-                f'<rect x="{x}" y="{y - 15}" width="{len(text) * cell_w}" height="{cell_h}" fill="{bg}" opacity="0.82"/>'
+                f'<rect x="{x}" y="{y - 15}" width="{span_width * cell_w}" height="{cell_h}" fill="{bg}" opacity="0.82"/>'
             )
-        rows.append(f'<text x="{x}" y="{y}" class="term" fill="{fg}">{escape(text)}</text>')
-        col += len(text)
+        for cell_text, cell_span in text_cells(text):
+            if not cell_text:
+                continue
+            rows.append(f'<text x="{pad_x + col * cell_w}" y="{y}" class="term" fill="{fg}">{escape(cell_text)}</text>')
+            col += max(cell_span, 1)
 svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
   <defs>
     <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
