@@ -457,6 +457,7 @@ pub(super) struct WorkspaceSnapshot {
     pub(super) git_branch: String,
     pub(super) git_branches: Vec<String>,
     pub(super) git_stashes: Vec<GitStashEntry>,
+    pub(super) git_worktrees: Vec<GitWorktreeEntry>,
     pub(super) file_count: usize,
     pub(super) line_count: usize,
     pub(super) recent_files: Vec<RecentFile>,
@@ -478,6 +479,12 @@ pub(super) struct GitStashEntry {
     pub(super) summary: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct GitWorktreeEntry {
+    pub(super) path: String,
+    pub(super) branch: Option<String>,
+}
+
 impl WorkspaceSnapshot {
     pub(super) fn load_current() -> Self {
         let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -488,6 +495,7 @@ impl WorkspaceSnapshot {
         let git_branch = git_branch(&root).unwrap_or_else(|| "main".to_string());
         let git_branches = git_branches(&root).unwrap_or_else(|| vec![git_branch.clone()]);
         let git_stashes = git_stashes(&root).unwrap_or_default();
+        let git_worktrees = git_worktrees(&root).unwrap_or_default();
         let display_root = display_path(&root);
         let mut files = Vec::new();
         collect_files(&root, &root, &mut files, 0);
@@ -518,6 +526,7 @@ impl WorkspaceSnapshot {
             git_branch,
             git_branches,
             git_stashes,
+            git_worktrees,
             file_count,
             line_count,
             recent_files,
@@ -546,6 +555,16 @@ impl WorkspaceSnapshot {
                 GitStashEntry {
                     reference: "stash@{1}".to_string(),
                     summary: "On codex/tui-cockpit: checkpoint preview assets".to_string(),
+                },
+            ],
+            git_worktrees: vec![
+                GitWorktreeEntry {
+                    path: "/tmp/robocode".to_string(),
+                    branch: Some("main".to_string()),
+                },
+                GitWorktreeEntry {
+                    path: "/tmp/robocode/.worktrees/codex-tui-cockpit".to_string(),
+                    branch: Some("codex/tui-cockpit".to_string()),
                 },
             ],
             file_count: 128,
@@ -800,6 +819,50 @@ fn git_stashes(root: &Path) -> Option<Vec<GitStashEntry>> {
         })
         .collect::<Vec<_>>();
     (!stashes.is_empty()).then_some(stashes)
+}
+
+fn git_worktrees(root: &Path) -> Option<Vec<GitWorktreeEntry>> {
+    let output = Command::new("git")
+        .arg("worktree")
+        .arg("list")
+        .arg("--porcelain")
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let mut entries = Vec::new();
+    let mut current_path = None::<String>;
+    let mut current_branch = None::<String>;
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if line.is_empty() {
+            if let Some(path) = current_path.take() {
+                entries.push(GitWorktreeEntry {
+                    path,
+                    branch: current_branch.take(),
+                });
+            }
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("worktree ") {
+            if let Some(previous_path) = current_path.replace(path.to_string()) {
+                entries.push(GitWorktreeEntry {
+                    path: previous_path,
+                    branch: current_branch.take(),
+                });
+            }
+        } else if let Some(branch) = line.strip_prefix("branch ") {
+            current_branch = Some(branch.trim_start_matches("refs/heads/").to_string());
+        }
+    }
+    if let Some(path) = current_path {
+        entries.push(GitWorktreeEntry {
+            path,
+            branch: current_branch,
+        });
+    }
+    (!entries.is_empty()).then_some(entries)
 }
 
 fn display_path(path: &Path) -> String {

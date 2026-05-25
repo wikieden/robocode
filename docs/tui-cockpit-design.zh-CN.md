@@ -65,7 +65,8 @@
 - 受支持的二级命令族会展示本地子命令和已知运行时对象。`/lane` 会提示 lane
   ID，`/screen close` 会提示已跟踪副屏，`/task` 会提示 task ID 和 task
   status，`/memory` 会提示可操作的 memory ID，`/git switch` 会提示本地分支，
-  `/git stash pop/drop` 会提示 stash ref，`/lsp` 会提示最近 workspace 文件。
+  `/git stash pop/drop` 会提示 stash ref，`/git worktree remove` 会提示
+  worktree 路径，`/lsp` 会提示最近 workspace 文件。
 
 ## 审批弹窗
 
@@ -102,7 +103,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   workflow memory snapshot，所以 `/memory confirm`、`/memory reject` 和
   `/memory prune` 会提示相关 memory ID，不再要求操作者手动复制。`/git switch`
   会读取当前 workspace 的本地分支快照并提示分支名；`/git stash pop/drop` 会读取
-  当前 `git stash list` 快照并提示 stash ref。
+  当前 `git stash list` 快照并提示 stash ref；`/git worktree remove` 会读取当前
+  `git worktree list --porcelain` 快照并提示 worktree 路径。
 - 主屏 idle 时会轮询 lane artifacts，所以后台 `/lane run` 的完成、失败和
   log-tail 状态不需要按键也会刷新。
 - 右侧栏 `ACTIVE TASKS` 面板会读取 `/task` 和 `/tasks` 背后的真实 workflow
@@ -176,5 +178,5 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - 副屏启动已经是真实进程管理，但跨物理显示器的 OS 窗口自动摆放仍由 launcher
   template 或桌面手动操作负责。
 - 命令提示列表的二级提示已覆盖主要命令族。provider-specific model 名称、
-  remote branch 名称、worktree path 和任意路径补全仍是后续可继续加强的细节。
+  remote branch 名称和任意路径补全仍是后续可继续加强的细节。
 - 视觉还需要持续用截图和 holodeck 主参考图对比。

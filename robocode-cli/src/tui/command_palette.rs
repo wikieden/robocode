@@ -575,7 +575,7 @@ fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comma
         .or_else(|| task_command_suggestions(query, state))
         .or_else(|| lsp_command_suggestions(query, state))
         .or_else(|| git_stash_command_suggestions(query, state))
-        .or_else(|| command_group_suggestions(query, "/git worktree", &GIT_WORKTREE_COMMANDS))
+        .or_else(|| git_worktree_command_suggestions(query, state))
         .or_else(|| command_group_suggestions(query, "/provider", &PROVIDER_COMMANDS))
         .or_else(|| memory_command_suggestions(query, state))
         .or_else(|| git_command_suggestions(query, state))
@@ -965,6 +965,67 @@ fn git_stash_ref_suggestions(
         .collect()
 }
 
+fn git_worktree_command_suggestions(
+    query: &str,
+    state: &TuiState,
+) -> Option<Vec<CommandSuggestion>> {
+    if !(query == "/git worktree " || query.starts_with("/git worktree ")) {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let suggestions = if words.len() <= 2 && query.ends_with(' ') {
+        GIT_WORKTREE_COMMANDS
+            .into_iter()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if words.len() == 3 && !query.ends_with(' ') {
+        GIT_WORKTREE_COMMANDS
+            .into_iter()
+            .filter(|item| item.command.starts_with(query))
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if should_suggest_worktree_paths(query, &words) {
+        git_worktree_path_suggestions(query, &words, state)
+    } else {
+        Vec::new()
+    };
+    Some(suggestions)
+}
+
+fn should_suggest_worktree_paths(query: &str, words: &[&str]) -> bool {
+    words.len() >= 3
+        && words.len() <= 4
+        && format!("{} {} {}", words[0], words[1], words[2]) == "/git worktree remove"
+        && (query.ends_with(' ') || words.get(3).is_some())
+}
+
+fn git_worktree_path_suggestions(
+    query: &str,
+    words: &[&str],
+    state: &TuiState,
+) -> Vec<CommandSuggestion> {
+    let partial_path = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(3).copied().unwrap_or("")
+    };
+    state
+        .workspace
+        .git_worktrees
+        .iter()
+        .filter(|worktree| worktree.path != state.workspace.root.to_string_lossy())
+        .filter(|worktree| worktree.path.starts_with(partial_path))
+        .map(|worktree| CommandSuggestion {
+            command: format!("/git worktree remove {}", worktree.path),
+            summary: worktree
+                .branch
+                .as_ref()
+                .map(|branch| format!("Branch {branch}"))
+                .unwrap_or_else(|| "Detached worktree".to_string()),
+        })
+        .collect()
+}
+
 fn lsp_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
     if !query.starts_with("/lsp ") {
         return None;
@@ -1298,6 +1359,19 @@ mod tests {
 
         assert_eq!(drop[0].command, "/git stash drop stash@{1}");
         assert!(drop[0].summary.contains("checkpoint preview assets"));
+    }
+
+    #[test]
+    fn suggests_worktree_paths_for_remove() {
+        let state = state_with_input("/git worktree remove /tmp/robocode/.worktrees/");
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(
+            suggestions[0].command,
+            "/git worktree remove /tmp/robocode/.worktrees/codex-tui-cockpit"
+        );
+        assert_eq!(suggestions[0].summary, "Branch codex/tui-cockpit");
     }
 
     #[test]
