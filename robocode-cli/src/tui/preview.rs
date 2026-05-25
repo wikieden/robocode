@@ -289,8 +289,7 @@ fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState
 
 fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.provider = "deepseek".to_string();
-    state.input = "/model deep".to_string();
+    state.input = "/git add src/".to_string();
     state.command_selection = 0;
     state
 }
@@ -312,8 +311,8 @@ mod tests {
         assert!(main.contains("src/config.rs"));
         assert!(idle.contains("No approval is blocking right now"));
         assert!(command_palette.contains("COMMANDS"));
-        assert!(command_palette.contains("› /model deepseek-v4-flash"));
-        assert!(command_palette.contains("Default model for DeepSeek"));
+        assert!(command_palette.contains("› /git add src/config.rs"));
+        assert!(command_palette.contains("Workspace file"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));
         assert!(side.contains("~/projects/robocode"));

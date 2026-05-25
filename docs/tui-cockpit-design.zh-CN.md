@@ -66,9 +66,10 @@
   ID，`/screen close` 会提示已跟踪副屏，`/task` 会提示 task ID 和 task
   status，`/memory` 会提示可操作的 memory ID，`/provider use` 会提示已注册
   provider 和 descriptor 默认模型，`/model` 会提示当前 provider 的 descriptor
-  默认模型，`/git switch` 会提示本地分支，`/git push` 会提示本地分支、remote
-  和已知 remote branch target，`/git stash pop/drop` 会提示 stash ref，
-  `/git worktree remove` 会提示 worktree 路径，`/lsp` 会提示最近 workspace 文件。
+  默认模型，`/git diff`、`/git add`、`/git restore` 和 `/git stash push` 会提示
+  workspace 文件路径，`/git switch` 会提示本地分支，`/git push` 会提示本地分支、
+  remote 和已知 remote branch target，`/git stash pop/drop` 会提示 stash ref，
+  `/git worktree remove` 会提示 worktree 路径，`/lsp` 会提示 workspace 文件路径。
 
 ## 审批弹窗
 
@@ -106,10 +107,11 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   已注册 provider ID 和已知 descriptor 默认模型，`/model` 能提示当前 provider 的
   默认模型。memory 操作会读取 workflow memory snapshot，所以 `/memory confirm`、
   `/memory reject` 和 `/memory prune` 会提示相关 memory ID，不再要求操作者手动
-  复制。`/git switch` 和 `/git push` 会读取当前 workspace 的本地分支快照；
-  `/git push` 还会读取 `git remote` 和 `git branch -r` 快照，用于提示 remote 和
-  remote branch target。`/git stash pop/drop` 会读取当前 `git stash list` 快照并
-  提示 stash ref；`/git worktree remove` 会读取当前
+  复制。Git 和 LSP 路径提示会复用右栏收集到的 workspace 文件快照，不会在操作者
+  每次输入时重新扫描文件系统。`/git switch` 和 `/git push` 会读取当前 workspace
+  的本地分支快照；`/git push` 还会读取 `git remote` 和 `git branch -r` 快照，用于
+  提示 remote 和 remote branch target。`/git stash pop/drop` 会读取当前
+  `git stash list` 快照并提示 stash ref；`/git worktree remove` 会读取当前
   `git worktree list --porcelain` 快照并提示 worktree 路径。
 - 主屏 idle 时会轮询 lane artifacts，所以后台 `/lane run` 的完成、失败和
   log-tail 状态不需要按键也会刷新。
@@ -183,6 +185,6 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   的 post-edit diagnostics。live TUI 目前不会自动后台跑 checker。
 - 副屏启动已经是真实进程管理，但跨物理显示器的 OS 窗口自动摆放仍由 launcher
   template 或桌面手动操作负责。
-- 命令提示列表的二级提示已覆盖主要命令族。任意路径补全仍是后续可继续加强的
-  细节。
+- 命令提示列表的二级提示已覆盖主要命令族，也覆盖常见 Git 和 LSP 路径类命令的
+  workspace 文件路径提示。
 - 视觉还需要持续用截图和 holodeck 主参考图对比。

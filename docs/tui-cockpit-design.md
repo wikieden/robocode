@@ -77,10 +77,11 @@ Rendering contract:
   screens, `/task` suggests task IDs and task statuses, `/memory` suggests
   operable memory IDs, `/provider use` suggests registered providers and
   descriptor default models, `/model` suggests the active provider's descriptor
-  default model, `/git switch` suggests local branches, `/git push` suggests
-  local branches, remotes, and known remote branch targets, `/git stash
-  pop/drop` suggests stash refs, `/git worktree remove` suggests worktree
-  paths, and `/lsp` suggests recent workspace files.
+  default model, `/git diff`, `/git add`, `/git restore`, and `/git stash
+  push` suggest workspace file paths, `/git switch` suggests local branches,
+  `/git push` suggests local branches, remotes, and known remote branch
+  targets, `/git stash pop/drop` suggests stash refs, `/git worktree remove`
+  suggests worktree paths, and `/lsp` suggests workspace file paths.
 
 ## Approval Modal
 
@@ -124,11 +125,14 @@ route hints so the main agent can decide follow-up actions.
   suggests the active provider's default model. Memory actions use the workflow
   memory snapshot, so `/memory confirm`, `/memory reject`, and `/memory prune`
   suggest relevant memory IDs instead of requiring the operator to copy them
-  manually. Git switch and push suggestions use the local branch snapshot from the
-  current workspace; git push also uses `git remote` and `git branch -r`
-  snapshots for remote and remote-branch target suggestions. Stash pop/drop
-  suggestions use the current `git stash list` snapshot; worktree remove
-  suggestions use the current `git worktree list --porcelain` snapshot.
+  manually. Git and LSP path suggestions use the workspace file snapshot
+  collected for the right rail instead of scanning the filesystem while the
+  operator types. Git switch and push suggestions use the local branch snapshot
+  from the current workspace; git push also uses `git remote` and
+  `git branch -r` snapshots for remote and remote-branch target suggestions.
+  Stash pop/drop suggestions use the current `git stash list` snapshot;
+  worktree remove suggestions use the current `git worktree list --porcelain`
+  snapshot.
 - The main screen polls lane artifacts while idle, so background `/lane run`
   completion, failure, and log-tail state appear without a keypress.
 - The right-rail `ACTIVE TASKS` panel reads the real workflow task store exposed
@@ -212,7 +216,8 @@ route hints so the main agent can decide follow-up actions.
 - Side-screen launch is real process management, but automatic OS window
   placement across physical monitors is still a launcher-template/manual
   desktop responsibility.
-- Command palette nested suggestions cover the main command families. Arbitrary
-  path completions are still a future refinement.
+- Command palette nested suggestions cover the main command families, including
+  workspace file path suggestions for the common Git and LSP path-taking
+  commands.
 - Visual parity still needs repeated screenshot comparison against the
   holodeck reference.

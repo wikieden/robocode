@@ -975,6 +975,8 @@ fn git_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandS
             .filter(|item| item.command.starts_with(query))
             .map(command_from_template)
             .collect::<Vec<_>>()
+    } else if should_suggest_git_paths(query, &words) {
+        git_path_suggestions(query, &words, state)
     } else if should_suggest_git_push_targets(query, &words) {
         git_push_target_suggestions(query, &words, state)
     } else if should_suggest_git_branches(query, &words) {
@@ -983,6 +985,79 @@ fn git_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandS
         Vec::new()
     };
     Some(suggestions)
+}
+
+fn should_suggest_git_paths(query: &str, words: &[&str]) -> bool {
+    if words.len() < 2 {
+        return false;
+    }
+    match format!("{} {}", words[0], words[1]).as_str() {
+        "/git diff" => words.len() <= 3 && (query.ends_with(' ') || words.get(2).is_some()),
+        "/git add" => {
+            words.len() <= 4
+                && (query.ends_with(' ') || words.last().is_some_and(|word| !is_git_add_flag(word)))
+        }
+        "/git restore" => {
+            words.len() <= 6
+                && !restore_source_ref_is_current_token(query, words)
+                && (query.ends_with(' ')
+                    || words
+                        .last()
+                        .is_some_and(|word| !is_git_restore_option_value(words, word)))
+        }
+        _ => false,
+    }
+}
+
+fn restore_source_ref_is_current_token(query: &str, words: &[&str]) -> bool {
+    let Some(source_index) = words.iter().position(|word| *word == "--source") else {
+        return false;
+    };
+    words.len() == source_index + 1 || (!query.ends_with(' ') && words.len() == source_index + 2)
+}
+
+fn git_path_suggestions(query: &str, words: &[&str], state: &TuiState) -> Vec<CommandSuggestion> {
+    let (prefix, partial_path) = command_prefix_and_partial_path(query, words);
+    workspace_path_suggestions(prefix, partial_path, state, "Workspace file")
+}
+
+fn command_prefix_and_partial_path<'a>(query: &str, words: &'a [&str]) -> (String, &'a str) {
+    if query.ends_with(' ') {
+        (query.to_string(), "")
+    } else {
+        let partial_path = words.last().copied().unwrap_or("");
+        let prefix = query
+            .strip_suffix(partial_path)
+            .unwrap_or(query)
+            .to_string();
+        (prefix, partial_path)
+    }
+}
+
+fn workspace_path_suggestions(
+    prefix: String,
+    partial_path: &str,
+    state: &TuiState,
+    summary: &str,
+) -> Vec<CommandSuggestion> {
+    state
+        .workspace
+        .workspace_paths
+        .iter()
+        .filter(|path| path.starts_with(partial_path))
+        .map(|path| CommandSuggestion {
+            command: format!("{prefix}{path}"),
+            summary: summary.to_string(),
+        })
+        .collect()
+}
+
+fn is_git_add_flag(word: &str) -> bool {
+    matches!(word, "--all" | "-A")
+}
+
+fn is_git_restore_option_value(words: &[&str], word: &str) -> bool {
+    word.starts_with('-') || words.windows(2).any(|pair| pair == ["--source", word])
 }
 
 fn should_suggest_git_branches(query: &str, words: &[&str]) -> bool {
@@ -1110,6 +1185,8 @@ fn git_stash_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Co
             .collect::<Vec<_>>()
     } else if should_suggest_stash_refs(query, &words) {
         git_stash_ref_suggestions(query, &words, state)
+    } else if should_suggest_stash_push_paths(query, &words) {
+        git_stash_push_path_suggestions(query, &words, state)
     } else {
         Vec::new()
     };
@@ -1124,6 +1201,25 @@ fn should_suggest_stash_refs(query: &str, words: &[&str]) -> bool {
             "/git stash pop" | "/git stash drop"
         )
         && (query.ends_with(' ') || words.get(3).is_some())
+}
+
+fn should_suggest_stash_push_paths(query: &str, words: &[&str]) -> bool {
+    words.len() >= 3
+        && words.len() <= 6
+        && format!("{} {} {}", words[0], words[1], words[2]) == "/git stash push"
+        && (query.ends_with(' ')
+            || words
+                .last()
+                .is_some_and(|word| !word.starts_with('-') && *word != "-m"))
+}
+
+fn git_stash_push_path_suggestions(
+    query: &str,
+    words: &[&str],
+    state: &TuiState,
+) -> Vec<CommandSuggestion> {
+    let (prefix, partial_path) = command_prefix_and_partial_path(query, words);
+    workspace_path_suggestions(prefix, partial_path, state, "Workspace file")
 }
 
 fn git_stash_ref_suggestions(
@@ -1253,18 +1349,18 @@ fn lsp_path_suggestions(query: &str, words: &[&str], state: &TuiState) -> Vec<Co
     };
     state
         .workspace
-        .recent_files
+        .workspace_paths
         .iter()
-        .filter(|file| file.path.starts_with(partial_path))
-        .map(|file| {
+        .filter(|path| path.starts_with(partial_path))
+        .map(|path| {
             let suffix = if base == "/lsp references" {
                 " 0 0"
             } else {
                 ""
             };
             CommandSuggestion {
-                command: format!("{base} {}{suffix}", file.path),
-                summary: "Recent file".to_string(),
+                command: format!("{base} {path}{suffix}"),
+                summary: "Workspace file".to_string(),
             }
         })
         .collect()
@@ -1580,6 +1676,39 @@ mod tests {
 
         assert_eq!(local_branches[0].command, "/git push codex/tui-cockpit");
         assert_eq!(local_branches[0].summary, "Local branch");
+    }
+
+    #[test]
+    fn suggests_workspace_paths_for_git_path_commands() {
+        let mut state = state_with_input("/git add src/");
+
+        let add = command_suggestions_for_state(&state);
+
+        assert_eq!(add[0].command, "/git add src/config.rs");
+        assert_eq!(add[0].summary, "Workspace file");
+
+        state.input = "/git restore --staged tests/".to_string();
+        let restore = command_suggestions_for_state(&state);
+
+        assert_eq!(
+            restore[0].command,
+            "/git restore --staged tests/config_tests.rs"
+        );
+
+        state.input = "/git diff Cargo".to_string();
+        let diff = command_suggestions_for_state(&state);
+
+        assert_eq!(diff[0].command, "/git diff Cargo.toml");
+    }
+
+    #[test]
+    fn suggests_workspace_paths_for_git_stash_push() {
+        let state = state_with_input("/git stash push src/");
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(suggestions[0].command, "/git stash push src/config.rs");
+        assert_eq!(suggestions[0].summary, "Workspace file");
     }
 
     #[test]

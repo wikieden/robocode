@@ -508,6 +508,7 @@ pub(super) struct WorkspaceSnapshot {
     pub(super) line_count: usize,
     pub(super) recent_files: Vec<RecentFile>,
     pub(super) top_files: Vec<String>,
+    pub(super) workspace_paths: Vec<String>,
     pub(super) diagnostics: Vec<String>,
     pub(super) primary_language: String,
     pub(super) rust_edition: Option<String>,
@@ -572,6 +573,11 @@ impl WorkspaceSnapshot {
             .take(4)
             .map(|file| file.path.clone())
             .collect::<Vec<_>>();
+        let workspace_paths = files
+            .iter()
+            .take(96)
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>();
         let diagnostics = load_diagnostics(&root);
 
         Self {
@@ -587,6 +593,7 @@ impl WorkspaceSnapshot {
             line_count,
             recent_files,
             top_files,
+            workspace_paths,
             diagnostics,
             primary_language,
             rust_edition,
@@ -650,6 +657,14 @@ impl WorkspaceSnapshot {
             top_files: vec![
                 "src/".to_string(),
                 "tests/".to_string(),
+                "Cargo.toml".to_string(),
+                "README.md".to_string(),
+            ],
+            workspace_paths: vec![
+                "src/config.rs".to_string(),
+                "src/lib.rs".to_string(),
+                "src/main.rs".to_string(),
+                "tests/config_tests.rs".to_string(),
                 "Cargo.toml".to_string(),
                 "README.md".to_string(),
             ],
