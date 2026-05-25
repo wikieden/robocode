@@ -1,7 +1,7 @@
 use super::{
     canvas::Frame,
     indicators::{progress_bar, status_dot},
-    lane::{command_hint, pid_hint, pty_label, status_badge, terminal_label},
+    lane::{command_hint, interaction_hint, pid_hint, pty_label, status_badge, terminal_label},
     panel::panel,
     state::TuiState,
     statusbar::BOTTOM_BAR_HEIGHT,
@@ -52,7 +52,7 @@ pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
     let active_lanes = state
         .lanes
         .iter()
-        .filter(|lane| lane.status == "running" || lane.status == "queued")
+        .filter(|lane| matches!(lane.status.as_str(), "running" | "queued" | "attached"))
         .count();
     vec![
         format!("PROVIDER  {} / {}", state.provider, state.model),
@@ -97,24 +97,25 @@ fn terminal_lane_detail_rows(state: &TuiState) -> Vec<String> {
         let badge = status_badge(&lane.status);
         let terminal = terminal_label(&lane.tool);
         rows.push(format!(
-            "┌ {} {} {:<10} route {:<6} {}",
+            "┌ {} {} {:<10} route {:<8} {}",
             status_dot(&lane.status),
             pad(&format!("{} {}", lane.id, terminal), 14),
             badge,
-            truncate(&lane.target, 8),
+            truncate(&lane.target, 10),
             progress_bar(lane.progress)
         ));
         rows.push(format!(
-            "│ PTY {}  PID {:<5}  TASK {}",
+            "│ PTY {}  PID {:<5}  ATTACH {}",
             pty_label(&lane.tool),
             pid_hint(lane),
-            truncate(&lane.title, 43)
+            truncate(&interaction_hint(lane), 40)
         ));
         rows.push(format!(
-            "└ CMD {} │ TAIL {}",
+            "└ CMD {} │ TASK {}",
             truncate(&command_hint(&lane.tool, &lane.title), 24),
-            truncate(&lane.summary, 36)
+            truncate(&lane.title, 36)
         ));
+        rows.push(format!("  tail {}", truncate(&lane.summary, 66)));
     }
     rows
 }
@@ -137,7 +138,7 @@ fn agent_output_rows(state: &TuiState) -> Vec<String> {
                         .next()
                         .unwrap_or("░░░░░"),
                     truncate(
-                        &format!("{} :: {}", pty_label(&lane.tool), lane.summary),
+                        &format!("{} :: {}", interaction_hint(lane), lane.summary),
                         50
                     )
                 )
@@ -195,5 +196,36 @@ mod tests {
 
         assert!(screen_row.contains("side-1 launched:4242"));
         assert!(screen_row.contains("side-2 off"));
+    }
+
+    #[test]
+    fn side_lane_rows_surface_tmux_attach_command() {
+        let mut state = TuiState {
+            session_id: "session".to_string(),
+            provider: "deepseek".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            provider_catalog: crate::tui::state::ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: Vec::<TuiEntry>::new(),
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: TerminalLane::preview_lanes(),
+            lane_store: None,
+            focused_lane: None,
+        };
+        state.lanes[0].target = "tmux robocode-session-l1".to_string();
+
+        let rendered = terminal_lane_detail_rows(&state).join("\n");
+
+        assert!(rendered.contains("ATTACH tmux attach -t robocode-session-l1"));
+        assert!(rendered.contains("tail patched failing tests"));
     }
 }

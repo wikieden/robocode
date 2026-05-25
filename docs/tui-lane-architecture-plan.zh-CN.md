@@ -401,8 +401,10 @@ terminal；macOS 默认使用 Terminal.app，并写入 `<lane-id>.attach.md`。
 `<lane-id>.tmux.md`，并记录明确的操作者 attach 命令（`tmux attach -t ...`），
 tmux 进程本身仍交给 tmux 管理。`ROBOCODE_LANE_TMUX_TEMPLATE` 和
 `ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE` 可用于定制 terminal-tool 启动流程。
-`/lane detach <id>` 会把 lane 标记为 detached，不会杀掉外部进程。embedded PTY
-仍是后续工作。
+`/lane detach <id>` 会把 lane 标记为 detached，不会杀掉外部进程。side-1 的
+lane 行和聚焦 lane modal 会为 tmux-backed lane 显示明确的
+`tmux attach -t ...` 命令；对还没有监督终端的 lane，则显示 `/lane tmux <id>`
+作为下一步交互路由。embedded PTY 仍是后续工作。
 
 ## 推荐第一刀
 

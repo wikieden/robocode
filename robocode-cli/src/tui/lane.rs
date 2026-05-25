@@ -62,6 +62,16 @@ pub(super) fn command_hint(tool: &str, task: &str) -> String {
     }
 }
 
+pub(super) fn interaction_hint(lane: &TerminalLane) -> String {
+    if let Some(session) = lane.target.strip_prefix("tmux ") {
+        return format!("tmux attach -t {session}");
+    }
+    if let Some(pid) = lane.target.strip_prefix("attach pid ") {
+        return format!("external terminal pid {pid}");
+    }
+    format!("/lane tmux {}", lane.id)
+}
+
 pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
     let mut parts = input.split_whitespace();
     if parts.next() != Some("/lane") {

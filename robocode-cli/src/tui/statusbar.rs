@@ -12,7 +12,7 @@ pub(super) fn render_bottom_bar(frame: &mut Frame, state: &TuiState) {
     let active_lanes = state
         .lanes
         .iter()
-        .filter(|lane| lane.status == "running" || lane.status == "queued")
+        .filter(|lane| matches!(lane.status.as_str(), "running" | "queued" | "attached"))
         .count();
     let left = if frame.width >= 100 {
         format!(

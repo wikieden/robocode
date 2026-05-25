@@ -409,7 +409,10 @@ operator attach command (`tmux attach -t ...`) while leaving the tmux process
 under tmux control. `ROBOCODE_LANE_TMUX_TEMPLATE` and
 `ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE` allow custom terminal-tool launch flows.
 `/lane detach <id>` marks the lane detached without killing the external
-process. Embedded PTY remains future work.
+process. Side-1 lane rows and the focused lane modal show either the exact
+`tmux attach -t ...` command for tmux-backed lanes or `/lane tmux <id>` as the
+next interactive route for lanes that still need a supervised terminal.
+Embedded PTY remains future work.
 
 ## Recommended First Implementation Slice
 

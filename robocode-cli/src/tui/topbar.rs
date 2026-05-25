@@ -213,7 +213,7 @@ fn active_lane_count(state: &TuiState) -> usize {
     state
         .lanes
         .iter()
-        .filter(|lane| lane.status == "running" || lane.status == "queued")
+        .filter(|lane| matches!(lane.status.as_str(), "running" | "queued" | "attached"))
         .count()
 }
 

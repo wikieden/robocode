@@ -259,7 +259,7 @@ mod tests {
         assert!(!rendered.contains("28.4 t/s"));
         assert!(!rendered.contains("Implement load_config"));
         assert!(rendered.contains("L1 ● codex"));
-        assert!(rendered.contains("L2 ◐ claude"));
+        assert!(rendered.contains("L2 ◆ claude"));
         assert!(rendered.contains("TOOL CALL"));
         assert!(rendered.contains("FILES    128"));
         assert!(rendered.contains("robocode/"));
@@ -523,8 +523,9 @@ mod tests {
         assert!(rendered.contains("ROUTE main→side-1"));
         assert!(rendered.contains("STATE"));
         assert!(rendered.contains("CMD    codex exec test fixes"));
+        assert!(rendered.contains("ATTACH /lane tmux L1"));
         assert!(rendered.contains("patched failing tests"));
-        assert!(rendered.contains("CONTROL [stop] [view] [route] [side-2]"));
+        assert!(rendered.contains("CONTROL [stop] [tmux] [detach] [inspect]"));
         assert!(rendered.contains("--tui-screen side-1"));
         for line in rendered.lines() {
             assert_eq!(
@@ -593,12 +594,14 @@ mod tests {
         assert!(rendered.contains("┌ ● L1 codex"));
         assert!(rendered.contains("PTY pty/01"));
         assert!(rendered.contains("PID ----"));
-        assert!(rendered.contains("TASK test fixes"));
+        assert!(rendered.contains("ATTACH /lane tmux L1"));
         assert!(rendered.contains("└ CMD codex exec test fixes"));
-        assert!(rendered.contains("│ TAIL patched failing tests"));
+        assert!(rendered.contains("TASK test fixes"));
+        assert!(rendered.contains("tail patched failing tests"));
         assert!(rendered.contains("LANES tail persisted logs"));
         assert!(rendered.contains("CONTROL inspect stop route"));
-        assert!(rendered.contains("pty/02 :: waiting for review terminal"));
+        assert!(rendered.contains("tmux attach -t robocode-c4f2b7e-l2"));
+        assert!(rendered.contains("tmux session ready"));
         assert!(rendered.contains("patched failing tests"));
         assert!(!rendered.contains("approval write_file"));
         assert!(rendered.contains("CONTEXT"));

@@ -290,6 +290,7 @@ fn status_dot(status: &str) -> &'static str {
     match status {
         "running" => "●",
         "queued" => "◐",
+        "attached" => "◆",
         "completed" => "✓",
         "failed" => "✕",
         _ => "○",
@@ -349,7 +350,7 @@ fn recent_time(modified: SystemTime) -> String {
 }
 
 fn is_active_lane(lane: &TerminalLane) -> bool {
-    matches!(lane.status.as_str(), "running" | "queued")
+    matches!(lane.status.as_str(), "running" | "queued" | "attached")
 }
 
 fn approval_tool(approval: &str) -> String {

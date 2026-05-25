@@ -2,7 +2,7 @@ use super::{
     canvas::Frame,
     command_palette::render_command_suggestions,
     indicators::{progress_bar, status_dot},
-    lane::{command_hint, pid_hint, pty_label, terminal_label},
+    lane::{command_hint, interaction_hint, pid_hint, pty_label, terminal_label},
     panel::panel,
     state::{TerminalLane, TuiState},
     text::{char_width, horizontal, pad, truncate},
@@ -105,6 +105,10 @@ fn render_lane_modal(frame: &mut Frame, lane: &TerminalLane, right_rail_width: u
                 modal_width.saturating_sub(11)
             )
         ),
+        format!(
+            "ATTACH {}",
+            truncate(&interaction_hint(lane), modal_width.saturating_sub(11))
+        ),
         scan_divider(modal_width),
         "LATEST OUTPUT".to_string(),
         format!(
@@ -112,7 +116,7 @@ fn render_lane_modal(frame: &mut Frame, lane: &TerminalLane, right_rail_width: u
             truncate(&lane.summary, modal_width.saturating_sub(6))
         ),
         scan_divider(modal_width),
-        "CONTROL [stop] [view] [route] [side-2]".to_string(),
+        "CONTROL [stop] [tmux] [detach] [inspect]".to_string(),
         "SIDE    --tui-screen side-1   live tail".to_string(),
     ];
     let modal = panel(

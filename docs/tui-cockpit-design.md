@@ -173,6 +173,10 @@ route hints so the main agent can decide follow-up actions.
 - `/lane attach <id>` opens an interactive terminal for the lane workspace and
   records `.robocode/lanes/<lane-id>.attach.md`. `/lane detach <id>` clears the
   attached UI state without killing the external terminal process.
+- `/lane tmux <id>` creates or reuses a named tmux session for the lane
+  workspace. The side-1 lane monitor and focused lane modal surface the exact
+  `tmux attach -t ...` command for attached tmux lanes, or `/lane tmux <id>` as
+  the next interaction step for lanes that are not attached yet.
 - Provider health now reflects measured model-request telemetry from the shared
   runtime loop: real request count, success/failure count, last and average
   latency, last event count, provider-reported token usage, token throughput

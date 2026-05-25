@@ -13,6 +13,7 @@ pub(super) fn status_dot(status: &str) -> &'static str {
     match status {
         "running" => "●",
         "queued" => "◐",
+        "attached" => "◆",
         "completed" => "✓",
         "failed" => "E",
         "stopped" => "■",

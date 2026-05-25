@@ -328,6 +328,7 @@ mod tests {
         assert!(preview.contains("LANE DETAIL"));
         assert!(preview.contains("ROUTE main→side-1"));
         assert!(preview.contains("CMD    codex exec test fixes"));
+        assert!(preview.contains("ATTACH /lane tmux L1"));
         assert!(!preview.contains("APPROVAL REQUIRED"));
     }
 }
