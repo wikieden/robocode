@@ -456,6 +456,8 @@ pub(super) struct WorkspaceSnapshot {
     pub(super) display_root: String,
     pub(super) git_branch: String,
     pub(super) git_branches: Vec<String>,
+    pub(super) git_remotes: Vec<String>,
+    pub(super) git_remote_branches: Vec<GitRemoteBranchEntry>,
     pub(super) git_stashes: Vec<GitStashEntry>,
     pub(super) git_worktrees: Vec<GitWorktreeEntry>,
     pub(super) file_count: usize,
@@ -480,6 +482,12 @@ pub(super) struct GitStashEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct GitRemoteBranchEntry {
+    pub(super) remote: String,
+    pub(super) branch: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct GitWorktreeEntry {
     pub(super) path: String,
     pub(super) branch: Option<String>,
@@ -494,6 +502,8 @@ impl WorkspaceSnapshot {
     fn load(root: PathBuf) -> Self {
         let git_branch = git_branch(&root).unwrap_or_else(|| "main".to_string());
         let git_branches = git_branches(&root).unwrap_or_else(|| vec![git_branch.clone()]);
+        let git_remotes = git_remotes(&root).unwrap_or_default();
+        let git_remote_branches = git_remote_branches(&root).unwrap_or_default();
         let git_stashes = git_stashes(&root).unwrap_or_default();
         let git_worktrees = git_worktrees(&root).unwrap_or_default();
         let display_root = display_path(&root);
@@ -525,6 +535,8 @@ impl WorkspaceSnapshot {
             display_root,
             git_branch,
             git_branches,
+            git_remotes,
+            git_remote_branches,
             git_stashes,
             git_worktrees,
             file_count,
@@ -546,6 +558,21 @@ impl WorkspaceSnapshot {
                 "main".to_string(),
                 "codex/tui-cockpit".to_string(),
                 "release/v0.1.3".to_string(),
+            ],
+            git_remotes: vec!["origin".to_string(), "upstream".to_string()],
+            git_remote_branches: vec![
+                GitRemoteBranchEntry {
+                    remote: "origin".to_string(),
+                    branch: "main".to_string(),
+                },
+                GitRemoteBranchEntry {
+                    remote: "origin".to_string(),
+                    branch: "release/v0.1.3".to_string(),
+                },
+                GitRemoteBranchEntry {
+                    remote: "upstream".to_string(),
+                    branch: "main".to_string(),
+                },
             ],
             git_stashes: vec![
                 GitStashEntry {
@@ -789,6 +816,55 @@ fn git_branches(root: &Path) -> Option<Vec<String>> {
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    (!branches.is_empty()).then_some(branches)
+}
+
+fn git_remotes(root: &Path) -> Option<Vec<String>> {
+    let output = Command::new("git")
+        .arg("remote")
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let remotes = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    (!remotes.is_empty()).then_some(remotes)
+}
+
+fn git_remote_branches(root: &Path) -> Option<Vec<GitRemoteBranchEntry>> {
+    let output = Command::new("git")
+        .arg("branch")
+        .arg("-r")
+        .arg("--format=%(refname:short)")
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let branches = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            // `git branch -r` includes symbolic refs such as
+            // `origin/HEAD -> origin/main`; suggestions should target real
+            // remote branch names only.
+            if line.is_empty() || line.contains(" -> ") {
+                return None;
+            }
+            let (remote, branch) = line.split_once('/')?;
+            Some(GitRemoteBranchEntry {
+                remote: remote.to_string(),
+                branch: branch.to_string(),
+            })
+        })
         .collect::<Vec<_>>();
     (!branches.is_empty()).then_some(branches)
 }

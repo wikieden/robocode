@@ -287,7 +287,7 @@ fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState
 
 fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.input = "/git worktree remove /tmp/robocode/.worktrees/".to_string();
+    state.input = "/git push origin rel".to_string();
     state.command_selection = 0;
     state
 }
@@ -309,8 +309,8 @@ mod tests {
         assert!(main.contains("src/config.rs"));
         assert!(idle.contains("No approval is blocking right now"));
         assert!(command_palette.contains("COMMANDS"));
-        assert!(command_palette.contains("› /git worktree remove /tmp/robocode/.worktrees/"));
-        assert!(command_palette.contains("Branch codex/tui-cockpit"));
+        assert!(command_palette.contains("› /git push origin release/v0.1.3"));
+        assert!(command_palette.contains("Remote branch origin/release/v0.1.3"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));
         assert!(side.contains("~/projects/robocode"));

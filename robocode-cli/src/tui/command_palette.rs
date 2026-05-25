@@ -871,6 +871,8 @@ fn git_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandS
             .filter(|item| item.command.starts_with(query))
             .map(command_from_template)
             .collect::<Vec<_>>()
+    } else if should_suggest_git_push_targets(query, &words) {
+        git_push_target_suggestions(query, &words, state)
     } else if should_suggest_git_branches(query, &words) {
         git_branch_suggestions(query, &words, state)
     } else {
@@ -904,6 +906,84 @@ fn git_branch_suggestions(query: &str, words: &[&str], state: &TuiState) -> Vec<
             } else {
                 "Local branch".to_string()
             },
+        })
+        .collect()
+}
+
+fn should_suggest_git_push_targets(query: &str, words: &[&str]) -> bool {
+    words.len() >= 2
+        && words.len() <= 4
+        && format!("{} {}", words[0], words[1]) == "/git push"
+        && (query.ends_with(' ') || words.get(2).is_some())
+}
+
+fn git_push_target_suggestions(
+    query: &str,
+    words: &[&str],
+    state: &TuiState,
+) -> Vec<CommandSuggestion> {
+    if words.get(2).is_some_and(|target| {
+        state
+            .workspace
+            .git_remotes
+            .iter()
+            .any(|remote| remote == target)
+    }) && (query.ends_with(' ') || words.len() == 4)
+    {
+        return git_push_remote_branch_suggestions(query, words, state);
+    }
+
+    let partial_target = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    let mut suggestions = Vec::new();
+    suggestions.extend(
+        state
+            .workspace
+            .git_branches
+            .iter()
+            .filter(|branch| branch.starts_with(partial_target))
+            .map(|branch| CommandSuggestion {
+                command: format!("/git push {branch}"),
+                summary: "Local branch".to_string(),
+            }),
+    );
+    suggestions.extend(
+        state
+            .workspace
+            .git_remotes
+            .iter()
+            .filter(|remote| remote.starts_with(partial_target))
+            .map(|remote| CommandSuggestion {
+                command: format!("/git push {remote}"),
+                summary: "Remote".to_string(),
+            }),
+    );
+    suggestions
+}
+
+fn git_push_remote_branch_suggestions(
+    query: &str,
+    words: &[&str],
+    state: &TuiState,
+) -> Vec<CommandSuggestion> {
+    let remote = words.get(2).copied().unwrap_or("");
+    let partial_branch = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(3).copied().unwrap_or("")
+    };
+    state
+        .workspace
+        .git_remote_branches
+        .iter()
+        .filter(|branch| branch.remote == remote)
+        .filter(|branch| branch.branch.starts_with(partial_branch))
+        .map(|branch| CommandSuggestion {
+            command: format!("/git push {remote} {}", branch.branch),
+            summary: format!("Remote branch {remote}/{}", branch.branch),
         })
         .collect()
 }
@@ -1343,6 +1423,28 @@ mod tests {
 
         assert_eq!(suggestions[0].command, "/git switch codex/tui-cockpit");
         assert_eq!(suggestions[0].summary, "Local branch");
+    }
+
+    #[test]
+    fn suggests_git_push_remotes_and_remote_branches() {
+        let mut state = state_with_input("/git push ori");
+
+        let remotes = command_suggestions_for_state(&state);
+
+        assert_eq!(remotes[0].command, "/git push origin");
+        assert_eq!(remotes[0].summary, "Remote");
+
+        state.input = "/git push origin rel".to_string();
+        let branches = command_suggestions_for_state(&state);
+
+        assert_eq!(branches[0].command, "/git push origin release/v0.1.3");
+        assert_eq!(branches[0].summary, "Remote branch origin/release/v0.1.3");
+
+        state.input = "/git push codex/".to_string();
+        let local_branches = command_suggestions_for_state(&state);
+
+        assert_eq!(local_branches[0].command, "/git push codex/tui-cockpit");
+        assert_eq!(local_branches[0].summary, "Local branch");
     }
 
     #[test]
