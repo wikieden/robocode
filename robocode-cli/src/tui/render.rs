@@ -578,7 +578,7 @@ mod tests {
         assert!(rendered.contains("side-2"));
         assert!(rendered.contains("files 128"));
         assert!(rendered.contains("diagnostics unavailable"));
-        assert!(rendered.contains("run /lsp diagnostics"));
+        assert!(rendered.contains("auto-checks or /lsp diagnostics"));
         assert!(rendered.contains("L1 codex tty"));
         assert!(rendered.contains("L2 claude tty"));
         assert!(rendered.contains("pty/01 :: codex exec test fixes"));

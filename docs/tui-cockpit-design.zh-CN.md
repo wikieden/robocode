@@ -33,9 +33,9 @@
 - 右栏数据源：
   - workspace：`WorkspaceSnapshot::load_current`。
   - active tasks：pending approval 加 running/queued terminal lanes。
-  - diagnostics：`WorkspaceSnapshot.diagnostics`；真实 `/lsp diagnostics <path>`
-    或 post-edit LSP 输出后会写入 `.robocode/diagnostics.txt` cache；为空表示
-    unavailable/0。
+  - diagnostics：`WorkspaceSnapshot.diagnostics`；后台 LSP 检查、真实
+    `/lsp diagnostics <path>` 或 post-edit LSP 输出后会写入
+    `.robocode/diagnostics.txt` cache；为空表示 unavailable/0。
   - provider health：`ProviderStatus` 来源于 `SessionEngine` 的
     `ProviderTelemetry`；request 数量、成功/失败数量、last/average latency、
     last event count 和 last error 都是真实值。rate、token、cost 在有真实运行时
@@ -181,8 +181,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   `/lane cleanup` 命令执行。
 - Provider token、cost、rate telemetry 尚未接入，所以 live UI 会继续隐藏这些
   指标。
-- Diagnostics 仍需要显式 LSP 来源，例如 `/lsp diagnostics <path>` 或 LSP runtime
-  的 post-edit diagnostics。live TUI 目前不会自动后台跑 checker。
+- Diagnostics 来源于共享 LSP runtime：post-edit diagnostics、显式
+  `/lsp diagnostics <path>`，以及 live TUI 对 workspace Rust 文件的节流后台检查。
+  如果项目没有配置或无法启动 language server，仍显示 `diagnostics unavailable`。
 - 副屏启动已经是真实进程管理，但跨物理显示器的 OS 窗口自动摆放仍由 launcher
   template 或桌面手动操作负责。
 - 命令提示列表的二级提示已覆盖主要命令族，也覆盖常见 Git 和 LSP 路径类命令的

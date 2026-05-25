@@ -41,8 +41,9 @@ with the generated reference visuals and the terminal-agent workflow.
   - workspace: `WorkspaceSnapshot::load_current`.
   - active tasks: pending approval plus running or queued terminal lanes.
   - diagnostics: `WorkspaceSnapshot.diagnostics`, populated from the persisted
-    `.robocode/diagnostics.txt` cache after real `/lsp diagnostics <path>` or
-    post-edit LSP output; empty means unavailable/0.
+    `.robocode/diagnostics.txt` cache after background LSP checks, real
+    `/lsp diagnostics <path>`, or post-edit LSP output; empty means
+    unavailable/0.
   - provider health: `ProviderStatus` derived from `SessionEngine`
     `ProviderTelemetry`; request count, success/failure count, last/average
     latency, last event count, and last error are real values. Rate, token, and
@@ -210,9 +211,10 @@ route hints so the main agent can decide follow-up actions.
   cleanup requires a separate `/lane cleanup` command.
 - Provider token, cost, and rate telemetry is not connected yet, so the live UI
   intentionally keeps those metrics hidden.
-- Diagnostics still require an explicit LSP source, such as `/lsp diagnostics
-  <path>` or post-edit diagnostics from the LSP runtime. The live TUI does not
-  run an automatic background checker yet.
+- Diagnostics come from the shared LSP runtime through post-edit diagnostics,
+  explicit `/lsp diagnostics <path>`, and a throttled live TUI background
+  checker over workspace Rust files. Projects without a configured/available
+  language server still show `diagnostics unavailable`.
 - Side-screen launch is real process management, but automatic OS window
   placement across physical monitors is still a launcher-template/manual
   desktop responsibility.

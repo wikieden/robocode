@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
+use std::thread;
 
 use robocode_lsp::{LspRuntime, SemanticProvider};
 use robocode_tools::SemanticToolProvider;
@@ -39,6 +40,20 @@ impl SemanticToolProvider for LspToolAdapter {
 }
 
 impl SessionEngine {
+    pub fn spawn_lsp_diagnostics_snapshot(
+        &self,
+        paths: Vec<String>,
+    ) -> mpsc::Receiver<Option<String>> {
+        let cwd = self.cwd.clone();
+        let runtime = Arc::clone(&self.lsp_runtime);
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let rendered = render_lsp_diagnostics_snapshot(runtime, &cwd, &paths);
+            let _ = sender.send(rendered);
+        });
+        receiver
+    }
+
     pub(super) fn handle_lsp_command(&self, args: &[String]) -> Result<String, String> {
         let Some(subcommand) = args.first().map(String::as_str) else {
             return Ok(self.render_lsp_help());
@@ -130,6 +145,25 @@ impl SessionEngine {
         ]
         .join("\n")
     }
+}
+
+fn render_lsp_diagnostics_snapshot(
+    runtime: Arc<LspRuntime>,
+    cwd: &std::path::Path,
+    paths: &[String],
+) -> Option<String> {
+    let mut had_success = false;
+    let mut diagnostics = Vec::new();
+    for path in paths {
+        match runtime.diagnostics(cwd, std::path::Path::new(path)) {
+            Ok(mut path_diagnostics) => {
+                had_success = true;
+                diagnostics.append(&mut path_diagnostics);
+            }
+            Err(_) => continue,
+        }
+    }
+    had_success.then(|| render_lsp_diagnostics(cwd, &diagnostics))
 }
 
 pub(crate) fn parse_lsp_position_arg(raw: Option<&String>, name: &str) -> Result<u32, String> {

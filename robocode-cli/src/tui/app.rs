@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    sync::mpsc::{Receiver, TryRecvError},
+    time::{Duration, Instant},
+};
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use robocode_core::SessionEngine;
@@ -18,6 +21,9 @@ use super::state::{
 };
 use super::terminal::TerminalGuard;
 
+const BACKGROUND_DIAGNOSTICS_INTERVAL: Duration = Duration::from_secs(30);
+const BACKGROUND_DIAGNOSTICS_PATH_LIMIT: usize = 4;
+
 pub(crate) fn run_tui_with_theme(
     engine: &mut SessionEngine,
     startup_summary: &str,
@@ -36,12 +42,22 @@ pub(crate) fn run_tui_with_theme(
         terminal.theme_name(),
     );
     terminal.draw(&state)?;
+    let mut background_diagnostics = None::<Receiver<Option<String>>>;
+    let mut last_background_diagnostics = None::<Instant>;
 
     loop {
+        poll_background_diagnostics(&mut state, &mut background_diagnostics);
         // Poll instead of blocking forever so background lane artifacts can
         // repaint completion, failure, and log-tail state without a keypress.
         if !event::poll(Duration::from_millis(750)).map_err(|err| err.to_string())? {
             refresh_lanes(&mut state);
+            maybe_start_background_diagnostics(
+                engine,
+                &state,
+                &mut background_diagnostics,
+                &mut last_background_diagnostics,
+            );
+            poll_background_diagnostics(&mut state, &mut background_diagnostics);
             terminal.draw(&state)?;
             continue;
         }
@@ -200,6 +216,71 @@ fn provider_catalog(engine: &SessionEngine) -> Vec<ProviderOption> {
         .collect()
 }
 
+fn maybe_start_background_diagnostics(
+    engine: &SessionEngine,
+    state: &TuiState,
+    pending: &mut Option<Receiver<Option<String>>>,
+    last_started: &mut Option<Instant>,
+) {
+    if pending.is_some() {
+        return;
+    }
+    let now = Instant::now();
+    if last_started
+        .is_some_and(|started| now.duration_since(started) < BACKGROUND_DIAGNOSTICS_INTERVAL)
+    {
+        return;
+    }
+    let paths = background_diagnostic_paths(&state.workspace);
+    if paths.is_empty() {
+        return;
+    }
+    *last_started = Some(now);
+    *pending = Some(engine.spawn_lsp_diagnostics_snapshot(paths));
+}
+
+fn background_diagnostic_paths(workspace: &WorkspaceSnapshot) -> Vec<String> {
+    workspace
+        .workspace_paths
+        .iter()
+        .filter(|path| path.ends_with(".rs"))
+        .take(BACKGROUND_DIAGNOSTICS_PATH_LIMIT)
+        .cloned()
+        .collect()
+}
+
+fn poll_background_diagnostics(
+    state: &mut TuiState,
+    pending: &mut Option<Receiver<Option<String>>>,
+) {
+    let Some(receiver) = pending.take() else {
+        return;
+    };
+    match receiver.try_recv() {
+        Ok(Some(rendered)) => persist_rendered_diagnostics(state, &rendered),
+        Ok(None) | Err(TryRecvError::Disconnected) => {}
+        Err(TryRecvError::Empty) => *pending = Some(receiver),
+    }
+}
+
+fn persist_rendered_diagnostics(state: &mut TuiState, rendered: &str) {
+    let entry = TuiEntry {
+        label: "command".to_string(),
+        body: rendered.to_string(),
+    };
+    let Some(diagnostics) = latest_lsp_diagnostics(&[entry]) else {
+        return;
+    };
+    if let Err(err) = save_diagnostics(&state.workspace.root, &diagnostics) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to persist background LSP diagnostics: {err}"),
+        });
+        return;
+    }
+    state.workspace = WorkspaceSnapshot::load(state.workspace.root.clone());
+}
+
 fn refresh_diagnostics_cache(state: &mut TuiState) {
     let Some(diagnostics) = latest_lsp_diagnostics(&state.entries) else {
         return;
@@ -221,7 +302,10 @@ fn is_exit_command(input: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_exit_command, refresh_diagnostics_cache};
+    use super::{
+        background_diagnostic_paths, is_exit_command, persist_rendered_diagnostics,
+        refresh_diagnostics_cache,
+    };
     use crate::tui::state::{ProviderStatus, TerminalLane, WorkspaceSnapshot};
     use std::{
         fs,
@@ -273,6 +357,70 @@ mod tests {
             .expect("diagnostics cache");
 
         assert!(persisted.contains("src/main.rs:1:2 error [fake/E1] broken"));
+    }
+
+    #[test]
+    fn background_diagnostic_paths_prefers_rust_workspace_files() {
+        let mut workspace = WorkspaceSnapshot::fixture();
+        workspace.workspace_paths = vec![
+            "README.md".to_string(),
+            "src/lib.rs".to_string(),
+            "src/main.rs".to_string(),
+            "tests/config_tests.rs".to_string(),
+            "Cargo.toml".to_string(),
+            "src/config.rs".to_string(),
+            "examples/demo.rs".to_string(),
+        ];
+
+        let paths = background_diagnostic_paths(&workspace);
+
+        assert_eq!(
+            paths,
+            vec![
+                "src/lib.rs",
+                "src/main.rs",
+                "tests/config_tests.rs",
+                "src/config.rs"
+            ]
+        );
+    }
+
+    #[test]
+    fn persist_rendered_diagnostics_updates_workspace_cache() {
+        let root = temp_app_root();
+        let mut workspace = WorkspaceSnapshot::fixture();
+        workspace.root = root.clone();
+        let mut state = super::TuiState {
+            session_id: "session".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_catalog: crate::tui::state::ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: Vec::new(),
+            workspace,
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::<TerminalLane>::new(),
+            lane_store: None,
+            focused_lane: None,
+        };
+
+        persist_rendered_diagnostics(
+            &mut state,
+            "LSP diagnostics:\nsrc/lib.rs:\n  3:1 warning [fake/W1] note",
+        );
+
+        assert_eq!(
+            state.workspace.diagnostics,
+            vec!["src/lib.rs:3:1 warning [fake/W1] note".to_string()]
+        );
     }
 
     fn temp_app_root() -> std::path::PathBuf {

@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::{EngineEvent, SessionEngine};
 use robocode_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
@@ -194,6 +195,28 @@ fn post_edit_lsp_diagnostics_are_reinjected_after_file_writes() {
     assert!(events.iter().any(
         |event| matches!(event, EngineEvent::Assistant(text) if text.contains("Saw diagnostics"))
     ));
+}
+
+#[test]
+fn background_lsp_diagnostics_snapshot_renders_successful_paths() {
+    let home = temp_dir("background_lsp_home");
+    let cwd = temp_dir("background_lsp_cwd");
+    let fake_lsp_dir = temp_dir("background_lsp_server");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    fs::write(cwd.join("src/main.rs"), "fn main() {}\n").unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.lsp_runtime = Arc::new(LspRuntime::new(fake_lsp_registry(&fake_lsp_dir)));
+
+    let receiver = engine.spawn_lsp_diagnostics_snapshot(vec!["src/main.rs".to_string()]);
+    let rendered = receiver
+        .recv_timeout(Duration::from_secs(5))
+        .expect("background diagnostics result")
+        .expect("rendered diagnostics");
+
+    assert!(rendered.contains("LSP diagnostics:"));
+    assert!(rendered.contains("fake-lsp/E100"));
+    assert!(rendered.contains("fake diagnostic"));
 }
 
 #[test]

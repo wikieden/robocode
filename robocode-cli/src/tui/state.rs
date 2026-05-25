@@ -544,7 +544,7 @@ impl WorkspaceSnapshot {
         Self::load(root)
     }
 
-    fn load(root: PathBuf) -> Self {
+    pub(super) fn load(root: PathBuf) -> Self {
         let git_branch = git_branch(&root).unwrap_or_else(|| "main".to_string());
         let git_branches = git_branches(&root).unwrap_or_else(|| vec![git_branch.clone()]);
         let git_remotes = git_remotes(&root).unwrap_or_default();
