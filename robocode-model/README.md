@@ -73,14 +73,17 @@ OpenAI or Anthropic protocol adapters. Request execution supports a shared
 `ModelRequestControl` cancellation signal so core/runtime callers can stop
 provider dispatch and in-flight HTTP subprocesses. The same control object can
 request streaming-compatible OpenAI/Anthropic payloads, and the parser can
-normalize SSE text/tool-call deltas back into `ModelEvent`. Full incremental UI
-delivery, provider-owned execution, signing, sandboxing, and
+normalize SSE text/tool-call deltas back into `ModelEvent`. Parsers also
+preserve provider-reported usage as `ModelEvent::Usage` for core telemetry.
+Full incremental UI delivery, provider-owned execution, signing, sandboxing, and
 marketplace/distribution are future hardening work.
 
 ## Invariants
 
 - Core depends on `ModelProvider`, not concrete providers.
 - Native tool calls normalize into `ModelEvent::ToolCall`.
+- Provider-reported token usage normalizes into `ModelEvent::Usage`; parsers
+  must not synthesize usage when the provider did not report it.
 - HTTP/provider failures return errors, not panics.
 - Provider identity is separate from protocol family.
 - Plugin descriptors are validated before they become visible in the registry.

@@ -149,7 +149,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   `.robocode/lanes/<lane-id>.attach.md`。`/lane detach <id>` 只清除 attached UI
   状态，不会杀掉外部 terminal 进程。
 - Provider health 已接入共享 runtime loop 测量到的模型请求 telemetry：真实
-  request 数、成功/失败数、last/average latency、last event count 和最后一次
+  request 数、成功/失败数、last/average latency、last event count、
+  provider 返回的 token usage、请求耗时允许时的 token throughput，以及最后一次
   provider error。
 - TUI 会解析来自 core 真实事件的 LSP diagnostics，并持久化到
   `.robocode/diagnostics.txt`，所以主屏和副屏可以展示同一份有证据来源的
@@ -184,8 +185,10 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   闭环；完整的内联 conflict editor 仍是后续工作。discard lane 只记录决策，
   不会默认删除日志、worktree 或变更；清理必须通过单独的 `/lane cleanup` 命令
   执行。
-- Provider token、cost、rate telemetry 尚未接入，所以 live UI 会继续隐藏这些
-  指标。
+- Provider token telemetry 现在来自 OpenAI-compatible、Anthropic 和
+  Ollama-style 响应中的真实 `usage` payload。token rate 只有在同时有 usage 和
+  非零请求耗时时才会计算。cost 仍只在 provider 返回 cost 数据时显示；RoboCode
+  不会在 TUI 里编造价格。
 - Diagnostics 来源于共享 LSP runtime：post-edit diagnostics、显式
   `/lsp diagnostics <path>`，以及 live TUI 对 workspace Rust 文件的节流后台检查。
   如果项目没有配置或无法启动 language server，仍显示 `diagnostics unavailable`。

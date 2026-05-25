@@ -456,6 +456,13 @@ pub(super) struct ProviderStatus {
     pub(super) average_latency_ms: Option<u128>,
     pub(super) last_event_count: usize,
     pub(super) last_error: Option<String>,
+    pub(super) last_input_tokens: Option<u64>,
+    pub(super) last_output_tokens: Option<u64>,
+    pub(super) last_total_tokens: Option<u64>,
+    pub(super) total_tokens: u64,
+    pub(super) last_tokens_per_second: Option<u64>,
+    pub(super) last_cost_micro_usd: Option<u64>,
+    pub(super) total_cost_micro_usd: Option<u64>,
 }
 
 impl ProviderStatus {
@@ -490,6 +497,13 @@ impl ProviderStatus {
             average_latency_ms: telemetry.average_latency_ms,
             last_event_count: telemetry.last_event_count,
             last_error: telemetry.last_error.clone(),
+            last_input_tokens: telemetry.last_input_tokens,
+            last_output_tokens: telemetry.last_output_tokens,
+            last_total_tokens: telemetry.last_total_tokens,
+            total_tokens: telemetry.total_tokens,
+            last_tokens_per_second: telemetry.last_tokens_per_second,
+            last_cost_micro_usd: telemetry.last_cost_micro_usd,
+            total_cost_micro_usd: telemetry.total_cost_micro_usd,
         }
     }
 }

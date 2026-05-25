@@ -175,7 +175,8 @@ route hints so the main agent can decide follow-up actions.
   attached UI state without killing the external terminal process.
 - Provider health now reflects measured model-request telemetry from the shared
   runtime loop: real request count, success/failure count, last and average
-  latency, last event count, and last provider error.
+  latency, last event count, provider-reported token usage, token throughput
+  when request timing permits it, and last provider error.
 - LSP diagnostics from real core events are parsed by the TUI and persisted to
   `.robocode/diagnostics.txt`, so the main screen and side screens can show the
   same evidence-backed diagnostics snapshot.
@@ -215,8 +216,11 @@ route hints so the main agent can decide follow-up actions.
   a full inline conflict editor is still follow-up work. Discarding a lane
   records the decision but intentionally does not delete its logs, worktree, or
   changes; cleanup requires a separate `/lane cleanup` command.
-- Provider token, cost, and rate telemetry is not connected yet, so the live UI
-  intentionally keeps those metrics hidden.
+- Provider token telemetry now comes from real provider `usage` payloads for
+  OpenAI-compatible, Anthropic, and Ollama-style responses. Token rate is
+  derived only when both usage and non-zero request timing are available. Cost
+  remains hidden unless a provider reports cost data; RoboCode does not invent
+  prices in the TUI.
 - Diagnostics come from the shared LSP runtime through post-edit diagnostics,
   explicit `/lsp diagnostics <path>`, and a throttled live TUI background
   checker over workspace Rust files. Projects without a configured/available

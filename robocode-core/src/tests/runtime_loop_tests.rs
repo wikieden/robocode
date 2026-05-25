@@ -7,7 +7,7 @@ use crate::{EngineEvent, SessionEngine};
 use robocode_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use robocode_model::{ModelProvider, ModelRequestControl};
 use robocode_types::{
-    ApprovalResponse, ModelEvent, ModelRequest, PermissionMode, ToolCall, ToolInput,
+    ApprovalResponse, ModelEvent, ModelRequest, ModelUsage, PermissionMode, ToolCall, ToolInput,
 };
 
 use super::{SequenceProvider, temp_dir};
@@ -63,6 +63,41 @@ fn provider_telemetry_records_successful_model_requests() {
     assert!(telemetry.last_latency_ms.is_some());
     assert!(telemetry.average_latency_ms.is_some());
     assert_eq!(telemetry.last_error, None);
+}
+
+#[test]
+fn provider_telemetry_records_model_usage_when_provider_reports_it() {
+    let home = temp_dir("telemetry_usage_home");
+    let cwd = temp_dir("telemetry_usage_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "usage response".to_string(),
+        },
+        ModelEvent::Usage(ModelUsage {
+            input_tokens: Some(13),
+            output_tokens: Some(7),
+            total_tokens: Some(20),
+            cost_micro_usd: None,
+        }),
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .process_input_with_approval("measure usage", &mut approver)
+        .unwrap();
+
+    let telemetry = engine.provider_telemetry();
+    assert_eq!(telemetry.last_input_tokens, Some(13));
+    assert_eq!(telemetry.last_output_tokens, Some(7));
+    assert_eq!(telemetry.last_total_tokens, Some(20));
+    assert_eq!(telemetry.total_input_tokens, 13);
+    assert_eq!(telemetry.total_output_tokens, 7);
+    assert_eq!(telemetry.total_tokens, 20);
+    assert_eq!(telemetry.last_cost_micro_usd, None);
 }
 
 #[test]

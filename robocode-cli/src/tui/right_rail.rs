@@ -15,7 +15,7 @@ pub(super) fn right_rail(state: &TuiState, width: usize, height: usize) -> Vec<S
     let active_task_count = active_task_count(state).to_string();
     let diagnostics = diagnostic_rows(state);
     let diagnostic_badge = state.workspace.diagnostics.len().to_string();
-    let recent_height = height.saturating_sub(25).max(3);
+    let recent_height = height.saturating_sub(26).max(3);
     let panels = [
         panel("WORKSPACE", workspace_rows(state), width, 7, None),
         panel(
@@ -36,7 +36,7 @@ pub(super) fn right_rail(state: &TuiState, width: usize, height: usize) -> Vec<S
             "PROVIDER HEALTH",
             provider_health_rows(state),
             width,
-            7,
+            8,
             Some(state.provider_status.connection.as_str()),
         ),
         panel(
@@ -180,6 +180,26 @@ fn provider_health_rows(state: &TuiState) -> Vec<String> {
     } else if state.provider_status.request_count == 0 {
         rows.push("TELEMETRY  awaiting first request".to_string());
     } else {
+        rows.extend(provider_usage_rows(state));
+    }
+    rows
+}
+
+fn provider_usage_rows(state: &TuiState) -> Vec<String> {
+    let mut rows = Vec::new();
+    if let Some(tokens) = state.provider_status.last_total_tokens {
+        rows.push(format!(
+            "TOKENS     last {} total {}",
+            format_count(tokens),
+            format_count(state.provider_status.total_tokens)
+        ));
+        if let Some(rate) = state.provider_status.last_tokens_per_second {
+            rows.push(format!("RATE       {}/s", format_count(rate)));
+        }
+        if let Some(cost) = state.provider_status.total_cost_micro_usd {
+            rows.push(format!("COST       {}", format_micro_usd(cost)));
+        }
+    } else {
         rows.push(format!(
             "EVENTS     {} ctx {}",
             state.provider_status.last_event_count, state.provider_status.context_window
@@ -192,6 +212,20 @@ fn format_latency(value: Option<u128>) -> String {
     value
         .map(|ms| format!("{ms}ms"))
         .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_count(value: u64) -> String {
+    if value >= 1_000_000 {
+        format!("{:.1}m", value as f64 / 1_000_000.0)
+    } else if value >= 1_000 {
+        format!("{:.1}k", value as f64 / 1_000.0)
+    } else {
+        value.to_string()
+    }
+}
+
+fn format_micro_usd(value: u64) -> String {
+    format!("${:.4}", value as f64 / 1_000_000.0)
 }
 
 fn display_provider(provider: &str) -> String {

@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 
-use robocode_types::{ModelEvent, ToolCall, ToolInput, fresh_id, parse_tool_input};
+use robocode_types::{ModelEvent, ModelUsage, ToolCall, ToolInput, fresh_id, parse_tool_input};
 use serde_json::Value;
 
 use crate::PROVIDER_REASONING_CONTENT_KEY;
 
 pub(crate) fn parse_anthropic_events(response: &str) -> Option<Vec<ModelEvent>> {
     let value: Value = serde_json::from_str(response).ok()?;
+    let usage = parse_anthropic_usage(&value);
     let content_blocks = value.get("content")?.as_array()?;
     let mut tool_calls = Vec::new();
     let mut text_parts = Vec::new();
@@ -33,18 +34,22 @@ pub(crate) fn parse_anthropic_events(response: &str) -> Option<Vec<ModelEvent>> 
         }
     }
     if !tool_calls.is_empty() {
-        Some(tool_calls)
+        Some(with_usage(tool_calls, usage))
     } else if text_parts.is_empty() {
         None
     } else {
-        Some(vec![ModelEvent::AssistantText {
-            content: text_parts.join("\n\n"),
-        }])
+        Some(with_usage(
+            vec![ModelEvent::AssistantText {
+                content: text_parts.join("\n\n"),
+            }],
+            usage,
+        ))
     }
 }
 
 pub(crate) fn parse_openai_events(response: &str) -> Option<Vec<ModelEvent>> {
     let value: Value = serde_json::from_str(response).ok()?;
+    let usage = parse_openai_usage(&value);
     let message = value.get("choices")?.as_array()?.first()?.get("message")?;
     if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
         let events: Vec<ModelEvent> = tool_calls
@@ -74,22 +79,25 @@ pub(crate) fn parse_openai_events(response: &str) -> Option<Vec<ModelEvent>> {
             })
             .collect();
         if !events.is_empty() {
-            return Some(events);
+            return Some(with_usage(events, usage));
         }
     }
-    extract_openai_content(message).map(|content| vec![ModelEvent::AssistantText { content }])
+    extract_openai_content(message)
+        .map(|content| with_usage(vec![ModelEvent::AssistantText { content }], usage))
 }
 
 pub(crate) fn parse_openai_stream_events(response: &str) -> Option<Vec<ModelEvent>> {
     let mut text_parts = Vec::new();
     let mut reasoning_parts = Vec::new();
     let mut tool_calls = BTreeMap::<usize, OpenAiStreamToolCall>::new();
+    let mut usage = None;
 
     for payload in sse_payloads(response) {
         if payload == "[DONE]" {
             break;
         }
         let value: Value = serde_json::from_str(payload).ok()?;
+        usage = merge_usage(usage, parse_openai_usage(&value));
         let delta = value.get("choices")?.as_array()?.first()?.get("delta")?;
         if let Some(content) = delta.get("content").and_then(Value::as_str) {
             if !content.is_empty() {
@@ -130,28 +138,36 @@ pub(crate) fn parse_openai_stream_events(response: &str) -> Option<Vec<ModelEven
         .map(ModelEvent::ToolCall)
         .collect::<Vec<_>>();
     if !calls.is_empty() {
-        Some(calls)
+        Some(with_usage(calls, usage))
     } else {
-        joined_non_empty(&text_parts).map(|content| vec![ModelEvent::AssistantText { content }])
+        joined_non_empty(&text_parts)
+            .map(|content| with_usage(vec![ModelEvent::AssistantText { content }], usage))
     }
 }
 
 pub(crate) fn parse_ollama_events(response: &str) -> Option<Vec<ModelEvent>> {
     let value: Value = serde_json::from_str(response).ok()?;
+    let usage = parse_ollama_usage(&value);
     if let Some(message) = value.get("message") {
         if let Some(content) = message.get("content").and_then(Value::as_str) {
             if !content.trim().is_empty() {
-                return Some(vec![ModelEvent::AssistantText {
-                    content: content.to_string(),
-                }]);
+                return Some(with_usage(
+                    vec![ModelEvent::AssistantText {
+                        content: content.to_string(),
+                    }],
+                    usage,
+                ));
             }
         }
     }
     if let Some(content) = value.get("response").and_then(Value::as_str) {
         if !content.trim().is_empty() {
-            return Some(vec![ModelEvent::AssistantText {
-                content: content.to_string(),
-            }]);
+            return Some(with_usage(
+                vec![ModelEvent::AssistantText {
+                    content: content.to_string(),
+                }],
+                usage,
+            ));
         }
     }
     None
@@ -160,9 +176,11 @@ pub(crate) fn parse_ollama_events(response: &str) -> Option<Vec<ModelEvent>> {
 pub(crate) fn parse_anthropic_stream_events(response: &str) -> Option<Vec<ModelEvent>> {
     let mut text_blocks = BTreeMap::<usize, String>::new();
     let mut tool_blocks = BTreeMap::<usize, AnthropicStreamToolCall>::new();
+    let mut usage = None;
 
     for payload in sse_payloads(response) {
         let value: Value = serde_json::from_str(payload).ok()?;
+        usage = merge_usage(usage, parse_anthropic_usage(&value));
         match value.get("type").and_then(Value::as_str)? {
             "content_block_start" => {
                 let index = value.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
@@ -224,11 +242,86 @@ pub(crate) fn parse_anthropic_stream_events(response: &str) -> Option<Vec<ModelE
         .map(ModelEvent::ToolCall)
         .collect::<Vec<_>>();
     if !calls.is_empty() {
-        Some(calls)
+        Some(with_usage(calls, usage))
     } else {
         let text_parts = text_blocks.into_values().collect::<Vec<_>>();
-        joined_non_empty(&text_parts).map(|content| vec![ModelEvent::AssistantText { content }])
+        joined_non_empty(&text_parts)
+            .map(|content| with_usage(vec![ModelEvent::AssistantText { content }], usage))
     }
+}
+
+fn with_usage(mut events: Vec<ModelEvent>, usage: Option<ModelUsage>) -> Vec<ModelEvent> {
+    if let Some(usage) = usage {
+        events.push(ModelEvent::Usage(usage));
+    }
+    events
+}
+
+fn merge_usage(current: Option<ModelUsage>, next: Option<ModelUsage>) -> Option<ModelUsage> {
+    match (current, next) {
+        (None, usage) | (usage, None) => usage,
+        (Some(current), Some(next)) => Some(ModelUsage {
+            input_tokens: next.input_tokens.or(current.input_tokens),
+            output_tokens: next.output_tokens.or(current.output_tokens),
+            total_tokens: next.total_tokens.or(current.total_tokens),
+            cost_micro_usd: next.cost_micro_usd.or(current.cost_micro_usd),
+        }),
+    }
+}
+
+fn parse_openai_usage(value: &Value) -> Option<ModelUsage> {
+    let usage = value.get("usage")?;
+    let input_tokens = usage
+        .get("prompt_tokens")
+        .or_else(|| usage.get("input_tokens"))
+        .and_then(Value::as_u64);
+    let output_tokens = usage
+        .get("completion_tokens")
+        .or_else(|| usage.get("output_tokens"))
+        .and_then(Value::as_u64);
+    let total_tokens = usage
+        .get("total_tokens")
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            input_tokens
+                .zip(output_tokens)
+                .map(|(input, output)| input + output)
+        });
+    usage_from_parts(input_tokens, output_tokens, total_tokens)
+}
+
+fn parse_anthropic_usage(value: &Value) -> Option<ModelUsage> {
+    let usage = value.get("usage")?;
+    let input_tokens = usage.get("input_tokens").and_then(Value::as_u64);
+    let output_tokens = usage.get("output_tokens").and_then(Value::as_u64);
+    let total_tokens = input_tokens
+        .zip(output_tokens)
+        .map(|(input, output)| input + output);
+    usage_from_parts(input_tokens, output_tokens, total_tokens)
+}
+
+fn parse_ollama_usage(value: &Value) -> Option<ModelUsage> {
+    let input_tokens = value.get("prompt_eval_count").and_then(Value::as_u64);
+    let output_tokens = value.get("eval_count").and_then(Value::as_u64);
+    let total_tokens = input_tokens
+        .zip(output_tokens)
+        .map(|(input, output)| input + output);
+    usage_from_parts(input_tokens, output_tokens, total_tokens)
+}
+
+fn usage_from_parts(
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    total_tokens: Option<u64>,
+) -> Option<ModelUsage> {
+    (input_tokens.is_some() || output_tokens.is_some() || total_tokens.is_some()).then_some(
+        ModelUsage {
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            cost_micro_usd: None,
+        },
+    )
 }
 
 #[derive(Default)]

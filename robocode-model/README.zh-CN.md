@@ -73,12 +73,15 @@ protocol adapters。Request execution 已支持共享的 `ModelRequestControl`
 子进程。同一个 control object 可以请求 streaming-compatible OpenAI/Anthropic
 payload，parser 可以把 SSE text/tool-call deltas 归一化回 `ModelEvent`。完整
 incremental UI delivery、provider-owned execution、signing、sandboxing、
-marketplace/distribution 属于后续 hardening 工作。
+marketplace/distribution 属于后续 hardening 工作。Parser 也会把 provider
+返回的 usage 保留为 `ModelEvent::Usage`，供 core telemetry 使用。
 
 ## 不变量
 
 - Core 依赖 `ModelProvider`，不依赖具体 provider。
 - 原生 tool calls 归一化为 `ModelEvent::ToolCall`。
+- Provider 返回的 token usage 归一化为 `ModelEvent::Usage`；当 provider 没有
+  返回 usage 时，parser 不能合成假的 usage。
 - HTTP/provider 失败返回错误，不 panic。
 - Provider identity 与 protocol family 分离。
 - Plugin descriptors 必须先校验，再进入 registry。

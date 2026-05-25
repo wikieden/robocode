@@ -24,7 +24,9 @@ use robocode_model::{ModelProvider, ProviderDescriptor, ProviderHost};
 use robocode_permissions::PermissionEngine;
 use robocode_session::SessionStore;
 use robocode_tools::ToolRegistry;
-use robocode_types::{MemoryEntry, Message, PermissionMode, RuntimeSnapshot, TaskRecord};
+use robocode_types::{
+    MemoryEntry, Message, ModelUsage, PermissionMode, RuntimeSnapshot, TaskRecord,
+};
 use robocode_workflows::stores::WorkflowStore;
 
 const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
@@ -47,14 +49,24 @@ pub struct ProviderTelemetry {
     pub average_latency_ms: Option<u128>,
     pub last_event_count: usize,
     pub last_error: Option<String>,
+    pub last_input_tokens: Option<u64>,
+    pub last_output_tokens: Option<u64>,
+    pub last_total_tokens: Option<u64>,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_tokens: u64,
+    pub last_tokens_per_second: Option<u64>,
+    pub last_cost_micro_usd: Option<u64>,
+    pub total_cost_micro_usd: Option<u64>,
 }
 
 impl ProviderTelemetry {
-    fn record_success(&mut self, latency: Duration, event_count: usize) {
+    fn record_success(&mut self, latency: Duration, event_count: usize, usage: Option<ModelUsage>) {
         self.record_latency(latency);
         self.success_count += 1;
         self.last_event_count = event_count;
         self.last_error = None;
+        self.record_usage(latency, usage);
     }
 
     fn record_failure(&mut self, latency: Duration, error: &str) {
@@ -77,6 +89,46 @@ impl ProviderTelemetry {
             None => latency_ms,
         });
     }
+
+    fn record_usage(&mut self, latency: Duration, usage: Option<ModelUsage>) {
+        let Some(usage) = usage else {
+            self.last_input_tokens = None;
+            self.last_output_tokens = None;
+            self.last_total_tokens = None;
+            self.last_tokens_per_second = None;
+            self.last_cost_micro_usd = None;
+            return;
+        };
+        self.last_input_tokens = usage.input_tokens;
+        self.last_output_tokens = usage.output_tokens;
+        self.last_total_tokens = usage.total_tokens;
+        if let Some(input_tokens) = usage.input_tokens {
+            self.total_input_tokens = self.total_input_tokens.saturating_add(input_tokens);
+        }
+        if let Some(output_tokens) = usage.output_tokens {
+            self.total_output_tokens = self.total_output_tokens.saturating_add(output_tokens);
+        }
+        if let Some(total_tokens) = usage.total_tokens {
+            self.total_tokens = self.total_tokens.saturating_add(total_tokens);
+            self.last_tokens_per_second = tokens_per_second(total_tokens, latency);
+        } else {
+            self.last_tokens_per_second = None;
+        }
+        self.last_cost_micro_usd = usage.cost_micro_usd;
+        if let Some(cost) = usage.cost_micro_usd {
+            self.total_cost_micro_usd =
+                Some(self.total_cost_micro_usd.unwrap_or(0).saturating_add(cost));
+        }
+    }
+}
+
+fn tokens_per_second(tokens: u64, latency: Duration) -> Option<u64> {
+    let millis = latency.as_millis();
+    if tokens == 0 || millis == 0 {
+        None
+    } else {
+        Some(((u128::from(tokens) * 1000) / millis) as u64)
+    }
 }
 
 impl Default for ProviderTelemetry {
@@ -89,6 +141,15 @@ impl Default for ProviderTelemetry {
             average_latency_ms: None,
             last_event_count: 0,
             last_error: None,
+            last_input_tokens: None,
+            last_output_tokens: None,
+            last_total_tokens: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            total_tokens: 0,
+            last_tokens_per_second: None,
+            last_cost_micro_usd: None,
+            total_cost_micro_usd: None,
         }
     }
 }

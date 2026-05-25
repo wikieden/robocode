@@ -158,6 +158,12 @@ fn telemetry_status(state: &TuiState) -> String {
             state.provider_status.request_count, state.provider_status.failure_count
         );
     }
+    if let Some(tokens) = state.provider_status.last_total_tokens {
+        return match state.provider_status.last_tokens_per_second {
+            Some(rate) => format!("TOK {} {}t/s", compact_count(tokens), compact_count(rate)),
+            None => format!("TOK {}", compact_count(tokens)),
+        };
+    }
     format!(
         "REQ {} {}",
         state.provider_status.request_count,
@@ -167,6 +173,16 @@ fn telemetry_status(state: &TuiState) -> String {
             .map(|ms| format!("{ms}ms"))
             .unwrap_or_else(|| "-".to_string())
     )
+}
+
+fn compact_count(value: u64) -> String {
+    if value >= 1_000_000 {
+        format!("{:.1}m", value as f64 / 1_000_000.0)
+    } else if value >= 1_000 {
+        format!("{:.1}k", value as f64 / 1_000.0)
+    } else {
+        value.to_string()
+    }
 }
 
 fn chip(label: &str, value: &str) -> String {
@@ -246,9 +262,24 @@ mod tests {
             average_latency_ms: Some(21),
             last_event_count: 3,
             last_error: Some("provider timeout".to_string()),
+            ..ProviderTelemetry::default()
         }));
 
         assert_eq!(telemetry_status(&state), "REQ 2 err 1");
+    }
+
+    #[test]
+    fn telemetry_status_reports_token_usage_when_available() {
+        let state = state_with_status(ProviderStatus::from_telemetry(&ProviderTelemetry {
+            request_count: 1,
+            success_count: 1,
+            last_total_tokens: Some(1200),
+            total_tokens: 1200,
+            last_tokens_per_second: Some(60),
+            ..ProviderTelemetry::default()
+        }));
+
+        assert_eq!(telemetry_status(&state), "TOK 1.2k 60t/s");
     }
 
     #[test]

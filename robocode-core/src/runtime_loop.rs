@@ -60,8 +60,12 @@ impl SessionEngine {
             let request_started = Instant::now();
             let model_events = match self.provider.next_events_with_control(&request, control) {
                 Ok(events) => {
-                    self.provider_telemetry
-                        .record_success(request_started.elapsed(), events.len());
+                    let usage = aggregate_model_usage(&events);
+                    self.provider_telemetry.record_success(
+                        request_started.elapsed(),
+                        events.len(),
+                        usage,
+                    );
                     events
                 }
                 Err(err) => {
@@ -88,6 +92,7 @@ impl SessionEngine {
                         observed_tool_call = true;
                         self.handle_tool_call(call, approver, &mut events)?;
                     }
+                    ModelEvent::Usage(_) => {}
                     ModelEvent::Done => {}
                 }
             }
@@ -285,5 +290,33 @@ impl SessionEngine {
         } else {
             Ok(output)
         }
+    }
+}
+
+fn aggregate_model_usage(events: &[ModelEvent]) -> Option<robocode_types::ModelUsage> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ModelEvent::Usage(usage) => Some(usage),
+            _ => None,
+        })
+        .fold(None, |current, usage| {
+            Some(match current {
+                None => usage.clone(),
+                Some(current) => robocode_types::ModelUsage {
+                    input_tokens: add_optional(current.input_tokens, usage.input_tokens),
+                    output_tokens: add_optional(current.output_tokens, usage.output_tokens),
+                    total_tokens: add_optional(current.total_tokens, usage.total_tokens),
+                    cost_micro_usd: add_optional(current.cost_micro_usd, usage.cost_micro_usd),
+                },
+            })
+        })
+}
+
+fn add_optional(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.saturating_add(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
     }
 }

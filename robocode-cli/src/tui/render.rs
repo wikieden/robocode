@@ -303,6 +303,7 @@ mod tests {
             average_latency_ms: Some(21),
             last_event_count: 3,
             last_error: Some("provider timeout".to_string()),
+            ..ProviderTelemetry::default()
         });
 
         let rendered = render_frame(&state, 180, 36);
@@ -313,6 +314,27 @@ mod tests {
         assert!(rendered.contains("ERROR      provider timeout"));
         assert!(!rendered.contains("312 ms"));
         assert!(!rendered.contains("28.4 t/s"));
+    }
+
+    #[test]
+    fn render_provider_health_shows_real_usage_when_available() {
+        let mut state = render_state();
+        state.provider_status = ProviderStatus::from_telemetry(&ProviderTelemetry {
+            request_count: 1,
+            success_count: 1,
+            last_latency_ms: Some(500),
+            average_latency_ms: Some(500),
+            last_event_count: 2,
+            last_total_tokens: Some(1200),
+            total_tokens: 2400,
+            last_tokens_per_second: Some(2400),
+            ..ProviderTelemetry::default()
+        });
+
+        let rendered = render_frame(&state, 180, 36);
+
+        assert!(rendered.contains("TOKENS     last 1.2k total 2.4k"));
+        assert!(rendered.contains("RATE       2.4k/s"));
     }
 
     #[test]

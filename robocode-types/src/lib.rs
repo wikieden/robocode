@@ -255,9 +255,18 @@ pub struct ToolProgress {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelUsage {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+    pub cost_micro_usd: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModelEvent {
     AssistantText { content: String },
     ToolCall(ToolCall),
+    Usage(ModelUsage),
     Done,
 }
 

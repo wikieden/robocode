@@ -2,11 +2,18 @@ use super::*;
 
 #[test]
 fn openai_response_parser_extracts_content() {
-    let response = r#"{"choices":[{"message":{"role":"assistant","content":"hello world"}}]}"#;
+    let response = r#"{"choices":[{"message":{"role":"assistant","content":"hello world"}}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}"#;
     let events = parse_openai_events(response).unwrap();
     assert!(matches!(
         &events[0],
         ModelEvent::AssistantText { content } if content == "hello world"
+    ));
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens == Some(11)
+                && usage.output_tokens == Some(7)
+                && usage.total_tokens == Some(18)
     ));
 }
 
@@ -37,7 +44,7 @@ fn openai_response_parser_preserves_reasoning_content_for_tool_calls() {
 
 #[test]
 fn anthropic_response_parser_extracts_tool_use() {
-    let response = r#"{"content":[{"type":"tool_use","id":"toolu_1","name":"grep","input":{"pattern":"main","path":"src"}}]}"#;
+    let response = r#"{"content":[{"type":"tool_use","id":"toolu_1","name":"grep","input":{"pattern":"main","path":"src"}}],"usage":{"input_tokens":21,"output_tokens":4}}"#;
     let events = parse_anthropic_events(response).unwrap();
     assert!(matches!(
         &events[0],
@@ -45,6 +52,13 @@ fn anthropic_response_parser_extracts_tool_use() {
             if call.id == "toolu_1"
                 && call.name == "grep"
                 && call.input.get("pattern").map(String::as_str) == Some("main")
+    ));
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens == Some(21)
+                && usage.output_tokens == Some(4)
+                && usage.total_tokens == Some(25)
     ));
 }
 
