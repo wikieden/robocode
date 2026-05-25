@@ -19,6 +19,25 @@ agents should follow when changing the project.
   coding work is not complete until the code, the maintainer-facing comments,
   and the affected documentation are all aligned.
 
+## Required Coding Standard: Docs and Comments
+
+Every future code change must treat documentation and code comments as part of
+the delivery, not as optional cleanup:
+
+- before editing, identify whether the change can affect user-facing behavior,
+  commands, configuration, architecture, workflows, packaging, or maintenance
+  assumptions;
+- while editing, add concise comments for non-obvious decisions, invariants,
+  safety boundaries, protocol compatibility, terminal rendering rules, or
+  concurrency behavior;
+- when behavior changes, update the relevant durable docs in the same change
+  set, including the matching `*.zh-CN.md` document when one exists;
+- before handoff, review the final diff and state whether documentation and
+  comments were updated, already sufficient, or intentionally unnecessary.
+
+Code that changes behavior without updating stale docs or comments should be
+treated as incomplete.
+
 ## Code Change Definition of Done
 
 Every code change should be considered incomplete until the surrounding
