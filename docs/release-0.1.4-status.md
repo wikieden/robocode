@@ -45,6 +45,9 @@ and installable release artifacts.
   `aarch64-apple-darwin`, `x86_64-apple-darwin`,
   `x86_64-unknown-linux-gnu`, and `x86_64-pc-windows-msvc`.
   Run: https://github.com/wikieden/robocode/actions/runs/26401318871.
+- Final release workflow passed with `upload_to_release=true` and uploaded all
+  configured artifacts to the GitHub release.
+  Run: https://github.com/wikieden/robocode/actions/runs/26401753477.
 
 ## Changes Landed Toward 0.1.4
 
@@ -82,12 +85,24 @@ and installable release artifacts.
 - Inline conflict editing remains deferred.
 - More external coding-tool templates remain demand-driven follow-up work.
 
-## Next Gate
+## Release Outcome
 
-Before tagging `v0.1.4`, complete the final local verification after the latest
-lane-summary fix:
+`v0.1.4` is published at:
 
-- `cargo test --workspace --quiet`.
-- Commit and push the lane-summary sanitization and updated release status.
-- Create the `v0.1.4` Git tag and run the release workflow with
-  `upload_to_release=true`.
+- https://github.com/wikieden/robocode/releases/tag/v0.1.4
+
+The release contains:
+
+- `robocode-v0.1.4-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.4-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.4-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.4-x86_64-pc-windows-msvc.tar.gz`
+- matching `.sha256` files for each archive.
+
+## Next Follow-Up
+
+- Keep `/lane` documented as TUI-only until the product decision changes.
+- Continue manual UX hardening for approval modal edge cases, IME positioning,
+  mouse interaction, side-screen lifecycle, and lane apply/conflict recovery.
+- Consider replacing the Windows `.tar.gz` archive with a `.zip` package in a
+  future release if early testers prefer the native Windows convention.

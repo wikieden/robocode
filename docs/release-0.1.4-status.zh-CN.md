@@ -42,6 +42,9 @@
   跑通全部配置目标：`aarch64-apple-darwin`、`x86_64-apple-darwin`、
   `x86_64-unknown-linux-gnu` 和 `x86_64-pc-windows-msvc`。
   Run: https://github.com/wikieden/robocode/actions/runs/26401318871。
+- 最终 release workflow 已以 `upload_to_release=true` 通过，并把全部配置
+  artifacts 上传到 GitHub release。
+  Run: https://github.com/wikieden/robocode/actions/runs/26401753477。
 
 ## 已为 0.1.4 落地的变更
 
@@ -75,10 +78,24 @@
 - inline conflict editor 继续后置。
 - 更多外部 coding-tool templates 继续按真实需求推进。
 
-## 下一道 Gate
+## Release 结果
 
-打 `v0.1.4` tag 前还需要完成最新 lane-summary 修复后的最终本地验证：
+`v0.1.4` 已发布：
 
-- `cargo test --workspace --quiet`。
-- 提交并推送 lane-summary sanitization 和更新后的 release status。
-- 创建 `v0.1.4` Git tag，并用 `upload_to_release=true` 运行 release workflow。
+- https://github.com/wikieden/robocode/releases/tag/v0.1.4
+
+release 包含：
+
+- `robocode-v0.1.4-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.4-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.4-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.4-x86_64-pc-windows-msvc.tar.gz`
+- 每个 archive 对应的 `.sha256` 文件。
+
+## 下一步 Follow-Up
+
+- 在产品决策改变前，继续把 `/lane` 明确记录为 TUI-only。
+- 继续做审批弹窗边界、输入法位置、鼠标交互、副屏生命周期、lane
+  apply/conflict recovery 的人工 UX hardening。
+- 如果早期试用者更偏好 Windows 原生习惯，可以在后续版本把 Windows `.tar.gz`
+  替换为 `.zip` 包。
