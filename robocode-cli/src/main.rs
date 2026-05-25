@@ -21,6 +21,10 @@ fn main() {
 fn run() -> Result<(), String> {
     let cwd = env::current_dir().map_err(|err| err.to_string())?;
     let args: Vec<String> = env::args().skip(1).collect();
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        println!("robocode-cli {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         print_startup_help();
         return Ok(());
@@ -649,6 +653,7 @@ fn required_flag_value(args: &[String], index: usize, flag: &str) -> Result<Stri
 
 fn print_startup_help() {
     println!("RoboCode startup flags:");
+    println!("  --version, -V       Print the RoboCode CLI version");
     println!("  --provider <name>    Choose provider family");
     println!("  --model <name>       Override model name");
     println!("  --api-base <url>     Override provider base URL");

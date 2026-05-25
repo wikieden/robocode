@@ -40,7 +40,7 @@ robocode --help
 
 ### Release 压缩包
 
-从 [RoboCode v0.1.3](https://github.com/wikieden/robocode/releases/tag/v0.1.3)
+从 [RoboCode v0.1.4](https://github.com/wikieden/robocode/releases/tag/v0.1.4)
 下载 release 压缩包。
 
 当前 release targets：
@@ -53,7 +53,7 @@ robocode --help
 macOS 或 Linux 安装：
 
 ```bash
-VERSION=0.1.3
+VERSION=0.1.4
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -64,7 +64,7 @@ robocode-cli --help
 Windows PowerShell 安装：
 
 ```powershell
-$Version = "0.1.3"
+$Version = "0.1.4"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -155,6 +155,7 @@ README 只保留产品介绍和使用入口。架构与实现细节放在文档�
 - [参考工程分析](docs/reference-analysis.zh-CN.md)
 - [Provider 真实调用矩阵](docs/provider-live-matrix.zh-CN.md)
 - [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
+- [0.1.4 发布状态](docs/release-0.1.4-status.zh-CN.md)
 - [开发标准](docs/development-standards.zh-CN.md)
 
 维护者可以用下面命令在本地构建 release 压缩包：

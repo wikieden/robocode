@@ -1744,8 +1744,8 @@ mod tests {
         state.input = "/git push origin rel".to_string();
         let branches = command_suggestions_for_state(&state);
 
-        assert_eq!(branches[0].command, "/git push origin release/v0.1.3");
-        assert_eq!(branches[0].summary, "Remote branch origin/release/v0.1.3");
+        assert_eq!(branches[0].command, "/git push origin release/v0.1.4");
+        assert_eq!(branches[0].summary, "Remote branch origin/release/v0.1.4");
 
         state.input = "/git push codex/".to_string();
         let local_branches = command_suggestions_for_state(&state);

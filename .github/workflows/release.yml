@@ -6,7 +6,7 @@ on:
       tag:
         description: Release tag to build and upload assets to
         required: true
-        default: v0.1.3
+        default: v0.1.4
       upload_to_release:
         description: Upload artifacts to the GitHub release
         type: boolean

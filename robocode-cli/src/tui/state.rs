@@ -627,7 +627,7 @@ impl WorkspaceSnapshot {
             git_branches: vec![
                 "main".to_string(),
                 "codex/tui-cockpit".to_string(),
-                "release/v0.1.3".to_string(),
+                "release/v0.1.4".to_string(),
             ],
             git_remotes: vec!["origin".to_string(), "upstream".to_string()],
             git_remote_branches: vec![
@@ -637,7 +637,7 @@ impl WorkspaceSnapshot {
                 },
                 GitRemoteBranchEntry {
                     remote: "origin".to_string(),
-                    branch: "release/v0.1.3".to_string(),
+                    branch: "release/v0.1.4".to_string(),
                 },
                 GitRemoteBranchEntry {
                     remote: "upstream".to_string(),
