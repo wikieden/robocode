@@ -372,8 +372,9 @@ artifact；dirty worktree 必须显式 `--force`，所以 discard 只记录意�
 `git apply --check` 验证 patch，再应用到主 workspace；commit 和 cleanup
 仍是单独的操作者动作。如果 patch 无法干净应用，它会把 lane 标为
 `apply_conflict`，并写入 `.apply-conflict.md`，包含直接 apply check、
-three-way apply check 和 changed-file 上下文。交互式 conflict resolution
-仍是后续工作。
+three-way apply check 和 changed-file 上下文。`/lane resolve <id>` 会在人工
+清理冲突后重试同一条受保护的 patch 路径，并写入正常 apply 记录或刷新
+conflict report。完整的内联 conflict editor 仍是后续工作。
 
 ### Phase 7: 可 Attach 的 Terminal Pane
 

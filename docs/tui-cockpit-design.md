@@ -161,6 +161,11 @@ route hints so the main agent can decide follow-up actions.
   untouched, marks the lane `apply_conflict`, and writes
   `.robocode/lanes/<lane-id>.apply-conflict.md` with direct and three-way apply
   check output plus changed-file context.
+- `/lane resolve <id>` retries an `apply_conflict` lane after the operator has
+  adjusted the main workspace or lane worktree. It uses the same auditable
+  patch path as `/lane apply`: the Git patch must pass `git apply --check`
+  before RoboCode mutates the main workspace. A clean retry writes the normal
+  `.apply.md`; a still-conflicting retry refreshes `.apply-conflict.md`.
 - `/lane cleanup <id>` archives a lane by removing its isolated worktree only
   when the worktree is clean. Dirty worktrees require explicit
   `/lane cleanup <id> --force`, and every cleanup writes
@@ -205,10 +210,11 @@ route hints so the main agent can decide follow-up actions.
   commands, template-launched Codex/Claude adapters, external-terminal attach,
   persisted envelope/log/exit-code artifacts, plus Unix process-group stop.
 - Apply currently uses a conservative patch path through `/lane apply <id>` and
-  records conflict reports when the patch cannot apply cleanly. Interactive
-  conflict resolution is still follow-up work. Discarding a lane records the
-  decision but intentionally does not delete its logs, worktree, or changes;
-  cleanup requires a separate `/lane cleanup` command.
+  records conflict reports when the patch cannot apply cleanly. `/lane resolve
+  <id>` provides an operator-driven retry loop after manual conflict cleanup;
+  a full inline conflict editor is still follow-up work. Discarding a lane
+  records the decision but intentionally does not delete its logs, worktree, or
+  changes; cleanup requires a separate `/lane cleanup` command.
 - Provider token, cost, and rate telemetry is not connected yet, so the live UI
   intentionally keeps those metrics hidden.
 - Diagnostics come from the shared LSP runtime through post-edit diagnostics,

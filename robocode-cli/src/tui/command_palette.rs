@@ -220,7 +220,7 @@ const COMMANDS: [CommandTemplate; 17] = [
     },
 ];
 
-const LANE_COMMANDS: [CommandTemplate; 13] = [
+const LANE_COMMANDS: [CommandTemplate; 14] = [
     CommandTemplate {
         command: "/lane codex",
         summary: "Start Codex lane",
@@ -266,6 +266,10 @@ const LANE_COMMANDS: [CommandTemplate; 13] = [
         summary: "Apply accepted patch",
     },
     CommandTemplate {
+        command: "/lane resolve",
+        summary: "Retry apply conflict",
+    },
+    CommandTemplate {
         command: "/lane cleanup",
         summary: "Archive worktree",
     },
@@ -275,7 +279,7 @@ const LANE_COMMANDS: [CommandTemplate; 13] = [
     },
 ];
 
-const LANE_ID_COMMANDS: [&str; 9] = [
+const LANE_ID_COMMANDS: [&str; 10] = [
     "/lane inspect",
     "/lane stop",
     "/lane attach",
@@ -284,6 +288,7 @@ const LANE_ID_COMMANDS: [&str; 9] = [
     "/lane revise",
     "/lane discard",
     "/lane apply",
+    "/lane resolve",
     "/lane cleanup",
 ];
 
@@ -1476,6 +1481,11 @@ mod tests {
 
         assert_eq!(suggestions[0].command, "/lane codex");
         assert!(suggestions.iter().any(|item| item.command == "/lane apply"));
+        assert!(
+            suggestions
+                .iter()
+                .any(|item| item.command == "/lane resolve")
+        );
         assert!(is_command_palette_visible(&state));
     }
 

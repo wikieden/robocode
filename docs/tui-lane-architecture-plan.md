@@ -378,8 +378,10 @@ require explicit `--force`, so discard records intent without deleting evidence.
 with `git apply --check`, applies it to the main workspace, and leaves commit
 and cleanup as separate operator actions. If the patch cannot apply cleanly, it
 marks the lane `apply_conflict` and writes `.apply-conflict.md` with direct and
-three-way apply check output plus changed-file context. Interactive conflict
-resolution remains follow-up work.
+three-way apply check output plus changed-file context. `/lane resolve <id>`
+retries the same guarded patch path after manual conflict cleanup and either
+writes the normal apply record or refreshes the conflict report. A full inline
+conflict editor remains follow-up work.
 
 ### Phase 7: Attachable Terminal Panes
 

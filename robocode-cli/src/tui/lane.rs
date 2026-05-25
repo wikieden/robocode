@@ -75,6 +75,7 @@ pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
         Some("revise") => decide_lane("revise", parts.next(), parts.collect(), state),
         Some("discard") => decide_lane("discarded", parts.next(), parts.collect(), state),
         Some("apply") => apply_lane(parts.next(), parts.collect(), state),
+        Some("resolve") => resolve_lane(parts.next(), parts.collect(), state),
         Some("cleanup") => cleanup_lane(parts.next(), parts.collect(), state),
         Some("attach") => attach_lane(parts.next(), state),
         Some("detach") => detach_lane(parts.next(), state),
@@ -1019,6 +1020,41 @@ fn apply_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
     });
 }
 
+fn resolve_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(lane) = state
+        .lanes
+        .iter()
+        .find(|lane| lane.id.eq_ignore_ascii_case(id))
+        .cloned()
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let force = args.iter().any(|arg| *arg == "--force" || *arg == "-f");
+    if lane.status != "apply_conflict" && !force {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Refused to resolve lane `{}` because it is `{}`.\n`/lane resolve` only retries apply-conflict lanes after you have adjusted the main workspace or lane worktree. Use `/lane apply {}` for a normal accepted lane, or `/lane resolve {} --force` to retry anyway.",
+                lane.id, lane.status, lane.id, lane.id
+            ),
+        });
+        return;
+    }
+
+    // Conflict recovery intentionally reuses the same auditable apply path:
+    // `git apply --check` must pass before the main workspace is mutated.
+    apply_lane(Some(id), args, state);
+}
+
 fn lane_diff_patch(worktree: &Path) -> Result<String, String> {
     let untracked = git_untracked_files(worktree)?;
     if !untracked.is_empty() {
@@ -1174,7 +1210,7 @@ fn render_lane_apply_conflict(
     forced: bool,
 ) -> String {
     format!(
-        "# RoboCode Lane Apply Conflict\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Direct apply check\n{}\n\n## Three-way apply check\n{}\n\n## Main workspace changed files\n{main_changed_files}\n\n## Lane worktree changed files\n{lane_changed_files}\n\n## Follow-up\n- Review the patch and the main workspace diff before retrying.\n- Resolve conflicting files in the main workspace or in the lane worktree.\n- Retry with `/lane apply {}` after the patch applies cleanly.\n- Use `/lane cleanup {}` only after the lane evidence is no longer needed.\n",
+        "# RoboCode Lane Apply Conflict\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Direct apply check\n{}\n\n## Three-way apply check\n{}\n\n## Main workspace changed files\n{main_changed_files}\n\n## Lane worktree changed files\n{lane_changed_files}\n\n## Follow-up\n- Review the patch and the main workspace diff before retrying.\n- Resolve conflicting files in the main workspace or in the lane worktree.\n- Retry with `/lane resolve {}` after the patch applies cleanly.\n- Use `/lane cleanup {}` only after the lane evidence is no longer needed.\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -1452,7 +1488,7 @@ pub(super) fn refresh_lanes(state: &mut TuiState) {
 fn push_lane_usage(state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane cleanup <id> [--force] | /lane close"
+        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane cleanup <id> [--force] | /lane close"
             .to_string(),
     });
 }
@@ -1786,6 +1822,72 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_resolve_retries_apply_conflict_after_manual_workspace_fix() {
+        let _env = ScopedEnv::set(
+            "ROBOCODE_LANE_CODEX_TEMPLATE",
+            "printf lane-change > README.md",
+        );
+        let root = temp_lane_root();
+        init_git_repo(&root);
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store.clone());
+
+        assert!(handle_tui_command("/lane codex change readme", &mut state));
+
+        let mut lanes = Vec::new();
+        for _ in 0..40 {
+            lanes = load_lanes(&store);
+            refresh_lane_runtime(&store, &mut lanes);
+            if lanes.first().is_some_and(|lane| lane.status == "completed") {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(25));
+        }
+        state.lanes = lanes;
+        fs::write(root.join("README.md"), "main-change\n").expect("conflicting main edit");
+
+        assert!(handle_tui_command("/lane accept L1 looks good", &mut state));
+        assert!(handle_tui_command("/lane apply L1", &mut state));
+        assert_eq!(state.lanes[0].status, "apply_conflict");
+
+        fs::write(root.join("README.md"), "fixture\n").expect("manual conflict fix");
+        assert!(handle_tui_command("/lane resolve L1", &mut state));
+
+        assert_eq!(
+            fs::read_to_string(root.join("README.md")).unwrap(),
+            "lane-change"
+        );
+        assert_eq!(state.lanes[0].status, "applied");
+        assert!(
+            fs::read_to_string(root.join(".robocode/lanes/L1.apply.md"))
+                .expect("apply record")
+                .contains("Status before apply: apply_conflict")
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_resolve_refuses_non_conflict_lane_without_force() {
+        let mut state = test_state();
+        state.lanes = TerminalLane::preview_lanes();
+
+        assert!(handle_tui_command("/lane resolve L1", &mut state));
+
+        assert!(
+            state
+                .entries
+                .last()
+                .expect("resolve refusal")
+                .body
+                .contains("only retries apply-conflict lanes")
+        );
+        assert_eq!(state.lanes[0].status, "running");
     }
 
     #[test]

@@ -137,6 +137,10 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   如果 patch 无法干净应用，RoboCode 会保持主 workspace 不变，把 lane 标为
   `apply_conflict`，并写入 `.robocode/lanes/<lane-id>.apply-conflict.md`，
   记录直接 apply check、three-way apply check 和 changed-file 上下文。
+- `/lane resolve <id>` 会在操作者已经调整主 workspace 或 lane worktree 后，
+  重试一个 `apply_conflict` lane。它复用 `/lane apply` 的可审计 patch 路径：
+  Git patch 必须先通过 `git apply --check`，RoboCode 才会修改主 workspace。
+  干净重试会写入正常的 `.apply.md`；仍有冲突时会刷新 `.apply-conflict.md`。
 - `/lane cleanup <id>` 会通过移除隔离 worktree 来归档 lane，但只有 worktree
   干净时才会执行。有未提交变更时必须显式使用
   `/lane cleanup <id> --force`，并且每次 cleanup 都会先写入
@@ -176,9 +180,10 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   template-launched Codex/Claude adapter、外部 terminal attach，并持久化
   envelope / log / exit-code artifacts；Unix 平台支持 process-group stop。
 - apply 当前通过 `/lane apply <id>` 走保守 patch 路径，并在 patch 无法干净应用
-  时记录 conflict report。交互式 conflict resolution 仍是后续工作。discard lane
-  只记录决策，不会默认删除日志、worktree 或变更；清理必须通过单独的
-  `/lane cleanup` 命令执行。
+  时记录 conflict report。`/lane resolve <id>` 提供人工清理冲突后的操作者重试
+  闭环；完整的内联 conflict editor 仍是后续工作。discard lane 只记录决策，
+  不会默认删除日志、worktree 或变更；清理必须通过单独的 `/lane cleanup` 命令
+  执行。
 - Provider token、cost、rate telemetry 尚未接入，所以 live UI 会继续隐藏这些
   指标。
 - Diagnostics 来源于共享 LSP runtime：post-edit diagnostics、显式
