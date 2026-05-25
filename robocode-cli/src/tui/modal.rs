@@ -116,7 +116,7 @@ fn render_lane_modal(frame: &mut Frame, lane: &TerminalLane, right_rail_width: u
             truncate(&lane.summary, modal_width.saturating_sub(6))
         ),
         scan_divider(modal_width),
-        "CONTROL [stop] [tmux] [detach] [inspect]".to_string(),
+        "CONTROL [stop] [tmux] [pty] [send] [inspect]".to_string(),
         "SIDE    --tui-screen side-1   live tail".to_string(),
     ];
     let modal = panel(

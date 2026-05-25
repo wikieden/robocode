@@ -156,6 +156,10 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   `tmux attach -t ...` 命令；对尚未 attached 的 lane，则显示 `/lane tmux <id>`
   作为下一步交互入口。使用默认 tmux template 时，pane 输出会 pipe 到标准 lane
   `.log`，所以副屏和 `/lane inspect` 可以观察实时 tmux 输出。
+- `/lane pty <id>` 会为 lane workspace 启动 embedded PTY bridge。它创建
+  `.robocode/lanes/<lane-id>.pty.in` 作为输入 FIFO，写入
+  `.robocode/lanes/<lane-id>.pty.md` 作为审计记录，并把输出捕获到标准 lane
+  `.log`。`/lane send <id> <text>` 可以从 TUI 内向该 PTY bridge 写入一行输入。
 - Provider health 已接入共享 runtime loop 测量到的模型请求 telemetry：真实
   request 数、成功/失败数、last/average latency、last event count、
   provider 返回的 token usage、请求耗时允许时的 token throughput，以及最后一次
@@ -182,6 +186,10 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - `/lane ask <tool> <task>` 使用 `ROBOCODE_LANE_<TOOL>_TEMPLATE` 接入自定义受控
   外部工具，例如 Gemini、Junie 或本地 coding CLI。template 未配置时会保留已渲染
   task envelope，并让 lane 停在 queued 状态，而不是丢掉请求。
+- `ROBOCODE_LANE_PTY_TEMPLATE` 可以覆盖 embedded PTY bridge。它支持
+  `{lane}`、`{task}`、`{tool}`、`{cwd}`、`{worktree}`、`{command}`、`{input}`、
+  `{log}`、`{shell}` 以及 shell-quoted 的 `{name:q}` 形式。默认 Unix template
+  使用系统 `script` 命令和 lane 输入 FIFO。
 - `ROBOCODE_LANE_ATTACH_TEMPLATE` 可以覆盖默认 lane attach launcher。它支持
   `{lane}`、`{task}`、`{tool}`、`{cwd}`、`{worktree}`、`{log}` 以及
   shell-quoted 的 `{name:q}` 形式。macOS 有默认 Terminal.app launcher；其他
@@ -191,9 +199,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 
 ## 近期缺口
 
-- embedded PTY 仍是后续工作；当前 lane 支持非交互 shell 命令、
-  template-launched Codex/Claude adapter、外部 terminal attach，并持久化
-  envelope / log / exit-code artifacts；Unix 平台支持 process-group stop。
+- embedded PTY 已经有第一版受控 bridge：`/lane pty` 与 `/lane send`。更完整的
+  inline terminal emulator、cursor/screen-state replay 仍是后续工作。
 - apply 当前通过 `/lane apply <id>` 走保守 patch 路径，并在 patch 无法干净应用
   时记录 conflict report。`/lane resolve <id>` 提供人工清理冲突后的操作者重试
   闭环；完整的内联 conflict editor 仍是后续工作。discard lane 只记录决策，

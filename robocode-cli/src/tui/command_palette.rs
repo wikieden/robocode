@@ -220,7 +220,7 @@ const COMMANDS: [CommandTemplate; 17] = [
     },
 ];
 
-const LANE_COMMANDS: [CommandTemplate; 17] = [
+const LANE_COMMANDS: [CommandTemplate; 19] = [
     CommandTemplate {
         command: "/lane codex",
         summary: "Start Codex lane",
@@ -252,6 +252,14 @@ const LANE_COMMANDS: [CommandTemplate; 17] = [
     CommandTemplate {
         command: "/lane tmux",
         summary: "Open tmux lane",
+    },
+    CommandTemplate {
+        command: "/lane pty",
+        summary: "Open embedded PTY",
+    },
+    CommandTemplate {
+        command: "/lane send",
+        summary: "Send PTY input",
     },
     CommandTemplate {
         command: "/lane detach",
@@ -291,11 +299,13 @@ const LANE_COMMANDS: [CommandTemplate; 17] = [
     },
 ];
 
-const LANE_ID_COMMANDS: [&str; 12] = [
+const LANE_ID_COMMANDS: [&str; 14] = [
     "/lane inspect",
     "/lane stop",
     "/lane attach",
     "/lane tmux",
+    "/lane pty",
+    "/lane send",
     "/lane detach",
     "/lane accept",
     "/lane revise",

@@ -427,7 +427,12 @@ tmux output through the same lane evidence path as non-interactive lanes.
 process. Side-1 lane rows and the focused lane modal show either the exact
 `tmux attach -t ...` command for tmux-backed lanes or `/lane tmux <id>` as the
 next interactive route for lanes that still need a supervised terminal.
-Embedded PTY remains future work.
+`/lane pty <id>` now starts an embedded PTY bridge using a lane input FIFO and
+the standard lane log path, and `/lane send <id> <text>` writes a line into that
+bridge from inside the TUI. The PTY bridge writes `<lane-id>.pty.md`, supports
+`ROBOCODE_LANE_PTY_TEMPLATE`, and defaults to the system `script` command on
+Unix. A richer inline terminal emulator with cursor/screen-state replay remains
+future work.
 
 ## Recommended First Implementation Slice
 

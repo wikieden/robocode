@@ -183,6 +183,11 @@ route hints so the main agent can decide follow-up actions.
   the next interaction step for lanes that are not attached yet. With the
   default tmux template, pane output is piped into the standard lane `.log`, so
   side screens and `/lane inspect` can observe live tmux output.
+- `/lane pty <id>` starts an embedded PTY bridge for the lane workspace. It
+  creates `.robocode/lanes/<lane-id>.pty.in` as the input FIFO, writes
+  `.robocode/lanes/<lane-id>.pty.md` as the audit record, and captures output
+  in the standard lane `.log`. `/lane send <id> <text>` writes a line to that
+  PTY bridge from inside the TUI.
 - Provider health now reflects measured model-request telemetry from the shared
   runtime loop: real request count, success/failure count, last and average
   latency, last event count, provider-reported token usage, token throughput
@@ -213,6 +218,10 @@ route hints so the main agent can decide follow-up actions.
   supervised external tools such as Gemini, Junie, or local coding CLIs. Missing
   templates leave a queued lane with a rendered task envelope instead of losing
   the request.
+- `ROBOCODE_LANE_PTY_TEMPLATE` can override the embedded PTY bridge. It supports
+  `{lane}`, `{task}`, `{tool}`, `{cwd}`, `{worktree}`, `{command}`, `{input}`,
+  `{log}`, `{shell}` and shell-quoted `{name:q}` forms. The default Unix
+  template uses the system `script` command plus the lane input FIFO.
 - `ROBOCODE_LANE_ATTACH_TEMPLATE` can override the default lane attach launcher.
   It supports `{lane}`, `{task}`, `{tool}`, `{cwd}`, `{worktree}`, `{log}` and
   shell-quoted `{name:q}` forms. macOS has a default Terminal.app launcher;
@@ -224,9 +233,9 @@ route hints so the main agent can decide follow-up actions.
 
 ## Near-Term Gaps
 
-- Embedded PTY is still future work; current lanes support non-interactive shell
-  commands, template-launched Codex/Claude adapters, external-terminal attach,
-  persisted envelope/log/exit-code artifacts, plus Unix process-group stop.
+- Embedded PTY now has a first supervised bridge through `/lane pty` and
+  `/lane send`. A richer inline terminal emulator with cursor/screen-state
+  replay remains follow-up work.
 - Apply currently uses a conservative patch path through `/lane apply <id>` and
   records conflict reports when the patch cannot apply cleanly. `/lane resolve
   <id>` provides an operator-driven retry loop after manual conflict cleanup;

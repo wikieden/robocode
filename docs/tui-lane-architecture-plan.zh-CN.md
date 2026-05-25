@@ -418,7 +418,11 @@ tmux 进程本身仍交给 tmux 管理。默认 tmux template 会把 pane 输出
 `/lane detach <id>` 会把 lane 标记为 detached，不会杀掉外部进程。side-1 的
 lane 行和聚焦 lane modal 会为 tmux-backed lane 显示明确的
 `tmux attach -t ...` 命令；对还没有监督终端的 lane，则显示 `/lane tmux <id>`
-作为下一步交互路由。embedded PTY 仍是后续工作。
+作为下一步交互路由。`/lane pty <id>` 现在会使用 lane 输入 FIFO 和标准 lane
+log 路径启动 embedded PTY bridge，`/lane send <id> <text>` 可以从 TUI 内向该
+bridge 写入一行输入。PTY bridge 会写 `<lane-id>.pty.md`，支持
+`ROBOCODE_LANE_PTY_TEMPLATE`，并在 Unix 上默认使用系统 `script` 命令。更完整的
+inline terminal emulator、cursor/screen-state replay 仍是后续工作。
 
 ## 推荐第一刀
 

@@ -67,6 +67,9 @@ pub(super) fn interaction_hint(lane: &TerminalLane) -> String {
     if let Some(session) = lane.target.strip_prefix("tmux ") {
         return format!("tmux attach -t {session}");
     }
+    if lane.target.starts_with("pty pid ") {
+        return format!("/lane send {} <text>", lane.id);
+    }
     if let Some(pid) = lane.target.strip_prefix("attach pid ") {
         return format!("external terminal pid {pid}");
     }
@@ -91,6 +94,8 @@ pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
         Some("cleanup") => cleanup_lane(parts.next(), parts.collect(), state),
         Some("attach") => attach_lane(parts.next(), state),
         Some("tmux") => tmux_lane(parts.next(), state),
+        Some("pty") => pty_lane(parts.next(), state),
+        Some("send") => send_lane_input(parts.next(), parts.collect(), state),
         Some("detach") => detach_lane(parts.next(), state),
         Some(_) => queue_lane(input, state),
         None => push_lane_usage(state),
@@ -1000,6 +1005,256 @@ fn render_lane_tmux(
     )
 }
 
+fn pty_lane(id: Option<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(index) = state
+        .lanes
+        .iter()
+        .position(|lane| lane.id.eq_ignore_ascii_case(id))
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let lane = state.lanes[index].clone();
+    let pty_path = match lane_artifact_path(state, &lane.id, "pty.md") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to prepare embedded PTY artifact: {err}"),
+            });
+            return;
+        }
+    };
+    let input_path = match lane_artifact_path(state, &lane.id, "pty.in") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to prepare embedded PTY input: {err}"),
+            });
+            return;
+        }
+    };
+    let runtime_log = match lane_artifact_path(state, &lane.id, "log") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to prepare embedded PTY log: {err}"),
+            });
+            return;
+        }
+    };
+    if let Err(err) = prepare_pty_input(&input_path) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Cannot prepare embedded PTY input for lane `{}`: {err}",
+                lane.id
+            ),
+        });
+        return;
+    }
+    let command = match lane_pty_command(&lane, state, &input_path, &runtime_log) {
+        Ok(command) => command,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Cannot start embedded PTY lane `{}`: {err}", lane.id),
+            });
+            return;
+        }
+    };
+    if let Err(err) = fs::write(
+        &pty_path,
+        render_lane_pty(&lane, state, &input_path, &runtime_log, &command),
+    ) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to write embedded PTY artifact: {err}"),
+        });
+        return;
+    }
+    match spawn_shell_command(&command) {
+        Ok(pid) => {
+            state.lanes[index].status = "attached".to_string();
+            state.lanes[index].target = format!("pty pid {pid} input {}", input_path.display());
+            state.lanes[index].summary = format!(
+                "embedded PTY bridge; send input with `/lane send {} ...`; input {}; log {}; artifact {}",
+                lane.id,
+                input_path.display(),
+                runtime_log.display(),
+                pty_path.display()
+            );
+            state.focused_lane = Some(lane.id.clone());
+            persist_lanes(state);
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!(
+                    "Started embedded PTY lane `{}` as pid {pid}.\nSend input with `/lane send {} <text>`; detach tracking with `/lane detach {}`.",
+                    lane.id, lane.id, lane.id
+                ),
+            });
+        }
+        Err(err) => state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to start embedded PTY lane `{}`: {err}", lane.id),
+        }),
+    }
+}
+
+fn send_lane_input(id: Option<&str>, input: Vec<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    if input.is_empty() {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Usage: /lane send {id} <text>"),
+        });
+        return;
+    }
+    let Some(index) = state
+        .lanes
+        .iter()
+        .position(|lane| lane.id.eq_ignore_ascii_case(id))
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let lane = state.lanes[index].clone();
+    let Some(input_path) = lane_pty_input_path(&lane) else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Lane `{}` is not attached to an embedded PTY. Start one with `/lane pty {}`.",
+                lane.id, lane.id
+            ),
+        });
+        return;
+    };
+    let text = input.join(" ");
+    let command = format!(
+        "printf '%s\\n' {} > {}",
+        shell_quote_value(&text),
+        shell_quote_path(&input_path)
+    );
+    match spawn_shell_command(&command) {
+        Ok(pid) => {
+            state.lanes[index].summary = format!(
+                "sent to embedded PTY via pid {pid}: {}",
+                truncate_for_log(&text, 96)
+            );
+            persist_lanes(state);
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Sent input to lane `{}` embedded PTY.", lane.id),
+            });
+        }
+        Err(err) => state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to send input to lane `{}`: {err}", lane.id),
+        }),
+    }
+}
+
+fn lane_pty_command(
+    lane: &TerminalLane,
+    state: &TuiState,
+    input_path: &Path,
+    runtime_log: &Path,
+) -> Result<String, String> {
+    let template =
+        env::var("ROBOCODE_LANE_PTY_TEMPLATE").or_else(|_| platform_lane_pty_template())?;
+    let command = expand_pty_template(&template, lane, state, input_path, runtime_log);
+    (!command.trim().is_empty())
+        .then_some(command)
+        .ok_or_else(|| "ROBOCODE_LANE_PTY_TEMPLATE expanded to an empty command".to_string())
+}
+
+#[cfg(all(unix, target_os = "macos"))]
+fn platform_lane_pty_template() -> Result<String, String> {
+    Ok("cat {input:q} | script -q {log:q} {shell:q}".to_string())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn platform_lane_pty_template() -> Result<String, String> {
+    Ok("cat {input:q} | script -q -f -c {shell:q} {log:q}".to_string())
+}
+
+#[cfg(not(unix))]
+fn platform_lane_pty_template() -> Result<String, String> {
+    Err("embedded PTY lanes require ROBOCODE_LANE_PTY_TEMPLATE on this platform".to_string())
+}
+
+fn expand_pty_template(
+    template: &str,
+    lane: &TerminalLane,
+    state: &TuiState,
+    input_path: &Path,
+    runtime_log: &Path,
+) -> String {
+    let cwd = lane_workspace(lane, state).to_string_lossy().to_string();
+    let command = command_hint(&lane.tool, &lane.title);
+    let input = input_path.to_string_lossy().to_string();
+    let log = runtime_log.to_string_lossy().to_string();
+    let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    template
+        .replace("{lane:q}", &shell_quote_value(&lane.id))
+        .replace("{tool:q}", &shell_quote_value(&lane.tool))
+        .replace("{task:q}", &shell_quote_value(&lane.title))
+        .replace("{cwd:q}", &shell_quote_value(&cwd))
+        .replace("{worktree:q}", &shell_quote_value(&cwd))
+        .replace("{command:q}", &shell_quote_value(&command))
+        .replace("{input:q}", &shell_quote_value(&input))
+        .replace("{log:q}", &shell_quote_value(&log))
+        .replace("{shell:q}", &shell_quote_value(&shell))
+        .replace("{lane}", &lane.id)
+        .replace("{tool}", &lane.tool)
+        .replace("{task}", &lane.title)
+        .replace("{cwd}", &cwd)
+        .replace("{worktree}", &cwd)
+        .replace("{command}", &command)
+        .replace("{input}", &input)
+        .replace("{log}", &log)
+        .replace("{shell}", &shell)
+}
+
+fn render_lane_pty(
+    lane: &TerminalLane,
+    state: &TuiState,
+    input_path: &Path,
+    runtime_log: &Path,
+    command: &str,
+) -> String {
+    format!(
+        "# RoboCode Embedded PTY\n\nLane: {}\nTool: {}\nStatus before PTY: {}\nWorkspace: {}\nInput FIFO: {}\nRuntime log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Interaction\nUse `/lane send {} <text>` to write a line to the embedded PTY input bridge. Use `/lane detach {}` to hide focus without killing the PTY process, or `/lane stop {}` to terminate RoboCode's recorded process group.\n",
+        lane.id,
+        lane.tool,
+        lane.status,
+        lane_workspace(lane, state).display(),
+        input_path.display(),
+        runtime_log.display(),
+        lane.title,
+        command,
+        lane.id,
+        lane.id,
+        lane.id
+    )
+}
+
 fn lane_attach_command(
     lane: &TerminalLane,
     state: &TuiState,
@@ -1709,6 +1964,46 @@ fn platform_shell_command(command: &str) -> Command {
     shell
 }
 
+#[cfg(unix)]
+fn prepare_pty_input(path: &Path) -> Result<(), String> {
+    if path.exists() {
+        fs::remove_file(path).map_err(|err| format!("failed to reset PTY input FIFO: {err}"))?;
+    }
+    // The FIFO is the stable handoff point between TUI commands and the
+    // platform PTY bridge, so `/lane send` never needs direct terminal handles.
+    let status = Command::new("mkfifo")
+        .arg(path)
+        .status()
+        .map_err(|err| format!("failed to run mkfifo: {err}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("mkfifo exited with {status}"))
+    }
+}
+
+#[cfg(not(unix))]
+fn prepare_pty_input(_path: &Path) -> Result<(), String> {
+    Err("embedded PTY input FIFO is unsupported on this platform".to_string())
+}
+
+fn lane_pty_input_path(lane: &TerminalLane) -> Option<PathBuf> {
+    let (_, input) = lane.target.split_once(" input ")?;
+    Some(PathBuf::from(input))
+}
+
+fn truncate_for_log(value: &str, max: usize) -> String {
+    if value.chars().count() <= max {
+        return value.to_string();
+    }
+    let mut truncated = value
+        .chars()
+        .take(max.saturating_sub(1))
+        .collect::<String>();
+    truncated.push('…');
+    truncated
+}
+
 fn stop_lane(id: Option<&str>, state: &mut TuiState) {
     let Some(id) = id else {
         push_lane_usage(state);
@@ -1747,7 +2042,7 @@ fn configure_lane_process_group(command: &mut Command) {
 fn configure_lane_process_group(_command: &mut Command) {}
 
 fn stop_lane_process(lane: &TerminalLane) -> String {
-    if !matches!(lane.status.as_str(), "running" | "queued") {
+    if !matches!(lane.status.as_str(), "running" | "queued" | "attached") {
         return "stopped by operator; no running process recorded".to_string();
     }
     let Some(pid) = lane_pid(lane) else {
@@ -1760,7 +2055,15 @@ fn stop_lane_process(lane: &TerminalLane) -> String {
 }
 
 fn lane_pid(lane: &TerminalLane) -> Option<u32> {
-    lane.target.strip_prefix("pid ")?.parse::<u32>().ok()
+    if let Some(pid) = lane.target.strip_prefix("pid ") {
+        return pid.parse::<u32>().ok();
+    }
+    let pid = lane
+        .target
+        .strip_prefix("pty pid ")?
+        .split_whitespace()
+        .next()?;
+    pid.parse::<u32>().ok()
 }
 
 #[cfg(unix)]
@@ -1805,7 +2108,7 @@ pub(super) fn refresh_lanes(state: &mut TuiState) {
 fn push_lane_usage(state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane tmux <id> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane archive <id> | /lane cleanup <id> [--force] | /lane close"
+        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane ask <tool> <task> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane tmux <id> | /lane pty <id> | /lane send <id> <text> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane archive <id> | /lane cleanup <id> [--force] | /lane close"
             .to_string(),
     });
 }
@@ -2096,6 +2399,87 @@ mod tests {
                 .expect("lane log")
                 .contains("gemini")
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_pty_starts_embedded_bridge_and_records_artifact() {
+        let _env = ScopedEnv::set(
+            "ROBOCODE_LANE_PTY_TEMPLATE",
+            "printf pty-start > {log:q}; sleep 1",
+        );
+        let root = temp_lane_root();
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store);
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "codex".to_string(),
+            title: "interactive follow-up".to_string(),
+            status: "queued".to_string(),
+            target: "main".to_string(),
+            progress: 0,
+            summary: "waiting".to_string(),
+            worktree: None,
+        }];
+
+        assert!(handle_tui_command("/lane pty L1", &mut state));
+
+        assert_eq!(state.lanes[0].status, "attached");
+        assert!(state.lanes[0].target.starts_with("pty pid "));
+        assert!(state.lanes[0].summary.contains(".pty.in"));
+        let artifact =
+            fs::read_to_string(root.join(".robocode/lanes/L1.pty.md")).expect("pty artifact");
+        assert!(artifact.contains("RoboCode Embedded PTY"));
+        assert!(artifact.contains("Input FIFO:"));
+        assert!(artifact.contains("printf pty-start"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_send_writes_to_embedded_pty_input_fifo() {
+        let _env = ScopedEnv::set("ROBOCODE_LANE_PTY_TEMPLATE", "cat {input:q} > {log:q}");
+        let root = temp_lane_root();
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store);
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "run".to_string(),
+            title: "interactive shell".to_string(),
+            status: "queued".to_string(),
+            target: "main".to_string(),
+            progress: 0,
+            summary: "waiting".to_string(),
+            worktree: None,
+        }];
+
+        assert!(handle_tui_command("/lane pty L1", &mut state));
+        assert!(handle_tui_command(
+            "/lane send L1 echo hello-from-pty",
+            &mut state
+        ));
+
+        let log = root.join(".robocode/lanes/L1.log");
+        for _ in 0..40 {
+            if fs::read_to_string(&log)
+                .unwrap_or_default()
+                .contains("echo hello-from-pty")
+            {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(25));
+        }
+        assert!(
+            fs::read_to_string(&log)
+                .expect("pty log")
+                .contains("echo hello-from-pty")
+        );
+        assert!(state.lanes[0].summary.contains("sent to embedded PTY"));
 
         let _ = fs::remove_dir_all(root);
     }

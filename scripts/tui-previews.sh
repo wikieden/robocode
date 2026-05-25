@@ -274,7 +274,7 @@ assert_contains "$OUT_DIR/main-lane.txt" "LANE DETAIL"
 assert_contains "$OUT_DIR/main-lane.txt" "ROUTE main→side-1"
 assert_contains "$OUT_DIR/main-lane.txt" "CMD    codex exec test fixes"
 assert_contains "$OUT_DIR/main-lane.txt" "ATTACH /lane tmux L1"
-assert_contains "$OUT_DIR/main-lane.txt" "CONTROL [stop] [tmux] [detach] [inspect]"
+assert_contains "$OUT_DIR/main-lane.txt" "CONTROL [stop] [tmux] [pty] [send] [inspect]"
 for ansi_file in \
   "$OUT_DIR/main.ansi" \
   "$OUT_DIR/main-idle.ansi" \

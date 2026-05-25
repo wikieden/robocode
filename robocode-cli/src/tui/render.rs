@@ -525,7 +525,7 @@ mod tests {
         assert!(rendered.contains("CMD    codex exec test fixes"));
         assert!(rendered.contains("ATTACH /lane tmux L1"));
         assert!(rendered.contains("patched failing tests"));
-        assert!(rendered.contains("CONTROL [stop] [tmux] [detach] [inspect]"));
+        assert!(rendered.contains("CONTROL [stop] [tmux] [pty] [send] [inspect]"));
         assert!(rendered.contains("--tui-screen side-1"));
         for line in rendered.lines() {
             assert_eq!(
