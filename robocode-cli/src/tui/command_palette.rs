@@ -574,7 +574,7 @@ fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comma
         .or_else(|| screen_command_suggestions(query, state))
         .or_else(|| task_command_suggestions(query, state))
         .or_else(|| lsp_command_suggestions(query, state))
-        .or_else(|| command_group_suggestions(query, "/git stash", &GIT_STASH_COMMANDS))
+        .or_else(|| git_stash_command_suggestions(query, state))
         .or_else(|| command_group_suggestions(query, "/git worktree", &GIT_WORKTREE_COMMANDS))
         .or_else(|| command_group_suggestions(query, "/provider", &PROVIDER_COMMANDS))
         .or_else(|| memory_command_suggestions(query, state))
@@ -908,6 +908,63 @@ fn git_branch_suggestions(query: &str, words: &[&str], state: &TuiState) -> Vec<
         .collect()
 }
 
+fn git_stash_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    if !(query == "/git stash " || query.starts_with("/git stash ")) {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let suggestions = if words.len() <= 2 && query.ends_with(' ') {
+        GIT_STASH_COMMANDS
+            .into_iter()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if words.len() == 3 && !query.ends_with(' ') {
+        GIT_STASH_COMMANDS
+            .into_iter()
+            .filter(|item| item.command.starts_with(query))
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if should_suggest_stash_refs(query, &words) {
+        git_stash_ref_suggestions(query, &words, state)
+    } else {
+        Vec::new()
+    };
+    Some(suggestions)
+}
+
+fn should_suggest_stash_refs(query: &str, words: &[&str]) -> bool {
+    words.len() >= 3
+        && words.len() <= 4
+        && matches!(
+            format!("{} {} {}", words[0], words[1], words[2]).as_str(),
+            "/git stash pop" | "/git stash drop"
+        )
+        && (query.ends_with(' ') || words.get(3).is_some())
+}
+
+fn git_stash_ref_suggestions(
+    query: &str,
+    words: &[&str],
+    state: &TuiState,
+) -> Vec<CommandSuggestion> {
+    let base = format!("{} {} {}", words[0], words[1], words[2]);
+    let partial_ref = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(3).copied().unwrap_or("")
+    };
+    state
+        .workspace
+        .git_stashes
+        .iter()
+        .filter(|stash| stash.reference.starts_with(partial_ref))
+        .map(|stash| CommandSuggestion {
+            command: format!("{base} {}", stash.reference),
+            summary: stash.summary.clone(),
+        })
+        .collect()
+}
+
 fn lsp_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
     if !query.starts_with("/lsp ") {
         return None;
@@ -1225,6 +1282,22 @@ mod tests {
 
         assert_eq!(suggestions[0].command, "/git switch codex/tui-cockpit");
         assert_eq!(suggestions[0].summary, "Local branch");
+    }
+
+    #[test]
+    fn suggests_stash_refs_for_pop_and_drop() {
+        let mut state = state_with_input("/git stash pop stash@");
+
+        let pop = command_suggestions_for_state(&state);
+
+        assert_eq!(pop[0].command, "/git stash pop stash@{0}");
+        assert!(pop[0].summary.contains("tune cockpit palette"));
+
+        state.input = "/git stash drop stash@{1".to_string();
+        let drop = command_suggestions_for_state(&state);
+
+        assert_eq!(drop[0].command, "/git stash drop stash@{1}");
+        assert!(drop[0].summary.contains("checkpoint preview assets"));
     }
 
     #[test]

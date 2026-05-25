@@ -75,8 +75,8 @@ Rendering contract:
 - Supported nested command families show local subcommands and known runtime
   objects. `/lane` suggests lane IDs, `/screen close` suggests tracked side
   screens, `/task` suggests task IDs and task statuses, `/memory` suggests
-  operable memory IDs, `/git switch` suggests local branches, and `/lsp`
-  suggests recent workspace files.
+  operable memory IDs, `/git switch` suggests local branches, `/git stash
+  pop/drop` suggests stash refs, and `/lsp` suggests recent workspace files.
 
 ## Approval Modal
 
@@ -118,7 +118,8 @@ route hints so the main agent can decide follow-up actions.
   snapshot, so `/memory confirm`, `/memory reject`, and `/memory prune` suggest
   relevant memory IDs instead of requiring the operator to copy them manually.
   Git switch suggestions use the local branch snapshot from the current
-  workspace.
+  workspace; stash pop/drop suggestions use the current `git stash list`
+  snapshot.
 - The main screen polls lane artifacts while idle, so background `/lane run`
   completion, failure, and log-tail state appear without a keypress.
 - The right-rail `ACTIVE TASKS` panel reads the real workflow task store exposed
@@ -203,7 +204,7 @@ route hints so the main agent can decide follow-up actions.
   placement across physical monitors is still a launcher-template/manual
   desktop responsibility.
 - Command palette nested suggestions cover the main command families. Deeper
-  provider-specific model names, remote branch names, stash refs, and arbitrary
-  path completions are still future refinements.
+  provider-specific model names, remote branch names, worktree paths, and
+  arbitrary path completions are still future refinements.
 - Visual parity still needs repeated screenshot comparison against the
   holodeck reference.

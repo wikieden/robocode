@@ -456,6 +456,7 @@ pub(super) struct WorkspaceSnapshot {
     pub(super) display_root: String,
     pub(super) git_branch: String,
     pub(super) git_branches: Vec<String>,
+    pub(super) git_stashes: Vec<GitStashEntry>,
     pub(super) file_count: usize,
     pub(super) line_count: usize,
     pub(super) recent_files: Vec<RecentFile>,
@@ -471,6 +472,12 @@ pub(super) struct RecentFile {
     pub(super) modified: SystemTime,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct GitStashEntry {
+    pub(super) reference: String,
+    pub(super) summary: String,
+}
+
 impl WorkspaceSnapshot {
     pub(super) fn load_current() -> Self {
         let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -480,6 +487,7 @@ impl WorkspaceSnapshot {
     fn load(root: PathBuf) -> Self {
         let git_branch = git_branch(&root).unwrap_or_else(|| "main".to_string());
         let git_branches = git_branches(&root).unwrap_or_else(|| vec![git_branch.clone()]);
+        let git_stashes = git_stashes(&root).unwrap_or_default();
         let display_root = display_path(&root);
         let mut files = Vec::new();
         collect_files(&root, &root, &mut files, 0);
@@ -509,6 +517,7 @@ impl WorkspaceSnapshot {
             display_root,
             git_branch,
             git_branches,
+            git_stashes,
             file_count,
             line_count,
             recent_files,
@@ -528,6 +537,16 @@ impl WorkspaceSnapshot {
                 "main".to_string(),
                 "codex/tui-cockpit".to_string(),
                 "release/v0.1.3".to_string(),
+            ],
+            git_stashes: vec![
+                GitStashEntry {
+                    reference: "stash@{0}".to_string(),
+                    summary: "WIP on main: tune cockpit palette".to_string(),
+                },
+                GitStashEntry {
+                    reference: "stash@{1}".to_string(),
+                    summary: "On codex/tui-cockpit: checkpoint preview assets".to_string(),
+                },
             ],
             file_count: 128,
             line_count: 24_531,
@@ -753,6 +772,34 @@ fn git_branches(root: &Path) -> Option<Vec<String>> {
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
     (!branches.is_empty()).then_some(branches)
+}
+
+fn git_stashes(root: &Path) -> Option<Vec<GitStashEntry>> {
+    let output = Command::new("git")
+        .arg("stash")
+        .arg("list")
+        .arg("--format=%gd%x09%gs")
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stashes = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let (reference, summary) = line.split_once('\t')?;
+            let reference = reference.trim();
+            if reference.is_empty() {
+                return None;
+            }
+            Some(GitStashEntry {
+                reference: reference.to_string(),
+                summary: summary.trim().to_string(),
+            })
+        })
+        .collect::<Vec<_>>();
+    (!stashes.is_empty()).then_some(stashes)
 }
 
 fn display_path(path: &Path) -> String {
