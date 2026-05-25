@@ -19,8 +19,8 @@
   active-lane 数量和 telemetry 可用性。
 - Transcript：左侧主面板，时间线式消息，最近内容固定留在底部可见。
 - 右侧栏：workspace、active tasks、diagnostics、provider health、recent files。
-- Composer：始终在底部可见，输入光标位于输入行内，带 action hints 和
-  approval-mode chips。
+- Composer：始终在底部可见，输入区是更高的双行输入槽，输入光标位于输入行内
+  并使用原生 blinking bar cursor，带 action hints 和 approval-mode chips。
 - 底部状态栏：连接状态、session、event 数量、active lanes、context window、
   theme/help 提示。token、cost、rate 指标只有接入真实 provider telemetry 后才能显示。
 
@@ -99,7 +99,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 
 - 主屏和副屏都会响应 resize 事件并重绘。
 - 行级 diff 渲染避免输入时整屏闪烁。
-- composer 已按显示宽度处理中文等 CJK 输入。
+- composer 已按显示宽度处理中文等 CJK 输入；输入行保持原生 blinking bar
+  cursor，并预留更高输入槽，让长会话里也容易找到输入位置。
 - slash 提示列表是本地 UI 状态，不触发模型调用。它现在支持 `/lane`、
   `/screen`、`/provider`、`/lsp`、`/task`、`/memory` 和 `/git` 的二级提示；
   当前 TUI state 能提供对象时，会显示动态 ID 或最近文件。provider 和 model 提示

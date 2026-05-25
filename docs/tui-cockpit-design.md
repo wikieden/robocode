@@ -24,8 +24,9 @@ with the generated reference visuals and the terminal-agent workflow.
   visible at the bottom.
 - Right rail: workspace, active tasks, diagnostics, provider health, recent
   files.
-- Composer: always visible at the bottom, with input cursor placed inside the
-  input row, action hints, and approval-mode chips.
+- Composer: always visible at the bottom, with a taller two-row input well,
+  native blinking bar cursor placed inside the input row, action hints, and
+  approval-mode chips.
 - Bottom status: connection, session, event count, active lanes, context window,
   theme/help hints. Token, cost, and rate metrics should appear only after real
   provider telemetry is wired.
@@ -116,7 +117,9 @@ route hints so the main agent can decide follow-up actions.
 
 - Resize events trigger redraw for the main and side TUI screens.
 - Row-diff rendering avoids full-screen flicker during typing.
-- The composer uses display-width aware text handling for CJK input.
+- The composer uses display-width aware text handling for CJK input, keeps a
+  native blinking bar cursor visible in the input row, and reserves a taller
+  input well so the prompt remains easy to find during long sessions.
 - The slash palette is local UI state; model calls are not involved. It now
   supports nested suggestions for `/lane`, `/screen`, `/provider`, `/lsp`,
   `/task`, `/memory`, and `/git`, with dynamic IDs or recent files where the

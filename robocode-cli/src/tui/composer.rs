@@ -5,20 +5,21 @@ use super::{
     text::{bottom_border, char_width, pad, truncate},
 };
 
-pub(super) const COMPOSER_HEIGHT: usize = 4;
+pub(super) const COMPOSER_HEIGHT: usize = 5;
 
 pub(super) fn render_composer(frame: &mut Frame, state: &TuiState, bottom_bar_height: usize) {
     let top = frame.height - COMPOSER_HEIGHT - bottom_bar_height;
     frame.write_line(top, &panel_top("RoboCode >_", frame.width, None));
     frame.write_line(top + 1, &composer_input_top_row(state, frame.width));
+    frame.write_line(top + 2, &composer_input_spacer_row(frame.width));
     frame.write_line(
-        top + 2,
+        top + 3,
         &bordered_row(
             &composer_actions(frame.width.saturating_sub(4)),
             frame.width,
         ),
     );
-    frame.write_line(top + 3, &bottom_border(frame.width));
+    frame.write_line(top + 4, &bottom_border(frame.width));
 }
 
 fn composer_input_top_row(state: &TuiState, width: usize) -> String {
@@ -40,6 +41,10 @@ fn composer_input_top_row(state: &TuiState, width: usize) -> String {
         pad(&input, width.saturating_sub(18)),
         pad("MODE Code ▾", 12)
     )
+}
+
+fn composer_input_spacer_row(width: usize) -> String {
+    format!("│ {}│ {} │", pad("", width.saturating_sub(18)), pad("", 12))
 }
 
 pub(super) fn composer_cursor_position(
@@ -94,12 +99,25 @@ mod tests {
     fn cursor_position_tracks_visible_input_end() {
         assert_eq!(
             composer_cursor_position(&state_with_input(""), 120, 40, 1),
-            (4, 36)
+            (4, 35)
         );
         assert_eq!(
             composer_cursor_position(&state_with_input("abc"), 120, 40, 1),
-            (7, 36)
+            (7, 35)
         );
+    }
+
+    #[test]
+    fn composer_uses_taller_input_area() {
+        let mut frame = Frame::new(120, 40);
+        render_composer(&mut frame, &state_with_input("hello"), 1);
+        let rendered = frame.to_string();
+        let lines = rendered.lines().collect::<Vec<_>>();
+
+        assert_eq!(COMPOSER_HEIGHT, 5);
+        assert!(lines[35].contains("› hello"));
+        assert!(lines[36].contains("│"));
+        assert!(lines[37].contains("APPROVAL MODE:"));
     }
 }
 

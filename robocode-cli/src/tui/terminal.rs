@@ -37,6 +37,7 @@ impl TerminalGuard {
             stdout,
             EnterAlternateScreen,
             EnableMouseCapture,
+            cursor::SetCursorStyle::BlinkingBar,
             cursor::Show
         ) {
             let _ = terminal::disable_raw_mode();
@@ -128,6 +129,7 @@ impl TerminalGuard {
                     column.min(size.0.saturating_sub(1)),
                     row.min(size.1.saturating_sub(1))
                 ),
+                cursor::SetCursorStyle::BlinkingBar,
                 cursor::Show
             )
             .map_err(|err| err.to_string())?;
@@ -154,6 +156,7 @@ impl TerminalGuard {
         let mut stdout = io::stdout();
         execute!(
             stdout,
+            cursor::SetCursorStyle::DefaultUserShape,
             cursor::Show,
             DisableMouseCapture,
             LeaveAlternateScreen

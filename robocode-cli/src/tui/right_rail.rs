@@ -15,28 +15,33 @@ pub(super) fn right_rail(state: &TuiState, width: usize, height: usize) -> Vec<S
     let active_task_count = active_task_count(state).to_string();
     let diagnostics = diagnostic_rows(state);
     let diagnostic_badge = state.workspace.diagnostics.len().to_string();
-    let recent_height = height.saturating_sub(26).max(3);
+    let compact = height < 28;
+    let active_height = if compact { 5 } else { 6 };
+    let diagnostic_height = if compact { 3 } else { 5 };
+    let provider_height = 8;
+    let reserved_height = 7 + active_height + diagnostic_height + provider_height;
+    let recent_height = height.saturating_sub(reserved_height).max(3);
     let panels = [
         panel("WORKSPACE", workspace_rows(state), width, 7, None),
         panel(
             "ACTIVE TASKS",
             active_tasks,
             width,
-            6,
+            active_height,
             Some(&active_task_count),
         ),
         panel(
             "LSP DIAGNOSTICS",
             diagnostics,
             width,
-            5,
+            diagnostic_height,
             Some(&diagnostic_badge),
         ),
         panel(
             "PROVIDER HEALTH",
             provider_health_rows(state),
             width,
-            8,
+            provider_height,
             Some(state.provider_status.connection.as_str()),
         ),
         panel(
