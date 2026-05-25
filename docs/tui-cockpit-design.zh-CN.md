@@ -171,6 +171,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   request 数、成功/失败数、last/average latency、last event count、
   provider 返回的 token usage、请求耗时允许时的 token throughput，以及最后一次
   provider error。
+- Provider health 指标行按稳定的 label/value 结构渲染：左侧 label 使用指标色，
+  `Configured`、`0 ok / 0 err` 等值保持正文色，避免紧凑右侧栏里出现单词内部或
+  同一指标值被切碎染色的效果。
 - TUI 会解析来自 core 真实事件的 LSP diagnostics，并持久化到
   `.robocode/diagnostics.txt`，所以主屏和副屏可以展示同一份有证据来源的
   diagnostics snapshot。

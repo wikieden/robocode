@@ -251,6 +251,13 @@ fn background_for_line(line: &str, theme: &TuiTheme) -> Color {
 }
 
 fn semantic_spans(line: &str, theme: &TuiTheme) -> Vec<(usize, usize, SpanStyle)> {
+    // Provider Health rows are compact label/value metrics; using the global
+    // token highlighter here makes words like REQUESTS inherit single-letter
+    // diagnostic colors.
+    if let Some(spans) = provider_health_metric_spans(line, theme) {
+        return spans;
+    }
+
     let mut spans = Vec::new();
     collect_approval_field_spans(line, theme, &mut spans);
     collect_hud_field_spans(line, theme, &mut spans);
@@ -263,6 +270,94 @@ fn semantic_spans(line: &str, theme: &TuiTheme) -> Vec<(usize, usize, SpanStyle)
     collect_sparkline_spans(line, theme, &mut spans);
     spans.sort_by_key(|(start, _, _)| *start);
     non_overlapping_spans(spans)
+}
+
+fn provider_health_metric_spans(
+    line: &str,
+    theme: &TuiTheme,
+) -> Option<Vec<(usize, usize, SpanStyle)>> {
+    const LABELS: [&str; 9] = [
+        "STATUS",
+        "REQUESTS",
+        "LATENCY",
+        "TELEMETRY",
+        "TOKENS",
+        "RATE",
+        "COST",
+        "EVENTS",
+        "ERROR",
+    ];
+
+    let label = LABELS
+        .iter()
+        .find(|label| is_panel_metric_row(line, label))?;
+    let label_start = line.find(label)?;
+    let label_end = label_start + label.len();
+    let value_start = line[label_end..]
+        .find(|ch: char| !ch.is_whitespace())
+        .map(|offset| label_end + offset);
+    let row_end = line.rfind('│').unwrap_or(line.len());
+    let value_end = line[..row_end].trim_end().len();
+    let mut spans = vec![(
+        label_start,
+        label_end,
+        SpanStyle {
+            foreground: theme.title,
+            background: background_for_line(line, theme),
+        },
+    )];
+
+    if let Some(value_start) = value_start.filter(|start| *start < value_end) {
+        let value_foreground = if *label == "ERROR" {
+            theme.error
+        } else {
+            theme.text
+        };
+        spans.push((
+            value_start,
+            value_end,
+            SpanStyle {
+                foreground: value_foreground,
+                background: background_for_line(line, theme),
+            },
+        ));
+    }
+
+    Some(spans)
+}
+
+fn is_panel_metric_row(line: &str, label: &str) -> bool {
+    let Some(start) = line.find(label) else {
+        return false;
+    };
+    let after_label = &line[start + label.len()..];
+    let looks_like_row_label =
+        after_label.starts_with("  ") || after_label.starts_with("\t") || after_label.is_empty();
+    let prefix_is_panel_padding = line[..start]
+        .chars()
+        .all(|ch| ch == '│' || ch == ' ' || ch == '┆');
+    let value = after_label
+        .trim_start()
+        .trim_end_matches(|ch| ch == ' ' || ch == '│');
+    let looks_like_provider_metric = match label {
+        "STATUS" => {
+            value.starts_with("Configured")
+                || value.starts_with("Healthy")
+                || value.starts_with("Error")
+                || value.starts_with("Offline")
+        }
+        "REQUESTS" => value.contains(" ok / ") && value.ends_with("err"),
+        "LATENCY" => value.starts_with("last "),
+        "TELEMETRY" => value.starts_with("awaiting "),
+        "TOKENS" => value.starts_with("last "),
+        "RATE" => value.ends_with("/s"),
+        "COST" => value.starts_with('$'),
+        "EVENTS" => value.contains(" ctx "),
+        "ERROR" => !value.is_empty(),
+        _ => false,
+    };
+
+    looks_like_row_label && prefix_is_panel_padding && looks_like_provider_metric
 }
 
 fn collect_approval_field_spans(
@@ -994,6 +1089,39 @@ mod tests {
         assert!(segments.iter().any(|segment| segment.text == "▁▃▆▇▅▃"
             && segment.foreground == theme.accent
             && segment.background == theme.chip));
+    }
+
+    #[test]
+    fn provider_health_rows_use_stable_label_value_colors() {
+        let theme = TuiTheme::aurora_cyan();
+        let segments = line_segments("│ STATUS     Configured              │", &theme);
+
+        assert!(
+            segments
+                .iter()
+                .any(|segment| segment.text == "STATUS" && segment.foreground == theme.title),
+            "{segments:?}"
+        );
+        assert!(
+            segments
+                .iter()
+                .any(|segment| segment.text == "Configured" && segment.foreground == theme.text),
+            "{segments:?}"
+        );
+
+        let segments = line_segments("│ REQUESTS   0 ok / 0 err            │", &theme);
+        assert!(
+            segments
+                .iter()
+                .any(|segment| segment.text == "0 ok / 0 err" && segment.foreground == theme.text),
+            "{segments:?}"
+        );
+        assert!(
+            !segments
+                .iter()
+                .any(|segment| segment.text == "ok" && segment.foreground == theme.success),
+            "{segments:?}"
+        );
     }
 
     #[test]

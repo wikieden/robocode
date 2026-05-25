@@ -201,6 +201,10 @@ route hints so the main agent can decide follow-up actions.
   runtime loop: real request count, success/failure count, last and average
   latency, last event count, provider-reported token usage, token throughput
   when request timing permits it, and last provider error.
+- Provider health metric rows render as stable label/value pairs: the row label
+  carries the metric color while values such as `Configured` and `0 ok / 0 err`
+  stay in the normal text color, avoiding word-level color splits in the compact
+  right rail.
 - LSP diagnostics from real core events are parsed by the TUI and persisted to
   `.robocode/diagnostics.txt`, so the main screen and side screens can show the
   same evidence-backed diagnostics snapshot.
