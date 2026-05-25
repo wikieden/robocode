@@ -20,7 +20,7 @@ pub(crate) use doctor::DependencyStatus;
 pub(crate) use doctor::{DoctorReport, system_dependency_status};
 use formatting::{format_relative_age, render_resume_context, render_task_detail};
 use robocode_lsp::{LspRuntime, LspServerRegistry};
-use robocode_model::{ModelProvider, ProviderHost};
+use robocode_model::{ModelProvider, ProviderDescriptor, ProviderHost};
 use robocode_permissions::PermissionEngine;
 use robocode_session::SessionStore;
 use robocode_tools::ToolRegistry;
@@ -192,6 +192,13 @@ impl SessionEngine {
 
     pub fn provider_telemetry(&self) -> ProviderTelemetry {
         self.provider_telemetry.clone()
+    }
+
+    pub fn provider_descriptors(&self) -> Vec<ProviderDescriptor> {
+        self.provider_host
+            .as_ref()
+            .map(|host| host.registry().descriptors().to_vec())
+            .unwrap_or_default()
     }
 
     pub fn active_task_snapshot(&self) -> Result<Vec<TaskRecord>, String> {

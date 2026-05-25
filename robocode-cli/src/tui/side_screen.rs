@@ -163,6 +163,7 @@ mod tests {
             session_id: "session".to_string(),
             provider: "deepseek".to_string(),
             model: "deepseek-v4-flash".to_string(),
+            provider_catalog: crate::tui::state::ProviderOption::fixture(),
             provider_status: ProviderStatus::configured(),
             theme_name: "aurora-cyan".to_string(),
             input: String::new(),

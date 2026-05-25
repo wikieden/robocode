@@ -1,5 +1,6 @@
 use super::state::{
-    CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
+    CompanionScreen, ProviderOption, ProviderStatus, TerminalLane, TuiEntry, TuiState,
+    WorkspaceSnapshot,
 };
 use super::{render, terminal};
 use robocode_types::{
@@ -120,6 +121,7 @@ fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
         session_id: "c4f2b7e".to_string(),
         provider: provider.to_string(),
         model: model.to_string(),
+        provider_catalog: ProviderOption::fixture(),
         provider_status: ProviderStatus::configured(),
         theme_name: theme_name.to_string(),
         input: "Add tests for load_config and summarize the diff".to_string(),
@@ -287,7 +289,8 @@ fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState
 
 fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.input = "/git push origin rel".to_string();
+    state.provider = "deepseek".to_string();
+    state.input = "/model deep".to_string();
     state.command_selection = 0;
     state
 }
@@ -309,8 +312,8 @@ mod tests {
         assert!(main.contains("src/config.rs"));
         assert!(idle.contains("No approval is blocking right now"));
         assert!(command_palette.contains("COMMANDS"));
-        assert!(command_palette.contains("› /git push origin release/v0.1.3"));
-        assert!(command_palette.contains("Remote branch origin/release/v0.1.3"));
+        assert!(command_palette.contains("› /model deepseek-v4-flash"));
+        assert!(command_palette.contains("Default model for DeepSeek"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));
         assert!(side.contains("~/projects/robocode"));

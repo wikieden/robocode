@@ -10,9 +10,9 @@ use robocode_core::SessionEngine;
 
 use super::input::should_exit;
 use super::state::{
-    CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
-    lane_store_path, load_lanes, load_screens, refresh_lane_runtime, save_lanes, save_screens,
-    screen_store_path,
+    CompanionScreen, ProviderOption, ProviderStatus, TerminalLane, TuiEntry, TuiState,
+    WorkspaceSnapshot, lane_store_path, load_lanes, load_screens, refresh_lane_runtime, save_lanes,
+    save_screens, screen_store_path,
 };
 use super::terminal::TerminalGuard;
 
@@ -30,6 +30,11 @@ pub(crate) fn run_side_tui_with_theme(
         session_id: engine.session_id().to_string(),
         provider: engine.provider_name().to_string(),
         model: engine.model_name().to_string(),
+        provider_catalog: engine
+            .provider_descriptors()
+            .iter()
+            .map(ProviderOption::from_descriptor)
+            .collect(),
         provider_status: ProviderStatus::from_telemetry(&engine.provider_telemetry()),
         theme_name: terminal.theme_name().to_string(),
         input: String::new(),
@@ -405,6 +410,7 @@ mod tests {
             session_id: "session_123".to_string(),
             provider: "fallback".to_string(),
             model: "test-local".to_string(),
+            provider_catalog: crate::tui::state::ProviderOption::fixture(),
             provider_status: ProviderStatus::configured(),
             theme_name: "aurora-cyan".to_string(),
             input: String::new(),

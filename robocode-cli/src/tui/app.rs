@@ -12,8 +12,9 @@ use super::input::{close_focus_on_escape, prompt_for_tui_approval, should_exit};
 use super::lane::{handle_tui_command, refresh_lanes};
 use super::screen::handle_screen_command;
 use super::state::{
-    ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot, entry_from_event, lane_store_path,
-    latest_lsp_diagnostics, load_lanes, load_screens, save_diagnostics, screen_store_path,
+    ProviderOption, ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot, entry_from_event,
+    lane_store_path, latest_lsp_diagnostics, load_lanes, load_screens, save_diagnostics,
+    screen_store_path,
 };
 use super::terminal::TerminalGuard;
 
@@ -125,10 +126,12 @@ fn initial_state(
     let screens = load_screens(&screen_store_path(&workspace.root));
     let tasks = engine.active_task_snapshot().unwrap_or_default();
     let memory = engine.memory_snapshot().unwrap_or_default();
+    let provider_catalog = provider_catalog(engine);
     TuiState {
         session_id: engine.session_id().to_string(),
         provider: engine.provider_name().to_string(),
         model: engine.model_name().to_string(),
+        provider_catalog,
         provider_status: ProviderStatus::from_telemetry(&engine.provider_telemetry()),
         theme_name: theme_name.to_string(),
         input: String::new(),
@@ -181,11 +184,20 @@ fn handle_enter(
     refresh_diagnostics_cache(state);
     state.provider = engine.provider_name().to_string();
     state.model = engine.model_name().to_string();
+    state.provider_catalog = provider_catalog(engine);
     state.provider_status = ProviderStatus::from_telemetry(&engine.provider_telemetry());
     state.tasks = engine.active_task_snapshot().unwrap_or_default();
     state.memory = engine.memory_snapshot().unwrap_or_default();
     state.workspace = WorkspaceSnapshot::load_current();
     Ok(false)
+}
+
+fn provider_catalog(engine: &SessionEngine) -> Vec<ProviderOption> {
+    engine
+        .provider_descriptors()
+        .iter()
+        .map(ProviderOption::from_descriptor)
+        .collect()
 }
 
 fn refresh_diagnostics_cache(state: &mut TuiState) {
@@ -235,6 +247,7 @@ mod tests {
             session_id: "session".to_string(),
             provider: "fallback".to_string(),
             model: "test-local".to_string(),
+            provider_catalog: crate::tui::state::ProviderOption::fixture(),
             provider_status: ProviderStatus::configured(),
             theme_name: "aurora-cyan".to_string(),
             input: String::new(),

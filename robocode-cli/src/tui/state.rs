@@ -6,6 +6,7 @@ use std::{
 };
 
 use robocode_core::{EngineEvent, ProviderTelemetry};
+use robocode_model::ProviderDescriptor;
 use robocode_types::{MemoryEntry, TaskRecord};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +20,7 @@ pub(super) struct TuiState {
     pub(super) session_id: String,
     pub(super) provider: String,
     pub(super) model: String,
+    pub(super) provider_catalog: Vec<ProviderOption>,
     pub(super) provider_status: ProviderStatus,
     pub(super) theme_name: String,
     pub(super) input: String,
@@ -34,6 +36,48 @@ pub(super) struct TuiState {
     pub(super) lanes: Vec<TerminalLane>,
     pub(super) lane_store: Option<PathBuf>,
     pub(super) focused_lane: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ProviderOption {
+    pub(super) provider_id: String,
+    pub(super) display_name: String,
+    pub(super) default_model: Option<String>,
+}
+
+impl ProviderOption {
+    pub(super) fn from_descriptor(descriptor: &ProviderDescriptor) -> Self {
+        Self {
+            provider_id: descriptor.provider_id.clone(),
+            display_name: descriptor.display_name.clone(),
+            default_model: descriptor.default_model.clone(),
+        }
+    }
+
+    pub(super) fn fixture() -> Vec<Self> {
+        vec![
+            Self {
+                provider_id: "anthropic".to_string(),
+                display_name: "Anthropic".to_string(),
+                default_model: Some("claude-sonnet-4-6".to_string()),
+            },
+            Self {
+                provider_id: "deepseek".to_string(),
+                display_name: "DeepSeek".to_string(),
+                default_model: Some("deepseek-v4-flash".to_string()),
+            },
+            Self {
+                provider_id: "fallback".to_string(),
+                display_name: "Fallback".to_string(),
+                default_model: Some("fallback-local".to_string()),
+            },
+            Self {
+                provider_id: "openai".to_string(),
+                display_name: "OpenAI".to_string(),
+                default_model: Some("gpt-5.2".to_string()),
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -149,7 +149,7 @@ struct CommandTemplate {
     summary: &'static str,
 }
 
-const COMMANDS: [CommandTemplate; 16] = [
+const COMMANDS: [CommandTemplate; 17] = [
     CommandTemplate {
         command: "/help",
         summary: "Show commands",
@@ -157,6 +157,10 @@ const COMMANDS: [CommandTemplate; 16] = [
     CommandTemplate {
         command: "/provider",
         summary: "List or switch providers",
+    },
+    CommandTemplate {
+        command: "/model",
+        summary: "Set current model",
     },
     CommandTemplate {
         command: "/plan",
@@ -558,6 +562,7 @@ fn is_nested_command_query(input: &str) -> bool {
         "/lane",
         "/screen",
         "/provider",
+        "/model",
         "/lsp",
         "/task",
         "/memory",
@@ -576,7 +581,8 @@ fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comma
         .or_else(|| lsp_command_suggestions(query, state))
         .or_else(|| git_stash_command_suggestions(query, state))
         .or_else(|| git_worktree_command_suggestions(query, state))
-        .or_else(|| command_group_suggestions(query, "/provider", &PROVIDER_COMMANDS))
+        .or_else(|| provider_command_suggestions(query, state))
+        .or_else(|| model_command_suggestions(query, state))
         .or_else(|| memory_command_suggestions(query, state))
         .or_else(|| git_command_suggestions(query, state))
 }
@@ -607,32 +613,130 @@ fn command_group_or_lane_ids(query: &str, state: &TuiState) -> Vec<CommandSugges
     }
 }
 
-fn command_group_suggestions(
-    query: &str,
-    root: &str,
-    commands: &[CommandTemplate],
-) -> Option<Vec<CommandSuggestion>> {
-    if !(query == format!("{root} ") || query.starts_with(&format!("{root} "))) {
+fn provider_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    if !query.starts_with("/provider ") {
         return None;
     }
     let words = query.split_whitespace().collect::<Vec<_>>();
-    let suggestions = if words.len() <= root.split_whitespace().count() && query.ends_with(' ') {
-        commands
-            .iter()
-            .copied()
+    let suggestions = if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
+        PROVIDER_COMMANDS
+            .into_iter()
             .map(command_from_template)
             .collect::<Vec<_>>()
-    } else if query.ends_with(' ') {
-        Vec::new()
-    } else {
-        commands
-            .iter()
-            .copied()
+    } else if words.len() == 2 && !query.ends_with(' ') {
+        PROVIDER_COMMANDS
+            .into_iter()
             .filter(|item| item.command.starts_with(query))
             .map(command_from_template)
             .collect::<Vec<_>>()
+    } else if should_suggest_provider_ids(query, &words) {
+        provider_id_suggestions(query, &words, state)
+    } else if should_suggest_provider_models(query, &words) {
+        provider_model_suggestions(query, &words, state)
+    } else {
+        Vec::new()
     };
     Some(suggestions)
+}
+
+fn should_suggest_provider_ids(query: &str, words: &[&str]) -> bool {
+    words.len() >= 2
+        && words.len() <= 3
+        && format!("{} {}", words[0], words[1]) == "/provider use"
+        && (query.ends_with(' ') && words.len() == 2
+            || !query.ends_with(' ') && words.get(2).is_some())
+}
+
+fn provider_id_suggestions(
+    query: &str,
+    words: &[&str],
+    state: &TuiState,
+) -> Vec<CommandSuggestion> {
+    let partial_provider = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    state
+        .provider_catalog
+        .iter()
+        .filter(|provider| provider.provider_id.starts_with(partial_provider))
+        .map(|provider| CommandSuggestion {
+            command: format!("/provider use {}", provider.provider_id),
+            summary: provider_summary(provider),
+        })
+        .collect()
+}
+
+fn should_suggest_provider_models(query: &str, words: &[&str]) -> bool {
+    words.len() >= 3
+        && words.len() <= 4
+        && format!("{} {}", words[0], words[1]) == "/provider use"
+        && (query.ends_with(' ') || words.get(3).is_some())
+}
+
+fn provider_model_suggestions(
+    query: &str,
+    words: &[&str],
+    state: &TuiState,
+) -> Vec<CommandSuggestion> {
+    let provider_id = words.get(2).copied().unwrap_or("");
+    let partial_model = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(3).copied().unwrap_or("")
+    };
+    state
+        .provider_catalog
+        .iter()
+        .filter(|provider| provider.provider_id == provider_id)
+        .filter_map(|provider| {
+            provider.default_model.as_ref().and_then(|model| {
+                model.starts_with(partial_model).then(|| CommandSuggestion {
+                    command: format!("/provider use {provider_id} {model}"),
+                    summary: format!("Default model for {}", provider.display_name),
+                })
+            })
+        })
+        .collect()
+}
+
+fn model_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    if !(query == "/model " || query.starts_with("/model ")) {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    if words.len() > 2 {
+        return Some(Vec::new());
+    }
+    let partial_model = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(1).copied().unwrap_or("")
+    };
+    let current_provider = state.provider.as_str();
+    let suggestions = state
+        .provider_catalog
+        .iter()
+        .filter(|provider| provider.provider_id == current_provider)
+        .filter_map(|provider| {
+            provider.default_model.as_ref().and_then(|model| {
+                model.starts_with(partial_model).then(|| CommandSuggestion {
+                    command: format!("/model {model}"),
+                    summary: format!("Default model for {}", provider.display_name),
+                })
+            })
+        })
+        .collect();
+    Some(suggestions)
+}
+
+fn provider_summary(provider: &super::state::ProviderOption) -> String {
+    provider
+        .default_model
+        .as_ref()
+        .map(|model| format!("{} default {model}", provider.display_name))
+        .unwrap_or_else(|| format!("{} requires model", provider.display_name))
 }
 
 fn should_suggest_lane_ids(query: &str, words: &[&str]) -> bool {
@@ -1199,6 +1303,7 @@ mod tests {
             session_id: "session_123".to_string(),
             provider: "fallback".to_string(),
             model: "test-local".to_string(),
+            provider_catalog: crate::tui::state::ProviderOption::fixture(),
             provider_status: ProviderStatus::configured(),
             theme_name: "aurora-cyan".to_string(),
             input: input.to_string(),
@@ -1413,6 +1518,36 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["/memory prune mem_pending", "/memory prune mem_active"]
         );
+    }
+
+    #[test]
+    fn suggests_provider_ids_and_default_models() {
+        let mut state = state_with_input("/provider use dee");
+
+        let providers = command_suggestions_for_state(&state);
+
+        assert_eq!(providers[0].command, "/provider use deepseek");
+        assert_eq!(providers[0].summary, "DeepSeek default deepseek-v4-flash");
+
+        state.input = "/provider use deepseek deep".to_string();
+        let models = command_suggestions_for_state(&state);
+
+        assert_eq!(
+            models[0].command,
+            "/provider use deepseek deepseek-v4-flash"
+        );
+        assert_eq!(models[0].summary, "Default model for DeepSeek");
+    }
+
+    #[test]
+    fn suggests_models_for_current_provider() {
+        let mut state = state_with_input("/model deep");
+        state.provider = "deepseek".to_string();
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(suggestions[0].command, "/model deepseek-v4-flash");
+        assert_eq!(suggestions[0].summary, "Default model for DeepSeek");
     }
 
     #[test]

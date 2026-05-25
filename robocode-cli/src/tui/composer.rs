@@ -71,6 +71,7 @@ mod tests {
             session_id: "session_123".to_string(),
             provider: "fallback".to_string(),
             model: "test-local".to_string(),
+            provider_catalog: crate::tui::state::ProviderOption::fixture(),
             provider_status: ProviderStatus::configured(),
             theme_name: "aurora-cyan".to_string(),
             input: input.to_string(),

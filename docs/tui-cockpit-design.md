@@ -75,10 +75,12 @@ Rendering contract:
 - Supported nested command families show local subcommands and known runtime
   objects. `/lane` suggests lane IDs, `/screen close` suggests tracked side
   screens, `/task` suggests task IDs and task statuses, `/memory` suggests
-  operable memory IDs, `/git switch` suggests local branches, `/git push`
-  suggests local branches, remotes, and known remote branch targets, `/git
-  stash pop/drop` suggests stash refs, `/git worktree remove` suggests
-  worktree paths, and `/lsp` suggests recent workspace files.
+  operable memory IDs, `/provider use` suggests registered providers and
+  descriptor default models, `/model` suggests the active provider's descriptor
+  default model, `/git switch` suggests local branches, `/git push` suggests
+  local branches, remotes, and known remote branch targets, `/git stash
+  pop/drop` suggests stash refs, `/git worktree remove` suggests worktree
+  paths, and `/lsp` suggests recent workspace files.
 
 ## Approval Modal
 
@@ -116,10 +118,13 @@ route hints so the main agent can decide follow-up actions.
 - The slash palette is local UI state; model calls are not involved. It now
   supports nested suggestions for `/lane`, `/screen`, `/provider`, `/lsp`,
   `/task`, `/memory`, and `/git`, with dynamic IDs or recent files where the
-  current TUI state can provide them. Memory actions use the workflow memory
-  snapshot, so `/memory confirm`, `/memory reject`, and `/memory prune` suggest
-  relevant memory IDs instead of requiring the operator to copy them manually.
-  Git switch and push suggestions use the local branch snapshot from the
+  current TUI state can provide them. Provider and model suggestions use the
+  current runtime provider registry descriptors, so `/provider use` can suggest
+  registered provider IDs and known descriptor default models while `/model`
+  suggests the active provider's default model. Memory actions use the workflow
+  memory snapshot, so `/memory confirm`, `/memory reject`, and `/memory prune`
+  suggest relevant memory IDs instead of requiring the operator to copy them
+  manually. Git switch and push suggestions use the local branch snapshot from the
   current workspace; git push also uses `git remote` and `git branch -r`
   snapshots for remote and remote-branch target suggestions. Stash pop/drop
   suggestions use the current `git stash list` snapshot; worktree remove
@@ -207,8 +212,7 @@ route hints so the main agent can decide follow-up actions.
 - Side-screen launch is real process management, but automatic OS window
   placement across physical monitors is still a launcher-template/manual
   desktop responsibility.
-- Command palette nested suggestions cover the main command families. Deeper
-  provider-specific model names and arbitrary path completions are still future
-  refinements.
+- Command palette nested suggestions cover the main command families. Arbitrary
+  path completions are still a future refinement.
 - Visual parity still needs repeated screenshot comparison against the
   holodeck reference.

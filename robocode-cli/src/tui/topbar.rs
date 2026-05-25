@@ -204,7 +204,9 @@ fn active_lane_count(state: &TuiState) -> usize {
 #[cfg(test)]
 mod tests {
     use super::telemetry_status;
-    use crate::tui::state::{ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot};
+    use crate::tui::state::{
+        ProviderOption, ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot,
+    };
     use robocode_core::ProviderTelemetry;
 
     fn state_with_status(provider_status: ProviderStatus) -> TuiState {
@@ -212,6 +214,7 @@ mod tests {
             session_id: "session_123".to_string(),
             provider: "fallback".to_string(),
             model: "test-local".to_string(),
+            provider_catalog: ProviderOption::fixture(),
             provider_status,
             theme_name: "aurora-cyan".to_string(),
             input: String::new(),
