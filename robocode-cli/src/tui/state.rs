@@ -216,7 +216,7 @@ impl TerminalLane {
             escape_tsv(&self.status),
             escape_tsv(&self.target),
             self.progress.to_string(),
-            escape_tsv(&self.summary),
+            escape_tsv(&clean_display_fragment(&self.summary, 120)),
             escape_tsv(
                 self.worktree
                     .as_ref()
@@ -240,7 +240,7 @@ impl TerminalLane {
             .min(100);
         let summary = fields
             .get(6)
-            .cloned()
+            .map(|value| clean_display_fragment(value, 120))
             .unwrap_or_else(|| "restored from lane store".to_string());
         let worktree = fields
             .get(7)
@@ -398,13 +398,97 @@ fn log_tail(path: &Path, max_lines: usize) -> Vec<String> {
     };
     let mut lines = content
         .lines()
-        .map(str::trim)
+        .map(|line| clean_display_fragment(line, 120))
+        .map(|line| line.trim().to_string())
         .filter(|line| !line.is_empty())
-        .map(|line| line.chars().take(120).collect::<String>())
+        .filter(|line| !is_terminal_prompt_noise(line))
         .collect::<Vec<_>>();
     let keep_from = lines.len().saturating_sub(max_lines);
     lines.drain(0..keep_from);
     lines
+}
+
+fn clean_display_fragment(value: &str, max_chars: usize) -> String {
+    sanitize_terminal_controls(value)
+        .chars()
+        .take(max_chars)
+        .collect()
+}
+
+fn sanitize_terminal_controls(value: &str) -> String {
+    let mut output = String::new();
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            skip_escape_sequence(&mut chars);
+            continue;
+        }
+        match ch {
+            // Terminal logs can include carriage-return redraws from shells and
+            // progress UIs. Keep only the final visible segment for summaries.
+            '\r' => output.clear(),
+            '\u{8}' => {
+                output.pop();
+            }
+            '\t' => output.push(' '),
+            _ if ch.is_control() => {}
+            _ => output.push(ch),
+        }
+    }
+    output
+}
+
+fn is_terminal_prompt_noise(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed == "%"
+        || trimmed == "$"
+        || trimmed == "#"
+        || trimmed.starts_with("➜ ")
+        || trimmed.starts_with("➜\u{a0}")
+}
+
+fn skip_escape_sequence<I>(chars: &mut std::iter::Peekable<I>)
+where
+    I: Iterator<Item = char>,
+{
+    match chars.peek().copied() {
+        Some('[') => {
+            chars.next();
+            for ch in chars.by_ref() {
+                if ('@'..='~').contains(&ch) {
+                    break;
+                }
+            }
+        }
+        Some(']') => {
+            chars.next();
+            let mut saw_escape = false;
+            for ch in chars.by_ref() {
+                if ch == '\u{7}' || (saw_escape && ch == '\\') {
+                    break;
+                }
+                saw_escape = ch == '\u{1b}';
+            }
+        }
+        Some('P' | '^' | '_' | 'X') => {
+            chars.next();
+            let mut saw_escape = false;
+            for ch in chars.by_ref() {
+                if saw_escape && ch == '\\' {
+                    break;
+                }
+                saw_escape = ch == '\u{1b}';
+            }
+        }
+        Some('(' | ')' | '*' | '+' | '-' | '.' | '/') => {
+            chars.next();
+            let _ = chars.next();
+        }
+        Some(_) => {
+            let _ = chars.next();
+        }
+        None => {}
+    }
 }
 
 fn file_head(path: &Path, max_lines: usize) -> Vec<String> {
@@ -1145,6 +1229,26 @@ mod tests {
     }
 
     #[test]
+    fn terminal_lane_tsv_sanitizes_control_sequences_in_summary() {
+        let lane = TerminalLane {
+            id: "L1".to_string(),
+            tool: "run".to_string(),
+            title: "printf ok".to_string(),
+            status: "attached".to_string(),
+            target: "tmux session".to_string(),
+            progress: 35,
+            summary: "\u{1b}]697;PreExec\u{7}\u{1b}[31mold\rvisible\u{8}!".to_string(),
+            worktree: None,
+        };
+
+        let loaded = TerminalLane::from_tsv(&lane.to_tsv()).expect("lane row should load");
+
+        assert_eq!(loaded.summary, "visibl!");
+        assert!(!loaded.summary.contains('\u{1b}'));
+        assert!(!loaded.summary.contains('\u{7}'));
+    }
+
+    #[test]
     fn refresh_lane_runtime_updates_attached_lane_from_log_tail() {
         let root = temp_state_root();
         let lane_store = lane_store_path(&root);
@@ -1171,6 +1275,36 @@ mod tests {
         assert_eq!(lanes[0].status, "attached");
         assert_eq!(lanes[0].summary, "live pane output");
         assert_eq!(lanes[0].progress, 35);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn refresh_lane_runtime_sanitizes_tmux_log_tail() {
+        let root = temp_state_root();
+        let lane_store = lane_store_path(&root);
+        let artifact_dir = root.join(".robocode").join("lanes");
+        fs::create_dir_all(&artifact_dir).expect("artifact dir");
+        fs::write(
+            artifact_dir.join("L1.log"),
+            "printf smoke\r\u{1b}]697;PreExec\u{7}\u{1b}[32msmoke-ok\u{1b}[0m\n\u{1b}[01;32m➜  \u{1b}[36mwork\u{1b}[00m \n",
+        )
+        .expect("runtime log");
+        let mut lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "run".to_string(),
+            title: "printf smoke".to_string(),
+            status: "attached".to_string(),
+            target: "tmux robocode-session-l1".to_string(),
+            progress: 10,
+            summary: "tmux session ready".to_string(),
+            worktree: None,
+        }];
+
+        refresh_lane_runtime(&lane_store, &mut lanes);
+
+        assert_eq!(lanes[0].summary, "smoke-ok");
+        assert!(!lanes[0].summary.contains('\u{1b}'));
 
         let _ = fs::remove_dir_all(root);
     }

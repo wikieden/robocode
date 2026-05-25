@@ -10,11 +10,11 @@
 
 ## 阶段映射
 
-1. baseline operator run：进行中。
-2. P0 TUI 交互修复：进行中。
-3. lane operator workflow hardening：等待完整人工 operator run。
-4. provider compatibility pass：等待 DeepSeek live smoke 确认。
-5. release candidate packaging：进行中。
+1. baseline operator run：完成。
+2. P0 TUI 交互修复：已满足 0.1.4 release gate。
+3. lane operator workflow hardening：shell 和 tmux lane smoke 已完成。
+4. provider compatibility pass：DeepSeek V4 Flash live smoke 已完成。
+5. release candidate packaging：非上传模式 artifact build gate 已完成。
 
 ## Baseline 证据
 
@@ -29,6 +29,19 @@
   smoke 通过。
 - macOS arm64 archive SHA-256：
   `747afc5cd066939f97d12180a1deaf6c608b088ccbadaf4f1e604f3d83c13fb3`。
+- fallback TUI smoke 已在 tmux 中通过，覆盖
+  `/lane run printf robocode-lane-smoke`、`/lane inspect L1` 和 `/exit`；
+  lane evidence 写入隔离的 `/tmp/robocode-014-tui-smoke.*` workspace。
+- tmux lane smoke 已在 tmux 中通过，覆盖 `/lane tmux L1`；lane 写入
+  `L1.tmux.md` 和实时 `L1.log`，路径位于隔离的
+  `/tmp/robocode-014-tmux-smoke.*` workspace。
+- DeepSeek V4 Flash TUI live smoke 已通过：环境中存在 `DEEPSEEK_API_KEY`，
+  prompt `reply exactly ROBOSMOKE` 在 TUI pane capture 和 JSONL transcript
+  中都得到 assistant response `ROBOSMOKE`。
+- GitHub Actions release artifact validation 已以 `upload_to_release=false`
+  跑通全部配置目标：`aarch64-apple-darwin`、`x86_64-apple-darwin`、
+  `x86_64-unknown-linux-gnu` 和 `x86_64-pc-windows-msvc`。
+  Run: https://github.com/wikieden/robocode/actions/runs/26401318871。
 
 ## 已为 0.1.4 落地的变更
 
@@ -38,21 +51,23 @@
 - GitHub release workflow 默认 tag 改为 `v0.1.4`。
 - README 安装示例改为 `v0.1.4`。
 - README 系统截图保留人工整理过的版式，只把可见版本号更新为 `0.1.4`。
+- lane log summary 在持久化和渲染前会清理 terminal control sequence 和
+  prompt-only 噪声，避免 tmux/PTY log 把 escape sequence 推进 cockpit 布局。
 
 ## 当前发现
 
 ### P0
 
-- 本轮自动 baseline 未确认新的自动化 P0 blocker。
-- release 前仍需要带凭证手动确认 DeepSeek live TUI smoke。
+- 当前没有已确认的自动化或 live-smoke P0 blocker。
 
 ### P1
 
 - `/lane` 仍是 TUI/runtime 命令面；普通 REPL 会返回 `Unknown command /lane`。
   这与当前架构方向一致，但 release notes 需要明确，避免用户以为 cockpit 外也
   已支持 lane 管理。
-- resize、审批弹窗清理、输入法位置、鼠标交互、副屏生命周期、tmux/PTY log
-  capture、lane apply/conflict recovery 仍需要完整人工 operator run。
+- 0.1.4 之后仍建议继续补足审批弹窗边界、输入法位置、鼠标交互、副屏生命周期、
+  lane apply/conflict recovery 的完整人工 operator 覆盖；shell 和 tmux lane
+  smoke 已覆盖本次 release gate。
 
 ### P2
 
@@ -62,11 +77,8 @@
 
 ## 下一道 Gate
 
-打 `v0.1.4` tag 前需要完成：
+打 `v0.1.4` tag 前还需要完成最新 lane-summary 修复后的最终本地验证：
 
-- fallback TUI 人工 smoke。
-- DeepSeek V4 Flash live smoke。
-- 一个 shell lane operator run。
-- 支持环境下的一个 tmux 或 PTY lane operator run。
 - `cargo test --workspace --quiet`。
-- 为 GitHub Actions 配置的全部目标构建 release artifact。
+- 提交并推送 lane-summary sanitization 和更新后的 release status。
+- 创建 `v0.1.4` Git tag，并用 `upload_to_release=true` 运行 release workflow。

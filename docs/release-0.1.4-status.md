@@ -11,11 +11,11 @@ and installable release artifacts.
 
 ## Phase Mapping
 
-1. Baseline operator run: in progress.
-2. P0 TUI interaction fixes: in progress.
-3. Lane operator workflow hardening: pending full manual operator run.
-4. Provider compatibility pass: pending DeepSeek live smoke confirmation.
-5. Release candidate packaging: in progress.
+1. Baseline operator run: complete.
+2. P0 TUI interaction fixes: complete for the 0.1.4 release gate.
+3. Lane operator workflow hardening: complete for shell and tmux lane smoke.
+4. Provider compatibility pass: complete for DeepSeek V4 Flash live smoke.
+5. Release candidate packaging: complete for the non-upload artifact build gate.
 
 ## Baseline Evidence
 
@@ -31,6 +31,20 @@ and installable release artifacts.
   `dist/robocode-v0.1.4-aarch64-apple-darwin.tar.gz`.
 - macOS arm64 archive SHA-256:
   `747afc5cd066939f97d12180a1deaf6c608b088ccbadaf4f1e604f3d83c13fb3`.
+- Fallback TUI smoke passed in tmux with `/lane run printf robocode-lane-smoke`,
+  `/lane inspect L1`, and `/exit`; lane evidence was written under an isolated
+  `/tmp/robocode-014-tui-smoke.*` workspace.
+- Tmux lane smoke passed in tmux with `/lane tmux L1`; the lane wrote
+  `L1.tmux.md` and a live `L1.log` under an isolated
+  `/tmp/robocode-014-tmux-smoke.*` workspace.
+- DeepSeek V4 Flash TUI live smoke passed with `DEEPSEEK_API_KEY` present:
+  prompt `reply exactly ROBOSMOKE` produced assistant response `ROBOSMOKE` in
+  both the TUI pane capture and JSONL transcript.
+- GitHub Actions release artifact validation passed with
+  `upload_to_release=false` for all configured targets:
+  `aarch64-apple-darwin`, `x86_64-apple-darwin`,
+  `x86_64-unknown-linux-gnu`, and `x86_64-pc-windows-msvc`.
+  Run: https://github.com/wikieden/robocode/actions/runs/26401318871.
 
 ## Changes Landed Toward 0.1.4
 
@@ -41,14 +55,15 @@ and installable release artifacts.
 - README install examples now point at `v0.1.4`.
 - The README system screenshot keeps its curated layout with the visible version
   updated to `0.1.4`.
+- Lane log summaries now strip terminal control sequences and prompt-only noise
+  before persisting or rendering, so tmux/PTY logs cannot push escape sequences
+  into the cockpit layout.
 
 ## Open Findings
 
 ### P0
 
-- No unresolved automated P0 blocker is confirmed in this baseline pass.
-- DeepSeek live TUI smoke still needs credentialed manual confirmation before
-  release.
+- No unresolved automated or live-smoke P0 blocker is confirmed.
 
 ### P1
 
@@ -56,9 +71,10 @@ and installable release artifacts.
   `Unknown command /lane`. This matches the current architecture direction but
   should stay explicit in release notes so users do not expect lane management
   outside the cockpit yet.
-- Full manual operator run is still required for resize behavior, approval modal
-  clearing, IME positioning, mouse interaction, side-screen lifecycle, tmux/PTY
-  log capture, and lane apply/conflict recovery.
+- Full manual operator coverage for approval modal edge cases, IME positioning,
+  mouse interaction, side-screen lifecycle, and lane apply/conflict recovery is
+  still recommended after `0.1.4`; shell and tmux lane smoke are covered for the
+  release gate.
 
 ### P2
 
@@ -68,11 +84,10 @@ and installable release artifacts.
 
 ## Next Gate
 
-Before tagging `v0.1.4`, complete:
+Before tagging `v0.1.4`, complete the final local verification after the latest
+lane-summary fix:
 
-- Fallback TUI manual smoke.
-- DeepSeek V4 Flash live smoke.
-- One shell lane operator run.
-- One tmux or PTY lane operator run where supported.
 - `cargo test --workspace --quiet`.
-- Release artifact build for all configured GitHub Actions targets.
+- Commit and push the lane-summary sanitization and updated release status.
+- Create the `v0.1.4` Git tag and run the release workflow with
+  `upload_to_release=true`.
