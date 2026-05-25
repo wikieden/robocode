@@ -195,6 +195,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - Diagnostics 来源于共享 LSP runtime：post-edit diagnostics、显式
   `/lsp diagnostics <path>`，以及 live TUI 对 workspace Rust 文件的节流后台检查。
   如果项目没有配置或无法启动 language server，仍显示 `diagnostics unavailable`。
+- 主屏渲染现在统一使用 display-cell 宽度辅助函数处理中文、emoji modifier、
+  combining mark、transcript 换行、topbar fit 和审批预览边框，避免长时间多语言
+  会话把右侧栏挤歪。
 - 副屏启动已经是真实进程管理。跨物理显示器的窗口摆放现在有了明确的
   per-screen launcher-template 集成点，但 OS 级窗口移动仍由已配置的 terminal
   或显示器摆放脚本负责。

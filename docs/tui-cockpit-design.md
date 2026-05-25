@@ -228,6 +228,10 @@ route hints so the main agent can decide follow-up actions.
   explicit `/lsp diagnostics <path>`, and a throttled live TUI background
   checker over workspace Rust files. Projects without a configured/available
   language server still show `diagnostics unavailable`.
+- Main-screen rendering now uses display-cell width helpers for Chinese text,
+  emoji modifiers, combining marks, transcript wrapping, topbar fitting, and
+  approval preview borders so long multilingual sessions do not push the right
+  rail out of alignment.
 - Side-screen launch is real process management. Physical monitor placement is
   now an explicit launcher-template integration point via per-screen template
   variables, but RoboCode still delegates OS-specific window movement to the

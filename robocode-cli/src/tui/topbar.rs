@@ -2,7 +2,7 @@ use super::{
     canvas::Frame,
     panel::bordered_row,
     state::TuiState,
-    text::{bottom_border, compact_middle, top_border, truncate},
+    text::{bottom_border, char_width, compact_middle, top_border, truncate},
 };
 
 pub(super) fn render_top_bar(frame: &mut Frame, state: &TuiState) {
@@ -102,13 +102,13 @@ fn top_bar_content(state: &TuiState, width: usize) -> String {
 
 fn top_bar_fits(chips: &[String], status: &str, width: usize) -> bool {
     let left = format!("{}  {}", product_label(), chips.join(" "));
-    left.chars().count() + status.chars().count() + 3 <= width
+    char_width(&left) + char_width(status) + 3 <= width
 }
 
 fn top_bar_with_status(chips: &[String], status: &str, width: usize) -> String {
     let left = format!("{}  {}", product_label(), chips.join(" "));
-    let left_width = left.chars().count();
-    let status_width = status.chars().count();
+    let left_width = char_width(&left);
+    let status_width = char_width(status);
     if left_width + status_width + 3 <= width {
         return format!("{left}   {status}");
     }
@@ -119,7 +119,7 @@ fn top_bar_without_status(chips: &[String], width: usize) -> String {
     let mut chips = chips.to_vec();
     while !chips.is_empty() {
         let left = format!("{}  {}", product_label(), chips.join(" "));
-        if left.chars().count() <= width {
+        if char_width(&left) <= width {
             return left;
         }
         chips.remove(0);
@@ -202,7 +202,7 @@ fn side_bar_content(label: &str, chips: &[String], width: usize) -> String {
     let mut chips = chips.to_vec();
     loop {
         let left = format!("RoboCode  {label}  {}", chips.join(" "));
-        if left.chars().count() <= width || chips.is_empty() {
+        if char_width(&left) <= width || chips.is_empty() {
             return truncate(&left, width);
         }
         chips.pop();

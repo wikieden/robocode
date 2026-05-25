@@ -450,6 +450,37 @@ mod tests {
     }
 
     #[test]
+    fn render_frame_keeps_unicode_rows_at_terminal_cell_width() {
+        let mut state = render_state();
+        state.provider = "deepseek".to_string();
+        state.model = "deepseek-v4-flash-中文👋🏻".to_string();
+        state.input = "你好，帮我检查右侧栏是否会跑偏".to_string();
+        state.workspace.display_root = "~/项目/robocode".to_string();
+        state.workspace.git_branch = "feature/中文-ui".to_string();
+        state.workspace.recent_files[0].path = "src/界面/输入法.rs".to_string();
+        state.workspace.top_files[0] = "src/界面/".to_string();
+        state.workspace.primary_language = "Rust🦀".to_string();
+        state.entries = vec![TuiEntry {
+            label: "assistant".to_string(),
+            body: "可以，我会先检查中文输入、emoji 👋🏻 和长路径是否把右侧栏挤歪。这里是一段没有空格的中文文本用于触发按显示宽度换行。".to_string(),
+        }];
+
+        let width = 202usize;
+        let rendered = render_frame(&state, width as u16, 58);
+
+        for line in rendered.lines() {
+            assert_eq!(
+                char_width(line),
+                width,
+                "line display width {} differed from {width}: {line}",
+                char_width(line)
+            );
+        }
+        assert!(rendered.contains("PROVIDER HEALTH"));
+        assert!(rendered.contains("RECENT FILES"));
+    }
+
+    #[test]
     fn render_frame_overlays_approval_modal() {
         let mut state = render_state();
         state.entries = vec![TuiEntry {
@@ -528,7 +559,7 @@ mod tests {
 
         assert_eq!(lines.len(), 36);
         for line in lines {
-            assert_eq!(line.chars().count(), 140, "{line}");
+            assert_eq!(char_width(line), 140, "{line}");
         }
     }
 

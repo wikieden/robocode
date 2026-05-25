@@ -5,7 +5,7 @@ use super::{
     lane::{command_hint, pid_hint, pty_label, terminal_label},
     panel::panel,
     state::{TerminalLane, TuiState},
-    text::{horizontal, pad, truncate},
+    text::{char_width, horizontal, pad, truncate},
 };
 
 const APPROVAL_FOCUS_APPLY_ALL: usize = 0;
@@ -339,7 +339,7 @@ fn scan_divider(modal_width: usize) -> String {
 fn code_preview_rows(details: &ApprovalDetails<'_>, modal_width: usize) -> Vec<String> {
     let box_width = modal_width.saturating_sub(8).max(28);
     let label = format!(" {} ", truncate(details.path, box_width.saturating_sub(6)));
-    let top_rule = horizontal(box_width.saturating_sub(label.chars().count() + 2));
+    let top_rule = horizontal(box_width.saturating_sub(char_width(&label) + 2));
     let bottom_rule = horizontal(box_width.saturating_sub(2));
     let line_width = box_width.saturating_sub(10);
     let preview_lines = code_preview_lines(details);

@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{
     state::{TuiEntry, TuiState},
-    text::{char_width, truncate},
+    text::{char_width, truncate, wrap_words},
 };
 
 pub(super) fn transcript_rows(state: &TuiState, width: usize) -> Vec<String> {
@@ -65,37 +65,6 @@ fn body_rows_wrapped(entry: &TuiEntry, line: &str, width: usize) -> Vec<String> 
         .collect()
 }
 
-fn wrap_words(content: &str, width: usize) -> Vec<String> {
-    if content.chars().count() <= width {
-        return vec![content.to_string()];
-    }
-    let mut rows = Vec::new();
-    let mut current = String::new();
-    for word in content.split_whitespace() {
-        let pending_width = if current.is_empty() {
-            word.chars().count()
-        } else {
-            current.chars().count() + 1 + word.chars().count()
-        };
-        if pending_width > width && !current.is_empty() {
-            rows.push(current);
-            current = word.to_string();
-        } else if current.is_empty() {
-            current = word.to_string();
-        } else {
-            current.push(' ');
-            current.push_str(word);
-        }
-    }
-    if !current.is_empty() {
-        rows.push(current);
-    }
-    if rows.is_empty() {
-        rows.push(String::new());
-    }
-    rows
-}
-
 fn tool_call_rows(body: &str, width: usize) -> Vec<String> {
     body.lines()
         .flat_map(|line| structured_tool_call(line, width))
@@ -118,10 +87,7 @@ fn structured_tool_call(line: &str, width: usize) -> Vec<String> {
         format!(
             "     ┊  [{:<10}] path: {}",
             truncate(tool, 10),
-            truncate(
-                path,
-                content_width.saturating_sub(tool.chars().count() + 18)
-            )
+            truncate(path, content_width.saturating_sub(char_width(tool) + 18))
         ),
         format!(
             "     ┊  {:>12} lines: {:<9} gate: waiting",
