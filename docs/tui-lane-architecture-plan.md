@@ -111,9 +111,11 @@ Current slice:
   plus `/screen close <side-1|side-2>`.
 - Registry state is persisted in `.robocode/screens.tsv`, allowing side-screen
   processes to reload sibling screen state while they poll lane artifacts.
-- `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` allows desktop-specific wrappers such as a
-  new terminal window or monitor-routing script without baking OS automation
-  into the portable core.
+- `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE` and
+  `ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` allow per-screen desktop wrappers,
+  with `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` as the shared fallback. Templates can
+  open a new terminal window, route through tmux, or call a monitor-placement
+  script without baking OS automation into the portable core.
 
 ### Terminal Lane
 

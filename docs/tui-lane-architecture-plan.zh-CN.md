@@ -111,8 +111,11 @@ enum ScreenKind {
   `/screen close <side-1|side-2>`。
 - registry 状态会持久化到 `.robocode/screens.tsv`，副屏进程轮询 lane
   artifacts 时也能重新读取 sibling screen 状态。
-- `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` 允许接入桌面特定 wrapper，例如新 terminal
-  窗口或显示器路由脚本，而不把 OS 自动化写死到跨平台核心里。
+- `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE` 和
+  `ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` 允许为每个副屏配置不同的桌面
+  wrapper，`ROBOCODE_SCREEN_LAUNCH_TEMPLATE` 作为共享 fallback。Template 可以
+  打开新 terminal 窗口、接入 tmux，或调用显示器摆放脚本，而不把 OS 自动化写死
+  到跨平台核心里。
 
 ### Terminal Lane
 

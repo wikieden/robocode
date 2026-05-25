@@ -140,7 +140,10 @@ api_key_env = "DEEPSEEK_API_KEY"
   `/memory`, `/lane`, and `/screen`.
 - `/screen side-1` and `/screen side-2` launch companion TUI screens for lane
   and ops monitoring. Use `/screen list` and `/screen close <side-1|side-2>` to
-  manage tracked side screens.
+  manage tracked side screens. Set `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
+  `ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE`, or the shared
+  `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` to route side screens through your terminal
+  app, tmux, or display-placement script.
 
 ## Feedback
 

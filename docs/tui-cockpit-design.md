@@ -187,11 +187,14 @@ route hints so the main agent can decide follow-up actions.
   when a pid is known.
 - The screen registry is persisted in `.robocode/screens.tsv`, so main and
   side-screen processes can observe the same companion-screen state.
-- `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` can override the default current-binary
-  launcher for desktop-specific workflows, for example opening a new terminal
-  window or routing a side screen to another display. Supported placeholders are
-  `{screen}`, `{provider}`, `{model}`, `{theme}` and their shell-quoted
-  `{name:q}` forms.
+- `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE` and
+  `ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` can override the default
+  current-binary launcher for per-screen desktop workflows, with
+  `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` as a shared fallback. Supported
+  placeholders are `{screen}`, `{title}`, `{role}`, `{display}`,
+  `{display_index}`, `{provider}`, `{model}`, `{theme}`, `{cwd}`, `{binary}`,
+  `{args}` and their shell-quoted `{name:q}` forms. This lets an operator route
+  side screens through Terminal.app, iTerm, tmux, or a display-placement script.
 - `ROBOCODE_LANE_CODEX_TEMPLATE` and `ROBOCODE_LANE_CLAUDE_TEMPLATE` support
   `{task}`, `{envelope}`, `{cwd}`, and `{worktree}` plus shell-quoted
   `{name:q}` forms. `{cwd}` and `{worktree}` both resolve to the actual lane
@@ -225,9 +228,10 @@ route hints so the main agent can decide follow-up actions.
   explicit `/lsp diagnostics <path>`, and a throttled live TUI background
   checker over workspace Rust files. Projects without a configured/available
   language server still show `diagnostics unavailable`.
-- Side-screen launch is real process management, but automatic OS window
-  placement across physical monitors is still a launcher-template/manual
-  desktop responsibility.
+- Side-screen launch is real process management. Physical monitor placement is
+  now an explicit launcher-template integration point via per-screen template
+  variables, but RoboCode still delegates OS-specific window movement to the
+  configured terminal or display-placement script.
 - Command palette nested suggestions cover the main command families, including
   workspace file path suggestions for the common Git and LSP path-taking
   commands.

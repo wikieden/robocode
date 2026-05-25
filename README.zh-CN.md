@@ -129,7 +129,7 @@ api_key_env = "DEEPSEEK_API_KEY"
 - `Esc` 或 `Ctrl-C` 退出；`/quit` 和 `/exit` 也可以关闭 TUI。
 - 审批弹窗默认停在 `Approve`；按 `y` 通过，`n` 拒绝，`d` 聚焦 diff，也可以用 `Tab` / 方向键在动作间移动。
 - Slash commands 以 `/` 开头；常用入口包括 `/help`、`/provider`、`/status`、`/config`、`/permissions`、`/sessions`、`/resume latest`、`/task`、`/memory`、`/lane` 和 `/screen`。
-- `/screen side-1` 和 `/screen side-2` 会启动用于 lane / ops 监控的副屏 TUI；用 `/screen list` 和 `/screen close <side-1|side-2>` 管理已跟踪副屏。
+- `/screen side-1` 和 `/screen side-2` 会启动用于 lane / ops 监控的副屏 TUI；用 `/screen list` 和 `/screen close <side-1|side-2>` 管理已跟踪副屏。可以设置 `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`、`ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` 或共享的 `ROBOCODE_SCREEN_LAUNCH_TEMPLATE`，把副屏交给你的 terminal app、tmux 或显示器摆放脚本启动。
 
 ## 问题反馈
 

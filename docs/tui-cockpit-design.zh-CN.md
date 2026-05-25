@@ -161,10 +161,13 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   终止请求。
 - screen registry 会持久化到 `.robocode/screens.tsv`，所以主屏和副屏进程可以
   观察同一份 companion-screen 状态。
-- `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` 可以覆盖默认的当前二进制启动方式，用于
-  桌面相关流程，例如打开新 terminal 窗口，或把副屏路由到另一块显示器。支持
-  `{screen}`、`{provider}`、`{model}`、`{theme}` 以及 shell-quoted 的
-  `{name:q}` 占位符。
+- `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE` 和
+  `ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` 可以为每个副屏覆盖默认的当前二进制
+  启动方式，`ROBOCODE_SCREEN_LAUNCH_TEMPLATE` 作为共享 fallback。支持
+  `{screen}`、`{title}`、`{role}`、`{display}`、`{display_index}`、
+  `{provider}`、`{model}`、`{theme}`、`{cwd}`、`{binary}`、`{args}` 以及
+  shell-quoted 的 `{name:q}` 占位符。这样操作者可以把副屏交给 Terminal.app、
+  iTerm、tmux 或显示器摆放脚本启动。
 - `ROBOCODE_LANE_CODEX_TEMPLATE` 和 `ROBOCODE_LANE_CLAUDE_TEMPLATE` 支持
   `{task}`、`{envelope}`、`{cwd}`、`{worktree}` 以及 shell-quoted 的
   `{name:q}` 形式。`{cwd}` 和 `{worktree}` 都会解析为真实 lane workspace。
@@ -192,8 +195,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - Diagnostics 来源于共享 LSP runtime：post-edit diagnostics、显式
   `/lsp diagnostics <path>`，以及 live TUI 对 workspace Rust 文件的节流后台检查。
   如果项目没有配置或无法启动 language server，仍显示 `diagnostics unavailable`。
-- 副屏启动已经是真实进程管理，但跨物理显示器的 OS 窗口自动摆放仍由 launcher
-  template 或桌面手动操作负责。
+- 副屏启动已经是真实进程管理。跨物理显示器的窗口摆放现在有了明确的
+  per-screen launcher-template 集成点，但 OS 级窗口移动仍由已配置的 terminal
+  或显示器摆放脚本负责。
 - 命令提示列表的二级提示已覆盖主要命令族，也覆盖常见 Git 和 LSP 路径类命令的
   workspace 文件路径提示。
 - 视觉还需要持续用截图和 holodeck 主参考图对比。

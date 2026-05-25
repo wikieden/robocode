@@ -241,12 +241,15 @@ fn launch_companion_screen(state: &mut TuiState, screen: SideScreen) {
 }
 
 fn spawn_companion_screen(state: &TuiState, screen: &str) -> Result<u32, String> {
-    if let Ok(template) = env::var("ROBOCODE_SCREEN_LAUNCH_TEMPLATE") {
-        let command = expand_launch_template(&template, screen, state);
+    let launch = screen_launch_context(screen, state)?;
+    if let Some((env_key, template)) = screen_launch_template(screen) {
+        let command = expand_launch_template(&template, &launch);
+        if command.trim().is_empty() {
+            return Err(format!("{env_key} expanded to an empty command"));
+        }
         return spawn_shell_command(&command);
     }
-    let executable = env::current_exe().map_err(|err| err.to_string())?;
-    let mut command = Command::new(executable);
+    let mut command = Command::new(&launch.binary);
     command
         .arg("--tui-screen")
         .arg(screen)
@@ -259,11 +262,30 @@ fn spawn_companion_screen(state: &TuiState, screen: &str) -> Result<u32, String>
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    if state.workspace.root.is_dir() {
-        command.current_dir(&state.workspace.root);
+    if launch.cwd.is_dir() {
+        command.current_dir(&launch.cwd);
     }
     let child = command.spawn().map_err(|err| err.to_string())?;
     Ok(child.id())
+}
+
+fn screen_launch_template(screen: &str) -> Option<(String, String)> {
+    let specific_key = match screen {
+        "side-1" => Some("ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE"),
+        "side-2" => Some("ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE"),
+        _ => None,
+    };
+    specific_key
+        .and_then(|key| {
+            env::var(key)
+                .ok()
+                .map(|template| (key.to_string(), template))
+        })
+        .or_else(|| {
+            env::var("ROBOCODE_SCREEN_LAUNCH_TEMPLATE")
+                .ok()
+                .map(|template| ("ROBOCODE_SCREEN_LAUNCH_TEMPLATE".to_string(), template))
+        })
 }
 
 fn spawn_shell_command(command: &str) -> Result<u32, String> {
@@ -290,16 +312,88 @@ fn platform_shell_command(command: &str) -> Command {
     shell
 }
 
-fn expand_launch_template(template: &str, screen: &str, state: &TuiState) -> String {
+#[derive(Debug, Clone)]
+struct ScreenLaunchContext {
+    screen: String,
+    title: String,
+    role: String,
+    display: String,
+    display_index: String,
+    provider: String,
+    model: String,
+    theme: String,
+    cwd: std::path::PathBuf,
+    binary: std::path::PathBuf,
+    args: String,
+}
+
+fn screen_launch_context(screen: &str, state: &TuiState) -> Result<ScreenLaunchContext, String> {
+    let binary = env::current_exe().map_err(|err| err.to_string())?;
+    let cwd = if state.workspace.root.is_dir() {
+        state.workspace.root.clone()
+    } else {
+        env::current_dir().map_err(|err| err.to_string())?
+    };
+    let (title, role, display, display_index) = match screen {
+        "side-1" => ("Agent lanes", "lanes", "secondary", "1"),
+        "side-2" => ("Workspace ops", "ops", "tertiary", "2"),
+        _ => ("Companion", "side", "secondary", "1"),
+    };
+    let args = [
+        "--tui-screen".to_string(),
+        screen.to_string(),
+        "--provider".to_string(),
+        state.provider.clone(),
+        "--model".to_string(),
+        state.model.clone(),
+        "--tui-theme".to_string(),
+        state.theme_name.clone(),
+    ]
+    .into_iter()
+    .map(|arg| shell_quote(&arg))
+    .collect::<Vec<_>>()
+    .join(" ");
+    Ok(ScreenLaunchContext {
+        screen: screen.to_string(),
+        title: title.to_string(),
+        role: role.to_string(),
+        display: display.to_string(),
+        display_index: display_index.to_string(),
+        provider: state.provider.clone(),
+        model: state.model.clone(),
+        theme: state.theme_name.clone(),
+        cwd,
+        binary,
+        args,
+    })
+}
+
+fn expand_launch_template(template: &str, launch: &ScreenLaunchContext) -> String {
+    let cwd = launch.cwd.to_string_lossy().to_string();
+    let binary = launch.binary.to_string_lossy().to_string();
     template
-        .replace("{screen:q}", &shell_quote(screen))
-        .replace("{provider:q}", &shell_quote(&state.provider))
-        .replace("{model:q}", &shell_quote(&state.model))
-        .replace("{theme:q}", &shell_quote(&state.theme_name))
-        .replace("{screen}", screen)
-        .replace("{provider}", &state.provider)
-        .replace("{model}", &state.model)
-        .replace("{theme}", &state.theme_name)
+        .replace("{screen:q}", &shell_quote(&launch.screen))
+        .replace("{title:q}", &shell_quote(&launch.title))
+        .replace("{role:q}", &shell_quote(&launch.role))
+        .replace("{display:q}", &shell_quote(&launch.display))
+        .replace("{display_index:q}", &shell_quote(&launch.display_index))
+        .replace("{provider:q}", &shell_quote(&launch.provider))
+        .replace("{model:q}", &shell_quote(&launch.model))
+        .replace("{theme:q}", &shell_quote(&launch.theme))
+        .replace("{cwd:q}", &shell_quote(&cwd))
+        .replace("{binary:q}", &shell_quote(&binary))
+        .replace("{args:q}", &shell_quote(&launch.args))
+        .replace("{screen}", &launch.screen)
+        .replace("{title}", &launch.title)
+        .replace("{role}", &launch.role)
+        .replace("{display}", &launch.display)
+        .replace("{display_index}", &launch.display_index)
+        .replace("{provider}", &launch.provider)
+        .replace("{model}", &launch.model)
+        .replace("{theme}", &launch.theme)
+        .replace("{cwd}", &cwd)
+        .replace("{binary}", &binary)
+        .replace("{args}", &launch.args)
 }
 
 fn shell_quote(value: &str) -> String {
@@ -431,7 +525,7 @@ mod tests {
 
     #[test]
     fn screen_command_launches_side_process_and_tracks_it() {
-        let _env = ScopedEnv::set("ROBOCODE_SCREEN_LAUNCH_TEMPLATE", "exit 0");
+        let _env = screen_template_env("exit 0");
         let mut state = state();
 
         assert!(handle_screen_command("/screen side-2", &mut state));
@@ -446,7 +540,7 @@ mod tests {
 
     #[test]
     fn screen_command_rejects_duplicate_screen() {
-        let _env = ScopedEnv::set("ROBOCODE_SCREEN_LAUNCH_TEMPLATE", "exit 0");
+        let _env = screen_template_env("exit 0");
         let mut state = state();
 
         assert!(handle_screen_command("/screen side-1", &mut state));
@@ -458,7 +552,7 @@ mod tests {
 
     #[test]
     fn screen_command_lists_and_closes_tracked_screen() {
-        let _env = ScopedEnv::set("ROBOCODE_SCREEN_LAUNCH_TEMPLATE", "exit 0");
+        let _env = screen_template_env("exit 0");
         let mut state = state();
 
         assert!(handle_screen_command("/screen side-1", &mut state));
@@ -542,27 +636,63 @@ mod tests {
     fn screen_launch_template_quotes_values() {
         let mut state = state();
         state.model = "deepseek v4 flash".to_string();
+        let launch = screen_launch_context("side-1", &state).expect("launch context");
 
-        let command = expand_launch_template("open {screen:q} {model:q}", "side-1", &state);
+        let command = expand_launch_template(
+            "open {screen:q} {model:q} --display {display:q} --cwd {cwd:q}",
+            &launch,
+        );
 
-        assert_eq!(command, "open 'side-1' 'deepseek v4 flash'");
+        assert!(command.contains("open 'side-1' 'deepseek v4 flash'"));
+        assert!(command.contains("--display 'secondary'"));
+        assert!(command.contains("--cwd "));
+    }
+
+    #[test]
+    fn screen_launch_template_exposes_side_specific_context() {
+        let state = state();
+        let launch = screen_launch_context("side-2", &state).expect("launch context");
+
+        let command = expand_launch_template(
+            "{binary:q} {args} --role {role} --display-index {display_index}",
+            &launch,
+        );
+
+        assert!(command.contains("--tui-screen"));
+        assert!(command.contains("'side-2'"));
+        assert!(command.contains("--role ops"));
+        assert!(command.contains("--display-index 2"));
+    }
+
+    fn screen_template_env(template: &'static str) -> ScopedEnv {
+        ScopedEnv::set_many(&[
+            ("ROBOCODE_SCREEN_LAUNCH_TEMPLATE", Some(template)),
+            ("ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE", None),
+            ("ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE", None),
+        ])
     }
 
     struct ScopedEnv {
-        key: &'static str,
-        previous: Option<String>,
+        previous: Vec<(&'static str, Option<String>)>,
         _guard: MutexGuard<'static, ()>,
     }
 
     impl ScopedEnv {
-        fn set(key: &'static str, value: &str) -> Self {
+        fn set_many(values: &[(&'static str, Option<&str>)]) -> Self {
             let guard = env_lock().lock().expect("env test lock");
-            let previous = std::env::var(key).ok();
-            unsafe {
-                std::env::set_var(key, value);
+            let previous = values
+                .iter()
+                .map(|(key, _)| (*key, std::env::var(key).ok()))
+                .collect::<Vec<_>>();
+            for (key, value) in values {
+                unsafe {
+                    match value {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
+                }
             }
             Self {
-                key,
                 previous,
                 _guard: guard,
             }
@@ -571,11 +701,13 @@ mod tests {
 
     impl Drop for ScopedEnv {
         fn drop(&mut self) {
-            unsafe {
-                if let Some(value) = &self.previous {
-                    std::env::set_var(self.key, value);
-                } else {
-                    std::env::remove_var(self.key);
+            for (key, previous) in &self.previous {
+                unsafe {
+                    if let Some(value) = previous {
+                        std::env::set_var(key, value);
+                    } else {
+                        std::env::remove_var(key);
+                    }
                 }
             }
         }
