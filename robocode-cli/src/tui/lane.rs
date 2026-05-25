@@ -8,7 +8,8 @@ use std::{
 use std::os::unix::process::CommandExt;
 
 use crate::tui::state::{
-    TerminalLane, TuiEntry, TuiState, lane_runtime_evidence, refresh_lane_runtime, save_lanes,
+    LaneRuntimeEvidence, TerminalLane, TuiEntry, TuiState, lane_runtime_evidence,
+    refresh_lane_runtime, save_lanes,
 };
 
 pub(super) fn status_badge(status: &str) -> &'static str {
@@ -86,6 +87,7 @@ pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
         Some("discard") => decide_lane("discarded", parts.next(), parts.collect(), state),
         Some("apply") => apply_lane(parts.next(), parts.collect(), state),
         Some("resolve") => resolve_lane(parts.next(), parts.collect(), state),
+        Some("archive") => archive_lane(parts.next(), state),
         Some("cleanup") => cleanup_lane(parts.next(), parts.collect(), state),
         Some("attach") => attach_lane(parts.next(), state),
         Some("tmux") => tmux_lane(parts.next(), state),
@@ -567,6 +569,25 @@ fn verification_rows(evidence: Option<&crate::tui::state::LaneRuntimeEvidence>) 
         "  exit: {exit}\n  log: {}\n  tail: {tail}",
         evidence.log_path.display()
     )
+}
+
+fn lane_runtime_evidence_for_state(state: &TuiState, lane_id: &str) -> Option<LaneRuntimeEvidence> {
+    state
+        .lane_store
+        .as_deref()
+        .and_then(|path| lane_runtime_evidence(path, lane_id))
+}
+
+fn render_lines_or_none(lines: &[String]) -> String {
+    if lines.is_empty() {
+        "  <none>".to_string()
+    } else {
+        lines
+            .iter()
+            .map(|line| format!("  {line}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 fn decision_rows(state: &TuiState, lane_id: &str) -> String {
@@ -1488,6 +1509,96 @@ fn cleanup_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
     }
 }
 
+fn archive_lane(id: Option<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(index) = state
+        .lanes
+        .iter()
+        .position(|lane| lane.id.eq_ignore_ascii_case(id))
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let lane = state.lanes[index].clone();
+    if matches!(
+        lane.status.as_str(),
+        "queued" | "starting" | "running" | "attached"
+    ) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Lane `{}` is {}; stop, finish, or detach it before archive.",
+                lane.id, lane.status
+            ),
+        });
+        return;
+    }
+    let archive_path = match lane_artifact_path(state, &lane.id, "archive.md") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to prepare archive artifact: {err}"),
+            });
+            return;
+        }
+    };
+    let evidence = lane_runtime_evidence_for_state(state, &lane.id);
+    if let Err(err) = fs::write(&archive_path, render_lane_archive(&lane, evidence.as_ref())) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to write archive artifact: {err}"),
+        });
+        return;
+    }
+    state.lanes[index].status = "archived".to_string();
+    state.lanes[index].summary = format!("archived; evidence {}", archive_path.display());
+    if state.focused_lane.as_deref() == Some(&lane.id) {
+        state.focused_lane = None;
+    }
+    persist_lanes(state);
+    state.entries.push(TuiEntry {
+        label: "system".to_string(),
+        body: format!(
+            "Archived lane `{}` without deleting evidence or worktree.\nArchive: {}",
+            lane.id,
+            archive_path.display()
+        ),
+    });
+}
+
+fn render_lane_archive(lane: &TerminalLane, evidence: Option<&LaneRuntimeEvidence>) -> String {
+    let log_tail = evidence
+        .map(|evidence| render_lines_or_none(&evidence.log_tail))
+        .unwrap_or_else(|| "  <none>".to_string());
+    let exit_code = evidence
+        .and_then(|evidence| evidence.exit_code.as_deref())
+        .unwrap_or("<none>");
+    let worktree = lane
+        .worktree
+        .as_ref()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "<none>".to_string());
+    format!(
+        "# RoboCode Lane Archive\n\nLane: {}\nTool: {}\nStatus before archive: {}\nTarget: {}\nProgress: {}%\nWorktree: {worktree}\nExit code: {exit_code}\n\n## Task\n{}\n\n## Summary\n{}\n\n## Last log lines\n{log_tail}\n\n## Preservation\n- Runtime artifacts are preserved under `.robocode/lanes/`.\n- Isolated worktrees are not deleted by archive; use `/lane cleanup {}` separately when appropriate.\n",
+        lane.id,
+        lane.tool,
+        lane.status,
+        lane.target,
+        lane.progress,
+        lane.title,
+        lane.summary,
+        lane.id
+    )
+}
+
 fn render_lane_cleanup(
     lane: &TerminalLane,
     worktree: &Path,
@@ -1658,7 +1769,7 @@ pub(super) fn refresh_lanes(state: &mut TuiState) {
 fn push_lane_usage(state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane tmux <id> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane cleanup <id> [--force] | /lane close"
+        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane tmux <id> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane archive <id> | /lane cleanup <id> [--force] | /lane close"
             .to_string(),
     });
 }
@@ -2122,6 +2233,79 @@ mod tests {
         assert!(root.join(".robocode/lanes/L1.decision.md").exists());
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_archive_preserves_evidence_without_deleting_worktree() {
+        let root = temp_lane_root();
+        fs::create_dir_all(root.join(".robocode/lanes")).expect("lane artifacts");
+        let store = root.join(".robocode").join("lanes.tsv");
+        let worktree = root.join(".robocode/worktrees/session_123-l1");
+        fs::create_dir_all(&worktree).expect("worktree");
+        fs::write(root.join(".robocode/lanes/L1.log"), "started\nfinished\n").expect("runtime log");
+        fs::write(root.join(".robocode/lanes/L1.done"), "0\n").expect("done");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store.clone());
+        state.focused_lane = Some("L1".to_string());
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "codex".to_string(),
+            title: "archive completed work".to_string(),
+            status: "completed".to_string(),
+            target: "main".to_string(),
+            progress: 100,
+            summary: "finished".to_string(),
+            worktree: Some(worktree.clone()),
+        }];
+
+        assert!(handle_tui_command("/lane archive L1", &mut state));
+
+        assert!(
+            worktree.exists(),
+            "archive must not delete worktree evidence"
+        );
+        assert_eq!(state.lanes[0].status, "archived");
+        assert_eq!(state.focused_lane, None);
+        let archive = fs::read_to_string(root.join(".robocode/lanes/L1.archive.md"))
+            .expect("archive artifact");
+        assert!(archive.contains("Status before archive: completed"));
+        assert!(archive.contains("Exit code: 0"));
+        assert!(archive.contains("finished"));
+        assert!(
+            load_lanes(&store)
+                .first()
+                .is_some_and(|lane| lane.status == "archived")
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_archive_refuses_live_attached_lane() {
+        let mut state = test_state();
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "claude".to_string(),
+            title: "still attached".to_string(),
+            status: "attached".to_string(),
+            target: "tmux robocode-session-l1".to_string(),
+            progress: 35,
+            summary: "pane still open".to_string(),
+            worktree: None,
+        }];
+
+        assert!(handle_tui_command("/lane archive L1", &mut state));
+
+        assert_eq!(state.lanes[0].status, "attached");
+        assert!(
+            state
+                .entries
+                .last()
+                .expect("archive refusal")
+                .body
+                .contains("detach it before archive")
+        );
     }
 
     #[test]

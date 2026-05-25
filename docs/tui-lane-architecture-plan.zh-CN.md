@@ -321,8 +321,9 @@ Template 占位符：
 
 当前状态：非交互命令、Codex/Claude task-envelope artifacts、template-driven
 prompt-file launch、持久化日志、exit-code 捕获、idle refresh、inspect 证据和
-Unix process-group stop 已实现。主 TUI 也会读取 workflow task store，因此
-`ACTIVE TASKS` 面板会把真实 `/task` 记录与审批、lane 一起展示。
+Unix process-group stop 已实现。`/lane archive <id>` 会写显式 archive artifact，
+在不删除日志或 worktree 的情况下隐藏已完成证据。主 TUI 也会读取 workflow task
+store，因此 `ACTIVE TASKS` 面板会把真实 `/task` 记录与审批、lane 一起展示。
 
 ### Phase 5: 外部工具 Adapter
 
@@ -349,7 +350,8 @@ adapter。启动后它们会运行于 per-lane Git worktree，并收到写明 la
 的 changed files、exit/log verification evidence 和已记录的 lane decision。
 `/lane accept`、`/lane revise` 和 `/lane discard` 会持久化显式决策 artifact，
 但不声称自动 revert 变更。`/lane apply <id>` 现在提供 accepted 隔离 lane
-worktree 的显式集成步骤。
+worktree 的显式集成步骤；`/lane archive <id>` 则把保留 lane 证据作为单独的
+操作者决策记录下来。
 
 ### Phase 6: 隔离
 

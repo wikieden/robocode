@@ -145,6 +145,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   干净时才会执行。有未提交变更时必须显式使用
   `/lane cleanup <id> --force`，并且每次 cleanup 都会先写入
   `.robocode/lanes/<lane-id>.cleanup.md`。
+- `/lane archive <id>` 会记录 `.robocode/lanes/<lane-id>.archive.md` 并把
+  lane 标记为 archived，但不会删除日志、决策、apply 记录或隔离 worktree。
+  仍处于 queued/running/attached 的 live lane 必须先 stop、完成或 detach。
 - `/lane attach <id>` 会为 lane workspace 打开交互式终端，并记录
   `.robocode/lanes/<lane-id>.attach.md`。`/lane detach <id>` 只清除 attached UI
   状态，不会杀掉外部 terminal 进程。

@@ -220,7 +220,7 @@ const COMMANDS: [CommandTemplate; 17] = [
     },
 ];
 
-const LANE_COMMANDS: [CommandTemplate; 15] = [
+const LANE_COMMANDS: [CommandTemplate; 16] = [
     CommandTemplate {
         command: "/lane codex",
         summary: "Start Codex lane",
@@ -274,6 +274,10 @@ const LANE_COMMANDS: [CommandTemplate; 15] = [
         summary: "Retry apply conflict",
     },
     CommandTemplate {
+        command: "/lane archive",
+        summary: "Archive lane evidence",
+    },
+    CommandTemplate {
         command: "/lane cleanup",
         summary: "Archive worktree",
     },
@@ -283,7 +287,7 @@ const LANE_COMMANDS: [CommandTemplate; 15] = [
     },
 ];
 
-const LANE_ID_COMMANDS: [&str; 11] = [
+const LANE_ID_COMMANDS: [&str; 12] = [
     "/lane inspect",
     "/lane stop",
     "/lane attach",
@@ -294,6 +298,7 @@ const LANE_ID_COMMANDS: [&str; 11] = [
     "/lane discard",
     "/lane apply",
     "/lane resolve",
+    "/lane archive",
     "/lane cleanup",
 ];
 
@@ -1491,6 +1496,11 @@ mod tests {
                 .iter()
                 .any(|item| item.command == "/lane resolve")
         );
+        assert!(
+            suggestions
+                .iter()
+                .any(|item| item.command == "/lane archive")
+        );
         assert!(is_command_palette_visible(&state));
     }
 
@@ -1510,6 +1520,21 @@ mod tests {
     }
 
     #[test]
+    fn suggests_archive_lane_command_and_lane_ids() {
+        let state = state_with_input("/lane archive ");
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(
+            suggestions
+                .iter()
+                .map(|suggestion| suggestion.command.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/lane archive L1", "/lane archive L2", "/lane archive L3"]
+        );
+    }
+
+    #[test]
     fn filters_lane_subcommands_by_partial_argument() {
         let state = state_with_input("/lane a");
 
@@ -1520,7 +1545,12 @@ mod tests {
                 .iter()
                 .map(|suggestion| suggestion.command.as_str())
                 .collect::<Vec<_>>(),
-            vec!["/lane attach", "/lane accept", "/lane apply"]
+            vec![
+                "/lane attach",
+                "/lane accept",
+                "/lane apply",
+                "/lane archive"
+            ]
         );
     }
 

@@ -324,9 +324,10 @@ Acceptance criteria:
 Current status: the non-interactive command path, Codex/Claude task-envelope
 artifacts, template-driven prompt-file launch, persisted logs, exit-code
 capture, idle refresh, inspect evidence, and Unix process-group stop are
-implemented. The main TUI also reads the workflow task store so the
-`ACTIVE TASKS` panel reflects real `/task` records alongside approvals and
-lanes.
+implemented. `/lane archive <id>` writes an explicit archive artifact and hides
+completed evidence without deleting logs or worktrees. The main TUI also reads
+the workflow task store so the `ACTIVE TASKS` panel reflects real `/task`
+records alongside approvals and lanes.
 
 ### Phase 5: External Tool Adapters
 
@@ -354,7 +355,8 @@ now includes changed files from the relevant workspace, exit/log verification
 evidence, and recorded lane decisions. `/lane accept`, `/lane revise`, and
 `/lane discard` persist explicit decision artifacts without claiming to revert
 changes automatically. `/lane apply <id>` now provides the explicit integration
-step for accepted isolated-lane worktrees.
+step for accepted isolated-lane worktrees, while `/lane archive <id>` preserves
+the lane evidence as a separate operator decision.
 
 ### Phase 6: Isolation
 

@@ -170,6 +170,10 @@ route hints so the main agent can decide follow-up actions.
   when the worktree is clean. Dirty worktrees require explicit
   `/lane cleanup <id> --force`, and every cleanup writes
   `.robocode/lanes/<lane-id>.cleanup.md` before removal.
+- `/lane archive <id>` records `.robocode/lanes/<lane-id>.archive.md` and marks
+  the lane archived without deleting logs, decisions, apply records, or an
+  isolated worktree. Live queued/running/attached lanes must be stopped,
+  completed, or detached first.
 - `/lane attach <id>` opens an interactive terminal for the lane workspace and
   records `.robocode/lanes/<lane-id>.attach.md`. `/lane detach <id>` clears the
   attached UI state without killing the external terminal process.
