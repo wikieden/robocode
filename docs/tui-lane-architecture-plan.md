@@ -432,8 +432,11 @@ the standard lane log path, and `/lane send <id> <text>` writes a line into that
 bridge from inside the TUI. The PTY bridge writes `<lane-id>.pty.md`, supports
 `ROBOCODE_LANE_PTY_TEMPLATE`, and defaults to the system `script` command on
 Unix. `/lane inspect <id>` surfaces attach, tmux, PTY, and PTY-input artifact
-paths so interactive lanes are auditable after launch. A richer inline terminal
-emulator with cursor/screen-state replay remains future work.
+paths so interactive lanes are auditable after launch. Side-1 `LIVE OUTPUT`
+and the focused lane modal now replay the latest persisted `<lane-id>.log`
+tail, which gives attached tmux, PTY, and background lanes a first cockpit
+screen-state slice. A richer inline terminal emulator with cursor-addressed
+screen-state replay remains future work.
 
 ## Recommended First Implementation Slice
 

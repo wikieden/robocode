@@ -423,8 +423,10 @@ log 路径启动 embedded PTY bridge，`/lane send <id> <text>` 可以从 TUI �
 bridge 写入一行输入。PTY bridge 会写 `<lane-id>.pty.md`，支持
 `ROBOCODE_LANE_PTY_TEMPLATE`，并在 Unix 上默认使用系统 `script` 命令。
 `/lane inspect <id>` 会展示 attach、tmux、PTY 和 PTY-input artifact path，让
-interactive lane 在启动后仍可审计。更完整的 inline terminal emulator、
-cursor/screen-state replay 仍是后续工作。
+interactive lane 在启动后仍可审计。side-1 的 `LIVE OUTPUT` 和聚焦 lane modal
+现在会回放最新持久化 `<lane-id>.log` 尾部，让 attached tmux、PTY 和后台 lane
+先拥有第一段 cockpit 内的 screen-state 切片。更完整的 inline terminal
+emulator、cursor-addressed screen-state replay 仍是后续工作。
 
 ## 推荐第一刀
 

@@ -190,6 +190,10 @@ route hints so the main agent can decide follow-up actions.
   in the standard lane `.log`. `/lane inspect <id>` surfaces those PTY artifact
   paths, and `/lane send <id> <text>` writes a line to that PTY bridge from
   inside the TUI.
+- Side-1 `LIVE OUTPUT` and the focused lane modal replay the latest persisted
+  lane `.log` tail when available, falling back to the lane summary only when
+  no captured terminal output exists yet. This gives tmux, PTY, and background
+  lanes an in-cockpit screen-state slice before a full terminal emulator lands.
 - Provider health now reflects measured model-request telemetry from the shared
   runtime loop: real request count, success/failure count, last and average
   latency, last event count, provider-reported token usage, token throughput
@@ -236,8 +240,9 @@ route hints so the main agent can decide follow-up actions.
 ## Near-Term Gaps
 
 - Embedded PTY now has a first supervised bridge through `/lane pty` and
-  `/lane send`. A richer inline terminal emulator with cursor/screen-state
-  replay remains follow-up work.
+  `/lane send`, and the cockpit replays recent persisted lane log tails in the
+  side screen and focused lane modal. A richer inline terminal emulator with
+  cursor-addressed screen-state replay remains follow-up work.
 - Apply currently uses a conservative patch path through `/lane apply <id>` and
   records conflict reports when the patch cannot apply cleanly. `/lane resolve
   <id>` provides an operator-driven retry loop after manual conflict cleanup;

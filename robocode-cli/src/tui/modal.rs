@@ -4,7 +4,7 @@ use super::{
     indicators::{progress_bar, status_dot},
     lane::{command_hint, interaction_hint, pid_hint, pty_label, terminal_label},
     panel::panel,
-    state::{TerminalLane, TuiState},
+    state::{TerminalLane, TuiState, lane_runtime_evidence},
     text::{char_width, horizontal, pad, truncate},
 };
 
@@ -24,7 +24,7 @@ pub(super) enum ApprovalAction {
 
 pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, right_rail_width: usize) {
     if let Some(lane) = focused_lane(state) {
-        render_lane_modal(frame, lane, right_rail_width);
+        render_lane_modal(frame, state, lane, right_rail_width);
     }
     if let Some(approval) = latest_approval(state) {
         render_approval_modal(frame, approval, state, right_rail_width);
@@ -60,13 +60,18 @@ fn focused_lane(state: &TuiState) -> Option<&TerminalLane> {
         .find(|lane| lane.id.eq_ignore_ascii_case(id))
 }
 
-fn render_lane_modal(frame: &mut Frame, lane: &TerminalLane, right_rail_width: usize) {
+fn render_lane_modal(
+    frame: &mut Frame,
+    state: &TuiState,
+    lane: &TerminalLane,
+    right_rail_width: usize,
+) {
     let modal_width = frame
         .width
         .saturating_mul(2)
         .saturating_div(5)
         .clamp(54, 72);
-    let modal_height = 14usize.min(frame.height.saturating_sub(4));
+    let modal_height = 16usize.min(frame.height.saturating_sub(4));
     let top = frame.height.saturating_sub(modal_height).saturating_div(2);
     let transcript_width = frame.width.saturating_sub(right_rail_width + 1);
     let centered_left = transcript_width
@@ -75,7 +80,7 @@ fn render_lane_modal(frame: &mut Frame, lane: &TerminalLane, right_rail_width: u
     let left = centered_left
         .max(22)
         .min(transcript_width.saturating_sub(modal_width));
-    let rows = vec![
+    let mut rows = vec![
         format!(
             "{} {}  [{}]",
             lane.id,
@@ -111,14 +116,18 @@ fn render_lane_modal(frame: &mut Frame, lane: &TerminalLane, right_rail_width: u
         ),
         scan_divider(modal_width),
         "LATEST OUTPUT".to_string(),
-        format!(
-            "  {}",
-            truncate(&lane.summary, modal_width.saturating_sub(6))
-        ),
+    ];
+    rows.extend(lane_latest_output_rows(
+        state,
+        lane,
+        modal_width.saturating_sub(6),
+        3,
+    ));
+    rows.extend([
         scan_divider(modal_width),
         "CONTROL [stop] [tmux] [pty] [send] [inspect]".to_string(),
         "SIDE    --tui-screen side-1   live tail".to_string(),
-    ];
+    ]);
     let modal = panel(
         "LANE DETAIL",
         rows,
@@ -129,6 +138,28 @@ fn render_lane_modal(frame: &mut Frame, lane: &TerminalLane, right_rail_width: u
     clear_overlay_bounds(frame, top, modal_height, transcript_width);
     render_modal_shadow(frame, top, left, modal_width, modal_height);
     frame.write_block(top, left, &modal);
+}
+
+fn lane_latest_output_rows(
+    state: &TuiState,
+    lane: &TerminalLane,
+    max_width: usize,
+    max_lines: usize,
+) -> Vec<String> {
+    let tail = state
+        .lane_store
+        .as_deref()
+        .and_then(|store| lane_runtime_evidence(store, &lane.id))
+        .map(|evidence| evidence.log_tail)
+        .unwrap_or_default();
+    if tail.is_empty() {
+        return vec![format!("  {}", truncate(&lane.summary, max_width))];
+    }
+    let keep_from = tail.len().saturating_sub(max_lines);
+    tail.iter()
+        .skip(keep_from)
+        .map(|line| format!("  {}", truncate(line, max_width)))
+        .collect()
 }
 
 fn lane_screen_hint(lane: &TerminalLane) -> &'static str {
@@ -424,7 +455,13 @@ impl<'a> ApprovalDetails<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::state::{ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot};
+    use crate::tui::state::{
+        ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot, lane_store_path,
+    };
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     fn approval_state() -> TuiState {
         TuiState {
@@ -512,5 +549,36 @@ mod tests {
         let state = approval_state();
 
         assert_eq!(focused_approval_action(&state), ApprovalAction::Approve);
+    }
+
+    #[test]
+    fn focused_lane_latest_output_prefers_persisted_log_tail() {
+        let root = temp_root("lane-modal-tail");
+        let lane_store = lane_store_path(&root);
+        let artifact_dir = root.join(".robocode").join("lanes");
+        fs::create_dir_all(&artifact_dir).expect("artifact dir");
+        fs::write(
+            artifact_dir.join("L1.log"),
+            "old line\ncargo test --workspace\nfinished cleanly\n",
+        )
+        .expect("lane log");
+        let mut state = approval_state();
+        state.lane_store = Some(lane_store);
+        let lane = state.lanes.first().expect("preview lane");
+
+        let rows = lane_latest_output_rows(&state, lane, 80, 2).join("\n");
+
+        assert!(rows.contains("cargo test --workspace"));
+        assert!(rows.contains("finished cleanly"));
+        assert!(!rows.contains("patched failing tests"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn temp_root(suffix: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("robocode-modal-test-{nanos}-{suffix}"))
     }
 }

@@ -3,7 +3,7 @@ use super::{
     indicators::{progress_bar, status_dot},
     lane::{command_hint, interaction_hint, pid_hint, pty_label, status_badge, terminal_label},
     panel::panel,
-    state::TuiState,
+    state::{TuiState, lane_runtime_evidence},
     statusbar::BOTTOM_BAR_HEIGHT,
     text::{pad, truncate},
 };
@@ -122,40 +122,61 @@ fn terminal_lane_detail_rows(state: &TuiState) -> Vec<String> {
 
 fn agent_output_rows(state: &TuiState) -> Vec<String> {
     let mut rows = vec!["LANES tail persisted logs │ CONTROL inspect stop route".to_string()];
-    rows.extend(
-        state
-            .lanes
-            .iter()
-            .map(|lane| {
-                let terminal = terminal_label(&lane.tool);
-                format!(
-                    "{} {:<10} {:<10} {} │ {}",
-                    lane.id,
-                    terminal,
-                    status_badge(&lane.status),
-                    progress_bar(lane.progress)
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or("░░░░░"),
-                    truncate(
-                        &format!("{} :: {}", interaction_hint(lane), lane.summary),
-                        50
-                    )
-                )
-            })
-            .collect::<Vec<_>>(),
-    );
+    for lane in &state.lanes {
+        let terminal = terminal_label(&lane.tool);
+        rows.push(format!(
+            "{} {:<10} {:<10} {} │ {}",
+            lane.id,
+            terminal,
+            status_badge(&lane.status),
+            progress_bar(lane.progress)
+                .split_whitespace()
+                .next()
+                .unwrap_or("░░░░░"),
+            truncate(
+                &format!("{} :: {}", interaction_hint(lane), lane.summary),
+                50
+            )
+        ));
+        rows.extend(lane_log_tail_rows(state, &lane.id, 70, 2));
+    }
     if rows.len() == 1 {
         rows.push("○ no lane output yet".to_string());
     }
     rows
 }
 
+fn lane_log_tail_rows(
+    state: &TuiState,
+    lane_id: &str,
+    max_width: usize,
+    max_lines: usize,
+) -> Vec<String> {
+    let Some(evidence) = state
+        .lane_store
+        .as_deref()
+        .and_then(|store| lane_runtime_evidence(store, lane_id))
+    else {
+        return Vec::new();
+    };
+    let keep_from = evidence.log_tail.len().saturating_sub(max_lines);
+    evidence
+        .log_tail
+        .iter()
+        .skip(keep_from)
+        .map(|line| format!("  │ {}", truncate(line, max_width)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tui::state::{
-        CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot,
+        CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot, lane_store_path,
+    };
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
     };
 
     #[test]
@@ -227,5 +248,55 @@ mod tests {
 
         assert!(rendered.contains("ATTACH tmux attach -t robocode-session-l1"));
         assert!(rendered.contains("tail patched failing tests"));
+    }
+
+    #[test]
+    fn side_output_rows_replay_persisted_lane_log_tail() {
+        let root = temp_root("side-output-tail");
+        let lane_store = lane_store_path(&root);
+        let artifact_dir = root.join(".robocode").join("lanes");
+        fs::create_dir_all(&artifact_dir).expect("artifact dir");
+        fs::write(
+            artifact_dir.join("L1.log"),
+            "compile started\nrunning cargo test\nall tests green\n",
+        )
+        .expect("lane log");
+        let mut state = TuiState {
+            session_id: "session".to_string(),
+            provider: "deepseek".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            provider_catalog: crate::tui::state::ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: Vec::<TuiEntry>::new(),
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: TerminalLane::preview_lanes(),
+            lane_store: Some(lane_store),
+            focused_lane: None,
+        };
+        state.lanes.truncate(1);
+
+        let rendered = agent_output_rows(&state).join("\n");
+
+        assert!(rendered.contains("L1"));
+        assert!(rendered.contains("running cargo test"));
+        assert!(rendered.contains("all tests green"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn temp_root(suffix: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("robocode-side-screen-test-{nanos}-{suffix}"))
     }
 }

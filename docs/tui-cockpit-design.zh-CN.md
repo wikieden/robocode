@@ -162,6 +162,10 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   `.robocode/lanes/<lane-id>.pty.md` 作为审计记录，并把输出捕获到标准 lane
   `.log`。`/lane inspect <id>` 会展示这些 PTY artifact path，`/lane send <id>
   <text>` 可以从 TUI 内向该 PTY bridge 写入一行输入。
+- side-1 的 `LIVE OUTPUT` 和聚焦 lane modal 会在可用时回放最新持久化 lane
+  `.log` 尾部；只有尚未捕获到 terminal 输出时，才回退显示 lane summary。
+  这样 tmux、PTY 和后台 lane 在完整 terminal emulator 落地前，也已经有一段
+  cockpit 内的 screen-state 切片。
 - Provider health 已接入共享 runtime loop 测量到的模型请求 telemetry：真实
   request 数、成功/失败数、last/average latency、last event count、
   provider 返回的 token usage、请求耗时允许时的 token throughput，以及最后一次
@@ -202,7 +206,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 ## 近期缺口
 
 - embedded PTY 已经有第一版受控 bridge：`/lane pty` 与 `/lane send`。更完整的
-  inline terminal emulator、cursor/screen-state replay 仍是后续工作。
+  cockpit 会在副屏和聚焦 lane modal 回放最近的持久化 lane log tail；更完整的
+  inline terminal emulator、cursor-addressed screen-state replay 仍是后续工作。
 - apply 当前通过 `/lane apply <id>` 走保守 patch 路径，并在 patch 无法干净应用
   时记录 conflict report。`/lane resolve <id>` 提供人工清理冲突后的操作者重试
   闭环；完整的内联 conflict editor 仍是后续工作。discard lane 只记录决策，
