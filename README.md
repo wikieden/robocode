@@ -174,6 +174,7 @@ live in the docs:
 - [Provider Live Matrix](docs/provider-live-matrix.md)
 - [TUI Cockpit Design](docs/tui-cockpit-design.md)
 - [0.1.4 Release Status](docs/release-0.1.4-status.md)
+- [0.1.5 Plan](docs/release-0.1.5-plan.md)
 - [Development Standards](docs/development-standards.md)
 
 Maintainers can build a release archive locally with:

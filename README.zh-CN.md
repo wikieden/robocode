@@ -156,6 +156,7 @@ README 只保留产品介绍和使用入口。架构与实现细节放在文档�
 - [Provider 真实调用矩阵](docs/provider-live-matrix.zh-CN.md)
 - [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
 - [0.1.4 发布状态](docs/release-0.1.4-status.zh-CN.md)
+- [0.1.5 计划](docs/release-0.1.5-plan.zh-CN.md)
 - [开发标准](docs/development-standards.zh-CN.md)
 
 维护者可以用下面命令在本地构建 release 压缩包：
