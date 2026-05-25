@@ -142,7 +142,8 @@ route hints so the main agent can decide follow-up actions.
 - Live side screens read only persisted lane state; when no lane store exists
   they show an empty state instead of falling back to preview/demo lanes.
 - `/lane inspect <id>` reads persisted lane artifacts: `.log` tail, `.done`
-  exit code, log path, done path, envelope path, and envelope preview.
+  exit code, log path, done path, envelope path, terminal attach/tmux/PTY
+  artifact paths, and envelope preview.
 - Template-launched Codex and Claude lanes run in isolated per-lane Git
   worktrees under `.robocode/worktrees/` when a Git `HEAD` is available. The
   task envelope records the lane workspace and mutation scope.
@@ -186,8 +187,9 @@ route hints so the main agent can decide follow-up actions.
 - `/lane pty <id>` starts an embedded PTY bridge for the lane workspace. It
   creates `.robocode/lanes/<lane-id>.pty.in` as the input FIFO, writes
   `.robocode/lanes/<lane-id>.pty.md` as the audit record, and captures output
-  in the standard lane `.log`. `/lane send <id> <text>` writes a line to that
-  PTY bridge from inside the TUI.
+  in the standard lane `.log`. `/lane inspect <id>` surfaces those PTY artifact
+  paths, and `/lane send <id> <text>` writes a line to that PTY bridge from
+  inside the TUI.
 - Provider health now reflects measured model-request telemetry from the shared
   runtime loop: real request count, success/failure count, last and average
   latency, last event count, provider-reported token usage, token throughput

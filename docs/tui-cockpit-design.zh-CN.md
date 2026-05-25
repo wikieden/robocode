@@ -120,7 +120,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - live 副屏只读取持久化 lane 状态；如果没有 lane store，会显示空状态，而不
   回退到 preview/demo lane。
 - `/lane inspect <id>` 会读取持久化 lane artifacts：`.log` 尾部、`.done`
-  exit code、log path、done path、envelope path 和 envelope preview。
+  exit code、log path、done path、envelope path、terminal attach/tmux/PTY
+  artifact path 和 envelope preview。
 - template-launched Codex 和 Claude lane 会在 Git `HEAD` 可用时运行于
   `.robocode/worktrees/` 下的 per-lane 隔离 worktree。task envelope 会记录
   lane workspace 和 mutation scope。
@@ -159,7 +160,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - `/lane pty <id>` 会为 lane workspace 启动 embedded PTY bridge。它创建
   `.robocode/lanes/<lane-id>.pty.in` 作为输入 FIFO，写入
   `.robocode/lanes/<lane-id>.pty.md` 作为审计记录，并把输出捕获到标准 lane
-  `.log`。`/lane send <id> <text>` 可以从 TUI 内向该 PTY bridge 写入一行输入。
+  `.log`。`/lane inspect <id>` 会展示这些 PTY artifact path，`/lane send <id>
+  <text>` 可以从 TUI 内向该 PTY bridge 写入一行输入。
 - Provider health 已接入共享 runtime loop 测量到的模型请求 telemetry：真实
   request 数、成功/失败数、last/average latency、last event count、
   provider 返回的 token usage、请求耗时允许时的 token throughput，以及最后一次

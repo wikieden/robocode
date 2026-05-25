@@ -431,8 +431,9 @@ next interactive route for lanes that still need a supervised terminal.
 the standard lane log path, and `/lane send <id> <text>` writes a line into that
 bridge from inside the TUI. The PTY bridge writes `<lane-id>.pty.md`, supports
 `ROBOCODE_LANE_PTY_TEMPLATE`, and defaults to the system `script` command on
-Unix. A richer inline terminal emulator with cursor/screen-state replay remains
-future work.
+Unix. `/lane inspect <id>` surfaces attach, tmux, PTY, and PTY-input artifact
+paths so interactive lanes are auditable after launch. A richer inline terminal
+emulator with cursor/screen-state replay remains future work.
 
 ## Recommended First Implementation Slice
 

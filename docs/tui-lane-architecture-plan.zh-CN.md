@@ -421,8 +421,10 @@ lane 行和聚焦 lane modal 会为 tmux-backed lane 显示明确的
 作为下一步交互路由。`/lane pty <id>` 现在会使用 lane 输入 FIFO 和标准 lane
 log 路径启动 embedded PTY bridge，`/lane send <id> <text>` 可以从 TUI 内向该
 bridge 写入一行输入。PTY bridge 会写 `<lane-id>.pty.md`，支持
-`ROBOCODE_LANE_PTY_TEMPLATE`，并在 Unix 上默认使用系统 `script` 命令。更完整的
-inline terminal emulator、cursor/screen-state replay 仍是后续工作。
+`ROBOCODE_LANE_PTY_TEMPLATE`，并在 Unix 上默认使用系统 `script` 命令。
+`/lane inspect <id>` 会展示 attach、tmux、PTY 和 PTY-input artifact path，让
+interactive lane 在启动后仍可审计。更完整的 inline terminal emulator、
+cursor/screen-state replay 仍是后续工作。
 
 ## 推荐第一刀
 

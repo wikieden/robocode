@@ -506,6 +506,7 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
     let changed_files = changed_file_rows_for_lane(lane, state);
     let verification = verification_rows(evidence.as_ref());
     let decision = decision_rows(state, &lane.id);
+    let terminal_artifacts = terminal_artifact_rows(state, &lane.id);
     let exit_code = evidence
         .as_ref()
         .and_then(|evidence| evidence.exit_code.as_deref())
@@ -543,7 +544,7 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
         body: format!(
-            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nWorktree: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nEnvelope: {envelope_path}\nExit: {exit_code}\nChanged files:\n{changed_files}\nVerification:\n{verification}\nDecision:\n{decision}\nTail:\n{tail}\nEnvelope preview:\n{envelope}",
+            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nWorktree: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nEnvelope: {envelope_path}\nExit: {exit_code}\nTerminal artifacts:\n{terminal_artifacts}\nChanged files:\n{changed_files}\nVerification:\n{verification}\nDecision:\n{decision}\nTail:\n{tail}\nEnvelope preview:\n{envelope}",
             lane.id,
             lane.tool,
             lane.status,
@@ -557,6 +558,35 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
             lane.summary
         ),
     });
+}
+
+fn terminal_artifact_rows(state: &TuiState, lane_id: &str) -> String {
+    let attach = lane_artifact_path(state, lane_id, "attach.md").ok();
+    let attach_log = lane_artifact_path(state, lane_id, "attach.log").ok();
+    let tmux = lane_artifact_path(state, lane_id, "tmux.md").ok();
+    let pty = lane_artifact_path(state, lane_id, "pty.md").ok();
+    let pty_input = lane_artifact_path(state, lane_id, "pty.in").ok();
+    let mut rows = Vec::new();
+    if let Some(path) = attach.as_ref().filter(|path| path.exists()) {
+        rows.push(format!("  Attach: {}", path.display()));
+        if let Some(path) = attach_log {
+            rows.push(format!("  Attach log: {}", path.display()));
+        }
+    }
+    if let Some(path) = tmux.as_ref().filter(|path| path.exists()) {
+        rows.push(format!("  Tmux: {}", path.display()));
+    }
+    if let Some(path) = pty.as_ref().filter(|path| path.exists()) {
+        rows.push(format!("  PTY: {}", path.display()));
+        if let Some(path) = pty_input {
+            rows.push(format!("  PTY input: {}", path.display()));
+        }
+    }
+    if rows.is_empty() {
+        "  <none>".to_string()
+    } else {
+        rows.join("\n")
+    }
 }
 
 fn changed_file_rows_for_lane(lane: &TerminalLane, state: &TuiState) -> String {
@@ -2435,6 +2465,73 @@ mod tests {
         assert!(artifact.contains("RoboCode Embedded PTY"));
         assert!(artifact.contains("Input FIFO:"));
         assert!(artifact.contains("printf pty-start"));
+
+        assert!(handle_tui_command("/lane inspect L1", &mut state));
+        let inspect = state.entries.last().expect("inspect entry");
+        assert!(inspect.body.contains("Terminal artifacts:"));
+        assert!(inspect.body.contains("PTY:"));
+        assert!(inspect.body.contains("PTY input:"));
+        assert!(inspect.body.contains("L1.pty.md"));
+        assert!(inspect.body.contains("L1.pty.in"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_inspect_surfaces_tmux_and_external_attach_artifacts() {
+        let _env = ScopedEnv::set_many(&[
+            (
+                "ROBOCODE_LANE_TMUX_TEMPLATE",
+                Some("printf tmux-ready > {log:q}; sleep 1"),
+            ),
+            (
+                "ROBOCODE_LANE_ATTACH_TEMPLATE",
+                Some("printf attach-ready >> {log:q}; sleep 1"),
+            ),
+        ]);
+        let root = temp_lane_root();
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store);
+        state.lanes = vec![
+            TerminalLane {
+                id: "L1".to_string(),
+                tool: "run".to_string(),
+                title: "tmux lane".to_string(),
+                status: "queued".to_string(),
+                target: "main".to_string(),
+                progress: 0,
+                summary: "waiting".to_string(),
+                worktree: None,
+            },
+            TerminalLane {
+                id: "L2".to_string(),
+                tool: "run".to_string(),
+                title: "external lane".to_string(),
+                status: "queued".to_string(),
+                target: "main".to_string(),
+                progress: 0,
+                summary: "waiting".to_string(),
+                worktree: None,
+            },
+        ];
+
+        assert!(handle_tui_command("/lane tmux L1", &mut state));
+        assert!(handle_tui_command("/lane inspect L1", &mut state));
+        let inspect = state.entries.last().expect("tmux inspect");
+        assert!(inspect.body.contains("Terminal artifacts:"));
+        assert!(inspect.body.contains("Tmux:"));
+        assert!(inspect.body.contains("L1.tmux.md"));
+
+        assert!(handle_tui_command("/lane attach L2", &mut state));
+        assert!(handle_tui_command("/lane inspect L2", &mut state));
+        let inspect = state.entries.last().expect("attach inspect");
+        assert!(inspect.body.contains("Terminal artifacts:"));
+        assert!(inspect.body.contains("Attach:"));
+        assert!(inspect.body.contains("Attach log:"));
+        assert!(inspect.body.contains("L2.attach.md"));
+        assert!(inspect.body.contains("L2.attach.log"));
 
         let _ = fs::remove_dir_all(root);
     }
