@@ -147,7 +147,13 @@ impl TerminalLane {
             return None;
         }
         let tool = parts.next()?;
-        let title = parts.collect::<Vec<_>>().join(" ");
+        let (tool, title) = if tool == "ask" {
+            let tool = parts.next()?;
+            let title = parts.collect::<Vec<_>>().join(" ");
+            (tool, title)
+        } else {
+            (tool, parts.collect::<Vec<_>>().join(" "))
+        };
         if title.is_empty() {
             return None;
         }

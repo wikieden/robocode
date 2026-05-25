@@ -220,7 +220,7 @@ const COMMANDS: [CommandTemplate; 17] = [
     },
 ];
 
-const LANE_COMMANDS: [CommandTemplate; 16] = [
+const LANE_COMMANDS: [CommandTemplate; 17] = [
     CommandTemplate {
         command: "/lane codex",
         summary: "Start Codex lane",
@@ -232,6 +232,10 @@ const LANE_COMMANDS: [CommandTemplate; 16] = [
     CommandTemplate {
         command: "/lane run",
         summary: "Run shell lane",
+    },
+    CommandTemplate {
+        command: "/lane ask",
+        summary: "Start custom tool lane",
     },
     CommandTemplate {
         command: "/lane inspect",
@@ -1490,6 +1494,7 @@ mod tests {
         let suggestions = command_suggestions_for_state(&state);
 
         assert_eq!(suggestions[0].command, "/lane codex");
+        assert!(suggestions.iter().any(|item| item.command == "/lane ask"));
         assert!(suggestions.iter().any(|item| item.command == "/lane apply"));
         assert!(
             suggestions
@@ -1546,6 +1551,7 @@ mod tests {
                 .map(|suggestion| suggestion.command.as_str())
                 .collect::<Vec<_>>(),
             vec![
+                "/lane ask",
                 "/lane attach",
                 "/lane accept",
                 "/lane apply",
@@ -1829,7 +1835,7 @@ mod tests {
     #[test]
     fn completes_selected_command_with_trailing_space() {
         let mut state = state_with_input("/lane a");
-        state.command_selection = 2;
+        state.command_selection = 3;
 
         assert!(complete_selected(&mut state));
 

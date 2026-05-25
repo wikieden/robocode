@@ -157,9 +157,34 @@ fn maybe_start_lane_adapter(mut lane: TerminalLane, state: &mut TuiState) -> Ter
                 Err(err) => return failed_lane(lane, err),
             }
         }
-        _ => return lane,
+        _ => {
+            let env_key = generic_lane_template_env_key(&lane.tool);
+            match templated_agent_command(&env_key, &mut lane, state) {
+                Ok(Some(command)) => command,
+                Ok(None) => {
+                    lane.status = "queued".to_string();
+                    lane.summary = queued_adapter_summary(&lane, &env_key, state);
+                    return lane;
+                }
+                Err(err) => return failed_lane(lane, err),
+            }
+        }
     };
     start_background_lane(lane, state, &command)
+}
+
+fn generic_lane_template_env_key(tool: &str) -> String {
+    let suffix = tool
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!("ROBOCODE_LANE_{suffix}_TEMPLATE")
 }
 
 fn templated_agent_command(
@@ -174,7 +199,13 @@ fn templated_agent_command(
     let envelope_path = write_lane_envelope(lane, state)
         .map_err(|err| format!("failed to write lane envelope: {err}"))?;
     let cwd = lane_workspace(lane, state);
-    let command = expand_agent_template(&template, &lane.title, Some(envelope_path.as_path()), cwd);
+    let command = expand_agent_template(
+        &template,
+        &lane.tool,
+        &lane.title,
+        Some(envelope_path.as_path()),
+        cwd,
+    );
     Ok((!command.trim().is_empty()).then_some(command))
 }
 
@@ -198,6 +229,7 @@ fn queued_adapter_summary(lane: &TerminalLane, env_key: &str, state: &TuiState) 
 
 fn expand_agent_template(
     template: &str,
+    tool: &str,
     task: &str,
     envelope_path: Option<&Path>,
     cwd: &Path,
@@ -207,14 +239,16 @@ fn expand_agent_template(
         .unwrap_or_default();
     let cwd = cwd.to_string_lossy().to_string();
     template
-        .replace("{task}", task)
+        .replace("{tool:q}", &shell_quote_value(tool))
         .replace("{task:q}", &shell_quote_value(task))
-        .replace("{envelope}", &envelope)
         .replace("{envelope:q}", &shell_quote_value(&envelope))
-        .replace("{cwd}", &cwd)
         .replace("{cwd:q}", &shell_quote_value(&cwd))
-        .replace("{worktree}", &cwd)
         .replace("{worktree:q}", &shell_quote_value(&cwd))
+        .replace("{tool}", tool)
+        .replace("{task}", task)
+        .replace("{envelope}", &envelope)
+        .replace("{cwd}", &cwd)
+        .replace("{worktree}", &cwd)
 }
 
 fn expand_attach_template(
@@ -914,7 +948,9 @@ fn expand_tmux_template(
 ) -> String {
     let cwd = lane_workspace(lane, state).to_string_lossy().to_string();
     let command = env::var("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE")
-        .map(|template| expand_agent_template(&template, &lane.title, None, Path::new(&cwd)))
+        .map(|template| {
+            expand_agent_template(&template, &lane.tool, &lane.title, None, Path::new(&cwd))
+        })
         .unwrap_or_else(|_| command_hint(&lane.tool, &lane.title));
     let log = runtime_log.to_string_lossy().to_string();
     template
@@ -1835,10 +1871,32 @@ mod tests {
     }
 
     #[test]
+    fn lane_ask_adds_generic_external_tool_lane() {
+        let _env = ScopedEnv::unset("ROBOCODE_LANE_GEMINI_TEMPLATE");
+        let mut state = test_state();
+
+        assert!(handle_tui_command(
+            "/lane ask gemini review failing tests",
+            &mut state
+        ));
+
+        assert_eq!(state.lanes.len(), 1);
+        assert_eq!(state.lanes[0].tool, "gemini");
+        assert_eq!(state.lanes[0].title, "review failing tests");
+        assert_eq!(state.lanes[0].status, "queued");
+        assert!(
+            state.lanes[0]
+                .summary
+                .contains("ROBOCODE_LANE_GEMINI_TEMPLATE")
+        );
+    }
+
+    #[test]
     fn agent_template_quotes_task_placeholder() {
         let envelope = std::path::Path::new("/tmp/task envelope.md");
         let command = expand_agent_template(
             "codex exec {task:q} --prompt-file {envelope:q} --cwd {cwd:q}",
+            "codex",
             "fix 'quoted' task",
             Some(envelope),
             Path::new("/tmp/lane cwd"),
@@ -1876,6 +1934,32 @@ mod tests {
         assert!(inspect.body.contains("Envelope:"));
         assert!(inspect.body.contains("# RoboCode Lane Task"));
         assert!(inspect.body.contains("fix persistent state"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generic_ask_lane_writes_envelope_when_adapter_is_not_configured() {
+        let _env = ScopedEnv::unset("ROBOCODE_LANE_JUNIE_TEMPLATE");
+        let root = temp_lane_root();
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.lane_store = Some(store);
+
+        assert!(handle_tui_command(
+            "/lane ask junie inspect architecture risks",
+            &mut state
+        ));
+
+        let envelope = root.join(".robocode").join("lanes").join("L1.envelope.md");
+        let content = fs::read_to_string(&envelope).expect("lane envelope");
+        assert!(content.contains("Tool: junie"));
+        assert!(content.contains("inspect architecture risks"));
+        assert!(
+            state.lanes[0]
+                .summary
+                .contains("ROBOCODE_LANE_JUNIE_TEMPLATE")
+        );
 
         let _ = fs::remove_dir_all(root);
     }
@@ -1966,6 +2050,52 @@ mod tests {
         let inspect = state.entries.last().expect("inspect entry");
         assert!(inspect.body.contains(&worktree.display().to_string()));
         assert!(inspect.body.contains("?? isolated.txt"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generic_ask_template_runs_inside_isolated_worktree() {
+        let _env = ScopedEnv::set(
+            "ROBOCODE_LANE_GEMINI_TEMPLATE",
+            "printf generic > generic.txt; printf '%s' {tool:q}",
+        );
+        let root = temp_lane_root();
+        init_git_repo(&root);
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store.clone());
+
+        assert!(handle_tui_command(
+            "/lane ask gemini inspect isolated work",
+            &mut state
+        ));
+
+        assert_eq!(state.lanes[0].tool, "gemini");
+        assert_eq!(state.lanes[0].status, "running");
+        assert!(state.lanes[0].worktree.is_some());
+
+        let mut lanes = Vec::new();
+        for _ in 0..40 {
+            lanes = load_lanes(&store);
+            refresh_lane_runtime(&store, &mut lanes);
+            if lanes.first().is_some_and(|lane| lane.status == "completed") {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(25));
+        }
+
+        let lane = lanes.first().expect("lane");
+        let worktree = lane.worktree.as_ref().expect("lane worktree").clone();
+        assert_eq!(lane.status, "completed");
+        assert!(worktree.join("generic.txt").exists());
+        assert!(!root.join("generic.txt").exists());
+        assert!(
+            fs::read_to_string(root.join(".robocode/lanes/L1.log"))
+                .expect("lane log")
+                .contains("gemini")
+        );
 
         let _ = fs::remove_dir_all(root);
     }

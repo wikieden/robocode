@@ -177,8 +177,11 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   shell-quoted 的 `{name:q}` 占位符。这样操作者可以把副屏交给 Terminal.app、
   iTerm、tmux 或显示器摆放脚本启动。
 - `ROBOCODE_LANE_CODEX_TEMPLATE` 和 `ROBOCODE_LANE_CLAUDE_TEMPLATE` 支持
-  `{task}`、`{envelope}`、`{cwd}`、`{worktree}` 以及 shell-quoted 的
+  `{tool}`、`{task}`、`{envelope}`、`{cwd}`、`{worktree}` 以及 shell-quoted 的
   `{name:q}` 形式。`{cwd}` 和 `{worktree}` 都会解析为真实 lane workspace。
+- `/lane ask <tool> <task>` 使用 `ROBOCODE_LANE_<TOOL>_TEMPLATE` 接入自定义受控
+  外部工具，例如 Gemini、Junie 或本地 coding CLI。template 未配置时会保留已渲染
+  task envelope，并让 lane 停在 queued 状态，而不是丢掉请求。
 - `ROBOCODE_LANE_ATTACH_TEMPLATE` 可以覆盖默认 lane attach launcher。它支持
   `{lane}`、`{task}`、`{tool}`、`{cwd}`、`{worktree}`、`{log}` 以及
   shell-quoted 的 `{name:q}` 形式。macOS 有默认 Terminal.app launcher；其他

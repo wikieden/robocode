@@ -206,11 +206,15 @@ default_timeout_seconds = 1800
 
 Template 占位符：
 
+- `{tool}` 和 `{tool:q}` 展开为原始 lane tool 名或 shell-quoted tool 名。
 - `{task}` 和 `{task:q}` 展开为原始 task title 或 shell-quoted task title。
 - `{envelope}` 和 `{envelope:q}` 展开为原始 task envelope 文件路径或
   shell-quoted envelope 路径。
 - Codex 使用 `ROBOCODE_LANE_CODEX_TEMPLATE`；Claude 使用
   `ROBOCODE_LANE_CLAUDE_TEMPLATE`。
+- generic `/lane ask <tool> <task>` adapter 使用
+  `ROBOCODE_LANE_<TOOL>_TEMPLATE`，其中 `<TOOL>` 会转为大写，非字母数字字符
+  会归一化为 `_`。
 
 ## 生命周期
 
@@ -230,6 +234,10 @@ Template 占位符：
 - Codex 和 Claude lane 始终会写 task envelope。它们可通过
   `ROBOCODE_LANE_CODEX_TEMPLATE` 与 `ROBOCODE_LANE_CLAUDE_TEMPLATE` 启动；
   未配置时会排队并给出清晰 setup 提示，同时 envelope 仍可 inspect。
+- `/lane ask <tool> <task>` 会启动自定义外部工具 lane。配置
+  `ROBOCODE_LANE_<TOOL>_TEMPLATE` 后，它会复用 Codex/Claude lane 的 envelope、
+  隔离 worktree、日志、done-file 和 inspect 路径；未配置时会保留已渲染
+  envelope 并给出 setup 提示。
 - template-launched Codex 和 Claude lane 会在 `.robocode/worktrees/` 下创建
   隔离 Git worktree 并在其中运行，所以文件变更不会直接落进主 workspace。
 - Lane 状态存储在 `.robocode/lanes.tsv`。
@@ -344,13 +352,15 @@ store，因此 `ACTIVE TASKS` 面板会把真实 `/task` 记录与审批、lane 
 - inspect 展示 changed files 和 verification evidence；
 - acceptance 是显式决策。
 
-当前状态：`codex` 和 `claude` 已使用 template-launched prompt-file 风格
-adapter。启动后它们会运行于 per-lane Git worktree，并收到写明 lane workspace
-和 mutation scope 的 envelope。`/lane inspect <id>` 现在会展示相关 workspace
-的 changed files、exit/log verification evidence 和已记录的 lane decision。
-`/lane accept`、`/lane revise` 和 `/lane discard` 会持久化显式决策 artifact，
-但不声称自动 revert 变更。`/lane apply <id>` 现在提供 accepted 隔离 lane
-worktree 的显式集成步骤；`/lane archive <id>` 则把保留 lane 证据作为单独的
+当前状态：`codex`、`claude` 和 generic `/lane ask <tool> <task>` lane 已使用
+template-launched prompt-file 风格 adapter。启动后它们会运行于 per-lane Git
+worktree，并收到写明 lane workspace 和 mutation scope 的 envelope。generic
+template 未配置时，lane 会排队并保留可审计 envelope，同时给出
+`ROBOCODE_LANE_<TOOL>_TEMPLATE` setup 提示。`/lane inspect <id>` 现在会展示相关
+workspace 的 changed files、exit/log verification evidence 和已记录的 lane
+decision。`/lane accept`、`/lane revise` 和 `/lane discard` 会持久化显式决策
+artifact，但不声称自动 revert 变更。`/lane apply <id>` 现在提供 accepted 隔离
+lane worktree 的显式集成步骤；`/lane archive <id>` 则把保留 lane 证据作为单独的
 操作者决策记录下来。
 
 ### Phase 6: 隔离

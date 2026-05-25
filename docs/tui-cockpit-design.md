@@ -206,9 +206,13 @@ route hints so the main agent can decide follow-up actions.
   `{args}` and their shell-quoted `{name:q}` forms. This lets an operator route
   side screens through Terminal.app, iTerm, tmux, or a display-placement script.
 - `ROBOCODE_LANE_CODEX_TEMPLATE` and `ROBOCODE_LANE_CLAUDE_TEMPLATE` support
-  `{task}`, `{envelope}`, `{cwd}`, and `{worktree}` plus shell-quoted
+  `{tool}`, `{task}`, `{envelope}`, `{cwd}`, and `{worktree}` plus shell-quoted
   `{name:q}` forms. `{cwd}` and `{worktree}` both resolve to the actual lane
   workspace.
+- `/lane ask <tool> <task>` uses `ROBOCODE_LANE_<TOOL>_TEMPLATE` for custom
+  supervised external tools such as Gemini, Junie, or local coding CLIs. Missing
+  templates leave a queued lane with a rendered task envelope instead of losing
+  the request.
 - `ROBOCODE_LANE_ATTACH_TEMPLATE` can override the default lane attach launcher.
   It supports `{lane}`, `{task}`, `{tool}`, `{cwd}`, `{worktree}`, `{log}` and
   shell-quoted `{name:q}` forms. macOS has a default Terminal.app launcher;

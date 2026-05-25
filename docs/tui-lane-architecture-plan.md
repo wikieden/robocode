@@ -206,11 +206,15 @@ First implementation should support `run` and `prompt-file`/`stdin` style adapte
 
 Template placeholders:
 
+- `{tool}` and `{tool:q}` expand to the raw or shell-quoted lane tool name.
 - `{task}` and `{task:q}` expand to the raw or shell-quoted task title.
 - `{envelope}` and `{envelope:q}` expand to the raw or shell-quoted task
   envelope file path.
 - Codex uses `ROBOCODE_LANE_CODEX_TEMPLATE`; Claude uses
   `ROBOCODE_LANE_CLAUDE_TEMPLATE`.
+- Generic `/lane ask <tool> <task>` adapters use
+  `ROBOCODE_LANE_<TOOL>_TEMPLATE`, where `<TOOL>` is uppercased and
+  non-alphanumeric characters are normalized to `_`.
 
 ## Lifecycle
 
@@ -231,6 +235,10 @@ Current implemented slice:
   `ROBOCODE_LANE_CODEX_TEMPLATE` and `ROBOCODE_LANE_CLAUDE_TEMPLATE`; without
   those templates they queue with a clear setup hint while keeping the envelope
   available for inspection.
+- `/lane ask <tool> <task>` starts a custom external-tool lane. It uses the
+  same envelope, isolated worktree, log, done-file, and inspect path as Codex
+  and Claude lanes when `ROBOCODE_LANE_<TOOL>_TEMPLATE` is configured; without
+  a template, it queues with the rendered envelope and setup hint.
 - Template-launched Codex and Claude lanes create isolated Git worktrees under
   `.robocode/worktrees/` and run there, so file mutations do not land directly
   in the main workspace.
@@ -348,9 +356,11 @@ Acceptance criteria:
 - inspection shows changed files and verification evidence;
 - acceptance is an explicit decision.
 
-Current status: `codex` and `claude` use template-launched prompt-file style
-adapters. When launched, they run inside per-lane Git worktrees and receive
-envelopes that name the lane workspace and mutation scope. `/lane inspect <id>`
+Current status: `codex`, `claude`, and generic `/lane ask <tool> <task>` lanes
+use template-launched prompt-file style adapters. When launched, they run inside
+per-lane Git worktrees and receive envelopes that name the lane workspace and
+mutation scope. Missing generic templates queue the lane with an auditable
+envelope and a `ROBOCODE_LANE_<TOOL>_TEMPLATE` setup hint. `/lane inspect <id>`
 now includes changed files from the relevant workspace, exit/log verification
 evidence, and recorded lane decisions. `/lane accept`, `/lane revise`, and
 `/lane discard` persist explicit decision artifacts without claiming to revert
