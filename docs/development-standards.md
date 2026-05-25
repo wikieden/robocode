@@ -15,14 +15,17 @@ agents should follow when changing the project.
 - Prefer deletion and simplification over new layers.
 - Do not introduce new dependencies without an explicit product or engineering
   reason.
-- Treat documentation and code comments as part of the implementation, not as
-  optional cleanup.
+- Treat documentation and code comments as part of the implementation. Future
+  coding work is not complete until the code, the maintainer-facing comments,
+  and the affected documentation are all aligned.
 
 ## Code Change Definition of Done
 
 Every code change should be considered incomplete until the surrounding
 maintainer context is also updated:
 
+- decide during implementation whether the change affects docs, comments, or
+  both; do not defer that review to a separate cleanup pass;
 - update docs in the same change when behavior, commands, configuration,
   screenshots, workflows, architecture, packaging, or troubleshooting changes;
 - add or refresh code comments for non-obvious invariants, safety boundaries,
