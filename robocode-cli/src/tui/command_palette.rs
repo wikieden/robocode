@@ -220,7 +220,7 @@ const COMMANDS: [CommandTemplate; 17] = [
     },
 ];
 
-const LANE_COMMANDS: [CommandTemplate; 14] = [
+const LANE_COMMANDS: [CommandTemplate; 15] = [
     CommandTemplate {
         command: "/lane codex",
         summary: "Start Codex lane",
@@ -244,6 +244,10 @@ const LANE_COMMANDS: [CommandTemplate; 14] = [
     CommandTemplate {
         command: "/lane attach",
         summary: "Open lane terminal",
+    },
+    CommandTemplate {
+        command: "/lane tmux",
+        summary: "Open tmux lane",
     },
     CommandTemplate {
         command: "/lane detach",
@@ -279,10 +283,11 @@ const LANE_COMMANDS: [CommandTemplate; 14] = [
     },
 ];
 
-const LANE_ID_COMMANDS: [&str; 10] = [
+const LANE_ID_COMMANDS: [&str; 11] = [
     "/lane inspect",
     "/lane stop",
     "/lane attach",
+    "/lane tmux",
     "/lane detach",
     "/lane accept",
     "/lane revise",
@@ -1487,6 +1492,21 @@ mod tests {
                 .any(|item| item.command == "/lane resolve")
         );
         assert!(is_command_palette_visible(&state));
+    }
+
+    #[test]
+    fn suggests_tmux_lane_command_and_lane_ids() {
+        let state = state_with_input("/lane tmux ");
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(
+            suggestions
+                .iter()
+                .map(|suggestion| suggestion.command.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/lane tmux L1", "/lane tmux L2", "/lane tmux L3"]
+        );
     }
 
     #[test]

@@ -397,6 +397,10 @@ conflict report。完整的内联 conflict editor 仍是后续工作。
 
 当前状态：`/lane attach <id>` 会通过 `ROBOCODE_LANE_ATTACH_TEMPLATE` 启动外部
 terminal；macOS 默认使用 Terminal.app，并写入 `<lane-id>.attach.md`。
+`/lane tmux <id>` 会为 lane workspace 启动或复用一个命名 tmux session，写入
+`<lane-id>.tmux.md`，并记录明确的操作者 attach 命令（`tmux attach -t ...`），
+tmux 进程本身仍交给 tmux 管理。`ROBOCODE_LANE_TMUX_TEMPLATE` 和
+`ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE` 可用于定制 terminal-tool 启动流程。
 `/lane detach <id>` 会把 lane 标记为 detached，不会杀掉外部进程。embedded PTY
 仍是后续工作。
 

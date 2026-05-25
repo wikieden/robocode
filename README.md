@@ -138,6 +138,10 @@ api_key_env = "DEEPSEEK_API_KEY"
 - Slash commands start with `/`; useful starters include `/help`, `/provider`,
   `/status`, `/config`, `/permissions`, `/sessions`, `/resume latest`, `/task`,
   `/memory`, `/lane`, and `/screen`.
+- `/lane tmux <id>` starts or reuses a tmux session for a lane workspace and
+  records the attach command under `.robocode/lanes/`, giving Codex, Claude, or
+  shell lanes a supervised interactive terminal surface without adding a native
+  PTY dependency.
 - `/screen side-1` and `/screen side-2` launch companion TUI screens for lane
   and ops monitoring. Use `/screen list` and `/screen close <side-1|side-2>` to
   manage tracked side screens. Set `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,

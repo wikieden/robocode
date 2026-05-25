@@ -78,6 +78,7 @@ pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
         Some("resolve") => resolve_lane(parts.next(), parts.collect(), state),
         Some("cleanup") => cleanup_lane(parts.next(), parts.collect(), state),
         Some("attach") => attach_lane(parts.next(), state),
+        Some("tmux") => tmux_lane(parts.next(), state),
         Some("detach") => detach_lane(parts.next(), state),
         Some(_) => queue_lane(input, state),
         None => push_lane_usage(state),
@@ -771,6 +772,165 @@ fn detach_lane(id: Option<&str>, state: &mut TuiState) {
         label: "system".to_string(),
         body: format!("Detached lane `{lane_id}` without killing its terminal process."),
     });
+}
+
+fn tmux_lane(id: Option<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(index) = state
+        .lanes
+        .iter()
+        .position(|lane| lane.id.eq_ignore_ascii_case(id))
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let lane = state.lanes[index].clone();
+    let tmux_path = match lane_artifact_path(state, &lane.id, "tmux.md") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to prepare lane tmux artifact: {err}"),
+            });
+            return;
+        }
+    };
+    let tmux_log = match lane_artifact_path(state, &lane.id, "tmux.log") {
+        Ok(path) => path,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to prepare lane tmux log: {err}"),
+            });
+            return;
+        }
+    };
+    let session = lane_tmux_session(&lane, state);
+    let command = match lane_tmux_command(&lane, state, &session, &tmux_log) {
+        Ok(command) => command,
+        Err(err) => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Cannot start tmux lane `{}`: {err}", lane.id),
+            });
+            return;
+        }
+    };
+    if let Err(err) = fs::write(
+        &tmux_path,
+        render_lane_tmux(&lane, state, &session, &command, &tmux_log),
+    ) {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to write lane tmux artifact: {err}"),
+        });
+        return;
+    }
+    match spawn_shell_command(&command) {
+        Ok(pid) => {
+            state.lanes[index].status = "attached".to_string();
+            state.lanes[index].target = format!("tmux {session}");
+            state.lanes[index].summary = format!(
+                "tmux session {session}; attach with `tmux attach -t {session}`; artifact {}",
+                tmux_path.display()
+            );
+            state.focused_lane = Some(lane.id.clone());
+            persist_lanes(state);
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!(
+                    "Started tmux lane `{}` as `{session}` via pid {pid}.\nAttach with `tmux attach -t {session}`; detach RoboCode tracking with `/lane detach {}`.",
+                    lane.id, lane.id
+                ),
+            });
+        }
+        Err(err) => state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to start tmux lane `{}`: {err}", lane.id),
+        }),
+    }
+}
+
+fn lane_tmux_command(
+    lane: &TerminalLane,
+    state: &TuiState,
+    session: &str,
+    tmux_log: &Path,
+) -> Result<String, String> {
+    let template = env::var("ROBOCODE_LANE_TMUX_TEMPLATE").unwrap_or_else(|_| {
+        "tmux has-session -t {session:q} 2>/dev/null || tmux new-session -d -s {session:q} -c {cwd:q}; tmux send-keys -t {session:q} {command:q} C-m; printf '%s\\n' {session:q} > {log:q}"
+            .to_string()
+    });
+    let command = expand_tmux_template(&template, lane, state, session, tmux_log);
+    (!command.trim().is_empty())
+        .then_some(command)
+        .ok_or_else(|| "ROBOCODE_LANE_TMUX_TEMPLATE expanded to an empty command".to_string())
+}
+
+fn expand_tmux_template(
+    template: &str,
+    lane: &TerminalLane,
+    state: &TuiState,
+    session: &str,
+    tmux_log: &Path,
+) -> String {
+    let cwd = lane_workspace(lane, state).to_string_lossy().to_string();
+    let command = env::var("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE")
+        .map(|template| expand_agent_template(&template, &lane.title, None, Path::new(&cwd)))
+        .unwrap_or_else(|_| command_hint(&lane.tool, &lane.title));
+    let log = tmux_log.to_string_lossy().to_string();
+    template
+        .replace("{session:q}", &shell_quote_value(session))
+        .replace("{lane:q}", &shell_quote_value(&lane.id))
+        .replace("{task:q}", &shell_quote_value(&lane.title))
+        .replace("{tool:q}", &shell_quote_value(&lane.tool))
+        .replace("{cwd:q}", &shell_quote_value(&cwd))
+        .replace("{worktree:q}", &shell_quote_value(&cwd))
+        .replace("{command:q}", &shell_quote_value(&command))
+        .replace("{log:q}", &shell_quote_value(&log))
+        .replace("{session}", session)
+        .replace("{lane}", &lane.id)
+        .replace("{task}", &lane.title)
+        .replace("{tool}", &lane.tool)
+        .replace("{cwd}", &cwd)
+        .replace("{worktree}", &cwd)
+        .replace("{command}", &command)
+        .replace("{log}", &log)
+}
+
+fn lane_tmux_session(lane: &TerminalLane, state: &TuiState) -> String {
+    format!(
+        "robocode-{}-{}",
+        sanitize_ref(&state.session_id),
+        sanitize_ref(&lane.id)
+    )
+}
+
+fn render_lane_tmux(
+    lane: &TerminalLane,
+    state: &TuiState,
+    session: &str,
+    command: &str,
+    tmux_log: &Path,
+) -> String {
+    format!(
+        "# RoboCode Lane Tmux\n\nLane: {}\nTool: {}\nStatus before tmux: {}\nSession: {session}\nWorkspace: {}\nTmux log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Attach\nUse `tmux attach -t {session}` to enter the interactive lane. Use `/lane detach {}` to return RoboCode tracking to detached state without killing the tmux session.\n",
+        lane.id,
+        lane.tool,
+        lane.status,
+        lane_workspace(lane, state).display(),
+        tmux_log.display(),
+        lane.title,
+        command,
+        lane.id
+    )
 }
 
 fn lane_attach_command(
@@ -1488,7 +1648,7 @@ pub(super) fn refresh_lanes(state: &mut TuiState) {
 fn push_lane_usage(state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane cleanup <id> [--force] | /lane close"
+        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane tmux <id> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane cleanup <id> [--force] | /lane close"
             .to_string(),
     });
 }
@@ -2004,6 +2164,54 @@ mod tests {
     }
 
     #[test]
+    fn lane_tmux_uses_template_and_records_attach_session() {
+        let _env = ScopedEnv::set_many(&[
+            (
+                "ROBOCODE_LANE_TMUX_TEMPLATE",
+                Some("printf 'tmux {session} {command}' > {log:q}"),
+            ),
+            ("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE", None),
+        ]);
+        let root = temp_lane_root();
+        fs::create_dir_all(&root).expect("temp root");
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store);
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "codex".to_string(),
+            title: "inspect interactively".to_string(),
+            status: "completed".to_string(),
+            target: "main".to_string(),
+            progress: 100,
+            summary: "completed successfully".to_string(),
+            worktree: None,
+        }];
+
+        assert!(handle_tui_command("/lane tmux L1", &mut state));
+
+        assert_eq!(state.lanes[0].status, "attached");
+        assert!(state.lanes[0].target.starts_with("tmux robocode-"));
+        assert_eq!(state.focused_lane.as_deref(), Some("L1"));
+        assert!(
+            state
+                .entries
+                .last()
+                .expect("tmux entry")
+                .body
+                .contains("tmux attach -t")
+        );
+        let tmux =
+            fs::read_to_string(root.join(".robocode/lanes/L1.tmux.md")).expect("tmux artifact");
+        assert!(tmux.contains("RoboCode Lane Tmux"));
+        assert!(tmux.contains("Session: robocode-session_123-l1"));
+        assert!(tmux.contains("codex exec inspect interactively"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn lane_command_reports_usage_for_missing_task() {
         let mut state = test_state();
 
@@ -2278,33 +2486,34 @@ mod tests {
     }
 
     struct ScopedEnv {
-        key: &'static str,
-        previous: Option<String>,
+        previous: Vec<(&'static str, Option<String>)>,
         _guard: MutexGuard<'static, ()>,
     }
 
     impl ScopedEnv {
         fn set(key: &'static str, value: &str) -> Self {
-            let guard = env_lock().lock().expect("env test lock");
-            let previous = std::env::var(key).ok();
-            unsafe {
-                std::env::set_var(key, value);
-            }
-            Self {
-                key,
-                previous,
-                _guard: guard,
-            }
+            Self::set_many(&[(key, Some(value))])
         }
 
         fn unset(key: &'static str) -> Self {
+            Self::set_many(&[(key, None)])
+        }
+
+        fn set_many(values: &[(&'static str, Option<&str>)]) -> Self {
             let guard = env_lock().lock().expect("env test lock");
-            let previous = std::env::var(key).ok();
-            unsafe {
-                std::env::remove_var(key);
+            let previous = values
+                .iter()
+                .map(|(key, _)| (*key, std::env::var(key).ok()))
+                .collect::<Vec<_>>();
+            for (key, value) in values {
+                unsafe {
+                    match value {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
+                }
             }
             Self {
-                key,
                 previous,
                 _guard: guard,
             }
@@ -2313,11 +2522,13 @@ mod tests {
 
     impl Drop for ScopedEnv {
         fn drop(&mut self) {
-            unsafe {
-                if let Some(value) = &self.previous {
-                    std::env::set_var(self.key, value);
-                } else {
-                    std::env::remove_var(self.key);
+            for (key, previous) in &self.previous {
+                unsafe {
+                    if let Some(value) = previous {
+                        std::env::set_var(key, value);
+                    } else {
+                        std::env::remove_var(key);
+                    }
                 }
             }
         }
