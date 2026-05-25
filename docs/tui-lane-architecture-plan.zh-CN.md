@@ -428,22 +428,36 @@ interactive lane 在启动后仍可审计。side-1 的 `LIVE OUTPUT` 和聚焦 l
 先拥有第一段 cockpit 内的 screen-state 切片。更完整的 inline terminal
 emulator、cursor-addressed screen-state replay 仍是后续工作。
 
-## 推荐第一刀
+## Phase 1-7 完成审计
 
-先分两个 branch，不要一次做完所有阶段：
+最初的第一刀已经落到 `main`。当前七个 TUI/lane 阶段的证据如下：
 
-1. `codex/tui-main-screen`：基于当前 `SessionEngine` 做主屏视觉/布局 foundation。
-2. `codex/tui-lane-runtime`：lane metadata 加 `/lane run`。
+1. 主屏 TUI Foundation：`--tui` 仍走 `SessionEngine`，permission approval
+   仍走共享 prompt path，render tests 覆盖主 cockpit、approval modal、
+   composer、右侧栏以及 compact/landscape 布局。
+2. 主题和布局 Token：内建主题通过共享 theme registry 渲染，preview 生成覆盖
+   支持的主题变体。
+3. Screen Registry：`/screen side-1`、`/screen side-2`、`/screen list` 和
+   `/screen close` 使用持久化 `.robocode/screens.tsv` 状态，限制最多两个副屏，
+   并渲染 lane/ops 各自优先级不同的 companion layout。
+4. Lane Runtime MVP：`/lane run`、`/lane inspect`、`/lane stop` 和
+   `/lane archive` 会在 `.robocode/lanes/` 下持久化 lane record、日志、退出证据
+   和生命周期状态。
+5. 外部工具 Adapter：`codex`、`claude` 和 generic `/lane ask` 共享
+   template/envelope 路径，并有显式 accept/revise/discard/apply 决策，以及可
+   inspect 的 changed-file 和 verification evidence。
+6. 隔离：会改文件的 Codex/Claude lane 在 Git `HEAD` 可用时使用 per-lane
+   worktree；apply/resolve/cleanup 让合入和删除都保持为显式操作者动作。
+7. 可 Attach 的 Terminal Pane：外部 terminal attach、tmux attach、embedded
+   PTY、`/lane send`、持久化 terminal artifact，以及 cockpit log-tail replay
+   已作为第一版 terminal-pane 策略落地。
 
-原因：
+## 已定决策
 
-- 主屏先给产品形状；
-- lane runtime 证明副屏的真实价值；
-- Codex/Claude adapter 应等日志、状态、inspect 稳定后再接。
-
-## 待定决策
-
-- lane 命令第一版只在 TUI 内可用，还是普通 REPL 也可用？
-- durable lane records 先放 `robocode-cli`，还是直接进 `robocode-workflows`？
-- `codex` 和 `claude` 第一版优先哪种输入模式：prompt file、stdin、manual 还是 PTY？
-- `codex`/`claude` 的 per-lane worktree 第一版是强制还是可选？
+- lane 命令第一版实现于 TUI runtime；是否提升到普通 REPL 是单独的产品决策。
+- durable lane record 当前先放在 `robocode-cli`，作为 UI/runtime glue。只有非
+  TUI surface 也需要共享同一 lane 模型时，才下沉到 `robocode-workflows`。
+- Codex 和 Claude 第一版使用 prompt-file template adapter，再通过 tmux 和
+  PTY attachment path 支持交互式 follow-up。
+- Codex/Claude 的 mutating template launch 在 Git 状态支持时使用 per-lane
+  worktree；shell lane 继续显式标明 mutation scope，而不是强制进入 worktree。

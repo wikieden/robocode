@@ -17,36 +17,47 @@ Mainline landed status:
 - V2-C workflow continuity: `robocode-workflows`, project tasks, project/session memory, `/tasks`, `/task ...`, `/memory ...`, `/task resume-context`, workflow JSONL logs
 - V2-B LSP foundation: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document synchronization
 - V2-D structured view slices: grouped diagnostics, grouped symbols, compact references, structured sessions/tasks/memory, structured permission denials, structured `/git diff` and `/diff`, and shared `robocode-core` presentation helpers
-- lightweight CLI TUI shell: `--tui` alternate-screen mode with status, transcript, input, and permission approval prompts while reusing the shared `SessionEngine`
+- TUI cockpit and terminal-lane runtime: main cockpit layout, theme variants,
+  companion screen registry, `/lane run` lifecycle, external Codex/Claude and
+  generic lane adapters, per-lane worktree isolation, explicit accept/apply
+  decisions, external terminal/tmux/PTY attach, `/lane send`, and lane log-tail
+  replay while reusing the shared `SessionEngine`
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
 Next planned slice:
 
-- commit the approved TUI/lane design baseline as the current product contract
-- implement the main TUI cockpit screen before expanding companion screens
-- add supervised terminal lanes for real side work before wiring external coding CLIs
-- keep provider compatibility coverage as a parallel quality track, using DeepSeek V4 as the strict compatibility contract and the provider live matrix as the evidence log
+- harden the completed TUI/lane cockpit through real operator runs, especially
+  long-running tmux/PTY lanes and apply-conflict recovery
+- decide whether lane commands should be promoted beyond the TUI runtime into
+  ordinary REPL/core surfaces
+- keep provider compatibility coverage as a parallel quality track, using
+  DeepSeek V4 as the strict compatibility contract and the provider live matrix
+  as the evidence log
 
 ## Near-Term Plan
 
-1. TUI Cockpit Main Screen.
-   - Land the approved single-screen cockpit: top status rail, transcript timeline, workspace/status right rail, approval modal, composer, and bottom status bar.
-   - Keep `SessionEngine`, permissions, tool execution, and transcript logging on the existing shared path.
-   - Add render snapshots for compact, normal, and wide terminal sizes.
-   - Keep plain terminal output usable outside the TUI.
+1. TUI Cockpit and Terminal Lanes.
+   - Phase 1-7 of the current TUI/lane plan are landed on `main`: cockpit
+     layout, theme variants, companion screens, lane runtime, external-tool
+     adapters, isolation, and attachable terminal panes.
+   - Continue hardening with real runs: resize behavior, long-lived side
+     screens, tmux/PTY log capture, `/lane send`, and operator review/apply
+     loops.
+   - Keep lane completion separate from acceptance, and keep apply/cleanup as
+     explicit operator actions.
 
-2. Terminal Lane Runtime.
-   - Add supervised non-interactive terminal lanes before external coding-tool adapters.
-   - Implement `/lane run`, `/lane inspect`, `/lane stop`, and durable lane logs.
-   - Treat companion screens as productive workspaces that show lanes, logs, diagnostics, and review state.
-   - Keep lane completion separate from lane acceptance.
+2. Interactive Conflict and Terminal Hardening.
+   - Improve apply-conflict recovery beyond the current audited retry path.
+   - Evaluate whether full cursor-addressed terminal replay is worth the added
+     parser/rendering complexity after log-tail replay has covered the first
+     cockpit observation need.
 
-3. External Coding Tool Adapters.
-   - Add task envelopes and config-driven adapters for tools such as `codex`, `claude`, and user-defined CLIs.
-   - Prefer conservative input modes first: prompt-file, stdin, and manual.
-   - Inspect logs, diffs, exit codes, and verification evidence before recommending accept/revise/discard.
-   - Run template-launched mutating `codex`/`claude` lanes in per-lane worktrees, with explicit accept/apply/cleanup steps and apply-conflict reports; next, harden interactive merge and conflict resolution workflows.
+3. External Coding Tool Adapter Expansion.
+   - Add more templates and docs for tools such as Gemini, Junie, and local
+     coding CLIs as real operator workflows demand them.
+   - Promote durable lane primitives out of `robocode-cli` only when non-TUI
+     surfaces need the same model.
 
 4. Provider Compatibility Completion.
    - Keep the provider live matrix documented and aligned with built-in descriptors.

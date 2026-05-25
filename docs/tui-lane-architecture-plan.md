@@ -438,22 +438,41 @@ tail, which gives attached tmux, PTY, and background lanes a first cockpit
 screen-state slice. A richer inline terminal emulator with cursor-addressed
 screen-state replay remains future work.
 
-## Recommended First Implementation Slice
+## Phase 1-7 Completion Audit
 
-Start with Phase 1 and Phase 4 in separate branches, not all phases at once:
+The original first implementation slice has landed on `main`. Current evidence
+for the seven TUI/lane phases is:
 
-1. `codex/tui-main-screen`: visual/layout foundation using current `SessionEngine`.
-2. `codex/tui-lane-runtime`: lane metadata plus `/lane run` command.
+1. Main TUI Foundation: `--tui` still runs through `SessionEngine`, permission
+   approvals still use the shared prompt path, and render tests cover the main
+   cockpit, approval modal, composer, right rail, and compact/landscape shapes.
+2. Theme and Layout Tokens: the built-in themes render through the shared theme
+   registry and preview generation covers the supported theme variants.
+3. Screen Registry: `/screen side-1`, `/screen side-2`, `/screen list`, and
+   `/screen close` use persisted `.robocode/screens.tsv` state, enforce the
+   two-companion limit, and render lane/ops-specific companion layouts.
+4. Lane Runtime MVP: `/lane run`, `/lane inspect`, `/lane stop`, and
+   `/lane archive` persist lane records, logs, exit evidence, and lifecycle
+   state under `.robocode/lanes/`.
+5. External Tool Adapters: `codex`, `claude`, and generic `/lane ask` share the
+   template/envelope path, with explicit accept/revise/discard/apply decisions
+   and inspectable changed-file plus verification evidence.
+6. Isolation: mutating Codex/Claude lanes use per-lane worktrees when Git
+   `HEAD` is available; apply/resolve/cleanup keep merge and deletion as
+   explicit operator actions.
+7. Attachable Terminal Panes: external terminal attach, tmux attach, embedded
+   PTY, `/lane send`, persisted terminal artifacts, and cockpit log-tail replay
+   are implemented as the chosen first terminal-pane strategy.
 
-Reason:
+## Resolved Decisions
 
-- the main screen gives immediate product shape;
-- lane runtime proves the companion-screen value;
-- Codex/Claude adapters should wait until lane logs, status, and inspection are stable.
-
-## Open Decisions
-
-- Should lane commands exist only inside TUI first, or also in the plain REPL?
-- Should durable lane records live in `robocode-cli` initially or go directly into `robocode-workflows`?
-- Which external-tool input mode should be first for `codex` and `claude`: prompt file, stdin, manual, or PTY?
-- Should per-lane worktrees be mandatory for `codex`/`claude`, or opt-in for the first release?
+- Lane commands are implemented in the TUI runtime first; promotion into the
+  plain REPL remains a separate product decision.
+- Durable lane records currently live in `robocode-cli` as UI/runtime glue.
+  They should move into `robocode-workflows` only if non-TUI surfaces need to
+  share the same lane model.
+- Codex and Claude start with prompt-file template adapters, then add tmux and
+  PTY attachment paths for interactive follow-up.
+- Codex/Claude lanes use per-lane worktrees for mutating template launches
+  when Git state supports it; shell lanes continue to make their mutation scope
+  explicit instead of being forced into worktrees.
