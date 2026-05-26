@@ -99,6 +99,24 @@ TUI 支持一个主屏幕，最多两个副屏幕：
 shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产物、进度和路由
 提示，让主 agent 能判断后续动作。
 
+## Agent Bridge 产品契约
+
+cockpit 下一阶段的核心体验是 host-delegate agent bridge，参考 Claude Code
+Codex 插件的模式：
+
+- RoboCode 是 host。它接收用户主目标，并保持 operation center、composer、
+  approval 和 side screens 的一致性。
+- Codex 是第一个 delegate。它作为 tracked job/lane 运行，具备 readiness doctor、
+  launch path、job record、cancel/result commands 和 evidence output。
+- Claude Code、DeepSeek TUI、shell、tmux/PTY、plugin、skill、MCP 和 ACP agents
+  后续都应该接入同一套 lifecycle，而不是各自拥有一套一次性面板。
+- UI 必须在主屏回答“delegate 现在在干什么”，不能只把状态放到副屏。副屏负责深度，
+  主屏仍是 operator 的事实表面。
+- delegate 结果必须转成 evidence：changed files、commands、test output、
+  final summaries、errors，以及 resume/thread handles。
+- write-capable delegate work 必须显式并经过权限控制；review 和 diagnostics 可以
+  保持 read-only。
+
 ## 当前实现备注
 
 - 主屏和副屏都会响应 resize 事件并重绘。

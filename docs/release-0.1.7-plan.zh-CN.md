@@ -27,6 +27,45 @@ RoboCode 能拆分、派发、观察、审批、收敛结果，并让不同 codi
 RoboCode 应该把这个模式内化成一等本地 agent adapter，而不是继续把 Codex 当成
 普通 terminal command。
 
+## 下一迭代核心：Host-Delegate Agent Bridge
+
+下一轮实现要围绕一个产品闭环推进：
+
+```text
+RoboCode host -> delegate agent -> observable job -> evidence -> operator decision
+```
+
+在这个闭环里，RoboCode 是 host cockpit，Codex 是第一个 delegate agent。Claude
+Code Codex 插件证明了这个形态，但 RoboCode 要把它抽象成可复用机制，后续 Claude
+Code、DeepSeek TUI、tmux/PTY agents 和 ACP-compatible agents 都能接进来。
+
+核心设计规则：
+
+- delegate agent 不能只是一个 raw terminal。它需要 descriptor、readiness
+  doctor、launch command、job record、event/evidence stream、cancel path，以及
+  可选 resume handle。
+- 每个 delegate task 都进入同一套 lane lifecycle：queued、running、waiting for
+  approval、blocked、done、failed、archived。
+- 主 TUI 必须在一个刷新周期内把 active delegate work 显示到 operation center，
+  用户不应该猜远端 agent 是 thinking、editing、testing 还是卡住了。
+- 结果必须是可操作 evidence，而不是 transcript 装饰：changed files、commands、
+  tests、final output、errors 和 thread/session IDs 都应该能通过
+  `/agent status`、`/agent result`、`/lane inspect` 和 side-screen evidence panels
+  查询。
+- write-capable delegate work 必须继续走 RoboCode permissions 和 approval。
+  read-only review 可以轻量，但 mutation 不能绕过 shared tool/runtime/transcript
+  path。
+
+这个核心的实现优先级：
+
+1. 先补完 Codex job/event adapter，让它能暴露 thread IDs、touched files、
+   command/test evidence 和 resume hints。
+2. 主屏 operation center 和副屏使用同一套 job/evidence model。
+3. 泛化 adapter contract，让 plugin、skill、MCP、tmux/PTY 和 ACP agents 复用同一
+   lifecycle，而不是每个命令各自发明 status 格式。
+4. 做通一条真实 write-capable delegated task path，并强制显式 approval，再把它
+   作为 Claude/DeepSeek/ACP backend 的模板。
+
 ## 版本问题陈述
 
 当前体验里最影响继续深入试用的问题有三类：

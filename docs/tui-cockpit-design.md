@@ -117,6 +117,26 @@ coding tools such as Codex, Claude Code, shell jobs, and DeepSeek-backed lanes.
 Side screens should expose task state, latest output, artifacts, progress, and
 route hints so the main agent can decide follow-up actions.
 
+## Agent Bridge Product Contract
+
+The cockpit's next core experience is a host-delegate agent bridge, modeled
+after the Claude Code Codex plugin pattern:
+
+- RoboCode is the host. It receives the user's primary goal and keeps the
+  operation center, composer, approvals, and side screens coherent.
+- Codex is the first delegate. It runs as a tracked job/lane with a readiness
+  doctor, launch path, job record, cancel/result commands, and evidence output.
+- Claude Code, DeepSeek TUI, shell, tmux/PTY, plugin, skill, MCP, and ACP agents
+  should eventually plug into the same lifecycle instead of getting custom
+  one-off panels.
+- The UI must show "what is the delegate doing now?" in the main screen, not
+  only inside side screens. Side screens add depth; the main screen remains the
+  operator's truth surface.
+- Delegate results must become evidence: changed files, commands, test output,
+  final summaries, errors, and resume/thread handles.
+- Write-capable delegate work must be explicit and permission-gated; review and
+  diagnostics can stay read-only.
+
 ## Current Implementation Notes
 
 - Resize events trigger redraw for the main and side TUI screens.

@@ -30,6 +30,49 @@ resume or inspect Codex work without forcing the user to switch tools. RoboCode
 should turn that pattern into a first-class local agent adapter instead of
 treating Codex as just another terminal command.
 
+## Next Iteration Core: Host-Delegate Agent Bridge
+
+The next implementation pass should center on one product loop:
+
+```text
+RoboCode host -> delegate agent -> observable job -> evidence -> operator decision
+```
+
+In this loop, RoboCode is the host cockpit and Codex is the first delegate
+agent. The Claude Code Codex plugin shows the shape, but RoboCode should make
+the pattern generic enough for Claude Code, DeepSeek TUI, tmux/PTY agents, and
+future ACP-compatible agents.
+
+Core design rules:
+
+- A delegate agent is not a raw terminal. It has a descriptor, readiness
+  doctor, launch command, job record, event/evidence stream, cancel path, and
+  optional resume handle.
+- Every delegate task enters the same lane lifecycle: queued, running,
+  waiting for approval, blocked, done, failed, archived.
+- The main TUI must show active delegate work in the operation center within
+  one refresh tick, so the user never has to guess whether the remote agent is
+  thinking, editing, testing, or stuck.
+- Results are actionable evidence, not transcript decoration: changed files,
+  commands, tests, final output, errors, and thread/session IDs should be
+  queryable through `/agent status`, `/agent result`, `/lane inspect`, and the
+  side-screen evidence panels.
+- Write-capable delegate work stays behind RoboCode permissions and approval.
+  Read-only review can be lightweight, but mutation must not bypass the shared
+  tool/runtime/transcript path.
+
+Implementation priority for this core:
+
+1. Finish the Codex job/event adapter until it exposes thread IDs, touched
+   files, command/test evidence, and resume hints.
+2. Make the main operation center consume the same job/evidence model as the
+   side screens.
+3. Generalize the adapter contract so plugin, skill, MCP, tmux/PTY, and ACP
+   agents can reuse the same lifecycle instead of each command inventing a
+   separate status format.
+4. Add one real write-capable delegated task path with explicit approval, then
+   use it as the template for Claude/DeepSeek/ACP backends.
+
 ## Problem Statement
 
 The next trial-focused issues fall into three groups:
