@@ -625,6 +625,9 @@ pub(super) struct AgentJob {
     pub(super) status: String,
     pub(super) task: String,
     pub(super) pid: Option<u32>,
+    pub(super) log_path: Option<PathBuf>,
+    pub(super) result_path: Option<PathBuf>,
+    pub(super) evidence: Vec<String>,
     pub(super) updated_at: u128,
 }
 
@@ -1169,14 +1172,61 @@ fn load_agent_jobs(root: &Path) -> Vec<AgentJob> {
 }
 
 fn parse_agent_job(line: &str) -> Option<AgentJob> {
+    let log_path = json_string_field(line, "log").map(PathBuf::from);
+    let result_path = json_string_field(line, "result").map(PathBuf::from);
+    let evidence = agent_job_evidence(log_path.as_deref(), result_path.as_deref());
     Some(AgentJob {
         id: json_string_field(line, "id")?,
         kind: json_string_field(line, "kind")?,
         status: json_string_field(line, "status")?,
         task: json_string_field(line, "task").unwrap_or_default(),
         pid: json_number_field(line, "pid").and_then(|value| value.parse().ok()),
+        log_path,
+        result_path,
+        evidence,
         updated_at: json_number_field(line, "ts")?.parse().ok()?,
     })
+}
+
+fn agent_job_evidence(log_path: Option<&Path>, result_path: Option<&Path>) -> Vec<String> {
+    let mut evidence = Vec::new();
+    if let Some(result_path) = result_path {
+        for line in file_head(result_path, 16) {
+            if let Some((key, value)) = line.split_once(':') {
+                let value = value.trim();
+                if value.is_empty() || value == "unknown" || value == "none" {
+                    continue;
+                }
+                match key.trim() {
+                    "thread" => evidence.push(format!("thread {value}")),
+                    "turn" => evidence.push(format!("turn {value}")),
+                    "status" => evidence.push(format!("turn status {value}")),
+                    "approvals" => evidence.push(format!("approvals {value}")),
+                    _ => {}
+                }
+            }
+        }
+    }
+    if evidence.len() < 4 {
+        if let Some(log_path) = log_path {
+            let log = file_head(log_path, 80).join("\n");
+            for (needle, label) in [
+                ("thread/started", "thread started"),
+                ("turn/started", "turn started"),
+                ("turn/completed", "turn completed"),
+                ("requestApproval", "approval request captured"),
+            ] {
+                if log.contains(needle) && !evidence.iter().any(|item| item == label) {
+                    evidence.push(label.to_string());
+                }
+                if evidence.len() >= 4 {
+                    break;
+                }
+            }
+        }
+    }
+    evidence.truncate(4);
+    evidence
 }
 
 fn json_string_field(value: &str, field: &str) -> Option<String> {
@@ -1419,14 +1469,30 @@ mod tests {
         let root = temp_state_root();
         let agents = root.join(".robocode").join("agents");
         fs::create_dir_all(&agents).expect("agent dir");
+        let codex_2_log = agents.join("codex-2.jsonl");
+        let codex_2_result = agents.join("codex-2.result.md");
+        fs::write(
+            &codex_2_log,
+            r#"{"direction":"server","payload":"{\"method\":\"turn/started\"}"}"#,
+        )
+        .expect("codex log");
+        fs::write(
+            &codex_2_result,
+            "# Codex app-server turn\n\nthread: thread_2\nturn: turn_2\nstatus: completed\n",
+        )
+        .expect("codex result");
         fs::write(
             agents.join("codex-jobs.jsonl"),
-            [
+            format!(
+                "{}\n{}\n{}\n",
                 r#"{"ts":10,"event":"started","id":"codex-1","kind":"run","status":"running","pid":4242,"command":"codex exec","task":"first task","log":"a","result":"b"}"#,
                 r#"{"ts":20,"event":"completed","id":"codex-1","kind":"run","status":"finished","pid":4242,"command":"codex exec","task":"first task done","log":"a","result":"b"}"#,
-                r#"{"ts":30,"event":"started","id":"codex-2","kind":"review","status":"running","pid":5252,"command":"codex review","task":"review diff","log":"c","result":"d"}"#,
-            ]
-            .join("\n"),
+                format!(
+                    r#"{{"ts":30,"event":"started","id":"codex-2","kind":"review","status":"running","pid":5252,"command":"codex review","task":"review diff","log":"{}","result":"{}"}}"#,
+                    codex_2_log.display(),
+                    codex_2_result.display()
+                )
+            ),
         )
         .expect("jobs jsonl");
 
@@ -1438,6 +1504,15 @@ mod tests {
         assert_eq!(workspace.agent_jobs[1].id, "codex-2");
         assert_eq!(workspace.agent_jobs[1].status, "running");
         assert_eq!(workspace.agent_jobs[1].task, "review diff");
+        assert_eq!(
+            workspace.agent_jobs[1].evidence,
+            vec![
+                "thread thread_2".to_string(),
+                "turn turn_2".to_string(),
+                "turn status completed".to_string(),
+                "turn started".to_string()
+            ]
+        );
     }
 
     fn temp_state_root() -> PathBuf {

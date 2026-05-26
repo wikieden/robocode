@@ -327,6 +327,9 @@ backend。
 - 已落地：主窗口 `OPERATION CENTER` 固定在 transcript 顶部，并标出 evidence
   source，所以 provider turn、approval、lane、tool call 和 Codex job 都会先于 raw
   transcript history 可见。
+- 已落地：TUI Codex job snapshot 会从 app-server result/log 里提取 thread ID、
+  turn ID、turn status 和 approval requests，并在 operation center 与 active-task
+  右栏展示这些 evidence。
 - 已落地：`/extensions doctor` 和 `/mcp doctor` 会按 surface 输出 readiness，
   包括 provider plugin dirs、MCP config files 和 server names、project/user/legacy
   skill roots，以及 permission boundary 提醒。

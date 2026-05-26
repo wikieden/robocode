@@ -188,6 +188,11 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
             details: active_agent_jobs
                 .into_iter()
                 .map(|job| {
+                    let evidence = if job.evidence.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" evidence={}", job.evidence.join("; "))
+                    };
                     format!(
                         "{} {} {} updated {} pid={} {}",
                         job.id,
@@ -197,10 +202,25 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
                         job.pid
                             .map(|pid| pid.to_string())
                             .unwrap_or_else(|| "-".to_string()),
-                        job.task
+                        truncate(&format!("{}{}", job.task, evidence), 92)
                     )
                 })
                 .collect(),
+        };
+    }
+
+    if let Some(job) = state.workspace.agent_jobs.iter().rev().find(|job| {
+        matches!(job.status.as_str(), "finished" | "failed" | "observed")
+            && !job.evidence.is_empty()
+    }) {
+        return LiveActivityStatus {
+            summary: format!("latest Codex {} {}", job.kind, job.status),
+            evidence: "codex job result".to_string(),
+            details: vec![format!(
+                "{} {}",
+                job.id,
+                truncate(&job.evidence.join("; "), 88)
+            )],
         };
     }
 
@@ -557,6 +577,9 @@ mod tests {
             status: "running".to_string(),
             task: "review payment refactor".to_string(),
             pid: Some(4242),
+            log_path: None,
+            result_path: None,
+            evidence: vec!["thread thread_123".to_string(), "turn turn_123".to_string()],
             updated_at: 1,
         }];
 
@@ -565,6 +588,7 @@ mod tests {
         assert!(rendered.contains("active Codex job(s)"));
         assert!(rendered.contains("evidence: codex job store"));
         assert!(rendered.contains("codex-123 run running updated"));
+        assert!(rendered.contains("thread thread_123"));
         assert!(rendered.contains("◉ codex running"));
         assert!(rendered.contains("review payment"));
     }

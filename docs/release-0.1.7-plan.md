@@ -360,6 +360,9 @@ Current implementation status:
 - Landed: the main `OPERATION CENTER` is fixed at the top of the transcript and
   labels its evidence source, so provider turns, approvals, lanes, tool calls,
   and Codex jobs are visible before raw transcript history.
+- Landed: TUI Codex job snapshots now extract app-server result/log evidence
+  such as thread ID, turn ID, turn status, and approval requests, and surface
+  that evidence in the operation center and active-task rail.
 - Landed: `/extensions doctor` and `/mcp doctor` now report readiness by
   surface, including provider plugin dirs, MCP config files and server names,
   project/user/legacy skill roots, and permission boundary reminders.

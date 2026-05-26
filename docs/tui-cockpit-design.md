@@ -184,9 +184,10 @@ after the Claude Code Codex plugin pattern:
   Codex jobs keep a start-time Git status baseline and extract
   resume/session hints plus touched-file evidence from result/log output, so
   status/result views can show `codex resume ...` and related files when
-  available. The main `OPERATION CENTER` band and right-rail `ACTIVE TASKS`
-  panel read the same job records, so active Codex work is visible while the
-  operator keeps typing. ACP readiness is configured through
+  available. The TUI also reads app-server result/log artifacts for thread,
+  turn, status, and approval evidence. The main `OPERATION CENTER` band and
+  right-rail `ACTIVE TASKS` panel read the same job records, so active Codex
+  work is visible while the operator keeps typing. ACP readiness is configured through
   `ROBOCODE_AGENT_ACP_COMMAND`; `/agent doctor acp` can run a minimal JSON-RPC
   `initialize` handshake and writes `.robocode/agents/acp-doctor-*.jsonl`
   evidence. Full `/lane acp` execution is still follow-up work.

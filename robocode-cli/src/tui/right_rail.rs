@@ -132,10 +132,15 @@ fn active_task_rows(state: &TuiState) -> Vec<String> {
         .filter(|job| matches!(job.status.as_str(), "queued" | "running"))
         .take(4)
     {
+        let detail = job
+            .evidence
+            .first()
+            .map(|evidence| evidence.as_str())
+            .unwrap_or(&job.task);
         rows.push(format!(
             "◉ codex {:<8} {}",
             job.status,
-            truncate(&job.task, 18)
+            truncate(detail, 18)
         ));
     }
     if rows.is_empty() {
