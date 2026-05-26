@@ -59,6 +59,8 @@ provider 路径、shell lane、tmux lane 和 release artifacts 可以端到端�
 - Rendering safety：
   - ANSI、OSC、emoji、中文宽字符、shell prompt 噪声都不能破坏 panel 对齐；
   - right rail 数据必须在 panel 内截断或换行。
+  - 当前 checkpoint：box-drawing frame glyphs 会独立使用 frame 色，不再继承行内
+    `Configured`、`tail`、`side-1` 等语义词的颜色，因此右侧竖线不会分段变色。
 
 验收证据：
 

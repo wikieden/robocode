@@ -68,6 +68,9 @@ These are release blockers because they affect every coding session.
   - no ANSI, OSC, emoji, wide CJK text, or shell prompt noise can break panel
     alignment;
   - right-rail data stays clipped or wrapped inside its panel.
+  - Current checkpoint: box-drawing frame glyphs are styled independently from
+    row semantics, so status words such as `Configured`, `tail`, or `side-1`
+    cannot tint vertical panel borders.
 
 Acceptance evidence:
 

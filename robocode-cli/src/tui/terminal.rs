@@ -251,14 +251,18 @@ fn background_for_line(line: &str, theme: &TuiTheme) -> Color {
 }
 
 fn semantic_spans(line: &str, theme: &TuiTheme) -> Vec<(usize, usize, SpanStyle)> {
+    let mut spans = Vec::new();
+    collect_frame_glyph_spans(line, theme, &mut spans);
+
     // Provider Health rows are compact label/value metrics; using the global
     // token highlighter here makes words like REQUESTS inherit single-letter
     // diagnostic colors.
-    if let Some(spans) = provider_health_metric_spans(line, theme) {
-        return spans;
+    if let Some(provider_spans) = provider_health_metric_spans(line, theme) {
+        spans.extend(provider_spans);
+        spans.sort_by_key(|(start, _, _)| *start);
+        return non_overlapping_spans(spans);
     }
 
-    let mut spans = Vec::new();
     collect_approval_field_spans(line, theme, &mut spans);
     collect_hud_field_spans(line, theme, &mut spans);
     collect_role_spans(line, theme, &mut spans);
@@ -270,6 +274,50 @@ fn semantic_spans(line: &str, theme: &TuiTheme) -> Vec<(usize, usize, SpanStyle)
     collect_sparkline_spans(line, theme, &mut spans);
     spans.sort_by_key(|(start, _, _)| *start);
     non_overlapping_spans(spans)
+}
+
+fn collect_frame_glyph_spans(
+    line: &str,
+    theme: &TuiTheme,
+    spans: &mut Vec<(usize, usize, SpanStyle)>,
+) {
+    let background = background_for_line(line, theme);
+    let mut span_start = None;
+    let mut span_end = 0;
+
+    for (index, ch) in line.char_indices() {
+        if is_frame_glyph(ch) {
+            span_start.get_or_insert(index);
+            span_end = index + ch.len_utf8();
+        } else if let Some(start) = span_start.take() {
+            spans.push((
+                start,
+                span_end,
+                SpanStyle {
+                    foreground: theme.frame,
+                    background,
+                },
+            ));
+        }
+    }
+
+    if let Some(start) = span_start {
+        spans.push((
+            start,
+            span_end,
+            SpanStyle {
+                foreground: theme.frame,
+                background,
+            },
+        ));
+    }
+}
+
+fn is_frame_glyph(ch: char) -> bool {
+    matches!(
+        ch,
+        '│' | '─' | '┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼'
+    )
 }
 
 fn provider_health_metric_spans(
@@ -1041,6 +1089,32 @@ mod tests {
     }
 
     #[test]
+    fn keeps_panel_frame_glyphs_on_stable_frame_color() {
+        let theme = TuiTheme::aurora_cyan();
+        for line in [
+            "│ STATUS     Configured              │",
+            "│ next watch side-1 tail failure      │",
+            "┌ SIDE STATUS ───────────────── tail ┐",
+            "│ ACTIONS: [^J Send] [? Help]        │",
+        ] {
+            let segments = line_segments(line, &theme);
+            assert!(
+                segments
+                    .iter()
+                    .filter(|segment| {
+                        segment
+                            .text
+                            .chars()
+                            .all(|ch| ch.is_whitespace() || is_frame_glyph(ch))
+                            && segment.text.chars().any(is_frame_glyph)
+                    })
+                    .all(|segment| segment.foreground == theme.frame),
+                "{line}: {segments:?}"
+            );
+        }
+    }
+
+    #[test]
     fn uses_base_background_for_approval_modal_rows_mixed_with_rail() {
         let theme = TuiTheme::aurora_cyan();
         let segments = line_segments(
@@ -1051,8 +1125,9 @@ mod tests {
         assert!(
             segments
                 .iter()
-                .any(|segment| segment.text.contains("│     │ ")
-                    && segment.background == theme.background),
+                .filter(|segment| !segment.text.contains("APPROVAL REQUIRED"))
+                .all(|segment| segment.background == theme.background
+                    || segment.background == theme.chip),
             "{segments:?}"
         );
     }
