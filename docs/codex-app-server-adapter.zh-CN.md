@@ -75,8 +75,12 @@ RoboCode 应把 app-server 数据映射到现有 host-delegate lifecycle：
    completion status 映射为 tracked Codex job records 和 result summaries。
 6. 已完成：`/agent run codex --app-server <task>` 会启动异步 read-only
    app-server turn job，同时默认 `/agent run codex` 仍走 CLI fallback。
-7. 把 server approval requests 接入现有 RoboCode permission path。
-8. 只有在普通 jobs 能拿到结构化 `threadId`、file、command 和 test events 后，
+7. 已完成：approval-like server requests 会写入 JSONL evidence，并返回
+   decline/no-grant responses，避免 app-server work 卡住或绕过 RoboCode
+   permission boundaries。
+8. 在 live smoke coverage 证明普通 jobs 可以安全使用 protocol path 后，再通过
+   config flag/default 推广 app-server execution。
+9. 只有在普通 jobs 能拿到结构化 `threadId`、file、command 和 test events 后，
    再移除文本启发式解析。
 
 ## 当前边界

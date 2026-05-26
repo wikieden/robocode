@@ -333,8 +333,11 @@ backend。
 - 已落地：`/agent run codex --app-server <task>` 会启动异步 read-only
   app-server turn job，并复用 tracked job/status/result surfaces，同时默认路径仍保留
   CLI fallback。
-- 剩余：通过 config flag/default 推广 app-server path，并把 server approval
-  requests 接入 RoboCode permissions。
+- 已落地：app-server approval-like server requests 会作为 evidence 捕获，并返回
+  decline/no-grant responses，避免实验性 app-server jobs 卡住或绕过 RoboCode
+  permission boundaries。
+- 剩余：在 live smoke coverage 证明普通 jobs 可以安全使用 protocol path 后，再通过
+  config flag/default 推广 app-server path。
 - app-server protocol 调研已记录在
   [codex-app-server-adapter.zh-CN.md](codex-app-server-adapter.zh-CN.md)。
 

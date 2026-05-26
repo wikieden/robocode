@@ -365,8 +365,11 @@ Current implementation status:
 - Landed: `/agent run codex --app-server <task>` starts an asynchronous
   read-only app-server turn job that uses the same tracked job/status/result
   surfaces while keeping the default CLI fallback.
-- Remaining: promote the app-server path behind a config flag/default and route
-  server approval requests into RoboCode permissions.
+- Landed: app-server approval-like server requests are captured as evidence and
+  answered with decline/no-grant responses, so experimental app-server jobs do
+  not hang or bypass RoboCode permission boundaries.
+- Remaining: promote the app-server path behind a config flag/default after
+  live smoke coverage proves normal jobs can use the protocol path safely.
 - App-server protocol findings are captured in
   [codex-app-server-adapter.md](codex-app-server-adapter.md).
 

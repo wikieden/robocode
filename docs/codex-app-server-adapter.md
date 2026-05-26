@@ -78,8 +78,12 @@ RoboCode should map app-server data into the existing host-delegate lifecycle:
 6. Done: `/agent run codex --app-server <task>` starts an asynchronous
    read-only app-server turn job and keeps default `/agent run codex` on the CLI
    fallback.
-7. Route server approval requests into the existing RoboCode permission path.
-8. Retire text heuristics only after structured `threadId`, file, command, and
+7. Done: approval-like server requests are captured in the JSONL evidence and
+   answered with decline/no-grant responses so app-server work cannot hang or
+   bypass RoboCode permission boundaries.
+8. Promote app-server execution behind a config flag/default after live smoke
+   coverage proves normal jobs can use the protocol path safely.
+9. Retire text heuristics only after structured `threadId`, file, command, and
    test events are available in normal jobs.
 
 ## Current Boundary

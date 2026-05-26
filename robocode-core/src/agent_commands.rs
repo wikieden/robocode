@@ -1070,11 +1070,16 @@ fn write_codex_app_server_turn_result(
     fs::write(
         result_path,
         format!(
-            "# Codex app-server turn\n\nthread: {}\nturn: {}\nstatus: {}\nlog: {}\n",
+            "# Codex app-server turn\n\nthread: {}\nturn: {}\nstatus: {}\nlog: {}\napprovals: {}\n",
             evidence.thread_id.as_deref().unwrap_or("unknown"),
             evidence.turn_id.as_deref().unwrap_or("unknown"),
             evidence.turn_status.as_deref().unwrap_or("unknown"),
-            evidence.log_path.display()
+            evidence.log_path.display(),
+            if evidence.approval_requests.is_empty() {
+                "none".to_string()
+            } else {
+                evidence.approval_requests.join(", ")
+            }
         ),
     )
     .map_err(|err| format!("failed to write {}: {err}", result_path.display()))
@@ -1616,6 +1621,7 @@ struct CodexAppServerProbeEvidence {
     turn_id: Option<String>,
     turn_status: Option<String>,
     notifications: Vec<String>,
+    approval_requests: Vec<String>,
     log_path: PathBuf,
 }
 
@@ -1654,11 +1660,14 @@ fn run_codex_app_server_probe_with_log(
     // notifications can arrive in either order, so keep every line as evidence.
     let receiver = read_lines_async(stdout);
     let mut notifications = Vec::new();
+    let mut approval_requests = Vec::new();
     let response = match read_codex_app_server_response(
         &receiver,
+        &mut stdin,
         1,
         &mut log_entries,
         &mut notifications,
+        &mut approval_requests,
         Duration::from_secs(5),
     ) {
         Ok(response) => response,
@@ -1683,9 +1692,11 @@ fn run_codex_app_server_probe_with_log(
         }
         let thread_response = match read_codex_app_server_response(
             &receiver,
+            &mut stdin,
             2,
             &mut log_entries,
             &mut notifications,
+            &mut approval_requests,
             Duration::from_secs(8),
         ) {
             Ok(response) => response,
@@ -1723,9 +1734,11 @@ fn run_codex_app_server_probe_with_log(
         }
         let turn_response = match read_codex_app_server_response(
             &receiver,
+            &mut stdin,
             3,
             &mut log_entries,
             &mut notifications,
+            &mut approval_requests,
             Duration::from_secs(8),
         ) {
             Ok(response) => response,
@@ -1735,8 +1748,10 @@ fn run_codex_app_server_probe_with_log(
         turn_status = json_string_field(&turn_response, "status");
         if let Some(completed) = collect_codex_app_server_notifications(
             &receiver,
+            &mut stdin,
             &mut log_entries,
             &mut notifications,
+            &mut approval_requests,
             Some("turn/completed"),
             Duration::from_secs(30),
         ) {
@@ -1751,7 +1766,19 @@ fn run_codex_app_server_probe_with_log(
         }
         log_entries.push(jsonl_event("server", line));
         if let Some(method) = json_string_field(line, "method") {
-            notifications.push(method);
+            if is_codex_app_server_request(&method) {
+                if let Some(response) =
+                    codex_app_server_request_denial_response(line, &method, &mut approval_requests)
+                {
+                    log_entries.push(jsonl_event("client", &response));
+                    let _ = stdin
+                        .write_all(response.as_bytes())
+                        .and_then(|_| stdin.write_all(b"\n"))
+                        .and_then(|_| stdin.flush());
+                }
+            } else {
+                notifications.push(method);
+            }
         }
     }
     let _ = child.kill();
@@ -1769,6 +1796,7 @@ fn run_codex_app_server_probe_with_log(
         turn_id,
         turn_status,
         notifications,
+        approval_requests,
         log_path,
     })
 }
@@ -1911,9 +1939,11 @@ fn read_lines_async(
 
 fn read_codex_app_server_response(
     receiver: &mpsc::Receiver<std::io::Result<String>>,
+    stdin: &mut impl Write,
     request_id: u32,
     log_entries: &mut Vec<String>,
     notifications: &mut Vec<String>,
+    approval_requests: &mut Vec<String>,
     timeout: Duration,
 ) -> Result<String, String> {
     let start = Instant::now();
@@ -1939,7 +1969,22 @@ fn read_codex_app_server_response(
             ));
         }
         if let Some(method) = json_string_field(&line, "method") {
-            notifications.push(method);
+            if is_codex_app_server_request(&method) {
+                if let Some(response) =
+                    codex_app_server_request_denial_response(&line, &method, approval_requests)
+                {
+                    log_entries.push(jsonl_event("client", &response));
+                    stdin
+                        .write_all(response.as_bytes())
+                        .and_then(|_| stdin.write_all(b"\n"))
+                        .and_then(|_| stdin.flush())
+                        .map_err(|err| {
+                            format!("failed to answer Codex app-server request: {err}")
+                        })?;
+                }
+            } else {
+                notifications.push(method);
+            }
         }
     }
     Err(format!(
@@ -1949,8 +1994,10 @@ fn read_codex_app_server_response(
 
 fn collect_codex_app_server_notifications(
     receiver: &mpsc::Receiver<std::io::Result<String>>,
+    stdin: &mut impl Write,
     log_entries: &mut Vec<String>,
     notifications: &mut Vec<String>,
+    approval_requests: &mut Vec<String>,
     until_method: Option<&str>,
     timeout: Duration,
 ) -> Option<String> {
@@ -1966,13 +2013,55 @@ fn collect_codex_app_server_notifications(
         };
         log_entries.push(jsonl_event("server", &line));
         if let Some(method) = json_string_field(&line, "method") {
-            notifications.push(method.clone());
+            if is_codex_app_server_request(&method) {
+                if let Some(response) =
+                    codex_app_server_request_denial_response(&line, &method, approval_requests)
+                {
+                    log_entries.push(jsonl_event("client", &response));
+                    let _ = stdin
+                        .write_all(response.as_bytes())
+                        .and_then(|_| stdin.write_all(b"\n"))
+                        .and_then(|_| stdin.flush());
+                }
+            } else {
+                notifications.push(method.clone());
+            }
             if until_method.is_some_and(|target| target == method) {
                 return Some(line);
             }
         }
     }
     None
+}
+
+fn is_codex_app_server_request(method: &str) -> bool {
+    matches!(
+        method,
+        "item/commandExecution/requestApproval"
+            | "item/fileChange/requestApproval"
+            | "item/permissions/requestApproval"
+            | "execCommandApproval"
+            | "applyPatchApproval"
+    )
+}
+
+fn codex_app_server_request_denial_response(
+    line: &str,
+    method: &str,
+    approval_requests: &mut Vec<String>,
+) -> Option<String> {
+    let id = json_number_field(line, "id")?;
+    approval_requests.push(method.to_string());
+    let result = match method {
+        "item/commandExecution/requestApproval" => r#"{"decision":"decline"}"#,
+        "item/fileChange/requestApproval" => r#"{"decision":"decline"}"#,
+        "item/permissions/requestApproval" => {
+            r#"{"permissions":{},"scope":"turn","strictAutoReview":true}"#
+        }
+        "execCommandApproval" | "applyPatchApproval" => r#"{"decision":"denied"}"#,
+        _ => return None,
+    };
+    Some(format!(r#"{{"id":{id},"result":{result}}}"#))
 }
 
 fn read_line_with_timeout(
@@ -2321,6 +2410,9 @@ mod tests {
                 "printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn_456\",\"items\":[],\"itemsView\":\"complete\",\"status\":\"inProgress\",\"error\":null,\"startedAt\":1,\"completedAt\":null,\"durationMs\":null}}}'",
                 "printf '%s\\n' '{\"method\":\"turn/started\",\"params\":{\"threadId\":\"thread_456\",\"turn\":{\"id\":\"turn_456\",\"status\":\"inProgress\"}}}'",
                 "printf '%s\\n' '{\"method\":\"item/agentMessage/delta\",\"params\":{\"threadId\":\"thread_456\",\"turnId\":\"turn_456\",\"delta\":\"ok\"}}'",
+                "printf '%s\\n' '{\"id\":9,\"method\":\"item/commandExecution/requestApproval\",\"params\":{\"threadId\":\"thread_456\",\"turnId\":\"turn_456\",\"itemId\":\"item_1\",\"startedAtMs\":1,\"command\":\"cargo test\",\"cwd\":\"/tmp\"}}'",
+                "read approval",
+                "case \"$approval\" in *'\"id\":9'*'\"decision\":\"decline\"'*) ;; *) exit 5 ;; esac",
                 "printf '%s\\n' '{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread_456\",\"turn\":{\"id\":\"turn_456\",\"status\":\"completed\"}}}'",
                 "sleep 1",
             ]
@@ -2339,6 +2431,10 @@ mod tests {
         assert_eq!(evidence.thread_id, Some("thread_456".to_string()));
         assert_eq!(evidence.turn_id, Some("turn_456".to_string()));
         assert_eq!(evidence.turn_status, Some("completed".to_string()));
+        assert_eq!(
+            evidence.approval_requests,
+            vec!["item/commandExecution/requestApproval".to_string()]
+        );
         assert!(
             evidence
                 .notifications
@@ -2346,6 +2442,7 @@ mod tests {
         );
         let log = fs::read_to_string(&evidence.log_path).expect("read jsonl log");
         assert!(log.contains(r#"turn/start"#));
+        assert!(log.contains(r#"\"decision\":\"decline\""#));
         assert!(log.contains("summarize status"));
         assert!(log.contains("turn/completed"));
 
@@ -2357,6 +2454,7 @@ mod tests {
         assert!(status.contains("finished"));
         assert!(result.contains("thread_456"));
         assert!(result.contains("turn_456"));
+        assert!(result.contains("approvals: item/commandExecution/requestApproval"));
     }
 
     #[cfg(unix)]
