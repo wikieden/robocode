@@ -103,3 +103,21 @@ fn lsp_diagnostic_roundtrips_json() {
     let decoded: LspDiagnostic = serde_json::from_str(&encoded).unwrap();
     assert_eq!(decoded, diagnostic);
 }
+
+#[test]
+fn transcript_tool_result_preserves_exit_code() {
+    let entry = TranscriptEntry::ToolResult {
+        result: ToolResult {
+            tool_call_id: "tool_1".to_string(),
+            name: "shell".to_string(),
+            output: "failed".to_string(),
+            diff: None,
+            success: false,
+            exit_code: Some(7),
+        },
+    };
+
+    let line = entry.to_json_line();
+    assert!(line.contains("\"exit_code\":7"));
+    assert_eq!(TranscriptEntry::from_json_line(&line).unwrap(), entry);
+}

@@ -28,6 +28,7 @@ impl BuiltinTool for GitWorktreeListTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -75,6 +76,7 @@ impl BuiltinTool for GitWorktreeAddTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -113,6 +115,7 @@ impl BuiltinTool for GitWorktreeRemoveTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }

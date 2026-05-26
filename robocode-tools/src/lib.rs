@@ -36,6 +36,7 @@ pub struct ToolExecutionOutput {
     pub output: String,
     pub diff: Option<String>,
     pub success: bool,
+    pub exit_code: Option<i32>,
 }
 
 pub trait SemanticToolProvider: Send + Sync {
@@ -129,6 +130,7 @@ impl ToolRegistry {
             output: output.output,
             diff: output.diff,
             success: output.success,
+            exit_code: output.exit_code,
         })
     }
 }

@@ -82,8 +82,8 @@ provider 路径、shell lane、tmux lane 和 release artifacts 可以端到端�
   - 汇总 exit code、失败命令、失败文件和有用 tail lines；
   - test evidence 绑定到当前 task/session。
   - 当前 checkpoint：`/test <command>` 已经通过 shell permission path 实现，
-    `/status` 会显示最近一次测试的 command、status、duration 和 output tail；
-    exit-code / failing-file 提取仍是后续细化项。
+    `/status` 会显示最近一次测试的 command、status、exit code、duration 和
+    output tail；failing-file 提取仍是后续细化项。
 - Structured tool results：
   - compile errors、test failures、lint failures、shell failures 以结构化证据显示，
     不直接堆 raw log；

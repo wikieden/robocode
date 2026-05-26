@@ -115,8 +115,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   `git stash list` 快照并提示 stash ref；`/git worktree remove` 会读取当前
   `git worktree list --porcelain` 快照并提示 worktree 路径。
 - `/test <command>` 是真实 runtime command，不是视觉占位符。它会走 shell
-  approval，记录最近一次测试的 status、duration、command 和 output tail，并
-  通过 `/status` 展示这份 evidence。
+  approval，记录最近一次测试的 status、exit code、duration、command 和 output
+  tail，并通过 `/status` 展示这份 evidence。
 - 主屏 idle 时会轮询 lane artifacts，所以后台 `/lane run` 的完成、失败和
   log-tail 状态不需要按键也会刷新。
 - 右侧栏 `ACTIVE TASKS` 面板会读取 `/task` 和 `/tasks` 背后的真实 workflow

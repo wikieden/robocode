@@ -65,9 +65,13 @@ impl SessionEngine {
             self.last_test
                 .as_ref()
                 .map(|test| {
+                    let exit = test
+                        .exit_code
+                        .map(|code| format!(" (exit {code})"))
+                        .unwrap_or_default();
                     format!(
-                        "  Last test: {} in {}ms | {}",
-                        test.status, test.duration_ms, test.command
+                        "  Last test: {}{} in {}ms | {}",
+                        test.status, exit, test.duration_ms, test.command
                     )
                 })
                 .unwrap_or_else(|| "  Last test: <none>".to_string()),

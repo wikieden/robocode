@@ -91,6 +91,38 @@ fn test_command_records_last_test_evidence_in_status() {
 }
 
 #[test]
+fn test_command_records_exit_code_for_failed_shell_command() {
+    let home = temp_dir("test_exit_code_home");
+    let cwd = temp_dir("test_exit_code_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let test_output = engine
+        .process_input_with_approval("/test sh -c 'echo failing-test; exit 7'", &mut approver)
+        .unwrap();
+
+    assert!(test_output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("status: failed")
+                && text.contains("exit code: 7")
+                && text.contains("failing-test")
+    )));
+
+    let status_output = engine
+        .process_input_with_approval("/status", &mut approver)
+        .unwrap();
+    assert!(status_output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text) if text.contains("Last test: failed (exit 7)")
+    )));
+}
+
+#[test]
 fn config_command_reports_runtime_configuration_summary() {
     let home = temp_dir("config_home");
     let cwd = temp_dir("config_cwd");
@@ -468,6 +500,7 @@ fn help_output_lists_runtime_inspection_commands() {
             if text.contains("/status")
                 && text.contains("/config")
                 && text.contains("/doctor")
+                && text.contains("/test <command>")
     )));
 }
 

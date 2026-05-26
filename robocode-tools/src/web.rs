@@ -63,6 +63,7 @@ impl BuiltinTool for WebSearchTool {
             },
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -103,6 +104,7 @@ impl BuiltinTool for WebFetchTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }

@@ -35,6 +35,7 @@ impl BuiltinTool for ReadFileTool {
             output: String::from_utf8_lossy(slice).to_string(),
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -67,6 +68,7 @@ impl BuiltinTool for WriteFileTool {
             output: format!("Wrote {}", path.display()),
             diff: Some(render_diff(&before, content)),
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -103,6 +105,7 @@ impl BuiltinTool for EditFileTool {
             output: format!("Edited {}", path.display()),
             diff: Some(render_diff(&before, &after)),
             success: true,
+            exit_code: None,
         })
     }
 }

@@ -69,6 +69,7 @@ impl BuiltinTool for ShellTool {
             output: rendered,
             diff: None,
             success: output.status.success(),
+            exit_code: output.status.code(),
         })
     }
 }

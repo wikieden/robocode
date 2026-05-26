@@ -33,6 +33,7 @@ impl SessionEngine {
             } else {
                 "failed".to_string()
             },
+            exit_code: result.exit_code,
             duration_ms: started.elapsed().as_millis(),
             output_tail: tail_lines(&result.output, TEST_OUTPUT_TAIL_LINES),
         };
@@ -56,6 +57,13 @@ pub(crate) fn render_test_evidence(evidence: &TestEvidence) -> String {
     let mut lines = vec![
         "Test result:".to_string(),
         format!("  status: {}", evidence.status),
+        format!(
+            "  exit code: {}",
+            evidence
+                .exit_code
+                .map(|code| code.to_string())
+                .unwrap_or_else(|| "<unknown>".to_string())
+        ),
         format!("  command: {}", evidence.command),
         format!("  duration: {}ms", evidence.duration_ms),
     ];

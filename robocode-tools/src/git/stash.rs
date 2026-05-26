@@ -36,6 +36,7 @@ impl BuiltinTool for GitStashListTool {
             },
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -82,6 +83,7 @@ impl BuiltinTool for GitStashPushTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -111,6 +113,7 @@ impl BuiltinTool for GitStashPopTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -141,6 +144,7 @@ impl BuiltinTool for GitStashDropTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }

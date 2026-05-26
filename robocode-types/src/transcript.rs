@@ -53,12 +53,13 @@ impl TranscriptEntry {
                 escape_json(&encode_tool_input(&call.input))
             ),
             TranscriptEntry::ToolResult { result } => format!(
-                "{{\"type\":\"tool_result\",\"tool_call_id\":\"{}\",\"name\":\"{}\",\"output\":\"{}\",\"diff\":{},\"success\":{}}}",
+                "{{\"type\":\"tool_result\",\"tool_call_id\":\"{}\",\"name\":\"{}\",\"output\":\"{}\",\"diff\":{},\"success\":{},\"exit_code\":{}}}",
                 escape_json(&result.tool_call_id),
                 escape_json(&result.name),
                 escape_json(&result.output),
                 optional_json_string(result.diff.as_deref()),
-                if result.success { "true" } else { "false" }
+                if result.success { "true" } else { "false" },
+                optional_i32(result.exit_code)
             ),
             TranscriptEntry::Permission { entry } => format!(
                 "{{\"type\":\"permission\",\"timestamp\":{},\"tool_name\":\"{}\",\"decision\":\"{}\",\"reason\":\"{}\",\"message\":{}}}",
@@ -112,6 +113,7 @@ impl TranscriptEntry {
                     output: extract_string_field(line, "output")?,
                     diff: extract_optional_string_field(line, "diff")?,
                     success: extract_bool_field(line, "success")?,
+                    exit_code: extract_optional_i32_field(line, "exit_code")?,
                 },
             }),
             "permission" => Ok(TranscriptEntry::Permission {
@@ -150,6 +152,12 @@ impl TranscriptEntry {
 fn optional_json_string(value: Option<&str>) -> String {
     value
         .map(|value| format!("\"{}\"", escape_json(value)))
+        .unwrap_or_else(|| "null".to_string())
+}
+
+fn optional_i32(value: Option<i32>) -> String {
+    value
+        .map(|value| value.to_string())
         .unwrap_or_else(|| "null".to_string())
 }
 
@@ -232,6 +240,23 @@ fn extract_u64_field(line: &str, field: &str) -> Result<u64, String> {
     tail[..end]
         .trim()
         .parse::<u64>()
+        .map_err(|_| format!("Invalid number in `{field}`"))
+}
+
+fn extract_optional_i32_field(line: &str, field: &str) -> Result<Option<i32>, String> {
+    let marker = format!("\"{field}\":");
+    let Some(start) = line.find(&marker).map(|index| index + marker.len()) else {
+        return Ok(None);
+    };
+    let tail = &line[start..];
+    if tail.starts_with("null") {
+        return Ok(None);
+    }
+    let end = tail.find([',', '}']).unwrap_or(tail.len());
+    tail[..end]
+        .trim()
+        .parse::<i32>()
+        .map(Some)
         .map_err(|_| format!("Invalid number in `{field}`"))
 }
 

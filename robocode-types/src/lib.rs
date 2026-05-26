@@ -246,6 +246,7 @@ pub struct ToolResult {
     pub output: String,
     pub diff: Option<String>,
     pub success: bool,
+    pub exit_code: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

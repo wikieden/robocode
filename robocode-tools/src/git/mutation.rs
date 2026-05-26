@@ -45,6 +45,7 @@ impl BuiltinTool for GitSwitchTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -82,6 +83,7 @@ impl BuiltinTool for GitCommitTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -122,6 +124,7 @@ impl BuiltinTool for GitAddTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -167,6 +170,7 @@ impl BuiltinTool for GitPushTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -224,6 +228,7 @@ impl BuiltinTool for GitRestoreTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }

@@ -47,6 +47,7 @@ impl BuiltinTool for GlobTool {
             },
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -96,6 +97,7 @@ impl BuiltinTool for GrepTool {
             },
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }

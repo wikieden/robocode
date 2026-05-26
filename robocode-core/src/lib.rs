@@ -65,6 +65,7 @@ pub struct ProviderTelemetry {
 pub struct TestEvidence {
     pub command: String,
     pub status: String,
+    pub exit_code: Option<i32>,
     pub duration_ms: u128,
     pub output_tail: String,
 }

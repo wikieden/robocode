@@ -328,7 +328,8 @@ Current workflow/LSP notes:
 - `robocode-workflows` keeps task and memory state outside the canonical transcript while remaining rebuildable from JSONL event logs.
 - `/test <command>` reuses the shell tool permission path and stores the latest
   test evidence in `SessionEngine` so `/status` can report the most recent
-  verification command without creating a second execution path.
+  verification command, exit code, and output tail without creating a second
+  execution path.
 - `robocode-lsp` currently supports query-driven semantic code intelligence through language-server stdio sessions.
 - The current LSP runtime already covers real queries, session reuse, document synchronization, and normalized output, but it is still an early implementation rather than a fully mature long-lived LSP platform layer.
 

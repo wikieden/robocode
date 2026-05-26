@@ -28,6 +28,7 @@ impl BuiltinTool for GitStatusTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -81,6 +82,7 @@ impl BuiltinTool for GitDiffTool {
                 Some(output)
             },
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -106,6 +108,7 @@ impl BuiltinTool for GitBranchTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }

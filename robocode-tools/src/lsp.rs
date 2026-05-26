@@ -31,6 +31,7 @@ impl BuiltinTool for LspDiagnosticsTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -57,6 +58,7 @@ impl BuiltinTool for LspSymbolsTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }
@@ -85,6 +87,7 @@ impl BuiltinTool for LspReferencesTool {
             output,
             diff: None,
             success: true,
+            exit_code: None,
         })
     }
 }

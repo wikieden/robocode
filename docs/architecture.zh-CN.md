@@ -297,8 +297,8 @@ CLI 当前也通过 slash commands 暴露这些工具面：
 
 - `robocode-workflows` 把 task / memory state 放在 canonical transcript 之外，但仍保持 JSONL event logs 可重建。
 - `/test <command>` 复用 shell tool 的权限路径，并把最近一次 test evidence
-  存在 `SessionEngine` 中，让 `/status` 能报告最新 verification command，
-  而不引入第二条执行通道。
+  存在 `SessionEngine` 中，让 `/status` 能报告最新 verification command、
+  exit code 和 output tail，而不引入第二条执行通道。
 - `robocode-lsp` 当前通过 language-server stdio sessions 提供 query-driven 的 semantic code intelligence。
 - 当前 LSP runtime 已覆盖 real queries、session reuse、document synchronization 和 normalized output，但仍属于 early implementation，而不是完整成熟的长期 LSP 平台层。
 

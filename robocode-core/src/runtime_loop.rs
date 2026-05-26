@@ -210,6 +210,7 @@ impl SessionEngine {
                     output: rendered_denial.clone(),
                     diff: None,
                     success: false,
+                    exit_code: None,
                 };
                 self.persist_tool_result(&result)?;
                 events.push(EngineEvent::ToolResult(result.output.clone()));
