@@ -204,11 +204,14 @@ fn line_segments(line: &str, theme: &TuiTheme) -> Vec<StyledSegment> {
     let background = background_for_line(line, theme);
     let spans = semantic_spans(line, theme);
     if spans.is_empty() {
-        return vec![StyledSegment {
-            foreground: base,
-            background,
-            text: line.to_string(),
-        }];
+        return protect_frame_glyph_segments(
+            vec![StyledSegment {
+                foreground: base,
+                background,
+                text: line.to_string(),
+            }],
+            theme,
+        );
     }
 
     let mut segments = Vec::new();
@@ -235,7 +238,49 @@ fn line_segments(line: &str, theme: &TuiTheme) -> Vec<StyledSegment> {
             text: line[cursor..].to_string(),
         });
     }
-    segments
+    protect_frame_glyph_segments(segments, theme)
+}
+
+fn protect_frame_glyph_segments(
+    segments: Vec<StyledSegment>,
+    theme: &TuiTheme,
+) -> Vec<StyledSegment> {
+    // Semantic highlighters may accidentally include the closing rail in a
+    // value span; split frame glyphs back out so borders stay visually stable.
+    let mut protected = Vec::with_capacity(segments.len());
+    for segment in segments {
+        if !segment.text.chars().any(is_frame_glyph) {
+            protected.push(segment);
+            continue;
+        }
+
+        let mut current: Option<StyledSegment> = None;
+        for ch in segment.text.chars() {
+            let foreground = if is_frame_glyph(ch) {
+                theme.frame
+            } else {
+                segment.foreground
+            };
+            if let Some(current_segment) = &mut current {
+                if current_segment.foreground == foreground
+                    && current_segment.background == segment.background
+                {
+                    current_segment.text.push(ch);
+                    continue;
+                }
+                protected.push(current.take().expect("segment exists"));
+            }
+            current = Some(StyledSegment {
+                foreground,
+                background: segment.background,
+                text: ch.to_string(),
+            });
+        }
+        if let Some(current_segment) = current {
+            protected.push(current_segment);
+        }
+    }
+    protected
 }
 
 fn background_for_line(line: &str, theme: &TuiTheme) -> Color {
@@ -316,7 +361,7 @@ fn collect_frame_glyph_spans(
 fn is_frame_glyph(ch: char) -> bool {
     matches!(
         ch,
-        '│' | '─' | '┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼'
+        '│' | '─' | '┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼' | '┆'
     )
 }
 
@@ -1096,22 +1141,43 @@ mod tests {
             "│ next watch side-1 tail failure      │",
             "┌ SIDE STATUS ───────────────── tail ┐",
             "│ ACTIONS: [^J Send] [? Help]        │",
+            "│ ● CONNECTED ┆ SESSION ses~5000 ┆ HELP ? │",
         ] {
             let segments = line_segments(line, &theme);
             assert!(
-                segments
-                    .iter()
-                    .filter(|segment| {
-                        segment
-                            .text
-                            .chars()
-                            .all(|ch| ch.is_whitespace() || is_frame_glyph(ch))
-                            && segment.text.chars().any(is_frame_glyph)
-                    })
-                    .all(|segment| segment.foreground == theme.frame),
+                frame_segments_use_frame_color(&segments, &theme),
                 "{line}: {segments:?}"
             );
         }
+    }
+
+    #[test]
+    fn keeps_preview_frame_glyphs_on_stable_frame_color() {
+        let theme = TuiTheme::aurora_cyan();
+        let previews = [
+            crate::tui::render_preview("deepseek", "deepseek-v4-flash"),
+            crate::tui::render_idle_preview("deepseek", "deepseek-v4-flash"),
+            crate::tui::render_lane_preview("deepseek", "deepseek-v4-flash"),
+            crate::tui::render_side_preview("deepseek", "deepseek-v4-flash"),
+            crate::tui::render_ops_preview("deepseek", "deepseek-v4-flash"),
+        ];
+
+        for preview in previews {
+            for line in preview.lines() {
+                let segments = line_segments(line, &theme);
+                assert!(
+                    frame_segments_use_frame_color(&segments, &theme),
+                    "{line}: {segments:?}"
+                );
+            }
+        }
+    }
+
+    fn frame_segments_use_frame_color(segments: &[StyledSegment], theme: &TuiTheme) -> bool {
+        segments
+            .iter()
+            .filter(|segment| segment.text.chars().any(is_frame_glyph))
+            .all(|segment| segment.foreground == theme.frame)
     }
 
     #[test]
