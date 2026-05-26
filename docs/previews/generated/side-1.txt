@@ -2,25 +2,25 @@
 │ RoboCode  SIDE-1  [SESSION c4f2b7e] [LANES 2/3] [FOCUS tail] [LINK main]     │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ AGENT LANES ───────────────────────────────────────────────────────── side-1 ┐
-│ ┌ ● L1 codex tty   [in_prog]  route main   ▓▓▓░░  64%                        │
-│ │ PTY pty/01  PID 4217   TASK test fixes                                     │
-│ └ CMD codex exec test fixes │ TAIL patched failing tests; rerunning car      │
-│ ┌ ◐ L2 claude tty  [pending]  route side-1 ░░░░░  18%                        │
-│ │ PTY pty/02  PID 4380   TASK review diff                                    │
-│ └ CMD claude -p review diff │ TAIL waiting for review terminal               │
-│ ┌ ○ L3 shell tty   [idle]     route ops    ▓▓▓▓▓ 100%                        │
-│ │ PTY pty/ops  PID 4412   TASK cargo test                                    │
-│ └ CMD cargo test │ TAIL last run green; no failures cached                   │
-│                                                                              │
-│                                                                              │
-│                                                                              │
+│ ┌ ● L1 codex tty   [in_prog]  TRANSPORT template STATE testing               │
+│ │ PTY pty/01  PID ----   ATTACH /lane tmux L1                                │
+│ └ CMD codex exec test fixes │ TASK test fixes                                │
+│   NEXT watch or attach with `/lane tmux L1`; stop with `/lane stop L1` if    │
+│   tail patched failing tests; rer │ artifact none                            │
+│ ┌ ◆ L2 claude tty  [attach]   TRANSPORT tmux     STATE needs input           │
+│ │ PTY pty/02  PID ----   ATTACH tmux attach -t robocode-c4f2b7e-l2           │
+│ └ CMD claude -p review diff │ TASK review diff                               │
+│   NEXT watch or attach with `tmux attach -t robocode-c4f2b7e-l2`; stop wi    │
+│   tail tmux session ready; review │ artifact none                            │
+│ ┌ ○ L3 shell tty   [idle]     TRANSPORT shell    STATE done                  │
+│ │ PTY pty/ops  PID ----   ATTACH /lane tmux L3                               │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ LIVE OUTPUT ─────────────────────────────────────────────────────────── tail ┐
-│ MUX side-1 tails pty/01 pty/02 pty/ops │ CONTROL inspect stop route          │
-│ L1 codex tty  [in_prog]  ▓▓▓░░ │ pty/01 :: patched failing tests; rerunning  │
-│ L2 claude tty [pending]  ░░░░░ │ pty/02 :: waiting for review terminal       │
-│ L3 shell tty  [idle]     ▓▓▓▓▓ │ pty/ops :: last run green; no failures cach │
-│ M0 cockpit    [waiting]  ░░░░░ │ gate :: approval write_file                 │
+│ LANES tail persisted logs │ CONTROL inspect stop route                       │
+│ L1 codex tty  [in_prog]  ▓▓▓░░ │ /lane tmux L1 :: patched failing tests; rer │
+│ L2 claude tty [attach]   ▓░░░░ │ tmux attach -t robocode-c4f2b7e-l2 :: tmux  │
+│ L3 shell tty  [idle]     ▓▓▓▓▓ │ /lane tmux L3 :: last run green; no failure │
+│                                                                              │
 │                                                                              │
 │                                                                              │
 │                                                                              │
@@ -28,13 +28,13 @@
 ┌ SIDE STATUS ───────────────────────────────────────────────────── Configured ┐
 │ PROVIDER  openai / gpt-4o                                                    │
 │ WORKSPACE ~/projects/robocode                                                │
-│ SCREENS   main online   side-1 live   side-2 ops   lanes 2/3                 │
-│ HEALTH    412 ms   TPS 29.3   ▓▓▓▓▓▓░░ 77%                                   │
-│ CONTEXT   128k / 27%   EVENTS 8   CACHE hit 73%                              │
+│ SCREENS   main online   side-1 launched:4101   side-2 launched:4102   lanes  │
+│ TELEMETRY not sampled   EVENTS 8                                             │
+│ CONTEXT   128k   DIAGNOSTICS 0                                               │
 │ DIAG      ok   THEME aurora-cyan                                             │
 │                                                                              │
 │                                                                              │
 │                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED SES c4f2b7e  TOK 0.2k    L2                               ? help │
+│ ● CONNECTED SES c4f2b7e  EVT 8   L2                                   ? help │

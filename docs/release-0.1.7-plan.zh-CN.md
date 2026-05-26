@@ -7,6 +7,16 @@
 相关 adapter 记录：
 [codex-app-server-adapter.zh-CN.md](codex-app-server-adapter.zh-CN.md)
 
+参考来源确认：
+
+- [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) 是
+  host-delegate workflow 的产品参考：主 coding agent 通过 command/plugin
+  surface 调用 Codex，跟踪后台 job，并让 operator 在不切换工具的情况下查看
+  status、result、cancel 和 setup。
+- [OpenAI Codex app-server](https://developers.openai.com/codex/app-server) 是
+  protocol reference，用于获取结构化 thread/turn/event evidence，而不是只依赖
+  terminal scraping。
+
 ## 目标
 
 `0.1.7` 的目标是继续优化真实编程体验，把 0.1.6 建立起来的 TUI cockpit、
@@ -312,8 +322,11 @@ backend。
   resume/session hints 和 touched-file evidence，所以 `/agent status` 与
   `/agent result <id>` 能在可用时显示 `codex resume ...` 和相关文件。
 - 已落地：TUI workspace snapshot 会读取 tracked Codex jobs，所以主窗口
-  `LIVE ACTIVITY` strip 和右栏 `ACTIVE TASKS` panel 会显示正在运行的 Codex 工作，
+  `OPERATION CENTER` 区域和右栏 `ACTIVE TASKS` panel 会显示正在运行的 Codex 工作，
   不再让用户提交后猜远端是否还在工作。
+- 已落地：主窗口 `OPERATION CENTER` 固定在 transcript 顶部，并标出 evidence
+  source，所以 provider turn、approval、lane、tool call 和 Codex job 都会先于 raw
+  transcript history 可见。
 - 已落地：`/extensions doctor` 和 `/mcp doctor` 会按 surface 输出 readiness，
   包括 provider plugin dirs、MCP config files 和 server names、project/user/legacy
   skill roots，以及 permission boundary 提醒。

@@ -7,6 +7,17 @@ Last updated: 2026-05-26
 Related adapter note:
 [codex-app-server-adapter.md](codex-app-server-adapter.md)
 
+Reference check:
+
+- [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) is the
+  product reference for the host-delegate workflow: a host coding agent invokes
+  Codex through command/plugin surfaces, tracks background jobs, and lets the
+  operator inspect status, results, cancellation, and setup without switching
+  tools.
+- [OpenAI Codex app-server](https://developers.openai.com/codex/app-server) is
+  the protocol reference for structured thread/turn/event evidence instead of
+  relying only on terminal scraping.
+
 ## Goal
 
 `0.1.7` should continue improving the real programming experience and turn the
@@ -344,8 +355,11 @@ Current implementation status:
   `/agent status` and `/agent result <id>` can show `codex resume ...` and
   related files when available.
 - Landed: the TUI workspace snapshot reads tracked Codex jobs so the main
-  `LIVE ACTIVITY` strip and right-rail `ACTIVE TASKS` panel show active Codex
-  work instead of leaving the user guessing after submission.
+  `OPERATION CENTER` band and right-rail `ACTIVE TASKS` panel show active
+  Codex work instead of leaving the user guessing after submission.
+- Landed: the main `OPERATION CENTER` is fixed at the top of the transcript and
+  labels its evidence source, so provider turns, approvals, lanes, tool calls,
+  and Codex jobs are visible before raw transcript history.
 - Landed: `/extensions doctor` and `/mcp doctor` now report readiness by
   surface, including provider plugin dirs, MCP config files and server names,
   project/user/legacy skill roots, and permission boundary reminders.

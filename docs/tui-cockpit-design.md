@@ -144,10 +144,11 @@ after the Claude Code Codex plugin pattern:
 - The composer uses display-width aware text handling for CJK input, keeps a
   native blinking bar cursor visible in the input row, and reserves a taller
   input well so the prompt remains easy to find during long sessions.
-- The main transcript reserves a `LIVE ACTIVITY` strip. It derives status from
-  pending approvals, active lanes, the latest user turn, the latest tool call,
-  or the latest transcript entry, so the main screen can show `Thinking...`,
-  compact edit summaries, and lane progress without inventing runtime data.
+- The main transcript reserves a fixed `OPERATION CENTER` band at the top. It
+  derives status from pending approvals, active lanes, Codex job records, the
+  latest user turn, the latest tool call, or the latest transcript entry, so
+  the main screen can show `Thinking...`, compact edit summaries, lane
+  progress, and evidence source without inventing runtime data.
 - The slash palette is local UI state; model calls are not involved. It now
   supports nested suggestions for `/lane`, `/agent`, `/extensions`, `/mcp`,
   `/skills`, `/screen`, `/provider`, `/lsp`, `/task`, `/memory`, and `/git`,
@@ -183,7 +184,7 @@ after the Claude Code Codex plugin pattern:
   Codex jobs keep a start-time Git status baseline and extract
   resume/session hints plus touched-file evidence from result/log output, so
   status/result views can show `codex resume ...` and related files when
-  available. The main `LIVE ACTIVITY` strip and right-rail `ACTIVE TASKS`
+  available. The main `OPERATION CENTER` band and right-rail `ACTIVE TASKS`
   panel read the same job records, so active Codex work is visible while the
   operator keeps typing. ACP readiness is configured through
   `ROBOCODE_AGENT_ACP_COMMAND`; `/agent doctor acp` can run a minimal JSON-RPC

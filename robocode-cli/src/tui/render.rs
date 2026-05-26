@@ -12,6 +12,7 @@ use super::{
     topbar::{render_ops_top_bar, render_side_top_bar, render_top_bar},
     transcript::transcript_rows,
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MIN_WIDTH: usize = 80;
 const MIN_HEIGHT: usize = 24;
@@ -103,21 +104,25 @@ fn render_compact_body(frame: &mut Frame, state: &TuiState) {
 }
 
 fn main_transcript_rows(state: &TuiState, width: usize, max_rows: usize) -> Vec<String> {
-    let activity = live_activity_rows(state, width);
+    let activity = operation_center_rows(state, width);
     let activity_rows = activity.len() + 1;
     let transcript_limit = max_rows.saturating_sub(activity_rows).max(1);
-    let mut rows = recent_rows(transcript_rows(state, width), transcript_limit);
+    let mut rows = activity;
     rows.push(activity_separator(width));
-    rows.extend(activity);
+    rows.extend(recent_rows(transcript_rows(state, width), transcript_limit));
     rows
 }
 
-fn live_activity_rows(state: &TuiState, width: usize) -> Vec<String> {
+fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
     let status = live_activity_status(state);
     let mut rows = vec![truncate(
-        &format!("  ◉ LIVE ACTIVITY  {}", status.summary),
+        &format!("  ◎ OPERATION CENTER  {}", status.summary),
         width,
     )];
+    rows.push(truncate(
+        &format!("     ┊  evidence: {}", status.evidence),
+        width,
+    ));
     rows.extend(
         status
             .details
@@ -138,7 +143,8 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
     {
         return LiveActivityStatus {
             summary: "approval waiting".to_string(),
-            details: vec![compact_activity_detail(&approval.body)],
+            evidence: "pending approval transcript".to_string(),
+            details: vec![compact_approval_detail(&approval.body)],
         };
     }
 
@@ -155,6 +161,7 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
     if !active_lanes.is_empty() {
         return LiveActivityStatus {
             summary: format!("{} active lane(s)", active_lanes.len()),
+            evidence: "lane runtime".to_string(),
             details: active_lanes
                 .into_iter()
                 .map(|lane| {
@@ -177,14 +184,16 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
     if !active_agent_jobs.is_empty() {
         return LiveActivityStatus {
             summary: format!("{} active Codex job(s)", active_agent_jobs.len()),
+            evidence: "codex job store".to_string(),
             details: active_agent_jobs
                 .into_iter()
                 .map(|job| {
                     format!(
-                        "{} {} {} pid={} {}",
+                        "{} {} {} updated {} pid={} {}",
                         job.id,
                         job.kind,
                         job.status,
+                        relative_millis(job.updated_at),
                         job.pid
                             .map(|pid| pid.to_string())
                             .unwrap_or_else(|| "-".to_string()),
@@ -202,6 +211,7 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
     {
         return LiveActivityStatus {
             summary: "Thinking...".to_string(),
+            evidence: "latest user prompt".to_string(),
             details: vec![format!(
                 "{} / {} is processing the latest prompt",
                 state.provider, state.model
@@ -212,6 +222,7 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
     if let Some(entry) = state.entries.last() {
         return LiveActivityStatus {
             summary: compact_activity_label(entry.label.as_str()).to_string(),
+            evidence: "latest transcript event".to_string(),
             details: vec![compact_activity_detail(&entry.body)],
         };
     }
@@ -226,6 +237,7 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
     };
     LiveActivityStatus {
         summary: provider_state,
+        evidence: "provider telemetry".to_string(),
         details: vec![format!("{} / {}", state.provider, state.model)],
     }
 }
@@ -255,6 +267,23 @@ fn compact_activity_detail(body: &str) -> String {
     detail
 }
 
+fn compact_approval_detail(body: &str) -> String {
+    let tool = body
+        .lines()
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("Permission request for `")
+                .and_then(|rest| rest.split_once('`').map(|(tool, _)| tool.to_string()))
+        })
+        .unwrap_or_else(|| "tool".to_string());
+    let scope = body
+        .lines()
+        .find(|line| line.trim_start().starts_with("path: "))
+        .map(|line| format!(" for {}", line.trim_start().trim_start_matches("path: ")))
+        .unwrap_or_default();
+    format!("Waiting for {tool} approval{scope}")
+}
+
 fn activity_separator(width: usize) -> String {
     truncate(
         &format!("     ┊  {}", "┄".repeat(width.saturating_sub(8).min(88))),
@@ -264,7 +293,25 @@ fn activity_separator(width: usize) -> String {
 
 struct LiveActivityStatus {
     summary: String,
+    evidence: String,
     details: Vec<String>,
+}
+
+fn relative_millis(updated_at: u128) -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(updated_at);
+    let elapsed = now.saturating_sub(updated_at);
+    if elapsed < 1_000 {
+        "now".to_string()
+    } else if elapsed < 60_000 {
+        format!("{}s ago", elapsed / 1_000)
+    } else if elapsed < 3_600_000 {
+        format!("{}m ago", elapsed / 60_000)
+    } else {
+        format!("{}h ago", elapsed / 3_600_000)
+    }
 }
 
 fn recent_rows(mut rows: Vec<String>, max_rows: usize) -> Vec<String> {
@@ -472,8 +519,9 @@ mod tests {
 
         let rendered = render_frame(&state, 140, 36);
 
-        assert!(rendered.contains("LIVE ACTIVITY"));
+        assert!(rendered.contains("OPERATION CENTER"));
         assert!(rendered.contains("Thinking..."));
+        assert!(rendered.contains("evidence: latest user prompt"));
         assert!(rendered.contains("deepseek / deepseek-v4-flash is processing"));
     }
 
@@ -488,8 +536,9 @@ mod tests {
 
         let lane_rendered = render_frame(&state, 140, 36);
 
-        assert!(lane_rendered.contains("LIVE ACTIVITY"));
+        assert!(lane_rendered.contains("OPERATION CENTER"));
         assert!(lane_rendered.contains("active lane(s)"));
+        assert!(lane_rendered.contains("evidence: lane runtime"));
         assert!(lane_rendered.contains("L1 running"));
 
         state.lanes.clear();
@@ -514,7 +563,8 @@ mod tests {
         let rendered = render_frame(&state, 140, 36);
 
         assert!(rendered.contains("active Codex job(s)"));
-        assert!(rendered.contains("codex-123 run running"));
+        assert!(rendered.contains("evidence: codex job store"));
+        assert!(rendered.contains("codex-123 run running updated"));
         assert!(rendered.contains("◉ codex running"));
         assert!(rendered.contains("review payment"));
     }
@@ -648,7 +698,8 @@ mod tests {
             first_content.contains("USER")
                 || first_content.contains("ASSISTANT")
                 || first_content.contains("TOOL")
-                || first_content.contains("APPROVAL"),
+                || first_content.contains("APPROVAL")
+                || first_content.contains("OPERATION CENTER"),
             "{first_content}"
         );
     }

@@ -189,6 +189,7 @@ live in the docs:
 - [TUI Cockpit Design](docs/tui-cockpit-design.md)
 - [0.1.6 Release Status](docs/release-0.1.6-status.md)
 - [0.1.6 Plan](docs/release-0.1.6-plan.md)
+- [0.1.7 Plan: Codex Adapter + Agent Orchestration Backbone](docs/release-0.1.7-plan.md)
 - [Development Standards](docs/development-standards.md)
 
 Maintainers can build a release archive locally with:

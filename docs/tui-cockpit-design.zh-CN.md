@@ -123,9 +123,10 @@ Codex 插件的模式：
 - 行级 diff 渲染避免输入时整屏闪烁。
 - composer 已按显示宽度处理中文等 CJK 输入；输入行保持原生 blinking bar
   cursor，并预留更高输入槽，让长会话里也容易找到输入位置。
-- 主 transcript 会保留 `LIVE ACTIVITY` 区域。它从 pending approvals、active
-  lanes、最近 user turn、最近 tool call 或最近 transcript entry 推导状态，所以
-  主屏可以展示 `Thinking...`、紧凑 edit 摘要和 lane progress，同时不编造运行时数据。
+- 主 transcript 顶部会保留固定的 `OPERATION CENTER` 区域。它从 pending
+  approvals、active lanes、Codex job records、最近 user turn、最近 tool call 或
+  最近 transcript entry 推导状态，所以主屏可以展示 `Thinking...`、紧凑 edit
+  摘要、lane progress 和 evidence source，同时不编造运行时数据。
 - slash 提示列表是本地 UI 状态，不触发模型调用。它现在支持 `/lane`、
   `/agent`、`/extensions`、`/mcp`、`/skills`、`/screen`、`/provider`、`/lsp`、
   `/task`、`/memory` 和 `/git` 的二级提示；
@@ -152,7 +153,7 @@ Codex 插件的模式：
   `--write` 必须显式传入，并且会先经过 RoboCode mutating permission prompt，
   approval 后才让 Codex 以 `workspace-write` sandbox 启动。Codex jobs 会保存启动时 Git status baseline，并从 result/log output 中提取
   resume/session hints 和 touched-file evidence，所以 status/result 视图能在可用时显示
-  `codex resume ...` 和相关文件。主窗口 `LIVE ACTIVITY` strip 和右栏
+  `codex resume ...` 和相关文件。主窗口 `OPERATION CENTER` 区域和右栏
   `ACTIVE TASKS` panel 会读取同一份 job records，所以 operator 继续输入时也能看到
   Codex 是否仍在工作。ACP readiness 通过 `ROBOCODE_AGENT_ACP_COMMAND` 配置；`/agent doctor acp`
   可以运行最小 JSON-RPC `initialize` handshake，并写入

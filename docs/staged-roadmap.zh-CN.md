@@ -110,8 +110,12 @@ Mainline landed：
 
 Next planned：
 
-- 以 `docs/release-0.1.6-plan.zh-CN.md` 完成 live coding cockpit 与 agent extension foundation
-- 以 `docs/release-0.1.7-plan.zh-CN.md` 推进 programming experience、agent lane lifecycle、extension system 可用化和 ACP adapter spike
+- 以 `docs/release-0.1.7-plan.zh-CN.md` 作为当前下一迭代核心：
+  Codex Adapter + Agent Orchestration Backbone
+- 实现 Host-Delegate Agent Bridge 闭环：RoboCode host -> delegate agent ->
+  observable job -> evidence -> operator decision
+- 围绕这个核心继续推进 programming experience、agent lane lifecycle、
+  extension diagnostics 可用化和 ACP adapter spike
 - 完成扩展 provider 矩阵的 compatibility coverage，并以 DeepSeek V4 作为严格兼容合同
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。
