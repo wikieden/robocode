@@ -67,6 +67,8 @@ TUI 到各个终端里猜状态。
   - side-1 优先展示 agent lanes、transport、state、latest output 和 next action。
     **状态：side-1 lane transport/state 行已落地。**
   - side-2 优先展示 tests、LSP、MCP/context、plugin health 和 evidence。
+    **状态：tests/LSP、MCP/context、extensions、recent evidence 的真实 ops
+    面板初版已落地。**
 
 ### P2：Spike，不作为发布硬门槛
 

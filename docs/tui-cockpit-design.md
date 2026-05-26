@@ -155,6 +155,13 @@ route hints so the main agent can decide follow-up actions.
   the compact status visible through `/status`.
 - The main screen polls lane artifacts while idle, so background `/lane run`
   completion, failure, and log-tail state appear without a keypress.
+- Side screen 2 is the ops/evidence cockpit. It renders `TESTS / LSP`,
+  `MCP / CONTEXT`, `EXTENSIONS`, and `RECENT EVIDENCE` panels. Test rows are
+  parsed from real `/test` transcript evidence, LSP rows use
+  `WorkspaceSnapshot.diagnostics`, MCP rows inspect workspace/user config file
+  paths, extension rows summarize provider/catalog/lane/MCP/skill readiness,
+  and evidence rows show recent lane/tool/test artifacts instead of generic
+  chat summaries.
 - The right-rail `ACTIVE TASKS` panel reads the real workflow task store exposed
   by `/task` and `/tasks`, then combines those task records with pending
   approvals and active lanes.

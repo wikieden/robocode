@@ -129,6 +129,11 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   summary、可能失败文件和 output tail，并通过 `/status` 展示紧凑状态。
 - 主屏 idle 时会轮询 lane artifacts，所以后台 `/lane run` 的完成、失败和
   log-tail 状态不需要按键也会刷新。
+- 副屏 2 是 ops/evidence cockpit。它渲染 `TESTS / LSP`、`MCP / CONTEXT`、
+  `EXTENSIONS` 和 `RECENT EVIDENCE` 面板。测试行来自真实 `/test` transcript
+  evidence，LSP 行读取 `WorkspaceSnapshot.diagnostics`，MCP 行检查 workspace/user
+  config 文件路径，extension 行汇总 provider/catalog/lane/MCP/skill readiness，
+  evidence 行展示最近 lane/tool/test artifacts，而不是普通聊天摘要。
 - 右侧栏 `ACTIVE TASKS` 面板会读取 `/task` 和 `/tasks` 背后的真实 workflow
   task store，并把这些 task record 与 pending approval、active lane 合并展示。
 - live 副屏只读取持久化 lane 状态；如果没有 lane store，会显示空状态，而不

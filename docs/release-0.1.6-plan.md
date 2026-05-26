@@ -71,6 +71,8 @@ Version theme:
   - side-1 prioritizes agent lanes, transport, state, latest output, and next
     action. **Status: transport/state rows shipped for side-1 lanes.**
   - side-2 prioritizes tests, LSP, MCP/context, plugin health, and evidence.
+    **Status: initial real ops panels shipped for tests/LSP, MCP/context,
+    extensions, and recent evidence.**
 
 ### P2: Spike, Not Release-Critical
 

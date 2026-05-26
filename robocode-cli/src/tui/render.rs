@@ -755,7 +755,8 @@ mod tests {
         assert_no_visual_regressions(&ops);
         assert!(main.contains("[PERMISSIONS"));
         assert!(side.contains("[FOCUS tail]"));
-        assert!(ops.contains("diagnostics unavailable"));
+        assert!(ops.contains("TESTS / LSP"));
+        assert!(ops.contains("LSP     0 diagnostic(s)"));
     }
 
     #[test]
@@ -806,13 +807,14 @@ mod tests {
 
         assert!(rendered.contains("SIDE-2"));
         assert!(rendered.contains("[LINK side-1]"));
-        assert!(rendered.contains("WORKSPACE"));
-        assert!(rendered.contains("LSP / BUILD"));
-        assert!(rendered.contains("RECENT EVENTS"));
-        assert!(rendered.contains("PROVIDER HEALTH"));
-        assert!(rendered.contains("side-2"));
+        assert!(rendered.contains("TESTS / LSP"));
+        assert!(rendered.contains("MCP / CONTEXT"));
+        assert!(rendered.contains("EXTENSIONS"));
+        assert!(rendered.contains("RECENT EVIDENCE"));
+        assert!(rendered.contains("workspace"));
         assert!(rendered.contains("files 128"));
-        assert!(rendered.contains("diagnostics unavailable"));
+        assert!(rendered.contains("TEST    no /test evidence yet"));
+        assert!(rendered.contains("LSP     0 diagnostic(s)"));
         assert!(rendered.contains("auto-checks or /lsp diagnostics"));
         assert!(rendered.contains("L1 codex tty"));
         assert!(rendered.contains("L2 claude tty"));
