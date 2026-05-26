@@ -12,6 +12,13 @@ use super::terminal::TerminalGuard;
 
 const APPROVAL_RIGHT_RAIL_WIDTH: usize = 38;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApprovalKeyEffect {
+    None,
+    Redraw,
+    Resolve(bool),
+}
+
 pub(super) fn close_focus_on_escape(key: KeyEvent, state: &mut TuiState) -> bool {
     if key.code != KeyCode::Esc || state.focused_lane.is_none() {
         return false;
@@ -65,40 +72,46 @@ fn handle_approval_key(
     state: &mut TuiState,
     terminal: &mut TerminalGuard,
 ) -> Option<ApprovalResponse> {
-    match key.code {
-        KeyCode::Char('y') | KeyCode::Char('Y') => {
-            Some(resolve_approval(true, prompt, state, terminal))
-        }
-        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-            Some(resolve_approval(false, prompt, state, terminal))
-        }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(resolve_approval(false, prompt, state, terminal))
-        }
-        KeyCode::Char(' ') => {
-            state.approval_apply_all = !state.approval_apply_all;
+    match apply_approval_key(key, state) {
+        ApprovalKeyEffect::None => None,
+        ApprovalKeyEffect::Redraw => {
             let _ = terminal.draw(state);
             None
+        }
+        ApprovalKeyEffect::Resolve(approved) => {
+            Some(resolve_approval(approved, prompt, state, terminal))
+        }
+    }
+}
+
+fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> ApprovalKeyEffect {
+    match key.code {
+        KeyCode::Char('y') | KeyCode::Char('Y') => ApprovalKeyEffect::Resolve(true),
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => ApprovalKeyEffect::Resolve(false),
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            ApprovalKeyEffect::Resolve(false)
+        }
+        KeyCode::Char(' ') => {
+            if focused_approval_action(state) != ApprovalAction::ToggleApplyAll {
+                return ApprovalKeyEffect::None;
+            }
+            state.approval_apply_all = !state.approval_apply_all;
+            ApprovalKeyEffect::Redraw
         }
         KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
             move_approval_focus(state, 1);
-            let _ = terminal.draw(state);
-            None
+            ApprovalKeyEffect::Redraw
         }
         KeyCode::BackTab | KeyCode::Left | KeyCode::Up => {
             move_approval_focus(state, -1);
-            let _ = terminal.draw(state);
-            None
+            ApprovalKeyEffect::Redraw
         }
-        KeyCode::Enter => {
-            activate_approval_action(focused_approval_action(state), prompt, state, terminal)
-        }
+        KeyCode::Enter => apply_approval_action(focused_approval_action(state), state),
         KeyCode::Char('d') | KeyCode::Char('D') => {
             set_approval_focus_for_action(state, ApprovalAction::Diff);
-            let _ = terminal.draw(state);
-            None
+            ApprovalKeyEffect::Redraw
         }
-        _ => None,
+        _ => ApprovalKeyEffect::None,
     }
 }
 
@@ -137,18 +150,27 @@ fn activate_approval_action(
     state: &mut TuiState,
     terminal: &mut TerminalGuard,
 ) -> Option<ApprovalResponse> {
+    match apply_approval_action(action, state) {
+        ApprovalKeyEffect::None => None,
+        ApprovalKeyEffect::Redraw => {
+            let _ = terminal.draw(state);
+            None
+        }
+        ApprovalKeyEffect::Resolve(approved) => {
+            Some(resolve_approval(approved, prompt, state, terminal))
+        }
+    }
+}
+
+fn apply_approval_action(action: ApprovalAction, state: &mut TuiState) -> ApprovalKeyEffect {
     match action {
         ApprovalAction::ToggleApplyAll => {
             state.approval_apply_all = !state.approval_apply_all;
-            let _ = terminal.draw(state);
-            None
+            ApprovalKeyEffect::Redraw
         }
-        ApprovalAction::Deny => Some(resolve_approval(false, prompt, state, terminal)),
-        ApprovalAction::Approve => Some(resolve_approval(true, prompt, state, terminal)),
-        ApprovalAction::Diff => {
-            let _ = terminal.draw(state);
-            None
-        }
+        ApprovalAction::Deny => ApprovalKeyEffect::Resolve(false),
+        ApprovalAction::Approve => ApprovalKeyEffect::Resolve(true),
+        ApprovalAction::Diff => ApprovalKeyEffect::Redraw,
     }
 }
 
@@ -232,5 +254,36 @@ mod tests {
 
         assert!(!close_focus_on_escape(key(KeyCode::Esc), &mut state));
         assert!(should_exit(key(KeyCode::Esc)));
+    }
+
+    #[test]
+    fn approval_space_toggles_apply_all_only_when_checkbox_is_focused() {
+        let mut state = state_with_focus();
+        state.approval_focus = DEFAULT_APPROVAL_FOCUS;
+
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Char(' ')), &mut state),
+            ApprovalKeyEffect::None
+        );
+        assert!(!state.approval_apply_all);
+
+        set_approval_focus_for_action(&mut state, ApprovalAction::ToggleApplyAll);
+
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Char(' ')), &mut state),
+            ApprovalKeyEffect::Redraw
+        );
+        assert!(state.approval_apply_all);
+    }
+
+    #[test]
+    fn approval_enter_activates_default_approve_focus() {
+        let mut state = state_with_focus();
+        state.approval_focus = DEFAULT_APPROVAL_FOCUS;
+
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Enter), &mut state),
+            ApprovalKeyEffect::Resolve(true)
+        );
     }
 }
