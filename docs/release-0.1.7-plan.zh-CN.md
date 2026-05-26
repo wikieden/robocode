@@ -4,6 +4,9 @@
 
 最后更新：2026-05-26
 
+相关 adapter 记录：
+[codex-app-server-adapter.zh-CN.md](codex-app-server-adapter.zh-CN.md)
+
 ## 目标
 
 `0.1.7` 的目标是继续优化真实编程体验，把 0.1.6 建立起来的 TUI cockpit、
@@ -316,6 +319,8 @@ backend。
   skill roots，以及 permission boundary 提醒。
 - 剩余：native app-server event subscription，以及 Codex 暴露结构化 thread IDs 后的
   更强解析。
+- app-server protocol 调研已记录在
+  [codex-app-server-adapter.zh-CN.md](codex-app-server-adapter.zh-CN.md)。
 
 验收：
 

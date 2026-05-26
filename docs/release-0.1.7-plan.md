@@ -4,6 +4,9 @@ Chinese version: [release-0.1.7-plan.zh-CN.md](release-0.1.7-plan.zh-CN.md)
 
 Last updated: 2026-05-26
 
+Related adapter note:
+[codex-app-server-adapter.md](codex-app-server-adapter.md)
+
 ## Goal
 
 `0.1.7` should continue improving the real programming experience and turn the
@@ -348,6 +351,8 @@ Current implementation status:
   project/user/legacy skill roots, and permission boundary reminders.
 - Remaining: native app-server event subscription and stronger structured
   thread IDs when Codex exposes them.
+- App-server protocol findings are captured in
+  [codex-app-server-adapter.md](codex-app-server-adapter.md).
 
 Acceptance checks:
 
