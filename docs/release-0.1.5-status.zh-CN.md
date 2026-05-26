@@ -14,7 +14,7 @@ release artifacts。
 2. 编程闭环 evidence：local smoke 已通过。
 3. lane operator workflow：shell 和 tmux lane gates 的 local smoke 已通过。
 4. provider compatibility：DeepSeek V4 Flash live smoke 已通过。
-5. release artifact validation：等待最终 GitHub Actions artifact run。
+5. release artifact validation：GitHub Actions artifact run 已通过。
 
 ## Candidate 证据
 
@@ -36,6 +36,10 @@ release artifacts。
   `robocode-cli 0.1.5`。
 - macOS arm64 archive SHA-256：
   `734fe4a266178946b871e10a847ec8ac1f50642e270f708d8446fe5a81315e78`。
+- GitHub Actions release artifact validation 已以 `upload_to_release=false`
+  跑通全部配置目标：`aarch64-apple-darwin`、`x86_64-apple-darwin`、
+  `x86_64-unknown-linux-gnu` 和 `x86_64-pc-windows-msvc`。
+  Run: https://github.com/wikieden/robocode/actions/runs/26430970204。
 
 ## 验证门禁
 
@@ -47,7 +51,6 @@ scripts/release-smoke.sh --version 0.1.5 --skip-package --deepseek --github-acti
 
 最终状态更新需要记录：
 
-- GitHub Actions release artifact validation run URL；
 - 上传 artifacts 的最终 release workflow run URL；
 - 已发布 release URL 和 artifact 列表。
 
@@ -71,5 +74,4 @@ scripts/release-smoke.sh --version 0.1.5 --skip-package --deepseek --github-acti
 
 ## Release 结果
 
-`v0.1.5` 尚未发布。GitHub Actions artifact validation 和 release workflow 完成后，
-需要更新本页。
+`v0.1.5` 尚未发布。最终 release workflow 上传 artifacts 后，需要更新本页。

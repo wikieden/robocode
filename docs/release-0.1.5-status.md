@@ -15,7 +15,7 @@ installable release artifacts.
 2. Coding loop evidence: local smoke passed.
 3. Lane operator workflow: local smoke passed for shell and tmux lane gates.
 4. Provider compatibility: DeepSeek V4 Flash live smoke passed.
-5. Release artifact validation: pending final GitHub Actions artifact run.
+5. Release artifact validation: GitHub Actions artifact run passed.
 
 ## Candidate Evidence
 
@@ -38,6 +38,11 @@ installable release artifacts.
   prints `robocode-cli 0.1.5`.
 - macOS arm64 archive SHA-256:
   `734fe4a266178946b871e10a847ec8ac1f50642e270f708d8446fe5a81315e78`.
+- GitHub Actions release artifact validation passed with
+  `upload_to_release=false` for all configured targets:
+  `aarch64-apple-darwin`, `x86_64-apple-darwin`,
+  `x86_64-unknown-linux-gnu`, and `x86_64-pc-windows-msvc`.
+  Run: https://github.com/wikieden/robocode/actions/runs/26430970204.
 
 ## Validation Gates
 
@@ -49,7 +54,6 @@ scripts/release-smoke.sh --version 0.1.5 --skip-package --deepseek --github-acti
 
 The final status update should record:
 
-- the GitHub Actions release artifact validation run URL;
 - the final release workflow run URL after upload;
 - the published release URL and artifact list.
 
@@ -75,5 +79,5 @@ The final status update should record:
 
 ## Release Outcome
 
-`v0.1.5` is not published yet. This page should be updated after the GitHub
-Actions artifact validation and release workflow complete.
+`v0.1.5` is not published yet. This page should be updated after the final
+release workflow uploads the artifacts.
