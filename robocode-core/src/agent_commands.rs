@@ -9,19 +9,21 @@ struct AgentAdapterDescriptor {
     transport: &'static str,
     entrypoint: &'static str,
     binary: Option<&'static str>,
-    template_env: Option<&'static str>,
-    template_required: bool,
+    config_env: Option<&'static str>,
+    config_label: &'static str,
+    config_required: bool,
 }
 
-const AGENT_ADAPTERS: [AgentAdapterDescriptor; 5] = [
+const AGENT_ADAPTERS: [AgentAdapterDescriptor; 6] = [
     AgentAdapterDescriptor {
         id: "codex",
         display_name: "Codex CLI",
         transport: "template",
         entrypoint: "/lane codex <task>",
         binary: Some("codex"),
-        template_env: Some("ROBOCODE_LANE_CODEX_TEMPLATE"),
-        template_required: true,
+        config_env: Some("ROBOCODE_LANE_CODEX_TEMPLATE"),
+        config_label: "template",
+        config_required: true,
     },
     AgentAdapterDescriptor {
         id: "claude",
@@ -29,8 +31,9 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 5] = [
         transport: "template",
         entrypoint: "/lane claude <task>",
         binary: Some("claude"),
-        template_env: Some("ROBOCODE_LANE_CLAUDE_TEMPLATE"),
-        template_required: true,
+        config_env: Some("ROBOCODE_LANE_CLAUDE_TEMPLATE"),
+        config_label: "template",
+        config_required: true,
     },
     AgentAdapterDescriptor {
         id: "custom-template",
@@ -38,8 +41,9 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 5] = [
         transport: "template",
         entrypoint: "/lane ask <tool> <task>",
         binary: None,
-        template_env: Some("ROBOCODE_LANE_<TOOL>_TEMPLATE"),
-        template_required: false,
+        config_env: Some("ROBOCODE_LANE_<TOOL>_TEMPLATE"),
+        config_label: "template",
+        config_required: false,
     },
     AgentAdapterDescriptor {
         id: "tmux",
@@ -47,8 +51,9 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 5] = [
         transport: "tmux",
         entrypoint: "/lane tmux <lane-id>",
         binary: Some("tmux"),
-        template_env: None,
-        template_required: false,
+        config_env: None,
+        config_label: "template",
+        config_required: false,
     },
     AgentAdapterDescriptor {
         id: "pty",
@@ -56,8 +61,19 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 5] = [
         transport: "pty",
         entrypoint: "/lane pty <lane-id>",
         binary: pty_binary(),
-        template_env: Some("ROBOCODE_LANE_PTY_TEMPLATE"),
-        template_required: false,
+        config_env: Some("ROBOCODE_LANE_PTY_TEMPLATE"),
+        config_label: "template",
+        config_required: false,
+    },
+    AgentAdapterDescriptor {
+        id: "acp",
+        display_name: "ACP agent server",
+        transport: "acp",
+        entrypoint: "/lane acp <agent> <task> (experimental)",
+        binary: None,
+        config_env: Some("ROBOCODE_AGENT_ACP_COMMAND"),
+        config_label: "command",
+        config_required: true,
     },
 ];
 
@@ -131,24 +147,32 @@ fn render_agent_doctor(target: Option<&str>) -> String {
                     "missing"
                 }
             )),
+            None if adapter.id == "acp" => lines.push(
+                "    binary: resolved from ROBOCODE_AGENT_ACP_COMMAND when configured".to_string(),
+            ),
             None => {
                 lines.push("    binary: not required until a custom tool is selected".to_string())
             }
         }
-        match adapter.template_env {
+        match adapter.config_env {
             Some(env_key) if env_key.contains("<TOOL>") => lines.push(format!(
-                "    template: dynamic ({env_key}; resolved from `/lane ask <tool> ...`)"
+                "    {}: dynamic ({env_key}; resolved from `/lane ask <tool> ...`)",
+                adapter.config_label
             )),
-            Some(env_key) if adapter.template_required => lines.push(format!(
-                "    template: {} ({env_key})",
+            Some(env_key) if adapter.config_required => lines.push(format!(
+                "    {}: {} ({env_key})",
+                adapter.config_label,
                 if env_is_configured(env_key) {
                     "configured"
                 } else {
                     "missing"
                 }
             )),
-            Some(env_key) => lines.push(format!("    template: optional override ({env_key})")),
-            None => lines.push("    template: not required".to_string()),
+            Some(env_key) => lines.push(format!(
+                "    {}: optional override ({env_key})",
+                adapter.config_label
+            )),
+            None => lines.push(format!("    {}: not required", adapter.config_label)),
         }
     }
     lines.join("\n")
@@ -164,18 +188,22 @@ fn render_agent_logs_help() -> String {
 }
 
 fn adapter_readiness(adapter: AgentAdapterDescriptor) -> &'static str {
-    let binary_ready = adapter.binary.map(command_exists).unwrap_or(true);
+    let binary_ready = match adapter.binary {
+        Some(binary) => command_exists(binary),
+        None if adapter.config_required => false,
+        None => true,
+    };
     if adapter
-        .template_env
+        .config_env
         .is_some_and(|env_key| env_key.contains("<TOOL>"))
     {
         return "dynamic";
     }
-    let template_ready =
-        !adapter.template_required || adapter.template_env.map(env_is_configured).unwrap_or(true);
-    if binary_ready && template_ready {
+    let config_ready =
+        !adapter.config_required || adapter.config_env.map(env_is_configured).unwrap_or(true);
+    if binary_ready && config_ready {
         "ready"
-    } else if binary_ready || template_ready {
+    } else if binary_ready || config_ready {
         "partial"
     } else {
         "setup needed"

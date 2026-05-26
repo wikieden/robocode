@@ -127,6 +127,7 @@ fn agent_list_reports_builtin_agent_transports() {
                 && text.contains("template")
                 && text.contains("tmux")
                 && text.contains("pty")
+                && text.contains("acp")
     )));
 }
 
@@ -152,6 +153,31 @@ fn agent_doctor_reports_adapter_readiness_without_mutation() {
                 && text.contains("codex")
                 && text.contains("binary:")
                 && text.contains("template:")
+    )));
+}
+
+#[test]
+fn agent_doctor_reports_experimental_acp_readiness() {
+    let home = temp_dir("agent_acp_doctor_home");
+    let cwd = temp_dir("agent_acp_doctor_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/agent doctor acp", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("ACP agent server")
+                && text.contains("transport: acp")
+                && text.contains("ROBOCODE_AGENT_ACP_COMMAND")
+                && text.contains("command: missing")
     )));
 }
 
