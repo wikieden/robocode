@@ -325,8 +325,10 @@ backend。
 - 已落地：`/agent probe codex --thread` 会启动 ephemeral read-only Codex
   app-server thread，并捕获结构化 `threadId` / `thread/started` evidence，
   但不会运行 model turn。
-- 剩余：native app-server turn execution，以及 live Codex jobs 的直接结构化
-  event capture。
+- 已落地：`/agent probe codex --turn <task>` 会启动 read-only app-server turn，
+  并捕获结构化 turn/item/completion event evidence。
+- 剩余：把 native app-server events 映射到 tracked Codex jobs 和 TUI
+  side-screen evidence。
 - app-server protocol 调研已记录在
   [codex-app-server-adapter.zh-CN.md](codex-app-server-adapter.zh-CN.md)。
 

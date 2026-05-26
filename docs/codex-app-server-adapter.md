@@ -70,8 +70,9 @@ RoboCode should map app-server data into the existing host-delegate lifecycle:
 3. Done: `/agent probe codex --thread` declares `experimentalApi`, starts an
    ephemeral read-only Codex thread, captures the structured `threadId`, and
    records `thread/started` evidence without running a model turn.
-4. Implement a read-only `review/start` or `turn/start` spike that writes
-   structured turn events into `.robocode/agents/codex-app-server-*.jsonl`.
+4. Done: `/agent probe codex --turn <task>` starts a read-only turn, records
+   `turn/started`, streamed item notifications, and `turn/completed` evidence in
+   `.robocode/agents/codex-app-server-*.jsonl`.
 5. Map notifications into `AgentJobRecord` updates and side-screen evidence.
 6. Route server approval requests into the existing RoboCode permission path.
 7. Retire text heuristics only after structured `threadId`, file, command, and

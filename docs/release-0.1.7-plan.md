@@ -357,8 +357,10 @@ Current implementation status:
 - Landed: `/agent probe codex --thread` starts an ephemeral read-only Codex
   app-server thread and captures structured `threadId` / `thread/started`
   evidence without running a model turn.
-- Remaining: native app-server turn execution and direct structured event
-  capture for live Codex jobs.
+- Landed: `/agent probe codex --turn <task>` starts a read-only app-server turn
+  and captures structured turn/item/completion event evidence.
+- Remaining: map native app-server events into tracked Codex jobs and TUI
+  side-screen evidence.
 - App-server protocol findings are captured in
   [codex-app-server-adapter.md](codex-app-server-adapter.md).
 

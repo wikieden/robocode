@@ -127,7 +127,7 @@ impl SessionEngine {
             "  /agent doctor [id]",
             "  /agent review codex [--base <ref>] [prompt]",
             "  /agent challenge codex [prompt]",
-            "  /agent probe codex [--thread]",
+            "  /agent probe codex [--thread|--turn <task>]",
             "  /agent run codex [--write] <task>",
             "  /agent status",
             "  /agent result <id>",
@@ -381,8 +381,8 @@ fn handle_codex_challenge_command(cwd: &Path, args: &[String]) -> Result<String,
 
 fn handle_codex_probe_command(cwd: &Path, args: &[String]) -> Result<String, String> {
     ensure_codex_target(args.first().map(String::as_str))?;
-    let start_thread = parse_codex_probe_args(&args[1..])?;
-    let evidence = run_codex_app_server_probe(cwd, &codex_command(), start_thread)?;
+    let mode = parse_codex_probe_args(&args[1..])?;
+    let evidence = run_codex_app_server_probe(cwd, &codex_command(), mode)?;
     let notification_count = evidence.notifications.len();
     let notifications = if evidence.notifications.is_empty() {
         "none".to_string()
@@ -394,31 +394,50 @@ fn handle_codex_probe_command(cwd: &Path, args: &[String]) -> Result<String, Str
         .as_ref()
         .map(|thread_id| format!("  thread: {thread_id}\n"))
         .unwrap_or_default();
+    let turn = evidence
+        .turn_id
+        .as_ref()
+        .map(|turn_id| {
+            let status = evidence.turn_status.as_deref().unwrap_or("unknown");
+            format!("  turn: {turn_id} ({status})\n")
+        })
+        .unwrap_or_default();
     Ok(format!(
-        "Codex app-server probe ok.\n  user_agent: {}\n  codex_home: {}\n  platform: {}\n{}  notifications: {} ({})\n  log: {}",
+        "Codex app-server probe ok.\n  user_agent: {}\n  codex_home: {}\n  platform: {}\n{}{}  notifications: {} ({})\n  log: {}",
         evidence.user_agent,
         evidence.codex_home,
         evidence.platform,
         thread,
+        turn,
         notification_count,
         notifications,
         evidence.log_path.display()
     ))
 }
 
-fn parse_codex_probe_args(args: &[String]) -> Result<bool, String> {
-    let mut start_thread = false;
-    for arg in args {
-        match arg.as_str() {
-            "--thread" => start_thread = true,
+fn parse_codex_probe_args(args: &[String]) -> Result<CodexProbeMode, String> {
+    let mut index = 0;
+    let mut mode = CodexProbeMode::Initialize;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--thread" => mode = CodexProbeMode::Thread,
+            "--turn" => {
+                let task = args[index + 1..].join(" ");
+                if task.trim().is_empty() {
+                    return Err("Usage: /agent probe codex --turn <task>".to_string());
+                }
+                mode = CodexProbeMode::Turn(task);
+                break;
+            }
             other => {
                 return Err(format!(
-                    "Unknown Codex probe option `{other}`. Usage: /agent probe codex [--thread]"
+                    "Unknown Codex probe option `{other}`. Usage: /agent probe codex [--thread|--turn <task>]"
                 ));
             }
         }
+        index += 1;
     }
-    Ok(start_thread)
+    Ok(mode)
 }
 
 fn adapter_readiness(adapter: AgentAdapterDescriptor) -> &'static str {
@@ -521,6 +540,13 @@ struct ParsedCodexReviewArgs {
 struct ParsedCodexRunArgs {
     write: bool,
     task: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CodexProbeMode {
+    Initialize,
+    Thread,
+    Turn(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1187,7 +1213,7 @@ enum CodexDiagnosticReport {
 }
 
 fn codex_diagnostics(cwd: &Path, command: &str) -> CodexDiagnosticReport {
-    let version = match command_output(command, &["--version"], cwd, Duration::from_secs(2)) {
+    let version = match command_output(command, &["--version"], cwd, Duration::from_secs(4)) {
         Ok(output) => first_output_line(&output).unwrap_or_else(|| "unknown".to_string()),
         Err(error) => return CodexDiagnosticReport::Unavailable(error),
     };
@@ -1196,7 +1222,7 @@ fn codex_diagnostics(cwd: &Path, command: &str) -> CodexDiagnosticReport {
         command,
         &["app-server", "--help"],
         cwd,
-        Duration::from_secs(2),
+        Duration::from_secs(4),
     ) {
         Ok(output) if output.contains("app-server") => "ok (codex app-server)".to_string(),
         Ok(output) => format!(
@@ -1206,7 +1232,7 @@ fn codex_diagnostics(cwd: &Path, command: &str) -> CodexDiagnosticReport {
         Err(error) => format!("unavailable ({error})"),
     };
 
-    let auth = match command_output(command, &["login", "status"], cwd, Duration::from_secs(3)) {
+    let auth = match command_output(command, &["login", "status"], cwd, Duration::from_secs(5)) {
         Ok(output) => first_output_line(&output).unwrap_or_else(|| "unknown".to_string()),
         Err(error) => format!("setup needed ({error})"),
     };
@@ -1443,6 +1469,8 @@ struct CodexAppServerProbeEvidence {
     codex_home: String,
     platform: String,
     thread_id: Option<String>,
+    turn_id: Option<String>,
+    turn_status: Option<String>,
     notifications: Vec<String>,
     log_path: PathBuf,
 }
@@ -1450,7 +1478,7 @@ struct CodexAppServerProbeEvidence {
 fn run_codex_app_server_probe(
     cwd: &Path,
     command: &str,
-    start_thread: bool,
+    mode: CodexProbeMode,
 ) -> Result<CodexAppServerProbeEvidence, String> {
     let log_path = codex_app_server_probe_log_path(cwd);
     let request = codex_app_server_initialize_request();
@@ -1485,6 +1513,7 @@ fn run_codex_app_server_probe(
         Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
     };
 
+    let start_thread = !matches!(mode, CodexProbeMode::Initialize);
     let thread_id = if start_thread {
         let request = codex_app_server_thread_start_request(cwd);
         log_entries.push(jsonl_event("client", &request));
@@ -1515,6 +1544,54 @@ fn run_codex_app_server_probe(
         None
     };
 
+    let mut turn_id = None;
+    let mut turn_status = None;
+    if let CodexProbeMode::Turn(task) = &mode {
+        let Some(thread_id) = thread_id.as_deref() else {
+            return Err(finish_failed_probe(
+                child,
+                log_path.clone(),
+                log_entries.clone(),
+                "Codex app-server thread/start did not return a thread id".to_string(),
+            ));
+        };
+        let request = codex_app_server_turn_start_request(cwd, thread_id, task);
+        log_entries.push(jsonl_event("client", &request));
+        if let Err(error) = stdin
+            .write_all(request.as_bytes())
+            .and_then(|_| stdin.write_all(b"\n"))
+            .and_then(|_| stdin.flush())
+        {
+            return Err(finish_failed_probe(
+                child,
+                log_path,
+                log_entries,
+                format!("failed to write Codex app-server turn/start: {error}"),
+            ));
+        }
+        let turn_response = match read_codex_app_server_response(
+            &receiver,
+            3,
+            &mut log_entries,
+            &mut notifications,
+            Duration::from_secs(8),
+        ) {
+            Ok(response) => response,
+            Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
+        };
+        turn_id = json_object_string_field(&turn_response, "turn", "id");
+        turn_status = json_string_field(&turn_response, "status");
+        if let Some(completed) = collect_codex_app_server_notifications(
+            &receiver,
+            &mut log_entries,
+            &mut notifications,
+            Some("turn/completed"),
+            Duration::from_secs(30),
+        ) {
+            turn_status = json_string_field(&completed, "status").or(turn_status);
+        }
+    }
+
     while let Ok(Ok(line)) = receiver.recv_timeout(Duration::from_millis(150)) {
         let line = line.trim();
         if line.is_empty() {
@@ -1537,6 +1614,8 @@ fn run_codex_app_server_probe(
         platform: json_string_field(&response, "platformOs")
             .unwrap_or_else(|| "unknown".to_string()),
         thread_id,
+        turn_id,
+        turn_status,
         notifications,
         log_path,
     })
@@ -1563,7 +1642,7 @@ fn run_acp_initialize_probe(cwd: &Path, command: &str) -> Result<AcpProbeEvidenc
         .and_then(|_| stdin.flush())
         .map_err(|err| format!("failed to write initialize: {err}"))?;
 
-    let response = match read_line_with_timeout(stdout, Duration::from_secs(5)) {
+    let response = match read_line_with_timeout(stdout, Duration::from_secs(8)) {
         Ok(response) => response,
         Err(error) => {
             return Err(finish_failed_probe(
@@ -1716,6 +1795,34 @@ fn read_codex_app_server_response(
     ))
 }
 
+fn collect_codex_app_server_notifications(
+    receiver: &mpsc::Receiver<std::io::Result<String>>,
+    log_entries: &mut Vec<String>,
+    notifications: &mut Vec<String>,
+    until_method: Option<&str>,
+    timeout: Duration,
+) -> Option<String> {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        let remaining = timeout
+            .checked_sub(start.elapsed())
+            .unwrap_or_else(|| Duration::from_millis(1));
+        let line = match receiver.recv_timeout(remaining) {
+            Ok(Ok(line)) if !line.trim().is_empty() => line.trim().to_string(),
+            Ok(Ok(_)) => continue,
+            Ok(Err(_)) | Err(_) => break,
+        };
+        log_entries.push(jsonl_event("server", &line));
+        if let Some(method) = json_string_field(&line, "method") {
+            notifications.push(method.clone());
+            if until_method.is_some_and(|target| target == method) {
+                return Some(line);
+            }
+        }
+    }
+    None
+}
+
 fn read_line_with_timeout(
     stdout: impl std::io::Read + Send + 'static,
     timeout: Duration,
@@ -1760,6 +1867,15 @@ fn codex_app_server_thread_start_request(cwd: &Path) -> String {
     let cwd = escape_json_fragment(&cwd.display().to_string());
     format!(
         r#"{{"id":2,"method":"thread/start","params":{{"model":null,"modelProvider":null,"cwd":"{cwd}","runtimeWorkspaceRoots":["{cwd}"],"approvalPolicy":"never","approvalsReviewer":"user","sandbox":"read-only","permissions":null,"config":null,"serviceName":"robocode","baseInstructions":null,"developerInstructions":null,"personality":null,"ephemeral":true,"sessionStartSource":"startup","threadSource":"subagent","environments":[],"dynamicTools":null,"experimentalRawEvents":false,"persistExtendedHistory":false}}}}"#
+    )
+}
+
+fn codex_app_server_turn_start_request(cwd: &Path, thread_id: &str, task: &str) -> String {
+    let cwd = escape_json_fragment(&cwd.display().to_string());
+    let thread_id = escape_json_fragment(thread_id);
+    let task = escape_json_fragment(task);
+    format!(
+        r#"{{"id":3,"method":"turn/start","params":{{"threadId":"{thread_id}","input":[{{"type":"text","text":"{task}","text_elements":[]}}],"responsesapiClientMetadata":null,"environments":[],"cwd":"{cwd}","runtimeWorkspaceRoots":["{cwd}"],"approvalPolicy":"never","approvalsReviewer":"user","sandboxPolicy":{{"type":"readOnly","networkAccess":false}},"permissions":null,"model":null,"serviceTier":null,"effort":null,"summary":null,"personality":null,"outputSchema":null,"collaborationMode":null}}}}"#
     )
 }
 
@@ -1886,6 +2002,9 @@ const fn pty_binary() -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEMP_ROOT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn codex_run_args_default_to_read_only_and_require_explicit_write() {
@@ -1968,8 +2087,12 @@ mod tests {
         .expect("write mock codex app-server script");
         make_executable(&script);
 
-        let evidence = run_codex_app_server_probe(&root, &script.to_string_lossy(), false)
-            .expect("probe succeeds");
+        let evidence = run_codex_app_server_probe(
+            &root,
+            &script.to_string_lossy(),
+            CodexProbeMode::Initialize,
+        )
+        .expect("probe succeeds");
 
         assert_eq!(evidence.user_agent, "Codex Desktop/mock (robocode; test)");
         assert_eq!(evidence.codex_home, "/tmp/codex-home");
@@ -2008,14 +2131,64 @@ mod tests {
         .expect("write mock codex thread script");
         make_executable(&script);
 
-        let evidence = run_codex_app_server_probe(&root, &script.to_string_lossy(), true)
-            .expect("probe succeeds");
+        let evidence =
+            run_codex_app_server_probe(&root, &script.to_string_lossy(), CodexProbeMode::Thread)
+                .expect("probe succeeds");
 
         assert_eq!(evidence.thread_id, Some("thread_123".to_string()));
         assert_eq!(evidence.notifications, vec!["thread/started".to_string()]);
         let log = fs::read_to_string(evidence.log_path).expect("read jsonl log");
         assert!(log.contains(r#"thread/start"#));
         assert!(log.contains("thread_123"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_app_server_turn_probe_records_turn_evidence() {
+        let root = temp_root("codex_app_server_turn_probe");
+        let script = root.join("mock-codex-turn.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "if [ \"$1\" != \"app-server\" ]; then exit 2; fi",
+                "read init",
+                "printf '%s\\n' '{\"id\":1,\"result\":{\"userAgent\":\"Codex Desktop/mock\",\"codexHome\":\"/tmp/codex-home\",\"platformFamily\":\"unix\",\"platformOs\":\"macos\"}}'",
+                "read thread",
+                "printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread_456\",\"sessionId\":\"thread_456\",\"turns\":[]},\"model\":\"gpt-test\"}}'",
+                "printf '%s\\n' '{\"method\":\"thread/started\",\"params\":{\"thread\":{\"id\":\"thread_456\"}}}'",
+                "read turn",
+                "case \"$turn\" in *'\"method\":\"turn/start\"'*'summarize status'*) ;; *) exit 4 ;; esac",
+                "printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn_456\",\"items\":[],\"itemsView\":\"complete\",\"status\":\"inProgress\",\"error\":null,\"startedAt\":1,\"completedAt\":null,\"durationMs\":null}}}'",
+                "printf '%s\\n' '{\"method\":\"turn/started\",\"params\":{\"threadId\":\"thread_456\",\"turn\":{\"id\":\"turn_456\",\"status\":\"inProgress\"}}}'",
+                "printf '%s\\n' '{\"method\":\"item/agentMessage/delta\",\"params\":{\"threadId\":\"thread_456\",\"turnId\":\"turn_456\",\"delta\":\"ok\"}}'",
+                "printf '%s\\n' '{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread_456\",\"turn\":{\"id\":\"turn_456\",\"status\":\"completed\"}}}'",
+                "sleep 1",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock codex turn script");
+        make_executable(&script);
+
+        let evidence = run_codex_app_server_probe(
+            &root,
+            &script.to_string_lossy(),
+            CodexProbeMode::Turn("summarize status".to_string()),
+        )
+        .expect("probe succeeds");
+
+        assert_eq!(evidence.thread_id, Some("thread_456".to_string()));
+        assert_eq!(evidence.turn_id, Some("turn_456".to_string()));
+        assert_eq!(evidence.turn_status, Some("completed".to_string()));
+        assert!(
+            evidence
+                .notifications
+                .contains(&"item/agentMessage/delta".to_string())
+        );
+        let log = fs::read_to_string(evidence.log_path).expect("read jsonl log");
+        assert!(log.contains(r#"turn/start"#));
+        assert!(log.contains("summarize status"));
+        assert!(log.contains("turn/completed"));
     }
 
     #[test]
@@ -2048,7 +2221,7 @@ mod tests {
     fn acp_initialize_probe_reports_timeout_with_log() {
         let root = temp_root("acp_probe_timeout");
         let script = root.join("silent-acp.sh");
-        fs::write(&script, "#!/bin/sh\nsleep 6\n").expect("write silent acp script");
+        fs::write(&script, "#!/bin/sh\nsleep 10\n").expect("write silent acp script");
         make_executable(&script);
 
         let error = run_acp_initialize_probe(&root, &script.to_string_lossy())
@@ -2162,7 +2335,7 @@ mod tests {
                     .flatten()
                     .is_some_and(|job| job.status == "finished")
             },
-            Duration::from_secs(2),
+            Duration::from_secs(5),
         );
 
         let status = render_codex_job_status(&root).expect("render job status");
@@ -2220,9 +2393,10 @@ mod tests {
 
     fn temp_root(name: &str) -> PathBuf {
         let root = env::temp_dir().join(format!(
-            "robocode-core-{name}-{}-{}",
+            "robocode-core-{name}-{}-{}-{}",
             std::process::id(),
-            timestamp_millis()
+            timestamp_millis(),
+            TEMP_ROOT_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&root).expect("create temp root");
         root
