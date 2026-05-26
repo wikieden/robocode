@@ -25,12 +25,12 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 6] = [
     AgentAdapterDescriptor {
         id: "codex",
         display_name: "Codex CLI",
-        transport: "template",
-        entrypoint: "/lane codex <task>",
+        transport: "app-server",
+        entrypoint: "/agent run codex <task> | /lane codex <task>",
         binary: Some("codex"),
         config_env: Some("ROBOCODE_LANE_CODEX_TEMPLATE"),
         config_label: "template",
-        config_required: true,
+        config_required: false,
     },
     AgentAdapterDescriptor {
         id: "claude",
@@ -92,6 +92,12 @@ impl SessionEngine {
                 args.get(1).map(String::as_str),
                 &self.cwd,
             )),
+            "review" => handle_codex_review_command(&self.cwd, &args[1..]),
+            "challenge" => handle_codex_challenge_command(&self.cwd, &args[1..]),
+            "run" => handle_codex_run_command(&self.cwd, &args[1..]),
+            "status" => render_codex_job_status(&self.cwd),
+            "result" => render_codex_job_result(&self.cwd, args.get(1).map(String::as_str)),
+            "cancel" => cancel_codex_job(&self.cwd, args.get(1).map(String::as_str)),
             "logs" => Ok(render_agent_logs_help()),
             subcommand => Ok(format!(
                 "Unknown agent subcommand `{subcommand}`.\n\n{}",
@@ -105,9 +111,15 @@ impl SessionEngine {
             "Agent commands:",
             "  /agent list",
             "  /agent doctor [id]",
+            "  /agent review codex [--base <ref>] [prompt]",
+            "  /agent challenge codex [prompt]",
+            "  /agent run codex <task>",
+            "  /agent status",
+            "  /agent result <id>",
+            "  /agent cancel <id>",
             "  /agent logs <id>",
             "",
-            "Agent commands are read-only operator views. Use `/lane ...` commands to launch or control lanes.",
+            "Agent commands start and inspect tracked external agent jobs. Use `/lane ...` for terminal lane orchestration.",
         ]
         .join("\n")
     }
@@ -186,6 +198,8 @@ fn render_agent_doctor(target: Option<&str>, cwd: &Path) -> String {
         }
         if adapter.id == "acp" {
             lines.extend(render_acp_probe(cwd));
+        } else if adapter.id == "codex" {
+            lines.extend(render_codex_doctor(cwd));
         }
     }
     lines.join("\n")
@@ -194,10 +208,79 @@ fn render_agent_doctor(target: Option<&str>, cwd: &Path) -> String {
 fn render_agent_logs_help() -> String {
     [
         "Agent logs:",
-        "  /agent logs <id> is reserved for adapter-level logs.",
-        "  Use `/lane inspect <id>` today for lane logs, artifacts, decisions, and transport evidence.",
+        "  /agent result <id> shows tracked Codex job output.",
+        "  Use `/lane inspect <id>` for lane logs, artifacts, decisions, and transport evidence.",
     ]
     .join("\n")
+}
+
+fn handle_codex_review_command(cwd: &Path, args: &[String]) -> Result<String, String> {
+    ensure_codex_target(args.first().map(String::as_str))?;
+    let parsed = parse_codex_review_args(&args[1..])?;
+    let mut command_args = vec!["review".to_string(), "--uncommitted".to_string()];
+    if let Some(base) = parsed.base {
+        command_args.extend(["--base".to_string(), base]);
+    }
+    if !parsed.prompt.is_empty() {
+        command_args.push(parsed.prompt.clone());
+    }
+    start_codex_job(
+        cwd,
+        &codex_command(),
+        CodexJobKind::Review,
+        if parsed.prompt.is_empty() {
+            "Review current working tree".to_string()
+        } else {
+            parsed.prompt
+        },
+        command_args,
+    )
+}
+
+fn handle_codex_challenge_command(cwd: &Path, args: &[String]) -> Result<String, String> {
+    ensure_codex_target(args.first().map(String::as_str))?;
+    let prompt = args[1..].join(" ");
+    let challenge_prompt = if prompt.trim().is_empty() {
+        "Run an adversarial code review. Challenge assumptions, look for regressions, missing tests, and unsafe implementation shortcuts.".to_string()
+    } else {
+        format!(
+            "Run an adversarial code review focused on this request: {}. Challenge assumptions, look for regressions, missing tests, and unsafe implementation shortcuts.",
+            prompt.trim()
+        )
+    };
+    start_codex_job(
+        cwd,
+        &codex_command(),
+        CodexJobKind::Challenge,
+        challenge_prompt.clone(),
+        vec![
+            "review".to_string(),
+            "--uncommitted".to_string(),
+            challenge_prompt,
+        ],
+    )
+}
+
+fn handle_codex_run_command(cwd: &Path, args: &[String]) -> Result<String, String> {
+    ensure_codex_target(args.first().map(String::as_str))?;
+    let task = args[1..].join(" ");
+    if task.trim().is_empty() {
+        return Err("Usage: /agent run codex <task>".to_string());
+    }
+    start_codex_job(
+        cwd,
+        &codex_command(),
+        CodexJobKind::Run,
+        task.clone(),
+        vec![
+            "exec".to_string(),
+            "--cd".to_string(),
+            cwd.display().to_string(),
+            "--sandbox".to_string(),
+            "read-only".to_string(),
+            task,
+        ],
+    )
 }
 
 fn adapter_readiness(adapter: AgentAdapterDescriptor) -> &'static str {
@@ -247,6 +330,591 @@ fn render_acp_probe(cwd: &Path) -> Vec<String> {
     lines
 }
 
+fn render_codex_doctor(cwd: &Path) -> Vec<String> {
+    let mut lines = Vec::new();
+    let command = codex_command();
+    lines.push(format!("    command: {command}"));
+
+    match codex_diagnostics(cwd, &command) {
+        CodexDiagnosticReport::Ready(report) => {
+            lines.push(format!("    version: {}", report.version));
+            lines.push(format!("    app-server: {}", report.app_server));
+            lines.push(format!("    auth: {}", report.auth));
+            lines.push(format!("    config: {}", report.config_sources));
+            lines.push(format!("    jobs: {}", report.job_store.display()));
+            lines.push("    commands: /agent review codex | /agent challenge codex | /agent run codex <task>".to_string());
+            lines.push(
+                "    controls: /agent status | /agent result <id> | /agent cancel <id>".to_string(),
+            );
+        }
+        CodexDiagnosticReport::Unavailable(reason) => {
+            lines.push(format!("    version: unavailable ({reason})"));
+            lines.push("    app-server: skipped".to_string());
+            lines.push("    auth: skipped".to_string());
+            lines.push("    next: install Codex with `npm install -g @openai/codex` or set ROBOCODE_AGENT_CODEX_COMMAND".to_string());
+        }
+    }
+    lines
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedCodexReviewArgs {
+    base: Option<String>,
+    prompt: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CodexJobKind {
+    Review,
+    Challenge,
+    Run,
+}
+
+impl CodexJobKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Review => "review",
+            Self::Challenge => "challenge",
+            Self::Run => "run",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CodexJobRecord {
+    id: String,
+    kind: String,
+    status: String,
+    pid: Option<u32>,
+    command: String,
+    task: String,
+    log_path: PathBuf,
+    result_path: PathBuf,
+    updated_at: u128,
+}
+
+fn ensure_codex_target(target: Option<&str>) -> Result<(), String> {
+    match target {
+        Some("codex") => Ok(()),
+        Some(other) => Err(format!(
+            "Unsupported agent `{other}` for this command. Use `codex`."
+        )),
+        None => Err("Usage: /agent <review|challenge|run> codex ...".to_string()),
+    }
+}
+
+fn parse_codex_review_args(args: &[String]) -> Result<ParsedCodexReviewArgs, String> {
+    let mut base = None;
+    let mut prompt = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--base" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("Usage: /agent review codex [--base <ref>] [prompt]".to_string());
+                };
+                base = Some(value.clone());
+                index += 2;
+            }
+            value => {
+                prompt.push(value.to_string());
+                index += 1;
+            }
+        }
+    }
+    Ok(ParsedCodexReviewArgs {
+        base,
+        prompt: prompt.join(" "),
+    })
+}
+
+fn start_codex_job(
+    cwd: &Path,
+    command: &str,
+    kind: CodexJobKind,
+    task: String,
+    mut args: Vec<String>,
+) -> Result<String, String> {
+    let id = format!("codex-{}", timestamp_millis());
+    let log_path = codex_job_artifact_path(cwd, &id, "log");
+    let result_path = codex_job_artifact_path(cwd, &id, "result.md");
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    if kind == CodexJobKind::Run {
+        let insert_at = args.len().saturating_sub(1);
+        args.insert(insert_at, "-o".to_string());
+        args.insert(insert_at + 1, result_path.display().to_string());
+    }
+    let stdout = fs::File::create(&log_path)
+        .map_err(|err| format!("failed to create Codex job log: {err}"))?;
+    let stderr = stdout
+        .try_clone()
+        .map_err(|err| format!("failed to clone Codex job log: {err}"))?;
+    let mut child = Command::new(command)
+        .args(&args)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
+        .spawn()
+        .map_err(|err| {
+            format!(
+                "failed to launch `{}`: {err}",
+                command_line_owned(command, &args)
+            )
+        })?;
+    let pid = child.id();
+
+    let record = CodexJobRecord {
+        id: id.clone(),
+        kind: kind.as_str().to_string(),
+        status: "running".to_string(),
+        pid: Some(pid),
+        command: command_line_owned(command, &args),
+        task,
+        log_path: log_path.clone(),
+        result_path: result_path.clone(),
+        updated_at: timestamp_millis(),
+    };
+    append_codex_job_record(cwd, "started", &record)?;
+    let monitor_cwd = cwd.to_path_buf();
+    let mut monitor_record = record.clone();
+    std::thread::spawn(move || {
+        let status = child.wait();
+        if find_codex_job(&monitor_cwd, &monitor_record.id)
+            .ok()
+            .flatten()
+            .is_some_and(|job| job.status == "cancelled")
+        {
+            return;
+        }
+        monitor_record.status = match status {
+            Ok(status) if status.success() => "finished".to_string(),
+            Ok(_) | Err(_) => "failed".to_string(),
+        };
+        monitor_record.updated_at = timestamp_millis();
+        let _ = append_codex_job_record(&monitor_cwd, "completed", &monitor_record);
+    });
+
+    Ok(format!(
+        "Started Codex {} job `{}`.\n  pid: {}\n  log: {}\n  result: {}\n\nUse `/agent status` to watch it and `/agent result {}` to read output.",
+        kind.as_str(),
+        id,
+        pid,
+        log_path.display(),
+        result_path.display(),
+        id
+    ))
+}
+
+fn render_codex_job_status(cwd: &Path) -> Result<String, String> {
+    let jobs = latest_codex_jobs(cwd)?;
+    if jobs.is_empty() {
+        return Ok("Codex jobs:\n  no tracked jobs".to_string());
+    }
+    let mut lines = vec![
+        "Codex jobs:".to_string(),
+        "  id                    kind       status       pid     updated     task".to_string(),
+    ];
+    let mut observed = Vec::new();
+    for mut job in jobs.into_iter().rev().take(8) {
+        let observed_status = observed_codex_status(&job);
+        if observed_status != job.status {
+            job.status = observed_status;
+            job.updated_at = timestamp_millis();
+            observed.push(job.clone());
+        }
+        lines.push(format!(
+            "  {:<21} {:<10} {:<12} {:<7} {:<11} {}",
+            job.id,
+            job.kind,
+            job.status,
+            job.pid
+                .map(|pid| pid.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            relative_millis(job.updated_at),
+            truncate_for_line(&job.task, 72)
+        ));
+    }
+    for job in observed {
+        append_codex_job_record(cwd, "observed", &job)?;
+    }
+    Ok(lines.join("\n"))
+}
+
+fn render_codex_job_result(cwd: &Path, id: Option<&str>) -> Result<String, String> {
+    let id = id.ok_or_else(|| "Usage: /agent result <id>".to_string())?;
+    let job = find_codex_job(cwd, id)?.ok_or_else(|| format!("Unknown Codex job `{id}`"))?;
+    let status = observed_codex_status(&job);
+    let result = fs::read_to_string(&job.result_path)
+        .ok()
+        .filter(|content| !content.trim().is_empty())
+        .or_else(|| tail_text(&job.log_path, 60).ok())
+        .unwrap_or_else(|| "No output captured yet.".to_string());
+    Ok(format!(
+        "Codex job `{}`\n  kind: {}\n  status: {}\n  pid: {}\n  command: {}\n  log: {}\n  result: {}\n\n{}",
+        job.id,
+        job.kind,
+        status,
+        job.pid
+            .map(|pid| pid.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        job.command,
+        job.log_path.display(),
+        job.result_path.display(),
+        result.trim()
+    ))
+}
+
+fn cancel_codex_job(cwd: &Path, id: Option<&str>) -> Result<String, String> {
+    let id = id.ok_or_else(|| "Usage: /agent cancel <id>".to_string())?;
+    let mut job = find_codex_job(cwd, id)?.ok_or_else(|| format!("Unknown Codex job `{id}`"))?;
+    if matches!(job.status.as_str(), "cancelled" | "finished") {
+        return Ok(format!("Codex job `{id}` is already {}.", job.status));
+    }
+    let Some(pid) = job.pid else {
+        return Err(format!("Codex job `{id}` has no process id to cancel."));
+    };
+    job.status = "cancelled".to_string();
+    job.updated_at = timestamp_millis();
+    append_codex_job_record(cwd, "cancelled", &job)?;
+    terminate_process(pid)?;
+    Ok(format!("Cancelled Codex job `{id}` (pid {pid})."))
+}
+
+fn codex_command() -> String {
+    env::var("ROBOCODE_AGENT_CODEX_COMMAND")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "codex".to_string())
+}
+
+fn codex_job_artifact_path(cwd: &Path, id: &str, ext: &str) -> PathBuf {
+    cwd.join(".robocode")
+        .join("agents")
+        .join(format!("{id}.{ext}"))
+}
+
+fn append_codex_job_record(cwd: &Path, event: &str, record: &CodexJobRecord) -> Result<(), String> {
+    let path = codex_job_store_path(cwd);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|err| format!("failed to open {}: {err}", path.display()))?;
+    writeln!(
+        file,
+        r#"{{"ts":{},"event":"{}","id":"{}","kind":"{}","status":"{}","pid":{},"command":"{}","task":"{}","log":"{}","result":"{}"}}"#,
+        record.updated_at,
+        escape_json_fragment(event),
+        escape_json_fragment(&record.id),
+        escape_json_fragment(&record.kind),
+        escape_json_fragment(&record.status),
+        record
+            .pid
+            .map(|pid| pid.to_string())
+            .unwrap_or_else(|| "null".to_string()),
+        escape_json_fragment(&record.command),
+        escape_json_fragment(&record.task),
+        escape_json_fragment(&record.log_path.display().to_string()),
+        escape_json_fragment(&record.result_path.display().to_string())
+    )
+    .map_err(|err| format!("failed to write {}: {err}", path.display()))
+}
+
+fn latest_codex_jobs(cwd: &Path) -> Result<Vec<CodexJobRecord>, String> {
+    let path = codex_job_store_path(cwd);
+    let Ok(content) = fs::read_to_string(&path) else {
+        return Ok(Vec::new());
+    };
+    let mut jobs = Vec::<CodexJobRecord>::new();
+    for line in content.lines().filter(|line| !line.trim().is_empty()) {
+        let Some(record) = parse_codex_job_record(line) else {
+            continue;
+        };
+        if let Some(existing) = jobs.iter_mut().find(|job| job.id == record.id) {
+            *existing = record;
+        } else {
+            jobs.push(record);
+        }
+    }
+    jobs.sort_by_key(|job| job.updated_at);
+    Ok(jobs)
+}
+
+fn find_codex_job(cwd: &Path, id: &str) -> Result<Option<CodexJobRecord>, String> {
+    Ok(latest_codex_jobs(cwd)?.into_iter().find(|job| job.id == id))
+}
+
+fn parse_codex_job_record(line: &str) -> Option<CodexJobRecord> {
+    Some(CodexJobRecord {
+        id: json_string_field(line, "id")?,
+        kind: json_string_field(line, "kind")?,
+        status: json_string_field(line, "status")?,
+        pid: json_number_field(line, "pid").and_then(|value| value.parse().ok()),
+        command: json_string_field(line, "command").unwrap_or_default(),
+        task: json_string_field(line, "task").unwrap_or_default(),
+        log_path: PathBuf::from(json_string_field(line, "log")?),
+        result_path: PathBuf::from(json_string_field(line, "result")?),
+        updated_at: json_number_field(line, "ts")?.parse().ok()?,
+    })
+}
+
+fn observed_codex_status(job: &CodexJobRecord) -> String {
+    if matches!(job.status.as_str(), "cancelled" | "failed" | "finished") {
+        return job.status.clone();
+    }
+    match job.pid {
+        Some(pid) if process_is_running(pid) => "running".to_string(),
+        Some(_) => "finished".to_string(),
+        None => job.status.clone(),
+    }
+}
+
+fn process_is_running(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(windows)]
+    {
+        Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}")])
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
+    }
+}
+
+fn terminate_process(pid: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        Command::new("kill")
+            .arg("-TERM")
+            .arg(pid.to_string())
+            .status()
+            .map_err(|err| format!("failed to run kill: {err}"))
+            .and_then(|status| {
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(format!("kill exited with {status}"))
+                }
+            })
+    }
+    #[cfg(windows)]
+    {
+        Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status()
+            .map_err(|err| format!("failed to run taskkill: {err}"))
+            .and_then(|status| {
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(format!("taskkill exited with {status}"))
+                }
+            })
+    }
+}
+
+fn tail_text(path: &Path, max_lines: usize) -> Result<String, String> {
+    let content = fs::read_to_string(path).map_err(|err| err.to_string())?;
+    let lines = content.lines().collect::<Vec<_>>();
+    let start = lines.len().saturating_sub(max_lines);
+    Ok(lines[start..].join("\n"))
+}
+
+fn relative_millis(ts: u128) -> String {
+    let now = timestamp_millis();
+    let elapsed = now.saturating_sub(ts);
+    if elapsed < 1_000 {
+        "now".to_string()
+    } else if elapsed < 60_000 {
+        format!("{}s ago", elapsed / 1_000)
+    } else {
+        format!("{}m ago", elapsed / 60_000)
+    }
+}
+
+fn truncate_for_line(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let truncated = chars.by_ref().take(max_chars).collect::<String>();
+    if chars.next().is_some() {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CodexReadyReport {
+    version: String,
+    app_server: String,
+    auth: String,
+    config_sources: String,
+    job_store: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CodexDiagnosticReport {
+    Ready(CodexReadyReport),
+    Unavailable(String),
+}
+
+fn codex_diagnostics(cwd: &Path, command: &str) -> CodexDiagnosticReport {
+    let version = match command_output(command, &["--version"], cwd, Duration::from_secs(2)) {
+        Ok(output) => first_output_line(&output).unwrap_or_else(|| "unknown".to_string()),
+        Err(error) => return CodexDiagnosticReport::Unavailable(error),
+    };
+
+    let app_server = match command_output(
+        command,
+        &["app-server", "--help"],
+        cwd,
+        Duration::from_secs(2),
+    ) {
+        Ok(output) if output.contains("app-server") => "ok (codex app-server)".to_string(),
+        Ok(output) => format!(
+            "unexpected help output ({})",
+            first_output_line(&output).unwrap_or_else(|| "empty".to_string())
+        ),
+        Err(error) => format!("unavailable ({error})"),
+    };
+
+    let auth = match command_output(command, &["login", "status"], cwd, Duration::from_secs(3)) {
+        Ok(output) => first_output_line(&output).unwrap_or_else(|| "unknown".to_string()),
+        Err(error) => format!("setup needed ({error})"),
+    };
+
+    CodexDiagnosticReport::Ready(CodexReadyReport {
+        version,
+        app_server,
+        auth,
+        config_sources: codex_config_sources(cwd),
+        job_store: codex_job_store_path(cwd),
+    })
+}
+
+fn command_output(
+    command: &str,
+    args: &[&str],
+    cwd: &Path,
+    timeout: Duration,
+) -> Result<String, String> {
+    let mut child = Command::new(command)
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| format!("failed to launch `{}`: {err}", command_line(command, args)))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to capture stdout".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "failed to capture stderr".to_string())?;
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let status = child.wait();
+        let stdout = read_pipe(stdout);
+        let stderr = read_pipe(stderr);
+        let _ = sender.send((status, stdout, stderr));
+    });
+
+    match receiver.recv_timeout(timeout) {
+        Ok((Ok(status), stdout, stderr)) if status.success() => Ok(join_output(stdout, stderr)),
+        Ok((Ok(status), stdout, stderr)) => Err(format!(
+            "`{}` exited with {}; {}",
+            command_line(command, args),
+            status,
+            first_output_line(&join_output(stdout, stderr))
+                .unwrap_or_else(|| "no output".to_string())
+        )),
+        Ok((Err(error), _, _)) => Err(format!(
+            "`{}` wait failed: {error}",
+            command_line(command, args)
+        )),
+        Err(_) => Err(format!("`{}` timed out", command_line(command, args))),
+    }
+}
+
+fn read_pipe(mut pipe: impl std::io::Read) -> String {
+    let mut output = String::new();
+    let _ = pipe.read_to_string(&mut output);
+    output
+}
+
+fn join_output(stdout: String, stderr: String) -> String {
+    match (stdout.trim().is_empty(), stderr.trim().is_empty()) {
+        (false, false) => format!("{}\n{}", stdout.trim(), stderr.trim()),
+        (false, true) => stdout.trim().to_string(),
+        (true, false) => stderr.trim().to_string(),
+        (true, true) => String::new(),
+    }
+}
+
+fn first_output_line(output: &str) -> Option<String> {
+    output
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn command_line(command: &str, args: &[&str]) -> String {
+    std::iter::once(command)
+        .chain(args.iter().copied())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn command_line_owned(command: &str, args: &[String]) -> String {
+    std::iter::once(command.to_string())
+        .chain(args.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn codex_config_sources(cwd: &Path) -> String {
+    let mut sources = Vec::new();
+    let project_config = cwd.join(".codex").join("config.toml");
+    if project_config.exists() {
+        sources.push(format!("project {}", project_config.display()));
+    }
+    if let Some(home) = env::var_os("HOME") {
+        let user_config = PathBuf::from(home).join(".codex").join("config.toml");
+        if user_config.exists() {
+            sources.push(format!("user {}", user_config.display()));
+        }
+    }
+    if sources.is_empty() {
+        "none found (Codex defaults apply)".to_string()
+    } else {
+        sources.join("; ")
+    }
+}
+
+fn codex_job_store_path(cwd: &Path) -> PathBuf {
+    cwd.join(".robocode")
+        .join("agents")
+        .join("codex-jobs.jsonl")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AcpProbeEvidence {
     protocol_version: String,
@@ -275,7 +943,7 @@ fn run_acp_initialize_probe(cwd: &Path, command: &str) -> Result<AcpProbeEvidenc
         .and_then(|_| stdin.flush())
         .map_err(|err| format!("failed to write initialize: {err}"))?;
 
-    let response = match read_line_with_timeout(stdout, Duration::from_secs(2)) {
+    let response = match read_line_with_timeout(stdout, Duration::from_secs(5)) {
         Ok(response) => response,
         Err(error) => {
             return Err(finish_failed_probe(
@@ -527,7 +1195,7 @@ mod tests {
     fn acp_initialize_probe_reports_timeout_with_log() {
         let root = temp_root("acp_probe_timeout");
         let script = root.join("silent-acp.sh");
-        fs::write(&script, "#!/bin/sh\nsleep 3\n").expect("write silent acp script");
+        fs::write(&script, "#!/bin/sh\nsleep 6\n").expect("write silent acp script");
         make_executable(&script);
 
         let error = run_acp_initialize_probe(&root, &script.to_string_lossy())
@@ -535,6 +1203,158 @@ mod tests {
 
         assert!(error.contains("timed out"));
         assert!(error.contains(".robocode/agents/acp-doctor-"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_diagnostics_reports_app_server_auth_and_job_store() {
+        let root = temp_root("codex_doctor_ok");
+        let script = root.join("mock-codex.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "if [ \"$1\" = \"--version\" ]; then",
+                "  echo 'codex-cli 9.9.9'",
+                "elif [ \"$1\" = \"app-server\" ] && [ \"$2\" = \"--help\" ]; then",
+                "  echo 'Usage: codex app-server [OPTIONS]'",
+                "elif [ \"$1\" = \"login\" ] && [ \"$2\" = \"status\" ]; then",
+                "  echo 'Logged in using ChatGPT'",
+                "else",
+                "  echo unexpected \"$@\" >&2",
+                "  exit 2",
+                "fi",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock codex script");
+        make_executable(&script);
+
+        let report = codex_diagnostics(&root, &script.to_string_lossy());
+
+        let CodexDiagnosticReport::Ready(report) = report else {
+            panic!("expected ready Codex report");
+        };
+        assert_eq!(report.version, "codex-cli 9.9.9");
+        assert_eq!(report.app_server, "ok (codex app-server)");
+        assert_eq!(report.auth, "Logged in using ChatGPT");
+        assert!(
+            report
+                .job_store
+                .ends_with(".robocode/agents/codex-jobs.jsonl")
+        );
+    }
+
+    #[test]
+    fn codex_diagnostics_reports_missing_command() {
+        let root = temp_root("codex_doctor_missing");
+
+        let report = codex_diagnostics(&root, "robocode-definitely-missing-codex");
+
+        let CodexDiagnosticReport::Unavailable(reason) = report else {
+            panic!("expected unavailable Codex report");
+        };
+        assert!(reason.contains("failed to launch"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_job_lifecycle_records_result_artifacts() {
+        let root = temp_root("codex_job_lifecycle");
+        let script = root.join("mock-codex-job.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "out=''",
+                "while [ \"$#\" -gt 0 ]; do",
+                "  if [ \"$1\" = \"-o\" ]; then",
+                "    shift",
+                "    out=\"$1\"",
+                "  fi",
+                "  shift || true",
+                "done",
+                "echo 'mock codex log'",
+                "if [ -n \"$out\" ]; then",
+                "  echo 'mock codex result' > \"$out\"",
+                "fi",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock codex job");
+        make_executable(&script);
+
+        let started = start_codex_job(
+            &root,
+            &script.to_string_lossy(),
+            CodexJobKind::Run,
+            "hello from test".to_string(),
+            vec!["exec".to_string(), "hello from test".to_string()],
+        )
+        .expect("start codex job");
+        let id = started
+            .lines()
+            .find_map(|line| line.split('`').nth(1))
+            .expect("job id in output")
+            .to_string();
+
+        wait_until(
+            || {
+                find_codex_job(&root, &id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|job| job.status == "finished")
+            },
+            Duration::from_secs(2),
+        );
+
+        let status = render_codex_job_status(&root).expect("render job status");
+        let result = render_codex_job_result(&root, Some(&id)).expect("render job result");
+
+        assert!(status.contains(&id));
+        assert!(status.contains("finished"));
+        assert!(result.contains("mock codex result"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_job_cancel_records_cancelled_status() {
+        let root = temp_root("codex_job_cancel");
+        let script = root.join("slow-codex-job.sh");
+        fs::write(&script, "#!/bin/sh\nsleep 5\n").expect("write slow codex job");
+        make_executable(&script);
+
+        let started = start_codex_job(
+            &root,
+            &script.to_string_lossy(),
+            CodexJobKind::Review,
+            "slow review".to_string(),
+            vec!["review".to_string()],
+        )
+        .expect("start codex job");
+        let id = started
+            .lines()
+            .find_map(|line| line.split('`').nth(1))
+            .expect("job id in output")
+            .to_string();
+
+        let output = cancel_codex_job(&root, Some(&id)).expect("cancel job");
+        let job = find_codex_job(&root, &id)
+            .expect("read job")
+            .expect("job exists");
+
+        assert!(output.contains("Cancelled Codex job"));
+        assert_eq!(job.status, "cancelled");
+    }
+
+    fn wait_until(predicate: impl Fn() -> bool, timeout: Duration) {
+        let start = SystemTime::now();
+        while start.elapsed().unwrap_or_default() < timeout {
+            if predicate() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     fn temp_root(name: &str) -> PathBuf {

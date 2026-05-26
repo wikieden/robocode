@@ -253,6 +253,18 @@ backend。
 - Codex app-server notifications、final output、touched files、command
   executions、test evidence 和 thread IDs 都持久化为 RoboCode evidence。
 
+当前实现状态：
+
+- 已落地：`/agent doctor codex` 检查 Codex command、version、
+  `app-server` 可用性、auth status、config sources 和 job-store path。
+- 已落地：`/agent review codex`、`/agent challenge codex` 和
+  `/agent run codex <task>` 会启动 tracked Codex CLI jobs，并在
+  `.robocode/agents/` 下记录每个 job 的 log 和 result artifacts。
+- 已落地：`/agent status`、`/agent result <id>` 和 `/agent cancel <id>` 会读取并控制
+  `.robocode/agents/codex-jobs.jsonl` 中的 tracked job records。
+- 剩余：native app-server event subscription、touched-file extraction、
+  thread IDs，以及经过 permission gate 的 write-capable Codex tasks。
+
 验收：
 
 - 可以启动 read-only Codex review，在 TUI 中观察并渲染结果。

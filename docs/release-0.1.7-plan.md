@@ -281,6 +281,18 @@ Deliverables:
 - Codex app-server notifications, final output, touched files, command
   executions, test evidence, and thread IDs are persisted as RoboCode evidence.
 
+Current implementation status:
+
+- Landed: `/agent doctor codex` checks the Codex command, version,
+  `app-server` availability, auth status, config sources, and job-store path.
+- Landed: `/agent review codex`, `/agent challenge codex`, and
+  `/agent run codex <task>` start tracked Codex CLI jobs with per-job log and
+  result artifacts under `.robocode/agents/`.
+- Landed: `/agent status`, `/agent result <id>`, and `/agent cancel <id>` read
+  and control the tracked job records in `.robocode/agents/codex-jobs.jsonl`.
+- Remaining: native app-server event subscription, touched-file extraction,
+  thread IDs, and write-capable permission-gated Codex tasks.
+
 Acceptance checks:
 
 - A read-only Codex review can be started, monitored, and rendered in the TUI.

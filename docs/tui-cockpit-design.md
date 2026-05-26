@@ -138,10 +138,12 @@ route hints so the main agent can decide follow-up actions.
   suggests the active provider's default model. Memory actions use the workflow
   memory snapshot, so `/memory confirm`, `/memory reject`, and `/memory prune`
   suggest relevant memory IDs instead of requiring the operator to copy them
-  manually. Agent and extension commands expose read-only `/agent list`,
-  `/agent doctor`, `/extensions list`, `/extensions doctor`, `/mcp list`,
-  `/mcp doctor`, and `/skills list` suggestions before runtime extension
-  execution moves beyond the shared permission path. Git and LSP path suggestions use the workspace file snapshot
+  manually. Agent and extension commands expose `/agent list`,
+  `/agent doctor`, `/agent review codex`, `/agent challenge codex`,
+  `/agent run codex`, `/agent status`, `/agent result`, `/agent cancel`,
+  `/extensions list`, `/extensions doctor`, `/mcp list`, `/mcp doctor`, and
+  `/skills list` suggestions before runtime extension execution moves beyond
+  the shared permission path. Git and LSP path suggestions use the workspace file snapshot
   collected for the right rail instead of scanning the filesystem while the
   operator types. Git switch and push suggestions use the local branch snapshot
   from the current workspace; git push also uses `git remote` and
@@ -150,9 +152,14 @@ route hints so the main agent can decide follow-up actions.
   worktree remove suggestions use the current `git worktree list --porcelain`
   snapshot.
 - `/agent list` and `/agent doctor` expose template, tmux, PTY,
-  custom-template, and experimental ACP adapters. ACP readiness is configured
-  through `ROBOCODE_AGENT_ACP_COMMAND`; `/agent doctor acp` can run a minimal
-  JSON-RPC `initialize` handshake and writes `.robocode/agents/acp-doctor-*.jsonl`
+  custom-template, Codex, and experimental ACP adapters. Codex readiness checks
+  the local `codex` binary, app-server support, auth, config sources, and job
+  store path. `/agent review codex`, `/agent challenge codex`, and
+  `/agent run codex` create tracked jobs under `.robocode/agents/`; `/agent
+  status`, `/agent result <id>`, and `/agent cancel <id>` inspect and control
+  those jobs. ACP readiness is configured through
+  `ROBOCODE_AGENT_ACP_COMMAND`; `/agent doctor acp` can run a minimal JSON-RPC
+  `initialize` handshake and writes `.robocode/agents/acp-doctor-*.jsonl`
   evidence. Full `/lane acp` execution is still follow-up work.
 - `/test <command>` is a real runtime command, not a visual placeholder. It
   runs through shell approval, records the latest status, exit code, duration,

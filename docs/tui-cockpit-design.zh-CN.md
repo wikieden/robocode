@@ -116,18 +116,23 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   已注册 provider ID 和已知 descriptor 默认模型，`/model` 能提示当前 provider 的
   默认模型。memory 操作会读取 workflow memory snapshot，所以 `/memory confirm`、
   `/memory reject` 和 `/memory prune` 会提示相关 memory ID，不再要求操作者手动
-  复制。Agent 和 extension 命令现在提供只读 `/agent list`、`/agent doctor`、
-  `/extensions list`、`/extensions doctor`、`/mcp list`、`/mcp doctor` 和
-  `/skills list` 提示，在 runtime extension execution 超出共享 permission path 前先把可见性补上。Git 和 LSP 路径提示会复用右栏收集到的 workspace 文件快照，不会在操作者
+  复制。Agent 和 extension 命令现在提供 `/agent list`、`/agent doctor`、
+  `/agent review codex`、`/agent challenge codex`、`/agent run codex`、
+  `/agent status`、`/agent result`、`/agent cancel`、`/extensions list`、
+  `/extensions doctor`、`/mcp list`、`/mcp doctor` 和 `/skills list` 提示，在 runtime extension execution 超出共享 permission path 前先把可见性补上。Git 和 LSP 路径提示会复用右栏收集到的 workspace 文件快照，不会在操作者
   每次输入时重新扫描文件系统。`/git switch` 和 `/git push` 会读取当前 workspace
   的本地分支快照；`/git push` 还会读取 `git remote` 和 `git branch -r` 快照，用于
   提示 remote 和 remote branch target。`/git stash pop/drop` 会读取当前
   `git stash list` 快照并提示 stash ref；`/git worktree remove` 会读取当前
   `git worktree list --porcelain` 快照并提示 worktree 路径。
 - `/agent list` 和 `/agent doctor` 会展示 template、tmux、PTY、
-  custom-template 和实验 ACP adapters。ACP readiness 通过
-  `ROBOCODE_AGENT_ACP_COMMAND` 配置；`/agent doctor acp` 可以运行最小
-  JSON-RPC `initialize` handshake，并写入
+  custom-template、Codex 和实验 ACP adapters。Codex readiness 会检查本地
+  `codex` binary、app-server support、auth、config sources 和 job store path。
+  `/agent review codex`、`/agent challenge codex` 和 `/agent run codex` 会在
+  `.robocode/agents/` 下创建 tracked jobs；`/agent status`、
+  `/agent result <id>` 和 `/agent cancel <id>` 用于查看和控制这些 jobs。
+  ACP readiness 通过 `ROBOCODE_AGENT_ACP_COMMAND` 配置；`/agent doctor acp`
+  可以运行最小 JSON-RPC `initialize` handshake，并写入
   `.robocode/agents/acp-doctor-*.jsonl` evidence。完整 `/lane acp` 执行仍是后续工作。
 - `/test <command>` 是真实 runtime command，不是视觉占位符。它会走 shell
   approval，记录最近一次测试的 status、exit code、duration、command、failure
