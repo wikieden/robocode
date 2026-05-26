@@ -349,8 +349,11 @@ Current implementation status:
 - Landed: `/extensions doctor` and `/mcp doctor` now report readiness by
   surface, including provider plugin dirs, MCP config files and server names,
   project/user/legacy skill roots, and permission boundary reminders.
-- Remaining: native app-server event subscription and stronger structured
-  thread IDs when Codex exposes them.
+- Landed: `/agent doctor codex` probes the experimental app-server JSON schema
+  surface and reports whether thread lifecycle, review, turn control, event,
+  evidence, and approval protocol groups are available.
+- Remaining: native app-server event subscription and direct structured
+  thread/event capture for live Codex jobs.
 - App-server protocol findings are captured in
   [codex-app-server-adapter.md](codex-app-server-adapter.md).
 

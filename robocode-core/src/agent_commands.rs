@@ -433,6 +433,7 @@ fn render_codex_doctor(cwd: &Path) -> Vec<String> {
         CodexDiagnosticReport::Ready(report) => {
             lines.push(format!("    version: {}", report.version));
             lines.push(format!("    app-server: {}", report.app_server));
+            lines.extend(render_codex_protocol_probe(cwd, &command));
             lines.push(format!("    auth: {}", report.auth));
             lines.push(format!("    config: {}", report.config_sources));
             lines.push(format!("    jobs: {}", report.job_store.display()));
@@ -449,6 +450,21 @@ fn render_codex_doctor(cwd: &Path) -> Vec<String> {
         }
     }
     lines
+}
+
+fn render_codex_protocol_probe(cwd: &Path, command: &str) -> Vec<String> {
+    match codex_protocol_probe(cwd, command) {
+        Ok(report) if report.missing.is_empty() => vec![format!(
+            "    protocol: ok ({})",
+            report.available.join(", ")
+        )],
+        Ok(report) => vec![format!(
+            "    protocol: partial (available: {}; missing: {})",
+            report.available.join(", "),
+            report.missing.join(", ")
+        )],
+        Err(error) => vec![format!("    protocol: unavailable ({error})")],
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1115,6 +1131,12 @@ struct CodexReadyReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct CodexProtocolProbeReport {
+    available: Vec<String>,
+    missing: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum CodexDiagnosticReport {
     Ready(CodexReadyReport),
     Unavailable(String),
@@ -1152,6 +1174,106 @@ fn codex_diagnostics(cwd: &Path, command: &str) -> CodexDiagnosticReport {
         config_sources: codex_config_sources(cwd),
         job_store: codex_job_store_path(cwd),
     })
+}
+
+fn codex_protocol_probe(cwd: &Path, command: &str) -> Result<CodexProtocolProbeReport, String> {
+    let schema_dir = codex_protocol_schema_dir(cwd);
+    if schema_dir.exists() {
+        fs::remove_dir_all(&schema_dir).map_err(|err| {
+            format!(
+                "failed to remove stale schema dir {}: {err}",
+                schema_dir.display()
+            )
+        })?;
+    }
+    fs::create_dir_all(&schema_dir).map_err(|err| {
+        format!(
+            "failed to create schema dir {}: {err}",
+            schema_dir.display()
+        )
+    })?;
+    let out = schema_dir.display().to_string();
+    let probe = command_output(
+        command,
+        &[
+            "app-server",
+            "generate-json-schema",
+            "--experimental",
+            "--out",
+            &out,
+        ],
+        cwd,
+        Duration::from_secs(5),
+    );
+    let result = match probe {
+        Ok(_) => codex_protocol_probe_from_dir(&schema_dir),
+        Err(error) => Err(error),
+    };
+    let _ = fs::remove_dir_all(&schema_dir);
+    result
+}
+
+fn codex_protocol_schema_dir(cwd: &Path) -> PathBuf {
+    cwd.join(".robocode")
+        .join("tmp")
+        .join(format!("codex-schema-{}", timestamp_millis()))
+}
+
+fn codex_protocol_probe_from_dir(dir: &Path) -> Result<CodexProtocolProbeReport, String> {
+    let client = read_schema_file(dir, "ClientRequest.json")?;
+    let server_notifications = read_schema_file(dir, "ServerNotification.json")?;
+    let server_requests = read_schema_file(dir, "ServerRequest.json")?;
+    let checks: [(&str, &str, &[&str]); 6] = [
+        (
+            "thread lifecycle",
+            &client,
+            &["thread/start", "thread/resume", "thread/read"][..],
+        ),
+        ("review", &client, &["review/start"][..]),
+        (
+            "turn control",
+            &client,
+            &["turn/start", "turn/interrupt"][..],
+        ),
+        (
+            "events",
+            &server_notifications,
+            &["thread/started", "turn/started", "turn/completed"][..],
+        ),
+        (
+            "evidence",
+            &server_notifications,
+            &[
+                "item/commandExecution/outputDelta",
+                "item/fileChange/outputDelta",
+                "turn/diff/updated",
+            ][..],
+        ),
+        (
+            "approvals",
+            &server_requests,
+            &[
+                "item/commandExecution/requestApproval",
+                "item/fileChange/requestApproval",
+                "item/permissions/requestApproval",
+            ][..],
+        ),
+    ];
+    let mut available = Vec::new();
+    let mut missing = Vec::new();
+    for (label, haystack, needles) in checks {
+        if needles.iter().all(|needle| haystack.contains(needle)) {
+            available.push(label.to_string());
+        } else {
+            missing.push(label.to_string());
+        }
+    }
+    Ok(CodexProtocolProbeReport { available, missing })
+}
+
+fn read_schema_file(dir: &Path, name: &str) -> Result<String, String> {
+    fs::read_to_string(dir.join(name))
+        .map_err(|err| format!("failed to read generated {name}: {err}"))
 }
 
 fn command_output(
@@ -1536,6 +1658,41 @@ mod tests {
                 "--sandbox",
                 "workspace-write",
                 "edit file"
+            ]
+        );
+    }
+
+    #[test]
+    fn codex_protocol_probe_reads_generated_schema_surface() {
+        let root = temp_root("codex_schema_probe");
+        fs::write(
+            root.join("ClientRequest.json"),
+            r#"{"enum":["thread/start","thread/resume","thread/read","review/start","turn/start","turn/interrupt"]}"#,
+        )
+        .expect("write client schema");
+        fs::write(
+            root.join("ServerNotification.json"),
+            r#"{"enum":["thread/started","turn/started","turn/completed","item/commandExecution/outputDelta","item/fileChange/outputDelta","turn/diff/updated"]}"#,
+        )
+        .expect("write server notification schema");
+        fs::write(
+            root.join("ServerRequest.json"),
+            r#"{"enum":["item/commandExecution/requestApproval","item/fileChange/requestApproval","item/permissions/requestApproval"]}"#,
+        )
+        .expect("write server request schema");
+
+        let report = codex_protocol_probe_from_dir(&root).expect("schema probe");
+
+        assert!(report.missing.is_empty());
+        assert_eq!(
+            report.available,
+            vec![
+                "thread lifecycle",
+                "review",
+                "turn control",
+                "events",
+                "evidence",
+                "approvals"
             ]
         );
     }

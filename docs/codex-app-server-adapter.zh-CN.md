@@ -59,8 +59,9 @@ RoboCode 应把 app-server 数据映射到现有 host-delegate lifecycle：
 
 ## 实现顺序
 
-1. 增加 app-server protocol probe：把 schema 生成到 temp directory，并在
-   `/agent doctor codex` 里报告关键 request/notification 是否可用。
+1. 已完成：`/agent doctor codex` 现在会运行 app-server protocol probe，把 schema
+   生成到临时目录，并报告关键 request、notification、evidence 和 approval
+   protocol groups 是否可用。
 2. 增加一个小 JSON-RPC transport wrapper，连接 `codex app-server --listen stdio://`
    或 `codex app-server proxy`。
 3. 先做 `initialize` 加 read-only `review/start` 或 `thread/start` spike，写入

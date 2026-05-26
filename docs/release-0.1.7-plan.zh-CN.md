@@ -317,8 +317,11 @@ backend。
 - 已落地：`/extensions doctor` 和 `/mcp doctor` 会按 surface 输出 readiness，
   包括 provider plugin dirs、MCP config files 和 server names、project/user/legacy
   skill roots，以及 permission boundary 提醒。
-- 剩余：native app-server event subscription，以及 Codex 暴露结构化 thread IDs 后的
-  更强解析。
+- 已落地：`/agent doctor codex` 会探测 experimental app-server JSON schema
+  surface，并报告 thread lifecycle、review、turn control、event、evidence 和
+  approval protocol groups 是否可用。
+- 剩余：native app-server event subscription，以及 live Codex jobs 的直接结构化
+  thread/event capture。
 - app-server protocol 调研已记录在
   [codex-app-server-adapter.zh-CN.md](codex-app-server-adapter.zh-CN.md)。
 

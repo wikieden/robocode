@@ -61,9 +61,9 @@ RoboCode should map app-server data into the existing host-delegate lifecycle:
 
 ## Implementation Sequence
 
-1. Add an app-server protocol probe that generates schema into a temp
-   directory and reports key request/notification availability in
-   `/agent doctor codex`.
+1. Done: `/agent doctor codex` now runs an app-server protocol probe that
+   generates schema into a temporary directory and reports key request,
+   notification, evidence, and approval protocol groups.
 2. Add a small JSON-RPC transport wrapper for `codex app-server --listen
    stdio://` or `codex app-server proxy`.
 3. Implement `initialize` plus a read-only `review/start` or `thread/start`
