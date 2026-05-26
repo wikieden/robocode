@@ -136,8 +136,11 @@ api_key_env = "DEEPSEEK_API_KEY"
 - Approval prompts default to `Approve`; press `y` to approve, `n` to deny,
   `d` to focus diff, or use `Tab` / arrow keys to move between actions.
 - Slash commands start with `/`; useful starters include `/help`, `/provider`,
-  `/status`, `/config`, `/permissions`, `/sessions`, `/resume latest`, `/task`,
-  `/memory`, `/lane`, and `/screen`.
+  `/status`, `/config`, `/permissions`, `/test <command>`, `/sessions`,
+  `/resume latest`, `/task`, `/memory`, `/lane`, and `/screen`.
+- `/test <command>` runs through the same shell approval path as agent tool
+  calls and records the latest test status, duration, command, and output tail
+  for `/status`.
 - `/lane tmux <id>` starts or reuses a tmux session for a lane workspace and
   records the attach command under `.robocode/lanes/`, giving Codex, Claude, or
   shell lanes a supervised interactive terminal surface without adding a native

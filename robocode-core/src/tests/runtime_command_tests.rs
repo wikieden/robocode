@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use crate::{DependencyStatus, DoctorReport, EngineEvent, SessionEngine};
 use robocode_model::ProviderHost;
 use robocode_types::ApprovalResponse;
@@ -44,6 +46,47 @@ fn status_command_reports_current_runtime_state() {
                 && text.contains("Permission mode:")
                 && text.contains("Transcript:")
                 && text.contains("Index:")
+    )));
+}
+
+#[test]
+fn test_command_records_last_test_evidence_in_status() {
+    let home = temp_dir("test_evidence_home");
+    let cwd = temp_dir("test_evidence_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let approvals = Cell::new(0usize);
+    let mut approver = |_prompt| {
+        approvals.set(approvals.get() + 1);
+        ApprovalResponse {
+            approved: true,
+            feedback: None,
+        }
+    };
+
+    let test_output = engine
+        .process_input_with_approval("/test echo robocode-test-ok", &mut approver)
+        .unwrap();
+
+    assert_eq!(approvals.get(), 1);
+    assert!(test_output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Test result:")
+                && text.contains("status: passed")
+                && text.contains("command: echo robocode-test-ok")
+                && text.contains("robocode-test-ok")
+    )));
+
+    let status_output = engine
+        .process_input_with_approval("/status", &mut approver)
+        .unwrap();
+    assert!(status_output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Last test:")
+                && text.contains("passed")
+                && text.contains("echo robocode-test-ok")
     )));
 }
 

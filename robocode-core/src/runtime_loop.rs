@@ -90,7 +90,7 @@ impl SessionEngine {
                     }
                     ModelEvent::ToolCall(call) => {
                         observed_tool_call = true;
-                        self.handle_tool_call(call, approver, &mut events)?;
+                        let _ = self.handle_tool_call(call, approver, &mut events)?;
                     }
                     ModelEvent::Usage(_) => {}
                     ModelEvent::Done => {}
@@ -109,7 +109,7 @@ impl SessionEngine {
         call: ToolCall,
         approver: &mut F,
         events: &mut Vec<EngineEvent>,
-    ) -> Result<(), String>
+    ) -> Result<ToolResult, String>
     where
         F: FnMut(robocode_types::PermissionPrompt) -> ApprovalResponse,
     {
@@ -187,6 +187,7 @@ impl SessionEngine {
                     })?;
                     events.push(EngineEvent::System(message));
                 }
+                Ok(result)
             }
             PermissionDecision::Ask(_) => {
                 unreachable!("ask decisions should be resolved before execution")
@@ -218,9 +219,9 @@ impl SessionEngine {
                     message: system_message,
                 })?;
                 events.push(EngineEvent::System(rendered_denial));
+                Ok(result)
             }
         }
-        Ok(())
     }
 
     fn post_edit_diagnostics_message(&self, call: &ToolCall) -> Option<String> {
@@ -273,7 +274,7 @@ impl SessionEngine {
             name: tool_name.to_string(),
             input,
         };
-        self.handle_tool_call(call, approver, &mut events)?;
+        let _ = self.handle_tool_call(call, approver, &mut events)?;
         let output = events
             .into_iter()
             .filter_map(|event| match event {
@@ -290,6 +291,24 @@ impl SessionEngine {
         } else {
             Ok(output)
         }
+    }
+
+    pub(crate) fn run_named_tool_result<F>(
+        &mut self,
+        tool_name: &str,
+        input: robocode_types::ToolInput,
+        approver: &mut F,
+    ) -> Result<ToolResult, String>
+    where
+        F: FnMut(robocode_types::PermissionPrompt) -> ApprovalResponse,
+    {
+        let mut events = Vec::new();
+        let call = ToolCall {
+            id: fresh_id("tool"),
+            name: tool_name.to_string(),
+            input,
+        };
+        self.handle_tool_call(call, approver, &mut events)
     }
 }
 

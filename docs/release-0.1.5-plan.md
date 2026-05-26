@@ -90,6 +90,10 @@ This is the core value of the release.
   - add an operator-friendly `/test` or `/run test` flow;
   - summarize exit code, failing command, failing files, and useful tail lines;
   - keep test evidence attached to the current task/session.
+  - Current checkpoint: `/test <command>` is implemented through the shell
+    permission path and `/status` reports the latest command, status, duration,
+    and output tail. Exit-code/failing-file extraction remains a follow-up
+    refinement.
 - Structured tool results:
   - compile errors, test failures, lint failures, and shell failures render as
     grouped evidence instead of raw log walls;

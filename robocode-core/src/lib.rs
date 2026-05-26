@@ -12,6 +12,7 @@ mod provider_commands;
 mod runtime_loop;
 mod runtime_views;
 mod session_lifecycle;
+mod test_commands;
 mod web_commands;
 mod workflow_commands;
 
@@ -58,6 +59,14 @@ pub struct ProviderTelemetry {
     pub last_tokens_per_second: Option<u64>,
     pub last_cost_micro_usd: Option<u64>,
     pub total_cost_micro_usd: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestEvidence {
+    pub command: String,
+    pub status: String,
+    pub duration_ms: u128,
+    pub output_tail: String,
 }
 
 impl ProviderTelemetry {
@@ -170,6 +179,7 @@ pub struct SessionEngine {
     lsp_runtime: Arc<LspRuntime>,
     messages: Vec<Message>,
     last_diff: Option<String>,
+    last_test: Option<TestEvidence>,
     runtime_snapshot: RuntimeSnapshot,
     provider_telemetry: ProviderTelemetry,
 }
@@ -230,6 +240,7 @@ impl SessionEngine {
             lsp_runtime: Arc::new(LspRuntime::new(LspServerRegistry::default())),
             messages: Vec::new(),
             last_diff: None,
+            last_test: None,
             runtime_snapshot,
             provider_telemetry: ProviderTelemetry::default(),
         };

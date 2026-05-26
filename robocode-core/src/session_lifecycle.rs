@@ -35,6 +35,7 @@ impl SessionEngine {
         self.store = resumed_store;
         self.messages.clear();
         self.last_diff = None;
+        self.last_test = None;
         self.permissions = PermissionEngine::new(&self.cwd);
         self.hydrate(entries)?;
         Ok(format!(

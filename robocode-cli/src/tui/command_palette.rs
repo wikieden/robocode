@@ -150,7 +150,7 @@ struct CommandTemplate {
     summary: &'static str,
 }
 
-const COMMANDS: [CommandTemplate; 17] = [
+const COMMANDS: [CommandTemplate; 18] = [
     CommandTemplate {
         command: "/help",
         summary: "Show commands",
@@ -174,6 +174,10 @@ const COMMANDS: [CommandTemplate; 17] = [
     CommandTemplate {
         command: "/diff",
         summary: "Show latest diff",
+    },
+    CommandTemplate {
+        command: "/test",
+        summary: "Run tests and record evidence",
     },
     CommandTemplate {
         command: "/lsp",

@@ -30,6 +30,7 @@ impl SessionEngine {
             "/status" => self.render_status(),
             "/config" => self.render_config(),
             "/doctor" => self.render_doctor(),
+            "/test" => self.handle_test_command(&args, approver)?,
             "/permissions" => {
                 if let Some(mode) = args.first() {
                     let parsed = PermissionMode::parse_cli(mode)

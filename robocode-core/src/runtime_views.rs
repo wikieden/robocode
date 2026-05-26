@@ -22,6 +22,7 @@ impl SessionEngine {
             "  /status              Show current runtime status",
             "  /config              Show resolved runtime configuration",
             "  /doctor              Check local dependency availability",
+            "  /test <command>      Run a test command and record evidence",
             "",
             "Sessions:",
             "  /sessions            List prior sessions for this project",
@@ -61,6 +62,15 @@ impl SessionEngine {
             format!("  Transcript: {}", self.store.transcript_path().display()),
             format!("  Session home: {}", self.store.home_dir().display()),
             format!("  Index: {}", self.store.index_db_path().display()),
+            self.last_test
+                .as_ref()
+                .map(|test| {
+                    format!(
+                        "  Last test: {} in {}ms | {}",
+                        test.status, test.duration_ms, test.command
+                    )
+                })
+                .unwrap_or_else(|| "  Last test: <none>".to_string()),
         ]
         .join("\n")
     }
