@@ -290,6 +290,9 @@ Current implementation status:
   result artifacts under `.robocode/agents/`.
 - Landed: `/agent status`, `/agent result <id>`, and `/agent cancel <id>` read
   and control the tracked job records in `.robocode/agents/codex-jobs.jsonl`.
+- Landed: the TUI workspace snapshot reads tracked Codex jobs so the main
+  `LIVE ACTIVITY` strip and right-rail `ACTIVE TASKS` panel show active Codex
+  work instead of leaving the user guessing after submission.
 - Remaining: native app-server event subscription, touched-file extraction,
   thread IDs, and write-capable permission-gated Codex tasks.
 

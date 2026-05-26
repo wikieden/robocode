@@ -157,7 +157,9 @@ route hints so the main agent can decide follow-up actions.
   store path. `/agent review codex`, `/agent challenge codex`, and
   `/agent run codex` create tracked jobs under `.robocode/agents/`; `/agent
   status`, `/agent result <id>`, and `/agent cancel <id>` inspect and control
-  those jobs. ACP readiness is configured through
+  those jobs. The main `LIVE ACTIVITY` strip and right-rail `ACTIVE TASKS`
+  panel read the same job records, so active Codex work is visible while the
+  operator keeps typing. ACP readiness is configured through
   `ROBOCODE_AGENT_ACP_COMMAND`; `/agent doctor acp` can run a minimal JSON-RPC
   `initialize` handshake and writes `.robocode/agents/acp-doctor-*.jsonl`
   evidence. Full `/lane acp` execution is still follow-up work.

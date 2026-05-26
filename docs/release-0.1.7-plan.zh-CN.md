@@ -262,6 +262,9 @@ backend。
   `.robocode/agents/` 下记录每个 job 的 log 和 result artifacts。
 - 已落地：`/agent status`、`/agent result <id>` 和 `/agent cancel <id>` 会读取并控制
   `.robocode/agents/codex-jobs.jsonl` 中的 tracked job records。
+- 已落地：TUI workspace snapshot 会读取 tracked Codex jobs，所以主窗口
+  `LIVE ACTIVITY` strip 和右栏 `ACTIVE TASKS` panel 会显示正在运行的 Codex 工作，
+  不再让用户提交后猜远端是否还在工作。
 - 剩余：native app-server event subscription、touched-file extraction、
   thread IDs，以及经过 permission gate 的 write-capable Codex tasks。
 

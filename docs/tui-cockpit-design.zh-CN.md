@@ -131,7 +131,8 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   `/agent review codex`、`/agent challenge codex` 和 `/agent run codex` 会在
   `.robocode/agents/` 下创建 tracked jobs；`/agent status`、
   `/agent result <id>` 和 `/agent cancel <id>` 用于查看和控制这些 jobs。
-  ACP readiness 通过 `ROBOCODE_AGENT_ACP_COMMAND` 配置；`/agent doctor acp`
+  主窗口 `LIVE ACTIVITY` strip 和右栏 `ACTIVE TASKS` panel 会读取同一份 job
+  records，所以 operator 继续输入时也能看到 Codex 是否仍在工作。ACP readiness 通过 `ROBOCODE_AGENT_ACP_COMMAND` 配置；`/agent doctor acp`
   可以运行最小 JSON-RPC `initialize` handshake，并写入
   `.robocode/agents/acp-doctor-*.jsonl` evidence。完整 `/lane acp` 执行仍是后续工作。
 - `/test <command>` 是真实 runtime command，不是视觉占位符。它会走 shell

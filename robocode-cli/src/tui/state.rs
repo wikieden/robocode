@@ -613,8 +613,19 @@ pub(super) struct WorkspaceSnapshot {
     pub(super) top_files: Vec<String>,
     pub(super) workspace_paths: Vec<String>,
     pub(super) diagnostics: Vec<String>,
+    pub(super) agent_jobs: Vec<AgentJob>,
     pub(super) primary_language: String,
     pub(super) rust_edition: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct AgentJob {
+    pub(super) id: String,
+    pub(super) kind: String,
+    pub(super) status: String,
+    pub(super) task: String,
+    pub(super) pid: Option<u32>,
+    pub(super) updated_at: u128,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -682,6 +693,7 @@ impl WorkspaceSnapshot {
             .map(|file| file.path.clone())
             .collect::<Vec<_>>();
         let diagnostics = load_diagnostics(&root);
+        let agent_jobs = load_agent_jobs(&root);
 
         Self {
             root,
@@ -698,6 +710,7 @@ impl WorkspaceSnapshot {
             top_files,
             workspace_paths,
             diagnostics,
+            agent_jobs,
             primary_language,
             rust_edition,
         }
@@ -772,6 +785,7 @@ impl WorkspaceSnapshot {
                 "README.md".to_string(),
             ],
             diagnostics: Vec::new(),
+            agent_jobs: Vec::new(),
             primary_language: "Rust".to_string(),
             rust_edition: Some("2024".to_string()),
         }
@@ -1127,6 +1141,75 @@ fn load_diagnostics(root: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn load_agent_jobs(root: &Path) -> Vec<AgentJob> {
+    let path = root
+        .join(".robocode")
+        .join("agents")
+        .join("codex-jobs.jsonl");
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut jobs = Vec::<AgentJob>::new();
+    for line in content.lines().filter(|line| !line.trim().is_empty()) {
+        let Some(job) = parse_agent_job(line) else {
+            continue;
+        };
+        if let Some(existing) = jobs.iter_mut().find(|existing| existing.id == job.id) {
+            *existing = job;
+        } else {
+            jobs.push(job);
+        }
+    }
+    jobs.sort_by_key(|job| job.updated_at);
+    jobs
+}
+
+fn parse_agent_job(line: &str) -> Option<AgentJob> {
+    Some(AgentJob {
+        id: json_string_field(line, "id")?,
+        kind: json_string_field(line, "kind")?,
+        status: json_string_field(line, "status")?,
+        task: json_string_field(line, "task").unwrap_or_default(),
+        pid: json_number_field(line, "pid").and_then(|value| value.parse().ok()),
+        updated_at: json_number_field(line, "ts")?.parse().ok()?,
+    })
+}
+
+fn json_string_field(value: &str, field: &str) -> Option<String> {
+    let marker = format!(r#""{field}":"#);
+    let start = value.find(&marker)? + marker.len();
+    let rest = value[start..].trim_start().strip_prefix('"')?;
+    let mut output = String::new();
+    let mut chars = rest.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => return Some(output),
+            '\\' => match chars.next() {
+                Some('n') => output.push('\n'),
+                Some('r') => output.push('\r'),
+                Some('t') => output.push('\t'),
+                Some('"') => output.push('"'),
+                Some('\\') => output.push('\\'),
+                Some(other) => output.push(other),
+                None => return None,
+            },
+            other => output.push(other),
+        }
+    }
+    None
+}
+
+fn json_number_field(value: &str, field: &str) -> Option<String> {
+    let marker = format!(r#""{field}":"#);
+    let start = value.find(&marker)? + marker.len();
+    let number = value[start..]
+        .chars()
+        .skip_while(|ch| ch.is_whitespace())
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    (!number.is_empty()).then_some(number)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1325,6 +1408,32 @@ mod tests {
         let loaded = load_screens(&path);
 
         assert_eq!(loaded, screens);
+    }
+
+    #[test]
+    fn workspace_snapshot_loads_latest_codex_agent_jobs() {
+        let root = temp_state_root();
+        let agents = root.join(".robocode").join("agents");
+        fs::create_dir_all(&agents).expect("agent dir");
+        fs::write(
+            agents.join("codex-jobs.jsonl"),
+            [
+                r#"{"ts":10,"event":"started","id":"codex-1","kind":"run","status":"running","pid":4242,"command":"codex exec","task":"first task","log":"a","result":"b"}"#,
+                r#"{"ts":20,"event":"completed","id":"codex-1","kind":"run","status":"finished","pid":4242,"command":"codex exec","task":"first task done","log":"a","result":"b"}"#,
+                r#"{"ts":30,"event":"started","id":"codex-2","kind":"review","status":"running","pid":5252,"command":"codex review","task":"review diff","log":"c","result":"d"}"#,
+            ]
+            .join("\n"),
+        )
+        .expect("jobs jsonl");
+
+        let workspace = WorkspaceSnapshot::load(root);
+
+        assert_eq!(workspace.agent_jobs.len(), 2);
+        assert_eq!(workspace.agent_jobs[0].id, "codex-1");
+        assert_eq!(workspace.agent_jobs[0].status, "finished");
+        assert_eq!(workspace.agent_jobs[1].id, "codex-2");
+        assert_eq!(workspace.agent_jobs[1].status, "running");
+        assert_eq!(workspace.agent_jobs[1].task, "review diff");
     }
 
     fn temp_state_root() -> PathBuf {

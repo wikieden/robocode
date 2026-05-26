@@ -124,6 +124,20 @@ fn active_task_rows(state: &TuiState) -> Vec<String> {
             lane.progress
         ));
     }
+    for job in state
+        .workspace
+        .agent_jobs
+        .iter()
+        .rev()
+        .filter(|job| matches!(job.status.as_str(), "queued" | "running"))
+        .take(4)
+    {
+        rows.push(format!(
+            "◉ codex {:<8} {}",
+            job.status,
+            truncate(&job.task, 18)
+        ));
+    }
     if rows.is_empty() {
         rows.push("○ no active tasks".to_string());
     }
@@ -270,6 +284,12 @@ fn active_task_count(state: &TuiState) -> usize {
             .lanes
             .iter()
             .filter(|lane| is_active_lane(lane))
+            .count()
+        + state
+            .workspace
+            .agent_jobs
+            .iter()
+            .filter(|job| matches!(job.status.as_str(), "queued" | "running"))
             .count()
 }
 

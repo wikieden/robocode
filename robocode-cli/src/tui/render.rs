@@ -167,6 +167,34 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
         };
     }
 
+    let active_agent_jobs = state
+        .workspace
+        .agent_jobs
+        .iter()
+        .rev()
+        .filter(|job| matches!(job.status.as_str(), "queued" | "running"))
+        .collect::<Vec<_>>();
+    if !active_agent_jobs.is_empty() {
+        return LiveActivityStatus {
+            summary: format!("{} active Codex job(s)", active_agent_jobs.len()),
+            details: active_agent_jobs
+                .into_iter()
+                .map(|job| {
+                    format!(
+                        "{} {} {} pid={} {}",
+                        job.id,
+                        job.kind,
+                        job.status,
+                        job.pid
+                            .map(|pid| pid.to_string())
+                            .unwrap_or_else(|| "-".to_string()),
+                        job.task
+                    )
+                })
+                .collect(),
+        };
+    }
+
     if state
         .entries
         .last()
@@ -261,7 +289,7 @@ fn is_loose_timeline_connector(row: &str) -> bool {
 mod tests {
     use super::*;
     use crate::tui::{
-        state::{ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot},
+        state::{AgentJob, ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot},
         text::char_width,
     };
     use robocode_core::ProviderTelemetry;
@@ -469,6 +497,26 @@ mod tests {
 
         assert!(tool_rendered.contains("tool call in progress"));
         assert!(tool_rendered.contains("Editing src/render.rs"));
+    }
+
+    #[test]
+    fn render_frame_surfaces_active_codex_jobs() {
+        let mut state = render_state();
+        state.workspace.agent_jobs = vec![AgentJob {
+            id: "codex-123".to_string(),
+            kind: "run".to_string(),
+            status: "running".to_string(),
+            task: "review payment refactor".to_string(),
+            pid: Some(4242),
+            updated_at: 1,
+        }];
+
+        let rendered = render_frame(&state, 140, 36);
+
+        assert!(rendered.contains("active Codex job(s)"));
+        assert!(rendered.contains("codex-123 run running"));
+        assert!(rendered.contains("◉ codex running"));
+        assert!(rendered.contains("review payment"));
     }
 
     #[test]
