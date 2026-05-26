@@ -18,6 +18,9 @@
 - 顶栏：产品、provider、model、session、context window、Git 分支、权限模式、
   active-lane 数量和 telemetry 可用性。
 - Transcript：左侧主面板，时间线式消息，最近内容固定留在底部可见。
+- Live activity：transcript 区内部固定保留一条当前运行状态，直接回答
+  RoboCode 正在干什么，例如 `Thinking...`、`Editing src/render.rs`、等待审批，
+  或正在监督 active lanes。
 - 右侧栏：workspace、active tasks、diagnostics、provider health、recent files。
 - Composer：始终在底部可见，输入区是更高的三行输入槽，输入光标位于输入行内
   并使用原生 blinking bar cursor，带 action hints 和 approval-mode chips。
@@ -101,6 +104,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - 行级 diff 渲染避免输入时整屏闪烁。
 - composer 已按显示宽度处理中文等 CJK 输入；输入行保持原生 blinking bar
   cursor，并预留更高输入槽，让长会话里也容易找到输入位置。
+- 主 transcript 会保留 `LIVE ACTIVITY` 区域。它从 pending approvals、active
+  lanes、最近 user turn、最近 tool call 或最近 transcript entry 推导状态，所以
+  主屏可以展示 `Thinking...`、紧凑 edit 摘要和 lane progress，同时不编造运行时数据。
 - slash 提示列表是本地 UI 状态，不触发模型调用。它现在支持 `/lane`、
   `/screen`、`/provider`、`/lsp`、`/task`、`/memory` 和 `/git` 的二级提示；
   当前 TUI state 能提供对象时，会显示动态 ID 或最近文件。provider 和 model 提示

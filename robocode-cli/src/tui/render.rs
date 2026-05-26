@@ -8,6 +8,7 @@ use super::{
     side_screen::render_side_body,
     state::TuiState,
     statusbar::{BOTTOM_BAR_HEIGHT, render_bottom_bar},
+    text::truncate,
     topbar::{render_ops_top_bar, render_side_top_bar, render_top_bar},
     transcript::transcript_rows,
 };
@@ -64,8 +65,9 @@ fn render_landscape_body(frame: &mut Frame, state: &TuiState) {
     let rail_left = frame.width - RIGHT_RAIL_WIDTH;
     let transcript_width = rail_left.saturating_sub(1);
 
-    let transcript_rows = recent_rows(
-        transcript_rows(state, transcript_width.saturating_sub(4)),
+    let transcript_rows = main_transcript_rows(
+        state,
+        transcript_width.saturating_sub(4),
         body_height.saturating_sub(2),
     );
     let transcript = panel(
@@ -85,8 +87,9 @@ fn render_compact_body(frame: &mut Frame, state: &TuiState) {
     let body_top = 3;
     let body_bottom = frame.height - COMPOSER_HEIGHT - BOTTOM_BAR_HEIGHT - 1;
     let body_height = body_bottom.saturating_sub(body_top) + 1;
-    let transcript_rows = recent_rows(
-        transcript_rows(state, frame.width.saturating_sub(4)),
+    let transcript_rows = main_transcript_rows(
+        state,
+        frame.width.saturating_sub(4),
         body_height.saturating_sub(2),
     );
     let transcript = panel(
@@ -97,6 +100,143 @@ fn render_compact_body(frame: &mut Frame, state: &TuiState) {
         None,
     );
     frame.write_block(body_top, 0, &transcript);
+}
+
+fn main_transcript_rows(state: &TuiState, width: usize, max_rows: usize) -> Vec<String> {
+    let activity = live_activity_rows(state, width);
+    let activity_rows = activity.len() + 1;
+    let transcript_limit = max_rows.saturating_sub(activity_rows).max(1);
+    let mut rows = recent_rows(transcript_rows(state, width), transcript_limit);
+    rows.push(activity_separator(width));
+    rows.extend(activity);
+    rows
+}
+
+fn live_activity_rows(state: &TuiState, width: usize) -> Vec<String> {
+    let status = live_activity_status(state);
+    let mut rows = vec![truncate(
+        &format!("  ◉ LIVE ACTIVITY  {}", status.summary),
+        width,
+    )];
+    rows.extend(
+        status
+            .details
+            .iter()
+            .take(2)
+            .map(|detail| truncate(&format!("     ┊  {detail}"), width)),
+    );
+    rows
+}
+
+fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
+    // Priority mirrors operator urgency: unblock approvals, surface live lanes,
+    // then explain what the active session turn appears to be doing.
+    if let Some(approval) =
+        state.entries.iter().rev().find(|entry| {
+            entry.label == "approval" && entry.body.contains("Permission request for")
+        })
+    {
+        return LiveActivityStatus {
+            summary: "approval waiting".to_string(),
+            details: vec![compact_activity_detail(&approval.body)],
+        };
+    }
+
+    let active_lanes = state
+        .lanes
+        .iter()
+        .filter(|lane| {
+            matches!(
+                lane.status.as_str(),
+                "queued" | "starting" | "running" | "attached" | "needs_input" | "reviewing"
+            )
+        })
+        .collect::<Vec<_>>();
+    if !active_lanes.is_empty() {
+        return LiveActivityStatus {
+            summary: format!("{} active lane(s)", active_lanes.len()),
+            details: active_lanes
+                .into_iter()
+                .map(|lane| {
+                    format!(
+                        "{} {} {}% {}",
+                        lane.id, lane.status, lane.progress, lane.summary
+                    )
+                })
+                .collect(),
+        };
+    }
+
+    if state
+        .entries
+        .last()
+        .is_some_and(|entry| entry.label == "user")
+    {
+        return LiveActivityStatus {
+            summary: "Thinking...".to_string(),
+            details: vec![format!(
+                "{} / {} is processing the latest prompt",
+                state.provider, state.model
+            )],
+        };
+    }
+
+    if let Some(entry) = state.entries.last() {
+        return LiveActivityStatus {
+            summary: compact_activity_label(entry.label.as_str()).to_string(),
+            details: vec![compact_activity_detail(&entry.body)],
+        };
+    }
+
+    let provider_state = if state.provider_status.request_count == 0 {
+        "idle; no provider request yet".to_string()
+    } else {
+        format!(
+            "idle; last provider status {}",
+            state.provider_status.connection
+        )
+    };
+    LiveActivityStatus {
+        summary: provider_state,
+        details: vec![format!("{} / {}", state.provider, state.model)],
+    }
+}
+
+fn compact_activity_label(label: &str) -> &'static str {
+    match label {
+        "assistant" => "assistant response ready",
+        "tool-call" => "tool call in progress",
+        "tool-result" => "tool result ready",
+        "system" => "system idle",
+        _ => "session idle",
+    }
+}
+
+fn compact_activity_detail(body: &str) -> String {
+    let detail = body
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| line.trim().to_string())
+        .unwrap_or_else(|| "no detail available".to_string());
+    if let Some((tool, rest)) = detail.split_once(" path: ") {
+        let path = rest.split_whitespace().next().unwrap_or(rest);
+        if matches!(tool, "write_file" | "edit_file") {
+            return format!("Editing {path}");
+        }
+    }
+    detail
+}
+
+fn activity_separator(width: usize) -> String {
+    truncate(
+        &format!("     ┊  {}", "┄".repeat(width.saturating_sub(8).min(88))),
+        width,
+    )
+}
+
+struct LiveActivityStatus {
+    summary: String,
+    details: Vec<String>,
 }
 
 fn recent_rows(mut rows: Vec<String>, max_rows: usize) -> Vec<String> {
@@ -290,6 +430,45 @@ mod tests {
         assert!(composer_index > recent_index);
         assert!(lines[composer_index - 1].contains('└'));
         assert!(rendered.contains("[Rs] src/config.rs"));
+    }
+
+    #[test]
+    fn render_frame_keeps_live_activity_visible_for_running_request() {
+        let mut state = render_state();
+        state.provider = "deepseek".to_string();
+        state.model = "deepseek-v4-flash".to_string();
+        state.entries.push(TuiEntry {
+            label: "user".to_string(),
+            body: "add tests and summarize".to_string(),
+        });
+
+        let rendered = render_frame(&state, 140, 36);
+
+        assert!(rendered.contains("LIVE ACTIVITY"));
+        assert!(rendered.contains("Thinking..."));
+        assert!(rendered.contains("deepseek / deepseek-v4-flash is processing"));
+    }
+
+    #[test]
+    fn render_frame_keeps_live_activity_visible_for_lanes_and_tool_calls() {
+        let mut state = render_state();
+        state.lanes = TerminalLane::preview_lanes();
+        state.entries.push(TuiEntry {
+            label: "tool-call".to_string(),
+            body: "write_file path: src/render.rs lines: 1-20".to_string(),
+        });
+
+        let lane_rendered = render_frame(&state, 140, 36);
+
+        assert!(lane_rendered.contains("LIVE ACTIVITY"));
+        assert!(lane_rendered.contains("active lane(s)"));
+        assert!(lane_rendered.contains("L1 running"));
+
+        state.lanes.clear();
+        let tool_rendered = render_frame(&state, 140, 36);
+
+        assert!(tool_rendered.contains("tool call in progress"));
+        assert!(tool_rendered.contains("Editing src/render.rs"));
     }
 
     #[test]

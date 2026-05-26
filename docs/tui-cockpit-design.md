@@ -22,6 +22,9 @@ with the generated reference visuals and the terminal-agent workflow.
   permission mode, active-lane count, and telemetry availability.
 - Transcript: dominant left pane, timeline-styled entries, recent rows kept
   visible at the bottom.
+- Live activity: a fixed strip inside the transcript area that answers what
+  RoboCode is doing right now, such as `Thinking...`, `Editing src/render.rs`,
+  waiting for approval, or supervising active lanes.
 - Right rail: workspace, active tasks, diagnostics, provider health, recent
   files.
 - Composer: always visible at the bottom, with a taller three-row input well,
@@ -120,6 +123,10 @@ route hints so the main agent can decide follow-up actions.
 - The composer uses display-width aware text handling for CJK input, keeps a
   native blinking bar cursor visible in the input row, and reserves a taller
   input well so the prompt remains easy to find during long sessions.
+- The main transcript reserves a `LIVE ACTIVITY` strip. It derives status from
+  pending approvals, active lanes, the latest user turn, the latest tool call,
+  or the latest transcript entry, so the main screen can show `Thinking...`,
+  compact edit summaries, and lane progress without inventing runtime data.
 - The slash palette is local UI state; model calls are not involved. It now
   supports nested suggestions for `/lane`, `/screen`, `/provider`, `/lsp`,
   `/task`, `/memory`, and `/git`, with dynamic IDs or recent files where the
