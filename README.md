@@ -197,6 +197,24 @@ Maintainers can build a release archive locally with:
 scripts/package-release.sh
 ```
 
+Before tagging a release, run the local smoke matrix:
+
+```bash
+scripts/release-smoke.sh
+```
+
+For a faster development checkpoint:
+
+```bash
+scripts/release-smoke.sh --quick
+```
+
+DeepSeek live provider smoke and GitHub Actions artifact validation are opt-in:
+
+```bash
+scripts/release-smoke.sh --deepseek --github-actions
+```
+
 Run the workspace test suite:
 
 ```bash

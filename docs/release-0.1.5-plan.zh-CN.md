@@ -159,16 +159,23 @@ Lane 有用的标准是减少上下文切换，而不是多一个看 log 的地�
 
 打 `v0.1.5` tag 前运行：
 
+- `scripts/release-smoke.sh`
+
+这个脚本会把日志和生成的 previews 写到 evidence 目录，并覆盖：
+
 - `cargo fmt --check`
-- `cargo test -p robocode-cli`
-- `cargo test --workspace --quiet`
-- `scripts/tui-previews.sh /tmp/robocode-015-preview`
-- fallback TUI coding smoke
-- DeepSeek V4 Flash TUI coding smoke
+- `cargo test -p robocode-cli --quiet -- --test-threads=1`
+- `cargo test --workspace --quiet -- --test-threads=1`
+- `scripts/tui-previews.sh <evidence>/tui-previews`
+- 通过 shell approval path 执行的 fallback CLI coding/test smoke
 - shell lane operator smoke
 - tmux lane operator smoke
 - host platform package smoke
-- GitHub Actions release artifact validation，全部配置目标，`upload_to_release=false`
+
+开发中需要更快 checkpoint 时运行 `scripts/release-smoke.sh --quick`。最终打 tag 前运行
+`scripts/release-smoke.sh --deepseek --github-actions`，补上 DeepSeek V4 Flash
+真实 provider smoke，以及 `upload_to_release=false` 的 GitHub Actions release artifact
+validation。
 
 ## 开发切片
 

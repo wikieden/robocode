@@ -175,6 +175,24 @@ README 只保留产品介绍和使用入口。架构与实现细节放在文档�
 scripts/package-release.sh
 ```
 
+打 tag 前运行本地 smoke matrix：
+
+```bash
+scripts/release-smoke.sh
+```
+
+开发过程中需要更快 checkpoint 时可以运行：
+
+```bash
+scripts/release-smoke.sh --quick
+```
+
+DeepSeek 真实 provider smoke 和 GitHub Actions artifact validation 是显式 opt-in：
+
+```bash
+scripts/release-smoke.sh --deepseek --github-actions
+```
+
 运行 workspace 测试：
 
 ```bash

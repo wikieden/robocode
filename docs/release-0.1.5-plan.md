@@ -176,17 +176,24 @@ These deepen the experience once the core loop is stable.
 
 Before tagging `v0.1.5`, run:
 
+- `scripts/release-smoke.sh`
+
+The script records logs and generated previews under its evidence directory and
+covers:
+
 - `cargo fmt --check`
-- `cargo test -p robocode-cli`
-- `cargo test --workspace --quiet`
-- `scripts/tui-previews.sh /tmp/robocode-015-preview`
-- fallback TUI coding smoke
-- DeepSeek V4 Flash TUI coding smoke
+- `cargo test -p robocode-cli --quiet -- --test-threads=1`
+- `cargo test --workspace --quiet -- --test-threads=1`
+- `scripts/tui-previews.sh <evidence>/tui-previews`
+- fallback CLI coding/test smoke through the shell approval path
 - shell lane operator smoke
 - tmux lane operator smoke
-- package smoke for the host platform
-- GitHub Actions release artifact validation for all configured targets with
-  `upload_to_release=false`
+- host platform package smoke
+
+Run `scripts/release-smoke.sh --quick` for a faster local checkpoint while
+developing. Run `scripts/release-smoke.sh --deepseek --github-actions` before
+the final tag to add DeepSeek V4 Flash live provider smoke and GitHub Actions
+release artifact validation with `upload_to_release=false`.
 
 ## Development Slices
 
