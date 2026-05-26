@@ -184,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "robocode-cli"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "crossterm",
  "robocode-config",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "robocode-config"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "robocode-types",
  "serde",
@@ -205,7 +205,7 @@ dependencies = [
 
 [[package]]
 name = "robocode-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "robocode-lsp",
  "robocode-model",
@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "robocode-lsp"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "robocode-types",
  "serde",
@@ -227,7 +227,7 @@ dependencies = [
 
 [[package]]
 name = "robocode-model"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "libloading",
  "robocode-provider-sdk",
@@ -238,14 +238,14 @@ dependencies = [
 
 [[package]]
 name = "robocode-permissions"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "robocode-types",
 ]
 
 [[package]]
 name = "robocode-provider-deepseek"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "robocode-provider-sdk",
  "serde_json",
@@ -253,7 +253,7 @@ dependencies = [
 
 [[package]]
 name = "robocode-provider-sdk"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -261,21 +261,21 @@ dependencies = [
 
 [[package]]
 name = "robocode-session"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "robocode-types",
 ]
 
 [[package]]
 name = "robocode-tools"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "robocode-types",
 ]
 
 [[package]]
 name = "robocode-types"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -283,7 +283,7 @@ dependencies = [
 
 [[package]]
 name = "robocode-workflows"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "robocode-session",
  "robocode-types",

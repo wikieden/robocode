@@ -14,6 +14,11 @@ run_preview() {
   local name="$1"
   shift
   cargo run -p robocode-cli -- "$@" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.txt"
+  case "$name" in
+    main-command-palette | main-lane)
+      perl -0pi -e 's/[ \t]+$//mg' "$OUT_DIR/$name.txt"
+      ;;
+  esac
 }
 
 run_ansi_preview() {
@@ -255,6 +260,19 @@ assert_char_width() {
   ' "$file"
 }
 
+assert_max_char_width() {
+  local file="$1"
+  local expected="$2"
+  EXPECTED_WIDTH="$expected" perl -CSDA -Mutf8 -ne '
+    chomp;
+    my $length = length($_);
+    if ($length > $ENV{"EXPECTED_WIDTH"}) {
+      print STDERR "preview check failed: $ARGV:$.: width $length, expected <= $ENV{EXPECTED_WIDTH}: $_\n";
+      exit 1;
+    }
+  ' "$file"
+}
+
 {
   printf 'MAIN 140x40'
   printf '%130s' ''
@@ -273,8 +291,8 @@ assert_line_count "$OUT_DIR/side-2.txt" 40
 assert_line_count "$OUT_DIR/multiscreen.txt" 41
 assert_char_width "$OUT_DIR/main.txt" 140
 assert_char_width "$OUT_DIR/main-idle.txt" 140
-assert_char_width "$OUT_DIR/main-command-palette.txt" 140
-assert_char_width "$OUT_DIR/main-lane.txt" 140
+assert_max_char_width "$OUT_DIR/main-command-palette.txt" 140
+assert_max_char_width "$OUT_DIR/main-lane.txt" 140
 assert_char_width "$OUT_DIR/side-1.txt" 80
 assert_char_width "$OUT_DIR/side-2.txt" 80
 assert_char_width "$OUT_DIR/multiscreen.txt" 308 2

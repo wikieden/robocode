@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.6  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L2       │
+│ RoboCode  v0.1.7  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L2       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ◎ OPERATION CENTER  2 active lane(s)                                                            │ │ robocode/    ~/projects/robocode   │
@@ -8,7 +8,7 @@
 │      ┊  L2 attached 32% tmux session ready; reviewing config architecture                         │ │ ▣ Cargo.toml    LANGUAGE Rust      │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ✣  ┊  ASSISTANT                                                                        11:59:03 │ ┌ ACTIVE TASKS ─────────────────── 4 ┐
+│   ✣  ┊  ASSISTANT                                                                        12:51:16 │ ┌ ACTIVE TASKS ─────────────────── 4 ┐
 │                                                                                                   │ │ ● task_lo/prog Implement load_con  │
 │                     ┌ LANE DETAIL ────────────────────────────────── focus ┐                      │ │ ◆ task_re/block Review config test │
 │                     │ L1 codex  [codex tty]                                │                      │ │ L1 ● codex  s1/pty/01  64%         │
@@ -27,7 +27,7 @@
 │                     │                                                      │                      │ │ TELEMETRY  awaiting first request  │
 │                     └──────────────────────────────────────────────────────┘                      │ │                                    │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ⚒  ┊  TOOL CALL                                                                        11:59:13 │ ┌ RECENT FILES ──────────────── tail ┐
+│   ⚒  ┊  TOOL CALL                                                                        12:51:26 │ ┌ RECENT FILES ──────────────── tail ┐
   ┌ COMMANDS ────────────────────────────────────────────────────────────────────────── ↑↓ tab enter esc ┐
   │ › /lane inspect L1                                          test fixes [running]                     │
   └──────────────────────────────────────────────────────────────────────────────────────────────────────┘

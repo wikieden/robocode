@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.6  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L2       │
+│ RoboCode  v0.1.7  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L2       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ◎ OPERATION CENTER  approval waiting                                                            │ │ robocode/    ~/projects/robocode   │
@@ -24,10 +24,10 @@
 │                     └──────────────────────────────────────────────────────────────┘              │ │ STATUS     Configured              │
 │      ┊  running the suite.                                                                        │ │ REQUESTS   0 ok / 0 err            │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ LATENCY    last - avg -            │
-│   ♙  ┊  USER                                                                             11:59:09 │ │ TELEMETRY  awaiting first request  │
+│   ♙  ┊  USER                                                                             12:51:22 │ │ TELEMETRY  awaiting first request  │
 │      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ │                                    │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ⚒  ┊  TOOL CALL                                                                        11:59:11 │ ┌ RECENT FILES ──────────────── tail ┐
+│   ⚒  ┊  TOOL CALL                                                                        12:51:24 │ ┌ RECENT FILES ──────────────── tail ┐
 │      ┊  [write_file] path: src/config.rs                                                          │ │ [Rs] src/config.rs         now     │
 │      ┊               lines: 1-120     gate: waiting                                               │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
