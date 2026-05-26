@@ -116,8 +116,9 @@ Mainline landed:
 
 Next planned:
 
+- complete the live coding cockpit and agent extension foundation in `docs/release-0.1.6-plan.md`
+- use `docs/release-0.1.7-plan.md` to push programming experience, agent lane lifecycle, usable extension system, and the ACP adapter spike
 - finish provider compatibility coverage across the expanded provider matrix, using DeepSeek V4 as the strict compatibility contract
-- continue V2-D drilldowns and approval ergonomics where plain terminal sections are still not enough
 
 That does not change the roadmap ordering. It means RoboCode has moved beyond an
 early V1-only repository state, but later phases should still be pulled

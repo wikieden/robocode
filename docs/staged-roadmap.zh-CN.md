@@ -110,7 +110,8 @@ Mainline landed：
 
 Next planned：
 
+- 以 `docs/release-0.1.6-plan.zh-CN.md` 完成 live coding cockpit 与 agent extension foundation
+- 以 `docs/release-0.1.7-plan.zh-CN.md` 推进 programming experience、agent lane lifecycle、extension system 可用化和 ACP adapter spike
 - 完成扩展 provider 矩阵的 compatibility coverage，并以 DeepSeek V4 作为严格兼容合同
-- 继续 V2-D drilldowns 与 approval ergonomics，补足 plain terminal sections 仍然不够清晰的地方
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。
