@@ -301,14 +301,17 @@ backend。
   `.robocode/agents/` 下记录每个 job 的 log 和 result artifacts。
 - 已落地：`/agent status`、`/agent result <id>` 和 `/agent cancel <id>` 会读取并控制
   `.robocode/agents/codex-jobs.jsonl` 中的 tracked job records。
+- 已落地：Codex jobs 会记录启动时 Git status baseline，并从 job output 提取
+  resume/session hints 和 touched-file evidence，所以 `/agent status` 与
+  `/agent result <id>` 能在可用时显示 `codex resume ...` 和相关文件。
 - 已落地：TUI workspace snapshot 会读取 tracked Codex jobs，所以主窗口
   `LIVE ACTIVITY` strip 和右栏 `ACTIVE TASKS` panel 会显示正在运行的 Codex 工作，
   不再让用户提交后猜远端是否还在工作。
 - 已落地：`/extensions doctor` 和 `/mcp doctor` 会按 surface 输出 readiness，
   包括 provider plugin dirs、MCP config files 和 server names、project/user/legacy
   skill roots，以及 permission boundary 提醒。
-- 剩余：native app-server event subscription、touched-file extraction、
-  thread IDs，以及经过 permission gate 的 write-capable Codex tasks。
+- 剩余：native app-server event subscription、Codex 暴露结构化 thread IDs 后的更强
+  解析，以及经过 permission gate 的 write-capable Codex tasks。
 
 验收：
 

@@ -333,14 +333,18 @@ Current implementation status:
   result artifacts under `.robocode/agents/`.
 - Landed: `/agent status`, `/agent result <id>`, and `/agent cancel <id>` read
   and control the tracked job records in `.robocode/agents/codex-jobs.jsonl`.
+- Landed: Codex jobs now keep a start-time Git status baseline and extract
+  resume/session hints plus touched-file evidence from job output, so
+  `/agent status` and `/agent result <id>` can show `codex resume ...` and
+  related files when available.
 - Landed: the TUI workspace snapshot reads tracked Codex jobs so the main
   `LIVE ACTIVITY` strip and right-rail `ACTIVE TASKS` panel show active Codex
   work instead of leaving the user guessing after submission.
 - Landed: `/extensions doctor` and `/mcp doctor` now report readiness by
   surface, including provider plugin dirs, MCP config files and server names,
   project/user/legacy skill roots, and permission boundary reminders.
-- Remaining: native app-server event subscription, touched-file extraction,
-  thread IDs, and write-capable permission-gated Codex tasks.
+- Remaining: native app-server event subscription, stronger structured thread
+  IDs when Codex exposes them, and write-capable permission-gated Codex tasks.
 
 Acceptance checks:
 

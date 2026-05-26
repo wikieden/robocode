@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     env, fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
@@ -390,7 +391,14 @@ struct CodexJobRecord {
     task: String,
     log_path: PathBuf,
     result_path: PathBuf,
+    baseline_path: PathBuf,
     updated_at: u128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct CodexJobEvidence {
+    session_id: Option<String>,
+    files: Vec<String>,
 }
 
 fn ensure_codex_target(target: Option<&str>) -> Result<(), String> {
@@ -438,9 +446,11 @@ fn start_codex_job(
     let id = format!("codex-{}", timestamp_millis());
     let log_path = codex_job_artifact_path(cwd, &id, "log");
     let result_path = codex_job_artifact_path(cwd, &id, "result.md");
+    let baseline_path = codex_job_artifact_path(cwd, &id, "baseline.status");
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent).map_err(|err| err.to_string())?;
     }
+    write_codex_status_baseline(cwd, &baseline_path)?;
     if kind == CodexJobKind::Run {
         let insert_at = args.len().saturating_sub(1);
         args.insert(insert_at, "-o".to_string());
@@ -475,6 +485,7 @@ fn start_codex_job(
         task,
         log_path: log_path.clone(),
         result_path: result_path.clone(),
+        baseline_path: baseline_path.clone(),
         updated_at: timestamp_millis(),
     };
     append_codex_job_record(cwd, "started", &record)?;
@@ -536,6 +547,21 @@ fn render_codex_job_status(cwd: &Path) -> Result<String, String> {
             relative_millis(job.updated_at),
             truncate_for_line(&job.task, 72)
         ));
+        let evidence = codex_job_evidence(cwd, &job);
+        if let Some(session_id) = evidence.session_id {
+            lines.push(format!("    resume: codex resume {session_id}"));
+        }
+        if !evidence.files.is_empty() {
+            lines.push(format!(
+                "    files: {}",
+                evidence
+                    .files
+                    .into_iter()
+                    .take(5)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
     }
     for job in observed {
         append_codex_job_record(cwd, "observed", &job)?;
@@ -552,8 +578,19 @@ fn render_codex_job_result(cwd: &Path, id: Option<&str>) -> Result<String, Strin
         .filter(|content| !content.trim().is_empty())
         .or_else(|| tail_text(&job.log_path, 60).ok())
         .unwrap_or_else(|| "No output captured yet.".to_string());
+    let evidence = codex_job_evidence_from_text(cwd, &job, &result);
+    let resume = evidence
+        .session_id
+        .as_ref()
+        .map(|session_id| format!("  resume: codex resume {session_id}\n"))
+        .unwrap_or_default();
+    let files = if evidence.files.is_empty() {
+        String::new()
+    } else {
+        format!("  files: {}\n", evidence.files.join(", "))
+    };
     Ok(format!(
-        "Codex job `{}`\n  kind: {}\n  status: {}\n  pid: {}\n  command: {}\n  log: {}\n  result: {}\n\n{}",
+        "Codex job `{}`\n  kind: {}\n  status: {}\n  pid: {}\n  command: {}\n  log: {}\n  result: {}\n{}{}\n{}",
         job.id,
         job.kind,
         status,
@@ -563,6 +600,8 @@ fn render_codex_job_result(cwd: &Path, id: Option<&str>) -> Result<String, Strin
         job.command,
         job.log_path.display(),
         job.result_path.display(),
+        resume,
+        files,
         result.trim()
     ))
 }
@@ -608,7 +647,7 @@ fn append_codex_job_record(cwd: &Path, event: &str, record: &CodexJobRecord) -> 
         .map_err(|err| format!("failed to open {}: {err}", path.display()))?;
     writeln!(
         file,
-        r#"{{"ts":{},"event":"{}","id":"{}","kind":"{}","status":"{}","pid":{},"command":"{}","task":"{}","log":"{}","result":"{}"}}"#,
+        r#"{{"ts":{},"event":"{}","id":"{}","kind":"{}","status":"{}","pid":{},"command":"{}","task":"{}","log":"{}","result":"{}","baseline":"{}"}}"#,
         record.updated_at,
         escape_json_fragment(event),
         escape_json_fragment(&record.id),
@@ -621,7 +660,8 @@ fn append_codex_job_record(cwd: &Path, event: &str, record: &CodexJobRecord) -> 
         escape_json_fragment(&record.command),
         escape_json_fragment(&record.task),
         escape_json_fragment(&record.log_path.display().to_string()),
-        escape_json_fragment(&record.result_path.display().to_string())
+        escape_json_fragment(&record.result_path.display().to_string()),
+        escape_json_fragment(&record.baseline_path.display().to_string())
     )
     .map_err(|err| format!("failed to write {}: {err}", path.display()))
 }
@@ -651,17 +691,203 @@ fn find_codex_job(cwd: &Path, id: &str) -> Result<Option<CodexJobRecord>, String
 }
 
 fn parse_codex_job_record(line: &str) -> Option<CodexJobRecord> {
+    let id = json_string_field(line, "id")?;
+    let log_path = PathBuf::from(json_string_field(line, "log")?);
+    let result_path = PathBuf::from(json_string_field(line, "result")?);
+    let baseline_path = json_string_field(line, "baseline")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            log_path
+                .parent()
+                .map(|parent| parent.join(format!("{id}.baseline.status")))
+                .unwrap_or_else(|| PathBuf::from(format!("{id}.baseline.status")))
+        });
     Some(CodexJobRecord {
-        id: json_string_field(line, "id")?,
+        id,
         kind: json_string_field(line, "kind")?,
         status: json_string_field(line, "status")?,
         pid: json_number_field(line, "pid").and_then(|value| value.parse().ok()),
         command: json_string_field(line, "command").unwrap_or_default(),
         task: json_string_field(line, "task").unwrap_or_default(),
-        log_path: PathBuf::from(json_string_field(line, "log")?),
-        result_path: PathBuf::from(json_string_field(line, "result")?),
+        log_path,
+        result_path,
+        baseline_path,
         updated_at: json_number_field(line, "ts")?.parse().ok()?,
     })
+}
+
+fn write_codex_status_baseline(cwd: &Path, path: &Path) -> Result<(), String> {
+    let content = match git_status_snapshot(cwd) {
+        Ok(lines) => lines.join("\n"),
+        Err(error) => format!("# unavailable: {error}"),
+    };
+    fs::write(path, content).map_err(|err| {
+        format!(
+            "failed to write Codex job baseline {}: {err}",
+            path.display()
+        )
+    })
+}
+
+fn codex_job_evidence(cwd: &Path, job: &CodexJobRecord) -> CodexJobEvidence {
+    let result = fs::read_to_string(&job.result_path).unwrap_or_default();
+    let log = tail_text(&job.log_path, 120).unwrap_or_default();
+    codex_job_evidence_from_text(cwd, job, &format!("{result}\n{log}"))
+}
+
+fn codex_job_evidence_from_text(cwd: &Path, job: &CodexJobRecord, text: &str) -> CodexJobEvidence {
+    let mut files = changed_files_since_codex_start(cwd, job);
+    files.extend(extract_file_mentions(text));
+    files.sort();
+    files.dedup();
+    CodexJobEvidence {
+        session_id: extract_codex_session_id(text),
+        files,
+    }
+}
+
+fn changed_files_since_codex_start(cwd: &Path, job: &CodexJobRecord) -> Vec<String> {
+    let Ok(current) = git_status_snapshot(cwd) else {
+        return Vec::new();
+    };
+    let baseline = fs::read_to_string(&job.baseline_path)
+        .ok()
+        .filter(|content| !content.starts_with("# unavailable:"))
+        .unwrap_or_default();
+    let before = baseline.lines().map(str::to_string).collect::<HashSet<_>>();
+    let mut changed = Vec::new();
+    for line in current {
+        if before.contains(&line) {
+            continue;
+        }
+        if let Some(path) = git_status_path(&line) {
+            changed.push(path);
+        }
+    }
+    changed.sort();
+    changed.dedup();
+    changed
+}
+
+fn git_status_snapshot(cwd: &Path) -> Result<Vec<String>, String> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain=v1", "--untracked-files=all"])
+        .current_dir(cwd)
+        .output()
+        .map_err(|err| format!("failed to run git status: {err}"))?;
+    if !output.status.success() {
+        return Err(first_output_line(&join_output(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        ))
+        .unwrap_or_else(|| format!("git status exited with {}", output.status)));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(git_status_line)
+        .collect())
+}
+
+fn git_status_line(line: &str) -> Option<String> {
+    let path = git_status_path(line)?;
+    if path.starts_with(".robocode/") {
+        return None;
+    }
+    Some(line.to_string())
+}
+
+fn git_status_path(line: &str) -> Option<String> {
+    let path = line.get(3..)?.trim();
+    let path = path.rsplit(" -> ").next().unwrap_or(path).trim();
+    let path = path.trim_matches('"');
+    if path.is_empty() || path.starts_with(".robocode/") {
+        None
+    } else {
+        Some(path.to_string())
+    }
+}
+
+fn extract_codex_session_id(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let lower = line.to_ascii_lowercase();
+        if let Some(rest) = lower
+            .find("codex resume ")
+            .and_then(|index| line.get(index + "codex resume ".len()..))
+        {
+            if let Some(id) = first_identifier_token(rest) {
+                return Some(id);
+            }
+        }
+        for marker in [
+            "session id:",
+            "session:",
+            "codex session:",
+            "\"session_id\":",
+            "\"thread_id\":",
+        ] {
+            if let Some(index) = lower.find(marker) {
+                let rest = &line[index + marker.len()..];
+                if let Some(id) = first_identifier_token(rest) {
+                    return Some(id);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn first_identifier_token(value: &str) -> Option<String> {
+    value
+        .trim_start_matches(|ch: char| ch.is_whitespace() || ch == '"' || ch == '\'' || ch == '=')
+        .split(|ch: char| ch.is_whitespace() || matches!(ch, '"' | '\'' | ',' | ')' | ']' | '}'))
+        .find(|token| !token.trim().is_empty())
+        .map(|token| {
+            token
+                .trim_matches(|ch: char| matches!(ch, '"' | '\'' | '`' | '.' | ',' | ';' | ':'))
+                .to_string()
+        })
+        .filter(|token| !token.is_empty())
+}
+
+fn extract_file_mentions(text: &str) -> Vec<String> {
+    let mut files = Vec::new();
+    for raw in text.split_whitespace() {
+        let token = raw.trim_matches(|ch: char| {
+            matches!(
+                ch,
+                '"' | '\'' | '`' | ',' | ';' | ':' | '(' | ')' | '[' | ']' | '{' | '}'
+            )
+        });
+        if looks_like_repo_file(token) {
+            files.push(token.to_string());
+        }
+    }
+    files.sort();
+    files.dedup();
+    files
+}
+
+fn looks_like_repo_file(token: &str) -> bool {
+    if token.is_empty()
+        || token.starts_with("http://")
+        || token.starts_with("https://")
+        || token.starts_with(".robocode/")
+        || token.contains("://")
+    {
+        return false;
+    }
+    let has_path_shape = token.contains('/') || token.contains('.');
+    let has_known_extension = [
+        ".rs", ".toml", ".md", ".json", ".yaml", ".yml", ".js", ".ts", ".tsx", ".jsx", ".py",
+        ".go", ".java", ".c", ".cc", ".cpp", ".h", ".hpp", ".html", ".css", ".sh",
+    ]
+    .iter()
+    .any(|extension| token.ends_with(extension));
+    has_path_shape
+        && has_known_extension
+        && token
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '_' | '-' | '.' | '+'))
 }
 
 fn observed_codex_status(job: &CodexJobRecord) -> String {
@@ -1276,7 +1502,11 @@ mod tests {
                 "done",
                 "echo 'mock codex log'",
                 "if [ -n \"$out\" ]; then",
+                "  mkdir -p src",
+                "  echo 'pub fn generated() {}' > src/generated.rs",
                 "  echo 'mock codex result' > \"$out\"",
+                "  echo 'Session ID: ses_test_123' >> \"$out\"",
+                "  echo 'Changed files: src/generated.rs' >> \"$out\"",
                 "fi",
             ]
             .join("\n"),
@@ -1313,7 +1543,11 @@ mod tests {
 
         assert!(status.contains(&id));
         assert!(status.contains("finished"));
+        assert!(status.contains("resume: codex resume ses_test_123"));
+        assert!(status.contains("files: src/generated.rs"));
         assert!(result.contains("mock codex result"));
+        assert!(result.contains("resume: codex resume ses_test_123"));
+        assert!(result.contains("files: src/generated.rs"));
     }
 
     #[cfg(unix)]

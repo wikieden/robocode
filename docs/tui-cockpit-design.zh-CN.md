@@ -149,8 +149,11 @@ Codex 插件的模式：
   `/agent review codex`、`/agent challenge codex` 和 `/agent run codex` 会在
   `.robocode/agents/` 下创建 tracked jobs；`/agent status`、
   `/agent result <id>` 和 `/agent cancel <id>` 用于查看和控制这些 jobs。
-  主窗口 `LIVE ACTIVITY` strip 和右栏 `ACTIVE TASKS` panel 会读取同一份 job
-  records，所以 operator 继续输入时也能看到 Codex 是否仍在工作。ACP readiness 通过 `ROBOCODE_AGENT_ACP_COMMAND` 配置；`/agent doctor acp`
+  Codex jobs 会保存启动时 Git status baseline，并从 result/log output 中提取
+  resume/session hints 和 touched-file evidence，所以 status/result 视图能在可用时显示
+  `codex resume ...` 和相关文件。主窗口 `LIVE ACTIVITY` strip 和右栏
+  `ACTIVE TASKS` panel 会读取同一份 job records，所以 operator 继续输入时也能看到
+  Codex 是否仍在工作。ACP readiness 通过 `ROBOCODE_AGENT_ACP_COMMAND` 配置；`/agent doctor acp`
   可以运行最小 JSON-RPC `initialize` handshake，并写入
   `.robocode/agents/acp-doctor-*.jsonl` evidence。完整 `/lane acp` 执行仍是后续工作。
 - `/test <command>` 是真实 runtime command，不是视觉占位符。它会走 shell

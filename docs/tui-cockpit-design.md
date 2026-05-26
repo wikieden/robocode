@@ -177,7 +177,10 @@ after the Claude Code Codex plugin pattern:
   store path. `/agent review codex`, `/agent challenge codex`, and
   `/agent run codex` create tracked jobs under `.robocode/agents/`; `/agent
   status`, `/agent result <id>`, and `/agent cancel <id>` inspect and control
-  those jobs. The main `LIVE ACTIVITY` strip and right-rail `ACTIVE TASKS`
+  those jobs. Codex jobs keep a start-time Git status baseline and extract
+  resume/session hints plus touched-file evidence from result/log output, so
+  status/result views can show `codex resume ...` and related files when
+  available. The main `LIVE ACTIVITY` strip and right-rail `ACTIVE TASKS`
   panel read the same job records, so active Codex work is visible while the
   operator keeps typing. ACP readiness is configured through
   `ROBOCODE_AGENT_ACP_COMMAND`; `/agent doctor acp` can run a minimal JSON-RPC
