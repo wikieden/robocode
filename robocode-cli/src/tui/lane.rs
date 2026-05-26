@@ -2379,7 +2379,7 @@ mod tests {
         assert!(state.lanes[0].worktree.is_some());
 
         let mut lanes = Vec::new();
-        for _ in 0..120 {
+        for _ in 0..400 {
             lanes = load_lanes(&store);
             refresh_lane_runtime(&store, &mut lanes);
             if lanes.first().is_some_and(|lane| lane.status == "completed") {
@@ -2425,7 +2425,7 @@ mod tests {
         ));
 
         let mut lanes = Vec::new();
-        for _ in 0..120 {
+        for _ in 0..400 {
             lanes = load_lanes(&store);
             refresh_lane_runtime(&store, &mut lanes);
             if lanes.first().is_some_and(|lane| lane.status == "completed") {
@@ -2472,7 +2472,7 @@ mod tests {
         assert!(state.lanes[0].worktree.is_some());
 
         let mut lanes = Vec::new();
-        for _ in 0..120 {
+        for _ in 0..400 {
             lanes = load_lanes(&store);
             refresh_lane_runtime(&store, &mut lanes);
             if lanes.first().is_some_and(|lane| lane.status == "completed") {
@@ -2624,7 +2624,7 @@ mod tests {
         ));
 
         let log = root.join(".robocode/lanes/L1.log");
-        for _ in 0..120 {
+        for _ in 0..400 {
             if fs::read_to_string(&log)
                 .unwrap_or_default()
                 .contains("echo hello-from-pty")
@@ -2659,7 +2659,7 @@ mod tests {
         assert!(handle_tui_command("/lane codex change files", &mut state));
 
         let mut lanes = Vec::new();
-        for _ in 0..120 {
+        for _ in 0..400 {
             lanes = load_lanes(&store);
             refresh_lane_runtime(&store, &mut lanes);
             if lanes.first().is_some_and(|lane| lane.status == "completed") {
@@ -2742,7 +2742,7 @@ mod tests {
         assert!(handle_tui_command("/lane codex change readme", &mut state));
 
         let mut lanes = Vec::new();
-        for _ in 0..120 {
+        for _ in 0..400 {
             lanes = load_lanes(&store);
             refresh_lane_runtime(&store, &mut lanes);
             if lanes.first().is_some_and(|lane| lane.status == "completed") {
@@ -2810,7 +2810,7 @@ mod tests {
         assert!(handle_tui_command("/lane codex change readme", &mut state));
 
         let mut lanes = Vec::new();
-        for _ in 0..120 {
+        for _ in 0..400 {
             lanes = load_lanes(&store);
             refresh_lane_runtime(&store, &mut lanes);
             if lanes.first().is_some_and(|lane| lane.status == "completed") {
@@ -2876,7 +2876,7 @@ mod tests {
         ));
 
         let mut lanes = Vec::new();
-        for _ in 0..120 {
+        for _ in 0..400 {
             lanes = load_lanes(&store);
             refresh_lane_runtime(&store, &mut lanes);
             if lanes.first().is_some_and(|lane| lane.status == "completed") {
@@ -3260,7 +3260,7 @@ mod tests {
         assert!(state.entries[0].body.contains("Started terminal lane"));
 
         let mut lanes = Vec::new();
-        for _ in 0..120 {
+        for _ in 0..400 {
             lanes = load_lanes(&store);
             refresh_lane_runtime(&store, &mut lanes);
             if lanes.first().is_some_and(|lane| lane.status == "completed") {
@@ -3297,7 +3297,7 @@ mod tests {
         ));
 
         let mut lanes = Vec::new();
-        for _ in 0..120 {
+        for _ in 0..400 {
             lanes = load_lanes(&store);
             refresh_lane_runtime(&store, &mut lanes);
             if lanes.first().is_some_and(|lane| lane.status == "failed") {

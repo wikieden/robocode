@@ -2243,9 +2243,13 @@ const fn pty_binary() -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{
+        Mutex, MutexGuard, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    };
 
     static TEMP_ROOT_COUNTER: AtomicU64 = AtomicU64::new(0);
+    static SUBPROCESS_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[test]
     fn codex_run_args_default_to_read_only_and_require_explicit_write() {
@@ -2318,6 +2322,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn codex_app_server_initialize_probe_records_jsonl_evidence() {
+        let _guard = subprocess_test_guard();
         let root = temp_root("codex_app_server_probe");
         let script = root.join("mock-codex-app-server.sh");
         fs::write(
@@ -2358,6 +2363,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn codex_app_server_thread_probe_records_thread_evidence() {
+        let _guard = subprocess_test_guard();
         let root = temp_root("codex_app_server_thread_probe");
         let script = root.join("mock-codex-thread.sh");
         fs::write(
@@ -2393,6 +2399,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn codex_app_server_turn_probe_records_turn_evidence() {
+        let _guard = subprocess_test_guard();
         let root = temp_root("codex_app_server_turn_probe");
         let script = root.join("mock-codex-turn.sh");
         fs::write(
@@ -2460,6 +2467,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn codex_app_server_job_records_async_status() {
+        let _guard = subprocess_test_guard();
         let root = temp_root("codex_app_server_job");
         let script = root.join("mock-codex-job-app-server.sh");
         fs::write(
@@ -2501,7 +2509,7 @@ mod tests {
                     .flatten()
                     .is_some_and(|job| job.status == "finished")
             },
-            Duration::from_secs(5),
+            Duration::from_secs(15),
         );
 
         let status = render_codex_job_status(&root).expect("render job status");
@@ -2514,6 +2522,7 @@ mod tests {
 
     #[test]
     fn acp_initialize_probe_records_jsonl_evidence() {
+        let _guard = subprocess_test_guard();
         let root = temp_root("acp_probe_ok");
         let script = root.join("mock-acp.sh");
         fs::write(
@@ -2540,6 +2549,7 @@ mod tests {
 
     #[test]
     fn acp_initialize_probe_reports_timeout_with_log() {
+        let _guard = subprocess_test_guard();
         let root = temp_root("acp_probe_timeout");
         let script = root.join("silent-acp.sh");
         fs::write(&script, "#!/bin/sh\nsleep 10\n").expect("write silent acp script");
@@ -2607,6 +2617,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn codex_job_lifecycle_records_result_artifacts() {
+        let _guard = subprocess_test_guard();
         let root = temp_root("codex_job_lifecycle");
         let script = root.join("mock-codex-job.sh");
         fs::write(
@@ -2656,7 +2667,7 @@ mod tests {
                     .flatten()
                     .is_some_and(|job| job.status == "finished")
             },
-            Duration::from_secs(5),
+            Duration::from_secs(15),
         );
 
         let status = render_codex_job_status(&root).expect("render job status");
@@ -2674,6 +2685,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn codex_job_cancel_records_cancelled_status() {
+        let _guard = subprocess_test_guard();
         let root = temp_root("codex_job_cancel");
         let script = root.join("slow-codex-job.sh");
         fs::write(&script, "#!/bin/sh\nsleep 5\n").expect("write slow codex job");
@@ -2710,6 +2722,15 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    fn subprocess_test_guard() -> MutexGuard<'static, ()> {
+        // Mock app-server and Codex job tests exchange lines with subprocesses;
+        // serialize them so default parallel test runs do not starve timeout paths.
+        SUBPROCESS_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn temp_root(name: &str) -> PathBuf {
