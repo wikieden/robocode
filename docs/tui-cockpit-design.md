@@ -24,7 +24,7 @@ with the generated reference visuals and the terminal-agent workflow.
   visible at the bottom.
 - Right rail: workspace, active tasks, diagnostics, provider health, recent
   files.
-- Composer: always visible at the bottom, with a taller two-row input well,
+- Composer: always visible at the bottom, with a taller three-row input well,
   native blinking bar cursor placed inside the input row, action hints, and
   approval-mode chips.
 - Bottom status: connection, session, event count, active lanes, context window,

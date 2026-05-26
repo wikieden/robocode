@@ -19,7 +19,7 @@
   active-lane 数量和 telemetry 可用性。
 - Transcript：左侧主面板，时间线式消息，最近内容固定留在底部可见。
 - 右侧栏：workspace、active tasks、diagnostics、provider health、recent files。
-- Composer：始终在底部可见，输入区是更高的双行输入槽，输入光标位于输入行内
+- Composer：始终在底部可见，输入区是更高的三行输入槽，输入光标位于输入行内
   并使用原生 blinking bar cursor，带 action hints 和 approval-mode chips。
 - 底部状态栏：连接状态、session、event 数量、active lanes、context window、
   theme/help 提示。token、cost、rate 指标只有接入真实 provider telemetry 后才能显示。

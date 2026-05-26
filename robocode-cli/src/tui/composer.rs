@@ -5,24 +5,25 @@ use super::{
     text::{bottom_border, char_width, pad, truncate},
 };
 
-pub(super) const COMPOSER_HEIGHT: usize = 5;
+pub(super) const COMPOSER_HEIGHT: usize = 6;
 
 pub(super) fn render_composer(frame: &mut Frame, state: &TuiState, bottom_bar_height: usize) {
     let top = frame.height - COMPOSER_HEIGHT - bottom_bar_height;
     frame.write_line(top, &panel_top("RoboCode >_", frame.width, None));
-    frame.write_line(top + 1, &composer_input_top_row(state, frame.width));
-    frame.write_line(top + 2, &composer_input_spacer_row(frame.width));
+    frame.write_line(top + 1, &composer_input_spacer_row(frame.width));
+    frame.write_line(top + 2, &composer_input_row(state, frame.width));
+    frame.write_line(top + 3, &composer_input_spacer_row(frame.width));
     frame.write_line(
-        top + 3,
+        top + 4,
         &bordered_row(
             &composer_actions(frame.width.saturating_sub(4)),
             frame.width,
         ),
     );
-    frame.write_line(top + 4, &bottom_border(frame.width));
+    frame.write_line(top + 5, &bottom_border(frame.width));
 }
 
-fn composer_input_top_row(state: &TuiState, width: usize) -> String {
+fn composer_input_row(state: &TuiState, width: usize) -> String {
     let value = if state.input.is_empty() {
         "Type your instruction..."
     } else {
@@ -62,7 +63,7 @@ pub(super) fn composer_cursor_position(
     let row = height
         .saturating_sub(bottom_bar_height)
         .saturating_sub(COMPOSER_HEIGHT)
-        + 1;
+        + 2;
     (column as u16, row as u16)
 }
 
@@ -114,10 +115,20 @@ mod tests {
         let rendered = frame.to_string();
         let lines = rendered.lines().collect::<Vec<_>>();
 
-        assert_eq!(COMPOSER_HEIGHT, 5);
+        assert_eq!(COMPOSER_HEIGHT, 6);
+        assert!(lines[33].contains("RoboCode >_"));
+        assert!(lines[34].contains("│"));
         assert!(lines[35].contains("› hello"));
         assert!(lines[36].contains("│"));
         assert!(lines[37].contains("APPROVAL MODE:"));
+    }
+
+    #[test]
+    fn cursor_sits_on_middle_input_row_for_ime_candidate_placement() {
+        assert_eq!(
+            composer_cursor_position(&state_with_input("你好"), 120, 40, 1),
+            (8, 35)
+        );
     }
 }
 
