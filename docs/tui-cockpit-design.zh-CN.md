@@ -126,8 +126,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   `git worktree list --porcelain` 快照并提示 worktree 路径。
 - `/agent list` 和 `/agent doctor` 会展示 template、tmux、PTY、
   custom-template 和实验 ACP adapters。ACP readiness 通过
-  `ROBOCODE_AGENT_ACP_COMMAND` 配置；完整 ACP handshake 和 `/lane acp`
-  执行仍是后续工作。
+  `ROBOCODE_AGENT_ACP_COMMAND` 配置；`/agent doctor acp` 可以运行最小
+  JSON-RPC `initialize` handshake，并写入
+  `.robocode/agents/acp-doctor-*.jsonl` evidence。完整 `/lane acp` 执行仍是后续工作。
 - `/test <command>` 是真实 runtime command，不是视觉占位符。它会走 shell
   approval，记录最近一次测试的 status、exit code、duration、command、failure
   summary、可能失败文件和 output tail，并通过 `/status` 展示紧凑状态。

@@ -84,7 +84,8 @@ Version theme:
 - ACP adapter visibility:
   - `/agent list` and `/agent doctor acp` expose the experimental ACP adapter
     and its `ROBOCODE_AGENT_ACP_COMMAND` setup state. **Status: readiness
-    visibility shipped; handshake remains a follow-up spike.**
+    visibility and a minimal JSON-RPC `initialize` handshake probe shipped;
+    full lane execution remains follow-up.**
 - `/lane acp <agent> <task>` can remain experimental until the event model is
   clear.
 
@@ -308,8 +309,9 @@ Commands:
    agents. **Initial read-only version shipped.**
 4. Add `/agent doctor` for Codex, Claude, custom templates, tmux, and PTY.
    **Initial read-only version shipped.**
-5. Spike `robocode-acp` against one local ACP-compatible agent. **Readiness
-   visibility shipped; handshake remains follow-up.**
+5. Spike `robocode-acp` against one local ACP-compatible agent. **Minimal
+   `initialize` handshake probe and JSONL evidence shipped; full lane execution
+   remains follow-up.**
 6. Add `/lane acp <agent> <task>` as an experimental command.
 7. Route ACP events into lane artifacts and `LIVE ACTIVITY`.
 8. Expand side screens to show transport and agent state.

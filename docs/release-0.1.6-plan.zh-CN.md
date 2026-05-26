@@ -79,8 +79,8 @@ TUI 到各个终端里猜状态。
   - 验证 ACP 的 edit/tool/permission events 如何映射到 RoboCode lanes。
 - ACP adapter 可见性：
   - `/agent list` 和 `/agent doctor acp` 会展示实验 ACP adapter 以及
-    `ROBOCODE_AGENT_ACP_COMMAND` setup 状态。**状态：readiness visibility
-    已落地，handshake 仍是后续 spike。**
+    `ROBOCODE_AGENT_ACP_COMMAND` setup 状态。**状态：readiness visibility 和
+    最小 JSON-RPC `initialize` handshake probe 已落地，完整 lane execution 仍是后续工作。**
 - `/lane acp <agent> <task>` 可以先保持 experimental，等 event model 清楚后再
   进入稳定命令面。
 
@@ -297,8 +297,9 @@ Side-2：
    agents。**初版只读实现已落地。**
 4. 增加 `/agent doctor`，覆盖 Codex、Claude、custom templates、tmux、PTY。
    **初版只读实现已落地。**
-5. 用一个本地 ACP-compatible agent 做 `robocode-acp` spike。**Readiness
-   visibility 已落地；handshake 仍是后续工作。**
+5. 用一个本地 ACP-compatible agent 做 `robocode-acp` spike。**最小
+   `initialize` handshake probe 和 JSONL evidence 已落地；完整 lane execution
+   仍是后续工作。**
 6. 增加实验命令 `/lane acp <agent> <task>`。
 7. 把 ACP events 接入 lane artifacts 和 `LIVE ACTIVITY`。
 8. 扩展 side screens，展示 transport 和 agent state。

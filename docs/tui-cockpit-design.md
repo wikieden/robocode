@@ -151,8 +151,9 @@ route hints so the main agent can decide follow-up actions.
   snapshot.
 - `/agent list` and `/agent doctor` expose template, tmux, PTY,
   custom-template, and experimental ACP adapters. ACP readiness is configured
-  through `ROBOCODE_AGENT_ACP_COMMAND`; full ACP handshake and `/lane acp`
-  execution are still follow-up work.
+  through `ROBOCODE_AGENT_ACP_COMMAND`; `/agent doctor acp` can run a minimal
+  JSON-RPC `initialize` handshake and writes `.robocode/agents/acp-doctor-*.jsonl`
+  evidence. Full `/lane acp` execution is still follow-up work.
 - `/test <command>` is a real runtime command, not a visual placeholder. It
   runs through shell approval, records the latest status, exit code, duration,
   command, failure summary, likely failing files, and output tail, and makes
