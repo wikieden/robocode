@@ -359,8 +359,11 @@ Current implementation status:
   evidence without running a model turn.
 - Landed: `/agent probe codex --turn <task>` starts a read-only app-server turn
   and captures structured turn/item/completion event evidence.
-- Remaining: map native app-server events into tracked Codex jobs and TUI
-  side-screen evidence.
+- Landed: completed app-server turn probes now write tracked Codex job records
+  and result summaries so `/agent status`, `/agent result`, and the TUI job rail
+  can surface the structured thread/turn evidence.
+- Remaining: make normal `/agent run codex` jobs use the app-server event path
+  asynchronously, with approval request routing, while keeping CLI fallback.
 - App-server protocol findings are captured in
   [codex-app-server-adapter.md](codex-app-server-adapter.md).
 

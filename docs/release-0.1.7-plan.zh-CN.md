@@ -327,8 +327,11 @@ backend。
   但不会运行 model turn。
 - 已落地：`/agent probe codex --turn <task>` 会启动 read-only app-server turn，
   并捕获结构化 turn/item/completion event evidence。
-- 剩余：把 native app-server events 映射到 tracked Codex jobs 和 TUI
-  side-screen evidence。
+- 已落地：完成后的 app-server turn probe 会写入 tracked Codex job records 和
+  result summaries，因此 `/agent status`、`/agent result` 和 TUI job rail 都能显示
+  结构化 thread/turn evidence。
+- 剩余：让普通 `/agent run codex` jobs 异步走 app-server event path，并接入
+  approval request routing，同时保留 CLI fallback。
 - app-server protocol 调研已记录在
   [codex-app-server-adapter.zh-CN.md](codex-app-server-adapter.zh-CN.md)。
 

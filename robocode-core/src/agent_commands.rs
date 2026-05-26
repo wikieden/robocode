@@ -382,7 +382,12 @@ fn handle_codex_challenge_command(cwd: &Path, args: &[String]) -> Result<String,
 fn handle_codex_probe_command(cwd: &Path, args: &[String]) -> Result<String, String> {
     ensure_codex_target(args.first().map(String::as_str))?;
     let mode = parse_codex_probe_args(&args[1..])?;
-    let evidence = run_codex_app_server_probe(cwd, &codex_command(), mode)?;
+    let evidence = run_codex_app_server_probe(cwd, &codex_command(), mode.clone())?;
+    let tracked_job = if let CodexProbeMode::Turn(task) = &mode {
+        Some(record_codex_app_server_turn_probe(cwd, task, &evidence)?)
+    } else {
+        None
+    };
     let notification_count = evidence.notifications.len();
     let notifications = if evidence.notifications.is_empty() {
         "none".to_string()
@@ -402,13 +407,18 @@ fn handle_codex_probe_command(cwd: &Path, args: &[String]) -> Result<String, Str
             format!("  turn: {turn_id} ({status})\n")
         })
         .unwrap_or_default();
+    let tracked = tracked_job
+        .as_ref()
+        .map(|id| format!("  tracked_job: {id}\n"))
+        .unwrap_or_default();
     Ok(format!(
-        "Codex app-server probe ok.\n  user_agent: {}\n  codex_home: {}\n  platform: {}\n{}{}  notifications: {} ({})\n  log: {}",
+        "Codex app-server probe ok.\n  user_agent: {}\n  codex_home: {}\n  platform: {}\n{}{}{}  notifications: {} ({})\n  log: {}",
         evidence.user_agent,
         evidence.codex_home,
         evidence.platform,
         thread,
         turn,
+        tracked,
         notification_count,
         notifications,
         evidence.log_path.display()
@@ -942,6 +952,61 @@ fn codex_job_evidence(cwd: &Path, job: &CodexJobRecord) -> CodexJobEvidence {
     let result = fs::read_to_string(&job.result_path).unwrap_or_default();
     let log = tail_text(&job.log_path, 120).unwrap_or_default();
     codex_job_evidence_from_text(cwd, job, &format!("{result}\n{log}"))
+}
+
+fn record_codex_app_server_turn_probe(
+    cwd: &Path,
+    task: &str,
+    evidence: &CodexAppServerProbeEvidence,
+) -> Result<String, String> {
+    let id = evidence
+        .turn_id
+        .as_ref()
+        .map(|turn_id| format!("codex-app-{turn_id}"))
+        .unwrap_or_else(|| format!("codex-app-{}", timestamp_millis()));
+    let result_path = codex_job_artifact_path(cwd, &id, "result.md");
+    let baseline_path = codex_job_artifact_path(cwd, &id, "baseline.status");
+    if let Some(parent) = result_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    write_codex_status_baseline(cwd, &baseline_path)?;
+    let command = "codex app-server turn/start".to_string();
+    let mut record = CodexJobRecord {
+        id: id.clone(),
+        kind: "app-server-turn".to_string(),
+        status: "running".to_string(),
+        pid: None,
+        command,
+        task: task.to_string(),
+        log_path: evidence.log_path.clone(),
+        result_path: result_path.clone(),
+        baseline_path,
+        updated_at: timestamp_millis(),
+    };
+    append_codex_job_record(cwd, "started", &record)?;
+
+    let status = evidence.turn_status.as_deref().unwrap_or("unknown");
+    fs::write(
+        &result_path,
+        format!(
+            "# Codex app-server turn\n\nthread: {}\nturn: {}\nstatus: {}\nlog: {}\n",
+            evidence.thread_id.as_deref().unwrap_or("unknown"),
+            evidence.turn_id.as_deref().unwrap_or("unknown"),
+            status,
+            evidence.log_path.display()
+        ),
+    )
+    .map_err(|err| format!("failed to write {}: {err}", result_path.display()))?;
+    record.status = if matches!(status, "completed") {
+        "finished".to_string()
+    } else if matches!(status, "failed" | "interrupted") {
+        "failed".to_string()
+    } else {
+        "observed".to_string()
+    };
+    record.updated_at = timestamp_millis();
+    append_codex_job_record(cwd, "completed", &record)?;
+    Ok(id)
 }
 
 fn codex_job_evidence_from_text(cwd: &Path, job: &CodexJobRecord, text: &str) -> CodexJobEvidence {
@@ -2102,7 +2167,7 @@ mod tests {
             evidence.notifications,
             vec!["remoteControl/status/changed".to_string()]
         );
-        let log = fs::read_to_string(evidence.log_path).expect("read jsonl log");
+        let log = fs::read_to_string(&evidence.log_path).expect("read jsonl log");
         assert!(log.contains(r#""method\":\"initialize"#));
         assert!(log.contains("Codex Desktop/mock"));
     }
@@ -2137,7 +2202,7 @@ mod tests {
 
         assert_eq!(evidence.thread_id, Some("thread_123".to_string()));
         assert_eq!(evidence.notifications, vec!["thread/started".to_string()]);
-        let log = fs::read_to_string(evidence.log_path).expect("read jsonl log");
+        let log = fs::read_to_string(&evidence.log_path).expect("read jsonl log");
         assert!(log.contains(r#"thread/start"#));
         assert!(log.contains("thread_123"));
     }
@@ -2185,10 +2250,19 @@ mod tests {
                 .notifications
                 .contains(&"item/agentMessage/delta".to_string())
         );
-        let log = fs::read_to_string(evidence.log_path).expect("read jsonl log");
+        let log = fs::read_to_string(&evidence.log_path).expect("read jsonl log");
         assert!(log.contains(r#"turn/start"#));
         assert!(log.contains("summarize status"));
         assert!(log.contains("turn/completed"));
+
+        let job_id = record_codex_app_server_turn_probe(&root, "summarize status", &evidence)
+            .expect("record job");
+        let status = render_codex_job_status(&root).expect("render job status");
+        let result = render_codex_job_result(&root, Some(&job_id)).expect("render job result");
+        assert!(status.contains(&job_id));
+        assert!(status.contains("finished"));
+        assert!(result.contains("thread_456"));
+        assert!(result.contains("turn_456"));
     }
 
     #[test]
@@ -2212,7 +2286,7 @@ mod tests {
 
         assert_eq!(evidence.protocol_version, "1");
         assert_eq!(evidence.agent_label, "mock-acp 0.1.0");
-        let log = fs::read_to_string(evidence.log_path).expect("read jsonl log");
+        let log = fs::read_to_string(&evidence.log_path).expect("read jsonl log");
         assert!(log.contains(r#""method\":\"initialize"#));
         assert!(log.contains("mock-acp"));
     }
