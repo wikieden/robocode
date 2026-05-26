@@ -716,6 +716,10 @@ impl WorkspaceSnapshot {
         }
     }
 
+    pub(super) fn refresh_agent_jobs(&mut self) {
+        self.agent_jobs = load_agent_jobs(&self.root);
+    }
+
     pub(super) fn fixture() -> Self {
         Self {
             root: PathBuf::from("/tmp/robocode"),

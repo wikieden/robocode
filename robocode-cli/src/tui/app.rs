@@ -51,6 +51,7 @@ pub(crate) fn run_tui_with_theme(
         // repaint completion, failure, and log-tail state without a keypress.
         if !event::poll(Duration::from_millis(750)).map_err(|err| err.to_string())? {
             refresh_lanes(&mut state);
+            state.workspace.refresh_agent_jobs();
             maybe_start_background_diagnostics(
                 engine,
                 &state,
