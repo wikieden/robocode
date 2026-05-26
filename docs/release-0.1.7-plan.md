@@ -13,7 +13,7 @@ multi-agent orchestration workbench.
 Version theme:
 
 ```text
-0.1.7 = Programming Experience + Agent Orchestration Backbone
+0.1.7 = Codex Adapter + Agent Orchestration Backbone
 ```
 
 RoboCode should not be just a polished TUI, and it should not simply launch
@@ -21,6 +21,14 @@ Codex, Claude Code, DeepSeek, or other tools in terminals. It should become a
 local multi-agent cockpit: the user gives the primary goal, RoboCode can split,
 dispatch, observe, approve, and converge work while different coding agents
 collaborate through one shared mechanism.
+
+The core reference for this iteration is OpenAI's Codex plugin for Claude Code:
+[`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc). That
+plugin proves the product pattern we want: a host coding agent can call Codex
+through a plugin/command/subagent surface, keep background jobs observable, and
+resume or inspect Codex work without forcing the user to switch tools. RoboCode
+should turn that pattern into a first-class local agent adapter instead of
+treating Codex as just another terminal command.
 
 ## Problem Statement
 
@@ -36,6 +44,172 @@ The next trial-focused issues fall into three groups:
   adapters can launch external tools, but RoboCode should move toward the Zed
   ACP direction and make different coding agents first-class lane backends
   behind a unified adapter boundary.
+- The strongest immediate adapter target is Codex itself: Claude Code's Codex
+  plugin exposes `/codex:review`, `/codex:rescue`, `/codex:status`,
+  `/codex:result`, `/codex:cancel`, and `/codex:setup`, backed by a companion
+  runtime and Codex app-server integration. RoboCode should support the same
+  operator loop natively.
+
+## Release Definition
+
+`0.1.7` is successful when RoboCode feels useful during the live programming
+loop, not only after a run finishes. The user should be able to submit a task,
+see what the primary agent is doing, watch side-agent lanes progress, approve
+or reject changes, run tests, and understand extension/MCP failures without
+leaving the cockpit.
+
+Hard release gates:
+
+- Codex is a first-class agent backend with setup/doctor, review, task,
+  status, result, cancel, and resume-style flows.
+- The main screen has a real operation center backed by runtime evidence.
+- The composer, approval overlay, and resize behavior are stable enough for
+  daily interactive use.
+- Side-1 and side-2 use real lane, test, LSP, MCP, extension, and evidence
+  state instead of preview-only placeholders.
+- External agents share one lane lifecycle and one operator decision language.
+- ACP has a documented adapter boundary plus a working handshake/event-log
+  spike, even if full ACP editing is still experimental.
+- Plugin, skill, MCP, tool, and agent extension kinds have a documented
+  descriptor shape, diagnostics path, and permission boundary.
+
+Cut line:
+
+- If time is tight, keep full ACP task execution and automatic task splitting
+  experimental.
+- Do not cut the Codex adapter, live operation center, composer usability, lane
+  lifecycle, or extension diagnostics. Those are the programming-experience
+  foundation.
+
+## Reference Model: Codex Plugin for Claude Code
+
+RoboCode should explicitly learn from `openai/codex-plugin-cc`, not copy its
+Node implementation. The reference design has five pieces worth preserving:
+
+- Plugin/command surface:
+  `/codex:review`, `/codex:adversarial-review`, `/codex:rescue`,
+  `/codex:status`, `/codex:result`, `/codex:cancel`, and `/codex:setup`.
+- Thin local runtime:
+  a companion script checks Codex availability/auth, launches Codex work, stores
+  job records, and renders status/result output.
+- Protocol-backed integration:
+  the plugin uses the local `codex` binary and Codex app-server rather than
+  only scraping terminal text.
+- Background job model:
+  long-running reviews and rescue tasks can continue in the background while
+  the host tool shows status and final results later.
+- Safety posture:
+  review defaults to read-only, write-capable rescue is explicit, and optional
+  review gates are visible because they can create loops and consume usage.
+
+RoboCode translation:
+
+- `/agent doctor codex` replaces `/codex:setup`.
+- `/agent review codex [--base <ref>]` replaces `/codex:review`.
+- `/agent challenge codex ...` replaces `/codex:adversarial-review`.
+- `/agent run codex <task>` or `/lane codex <task>` replaces
+  `/codex:rescue`.
+- `/agent status`, `/agent result <id>`, and `/agent cancel <id>` cover
+  background job management.
+- Codex app-server events become RoboCode lane events, evidence records, and
+  side-screen rows.
+
+## Milestones
+
+### M1: Live Cockpit Stability
+
+Focus: fix the everyday feel before adding more orchestration surface.
+
+- Main-screen operation center.
+- Composer height, blinking cursor, and CJK IME placement.
+- Resize redraw and border alignment.
+- Approval overlay focus, dismissal, and post-action cleanup.
+
+Exit criteria:
+
+- A user can type, approve, reject, resize, and continue without visual drift or
+  hidden state.
+- Screenshots/previews cover idle, thinking, tool call, approval, and test
+  result states.
+
+### M2: Evidence-Driven Programming Loop
+
+Focus: make edit/test/review visible and actionable.
+
+- `/test` evidence model and side-2 rendering.
+- Edit summaries with file, delta, approval, and write result.
+- Diff/review entry points for the current round of changes.
+- Recent evidence timeline for tools, tests, lanes, and approvals.
+
+Exit criteria:
+
+- The demo workflow "create file -> approve -> run test -> inspect result" can
+  complete inside TUI.
+- The latest failure summary and changed files are visible without reading raw
+  transcript history.
+
+### M3: Codex Adapter Core
+
+Focus: make Codex the first protocol-backed external coding agent in RoboCode.
+
+- Codex availability/auth doctor.
+- Codex app-server process or broker boundary.
+- Review and adversarial-review flows.
+- Task/rescue flow with read-only and write-capable modes.
+- Background job records with status/result/cancel/resume.
+- Mapping from Codex thread/turn/events to RoboCode lane/evidence records.
+
+Exit criteria:
+
+- A user can run a Codex review from RoboCode, see progress, fetch the result,
+  and resume the Codex session if needed.
+- A user can hand a bounded task to Codex, observe it as an agent lane, and see
+  changed files, commands, tests, and final output as RoboCode evidence.
+
+### M4: Agent Lane Operator Loop
+
+Focus: turn external tools into supervised collaborators.
+
+- Normalized lane states.
+- `/lane inspect`, `/lane send`, `/lane revise`, `/lane accept`,
+  `/lane discard`, and `/lane apply` decision loop.
+- Side-1 real lane evidence and next-action priority.
+- tmux/PTY/template lane observation hardening.
+
+Exit criteria:
+
+- A tmux or PTY coding-agent lane can be started, observed, followed up, and
+  accepted or discarded with visible evidence.
+
+### M5: Extension Foundation
+
+Focus: make plugin, skill, MCP, tool, and agent surfaces diagnosable before
+making them powerful.
+
+- Unified extension descriptor.
+- `/extensions doctor` and richer `/skills list`.
+- MCP context/config status in side-2.
+- Shared permission/runtime/transcript path for extension invocation.
+
+Exit criteria:
+
+- Missing MCP config, missing binaries, disabled skills, and failed extension
+  health checks produce actionable diagnostics.
+
+### M6: ACP Bridge Spike
+
+Focus: prove the future multi-agent protocol direction without destabilizing
+the local cockpit.
+
+- ACP process transport boundary.
+- Handshake and JSONL event log.
+- Event mapping design for text, edit, tool, permission, and completion events.
+- `/agent doctor acp` readiness and protocol evidence.
+
+Exit criteria:
+
+- A mock ACP-compatible process can handshake, emit events, and leave replayable
+  evidence that maps cleanly to lane artifacts.
 
 ## P0: Must Ship
 
@@ -87,7 +261,35 @@ Acceptance checks:
 - The user can find the latest test output, failure summary, and related files
   from the main screen or side-2.
 
-### 3. Agent Lane Lifecycle
+### 3. Codex Adapter and Job Runtime
+
+Goal: make Codex the first-class external agent backend, using the Claude Code
+Codex plugin as the reference workflow.
+
+Deliverables:
+
+- `/agent doctor codex` checks `codex` binary availability, app-server support,
+  auth readiness, config source, and workspace trust/setup state.
+- `/agent review codex` runs a read-only Codex review of the working tree or a
+  base branch, with foreground/background modes.
+- `/agent challenge codex` runs a steerable adversarial review focused on
+  assumptions, tradeoffs, and failure modes.
+- `/agent run codex <task>` starts a tracked Codex task; write-capable runs
+  must be explicit and permission-gated.
+- `/agent status`, `/agent result <id>`, `/agent cancel <id>`, and
+  resume/follow-up handling work for Codex jobs.
+- Codex app-server notifications, final output, touched files, command
+  executions, test evidence, and thread IDs are persisted as RoboCode evidence.
+
+Acceptance checks:
+
+- A read-only Codex review can be started, monitored, and rendered in the TUI.
+- A background Codex task can be checked through `/agent status` and fetched
+  through `/agent result`.
+- Write-capable Codex work never bypasses RoboCode permissions, transcript, or
+  approval.
+
+### 4. Agent Lane Lifecycle
 
 Goal: external coding agents should have lifecycle, evidence, and operator
 decisions, not merely a launched terminal.
@@ -114,7 +316,7 @@ Acceptance checks:
 
 ## P1: Should Ship
 
-### 4. Usable Extension System V1
+### 5. Usable Extension System V1
 
 Goal: plugins, skills, and MCP should be diagnosable, invokable, and
 extensible, not just visible.
@@ -145,7 +347,7 @@ Acceptance checks:
   skill is unavailable.
 - Side-2 distinguishes configured, ready, failed, and disabled extensions.
 
-### 5. ACP Adapter Spike
+### 6. ACP Adapter Spike
 
 Goal: establish the protocol boundary for supporting more coding agents.
 
@@ -167,7 +369,7 @@ Acceptance checks:
 - 0.1.7 does not need a full ACP editing loop, but the event model must be
   clear.
 
-### 6. Real Side-2 Ops Screen
+### 7. Real Side-2 Ops Screen
 
 Goal: side-2 becomes the operations panel for tests, LSP, MCP, extensions, and
 evidence.
@@ -214,6 +416,9 @@ Acceptance checks:
   and evidence plus diagnostics on side-2.
 - Codex, Claude Code, DeepSeek, shell jobs, and future ACP agents use the same
   lane/status/approval/evidence language in the TUI.
+- Codex specifically feels native: setup, review, rescue/task, background
+  status, result replay, cancellation, and resume are available without opening
+  a separate terminal.
 - Plugin, skill, and MCP problems are diagnosable instead of appearing as
   silent no-ops.
 - A real small-feature workflow can finish inside the TUI: enter the request,
@@ -221,16 +426,18 @@ Acceptance checks:
 
 ## Suggested Build Order
 
-1. Main-screen operation center: first solve the user's uncertainty about
-   whether RoboCode is doing work.
-2. Side-2 evidence panel: give tests, LSP, MCP, and extensions one observation
-   surface.
-3. Lane lifecycle polish: turn tmux, PTY, and template tools into an operator
-   loop.
-4. Extension descriptor and doctor: build diagnostics and boundaries before
+1. Codex adapter core: implement the concrete external-agent workflow first,
+   using the Claude Code Codex plugin as the reference product shape.
+2. Main-screen operation center: make Codex and RoboCode activity visible while
+   work is running.
+3. Side-2 evidence panel: give tests, LSP, MCP, extensions, and Codex job
+   evidence one observation surface.
+4. Lane lifecycle polish: turn Codex, tmux, PTY, and template tools into one
+   operator loop.
+5. Extension descriptor and doctor: build diagnostics and boundaries before
    complex execution.
-5. ACP spike: validate the protocol direction in parallel without blocking the
-   daily programming experience.
+6. ACP spike: validate the general protocol direction after Codex proves the
+   concrete adapter model.
 
 ## Verification Gate
 
@@ -243,5 +450,6 @@ Acceptance checks:
   - prompt submit -> live activity
   - file edit approval
   - `/test`
+  - Codex setup/review/status/result or a mock Codex app-server equivalent
   - side-1 lane evidence
   - side-2 ops evidence

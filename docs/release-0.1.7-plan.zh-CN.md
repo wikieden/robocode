@@ -12,13 +12,20 @@ lane、extension 可见性，推进成可日常使用的多 agent 编排工作�
 版本主题：
 
 ```text
-0.1.7 = Programming Experience + Agent Orchestration Backbone
+0.1.7 = Codex Adapter + Agent Orchestration Backbone
 ```
 
 核心判断：RoboCode 不是单纯做一个好看的 TUI，也不是只把 Codex、Claude Code、
 DeepSeek 等工具拉起来。它要成为一个本地 multi-agent cockpit：用户在主屏输入目标，
 RoboCode 能拆分、派发、观察、审批、收敛结果，并让不同 coding agent 通过统一机制
 协作。
+
+这一版的一号参考实现是 OpenAI 的 Claude Code Codex 插件：
+[`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc)。它证明了
+我们要的产品形态：一个主 coding agent 可以通过 plugin/command/subagent surface
+调用 Codex，让后台任务可观察，并在不切换工具的情况下查看结果或继续 Codex 工作。
+RoboCode 应该把这个模式内化成一等本地 agent adapter，而不是继续把 Codex 当成
+普通 terminal command。
 
 ## 版本问题陈述
 
@@ -30,6 +37,158 @@ RoboCode 能拆分、派发、观察、审批、收敛结果，并让不同 codi
   开发体验的加载、诊断、调用和权限模型。
 - 多 agent 还在终端集成阶段：tmux/PTY/template 已能接入外部工具，但后续要向
   Zed ACP 方向扩展，把不同 coding agent 变成统一 adapter 下的一等 lane backend。
+- 当前最强的 adapter 目标就是 Codex 本身：Claude Code 的 Codex 插件暴露
+  `/codex:review`、`/codex:rescue`、`/codex:status`、`/codex:result`、
+  `/codex:cancel` 和 `/codex:setup`，背后有 companion runtime 和 Codex
+  app-server integration。RoboCode 应该原生支持同一套 operator loop。
+
+## 版本定义
+
+`0.1.7` 成功的标准不是“跑完以后能看到结果”，而是用户在真实编程过程中就能感觉它
+可控、可观察、可接管。用户应该能提交任务、看到主 agent 当前动作、观察副 agent
+lane 进度、审批或拒绝修改、运行测试，并且在不离开 cockpit 的情况下理解
+extension/MCP 为什么不可用。
+
+硬发布门槛：
+
+- Codex 成为一等 agent backend，具备 setup/doctor、review、task、status、
+  result、cancel 和 resume 类流程。
+- 主屏有真实 operation center，所有状态都有 runtime evidence 支撑。
+- composer、approval overlay、窗口 resize 已稳定到可日常交互。
+- side-1 和 side-2 使用真实 lane、test、LSP、MCP、extension、evidence 状态，
+  不依赖 preview-only placeholder。
+- 外部 agent 使用同一套 lane lifecycle 和 operator decision language。
+- ACP 有清楚的 adapter 边界和可工作的 handshake/event-log spike，即使完整 ACP
+  编辑闭环仍保持 experimental。
+- plugin、skill、MCP、tool、agent 这些 extension kind 有统一 descriptor 形态、
+  诊断路径和权限边界。
+
+砍线：
+
+- 如果时间紧，完整 ACP task execution 和自动任务拆分可以继续保持 experimental。
+- 不能砍 Codex adapter、live operation center、composer 可用性、lane lifecycle
+  和 extension diagnostics。它们是下一阶段编程体验的地基。
+
+## 参考模型：Codex Plugin for Claude Code
+
+RoboCode 要明确学习 `openai/codex-plugin-cc`，但不照搬它的 Node 实现。这个参考设计
+有五个值得保留的部分：
+
+- Plugin/command surface：
+  `/codex:review`、`/codex:adversarial-review`、`/codex:rescue`、
+  `/codex:status`、`/codex:result`、`/codex:cancel` 和 `/codex:setup`。
+- Thin local runtime：
+  companion script 检查 Codex availability/auth，启动 Codex 工作，保存 job
+  records，并渲染 status/result output。
+- Protocol-backed integration：
+  插件使用本地 `codex` binary 和 Codex app-server，而不是只抓 terminal 文本。
+- Background job model：
+  长时间 review 和 rescue task 可以在后台继续跑，host tool 后续展示 status 和
+  final result。
+- Safety posture：
+  review 默认 read-only，write-capable rescue 必须显式选择；可选 review gate 要
+  可见，因为它可能形成循环并消耗 usage。
+
+RoboCode 对应翻译：
+
+- `/agent doctor codex` 替代 `/codex:setup`。
+- `/agent review codex [--base <ref>]` 替代 `/codex:review`。
+- `/agent challenge codex ...` 替代 `/codex:adversarial-review`。
+- `/agent run codex <task>` 或 `/lane codex <task>` 替代 `/codex:rescue`。
+- `/agent status`、`/agent result <id>` 和 `/agent cancel <id>` 管理后台 job。
+- Codex app-server events 转成 RoboCode lane events、evidence records 和
+  side-screen rows。
+
+## 开发里程碑
+
+### M1：Live Cockpit Stability
+
+重点：先把日常交互手感修稳，再加更多编排能力。
+
+- 主屏 operation center。
+- composer 高度、闪烁光标、中文输入法位置。
+- resize redraw 和边框对齐。
+- approval overlay 默认焦点、关闭、确认后的清理。
+
+退出标准：
+
+- 用户可以输入、审批、拒绝、调整窗口、继续对话，不出现视觉漂移或隐藏状态。
+- 截图/preview 覆盖 idle、thinking、tool call、approval、test result 状态。
+
+### M2：Evidence-Driven Programming Loop
+
+重点：让 edit/test/review 可见、可操作。
+
+- `/test` evidence model 和 side-2 渲染。
+- edit summary 展示文件、增删行、审批状态、写入结果。
+- 当前轮变更的 diff/review 入口。
+- tool、test、lane、approval 的 recent evidence timeline。
+
+退出标准：
+
+- “生成文件 -> 审批 -> 运行测试 -> 查看结果”能在 TUI 内完成。
+- 不翻 raw transcript，也能看到最近失败摘要和相关变更文件。
+
+### M3：Codex Adapter Core
+
+重点：让 Codex 成为 RoboCode 第一个 protocol-backed external coding agent。
+
+- Codex availability/auth doctor。
+- Codex app-server process 或 broker 边界。
+- Review 和 adversarial-review flows。
+- Task/rescue flow，区分 read-only 和 write-capable modes。
+- 带 status/result/cancel/resume 的 background job records。
+- Codex thread/turn/events 到 RoboCode lane/evidence records 的映射。
+
+退出标准：
+
+- 用户可以从 RoboCode 启动 Codex review、看到进度、获取结果，并在需要时 resume
+  Codex session。
+- 用户可以把一个明确任务交给 Codex，在 TUI 中把它看作 agent lane，并看到 changed
+  files、commands、tests 和 final output evidence。
+
+### M4：Agent Lane Operator Loop
+
+重点：把外部工具变成可监督协作者。
+
+- 统一 lane states。
+- `/lane inspect`、`/lane send`、`/lane revise`、`/lane accept`、
+  `/lane discard`、`/lane apply` 操作闭环。
+- side-1 使用真实 lane evidence，并突出 next action。
+- tmux/PTY/template lane 观察能力加固。
+
+退出标准：
+
+- 一个 tmux 或 PTY coding-agent lane 可以启动、观察、追问、接受或丢弃，并留下
+  可见证据。
+
+### M5：Extension Foundation
+
+重点：先让 plugin、skill、MCP、tool、agent 可诊断，再让它们变强。
+
+- 统一 extension descriptor。
+- `/extensions doctor` 和更有用的 `/skills list`。
+- MCP context/config 状态进入 side-2。
+- extension 调用进入共享 permission/runtime/transcript path。
+
+退出标准：
+
+- MCP 配置缺失、binary 缺失、skill disabled、extension health failed 都能输出
+  actionable diagnostics。
+
+### M6：ACP Bridge Spike
+
+重点：证明未来多 agent 协议方向，同时不破坏本地 cockpit。
+
+- ACP process transport 边界。
+- handshake 和 JSONL event log。
+- text、edit、tool、permission、completion event 的 lane mapping 设计。
+- `/agent doctor acp` readiness 和 protocol evidence。
+
+退出标准：
+
+- mock ACP-compatible process 可以 handshake、emit events，并留下可回放证据，
+  这些证据能干净映射为 lane artifacts。
 
 ## P0：必须交付
 
@@ -74,7 +233,34 @@ RoboCode 能拆分、派发、观察、审批、收敛结果，并让不同 codi
 - 完成一次“生成文件 -> 审批 -> 运行测试 -> 查看结果”的 demo，不需要离开 TUI。
 - 用户能从主屏或 side-2 找到最近测试输出、失败摘要和相关文件。
 
-### 3. Agent Lane 生命周期
+### 3. Codex Adapter 和 Job Runtime
+
+目标：以 Claude Code Codex 插件为参考工作流，让 Codex 成为一等 external agent
+backend。
+
+交付：
+
+- `/agent doctor codex` 检查 `codex` binary、app-server support、auth readiness、
+  config source 和 workspace trust/setup 状态。
+- `/agent review codex` 对 working tree 或 base branch 发起 read-only Codex
+  review，支持 foreground/background。
+- `/agent challenge codex` 发起可指定焦点的 adversarial review，挑战假设、权衡和
+  failure modes。
+- `/agent run codex <task>` 启动 tracked Codex task；write-capable run 必须显式
+  选择并经过权限控制。
+- `/agent status`、`/agent result <id>`、`/agent cancel <id>` 和 resume/follow-up
+  handling 对 Codex jobs 可用。
+- Codex app-server notifications、final output、touched files、command
+  executions、test evidence 和 thread IDs 都持久化为 RoboCode evidence。
+
+验收：
+
+- 可以启动 read-only Codex review，在 TUI 中观察并渲染结果。
+- background Codex task 可以通过 `/agent status` 查看，通过 `/agent result`
+  取回结果。
+- write-capable Codex work 不能绕过 RoboCode permissions、transcript 和 approval。
+
+### 4. Agent Lane 生命周期
 
 目标：让外部 coding agent 不只是“启动了一个终端”，而是有生命周期、有证据、有决策。
 
@@ -98,7 +284,7 @@ RoboCode 能拆分、派发、观察、审批、收敛结果，并让不同 codi
 
 ## P1：应该交付
 
-### 4. Extension System 第一版可用化
+### 5. Extension System 第一版可用化
 
 目标：plugin、skill、MCP 不只展示“存在”，而是形成可诊断、可调用、可扩展的系统。
 
@@ -123,7 +309,7 @@ RoboCode 能拆分、派发、观察、审批、收敛结果，并让不同 codi
 - 用户能通过 `/extensions doctor` 知道为什么某个 MCP 或 skill 不能用。
 - side-2 能区分 configured、ready、failed、disabled。
 
-### 5. ACP Adapter Spike
+### 6. ACP Adapter Spike
 
 目标：建立未来支持更多 coding agent 的协议边界。
 
@@ -142,7 +328,7 @@ RoboCode 能拆分、派发、观察、审批、收敛结果，并让不同 codi
 - 可以用 mock ACP server 或最小 compatible server 跑通 handshake 和 event log。
 - 不要求 0.1.7 支持完整 ACP 编辑闭环，但事件模型必须清楚。
 
-### 6. Side-2 Ops 屏幕真实化
+### 7. Side-2 Ops 屏幕真实化
 
 目标：副屏 2 成为 tests、LSP、MCP、extension、evidence 的操作面板。
 
@@ -179,17 +365,22 @@ RoboCode 能拆分、派发、观察、审批、收敛结果，并让不同 codi
 - 用户能在主屏看到当前动作，在 side-1 看到子 agent，在 side-2 看到证据和诊断。
 - Codex、Claude Code、DeepSeek、shell job 和未来 ACP agent 在 TUI 里使用同一套
   lane/status/approval/evidence 语言。
+- Codex 具体要像原生能力：setup、review、rescue/task、background status、
+  result replay、cancel 和 resume 都能在 RoboCode 内完成，不需要打开另一个终端。
 - plugin、skill、MCP 的问题能被诊断，而不是只表现为“命令没反应”。
 - 一次真实小功能开发能在 TUI 内完成：输入需求、审批修改、运行测试、查看结果、
   接受或修订 lane 输出。
 
 ## 开发顺序建议
 
-1. 主屏任务状态中心：先把用户最痛的“不知道它在干什么”解决掉。
-2. side-2 evidence 面板：让测试、LSP、MCP、extension 状态有统一观察面。
-3. lane lifecycle 打磨：把 tmux/PTY/template 外部工具形成可操作闭环。
-4. extension descriptor 和 doctor：先做诊断和边界，再做复杂执行。
-5. ACP spike：并行验证协议方向，但不阻塞日常编程体验交付。
+1. Codex adapter core：先把具体 external-agent workflow 做出来，以 Claude Code
+   Codex 插件作为参考产品形态。
+2. 主屏任务状态中心：Codex 和 RoboCode 工作中时，主屏都要看得到。
+3. side-2 evidence 面板：让测试、LSP、MCP、extension 和 Codex job evidence 有
+   统一观察面。
+4. lane lifecycle 打磨：把 Codex、tmux、PTY/template 外部工具形成同一套操作闭环。
+5. extension descriptor 和 doctor：先做诊断和边界，再做复杂执行。
+6. ACP spike：等 Codex 证明具体 adapter model 后，再验证通用协议方向。
 
 ## 验证门槛
 
@@ -201,5 +392,6 @@ RoboCode 能拆分、派发、观察、审批、收敛结果，并让不同 codi
   - prompt submit -> live activity
   - file edit approval
   - `/test`
+  - Codex setup/review/status/result，或 mock Codex app-server 等价验证
   - side-1 lane evidence
   - side-2 ops evidence

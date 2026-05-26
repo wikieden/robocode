@@ -25,15 +25,25 @@ Mainline landed status:
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Next planned slice:
+Next planned slice (`0.1.7`):
 
-- harden the completed TUI/lane cockpit through real operator runs, especially
-  long-running tmux/PTY lanes and apply-conflict recovery
-- decide whether lane commands should be promoted beyond the TUI runtime into
-  ordinary REPL/core surfaces
-- keep provider compatibility coverage as a parallel quality track, using
-  DeepSeek V4 as the strict compatibility contract and the provider live matrix
-  as the evidence log
+- make Codex the first-class reference external-agent backend, using
+  OpenAI's Claude Code Codex plugin as the product reference for setup,
+  review, rescue/task, background status, result replay, cancellation, and
+  resume flows
+- turn the cockpit into a live programming workbench: main-screen operation
+  center, stable composer/IME/cursor behavior, resize redraw, and approval
+  overlay cleanup
+- make programming evidence first-class: `/test` results, edit summaries,
+  diff/review entry points, side-2 ops evidence, and recent evidence timelines
+- harden external-agent lanes into an operator loop: normalized lane states,
+  `/lane inspect`, `/lane send`, revise/accept/discard/apply decisions, and
+  real side-1 next actions
+- define the extension foundation for plugins, skills, MCP, tools, and agents:
+  descriptor shape, diagnostics, health, entrypoints, and permission/runtime
+  boundaries
+- continue the ACP direction after the Codex adapter proves the concrete
+  protocol-backed job/evidence model
 
 ## Near-Term Plan
 
@@ -41,32 +51,53 @@ Next planned slice:
    - Phase 1-7 of the current TUI/lane plan are landed on `main`: cockpit
      layout, theme variants, companion screens, lane runtime, external-tool
      adapters, isolation, and attachable terminal panes.
-   - Continue hardening with real runs: resize behavior, long-lived side
-     screens, tmux/PTY log capture, `/lane send`, and operator review/apply
-     loops.
+   - Continue hardening with the `0.1.7` live cockpit goals: operation center,
+     composer usability, resize behavior, long-lived side screens, tmux/PTY log
+     capture, `/lane send`, and operator review/apply loops.
    - Keep lane completion separate from acceptance, and keep apply/cleanup as
      explicit operator actions.
 
-2. Interactive Conflict and Terminal Hardening.
+2. Programming Evidence and Terminal Hardening.
+   - Promote test output, edit summaries, approval state, and changed-file
+     evidence into the main screen and side-2.
    - Improve apply-conflict recovery beyond the current audited retry path.
    - Evaluate whether full cursor-addressed terminal replay is worth the added
      parser/rendering complexity after log-tail replay has covered the first
      cockpit observation need.
 
-3. External Coding Tool Adapter Expansion.
-   - Add more templates and docs for tools such as Gemini, Junie, and local
-     coding CLIs as real operator workflows demand them.
+3. Codex Adapter as the Reference Agent Backend.
+   - Implement Codex setup/doctor, review, adversarial review, task/rescue,
+     status, result, cancel, and resume/follow-up flows as the first native
+     external-agent adapter.
+   - Prefer Codex app-server / protocol events over terminal scraping where
+     available; persist thread IDs, touched files, command executions, final
+     output, and reasoning/evidence summaries into RoboCode lane evidence.
+   - Use read-only as the default review posture; require explicit permission
+     boundaries for write-capable Codex work.
+
+4. External Coding Tool Adapter Expansion.
+   - Keep Codex, Claude Code, DeepSeek, shell, tmux, PTY, and future ACP agents
+     behind one lane lifecycle and one evidence model.
+   - Add more templates and docs for tools such as Gemini, Junie, Kiro, and
+     local coding CLIs as real operator workflows demand them.
    - Promote durable lane primitives out of `robocode-cli` only when non-TUI
      surfaces need the same model.
 
-4. Provider Compatibility Completion.
+5. Extension Foundation.
+   - Define plugin, skill, MCP, tool, and agent descriptor boundaries.
+   - Make extension health visible through doctor commands and side-2 before
+     adding complex invocation or marketplace-like installation flows.
+   - Keep every extension invocation on the shared permission, runtime, and
+     transcript path.
+
+6. Provider Compatibility Completion.
    - Keep the provider live matrix documented and aligned with built-in descriptors.
    - Validate real API compatibility across built-in and descriptor-backed OpenAI-compatible providers when credentials are available.
    - Keep dynamic loading, registry refresh, descriptor compatibility flags, and collision tests covered.
    - Keep provider binding instance-scoped so multiple sessions or agents can use different providers in the same process.
    - Harden OpenAI-style and Anthropic-style protocol compatibility, including DeepSeek reasoning/tool-call turns.
 
-5. V3 Platform Expansion.
+7. V3 Platform Expansion.
    - MCP runtime and plugin loading.
    - Skills/workflow plugin model.
    - Multi-agent coordinator.
