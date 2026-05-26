@@ -19,7 +19,7 @@ minimal protocol proof instead of being only a roadmap note.
 3. Side-1 and side-2 evidence screens: local implementation landed.
 4. ACP readiness and protocol probe: local implementation landed.
 5. Release packaging: local smoke passed.
-6. External publication: pending GitHub release and Homebrew tap validation.
+6. External publication: GitHub release and Homebrew tap validation passed.
 
 ## Candidate Evidence
 
@@ -50,27 +50,35 @@ minimal protocol proof instead of being only a roadmap note.
   prints `robocode-cli 0.1.6`.
 - macOS arm64 archive SHA-256:
   `22413a9d94fc0fc950ba47e232f9025ac218eb35cd788c13b2b3d44231cadab1`.
+- GitHub Actions release artifact validation passed with
+  `upload_to_release=false` for all configured targets:
+  `aarch64-apple-darwin`, `x86_64-apple-darwin`,
+  `x86_64-unknown-linux-gnu`, and `x86_64-pc-windows-msvc`.
+  Run: https://github.com/wikieden/robocode/actions/runs/26440197730.
+- The final GitHub release workflow passed with `upload_to_release=true` and
+  uploaded all configured artifacts.
+  Run: https://github.com/wikieden/robocode/actions/runs/26440351407.
+- Homebrew tap `wikieden/homebrew-tap` now points RoboCode formula URLs and
+  SHA-256 values at `v0.1.6`.
+  Commit: https://github.com/wikieden/homebrew-tap/commit/b8c94da.
+- Homebrew fetch smoke passed:
+  `brew fetch --force wikieden/tap/robocode` reported
+  `Formula robocode (0.1.6)`.
 
 ## Validation Gates
 
-Before publishing `v0.1.6`, run after pushing the version bump to `main`:
+All planned `0.1.6` validation gates have passed:
 
-```bash
-scripts/release-smoke.sh --version 0.1.6 --skip-package --deepseek --github-actions
-```
-
-The final status update should record:
-
-- the GitHub Actions validation run URL;
-- the published release URL and artifact list;
-- Homebrew tap commit and fetch/install smoke result.
+- local release smoke with package and DeepSeek live provider validation;
+- GitHub Actions artifact validation with `upload_to_release=false`;
+- final GitHub release artifact upload with `upload_to_release=true`;
+- Homebrew tap update and fetch smoke.
 
 ## Open Findings
 
 ### P0
 
-- Run GitHub Actions artifact validation and publish the final release after
-  the `0.1.6` version bump is on `main`.
+- None for the `0.1.6` release.
 
 ### P1
 
@@ -88,5 +96,32 @@ The final status update should record:
 
 ## Release Outcome
 
-`v0.1.6` is not marked published until the release workflow uploads all
-configured artifacts and the Homebrew tap has been updated.
+`v0.1.6` is published at:
+
+- https://github.com/wikieden/robocode/releases/tag/v0.1.6
+
+The release contains:
+
+- `robocode-v0.1.6-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.6-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.6-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.6-x86_64-pc-windows-msvc.tar.gz`
+- matching `.sha256` files for each archive.
+
+GitHub reported asset digests:
+
+- `aarch64-apple-darwin`:
+  `sha256:5c2783b86574edf95a66af7b176ea6e3c24680782f53817d00661661397faac3`
+- `x86_64-apple-darwin`:
+  `sha256:7229d9a2dcdd796735ccbde6dcfccac8d35a66454b76e42cca561242e3789c6a`
+- `x86_64-unknown-linux-gnu`:
+  `sha256:b47d2648de98a72e2d9e0b8afef1a92090bb4325374d6f69086b7b790f9da77e`
+- `x86_64-pc-windows-msvc`:
+  `sha256:4b94e1f645b8b383a1b131f24e5eebfacff6f3d1ac684c05fbfe4a372b4ce386`
+
+Homebrew install path:
+
+```bash
+brew tap wikieden/tap
+brew install robocode
+```

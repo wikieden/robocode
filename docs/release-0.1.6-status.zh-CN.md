@@ -18,7 +18,7 @@ agent / extension diagnostics 可发现，并且 ACP 方向有最小协议 proof
 3. side-1 和 side-2 evidence screens：本地实现已落地。
 4. ACP readiness 和 protocol probe：本地实现已落地。
 5. Release packaging：local smoke 已通过。
-6. 外部发布：等待 GitHub release 和 Homebrew tap validation。
+6. 外部发布：GitHub release 和 Homebrew tap validation 已通过。
 
 ## Candidate 证据
 
@@ -48,27 +48,34 @@ agent / extension diagnostics 可发现，并且 ACP 方向有最小协议 proof
   `robocode-cli 0.1.6`。
 - macOS arm64 archive SHA-256：
   `22413a9d94fc0fc950ba47e232f9025ac218eb35cd788c13b2b3d44231cadab1`。
+- GitHub Actions release artifact validation 已以 `upload_to_release=false`
+  跑通全部配置目标：`aarch64-apple-darwin`、`x86_64-apple-darwin`、
+  `x86_64-unknown-linux-gnu` 和 `x86_64-pc-windows-msvc`。
+  Run: https://github.com/wikieden/robocode/actions/runs/26440197730。
+- 最终 GitHub release workflow 已以 `upload_to_release=true` 通过，并上传全部
+  配置 artifacts。
+  Run: https://github.com/wikieden/robocode/actions/runs/26440351407。
+- Homebrew tap `wikieden/homebrew-tap` 中的 RoboCode formula URL 和 SHA-256
+  已指向 `v0.1.6`。
+  Commit: https://github.com/wikieden/homebrew-tap/commit/b8c94da。
+- Homebrew fetch smoke 已通过：
+  `brew fetch --force wikieden/tap/robocode` 输出
+  `Formula robocode (0.1.6)`。
 
 ## 验证门禁
 
-把 version bump 推到 `main` 后，发布 `v0.1.6` 前运行：
+`0.1.6` 计划内验证门禁已全部通过：
 
-```bash
-scripts/release-smoke.sh --version 0.1.6 --skip-package --deepseek --github-actions
-```
-
-最终状态更新需要记录：
-
-- GitHub Actions validation run URL；
-- 已发布 release URL 和 artifact 列表；
-- Homebrew tap commit 和 fetch/install smoke 结果。
+- 带 package 和 DeepSeek 真实 provider validation 的本地 release smoke；
+- `upload_to_release=false` 的 GitHub Actions artifact validation；
+- `upload_to_release=true` 的最终 GitHub release artifact upload；
+- Homebrew tap update 和 fetch smoke。
 
 ## 当前发现
 
 ### P0
 
-- `0.1.6` version bump 推到 `main` 后运行 GitHub Actions artifact
-  validation，并发布最终 release。
+- `0.1.6` release 无剩余 P0。
 
 ### P1
 
@@ -85,5 +92,32 @@ scripts/release-smoke.sh --version 0.1.6 --skip-package --deepseek --github-acti
 
 ## Release 结果
 
-只有当 release workflow 上传全部配置 artifacts，并且 Homebrew tap 更新完成后，
-`v0.1.6` 才标记为已发布。
+`v0.1.6` 已发布：
+
+- https://github.com/wikieden/robocode/releases/tag/v0.1.6
+
+release 包含：
+
+- `robocode-v0.1.6-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.6-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.6-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.6-x86_64-pc-windows-msvc.tar.gz`
+- 每个 archive 对应的 `.sha256` 文件。
+
+GitHub 返回的 asset digests：
+
+- `aarch64-apple-darwin`：
+  `sha256:5c2783b86574edf95a66af7b176ea6e3c24680782f53817d00661661397faac3`
+- `x86_64-apple-darwin`：
+  `sha256:7229d9a2dcdd796735ccbde6dcfccac8d35a66454b76e42cca561242e3789c6a`
+- `x86_64-unknown-linux-gnu`：
+  `sha256:b47d2648de98a72e2d9e0b8afef1a92090bb4325374d6f69086b7b790f9da77e`
+- `x86_64-pc-windows-msvc`：
+  `sha256:4b94e1f645b8b383a1b131f24e5eebfacff6f3d1ac684c05fbfe4a372b4ce386`
+
+Homebrew 安装路径：
+
+```bash
+brew tap wikieden/tap
+brew install robocode
+```
