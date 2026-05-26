@@ -3,6 +3,9 @@ use crate::presentation::{
     join_lines, render_field, render_section_title, render_subsection_title, render_summary_fields,
 };
 use robocode_types::SessionSummary;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
 
 impl SessionEngine {
     pub(super) fn render_help(&self) -> String {
@@ -52,7 +55,7 @@ impl SessionEngine {
     }
 
     pub(super) fn render_status(&self) -> String {
-        [
+        let mut lines = vec![
             "Runtime status:".to_string(),
             format!("  Session: {}", self.session_id()),
             format!("  CWD: {}", self.cwd.display()),
@@ -80,8 +83,11 @@ impl SessionEngine {
                     )
                 })
                 .unwrap_or_else(|| "  Last test: <none>".to_string()),
-        ]
-        .join("\n")
+        ];
+        lines.extend(render_workspace_status(&self.cwd));
+        lines.extend(render_workflow_status(&self.workflows));
+        lines.extend(render_lane_status(&self.cwd));
+        lines.join("\n")
     }
 
     pub(super) fn render_config(&self) -> String {
@@ -243,4 +249,127 @@ impl SessionEngine {
         }
         join_lines(&lines)
     }
+}
+
+fn render_workspace_status(cwd: &Path) -> Vec<String> {
+    let mut lines = vec!["Workspace:".to_string()];
+    // `/status` is an operator snapshot, so each collector degrades independently
+    // instead of failing the whole command when git/workflow/lane data is missing.
+    match git_dirty_files(cwd) {
+        Ok(files) if files.is_empty() => lines.push("  Dirty files: 0".to_string()),
+        Ok(files) => {
+            let preview = files.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
+            let suffix = if files.len() > 5 {
+                format!(" (+{} more)", files.len() - 5)
+            } else {
+                String::new()
+            };
+            lines.push(format!(
+                "  Dirty files: {} ({preview}{suffix})",
+                files.len()
+            ));
+        }
+        Err(err) => lines.push(format!("  Dirty files: <unavailable: {err}>")),
+    }
+    lines
+}
+
+fn git_dirty_files(cwd: &Path) -> Result<Vec<String>, String> {
+    let output = Command::new("git")
+        .args(["status", "--short", "--untracked-files=all"])
+        .current_dir(cwd)
+        .output()
+        .map_err(|err| err.to_string())?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "git status failed".to_string()
+        } else {
+            stderr
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.get(3..).or_else(|| line.get(0..)))
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(ToString::to_string)
+        .collect())
+}
+
+fn render_workflow_status(workflows: &WorkflowStore) -> Vec<String> {
+    let mut lines = vec!["Workflows:".to_string()];
+    match workflows.load_task_state() {
+        Ok(state) => {
+            let active = state.active_tasks();
+            if active.is_empty() {
+                lines.push("  Active tasks: 0".to_string());
+            } else {
+                lines.push(format!("  Active tasks: {}", active.len()));
+                lines.extend(active.into_iter().take(3).map(|task| {
+                    format!(
+                        "    {} {} {}",
+                        task.task_id,
+                        format!("{:?}", task.status).to_lowercase(),
+                        task.title
+                    )
+                }));
+            }
+        }
+        Err(err) => lines.push(format!("  Active tasks: <unavailable: {err}>")),
+    }
+    lines
+}
+
+#[derive(Debug, Clone)]
+struct StatusLane {
+    id: String,
+    tool: String,
+    title: String,
+    status: String,
+    progress: String,
+}
+
+fn render_lane_status(cwd: &Path) -> Vec<String> {
+    let lanes = load_status_lanes(&cwd.join(".robocode").join("lanes.tsv"));
+    let active = lanes
+        .iter()
+        .filter(|lane| matches!(lane.status.as_str(), "running" | "queued" | "attached"))
+        .count();
+    let mut lines = vec![
+        "Lanes:".to_string(),
+        format!("  Active lanes: {active}/{}", lanes.len()),
+    ];
+    lines.extend(lanes.into_iter().take(3).map(|lane| {
+        format!(
+            "    {} {} {} {}% {}",
+            lane.id, lane.tool, lane.status, lane.progress, lane.title
+        )
+    }));
+    lines
+}
+
+fn load_status_lanes(path: &Path) -> Vec<StatusLane> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    content.lines().filter_map(parse_status_lane).collect()
+}
+
+fn parse_status_lane(line: &str) -> Option<StatusLane> {
+    let fields = line.split('\t').collect::<Vec<_>>();
+    if fields.len() < 6 {
+        return None;
+    }
+    Some(StatusLane {
+        id: unescape_status_tsv(fields[0]),
+        tool: unescape_status_tsv(fields[1]),
+        title: unescape_status_tsv(fields[2]),
+        status: unescape_status_tsv(fields[3]),
+        progress: fields[5].parse::<u8>().unwrap_or(0).to_string(),
+    })
+}
+
+fn unescape_status_tsv(value: &str) -> String {
+    value.replace("\\t", "\t").replace("\\n", "\n")
 }

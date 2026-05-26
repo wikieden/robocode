@@ -331,6 +331,9 @@ Current workflow/LSP notes:
   verification command, exit code, likely failing-file count, and output tail
   without creating a second execution path. The command output also includes a
   small parser for common Rust/cargo and pytest failure-summary/file patterns.
+- `/status` also acts as a read-only cockpit snapshot: it collects git dirty
+  files, active workflow tasks, and lane state from `.robocode/lanes.tsv`, with
+  each collector degrading independently if that source is unavailable.
 - Successful `write_file` and `edit_file` results are structured as `path`,
   `size`, and `effect` lines so transcript and TUI surfaces can summarize file
   changes without parsing free-form prose.

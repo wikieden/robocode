@@ -142,6 +142,9 @@ api_key_env = "DEEPSEEK_API_KEY"
   calls and records the latest test status, exit code, duration, command, and
   output tail for `/status`. Failed runs also extract common failure-summary
   lines and likely failing files from Rust/cargo and pytest-style output.
+- `/status` is the compact cockpit snapshot: provider/model, permissions,
+  session paths, last test evidence, dirty files, active tasks, and current
+  lane counts from `.robocode/lanes.tsv`.
 - File write results are structured with `path`, `size`, and `effect` lines so
   the transcript is easier to scan after an edit.
 - `/lane tmux <id>` starts or reuses a tmux session for a lane workspace and

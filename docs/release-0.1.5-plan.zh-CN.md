@@ -97,6 +97,9 @@ provider 路径、shell lane、tmux lane 和 release artifacts 可以端到端�
 - Status clarity：
   - `/status` 显示 provider、model、context、permissions、dirty files、active
     task、last test result 和 recent lane state。
+  - 当前 checkpoint：`/status` 现在包含只读 cockpit sections，显示 dirty files、
+    active workflow tasks，以及来自 `.robocode/lanes.tsv` 的 active lane 数量，
+    同时保留最近 test evidence。
 
 验收证据：
 

@@ -108,6 +108,9 @@ This is the core value of the release.
 - Status clarity:
   - `/status` should tell the user provider, model, context, permissions, dirty
     files, active task, last test result, and recent lane state.
+  - Current checkpoint: `/status` now includes read-only cockpit sections for
+    dirty files, active workflow tasks, and active lane counts from
+    `.robocode/lanes.tsv`, while keeping the last test evidence visible.
 
 Acceptance evidence:
 

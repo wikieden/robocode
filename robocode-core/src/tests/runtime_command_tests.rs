@@ -1,10 +1,22 @@
 use std::cell::Cell;
+use std::path::Path;
 
 use crate::{DependencyStatus, DoctorReport, EngineEvent, SessionEngine};
 use robocode_model::ProviderHost;
 use robocode_types::ApprovalResponse;
 
 use super::{SequenceProvider, temp_dir};
+
+fn init_git_repo(cwd: &Path) {
+    let status = std::process::Command::new("git")
+        .arg("init")
+        .arg("-b")
+        .arg("main")
+        .current_dir(cwd)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
 
 #[test]
 fn web_help_command_is_available() {
@@ -46,6 +58,49 @@ fn status_command_reports_current_runtime_state() {
                 && text.contains("Permission mode:")
                 && text.contains("Transcript:")
                 && text.contains("Index:")
+    )));
+}
+
+#[test]
+fn status_command_reports_dirty_files_active_tasks_and_lanes() {
+    let home = temp_dir("status_cockpit_home");
+    let cwd = temp_dir("status_cockpit_cwd");
+    init_git_repo(&cwd);
+    std::fs::write(cwd.join("dirty.txt"), "changed\n").unwrap();
+    std::fs::create_dir_all(cwd.join(".robocode")).unwrap();
+    std::fs::write(
+        cwd.join(".robocode").join("lanes.tsv"),
+        "L1\tcodex\tfix status cockpit\trunning\tmain\t42\tchecking status output\t\n",
+    )
+    .unwrap();
+
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .process_input_with_approval("/task add Improve status cockpit", &mut approver)
+        .unwrap();
+    let output = engine
+        .process_input_with_approval("/status", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Workspace:")
+                && text.contains("Dirty files: 2")
+                && text.contains("dirty.txt")
+                && text.contains(".robocode/lanes.tsv")
+                && text.contains("Workflows:")
+                && text.contains("Active tasks: 1")
+                && text.contains("Improve status cockpit")
+                && text.contains("Lanes:")
+                && text.contains("Active lanes: 1/1")
+                && text.contains("L1 codex running 42%")
     )));
 }
 

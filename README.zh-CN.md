@@ -130,6 +130,9 @@ api_key_env = "DEEPSEEK_API_KEY"
 - 审批弹窗默认停在 `Approve`；按 `y` 通过，`n` 拒绝，`d` 聚焦 diff，也可以用 `Tab` / 方向键在动作间移动。
 - Slash commands 以 `/` 开头；常用入口包括 `/help`、`/provider`、`/status`、`/config`、`/permissions`、`/test <command>`、`/sessions`、`/resume latest`、`/task`、`/memory`、`/lane` 和 `/screen`。
 - `/test <command>` 会走和 agent tool call 相同的 shell 审批路径，并把最近一次测试的状态、exit code、耗时、命令和输出尾部记录到 `/status`。失败运行还会从 Rust/cargo 和 pytest 风格输出中提取常见 failure-summary 行和可能失败的文件。
+- `/status` 是紧凑的 cockpit 快照：provider/model、permissions、session paths、
+  最近 test evidence、dirty files、active tasks，以及来自 `.robocode/lanes.tsv`
+  的当前 lane 数量。
 - 文件写入结果会结构化显示 `path`、`size` 和 `effect` 行，让 edit 后的 transcript 更容易扫读。
 - `/lane tmux <id>` 会为 lane workspace 启动或复用一个 tmux session，并把 attach 命令记录到 `.robocode/lanes/`，让 Codex、Claude 或 shell lane 先拥有一个可监督的交互式终端面，而不需要立刻引入原生 PTY 依赖。
 - `/screen side-1` 和 `/screen side-2` 会启动用于 lane / ops 监控的副屏 TUI；用 `/screen list` 和 `/screen close <side-1|side-2>` 管理已跟踪副屏。可以设置 `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`、`ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` 或共享的 `ROBOCODE_SCREEN_LAUNCH_TEMPLATE`，把副屏交给你的 terminal app、tmux 或显示器摆放脚本启动。

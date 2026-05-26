@@ -301,6 +301,9 @@ CLI 当前也通过 slash commands 暴露这些工具面：
   exit code、可能失败文件数量和 output tail，而不引入第二条执行通道。命令输出还
   包含一个小 parser，用于提取常见 Rust/cargo 和 pytest failure-summary / file
   模式。
+- `/status` 也是只读 cockpit 快照：它会采集 git dirty files、active workflow
+  tasks，以及 `.robocode/lanes.tsv` 中的 lane state；某个来源不可用时只降级该
+  collector，不让整个命令失败。
 - 成功的 `write_file` 和 `edit_file` result 会结构化为 `path`、`size` 和 `effect`
   行，让 transcript 和 TUI surface 不必解析自由文本也能总结文件变更。
 - `robocode-lsp` 当前通过 language-server stdio sessions 提供 query-driven 的 semantic code intelligence。
