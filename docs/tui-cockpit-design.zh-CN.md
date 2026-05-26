@@ -180,6 +180,9 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   `.log` 尾部；只有尚未捕获到 terminal 输出时，才回退显示 lane summary。
   这样 tmux、PTY 和后台 lane 在完整 terminal emulator 落地前，也已经有一段
   cockpit 内的 screen-state 切片。
+- side-1 lane 行现在使用统一 agent 语言，直接展示 transport（`template`、
+  `tmux`、`pty` 或 `shell`）和 state（`thinking`、`editing`、`testing`、
+  `needs input`、`blocked` 或 `done`），并和 attach/evidence 提示放在一起。
 - Provider health 已接入共享 runtime loop 测量到的模型请求 telemetry：真实
   request 数、成功/失败数、last/average latency、last event count、
   provider 返回的 token usage、请求耗时允许时的 token throughput，以及最后一次

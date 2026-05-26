@@ -64,7 +64,8 @@ TUI 到各个终端里猜状态。
   - `/skills list` 展示本地 workflow/task recipes。**状态：初版本地 skill listing
     已落地，默认限制输出并支持 `--all`。**
 - 副屏改善：
-  - side-1 优先展示 agent lanes、transport、state、latest output 和 next action；
+  - side-1 优先展示 agent lanes、transport、state、latest output 和 next action。
+    **状态：side-1 lane transport/state 行已落地。**
   - side-2 优先展示 tests、LSP、MCP/context、plugin health 和 evidence。
 
 ### P2：Spike，不作为发布硬门槛

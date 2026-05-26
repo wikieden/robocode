@@ -69,7 +69,7 @@ Version theme:
     skill listing shipped with capped output and `--all`.**
 - Side-screen improvement:
   - side-1 prioritizes agent lanes, transport, state, latest output, and next
-    action;
+    action. **Status: transport/state rows shipped for side-1 lanes.**
   - side-2 prioritizes tests, LSP, MCP/context, plugin health, and evidence.
 
 ### P2: Spike, Not Release-Critical

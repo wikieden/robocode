@@ -101,18 +101,18 @@ fn terminal_lane_detail_rows(state: &TuiState) -> Vec<String> {
         let badge = status_badge(&lane.status);
         let terminal = terminal_label(&lane.tool);
         rows.push(format!(
-            "┌ {} {} {:<10} route {:<8} {}",
+            "┌ {} {} {:<10} TRANSPORT {:<8} STATE {:<11}",
             status_dot(&lane.status),
             pad(&format!("{} {}", lane.id, terminal), 14),
             badge,
-            truncate(&lane.target, 10),
-            progress_bar(lane.progress)
+            lane_transport(lane),
+            lane_agent_state(lane)
         ));
         rows.push(format!(
             "│ PTY {}  PID {:<5}  ATTACH {}",
             pty_label(&lane.tool),
             pid_hint(lane),
-            truncate(&interaction_hint(lane), 40)
+            interaction_hint(lane)
         ));
         rows.push(format!(
             "└ CMD {} │ TASK {}",
@@ -127,6 +127,47 @@ fn terminal_lane_detail_rows(state: &TuiState) -> Vec<String> {
         ));
     }
     rows
+}
+
+fn lane_transport(lane: &super::state::TerminalLane) -> &'static str {
+    if lane.target.starts_with("tmux ") {
+        "tmux"
+    } else if lane.target.contains(" pty ") || lane.target.starts_with("pty ") {
+        "pty"
+    } else if matches!(lane.tool.as_str(), "run" | "shell") {
+        "shell"
+    } else {
+        "template"
+    }
+}
+
+fn lane_agent_state(lane: &super::state::TerminalLane) -> &'static str {
+    match lane.status.as_str() {
+        "queued" | "starting" => "thinking",
+        "running" => running_lane_state(lane),
+        "attached" | "manual" | "needs_input" => "needs input",
+        "reviewing" | "accepted" | "revise" | "discarded" => "reviewing",
+        "apply_conflict" | "failed" => "blocked",
+        "done" | "completed" | "idle" | "archived" => "done",
+        _ => "thinking",
+    }
+}
+
+fn running_lane_state(lane: &super::state::TerminalLane) -> &'static str {
+    let lower = format!("{} {}", lane.title, lane.summary).to_ascii_lowercase();
+    if ["test", "cargo", "pytest", "npm test"]
+        .iter()
+        .any(|needle| lower.contains(needle))
+    {
+        "testing"
+    } else if ["edit", "write", "patch", "diff", "file"]
+        .iter()
+        .any(|needle| lower.contains(needle))
+    {
+        "editing"
+    } else {
+        "thinking"
+    }
 }
 
 fn lane_artifact_hint(state: &TuiState, lane_id: &str) -> String {
@@ -282,6 +323,8 @@ mod tests {
 
         let rendered = terminal_lane_detail_rows(&state).join("\n");
 
+        assert!(rendered.contains("TRANSPORT tmux"));
+        assert!(rendered.contains("STATE testing"));
         assert!(rendered.contains("ATTACH tmux attach -t robocode-session-l1"));
         assert!(
             rendered.contains("NEXT watch or attach with `tmux attach -t robocode-session-l1`")
@@ -323,6 +366,7 @@ mod tests {
 
         let rendered = terminal_lane_detail_rows(&state).join("\n");
 
+        assert!(rendered.contains("STATE blocked"));
         assert!(rendered.contains("NEXT resolve main/lane conflicts"));
         assert!(rendered.contains("artifact conflict L1.apply-conflict.md"));
         let _ = fs::remove_dir_all(root);

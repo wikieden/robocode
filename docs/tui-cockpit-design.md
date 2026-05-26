@@ -213,6 +213,10 @@ route hints so the main agent can decide follow-up actions.
   lane `.log` tail when available, falling back to the lane summary only when
   no captured terminal output exists yet. This gives tmux, PTY, and background
   lanes an in-cockpit screen-state slice before a full terminal emulator lands.
+- Side-1 lane rows now use the shared agent vocabulary by showing transport
+  (`template`, `tmux`, `pty`, or `shell`) and state (`thinking`, `editing`,
+  `testing`, `needs input`, `blocked`, or `done`) next to attach and evidence
+  hints.
 - Provider health now reflects measured model-request telemetry from the shared
   runtime loop: real request count, success/failure count, last and average
   latency, last event count, provider-reported token usage, token throughput
