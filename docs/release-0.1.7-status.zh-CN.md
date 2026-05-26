@@ -18,7 +18,7 @@ extension、MCP 和 evidence 状态。
 3. Cockpit 中的 agent evidence：本地实现已落地。
 4. Extension 和 MCP diagnostics：本地实现已落地。
 5. ACP 方向：protocol handshake/probe 仍为实验能力，并已有文档记录。
-6. Release packaging 和外部发布：等待最终 smoke 与 release workflow。
+6. Release packaging 和外部发布：GitHub release 和 Homebrew tap validation 已通过。
 
 ## Candidate 证据
 
@@ -56,10 +56,23 @@ extension、MCP 和 evidence 状态。
   `robocode-cli 0.1.7`。
 - macOS arm64 archive SHA-256：
   `c9a17d5d4d3d36824616505a3abde659a6db173fffa21c22b3f60b83d988d1a2`。
+- GitHub Actions release artifact validation 已以 `upload_to_release=false`
+  跑通全部配置目标：`aarch64-apple-darwin`、`x86_64-apple-darwin`、
+  `x86_64-unknown-linux-gnu` 和 `x86_64-pc-windows-msvc`。
+  Run: https://github.com/wikieden/robocode/actions/runs/26449257109。
+- 最终 GitHub release workflow 已以 `upload_to_release=true` 通过，并上传全部
+  配置 artifacts。
+  Run: https://github.com/wikieden/robocode/actions/runs/26449437778。
+- Homebrew tap `wikieden/homebrew-tap` 中的 RoboCode formula URL 和 SHA-256
+  已指向 `v0.1.7`。
+  Commit: https://github.com/wikieden/homebrew-tap/commit/8e84a89。
+- Homebrew fetch smoke 已通过：
+  `brew fetch --force wikieden/tap/robocode` 输出
+  `Formula robocode (0.1.7)`。
 
 ## 验证门禁
 
-发布前计划门禁：
+`0.1.7` 计划内验证门禁已全部通过：
 
 - `cargo fmt --check`
 - `git diff --check`
@@ -74,7 +87,7 @@ extension、MCP 和 evidence 状态。
 ### P0
 
 - 本地源码验证和本地 release smoke 暂无已知 P0。
-- 外部 release、GitHub artifacts 和 Homebrew tap validation 待执行。
+- `0.1.7` release 无剩余 P0。
 
 ### P1
 
@@ -90,4 +103,32 @@ extension、MCP 和 evidence 状态。
 
 ## Release 结果
 
-待发布。
+`v0.1.7` 已发布：
+
+- https://github.com/wikieden/robocode/releases/tag/v0.1.7
+
+release 包含：
+
+- `robocode-v0.1.7-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.7-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.7-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.7-x86_64-pc-windows-msvc.tar.gz`
+- 每个 archive 对应的 `.sha256` 文件。
+
+GitHub 返回的 asset digests：
+
+- `aarch64-apple-darwin`：
+  `sha256:ec000b139ede57d27035e9ba2ed95f111e3f6d0e40fe2c2c648b63d6fbf7a2a9`
+- `x86_64-apple-darwin`：
+  `sha256:a50ceac337ffad807bb4ae6935ff5177a25f36e098eee10a91e0c1b9ce3b86bc`
+- `x86_64-unknown-linux-gnu`：
+  `sha256:758a38f4ef1a217e02b77647aa2ee22e049ce7bd214c55dbd8cd4e9b606065ae`
+- `x86_64-pc-windows-msvc`：
+  `sha256:f2c8e9d2247dd61cc81bd21d21ea48f92120d683e3e4bbfade9bb534e365b581`
+
+Homebrew 安装路径：
+
+```bash
+brew tap wikieden/tap
+brew install robocode
+```

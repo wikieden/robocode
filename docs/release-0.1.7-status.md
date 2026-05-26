@@ -20,8 +20,8 @@ extension, MCP, and evidence state.
 3. Agent evidence in the cockpit: local implementation landed.
 4. Extension and MCP diagnostics: local implementation landed.
 5. ACP direction: protocol handshake/probe remains experimental and documented.
-6. Release packaging and external publication: pending final smoke and release
-   workflow.
+6. Release packaging and external publication: GitHub release and Homebrew tap
+   validation passed.
 
 ## Candidate Evidence
 
@@ -62,10 +62,24 @@ extension, MCP, and evidence state.
   prints `robocode-cli 0.1.7`.
 - macOS arm64 archive SHA-256:
   `c9a17d5d4d3d36824616505a3abde659a6db173fffa21c22b3f60b83d988d1a2`.
+- GitHub Actions release artifact validation passed with
+  `upload_to_release=false` for all configured targets:
+  `aarch64-apple-darwin`, `x86_64-apple-darwin`,
+  `x86_64-unknown-linux-gnu`, and `x86_64-pc-windows-msvc`.
+  Run: https://github.com/wikieden/robocode/actions/runs/26449257109.
+- The final GitHub release workflow passed with `upload_to_release=true` and
+  uploaded all configured artifacts.
+  Run: https://github.com/wikieden/robocode/actions/runs/26449437778.
+- Homebrew tap `wikieden/homebrew-tap` now points RoboCode formula URLs and
+  SHA-256 values at `v0.1.7`.
+  Commit: https://github.com/wikieden/homebrew-tap/commit/8e84a89.
+- Homebrew fetch smoke passed:
+  `brew fetch --force wikieden/tap/robocode` reported
+  `Formula robocode (0.1.7)`.
 
 ## Validation Gates
 
-Planned gates before publication:
+All planned `0.1.7` validation gates have passed:
 
 - `cargo fmt --check`
 - `git diff --check`
@@ -80,7 +94,7 @@ Planned gates before publication:
 ### P0
 
 - None known for local source validation or local release smoke.
-- External release, GitHub artifacts, and Homebrew tap validation are pending.
+- None for the `0.1.7` release.
 
 ### P1
 
@@ -97,4 +111,32 @@ Planned gates before publication:
 
 ## Release Outcome
 
-Pending publication.
+`v0.1.7` is published at:
+
+- https://github.com/wikieden/robocode/releases/tag/v0.1.7
+
+The release contains:
+
+- `robocode-v0.1.7-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.7-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.7-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.7-x86_64-pc-windows-msvc.tar.gz`
+- matching `.sha256` files for each archive.
+
+GitHub reported asset digests:
+
+- `aarch64-apple-darwin`:
+  `sha256:ec000b139ede57d27035e9ba2ed95f111e3f6d0e40fe2c2c648b63d6fbf7a2a9`
+- `x86_64-apple-darwin`:
+  `sha256:a50ceac337ffad807bb4ae6935ff5177a25f36e098eee10a91e0c1b9ce3b86bc`
+- `x86_64-unknown-linux-gnu`:
+  `sha256:758a38f4ef1a217e02b77647aa2ee22e049ce7bd214c55dbd8cd4e9b606065ae`
+- `x86_64-pc-windows-msvc`:
+  `sha256:f2c8e9d2247dd61cc81bd21d21ea48f92120d683e3e4bbfade9bb534e365b581`
+
+Homebrew install path:
+
+```bash
+brew tap wikieden/tap
+brew install robocode
+```
