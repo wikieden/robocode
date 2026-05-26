@@ -330,8 +330,11 @@ backend。
 - 已落地：完成后的 app-server turn probe 会写入 tracked Codex job records 和
   result summaries，因此 `/agent status`、`/agent result` 和 TUI job rail 都能显示
   结构化 thread/turn evidence。
-- 剩余：让普通 `/agent run codex` jobs 异步走 app-server event path，并接入
-  approval request routing，同时保留 CLI fallback。
+- 已落地：`/agent run codex --app-server <task>` 会启动异步 read-only
+  app-server turn job，并复用 tracked job/status/result surfaces，同时默认路径仍保留
+  CLI fallback。
+- 剩余：通过 config flag/default 推广 app-server path，并把 server approval
+  requests 接入 RoboCode permissions。
 - app-server protocol 调研已记录在
   [codex-app-server-adapter.zh-CN.md](codex-app-server-adapter.zh-CN.md)。
 

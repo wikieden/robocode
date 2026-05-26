@@ -128,7 +128,7 @@ impl SessionEngine {
             "  /agent review codex [--base <ref>] [prompt]",
             "  /agent challenge codex [prompt]",
             "  /agent probe codex [--thread|--turn <task>]",
-            "  /agent run codex [--write] <task>",
+            "  /agent run codex [--write|--app-server] <task>",
             "  /agent status",
             "  /agent result <id>",
             "  /agent cancel <id>",
@@ -150,7 +150,15 @@ impl SessionEngine {
         ensure_codex_target(args.first().map(String::as_str))?;
         let parsed = parse_codex_run_args(&args[1..])?;
         if parsed.task.trim().is_empty() {
-            return Err("Usage: /agent run codex [--write] <task>".to_string());
+            return Err("Usage: /agent run codex [--write|--app-server] <task>".to_string());
+        }
+        if parsed.app_server && parsed.write {
+            return Err(
+                "`--app-server` currently supports read-only delegated tasks only.".to_string(),
+            );
+        }
+        if parsed.app_server {
+            return start_codex_app_server_job(&self.cwd, &codex_command(), parsed.task.clone());
         }
         if parsed.write {
             if let Some(denial) = self.ensure_codex_write_permission(&parsed.task, approver)? {
@@ -549,6 +557,7 @@ struct ParsedCodexReviewArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ParsedCodexRunArgs {
     write: bool,
+    app_server: bool,
     task: String,
 }
 
@@ -633,6 +642,7 @@ fn parse_codex_review_args(args: &[String]) -> Result<ParsedCodexReviewArgs, Str
 
 fn parse_codex_run_args(args: &[String]) -> Result<ParsedCodexRunArgs, String> {
     let mut write = false;
+    let mut app_server = false;
     let mut task = Vec::new();
     let mut end_of_options = false;
     for value in args {
@@ -640,10 +650,11 @@ fn parse_codex_run_args(args: &[String]) -> Result<ParsedCodexRunArgs, String> {
             _ if end_of_options => task.push(value.clone()),
             "--write" => write = true,
             "--read-only" => write = false,
+            "--app-server" => app_server = true,
             "--" => end_of_options = true,
             other if other.starts_with("--") && task.is_empty() => {
                 return Err(format!(
-                    "Unknown Codex run option `{other}`. Usage: /agent run codex [--write] <task>"
+                    "Unknown Codex run option `{other}`. Usage: /agent run codex [--write|--app-server] <task>"
                 ));
             }
             _ => task.push(value.clone()),
@@ -651,6 +662,7 @@ fn parse_codex_run_args(args: &[String]) -> Result<ParsedCodexRunArgs, String> {
     }
     Ok(ParsedCodexRunArgs {
         write,
+        app_server,
         task: task.join(" "),
     })
 }
@@ -734,6 +746,65 @@ fn start_codex_job(
         pid,
         log_path.display(),
         result_path.display(),
+        id
+    ))
+}
+
+fn start_codex_app_server_job(cwd: &Path, command: &str, task: String) -> Result<String, String> {
+    let id = format!("codex-app-{}", timestamp_millis());
+    let log_path = codex_job_artifact_path(cwd, &id, "jsonl");
+    let result_path = codex_job_artifact_path(cwd, &id, "result.md");
+    let baseline_path = codex_job_artifact_path(cwd, &id, "baseline.status");
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    write_codex_status_baseline(cwd, &baseline_path)?;
+    let record = CodexJobRecord {
+        id: id.clone(),
+        kind: "app-server-turn".to_string(),
+        status: "running".to_string(),
+        pid: None,
+        command: "codex app-server turn/start".to_string(),
+        task: task.clone(),
+        log_path: log_path.clone(),
+        result_path: result_path.clone(),
+        baseline_path: baseline_path.clone(),
+        updated_at: timestamp_millis(),
+    };
+    append_codex_job_record(cwd, "started", &record)?;
+
+    let monitor_cwd = cwd.to_path_buf();
+    let monitor_command = command.to_string();
+    let monitor_task = task.clone();
+    let mut monitor_record = record.clone();
+    std::thread::spawn(move || {
+        match run_codex_app_server_probe_with_log(
+            &monitor_cwd,
+            &monitor_command,
+            CodexProbeMode::Turn(monitor_task),
+            log_path,
+        ) {
+            Ok(evidence) => {
+                let _ = write_codex_app_server_turn_result(&result_path, &evidence);
+                monitor_record.status = codex_app_server_turn_job_status(&evidence);
+            }
+            Err(error) => {
+                let _ = fs::write(
+                    &result_path,
+                    format!("# Codex app-server turn failed\n\n{error}\n"),
+                );
+                monitor_record.status = "failed".to_string();
+            }
+        }
+        monitor_record.updated_at = timestamp_millis();
+        let _ = append_codex_job_record(&monitor_cwd, "completed", &monitor_record);
+    });
+
+    Ok(format!(
+        "Started Codex app-server job `{}`.\n  log: {}\n  result: {}\n\nUse `/agent status` to watch it and `/agent result {}` to read output.",
+        id,
+        record.log_path.display(),
+        record.result_path.display(),
         id
     ))
 }
@@ -985,28 +1056,36 @@ fn record_codex_app_server_turn_probe(
     };
     append_codex_job_record(cwd, "started", &record)?;
 
-    let status = evidence.turn_status.as_deref().unwrap_or("unknown");
+    write_codex_app_server_turn_result(&result_path, evidence)?;
+    record.status = codex_app_server_turn_job_status(evidence);
+    record.updated_at = timestamp_millis();
+    append_codex_job_record(cwd, "completed", &record)?;
+    Ok(id)
+}
+
+fn write_codex_app_server_turn_result(
+    result_path: &Path,
+    evidence: &CodexAppServerProbeEvidence,
+) -> Result<(), String> {
     fs::write(
-        &result_path,
+        result_path,
         format!(
             "# Codex app-server turn\n\nthread: {}\nturn: {}\nstatus: {}\nlog: {}\n",
             evidence.thread_id.as_deref().unwrap_or("unknown"),
             evidence.turn_id.as_deref().unwrap_or("unknown"),
-            status,
+            evidence.turn_status.as_deref().unwrap_or("unknown"),
             evidence.log_path.display()
         ),
     )
-    .map_err(|err| format!("failed to write {}: {err}", result_path.display()))?;
-    record.status = if matches!(status, "completed") {
-        "finished".to_string()
-    } else if matches!(status, "failed" | "interrupted") {
-        "failed".to_string()
-    } else {
-        "observed".to_string()
-    };
-    record.updated_at = timestamp_millis();
-    append_codex_job_record(cwd, "completed", &record)?;
-    Ok(id)
+    .map_err(|err| format!("failed to write {}: {err}", result_path.display()))
+}
+
+fn codex_app_server_turn_job_status(evidence: &CodexAppServerProbeEvidence) -> String {
+    match evidence.turn_status.as_deref() {
+        Some("completed") => "finished".to_string(),
+        Some("failed" | "interrupted") => "failed".to_string(),
+        _ => "observed".to_string(),
+    }
 }
 
 fn codex_job_evidence_from_text(cwd: &Path, job: &CodexJobRecord, text: &str) -> CodexJobEvidence {
@@ -1545,7 +1624,15 @@ fn run_codex_app_server_probe(
     command: &str,
     mode: CodexProbeMode,
 ) -> Result<CodexAppServerProbeEvidence, String> {
-    let log_path = codex_app_server_probe_log_path(cwd);
+    run_codex_app_server_probe_with_log(cwd, command, mode, codex_app_server_probe_log_path(cwd))
+}
+
+fn run_codex_app_server_probe_with_log(
+    cwd: &Path,
+    command: &str,
+    mode: CodexProbeMode,
+    log_path: PathBuf,
+) -> Result<CodexAppServerProbeEvidence, String> {
     let request = codex_app_server_initialize_request();
     let mut log_entries = vec![jsonl_event("client", &request)];
     let mut child = spawn_codex_app_server(cwd, command)?;
@@ -2076,12 +2163,19 @@ mod tests {
         let read_only = parse_codex_run_args(&["summarize".into(), "repo".into()])
             .expect("parse read-only task");
         assert!(!read_only.write);
+        assert!(!read_only.app_server);
         assert_eq!(read_only.task, "summarize repo");
 
         let write = parse_codex_run_args(&["--write".into(), "edit".into(), "file".into()])
             .expect("parse write task");
         assert!(write.write);
         assert_eq!(write.task, "edit file");
+
+        let app_server =
+            parse_codex_run_args(&["--app-server".into(), "summarize".into(), "status".into()])
+                .expect("parse app-server task");
+        assert!(app_server.app_server);
+        assert_eq!(app_server.task, "summarize status");
 
         let args = codex_run_command_args(Path::new("/repo"), "workspace-write", write.task);
         assert_eq!(
@@ -2263,6 +2357,61 @@ mod tests {
         assert!(status.contains("finished"));
         assert!(result.contains("thread_456"));
         assert!(result.contains("turn_456"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_app_server_job_records_async_status() {
+        let root = temp_root("codex_app_server_job");
+        let script = root.join("mock-codex-job-app-server.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "if [ \"$1\" != \"app-server\" ]; then exit 2; fi",
+                "read _init",
+                "printf '%s\\n' '{\"id\":1,\"result\":{\"userAgent\":\"Codex Desktop/mock\",\"codexHome\":\"/tmp/codex-home\",\"platformFamily\":\"unix\",\"platformOs\":\"macos\"}}'",
+                "read _thread",
+                "printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread_job\",\"sessionId\":\"thread_job\",\"turns\":[]},\"model\":\"gpt-test\"}}'",
+                "printf '%s\\n' '{\"method\":\"thread/started\",\"params\":{\"thread\":{\"id\":\"thread_job\"}}}'",
+                "read _turn",
+                "printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn_job\",\"items\":[],\"itemsView\":\"complete\",\"status\":\"inProgress\",\"error\":null,\"startedAt\":1,\"completedAt\":null,\"durationMs\":null}}}'",
+                "printf '%s\\n' '{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread_job\",\"turn\":{\"id\":\"turn_job\",\"status\":\"completed\"}}}'",
+                "sleep 1",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock codex app-server job");
+        make_executable(&script);
+
+        let started = start_codex_app_server_job(
+            &root,
+            &script.to_string_lossy(),
+            "summarize status".to_string(),
+        )
+        .expect("start app-server job");
+        let id = started
+            .lines()
+            .find_map(|line| line.split('`').nth(1))
+            .expect("job id in output")
+            .to_string();
+
+        wait_until(
+            || {
+                find_codex_job(&root, &id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|job| job.status == "finished")
+            },
+            Duration::from_secs(5),
+        );
+
+        let status = render_codex_job_status(&root).expect("render job status");
+        let result = render_codex_job_result(&root, Some(&id)).expect("render job result");
+        assert!(status.contains(&id));
+        assert!(status.contains("finished"));
+        assert!(result.contains("thread_job"));
+        assert!(result.contains("turn_job"));
     }
 
     #[test]

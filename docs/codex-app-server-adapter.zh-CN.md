@@ -73,8 +73,10 @@ RoboCode 应把 app-server 数据映射到现有 host-delegate lifecycle：
    `.robocode/agents/codex-app-server-*.jsonl`。
 5. 已完成：completed turn probes 现在会把结构化 `threadId`、`turnId` 和
    completion status 映射为 tracked Codex job records 和 result summaries。
-6. 把 server approval requests 接入现有 RoboCode permission path。
-7. 只有在普通 jobs 能拿到结构化 `threadId`、file、command 和 test events 后，
+6. 已完成：`/agent run codex --app-server <task>` 会启动异步 read-only
+   app-server turn job，同时默认 `/agent run codex` 仍走 CLI fallback。
+7. 把 server approval requests 接入现有 RoboCode permission path。
+8. 只有在普通 jobs 能拿到结构化 `threadId`、file、command 和 test events 后，
    再移除文本启发式解析。
 
 ## 当前边界

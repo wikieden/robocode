@@ -362,8 +362,11 @@ Current implementation status:
 - Landed: completed app-server turn probes now write tracked Codex job records
   and result summaries so `/agent status`, `/agent result`, and the TUI job rail
   can surface the structured thread/turn evidence.
-- Remaining: make normal `/agent run codex` jobs use the app-server event path
-  asynchronously, with approval request routing, while keeping CLI fallback.
+- Landed: `/agent run codex --app-server <task>` starts an asynchronous
+  read-only app-server turn job that uses the same tracked job/status/result
+  surfaces while keeping the default CLI fallback.
+- Remaining: promote the app-server path behind a config flag/default and route
+  server approval requests into RoboCode permissions.
 - App-server protocol findings are captured in
   [codex-app-server-adapter.md](codex-app-server-adapter.md).
 
