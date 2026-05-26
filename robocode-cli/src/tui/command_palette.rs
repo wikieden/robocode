@@ -259,8 +259,8 @@ const AGENT_COMMANDS: [CommandTemplate; 11] = [
         summary: "Start adversarial review",
     },
     CommandTemplate {
-        command: "/agent probe codex",
-        summary: "Probe Codex app-server",
+        command: "/agent probe codex --thread",
+        summary: "Probe app-server thread",
     },
     CommandTemplate {
         command: "/agent run codex",

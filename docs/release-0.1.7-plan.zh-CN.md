@@ -322,8 +322,11 @@ backend。
   approval protocol groups 是否可用。
 - 已落地：`/agent probe codex` 会通过 stdio 执行 live app-server
   `initialize` 握手，并写入可回放的 JSONL response/notification evidence。
-- 剩余：native app-server event subscription，以及 live Codex jobs 的直接结构化
-  thread/event capture。
+- 已落地：`/agent probe codex --thread` 会启动 ephemeral read-only Codex
+  app-server thread，并捕获结构化 `threadId` / `thread/started` evidence，
+  但不会运行 model turn。
+- 剩余：native app-server turn execution，以及 live Codex jobs 的直接结构化
+  event capture。
 - app-server protocol 调研已记录在
   [codex-app-server-adapter.zh-CN.md](codex-app-server-adapter.zh-CN.md)。
 

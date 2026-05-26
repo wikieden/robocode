@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::mpsc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{SessionEngine, presentation::render_permission_denial};
@@ -127,7 +127,7 @@ impl SessionEngine {
             "  /agent doctor [id]",
             "  /agent review codex [--base <ref>] [prompt]",
             "  /agent challenge codex [prompt]",
-            "  /agent probe codex",
+            "  /agent probe codex [--thread]",
             "  /agent run codex [--write] <task>",
             "  /agent status",
             "  /agent result <id>",
@@ -381,22 +381,44 @@ fn handle_codex_challenge_command(cwd: &Path, args: &[String]) -> Result<String,
 
 fn handle_codex_probe_command(cwd: &Path, args: &[String]) -> Result<String, String> {
     ensure_codex_target(args.first().map(String::as_str))?;
-    let evidence = run_codex_app_server_initialize_probe(cwd, &codex_command())?;
+    let start_thread = parse_codex_probe_args(&args[1..])?;
+    let evidence = run_codex_app_server_probe(cwd, &codex_command(), start_thread)?;
     let notification_count = evidence.notifications.len();
     let notifications = if evidence.notifications.is_empty() {
         "none".to_string()
     } else {
         evidence.notifications.join(", ")
     };
+    let thread = evidence
+        .thread_id
+        .as_ref()
+        .map(|thread_id| format!("  thread: {thread_id}\n"))
+        .unwrap_or_default();
     Ok(format!(
-        "Codex app-server probe ok.\n  user_agent: {}\n  codex_home: {}\n  platform: {}\n  notifications: {} ({})\n  log: {}",
+        "Codex app-server probe ok.\n  user_agent: {}\n  codex_home: {}\n  platform: {}\n{}  notifications: {} ({})\n  log: {}",
         evidence.user_agent,
         evidence.codex_home,
         evidence.platform,
+        thread,
         notification_count,
         notifications,
         evidence.log_path.display()
     ))
+}
+
+fn parse_codex_probe_args(args: &[String]) -> Result<bool, String> {
+    let mut start_thread = false;
+    for arg in args {
+        match arg.as_str() {
+            "--thread" => start_thread = true,
+            other => {
+                return Err(format!(
+                    "Unknown Codex probe option `{other}`. Usage: /agent probe codex [--thread]"
+                ));
+            }
+        }
+    }
+    Ok(start_thread)
 }
 
 fn adapter_readiness(adapter: AgentAdapterDescriptor) -> &'static str {
@@ -1420,13 +1442,15 @@ struct CodexAppServerProbeEvidence {
     user_agent: String,
     codex_home: String,
     platform: String,
+    thread_id: Option<String>,
     notifications: Vec<String>,
     log_path: PathBuf,
 }
 
-fn run_codex_app_server_initialize_probe(
+fn run_codex_app_server_probe(
     cwd: &Path,
     command: &str,
+    start_thread: bool,
 ) -> Result<CodexAppServerProbeEvidence, String> {
     let log_path = codex_app_server_probe_log_path(cwd);
     let request = codex_app_server_initialize_request();
@@ -1449,38 +1473,48 @@ fn run_codex_app_server_initialize_probe(
     // Codex app-server stdio is newline-delimited JSON: responses and
     // notifications can arrive in either order, so keep every line as evidence.
     let receiver = read_lines_async(stdout);
-    let mut response = None;
     let mut notifications = Vec::new();
-    for _ in 0..8 {
-        let line = match receiver.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(line)) if !line.trim().is_empty() => line.trim().to_string(),
-            Ok(Ok(_)) => continue,
-            Ok(Err(error)) => {
-                return Err(finish_failed_probe(
-                    child,
-                    log_path,
-                    log_entries,
-                    format!("failed to read Codex app-server response: {error}"),
-                ));
-            }
-            Err(_) => {
-                return Err(finish_failed_probe(
-                    child,
-                    log_path,
-                    log_entries,
-                    "Codex app-server initialize response timed out".to_string(),
-                ));
-            }
+    let response = match read_codex_app_server_response(
+        &receiver,
+        1,
+        &mut log_entries,
+        &mut notifications,
+        Duration::from_secs(5),
+    ) {
+        Ok(response) => response,
+        Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
+    };
+
+    let thread_id = if start_thread {
+        let request = codex_app_server_thread_start_request(cwd);
+        log_entries.push(jsonl_event("client", &request));
+        if let Err(error) = stdin
+            .write_all(request.as_bytes())
+            .and_then(|_| stdin.write_all(b"\n"))
+            .and_then(|_| stdin.flush())
+        {
+            return Err(finish_failed_probe(
+                child,
+                log_path,
+                log_entries,
+                format!("failed to write Codex app-server thread/start: {error}"),
+            ));
+        }
+        let thread_response = match read_codex_app_server_response(
+            &receiver,
+            2,
+            &mut log_entries,
+            &mut notifications,
+            Duration::from_secs(8),
+        ) {
+            Ok(response) => response,
+            Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
         };
-        log_entries.push(jsonl_event("server", &line));
-        if line.contains(r#""id":1"#) && line.contains(r#""result""#) {
-            response = Some(line);
-            break;
-        }
-        if let Some(method) = json_string_field(&line, "method") {
-            notifications.push(method);
-        }
-    }
+        json_object_string_field(&thread_response, "thread", "id")
+    } else {
+        None
+    };
+
     while let Ok(Ok(line)) = receiver.recv_timeout(Duration::from_millis(150)) {
         let line = line.trim();
         if line.is_empty() {
@@ -1495,12 +1529,6 @@ fn run_codex_app_server_initialize_probe(
     let _ = child.wait();
     write_probe_log(&log_path, &log_entries)?;
 
-    let response = response.ok_or_else(|| {
-        format!(
-            "Codex app-server did not return initialize result; log {}",
-            log_path.display()
-        )
-    })?;
     Ok(CodexAppServerProbeEvidence {
         user_agent: json_string_field(&response, "userAgent")
             .unwrap_or_else(|| "unknown".to_string()),
@@ -1508,6 +1536,7 @@ fn run_codex_app_server_initialize_probe(
             .unwrap_or_else(|| "unknown".to_string()),
         platform: json_string_field(&response, "platformOs")
             .unwrap_or_else(|| "unknown".to_string()),
+        thread_id,
         notifications,
         log_path,
     })
@@ -1649,6 +1678,44 @@ fn read_lines_async(
     receiver
 }
 
+fn read_codex_app_server_response(
+    receiver: &mpsc::Receiver<std::io::Result<String>>,
+    request_id: u32,
+    log_entries: &mut Vec<String>,
+    notifications: &mut Vec<String>,
+    timeout: Duration,
+) -> Result<String, String> {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        let remaining = timeout
+            .checked_sub(start.elapsed())
+            .unwrap_or_else(|| Duration::from_millis(1));
+        let line = match receiver.recv_timeout(remaining) {
+            Ok(Ok(line)) if !line.trim().is_empty() => line.trim().to_string(),
+            Ok(Ok(_)) => continue,
+            Ok(Err(error)) => {
+                return Err(format!("failed to read Codex app-server response: {error}"));
+            }
+            Err(_) => break,
+        };
+        log_entries.push(jsonl_event("server", &line));
+        if line.contains(&format!(r#""id":{request_id}"#)) {
+            if line.contains(r#""result""#) {
+                return Ok(line);
+            }
+            return Err(format!(
+                "Codex app-server request {request_id} failed: {line}"
+            ));
+        }
+        if let Some(method) = json_string_field(&line, "method") {
+            notifications.push(method);
+        }
+    }
+    Err(format!(
+        "Codex app-server request {request_id} response timed out"
+    ))
+}
+
 fn read_line_with_timeout(
     stdout: impl std::io::Read + Send + 'static,
     timeout: Duration,
@@ -1684,9 +1751,16 @@ fn codex_app_server_initialize_request() -> String {
     [
         r#"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"robocode","version":""#,
         env!("CARGO_PKG_VERSION"),
-        r#""},"capabilities":null}}"#,
+        r#""},"capabilities":{"experimentalApi":true,"requestAttestation":false,"optOutNotificationMethods":[]}}}"#,
     ]
     .join("")
+}
+
+fn codex_app_server_thread_start_request(cwd: &Path) -> String {
+    let cwd = escape_json_fragment(&cwd.display().to_string());
+    format!(
+        r#"{{"id":2,"method":"thread/start","params":{{"model":null,"modelProvider":null,"cwd":"{cwd}","runtimeWorkspaceRoots":["{cwd}"],"approvalPolicy":"never","approvalsReviewer":"user","sandbox":"read-only","permissions":null,"config":null,"serviceName":"robocode","baseInstructions":null,"developerInstructions":null,"personality":null,"ephemeral":true,"sessionStartSource":"startup","threadSource":"subagent","environments":[],"dynamicTools":null,"experimentalRawEvents":false,"persistExtendedHistory":false}}}}"#
+    )
 }
 
 fn timestamp_millis() -> u128 {
@@ -1741,6 +1815,12 @@ fn json_string_field(response: &str, field: &str) -> Option<String> {
     let rest = rest.strip_prefix('"')?;
     let end = rest.find('"')?;
     Some(rest[..end].to_string())
+}
+
+fn json_object_string_field(response: &str, object: &str, field: &str) -> Option<String> {
+    let marker = format!(r#""{object}":"#);
+    let start = response.find(&marker)? + marker.len();
+    json_string_field(&response[start..], field)
 }
 
 fn json_number_field(response: &str, field: &str) -> Option<String> {
@@ -1888,12 +1968,13 @@ mod tests {
         .expect("write mock codex app-server script");
         make_executable(&script);
 
-        let evidence = run_codex_app_server_initialize_probe(&root, &script.to_string_lossy())
+        let evidence = run_codex_app_server_probe(&root, &script.to_string_lossy(), false)
             .expect("probe succeeds");
 
         assert_eq!(evidence.user_agent, "Codex Desktop/mock (robocode; test)");
         assert_eq!(evidence.codex_home, "/tmp/codex-home");
         assert_eq!(evidence.platform, "macos");
+        assert_eq!(evidence.thread_id, None);
         assert_eq!(
             evidence.notifications,
             vec!["remoteControl/status/changed".to_string()]
@@ -1901,6 +1982,40 @@ mod tests {
         let log = fs::read_to_string(evidence.log_path).expect("read jsonl log");
         assert!(log.contains(r#""method\":\"initialize"#));
         assert!(log.contains("Codex Desktop/mock"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_app_server_thread_probe_records_thread_evidence() {
+        let root = temp_root("codex_app_server_thread_probe");
+        let script = root.join("mock-codex-thread.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "if [ \"$1\" != \"app-server\" ]; then exit 2; fi",
+                "read init",
+                "case \"$init\" in *'\"experimentalApi\":true'*) ;; *) exit 3 ;; esac",
+                "printf '%s\\n' '{\"id\":1,\"result\":{\"userAgent\":\"Codex Desktop/mock\",\"codexHome\":\"/tmp/codex-home\",\"platformFamily\":\"unix\",\"platformOs\":\"macos\"}}'",
+                "read thread",
+                "case \"$thread\" in *'\"method\":\"thread/start\"'*) ;; *) exit 4 ;; esac",
+                "printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread_123\",\"sessionId\":\"thread_123\",\"turns\":[]},\"model\":\"gpt-test\"}}'",
+                "printf '%s\\n' '{\"method\":\"thread/started\",\"params\":{\"thread\":{\"id\":\"thread_123\"}}}'",
+                "sleep 1",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock codex thread script");
+        make_executable(&script);
+
+        let evidence = run_codex_app_server_probe(&root, &script.to_string_lossy(), true)
+            .expect("probe succeeds");
+
+        assert_eq!(evidence.thread_id, Some("thread_123".to_string()));
+        assert_eq!(evidence.notifications, vec!["thread/started".to_string()]);
+        let log = fs::read_to_string(evidence.log_path).expect("read jsonl log");
+        assert!(log.contains(r#"thread/start"#));
+        assert!(log.contains("thread_123"));
     }
 
     #[test]

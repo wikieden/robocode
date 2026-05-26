@@ -354,8 +354,11 @@ Current implementation status:
   evidence, and approval protocol groups are available.
 - Landed: `/agent probe codex` performs a live app-server `initialize` handshake
   over stdio and writes replayable JSONL response/notification evidence.
-- Remaining: native app-server event subscription and direct structured
-  thread/event capture for live Codex jobs.
+- Landed: `/agent probe codex --thread` starts an ephemeral read-only Codex
+  app-server thread and captures structured `threadId` / `thread/started`
+  evidence without running a model turn.
+- Remaining: native app-server turn execution and direct structured event
+  capture for live Codex jobs.
 - App-server protocol findings are captured in
   [codex-app-server-adapter.md](codex-app-server-adapter.md).
 

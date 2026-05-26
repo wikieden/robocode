@@ -67,17 +67,20 @@ RoboCode should map app-server data into the existing host-delegate lifecycle:
 2. Done: `/agent probe codex` starts `codex app-server --listen stdio://`,
    sends `initialize`, and records response/notification evidence in
    `.robocode/agents/codex-app-server-*.jsonl`.
-3. Implement a read-only `review/start` or `thread/start` spike that writes
+3. Done: `/agent probe codex --thread` declares `experimentalApi`, starts an
+   ephemeral read-only Codex thread, captures the structured `threadId`, and
+   records `thread/started` evidence without running a model turn.
+4. Implement a read-only `review/start` or `turn/start` spike that writes
    structured turn events into `.robocode/agents/codex-app-server-*.jsonl`.
-4. Map notifications into `AgentJobRecord` updates and side-screen evidence.
-5. Route server approval requests into the existing RoboCode permission path.
-6. Retire text heuristics only after structured `threadId`, file, command, and
+5. Map notifications into `AgentJobRecord` updates and side-screen evidence.
+6. Route server approval requests into the existing RoboCode permission path.
+7. Retire text heuristics only after structured `threadId`, file, command, and
    test events are available in normal jobs.
 
 ## Current Boundary
 
-Until the app-server transport is wired, CLI-backed jobs remain the stable
-fallback. They must keep:
+Until app-server turn execution is wired into normal jobs, CLI-backed jobs
+remain the stable fallback. They must keep:
 
 - read-only default execution;
 - explicit `/agent run codex --write <task>` for mutation;

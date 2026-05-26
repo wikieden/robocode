@@ -65,16 +65,19 @@ RoboCode 应把 app-server 数据映射到现有 host-delegate lifecycle：
 2. 已完成：`/agent probe codex` 会启动 `codex app-server --listen stdio://`，
    发送 `initialize`，并把 response/notification evidence 记录到
    `.robocode/agents/codex-app-server-*.jsonl`。
-3. 先做 read-only `review/start` 或 `thread/start` spike，把结构化 turn events
+3. 已完成：`/agent probe codex --thread` 会声明 `experimentalApi`，启动一个
+   ephemeral read-only Codex thread，捕获结构化 `threadId`，并记录
+   `thread/started` evidence，但不会运行 model turn。
+4. 先做 read-only `review/start` 或 `turn/start` spike，把结构化 turn events
    写入 `.robocode/agents/codex-app-server-*.jsonl`。
-4. 把 notifications 映射为 `AgentJobRecord` 更新和 side-screen evidence。
-5. 把 server approval requests 接入现有 RoboCode permission path。
-6. 只有在普通 jobs 能拿到结构化 `threadId`、file、command 和 test events 后，
+5. 把 notifications 映射为 `AgentJobRecord` 更新和 side-screen evidence。
+6. 把 server approval requests 接入现有 RoboCode permission path。
+7. 只有在普通 jobs 能拿到结构化 `threadId`、file、command 和 test events 后，
    再移除文本启发式解析。
 
 ## 当前边界
 
-app-server transport 接入前，CLI-backed jobs 仍是稳定 fallback。必须保留：
+app-server turn execution 接入普通 jobs 前，CLI-backed jobs 仍是稳定 fallback。必须保留：
 
 - 默认 read-only execution；
 - mutation 必须显式使用 `/agent run codex --write <task>`；
