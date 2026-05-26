@@ -2,8 +2,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{path::PathBuf, time::Duration};
 
+mod agent_commands;
 mod command_dispatch;
 mod doctor;
+mod extension_commands;
 mod formatting;
 mod git_commands;
 mod lsp_tools;

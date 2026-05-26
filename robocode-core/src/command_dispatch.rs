@@ -27,6 +27,10 @@ impl SessionEngine {
                 }
             }
             "/provider" => self.handle_provider_command(&args)?,
+            "/agent" => self.handle_agent_command(&args)?,
+            "/extensions" => self.handle_extensions_command(&args)?,
+            "/mcp" => self.handle_mcp_command(&args)?,
+            "/skills" => self.handle_skills_command(&args)?,
             "/status" => self.render_status(),
             "/config" => self.render_config(),
             "/doctor" => self.render_doctor(),

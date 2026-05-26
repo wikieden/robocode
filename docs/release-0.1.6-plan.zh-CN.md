@@ -16,6 +16,80 @@ multi-agent orchestration cockpit。这个版本优先改善真实编程体验�
 3. 现在通过 tmux 调用外部工具已经有价值，但 RoboCode 的目标应该继续向 Zed 的
    ACP 方向扩展，支持更多 coding agent。
 
+## 开发目标
+
+下一个版本的目标是：**让 RoboCode 在真实编程过程中变得“活着”，并具备
+operator-grade 的多 agent 调度感**。用户提交任务后，应该能在 cockpit 里直接看清
+主 agent 在做什么、副 agent 在做什么，以及下一步该怎么接管或推进，而不是离开
+TUI 到各个终端里猜状态。
+
+版本主题：
+
+```text
+0.1.6 = Live Coding Cockpit + Agent Extension Foundation
+```
+
+### P0：必须交付
+
+- 主屏 live activity：
+  - prompt 提交后立刻显示 `Thinking...`；
+  - 文件/工具动作压缩展示，例如 `Editing render.rs`；
+  - approval waiting 状态清晰可见，同时不遮住整个 session；
+  - 主屏直接展示 active lane 数量和关键 lane 进度。
+- 状态必须有证据来源：
+  - 所有可见 runtime status 必须来自 transcript events、provider telemetry、
+    pending approvals、lane artifacts 或 workspace snapshots；
+  - 正常运行界面不能出现 placeholder metrics。
+- Agent lane 基线：
+  - 保持 template、tmux、PTY lane 可用；
+  - 用同一套 lane 形态展示 transport 和 status；
+  - 让 `/lane inspect` 成为外部 agent 工作的可靠 debug 入口。
+- 产品/设计文档：
+  - 记录 adapter model；
+  - 记录 plugin、skill、MCP、ACP 的系统边界；
+  - 中英文文档保持同步。
+
+### P1：应该交付
+
+- Agent registry：
+  - `/agent list` 展示 built-in 和 configured agents。**状态：初版只读 built-in
+    registry 已落地。**
+  - `/agent doctor [id]` 检查 binary、environment、template、tmux 和 PTY
+    readiness。**状态：初版本地 binary/template diagnostics 已落地。**
+- Extension surface：
+  - `/extensions list` 和 `/extensions doctor` 先做只读可见性。**状态：初版
+    extension visibility 已落地。**
+  - `/mcp list` 和 `/mcp doctor` 先做只读可见性。**状态：初版 config-file
+    visibility 已落地。**
+  - `/skills list` 展示本地 workflow/task recipes。**状态：初版本地 skill listing
+    已落地，默认限制输出并支持 `--all`。**
+- 副屏改善：
+  - side-1 优先展示 agent lanes、transport、state、latest output 和 next action；
+  - side-2 优先展示 tests、LSP、MCP/context、plugin health 和 evidence。
+
+### P2：Spike，不作为发布硬门槛
+
+- ACP proof of concept：
+  - 启动一个本地 ACP-compatible process；
+  - 完成最小 handshake；
+  - 把 ACP events 记录为 JSONL debug log；
+  - 验证 ACP 的 edit/tool/permission events 如何映射到 RoboCode lanes。
+- `/lane acp <agent> <task>` 可以先保持 experimental，等 event model 清楚后再
+  进入稳定命令面。
+
+### 用户可感知成功标准
+
+- 按 Enter 后，用户不需要猜 RoboCode 是在 thinking、editing、waiting approval，
+  还是 supervising another agent。
+- 主屏和副屏使用同一套 agent state 语言：`thinking`、`editing`、`testing`、
+  `waiting approval`、`needs input`、`blocked`、`done`。
+- Codex、Claude Code、DeepSeek lanes、shell jobs 和未来 ACP agents 在 cockpit
+  里看起来是同级协作者，而不是一堆一次性集成。
+- 调试外部 agent run 有清晰路径：status row -> lane detail ->
+  log/artifact/event replay。
+- 版本仍保持 local-first：核心体验不依赖 cloud orchestration、账号系统或远程
+  registry。
+
 ## 参考信号
 
 - Claude Code 终端版用紧凑运行行展示类似 `Moseying...`、耗时、token movement
@@ -212,8 +286,10 @@ Side-2：
 
 1. 在主 TUI 落地 `LIVE ACTIVITY`。
 2. 用中英文文档记录 adapter/extension architecture。
-3. 增加 agent registry 数据结构和 `/agent list`，先列出 built-in template/tmux agents。
+3. 增加 agent registry 数据结构和 `/agent list`，先列出 built-in template/tmux
+   agents。**初版只读实现已落地。**
 4. 增加 `/agent doctor`，覆盖 Codex、Claude、custom templates、tmux、PTY。
+   **初版只读实现已落地。**
 5. 用一个本地 ACP-compatible agent 做 `robocode-acp` spike。
 6. 增加实验命令 `/lane acp <agent> <task>`。
 7. 把 ACP events 接入 lane artifacts 和 `LIVE ACTIVITY`。

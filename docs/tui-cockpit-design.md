@@ -83,8 +83,9 @@ Rendering contract:
   operable memory IDs, `/provider use` suggests registered providers and
   descriptor default models, `/model` suggests the active provider's descriptor
   default model, `/git diff`, `/git add`, `/git restore`, and `/git stash
-  push` suggest workspace file paths, `/git switch` suggests local branches,
-  `/git push` suggests local branches, remotes, and known remote branch
+  push` suggest workspace file paths, `/agent`, `/extensions`, `/mcp`, and
+  `/skills` suggest read-only visibility and diagnostics commands, `/git switch`
+  suggests local branches, `/git push` suggests local branches, remotes, and known remote branch
   targets, `/git stash pop/drop` suggests stash refs, `/git worktree remove`
   suggests worktree paths, and `/lsp` suggests workspace file paths.
 
@@ -128,15 +129,19 @@ route hints so the main agent can decide follow-up actions.
   or the latest transcript entry, so the main screen can show `Thinking...`,
   compact edit summaries, and lane progress without inventing runtime data.
 - The slash palette is local UI state; model calls are not involved. It now
-  supports nested suggestions for `/lane`, `/screen`, `/provider`, `/lsp`,
-  `/task`, `/memory`, and `/git`, with dynamic IDs or recent files where the
+  supports nested suggestions for `/lane`, `/agent`, `/extensions`, `/mcp`,
+  `/skills`, `/screen`, `/provider`, `/lsp`, `/task`, `/memory`, and `/git`,
+  with dynamic IDs or recent files where the
   current TUI state can provide them. Provider and model suggestions use the
   current runtime provider registry descriptors, so `/provider use` can suggest
   registered provider IDs and known descriptor default models while `/model`
   suggests the active provider's default model. Memory actions use the workflow
   memory snapshot, so `/memory confirm`, `/memory reject`, and `/memory prune`
   suggest relevant memory IDs instead of requiring the operator to copy them
-  manually. Git and LSP path suggestions use the workspace file snapshot
+  manually. Agent and extension commands expose read-only `/agent list`,
+  `/agent doctor`, `/extensions list`, `/extensions doctor`, `/mcp list`,
+  `/mcp doctor`, and `/skills list` suggestions before runtime extension
+  execution moves beyond the shared permission path. Git and LSP path suggestions use the workspace file snapshot
   collected for the right rail instead of scanning the filesystem while the
   operator types. Git switch and push suggestions use the local branch snapshot
   from the current workspace; git push also uses `git remote` and

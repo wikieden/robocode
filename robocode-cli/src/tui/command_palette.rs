@@ -150,7 +150,7 @@ struct CommandTemplate {
     summary: &'static str,
 }
 
-const COMMANDS: [CommandTemplate; 18] = [
+const COMMANDS: [CommandTemplate; 22] = [
     CommandTemplate {
         command: "/help",
         summary: "Show commands",
@@ -204,6 +204,22 @@ const COMMANDS: [CommandTemplate; 18] = [
         summary: "Run or inspect agent lanes",
     },
     CommandTemplate {
+        command: "/agent",
+        summary: "List or diagnose agents",
+    },
+    CommandTemplate {
+        command: "/extensions",
+        summary: "List extension surfaces",
+    },
+    CommandTemplate {
+        command: "/mcp",
+        summary: "List MCP context servers",
+    },
+    CommandTemplate {
+        command: "/skills",
+        summary: "List local skills",
+    },
+    CommandTemplate {
         command: "/status",
         summary: "Runtime status",
     },
@@ -224,6 +240,48 @@ const COMMANDS: [CommandTemplate; 18] = [
         summary: "Exit RoboCode",
     },
 ];
+
+const AGENT_COMMANDS: [CommandTemplate; 3] = [
+    CommandTemplate {
+        command: "/agent list",
+        summary: "List agent adapters",
+    },
+    CommandTemplate {
+        command: "/agent doctor",
+        summary: "Check agent readiness",
+    },
+    CommandTemplate {
+        command: "/agent logs",
+        summary: "Inspect agent logs",
+    },
+];
+
+const EXTENSION_COMMANDS: [CommandTemplate; 2] = [
+    CommandTemplate {
+        command: "/extensions list",
+        summary: "List extension surfaces",
+    },
+    CommandTemplate {
+        command: "/extensions doctor",
+        summary: "Check extension surfaces",
+    },
+];
+
+const MCP_COMMANDS: [CommandTemplate; 2] = [
+    CommandTemplate {
+        command: "/mcp list",
+        summary: "List MCP configs",
+    },
+    CommandTemplate {
+        command: "/mcp doctor",
+        summary: "Check MCP readiness",
+    },
+];
+
+const SKILL_COMMANDS: [CommandTemplate; 1] = [CommandTemplate {
+    command: "/skills list",
+    summary: "List local skills",
+}];
 
 const LANE_COMMANDS: [CommandTemplate; 19] = [
     CommandTemplate {
@@ -594,6 +652,10 @@ fn command_from_template(template: CommandTemplate) -> CommandSuggestion {
 fn is_nested_command_query(input: &str) -> bool {
     [
         "/lane",
+        "/agent",
+        "/extensions",
+        "/mcp",
+        "/skills",
         "/screen",
         "/provider",
         "/model",
@@ -610,6 +672,10 @@ fn is_nested_command_query(input: &str) -> bool {
 
 fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
     lane_command_suggestions(query, state)
+        .or_else(|| agent_command_suggestions(query))
+        .or_else(|| extension_command_suggestions(query))
+        .or_else(|| mcp_command_suggestions(query))
+        .or_else(|| skill_command_suggestions(query))
         .or_else(|| screen_command_suggestions(query, state))
         .or_else(|| task_command_suggestions(query, state))
         .or_else(|| lsp_command_suggestions(query, state))
@@ -619,6 +685,50 @@ fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comma
         .or_else(|| model_command_suggestions(query, state))
         .or_else(|| memory_command_suggestions(query, state))
         .or_else(|| git_command_suggestions(query, state))
+}
+
+fn template_group_suggestions(
+    query: &str,
+    root: &str,
+    templates: &[CommandTemplate],
+) -> Option<Vec<CommandSuggestion>> {
+    if !query.starts_with(&format!("{root} ")) {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let suggestions = if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
+        templates
+            .iter()
+            .copied()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if words.len() == 2 && !query.ends_with(' ') {
+        templates
+            .iter()
+            .filter(|item| item.command.starts_with(query))
+            .copied()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    Some(suggestions)
+}
+
+fn agent_command_suggestions(query: &str) -> Option<Vec<CommandSuggestion>> {
+    template_group_suggestions(query, "/agent", &AGENT_COMMANDS)
+}
+
+fn extension_command_suggestions(query: &str) -> Option<Vec<CommandSuggestion>> {
+    template_group_suggestions(query, "/extensions", &EXTENSION_COMMANDS)
+}
+
+fn mcp_command_suggestions(query: &str) -> Option<Vec<CommandSuggestion>> {
+    template_group_suggestions(query, "/mcp", &MCP_COMMANDS)
+}
+
+fn skill_command_suggestions(query: &str) -> Option<Vec<CommandSuggestion>> {
+    template_group_suggestions(query, "/skills", &SKILL_COMMANDS)
 }
 
 fn lane_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
@@ -1598,6 +1708,10 @@ mod tests {
     #[test]
     fn suggests_common_nested_command_families() {
         let provider = state_with_input("/provider ");
+        let agent = state_with_input("/agent ");
+        let extensions = state_with_input("/extensions ");
+        let mcp = state_with_input("/mcp ");
+        let skills = state_with_input("/skills ");
         let git = state_with_input("/git st");
         let stash = state_with_input("/git stash p");
         let memory = state_with_input("/memory ");
@@ -1606,6 +1720,26 @@ mod tests {
             command_suggestions_for_state(&provider)
                 .iter()
                 .any(|item| item.command == "/provider use")
+        );
+        assert!(
+            command_suggestions_for_state(&agent)
+                .iter()
+                .any(|item| item.command == "/agent doctor")
+        );
+        assert!(
+            command_suggestions_for_state(&extensions)
+                .iter()
+                .any(|item| item.command == "/extensions doctor")
+        );
+        assert!(
+            command_suggestions_for_state(&mcp)
+                .iter()
+                .any(|item| item.command == "/mcp doctor")
+        );
+        assert!(
+            command_suggestions_for_state(&skills)
+                .iter()
+                .any(|item| item.command == "/skills list")
         );
         assert_eq!(
             command_suggestions_for_state(&git)

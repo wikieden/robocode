@@ -105,6 +105,113 @@ fn status_command_reports_dirty_files_active_tasks_and_lanes() {
 }
 
 #[test]
+fn agent_list_reports_builtin_agent_transports() {
+    let home = temp_dir("agent_list_home");
+    let cwd = temp_dir("agent_list_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/agent list", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Agent adapters:")
+                && text.contains("codex")
+                && text.contains("template")
+                && text.contains("tmux")
+                && text.contains("pty")
+    )));
+}
+
+#[test]
+fn agent_doctor_reports_adapter_readiness_without_mutation() {
+    let home = temp_dir("agent_doctor_home");
+    let cwd = temp_dir("agent_doctor_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/agent doctor codex", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Agent diagnostics:")
+                && text.contains("codex")
+                && text.contains("binary:")
+                && text.contains("template:")
+    )));
+}
+
+#[test]
+fn extension_visibility_commands_report_read_only_surfaces() {
+    let home = temp_dir("extensions_home");
+    let cwd = temp_dir("extensions_cwd");
+    std::fs::write(cwd.join(".mcp.json"), "{\"mcpServers\":{\"demo\":{}}}").unwrap();
+    std::fs::create_dir_all(cwd.join(".codex").join("skills").join("demo-skill")).unwrap();
+    std::fs::write(
+        cwd.join(".codex")
+            .join("skills")
+            .join("demo-skill")
+            .join("SKILL.md"),
+        "# Demo Skill\n",
+    )
+    .unwrap();
+
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let extensions = engine
+        .process_input_with_approval("/extensions list", &mut approver)
+        .unwrap();
+    let mcp = engine
+        .process_input_with_approval("/mcp list", &mut approver)
+        .unwrap();
+    let skills = engine
+        .process_input_with_approval("/skills list", &mut approver)
+        .unwrap();
+
+    assert!(extensions.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Extension surfaces:")
+                && text.contains("agents")
+                && text.contains("mcp")
+                && text.contains("skills")
+    )));
+    assert!(mcp.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("MCP visibility:")
+                && text.contains(".mcp.json")
+                && text.contains("demo")
+    )));
+    assert!(skills.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Skills:")
+                && text.contains("demo-skill")
+                && text.contains("project")
+    )));
+}
+
+#[test]
 fn test_command_records_last_test_evidence_in_status() {
     let home = temp_dir("test_evidence_home");
     let cwd = temp_dir("test_evidence_cwd");

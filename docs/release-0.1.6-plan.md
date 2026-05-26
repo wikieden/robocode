@@ -19,6 +19,83 @@ This plan follows three product findings from the 0.1.5 trial:
 3. Tmux-launched tools are useful, but RoboCode should evolve toward an
    ACP-compatible multi-agent adapter model inspired by Zed.
 
+## Development Target
+
+The next version target is **make RoboCode feel alive and operator-grade during
+real coding work**. The user should be able to submit a task, see what the main
+agent is doing, see what side agents are doing, and decide the next action
+without leaving the cockpit.
+
+Version theme:
+
+```text
+0.1.6 = Live Coding Cockpit + Agent Extension Foundation
+```
+
+### P0: Must Ship
+
+- Main-screen live activity:
+  - show `Thinking...` immediately after a prompt is submitted;
+  - show compact edit/tool status such as `Editing render.rs`;
+  - show approval waiting state without hiding the rest of the session;
+  - show active lane count and top lane progress in the main screen.
+- Evidence-backed status:
+  - every visible runtime status must come from transcript events, provider
+    telemetry, pending approvals, lane artifacts, or workspace snapshots;
+  - no placeholder metrics in normal runtime screens.
+- Agent lane baseline:
+  - keep template, tmux, and PTY lanes working;
+  - expose transport and status in one common lane shape;
+  - make `/lane inspect` the reliable debug surface for external agent work.
+- Product/design documentation:
+  - document the adapter model;
+  - document plugin, skill, MCP, and ACP boundaries;
+  - keep English and Chinese docs aligned.
+
+### P1: Should Ship
+
+- Agent registry:
+  - `/agent list` for built-in and configured agents. **Status: initial
+    read-only built-in registry shipped.**
+  - `/agent doctor [id]` for binary, environment, template, tmux, and PTY
+    readiness checks. **Status: initial local binary/template diagnostics
+    shipped.**
+- Extension surface:
+  - `/extensions list` and `/extensions doctor` as read-only visibility first.
+    **Status: initial extension visibility shipped.**
+  - `/mcp list` and `/mcp doctor` as read-only visibility first. **Status:
+    initial config-file visibility shipped.**
+  - `/skills list` for local workflow/task recipes. **Status: initial local
+    skill listing shipped with capped output and `--all`.**
+- Side-screen improvement:
+  - side-1 prioritizes agent lanes, transport, state, latest output, and next
+    action;
+  - side-2 prioritizes tests, LSP, MCP/context, plugin health, and evidence.
+
+### P2: Spike, Not Release-Critical
+
+- ACP proof of concept:
+  - launch one local ACP-compatible process;
+  - complete a minimal handshake;
+  - record ACP events into a JSONL debug log;
+  - prove how ACP edit/tool/permission events map into RoboCode lanes.
+- `/lane acp <agent> <task>` can remain experimental until the event model is
+  clear.
+
+### User-Facing Success Criteria
+
+- After pressing Enter, the user never has to guess whether RoboCode is
+  thinking, editing, waiting for approval, or supervising another agent.
+- The main screen and side screens use the same language for agent state:
+  `thinking`, `editing`, `testing`, `waiting approval`, `needs input`,
+  `blocked`, `done`.
+- Codex, Claude Code, DeepSeek lanes, shell jobs, and future ACP agents all look
+  like peers in the cockpit instead of separate one-off integrations.
+- Debugging an external agent run has a clear path: status row -> lane detail ->
+  log/artifact/event replay.
+- The release remains local-first: no cloud orchestration, account system, or
+  remote registry is required for the core experience.
+
 ## Reference Signals
 
 - Claude Code terminal UX uses a compact running row such as "Moseying...",
@@ -222,8 +299,9 @@ Commands:
 1. Land `LIVE ACTIVITY` in the main TUI.
 2. Document the adapter/extension architecture in English and Chinese.
 3. Add agent registry data types and `/agent list` with built-in template/tmux
-   agents.
+   agents. **Initial read-only version shipped.**
 4. Add `/agent doctor` for Codex, Claude, custom templates, tmux, and PTY.
+   **Initial read-only version shipped.**
 5. Spike `robocode-acp` against one local ACP-compatible agent.
 6. Add `/lane acp <agent> <task>` as an experimental command.
 7. Route ACP events into lane artifacts and `LIVE ACTIVITY`.

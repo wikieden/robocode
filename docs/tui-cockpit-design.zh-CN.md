@@ -70,8 +70,9 @@
   status，`/memory` 会提示可操作的 memory ID，`/provider use` 会提示已注册
   provider 和 descriptor 默认模型，`/model` 会提示当前 provider 的 descriptor
   默认模型，`/git diff`、`/git add`、`/git restore` 和 `/git stash push` 会提示
-  workspace 文件路径，`/git switch` 会提示本地分支，`/git push` 会提示本地分支、
-  remote 和已知 remote branch target，`/git stash pop/drop` 会提示 stash ref，
+  workspace 文件路径，`/agent`、`/extensions`、`/mcp` 和 `/skills` 会提示只读
+  可见性和诊断命令，`/git switch` 会提示本地分支，`/git push` 会提示本地分支、remote 和已知 remote branch target，
+  `/git stash pop/drop` 会提示 stash ref，
   `/git worktree remove` 会提示 worktree 路径，`/lsp` 会提示 workspace 文件路径。
 
 ## 审批弹窗
@@ -108,13 +109,16 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
   lanes、最近 user turn、最近 tool call 或最近 transcript entry 推导状态，所以
   主屏可以展示 `Thinking...`、紧凑 edit 摘要和 lane progress，同时不编造运行时数据。
 - slash 提示列表是本地 UI 状态，不触发模型调用。它现在支持 `/lane`、
-  `/screen`、`/provider`、`/lsp`、`/task`、`/memory` 和 `/git` 的二级提示；
+  `/agent`、`/extensions`、`/mcp`、`/skills`、`/screen`、`/provider`、`/lsp`、
+  `/task`、`/memory` 和 `/git` 的二级提示；
   当前 TUI state 能提供对象时，会显示动态 ID 或最近文件。provider 和 model 提示
   会读取当前 runtime provider registry descriptor，所以 `/provider use` 能提示
   已注册 provider ID 和已知 descriptor 默认模型，`/model` 能提示当前 provider 的
   默认模型。memory 操作会读取 workflow memory snapshot，所以 `/memory confirm`、
   `/memory reject` 和 `/memory prune` 会提示相关 memory ID，不再要求操作者手动
-  复制。Git 和 LSP 路径提示会复用右栏收集到的 workspace 文件快照，不会在操作者
+  复制。Agent 和 extension 命令现在提供只读 `/agent list`、`/agent doctor`、
+  `/extensions list`、`/extensions doctor`、`/mcp list`、`/mcp doctor` 和
+  `/skills list` 提示，在 runtime extension execution 超出共享 permission path 前先把可见性补上。Git 和 LSP 路径提示会复用右栏收集到的 workspace 文件快照，不会在操作者
   每次输入时重新扫描文件系统。`/git switch` 和 `/git push` 会读取当前 workspace
   的本地分支快照；`/git push` 还会读取 `git remote` 和 `git branch -r` 快照，用于
   提示 remote 和 remote branch target。`/git stash pop/drop` 会读取当前
