@@ -139,7 +139,8 @@ route hints so the main agent can decide follow-up actions.
   snapshot.
 - `/test <command>` is a real runtime command, not a visual placeholder. It
   runs through shell approval, records the latest status, exit code, duration,
-  command, and output tail, and makes that evidence visible through `/status`.
+  command, failure summary, likely failing files, and output tail, and makes
+  the compact status visible through `/status`.
 - The main screen polls lane artifacts while idle, so background `/lane run`
   completion, failure, and log-tail state appear without a keypress.
 - The right-rail `ACTIVE TASKS` panel reads the real workflow task store exposed

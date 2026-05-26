@@ -69,9 +69,14 @@ impl SessionEngine {
                         .exit_code
                         .map(|code| format!(" (exit {code})"))
                         .unwrap_or_default();
+                    let files = if test.failing_files.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" files={}", test.failing_files.len())
+                    };
                     format!(
-                        "  Last test: {}{} in {}ms | {}",
-                        test.status, exit, test.duration_ms, test.command
+                        "  Last test: {}{}{} in {}ms | {}",
+                        test.status, exit, files, test.duration_ms, test.command
                     )
                 })
                 .unwrap_or_else(|| "  Last test: <none>".to_string()),

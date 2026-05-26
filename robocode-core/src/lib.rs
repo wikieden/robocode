@@ -67,6 +67,8 @@ pub struct TestEvidence {
     pub status: String,
     pub exit_code: Option<i32>,
     pub duration_ms: u128,
+    pub failure_summary: Vec<String>,
+    pub failing_files: Vec<String>,
     pub output_tail: String,
 }
 

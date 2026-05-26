@@ -140,7 +140,8 @@ api_key_env = "DEEPSEEK_API_KEY"
   `/resume latest`, `/task`, `/memory`, `/lane`, and `/screen`.
 - `/test <command>` runs through the same shell approval path as agent tool
   calls and records the latest test status, exit code, duration, command, and
-  output tail for `/status`.
+  output tail for `/status`. Failed runs also extract common failure-summary
+  lines and likely failing files from Rust/cargo and pytest-style output.
 - `/lane tmux <id>` starts or reuses a tmux session for a lane workspace and
   records the attach command under `.robocode/lanes/`, giving Codex, Claude, or
   shell lanes a supervised interactive terminal surface without adding a native

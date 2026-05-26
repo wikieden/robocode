@@ -123,6 +123,44 @@ fn test_command_records_exit_code_for_failed_shell_command() {
 }
 
 #[test]
+fn test_command_extracts_failure_summary_and_failing_files() {
+    let home = temp_dir("test_failure_summary_home");
+    let cwd = temp_dir("test_failure_summary_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let test_output = engine
+        .process_input_with_approval(
+            "/test printf 'error[E0308]: mismatched types\\n --> src/lib.rs:12:5\\nfailures:\\n    tests::loads_config\\nFAILED tests/test_cli.py::test_help - AssertionError\\n'; false",
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(test_output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("failure summary:")
+                && text.contains("error[E0308]: mismatched types")
+                && text.contains("tests::loads_config")
+                && text.contains("failing files:")
+                && text.contains("src/lib.rs:12:5")
+                && text.contains("tests/test_cli.py")
+    )));
+
+    let status_output = engine
+        .process_input_with_approval("/status", &mut approver)
+        .unwrap();
+    assert!(status_output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text) if text.contains("Last test: failed (exit 1) files=2")
+    )));
+}
+
+#[test]
 fn config_command_reports_runtime_configuration_summary() {
     let home = temp_dir("config_home");
     let cwd = temp_dir("config_cwd");

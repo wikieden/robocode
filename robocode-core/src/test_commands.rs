@@ -26,6 +26,11 @@ impl SessionEngine {
         // mutating-tool permission path instead of bypassing approvals.
         let started = Instant::now();
         let result = self.run_named_tool_result("shell", input, approver)?;
+        let failure_details = if result.success {
+            TestFailureDetails::default()
+        } else {
+            extract_failure_details(&result.output)
+        };
         let evidence = TestEvidence {
             command,
             status: if result.success {
@@ -35,6 +40,8 @@ impl SessionEngine {
             },
             exit_code: result.exit_code,
             duration_ms: started.elapsed().as_millis(),
+            failure_summary: failure_details.summary,
+            failing_files: failure_details.files,
             output_tail: tail_lines(&result.output, TEST_OUTPUT_TAIL_LINES),
         };
         let rendered = render_test_evidence(&evidence);
@@ -67,6 +74,24 @@ pub(crate) fn render_test_evidence(evidence: &TestEvidence) -> String {
         format!("  command: {}", evidence.command),
         format!("  duration: {}ms", evidence.duration_ms),
     ];
+    if !evidence.failure_summary.is_empty() {
+        lines.push("  failure summary:".to_string());
+        lines.extend(
+            evidence
+                .failure_summary
+                .iter()
+                .map(|line| format!("    - {line}")),
+        );
+    }
+    if !evidence.failing_files.is_empty() {
+        lines.push("  failing files:".to_string());
+        lines.extend(
+            evidence
+                .failing_files
+                .iter()
+                .map(|line| format!("    - {line}")),
+        );
+    }
     if evidence.output_tail.trim().is_empty() {
         lines.push("  output: <empty>".to_string());
     } else {
@@ -85,4 +110,79 @@ fn tail_lines(text: &str, max_lines: usize) -> String {
     let mut lines = text.lines().rev().take(max_lines).collect::<Vec<_>>();
     lines.reverse();
     lines.join("\n")
+}
+
+#[derive(Default)]
+struct TestFailureDetails {
+    summary: Vec<String>,
+    files: Vec<String>,
+}
+
+fn extract_failure_details(output: &str) -> TestFailureDetails {
+    let mut details = TestFailureDetails::default();
+    let mut capture_next_failure_name = false;
+    for raw_line in output.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        if let Some(location) = rust_location(line) {
+            push_unique(&mut details.files, location);
+        }
+        if let Some(path) = pytest_failure_path(line) {
+            push_unique(&mut details.files, path);
+        }
+
+        let lower = line.to_ascii_lowercase();
+        let is_summary_line = lower.starts_with("error")
+            || lower.starts_with("failed ")
+            || lower.starts_with("thread '")
+            || lower.starts_with("panic")
+            || lower.contains("assertion failed");
+        if is_summary_line {
+            push_unique(&mut details.summary, line.to_string());
+            capture_next_failure_name = false;
+            continue;
+        }
+        if lower == "failures:" {
+            capture_next_failure_name = true;
+            continue;
+        }
+        if capture_next_failure_name {
+            push_unique(&mut details.summary, line.to_string());
+            capture_next_failure_name = false;
+        }
+    }
+    details.summary.truncate(5);
+    details.files.truncate(5);
+    details
+}
+
+fn rust_location(line: &str) -> Option<String> {
+    let marker = "-->";
+    let index = line.find(marker)?;
+    let location = line[index + marker.len()..].trim();
+    if location.is_empty() {
+        None
+    } else {
+        Some(location.to_string())
+    }
+}
+
+fn pytest_failure_path(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("FAILED ")?;
+    let token = rest.split_whitespace().next()?;
+    let path = token.split("::").next()?.trim();
+    if path.is_empty() {
+        None
+    } else {
+        Some(path.to_string())
+    }
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
 }

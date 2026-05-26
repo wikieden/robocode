@@ -92,8 +92,9 @@ This is the core value of the release.
   - keep test evidence attached to the current task/session.
   - Current checkpoint: `/test <command>` is implemented through the shell
     permission path and `/status` reports the latest command, status, exit
-    code, duration, and output tail. Failing-file extraction remains a follow-up
-    refinement.
+    code, duration, likely failing-file count, and output tail. The command
+    output now extracts common Rust/cargo and pytest failure-summary/file
+    patterns; deeper framework-specific parsing remains a follow-up refinement.
 - Structured tool results:
   - compile errors, test failures, lint failures, and shell failures render as
     grouped evidence instead of raw log walls;
