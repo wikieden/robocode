@@ -337,6 +337,10 @@ Current workflow/LSP notes:
 - Successful `write_file` and `edit_file` results are structured as `path`,
   `size`, and `effect` lines so transcript and TUI surfaces can summarize file
   changes without parsing free-form prose.
+- Lane inspect/apply/recovery commands store auditable artifacts under
+  `.robocode/lanes/` and render a recommended next action so the operator can
+  move from evidence review to accept/apply/resolve/cleanup without guessing
+  the command sequence.
 - `robocode-lsp` currently supports query-driven semantic code intelligence through language-server stdio sessions.
 - The current LSP runtime already covers real queries, session reuse, document synchronization, and normalized output, but it is still an early implementation rather than a fully mature long-lived LSP platform layer.
 

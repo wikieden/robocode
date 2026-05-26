@@ -133,9 +133,14 @@ another place to watch logs.
   - show command, status, pid/session, workspace, changed files, last output,
     exit code, decision artifacts, and recommended next action;
   - make tmux and PTY attach/send routes obvious.
+  - Current checkpoint: `/lane inspect <id>` now renders `Next action` based on
+    the lane status, including attach/stop, accept/revise, apply, resolve, and
+    cleanup commands.
 - Lane apply and recovery:
   - make accept/apply/resolve/cleanup a guided sequence;
   - show conflict evidence without implying changes were reverted automatically.
+  - Current checkpoint: successful apply and apply-conflict messages now include
+    explicit next actions for diff review, cleanup, or `/lane resolve`.
 - Side screens:
   - side-1 prioritizes agent lanes and live output;
   - side-2 prioritizes diagnostics, tests, repo state, and pressure indicators;

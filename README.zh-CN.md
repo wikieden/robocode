@@ -135,6 +135,9 @@ api_key_env = "DEEPSEEK_API_KEY"
   的当前 lane 数量。
 - 文件写入结果会结构化显示 `path`、`size` 和 `effect` 行，让 edit 后的 transcript 更容易扫读。
 - `/lane tmux <id>` 会为 lane workspace 启动或复用一个 tmux session，并把 attach 命令记录到 `.robocode/lanes/`，让 Codex、Claude 或 shell lane 先拥有一个可监督的交互式终端面，而不需要立刻引入原生 PTY 依赖。
+- `/lane inspect <id>`、`/lane accept <id>`、`/lane apply <id>` 和
+  `/lane resolve <id>` 会用明确的 next action 引导 lane review、patch apply、
+  conflict recovery 和 cleanup。
 - `/screen side-1` 和 `/screen side-2` 会启动用于 lane / ops 监控的副屏 TUI；用 `/screen list` 和 `/screen close <side-1|side-2>` 管理已跟踪副屏。可以设置 `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`、`ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` 或共享的 `ROBOCODE_SCREEN_LAUNCH_TEMPLATE`，把副屏交给你的 terminal app、tmux 或显示器摆放脚本启动。
 
 ## 问题反馈

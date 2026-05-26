@@ -151,6 +151,9 @@ api_key_env = "DEEPSEEK_API_KEY"
   records the attach command under `.robocode/lanes/`, giving Codex, Claude, or
   shell lanes a supervised interactive terminal surface without adding a native
   PTY dependency.
+- `/lane inspect <id>`, `/lane accept <id>`, `/lane apply <id>`, and
+  `/lane resolve <id>` guide lane review, patch application, conflict recovery,
+  and cleanup through explicit next actions.
 - `/screen side-1` and `/screen side-2` launch companion TUI screens for lane
   and ops monitoring. Use `/screen list` and `/screen close <side-1|side-2>` to
   manage tracked side screens. Set `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,

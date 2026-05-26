@@ -121,9 +121,13 @@ Lane 有用的标准是减少上下文切换，而不是多一个看 log 的地�
   - 显示 command、status、pid/session、workspace、changed files、last output、
     exit code、decision artifacts 和建议下一步；
   - tmux 和 PTY attach/send 路径要明显。
+  - 当前 checkpoint：`/lane inspect <id>` 会基于 lane status 渲染 `Next action`，
+    包含 attach/stop、accept/revise、apply、resolve 和 cleanup 命令。
 - Lane apply and recovery：
   - accept/apply/resolve/cleanup 是一个有引导的序列；
   - conflict evidence 清楚，但不暗示系统已经自动 revert。
+  - 当前 checkpoint：apply 成功和 apply-conflict 消息现在都会给出明确 next
+    action，引导 diff review、cleanup 或 `/lane resolve`。
 - Side screens：
   - side-1 优先展示 agent lanes 和 live output；
   - side-2 优先展示 diagnostics、tests、repo state 和 pressure indicators；

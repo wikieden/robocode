@@ -507,6 +507,7 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
     let verification = verification_rows(evidence.as_ref());
     let decision = decision_rows(state, &lane.id);
     let terminal_artifacts = terminal_artifact_rows(state, &lane.id);
+    let next_action = lane_next_action(lane);
     let exit_code = evidence
         .as_ref()
         .and_then(|evidence| evidence.exit_code.as_deref())
@@ -544,7 +545,7 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
         body: format!(
-            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nWorktree: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nEnvelope: {envelope_path}\nExit: {exit_code}\nTerminal artifacts:\n{terminal_artifacts}\nChanged files:\n{changed_files}\nVerification:\n{verification}\nDecision:\n{decision}\nTail:\n{tail}\nEnvelope preview:\n{envelope}",
+            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nWorktree: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nEnvelope: {envelope_path}\nExit: {exit_code}\nNext action: {next_action}\nTerminal artifacts:\n{terminal_artifacts}\nChanged files:\n{changed_files}\nVerification:\n{verification}\nDecision:\n{decision}\nTail:\n{tail}\nEnvelope preview:\n{envelope}",
             lane.id,
             lane.tool,
             lane.status,
@@ -558,6 +559,66 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
             lane.summary
         ),
     });
+}
+
+fn lane_next_action(lane: &TerminalLane) -> String {
+    match lane.status.as_str() {
+        "queued" | "running" | "attached" => {
+            format!(
+                "watch or attach with `{}`; stop with `/lane stop {}` if it is no longer useful",
+                interaction_hint(lane),
+                lane.id
+            )
+        }
+        "completed" => {
+            if lane.worktree.is_some() {
+                format!(
+                    "review changes, then `/lane accept {}` or `/lane revise {} <notes>`",
+                    lane.id, lane.id
+                )
+            } else {
+                format!("review evidence, then `/lane archive {}`", lane.id)
+            }
+        }
+        "failed" => format!(
+            "review the tail, then `/lane revise {} <notes>` or `/lane discard {} <reason>`",
+            lane.id, lane.id
+        ),
+        "accepted" => {
+            if lane.worktree.is_some() {
+                format!("apply isolated changes with `/lane apply {}`", lane.id)
+            } else {
+                format!("archive accepted evidence with `/lane archive {}`", lane.id)
+            }
+        }
+        "apply_conflict" => format!(
+            "resolve main/lane conflicts, then retry with `/lane resolve {}`",
+            lane.id
+        ),
+        "applied" => format!(
+            "review the main workspace diff, then `/lane cleanup {}` when evidence is no longer needed",
+            lane.id
+        ),
+        "detached" => format!(
+            "reattach with `/lane attach {}` or archive when done",
+            lane.id
+        ),
+        "stopped" => format!(
+            "inspect preserved evidence, then `/lane archive {}`",
+            lane.id
+        ),
+        "archived" | "discarded" => {
+            "no active action; evidence remains under `.robocode/lanes/`".to_string()
+        }
+        "revise" => format!(
+            "send revision notes to a fresh lane or archive with `/lane archive {}`",
+            lane.id
+        ),
+        _ => format!(
+            "inspect artifacts, then decide with `/lane accept {}`",
+            lane.id
+        ),
+    }
 }
 
 fn terminal_artifact_rows(state: &TuiState, lane_id: &str) -> String {
@@ -1474,9 +1535,10 @@ fn apply_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
         state.entries.push(TuiEntry {
             label: "system".to_string(),
             body: format!(
-                "Refused to apply lane `{}` because the patch does not apply cleanly.\nPatch: {}\nConflict report: {conflict_path}\n{err}",
+                "Refused to apply lane `{}` because the patch does not apply cleanly.\nPatch: {}\nConflict report: {conflict_path}\nNext action: Review the conflict report, adjust the main workspace or lane worktree, then run `/lane resolve {}`.\n{err}",
                 lane.id,
-                patch_path.display()
+                patch_path.display(),
+                lane.id
             ),
         });
         return;
@@ -1523,7 +1585,7 @@ fn apply_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
         body: format!(
-            "Applied lane `{}` patch to the current workspace.\nPatch: {}\nApply record: {}\nReview the main workspace diff, then use `/lane cleanup {}` when the isolated worktree is no longer needed.",
+            "Applied lane `{}` patch to the current workspace.\nPatch: {}\nApply record: {}\nNext action: Review the main workspace diff, then use `/lane cleanup {}` when the isolated worktree is no longer needed.",
             lane.id,
             patch_path.display(),
             apply_path.display(),
@@ -2637,6 +2699,14 @@ mod tests {
         );
         assert_eq!(state.lanes[0].status, "applied");
         assert!(
+            state
+                .entries
+                .last()
+                .expect("apply result")
+                .body
+                .contains("Next action: Review the main workspace diff")
+        );
+        assert!(
             state.lanes[0]
                 .worktree
                 .as_ref()
@@ -2699,6 +2769,14 @@ mod tests {
                 .expect("conflict entry")
                 .body
                 .contains("Conflict report")
+        );
+        assert!(
+            state
+                .entries
+                .last()
+                .expect("conflict entry")
+                .body
+                .contains("Next action: Review the conflict report")
         );
         let conflict = fs::read_to_string(root.join(".robocode/lanes/L1.apply-conflict.md"))
             .expect("apply conflict report");
@@ -3082,6 +3160,8 @@ mod tests {
         assert!(state.entries[0].body.contains("Tool: codex"));
         assert!(state.entries[0].body.contains("Progress: 64%"));
         assert!(state.entries[0].body.contains("Exit: <pending>"));
+        assert!(state.entries[0].body.contains("Next action:"));
+        assert!(state.entries[0].body.contains("/lane tmux L1"));
         assert!(state.entries[0].body.contains("Tail:\n  <no lane store>"));
         assert!(
             state.entries[0]

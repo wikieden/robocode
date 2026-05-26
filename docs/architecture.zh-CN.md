@@ -306,6 +306,9 @@ CLI 当前也通过 slash commands 暴露这些工具面：
   collector，不让整个命令失败。
 - 成功的 `write_file` 和 `edit_file` result 会结构化为 `path`、`size` 和 `effect`
   行，让 transcript 和 TUI surface 不必解析自由文本也能总结文件变更。
+- Lane inspect / apply / recovery 命令会把可审计 artifacts 存到
+  `.robocode/lanes/`，并渲染 recommended next action，让操作者能从 evidence
+  review 直接推进到 accept / apply / resolve / cleanup，而不用猜命令顺序。
 - `robocode-lsp` 当前通过 language-server stdio sessions 提供 query-driven 的 semantic code intelligence。
 - 当前 LSP runtime 已覆盖 real queries、session reuse、document synchronization 和 normalized output，但仍属于 early implementation，而不是完整成熟的长期 LSP 平台层。
 
