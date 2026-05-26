@@ -318,4 +318,5 @@ Side-2：
 - 至少一个现有 external-tool lane path 用和未来 ACP lanes 相同的 transport/status 形态展示。
 - Agent/plugin/skill/MCP 架构已文档化，并有命令 stub 或计划入口。
 - ACP spike 能证明 RoboCode 可以启动并和一个 ACP-compatible agent process 交换消息。
-- 现有 0.1.5 release smoke 仍通过。
+- 0.1.6 release smoke matrix 带更新后的 live-cockpit、side-screen 和 ACP
+  readiness expectations 跑通。

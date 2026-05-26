@@ -296,7 +296,7 @@ assert_contains "$OUT_DIR/main-idle.txt" "No approval is blocking right now"
 assert_contains "$OUT_DIR/main-command-palette.txt" "COMMANDS"
 assert_contains "$OUT_DIR/main-command-palette.txt" "› /git add src/config.rs"
 assert_contains "$OUT_DIR/main-command-palette.txt" "Workspace file"
-assert_contains "$OUT_DIR/main.txt" "diagnostics unavailable"
+assert_contains "$OUT_DIR/main.txt" "LIVE ACTIVITY"
 assert_contains "$OUT_DIR/main.txt" "TELEMETRY"
 assert_contains "$OUT_DIR/main.txt" "EVENTS"
 assert_contains "$OUT_DIR/main.txt" "LANES"
@@ -305,9 +305,10 @@ if grep -Fq "APPROVAL REQUIRED" "$OUT_DIR/main-idle.txt"; then
   exit 1
 fi
 assert_contains "$OUT_DIR/multiscreen.txt" "AGENT LANES"
-assert_contains "$OUT_DIR/multiscreen.txt" "LSP / BUILD"
+assert_contains "$OUT_DIR/multiscreen.txt" "TESTS / LSP"
+assert_contains "$OUT_DIR/multiscreen.txt" "MCP / CONTEXT"
+assert_contains "$OUT_DIR/multiscreen.txt" "RECENT EVIDENCE"
 assert_contains "$OUT_DIR/multiscreen.txt" "pty/01"
-assert_contains "$OUT_DIR/multiscreen.txt" "diagnostics unavailable"
 assert_contains "$OUT_DIR/main-lane.txt" "LANE DETAIL"
 assert_contains "$OUT_DIR/main-lane.txt" "ROUTE main→side-1"
 assert_contains "$OUT_DIR/main-lane.txt" "CMD    codex exec test fixes"
@@ -327,7 +328,7 @@ assert_ansi_contains "$OUT_DIR/main-idle.ansi" "No approval is blocking right no
 assert_ansi_contains "$OUT_DIR/main-command-palette.ansi" "COMMANDS"
 assert_ansi_contains "$OUT_DIR/main-lane.ansi" "LANE DETAIL"
 assert_ansi_contains "$OUT_DIR/side-1.ansi" "AGENT LANES"
-assert_ansi_contains "$OUT_DIR/side-2.ansi" "LSP / BUILD"
+assert_ansi_contains "$OUT_DIR/side-2.ansi" "TESTS / LSP"
 
 cat >"$OUT_DIR/README.md" <<EOF
 # Generated TUI Previews

@@ -334,4 +334,5 @@ Commands:
   planned surfaces.
 - ACP spike proves whether RoboCode can launch and exchange messages with one
   ACP-compatible agent process.
-- Existing 0.1.5 release smoke still passes.
+- The 0.1.6 release smoke matrix passes with the updated live-cockpit,
+  side-screen, and ACP readiness expectations.

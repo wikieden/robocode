@@ -28,7 +28,7 @@
   <rect class="panel shadow" x="0" y="11" width="2042" height="43"/>
   <text class="text yellow" x="15" y="38">Robo</text>
   <text class="text cyan" x="55" y="38">Code</text>
-  <text class="text yellow" x="112" y="38">v0.1.5</text>
+  <text class="text yellow" x="112" y="38">v0.1.6</text>
   <rect class="chip" x="192" y="22" width="200" height="22"/>
   <text class="text blue" x="198" y="38">[PROVIDER ● DeepSeek]</text>
   <rect class="chip" x="403" y="22" width="246" height="22"/>

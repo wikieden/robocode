@@ -47,7 +47,7 @@ robocode --help
 ### Release Archive
 
 Download a release archive from
-[RoboCode v0.1.5](https://github.com/wikieden/robocode/releases/tag/v0.1.5).
+[RoboCode v0.1.6](https://github.com/wikieden/robocode/releases/tag/v0.1.6).
 
 Available release targets:
 
@@ -59,7 +59,7 @@ Available release targets:
 Install on macOS or Linux:
 
 ```bash
-VERSION=0.1.5
+VERSION=0.1.6
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -70,7 +70,7 @@ robocode-cli --help
 Install on Windows PowerShell:
 
 ```powershell
-$Version = "0.1.5"
+$Version = "0.1.6"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -187,8 +187,8 @@ live in the docs:
 - [Reference Analysis](docs/reference-analysis.md)
 - [Provider Live Matrix](docs/provider-live-matrix.md)
 - [TUI Cockpit Design](docs/tui-cockpit-design.md)
-- [0.1.5 Release Status](docs/release-0.1.5-status.md)
-- [0.1.5 Plan](docs/release-0.1.5-plan.md)
+- [0.1.6 Release Status](docs/release-0.1.6-status.md)
+- [0.1.6 Plan](docs/release-0.1.6-plan.md)
 - [Development Standards](docs/development-standards.md)
 
 Maintainers can build a release archive locally with:
