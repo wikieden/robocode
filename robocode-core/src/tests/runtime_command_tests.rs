@@ -212,6 +212,12 @@ fn extension_visibility_commands_report_read_only_surfaces() {
     let skills = engine
         .process_input_with_approval("/skills list", &mut approver)
         .unwrap();
+    let extension_doctor = engine
+        .process_input_with_approval("/extensions doctor", &mut approver)
+        .unwrap();
+    let mcp_doctor = engine
+        .process_input_with_approval("/mcp doctor", &mut approver)
+        .unwrap();
 
     assert!(extensions.iter().any(|event| matches!(
         event,
@@ -234,6 +240,24 @@ fn extension_visibility_commands_report_read_only_surfaces() {
             if text.contains("Skills:")
                 && text.contains("demo-skill")
                 && text.contains("project")
+    )));
+    assert!(extension_doctor.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Extension diagnostics:")
+                && text.contains("provider plugins")
+                && text.contains("mcp: found")
+                && text.contains("servers: demo")
+                && text.contains("skills/project: found 1 skill")
+                && text.contains("boundary: extensions remain read-only")
+    )));
+    assert!(mcp_doctor.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("MCP diagnostics:")
+                && text.contains("found")
+                && text.contains("servers: demo")
+                && text.contains("permission")
     )));
 }
 

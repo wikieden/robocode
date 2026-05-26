@@ -265,6 +265,9 @@ backend。
 - 已落地：TUI workspace snapshot 会读取 tracked Codex jobs，所以主窗口
   `LIVE ACTIVITY` strip 和右栏 `ACTIVE TASKS` panel 会显示正在运行的 Codex 工作，
   不再让用户提交后猜远端是否还在工作。
+- 已落地：`/extensions doctor` 和 `/mcp doctor` 会按 surface 输出 readiness，
+  包括 provider plugin dirs、MCP config files 和 server names、project/user/legacy
+  skill roots，以及 permission boundary 提醒。
 - 剩余：native app-server event subscription、touched-file extraction、
   thread IDs，以及经过 permission gate 的 write-capable Codex tasks。
 

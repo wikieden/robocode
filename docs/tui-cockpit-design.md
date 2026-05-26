@@ -167,6 +167,10 @@ route hints so the main agent can decide follow-up actions.
   runs through shell approval, records the latest status, exit code, duration,
   command, failure summary, likely failing files, and output tail, and makes
   the compact status visible through `/status`.
+- `/extensions doctor` and `/mcp doctor` are readiness reports, not placeholders:
+  they show provider plugin dirs, MCP config files and server names, skill root
+  counts across project/user/legacy scopes, and the permission boundary that
+  blocks extension mutation until it enters the shared tool path.
 - The main screen polls lane artifacts while idle, so background `/lane run`
   completion, failure, and log-tail state appear without a keypress.
 - Side screen 2 is the ops/evidence cockpit. It renders `TESTS / LSP`,

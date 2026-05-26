@@ -138,6 +138,10 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 - `/test <command>` 是真实 runtime command，不是视觉占位符。它会走 shell
   approval，记录最近一次测试的 status、exit code、duration、command、failure
   summary、可能失败文件和 output tail，并通过 `/status` 展示紧凑状态。
+- `/extensions doctor` 和 `/mcp doctor` 是 readiness reports，不是占位符：会展示
+  provider plugin dirs、MCP config files 和 server names、project/user/legacy
+  skill root counts，以及 extension mutation 必须进入共享 tool permission path
+  的边界。
 - 主屏 idle 时会轮询 lane artifacts，所以后台 `/lane run` 的完成、失败和
   log-tail 状态不需要按键也会刷新。
 - 副屏 2 是 ops/evidence cockpit。它渲染 `TESTS / LSP`、`MCP / CONTEXT`、

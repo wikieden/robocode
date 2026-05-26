@@ -293,6 +293,9 @@ Current implementation status:
 - Landed: the TUI workspace snapshot reads tracked Codex jobs so the main
   `LIVE ACTIVITY` strip and right-rail `ACTIVE TASKS` panel show active Codex
   work instead of leaving the user guessing after submission.
+- Landed: `/extensions doctor` and `/mcp doctor` now report readiness by
+  surface, including provider plugin dirs, MCP config files and server names,
+  project/user/legacy skill roots, and permission boundary reminders.
 - Remaining: native app-server event subscription, touched-file extraction,
   thread IDs, and write-capable permission-gated Codex tasks.
 

@@ -84,21 +84,9 @@ impl SessionEngine {
 
     fn render_extension_doctor(&self) -> String {
         let mut lines = vec!["Extension diagnostics:".to_string()];
-        lines.push(format!(
-            "  provider plugin dirs: {}",
-            self.provider_plugin_dirs.len()
-        ));
-        for path in &self.provider_plugin_dirs {
-            lines.push(format!("    {}", path.display()));
-        }
-        lines.push(format!(
-            "  mcp configs: {}",
-            mcp_config_candidates(&self.cwd)
-                .into_iter()
-                .filter(|path| path.exists())
-                .count()
-        ));
-        lines.push(format!("  skills: {}", discover_skills(&self.cwd).len()));
+        lines.extend(provider_plugin_diagnostics(&self.provider_plugin_dirs));
+        lines.extend(mcp_config_diagnostics(&self.cwd));
+        lines.extend(skill_root_diagnostics(&self.cwd));
         lines.push("  agents: use `/agent doctor` for adapter readiness".to_string());
         lines.push(
             "  boundary: extensions remain read-only unless routed through permissions".to_string(),
@@ -128,12 +116,12 @@ fn render_mcp_list(cwd: &Path) -> String {
 }
 
 fn render_mcp_doctor(cwd: &Path) -> String {
-    let configs = mcp_config_candidates(cwd);
     let mut lines = vec!["MCP diagnostics:".to_string()];
-    for path in configs {
-        let status = if path.exists() { "found" } else { "missing" };
-        lines.push(format!("  {}: {status}", path.display()));
-    }
+    lines.extend(mcp_config_diagnostics(cwd).into_iter().map(|line| {
+        line.strip_prefix("  mcp: ")
+            .map(|detail| format!("  {detail}"))
+            .unwrap_or(line)
+    }));
     lines.push(
         "  boundary: MCP tools must enter through tool permissions before mutation.".to_string(),
     );
@@ -179,6 +167,51 @@ fn mcp_config_candidates(cwd: &Path) -> Vec<PathBuf> {
     paths
 }
 
+fn provider_plugin_diagnostics(paths: &[PathBuf]) -> Vec<String> {
+    let mut lines = vec![format!("  provider plugins: {} dir(s)", paths.len())];
+    if paths.is_empty() {
+        lines.push("    none configured".to_string());
+        return lines;
+    }
+    for path in paths {
+        let status = if path.is_dir() { "found" } else { "missing" };
+        lines.push(format!("    {status}: {}", path.display()));
+    }
+    lines
+}
+
+fn mcp_config_diagnostics(cwd: &Path) -> Vec<String> {
+    let mut lines = Vec::new();
+    for path in mcp_config_candidates(cwd) {
+        let status = if path.exists() { "found" } else { "missing" };
+        let servers = if path.exists() {
+            let names = mcp_server_names(&path);
+            if names.is_empty() {
+                "servers: none detected".to_string()
+            } else {
+                format!("servers: {}", names.join(", "))
+            }
+        } else {
+            "servers: -".to_string()
+        };
+        lines.push(format!("  mcp: {status} {} ({servers})", path.display()));
+    }
+    lines
+}
+
+fn skill_root_diagnostics(cwd: &Path) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (scope, root) in skill_roots(cwd) {
+        let count = discover_skills_in_root(scope, &root).len();
+        let status = if root.is_dir() { "found" } else { "missing" };
+        lines.push(format!(
+            "  skills/{scope}: {status} {count} skill(s) {}",
+            root.display()
+        ));
+    }
+    lines
+}
+
 fn file_preview(path: &Path) -> String {
     let Ok(content) = fs::read_to_string(path) else {
         return "<unreadable>".to_string();
@@ -199,12 +232,7 @@ struct SkillEntry {
 }
 
 fn discover_skills(cwd: &Path) -> Vec<SkillEntry> {
-    let mut roots = vec![("project", cwd.join(".codex").join("skills"))];
-    if let Some(home) = home_dir() {
-        roots.push(("user", home.join(".codex").join("skills")));
-        roots.push(("legacy", home.join(".agents").join("skills")));
-    }
-    let mut skills = roots
+    let mut skills = skill_roots(cwd)
         .into_iter()
         .flat_map(|(scope, root)| discover_skills_in_root(scope, &root))
         .collect::<Vec<_>>();
@@ -214,6 +242,15 @@ fn discover_skills(cwd: &Path) -> Vec<SkillEntry> {
             .then(left.name.cmp(&right.name))
     });
     skills
+}
+
+fn skill_roots(cwd: &Path) -> Vec<(&'static str, PathBuf)> {
+    let mut roots = vec![("project", cwd.join(".codex").join("skills"))];
+    if let Some(home) = home_dir() {
+        roots.push(("user", home.join(".codex").join("skills")));
+        roots.push(("legacy", home.join(".agents").join("skills")));
+    }
+    roots
 }
 
 fn scope_rank(scope: &str) -> u8 {
@@ -245,4 +282,75 @@ fn discover_skills_in_root(scope: &'static str, root: &Path) -> Vec<SkillEntry> 
 
 fn home_dir() -> Option<PathBuf> {
     env::var_os("HOME").map(PathBuf::from)
+}
+
+fn mcp_server_names(path: &Path) -> Vec<String> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Some(start) = content.find("\"mcpServers\"") else {
+        return Vec::new();
+    };
+    let Some(open) = content[start..].find('{') else {
+        return Vec::new();
+    };
+    let mut depth = 0usize;
+    let mut names = Vec::new();
+    let chars = content[start + open..].chars().collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < chars.len() {
+        match chars[index] {
+            '{' => {
+                depth += 1;
+                index += 1;
+            }
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    break;
+                }
+                index += 1;
+            }
+            '"' if depth == 1 => {
+                let Some((name, next)) = read_json_string(&chars, index) else {
+                    break;
+                };
+                let after = chars[next..]
+                    .iter()
+                    .position(|ch| !ch.is_whitespace())
+                    .map(|offset| next + offset);
+                if after.is_some_and(|pos| chars.get(pos) == Some(&':')) {
+                    names.push(name);
+                }
+                index = next;
+            }
+            _ => index += 1,
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn read_json_string(chars: &[char], start: usize) -> Option<(String, usize)> {
+    if chars.get(start) != Some(&'"') {
+        return None;
+    }
+    let mut output = String::new();
+    let mut index = start + 1;
+    while index < chars.len() {
+        match chars[index] {
+            '"' => return Some((output, index + 1)),
+            '\\' => {
+                index += 1;
+                output.push(*chars.get(index)?);
+                index += 1;
+            }
+            ch => {
+                output.push(ch);
+                index += 1;
+            }
+        }
+    }
+    None
 }
