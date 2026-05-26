@@ -331,6 +331,9 @@ Current workflow/LSP notes:
   verification command, exit code, likely failing-file count, and output tail
   without creating a second execution path. The command output also includes a
   small parser for common Rust/cargo and pytest failure-summary/file patterns.
+- Successful `write_file` and `edit_file` results are structured as `path`,
+  `size`, and `effect` lines so transcript and TUI surfaces can summarize file
+  changes without parsing free-form prose.
 - `robocode-lsp` currently supports query-driven semantic code intelligence through language-server stdio sessions.
 - The current LSP runtime already covers real queries, session reuse, document synchronization, and normalized output, but it is still an early implementation rather than a fully mature long-lived LSP platform layer.
 

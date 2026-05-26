@@ -23,6 +23,11 @@ fn read_write_edit_round_trip() {
         )
         .unwrap();
     assert!(write_result.success);
+    assert!(write_result.output.contains("write_file completed"));
+    assert!(write_result.output.contains("path:"));
+    assert!(write_result.output.contains("notes.txt"));
+    assert!(write_result.output.contains("size: 11 B"));
+    assert!(write_result.output.contains("effect: wrote 1 line"));
 
     let mut read_input = ToolInput::new();
     read_input.insert("path".into(), "notes.txt".into());
@@ -52,5 +57,10 @@ fn read_write_edit_round_trip() {
             &ctx,
         )
         .unwrap();
+    assert!(edit_result.output.contains("edit_file completed"));
+    assert!(edit_result.output.contains("path:"));
+    assert!(edit_result.output.contains("notes.txt"));
+    assert!(edit_result.output.contains("size: 10 B"));
+    assert!(edit_result.output.contains("effect: edited 1 line"));
     assert!(edit_result.diff.unwrap().contains("+hello rust"));
 }

@@ -65,7 +65,7 @@ impl BuiltinTool for WriteFileTool {
         }
         fs::write(&path, content).map_err(|err| err.to_string())?;
         Ok(ToolExecutionOutput {
-            output: format!("Wrote {}", path.display()),
+            output: render_file_effect("write_file", &path, content, "wrote"),
             diff: Some(render_diff(&before, content)),
             success: true,
             exit_code: None,
@@ -102,7 +102,7 @@ impl BuiltinTool for EditFileTool {
         let after = before.replacen(old, new, 1);
         fs::write(&path, &after).map_err(|err| err.to_string())?;
         Ok(ToolExecutionOutput {
-            output: format!("Edited {}", path.display()),
+            output: render_file_effect("edit_file", &path, &after, "edited"),
             diff: Some(render_diff(&before, &after)),
             success: true,
             exit_code: None,
@@ -151,4 +151,29 @@ fn render_diff(before: &str, after: &str) -> String {
         }
     }
     output
+}
+
+fn render_file_effect(tool: &str, path: &std::path::Path, content: &str, verb: &str) -> String {
+    let line_count = content
+        .lines()
+        .count()
+        .max(usize::from(!content.is_empty()));
+    [
+        format!("{tool} completed"),
+        format!("path: {}", path.display()),
+        format!("size: {}", format_bytes(content.len())),
+        format!(
+            "effect: {verb} {line_count} {}",
+            if line_count == 1 { "line" } else { "lines" }
+        ),
+    ]
+    .join("\n")
+}
+
+fn format_bytes(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    }
 }

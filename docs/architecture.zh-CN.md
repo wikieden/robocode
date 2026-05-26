@@ -301,6 +301,8 @@ CLI 当前也通过 slash commands 暴露这些工具面：
   exit code、可能失败文件数量和 output tail，而不引入第二条执行通道。命令输出还
   包含一个小 parser，用于提取常见 Rust/cargo 和 pytest failure-summary / file
   模式。
+- 成功的 `write_file` 和 `edit_file` result 会结构化为 `path`、`size` 和 `effect`
+  行，让 transcript 和 TUI surface 不必解析自由文本也能总结文件变更。
 - `robocode-lsp` 当前通过 language-server stdio sessions 提供 query-driven 的 semantic code intelligence。
 - 当前 LSP runtime 已覆盖 real queries、session reuse、document synchronization 和 normalized output，但仍属于 early implementation，而不是完整成熟的长期 LSP 平台层。
 

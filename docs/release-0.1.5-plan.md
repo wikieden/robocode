@@ -99,6 +99,9 @@ This is the core value of the release.
   - compile errors, test failures, lint failures, and shell failures render as
     grouped evidence instead of raw log walls;
   - successful writes show file path, size, and a short effect summary.
+  - Current checkpoint: `write_file` and `edit_file` successful tool results
+    now render stable `path`, `size`, and `effect` lines for transcript/TUI
+    review.
 - Task continuity:
   - the active task panel should reflect real `/task` and lane state;
   - resumed sessions should show what changed, what was tested, and what remains.

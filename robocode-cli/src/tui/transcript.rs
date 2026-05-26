@@ -184,7 +184,7 @@ mod tests {
                 },
                 TuiEntry {
                     label: "tool-result".to_string(),
-                    body: "write_file completed\nWrote 48 lines to src/config.rs".to_string(),
+                    body: "write_file completed\npath: src/config.rs\nsize: 2.1 KB\neffect: wrote 48 lines".to_string(),
                 },
             ]),
             96,
@@ -199,7 +199,9 @@ mod tests {
         assert!(rendered.contains("TOOL RESULT"));
         assert!(!rendered.contains("[done]"));
         assert!(rendered.contains("✓ write_file completed"));
-        assert!(rendered.contains("• Wrote 48 lines"));
+        assert!(rendered.contains("path: src/config.rs"));
+        assert!(rendered.contains("size: 2.1 KB"));
+        assert!(rendered.contains("effect: wrote 48 lines"));
     }
 
     #[test]

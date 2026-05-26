@@ -89,6 +89,8 @@ provider 路径、shell lane、tmux lane 和 release artifacts 可以端到端�
   - compile errors、test failures、lint failures、shell failures 以结构化证据显示，
     不直接堆 raw log；
   - 成功写文件时显示 path、size 和简短 effect summary。
+  - 当前 checkpoint：`write_file` 和 `edit_file` 成功 tool result 现在会输出稳定的
+    `path`、`size` 和 `effect` 行，方便 transcript / TUI review。
 - Task continuity：
   - active task panel 反映真实 `/task` 和 lane state；
   - resume session 后显示上次改了什么、测了什么、还剩什么。
