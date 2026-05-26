@@ -145,6 +145,9 @@ another place to watch logs.
   - side-1 prioritizes agent lanes and live output;
   - side-2 prioritizes diagnostics, tests, repo state, and pressure indicators;
   - side screens remain useful even when no external agents are running.
+  - Current checkpoint: side-1 lane rows now show status-aware next actions,
+    apply/conflict artifact hints, attach commands, and log tails; side-2 event
+    rows include the same next-action guidance in compact form.
 
 Acceptance evidence:
 

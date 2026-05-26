@@ -132,6 +132,9 @@ Lane 有用的标准是减少上下文切换，而不是多一个看 log 的地�
   - side-1 优先展示 agent lanes 和 live output；
   - side-2 优先展示 diagnostics、tests、repo state 和 pressure indicators；
   - 即使没有 external agents，副屏也要有用。
+  - 当前 checkpoint：side-1 lane rows 现在会显示基于状态的 next actions、
+    apply/conflict artifact hints、attach commands 和 log tails；side-2 event rows
+    也用紧凑形式显示同一套 next-action 引导。
 
 验收证据：
 

@@ -561,7 +561,7 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
     });
 }
 
-fn lane_next_action(lane: &TerminalLane) -> String {
+pub(super) fn lane_next_action(lane: &TerminalLane) -> String {
     match lane.status.as_str() {
         "queued" | "running" | "attached" => {
             format!(

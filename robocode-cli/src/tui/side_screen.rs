@@ -1,12 +1,16 @@
 use super::{
     canvas::Frame,
     indicators::{progress_bar, status_dot},
-    lane::{command_hint, interaction_hint, pid_hint, pty_label, status_badge, terminal_label},
+    lane::{
+        command_hint, interaction_hint, lane_next_action, pid_hint, pty_label, status_badge,
+        terminal_label,
+    },
     panel::panel,
     state::{TuiState, lane_runtime_evidence},
     statusbar::BOTTOM_BAR_HEIGHT,
     text::{pad, truncate},
 };
+use std::fs;
 
 pub(super) fn render_side_body(frame: &mut Frame, state: &TuiState) {
     let body_top = 3;
@@ -115,9 +119,41 @@ fn terminal_lane_detail_rows(state: &TuiState) -> Vec<String> {
             truncate(&command_hint(&lane.tool, &lane.title), 24),
             truncate(&lane.title, 36)
         ));
-        rows.push(format!("  tail {}", truncate(&lane.summary, 66)));
+        rows.push(format!("  NEXT {}", truncate(&lane_next_action(lane), 66)));
+        rows.push(format!(
+            "  tail {} │ artifact {}",
+            truncate(&lane.summary, 26),
+            truncate(&lane_artifact_hint(state, &lane.id), 32)
+        ));
     }
     rows
+}
+
+fn lane_artifact_hint(state: &TuiState, lane_id: &str) -> String {
+    let Some(store) = state.lane_store.as_deref() else {
+        return "none".to_string();
+    };
+    let Some(dir) = store.parent().map(|path| path.join("lanes")) else {
+        return "none".to_string();
+    };
+    let candidates = [
+        ("conflict", "apply-conflict.md"),
+        ("apply", "apply.md"),
+        ("decision", "decision.md"),
+        ("tmux", "tmux.md"),
+        ("attach", "attach.md"),
+        ("pty", "pty.md"),
+        ("task", "envelope.md"),
+    ];
+    candidates
+        .iter()
+        .find_map(|(label, suffix)| {
+            let path = dir.join(format!("{lane_id}.{suffix}"));
+            fs::metadata(&path)
+                .ok()
+                .map(|_| format!("{label} {lane_id}.{suffix}"))
+        })
+        .unwrap_or_else(|| "none".to_string())
 }
 
 fn agent_output_rows(state: &TuiState) -> Vec<String> {
@@ -247,7 +283,49 @@ mod tests {
         let rendered = terminal_lane_detail_rows(&state).join("\n");
 
         assert!(rendered.contains("ATTACH tmux attach -t robocode-session-l1"));
+        assert!(
+            rendered.contains("NEXT watch or attach with `tmux attach -t robocode-session-l1`")
+        );
         assert!(rendered.contains("tail patched failing tests"));
+        assert!(rendered.contains("artifact none"));
+    }
+
+    #[test]
+    fn side_lane_rows_surface_operator_artifacts() {
+        let root = temp_root("side-lane-artifacts");
+        let lane_store = lane_store_path(&root);
+        let artifact_dir = root.join(".robocode").join("lanes");
+        fs::create_dir_all(&artifact_dir).expect("artifact dir");
+        fs::write(artifact_dir.join("L1.apply-conflict.md"), "conflict").expect("conflict");
+        let mut state = TuiState {
+            session_id: "session".to_string(),
+            provider: "deepseek".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            provider_catalog: crate::tui::state::ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: Vec::<TuiEntry>::new(),
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: TerminalLane::preview_lanes(),
+            lane_store: Some(lane_store),
+            focused_lane: None,
+        };
+        state.lanes.truncate(1);
+        state.lanes[0].status = "apply_conflict".to_string();
+
+        let rendered = terminal_lane_detail_rows(&state).join("\n");
+
+        assert!(rendered.contains("NEXT resolve main/lane conflicts"));
+        assert!(rendered.contains("artifact conflict L1.apply-conflict.md"));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

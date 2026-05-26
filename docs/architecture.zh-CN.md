@@ -309,6 +309,8 @@ CLI 当前也通过 slash commands 暴露这些工具面：
 - Lane inspect / apply / recovery 命令会把可审计 artifacts 存到
   `.robocode/lanes/`，并渲染 recommended next action，让操作者能从 evidence
   review 直接推进到 accept / apply / resolve / cleanup，而不用猜命令顺序。
+- 副屏复用同一套 lane next-action 语言和 artifact hints：side-1 偏 lane 监督与
+  persisted log tails，side-2 用更紧凑的 ops activity rows 承载同一命令序列。
 - `robocode-lsp` 当前通过 language-server stdio sessions 提供 query-driven 的 semantic code intelligence。
 - 当前 LSP runtime 已覆盖 real queries、session reuse、document synchronization 和 normalized output，但仍属于 early implementation，而不是完整成熟的长期 LSP 平台层。
 

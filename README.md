@@ -160,6 +160,8 @@ api_key_env = "DEEPSEEK_API_KEY"
   `ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE`, or the shared
   `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` to route side screens through your terminal
   app, tmux, or display-placement script.
+  Side screens surface lane next actions, recent output, and apply/conflict
+  artifacts so they can act as real supervision panels.
 
 ## Feedback
 

@@ -139,6 +139,8 @@ api_key_env = "DEEPSEEK_API_KEY"
   `/lane resolve <id>` 会用明确的 next action 引导 lane review、patch apply、
   conflict recovery 和 cleanup。
 - `/screen side-1` 和 `/screen side-2` 会启动用于 lane / ops 监控的副屏 TUI；用 `/screen list` 和 `/screen close <side-1|side-2>` 管理已跟踪副屏。可以设置 `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`、`ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` 或共享的 `ROBOCODE_SCREEN_LAUNCH_TEMPLATE`，把副屏交给你的 terminal app、tmux 或显示器摆放脚本启动。
+  副屏会展示 lane next actions、recent output 以及 apply / conflict artifacts，
+  因此不只是装饰面板，而是可以用来监督子任务。
 
 ## 问题反馈
 

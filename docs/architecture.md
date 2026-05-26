@@ -341,6 +341,9 @@ Current workflow/LSP notes:
   `.robocode/lanes/` and render a recommended next action so the operator can
   move from evidence review to accept/apply/resolve/cleanup without guessing
   the command sequence.
+- Side screens reuse the same lane next-action language and artifact hints:
+  side-1 emphasizes lane supervision plus persisted log tails, while side-2
+  carries compact ops activity rows for the same command sequence.
 - `robocode-lsp` currently supports query-driven semantic code intelligence through language-server stdio sessions.
 - The current LSP runtime already covers real queries, session reuse, document synchronization, and normalized output, but it is still an early implementation rather than a fully mature long-lived LSP platform layer.
 

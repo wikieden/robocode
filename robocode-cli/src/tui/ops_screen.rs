@@ -1,7 +1,7 @@
 use super::{
     canvas::Frame,
     indicators::progress_bar,
-    lane::{command_hint, pty_label, status_badge},
+    lane::{command_hint, lane_next_action, pty_label, status_badge},
     panel::panel,
     side_screen::side_status_rows,
     state::TuiState,
@@ -99,8 +99,8 @@ fn ops_diagnostic_rows(state: &TuiState) -> Vec<String> {
 
 fn ops_activity_rows(state: &TuiState) -> Vec<String> {
     let mut rows = Vec::new();
-    rows.extend(state.lanes.iter().take(4).map(|lane| {
-        format!(
+    for lane in state.lanes.iter().take(4) {
+        rows.push(format!(
             "{} {:<10} {:<10} {} {}",
             lane.id,
             truncate(terminal_label_for_ops(&lane.tool), 10),
@@ -111,15 +111,15 @@ fn ops_activity_rows(state: &TuiState) -> Vec<String> {
                 .unwrap_or("░░░░░"),
             truncate(
                 &format!(
-                    "{} :: {} :: {}",
+                    "{} :: {} :: next {}",
                     pty_label(&lane.tool),
                     command_hint(&lane.tool, &lane.title),
-                    lane.summary
+                    lane_next_action(lane)
                 ),
                 54
             )
-        )
-    }));
+        ));
+    }
     if let Some(entry) = state.entries.last() {
         rows.push(format!(
             "main {:<8} {}",
@@ -149,4 +149,49 @@ fn compact_activity(entry: &super::state::TuiEntry) -> String {
         return format!("[waiting] write_file {path}");
     }
     entry.body.replace('\n', " / ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui::state::{
+        ProviderOption, ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot,
+    };
+
+    fn test_state() -> TuiState {
+        TuiState {
+            session_id: "session".to_string(),
+            provider: "deepseek".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: Vec::<TuiEntry>::new(),
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: TerminalLane::preview_lanes(),
+            lane_store: None,
+            focused_lane: None,
+        }
+    }
+
+    #[test]
+    fn ops_activity_rows_surface_lane_next_actions() {
+        let mut state = test_state();
+        state.lanes.truncate(1);
+        state.lanes[0].status = "accepted".to_string();
+        state.lanes[0].worktree = Some(std::path::PathBuf::from("/tmp/robocode-lane"));
+
+        let rendered = ops_activity_rows(&state).join("\n");
+
+        assert!(rendered.contains("L1 codex tty"));
+        assert!(rendered.contains("next apply"));
+    }
 }

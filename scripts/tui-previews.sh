@@ -179,6 +179,8 @@ render_svg_preview "$OUT_DIR/main.ansi" "$OUT_DIR/main.svg"
 render_svg_preview "$OUT_DIR/main-idle.ansi" "$OUT_DIR/main-idle.svg"
 render_svg_preview "$OUT_DIR/main-command-palette.ansi" "$OUT_DIR/main-command-palette.svg"
 render_svg_preview "$OUT_DIR/main-lane.ansi" "$OUT_DIR/main-lane.svg"
+render_svg_preview "$OUT_DIR/side-1.ansi" "$OUT_DIR/side-1.svg"
+render_svg_preview "$OUT_DIR/side-2.ansi" "$OUT_DIR/side-2.svg"
 
 assert_contains() {
   local file="$1"
@@ -344,8 +346,8 @@ Files:
 - \`main-command-palette.txt\` / \`main-command-palette.ansi\`
 - \`main-lane.txt\` / \`main-lane.ansi\`
 - \`main.svg\` / \`main-idle.svg\` / \`main-command-palette.svg\` / \`main-lane.svg\` quick visual screenshots
-- \`side-1.txt\` / \`side-1.ansi\`
-- \`side-2.txt\` / \`side-2.ansi\`
+- \`side-1.txt\` / \`side-1.ansi\` / \`side-1.svg\`
+- \`side-2.txt\` / \`side-2.ansi\` / \`side-2.svg\`
 - \`multiscreen.txt\` combined plain-text workstation preview
 - \`main.<theme>.ansi\` for each generated theme variant
 EOF
