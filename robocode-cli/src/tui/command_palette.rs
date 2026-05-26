@@ -122,8 +122,9 @@ pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {
         .saturating_sub(BOTTOM_BAR_HEIGHT)
         .saturating_sub(COMPOSER_HEIGHT);
     let top = composer_top.saturating_sub(height);
-    let detail_width = width.saturating_mul(2).saturating_div(5).max(22);
-    let command_width = width.saturating_sub(detail_width + 4);
+    let content_width = width.saturating_sub(4);
+    let detail_width = content_width.saturating_mul(2).saturating_div(5).max(22);
+    let command_width = content_width.saturating_sub(detail_width + 4);
     let selected = state
         .command_selection
         .min(suggestions.len().saturating_sub(1));
@@ -1402,6 +1403,9 @@ fn command_suggestion_row(
     command_width: usize,
     detail_width: usize,
 ) -> String {
+    let content_width = width.saturating_sub(4);
+    let detail_width = detail_width.min(content_width.saturating_sub(4));
+    let command_width = command_width.min(content_width.saturating_sub(detail_width + 4));
     let marker = if selected { "›" } else { " " };
     bordered_row(
         &format!(
@@ -1418,6 +1422,7 @@ fn command_suggestion_row(
 mod tests {
     use super::*;
     use crate::tui::state::{CompanionScreen, ProviderStatus, TerminalLane, WorkspaceSnapshot};
+    use crate::tui::text::char_width;
     use robocode_types::{
         MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskPriority, TaskRecord,
         TaskStatus,
@@ -1877,5 +1882,22 @@ mod tests {
 
         assert!(should_complete_on_enter(&partial));
         assert!(!should_complete_on_enter(&exact));
+    }
+
+    #[test]
+    fn suggestion_rows_preserve_summary_inside_border_width() {
+        let row = command_suggestion_row(
+            &CommandSuggestion {
+                command: "/git add src/config.rs".to_string(),
+                summary: "1234567890123456789012".to_string(),
+            },
+            true,
+            60,
+            34,
+            22,
+        );
+
+        assert_eq!(char_width(&row), 60);
+        assert!(row.contains("1234567890123456789012"), "{row}");
     }
 }
