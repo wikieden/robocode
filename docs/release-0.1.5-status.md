@@ -43,6 +43,9 @@ installable release artifacts.
   `aarch64-apple-darwin`, `x86_64-apple-darwin`,
   `x86_64-unknown-linux-gnu`, and `x86_64-pc-windows-msvc`.
   Run: https://github.com/wikieden/robocode/actions/runs/26430970204.
+- Homebrew tap `wikieden/homebrew-tap` now points RoboCode formula URLs and
+  SHA-256 values at `v0.1.5`.
+  Commit: https://github.com/wikieden/homebrew-tap/commit/8faa918.
 
 ## Validation Gates
 
@@ -79,5 +82,32 @@ The final status update should record:
 
 ## Release Outcome
 
-`v0.1.5` is not published yet. This page should be updated after the final
-release workflow uploads the artifacts.
+`v0.1.5` is published at:
+
+- https://github.com/wikieden/robocode/releases/tag/v0.1.5
+
+The final release workflow passed with `upload_to_release=true` and uploaded
+all configured artifacts to the GitHub release.
+Run: https://github.com/wikieden/robocode/actions/runs/26431142668.
+
+The release contains:
+
+- `robocode-v0.1.5-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.5-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.5-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.5-x86_64-pc-windows-msvc.tar.gz`
+- matching `.sha256` files for each archive.
+
+GitHub reported asset digests:
+
+- `aarch64-apple-darwin`: `sha256:a45984fd9f8907fd1379e22a3fa1fe1123a58a05b26c149cd05466b1a5c18026`
+- `x86_64-apple-darwin`: `sha256:cd2d5cd03ee0e3db67347d89f41cfac616620c26a897d033c34f8816d9448c3e`
+- `x86_64-unknown-linux-gnu`: `sha256:197013fd0648e993b60192b0567ca5385798996f4df2bb40f83e4ca090a3b38f`
+- `x86_64-pc-windows-msvc`: `sha256:eab9c08586b4e52f303560924a23bb7bfdcc0701029e0ef8dfe3fbc64ba3bb2c`
+
+Homebrew install path:
+
+```bash
+brew tap wikieden/tap
+brew install robocode
+```

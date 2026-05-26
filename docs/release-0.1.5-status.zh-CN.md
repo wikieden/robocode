@@ -40,6 +40,9 @@ release artifacts。
   跑通全部配置目标：`aarch64-apple-darwin`、`x86_64-apple-darwin`、
   `x86_64-unknown-linux-gnu` 和 `x86_64-pc-windows-msvc`。
   Run: https://github.com/wikieden/robocode/actions/runs/26430970204。
+- Homebrew tap `wikieden/homebrew-tap` 中的 RoboCode formula URL 和 SHA-256
+  已指向 `v0.1.5`。
+  Commit: https://github.com/wikieden/homebrew-tap/commit/8faa918。
 
 ## 验证门禁
 
@@ -74,4 +77,32 @@ scripts/release-smoke.sh --version 0.1.5 --skip-package --deepseek --github-acti
 
 ## Release 结果
 
-`v0.1.5` 尚未发布。最终 release workflow 上传 artifacts 后，需要更新本页。
+`v0.1.5` 已发布：
+
+- https://github.com/wikieden/robocode/releases/tag/v0.1.5
+
+最终 release workflow 已以 `upload_to_release=true` 通过，并把全部配置 artifacts
+上传到 GitHub release。
+Run: https://github.com/wikieden/robocode/actions/runs/26431142668。
+
+release 包含：
+
+- `robocode-v0.1.5-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.5-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.5-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.5-x86_64-pc-windows-msvc.tar.gz`
+- 每个 archive 对应的 `.sha256` 文件。
+
+GitHub 返回的 asset digests：
+
+- `aarch64-apple-darwin`：`sha256:a45984fd9f8907fd1379e22a3fa1fe1123a58a05b26c149cd05466b1a5c18026`
+- `x86_64-apple-darwin`：`sha256:cd2d5cd03ee0e3db67347d89f41cfac616620c26a897d033c34f8816d9448c3e`
+- `x86_64-unknown-linux-gnu`：`sha256:197013fd0648e993b60192b0567ca5385798996f4df2bb40f83e4ca090a3b38f`
+- `x86_64-pc-windows-msvc`：`sha256:eab9c08586b4e52f303560924a23bb7bfdcc0701029e0ef8dfe3fbc64ba3bb2c`
+
+Homebrew 安装路径：
+
+```bash
+brew tap wikieden/tap
+brew install robocode
+```
