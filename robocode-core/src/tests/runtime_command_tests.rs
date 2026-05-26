@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 
 use crate::{DependencyStatus, DoctorReport, EngineEvent, SessionEngine};
@@ -179,6 +179,47 @@ fn agent_doctor_reports_experimental_acp_readiness() {
                 && text.contains("ROBOCODE_AGENT_ACP_COMMAND")
                 && text.contains("command: missing")
     )));
+}
+
+#[test]
+fn agent_run_codex_write_requires_permission_before_launch() {
+    let home = temp_dir("agent_codex_write_home");
+    let cwd = temp_dir("agent_codex_write_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let approvals = Cell::new(0usize);
+    let prompts = RefCell::new(Vec::new());
+    let mut approver = |prompt| {
+        approvals.set(approvals.get() + 1);
+        prompts.borrow_mut().push(prompt);
+        ApprovalResponse {
+            approved: false,
+            feedback: None,
+        }
+    };
+
+    let output = engine
+        .process_input_with_approval("/agent run codex --write modify src/lib.rs", &mut approver)
+        .unwrap();
+
+    assert_eq!(approvals.get(), 1);
+    let prompts = prompts.borrow();
+    assert_eq!(prompts[0].tool_name, "agent_codex_write");
+    assert!(prompts[0].input_preview.contains("mode: workspace-write"));
+    assert!(prompts[0].input_preview.contains("task: modify src/lib.rs"));
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Permission decision:")
+                && text.contains("tool: agent_codex_write")
+                && text.contains("decision=deny")
+    )));
+    assert!(
+        !cwd.join(".robocode")
+            .join("agents")
+            .join("codex-jobs.jsonl")
+            .exists()
+    );
 }
 
 #[test]

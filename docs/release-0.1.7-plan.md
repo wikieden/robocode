@@ -150,7 +150,7 @@ RoboCode translation:
 - `/agent doctor codex` replaces `/codex:setup`.
 - `/agent review codex [--base <ref>]` replaces `/codex:review`.
 - `/agent challenge codex ...` replaces `/codex:adversarial-review`.
-- `/agent run codex <task>` or `/lane codex <task>` replaces
+- `/agent run codex [--write] <task>` or `/lane codex <task>` replaces
   `/codex:rescue`.
 - `/agent status`, `/agent result <id>`, and `/agent cancel <id>` cover
   background job management.
@@ -317,8 +317,8 @@ Deliverables:
   base branch, with foreground/background modes.
 - `/agent challenge codex` runs a steerable adversarial review focused on
   assumptions, tradeoffs, and failure modes.
-- `/agent run codex <task>` starts a tracked Codex task; write-capable runs
-  must be explicit and permission-gated.
+- `/agent run codex [--write] <task>` starts a tracked Codex task; write-capable
+  runs must be explicit and permission-gated.
 - `/agent status`, `/agent result <id>`, `/agent cancel <id>`, and
   resume/follow-up handling work for Codex jobs.
 - Codex app-server notifications, final output, touched files, command
@@ -329,8 +329,11 @@ Current implementation status:
 - Landed: `/agent doctor codex` checks the Codex command, version,
   `app-server` availability, auth status, config sources, and job-store path.
 - Landed: `/agent review codex`, `/agent challenge codex`, and
-  `/agent run codex <task>` start tracked Codex CLI jobs with per-job log and
-  result artifacts under `.robocode/agents/`.
+  `/agent run codex [--write] <task>` start tracked Codex CLI jobs with per-job
+  log and result artifacts under `.robocode/agents/`.
+- Landed: `/agent run codex --write <task>` is the explicit write-capable
+  delegate path. It asks through RoboCode's mutating permission path before
+  launch and uses Codex `workspace-write` sandbox only after approval.
 - Landed: `/agent status`, `/agent result <id>`, and `/agent cancel <id>` read
   and control the tracked job records in `.robocode/agents/codex-jobs.jsonl`.
 - Landed: Codex jobs now keep a start-time Git status baseline and extract
@@ -343,8 +346,8 @@ Current implementation status:
 - Landed: `/extensions doctor` and `/mcp doctor` now report readiness by
   surface, including provider plugin dirs, MCP config files and server names,
   project/user/legacy skill roots, and permission boundary reminders.
-- Remaining: native app-server event subscription, stronger structured thread
-  IDs when Codex exposes them, and write-capable permission-gated Codex tasks.
+- Remaining: native app-server event subscription and stronger structured
+  thread IDs when Codex exposes them.
 
 Acceptance checks:
 

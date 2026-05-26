@@ -21,7 +21,7 @@ impl SessionEngine {
             "  /provider use <id>   Switch provider, optionally with a model",
             "  /agent list          List configured agent adapters",
             "  /agent doctor [id]   Check agent adapter readiness",
-            "  /agent run codex <task>",
+            "  /agent run codex [--write] <task>",
             "  /agent review codex  Start a tracked Codex review job",
             "  /agent status        Show tracked external agent jobs",
             "  /extensions list     List extension surfaces",

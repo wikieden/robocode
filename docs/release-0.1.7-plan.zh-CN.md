@@ -133,7 +133,8 @@ RoboCode 对应翻译：
 - `/agent doctor codex` 替代 `/codex:setup`。
 - `/agent review codex [--base <ref>]` 替代 `/codex:review`。
 - `/agent challenge codex ...` 替代 `/codex:adversarial-review`。
-- `/agent run codex <task>` 或 `/lane codex <task>` 替代 `/codex:rescue`。
+- `/agent run codex [--write] <task>` 或 `/lane codex <task>` 替代
+  `/codex:rescue`。
 - `/agent status`、`/agent result <id>` 和 `/agent cancel <id>` 管理后台 job。
 - Codex app-server events 转成 RoboCode lane events、evidence records 和
   side-screen rows。
@@ -285,8 +286,8 @@ backend。
   review，支持 foreground/background。
 - `/agent challenge codex` 发起可指定焦点的 adversarial review，挑战假设、权衡和
   failure modes。
-- `/agent run codex <task>` 启动 tracked Codex task；write-capable run 必须显式
-  选择并经过权限控制。
+- `/agent run codex [--write] <task>` 启动 tracked Codex task；write-capable run
+  必须显式选择并经过权限控制。
 - `/agent status`、`/agent result <id>`、`/agent cancel <id>` 和 resume/follow-up
   handling 对 Codex jobs 可用。
 - Codex app-server notifications、final output、touched files、command
@@ -297,8 +298,11 @@ backend。
 - 已落地：`/agent doctor codex` 检查 Codex command、version、
   `app-server` 可用性、auth status、config sources 和 job-store path。
 - 已落地：`/agent review codex`、`/agent challenge codex` 和
-  `/agent run codex <task>` 会启动 tracked Codex CLI jobs，并在
+  `/agent run codex [--write] <task>` 会启动 tracked Codex CLI jobs，并在
   `.robocode/agents/` 下记录每个 job 的 log 和 result artifacts。
+- 已落地：`/agent run codex --write <task>` 是显式 write-capable delegate path。
+  它会先走 RoboCode mutating permission path，获得 approval 后才用 Codex
+  `workspace-write` sandbox 启动。
 - 已落地：`/agent status`、`/agent result <id>` 和 `/agent cancel <id>` 会读取并控制
   `.robocode/agents/codex-jobs.jsonl` 中的 tracked job records。
 - 已落地：Codex jobs 会记录启动时 Git status baseline，并从 job output 提取
@@ -310,8 +314,8 @@ backend。
 - 已落地：`/extensions doctor` 和 `/mcp doctor` 会按 surface 输出 readiness，
   包括 provider plugin dirs、MCP config files 和 server names、project/user/legacy
   skill roots，以及 permission boundary 提醒。
-- 剩余：native app-server event subscription、Codex 暴露结构化 thread IDs 后的更强
-  解析，以及经过 permission gate 的 write-capable Codex tasks。
+- 剩余：native app-server event subscription，以及 Codex 暴露结构化 thread IDs 后的
+  更强解析。
 
 验收：
 

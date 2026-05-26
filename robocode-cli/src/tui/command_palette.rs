@@ -241,7 +241,7 @@ const COMMANDS: [CommandTemplate; 22] = [
     },
 ];
 
-const AGENT_COMMANDS: [CommandTemplate; 9] = [
+const AGENT_COMMANDS: [CommandTemplate; 10] = [
     CommandTemplate {
         command: "/agent list",
         summary: "List agent adapters",
@@ -261,6 +261,10 @@ const AGENT_COMMANDS: [CommandTemplate; 9] = [
     CommandTemplate {
         command: "/agent run codex",
         summary: "Start Codex task",
+    },
+    CommandTemplate {
+        command: "/agent run codex --write",
+        summary: "Start write-capable Codex task",
     },
     CommandTemplate {
         command: "/agent status",

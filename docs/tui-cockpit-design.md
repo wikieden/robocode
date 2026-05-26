@@ -160,7 +160,8 @@ after the Claude Code Codex plugin pattern:
   suggest relevant memory IDs instead of requiring the operator to copy them
   manually. Agent and extension commands expose `/agent list`,
   `/agent doctor`, `/agent review codex`, `/agent challenge codex`,
-  `/agent run codex`, `/agent status`, `/agent result`, `/agent cancel`,
+  `/agent run codex`, `/agent run codex --write`, `/agent status`,
+  `/agent result`, `/agent cancel`,
   `/extensions list`, `/extensions doctor`, `/mcp list`, `/mcp doctor`, and
   `/skills list` suggestions before runtime extension execution moves beyond
   the shared permission path. Git and LSP path suggestions use the workspace file snapshot
@@ -175,9 +176,11 @@ after the Claude Code Codex plugin pattern:
   custom-template, Codex, and experimental ACP adapters. Codex readiness checks
   the local `codex` binary, app-server support, auth, config sources, and job
   store path. `/agent review codex`, `/agent challenge codex`, and
-  `/agent run codex` create tracked jobs under `.robocode/agents/`; `/agent
-  status`, `/agent result <id>`, and `/agent cancel <id>` inspect and control
-  those jobs. Codex jobs keep a start-time Git status baseline and extract
+  `/agent run codex [--write]` create tracked jobs under `.robocode/agents/`;
+  `/agent status`, `/agent result <id>`, and `/agent cancel <id>` inspect and
+  control those jobs. `--write` is explicit and runs through RoboCode's
+  mutating permission prompt before Codex starts in `workspace-write` sandbox.
+  Codex jobs keep a start-time Git status baseline and extract
   resume/session hints plus touched-file evidence from result/log output, so
   status/result views can show `codex resume ...` and related files when
   available. The main `LIVE ACTIVITY` strip and right-rail `ACTIVE TASKS`

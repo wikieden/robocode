@@ -136,7 +136,7 @@ Codex 插件的模式：
   `/memory reject` 和 `/memory prune` 会提示相关 memory ID，不再要求操作者手动
   复制。Agent 和 extension 命令现在提供 `/agent list`、`/agent doctor`、
   `/agent review codex`、`/agent challenge codex`、`/agent run codex`、
-  `/agent status`、`/agent result`、`/agent cancel`、`/extensions list`、
+  `/agent run codex --write`、`/agent status`、`/agent result`、`/agent cancel`、`/extensions list`、
   `/extensions doctor`、`/mcp list`、`/mcp doctor` 和 `/skills list` 提示，在 runtime extension execution 超出共享 permission path 前先把可见性补上。Git 和 LSP 路径提示会复用右栏收集到的 workspace 文件快照，不会在操作者
   每次输入时重新扫描文件系统。`/git switch` 和 `/git push` 会读取当前 workspace
   的本地分支快照；`/git push` 还会读取 `git remote` 和 `git branch -r` 快照，用于
@@ -146,10 +146,11 @@ Codex 插件的模式：
 - `/agent list` 和 `/agent doctor` 会展示 template、tmux、PTY、
   custom-template、Codex 和实验 ACP adapters。Codex readiness 会检查本地
   `codex` binary、app-server support、auth、config sources 和 job store path。
-  `/agent review codex`、`/agent challenge codex` 和 `/agent run codex` 会在
+  `/agent review codex`、`/agent challenge codex` 和 `/agent run codex [--write]` 会在
   `.robocode/agents/` 下创建 tracked jobs；`/agent status`、
   `/agent result <id>` 和 `/agent cancel <id>` 用于查看和控制这些 jobs。
-  Codex jobs 会保存启动时 Git status baseline，并从 result/log output 中提取
+  `--write` 必须显式传入，并且会先经过 RoboCode mutating permission prompt，
+  approval 后才让 Codex 以 `workspace-write` sandbox 启动。Codex jobs 会保存启动时 Git status baseline，并从 result/log output 中提取
   resume/session hints 和 touched-file evidence，所以 status/result 视图能在可用时显示
   `codex resume ...` 和相关文件。主窗口 `LIVE ACTIVITY` strip 和右栏
   `ACTIVE TASKS` panel 会读取同一份 job records，所以 operator 继续输入时也能看到

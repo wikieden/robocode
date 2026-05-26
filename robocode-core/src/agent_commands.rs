@@ -8,7 +8,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use crate::SessionEngine;
+use crate::{SessionEngine, presentation::render_permission_denial};
+use robocode_permissions::PermissionEngine;
+use robocode_types::{
+    ApprovalResponse, PermissionDecision, PermissionLogEntry, ToolInput, ToolSpec, TranscriptEntry,
+    now_timestamp,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AgentAdapterDescriptor {
@@ -27,7 +32,7 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 6] = [
         id: "codex",
         display_name: "Codex CLI",
         transport: "app-server",
-        entrypoint: "/agent run codex <task> | /lane codex <task>",
+        entrypoint: "/agent run codex [--write] <task> | /lane codex <task>",
         binary: Some("codex"),
         config_env: Some("ROBOCODE_LANE_CODEX_TEMPLATE"),
         config_label: "template",
@@ -86,7 +91,14 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 6] = [
 ];
 
 impl SessionEngine {
-    pub(super) fn handle_agent_command(&self, args: &[String]) -> Result<String, String> {
+    pub(super) fn handle_agent_command<F>(
+        &mut self,
+        args: &[String],
+        approver: &mut F,
+    ) -> Result<String, String>
+    where
+        F: FnMut(robocode_types::PermissionPrompt) -> ApprovalResponse,
+    {
         match args.first().map(String::as_str).unwrap_or("list") {
             "list" => Ok(render_agent_list()),
             "doctor" => Ok(render_agent_doctor(
@@ -95,7 +107,7 @@ impl SessionEngine {
             )),
             "review" => handle_codex_review_command(&self.cwd, &args[1..]),
             "challenge" => handle_codex_challenge_command(&self.cwd, &args[1..]),
-            "run" => handle_codex_run_command(&self.cwd, &args[1..]),
+            "run" => self.handle_codex_run_command(&args[1..], approver),
             "status" => render_codex_job_status(&self.cwd),
             "result" => render_codex_job_result(&self.cwd, args.get(1).map(String::as_str)),
             "cancel" => cancel_codex_job(&self.cwd, args.get(1).map(String::as_str)),
@@ -114,7 +126,7 @@ impl SessionEngine {
             "  /agent doctor [id]",
             "  /agent review codex [--base <ref>] [prompt]",
             "  /agent challenge codex [prompt]",
-            "  /agent run codex <task>",
+            "  /agent run codex [--write] <task>",
             "  /agent status",
             "  /agent result <id>",
             "  /agent cancel <id>",
@@ -124,6 +136,109 @@ impl SessionEngine {
         ]
         .join("\n")
     }
+
+    fn handle_codex_run_command<F>(
+        &mut self,
+        args: &[String],
+        approver: &mut F,
+    ) -> Result<String, String>
+    where
+        F: FnMut(robocode_types::PermissionPrompt) -> ApprovalResponse,
+    {
+        ensure_codex_target(args.first().map(String::as_str))?;
+        let parsed = parse_codex_run_args(&args[1..])?;
+        if parsed.task.trim().is_empty() {
+            return Err("Usage: /agent run codex [--write] <task>".to_string());
+        }
+        if parsed.write {
+            if let Some(denial) = self.ensure_codex_write_permission(&parsed.task, approver)? {
+                return Ok(denial);
+            }
+        }
+        let sandbox = if parsed.write {
+            "workspace-write"
+        } else {
+            "read-only"
+        };
+        start_codex_job(
+            &self.cwd,
+            &codex_command(),
+            CodexJobKind::Run,
+            parsed.task.clone(),
+            codex_run_command_args(&self.cwd, sandbox, parsed.task),
+        )
+    }
+
+    fn ensure_codex_write_permission<F>(
+        &mut self,
+        task: &str,
+        approver: &mut F,
+    ) -> Result<Option<String>, String>
+    where
+        F: FnMut(robocode_types::PermissionPrompt) -> ApprovalResponse,
+    {
+        let tool_name = "agent_codex_write".to_string();
+        let tool = ToolSpec {
+            name: tool_name.clone(),
+            description: "Start a write-capable Codex delegated task".to_string(),
+            is_mutating: true,
+            input_schema_hint: "agent task".to_string(),
+        };
+        let mut input = ToolInput::new();
+        input.insert("agent".to_string(), "codex".to_string());
+        input.insert("mode".to_string(), "workspace-write".to_string());
+        input.insert("cwd".to_string(), self.cwd.display().to_string());
+        input.insert("task".to_string(), task.to_string());
+        let mut decision = self.permissions.decide(&tool, &input);
+        if let PermissionDecision::Ask(ask) = &decision {
+            let prompt = PermissionEngine::prompt_for(&tool_name, ask, &input);
+            let approval = approver(prompt);
+            decision = self.permissions.apply_approval(approval, ask);
+        }
+        match decision {
+            PermissionDecision::Allow(allow) => {
+                self.store_entry(TranscriptEntry::Permission {
+                    entry: PermissionLogEntry {
+                        timestamp: now_timestamp(),
+                        tool_name,
+                        decision: "allow".to_string(),
+                        reason: format!("{:?}", allow.decision_reason),
+                        message: allow.accept_feedback,
+                    },
+                })?;
+                Ok(None)
+            }
+            PermissionDecision::Ask(_) => unreachable!("ask decisions should be resolved"),
+            PermissionDecision::Deny(deny) => {
+                let reason = format!("{:?}", deny.decision_reason);
+                self.store_entry(TranscriptEntry::Permission {
+                    entry: PermissionLogEntry {
+                        timestamp: now_timestamp(),
+                        tool_name: tool_name.clone(),
+                        decision: "deny".to_string(),
+                        reason: reason.clone(),
+                        message: Some(deny.message.clone()),
+                    },
+                })?;
+                Ok(Some(render_permission_denial(
+                    &tool_name,
+                    &reason,
+                    &deny.message,
+                )))
+            }
+        }
+    }
+}
+
+fn codex_run_command_args(cwd: &Path, sandbox: &str, task: String) -> Vec<String> {
+    vec![
+        "exec".to_string(),
+        "--cd".to_string(),
+        cwd.display().to_string(),
+        "--sandbox".to_string(),
+        sandbox.to_string(),
+        task,
+    ]
 }
 
 fn render_agent_list() -> String {
@@ -262,28 +377,6 @@ fn handle_codex_challenge_command(cwd: &Path, args: &[String]) -> Result<String,
     )
 }
 
-fn handle_codex_run_command(cwd: &Path, args: &[String]) -> Result<String, String> {
-    ensure_codex_target(args.first().map(String::as_str))?;
-    let task = args[1..].join(" ");
-    if task.trim().is_empty() {
-        return Err("Usage: /agent run codex <task>".to_string());
-    }
-    start_codex_job(
-        cwd,
-        &codex_command(),
-        CodexJobKind::Run,
-        task.clone(),
-        vec![
-            "exec".to_string(),
-            "--cd".to_string(),
-            cwd.display().to_string(),
-            "--sandbox".to_string(),
-            "read-only".to_string(),
-            task,
-        ],
-    )
-}
-
 fn adapter_readiness(adapter: AgentAdapterDescriptor) -> &'static str {
     let binary_ready = match adapter.binary {
         Some(binary) => command_exists(binary),
@@ -343,7 +436,7 @@ fn render_codex_doctor(cwd: &Path) -> Vec<String> {
             lines.push(format!("    auth: {}", report.auth));
             lines.push(format!("    config: {}", report.config_sources));
             lines.push(format!("    jobs: {}", report.job_store.display()));
-            lines.push("    commands: /agent review codex | /agent challenge codex | /agent run codex <task>".to_string());
+            lines.push("    commands: /agent review codex | /agent challenge codex | /agent run codex [--write] <task>".to_string());
             lines.push(
                 "    controls: /agent status | /agent result <id> | /agent cancel <id>".to_string(),
             );
@@ -362,6 +455,12 @@ fn render_codex_doctor(cwd: &Path) -> Vec<String> {
 struct ParsedCodexReviewArgs {
     base: Option<String>,
     prompt: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedCodexRunArgs {
+    write: bool,
+    task: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -433,6 +532,30 @@ fn parse_codex_review_args(args: &[String]) -> Result<ParsedCodexReviewArgs, Str
     Ok(ParsedCodexReviewArgs {
         base,
         prompt: prompt.join(" "),
+    })
+}
+
+fn parse_codex_run_args(args: &[String]) -> Result<ParsedCodexRunArgs, String> {
+    let mut write = false;
+    let mut task = Vec::new();
+    let mut end_of_options = false;
+    for value in args {
+        match value.as_str() {
+            _ if end_of_options => task.push(value.clone()),
+            "--write" => write = true,
+            "--read-only" => write = false,
+            "--" => end_of_options = true,
+            other if other.starts_with("--") && task.is_empty() => {
+                return Err(format!(
+                    "Unknown Codex run option `{other}`. Usage: /agent run codex [--write] <task>"
+                ));
+            }
+            _ => task.push(value.clone()),
+        }
+    }
+    Ok(ParsedCodexRunArgs {
+        write,
+        task: task.join(" "),
     })
 }
 
@@ -1390,6 +1513,32 @@ const fn pty_binary() -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_run_args_default_to_read_only_and_require_explicit_write() {
+        let read_only = parse_codex_run_args(&["summarize".into(), "repo".into()])
+            .expect("parse read-only task");
+        assert!(!read_only.write);
+        assert_eq!(read_only.task, "summarize repo");
+
+        let write = parse_codex_run_args(&["--write".into(), "edit".into(), "file".into()])
+            .expect("parse write task");
+        assert!(write.write);
+        assert_eq!(write.task, "edit file");
+
+        let args = codex_run_command_args(Path::new("/repo"), "workspace-write", write.task);
+        assert_eq!(
+            args,
+            vec![
+                "exec",
+                "--cd",
+                "/repo",
+                "--sandbox",
+                "workspace-write",
+                "edit file"
+            ]
+        );
+    }
 
     #[test]
     fn acp_initialize_probe_records_jsonl_evidence() {
