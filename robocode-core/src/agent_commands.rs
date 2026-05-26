@@ -107,6 +107,7 @@ impl SessionEngine {
             )),
             "review" => handle_codex_review_command(&self.cwd, &args[1..]),
             "challenge" => handle_codex_challenge_command(&self.cwd, &args[1..]),
+            "probe" => handle_codex_probe_command(&self.cwd, &args[1..]),
             "run" => self.handle_codex_run_command(&args[1..], approver),
             "status" => render_codex_job_status(&self.cwd),
             "result" => render_codex_job_result(&self.cwd, args.get(1).map(String::as_str)),
@@ -126,6 +127,7 @@ impl SessionEngine {
             "  /agent doctor [id]",
             "  /agent review codex [--base <ref>] [prompt]",
             "  /agent challenge codex [prompt]",
+            "  /agent probe codex",
             "  /agent run codex [--write] <task>",
             "  /agent status",
             "  /agent result <id>",
@@ -375,6 +377,26 @@ fn handle_codex_challenge_command(cwd: &Path, args: &[String]) -> Result<String,
             challenge_prompt,
         ],
     )
+}
+
+fn handle_codex_probe_command(cwd: &Path, args: &[String]) -> Result<String, String> {
+    ensure_codex_target(args.first().map(String::as_str))?;
+    let evidence = run_codex_app_server_initialize_probe(cwd, &codex_command())?;
+    let notification_count = evidence.notifications.len();
+    let notifications = if evidence.notifications.is_empty() {
+        "none".to_string()
+    } else {
+        evidence.notifications.join(", ")
+    };
+    Ok(format!(
+        "Codex app-server probe ok.\n  user_agent: {}\n  codex_home: {}\n  platform: {}\n  notifications: {} ({})\n  log: {}",
+        evidence.user_agent,
+        evidence.codex_home,
+        evidence.platform,
+        notification_count,
+        notifications,
+        evidence.log_path.display()
+    ))
 }
 
 fn adapter_readiness(adapter: AgentAdapterDescriptor) -> &'static str {
@@ -1393,6 +1415,104 @@ struct AcpProbeEvidence {
     log_path: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CodexAppServerProbeEvidence {
+    user_agent: String,
+    codex_home: String,
+    platform: String,
+    notifications: Vec<String>,
+    log_path: PathBuf,
+}
+
+fn run_codex_app_server_initialize_probe(
+    cwd: &Path,
+    command: &str,
+) -> Result<CodexAppServerProbeEvidence, String> {
+    let log_path = codex_app_server_probe_log_path(cwd);
+    let request = codex_app_server_initialize_request();
+    let mut log_entries = vec![jsonl_event("client", &request)];
+    let mut child = spawn_codex_app_server(cwd, command)?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "failed to open Codex app-server stdin".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to open Codex app-server stdout".to_string())?;
+    stdin
+        .write_all(request.as_bytes())
+        .and_then(|_| stdin.write_all(b"\n"))
+        .and_then(|_| stdin.flush())
+        .map_err(|err| format!("failed to write Codex app-server initialize: {err}"))?;
+
+    // Codex app-server stdio is newline-delimited JSON: responses and
+    // notifications can arrive in either order, so keep every line as evidence.
+    let receiver = read_lines_async(stdout);
+    let mut response = None;
+    let mut notifications = Vec::new();
+    for _ in 0..8 {
+        let line = match receiver.recv_timeout(Duration::from_secs(5)) {
+            Ok(Ok(line)) if !line.trim().is_empty() => line.trim().to_string(),
+            Ok(Ok(_)) => continue,
+            Ok(Err(error)) => {
+                return Err(finish_failed_probe(
+                    child,
+                    log_path,
+                    log_entries,
+                    format!("failed to read Codex app-server response: {error}"),
+                ));
+            }
+            Err(_) => {
+                return Err(finish_failed_probe(
+                    child,
+                    log_path,
+                    log_entries,
+                    "Codex app-server initialize response timed out".to_string(),
+                ));
+            }
+        };
+        log_entries.push(jsonl_event("server", &line));
+        if line.contains(r#""id":1"#) && line.contains(r#""result""#) {
+            response = Some(line);
+            break;
+        }
+        if let Some(method) = json_string_field(&line, "method") {
+            notifications.push(method);
+        }
+    }
+    while let Ok(Ok(line)) = receiver.recv_timeout(Duration::from_millis(150)) {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        log_entries.push(jsonl_event("server", line));
+        if let Some(method) = json_string_field(line, "method") {
+            notifications.push(method);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    write_probe_log(&log_path, &log_entries)?;
+
+    let response = response.ok_or_else(|| {
+        format!(
+            "Codex app-server did not return initialize result; log {}",
+            log_path.display()
+        )
+    })?;
+    Ok(CodexAppServerProbeEvidence {
+        user_agent: json_string_field(&response, "userAgent")
+            .unwrap_or_else(|| "unknown".to_string()),
+        codex_home: json_string_field(&response, "codexHome")
+            .unwrap_or_else(|| "unknown".to_string()),
+        platform: json_string_field(&response, "platformOs")
+            .unwrap_or_else(|| "unknown".to_string()),
+        notifications,
+        log_path,
+    })
+}
+
 fn run_acp_initialize_probe(cwd: &Path, command: &str) -> Result<AcpProbeEvidence, String> {
     let log_path = acp_probe_log_path(cwd);
     let mut log_entries = Vec::new();
@@ -1478,6 +1598,17 @@ fn spawn_acp_process(cwd: &Path, command: &str) -> Result<Child, String> {
         .map_err(|err| format!("failed to launch ACP command: {err}"))
 }
 
+fn spawn_codex_app_server(cwd: &Path, command: &str) -> Result<Child, String> {
+    Command::new(command)
+        .args(["app-server", "--listen", "stdio://"])
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|err| format!("failed to launch Codex app-server: {err}"))
+}
+
 fn shell_command(command: &str) -> Command {
     #[cfg(windows)]
     {
@@ -1491,6 +1622,31 @@ fn shell_command(command: &str) -> Command {
         process.arg("-lc").arg(command);
         process
     }
+}
+
+fn read_lines_async(
+    stdout: impl std::io::Read + Send + 'static,
+) -> mpsc::Receiver<std::io::Result<String>> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if sender.send(Ok(line)).is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    let _ = sender.send(Err(error));
+                    break;
+                }
+            }
+        }
+    });
+    receiver
 }
 
 fn read_line_with_timeout(
@@ -1516,6 +1672,21 @@ fn acp_probe_log_path(cwd: &Path) -> PathBuf {
     cwd.join(".robocode")
         .join("agents")
         .join(format!("acp-doctor-{}.jsonl", timestamp_millis()))
+}
+
+fn codex_app_server_probe_log_path(cwd: &Path) -> PathBuf {
+    cwd.join(".robocode")
+        .join("agents")
+        .join(format!("codex-app-server-{}.jsonl", timestamp_millis()))
+}
+
+fn codex_app_server_initialize_request() -> String {
+    [
+        r#"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"robocode","version":""#,
+        env!("CARGO_PKG_VERSION"),
+        r#""},"capabilities":null}}"#,
+    ]
+    .join("")
 }
 
 fn timestamp_millis() -> u128 {
@@ -1695,6 +1866,41 @@ mod tests {
                 "approvals"
             ]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_app_server_initialize_probe_records_jsonl_evidence() {
+        let root = temp_root("codex_app_server_probe");
+        let script = root.join("mock-codex-app-server.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "if [ \"$1\" != \"app-server\" ]; then exit 2; fi",
+                "read _line",
+                "printf '%s\\n' '{\"id\":1,\"result\":{\"userAgent\":\"Codex Desktop/mock (robocode; test)\",\"codexHome\":\"/tmp/codex-home\",\"platformFamily\":\"unix\",\"platformOs\":\"macos\"}}'",
+                "printf '%s\\n' '{\"method\":\"remoteControl/status/changed\",\"params\":{\"status\":\"disabled\"}}'",
+                "sleep 1",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock codex app-server script");
+        make_executable(&script);
+
+        let evidence = run_codex_app_server_initialize_probe(&root, &script.to_string_lossy())
+            .expect("probe succeeds");
+
+        assert_eq!(evidence.user_agent, "Codex Desktop/mock (robocode; test)");
+        assert_eq!(evidence.codex_home, "/tmp/codex-home");
+        assert_eq!(evidence.platform, "macos");
+        assert_eq!(
+            evidence.notifications,
+            vec!["remoteControl/status/changed".to_string()]
+        );
+        let log = fs::read_to_string(evidence.log_path).expect("read jsonl log");
+        assert!(log.contains(r#""method\":\"initialize"#));
+        assert!(log.contains("Codex Desktop/mock"));
     }
 
     #[test]

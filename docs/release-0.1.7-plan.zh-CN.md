@@ -320,6 +320,8 @@ backend。
 - 已落地：`/agent doctor codex` 会探测 experimental app-server JSON schema
   surface，并报告 thread lifecycle、review、turn control、event、evidence 和
   approval protocol groups 是否可用。
+- 已落地：`/agent probe codex` 会通过 stdio 执行 live app-server
+  `initialize` 握手，并写入可回放的 JSONL response/notification evidence。
 - 剩余：native app-server event subscription，以及 live Codex jobs 的直接结构化
   thread/event capture。
 - app-server protocol 调研已记录在

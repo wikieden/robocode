@@ -62,10 +62,11 @@ RoboCode 应把 app-server 数据映射到现有 host-delegate lifecycle：
 1. 已完成：`/agent doctor codex` 现在会运行 app-server protocol probe，把 schema
    生成到临时目录，并报告关键 request、notification、evidence 和 approval
    protocol groups 是否可用。
-2. 增加一个小 JSON-RPC transport wrapper，连接 `codex app-server --listen stdio://`
-   或 `codex app-server proxy`。
-3. 先做 `initialize` 加 read-only `review/start` 或 `thread/start` spike，写入
+2. 已完成：`/agent probe codex` 会启动 `codex app-server --listen stdio://`，
+   发送 `initialize`，并把 response/notification evidence 记录到
    `.robocode/agents/codex-app-server-*.jsonl`。
+3. 先做 read-only `review/start` 或 `thread/start` spike，把结构化 turn events
+   写入 `.robocode/agents/codex-app-server-*.jsonl`。
 4. 把 notifications 映射为 `AgentJobRecord` 更新和 side-screen evidence。
 5. 把 server approval requests 接入现有 RoboCode permission path。
 6. 只有在普通 jobs 能拿到结构化 `threadId`、file、command 和 test events 后，

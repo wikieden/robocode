@@ -352,6 +352,8 @@ Current implementation status:
 - Landed: `/agent doctor codex` probes the experimental app-server JSON schema
   surface and reports whether thread lifecycle, review, turn control, event,
   evidence, and approval protocol groups are available.
+- Landed: `/agent probe codex` performs a live app-server `initialize` handshake
+  over stdio and writes replayable JSONL response/notification evidence.
 - Remaining: native app-server event subscription and direct structured
   thread/event capture for live Codex jobs.
 - App-server protocol findings are captured in

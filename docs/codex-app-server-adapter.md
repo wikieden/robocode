@@ -64,10 +64,11 @@ RoboCode should map app-server data into the existing host-delegate lifecycle:
 1. Done: `/agent doctor codex` now runs an app-server protocol probe that
    generates schema into a temporary directory and reports key request,
    notification, evidence, and approval protocol groups.
-2. Add a small JSON-RPC transport wrapper for `codex app-server --listen
-   stdio://` or `codex app-server proxy`.
-3. Implement `initialize` plus a read-only `review/start` or `thread/start`
-   spike that writes `.robocode/agents/codex-app-server-*.jsonl`.
+2. Done: `/agent probe codex` starts `codex app-server --listen stdio://`,
+   sends `initialize`, and records response/notification evidence in
+   `.robocode/agents/codex-app-server-*.jsonl`.
+3. Implement a read-only `review/start` or `thread/start` spike that writes
+   structured turn events into `.robocode/agents/codex-app-server-*.jsonl`.
 4. Map notifications into `AgentJobRecord` updates and side-screen evidence.
 5. Route server approval requests into the existing RoboCode permission path.
 6. Retire text heuristics only after structured `threadId`, file, command, and
