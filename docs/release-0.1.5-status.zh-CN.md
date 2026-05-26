@@ -43,6 +43,8 @@ release artifacts。
 - Homebrew tap `wikieden/homebrew-tap` 中的 RoboCode formula URL 和 SHA-256
   已指向 `v0.1.5`。
   Commit: https://github.com/wikieden/homebrew-tap/commit/8faa918。
+- 刷新本机 tap 后，Homebrew fetch smoke 已通过：
+  `brew fetch --force wikieden/tap/robocode` 输出 `Formula robocode (0.1.5)`。
 
 ## 验证门禁
 

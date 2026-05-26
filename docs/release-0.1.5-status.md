@@ -46,6 +46,8 @@ installable release artifacts.
 - Homebrew tap `wikieden/homebrew-tap` now points RoboCode formula URLs and
   SHA-256 values at `v0.1.5`.
   Commit: https://github.com/wikieden/homebrew-tap/commit/8faa918.
+- Homebrew fetch smoke passed after refreshing the local tap:
+  `brew fetch --force wikieden/tap/robocode` reported `Formula robocode (0.1.5)`.
 
 ## Validation Gates
 
