@@ -1,8 +1,11 @@
 use std::{sync::Arc, time::Instant};
 
 use crate::{
-    EngineEvent, PROVIDER_REASONING_CONTENT_KEY, SessionEngine, lsp_tools::LspToolAdapter,
-    lsp_tools::render_lsp_diagnostics, presentation::render_permission_denial,
+    EngineEvent, PROVIDER_REASONING_CONTENT_KEY, SessionEngine,
+    context_bundle::{context_evidence_rows, render_provider_context_message},
+    lsp_tools::LspToolAdapter,
+    lsp_tools::render_lsp_diagnostics,
+    presentation::render_permission_denial,
 };
 use robocode_lsp::SemanticProvider;
 use robocode_model::ModelRequestControl;
@@ -48,12 +51,17 @@ impl SessionEngine {
         self.store_entry(TranscriptEntry::Message {
             message: user_message,
         })?;
+        let context_bundle = self.build_main_context_bundle(trimmed);
+        self.last_context_bundle = Some(context_bundle.clone());
         let mut provider_task = self.provider_task(
             trimmed,
             AgentTaskStatus::Thinking,
             "thinking through latest prompt",
             15,
         );
+        provider_task
+            .evidence
+            .extend(context_evidence_rows(&context_bundle));
         self.upsert_agent_task(provider_task.clone());
 
         for _ in 0..8 {
@@ -62,10 +70,24 @@ impl SessionEngine {
             provider_task.progress = provider_task.progress.max(20);
             provider_task.updated_at = Some(now_millis());
             self.upsert_agent_task(provider_task.clone());
+            let mut request_messages = self.messages.clone();
+            let context_message = Message::new(
+                Role::System,
+                render_provider_context_message(&context_bundle),
+            );
+            if request_messages
+                .last()
+                .is_some_and(|message| message.role == Role::User)
+            {
+                let insert_at = request_messages.len().saturating_sub(1);
+                request_messages.insert(insert_at, context_message);
+            } else {
+                request_messages.push(context_message);
+            }
             let request = ModelRequest {
                 session_id: self.session_id().to_string(),
                 model: self.provider.model().to_string(),
-                messages: self.messages.clone(),
+                messages: request_messages,
                 tools: self.tools.specs(),
                 permission_mode: self.permissions.mode(),
             };

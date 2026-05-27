@@ -6,7 +6,7 @@ delegated agents, and keep enough evidence to resume work later.
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.12-tui-main.svg)
+![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.13-tui-main.svg)
 
 ## Why It Exists
 
@@ -44,31 +44,31 @@ evidence.
 
 ### Live Provider Turn
 
-![Live provider turn](docs/previews/generated/screenshots/0.1.12-tui-live-turn.svg)
+![Live provider turn](docs/previews/generated/screenshots/0.1.13-tui-live-turn.svg)
 
 ### Resize-Safe Redraw
 
-![Resize-safe redraw](docs/previews/generated/screenshots/0.1.12-tui-main-resize.svg)
+![Resize-safe redraw](docs/previews/generated/screenshots/0.1.13-tui-main-resize.svg)
 
 ### CJK Input
 
-![CJK input](docs/previews/generated/screenshots/0.1.12-tui-cjk-input.svg)
+![CJK input](docs/previews/generated/screenshots/0.1.13-tui-cjk-input.svg)
 
 ### Slash-Command Palette
 
-![Command palette](docs/previews/generated/screenshots/0.1.12-tui-command-palette.svg)
+![Command palette](docs/previews/generated/screenshots/0.1.13-tui-command-palette.svg)
 
 ### Agent Lane Detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.12-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.13-tui-lane-detail.svg)
 
 ### Side Screen: Agent Lanes
 
-![Side screen lanes](docs/previews/generated/screenshots/0.1.12-tui-side-1.svg)
+![Side screen lanes](docs/previews/generated/screenshots/0.1.13-tui-side-1.svg)
 
 ### Side Screen: Ops And Evidence
 
-![Side screen ops](docs/previews/generated/screenshots/0.1.12-tui-side-2.svg)
+![Side screen ops](docs/previews/generated/screenshots/0.1.13-tui-side-2.svg)
 
 ## Install
 
@@ -130,23 +130,33 @@ Run an offline smoke session:
 robocode-cli --provider fallback --model test-local
 ```
 
-Start the cockpit TUI with the fallback provider:
+`robocode-cli` now starts the cockpit TUI by default. Use `/settings` inside
+the TUI to inspect providers, choose a model, and save your default
+provider/model for later launches:
 
 ```bash
-robocode-cli --tui --provider fallback --model test-local
+robocode-cli
+/settings
+/settings provider deepseek deepseek-v4-flash
 ```
 
 Start the cockpit TUI with DeepSeek V4 Flash:
 
 ```bash
 export DEEPSEEK_API_KEY="sk-..."
-robocode-cli --tui --provider deepseek --model deepseek-v4-flash
+robocode-cli --provider deepseek --model deepseek-v4-flash
+```
+
+Use the legacy line REPL only when you explicitly need it:
+
+```bash
+robocode-cli --no-tui --provider fallback --model test-local
 ```
 
 Start from source during development:
 
 ```bash
-cargo run -p robocode-cli -- --tui --provider fallback --model test-local
+cargo run -p robocode-cli -- --provider fallback --model test-local
 ```
 
 ## Core Workflows
@@ -173,14 +183,19 @@ cargo run -p robocode-cli -- --tui --provider fallback --model test-local
 - Approval prompts default to `Approve`; press `y` to approve, `n` to deny,
   `d` to focus diff, or use `Tab` / arrow keys to move between actions.
 - Type `/` to open command suggestions. Common entries include `/help`,
-  `/provider`, `/status`, `/config`, `/permissions`, `/test`, `/sessions`,
-  `/resume`, `/task`, `/memory`, `/lane`, `/agent`, `/screen`, `/lsp`, `/git`,
-  `/web`, `/extensions`, `/mcp`, and `/skills`.
+  `/settings`, `/setup`, `/provider`, `/status`, `/config`, `/permissions`,
+  `/test`, `/sessions`, `/resume`, `/task`, `/memory`, `/lane`, `/agent`,
+  `/screen`, `/lsp`, `/git`, `/web`, `/extensions`, `/mcp`, and `/skills`.
 
 ## Configuration
 
 RoboCode loads config from the platform config path and then from
 `.robocode/config.toml`, with CLI flags taking precedence.
+
+Inside the TUI, `/settings` shows the active provider/model, API-key status,
+available providers, and the user config path. `/settings provider <id>
+[model]`, `/settings model <model>`, and `/settings save` persist the selected
+provider/model without storing API keys.
 
 ```toml
 provider = "deepseek"
@@ -225,6 +240,8 @@ in the docs:
 - [Provider Live Matrix](docs/provider-live-matrix.md)
 - [TUI Cockpit Design](docs/tui-cockpit-design.md)
 - [Testing and Validation Plan](docs/testing-validation-plan.md)
+- [0.1.13 Status](docs/release-0.1.13-status.md)
+- [0.1.13 Plan](docs/release-0.1.13-plan.md)
 - [0.1.12 Status](docs/release-0.1.12-status.md)
 - [0.1.12 Plan](docs/release-0.1.12-plan.md)
 - [ContextBundle And Token Efficiency](docs/context-bundle-token-efficiency.md)

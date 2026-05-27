@@ -21,6 +21,32 @@ impl SessionEngine {
         }
     }
 
+    pub(super) fn handle_settings_command(&mut self, args: &[String]) -> Result<String, String> {
+        match args.first().map(String::as_str) {
+            None | Some("show") | Some("help") => Ok(self.render_settings()),
+            Some("provider") | Some("use") => {
+                let output = self.use_provider(&args[1..])?;
+                let saved = self.save_current_provider_model_defaults()?;
+                Ok(format!("{output}\n{saved}"))
+            }
+            Some("model") => {
+                let Some(model) = args.get(1) else {
+                    return Ok(settings_help());
+                };
+                self.provider.set_model(model.clone());
+                self.runtime_snapshot.model_label = self.provider.model().to_string();
+                self.persist_meta("model", self.provider.model())?;
+                let saved = self.save_current_provider_model_defaults()?;
+                Ok(format!("Model set to {}\n{saved}", self.provider.model()))
+            }
+            Some("save") => self.save_current_provider_model_defaults(),
+            Some(subcommand) => Ok(format!(
+                "Unknown settings subcommand `{subcommand}`.\n\n{}",
+                settings_help()
+            )),
+        }
+    }
+
     fn render_provider_list(&self) -> String {
         let Some(host) = self.provider_host.as_ref() else {
             return [
@@ -60,6 +86,44 @@ impl SessionEngine {
             ),
         ];
         lines.extend(descriptors.iter().map(render_provider_descriptor));
+        lines.join("\n")
+    }
+
+    fn render_settings(&self) -> String {
+        let config_path = robocode_config::default_user_config_path()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|err| format!("<unavailable: {err}>"));
+        let mut lines = vec![
+            "RoboCode settings:".to_string(),
+            format!(
+                "  Current provider: {} ({})",
+                self.provider.provider_name(),
+                self.provider.model()
+            ),
+            format!("  API key: {}", self.current_provider_key_status()),
+            format!("  User config: {config_path}"),
+            "  Persist default: /settings save".to_string(),
+            "  Choose provider: /settings provider <id> [model]".to_string(),
+            "  Choose model: /settings model <model>".to_string(),
+            "  Diagnostics: /provider doctor [id]".to_string(),
+        ];
+        if let Some(host) = self.provider_host.as_ref() {
+            let mut descriptors = host.registry().descriptors().to_vec();
+            descriptors.sort_by(|left, right| left.provider_id.cmp(&right.provider_id));
+            lines.push("".to_string());
+            lines.push("Available providers:".to_string());
+            lines.extend(descriptors.iter().map(|descriptor| {
+                format!(
+                    "  - {} default_model={} key={}",
+                    descriptor.provider_id,
+                    descriptor.default_model.as_deref().unwrap_or("<required>"),
+                    descriptor_key_status(descriptor)
+                )
+            }));
+        } else {
+            lines.push("".to_string());
+            lines.push("Available providers: runtime registry unavailable".to_string());
+        }
         lines.join("\n")
     }
 
@@ -189,6 +253,33 @@ impl SessionEngine {
         ))
     }
 
+    fn save_current_provider_model_defaults(&self) -> Result<String, String> {
+        let path = robocode_config::save_user_provider_model_defaults(
+            self.provider.provider_name(),
+            self.provider.model(),
+        )?;
+        Ok(format!(
+            "Saved default provider/model to {}",
+            path.display()
+        ))
+    }
+
+    fn current_provider_key_status(&self) -> String {
+        if self.provider.provider_name() == "fallback" {
+            return "not required".to_string();
+        }
+        if self.provider_api_key.is_some() {
+            return "present".to_string();
+        }
+        if let Some(host) = self.provider_host.as_ref() {
+            let registry = host.registry();
+            if let Some(descriptor) = registry.descriptor(self.provider.provider_name()) {
+                return descriptor_key_status(descriptor);
+            }
+        }
+        "unknown".to_string()
+    }
+
     pub(super) fn create_provider_from_runtime(
         &self,
         provider_id: &str,
@@ -280,6 +371,15 @@ fn render_env_status(env_name: Option<&str>) -> String {
     }
 }
 
+fn descriptor_key_status(descriptor: &ProviderDescriptor) -> String {
+    match descriptor.env_mappings.api_key_env.as_deref() {
+        Some(name) if std::env::var_os(name).is_some() => format!("{name}:present"),
+        Some(name) => format!("{name}:missing"),
+        None if descriptor.provider_id == "fallback" => "not required".to_string(),
+        None => "unknown".to_string(),
+    }
+}
+
 fn format_provider_plugin_error(err: &ProviderPluginError) -> String {
     let path = if err.path.as_os_str().is_empty() {
         "<registry>".to_string()
@@ -301,6 +401,19 @@ fn provider_help() -> String {
         "                     Show provider registry diagnostics",
         "  /provider reload   Reload provider plugin registry",
         "  /provider use <id> [model]",
+    ]
+    .join("\n")
+}
+
+fn settings_help() -> String {
+    [
+        "Settings commands:",
+        "  /settings                  Show provider/model setup status",
+        "  /settings provider <id> [model]",
+        "                             Switch provider/model and save defaults",
+        "  /settings model <model>    Switch current model and save defaults",
+        "  /settings save             Save current provider/model as defaults",
+        "  /setup                     Alias for /settings",
     ]
     .join("\n")
 }

@@ -150,7 +150,7 @@ struct CommandTemplate {
     summary: &'static str,
 }
 
-const COMMANDS: [CommandTemplate; 22] = [
+const COMMANDS: [CommandTemplate; 24] = [
     CommandTemplate {
         command: "/help",
         summary: "Show commands",
@@ -158,6 +158,14 @@ const COMMANDS: [CommandTemplate; 22] = [
     CommandTemplate {
         command: "/provider",
         summary: "List or switch providers",
+    },
+    CommandTemplate {
+        command: "/settings",
+        summary: "Configure provider/model",
+    },
+    CommandTemplate {
+        command: "/setup",
+        summary: "First-run setup guide",
     },
     CommandTemplate {
         command: "/model",
@@ -323,7 +331,7 @@ const SKILL_COMMANDS: [CommandTemplate; 1] = [CommandTemplate {
     summary: "List local skills",
 }];
 
-const LANE_COMMANDS: [CommandTemplate; 20] = [
+const LANE_COMMANDS: [CommandTemplate; 22] = [
     CommandTemplate {
         command: "/lane codex",
         summary: "Start Codex lane",
@@ -343,6 +351,14 @@ const LANE_COMMANDS: [CommandTemplate; 20] = [
     CommandTemplate {
         command: "/lane inspect",
         summary: "Inspect lane evidence",
+    },
+    CommandTemplate {
+        command: "/lane diff",
+        summary: "Show lane patch",
+    },
+    CommandTemplate {
+        command: "/lane artifacts",
+        summary: "List lane artifacts",
     },
     CommandTemplate {
         command: "/lane stop",
@@ -406,8 +422,10 @@ const LANE_COMMANDS: [CommandTemplate; 20] = [
     },
 ];
 
-const LANE_ID_COMMANDS: [&str; 15] = [
+const LANE_ID_COMMANDS: [&str; 17] = [
     "/lane inspect",
+    "/lane diff",
+    "/lane artifacts",
     "/lane stop",
     "/lane retry",
     "/lane attach",
@@ -444,6 +462,29 @@ const PROVIDER_COMMANDS: [CommandTemplate; 5] = [
     CommandTemplate {
         command: "/provider help",
         summary: "Provider help",
+    },
+];
+
+const SETTINGS_COMMANDS: [CommandTemplate; 5] = [
+    CommandTemplate {
+        command: "/settings provider",
+        summary: "Switch and save provider",
+    },
+    CommandTemplate {
+        command: "/settings model",
+        summary: "Switch and save model",
+    },
+    CommandTemplate {
+        command: "/settings save",
+        summary: "Save current defaults",
+    },
+    CommandTemplate {
+        command: "/settings show",
+        summary: "Show settings",
+    },
+    CommandTemplate {
+        command: "/settings help",
+        summary: "Settings help",
     },
 ];
 
@@ -703,6 +744,7 @@ fn is_nested_command_query(input: &str) -> bool {
         "/skills",
         "/screen",
         "/provider",
+        "/settings",
         "/model",
         "/lsp",
         "/task",
@@ -727,6 +769,7 @@ fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comma
         .or_else(|| git_stash_command_suggestions(query, state))
         .or_else(|| git_worktree_command_suggestions(query, state))
         .or_else(|| provider_command_suggestions(query, state))
+        .or_else(|| settings_command_suggestions(query, state))
         .or_else(|| model_command_suggestions(query, state))
         .or_else(|| memory_command_suggestions(query, state))
         .or_else(|| git_command_suggestions(query, state))
@@ -800,6 +843,128 @@ fn command_group_or_lane_ids(query: &str, state: &TuiState) -> Vec<CommandSugges
     } else {
         Vec::new()
     }
+}
+
+fn settings_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    if !query.starts_with("/settings ") {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let suggestions = if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
+        SETTINGS_COMMANDS
+            .into_iter()
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if words.len() == 2 && !query.ends_with(' ') {
+        SETTINGS_COMMANDS
+            .into_iter()
+            .filter(|item| item.command.starts_with(query))
+            .map(command_from_template)
+            .collect::<Vec<_>>()
+    } else if should_suggest_settings_provider_ids(query, &words) {
+        settings_provider_id_suggestions(query, &words, state)
+    } else if should_suggest_settings_provider_models(query, &words) {
+        settings_provider_model_suggestions(query, &words, state)
+    } else if should_suggest_settings_models(query, &words) {
+        settings_model_suggestions(query, &words, state)
+    } else {
+        Vec::new()
+    };
+    Some(suggestions)
+}
+
+fn should_suggest_settings_provider_ids(query: &str, words: &[&str]) -> bool {
+    words.len() >= 2
+        && words.len() <= 3
+        && format!("{} {}", words[0], words[1]) == "/settings provider"
+        && (query.ends_with(' ') && words.len() == 2
+            || !query.ends_with(' ') && words.get(2).is_some())
+}
+
+fn settings_provider_id_suggestions(
+    query: &str,
+    words: &[&str],
+    state: &TuiState,
+) -> Vec<CommandSuggestion> {
+    let partial_provider = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    state
+        .provider_catalog
+        .iter()
+        .filter(|provider| provider.provider_id.starts_with(partial_provider))
+        .map(|provider| CommandSuggestion {
+            command: format!("/settings provider {}", provider.provider_id),
+            summary: provider_summary(provider),
+        })
+        .collect()
+}
+
+fn should_suggest_settings_provider_models(query: &str, words: &[&str]) -> bool {
+    words.len() >= 3
+        && words.len() <= 4
+        && format!("{} {}", words[0], words[1]) == "/settings provider"
+        && (query.ends_with(' ') || words.get(3).is_some())
+}
+
+fn settings_provider_model_suggestions(
+    query: &str,
+    words: &[&str],
+    state: &TuiState,
+) -> Vec<CommandSuggestion> {
+    let provider_id = words.get(2).copied().unwrap_or("");
+    let partial_model = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(3).copied().unwrap_or("")
+    };
+    state
+        .provider_catalog
+        .iter()
+        .filter(|provider| provider.provider_id == provider_id)
+        .filter_map(|provider| {
+            provider.default_model.as_ref().and_then(|model| {
+                model.starts_with(partial_model).then(|| CommandSuggestion {
+                    command: format!("/settings provider {provider_id} {model}"),
+                    summary: format!("Default model for {}", provider.display_name),
+                })
+            })
+        })
+        .collect()
+}
+
+fn should_suggest_settings_models(query: &str, words: &[&str]) -> bool {
+    words.len() >= 2
+        && words.len() <= 3
+        && format!("{} {}", words[0], words[1]) == "/settings model"
+        && (query.ends_with(' ') || words.get(2).is_some())
+}
+
+fn settings_model_suggestions(
+    query: &str,
+    words: &[&str],
+    state: &TuiState,
+) -> Vec<CommandSuggestion> {
+    let partial_model = if query.ends_with(' ') {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    state
+        .provider_catalog
+        .iter()
+        .filter(|provider| provider.provider_id == state.provider)
+        .filter_map(|provider| {
+            provider.default_model.as_ref().and_then(|model| {
+                model.starts_with(partial_model).then(|| CommandSuggestion {
+                    command: format!("/settings model {model}"),
+                    summary: format!("Default model for {}", provider.display_name),
+                })
+            })
+        })
+        .collect()
 }
 
 fn provider_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
@@ -1671,6 +1836,12 @@ mod tests {
 
         assert_eq!(suggestions[0].command, "/lane codex");
         assert!(suggestions.iter().any(|item| item.command == "/lane ask"));
+        assert!(suggestions.iter().any(|item| item.command == "/lane diff"));
+        assert!(
+            suggestions
+                .iter()
+                .any(|item| item.command == "/lane artifacts")
+        );
         assert!(suggestions.iter().any(|item| item.command == "/lane apply"));
         assert!(
             suggestions
@@ -1728,6 +1899,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 "/lane ask",
+                "/lane artifacts",
                 "/lane attach",
                 "/lane accept",
                 "/lane apply",
@@ -1755,6 +1927,9 @@ mod tests {
     #[test]
     fn suggests_common_nested_command_families() {
         let provider = state_with_input("/provider ");
+        let settings = state_with_input("/settings ");
+        let settings_provider = state_with_input("/settings provider dee");
+        let settings_model = state_with_input("/settings model fall");
         let agent = state_with_input("/agent ");
         let extensions = state_with_input("/extensions ");
         let mcp = state_with_input("/mcp ");
@@ -1767,6 +1942,21 @@ mod tests {
             command_suggestions_for_state(&provider)
                 .iter()
                 .any(|item| item.command == "/provider use")
+        );
+        assert!(
+            command_suggestions_for_state(&settings)
+                .iter()
+                .any(|item| item.command == "/settings provider")
+        );
+        assert!(
+            command_suggestions_for_state(&settings_provider)
+                .iter()
+                .any(|item| item.command == "/settings provider deepseek")
+        );
+        assert!(
+            command_suggestions_for_state(&settings_model)
+                .iter()
+                .any(|item| item.command == "/settings model fallback-local")
         );
         assert!(
             command_suggestions_for_state(&agent)
@@ -2035,7 +2225,7 @@ mod tests {
     #[test]
     fn completes_selected_command_with_trailing_space() {
         let mut state = state_with_input("/lane a");
-        state.command_selection = 3;
+        state.command_selection = 4;
 
         assert!(complete_selected(&mut state));
 
@@ -2064,9 +2254,17 @@ mod tests {
     fn enter_only_completes_partial_commands() {
         let partial = state_with_input("/p");
         let exact = state_with_input("/help");
+        let partial_quit = state_with_input("/q");
+        let exact_quit = state_with_input("/quit");
+        let partial_exit = state_with_input("/ex");
+        let exact_exit = state_with_input("/exit");
 
         assert!(should_complete_on_enter(&partial));
         assert!(!should_complete_on_enter(&exact));
+        assert!(should_complete_on_enter(&partial_quit));
+        assert!(!should_complete_on_enter(&exact_quit));
+        assert!(should_complete_on_enter(&partial_exit));
+        assert!(!should_complete_on_enter(&exact_exit));
     }
 
     #[test]

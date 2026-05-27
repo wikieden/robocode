@@ -2,7 +2,7 @@
 
 英文版： [user-guide.md](user-guide.md)
 
-本文档说明 RoboCode `0.1.12` 已经真实支持的用户功能。
+本文档说明 RoboCode `0.1.13` 已经真实支持的用户功能。
 
 ## 心智模型
 
@@ -30,11 +30,20 @@ robocode-cli --version
 robocode-cli --provider fallback --model test-local
 ```
 
-启动主 cockpit：
+`robocode-cli` 默认启动主 cockpit。第一次使用时，可以在输入区打开设置入口：
+
+```text
+/settings
+/settings provider deepseek deepseek-v4-flash
+```
+
+带显式启动参数进入主 cockpit：
 
 ```bash
-robocode-cli --tui --provider deepseek --model deepseek-v4-flash
+robocode-cli --provider deepseek --model deepseek-v4-flash
 ```
+
+需要旧版行式 REPL 时使用 `--no-tui`。
 
 直接启动副屏：
 
@@ -56,7 +65,8 @@ robocode-cli --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
 - `--request-timeout <seconds>` 和 `--max-retries <n>`：调整 provider HTTP 行为。
 - `--config <path>`：加载显式 TOML 配置。
 - `--resume [id|latest]`：启动时恢复历史 session。
-- `--tui`：启动主 cockpit。
+- `--tui`：启动主 cockpit。现在这是默认行为。
+- `--no-tui`：启动旧版行式 REPL。
 - `--tui-screen <main|side-1|side-2>`：启动指定屏幕。
 - `--tui-theme <aurora-cyan|ember-gold|plasma-violet|monochrome-ice>`：选择内置主题。
 
@@ -95,6 +105,16 @@ max_retries = 2
 [providers.deepseek]
 api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
+```
+
+TUI 设置命令只会持久化 provider 和 model 默认值。API key 仍放在环境变量或手工维护的配置字段里。
+
+```text
+/settings
+/setup
+/settings provider <provider-id> [model]
+/settings model <model>
+/settings save
 ```
 
 常用环境变量：
@@ -138,6 +158,8 @@ Provider commands：
 /provider reload
 /provider use <provider-id> [model]
 /model [name]
+/settings
+/setup
 ```
 
 `fallback` 适合离线 smoke test，不会调用远程模型。
@@ -277,7 +299,10 @@ Agents 和 lanes：
 /lane run <command>
 /lane ask <tool> <task>
 /lane inspect <id>
+/lane diff <id>
+/lane artifacts <id>
 /lane stop <id>
+/lane retry <id>
 /lane attach <id>
 /lane tmux <id>
 /lane pty <id>

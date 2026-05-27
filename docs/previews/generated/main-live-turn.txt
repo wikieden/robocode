@@ -1,15 +1,15 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.12  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L0      │
+│ RoboCode  v0.1.13  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L0      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ◎ NOW WORKING  OpenAI is thinking                                                               │ │ robocode/    ~/projects/robocode   │
 │      ┊  evidence: AgentTask turn-c4f2b7e-live from live provider request                          │ │ ↳ src/          FILES    128       │
 │      ┊  turn-c4f2b7e-live OpenAI thinking 15% :: Refactor the config loader, then :: signal live  │ │ ↳ tests/        LINES  24531       │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ Cargo.toml    LANGUAGE Rust      │
-│   ·  ┊  SYSTEM                                                                           14:37:27 │ │ ▣ README.md     EDITION   2024     │
+│   ·  ┊  SYSTEM                                                                           16:44:59 │ │ ▣ README.md     EDITION   2024     │
 │      ┊  RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.                                   │ └────────────────────────────────────┘
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ ┌ ACTIVE TASKS ─────────────────── 3 ┐
-│   ♙  ┊  USER                                                                             14:37:29 │ │ turn-c4f2b7e-live ● roboco openai/ │
+│   ♙  ┊  USER                                                                             16:45:01 │ │ turn-c4f2b7e-live ● roboco openai/ │
 │      ┊  Refactor the config loader, then run focused tests.                                       │ │ ● task_lo/prog Implement load_con  │
 │                                                                                                   │ │ ◆ task_re/block Review config test │
 │                                                                                                   │ │                                    │

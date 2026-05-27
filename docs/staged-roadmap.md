@@ -185,23 +185,21 @@ Mainline landed:
 - Provider hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
+Current release candidate:
+
+- `docs/release-0.1.13-status.md` records the local Operator Loop Hardening RC.
+- `0.1.13` has implemented the default TUI entry, first-run provider/model
+  setup, interaction reliability tests, focused lane diff/artifact commands, and
+  main provider ContextBundle injection.
+- Remaining public-release work is full package smoke, optional live DeepSeek
+  smoke, tag/release asset publishing, Homebrew tap update, and post-publish
+  checks.
+
 Next planned:
 
-- use `docs/release-0.1.12-plan.md` as the active next-iteration core:
-  Agent Orchestration Operator Loop
-- turn the `0.1.11` TUI reliability, `NOW WORKING`, and `AgentTask` /
-  `AgentLane` projections into a real runtime fact layer covering provider,
-  tool, shell/test, external lane, and approval lifecycles
-- ship the smallest stable dispatch -> observe -> review -> apply programming
-  loop before broadening the agent matrix
-- make side-1 the agent/lane console and side-2 the evidence/ops console, both
-  backed by the same state as the main `NOW WORKING` area
-- move ContextBundle/token efficiency from design into v0 implementation:
-  context sources, long-output compaction, token estimates, per-lane budgets,
-  and visible context pressure
-- keep plugin, skill, MCP, and ACP work at the descriptor / doctor / adapter
-  boundary level until shared permission, transcript, evidence, and token-budget
-  boundaries are solid
+- complete the public `0.1.13` release loop when ready, then move the next
+  iteration toward reproducible Codex/Claude delegated lane happy paths and ACP
+  boundary hardening.
 - require a real-use screenshot or deterministic visual artifact for every
   user-visible feature before it is marked complete
 

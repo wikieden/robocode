@@ -162,6 +162,7 @@ fallback_cli_smoke() {
     git commit -m initial >/dev/null
     printf '/test printf smoke-ok\ny\n/status\n/exit\n' |
       cargo run -p robocode-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
+        --no-tui \
         --provider fallback \
         --model test-local
   ) >"$transcript" 2>&1
@@ -192,6 +193,7 @@ deepseek_cli_smoke() {
     git commit -m initial >/dev/null
     printf 'Reply with exactly: robocode-deepseek-smoke-ok\n/exit\n' |
       cargo run -p robocode-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
+        --no-tui \
         --provider deepseek \
         --model deepseek-v4-flash
   ) >"$transcript" 2>&1

@@ -29,7 +29,7 @@ output=$(
     '/agent probe codex --turn Say exactly ROBOCODE_APP_SERVER_SMOKE_OK and do not edit files.' \
     '/agent status' \
     '/quit' |
-    "$binary" --provider fallback --model test-local
+    "$binary" --no-tui --provider fallback --model test-local
 )
 
 printf '%s\n' "$output"

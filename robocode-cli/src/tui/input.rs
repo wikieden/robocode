@@ -288,4 +288,63 @@ mod tests {
             ApprovalKeyEffect::Resolve(true)
         );
     }
+
+    #[test]
+    fn approval_keyboard_focus_reaches_deny_diff_and_approve() {
+        let mut state = state_with_focus();
+        state.approval_focus = DEFAULT_APPROVAL_FOCUS;
+
+        assert_eq!(
+            focused_approval_action(&state),
+            ApprovalAction::Approve,
+            "approval should default to the low-friction approve action"
+        );
+
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Left), &mut state),
+            ApprovalKeyEffect::Redraw
+        );
+        assert_eq!(focused_approval_action(&state), ApprovalAction::Diff);
+
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Left), &mut state),
+            ApprovalKeyEffect::Redraw
+        );
+        assert_eq!(focused_approval_action(&state), ApprovalAction::Deny);
+
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Enter), &mut state),
+            ApprovalKeyEffect::Resolve(false)
+        );
+
+        set_approval_focus_for_action(&mut state, ApprovalAction::Approve);
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Enter), &mut state),
+            ApprovalKeyEffect::Resolve(true)
+        );
+    }
+
+    #[test]
+    fn approval_shortcuts_resolve_without_focus_hopping() {
+        let mut state = state_with_focus();
+        set_approval_focus_for_action(&mut state, ApprovalAction::Deny);
+
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Char('y')), &mut state),
+            ApprovalKeyEffect::Resolve(true)
+        );
+        assert_eq!(focused_approval_action(&state), ApprovalAction::Deny);
+
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Char('n')), &mut state),
+            ApprovalKeyEffect::Resolve(false)
+        );
+        assert_eq!(
+            apply_approval_key(
+                KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                &mut state
+            ),
+            ApprovalKeyEffect::Resolve(false)
+        );
+    }
 }

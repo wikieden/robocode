@@ -390,8 +390,8 @@ fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState
 
 fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.input = "/git add src/".to_string();
-    state.command_selection = 0;
+    state.input = "/lane a".to_string();
+    state.command_selection = 1;
     state
 }
 
@@ -466,8 +466,8 @@ mod tests {
         assert!(main.contains("src/config.rs"));
         assert!(idle.contains("No approval is blocking right now"));
         assert!(command_palette.contains("COMMANDS"));
-        assert!(command_palette.contains("› /git add src/config.rs"));
-        assert!(command_palette.contains("Workspace file"));
+        assert!(command_palette.contains("› /lane artifacts"));
+        assert!(command_palette.contains("/lane apply"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(!main.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));

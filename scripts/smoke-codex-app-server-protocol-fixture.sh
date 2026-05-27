@@ -70,7 +70,7 @@ output=$(
     '/agent probe codex --turn Exercise command file approval and error protocol fixture.' \
     '/agent result codex-app-turn_fixture' \
     '/quit' |
-    "$binary" --provider fallback --model test-local
+    "$binary" --no-tui --provider fallback --model test-local
 )
 
 printf '%s\n' "$output"

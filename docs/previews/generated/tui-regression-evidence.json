@@ -2,15 +2,15 @@
   "status": "passed",
   "preview_dir": "docs/previews/generated",
   "screenshots": [
-    "docs/previews/generated/screenshots/0.1.12-tui-cjk-input.svg",
-    "docs/previews/generated/screenshots/0.1.12-tui-command-palette.svg",
-    "docs/previews/generated/screenshots/0.1.12-tui-lane-detail.svg",
-    "docs/previews/generated/screenshots/0.1.12-tui-live-turn.svg",
-    "docs/previews/generated/screenshots/0.1.12-tui-main-idle.svg",
-    "docs/previews/generated/screenshots/0.1.12-tui-main-resize.svg",
-    "docs/previews/generated/screenshots/0.1.12-tui-main.svg",
-    "docs/previews/generated/screenshots/0.1.12-tui-side-1.svg",
-    "docs/previews/generated/screenshots/0.1.12-tui-side-2.svg"
+    "docs/previews/generated/screenshots/0.1.13-tui-cjk-input.svg",
+    "docs/previews/generated/screenshots/0.1.13-tui-command-palette.svg",
+    "docs/previews/generated/screenshots/0.1.13-tui-lane-detail.svg",
+    "docs/previews/generated/screenshots/0.1.13-tui-live-turn.svg",
+    "docs/previews/generated/screenshots/0.1.13-tui-main-idle.svg",
+    "docs/previews/generated/screenshots/0.1.13-tui-main-resize.svg",
+    "docs/previews/generated/screenshots/0.1.13-tui-main.svg",
+    "docs/previews/generated/screenshots/0.1.13-tui-side-1.svg",
+    "docs/previews/generated/screenshots/0.1.13-tui-side-2.svg"
   ],
   "checks": [
     "line counts",

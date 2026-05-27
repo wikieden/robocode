@@ -156,21 +156,18 @@ Mainline landed：
 - Provider hardening 检查点：descriptor validation、registry refresh coverage、blank-key handling、provider-scoped diagnostics，以及 offline/live smoke harnesses
 - DeepSeek V4 兼容标记：reasoning-content replay、非空 assistant tool-call content、显式 `tool_choice` capability，以及 `high`/`max` reasoning-effort metadata
 
+当前 release candidate：
+
+- `docs/release-0.1.13-status.zh-CN.md` 记录本地 Operator Loop Hardening RC。
+- `0.1.13` 已实现默认 TUI 入口、首次 provider/model 设置、交互可靠性测试、
+  聚焦 lane diff/artifact 命令，以及主 provider ContextBundle 注入。
+- 公开发布前剩余：完整 package smoke、可选 DeepSeek live smoke、tag/release
+  assets 发布、Homebrew tap 更新和 post-publish checks。
+
 Next planned：
 
-- 以 `docs/release-0.1.12-plan.zh-CN.md` 作为当前下一迭代核心：
-  Agent Orchestration Operator Loop
-- 把 `0.1.11` 的 TUI 可靠性、`NOW WORKING`、`AgentTask` / `AgentLane`
-  投影进一步升级为真实运行时事实层，让 provider、tool、shell/test、external lane
-  和 approval 进入统一生命周期
-- 跑通最小 dispatch -> observe -> review -> apply 编程闭环，优先保证一个稳定
-  agent/lane happy path，而不是一次铺满所有 agent 类型
-- side-1 成为 agent/lane 控制台，side-2 成为 evidence/ops 控制台；两者必须与主屏
-  `NOW WORKING` 读取同一状态
-- ContextBundle/token efficiency 从设计进入 v0 实现：context sources、长输出压缩、
-  token estimates、per-lane budget 和 context pressure 可见性
-- plugin、skill、MCP、ACP 继续先做 descriptor / doctor / adapter boundary，不绕开共享
-  permission、transcript、evidence 和 token budget 约束
+- 准备好后完成公开 `0.1.13` 发布闭环，然后把下一轮推进到可复现的
+  Codex/Claude delegated lane happy path 和 ACP boundary hardening。
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

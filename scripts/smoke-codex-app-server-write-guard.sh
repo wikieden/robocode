@@ -32,7 +32,7 @@ set +e
   printf '%s\n%s\n' \
     "/agent probe codex --turn-write Create ${target_file} with content ROBOCODE_WRITE_GUARD_SHOULD_NOT_LAND." \
     '/quit' |
-    "$binary" --provider fallback --model test-local
+    "$binary" --no-tui --provider fallback --model test-local
 } >"$output_file" 2>&1
 status=$?
 set -e

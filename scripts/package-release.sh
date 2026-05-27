@@ -50,7 +50,7 @@ ${BIN_FILE} --help
 Run fallback smoke test:
 
 \`\`\`powershell
-${BIN_FILE} --provider fallback --model test-local
+${BIN_FILE} --no-tui --provider fallback --model test-local
 \`\`\`
 
 Run TUI:
@@ -74,7 +74,7 @@ ${BIN_NAME} --help
 Run fallback smoke test:
 
 \`\`\`bash
-${BIN_NAME} --provider fallback --model test-local
+${BIN_NAME} --no-tui --provider fallback --model test-local
 \`\`\`
 
 Run TUI:

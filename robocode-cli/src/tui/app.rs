@@ -138,6 +138,13 @@ fn initial_state(
     let tasks = engine.active_task_snapshot().unwrap_or_default();
     let memory = engine.memory_snapshot().unwrap_or_default();
     let provider_catalog = provider_catalog(engine);
+    let mut entries = vec![TuiEntry {
+        label: "system".to_string(),
+        body: format!("RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.\n{startup_summary}"),
+    }];
+    if let Some(entry) = first_run_setup_entry(engine, startup_summary, &provider_catalog) {
+        entries.push(entry);
+    }
     TuiState {
         session_id: engine.session_id().to_string(),
         provider: engine.provider_name().to_string(),
@@ -151,12 +158,7 @@ fn initial_state(
         approval_focus: 0,
         approval_apply_all: false,
         pending_turn: None,
-        entries: vec![TuiEntry {
-            label: "system".to_string(),
-            body: format!(
-                "RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.\n{startup_summary}"
-            ),
-        }],
+        entries,
         workspace,
         tasks,
         runtime_tasks: engine.agent_task_snapshot(),
@@ -166,6 +168,28 @@ fn initial_state(
         lane_store,
         focused_lane: None,
     }
+}
+
+fn first_run_setup_entry(
+    engine: &SessionEngine,
+    startup_summary: &str,
+    provider_catalog: &[ProviderOption],
+) -> Option<TuiEntry> {
+    if engine.provider_name() == "fallback" || !startup_summary.contains("key=missing") {
+        return None;
+    }
+    let default_model = provider_catalog
+        .iter()
+        .find(|provider| provider.provider_id == engine.provider_name())
+        .and_then(|provider| provider.default_model.as_deref())
+        .unwrap_or(engine.model_name());
+    Some(TuiEntry {
+        label: "setup".to_string(),
+        body: format!(
+            "First-run setup: `{}` is selected but no API key is detected.\nUse `/settings` to inspect providers, `/settings provider <id> [model]` to choose, or set the matching API key env var. Current default model hint: `{default_model}`.",
+            engine.provider_name()
+        ),
+    })
 }
 
 fn handle_enter(

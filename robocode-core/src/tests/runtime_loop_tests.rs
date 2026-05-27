@@ -108,6 +108,67 @@ fn provider_telemetry_records_model_usage_when_provider_reports_it() {
 }
 
 #[test]
+fn provider_turn_uses_ephemeral_context_bundle_without_transcript_mutation() {
+    let home = temp_dir("context_bundle_home");
+    let cwd = temp_dir("context_bundle_cwd");
+    fs::write(cwd.join("notes.txt"), "draft context").unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingSequenceProvider::new(
+        vec![vec![ModelEvent::AssistantText {
+            content: "context-aware response".to_string(),
+        }]],
+        Arc::clone(&requests),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .process_input_with_approval("summarize the workspace", &mut approver)
+        .unwrap();
+
+    let requests = requests.lock().unwrap();
+    let request = requests.first().expect("provider request");
+    assert!(matches!(request.messages.last(), Some(message)
+            if message.role == robocode_types::Role::User
+                && message.content == "summarize the workspace"));
+    let context = request
+        .messages
+        .iter()
+        .find(|message| message.content.contains("RoboCode ContextBundle"))
+        .expect("ephemeral context message");
+    assert_eq!(context.role, robocode_types::Role::System);
+    assert!(context.content.contains("RoboCode ContextBundle"));
+    assert!(context.content.contains("Context pressure:"));
+    assert!(context.content.contains("workspace"));
+
+    let bundle = engine
+        .provider_context_bundle()
+        .expect("provider context bundle");
+    assert!(
+        bundle
+            .sources
+            .iter()
+            .any(|source| source.name == "user-task")
+    );
+    assert!(
+        bundle
+            .sources
+            .iter()
+            .any(|source| source.name == "workspace")
+    );
+    assert!(engine.agent_task_snapshot().iter().any(|task| {
+        task.kind == "provider"
+            && task
+                .evidence
+                .iter()
+                .any(|row| row.starts_with("context_pressure "))
+    }));
+}
+
+#[test]
 fn provider_telemetry_records_failed_model_requests() {
     let home = temp_dir("telemetry_failure_home");
     let cwd = temp_dir("telemetry_failure_cwd");

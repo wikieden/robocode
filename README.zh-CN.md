@@ -4,7 +4,7 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 英文版： [README.md](README.md)
 
-![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.12-tui-main.svg)
+![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.13-tui-main.svg)
 
 ## 为什么做它
 
@@ -27,31 +27,31 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 ### Live provider turn
 
-![实时 provider 状态](docs/previews/generated/screenshots/0.1.12-tui-live-turn.svg)
+![实时 provider 状态](docs/previews/generated/screenshots/0.1.13-tui-live-turn.svg)
 
 ### Resize 后重绘
 
-![Resize 后重绘](docs/previews/generated/screenshots/0.1.12-tui-main-resize.svg)
+![Resize 后重绘](docs/previews/generated/screenshots/0.1.13-tui-main-resize.svg)
 
 ### 中文输入
 
-![中文输入](docs/previews/generated/screenshots/0.1.12-tui-cjk-input.svg)
+![中文输入](docs/previews/generated/screenshots/0.1.13-tui-cjk-input.svg)
 
 ### Slash command 提示
 
-![命令提示](docs/previews/generated/screenshots/0.1.12-tui-command-palette.svg)
+![命令提示](docs/previews/generated/screenshots/0.1.13-tui-command-palette.svg)
 
 ### Agent lane detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.12-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.13-tui-lane-detail.svg)
 
 ### 副屏 side-1：Agent lanes
 
-![side-1 lanes](docs/previews/generated/screenshots/0.1.12-tui-side-1.svg)
+![side-1 lanes](docs/previews/generated/screenshots/0.1.13-tui-side-1.svg)
 
 ### 副屏 side-2：ops 与 evidence
 
-![side-2 ops](docs/previews/generated/screenshots/0.1.12-tui-side-2.svg)
+![side-2 ops](docs/previews/generated/screenshots/0.1.13-tui-side-2.svg)
 
 ## 安装
 
@@ -113,23 +113,32 @@ robocode-cli.exe --help
 robocode-cli --provider fallback --model test-local
 ```
 
-使用 fallback provider 启动 cockpit TUI：
+`robocode-cli` 现在默认进入 cockpit TUI。第一次使用时，可以直接在 TUI 里用
+`/settings` 查看 provider、model、API key 状态，并保存默认选择：
 
 ```bash
-robocode-cli --tui --provider fallback --model test-local
+robocode-cli
+/settings
+/settings provider deepseek deepseek-v4-flash
 ```
 
 使用 DeepSeek V4 Flash 启动 cockpit TUI：
 
 ```bash
 export DEEPSEEK_API_KEY="sk-..."
-robocode-cli --tui --provider deepseek --model deepseek-v4-flash
+robocode-cli --provider deepseek --model deepseek-v4-flash
+```
+
+只有明确需要旧版行式 REPL 时才使用：
+
+```bash
+robocode-cli --no-tui --provider fallback --model test-local
 ```
 
 开发时从源码启动：
 
 ```bash
-cargo run -p robocode-cli -- --tui --provider fallback --model test-local
+cargo run -p robocode-cli -- --provider fallback --model test-local
 ```
 
 ## 核心工作流
@@ -148,11 +157,13 @@ cargo run -p robocode-cli -- --tui --provider fallback --model test-local
 - `?` 打开 TUI 内帮助。
 - `Esc` 或 `Ctrl-C` 退出；`/quit` 和 `/exit` 也可以关闭 TUI。
 - 审批弹窗默认停在 `Approve`；按 `y` 通过，`n` 拒绝，`d` 聚焦 diff，也可以用 `Tab` / 方向键在动作间移动。
-- 输入 `/` 会打开命令提示。常用入口包括 `/help`、`/provider`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
+- 输入 `/` 会打开命令提示。常用入口包括 `/help`、`/settings`、`/setup`、`/provider`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
 
 ## 配置
 
 RoboCode 会读取平台默认配置路径，然后读取 `.robocode/config.toml`，CLI flags 优先级最高。
+
+在 TUI 中，`/settings` 会展示当前 provider/model、API key 状态、可用 providers 和用户配置路径。`/settings provider <id> [model]`、`/settings model <model>` 和 `/settings save` 会持久化 provider/model 默认值，但不会写入 API key。
 
 ```toml
 provider = "deepseek"
@@ -194,6 +205,8 @@ README 保持产品介绍和使用入口。完整使用说明和实现细节放�
 - [Provider 真实调用矩阵](docs/provider-live-matrix.zh-CN.md)
 - [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
 - [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
+- [0.1.13 状态](docs/release-0.1.13-status.zh-CN.md)
+- [0.1.13 计划](docs/release-0.1.13-plan.zh-CN.md)
 - [0.1.12 状态](docs/release-0.1.12-status.zh-CN.md)
 - [0.1.12 计划](docs/release-0.1.12-plan.zh-CN.md)
 - [ContextBundle 与 Token 效能](docs/context-bundle-token-efficiency.zh-CN.md)

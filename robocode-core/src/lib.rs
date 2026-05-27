@@ -4,6 +4,7 @@ use std::{path::PathBuf, time::Duration};
 
 mod agent_commands;
 mod command_dispatch;
+mod context_bundle;
 mod doctor;
 mod extension_commands;
 mod formatting;
@@ -29,7 +30,8 @@ use robocode_permissions::PermissionEngine;
 use robocode_session::SessionStore;
 use robocode_tools::ToolRegistry;
 use robocode_types::{
-    AgentTaskRecord, MemoryEntry, Message, ModelUsage, PermissionMode, RuntimeSnapshot, TaskRecord,
+    AgentTaskRecord, ContextBundleRecord, MemoryEntry, Message, ModelUsage, PermissionMode,
+    RuntimeSnapshot, TaskRecord,
 };
 use robocode_workflows::stores::WorkflowStore;
 
@@ -166,6 +168,7 @@ pub struct SessionEngine {
     runtime_snapshot: RuntimeSnapshot,
     runtime_tasks: Vec<AgentTaskRecord>,
     provider_telemetry: ProviderTelemetry,
+    last_context_bundle: Option<ContextBundleRecord>,
 }
 
 impl SessionEngine {
@@ -228,6 +231,7 @@ impl SessionEngine {
             runtime_snapshot,
             runtime_tasks: Vec::new(),
             provider_telemetry: ProviderTelemetry::default(),
+            last_context_bundle: None,
         };
         engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;
         let model = engine.provider.model().to_string();

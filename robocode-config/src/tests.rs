@@ -156,6 +156,49 @@ api_base = "https://provider.example"
 }
 
 #[test]
+fn save_user_provider_model_defaults_updates_existing_config_without_secrets() {
+    let root = std::env::temp_dir().join(format!(
+        "robocode_save_provider_model_{}",
+        std::process::id()
+    ));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        &path,
+        r#"
+permission_mode = "plan"
+
+[providers.deepseek]
+api_base = "https://api.deepseek.example"
+"#,
+    )
+    .unwrap();
+
+    save_user_provider_model_defaults_at(&path, "deepseek", "deepseek-v4-flash").unwrap();
+
+    let contents = fs::read_to_string(&path).unwrap();
+    assert!(contents.contains(r#"provider = "deepseek""#));
+    assert!(contents.contains(r#"model = "deepseek-v4-flash""#));
+    assert!(contents.contains(r#"permission_mode = "plan""#));
+    assert!(contents.contains("[providers.deepseek]"));
+    assert!(!contents.contains("api_key"));
+
+    let cli = CliOverrides {
+        config_path: Some(path),
+        ..CliOverrides::default()
+    };
+    let config = load_config_with_env(&root, &cli, &|_| None).unwrap();
+    assert_eq!(config.provider, "deepseek");
+    assert_eq!(config.model.as_deref(), Some("deepseek-v4-flash"));
+    assert_eq!(config.permission_mode, PermissionMode::Plan);
+    assert_eq!(
+        config.api_base.as_deref(),
+        Some("https://api.deepseek.example")
+    );
+}
+
+#[test]
 fn deepseek_provider_scoped_config_from_global_applies_after_project_provider_selection() {
     let root =
         std::env::temp_dir().join(format!("robocode_deepseek_global_{}", std::process::id()));

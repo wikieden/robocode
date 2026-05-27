@@ -493,6 +493,56 @@ fn provider_list_reports_registry_and_current_provider() {
 }
 
 #[test]
+fn settings_command_reports_first_run_provider_model_setup() {
+    let home = temp_dir("settings_home");
+    let cwd = temp_dir("settings_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/settings", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("RoboCode settings:")
+                && text.contains("Current provider: sequence (test-model)")
+                && text.contains("Persist default: /settings save")
+                && text.contains("Choose provider: /settings provider <id> [model]")
+                && text.contains("Available providers:")
+                && text.contains("fallback")
+    )));
+}
+
+#[test]
+fn setup_command_is_settings_alias() {
+    let home = temp_dir("setup_alias_home");
+    let cwd = temp_dir("setup_alias_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/setup", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text) if text.contains("RoboCode settings:")
+    )));
+}
+
+#[test]
 fn provider_doctor_reports_registry_capabilities_and_env_mappings() {
     let home = temp_dir("provider_doctor_home");
     let cwd = temp_dir("provider_doctor_cwd");

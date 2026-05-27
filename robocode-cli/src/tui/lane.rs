@@ -85,6 +85,8 @@ pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
     match parts.next() {
         Some("close") => close_lane_focus(state),
         Some("inspect") => inspect_lane(parts.next(), state),
+        Some("diff") => diff_lane(parts.next(), state),
+        Some("artifacts") => artifacts_lane(parts.next(), state),
         Some("stop") => stop_lane(parts.next(), state),
         Some("retry") => retry_lane(parts.next(), state),
         Some("accept") => decide_lane("accepted", parts.next(), parts.collect(), state),
@@ -775,6 +777,121 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
             lane.summary
         ),
     });
+}
+
+fn diff_lane(id: Option<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(lane) = state
+        .lanes
+        .iter()
+        .find(|lane| lane.id.eq_ignore_ascii_case(id))
+        .cloned()
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let workspace = lane_workspace(&lane, state);
+    let workspace_display = workspace.display().to_string();
+    match lane_diff_patch(workspace) {
+        Ok(patch) if patch.trim().is_empty() => state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "Lane `{}` has no visible diff in {}.",
+                lane.id, workspace_display
+            ),
+        }),
+        Ok(patch) => {
+            let artifact = lane_artifact_path(state, &lane.id, "diff.patch").ok();
+            if let Some(path) = artifact.as_ref() {
+                let _ = fs::write(path, &patch);
+            }
+            state.focused_lane = Some(lane.id.clone());
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!(
+                    "Lane `{}` diff\nWorkspace: {}\nArtifact: {}\n\n{}",
+                    lane.id,
+                    workspace_display,
+                    artifact
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_else(|| "<unavailable>".to_string()),
+                    patch.trim_end()
+                ),
+            });
+        }
+        Err(err) => state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Failed to build diff for lane `{}`: {err}", lane.id),
+        }),
+    }
+}
+
+fn artifacts_lane(id: Option<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(lane) = state
+        .lanes
+        .iter()
+        .find(|lane| lane.id.eq_ignore_ascii_case(id))
+        .cloned()
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let rows = lane_artifact_rows(state, &lane.id);
+    state.focused_lane = Some(lane.id.clone());
+    state.entries.push(TuiEntry {
+        label: "system".to_string(),
+        body: format!(
+            "Lane `{}` artifacts\nTask: {}\n\n{}",
+            lane.id, lane.title, rows
+        ),
+    });
+}
+
+fn lane_artifact_rows(state: &TuiState, lane_id: &str) -> String {
+    let Some(store) = state.lane_store.as_deref() else {
+        return "  <no lane store>".to_string();
+    };
+    let Some(parent) = store.parent() else {
+        return "  <lane store has no parent>".to_string();
+    };
+    let dir = parent.join("lanes");
+    let prefix = format!("{lane_id}.");
+    let mut rows = fs::read_dir(&dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name = path.file_name()?.to_string_lossy();
+            if name.starts_with(&prefix) {
+                Some(format!("  {}", path.display()))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    rows.sort();
+    if rows.is_empty() {
+        "  <none>".to_string()
+    } else {
+        rows.join("\n")
+    }
 }
 
 pub(super) fn lane_next_action(lane: &TerminalLane) -> String {
@@ -2469,7 +2586,7 @@ pub(super) fn refresh_lanes(state: &mut TuiState) {
 fn push_lane_usage(state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane ask <tool> <task> | /lane inspect <id> | /lane stop <id> | /lane retry <id> | /lane attach <id> | /lane tmux <id> | /lane pty <id> | /lane send <id> <text> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane archive <id> | /lane cleanup <id> [--force] | /lane close"
+        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane ask <tool> <task> | /lane inspect <id> | /lane diff <id> | /lane artifacts <id> | /lane stop <id> | /lane retry <id> | /lane attach <id> | /lane tmux <id> | /lane pty <id> | /lane send <id> <text> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane archive <id> | /lane cleanup <id> [--force] | /lane close"
             .to_string(),
     });
 }
@@ -3683,6 +3800,74 @@ mod tests {
         assert!(inspect.body.contains("Changed files:"));
         assert!(inspect.body.contains("?? changed.txt"));
         assert!(inspect.body.contains("Decision: accepted"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_diff_writes_patch_artifact_and_focuses_lane() {
+        let root = temp_lane_root();
+        init_git_repo(&root);
+        fs::write(root.join("README.md"), "fixture\nlane change\n").expect("dirty readme");
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store);
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "run".to_string(),
+            title: "edit readme".to_string(),
+            status: "completed".to_string(),
+            target: "main".to_string(),
+            progress: 100,
+            summary: "changed README".to_string(),
+            worktree: None,
+        }];
+
+        assert!(handle_tui_command("/lane diff L1", &mut state));
+
+        let entry = state.entries.last().expect("diff entry");
+        assert!(entry.body.contains("Lane `L1` diff"));
+        assert!(entry.body.contains("+lane change"));
+        assert_eq!(state.focused_lane.as_deref(), Some("L1"));
+        assert!(
+            fs::read_to_string(root.join(".robocode/lanes/L1.diff.patch"))
+                .expect("diff artifact")
+                .contains("+lane change")
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_artifacts_lists_persisted_lane_files() {
+        let root = temp_lane_root();
+        fs::create_dir_all(root.join(".robocode/lanes")).expect("artifact dir");
+        fs::write(root.join(".robocode/lanes/L1.log"), "tail\n").expect("log");
+        fs::write(root.join(".robocode/lanes/L1.done"), "0\n").expect("done");
+        fs::write(root.join(".robocode/lanes/L2.log"), "other\n").expect("other lane");
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store);
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "run".to_string(),
+            title: "cargo test".to_string(),
+            status: "completed".to_string(),
+            target: "main".to_string(),
+            progress: 100,
+            summary: "ok".to_string(),
+            worktree: None,
+        }];
+
+        assert!(handle_tui_command("/lane artifacts L1", &mut state));
+
+        let entry = state.entries.last().expect("artifact entry");
+        assert!(entry.body.contains("L1.log"));
+        assert!(entry.body.contains("L1.done"));
+        assert!(!entry.body.contains("L2.log"));
+        assert_eq!(state.focused_lane.as_deref(), Some("L1"));
 
         let _ = fs::remove_dir_all(root);
     }

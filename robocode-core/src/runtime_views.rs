@@ -19,6 +19,8 @@ impl SessionEngine {
             "  /provider doctor     Show provider registry diagnostics",
             "  /provider reload     Reload provider plugin registry",
             "  /provider use <id>   Switch provider, optionally with a model",
+            "  /settings            Configure and save provider/model defaults",
+            "  /setup               First-run provider/model setup guide",
             "  /agent list          List configured agent adapters",
             "  /agent doctor [id]   Check agent adapter readiness",
             "  /agent run codex [--write] <task>",
@@ -93,6 +95,25 @@ impl SessionEngine {
                 .unwrap_or_else(|| "  Last test: <none>".to_string()),
         ];
         lines.extend(render_workspace_status(&self.cwd));
+        if let Some(bundle) = self.provider_context_bundle() {
+            lines.push("Provider context:".to_string());
+            lines.push(format!(
+                "  Pressure: {}% ({}/{})",
+                bundle.pressure_percent(),
+                bundle.estimated_tokens,
+                bundle.hard_token_limit
+            ));
+            lines.push(format!("  Sources: {}", bundle.sources.len()));
+            if !bundle.largest_sources.is_empty() {
+                lines.push(format!("  Largest: {}", bundle.largest_sources.join(", ")));
+            }
+            if !bundle.compaction_notes.is_empty() {
+                lines.push(format!(
+                    "  Compaction: {}",
+                    bundle.compaction_notes.join("; ")
+                ));
+            }
+        }
         lines.extend(render_workflow_status(&self.workflows));
         lines.extend(render_lane_status(&self.cwd));
         lines.join("\n")

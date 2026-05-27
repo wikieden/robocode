@@ -258,7 +258,7 @@ fn run() -> Result<(), String> {
         }
     }
 
-    if startup.tui || startup.tui_screen.is_some() {
+    if startup.should_start_tui() {
         if let Some(screen) = startup
             .tui_screen
             .as_deref()
@@ -437,7 +437,7 @@ fn dynamic_provider_summary(
     )
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct StartupOptions {
     provider: Option<String>,
     model: Option<String>,
@@ -451,6 +451,7 @@ struct StartupOptions {
     config_path: Option<PathBuf>,
     resume_selector: Option<String>,
     tui: bool,
+    no_tui: bool,
     tui_screen: Option<String>,
     tui_preview: bool,
     tui_preview_ansi: bool,
@@ -474,6 +475,10 @@ struct StartupOptions {
 }
 
 impl StartupOptions {
+    fn should_start_tui(&self) -> bool {
+        self.tui || self.tui_screen.is_some() || !self.no_tui
+    }
+
     fn summary_overrides(&self) -> Vec<String> {
         let mut overrides = Vec::new();
         if self.provider.is_some() {
@@ -511,6 +516,9 @@ impl StartupOptions {
         }
         if self.tui {
             overrides.push("--tui".to_string());
+        }
+        if self.no_tui {
+            overrides.push("--no-tui".to_string());
         }
         if self.tui_screen.is_some() {
             overrides.push("--tui-screen".to_string());
@@ -658,6 +666,9 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--tui" => {
                 options.tui = true;
             }
+            "--no-tui" => {
+                options.no_tui = true;
+            }
             "--tui-screen" => {
                 index += 1;
                 let value = required_flag_value(args, index, "--tui-screen")?;
@@ -738,6 +749,12 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
         }
         index += 1;
     }
+    if options.no_tui && options.tui {
+        return Err("--no-tui cannot be combined with --tui".to_string());
+    }
+    if options.no_tui && options.tui_screen.is_some() {
+        return Err("--no-tui cannot be combined with --tui-screen".to_string());
+    }
     Ok(options)
 }
 
@@ -762,7 +779,8 @@ fn print_startup_help() {
     println!("  --max-retries <n>    Override provider retry count");
     println!("  --config <path>      Load config from an explicit TOML file");
     println!("  --resume [id|latest] Resume a prior session");
-    println!("  --tui                Start the cockpit terminal UI");
+    println!("  --tui                Start the cockpit terminal UI (default)");
+    println!("  --no-tui             Start the legacy line REPL");
     println!("  --tui-screen <main|side-1|side-2>");
     println!("                       Start a specific TUI screen surface");
     println!(
@@ -902,7 +920,44 @@ mod tests {
         let options = parse_startup_options(&args).unwrap();
 
         assert!(options.tui);
+        assert!(options.should_start_tui());
         assert_eq!(options.summary_overrides(), vec!["--tui".to_string()]);
+    }
+
+    #[test]
+    fn parse_startup_options_defaults_to_tui() {
+        let args = Vec::<String>::new();
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.should_start_tui());
+        assert!(options.summary_overrides().is_empty());
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_no_tui_escape_hatch() {
+        let args = vec!["--no-tui".to_string()];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.no_tui);
+        assert!(!options.should_start_tui());
+        assert_eq!(options.summary_overrides(), vec!["--no-tui".to_string()]);
+    }
+
+    #[test]
+    fn parse_startup_options_rejects_conflicting_tui_flags() {
+        let tui_err = parse_startup_options(&["--no-tui".to_string(), "--tui".to_string()])
+            .expect_err("--no-tui plus --tui should fail");
+        assert!(tui_err.contains("--no-tui cannot be combined with --tui"));
+
+        let screen_err = parse_startup_options(&[
+            "--no-tui".to_string(),
+            "--tui-screen".to_string(),
+            "side-1".to_string(),
+        ])
+        .expect_err("--no-tui plus --tui-screen should fail");
+        assert!(screen_err.contains("--no-tui cannot be combined with --tui-screen"));
     }
 
     #[test]
@@ -912,6 +967,7 @@ mod tests {
         let options = parse_startup_options(&args).unwrap();
 
         assert_eq!(options.tui_screen.as_deref(), Some("side-1"));
+        assert!(options.should_start_tui());
         assert_eq!(
             options.summary_overrides(),
             vec!["--tui-screen".to_string()]

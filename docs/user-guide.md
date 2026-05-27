@@ -3,7 +3,7 @@
 Chinese version: [user-guide.zh-CN.md](user-guide.zh-CN.md)
 
 This guide describes the user-facing features that are available in RoboCode
-`0.1.12`.
+`0.1.13`.
 
 ## Mental Model
 
@@ -35,11 +35,21 @@ robocode-cli --version
 robocode-cli --provider fallback --model test-local
 ```
 
-Start the main cockpit:
+`robocode-cli` starts the main cockpit by default. On first run, open the setup
+surface from the composer:
+
+```text
+/settings
+/settings provider deepseek deepseek-v4-flash
+```
+
+Start the main cockpit with explicit startup overrides:
 
 ```bash
-robocode-cli --tui --provider deepseek --model deepseek-v4-flash
+robocode-cli --provider deepseek --model deepseek-v4-flash
 ```
+
+Use `--no-tui` when you need the legacy line REPL.
 
 Start a side screen directly:
 
@@ -62,7 +72,8 @@ Common flags:
   behavior.
 - `--config <path>`: load an explicit TOML config.
 - `--resume [id|latest]`: resume a prior session at startup.
-- `--tui`: start the main cockpit.
+- `--tui`: start the main cockpit. This is the default.
+- `--no-tui`: start the legacy line REPL.
 - `--tui-screen <main|side-1|side-2>`: start a specific screen.
 - `--tui-theme <aurora-cyan|ember-gold|plasma-violet|monochrome-ice>`: select
   a built-in theme.
@@ -102,6 +113,17 @@ max_retries = 2
 [providers.deepseek]
 api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
+```
+
+The TUI setup commands persist only the provider and model defaults. API keys
+remain in environment variables or manually maintained config fields.
+
+```text
+/settings
+/setup
+/settings provider <provider-id> [model]
+/settings model <model>
+/settings save
 ```
 
 Useful environment variables:
@@ -147,6 +169,8 @@ Provider commands:
 /provider reload
 /provider use <provider-id> [model]
 /model [name]
+/settings
+/setup
 ```
 
 `fallback` is useful for offline smoke tests. It does not call a remote model.
@@ -290,7 +314,10 @@ Agents and lanes:
 /lane run <command>
 /lane ask <tool> <task>
 /lane inspect <id>
+/lane diff <id>
+/lane artifacts <id>
 /lane stop <id>
+/lane retry <id>
 /lane attach <id>
 /lane tmux <id>
 /lane pty <id>

@@ -27,6 +27,7 @@ impl SessionEngine {
                 }
             }
             "/provider" => self.handle_provider_command(&args)?,
+            "/settings" | "/setup" => self.handle_settings_command(&args)?,
             "/agent" => self.handle_agent_command(&args, approver)?,
             "/extensions" => self.handle_extensions_command(&args)?,
             "/mcp" => self.handle_mcp_command(&args)?,

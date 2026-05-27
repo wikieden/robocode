@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use robocode_types::PermissionMode;
 use serde::Deserialize;
+use toml::{Value, map::Map};
 
 #[derive(Debug, Clone, Default)]
 pub struct CliOverrides {
@@ -96,6 +97,67 @@ struct FileConfig {
 
 pub fn load_config(cwd: &Path, cli: &CliOverrides) -> Result<ResolvedConfig, String> {
     load_config_with_env(cwd, cli, &|key| std::env::var(key).ok())
+}
+
+pub fn default_user_config_path() -> Result<PathBuf, String> {
+    default_config_path(&|key| std::env::var(key).ok()).ok_or_else(|| {
+        "Cannot determine RoboCode config path; set ROBOCODE_CONFIG or HOME/APPDATA/XDG_CONFIG_HOME"
+            .to_string()
+    })
+}
+
+pub fn save_user_provider_model_defaults(provider: &str, model: &str) -> Result<PathBuf, String> {
+    let path = std::env::var("ROBOCODE_CONFIG")
+        .ok()
+        .map(PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(default_user_config_path)?;
+    save_user_provider_model_defaults_at(&path, provider, model)?;
+    Ok(path)
+}
+
+pub fn save_user_provider_model_defaults_at(
+    path: &Path,
+    provider: &str,
+    model: &str,
+) -> Result<(), String> {
+    let provider = provider.trim();
+    let model = model.trim();
+    if provider.is_empty() {
+        return Err("Provider cannot be empty.".to_string());
+    }
+    if model.is_empty() {
+        return Err("Model cannot be empty.".to_string());
+    }
+
+    let mut value = if path.exists() {
+        let contents = fs::read_to_string(path)
+            .map_err(|err| format!("Failed to read config {}: {err}", path.display()))?;
+        if contents.trim().is_empty() {
+            Value::Table(Map::new())
+        } else {
+            contents
+                .parse::<Value>()
+                .map_err(|err| format!("Failed to parse config {}: {err}", path.display()))?
+        }
+    } else {
+        Value::Table(Map::new())
+    };
+
+    let table = value
+        .as_table_mut()
+        .ok_or_else(|| format!("Config {} must be a TOML table", path.display()))?;
+    table.insert("provider".to_string(), Value::String(provider.to_string()));
+    table.insert("model".to_string(), Value::String(model.to_string()));
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("Failed to create config dir {}: {err}", parent.display()))?;
+    }
+    let contents = toml::to_string_pretty(&value)
+        .map_err(|err| format!("Failed to serialize config {}: {err}", path.display()))?;
+    fs::write(path, contents)
+        .map_err(|err| format!("Failed to write config {}: {err}", path.display()))
 }
 
 fn load_config_with_env<F>(

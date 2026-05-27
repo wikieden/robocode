@@ -22,25 +22,20 @@ Mainline landed status:
   generic lane adapters, per-lane worktree isolation, explicit accept/apply
   decisions, external terminal/tmux/PTY attach, `/lane send`, and lane log-tail
   replay while reusing the shared `SessionEngine`
+- 0.1.13 default cockpit entry: `robocode` opens the main TUI by default,
+  `--no-tui` keeps the legacy line REPL available for scripts, and `/settings`
+  / `/setup` provide first-run provider/model setup with saved defaults
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Next planned slice (`0.1.12`):
+Current release candidate (`0.1.13`):
 
-- make the `0.1.11` TUI/AgentTask foundation into a real Agent Orchestration
-  Operator Loop, as specified in `docs/release-0.1.12-plan.md`
-- promote provider turns, tool calls, shell/test runs, external lanes, and
-  approvals into one runtime `AgentTask` fact layer
-- make `NOW WORKING`, side-1, side-2, lane detail, and recent evidence agree on
-  the same active/background task state
-- ship a minimal dispatch -> observe -> review -> apply loop for at least one
-  stable external-agent/lane path
-- move `ContextBundle` and token-efficiency work from design into v0
-  implementation: context sources, long-output compaction, token estimates, and
-  per-lane budget fields
-- keep plugin, skill, MCP, and ACP work at the adapter/descriptor/doctor
-  foundation level until the shared permission, transcript, evidence, and token
-  boundaries are solid
+- `docs/release-0.1.13-status.md` records the local RC status and verification.
+- The default TUI entry, first-run provider/model setup, interaction reliability
+  tests, focused lane diff/artifact evidence, main provider ContextBundle
+  injection, and quick release smoke are implemented locally.
+- Public release work remains separate: full package smoke, optional DeepSeek
+  live smoke, tag/release assets, Homebrew tap update, and post-publish checks.
 
 ## Near-Term Plan
 
@@ -48,9 +43,9 @@ Next planned slice (`0.1.12`):
    - Phase 1-7 of the current TUI/lane plan are landed on `main`: cockpit
      layout, theme variants, companion screens, lane runtime, external-tool
      adapters, isolation, and attachable terminal panes.
-   - Continue with the `0.1.12` operator-loop goals: live `NOW WORKING`, shared
-     `AgentTask` state, side-screen controls, tmux/PTY log capture, `/lane send`,
-     and review/apply loops.
+   - `0.1.13` hardening is locally implemented for reliable exits, modal
+     cleanup, lane diff/artifact review, ContextBundle pressure visibility, and
+     release-smoke compatibility with the default TUI entry.
    - Keep lane completion separate from acceptance, and keep apply/cleanup as
      explicit operator actions.
 
@@ -71,8 +66,8 @@ Next planned slice (`0.1.12`):
      output, and reasoning/evidence summaries into RoboCode lane evidence.
    - Use read-only as the default review posture; require explicit permission
      boundaries for write-capable Codex work.
-   - In `0.1.12`, keep this scoped to one stable operator-loop path rather than
-     trying to complete every Codex workflow at once.
+   - In `0.1.13`, make read-only Codex review and Claude template/tmux lanes
+     reproducible before broadening write-capable external-agent workflows.
 
 4. External Coding Tool Adapter Expansion.
    - Keep Codex, Claude Code, DeepSeek, shell, tmux, PTY, and future ACP agents

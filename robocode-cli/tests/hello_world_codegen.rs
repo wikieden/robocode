@@ -25,8 +25,10 @@ fn run_robocode(cwd: &Path, session_home: &Path, args: &[&str], input: &str) -> 
 }
 
 fn run_robocode_args(cwd: &Path, session_home: &Path, args: Vec<String>, input: &str) -> String {
+    let mut cli_args = vec!["--no-tui".to_string()];
+    cli_args.extend(args);
     let mut child = Command::new(env!("CARGO_BIN_EXE_robocode-cli"))
-        .args(args)
+        .args(cli_args)
         .current_dir(cwd)
         .env("ROBOCODE_SESSION_HOME", session_home)
         .stdin(Stdio::piped())
