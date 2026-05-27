@@ -111,6 +111,37 @@ Post-publish validation target:
 scripts/release-smoke.sh --version 0.1.12 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0112-postpublish-check
 ```
 
+Result:
+
+- passed: 10
+- failed: 0
+- skipped: 3
+- evidence: `/tmp/robocode-0112-postpublish-check/release-evidence.json`
+
+## Publish State
+
+`v0.1.12` is published:
+
+- GitHub release: https://github.com/wikieden/robocode/releases/tag/v0.1.12
+- Release workflow: https://github.com/wikieden/robocode/actions/runs/26518796829
+- Release workflow conclusion: `success`
+- Release published at: `2026-05-27T14:49:11Z`
+- Release assets uploaded at: `2026-05-27T14:51:33Z` - `2026-05-27T14:51:35Z`
+- Homebrew tap commit: `3cb201c`
+
+Published assets:
+
+```text
+robocode-v0.1.12-aarch64-apple-darwin.tar.gz
+robocode-v0.1.12-aarch64-apple-darwin.tar.gz.sha256
+robocode-v0.1.12-x86_64-apple-darwin.tar.gz
+robocode-v0.1.12-x86_64-apple-darwin.tar.gz.sha256
+robocode-v0.1.12-x86_64-pc-windows-msvc.tar.gz
+robocode-v0.1.12-x86_64-pc-windows-msvc.tar.gz.sha256
+robocode-v0.1.12-x86_64-unknown-linux-gnu.tar.gz
+robocode-v0.1.12-x86_64-unknown-linux-gnu.tar.gz.sha256
+```
+
 ## Remaining Risks
 
 - Codex/Claude adapters reuse the shared AgentTask/lane shape, but their full

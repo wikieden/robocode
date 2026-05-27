@@ -106,6 +106,37 @@ dist/robocode-v0.1.12-aarch64-apple-darwin.tar.gz
 scripts/release-smoke.sh --version 0.1.12 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0112-postpublish-check
 ```
 
+结果：
+
+- passed: 10
+- failed: 0
+- skipped: 3
+- evidence: `/tmp/robocode-0112-postpublish-check/release-evidence.json`
+
+## 发布状态
+
+`v0.1.12` 已发布：
+
+- GitHub release: https://github.com/wikieden/robocode/releases/tag/v0.1.12
+- Release workflow: https://github.com/wikieden/robocode/actions/runs/26518796829
+- Release workflow conclusion: `success`
+- Release published at: `2026-05-27T14:49:11Z`
+- Release assets uploaded at: `2026-05-27T14:51:33Z` - `2026-05-27T14:51:35Z`
+- Homebrew tap commit: `3cb201c`
+
+发布资产：
+
+```text
+robocode-v0.1.12-aarch64-apple-darwin.tar.gz
+robocode-v0.1.12-aarch64-apple-darwin.tar.gz.sha256
+robocode-v0.1.12-x86_64-apple-darwin.tar.gz
+robocode-v0.1.12-x86_64-apple-darwin.tar.gz.sha256
+robocode-v0.1.12-x86_64-pc-windows-msvc.tar.gz
+robocode-v0.1.12-x86_64-pc-windows-msvc.tar.gz.sha256
+robocode-v0.1.12-x86_64-unknown-linux-gnu.tar.gz
+robocode-v0.1.12-x86_64-unknown-linux-gnu.tar.gz.sha256
+```
+
 ## 剩余风险
 
 - Codex/Claude adapter 已复用共享 AgentTask/lane 形状，但完整 happy path 不作为
