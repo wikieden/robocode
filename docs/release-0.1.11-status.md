@@ -9,9 +9,9 @@ Last updated: 2026-05-27
 `0.1.11` is the TUI Cockpit Reliability + Orchestration Foundation release.
 The version target is documented in [release-0.1.11-plan.md](release-0.1.11-plan.md).
 
-Workspace package version has been bumped to `0.1.11`. Local release-candidate
-validation has passed; GitHub release asset and Homebrew tap validation still
-need to run after publishing.
+Workspace package version has been bumped to `0.1.11`. Local
+release-candidate, GitHub release asset, and Homebrew tap post-publish
+validation have all passed.
 
 ## Main Changes
 
@@ -85,19 +85,64 @@ dist/robocode-v0.1.11-aarch64-apple-darwin.tar.gz
 
 ## Publish State
 
-The local release candidate is complete. This status document does not yet
-record post-publish GitHub release / Homebrew verification.
+`v0.1.11` is published:
 
-After publishing, run:
+- GitHub release: https://github.com/wikieden/robocode/releases/tag/v0.1.11
+- Release workflow: https://github.com/wikieden/robocode/actions/runs/26514419762
+- Release workflow conclusion: `success`
+- Release published at: `2026-05-27T13:32:56Z`
+- Release assets uploaded at: `2026-05-27T13:35:51Z` - `2026-05-27T13:35:52Z`
+- Homebrew tap commit: `8046c32`
+
+Uploaded release assets:
+
+```text
+robocode-v0.1.11-aarch64-apple-darwin.tar.gz
+robocode-v0.1.11-aarch64-apple-darwin.tar.gz.sha256
+robocode-v0.1.11-x86_64-apple-darwin.tar.gz
+robocode-v0.1.11-x86_64-apple-darwin.tar.gz.sha256
+robocode-v0.1.11-x86_64-pc-windows-msvc.tar.gz
+robocode-v0.1.11-x86_64-pc-windows-msvc.tar.gz.sha256
+robocode-v0.1.11-x86_64-unknown-linux-gnu.tar.gz
+robocode-v0.1.11-x86_64-unknown-linux-gnu.tar.gz.sha256
+```
+
+Post-publish validation:
 
 ```bash
 scripts/release-smoke.sh --version 0.1.11 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0111-postpublish-check
+```
+
+Result:
+
+- passed: 10
+- failed: 0
+- skipped: 3
+- evidence: `/tmp/robocode-0111-postpublish-check/release-evidence.json`
+
+Passing post-publish checks:
+
+- `cargo-fmt`
+- `cargo-clippy`
+- `robocode-cli-terminal-tests`
+- `tui-regression`
+- `fallback-cli-smoke`
+- `codex-app-server-protocol-fixture`
+- `codex-app-server-write-guard`
+- `lane-operator-loop-smoke`
+- `github-release-assets-validation`
+- `homebrew-validation`
+
+Homebrew validation confirmed:
+
+```text
+Formula robocode (0.1.11)
+wikieden/tap/robocode 0.1.11
 ```
 
 ## Remaining Risk
 
 - Real-terminal mouse behavior, IME candidate placement, and cursor blinking
   still need manual acceptance in macOS Terminal / iTerm2.
-- GitHub release assets and Homebrew formula need post-publish verification.
 - ACP, MCP mutation, and installable plugin/skill lifecycles remain follow-up
   integration work.

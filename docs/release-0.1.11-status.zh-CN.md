@@ -9,8 +9,8 @@
 `0.1.11` 是 TUI Cockpit Reliability + Orchestration Foundation 版本。
 版本目标见 [release-0.1.11-plan.zh-CN.md](release-0.1.11-plan.zh-CN.md)。
 
-workspace package version 已 bump 到 `0.1.11`。本地 release-candidate 验证已通过；
-GitHub release assets 和 Homebrew tap 验证仍需发布后执行。
+workspace package version 已 bump 到 `0.1.11`。本地 release-candidate、GitHub
+release assets 和 Homebrew tap 发布后验证均已通过。
 
 ## 主要变化
 
@@ -79,17 +79,62 @@ dist/robocode-v0.1.11-aarch64-apple-darwin.tar.gz
 
 ## 发布状态
 
-本地 release candidate 已完成。尚未在本次状态文档中记录 GitHub release / Homebrew
-发布后验证。
+`v0.1.11` 已发布：
 
-发布后应运行：
+- GitHub release: https://github.com/wikieden/robocode/releases/tag/v0.1.11
+- Release workflow: https://github.com/wikieden/robocode/actions/runs/26514419762
+- Release workflow conclusion: `success`
+- Release published at: `2026-05-27T13:32:56Z`
+- Release assets uploaded at: `2026-05-27T13:35:51Z` - `2026-05-27T13:35:52Z`
+- Homebrew tap commit: `8046c32`
+
+上传的 release assets：
+
+```text
+robocode-v0.1.11-aarch64-apple-darwin.tar.gz
+robocode-v0.1.11-aarch64-apple-darwin.tar.gz.sha256
+robocode-v0.1.11-x86_64-apple-darwin.tar.gz
+robocode-v0.1.11-x86_64-apple-darwin.tar.gz.sha256
+robocode-v0.1.11-x86_64-pc-windows-msvc.tar.gz
+robocode-v0.1.11-x86_64-pc-windows-msvc.tar.gz.sha256
+robocode-v0.1.11-x86_64-unknown-linux-gnu.tar.gz
+robocode-v0.1.11-x86_64-unknown-linux-gnu.tar.gz.sha256
+```
+
+发布后验证：
 
 ```bash
 scripts/release-smoke.sh --version 0.1.11 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0111-postpublish-check
 ```
 
+结果：
+
+- passed: 10
+- failed: 0
+- skipped: 3
+- evidence: `/tmp/robocode-0111-postpublish-check/release-evidence.json`
+
+发布后通过的检查：
+
+- `cargo-fmt`
+- `cargo-clippy`
+- `robocode-cli-terminal-tests`
+- `tui-regression`
+- `fallback-cli-smoke`
+- `codex-app-server-protocol-fixture`
+- `codex-app-server-write-guard`
+- `lane-operator-loop-smoke`
+- `github-release-assets-validation`
+- `homebrew-validation`
+
+Homebrew 验证确认：
+
+```text
+Formula robocode (0.1.11)
+wikieden/tap/robocode 0.1.11
+```
+
 ## 剩余风险
 
 - 真实终端鼠标、输入法候选窗和光标闪烁仍需要人工在 macOS Terminal / iTerm2 中验收。
-- GitHub release assets 和 Homebrew formula 需要发布后验证。
 - ACP、MCP mutation、可安装 plugin/skill 生命周期仍是后续集成工作。
