@@ -249,10 +249,21 @@ github_actions_validation() {
 github_release_asset_validation() {
   command -v gh >/dev/null
   local release_json="$OUT_DIR/github-release-v${VERSION}.json"
-  gh release view "v${VERSION}" \
-    --repo wikieden/robocode \
-    --json tagName,url,isDraft,isPrerelease,publishedAt,assets \
-    >"$release_json"
+  local attempt
+  for attempt in 1 2 3; do
+    if gh release view "v${VERSION}" \
+      --repo wikieden/robocode \
+      --json tagName,url,isDraft,isPrerelease,publishedAt,assets \
+      >"$release_json" \
+      && [[ -s "$release_json" ]]; then
+      break
+    fi
+    if [[ "$attempt" == "3" ]]; then
+      printf 'failed to fetch GitHub release metadata for v%s\n' "$VERSION" >&2
+      return 1
+    fi
+    sleep 2
+  done
   python3 - "$release_json" <<'PY'
 import json
 import sys

@@ -11,7 +11,8 @@ version target is documented in [release-0.1.9-plan.md](release-0.1.9-plan.md).
 
 Workspace package version has been bumped to `0.1.9`. Local release-candidate
 validation passed, including clippy-as-gate, full workspace tests, TUI
-regression screenshots, package smoke, and DeepSeek live smoke.
+regression screenshots, package smoke, and DeepSeek live smoke. The GitHub
+release, multi-platform assets, and Homebrew tap are now published and verified.
 
 ## What Changed
 
@@ -21,6 +22,8 @@ regression screenshots, package smoke, and DeepSeek live smoke.
   -D warnings`.
 - Post-publication checks are exposed through opt-in
   `--github-release-assets` and `--homebrew` flags.
+- GitHub release metadata validation now retries transient API fetch failures
+  before failing the release gate.
 - `scripts/tui-regression.sh` exports deterministic screenshot artifacts for
   product review.
 - TUI preview evidence is refreshed for `0.1.9`, and the README system
@@ -91,19 +94,45 @@ robocode-cli 0.1.9
 
 ## Publication Status
 
-Release publication is pending at the time of this status draft. After the tag
-and GitHub release are published, this document should be updated with:
+Published and verified.
 
-- GitHub release URL;
-- release workflow run URL;
-- uploaded asset list;
-- GitHub release asset validation evidence;
-- Homebrew tap commit and validation evidence.
+- GitHub release:
+  [v0.1.9](https://github.com/wikieden/robocode/releases/tag/v0.1.9)
+- Release workflow:
+  [run 26496859443](https://github.com/wikieden/robocode/actions/runs/26496859443)
+- Workflow status: `completed` / `success`
+- Release published at: `2026-05-27T07:19:05Z`
+- Main release commit: `99b3957`
+- Homebrew tap commit: `6796da2`
+
+Uploaded release assets:
+
+- `robocode-v0.1.9-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.9-aarch64-apple-darwin.tar.gz.sha256`
+- `robocode-v0.1.9-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.9-x86_64-apple-darwin.tar.gz.sha256`
+- `robocode-v0.1.9-x86_64-pc-windows-msvc.tar.gz`
+- `robocode-v0.1.9-x86_64-pc-windows-msvc.tar.gz.sha256`
+- `robocode-v0.1.9-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.9-x86_64-unknown-linux-gnu.tar.gz.sha256`
+
+Post-publication validation:
+
+```bash
+scripts/release-smoke.sh --version 0.1.9 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-019-postpublish-check
+```
+
+Result:
+
+- passed: 10
+- failed: 0
+- skipped: 3
+- evidence: `/tmp/robocode-019-postpublish-check/release-evidence.json`
+- Homebrew formula: `wikieden/tap/robocode 0.1.9`
 
 ## Remaining Risks
 
-- Homebrew and GitHub release asset validation require the published `v0.1.9`
-  release and tap update, so they are post-publication checks.
+- No release-blocking risks remain for `0.1.9`.
 - The screenshot gate currently uses deterministic preview SVGs. IME placement,
   live cursor blink, and mouse behavior still require occasional real terminal
   screenshots during feature-specific UI work.
