@@ -3,7 +3,7 @@
 Chinese version: [user-guide.zh-CN.md](user-guide.zh-CN.md)
 
 This guide describes the user-facing features that are available in RoboCode
-`0.1.10`.
+`0.1.11`.
 
 ## Mental Model
 
@@ -72,6 +72,9 @@ Preview flags for visual review:
 - `--tui-preview`
 - `--tui-preview-idle`
 - `--tui-preview-command-palette`
+- `--tui-preview-live-turn`
+- `--tui-preview-resize`
+- `--tui-preview-cjk-input`
 - `--tui-preview-lane`
 - `--tui-preview-side`
 - `--tui-preview-side-2`
@@ -406,7 +409,7 @@ mutation permission path. Skills are task recipes, not direct tools.
 
 ## Release Evidence
 
-For `0.1.10`, the release was verified with:
+For `0.1.11`, the release was verified with:
 
 - full local release smoke with DeepSeek;
 - clippy-as-gate;
@@ -417,10 +420,12 @@ For `0.1.10`, the release was verified with:
 - app-server write guard;
 - lane operator-loop smoke;
 - package archive smoke;
-- GitHub release asset validation;
-- Homebrew formula validation.
+- local 0.1.11 release archive smoke.
 
-See [0.1.10 Status](release-0.1.10-status.md) for evidence paths and release
+GitHub release asset validation and Homebrew formula validation run after the
+GitHub release and tap are published.
+
+See [0.1.11 Status](release-0.1.11-status.md) for evidence paths and release
 asset names.
 
 ## Feedback

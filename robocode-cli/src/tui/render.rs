@@ -116,7 +116,7 @@ fn main_transcript_rows(state: &TuiState, width: usize, max_rows: usize) -> Vec<
 fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
     let status = live_activity_status(state);
     let mut rows = vec![truncate(
-        &format!("  ◎ OPERATION CENTER  {}", status.summary),
+        &format!("  ◎ NOW WORKING  {}", status.summary),
         width,
     )];
     rows.push(truncate(
@@ -640,7 +640,7 @@ mod tests {
 
         let rendered = render_frame(&state, 140, 36);
 
-        assert!(rendered.contains("OPERATION CENTER"));
+        assert!(rendered.contains("NOW WORKING"));
         assert!(rendered.contains("DeepSeek is thinking"));
         assert!(rendered.contains("evidence: AgentTask reply-"));
     }
@@ -656,7 +656,7 @@ mod tests {
 
         let lane_rendered = render_frame(&state, 140, 36);
 
-        assert!(lane_rendered.contains("OPERATION CENTER"));
+        assert!(lane_rendered.contains("NOW WORKING"));
         assert!(lane_rendered.contains("Supervising 2 agents: claude needs input"));
         assert!(lane_rendered.contains("evidence: AgentTask"));
         assert!(lane_rendered.contains("L1 codex testing 64%"));
@@ -928,7 +928,7 @@ mod tests {
                 || first_content.contains("ASSISTANT")
                 || first_content.contains("TOOL")
                 || first_content.contains("APPROVAL")
-                || first_content.contains("OPERATION CENTER"),
+                || first_content.contains("NOW WORKING"),
             "{first_content}"
         );
     }

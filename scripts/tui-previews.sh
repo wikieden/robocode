@@ -165,6 +165,8 @@ cd "$ROOT"
 run_preview main --tui-preview
 run_preview main-idle --tui-preview-idle
 run_preview main-live-turn --tui-preview-live-turn
+run_preview main-resize --tui-preview-resize
+run_preview main-cjk-input --tui-preview-cjk-input
 run_preview main-command-palette --tui-preview-command-palette
 run_preview main-lane --tui-preview-lane
 run_preview side-1 --tui-preview-side
@@ -173,6 +175,8 @@ run_preview side-2 --tui-preview-side-2
 run_ansi_preview main --tui-preview-ansi
 run_ansi_preview main-idle --tui-preview-idle-ansi
 run_ansi_preview main-live-turn --tui-preview-live-turn-ansi
+run_ansi_preview main-resize --tui-preview-resize-ansi
+run_ansi_preview main-cjk-input --tui-preview-cjk-input-ansi
 run_ansi_preview main-command-palette --tui-preview-command-palette-ansi
 run_ansi_preview main-lane --tui-preview-lane-ansi
 run_ansi_preview side-1 --tui-preview-side-ansi
@@ -185,6 +189,8 @@ done
 render_svg_preview "$OUT_DIR/main.ansi" "$OUT_DIR/main.svg"
 render_svg_preview "$OUT_DIR/main-idle.ansi" "$OUT_DIR/main-idle.svg"
 render_svg_preview "$OUT_DIR/main-live-turn.ansi" "$OUT_DIR/main-live-turn.svg"
+render_svg_preview "$OUT_DIR/main-resize.ansi" "$OUT_DIR/main-resize.svg"
+render_svg_preview "$OUT_DIR/main-cjk-input.ansi" "$OUT_DIR/main-cjk-input.svg"
 render_svg_preview "$OUT_DIR/main-command-palette.ansi" "$OUT_DIR/main-command-palette.svg"
 render_svg_preview "$OUT_DIR/main-lane.ansi" "$OUT_DIR/main-lane.svg"
 render_svg_preview "$OUT_DIR/side-1.ansi" "$OUT_DIR/side-1.svg"
@@ -288,6 +294,8 @@ assert_max_char_width() {
 assert_line_count "$OUT_DIR/main.txt" 40
 assert_line_count "$OUT_DIR/main-idle.txt" 40
 assert_line_count "$OUT_DIR/main-live-turn.txt" 40
+assert_line_count "$OUT_DIR/main-resize.txt" 30
+assert_line_count "$OUT_DIR/main-cjk-input.txt" 30
 assert_line_count "$OUT_DIR/main-command-palette.txt" 40
 assert_line_count "$OUT_DIR/main-lane.txt" 40
 assert_line_count "$OUT_DIR/side-1.txt" 40
@@ -296,6 +304,8 @@ assert_line_count "$OUT_DIR/multiscreen.txt" 41
 assert_char_width "$OUT_DIR/main.txt" 140
 assert_char_width "$OUT_DIR/main-idle.txt" 140
 assert_char_width "$OUT_DIR/main-live-turn.txt" 140
+assert_char_width "$OUT_DIR/main-resize.txt" 100
+assert_max_char_width "$OUT_DIR/main-cjk-input.txt" 100
 assert_max_char_width "$OUT_DIR/main-command-palette.txt" 140
 assert_max_char_width "$OUT_DIR/main-lane.txt" 140
 assert_char_width "$OUT_DIR/side-1.txt" 80
@@ -305,6 +315,8 @@ for preview_file in \
   "$OUT_DIR/main.txt" \
   "$OUT_DIR/main-idle.txt" \
   "$OUT_DIR/main-live-turn.txt" \
+  "$OUT_DIR/main-resize.txt" \
+  "$OUT_DIR/main-cjk-input.txt" \
   "$OUT_DIR/main-command-palette.txt" \
   "$OUT_DIR/main-lane.txt" \
   "$OUT_DIR/side-1.txt" \
@@ -322,8 +334,11 @@ assert_contains "$OUT_DIR/main-live-turn.txt" "live provider request"
 assert_contains "$OUT_DIR/main-command-palette.txt" "COMMANDS"
 assert_contains "$OUT_DIR/main-command-palette.txt" "› /git add src/config.rs"
 assert_contains "$OUT_DIR/main-command-palette.txt" "Workspace file"
-assert_contains "$OUT_DIR/main.txt" "OPERATION CENTER"
+assert_contains "$OUT_DIR/main.txt" "NOW WORKING"
 assert_contains "$OUT_DIR/main.txt" "evidence:"
+assert_contains "$OUT_DIR/main-resize.txt" "NOW WORKING"
+assert_contains "$OUT_DIR/main-resize.txt" "Resize-safe redraw check"
+assert_contains "$OUT_DIR/main-cjk-input.txt" "你好，帮我检查当前变更"
 assert_contains "$OUT_DIR/main.txt" "TELEMETRY"
 assert_contains "$OUT_DIR/main.txt" "EVENTS"
 assert_contains "$OUT_DIR/main.txt" "LANES"
@@ -345,6 +360,8 @@ for ansi_file in \
   "$OUT_DIR/main.ansi" \
   "$OUT_DIR/main-idle.ansi" \
   "$OUT_DIR/main-live-turn.ansi" \
+  "$OUT_DIR/main-resize.ansi" \
+  "$OUT_DIR/main-cjk-input.ansi" \
   "$OUT_DIR/main-command-palette.ansi" \
   "$OUT_DIR/main-lane.ansi" \
   "$OUT_DIR/side-1.ansi" \
@@ -354,6 +371,8 @@ done
 assert_ansi_contains "$OUT_DIR/main.ansi" "next wait for test result"
 assert_ansi_contains "$OUT_DIR/main-idle.ansi" "No approval is blocking right now"
 assert_ansi_contains "$OUT_DIR/main-live-turn.ansi" "is thinking"
+assert_ansi_contains "$OUT_DIR/main-resize.ansi" "Resize-safe redraw check"
+assert_ansi_contains "$OUT_DIR/main-cjk-input.ansi" "你好，帮我检查当前变更"
 assert_ansi_contains "$OUT_DIR/main-command-palette.ansi" "COMMANDS"
 assert_ansi_contains "$OUT_DIR/main-lane.ansi" "LANE DETAIL"
 assert_ansi_contains "$OUT_DIR/side-1.ansi" "AGENT LANES"
@@ -374,13 +393,15 @@ Files:
 - \`main.txt\` / \`main.ansi\`
 - \`main-idle.txt\` / \`main-idle.ansi\`
 - \`main-live-turn.txt\` / \`main-live-turn.ansi\`
+- \`main-resize.txt\` / \`main-resize.ansi\`
+- \`main-cjk-input.txt\` / \`main-cjk-input.ansi\`
 - \`main-command-palette.txt\` / \`main-command-palette.ansi\`
 - \`main-lane.txt\` / \`main-lane.ansi\`
-- \`main.svg\` / \`main-idle.svg\` / \`main-live-turn.svg\` / \`main-command-palette.svg\` / \`main-lane.svg\` quick visual screenshots
+- \`main.svg\` / \`main-idle.svg\` / \`main-live-turn.svg\` / \`main-resize.svg\` / \`main-cjk-input.svg\` / \`main-command-palette.svg\` / \`main-lane.svg\` quick visual screenshots
 - \`side-1.txt\` / \`side-1.ansi\` / \`side-1.svg\`
 - \`side-2.txt\` / \`side-2.ansi\` / \`side-2.svg\`
 - \`multiscreen.txt\` combined plain-text workstation preview
 - \`main.<theme>.ansi\` for each generated theme variant
 EOF
 
-wc -l "$OUT_DIR"/main.txt "$OUT_DIR"/main-idle.txt "$OUT_DIR"/main-live-turn.txt "$OUT_DIR"/main-command-palette.txt "$OUT_DIR"/main-lane.txt "$OUT_DIR"/side-1.txt "$OUT_DIR"/side-2.txt
+wc -l "$OUT_DIR"/main.txt "$OUT_DIR"/main-idle.txt "$OUT_DIR"/main-live-turn.txt "$OUT_DIR"/main-resize.txt "$OUT_DIR"/main-cjk-input.txt "$OUT_DIR"/main-command-palette.txt "$OUT_DIR"/main-lane.txt "$OUT_DIR"/side-1.txt "$OUT_DIR"/side-2.txt

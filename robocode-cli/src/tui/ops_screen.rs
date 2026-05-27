@@ -7,7 +7,7 @@ use super::{
     canvas::Frame,
     indicators::progress_bar,
     panel::panel,
-    state::{AgentTask, TuiState, agent_tasks},
+    state::{AgentTask, TuiState, agent_lanes, agent_tasks},
     statusbar::BOTTOM_BAR_HEIGHT,
     text::truncate,
 };
@@ -144,22 +144,35 @@ fn ops_extension_rows(state: &TuiState) -> Vec<String> {
         .filter(|config| matches!(config.status, ConfigStatus::Found))
         .count();
     let skill_count = count_skills(&state.workspace.root);
-    let active_lanes = state
-        .lanes
+    let lanes = agent_lanes(state);
+    let active_lanes = lanes.iter().filter(|lane| lane.is_active()).count();
+    let primary_lane = lanes
         .iter()
-        .filter(|lane| !matches!(lane.status.as_str(), "idle" | "done" | "archived"))
-        .count();
+        .find(|lane| lane.is_active())
+        .map(|lane| {
+            let evidence = lane
+                .evidence
+                .first()
+                .map(String::as_str)
+                .unwrap_or("no evidence");
+            format!(
+                "{} {} {} {} {}",
+                lane.screen,
+                lane.agent,
+                lane.task_id,
+                truncate(&lane.summary, 18),
+                truncate(evidence, 28)
+            )
+        })
+        .unwrap_or_else(|| "main idle no evidence".to_string());
     let mut rows = vec![
         format!(
             "PROVIDER {:<10} {}",
             state.provider_status.connection, state.provider_status.telemetry
         ),
         format!("CATALOG  {} provider(s)", state.provider_catalog.len()),
-        format!(
-            "AGENTS   {} active / {} lane(s)",
-            active_lanes,
-            state.lanes.len()
-        ),
+        format!("AGENTS   {} active / {} lane(s)", active_lanes, lanes.len()),
+        format!("LANE     {}", truncate(&primary_lane, 62)),
         format!("MCP      {} configured config(s)", mcp_ready),
         format!("SKILLS   {} discovered recipe(s)", skill_count),
     ];

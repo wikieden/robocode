@@ -6,6 +6,27 @@
 
 这份路线图把完整的 RoboCode 产品需求翻译成可交付的阶段，而不是按当前仓库历史来倒推。
 
+## 长期定位
+
+RoboCode 的长期定位不是单一 TUI，也不是又一个 coding agent CLI，而是：
+
+> 开箱即用的多 Agent 编排运行时 + 极致 token 效能优化层。
+
+TUI 是第一阶段的主产品形态，因为它最适合承载高密度状态、审批、子 agent lane、
+测试、诊断和多屏监督。只有当 TUI cockpit 和核心 runtime 足够稳定后，才逐步扩展到
+CLI automation、API server、desktop、Web、IDE/ACP adapter 等其他入口。
+
+长期产品支柱：
+
+- 多 Agent 编排：内置 planner、coder、reviewer、tester、researcher、doc writer
+  等角色，并支持 Codex、Claude Code、DeepSeek、shell、MCP tools 和未来 ACP agents。
+- Token 效能引擎：按任务动态构造 context bundle，自动压缩 transcript、裁剪长日志、
+  去重 tool results、控制每个 agent 的 token budget 和成本上限。
+- 共享事实层：所有 agent 读写统一的 facts、events、artifacts、diff、diagnostics、
+  test results 和 user constraints，而不是互相转发整段聊天记录。
+- 多前端形态：TUI 优先；CLI、API、IDE、Web 和 desktop 复用同一套 orchestration
+  runtime，而不是各自实现一套 agent 逻辑。
+
 ## 阶段定义
 
 ### V1：本地核心 CLI
@@ -33,7 +54,7 @@
 ### V2：开发者增强层
 
 目标：
-把本地 CLI 核心提升为真正可日常使用的开发助手。
+把本地 CLI 核心提升为真正可日常使用的 TUI cockpit 和开发助手。
 
 必须具备：
 
@@ -44,6 +65,7 @@
 - LSP 集成
 - memory 与 task 管理
 - 更丰富的 TUI 和交互
+- 主屏实时工作状态与统一 `AgentTask` 视图
 
 退出标准：
 
@@ -51,17 +73,40 @@
 - provider 的增长不再需要反复修改 core-engine
 - 具备超越 grep / file editing 的语义级代码辅助
 - session 和 task 的连续性从“能用”提升到“有意设计”
+- 用户始终能从 TUI 中判断当前 agent 正在做什么、证据来自哪里、下一步可以如何操作
 
-### V3：平台扩展层
+### V3：Agent 编排与 Token 效能层
 
 目标：
-把 RoboCode 从本地 agent CLI 扩展为一个可扩展开发平台。
+把 RoboCode 从单 agent 开发助手升级为多 Agent 编排系统，并把 token 使用效率作为一等产品能力。
+
+必须具备：
+
+- 统一 `AgentTask`、`AgentLane`、`Artifact`、`Evidence` 和 `ContextBundle` 模型
+- planner -> worker -> reviewer -> tester 的默认工作流模板
+- 外部 terminal coding tools 的受监督 lane runtime，例如 Codex、Claude Code、DeepSeek-TUI 和 shell job
+- context bundle builder、semantic file selection、diff-aware context、tool output compaction
+- token budget、model routing、cost dashboard 和 context pressure 可视化
+- TUI 副屏用于真实 agent lanes、tests、diagnostics 和 next actions，而不是装饰性面板
+
+退出标准：
+
+- 用户可以开箱即用地运行多 Agent 编排流程
+- 多个 agent 共享结构化事实和 artifacts，而不是复制完整对话
+- 每个 agent 的 token 消耗、上下文来源、输出证据和下一步动作都可见
+- TUI 已能稳定承载编排过程，其他入口仍可暂缓
+
+### V4：生态与平台扩展层
+
+目标：
+把稳定的多 Agent runtime 扩展为可插拔开发平台，同时保持 TUI 作为主操作面。
 
 必须具备：
 
 - MCP 集成
 - skills 与 plugins
 - 多 Agent 协调
+- ACP / external agent adapter
 - bridge 与 remote session 支持
 - automation 和 cron 风格工作流
 
@@ -70,6 +115,7 @@
 - 外部工具生态可以通过稳定接口接入 RoboCode
 - remote 与集成客户端能复用与本地 session 相同的执行和权限模型
 - 多 Agent 工作流不会绕开 transcript 和权限保证
+- plugin、skill、MCP 和 ACP 都通过统一权限、事实层、token budget 和 evidence 约束
 
 ### 远期平台能力
 
@@ -91,8 +137,10 @@
 ## 优先级规则
 
 - V1 行为是后续所有阶段的基线契约
-- V2 应优先增强本地开发效率，而不是过早平台扩张
-- V3 必须复用 V1 / V2 的执行不变量，而不是引入新的 side-channel runtime
+- V2 应优先把 TUI cockpit 的真实状态、输入体验和编程闭环打稳，而不是过早平台扩张
+- V3 应优先交付开箱即用的多 Agent 编排和 token 效能，而不是只增加更多面板
+- V4 必须复用 V1 / V2 / V3 的执行不变量，而不是引入新的 side-channel runtime
+- TUI 是长期主界面；其他形态必须复用同一 runtime，并在 TUI 主线稳定后再扩展
 - 远期平台能力必须服从核心工作流成熟度
 
 ## 当前仓库映射
@@ -110,11 +158,14 @@ Mainline landed：
 
 Next planned：
 
-- 以 `docs/release-0.1.10-plan.zh-CN.md` 作为当前下一迭代核心：
-  Programming Cockpit Feedback
-- 强化 live provider request evidence、统一 `AgentTask` runtime view、截图证据合同、
-  permission regressions、CI matrix 和 provider compatibility coverage
+- 以 `docs/release-0.1.11-plan.zh-CN.md` 作为当前下一迭代核心：
+  TUI Cockpit Reliability + Orchestration Foundation
+- 强化真实终端 TUI 可靠性、主屏 Now Working 状态、统一 `AgentTask` / `AgentLane`
+  runtime view、截图证据合同、permission regressions、CI matrix 和 provider compatibility
+  coverage
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
 - 0.1.8 的 AgentTask + Live Multi-Agent Cockpit 继续作为被加固的产品基础，而不是另开一条功能方向
+- 0.1.x 后续继续以 TUI cockpit 为主线；0.2.x 开始把 Agent orchestration runtime
+  和 token efficiency engine 作为核心版本目标
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

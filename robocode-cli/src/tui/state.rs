@@ -93,6 +93,56 @@ pub(super) struct AgentTask {
     pub(super) pid: Option<u32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct AgentLane {
+    pub(super) id: String,
+    pub(super) task_id: String,
+    pub(super) agent: String,
+    pub(super) screen: String,
+    pub(super) transport: String,
+    pub(super) status: String,
+    pub(super) summary: String,
+    pub(super) evidence: Vec<String>,
+}
+
+impl AgentLane {
+    fn from_task(task: &AgentTask) -> Self {
+        Self {
+            id: format!("{}:{}", agent_screen(task), task.id),
+            task_id: task.id.clone(),
+            agent: agent_lane_label(task),
+            screen: agent_screen(task).to_string(),
+            transport: task.transport.clone(),
+            status: task.status.clone(),
+            summary: if task.summary.is_empty() {
+                task.activity.clone()
+            } else {
+                task.summary.clone()
+            },
+            evidence: task.evidence.clone(),
+        }
+    }
+
+    pub(super) fn is_active(&self) -> bool {
+        matches!(
+            self.status.as_str(),
+            "queued"
+                | "thinking"
+                | "streaming"
+                | "editing"
+                | "running_tool"
+                | "testing"
+                | "waiting_approval"
+                | "needs_input"
+                | "blocked"
+                | "starting"
+                | "running"
+                | "attached"
+                | "reviewing"
+        )
+    }
+}
+
 impl AgentTask {
     pub(super) fn is_active(&self) -> bool {
         matches!(
@@ -197,6 +247,30 @@ impl AgentTask {
             resume_handle: None,
             pid: None,
         }
+    }
+}
+
+pub(super) fn agent_lanes(state: &TuiState) -> Vec<AgentLane> {
+    agent_tasks(state)
+        .into_iter()
+        .map(|task| AgentLane::from_task(&task))
+        .collect()
+}
+
+fn agent_screen(task: &AgentTask) -> &'static str {
+    match task.agent.as_str() {
+        "codex" | "claude" => "side-1",
+        "shell" => "side-2",
+        _ if task.kind == "test" || task.kind == "diff" => "side-2",
+        _ => "main",
+    }
+}
+
+fn agent_lane_label(task: &AgentTask) -> String {
+    if task.agent == "robocode" && task.kind == "provider" {
+        task.transport.clone()
+    } else {
+        task.agent.clone()
     }
 }
 

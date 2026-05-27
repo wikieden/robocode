@@ -33,13 +33,17 @@ Mainline landed:
 
 Next planned slice:
 
-- use `docs/release-0.1.10-plan.md` as the active programming-cockpit feedback
-  slice.
-- strengthen live provider request evidence, TUI regression snapshots,
-  screenshot-confirmation evidence, `AgentTask`/lane fixtures, permission
-  regressions, CI gates, and provider compatibility coverage.
+- use `docs/release-0.1.11-plan.md` as the active TUI cockpit reliability and
+  orchestration foundation slice.
+- strengthen real-terminal TUI reliability, the main-screen `NOW WORKING`
+  state, TUI regression snapshots, screenshot-confirmation evidence,
+  `AgentTask`/`AgentLane` fixtures, permission regressions, CI gates, and
+  provider compatibility coverage.
 - every user-visible feature point should finish with a real-use screenshot or
   deterministic visual artifact for product review.
+- `docs/context-bundle-token-efficiency.md` defines the `ContextBundle`,
+  compaction policy, and per-agent budget foundation for the 0.2.0 token
+  efficiency engine.
 
 ## Gap vs `.ref/claude-code-main`
 

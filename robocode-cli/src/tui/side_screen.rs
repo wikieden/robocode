@@ -6,7 +6,7 @@ use super::{
         terminal_label,
     },
     panel::panel,
-    state::{TuiState, lane_runtime_evidence},
+    state::{TuiState, agent_lanes, lane_runtime_evidence},
     statusbar::BOTTOM_BAR_HEIGHT,
     text::{pad, truncate},
 };
@@ -53,11 +53,18 @@ pub(super) fn render_side_body(frame: &mut Frame, state: &TuiState) {
 }
 
 pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
-    let active_lanes = state
-        .lanes
+    let lanes = agent_lanes(state);
+    let active_lanes = lanes.iter().filter(|lane| lane.is_active()).count();
+    let route_hint = lanes
         .iter()
-        .filter(|lane| matches!(lane.status.as_str(), "running" | "queued" | "attached"))
-        .count();
+        .find(|lane| lane.is_active())
+        .map(|lane| {
+            format!(
+                "{} {} {} {} {}",
+                lane.screen, lane.id, lane.agent, lane.transport, lane.status
+            )
+        })
+        .unwrap_or_else(|| "main idle".to_string());
     vec![
         format!("PROVIDER  {} / {}", state.provider, state.model),
         format!("WORKSPACE {}", truncate(&state.workspace.display_root, 28)),
@@ -65,8 +72,9 @@ pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
             "SCREENS   main online   {}   {}   lanes {active_lanes}/{}",
             companion_screen_label(state, "side-1"),
             companion_screen_label(state, "side-2"),
-            state.lanes.len()
+            lanes.len()
         ),
+        format!("ROUTE    {}", truncate(&route_hint, 56)),
         format!(
             "TELEMETRY {}   EVENTS {}",
             state.provider_status.telemetry,

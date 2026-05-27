@@ -1,0 +1,30 @@
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ RoboCode  v0.1.11  [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]             │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────┐
+│   ◎ NOW WORKING  OpenAI is thinking                                                              │
+│      ┊  evidence: AgentTask turn-c4f2b7e-live from live provider request                         │
+│      ┊  turn-c4f2b7e-live OpenAI thinking 15% :: Refactor the config loader, then :: signal live │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
+│   ·  ┊  SYSTEM                                                                          13:22:28 │
+│      ┊  RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.                                  │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
+│   ♙  ┊  USER                                                                            13:22:30 │
+│      ┊  Refactor the config loader, then run focused tests.                                      │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
+│   ·  ┊  SYSTEM                                                                          13:22:32 │
+│      ┊  Resize-safe redraw check: stale borders cleared; composer and panels reflow from one     │
+│      ┊  frame.                                                                                   │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                   │              │
+│ › Resize-safe redraw check                                                        │ MODE Code ▾  │
+│                                                                                   │              │
+│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                                             │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 3    ┆ LANES 0  ┆ CONTEXT 128k                  Press ? │

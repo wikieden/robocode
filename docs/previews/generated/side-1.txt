@@ -29,10 +29,10 @@
 │ PROVIDER  openai / gpt-4o                                                    │
 │ WORKSPACE ~/projects/robocode                                                │
 │ SCREENS   main online   side-1 launched:4101   side-2 launched:4102   lanes  │
+│ ROUTE    side-1 side-1:L1 codex template testing                             │
 │ TELEMETRY not sampled   EVENTS 9                                             │
 │ CONTEXT   128k   DIAGNOSTICS 0                                               │
 │ DIAG      ok   THEME aurora-cyan                                             │
-│                                                                              │
 │                                                                              │
 │                                                                              │
 │                                                                              │

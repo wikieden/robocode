@@ -183,7 +183,7 @@ model.
 - The composer uses display-width aware text handling for CJK input, keeps a
   native blinking bar cursor visible in the input row, and reserves a taller
   input well so the prompt remains easy to find during long sessions.
-- The main transcript reserves a fixed `OPERATION CENTER` band at the top. It
+- The main transcript reserves a fixed `NOW WORKING` band at the top. It
   derives status from pending approvals, the unified `AgentTask` view, the
   latest user turn, the latest tool call, or the latest transcript entry, so
   the main screen can show `DeepSeek is thinking`, `Approval needed: ...`,
@@ -241,7 +241,7 @@ model.
   turn, status, approval, resume, command-output, file-change, patch, diff,
   filesystem, error, and final-message evidence. App-server result summaries
   persist final `agentMessage` text as `message:` so `/agent result`, side-2,
-  and `AgentTask` agree on the delegate answer. The main `OPERATION CENTER`
+  and `AgentTask` agree on the delegate answer. The main `NOW WORKING`
   band and right-rail `ACTIVE TASKS` panel read the same job records, so active
   Codex work is visible while the operator keeps typing. ACP readiness is configured through
   `ROBOCODE_AGENT_ACP_COMMAND`; `/agent doctor acp` can run a minimal JSON-RPC

@@ -157,7 +157,7 @@ normalized view，不能各自拼接一套状态。
 - 行级 diff 渲染避免输入时整屏闪烁。
 - composer 已按显示宽度处理中文等 CJK 输入；输入行保持原生 blinking bar
   cursor，并预留更高输入槽，让长会话里也容易找到输入位置。
-- 主 transcript 顶部会保留固定的 `OPERATION CENTER` 区域。它从 pending
+- 主 transcript 顶部会保留固定的 `NOW WORKING` 区域。它从 pending
   approvals、统一 `AgentTask` view、最近 user turn、最近 tool call 或最近
   transcript entry 推导状态，所以主屏可以展示 `reply thinking`、
   `DeepSeek is thinking`、`Approval needed: ...`、`Supervising 2 agents: ...`、
@@ -205,7 +205,7 @@ normalized view，不能各自拼接一套状态。
   提取 thread、turn、status、approval、resume、command-output、file-change、
   patch、diff、filesystem、error 和 final-message evidence。App-server result
   summary 会把最终 `agentMessage` text 持久化为 `message:`，所以 `/agent
-  result`、side-2 和 `AgentTask` 对 delegate answer 的展示保持一致。主窗口 `OPERATION CENTER` 区域和右栏
+  result`、side-2 和 `AgentTask` 对 delegate answer 的展示保持一致。主窗口 `NOW WORKING` 区域和右栏
   `ACTIVE TASKS` panel 会读取同一份 job records，所以 operator 继续输入时也能看到
   Codex 是否仍在工作。ACP readiness 通过 `ROBOCODE_AGENT_ACP_COMMAND` 配置；`/agent doctor acp`
   可以运行最小 JSON-RPC `initialize` handshake，并写入

@@ -28,6 +28,16 @@ pub(crate) fn render_live_turn_preview(provider: &str, model: &str) -> String {
     render::render_frame(&state, 140, 40)
 }
 
+pub(crate) fn render_resize_preview(provider: &str, model: &str) -> String {
+    let state = resize_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 100, 30)
+}
+
+pub(crate) fn render_cjk_input_preview(provider: &str, model: &str) -> String {
+    let state = cjk_input_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 100, 30)
+}
+
 pub(crate) fn render_ansi_preview_with_theme(
     provider: &str,
     model: &str,
@@ -76,6 +86,32 @@ pub(crate) fn render_ansi_live_turn_preview_with_theme(
     let state = live_turn_preview_state(provider, model, theme_name);
     terminal::render_ansi_preview_with_theme(
         &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub(crate) fn render_ansi_resize_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = resize_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 100, 30),
+        Some(theme_name),
+    )
+}
+
+pub(crate) fn render_ansi_cjk_input_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = cjk_input_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 100, 30),
         Some(theme_name),
     )
 }
@@ -384,6 +420,26 @@ fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> Tui
     state
 }
 
+fn resize_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = live_turn_preview_state(provider, model, theme_name);
+    state.input = "Resize-safe redraw check".to_string();
+    state.entries.push(TuiEntry {
+        label: "system".to_string(),
+        body: "Resize-safe redraw check: stale borders cleared; composer and panels reflow from one frame.".to_string(),
+    });
+    state
+}
+
+fn cjk_input_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = idle_preview_state(provider, model, theme_name);
+    state.input = "你好，帮我检查当前变更".to_string();
+    state.entries.push(TuiEntry {
+        label: "user".to_string(),
+        body: "中文输入法候选窗应该靠近 composer 光标，输入区要保持足够高。".to_string(),
+    });
+    state
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,6 +449,8 @@ mod tests {
         let main = render_preview("fallback", "test-local");
         let idle = render_idle_preview("fallback", "test-local");
         let live_turn = render_live_turn_preview("fallback", "test-local");
+        let resize = render_resize_preview("fallback", "test-local");
+        let cjk_input = render_cjk_input_preview("fallback", "test-local");
         let command_palette = render_command_palette_preview("fallback", "test-local");
         let side = render_side_preview("fallback", "test-local");
         let ops = render_ops_preview("fallback", "test-local");
@@ -401,6 +459,9 @@ mod tests {
         assert!(idle.contains("~/projects/robocode"));
         assert!(live_turn.contains("Fallback is thinking"));
         assert!(live_turn.contains("live provider request"));
+        assert!(resize.contains("NOW WORKING"));
+        assert!(resize.contains("Resize-safe redraw check"));
+        assert!(cjk_input.contains("你好，帮我检查当前变更"));
         assert!(main.contains("src/config.rs"));
         assert!(idle.contains("No approval is blocking right now"));
         assert!(command_palette.contains("COMMANDS"));

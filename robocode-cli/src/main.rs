@@ -96,6 +96,42 @@ fn run() -> Result<(), String> {
         }
         return Ok(());
     }
+    if startup.tui_preview_resize || startup.tui_preview_resize_ansi {
+        if startup.tui_preview_resize_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_resize_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_resize_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
+    if startup.tui_preview_cjk_input || startup.tui_preview_cjk_input_ansi {
+        if startup.tui_preview_cjk_input_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_cjk_input_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_cjk_input_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
     if startup.tui_preview_command_palette || startup.tui_preview_command_palette_ansi {
         if startup.tui_preview_command_palette_ansi {
             print!(
@@ -422,6 +458,10 @@ struct StartupOptions {
     tui_preview_idle_ansi: bool,
     tui_preview_live_turn: bool,
     tui_preview_live_turn_ansi: bool,
+    tui_preview_resize: bool,
+    tui_preview_resize_ansi: bool,
+    tui_preview_cjk_input: bool,
+    tui_preview_cjk_input_ansi: bool,
     tui_preview_command_palette: bool,
     tui_preview_command_palette_ansi: bool,
     tui_preview_lane: bool,
@@ -492,6 +532,18 @@ impl StartupOptions {
         }
         if self.tui_preview_live_turn_ansi {
             overrides.push("--tui-preview-live-turn-ansi".to_string());
+        }
+        if self.tui_preview_resize {
+            overrides.push("--tui-preview-resize".to_string());
+        }
+        if self.tui_preview_resize_ansi {
+            overrides.push("--tui-preview-resize-ansi".to_string());
+        }
+        if self.tui_preview_cjk_input {
+            overrides.push("--tui-preview-cjk-input".to_string());
+        }
+        if self.tui_preview_cjk_input_ansi {
+            overrides.push("--tui-preview-cjk-input-ansi".to_string());
         }
         if self.tui_preview_command_palette {
             overrides.push("--tui-preview-command-palette".to_string());
@@ -632,6 +684,18 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--tui-preview-live-turn-ansi" => {
                 options.tui_preview_live_turn_ansi = true;
             }
+            "--tui-preview-resize" => {
+                options.tui_preview_resize = true;
+            }
+            "--tui-preview-resize-ansi" => {
+                options.tui_preview_resize_ansi = true;
+            }
+            "--tui-preview-cjk-input" => {
+                options.tui_preview_cjk_input = true;
+            }
+            "--tui-preview-cjk-input-ansi" => {
+                options.tui_preview_cjk_input_ansi = true;
+            }
             "--tui-preview-command-palette" => {
                 options.tui_preview_command_palette = true;
             }
@@ -714,6 +778,14 @@ fn print_startup_help() {
     println!("                       Print a 140x40 TUI preview with a live provider turn");
     println!("  --tui-preview-live-turn-ansi");
     println!("                       Print a themed ANSI live provider turn preview");
+    println!("  --tui-preview-resize");
+    println!("                       Print a 100x30 resize-redraw TUI preview");
+    println!("  --tui-preview-resize-ansi");
+    println!("                       Print a themed ANSI resize-redraw preview");
+    println!("  --tui-preview-cjk-input");
+    println!("                       Print a 100x30 CJK input and cursor-placement preview");
+    println!("  --tui-preview-cjk-input-ansi");
+    println!("                       Print a themed ANSI CJK input preview");
     println!("  --tui-preview-command-palette");
     println!("                       Print a 140x40 TUI preview with slash command palette");
     println!("  --tui-preview-command-palette-ansi");
@@ -939,6 +1011,32 @@ mod tests {
             vec![
                 "--tui-preview-live-turn".to_string(),
                 "--tui-preview-live-turn-ansi".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_reliability_flags() {
+        let args = vec![
+            "--tui-preview-resize".to_string(),
+            "--tui-preview-resize-ansi".to_string(),
+            "--tui-preview-cjk-input".to_string(),
+            "--tui-preview-cjk-input-ansi".to_string(),
+        ];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_resize);
+        assert!(options.tui_preview_resize_ansi);
+        assert!(options.tui_preview_cjk_input);
+        assert!(options.tui_preview_cjk_input_ansi);
+        assert_eq!(
+            options.summary_overrides(),
+            vec![
+                "--tui-preview-resize".to_string(),
+                "--tui-preview-resize-ansi".to_string(),
+                "--tui-preview-cjk-input".to_string(),
+                "--tui-preview-cjk-input-ansi".to_string()
             ]
         );
     }

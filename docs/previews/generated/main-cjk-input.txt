@@ -1,0 +1,30 @@
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ RoboCode  v0.1.11  [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]             │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────┐
+│   ◎ NOW WORKING  Supervising 1 agent: codex testing                                              │
+│      ┊  evidence: AgentTask L1 from summary patched failing tests; rerunning cargo               │
+│      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing test │
+│      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs    │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
+│      ┊    failure summary:                                                                       │
+│      ┊      - assertion failed in config_tests                                                   │
+│      ┊    failing files:                                                                         │
+│      ┊      - src/config.rs:42:15                                                                │
+│      ┊    output tail:                                                                           │
+│      ┊      thread 'config_tests' panicked at src/config.rs:42:15                                │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
+│   ✣  ┊  ASSISTANT                                                                       13:22:31 │
+│      ┊  No approval is blocking right now. The cockpit stays open for transcript review, input,  │
+│      ┊  diagnostics, and lane status.                                                            │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
+│   ♙  ┊  USER                                                                            13:22:33 │
+│      ┊  中文输入法候选窗应该靠近 composer 光标，输入区要保持足够高。                             │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                   │              │
+│ › 你好，帮我检查当前变更                                                          │ MODE Code ▾  │
+│                                                                                   │              │
+│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                                             │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 10   ┆ LANES 1  ┆ CONTEXT 128k                  Press ? │
