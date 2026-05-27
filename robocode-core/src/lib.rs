@@ -12,6 +12,7 @@ mod lsp_tools;
 mod presentation;
 mod provider_commands;
 mod runtime_loop;
+mod runtime_tasks;
 mod runtime_views;
 mod session_lifecycle;
 mod test_commands;
@@ -28,7 +29,7 @@ use robocode_permissions::PermissionEngine;
 use robocode_session::SessionStore;
 use robocode_tools::ToolRegistry;
 use robocode_types::{
-    MemoryEntry, Message, ModelUsage, PermissionMode, RuntimeSnapshot, TaskRecord,
+    AgentTaskRecord, MemoryEntry, Message, ModelUsage, PermissionMode, RuntimeSnapshot, TaskRecord,
 };
 use robocode_workflows::stores::WorkflowStore;
 
@@ -163,6 +164,7 @@ pub struct SessionEngine {
     last_diff: Option<String>,
     last_test: Option<TestEvidence>,
     runtime_snapshot: RuntimeSnapshot,
+    runtime_tasks: Vec<AgentTaskRecord>,
     provider_telemetry: ProviderTelemetry,
 }
 
@@ -224,6 +226,7 @@ impl SessionEngine {
             last_diff: None,
             last_test: None,
             runtime_snapshot,
+            runtime_tasks: Vec::new(),
             provider_telemetry: ProviderTelemetry::default(),
         };
         engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;

@@ -158,14 +158,19 @@ Mainline landed：
 
 Next planned：
 
-- 以 `docs/release-0.1.11-plan.zh-CN.md` 作为当前下一迭代核心：
-  TUI Cockpit Reliability + Orchestration Foundation
-- 强化真实终端 TUI 可靠性、主屏 Now Working 状态、统一 `AgentTask` / `AgentLane`
-  runtime view、截图证据合同、permission regressions、CI matrix 和 provider compatibility
-  coverage
+- 以 `docs/release-0.1.12-plan.zh-CN.md` 作为当前下一迭代核心：
+  Agent Orchestration Operator Loop
+- 把 `0.1.11` 的 TUI 可靠性、`NOW WORKING`、`AgentTask` / `AgentLane`
+  投影进一步升级为真实运行时事实层，让 provider、tool、shell/test、external lane
+  和 approval 进入统一生命周期
+- 跑通最小 dispatch -> observe -> review -> apply 编程闭环，优先保证一个稳定
+  agent/lane happy path，而不是一次铺满所有 agent 类型
+- side-1 成为 agent/lane 控制台，side-2 成为 evidence/ops 控制台；两者必须与主屏
+  `NOW WORKING` 读取同一状态
+- ContextBundle/token efficiency 从设计进入 v0 实现：context sources、长输出压缩、
+  token estimates、per-lane budget 和 context pressure 可见性
+- plugin、skill、MCP、ACP 继续先做 descriptor / doctor / adapter boundary，不绕开共享
+  permission、transcript、evidence 和 token budget 约束
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
-- 0.1.8 的 AgentTask + Live Multi-Agent Cockpit 继续作为被加固的产品基础，而不是另开一条功能方向
-- 0.1.x 后续继续以 TUI cockpit 为主线；0.2.x 开始把 Agent orchestration runtime
-  和 token efficiency engine 作为核心版本目标
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

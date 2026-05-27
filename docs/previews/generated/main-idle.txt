@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.11  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L1      │
+│ RoboCode  v0.1.12  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L1      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ◎ NOW WORKING  Supervising 1 agent: codex testing                                               │ │ robocode/    ~/projects/robocode   │
@@ -7,14 +7,14 @@
 │      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
 │      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
-│   ♙  ┊  USER                                                                             13:22:25 │ └────────────────────────────────────┘
+│   ♙  ┊  USER                                                                             14:37:22 │ └────────────────────────────────────┘
 │      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ ┌ ACTIVE TASKS ─────────────────── 4 ┐
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ L1 ⛭ codex  s1/pty/01  64%         │
-│   ⚒  ┊  TOOL CALL                                                                        13:22:27 │ │ tool-7 ✎ roboco local-tool/pty/xx  │
+│   ⚒  ┊  TOOL CALL                                                                        14:37:24 │ │ tool-7 ✎ roboco local-tool/pty/xx  │
 │      ┊  [write_file] path: src/config.rs                                                          │ │ ● task_lo/prog Implement load_con  │
 │      ┊               lines: 1-120     gate: waiting                                               │ │ ◆ task_re/block Review config test │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ·  ┊  SYSTEM                                                                           13:22:29 │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
+│   ·  ┊  SYSTEM                                                                           14:37:26 │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
 │      ┊  Test result:                                                                              │ │ diagnostics unavailable            │
 │      ┊    status: failed                                                                          │ │ auto-checks or /lsp diagnostics    │
 │      ┊    exit code: 101                                                                          │ │                                    │
@@ -27,7 +27,7 @@
 │      ┊    output tail:                                                                            │ │ TELEMETRY  awaiting first request  │
 │      ┊      thread 'config_tests' panicked at src/config.rs:42:15                                 │ │                                    │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ✣  ┊  ASSISTANT                                                                        13:22:31 │ ┌ RECENT FILES ──────────────── tail ┐
+│   ✣  ┊  ASSISTANT                                                                        14:37:28 │ ┌ RECENT FILES ──────────────── tail ┐
 │      ┊  No approval is blocking right now. The cockpit stays open for transcript review, input,   │ │ [Rs] src/config.rs         now     │
 │      ┊  diagnostics, and lane status.                                                             │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘

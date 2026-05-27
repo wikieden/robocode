@@ -8,7 +8,7 @@ use std::{
 
 use robocode_core::{EngineEvent, ProviderTelemetry};
 use robocode_model::ProviderDescriptor;
-use robocode_types::{MemoryEntry, TaskRecord};
+use robocode_types::{AgentLaneRecord, AgentNextAction, AgentTaskRecord, MemoryEntry, TaskRecord};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TuiEntry {
@@ -33,6 +33,7 @@ pub(super) struct TuiState {
     pub(super) entries: Vec<TuiEntry>,
     pub(super) workspace: WorkspaceSnapshot,
     pub(super) tasks: Vec<TaskRecord>,
+    pub(super) runtime_tasks: Vec<AgentTask>,
     pub(super) memory: Vec<MemoryEntry>,
     pub(super) screens: Vec<CompanionScreen>,
     pub(super) lanes: Vec<TerminalLane>,
@@ -70,190 +71,127 @@ impl PendingTurn {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct AgentTask {
-    pub(super) id: String,
-    pub(super) parent_id: Option<String>,
-    pub(super) agent: String,
-    pub(super) kind: String,
-    pub(super) transport: String,
-    pub(super) title: String,
-    pub(super) status: String,
-    pub(super) activity: String,
-    pub(super) summary: String,
-    pub(super) progress: u8,
-    pub(super) started_at: Option<u128>,
-    pub(super) updated_at: Option<u128>,
-    pub(super) workspace: Option<String>,
-    pub(super) evidence: Vec<String>,
-    pub(super) permissions: Vec<String>,
-    pub(super) decision: Option<String>,
-    pub(super) result: Option<String>,
-    pub(super) resume_handle: Option<String>,
-    pub(super) pid: Option<u32>,
-}
+pub(super) type AgentTask = AgentTaskRecord;
+pub(super) type AgentLane = AgentLaneRecord;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct AgentLane {
-    pub(super) id: String,
-    pub(super) task_id: String,
-    pub(super) agent: String,
-    pub(super) screen: String,
-    pub(super) transport: String,
-    pub(super) status: String,
-    pub(super) summary: String,
-    pub(super) evidence: Vec<String>,
-}
-
-impl AgentLane {
-    fn from_task(task: &AgentTask) -> Self {
-        Self {
-            id: format!("{}:{}", agent_screen(task), task.id),
-            task_id: task.id.clone(),
-            agent: agent_lane_label(task),
-            screen: agent_screen(task).to_string(),
-            transport: task.transport.clone(),
-            status: task.status.clone(),
-            summary: if task.summary.is_empty() {
-                task.activity.clone()
-            } else {
-                task.summary.clone()
-            },
-            evidence: task.evidence.clone(),
-        }
-    }
-
-    pub(super) fn is_active(&self) -> bool {
-        matches!(
-            self.status.as_str(),
-            "queued"
-                | "thinking"
-                | "streaming"
-                | "editing"
-                | "running_tool"
-                | "testing"
-                | "waiting_approval"
-                | "needs_input"
-                | "blocked"
-                | "starting"
-                | "running"
-                | "attached"
-                | "reviewing"
-        )
+fn agent_lane_from_task(task: &AgentTask) -> AgentLane {
+    AgentLane {
+        id: format!("{}:{}", agent_screen(task), task.id),
+        task_id: task.id.clone(),
+        agent: agent_lane_label(task),
+        screen: agent_screen(task).to_string(),
+        transport: task.transport.clone(),
+        status: task.status.clone(),
+        summary: if task.summary.is_empty() {
+            task.activity.clone()
+        } else {
+            task.summary.clone()
+        },
+        evidence: task.evidence.clone(),
     }
 }
 
-impl AgentTask {
-    pub(super) fn is_active(&self) -> bool {
-        matches!(
-            self.status.as_str(),
-            "queued"
-                | "thinking"
-                | "streaming"
-                | "editing"
-                | "running_tool"
-                | "testing"
-                | "waiting_approval"
-                | "needs_input"
-                | "blocked"
-                | "starting"
-                | "running"
-                | "attached"
-                | "reviewing"
-        )
+fn agent_task_from_lane(lane: &TerminalLane, lane_store: Option<&Path>) -> AgentTask {
+    let status = normalized_lane_status(lane);
+    let activity = lane_activity(lane, &status);
+    let decision = lane_decision(lane);
+    let result = lane_result(lane);
+    AgentTask {
+        id: lane.id.clone(),
+        parent_id: None,
+        agent: agent_label(&lane.tool),
+        kind: "lane".to_string(),
+        transport: lane_transport(&lane.tool, &lane.target).to_string(),
+        title: lane.title.clone(),
+        status,
+        activity,
+        summary: lane.summary.clone(),
+        progress: lane.progress,
+        started_at: None,
+        updated_at: None,
+        workspace: lane
+            .worktree
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string()),
+        evidence: lane_evidence(lane, lane_store),
+        permissions: lane_permissions(lane),
+        decision,
+        result,
+        resume_handle: lane_resume_handle(lane),
+        pid: lane_pid(&lane.target),
+        next_action: lane_next_action_record(lane),
     }
+}
 
-    fn from_lane(lane: &TerminalLane, lane_store: Option<&Path>) -> Self {
-        let status = normalized_lane_status(lane);
-        let activity = lane_activity(lane, &status);
-        let decision = lane_decision(lane);
-        let result = lane_result(lane);
-        Self {
-            id: lane.id.clone(),
-            parent_id: None,
-            agent: agent_label(&lane.tool),
-            kind: "lane".to_string(),
-            transport: lane_transport(&lane.tool, &lane.target).to_string(),
-            title: lane.title.clone(),
-            status,
-            activity,
-            summary: lane.summary.clone(),
-            progress: lane.progress,
-            started_at: None,
-            updated_at: None,
-            workspace: lane
-                .worktree
-                .as_ref()
-                .map(|path| path.to_string_lossy().to_string()),
-            evidence: lane_evidence(lane, lane_store),
-            permissions: lane_permissions(lane),
-            decision,
-            result,
-            resume_handle: lane_resume_handle(lane),
-            pid: lane_pid(&lane.target),
-        }
+fn agent_task_from_codex_job(job: &AgentJob) -> AgentTask {
+    AgentTask {
+        id: job.id.clone(),
+        parent_id: None,
+        agent: "codex".to_string(),
+        kind: "job".to_string(),
+        transport: "app-server".to_string(),
+        title: job.task.clone(),
+        status: normalized_codex_job_status(&job.status),
+        activity: codex_job_activity(job),
+        summary: job.task.clone(),
+        progress: codex_job_progress(job),
+        started_at: None,
+        updated_at: Some(job.updated_at),
+        workspace: None,
+        evidence: job.evidence.clone(),
+        permissions: codex_job_permissions(job),
+        decision: None,
+        result: job
+            .result_path
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string()),
+        resume_handle: codex_resume_handle(job),
+        pid: job.pid,
+        next_action: Some(AgentNextAction {
+            label: "inspect agent".to_string(),
+            command: Some(format!("/agent codex status {}", job.id)),
+            reason: Some("codex job state is available".to_string()),
+        }),
     }
+}
 
-    fn from_codex_job(job: &AgentJob) -> Self {
-        Self {
-            id: job.id.clone(),
-            parent_id: None,
-            agent: "codex".to_string(),
-            kind: "job".to_string(),
-            transport: "app-server".to_string(),
-            title: job.task.clone(),
-            status: normalized_codex_job_status(&job.status),
-            activity: codex_job_activity(job),
-            summary: job.task.clone(),
-            progress: codex_job_progress(job),
-            started_at: None,
-            updated_at: Some(job.updated_at),
-            workspace: None,
-            evidence: job.evidence.clone(),
-            permissions: codex_job_permissions(job),
-            decision: None,
-            result: job
-                .result_path
-                .as_ref()
-                .map(|path| path.to_string_lossy().to_string()),
-            resume_handle: codex_resume_handle(job),
-            pid: job.pid,
-        }
-    }
-
-    fn from_pending_turn(turn: &PendingTurn) -> Self {
-        Self {
-            id: turn.id.clone(),
-            parent_id: None,
-            agent: "robocode".to_string(),
-            kind: "provider".to_string(),
-            transport: turn.provider.clone(),
-            title: turn.prompt.clone(),
-            status: "thinking".to_string(),
-            activity: "thinking through latest prompt".to_string(),
-            summary: format!("{} / {} is processing", turn.provider, turn.model),
-            progress: 15,
-            started_at: Some(turn.started_at),
-            updated_at: Some(turn.started_at),
-            workspace: Some(turn.workspace.clone()),
-            evidence: vec![
-                "live provider request".to_string(),
-                format!("provider {}", turn.provider),
-                format!("model {}", turn.model),
-            ],
-            permissions: Vec::new(),
-            decision: None,
-            result: None,
-            resume_handle: None,
-            pid: None,
-        }
+fn agent_task_from_pending_turn(turn: &PendingTurn) -> AgentTask {
+    AgentTask {
+        id: turn.id.clone(),
+        parent_id: None,
+        agent: "robocode".to_string(),
+        kind: "provider".to_string(),
+        transport: turn.provider.clone(),
+        title: turn.prompt.clone(),
+        status: "thinking".to_string(),
+        activity: "thinking through latest prompt".to_string(),
+        summary: format!("{} / {} is processing", turn.provider, turn.model),
+        progress: 15,
+        started_at: Some(turn.started_at),
+        updated_at: Some(turn.started_at),
+        workspace: Some(turn.workspace.clone()),
+        evidence: vec![
+            "live provider request".to_string(),
+            format!("provider {}", turn.provider),
+            format!("model {}", turn.model),
+        ],
+        permissions: Vec::new(),
+        decision: None,
+        result: None,
+        resume_handle: None,
+        pid: None,
+        next_action: Some(AgentNextAction {
+            label: "watch provider".to_string(),
+            command: Some("/status".to_string()),
+            reason: Some("provider turn is active".to_string()),
+        }),
     }
 }
 
 pub(super) fn agent_lanes(state: &TuiState) -> Vec<AgentLane> {
     agent_tasks(state)
         .into_iter()
-        .map(|task| AgentLane::from_task(&task))
+        .map(|task| agent_lane_from_task(&task))
         .collect()
 }
 
@@ -277,49 +215,32 @@ fn agent_lane_label(task: &AgentTask) -> String {
 pub(super) fn agent_tasks(state: &TuiState) -> Vec<AgentTask> {
     let mut tasks = Vec::new();
     if let Some(turn) = &state.pending_turn {
-        tasks.push(AgentTask::from_pending_turn(turn));
+        tasks.push(agent_task_from_pending_turn(turn));
     }
+    tasks.extend(state.runtime_tasks.iter().cloned());
     tasks.extend(transcript_agent_tasks(state));
     tasks.extend(
         state
             .lanes
             .iter()
-            .map(|lane| AgentTask::from_lane(lane, state.lane_store.as_deref())),
+            .map(|lane| agent_task_from_lane(lane, state.lane_store.as_deref())),
     );
     tasks.extend(
         state
             .workspace
             .agent_jobs
             .iter()
-            .map(AgentTask::from_codex_job),
+            .map(agent_task_from_codex_job),
     );
     tasks.sort_by(|left, right| {
         right
             .is_active()
             .cmp(&left.is_active())
-            .then(task_priority(right).cmp(&task_priority(left)))
+            .then(right.priority().cmp(&left.priority()))
             .then(right.updated_at.cmp(&left.updated_at))
             .then(left.id.cmp(&right.id))
     });
     tasks
-}
-
-fn task_priority(task: &AgentTask) -> u8 {
-    match task.status.as_str() {
-        "waiting_approval" => 100,
-        "blocked" => 95,
-        "needs_input" => 90,
-        "testing" => 80,
-        "editing" => 70,
-        "running_tool" => 60,
-        "thinking" | "streaming" => 50,
-        "queued" => 40,
-        "failed" => 30,
-        "done" => 20,
-        "cancelled" => 10,
-        "archived" => 0,
-        _ => 5,
-    }
 }
 
 fn agent_label(tool: &str) -> String {
@@ -350,6 +271,7 @@ fn normalized_lane_status(lane: &TerminalLane) -> String {
         "running" => infer_work_status(&lane.title, &lane.summary),
         "attached" | "needs_input" => "needs_input".to_string(),
         "reviewing" => "waiting_approval".to_string(),
+        "completed" if lane.worktree.is_some() => "waiting_approval".to_string(),
         "completed" | "done" | "accepted" | "applied" => "done".to_string(),
         "failed" => "failed".to_string(),
         "apply_conflict" => "blocked".to_string(),
@@ -393,12 +315,30 @@ fn lane_artifact_evidence(lane: &TerminalLane, lane_store: Option<&Path>) -> Vec
     };
     let mut evidence = Vec::new();
     let apply_path = artifact_dir.join(format!("{}.apply.md", lane.id));
+    let envelope_path = artifact_dir.join(format!("{}.envelope.md", lane.id));
+    if envelope_path.exists() {
+        evidence.extend(lane_context_evidence(&envelope_path));
+    }
     if apply_path.exists() {
         evidence.extend(lane_markdown_evidence(&apply_path, false));
     }
     let conflict_path = artifact_dir.join(format!("{}.apply-conflict.md", lane.id));
     if conflict_path.exists() {
         evidence.extend(lane_markdown_evidence(&conflict_path, true));
+    }
+    evidence
+}
+
+fn lane_context_evidence(path: &Path) -> Vec<String> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut evidence = Vec::new();
+    if let Some(pressure) = markdown_field(&content, "Context pressure") {
+        evidence.push(format!("context_pressure {pressure}"));
+    }
+    if let Some(tokens) = markdown_field(&content, "Estimated tokens") {
+        evidence.push(format!("context_tokens {tokens}"));
     }
     evidence
 }
@@ -481,6 +421,47 @@ fn lane_result(lane: &TerminalLane) -> Option<String> {
         "completed" | "done" | "accepted" | "applied" | "failed" | "apply_conflict"
     )
     .then(|| lane.summary.clone())
+}
+
+fn lane_next_action_record(lane: &TerminalLane) -> Option<AgentNextAction> {
+    let (label, command, reason) = match lane.status.as_str() {
+        "queued" | "running" | "attached" => (
+            "watch lane",
+            Some(format!("/lane inspect {}", lane.id)),
+            "lane is still active",
+        ),
+        "completed" | "accepted" if lane.worktree.is_some() => (
+            "apply lane",
+            Some(format!("/lane apply {}", lane.id)),
+            "isolated lane has reviewable changes",
+        ),
+        "completed" => (
+            "archive lane",
+            Some(format!("/lane archive {}", lane.id)),
+            "shell lane completed without isolated changes",
+        ),
+        "failed" => (
+            "retry lane",
+            Some(format!("/lane retry {}", lane.id)),
+            "lane failed and can be replayed",
+        ),
+        "apply_conflict" => (
+            "resolve lane",
+            Some(format!("/lane resolve {}", lane.id)),
+            "main workspace and lane patch conflict",
+        ),
+        "applied" => (
+            "cleanup lane",
+            Some(format!("/lane cleanup {}", lane.id)),
+            "applied lane artifacts can be cleaned",
+        ),
+        _ => return None,
+    };
+    Some(AgentNextAction {
+        label: label.to_string(),
+        command,
+        reason: Some(reason.to_string()),
+    })
 }
 
 fn lane_resume_handle(lane: &TerminalLane) -> Option<String> {
@@ -640,6 +621,11 @@ fn agent_task_from_approval(index: usize, entry: &TuiEntry) -> AgentTask {
         result: None,
         resume_handle: None,
         pid: None,
+        next_action: Some(AgentNextAction {
+            label: "approve or deny".to_string(),
+            command: None,
+            reason: Some("approval modal is waiting".to_string()),
+        }),
     }
 }
 
@@ -665,6 +651,11 @@ fn agent_task_from_entry(index: usize, entry: &TuiEntry, state: &TuiState) -> Ag
             result: None,
             resume_handle: None,
             pid: None,
+            next_action: Some(AgentNextAction {
+                label: "watch provider".to_string(),
+                command: Some("/status".to_string()),
+                reason: Some("latest user turn is active".to_string()),
+            }),
         },
         "tool-call" => tool_call_task(index, entry),
         "tool-result" => tool_result_task(index, entry),
@@ -688,6 +679,7 @@ fn agent_task_from_entry(index: usize, entry: &TuiEntry, state: &TuiState) -> Ag
             result: Some(first_line(&entry.body)),
             resume_handle: None,
             pid: None,
+            next_action: None,
         },
         _ if entry.body.contains("Test result:") => test_result_task(index, entry),
         _ if is_diff_view(&entry.body) => diff_view_task(index, entry),
@@ -711,6 +703,7 @@ fn agent_task_from_entry(index: usize, entry: &TuiEntry, state: &TuiState) -> Ag
             result: Some(first_line(&entry.body)),
             resume_handle: None,
             pid: None,
+            next_action: None,
         },
     }
 }
@@ -759,6 +752,11 @@ fn diff_view_task(index: usize, entry: &TuiEntry) -> AgentTask {
         }),
         resume_handle: Some("/diff".to_string()),
         pid: None,
+        next_action: Some(AgentNextAction {
+            label: "review diff".to_string(),
+            command: Some("/diff".to_string()),
+            reason: Some("diff evidence exists".to_string()),
+        }),
     }
 }
 
@@ -795,6 +793,7 @@ fn tool_call_task(index: usize, entry: &TuiEntry) -> AgentTask {
         result: None,
         resume_handle: None,
         pid: None,
+        next_action: None,
     }
 }
 
@@ -827,6 +826,7 @@ fn tool_result_task(index: usize, entry: &TuiEntry) -> AgentTask {
         result: Some(first_line(&entry.body)),
         resume_handle: None,
         pid: None,
+        next_action: None,
     }
 }
 
@@ -879,6 +879,11 @@ fn test_result_task(index: usize, entry: &TuiEntry) -> AgentTask {
         result: Some(status.to_string()),
         resume_handle: None,
         pid: None,
+        next_action: Some(AgentNextAction {
+            label: "rerun test".to_string(),
+            command: Some(format!("/test {command}")),
+            reason: Some("test evidence can be refreshed".to_string()),
+        }),
     }
 }
 
@@ -2733,6 +2738,7 @@ mod tests {
             entries: Vec::new(),
             workspace,
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),
@@ -2788,6 +2794,7 @@ mod tests {
             entries: Vec::new(),
             workspace,
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: vec![TerminalLane {
@@ -2873,6 +2880,7 @@ mod tests {
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: vec![
@@ -2961,6 +2969,7 @@ mod tests {
             }],
             workspace,
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),
@@ -3018,6 +3027,7 @@ mod tests {
             ],
             workspace,
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),
@@ -3073,6 +3083,7 @@ mod tests {
             ],
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),
@@ -3122,6 +3133,7 @@ mod tests {
             }],
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),
@@ -3195,6 +3207,7 @@ mod tests {
             }],
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),
@@ -3255,6 +3268,7 @@ mod tests {
             ],
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),
@@ -3291,6 +3305,7 @@ mod tests {
             }],
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),

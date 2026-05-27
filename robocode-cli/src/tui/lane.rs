@@ -11,6 +11,7 @@ use crate::tui::state::{
     LaneRuntimeEvidence, TerminalLane, TuiEntry, TuiState, lane_runtime_evidence,
     refresh_lane_runtime, save_lanes,
 };
+use robocode_types::{ContextBundleRecord, ContextSourceRecord};
 
 pub(super) fn status_badge(status: &str) -> &'static str {
     match status {
@@ -85,6 +86,7 @@ pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
         Some("close") => close_lane_focus(state),
         Some("inspect") => inspect_lane(parts.next(), state),
         Some("stop") => stop_lane(parts.next(), state),
+        Some("retry") => retry_lane(parts.next(), state),
         Some("accept") => decide_lane("accepted", parts.next(), parts.collect(), state),
         Some("revise") => decide_lane("revise", parts.next(), parts.collect(), state),
         Some("discard") => decide_lane("discarded", parts.next(), parts.collect(), state),
@@ -309,10 +311,224 @@ fn render_lane_envelope(lane: &TerminalLane, state: &TuiState) -> String {
     } else {
         "current workspace"
     };
+    let context_bundle = build_lane_context_bundle(lane, state);
+    let context_sources = context_bundle
+        .sources
+        .iter()
+        .map(|source| {
+            format!(
+                "- {} [{}] ~{} tok: {}",
+                source.name, source.kind, source.estimated_tokens, source.summary
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let largest_sources = list_or_none(&context_bundle.largest_sources);
+    let compaction_notes = list_or_none(&context_bundle.compaction_notes);
     format!(
-        "# RoboCode Lane Task\n\nLane: {}\nTool: {}\nWorkspace: {workspace}\nMutation scope: {mutation_scope}\nSession: {}\nProvider: {}\nModel: {}\n\n## Task\n{}\n\n## Handoff\n- summary\n- files changed\n- tests run\n- remaining risks\n- suggested next step\n\n## Constraints\n- Do not assume access to the full RoboCode transcript.\n- Keep changes scoped to the task.\n- Report commands run and verification evidence.\n",
-        lane.id, lane.tool, state.session_id, state.provider, state.model, lane.title
+        "# RoboCode Lane Task\n\nLane: {}\nTool: {}\nWorkspace: {workspace}\nMutation scope: {mutation_scope}\nSession: {}\nProvider: {}\nModel: {}\n\n## Task\n{}\n\n## ContextBundle v0\nBundle: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\n\n### Sources\n{}\n\n### Largest sources\n{}\n\n### Compaction notes\n{}\n\n## Handoff\n- summary\n- files changed\n- tests run\n- remaining risks\n- suggested next step\n\n## Constraints\n- Do not assume access to the full RoboCode transcript.\n- Use the ContextBundle sources above before asking for more context.\n- Keep changes scoped to the task.\n- Report commands run and verification evidence.\n",
+        lane.id,
+        lane.tool,
+        state.session_id,
+        state.provider,
+        state.model,
+        lane.title,
+        context_bundle.bundle_id,
+        context_bundle.estimated_tokens,
+        context_bundle.pressure_percent(),
+        context_bundle.soft_token_budget,
+        context_bundle.hard_token_limit,
+        if context_sources.is_empty() {
+            "- <none>".to_string()
+        } else {
+            context_sources
+        },
+        largest_sources,
+        compaction_notes
     )
+}
+
+fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBundleRecord {
+    const SOFT_BUDGET: u64 = 24_000;
+    const HARD_LIMIT: u64 = 32_000;
+    let mut sources = vec![
+        context_source(
+            "lane-task",
+            "task",
+            &format!("{} {}", lane.tool, lane.title),
+            240,
+        ),
+        context_source(
+            "workspace",
+            "workspace",
+            &format!(
+                "{} on {} ({} files, {} lines)",
+                state.workspace.display_root,
+                state.workspace.git_branch,
+                state.workspace.file_count,
+                state.workspace.line_count
+            ),
+            320,
+        ),
+    ];
+    if !state.workspace.diagnostics.is_empty() {
+        sources.push(context_source(
+            "diagnostics",
+            "lsp",
+            &compact_lines(&state.workspace.diagnostics.join("\n"), 6),
+            480,
+        ));
+    }
+    if let Some(diff) = latest_entry_body(state, |entry| is_diff_like(&entry.body)) {
+        sources.push(context_source(
+            "latest-diff",
+            "diff",
+            &compact_text(diff, 12),
+            640,
+        ));
+    }
+    if let Some(test) = latest_entry_body(state, |entry| entry.body.contains("Test result:")) {
+        sources.push(context_source(
+            "latest-test",
+            "test",
+            &compact_text(test, 10),
+            520,
+        ));
+    }
+    if let Some(lane_tail) = state
+        .lane_store
+        .as_deref()
+        .and_then(|store| lane_runtime_evidence(store, &lane.id))
+        .map(|evidence| evidence.log_tail.join("\n"))
+        .filter(|tail| !tail.trim().is_empty())
+    {
+        sources.push(context_source(
+            "lane-log-tail",
+            "lane-output",
+            &compact_text(&lane_tail, 16),
+            600,
+        ));
+    }
+    let recent_lanes = state
+        .lanes
+        .iter()
+        .filter(|item| item.id != lane.id)
+        .rev()
+        .take(3)
+        .map(|item| format!("{} {} {}", item.id, item.status, item.summary))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !recent_lanes.is_empty() {
+        sources.push(context_source(
+            "recent-lanes",
+            "lane-summary",
+            &recent_lanes,
+            360,
+        ));
+    }
+    if !state.memory.is_empty() {
+        let memory = state
+            .memory
+            .iter()
+            .take(3)
+            .map(|entry| format!("{} {}", entry.kind, entry.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+        sources.push(context_source("memory", "memory", &memory, 360));
+    }
+    let estimated_tokens = sources.iter().map(|source| source.estimated_tokens).sum();
+    let mut largest_sources = sources
+        .iter()
+        .map(|source| {
+            (
+                source.estimated_tokens,
+                format!("{} {} tok", source.name, source.estimated_tokens),
+            )
+        })
+        .collect::<Vec<_>>();
+    largest_sources.sort_by_key(|source| std::cmp::Reverse(source.0));
+    let largest_sources = largest_sources
+        .into_iter()
+        .take(3)
+        .map(|(_, value)| value)
+        .collect::<Vec<_>>();
+    let mut compaction_notes = vec![
+        "long tool/test/lane output is summarized plus tail".to_string(),
+        "raw transcript and lane logs remain under audit storage".to_string(),
+    ];
+    if estimated_tokens > SOFT_BUDGET {
+        compaction_notes
+            .push("soft budget exceeded; prefer narrower follow-up context".to_string());
+    }
+    ContextBundleRecord {
+        bundle_id: format!("ctx-{}", lane.id),
+        task_id: lane.id.clone(),
+        sources,
+        estimated_tokens,
+        largest_sources,
+        compaction_notes,
+        soft_token_budget: SOFT_BUDGET,
+        hard_token_limit: HARD_LIMIT,
+    }
+}
+
+fn context_source(
+    name: &str,
+    kind: &str,
+    summary: &str,
+    minimum_tokens: u64,
+) -> ContextSourceRecord {
+    ContextSourceRecord {
+        name: name.to_string(),
+        kind: kind.to_string(),
+        estimated_tokens: estimate_tokens(summary).max(minimum_tokens),
+        summary: summary.to_string(),
+    }
+}
+
+fn latest_entry_body(state: &TuiState, predicate: fn(&TuiEntry) -> bool) -> Option<&str> {
+    state
+        .entries
+        .iter()
+        .rev()
+        .find(|entry| predicate(entry))
+        .map(|entry| entry.body.as_str())
+}
+
+fn is_diff_like(body: &str) -> bool {
+    body.starts_with("Latest diff:") || body.starts_with("Git diff:")
+}
+
+fn compact_text(text: &str, max_lines: usize) -> String {
+    compact_lines(text, max_lines)
+}
+
+fn compact_lines(text: &str, max_lines: usize) -> String {
+    let lines = text.lines().collect::<Vec<_>>();
+    if lines.len() <= max_lines {
+        return text.to_string();
+    }
+    let tail = lines[lines.len().saturating_sub(max_lines)..].join("\n");
+    format!(
+        "[summary] {} line(s) compacted; tail follows\n{tail}",
+        lines.len()
+    )
+}
+
+fn estimate_tokens(text: &str) -> u64 {
+    (text.chars().count() as u64).saturating_add(3) / 4
+}
+
+fn list_or_none(items: &[String]) -> String {
+    if items.is_empty() {
+        "- <none>".to_string()
+    } else {
+        items
+            .iter()
+            .map(|item| format!("- {item}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 fn start_background_lane(
@@ -2130,6 +2346,54 @@ fn stop_lane(id: Option<&str>, state: &mut TuiState) {
     });
 }
 
+fn retry_lane(id: Option<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(previous) = state
+        .lanes
+        .iter()
+        .find(|lane| lane.id.eq_ignore_ascii_case(id))
+        .cloned()
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    let mut lane = TerminalLane {
+        id: format!("L{}", state.lanes.len() + 1),
+        tool: previous.tool.clone(),
+        title: previous.title.clone(),
+        status: "queued".to_string(),
+        target: "main".to_string(),
+        progress: 0,
+        summary: format!("retry of {}", previous.id),
+        worktree: None,
+    };
+    if previous.worktree.is_some() && !matches!(lane.tool.as_str(), "run" | "shell") {
+        lane.summary = format!(
+            "retry of {}; preparing fresh isolated worktree",
+            previous.id
+        );
+    }
+    let lane = maybe_start_lane_adapter(lane, state);
+    let body = format!(
+        "Retried lane `{}` as `{}` using `{}` for `{}`.",
+        previous.id, lane.id, lane.tool, lane.title
+    );
+    state.focused_lane = Some(lane.id.clone());
+    state.lanes.push(lane);
+    persist_lanes(state);
+    state.entries.push(TuiEntry {
+        label: "system".to_string(),
+        body,
+    });
+}
+
 #[cfg(unix)]
 fn configure_lane_process_group(command: &mut Command) {
     command.process_group(0);
@@ -2205,7 +2469,7 @@ pub(super) fn refresh_lanes(state: &mut TuiState) {
 fn push_lane_usage(state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane ask <tool> <task> | /lane inspect <id> | /lane stop <id> | /lane attach <id> | /lane tmux <id> | /lane pty <id> | /lane send <id> <text> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane archive <id> | /lane cleanup <id> [--force] | /lane close"
+        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane ask <tool> <task> | /lane inspect <id> | /lane stop <id> | /lane retry <id> | /lane attach <id> | /lane tmux <id> | /lane pty <id> | /lane send <id> <text> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane archive <id> | /lane cleanup <id> [--force] | /lane close"
             .to_string(),
     });
 }
@@ -2240,6 +2504,7 @@ mod tests {
             pending_turn: None,
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),
@@ -3324,6 +3589,59 @@ mod tests {
         assert!(inspect.body.contains("fail-line"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_envelope_includes_context_bundle_sources_and_pressure() {
+        let mut state = test_state();
+        state.workspace.diagnostics = vec!["src/lib.rs:1:1 warning unused".to_string()];
+        state.entries.push(TuiEntry {
+            label: "command".to_string(),
+            body: "Test result:\n  status: passed\n  command: cargo test\n  duration: 42ms"
+                .to_string(),
+        });
+        let lane = TerminalLane {
+            id: "L9".to_string(),
+            tool: "codex".to_string(),
+            title: "review context bundle".to_string(),
+            status: "queued".to_string(),
+            target: "main".to_string(),
+            progress: 0,
+            summary: "waiting".to_string(),
+            worktree: None,
+        };
+
+        let envelope = render_lane_envelope(&lane, &state);
+
+        assert!(envelope.contains("## ContextBundle v0"));
+        assert!(envelope.contains("Context pressure:"));
+        assert!(envelope.contains("latest-test [test]"));
+        assert!(envelope.contains("diagnostics [lsp]"));
+        assert!(envelope.contains("raw transcript and lane logs remain"));
+    }
+
+    #[test]
+    fn lane_retry_requeues_previous_lane_task() {
+        let _env = ScopedEnv::unset("ROBOCODE_LANE_CODEX_TEMPLATE");
+        let mut state = test_state();
+        state.lanes.push(TerminalLane {
+            id: "L1".to_string(),
+            tool: "codex".to_string(),
+            title: "fix failure".to_string(),
+            status: "failed".to_string(),
+            target: "main".to_string(),
+            progress: 100,
+            summary: "exit 1".to_string(),
+            worktree: None,
+        });
+
+        assert!(handle_tui_command("/lane retry L1", &mut state));
+
+        assert_eq!(state.lanes.len(), 2);
+        assert_eq!(state.lanes[1].id, "L2");
+        assert_eq!(state.lanes[1].tool, "codex");
+        assert_eq!(state.lanes[1].title, "fix failure");
+        assert!(state.entries[0].body.contains("Retried lane `L1` as `L2`"));
     }
 
     #[test]

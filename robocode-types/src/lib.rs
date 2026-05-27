@@ -21,6 +21,8 @@ pub type ToolInput = BTreeMap<String, String>;
 pub type TaskId = String;
 pub type MemoryId = String;
 pub type LspServerId = String;
+pub type AgentTaskId = String;
+pub type AgentLaneId = String;
 
 pub fn now_timestamp() -> u64 {
     SystemTime::now()
@@ -46,6 +48,220 @@ pub fn truncate_for_preview(input: &str, max_chars: usize) -> String {
         collected.push_str("...");
     }
     collected
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentTaskStatus {
+    Queued,
+    Thinking,
+    Streaming,
+    Editing,
+    RunningTool,
+    Testing,
+    WaitingApproval,
+    NeedsInput,
+    Blocked,
+    Reviewing,
+    Running,
+    Attached,
+    Done,
+    Applied,
+    Discarded,
+    Failed,
+    Cancelled,
+    Archived,
+}
+
+impl AgentTaskStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Thinking => "thinking",
+            Self::Streaming => "streaming",
+            Self::Editing => "editing",
+            Self::RunningTool => "running_tool",
+            Self::Testing => "testing",
+            Self::WaitingApproval => "waiting_approval",
+            Self::NeedsInput => "needs_input",
+            Self::Blocked => "blocked",
+            Self::Reviewing => "reviewing",
+            Self::Running => "running",
+            Self::Attached => "attached",
+            Self::Done => "done",
+            Self::Applied => "applied",
+            Self::Discarded => "discarded",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+            Self::Archived => "archived",
+        }
+    }
+
+    pub fn parse(input: &str) -> Option<Self> {
+        match input.trim() {
+            "queued" => Some(Self::Queued),
+            "thinking" | "starting" => Some(Self::Thinking),
+            "streaming" => Some(Self::Streaming),
+            "editing" => Some(Self::Editing),
+            "running_tool" | "tool" => Some(Self::RunningTool),
+            "testing" => Some(Self::Testing),
+            "waiting_approval" | "approval" => Some(Self::WaitingApproval),
+            "needs_input" | "input" => Some(Self::NeedsInput),
+            "blocked" | "apply_conflict" => Some(Self::Blocked),
+            "reviewing" => Some(Self::Reviewing),
+            "running" => Some(Self::Running),
+            "attached" => Some(Self::Attached),
+            "done" | "completed" | "accepted" => Some(Self::Done),
+            "applied" => Some(Self::Applied),
+            "discarded" | "detached" | "stopped" => Some(Self::Discarded),
+            "failed" => Some(Self::Failed),
+            "cancelled" | "canceled" => Some(Self::Cancelled),
+            "archived" => Some(Self::Archived),
+            _ => None,
+        }
+    }
+
+    pub fn is_active(self) -> bool {
+        matches!(
+            self,
+            Self::Queued
+                | Self::Thinking
+                | Self::Streaming
+                | Self::Editing
+                | Self::RunningTool
+                | Self::Testing
+                | Self::WaitingApproval
+                | Self::NeedsInput
+                | Self::Blocked
+                | Self::Reviewing
+                | Self::Running
+                | Self::Attached
+        )
+    }
+
+    pub fn priority(self) -> u8 {
+        match self {
+            Self::WaitingApproval => 100,
+            Self::Blocked => 95,
+            Self::NeedsInput => 90,
+            Self::Reviewing => 85,
+            Self::Testing => 80,
+            Self::Editing => 70,
+            Self::RunningTool | Self::Running | Self::Attached => 60,
+            Self::Thinking | Self::Streaming => 50,
+            Self::Queued => 40,
+            Self::Failed => 30,
+            Self::Done | Self::Applied | Self::Discarded => 20,
+            Self::Cancelled => 10,
+            Self::Archived => 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentTaskEvidence {
+    pub kind: String,
+    pub summary: String,
+    pub path: Option<String>,
+    pub timestamp: Option<u128>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentNextAction {
+    pub label: String,
+    pub command: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentTaskRecord {
+    pub id: AgentTaskId,
+    pub parent_id: Option<AgentTaskId>,
+    pub agent: String,
+    pub kind: String,
+    pub transport: String,
+    pub title: String,
+    pub status: String,
+    pub activity: String,
+    pub summary: String,
+    pub progress: u8,
+    pub started_at: Option<u128>,
+    pub updated_at: Option<u128>,
+    pub workspace: Option<String>,
+    pub evidence: Vec<String>,
+    pub permissions: Vec<String>,
+    pub decision: Option<String>,
+    pub result: Option<String>,
+    pub resume_handle: Option<String>,
+    pub pid: Option<u32>,
+    pub next_action: Option<AgentNextAction>,
+}
+
+impl AgentTaskRecord {
+    pub fn status_kind(&self) -> AgentTaskStatus {
+        AgentTaskStatus::parse(&self.status).unwrap_or(AgentTaskStatus::Done)
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.status_kind().is_active()
+    }
+
+    pub fn priority(&self) -> u8 {
+        self.status_kind().priority()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentLaneRecord {
+    pub id: AgentLaneId,
+    pub task_id: AgentTaskId,
+    pub agent: String,
+    pub screen: String,
+    pub transport: String,
+    pub status: String,
+    pub summary: String,
+    pub evidence: Vec<String>,
+}
+
+impl AgentLaneRecord {
+    pub fn is_active(&self) -> bool {
+        AgentTaskStatus::parse(&self.status)
+            .map(AgentTaskStatus::is_active)
+            .unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ContextSourceRecord {
+    pub name: String,
+    pub kind: String,
+    pub estimated_tokens: u64,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ContextBundleRecord {
+    pub bundle_id: String,
+    pub task_id: AgentTaskId,
+    pub sources: Vec<ContextSourceRecord>,
+    pub estimated_tokens: u64,
+    pub largest_sources: Vec<String>,
+    pub compaction_notes: Vec<String>,
+    pub soft_token_budget: u64,
+    pub hard_token_limit: u64,
+}
+
+impl ContextBundleRecord {
+    pub fn pressure_percent(&self) -> u8 {
+        if self.hard_token_limit == 0 {
+            return 0;
+        }
+        let percent = self
+            .estimated_tokens
+            .saturating_mul(100)
+            .saturating_div(self.hard_token_limit);
+        percent.min(100) as u8
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

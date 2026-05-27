@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use super::*;
-use robocode_types::{ApprovalResponse, ToolInput};
+use robocode_types::{AgentTaskStatus, ApprovalResponse, ToolInput};
 
 const TEST_OUTPUT_TAIL_LINES: usize = 12;
 
@@ -19,6 +19,14 @@ impl SessionEngine {
         }
 
         let command = args.join(" ");
+        let running_task = self.test_task(
+            &command,
+            AgentTaskStatus::Testing,
+            format!("running test `{command}`"),
+            20,
+            None,
+        );
+        self.upsert_agent_task(running_task);
         let mut input = ToolInput::new();
         input.insert("command".to_string(), command.clone());
 
@@ -32,7 +40,7 @@ impl SessionEngine {
             extract_failure_details(&result.output)
         };
         let evidence = TestEvidence {
-            command,
+            command: command.clone(),
             status: if result.success {
                 "passed".to_string()
             } else {
@@ -46,6 +54,29 @@ impl SessionEngine {
         };
         let rendered = render_test_evidence(&evidence);
         self.last_test = Some(evidence);
+        let final_task = self.test_task(
+            &command,
+            if self
+                .last_test
+                .as_ref()
+                .map(|evidence| evidence.status == "passed")
+                .unwrap_or(false)
+            {
+                AgentTaskStatus::Done
+            } else {
+                AgentTaskStatus::Failed
+            },
+            format!(
+                "test {}",
+                self.last_test
+                    .as_ref()
+                    .map(|evidence| evidence.status.as_str())
+                    .unwrap_or("finished")
+            ),
+            100,
+            self.last_test.as_ref(),
+        );
+        self.upsert_agent_task(final_task);
         Ok(rendered)
     }
 

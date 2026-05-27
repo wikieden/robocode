@@ -25,26 +25,22 @@ Mainline landed status:
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Next planned slice (`0.1.8`):
+Next planned slice (`0.1.12`):
 
-- make Codex the first-class reference external-agent backend, using
-  OpenAI's Claude Code Codex plugin as the product reference for setup,
-  review, rescue/task, background status, result replay, cancellation, and
-  resume flows
-- turn the cockpit into a live programming workbench: a unified AgentTask
-  model for lanes and delegated Codex jobs, a main-screen operation center
-  that answers what RoboCode is doing now, stable composer/IME/cursor behavior,
-  resize redraw, and approval overlay cleanup
-- make programming evidence first-class: `/test` results, edit summaries,
-  diff/review entry points, side-2 ops evidence, and recent evidence timelines
-- harden external-agent lanes into an operator loop: normalized AgentTask states,
-  `/lane inspect`, `/lane send`, revise/accept/discard/apply decisions, and
-  real side-1 next actions
-- define the extension foundation for plugins, skills, MCP, tools, and agents:
-  descriptor shape, diagnostics, health, entrypoints, and permission/runtime
-  boundaries
-- continue the ACP direction after the Codex adapter proves the concrete
-  protocol-backed job/evidence model
+- make the `0.1.11` TUI/AgentTask foundation into a real Agent Orchestration
+  Operator Loop, as specified in `docs/release-0.1.12-plan.md`
+- promote provider turns, tool calls, shell/test runs, external lanes, and
+  approvals into one runtime `AgentTask` fact layer
+- make `NOW WORKING`, side-1, side-2, lane detail, and recent evidence agree on
+  the same active/background task state
+- ship a minimal dispatch -> observe -> review -> apply loop for at least one
+  stable external-agent/lane path
+- move `ContextBundle` and token-efficiency work from design into v0
+  implementation: context sources, long-output compaction, token estimates, and
+  per-lane budget fields
+- keep plugin, skill, MCP, and ACP work at the adapter/descriptor/doctor
+  foundation level until the shared permission, transcript, evidence, and token
+  boundaries are solid
 
 ## Near-Term Plan
 
@@ -52,9 +48,9 @@ Next planned slice (`0.1.8`):
    - Phase 1-7 of the current TUI/lane plan are landed on `main`: cockpit
      layout, theme variants, companion screens, lane runtime, external-tool
      adapters, isolation, and attachable terminal panes.
-   - Continue hardening with the `0.1.8` live cockpit goals: operation center,
-     composer usability, resize behavior, long-lived side screens, tmux/PTY log
-     capture, `/lane send`, and operator review/apply loops.
+   - Continue with the `0.1.12` operator-loop goals: live `NOW WORKING`, shared
+     `AgentTask` state, side-screen controls, tmux/PTY log capture, `/lane send`,
+     and review/apply loops.
    - Keep lane completion separate from acceptance, and keep apply/cleanup as
      explicit operator actions.
 
@@ -75,6 +71,8 @@ Next planned slice (`0.1.8`):
      output, and reasoning/evidence summaries into RoboCode lane evidence.
    - Use read-only as the default review posture; require explicit permission
      boundaries for write-capable Codex work.
+   - In `0.1.12`, keep this scoped to one stable operator-loop path rather than
+     trying to complete every Codex workflow at once.
 
 4. External Coding Tool Adapter Expansion.
    - Keep Codex, Claude Code, DeepSeek, shell, tmux, PTY, and future ACP agents

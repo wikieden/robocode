@@ -2,7 +2,7 @@
 
 英文版： [user-guide.md](user-guide.md)
 
-本文档说明 RoboCode `0.1.11` 已经真实支持的用户功能。
+本文档说明 RoboCode `0.1.12` 已经真实支持的用户功能。
 
 ## 心智模型
 
@@ -387,7 +387,7 @@ RoboCode 现在能发现这些 extension surfaces：
 
 ## Release Evidence
 
-`0.1.11` 通过了：
+`0.1.12` 通过了：
 
 - full local release smoke with DeepSeek；
 - clippy-as-gate；
@@ -398,12 +398,12 @@ RoboCode 现在能发现这些 extension surfaces：
 - app-server write guard；
 - lane operator-loop smoke；
 - package archive smoke；
-- 本地 0.1.11 release archive smoke。
+- 本地 0.1.12 release archive smoke。
 
 GitHub release asset validation 和 Homebrew formula validation 需要在发布到
 GitHub release / tap 后再执行。
 
-证据路径和 release asset 名称见 [0.1.11 状态](release-0.1.11-status.zh-CN.md)。
+证据路径和 release asset 名称见 [0.1.12 状态](release-0.1.12-status.zh-CN.md)。
 
 ## 问题反馈
 

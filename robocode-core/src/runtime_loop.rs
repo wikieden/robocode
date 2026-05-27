@@ -9,8 +9,8 @@ use robocode_model::ModelRequestControl;
 use robocode_permissions::PermissionEngine;
 use robocode_tools::ToolExecutionContext;
 use robocode_types::{
-    ApprovalResponse, Message, ModelEvent, ModelRequest, PermissionDecision, PermissionLogEntry,
-    Role, ToolCall, ToolResult, TranscriptEntry, fresh_id, now_timestamp,
+    AgentTaskStatus, ApprovalResponse, Message, ModelEvent, ModelRequest, PermissionDecision,
+    PermissionLogEntry, Role, ToolCall, ToolResult, TranscriptEntry, fresh_id, now_timestamp,
 };
 
 impl SessionEngine {
@@ -48,8 +48,20 @@ impl SessionEngine {
         self.store_entry(TranscriptEntry::Message {
             message: user_message,
         })?;
+        let mut provider_task = self.provider_task(
+            trimmed,
+            AgentTaskStatus::Thinking,
+            "thinking through latest prompt",
+            15,
+        );
+        self.upsert_agent_task(provider_task.clone());
 
         for _ in 0..8 {
+            provider_task.status = AgentTaskStatus::Thinking.as_str().to_string();
+            provider_task.activity = "waiting for provider response".to_string();
+            provider_task.progress = provider_task.progress.max(20);
+            provider_task.updated_at = Some(now_millis());
+            self.upsert_agent_task(provider_task.clone());
             let request = ModelRequest {
                 session_id: self.session_id().to_string(),
                 model: self.provider.model().to_string(),
@@ -71,6 +83,12 @@ impl SessionEngine {
                 Err(err) => {
                     self.provider_telemetry
                         .record_failure(request_started.elapsed(), &err);
+                    provider_task.status = AgentTaskStatus::Failed.as_str().to_string();
+                    provider_task.activity = format!("provider error: {err}");
+                    provider_task.progress = 100;
+                    provider_task.updated_at = Some(now_millis());
+                    provider_task.result = Some(err.clone());
+                    self.upsert_agent_task(provider_task);
                     return Err(err);
                 }
             };
@@ -82,6 +100,11 @@ impl SessionEngine {
                         if content.trim().is_empty() {
                             continue;
                         }
+                        provider_task.status = AgentTaskStatus::Streaming.as_str().to_string();
+                        provider_task.activity = "streaming assistant response".to_string();
+                        provider_task.progress = provider_task.progress.max(65);
+                        provider_task.updated_at = Some(now_millis());
+                        self.upsert_agent_task(provider_task.clone());
                         observed_text = true;
                         let assistant = Message::new(Role::Assistant, &content);
                         self.messages.push(assistant.clone());
@@ -90,6 +113,11 @@ impl SessionEngine {
                     }
                     ModelEvent::ToolCall(call) => {
                         observed_tool_call = true;
+                        provider_task.status = AgentTaskStatus::RunningTool.as_str().to_string();
+                        provider_task.activity = format!("requested tool `{}`", call.name);
+                        provider_task.progress = provider_task.progress.max(75);
+                        provider_task.updated_at = Some(now_millis());
+                        self.upsert_agent_task(provider_task.clone());
                         let _ = self.handle_tool_call(call, approver, &mut events)?;
                     }
                     ModelEvent::Usage(_) => {}
@@ -100,6 +128,12 @@ impl SessionEngine {
                 break;
             }
         }
+        provider_task.status = AgentTaskStatus::Done.as_str().to_string();
+        provider_task.activity = "provider turn complete".to_string();
+        provider_task.progress = 100;
+        provider_task.updated_at = Some(now_millis());
+        provider_task.result = Some("turn complete".to_string());
+        self.upsert_agent_task(provider_task);
 
         Ok(events)
     }
@@ -120,6 +154,16 @@ impl SessionEngine {
             .spec(&call.name)
             .ok_or_else(|| format!("Model requested unknown tool `{}`", call.name))?;
         self.store_entry(TranscriptEntry::ToolCall { call: call.clone() })?;
+        let encoded_input = robocode_types::encode_tool_input(&call.input);
+        let mut task = self.tool_task(
+            &call.id,
+            &call.name,
+            &encoded_input,
+            AgentTaskStatus::RunningTool,
+            "checking permissions",
+            15,
+        );
+        self.upsert_agent_task(task.clone());
         let mut assistant_input = call.input.clone();
         if let Some(reasoning_content) = reasoning_content {
             assistant_input.insert(
@@ -141,12 +185,18 @@ impl SessionEngine {
         })?;
         events.push(EngineEvent::ToolCall(format!(
             "{} {}",
-            call.name,
-            robocode_types::encode_tool_input(&call.input)
+            call.name, encoded_input
         )));
 
         let mut decision = self.permissions.decide(&tool_spec, &call.input);
         if let PermissionDecision::Ask(ask) = &decision {
+            task.status = AgentTaskStatus::WaitingApproval.as_str().to_string();
+            task.activity = format!("waiting for approval: `{}`", call.name);
+            task.progress = 35;
+            task.permissions
+                .push("operator approval required".to_string());
+            task.updated_at = Some(now_millis());
+            self.upsert_agent_task(task.clone());
             let prompt = PermissionEngine::prompt_for(&call.name, ask, &call.input);
             let approval = approver(prompt);
             decision = self.permissions.apply_approval(approval, ask);
@@ -163,6 +213,12 @@ impl SessionEngine {
                         message: allow.accept_feedback.clone(),
                     },
                 })?;
+                task.status = AgentTaskStatus::RunningTool.as_str().to_string();
+                task.activity = format!("running `{}`", call.name);
+                task.progress = 55;
+                task.decision = Some("allow".to_string());
+                task.updated_at = Some(now_millis());
+                self.upsert_agent_task(task.clone());
                 let result = self.tools.execute(
                     &call,
                     &ToolExecutionContext {
@@ -178,6 +234,24 @@ impl SessionEngine {
                     None
                 };
                 self.persist_tool_result(&result)?;
+                task.status = if result.success {
+                    AgentTaskStatus::Done.as_str().to_string()
+                } else {
+                    AgentTaskStatus::Failed.as_str().to_string()
+                };
+                task.activity = if result.success {
+                    format!("`{}` completed", call.name)
+                } else {
+                    format!("`{}` failed", call.name)
+                };
+                task.progress = 100;
+                task.result = Some(result.output.clone());
+                task.evidence.push(format!("success {}", result.success));
+                if let Some(code) = result.exit_code {
+                    task.evidence.push(format!("exit_code {code}"));
+                }
+                task.updated_at = Some(now_millis());
+                self.upsert_agent_task(task);
                 events.push(EngineEvent::ToolResult(result.output.clone()));
                 if let Some(message) = post_edit_diagnostics {
                     let system_message = Message::new(Role::System, message.clone());
@@ -203,6 +277,13 @@ impl SessionEngine {
                         message: Some(deny.message.clone()),
                     },
                 })?;
+                task.status = AgentTaskStatus::Cancelled.as_str().to_string();
+                task.activity = format!("denied `{}`", call.name);
+                task.progress = 100;
+                task.decision = Some("deny".to_string());
+                task.result = Some(deny.message.clone());
+                task.updated_at = Some(now_millis());
+                self.upsert_agent_task(task);
                 let rendered_denial = render_permission_denial(&call.name, &reason, &deny.message);
                 let result = ToolResult {
                     tool_call_id: call.id.clone(),
@@ -339,4 +420,8 @@ fn add_optional(left: Option<u64>, right: Option<u64>) -> Option<u64> {
         (Some(value), None) | (None, Some(value)) => Some(value),
         (None, None) => None,
     }
+}
+
+fn now_millis() -> u128 {
+    u128::from(now_timestamp()) * 1000
 }

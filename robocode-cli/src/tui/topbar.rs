@@ -245,6 +245,7 @@ mod tests {
             }],
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::new(),

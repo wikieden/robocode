@@ -323,7 +323,7 @@ const SKILL_COMMANDS: [CommandTemplate; 1] = [CommandTemplate {
     summary: "List local skills",
 }];
 
-const LANE_COMMANDS: [CommandTemplate; 19] = [
+const LANE_COMMANDS: [CommandTemplate; 20] = [
     CommandTemplate {
         command: "/lane codex",
         summary: "Start Codex lane",
@@ -347,6 +347,10 @@ const LANE_COMMANDS: [CommandTemplate; 19] = [
     CommandTemplate {
         command: "/lane stop",
         summary: "Stop running lane",
+    },
+    CommandTemplate {
+        command: "/lane retry",
+        summary: "Retry lane task",
     },
     CommandTemplate {
         command: "/lane attach",
@@ -402,9 +406,10 @@ const LANE_COMMANDS: [CommandTemplate; 19] = [
     },
 ];
 
-const LANE_ID_COMMANDS: [&str; 14] = [
+const LANE_ID_COMMANDS: [&str; 15] = [
     "/lane inspect",
     "/lane stop",
+    "/lane retry",
     "/lane attach",
     "/lane tmux",
     "/lane pty",
@@ -1599,6 +1604,7 @@ mod tests {
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: TerminalLane::preview_lanes(),

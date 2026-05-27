@@ -127,6 +127,13 @@ fn ops_context_rows(state: &TuiState) -> Vec<String> {
             state.provider_status.context_window, configured_mcp_count
         ),
     ];
+    if let Some(pressure) = agent_tasks(state)
+        .into_iter()
+        .flat_map(|task| task.evidence)
+        .find_map(|item| item.strip_prefix("context_pressure ").map(str::to_string))
+    {
+        rows.push(format!("BUNDLE  pressure {pressure}"));
+    }
     rows.extend(mcp_configs.iter().take(3).map(|config| {
         format!(
             "MCP     {:<10} {:<7} {}",
@@ -446,6 +453,7 @@ mod tests {
             entries: Vec::<TuiEntry>::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: TerminalLane::preview_lanes(),

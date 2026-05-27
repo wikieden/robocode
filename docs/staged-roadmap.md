@@ -187,19 +187,23 @@ Mainline landed:
 
 Next planned:
 
-- use `docs/release-0.1.11-plan.md` as the active next-iteration core:
-  TUI Cockpit Reliability + Orchestration Foundation
-- strengthen real-terminal TUI reliability, the main-screen Now Working state,
-  the shared `AgentTask` / `AgentLane` runtime view, screenshot evidence
-  contract, permission regressions, CI matrix, and provider compatibility
-  coverage
+- use `docs/release-0.1.12-plan.md` as the active next-iteration core:
+  Agent Orchestration Operator Loop
+- turn the `0.1.11` TUI reliability, `NOW WORKING`, and `AgentTask` /
+  `AgentLane` projections into a real runtime fact layer covering provider,
+  tool, shell/test, external lane, and approval lifecycles
+- ship the smallest stable dispatch -> observe -> review -> apply programming
+  loop before broadening the agent matrix
+- make side-1 the agent/lane console and side-2 the evidence/ops console, both
+  backed by the same state as the main `NOW WORKING` area
+- move ContextBundle/token efficiency from design into v0 implementation:
+  context sources, long-output compaction, token estimates, per-lane budgets,
+  and visible context pressure
+- keep plugin, skill, MCP, and ACP work at the descriptor / doctor / adapter
+  boundary level until shared permission, transcript, evidence, and token-budget
+  boundaries are solid
 - require a real-use screenshot or deterministic visual artifact for every
   user-visible feature before it is marked complete
-- keep the 0.1.8 AgentTask + Live Multi-Agent Cockpit work as the product
-  foundation being hardened rather than start a separate feature direction
-- keep 0.1.x focused on the TUI cockpit; begin treating the agent
-  orchestration runtime and token-efficiency engine as the core 0.2.x product
-  target
 
 That does not change the roadmap ordering. It means RoboCode has moved beyond an
 early V1-only repository state, but later phases should still be pulled

@@ -33,17 +33,17 @@ Mainline landed:
 
 Next planned slice:
 
-- use `docs/release-0.1.11-plan.md` as the active TUI cockpit reliability and
-  orchestration foundation slice.
-- strengthen real-terminal TUI reliability, the main-screen `NOW WORKING`
-  state, TUI regression snapshots, screenshot-confirmation evidence,
-  `AgentTask`/`AgentLane` fixtures, permission regressions, CI gates, and
-  provider compatibility coverage.
+- use `docs/release-0.1.12-plan.md` as the active Agent Orchestration Operator
+  Loop slice.
+- promote provider turns, tool calls, shell/test runs, external lanes, and
+  approvals into one runtime `AgentTask` fact layer that feeds `NOW WORKING`,
+  side-1, side-2, lane detail, and recent evidence.
+- ship a minimal dispatch -> observe -> review -> apply loop for at least one
+  stable external-agent/lane path.
 - every user-visible feature point should finish with a real-use screenshot or
   deterministic visual artifact for product review.
-- `docs/context-bundle-token-efficiency.md` defines the `ContextBundle`,
-  compaction policy, and per-agent budget foundation for the 0.2.0 token
-  efficiency engine.
+- move the `ContextBundle`, compaction policy, token estimates, and per-agent
+  budgets from design into a v0 implementation.
 
 ## Gap vs `.ref/claude-code-main`
 

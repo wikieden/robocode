@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::{DependencyStatus, DoctorReport, EngineEvent, SessionEngine};
 use robocode_model::ProviderHost;
-use robocode_types::ApprovalResponse;
+use robocode_types::{AgentTaskStatus, ApprovalResponse};
 
 use super::{SequenceProvider, temp_dir};
 
@@ -360,6 +360,15 @@ fn test_command_records_last_test_evidence_in_status() {
                 && text.contains("passed")
                 && text.contains("echo robocode-test-ok")
     )));
+    let snapshot = engine.agent_task_snapshot();
+    assert!(snapshot.iter().any(|task| {
+        task.kind == "test"
+            && task.status == AgentTaskStatus::Done.as_str()
+            && task
+                .evidence
+                .iter()
+                .any(|item| item == "command echo robocode-test-ok")
+    }));
 }
 
 #[test]

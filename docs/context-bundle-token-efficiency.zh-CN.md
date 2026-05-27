@@ -7,7 +7,8 @@
 ## 目标
 
 RoboCode 的多 Agent 编排不能依赖“把完整 transcript 发给每个 agent”。
-`ContextBundle` 是 0.1.11 为 0.2.0 token efficiency engine 预留的共享上下文模型。
+`ContextBundle` 是共享上下文模型：先作为设计落地，再于 `0.1.12` 首次接入 deterministic
+lane envelope。
 
 它的目标是：
 
@@ -57,16 +58,18 @@ RoboCode 的多 Agent 编排不能依赖“把完整 transcript 发给每个 age
 4. 最近 lane summary。
 5. 历史 transcript 摘要。
 
-## TUI 展示
+## 0.1.12 Runtime Slice
 
-0.1.11 的 TUI 至少要展示：
+`0.1.12` 中，ContextBundle v0 已在 delegated lane envelope 中变成真实对象：
 
-- 当前 context window。
-- provider 上报的 token usage。
-- `NOW WORKING` 的 evidence 来源。
-- side-2 的 MCP/context 区域显示 context pressure 和配置来源。
+- `/lane run` 和 `/lane ask <tool> <task>` 会把 ContextBundle 元数据写入 lane envelope。
+- lane envelope 包含 context sources、estimated tokens、largest sources、compaction notes、
+  soft budget、hard limit 和 context pressure。
+- 长 test/tool/lane output 做 summary + tail；原始 transcript 和 lane logs 继续作为审计事实保存。
+- side-2 可从 lane evidence 展示 context pressure。
+- 主 provider prompt 路径本版本仍只记录 context pressure 可见性，暂不使用 ContextBundle 改写 prompt construction。
 
-0.2.0 再把 `ContextBundle` 变成真实 runtime 对象，并让每个 agent turn 都能输出：
+0.2.0 再让每个 agent turn 都能输出：
 
 - `bundle_id`
 - included sources

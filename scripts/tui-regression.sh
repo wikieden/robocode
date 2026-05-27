@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${1:-"$ROOT/docs/previews/generated"}"
 SCREENSHOT_DIR="$OUT_DIR/screenshots"
-VERSION="${ROBOCODE_TUI_SCREENSHOT_VERSION:-0.1.11}"
+VERSION="${ROBOCODE_TUI_SCREENSHOT_VERSION:-0.1.12}"
 
 mkdir -p "$SCREENSHOT_DIR"
 

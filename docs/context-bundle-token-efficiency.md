@@ -7,8 +7,9 @@ Last updated: 2026-05-27
 ## Goal
 
 RoboCode's multi-agent orchestration should not depend on sending the full
-transcript to every agent. `ContextBundle` is the shared context model reserved
-in 0.1.11 for the 0.2.0 token-efficiency engine.
+transcript to every agent. `ContextBundle` is the shared context model that
+started as design groundwork and is first wired into deterministic lane
+envelopes in `0.1.12`.
 
 Its goals are:
 
@@ -61,17 +62,21 @@ When context pressure is high, keep this priority order:
 4. recent lane summaries
 5. historical transcript summaries
 
-## TUI Surface
+## 0.1.12 Runtime Slice
 
-In 0.1.11, the TUI should at least show:
+In `0.1.12`, ContextBundle v0 is concrete for delegated lane envelopes:
 
-- current context window
-- provider-reported token usage
-- evidence source for `NOW WORKING`
-- context pressure and configuration source in the side-2 MCP/context area
+- `/lane run` and `/lane ask <tool> <task>` write ContextBundle metadata into
+  the lane envelope
+- lane envelopes include context sources, estimated tokens, largest sources,
+  compaction notes, soft budget, hard limit, and context pressure
+- long test/tool/lane output is summarized plus tail; raw transcript and lane
+  logs remain in audit storage
+- side-2 can surface context pressure from lane evidence
+- the main provider prompt path still records context pressure visibility rather
+  than using ContextBundle for prompt construction
 
-In 0.2.0, `ContextBundle` becomes a concrete runtime object and every agent turn
-should be able to report:
+In 0.2.0, every agent turn should be able to report:
 
 - `bundle_id`
 - included sources

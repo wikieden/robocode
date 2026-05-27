@@ -3,7 +3,7 @@
 Chinese version: [user-guide.zh-CN.md](user-guide.zh-CN.md)
 
 This guide describes the user-facing features that are available in RoboCode
-`0.1.11`.
+`0.1.12`.
 
 ## Mental Model
 
@@ -409,7 +409,7 @@ mutation permission path. Skills are task recipes, not direct tools.
 
 ## Release Evidence
 
-For `0.1.11`, the release was verified with:
+For `0.1.12`, the release was verified with:
 
 - full local release smoke with DeepSeek;
 - clippy-as-gate;
@@ -420,12 +420,12 @@ For `0.1.11`, the release was verified with:
 - app-server write guard;
 - lane operator-loop smoke;
 - package archive smoke;
-- local 0.1.11 release archive smoke.
+- local 0.1.12 release archive smoke.
 
 GitHub release asset validation and Homebrew formula validation run after the
 GitHub release and tap are published.
 
-See [0.1.11 Status](release-0.1.11-status.md) for evidence paths and release
+See [0.1.12 Status](release-0.1.12-status.md) for evidence paths and release
 asset names.
 
 ## Feedback

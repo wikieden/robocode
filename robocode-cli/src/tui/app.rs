@@ -159,6 +159,7 @@ fn initial_state(
         }],
         workspace,
         tasks,
+        runtime_tasks: engine.agent_task_snapshot(),
         memory,
         screens,
         lanes,
@@ -211,6 +212,7 @@ fn handle_enter(
     state.provider_catalog = provider_catalog(engine);
     state.provider_status = ProviderStatus::from_telemetry(&engine.provider_telemetry());
     state.tasks = engine.active_task_snapshot().unwrap_or_default();
+    state.runtime_tasks = engine.agent_task_snapshot();
     state.memory = engine.memory_snapshot().unwrap_or_default();
     state.workspace = WorkspaceSnapshot::load_current();
     Ok(false)
@@ -355,6 +357,7 @@ mod tests {
             }],
             workspace,
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::<TerminalLane>::new(),
@@ -416,6 +419,7 @@ mod tests {
             entries: Vec::new(),
             workspace,
             tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
             memory: Vec::new(),
             screens: Vec::new(),
             lanes: Vec::<TerminalLane>::new(),

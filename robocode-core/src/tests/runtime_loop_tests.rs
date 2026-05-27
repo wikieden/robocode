@@ -7,7 +7,8 @@ use crate::{EngineEvent, SessionEngine};
 use robocode_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use robocode_model::{ModelProvider, ModelRequestControl};
 use robocode_types::{
-    ApprovalResponse, ModelEvent, ModelRequest, ModelUsage, PermissionMode, ToolCall, ToolInput,
+    AgentTaskStatus, ApprovalResponse, ModelEvent, ModelRequest, ModelUsage, PermissionMode,
+    ToolCall, ToolInput,
 };
 
 use super::{SequenceProvider, temp_dir};
@@ -34,6 +35,12 @@ fn single_turn_text_response_is_recorded() {
             .iter()
             .any(|event| matches!(event, EngineEvent::Assistant(text) if text.contains("hello")))
     );
+    let snapshot = engine.agent_task_snapshot();
+    assert!(snapshot.iter().any(|task| {
+        task.kind == "provider"
+            && task.status == AgentTaskStatus::Done.as_str()
+            && task.title == "hi"
+    }));
 }
 
 #[test]
@@ -181,6 +188,13 @@ fn tool_loop_executes_and_reinjects_result() {
     assert!(events.iter().any(
         |event| matches!(event, EngineEvent::Assistant(text) if text.contains("Tool finished"))
     ));
+    let snapshot = engine.agent_task_snapshot();
+    assert!(snapshot.iter().any(|task| {
+        task.id == "tool-tool_read"
+            && task.kind == "tool"
+            && task.status == AgentTaskStatus::Done.as_str()
+            && task.evidence.iter().any(|item| item == "success true")
+    }));
 }
 
 #[test]

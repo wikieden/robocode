@@ -80,6 +80,76 @@ fn workflow_records_are_serializable() {
 }
 
 #[test]
+fn agent_task_status_maps_operator_priority() {
+    assert_eq!(
+        AgentTaskStatus::parse("reviewing"),
+        Some(AgentTaskStatus::Reviewing)
+    );
+    assert_eq!(
+        AgentTaskStatus::parse("apply_conflict"),
+        Some(AgentTaskStatus::Blocked)
+    );
+    assert!(AgentTaskStatus::WaitingApproval.is_active());
+    assert!(AgentTaskStatus::WaitingApproval.priority() > AgentTaskStatus::RunningTool.priority());
+    assert!(!AgentTaskStatus::Done.is_active());
+}
+
+#[test]
+fn agent_task_and_context_records_roundtrip_json() {
+    let task = AgentTaskRecord {
+        id: "lane-1".to_string(),
+        parent_id: None,
+        agent: "shell".to_string(),
+        kind: "lane".to_string(),
+        transport: "template".to_string(),
+        title: "cargo test".to_string(),
+        status: AgentTaskStatus::Running.as_str().to_string(),
+        activity: "running cargo test".to_string(),
+        summary: "operator lane".to_string(),
+        progress: 42,
+        started_at: Some(1),
+        updated_at: Some(2),
+        workspace: Some("/tmp/work".to_string()),
+        evidence: vec!["log lane-1.log".to_string()],
+        permissions: vec!["shell approval".to_string()],
+        decision: None,
+        result: None,
+        resume_handle: Some("tmux attach -t rc-lane-1".to_string()),
+        pid: Some(1234),
+        next_action: Some(AgentNextAction {
+            label: "inspect".to_string(),
+            command: Some("/lane inspect lane-1".to_string()),
+            reason: Some("running lane".to_string()),
+        }),
+    };
+    assert!(task.is_active());
+    assert_eq!(task.priority(), AgentTaskStatus::Running.priority());
+
+    let bundle = ContextBundleRecord {
+        bundle_id: "ctx-lane-1".to_string(),
+        task_id: task.id.clone(),
+        sources: vec![ContextSourceRecord {
+            name: "latest-test".to_string(),
+            kind: "test".to_string(),
+            estimated_tokens: 200,
+            summary: "tail compacted".to_string(),
+        }],
+        estimated_tokens: 200,
+        largest_sources: vec!["latest-test 200 tok".to_string()],
+        compaction_notes: vec!["raw transcript preserved".to_string()],
+        soft_token_budget: 800,
+        hard_token_limit: 1000,
+    };
+    assert_eq!(bundle.pressure_percent(), 20);
+
+    let encoded = serde_json::to_string(&(task, bundle)).unwrap();
+    let (decoded_task, decoded_bundle): (AgentTaskRecord, ContextBundleRecord) =
+        serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded_task.agent, "shell");
+    assert_eq!(decoded_bundle.sources[0].kind, "test");
+}
+
+#[test]
 fn lsp_diagnostic_roundtrips_json() {
     let diagnostic = LspDiagnostic {
         path: "src/lib.rs".to_string(),
