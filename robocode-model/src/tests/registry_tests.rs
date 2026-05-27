@@ -29,7 +29,7 @@ fn provider_kind_parse_roundtrips_builtin_provider_ids() {
         "ollama",
         "fallback",
     ] {
-        let kind = ProviderKind::parse(&provider_id)
+        let kind = ProviderKind::parse(provider_id)
             .expect("every builtin provider id should parse through shared metadata");
         assert_eq!(builtin_provider_id(kind), provider_id.to_string());
     }

@@ -24,10 +24,10 @@ pub(crate) fn parse_anthropic_events(response: &str) -> Option<Vec<ModelEvent>> 
                 tool_calls.push(ModelEvent::ToolCall(ToolCall { id, name, input }));
             }
             "text" => {
-                if let Some(text) = block.get("text").and_then(Value::as_str) {
-                    if !text.trim().is_empty() {
-                        text_parts.push(text.to_string());
-                    }
+                if let Some(text) = block.get("text").and_then(Value::as_str)
+                    && !text.trim().is_empty()
+                {
+                    text_parts.push(text.to_string());
                 }
             }
             _ => {}
@@ -99,15 +99,15 @@ pub(crate) fn parse_openai_stream_events(response: &str) -> Option<Vec<ModelEven
         let value: Value = serde_json::from_str(payload).ok()?;
         usage = merge_usage(usage, parse_openai_usage(&value));
         let delta = value.get("choices")?.as_array()?.first()?.get("delta")?;
-        if let Some(content) = delta.get("content").and_then(Value::as_str) {
-            if !content.is_empty() {
-                text_parts.push(content.to_string());
-            }
+        if let Some(content) = delta.get("content").and_then(Value::as_str)
+            && !content.is_empty()
+        {
+            text_parts.push(content.to_string());
         }
-        if let Some(reasoning) = delta.get("reasoning_content").and_then(Value::as_str) {
-            if !reasoning.is_empty() {
-                reasoning_parts.push(reasoning.to_string());
-            }
+        if let Some(reasoning) = delta.get("reasoning_content").and_then(Value::as_str)
+            && !reasoning.is_empty()
+        {
+            reasoning_parts.push(reasoning.to_string());
         }
         if let Some(delta_tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
             for tool_call in delta_tool_calls {
@@ -148,27 +148,26 @@ pub(crate) fn parse_openai_stream_events(response: &str) -> Option<Vec<ModelEven
 pub(crate) fn parse_ollama_events(response: &str) -> Option<Vec<ModelEvent>> {
     let value: Value = serde_json::from_str(response).ok()?;
     let usage = parse_ollama_usage(&value);
-    if let Some(message) = value.get("message") {
-        if let Some(content) = message.get("content").and_then(Value::as_str) {
-            if !content.trim().is_empty() {
-                return Some(with_usage(
-                    vec![ModelEvent::AssistantText {
-                        content: content.to_string(),
-                    }],
-                    usage,
-                ));
-            }
-        }
+    if let Some(message) = value.get("message")
+        && let Some(content) = message.get("content").and_then(Value::as_str)
+        && !content.trim().is_empty()
+    {
+        return Some(with_usage(
+            vec![ModelEvent::AssistantText {
+                content: content.to_string(),
+            }],
+            usage,
+        ));
     }
-    if let Some(content) = value.get("response").and_then(Value::as_str) {
-        if !content.trim().is_empty() {
-            return Some(with_usage(
-                vec![ModelEvent::AssistantText {
-                    content: content.to_string(),
-                }],
-                usage,
-            ));
-        }
+    if let Some(content) = value.get("response").and_then(Value::as_str)
+        && !content.trim().is_empty()
+    {
+        return Some(with_usage(
+            vec![ModelEvent::AssistantText {
+                content: content.to_string(),
+            }],
+            usage,
+        ));
     }
     None
 }
@@ -386,10 +385,10 @@ fn joined_non_empty(parts: &[String]) -> Option<String> {
 }
 
 fn extract_openai_content(message: &Value) -> Option<String> {
-    if let Some(content) = message.get("content").and_then(Value::as_str) {
-        if !content.trim().is_empty() {
-            return Some(content.to_string());
-        }
+    if let Some(content) = message.get("content").and_then(Value::as_str)
+        && !content.trim().is_empty()
+    {
+        return Some(content.to_string());
     }
     if let Some(parts) = message.get("content").and_then(Value::as_array) {
         let text = parts

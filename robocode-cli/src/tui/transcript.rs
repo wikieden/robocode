@@ -78,10 +78,7 @@ fn structured_tool_call(line: &str, width: usize) -> Vec<String> {
             truncate(line, width.saturating_sub(7))
         )];
     };
-    let (path, lines) = rest
-        .split_once(" lines: ")
-        .map(|(path, lines)| (path, lines))
-        .unwrap_or((rest, "-"));
+    let (path, lines) = rest.split_once(" lines: ").unwrap_or((rest, "-"));
     let content_width = width.saturating_sub(5);
     vec![
         format!(

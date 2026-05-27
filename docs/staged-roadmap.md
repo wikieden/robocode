@@ -116,14 +116,15 @@ Mainline landed:
 
 Next planned:
 
-- use `docs/release-0.1.8-plan.md` as the active next-iteration core:
-  AgentTask + Live Multi-Agent Cockpit
-- establish a unified `AgentTask` runtime model so RoboCode primary replies,
-  tool/test/approval work, Codex jobs, Claude/DeepSeek/tmux/PTY lanes, and
-  future ACP agents share one status, evidence, and decision language
-- continue the main operation center, programming evidence, agent lane operator
-  loop, usable extension diagnostics, and ACP adapter spike from that core
-- finish provider compatibility coverage across the expanded provider matrix, using DeepSeek V4 as the strict compatibility contract
+- use `docs/release-0.1.9-plan.md` as the active next-iteration core:
+  Verification Hardening + Screenshot-Gated UX
+- strengthen the release gate, TUI regression harness, screenshot evidence
+  contract, `AgentTask`/lane fixtures, permission regressions, CI matrix, and
+  provider compatibility coverage
+- require a real-use screenshot or deterministic visual artifact for every
+  user-visible feature before it is marked complete
+- keep the 0.1.8 AgentTask + Live Multi-Agent Cockpit work as the product
+  foundation being hardened rather than start a separate feature direction
 
 That does not change the roadmap ordering. It means RoboCode has moved beyond an
 early V1-only repository state, but later phases should still be pulled

@@ -18,7 +18,7 @@ pub enum ProviderKind {
 impl ProviderKind {
     pub fn parse(input: &str) -> Option<Self> {
         let normalized = input.trim().to_ascii_lowercase();
-        builtin_provider_kind(&normalized).or_else(|| match normalized.as_str() {
+        builtin_provider_kind(&normalized).or(match normalized.as_str() {
             "openai_compatible" | "compat" => Some(Self::OpenAiCompatible),
             "local" => Some(Self::Fallback),
             _ => None,

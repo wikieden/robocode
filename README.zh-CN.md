@@ -40,7 +40,7 @@ robocode --help
 
 ### Release 压缩包
 
-从 [RoboCode v0.1.8](https://github.com/wikieden/robocode/releases/tag/v0.1.8)
+从 [RoboCode v0.1.9](https://github.com/wikieden/robocode/releases/tag/v0.1.9)
 下载 release 压缩包。
 
 当前 release targets：
@@ -53,7 +53,7 @@ robocode --help
 macOS 或 Linux 安装：
 
 ```bash
-VERSION=0.1.8
+VERSION=0.1.9
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -64,7 +64,7 @@ robocode-cli --help
 Windows PowerShell 安装：
 
 ```powershell
-$Version = "0.1.8"
+$Version = "0.1.9"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -168,6 +168,9 @@ README 只保留产品介绍和使用入口。架构与实现细节放在文档�
 - [0.1.7 发布状态](docs/release-0.1.7-status.zh-CN.md)
 - [0.1.8 计划：AgentTask + Live Multi-Agent Cockpit](docs/release-0.1.8-plan.zh-CN.md)
 - [0.1.8 状态](docs/release-0.1.8-status.zh-CN.md)
+- [0.1.9 计划：Verification Hardening + Screenshot-Gated UX](docs/release-0.1.9-plan.zh-CN.md)
+- [0.1.9 状态](docs/release-0.1.9-status.zh-CN.md)
+- [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
 - [0.1.6 发布状态](docs/release-0.1.6-status.zh-CN.md)
 - [0.1.6 计划](docs/release-0.1.6-plan.zh-CN.md)
 - [开发标准](docs/development-standards.zh-CN.md)
@@ -184,6 +187,12 @@ scripts/package-release.sh
 scripts/release-smoke.sh
 ```
 
+TUI 可见改动还必须生成视觉证据：
+
+```bash
+scripts/tui-regression.sh docs/previews/generated
+```
+
 开发过程中需要更快 checkpoint 时可以运行：
 
 ```bash
@@ -194,6 +203,12 @@ DeepSeek 真实 provider smoke 和 GitHub Actions artifact validation 是显式 
 
 ```bash
 scripts/release-smoke.sh --deepseek --github-actions
+```
+
+发布后验证 release assets 和 Homebrew：
+
+```bash
+scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
 ```
 
 运行 workspace 测试：

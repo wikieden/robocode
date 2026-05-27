@@ -429,9 +429,7 @@ fn is_panel_metric_row(line: &str, label: &str) -> bool {
     let prefix_is_panel_padding = line[..start]
         .chars()
         .all(|ch| ch == '│' || ch == ' ' || ch == '┆');
-    let value = after_label
-        .trim_start()
-        .trim_end_matches(|ch| ch == ' ' || ch == '│');
+    let value = after_label.trim_start().trim_end_matches([' ', '│']);
     let looks_like_provider_metric = match label {
         "STATUS" => {
             value.starts_with("Configured")

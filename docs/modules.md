@@ -33,8 +33,12 @@ Mainline landed:
 
 Next planned slice:
 
-- harden the expanded provider matrix with real API compatibility coverage across streaming, tool calls, cancellation, and provider-scoped config.
-- after that, continue V2-D with richer drilldowns and approval ergonomics where plain terminal sections need more guidance.
+- use `docs/release-0.1.9-plan.md` as the active validation-hardening slice.
+- strengthen release gates, TUI regression snapshots, screenshot-confirmation
+  evidence, `AgentTask`/lane fixtures, permission regressions, CI gates, and
+  provider compatibility coverage.
+- every user-visible feature point should finish with a real-use screenshot or
+  deterministic visual artifact for product review.
 
 ## Gap vs `.ref/claude-code-main`
 

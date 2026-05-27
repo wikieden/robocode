@@ -183,13 +183,12 @@ fn ops_evidence_rows(state: &TuiState) -> Vec<String> {
     tasks.sort_by_key(|task| std::cmp::Reverse(ops_evidence_task_priority(task)));
     for task in tasks.into_iter().take(6) {
         rows.push(agent_task_evidence_row(&task));
-        let detail_limit = if task.kind == "diff" {
-            6
-        } else if matches!(task.status.as_str(), "failed" | "blocked") {
-            6
-        } else {
-            2
-        };
+        let detail_limit =
+            if task.kind == "diff" || matches!(task.status.as_str(), "failed" | "blocked") {
+                6
+            } else {
+                2
+            };
         rows.extend(agent_task_detail_rows(&task).into_iter().take(detail_limit));
     }
     if rows.is_empty() {
@@ -270,25 +269,21 @@ fn prioritized_task_evidence(task: &AgentTask) -> Vec<String> {
 }
 
 fn evidence_priority(item: &str) -> u8 {
-    if item.starts_with("failure ") {
+    if item.starts_with("failure ") || item.starts_with("conflict ") {
         0
-    } else if item.starts_with("conflict ") {
-        0
-    } else if item.starts_with("failing-file ") {
+    } else if item.starts_with("failing-file ")
+        || item.starts_with("files ")
+        || item.starts_with("additions ")
+        || item.starts_with("deletions ")
+        || item.starts_with("command ")
+        || item.starts_with("message ")
+    {
         1
-    } else if item.starts_with("files ") {
-        1
-    } else if item.starts_with("additions ") || item.starts_with("deletions ") {
-        1
-    } else if item.starts_with("command ") {
-        1
-    } else if item.starts_with("message ") {
-        1
-    } else if item.starts_with("tail ") || item.starts_with("rerun ") {
-        2
-    } else if item.starts_with("signals ") {
-        2
-    } else if item.starts_with("path ") {
+    } else if item.starts_with("tail ")
+        || item.starts_with("rerun ")
+        || item.starts_with("signals ")
+        || item.starts_with("path ")
+    {
         2
     } else if item.starts_with("lines ") || item.starts_with("changed ") {
         3

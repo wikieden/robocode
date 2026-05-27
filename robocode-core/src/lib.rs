@@ -43,7 +43,7 @@ pub enum EngineEvent {
     Command(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ProviderTelemetry {
     pub request_count: u64,
     pub success_count: u64,
@@ -142,29 +142,6 @@ fn tokens_per_second(tokens: u64, latency: Duration) -> Option<u64> {
         None
     } else {
         Some(((u128::from(tokens) * 1000) / millis) as u64)
-    }
-}
-
-impl Default for ProviderTelemetry {
-    fn default() -> Self {
-        Self {
-            request_count: 0,
-            success_count: 0,
-            failure_count: 0,
-            last_latency_ms: None,
-            average_latency_ms: None,
-            last_event_count: 0,
-            last_error: None,
-            last_input_tokens: None,
-            last_output_tokens: None,
-            last_total_tokens: None,
-            total_input_tokens: 0,
-            total_output_tokens: 0,
-            total_tokens: 0,
-            last_tokens_per_second: None,
-            last_cost_micro_usd: None,
-            total_cost_micro_usd: None,
-        }
     }
 }
 

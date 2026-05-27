@@ -71,10 +71,9 @@ fn run_cancellable(
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|err| err.to_string())?;
     loop {
-        control.check_cancelled().map_err(|err| {
+        control.check_cancelled().inspect_err(|_err| {
             let _ = child.kill();
             let _ = child.wait();
-            err
         })?;
         if child.try_wait().map_err(|err| err.to_string())?.is_some() {
             return child.wait_with_output().map_err(|err| err.to_string());

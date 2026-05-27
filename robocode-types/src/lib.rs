@@ -100,8 +100,9 @@ impl Message {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum PermissionMode {
+    #[default]
     Default,
     AcceptEdits,
     BypassPermissions,
@@ -129,12 +130,6 @@ impl PermissionMode {
             Self::DontAsk => "dontAsk",
             Self::Plan => "plan",
         }
-    }
-}
-
-impl Default for PermissionMode {
-    fn default() -> Self {
-        Self::Default
     }
 }
 

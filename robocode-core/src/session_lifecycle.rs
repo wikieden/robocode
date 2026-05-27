@@ -152,14 +152,14 @@ impl SessionEngine {
         provider_id: Option<&str>,
         model: Option<&str>,
     ) -> Result<(), String> {
-        if let Some(provider_id) = provider_id {
-            if self.provider_host.is_some() {
-                let next_provider = self.create_provider_from_runtime(provider_id, model)?;
-                self.provider = next_provider;
-                self.runtime_snapshot.provider_family = provider_id.to_string();
-                self.runtime_snapshot.model_label = self.provider.model().to_string();
-                return Ok(());
-            }
+        if let Some(provider_id) = provider_id
+            && self.provider_host.is_some()
+        {
+            let next_provider = self.create_provider_from_runtime(provider_id, model)?;
+            self.provider = next_provider;
+            self.runtime_snapshot.provider_family = provider_id.to_string();
+            self.runtime_snapshot.model_label = self.provider.model().to_string();
+            return Ok(());
         }
         if let Some(model) = model {
             self.provider.set_model(model.to_string());

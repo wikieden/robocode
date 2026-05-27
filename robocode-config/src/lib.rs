@@ -184,10 +184,10 @@ where
         .map_err(|err| format!("Failed to read config {}: {err}", path.display()))?;
     let mut config: FileConfig = toml::from_str(&contents)
         .map_err(|err| format!("Failed to parse config {}: {err}", path.display()))?;
-    if config.api_key.is_none() {
-        if let Some(name) = config.api_key_env.as_deref() {
-            config.api_key = env_lookup(name);
-        }
+    if config.api_key.is_none()
+        && let Some(name) = config.api_key_env.as_deref()
+    {
+        config.api_key = env_lookup(name);
     }
     Ok(Some(config))
 }
@@ -238,10 +238,10 @@ where
     if let Some(provider) = env_lookup("ROBOCODE_PROVIDER") {
         resolved.provider = provider;
     }
-    if let Some(model) = env_lookup("ROBOCODE_MODEL") {
-        if !model.trim().is_empty() {
-            resolved.model = Some(model);
-        }
+    if let Some(model) = env_lookup("ROBOCODE_MODEL")
+        && !model.trim().is_empty()
+    {
+        resolved.model = Some(model);
     }
     if let Some(api_base) = env_lookup("ROBOCODE_API_BASE") {
         resolved.api_base = Some(api_base);
@@ -309,15 +309,15 @@ fn apply_provider_scoped_config<F>(
         if let Some(api_key) = &scoped.api_key {
             resolved.api_key = Some(api_key.clone());
         }
-        if let Some(api_key_env) = &scoped.api_key_env {
-            if let Some(value) = env_lookup(api_key_env) {
-                resolved.api_key = Some(value);
-            }
+        if let Some(api_key_env) = &scoped.api_key_env
+            && let Some(value) = env_lookup(api_key_env)
+        {
+            resolved.api_key = Some(value);
         }
-        if let Some(default_model) = &scoped.default_model {
-            if resolved.model.is_none() {
-                resolved.model = Some(default_model.clone());
-            }
+        if let Some(default_model) = &scoped.default_model
+            && resolved.model.is_none()
+        {
+            resolved.model = Some(default_model.clone());
         }
     }
 }

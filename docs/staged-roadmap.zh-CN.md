@@ -110,13 +110,11 @@ Mainline landed：
 
 Next planned：
 
-- 以 `docs/release-0.1.8-plan.zh-CN.md` 作为当前下一迭代核心：
-  AgentTask + Live Multi-Agent Cockpit
-- 建立统一 `AgentTask` 运行模型，把 RoboCode 主回复、tool/test/approval、
-  Codex jobs、Claude/DeepSeek/tmux/PTY lanes 和未来 ACP agents 纳入同一套状态、
-  证据和决策语言
-- 围绕这个核心继续推进主屏 operation center、programming evidence、agent lane
-  operator loop、extension diagnostics 可用化和 ACP adapter spike
-- 完成扩展 provider 矩阵的 compatibility coverage，并以 DeepSeek V4 作为严格兼容合同
+- 以 `docs/release-0.1.9-plan.zh-CN.md` 作为当前下一迭代核心：
+  Verification Hardening + Screenshot-Gated UX
+- 强化 release gate、TUI regression harness、截图证据合同、`AgentTask`/lane fixtures、
+  permission regressions、CI matrix 和 provider compatibility coverage
+- 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
+- 0.1.8 的 AgentTask + Live Multi-Agent Cockpit 继续作为被加固的产品基础，而不是另开一条功能方向
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

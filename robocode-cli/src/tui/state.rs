@@ -286,13 +286,12 @@ fn lane_markdown_evidence(path: &Path, conflict: bool) -> Vec<String> {
             .take(3)
             .map(|item| format!("changed {item}")),
     );
-    if conflict {
-        if let Some(line) = markdown_section_items(&content, "Direct apply check")
+    if conflict
+        && let Some(line) = markdown_section_items(&content, "Direct apply check")
             .into_iter()
             .find(|line| !line.eq_ignore_ascii_case("clean"))
-        {
-            evidence.push(format!("conflict {line}"));
-        }
+    {
+        evidence.push(format!("conflict {line}"));
     }
     evidence
 }
@@ -426,10 +425,10 @@ fn transcript_agent_tasks(state: &TuiState) -> Vec<AgentTask> {
         is_tool_entry,
         is_provider_entry,
     ] {
-        if let Some((index, entry)) = latest_entry_matching(&state.entries, predicate) {
-            if seen.insert(index) {
-                tasks.push(agent_task_from_entry(index, entry, state));
-            }
+        if let Some((index, entry)) = latest_entry_matching(&state.entries, predicate)
+            && seen.insert(index)
+        {
+            tasks.push(agent_task_from_entry(index, entry, state));
         }
     }
     tasks
@@ -1284,7 +1283,7 @@ pub(super) fn refresh_lane_runtime(path: &Path, lanes: &mut [TerminalLane]) {
         };
         if let Some(summary) = evidence.log_tail.last().cloned() {
             lane.summary = summary;
-            lane.progress = lane.progress.max(35).min(95);
+            lane.progress = lane.progress.clamp(35, 95);
         }
         let Some(exit_code) = evidence.exit_code else {
             continue;
@@ -1606,7 +1605,7 @@ impl WorkspaceSnapshot {
         let display_root = display_path(&root);
         let mut files = Vec::new();
         collect_files(&root, &root, &mut files, 0);
-        files.sort_by(|left, right| right.modified.cmp(&left.modified));
+        files.sort_by_key(|file| std::cmp::Reverse(file.modified));
         let file_count = files.len();
         let line_count = files.iter().map(|file| file.lines).sum();
         let primary_language = primary_language(&files);
@@ -2473,7 +2472,7 @@ mod tests {
                 "{}\n{}\n{}\n",
                 r#"{"ts":10,"event":"started","id":"codex-1","kind":"run","status":"running","pid":4242,"command":"codex exec","task":"first task","log":"a","result":"b"}"#,
                 r#"{"ts":20,"event":"completed","id":"codex-1","kind":"run","status":"finished","pid":4242,"command":"codex exec","task":"first task done","log":"a","result":"b"}"#,
-                format!(
+                format_args!(
                     r#"{{"ts":30,"event":"started","id":"codex-2","kind":"review","status":"running","pid":5252,"command":"codex review","task":"review diff","log":"{}","result":"{}"}}"#,
                     codex_2_log.display(),
                     codex_2_result.display()

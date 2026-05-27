@@ -1758,43 +1758,48 @@ fn write_lane_apply_conflict(
     let lane_changed_files = changed_file_rows(worktree);
     fs::write(
         &conflict_path,
-        render_lane_apply_conflict(
+        render_lane_apply_conflict(LaneApplyConflictReport {
             lane,
             worktree,
             patch_path,
             check_error,
-            &three_way_result,
-            &main_changed_files,
-            &lane_changed_files,
+            three_way_result: &three_way_result,
+            main_changed_files: &main_changed_files,
+            lane_changed_files: &lane_changed_files,
             forced,
-        ),
+        }),
     )
     .map_err(|err| err.to_string())?;
     Ok(conflict_path)
 }
 
-fn render_lane_apply_conflict(
-    lane: &TerminalLane,
-    worktree: &Path,
-    patch_path: &Path,
-    check_error: &str,
-    three_way_result: &str,
-    main_changed_files: &str,
-    lane_changed_files: &str,
+struct LaneApplyConflictReport<'a> {
+    lane: &'a TerminalLane,
+    worktree: &'a Path,
+    patch_path: &'a Path,
+    check_error: &'a str,
+    three_way_result: &'a str,
+    main_changed_files: &'a str,
+    lane_changed_files: &'a str,
     forced: bool,
-) -> String {
+}
+
+fn render_lane_apply_conflict(report: LaneApplyConflictReport<'_>) -> String {
     format!(
         "# RoboCode Lane Apply Conflict\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Direct apply check\n{}\n\n## Three-way apply check\n{}\n\n## Main workspace changed files\n{main_changed_files}\n\n## Lane worktree changed files\n{lane_changed_files}\n\n## Follow-up\n- Review the patch and the main workspace diff before retrying.\n- Resolve conflicting files in the main workspace or in the lane worktree.\n- Retry with `/lane resolve {}` after the patch applies cleanly.\n- Use `/lane cleanup {}` only after the lane evidence is no longer needed.\n",
-        lane.id,
-        lane.tool,
-        lane.status,
-        worktree.display(),
-        patch_path.display(),
-        lane.title,
-        check_error,
-        three_way_result,
-        lane.id,
-        lane.id
+        report.lane.id,
+        report.lane.tool,
+        report.lane.status,
+        report.worktree.display(),
+        report.patch_path.display(),
+        report.lane.title,
+        report.check_error,
+        report.three_way_result,
+        report.lane.id,
+        report.lane.id,
+        forced = report.forced,
+        main_changed_files = report.main_changed_files,
+        lane_changed_files = report.lane_changed_files,
     )
 }
 

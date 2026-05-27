@@ -153,18 +153,18 @@ impl LspRuntime {
                 Err(error)
                     if attempt == 0 && error == "Language server closed the message stream" =>
                 {
-                    if let Ok(mut sessions) = self.sessions.lock() {
-                        if let Some(mut session) = sessions.remove(&session_key) {
-                            let _ = session.shutdown();
-                        }
+                    if let Ok(mut sessions) = self.sessions.lock()
+                        && let Some(mut session) = sessions.remove(&session_key)
+                    {
+                        let _ = session.shutdown();
                     }
                     continue;
                 }
                 Err(error) => {
-                    if let Ok(mut sessions) = self.sessions.lock() {
-                        if let Some(mut session) = sessions.remove(&session_key) {
-                            let _ = session.shutdown();
-                        }
+                    if let Ok(mut sessions) = self.sessions.lock()
+                        && let Some(mut session) = sessions.remove(&session_key)
+                    {
+                        let _ = session.shutdown();
                     }
                     self.set_last_error(Some(error.clone()));
                     return Err(error);

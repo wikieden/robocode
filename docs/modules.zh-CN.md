@@ -33,8 +33,10 @@ Mainline landed：
 
 Next planned slice：
 
-- 加固扩展后的 provider 矩阵：覆盖真实 API compatibility、streaming、tool calls、cancellation 与 provider-scoped config。
-- 之后继续 V2-D drilldowns 与 approval ergonomics，补足 plain terminal sections 仍需更多引导的地方。
+- 以 `docs/release-0.1.9-plan.zh-CN.md` 作为当前 validation-hardening 切片。
+- 强化 release gate、TUI regression snapshots、截图确认产物、`AgentTask`/lane fixtures、
+  permission regressions、CI gates 和 provider compatibility coverage。
+- 每个用户可见功能点都要以真实使用截图或确定性视觉产物收尾，供产品侧确认。
 
 ## 与 `.ref/claude-code-main` 的差距
 

@@ -391,10 +391,10 @@ fn default_home_dir() -> Result<PathBuf, String> {
     if let Ok(path) = std::env::var("ROBOCODE_HOME") {
         return Ok(PathBuf::from(path));
     }
-    if cfg!(windows) {
-        if let Ok(path) = std::env::var("APPDATA") {
-            return Ok(PathBuf::from(path).join("robocode"));
-        }
+    if cfg!(windows)
+        && let Ok(path) = std::env::var("APPDATA")
+    {
+        return Ok(PathBuf::from(path).join("robocode"));
     }
     std::env::var("HOME")
         .map(|home| PathBuf::from(home).join(".robocode"))

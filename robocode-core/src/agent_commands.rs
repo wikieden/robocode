@@ -160,10 +160,10 @@ impl SessionEngine {
         if parsed.app_server {
             return start_codex_app_server_job(&self.cwd, &codex_command(), parsed.task.clone());
         }
-        if parsed.write {
-            if let Some(denial) = self.ensure_codex_write_permission(&parsed.task, approver)? {
-                return Ok(denial);
-            }
+        if parsed.write
+            && let Some(denial) = self.ensure_codex_write_permission(&parsed.task, approver)?
+        {
+            return Ok(denial);
         }
         let sandbox = if parsed.write {
             "workspace-write"
@@ -1218,10 +1218,9 @@ fn extract_codex_session_id(text: &str) -> Option<String> {
         if let Some(rest) = lower
             .find("codex resume ")
             .and_then(|index| line.get(index + "codex resume ".len()..))
+            && let Some(id) = first_identifier_token(rest)
         {
-            if let Some(id) = first_identifier_token(rest) {
-                return Some(id);
-            }
+            return Some(id);
         }
         for marker in [
             "session id:",
@@ -1826,7 +1825,7 @@ fn run_codex_app_server_probe_with_log(
                         .and_then(|_| stdin.flush());
                 }
             } else {
-                record_codex_app_server_notification(&line, &method, &mut notifications);
+                record_codex_app_server_notification(line, &method, &mut notifications);
             }
         }
     }

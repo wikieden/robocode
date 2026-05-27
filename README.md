@@ -47,7 +47,7 @@ robocode --help
 ### Release Archive
 
 Download a release archive from
-[RoboCode v0.1.8](https://github.com/wikieden/robocode/releases/tag/v0.1.8).
+[RoboCode v0.1.9](https://github.com/wikieden/robocode/releases/tag/v0.1.9).
 
 Available release targets:
 
@@ -59,7 +59,7 @@ Available release targets:
 Install on macOS or Linux:
 
 ```bash
-VERSION=0.1.8
+VERSION=0.1.9
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -70,7 +70,7 @@ robocode-cli --help
 Install on Windows PowerShell:
 
 ```powershell
-$Version = "0.1.8"
+$Version = "0.1.9"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -190,6 +190,9 @@ live in the docs:
 - [0.1.7 Release Status](docs/release-0.1.7-status.md)
 - [0.1.8 Plan: AgentTask + Live Multi-Agent Cockpit](docs/release-0.1.8-plan.md)
 - [0.1.8 Status](docs/release-0.1.8-status.md)
+- [0.1.9 Plan: Verification Hardening + Screenshot-Gated UX](docs/release-0.1.9-plan.md)
+- [0.1.9 Status](docs/release-0.1.9-status.md)
+- [Testing and Validation Plan](docs/testing-validation-plan.md)
 - [0.1.6 Release Status](docs/release-0.1.6-status.md)
 - [0.1.6 Plan](docs/release-0.1.6-plan.md)
 - [Development Standards](docs/development-standards.md)
@@ -206,6 +209,12 @@ Before tagging a release, run the local smoke matrix:
 scripts/release-smoke.sh
 ```
 
+TUI-visible changes must also produce visual evidence:
+
+```bash
+scripts/tui-regression.sh docs/previews/generated
+```
+
 For a faster development checkpoint:
 
 ```bash
@@ -216,6 +225,12 @@ DeepSeek live provider smoke and GitHub Actions artifact validation are opt-in:
 
 ```bash
 scripts/release-smoke.sh --deepseek --github-actions
+```
+
+After publishing, validate release assets and Homebrew:
+
+```bash
+scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
 ```
 
 Run the workspace test suite:

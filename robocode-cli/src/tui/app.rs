@@ -91,20 +91,14 @@ pub(crate) fn run_tui_with_theme(
                     body: format!("Switched TUI theme to `{theme_name}`."),
                 });
             }
-            KeyCode::Up => {
-                if !move_selection(&mut state, -1) {
-                    continue;
-                }
+            KeyCode::Up if !move_selection(&mut state, -1) => {
+                continue;
             }
-            KeyCode::Down => {
-                if !move_selection(&mut state, 1) {
-                    continue;
-                }
+            KeyCode::Down if !move_selection(&mut state, 1) => {
+                continue;
             }
-            KeyCode::Tab => {
-                if !complete_selected(&mut state) {
-                    continue;
-                }
+            KeyCode::Tab if !complete_selected(&mut state) => {
+                continue;
             }
             KeyCode::Enter => {
                 if should_complete_on_enter(&state) {

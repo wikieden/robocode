@@ -55,9 +55,7 @@ pub(super) fn compact_middle(value: &str, width: usize) -> String {
 }
 
 pub(super) fn display_width(value: char) -> usize {
-    if value == '\0' || value.is_control() {
-        0
-    } else if is_zero_width(value) {
+    if value == '\0' || value.is_control() || is_zero_width(value) {
         0
     } else if is_wide(value) {
         2

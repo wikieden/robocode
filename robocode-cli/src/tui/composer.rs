@@ -67,6 +67,23 @@ pub(super) fn composer_cursor_position(
     (column as u16, row as u16)
 }
 
+fn composer_actions(width: usize) -> String {
+    let left = "APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]";
+    let right = "ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help]";
+    let left_width = char_width(left);
+    let right_width = char_width(right);
+    if left_width + right_width + 3 <= width {
+        return format!(
+            "{left}{} {right}",
+            " ".repeat(width.saturating_sub(left_width + right_width + 1))
+        );
+    }
+    if left_width <= width {
+        return left.to_string();
+    }
+    truncate(&format!("{left}   {right}"), width)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,21 +147,4 @@ mod tests {
             (8, 35)
         );
     }
-}
-
-fn composer_actions(width: usize) -> String {
-    let left = "APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]";
-    let right = "ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help]";
-    let left_width = char_width(left);
-    let right_width = char_width(right);
-    if left_width + right_width + 3 <= width {
-        return format!(
-            "{left}{} {right}",
-            " ".repeat(width.saturating_sub(left_width + right_width + 1))
-        );
-    }
-    if left_width <= width {
-        return left.to_string();
-    }
-    truncate(&format!("{left}   {right}"), width)
 }
