@@ -6,10 +6,16 @@ Last updated: 2026-05-28
 
 ## Status
 
-`0.1.13` is locally implemented and verified for the **Operator Loop
-Hardening** cut. The full local release smoke, including package smoke, passed.
-It has not yet been tagged, published to GitHub Releases, or published through
-Homebrew in this workspace run.
+`0.1.13` is implemented, tagged, published, and post-publish verified for the
+**Operator Loop Hardening** cut. GitHub Releases now carries the multi-platform
+assets, and the `wikieden/homebrew-tap` formula points at the `v0.1.13`
+artifacts.
+
+Release:
+
+- GitHub Release: [v0.1.13](https://github.com/wikieden/robocode/releases/tag/v0.1.13)
+- Release workflow: [26526332898](https://github.com/wikieden/robocode/actions/runs/26526332898)
+- Homebrew tap commit: `b8f9c1d`
 
 ## Landed
 
@@ -37,8 +43,10 @@ Homebrew in this workspace run.
 - `cargo test --workspace --quiet`
 - `scripts/smoke-lane-operator-loop.sh`
 - `ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.13 scripts/tui-regression.sh docs/previews/generated`
-- `scripts/release-smoke.sh --version 0.1.13 --quick --out-dir /tmp/robocode-0113-release-smoke-quick`
 - `scripts/release-smoke.sh --version 0.1.13 --out-dir /tmp/robocode-0113-release-smoke-full-local`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --out-dir /tmp/robocode-0113-github-release-check`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0113-postpublish-check`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --deepseek --out-dir /tmp/robocode-0113-deepseek-live-check`
 
 Full local release smoke results:
 
@@ -57,14 +65,28 @@ Full local release smoke results:
 - SKIP `github-release-assets-validation` (post-publish check)
 - SKIP `homebrew-validation` (post-publish check)
 
+Post-publish smoke results:
+
+- PASS `github-release-assets-validation`
+- PASS `homebrew-validation`
+- PASS `deepseek-cli-smoke`
+
+Published assets:
+
+- `robocode-v0.1.13-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.13-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.13-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.13-x86_64-pc-windows-msvc.tar.gz`
+- matching `.sha256` files for all four archives
+
 Deterministic screenshots:
 
 - [0.1.13 main](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-main.svg)
 - [0.1.13 command palette](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-command-palette.svg)
 - [0.1.13 side-2 ops](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-side-2.svg)
 
-## Remaining Before Public Release
+## Remaining Follow-Up
 
-- Run opt-in DeepSeek smoke with a live key if desired.
-- Tag `v0.1.13`, publish GitHub release assets, update Homebrew tap, and run
-  post-publish release validation.
+- No release blocker remains for `0.1.13`.
+- Windows and Linux assets are produced by GitHub Actions; local post-publish
+  smoke validates asset presence and Homebrew on the current macOS host.

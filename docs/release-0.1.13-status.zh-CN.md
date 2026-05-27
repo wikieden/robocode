@@ -6,9 +6,15 @@ English version: [release-0.1.13-status.md](release-0.1.13-status.md)
 
 ## 状态
 
-`0.1.13` 已在本地实现并完成 **Operator Loop Hardening** 验证。完整本地 release
-smoke 已通过，其中包含 package smoke。本轮 workspace 里尚未打 tag、发布 GitHub
-Release，也尚未更新 Homebrew。
+`0.1.13` 已完成 **Operator Loop Hardening** 的实现、打 tag、发布和发布后验证。
+GitHub Releases 已包含多平台资产，`wikieden/homebrew-tap` formula 也已指向
+`v0.1.13` artifacts。
+
+发布信息：
+
+- GitHub Release: [v0.1.13](https://github.com/wikieden/robocode/releases/tag/v0.1.13)
+- Release workflow: [26526332898](https://github.com/wikieden/robocode/actions/runs/26526332898)
+- Homebrew tap commit: `b8f9c1d`
 
 ## 已落地
 
@@ -35,8 +41,10 @@ Release，也尚未更新 Homebrew。
 - `cargo test --workspace --quiet`
 - `scripts/smoke-lane-operator-loop.sh`
 - `ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.13 scripts/tui-regression.sh docs/previews/generated`
-- `scripts/release-smoke.sh --version 0.1.13 --quick --out-dir /tmp/robocode-0113-release-smoke-quick`
 - `scripts/release-smoke.sh --version 0.1.13 --out-dir /tmp/robocode-0113-release-smoke-full-local`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --out-dir /tmp/robocode-0113-github-release-check`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0113-postpublish-check`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --deepseek --out-dir /tmp/robocode-0113-deepseek-live-check`
 
 完整本地 release smoke 结果：
 
@@ -55,14 +63,28 @@ Release，也尚未更新 Homebrew。
 - SKIP `github-release-assets-validation`（发布后验证）
 - SKIP `homebrew-validation`（发布后验证）
 
+发布后 smoke 结果：
+
+- PASS `github-release-assets-validation`
+- PASS `homebrew-validation`
+- PASS `deepseek-cli-smoke`
+
+已发布资产：
+
+- `robocode-v0.1.13-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.13-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.13-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.13-x86_64-pc-windows-msvc.tar.gz`
+- 四个平台 archive 对应的 `.sha256` 文件
+
 确定性截图：
 
 - [0.1.13 main](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-main.svg)
 - [0.1.13 command palette](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-command-palette.svg)
 - [0.1.13 side-2 ops](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-side-2.svg)
 
-## 公开发布前剩余
+## 后续
 
-- 如需真实 provider 验证，使用 live key 跑 opt-in DeepSeek smoke。
-- 打 `v0.1.13` tag、发布 GitHub release assets、更新 Homebrew tap，然后跑
-  post-publish release validation。
+- `0.1.13` 已无发布 blocker。
+- Windows 和 Linux assets 由 GitHub Actions 产出；本地 post-publish smoke
+  验证 asset 存在性，以及当前 macOS host 上的 Homebrew 安装路径。
