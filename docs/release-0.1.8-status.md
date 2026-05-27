@@ -198,6 +198,8 @@ Result:
 - GitHub release workflow
   [26494175931](https://github.com/wikieden/robocode/actions/runs/26494175931)
   passed and uploaded all four target archives plus SHA-256 files.
+- Homebrew tap `wikieden/homebrew-tap` was updated to `0.1.8` in commit
+  `afd62e2`, using SHA-256 checksums downloaded from the GitHub release assets.
 
 ## Published Release
 
@@ -215,6 +217,10 @@ Release assets:
 - `robocode-v0.1.8-x86_64-pc-windows-msvc.tar.gz.sha256`
 - `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz`
 - `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz.sha256`
+
+Homebrew:
+
+- `brew install wikieden/tap/robocode`
 
 ## Remaining P0
 

@@ -180,6 +180,8 @@ gh workflow run release.yml --repo wikieden/robocode -f tag=v0.1.8 -f upload_to_
 - GitHub release workflow
   [26494175931](https://github.com/wikieden/robocode/actions/runs/26494175931)
   已通过，并上传了四个 target archive 和对应 SHA-256 文件。
+- Homebrew tap `wikieden/homebrew-tap` 已在 commit `afd62e2` 更新到 `0.1.8`，
+  checksum 来自 GitHub release assets 的 SHA-256 文件。
 
 ## 已发布版本
 
@@ -197,6 +199,10 @@ Release assets：
 - `robocode-v0.1.8-x86_64-pc-windows-msvc.tar.gz.sha256`
 - `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz`
 - `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz.sha256`
+
+Homebrew：
+
+- `brew install wikieden/tap/robocode`
 
 ## 剩余 P0
 
