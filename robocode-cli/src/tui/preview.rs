@@ -1,6 +1,6 @@
 use super::state::{
-    AgentJob, CompanionScreen, ProviderOption, ProviderStatus, TerminalLane, TuiEntry, TuiState,
-    WorkspaceSnapshot,
+    AgentJob, CompanionScreen, PendingTurn, ProviderOption, ProviderStatus, TerminalLane, TuiEntry,
+    TuiState, WorkspaceSnapshot,
 };
 use super::{render, terminal};
 use robocode_types::{
@@ -20,6 +20,11 @@ pub(crate) fn render_idle_preview(provider: &str, model: &str) -> String {
 
 pub(crate) fn render_command_palette_preview(provider: &str, model: &str) -> String {
     let state = command_palette_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub(crate) fn render_live_turn_preview(provider: &str, model: &str) -> String {
+    let state = live_turn_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
@@ -56,6 +61,19 @@ pub(crate) fn render_ansi_idle_preview_with_theme(
 ) -> String {
     let theme_name = theme_name.unwrap_or("aurora-cyan");
     let state = idle_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub(crate) fn render_ansi_live_turn_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = live_turn_preview_state(provider, model, theme_name);
     terminal::render_ansi_preview_with_theme(
         &render::render_frame(&state, 140, 40),
         Some(theme_name),
@@ -131,6 +149,7 @@ fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
         command_palette_hidden_for: None,
         approval_focus: 0,
         approval_apply_all: false,
+            pending_turn: None,
         workspace,
         tasks: preview_tasks(),
         memory: preview_memory(),
@@ -339,6 +358,32 @@ fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) 
     state
 }
 
+fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = idle_preview_state(provider, model, theme_name);
+    state.entries = vec![
+        TuiEntry {
+            label: "system".to_string(),
+            body: "RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
+        },
+        TuiEntry {
+            label: "user".to_string(),
+            body: "Refactor the config loader, then run focused tests.".to_string(),
+        },
+    ];
+    state.pending_turn = Some(PendingTurn {
+        id: "turn-c4f2b7e-live".to_string(),
+        provider: provider.to_string(),
+        model: model.to_string(),
+        prompt: "Refactor the config loader, then run focused tests.".to_string(),
+        workspace: state.workspace.display_root.clone(),
+        started_at: 1,
+    });
+    state.workspace.agent_jobs.clear();
+    state.lanes.clear();
+    state.input = "Add a note about the validation result".to_string();
+    state
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,12 +392,15 @@ mod tests {
     fn previews_use_stable_demo_workspace_snapshot() {
         let main = render_preview("fallback", "test-local");
         let idle = render_idle_preview("fallback", "test-local");
+        let live_turn = render_live_turn_preview("fallback", "test-local");
         let command_palette = render_command_palette_preview("fallback", "test-local");
         let side = render_side_preview("fallback", "test-local");
         let ops = render_ops_preview("fallback", "test-local");
 
         assert!(main.contains("~/projects/robocode"));
         assert!(idle.contains("~/projects/robocode"));
+        assert!(live_turn.contains("Fallback is thinking"));
+        assert!(live_turn.contains("live provider request"));
         assert!(main.contains("src/config.rs"));
         assert!(idle.contains("No approval is blocking right now"));
         assert!(command_palette.contains("COMMANDS"));

@@ -453,7 +453,10 @@ fn is_loose_timeline_connector(row: &str) -> bool {
 mod tests {
     use super::*;
     use crate::tui::{
-        state::{AgentJob, ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot},
+        state::{
+            AgentJob, PendingTurn, ProviderStatus, TerminalLane, TuiEntry, TuiState,
+            WorkspaceSnapshot,
+        },
         text::char_width,
     };
     use robocode_core::ProviderTelemetry;
@@ -472,6 +475,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
             memory: Vec::new(),
@@ -770,6 +774,28 @@ mod tests {
         assert!(rendered.contains("thread thread_123"));
         assert!(rendered.contains("codex"));
         assert!(rendered.contains("review payment"));
+    }
+
+    #[test]
+    fn render_frame_surfaces_pending_provider_turn() {
+        let mut state = render_state();
+        state.provider = "deepseek".to_string();
+        state.model = "deepseek-v4-flash".to_string();
+        state.pending_turn = Some(PendingTurn {
+            id: "turn-session-42".to_string(),
+            provider: "deepseek".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            prompt: "implement config loader".to_string(),
+            workspace: "/tmp/project".to_string(),
+            started_at: 42,
+        });
+
+        let rendered = render_frame(&state, 140, 36);
+
+        assert!(rendered.contains("DeepSeek is thinking"));
+        assert!(rendered.contains("evidence: AgentTask turn-session-42"));
+        assert!(rendered.contains("live provider request"));
+        assert!(rendered.contains("turn-session-42 DeepSeek thinking 15%"));
     }
 
     #[test]

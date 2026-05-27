@@ -11,7 +11,7 @@ long terminal sessions, not like a library that only needs unit tests. The
 validation system must prove behavior, safety, release readiness, and visible
 TUI quality.
 
-This guide is the standing verification contract for `0.1.9` and later.
+This guide is the standing verification contract for `0.1.10` and later.
 
 ## Validation Layers
 
@@ -143,11 +143,11 @@ docs/previews/generated/
 Use stable names:
 
 ```text
-0.1.9-<feature>-main.svg
-0.1.9-<feature>-approval.svg
-0.1.9-<feature>-side-1.svg
-0.1.9-<feature>-side-2.svg
-0.1.9-<feature>-terminal.png
+0.1.10-<feature>-main.svg
+0.1.10-<feature>-approval.svg
+0.1.10-<feature>-side-1.svg
+0.1.10-<feature>-side-2.svg
+0.1.10-<feature>-terminal.png
 ```
 
 ## CI Gate Proposal

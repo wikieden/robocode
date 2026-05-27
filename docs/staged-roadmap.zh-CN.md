@@ -110,9 +110,9 @@ Mainline landed：
 
 Next planned：
 
-- 以 `docs/release-0.1.9-plan.zh-CN.md` 作为当前下一迭代核心：
-  Verification Hardening + Screenshot-Gated UX
-- 强化 release gate、TUI regression harness、截图证据合同、`AgentTask`/lane fixtures、
+- 以 `docs/release-0.1.10-plan.zh-CN.md` 作为当前下一迭代核心：
+  Programming Cockpit Feedback
+- 强化 live provider request evidence、统一 `AgentTask` runtime view、截图证据合同、
   permission regressions、CI matrix 和 provider compatibility coverage
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
 - 0.1.8 的 AgentTask + Live Multi-Agent Cockpit 继续作为被加固的产品基础，而不是另开一条功能方向

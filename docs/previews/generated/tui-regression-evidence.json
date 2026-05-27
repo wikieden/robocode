@@ -2,17 +2,19 @@
   "status": "passed",
   "preview_dir": "docs/previews/generated",
   "screenshots": [
-    "docs/previews/generated/screenshots/0.1.9-tui-command-palette.svg",
-    "docs/previews/generated/screenshots/0.1.9-tui-lane-detail.svg",
-    "docs/previews/generated/screenshots/0.1.9-tui-main-idle.svg",
-    "docs/previews/generated/screenshots/0.1.9-tui-main.svg",
-    "docs/previews/generated/screenshots/0.1.9-tui-side-1.svg",
-    "docs/previews/generated/screenshots/0.1.9-tui-side-2.svg"
+    "docs/previews/generated/screenshots/0.1.10-tui-command-palette.svg",
+    "docs/previews/generated/screenshots/0.1.10-tui-lane-detail.svg",
+    "docs/previews/generated/screenshots/0.1.10-tui-live-turn.svg",
+    "docs/previews/generated/screenshots/0.1.10-tui-main-idle.svg",
+    "docs/previews/generated/screenshots/0.1.10-tui-main.svg",
+    "docs/previews/generated/screenshots/0.1.10-tui-side-1.svg",
+    "docs/previews/generated/screenshots/0.1.10-tui-side-2.svg"
   ],
   "checks": [
     "line counts",
     "operation center",
     "composer visibility",
+    "live provider turn evidence",
     "side-1 lanes",
     "side-2 tests/lsp",
     "screenshot artifact export"

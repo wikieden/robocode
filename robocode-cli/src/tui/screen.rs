@@ -42,6 +42,7 @@ pub(crate) fn run_side_tui_with_theme(
         command_palette_hidden_for: None,
         approval_focus: 0,
         approval_apply_all: false,
+        pending_turn: None,
         entries: vec![TuiEntry {
             label: "system".to_string(),
             body: format!("RoboCode side monitor ready. Esc or Ctrl-C exits.\n{startup_summary}"),
@@ -512,6 +513,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),

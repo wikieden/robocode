@@ -4,7 +4,7 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 英文版： [README.md](README.md)
 
-![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.9-tui-main.svg)
+![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.10-tui-main.svg)
 
 ## 为什么做它
 
@@ -25,21 +25,25 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 下面这些图来自当前 RoboCode TUI renderer 的 release evidence，不是产品概念图。
 
+### Live provider turn
+
+![实时 provider 状态](docs/previews/generated/screenshots/0.1.10-tui-live-turn.svg)
+
 ### Slash command 提示
 
-![命令提示](docs/previews/generated/screenshots/0.1.9-tui-command-palette.svg)
+![命令提示](docs/previews/generated/screenshots/0.1.10-tui-command-palette.svg)
 
 ### Agent lane detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.9-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.10-tui-lane-detail.svg)
 
 ### 副屏 side-1：Agent lanes
 
-![side-1 lanes](docs/previews/generated/screenshots/0.1.9-tui-side-1.svg)
+![side-1 lanes](docs/previews/generated/screenshots/0.1.10-tui-side-1.svg)
 
 ### 副屏 side-2：ops 与 evidence
 
-![side-2 ops](docs/previews/generated/screenshots/0.1.9-tui-side-2.svg)
+![side-2 ops](docs/previews/generated/screenshots/0.1.10-tui-side-2.svg)
 
 ## 安装
 
@@ -59,7 +63,7 @@ robocode --help
 
 ### Release 压缩包
 
-从 [RoboCode v0.1.9](https://github.com/wikieden/robocode/releases/tag/v0.1.9)
+从 [RoboCode v0.1.10](https://github.com/wikieden/robocode/releases/tag/v0.1.10)
 下载 release 压缩包。
 
 当前 release targets：
@@ -72,7 +76,7 @@ robocode --help
 macOS 或 Linux 安装：
 
 ```bash
-VERSION=0.1.9
+VERSION=0.1.10
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -83,7 +87,7 @@ robocode-cli --help
 Windows PowerShell 安装：
 
 ```powershell
-$Version = "0.1.9"
+$Version = "0.1.10"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -182,7 +186,7 @@ README 保持产品介绍和使用入口。完整使用说明和实现细节放�
 - [Provider 真实调用矩阵](docs/provider-live-matrix.zh-CN.md)
 - [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
 - [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
-- [0.1.9 状态](docs/release-0.1.9-status.zh-CN.md)
+- [0.1.10 状态](docs/release-0.1.10-status.zh-CN.md)
 - [开发标准](docs/development-standards.zh-CN.md)
 
 ## 维护者检查

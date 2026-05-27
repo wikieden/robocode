@@ -486,6 +486,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: DEFAULT_APPROVAL_FOCUS,
             approval_apply_all: false,
+            pending_turn: None,
             entries: vec![TuiEntry {
                 label: "approval".to_string(),
                 body: "Permission request for `write_file`\npath: src/lib.rs\nPress y to allow, n/Esc to deny.".to_string(),

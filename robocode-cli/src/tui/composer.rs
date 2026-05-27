@@ -102,6 +102,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),

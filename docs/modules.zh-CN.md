@@ -33,9 +33,11 @@ Mainline landed：
 
 Next planned slice：
 
-- 以 `docs/release-0.1.9-plan.zh-CN.md` 作为当前 validation-hardening 切片。
-- 强化 release gate、TUI regression snapshots、截图确认产物、`AgentTask`/lane fixtures、
-  permission regressions、CI gates 和 provider compatibility coverage。
+- 以 `docs/release-0.1.10-plan.zh-CN.md` 作为当前 programming-cockpit feedback
+  切片。
+- 强化 live provider request evidence、TUI regression snapshots、截图确认产物、
+  `AgentTask`/lane fixtures、permission regressions、CI gates 和 provider compatibility
+  coverage。
 - 每个用户可见功能点都要以真实使用截图或确定性视觉产物收尾，供产品侧确认。
 
 ## 与 `.ref/claude-code-main` 的差距

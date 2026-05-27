@@ -15,9 +15,9 @@ use super::input::{close_focus_on_escape, prompt_for_tui_approval, should_exit};
 use super::lane::{handle_tui_command, refresh_lanes};
 use super::screen::handle_screen_command;
 use super::state::{
-    ProviderOption, ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot, entry_from_event,
-    lane_store_path, latest_lsp_diagnostics, load_lanes, load_screens, save_diagnostics,
-    screen_store_path,
+    PendingTurn, ProviderOption, ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot,
+    entry_from_event, lane_store_path, latest_lsp_diagnostics, load_lanes, load_screens,
+    save_diagnostics, screen_store_path,
 };
 use super::terminal::TerminalGuard;
 
@@ -150,6 +150,7 @@ fn initial_state(
         command_palette_hidden_for: None,
         approval_focus: 0,
         approval_apply_all: false,
+        pending_turn: None,
         entries: vec![TuiEntry {
             label: "system".to_string(),
             body: format!(
@@ -186,9 +187,21 @@ fn handle_enter(
     if handle_tui_command(&input, state) || handle_screen_command(&input, state) {
         return Ok(false);
     }
+    state.pending_turn = Some(PendingTurn::new(
+        &state.session_id,
+        &state.provider,
+        &state.model,
+        &input,
+        &state.workspace.display_root,
+    ));
     terminal.draw(state)?;
-    let mut approver = |prompt: PermissionPrompt| prompt_for_tui_approval(prompt, state, terminal);
-    let events = engine.process_input_with_approval(&input, &mut approver)?;
+    let events = {
+        let mut approver =
+            |prompt: PermissionPrompt| prompt_for_tui_approval(prompt, state, terminal);
+        engine.process_input_with_approval(&input, &mut approver)
+    };
+    state.pending_turn = None;
+    let events = events?;
     state
         .entries
         .extend(events.into_iter().map(entry_from_event));
@@ -335,6 +348,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: vec![super::TuiEntry {
                 label: "command".to_string(),
                 body: "LSP diagnostics:\nsrc/main.rs:\n  1:2 error [fake/E1] broken".to_string(),
@@ -398,6 +412,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: Vec::new(),
             workspace,
             tasks: Vec::new(),

@@ -2,7 +2,7 @@
 
 英文版： [user-guide.md](user-guide.md)
 
-本文档说明 RoboCode `0.1.9` 已经真实支持的用户功能。
+本文档说明 RoboCode `0.1.10` 已经真实支持的用户功能。
 
 ## 心智模型
 
@@ -384,7 +384,7 @@ RoboCode 现在能发现这些 extension surfaces：
 
 ## Release Evidence
 
-`0.1.9` 通过了：
+`0.1.10` 通过了：
 
 - full local release smoke with DeepSeek；
 - clippy-as-gate；
@@ -398,7 +398,7 @@ RoboCode 现在能发现这些 extension surfaces：
 - GitHub release asset validation；
 - Homebrew formula validation。
 
-证据路径和 release asset 名称见 [0.1.9 状态](release-0.1.9-status.zh-CN.md)。
+证据路径和 release asset 名称见 [0.1.10 状态](release-0.1.10-status.zh-CN.md)。
 
 ## 问题反馈
 

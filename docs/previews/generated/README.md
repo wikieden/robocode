@@ -11,9 +11,10 @@ Files:
 
 - `main.txt` / `main.ansi`
 - `main-idle.txt` / `main-idle.ansi`
+- `main-live-turn.txt` / `main-live-turn.ansi`
 - `main-command-palette.txt` / `main-command-palette.ansi`
 - `main-lane.txt` / `main-lane.ansi`
-- `main.svg` / `main-idle.svg` / `main-command-palette.svg` / `main-lane.svg` quick visual screenshots
+- `main.svg` / `main-idle.svg` / `main-live-turn.svg` / `main-command-palette.svg` / `main-lane.svg` quick visual screenshots
 - `side-1.txt` / `side-1.ansi` / `side-1.svg`
 - `side-2.txt` / `side-2.ansi` / `side-2.svg`
 - `multiscreen.txt` combined plain-text workstation preview

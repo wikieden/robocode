@@ -33,10 +33,11 @@ Mainline landed:
 
 Next planned slice:
 
-- use `docs/release-0.1.9-plan.md` as the active validation-hardening slice.
-- strengthen release gates, TUI regression snapshots, screenshot-confirmation
-  evidence, `AgentTask`/lane fixtures, permission regressions, CI gates, and
-  provider compatibility coverage.
+- use `docs/release-0.1.10-plan.md` as the active programming-cockpit feedback
+  slice.
+- strengthen live provider request evidence, TUI regression snapshots,
+  screenshot-confirmation evidence, `AgentTask`/lane fixtures, permission
+  regressions, CI gates, and provider compatibility coverage.
 - every user-visible feature point should finish with a real-use screenshot or
   deterministic visual artifact for product review.
 

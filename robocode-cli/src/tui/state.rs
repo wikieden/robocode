@@ -29,6 +29,7 @@ pub(super) struct TuiState {
     pub(super) command_palette_hidden_for: Option<String>,
     pub(super) approval_focus: usize,
     pub(super) approval_apply_all: bool,
+    pub(super) pending_turn: Option<PendingTurn>,
     pub(super) entries: Vec<TuiEntry>,
     pub(super) workspace: WorkspaceSnapshot,
     pub(super) tasks: Vec<TaskRecord>,
@@ -37,6 +38,36 @@ pub(super) struct TuiState {
     pub(super) lanes: Vec<TerminalLane>,
     pub(super) lane_store: Option<PathBuf>,
     pub(super) focused_lane: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PendingTurn {
+    pub(super) id: String,
+    pub(super) provider: String,
+    pub(super) model: String,
+    pub(super) prompt: String,
+    pub(super) workspace: String,
+    pub(super) started_at: u128,
+}
+
+impl PendingTurn {
+    pub(super) fn new(
+        session_id: &str,
+        provider: &str,
+        model: &str,
+        prompt: &str,
+        workspace: &str,
+    ) -> Self {
+        let started_at = now_millis();
+        Self {
+            id: format!("turn-{}-{started_at}", compact_session_id(session_id)),
+            provider: provider.to_string(),
+            model: model.to_string(),
+            prompt: first_line(prompt),
+            workspace: workspace.to_string(),
+            started_at,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,10 +170,41 @@ impl AgentTask {
             pid: job.pid,
         }
     }
+
+    fn from_pending_turn(turn: &PendingTurn) -> Self {
+        Self {
+            id: turn.id.clone(),
+            parent_id: None,
+            agent: "robocode".to_string(),
+            kind: "provider".to_string(),
+            transport: turn.provider.clone(),
+            title: turn.prompt.clone(),
+            status: "thinking".to_string(),
+            activity: "thinking through latest prompt".to_string(),
+            summary: format!("{} / {} is processing", turn.provider, turn.model),
+            progress: 15,
+            started_at: Some(turn.started_at),
+            updated_at: Some(turn.started_at),
+            workspace: Some(turn.workspace.clone()),
+            evidence: vec![
+                "live provider request".to_string(),
+                format!("provider {}", turn.provider),
+                format!("model {}", turn.model),
+            ],
+            permissions: Vec::new(),
+            decision: None,
+            result: None,
+            resume_handle: None,
+            pid: None,
+        }
+    }
 }
 
 pub(super) fn agent_tasks(state: &TuiState) -> Vec<AgentTask> {
     let mut tasks = Vec::new();
+    if let Some(turn) = &state.pending_turn {
+        tasks.push(AgentTask::from_pending_turn(turn));
+    }
     tasks.extend(transcript_agent_tasks(state));
     tasks.extend(
         state
@@ -423,13 +485,18 @@ fn transcript_agent_tasks(state: &TuiState) -> Vec<AgentTask> {
         is_diff_entry as fn(&TuiEntry) -> bool,
         is_test_entry,
         is_tool_entry,
-        is_provider_entry,
     ] {
         if let Some((index, entry)) = latest_entry_matching(&state.entries, predicate)
             && seen.insert(index)
         {
             tasks.push(agent_task_from_entry(index, entry, state));
         }
+    }
+    if state.pending_turn.is_none()
+        && let Some((index, entry)) = latest_entry_matching(&state.entries, is_provider_entry)
+        && seen.insert(index)
+    {
+        tasks.push(agent_task_from_entry(index, entry, state));
     }
     tasks
 }
@@ -759,6 +826,21 @@ fn first_line(body: &str) -> String {
         .find(|line| !line.trim().is_empty())
         .map(|line| clean_display_fragment(line.trim(), 120))
         .unwrap_or_else(|| "no detail available".to_string())
+}
+
+fn compact_session_id(session_id: &str) -> String {
+    session_id
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .take(8)
+        .collect::<String>()
+}
+
+fn now_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
 }
 
 fn tool_call_activity(body: &str) -> String {
@@ -2573,6 +2655,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: Vec::new(),
             workspace,
             tasks: Vec::new(),
@@ -2627,6 +2710,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: Vec::new(),
             workspace,
             tasks: Vec::new(),
@@ -2711,6 +2795,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
@@ -2773,6 +2858,60 @@ mod tests {
     }
 
     #[test]
+    fn agent_tasks_surface_pending_turn_without_duplicate_provider_task() {
+        let mut workspace = WorkspaceSnapshot::fixture();
+        workspace.display_root = "/tmp/project".to_string();
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "deepseek".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            pending_turn: Some(PendingTurn {
+                id: "turn-session-42".to_string(),
+                provider: "deepseek".to_string(),
+                model: "deepseek-v4-flash".to_string(),
+                prompt: "create hello world".to_string(),
+                workspace: "/tmp/project".to_string(),
+                started_at: 42,
+            }),
+            entries: vec![TuiEntry {
+                label: "user".to_string(),
+                body: "create hello world".to_string(),
+            }],
+            workspace,
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+        };
+
+        let tasks = agent_tasks(&state);
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, "turn-session-42");
+        assert_eq!(tasks[0].status, "thinking");
+        assert_eq!(tasks[0].transport, "deepseek");
+        assert_eq!(
+            tasks[0].summary,
+            "deepseek / deepseek-v4-flash is processing"
+        );
+        assert!(
+            tasks[0]
+                .evidence
+                .contains(&"live provider request".to_string())
+        );
+    }
+
+    #[test]
     fn agent_tasks_project_transcript_runtime_events() {
         let mut workspace = WorkspaceSnapshot::fixture();
         workspace.display_root = "/tmp/project".to_string();
@@ -2788,6 +2927,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: vec![
                 TuiEntry {
                     label: "user".to_string(),
@@ -2842,6 +2982,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: vec![
                 TuiEntry {
                     label: "approval".to_string(),
@@ -2887,6 +3028,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: vec![TuiEntry {
                 label: "command".to_string(),
                 body: [
@@ -2959,6 +3101,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: vec![TuiEntry {
                 label: "command".to_string(),
                 body: [
@@ -3016,6 +3159,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: vec![
                 TuiEntry {
                     label: "assistant".to_string(),
@@ -3066,6 +3210,7 @@ mod tests {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            pending_turn: None,
             entries: vec![TuiEntry {
                 label: "tool-result".to_string(),
                 body: "Wrote 48 lines to src/config.rs (2.1 KB)\npath=src/config.rs".to_string(),

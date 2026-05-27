@@ -116,10 +116,10 @@ Mainline landed:
 
 Next planned:
 
-- use `docs/release-0.1.9-plan.md` as the active next-iteration core:
-  Verification Hardening + Screenshot-Gated UX
-- strengthen the release gate, TUI regression harness, screenshot evidence
-  contract, `AgentTask`/lane fixtures, permission regressions, CI matrix, and
+- use `docs/release-0.1.10-plan.md` as the active next-iteration core:
+  Programming Cockpit Feedback
+- strengthen live provider request evidence, the shared `AgentTask` runtime
+  view, screenshot evidence contract, permission regressions, CI matrix, and
   provider compatibility coverage
 - require a real-use screenshot or deterministic visual artifact for every
   user-visible feature before it is marked complete

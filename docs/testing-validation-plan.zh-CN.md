@@ -9,7 +9,7 @@
 RoboCode 应该按“用户会长时间真实使用的开发者工具”来验证，而不是只按库代码的单元测试来验证。
 验证体系必须同时证明行为、安全、发布状态和 TUI 可见质量。
 
-这份文档是 `0.1.9` 及后续版本的长期验证合同。
+这份文档是 `0.1.10` 及后续版本的长期验证合同。
 
 ## 验证层次
 
@@ -133,11 +133,11 @@ docs/previews/generated/
 使用稳定命名：
 
 ```text
-0.1.9-<feature>-main.svg
-0.1.9-<feature>-approval.svg
-0.1.9-<feature>-side-1.svg
-0.1.9-<feature>-side-2.svg
-0.1.9-<feature>-terminal.png
+0.1.10-<feature>-main.svg
+0.1.10-<feature>-approval.svg
+0.1.10-<feature>-side-1.svg
+0.1.10-<feature>-side-2.svg
+0.1.10-<feature>-terminal.png
 ```
 
 ## CI 门禁建议
