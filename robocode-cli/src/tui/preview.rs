@@ -1,5 +1,5 @@
 use super::state::{
-    CompanionScreen, ProviderOption, ProviderStatus, TerminalLane, TuiEntry, TuiState,
+    AgentJob, CompanionScreen, ProviderOption, ProviderStatus, TerminalLane, TuiEntry, TuiState,
     WorkspaceSnapshot,
 };
 use super::{render, terminal};
@@ -117,6 +117,8 @@ pub(crate) fn render_ansi_ops_preview_with_theme(
 }
 
 fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut workspace = WorkspaceSnapshot::fixture();
+    workspace.agent_jobs = preview_agent_jobs();
     TuiState {
         session_id: "c4f2b7e".to_string(),
         provider: provider.to_string(),
@@ -129,11 +131,11 @@ fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
         command_palette_hidden_for: None,
         approval_focus: 0,
         approval_apply_all: false,
-        workspace: WorkspaceSnapshot::fixture(),
+        workspace,
         tasks: preview_tasks(),
         memory: preview_memory(),
         screens: preview_screens(),
-        lanes: TerminalLane::preview_lanes(),
+        lanes: preview_lanes(),
         lane_store: None,
         focused_lane: None,
         entries: vec![
@@ -169,8 +171,51 @@ fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
                 label: "approval".to_string(),
                 body: "Permission request for `write_file`\npath: src/config.rs\nPress y to allow, n/Esc to deny.".to_string(),
             },
+            TuiEntry {
+                label: "command".to_string(),
+                body: [
+                    "Test result:",
+                    "  status: failed",
+                    "  exit code: 101",
+                    "  command: cargo test -p robocode-cli config_tests",
+                    "  duration: 42ms",
+                    "  failure summary:",
+                    "    - assertion failed in config_tests",
+                    "  failing files:",
+                    "    - src/config.rs:42:15",
+                    "  output tail:",
+                    "    thread 'config_tests' panicked at src/config.rs:42:15",
+                ]
+                .join("\n"),
+            },
         ],
     }
+}
+
+fn preview_agent_jobs() -> Vec<AgentJob> {
+    vec![AgentJob {
+        id: "codex-app".to_string(),
+        kind: "app-server-turn".to_string(),
+        status: "finished".to_string(),
+        task: "text smoke".to_string(),
+        pid: None,
+        log_path: None,
+        result_path: None,
+        evidence: vec![
+            "thread thread_app".to_string(),
+            "turn turn_app".to_string(),
+            "turn status completed".to_string(),
+            "resume thread_app".to_string(),
+            "message ROBOCODE_APP_SERVER_SMOKE_OK".to_string(),
+        ],
+        updated_at: 42,
+    }]
+}
+
+fn preview_lanes() -> Vec<TerminalLane> {
+    let mut lanes = TerminalLane::preview_lanes();
+    lanes.truncate(1);
+    lanes
 }
 
 fn preview_screens() -> Vec<CompanionScreen> {
@@ -314,9 +359,12 @@ mod tests {
         assert!(command_palette.contains("› /git add src/config.rs"));
         assert!(command_palette.contains("Workspace file"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
+        assert!(!main.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));
         assert!(side.contains("~/projects/robocode"));
         assert!(ops.contains("files 128"));
+        assert!(ops.contains("codex-app codex done"));
+        assert!(ops.contains("evidence message ROBOCODE_APP_SERVER_SMOKE_OK"));
         assert!(!main.contains("docs/previews/generated"));
         assert!(!main.contains("scripts/tui-previews.sh"));
     }

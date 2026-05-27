@@ -25,8 +25,9 @@ extension、MCP 和 evidence 状态。
 - workspace package version 已从 `0.1.6` 升到 `0.1.7`。
 - `Cargo.lock` 中的 workspace package entries 已解析到 `0.1.7`。
 - README 安装示例和 release workflow 默认 tag 已改为 `v0.1.7`。
-- 0.1.7 计划已经作为当前下一迭代核心：Host-Delegate Agent Bridge、Codex
+- 0.1.7 计划是本次 release 的核心：Host-Delegate Agent Bridge、Codex
   Adapter、live operation center、extension diagnostics 和 ACP adapter spike。
+  当前后续计划已转为 `docs/release-0.1.8-plan.zh-CN.md`。
 - `/agent doctor codex` 会检查 command、version、app-server support、auth
   status、config sources 和 job-store path。
 - `/agent review codex`、`/agent challenge codex` 和

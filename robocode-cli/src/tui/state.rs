@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -36,6 +37,940 @@ pub(super) struct TuiState {
     pub(super) lanes: Vec<TerminalLane>,
     pub(super) lane_store: Option<PathBuf>,
     pub(super) focused_lane: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct AgentTask {
+    pub(super) id: String,
+    pub(super) parent_id: Option<String>,
+    pub(super) agent: String,
+    pub(super) kind: String,
+    pub(super) transport: String,
+    pub(super) title: String,
+    pub(super) status: String,
+    pub(super) activity: String,
+    pub(super) summary: String,
+    pub(super) progress: u8,
+    pub(super) started_at: Option<u128>,
+    pub(super) updated_at: Option<u128>,
+    pub(super) workspace: Option<String>,
+    pub(super) evidence: Vec<String>,
+    pub(super) permissions: Vec<String>,
+    pub(super) decision: Option<String>,
+    pub(super) result: Option<String>,
+    pub(super) resume_handle: Option<String>,
+    pub(super) pid: Option<u32>,
+}
+
+impl AgentTask {
+    pub(super) fn is_active(&self) -> bool {
+        matches!(
+            self.status.as_str(),
+            "queued"
+                | "thinking"
+                | "streaming"
+                | "editing"
+                | "running_tool"
+                | "testing"
+                | "waiting_approval"
+                | "needs_input"
+                | "blocked"
+                | "starting"
+                | "running"
+                | "attached"
+                | "reviewing"
+        )
+    }
+
+    fn from_lane(lane: &TerminalLane, lane_store: Option<&Path>) -> Self {
+        let status = normalized_lane_status(lane);
+        let activity = lane_activity(lane, &status);
+        let decision = lane_decision(lane);
+        let result = lane_result(lane);
+        Self {
+            id: lane.id.clone(),
+            parent_id: None,
+            agent: agent_label(&lane.tool),
+            kind: "lane".to_string(),
+            transport: lane_transport(&lane.tool, &lane.target).to_string(),
+            title: lane.title.clone(),
+            status,
+            activity,
+            summary: lane.summary.clone(),
+            progress: lane.progress,
+            started_at: None,
+            updated_at: None,
+            workspace: lane
+                .worktree
+                .as_ref()
+                .map(|path| path.to_string_lossy().to_string()),
+            evidence: lane_evidence(lane, lane_store),
+            permissions: lane_permissions(lane),
+            decision,
+            result,
+            resume_handle: lane_resume_handle(lane),
+            pid: lane_pid(&lane.target),
+        }
+    }
+
+    fn from_codex_job(job: &AgentJob) -> Self {
+        Self {
+            id: job.id.clone(),
+            parent_id: None,
+            agent: "codex".to_string(),
+            kind: "job".to_string(),
+            transport: "app-server".to_string(),
+            title: job.task.clone(),
+            status: normalized_codex_job_status(&job.status),
+            activity: codex_job_activity(job),
+            summary: job.task.clone(),
+            progress: codex_job_progress(job),
+            started_at: None,
+            updated_at: Some(job.updated_at),
+            workspace: None,
+            evidence: job.evidence.clone(),
+            permissions: codex_job_permissions(job),
+            decision: None,
+            result: job
+                .result_path
+                .as_ref()
+                .map(|path| path.to_string_lossy().to_string()),
+            resume_handle: codex_resume_handle(job),
+            pid: job.pid,
+        }
+    }
+}
+
+pub(super) fn agent_tasks(state: &TuiState) -> Vec<AgentTask> {
+    let mut tasks = Vec::new();
+    tasks.extend(transcript_agent_tasks(state));
+    tasks.extend(
+        state
+            .lanes
+            .iter()
+            .map(|lane| AgentTask::from_lane(lane, state.lane_store.as_deref())),
+    );
+    tasks.extend(
+        state
+            .workspace
+            .agent_jobs
+            .iter()
+            .map(AgentTask::from_codex_job),
+    );
+    tasks.sort_by(|left, right| {
+        right
+            .is_active()
+            .cmp(&left.is_active())
+            .then(task_priority(right).cmp(&task_priority(left)))
+            .then(right.updated_at.cmp(&left.updated_at))
+            .then(left.id.cmp(&right.id))
+    });
+    tasks
+}
+
+fn task_priority(task: &AgentTask) -> u8 {
+    match task.status.as_str() {
+        "waiting_approval" => 100,
+        "blocked" => 95,
+        "needs_input" => 90,
+        "testing" => 80,
+        "editing" => 70,
+        "running_tool" => 60,
+        "thinking" | "streaming" => 50,
+        "queued" => 40,
+        "failed" => 30,
+        "done" => 20,
+        "cancelled" => 10,
+        "archived" => 0,
+        _ => 5,
+    }
+}
+
+fn agent_label(tool: &str) -> String {
+    match tool {
+        "codex" => "codex".to_string(),
+        "claude" => "claude".to_string(),
+        "shell" | "run" => "shell".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn lane_transport(tool: &str, target: &str) -> &'static str {
+    if target.starts_with("tmux ") {
+        "tmux"
+    } else if target.starts_with("pty ") || target.contains(" pty ") {
+        "pty"
+    } else if matches!(tool, "run" | "shell") {
+        "shell"
+    } else {
+        "template"
+    }
+}
+
+fn normalized_lane_status(lane: &TerminalLane) -> String {
+    match lane.status.as_str() {
+        "queued" => "queued".to_string(),
+        "starting" => "thinking".to_string(),
+        "running" => infer_work_status(&lane.title, &lane.summary),
+        "attached" | "needs_input" => "needs_input".to_string(),
+        "reviewing" => "waiting_approval".to_string(),
+        "completed" | "done" | "accepted" | "applied" => "done".to_string(),
+        "failed" => "failed".to_string(),
+        "apply_conflict" => "blocked".to_string(),
+        "discarded" | "detached" | "stopped" => "cancelled".to_string(),
+        "archived" => "archived".to_string(),
+        _ => lane.status.clone(),
+    }
+}
+
+fn lane_activity(lane: &TerminalLane, status: &str) -> String {
+    match status {
+        "queued" => format!("queued: {}", lane.summary),
+        "thinking" | "editing" | "testing" => infer_running_activity(&lane.title, &lane.summary),
+        "needs_input" => "waiting for operator input".to_string(),
+        "waiting_approval" => "waiting for review decision".to_string(),
+        "done" => "result ready".to_string(),
+        "failed" | "blocked" => lane.summary.clone(),
+        status => format!("{status}: {}", lane.summary),
+    }
+}
+
+fn lane_evidence(lane: &TerminalLane, lane_store: Option<&Path>) -> Vec<String> {
+    let mut evidence = Vec::new();
+    if !lane.target.is_empty() {
+        evidence.push(format!("target {}", lane.target));
+    }
+    if lane.worktree.is_some() {
+        evidence.push("isolated worktree".to_string());
+    }
+    evidence.push(format!("summary {}", lane.summary));
+    evidence.extend(lane_artifact_evidence(lane, lane_store));
+    evidence
+}
+
+fn lane_artifact_evidence(lane: &TerminalLane, lane_store: Option<&Path>) -> Vec<String> {
+    let Some(artifact_dir) = lane_store
+        .and_then(|path| path.parent())
+        .map(|path| path.join("lanes"))
+    else {
+        return Vec::new();
+    };
+    let mut evidence = Vec::new();
+    let apply_path = artifact_dir.join(format!("{}.apply.md", lane.id));
+    if apply_path.exists() {
+        evidence.extend(lane_markdown_evidence(&apply_path, false));
+    }
+    let conflict_path = artifact_dir.join(format!("{}.apply-conflict.md", lane.id));
+    if conflict_path.exists() {
+        evidence.extend(lane_markdown_evidence(&conflict_path, true));
+    }
+    evidence
+}
+
+fn lane_markdown_evidence(path: &Path, conflict: bool) -> Vec<String> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut evidence = Vec::new();
+    if let Some(patch) = markdown_field(&content, "Patch") {
+        evidence.push(format!("patch {patch}"));
+    }
+    let changed_section = if conflict {
+        "Lane worktree changed files"
+    } else {
+        "Workspace changed files after apply"
+    };
+    evidence.extend(
+        markdown_section_items(&content, changed_section)
+            .into_iter()
+            .take(3)
+            .map(|item| format!("changed {item}")),
+    );
+    if conflict {
+        if let Some(line) = markdown_section_items(&content, "Direct apply check")
+            .into_iter()
+            .find(|line| !line.eq_ignore_ascii_case("clean"))
+        {
+            evidence.push(format!("conflict {line}"));
+        }
+    }
+    evidence
+}
+
+fn markdown_field(content: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}:");
+    content
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(&prefix).map(str::trim))
+        .map(|value| value.trim_matches('`').to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn markdown_section_items(content: &str, heading: &str) -> Vec<String> {
+    let target = format!("## {heading}");
+    content
+        .lines()
+        .skip_while(|line| line.trim() != target)
+        .skip(1)
+        .take_while(|line| !line.trim_start().starts_with("## "))
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.trim_start_matches("- ").to_string())
+        .collect()
+}
+
+fn lane_permissions(lane: &TerminalLane) -> Vec<String> {
+    if matches!(lane.tool.as_str(), "codex" | "claude" | "deepseek") || lane.worktree.is_some() {
+        vec!["workspace-write after approval".to_string()]
+    } else if matches!(lane.tool.as_str(), "run" | "shell") {
+        vec!["shell approval".to_string()]
+    } else {
+        Vec::new()
+    }
+}
+
+fn lane_decision(lane: &TerminalLane) -> Option<String> {
+    match lane.status.as_str() {
+        "accepted" => Some("accepted".to_string()),
+        "revise" => Some("revise requested".to_string()),
+        "discarded" => Some("discarded".to_string()),
+        "applied" => Some("applied".to_string()),
+        "apply_conflict" => Some("resolve conflicts".to_string()),
+        _ => None,
+    }
+}
+
+fn lane_result(lane: &TerminalLane) -> Option<String> {
+    matches!(
+        lane.status.as_str(),
+        "completed" | "done" | "accepted" | "applied" | "failed" | "apply_conflict"
+    )
+    .then(|| lane.summary.clone())
+}
+
+fn lane_resume_handle(lane: &TerminalLane) -> Option<String> {
+    lane.target
+        .strip_prefix("tmux ")
+        .map(|session| format!("tmux attach -t {session}"))
+        .or_else(|| {
+            lane.target
+                .contains(" pty ")
+                .then(|| format!("/lane send {} <text>", lane.id))
+        })
+}
+
+fn codex_job_activity(job: &AgentJob) -> String {
+    match job.status.as_str() {
+        "queued" => format!("queued: {}", job.task),
+        "running" => job
+            .evidence
+            .first()
+            .cloned()
+            .unwrap_or_else(|| format!("running {}", job.kind)),
+        "finished" | "observed" => "result ready".to_string(),
+        "failed" => job
+            .evidence
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "failed; inspect result".to_string()),
+        status => format!("{status}: {}", job.task),
+    }
+}
+
+fn codex_job_progress(job: &AgentJob) -> u8 {
+    match job.status.as_str() {
+        "queued" => 10,
+        "running" => 65,
+        "finished" | "observed" => 100,
+        "failed" => 100,
+        _ => 0,
+    }
+}
+
+fn normalized_codex_job_status(status: &str) -> String {
+    match status {
+        "queued" => "queued",
+        "running" => "thinking",
+        "finished" | "observed" => "done",
+        "failed" => "failed",
+        "cancelled" | "canceled" => "cancelled",
+        other => other,
+    }
+    .to_string()
+}
+
+fn codex_job_permissions(job: &AgentJob) -> Vec<String> {
+    if job.kind.contains("write") || job.kind.contains("rescue") {
+        vec!["workspace-write approval".to_string()]
+    } else {
+        vec!["read-only".to_string()]
+    }
+}
+
+fn codex_resume_handle(job: &AgentJob) -> Option<String> {
+    job.evidence
+        .iter()
+        .find_map(|item| item.strip_prefix("resume ").map(ToOwned::to_owned))
+}
+
+fn transcript_agent_tasks(state: &TuiState) -> Vec<AgentTask> {
+    let mut tasks = Vec::new();
+    let mut seen = BTreeSet::new();
+    if let Some((index, entry)) = latest_approval_entry(&state.entries) {
+        tasks.push(agent_task_from_approval(index, entry));
+        seen.insert(index);
+    }
+    for predicate in [
+        is_diff_entry as fn(&TuiEntry) -> bool,
+        is_test_entry,
+        is_tool_entry,
+        is_provider_entry,
+    ] {
+        if let Some((index, entry)) = latest_entry_matching(&state.entries, predicate) {
+            if seen.insert(index) {
+                tasks.push(agent_task_from_entry(index, entry, state));
+            }
+        }
+    }
+    tasks
+}
+
+fn latest_approval_entry(entries: &[TuiEntry]) -> Option<(usize, &TuiEntry)> {
+    entries.iter().enumerate().rev().find(|(index, entry)| {
+        entry.label == "approval"
+            && entry.body.contains("Permission request for")
+            && !entries[*index + 1..].iter().any(closes_pending_approval)
+    })
+}
+
+fn closes_pending_approval(entry: &TuiEntry) -> bool {
+    matches!(
+        entry.label.as_str(),
+        "tool-result" | "assistant" | "command"
+    ) || (entry.label == "approval" && !entry.body.contains("Permission request for"))
+}
+
+fn latest_entry_matching(
+    entries: &[TuiEntry],
+    predicate: fn(&TuiEntry) -> bool,
+) -> Option<(usize, &TuiEntry)> {
+    entries
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, entry)| predicate(entry))
+}
+
+fn is_diff_entry(entry: &TuiEntry) -> bool {
+    is_diff_view(&entry.body)
+}
+
+fn is_test_entry(entry: &TuiEntry) -> bool {
+    entry.body.contains("Test result:")
+}
+
+fn is_tool_entry(entry: &TuiEntry) -> bool {
+    matches!(entry.label.as_str(), "tool-call" | "tool-result")
+}
+
+fn is_provider_entry(entry: &TuiEntry) -> bool {
+    matches!(entry.label.as_str(), "user" | "assistant")
+}
+
+fn agent_task_from_approval(index: usize, entry: &TuiEntry) -> AgentTask {
+    let tool = approval_tool(&entry.body);
+    let scope = approval_scope(&entry.body);
+    AgentTask {
+        id: format!("approval-{}", index + 1),
+        parent_id: None,
+        agent: "robocode".to_string(),
+        kind: "approval".to_string(),
+        transport: "permission".to_string(),
+        title: format!("{tool} approval"),
+        status: "waiting_approval".to_string(),
+        activity: format!("waiting approval for {tool}"),
+        summary: scope.clone(),
+        progress: 0,
+        started_at: None,
+        updated_at: None,
+        workspace: None,
+        evidence: vec!["transcript approval".to_string(), scope],
+        permissions: vec![tool],
+        decision: None,
+        result: None,
+        resume_handle: None,
+        pid: None,
+    }
+}
+
+fn agent_task_from_entry(index: usize, entry: &TuiEntry, state: &TuiState) -> AgentTask {
+    match entry.label.as_str() {
+        "user" => AgentTask {
+            id: format!("reply-{}", index + 1),
+            parent_id: None,
+            agent: "robocode".to_string(),
+            kind: "provider".to_string(),
+            transport: state.provider.clone(),
+            title: first_line(&entry.body),
+            status: "thinking".to_string(),
+            activity: "thinking through latest prompt".to_string(),
+            summary: format!("{} / {} is processing", state.provider, state.model),
+            progress: 15,
+            started_at: None,
+            updated_at: None,
+            workspace: Some(state.workspace.display_root.clone()),
+            evidence: vec!["latest user turn".to_string()],
+            permissions: Vec::new(),
+            decision: None,
+            result: None,
+            resume_handle: None,
+            pid: None,
+        },
+        "tool-call" => tool_call_task(index, entry),
+        "tool-result" => tool_result_task(index, entry),
+        "assistant" => AgentTask {
+            id: format!("reply-{}", index + 1),
+            parent_id: None,
+            agent: "robocode".to_string(),
+            kind: "provider".to_string(),
+            transport: state.provider.clone(),
+            title: first_line(&entry.body),
+            status: "done".to_string(),
+            activity: "reply ready".to_string(),
+            summary: first_line(&entry.body),
+            progress: 100,
+            started_at: None,
+            updated_at: None,
+            workspace: Some(state.workspace.display_root.clone()),
+            evidence: vec!["latest assistant reply".to_string()],
+            permissions: Vec::new(),
+            decision: None,
+            result: Some(first_line(&entry.body)),
+            resume_handle: None,
+            pid: None,
+        },
+        _ if entry.body.contains("Test result:") => test_result_task(index, entry),
+        _ if is_diff_view(&entry.body) => diff_view_task(index, entry),
+        _ => AgentTask {
+            id: format!("event-{}", index + 1),
+            parent_id: None,
+            agent: "robocode".to_string(),
+            kind: "event".to_string(),
+            transport: "transcript".to_string(),
+            title: first_line(&entry.body),
+            status: "done".to_string(),
+            activity: compact_entry_activity(entry),
+            summary: first_line(&entry.body),
+            progress: 100,
+            started_at: None,
+            updated_at: None,
+            workspace: None,
+            evidence: vec![format!("transcript {}", entry.label)],
+            permissions: Vec::new(),
+            decision: None,
+            result: Some(first_line(&entry.body)),
+            resume_handle: None,
+            pid: None,
+        },
+    }
+}
+
+fn diff_view_task(index: usize, entry: &TuiEntry) -> AgentTask {
+    let files = summary_field(&entry.body, "files").unwrap_or("0");
+    let additions = summary_field(&entry.body, "additions").unwrap_or("0");
+    let deletions = summary_field(&entry.body, "deletions").unwrap_or("0");
+    let has_diff = files != "0";
+    let mut evidence = vec![
+        "transcript diff".to_string(),
+        format!("files {files}"),
+        format!("additions {additions}"),
+        format!("deletions {deletions}"),
+    ];
+    evidence.extend(
+        diff_paths(&entry.body)
+            .into_iter()
+            .map(|path| format!("path {path}")),
+    );
+    AgentTask {
+        id: format!("diff-{}", index + 1),
+        parent_id: None,
+        agent: "shell".to_string(),
+        kind: "diff".to_string(),
+        transport: "local-git".to_string(),
+        title: first_line(&entry.body),
+        status: if has_diff { "needs_input" } else { "done" }.to_string(),
+        activity: if has_diff {
+            format!("review diff: {files} file(s) +{additions} -{deletions}")
+        } else {
+            "diff clean".to_string()
+        },
+        summary: format!("{files} file(s), +{additions} -{deletions}"),
+        progress: 100,
+        started_at: None,
+        updated_at: None,
+        workspace: None,
+        evidence,
+        permissions: Vec::new(),
+        decision: None,
+        result: Some(if has_diff {
+            "diff needs review".to_string()
+        } else {
+            "no diff".to_string()
+        }),
+        resume_handle: Some("/diff".to_string()),
+        pid: None,
+    }
+}
+
+fn tool_call_task(index: usize, entry: &TuiEntry) -> AgentTask {
+    let tool = entry.body.split_whitespace().next().unwrap_or("tool");
+    let title = first_line(&entry.body);
+    let activity = tool_call_activity(&entry.body);
+    let status = if activity.starts_with("Editing") {
+        "editing"
+    } else if activity.starts_with("Testing") {
+        "testing"
+    } else {
+        "running_tool"
+    };
+    let mut evidence = vec!["transcript tool-call".to_string(), format!("tool {tool}")];
+    evidence.extend(tool_call_evidence(&entry.body));
+    AgentTask {
+        id: format!("tool-{}", index + 1),
+        parent_id: None,
+        agent: "robocode".to_string(),
+        kind: "tool".to_string(),
+        transport: "local-tool".to_string(),
+        title,
+        status: status.to_string(),
+        activity,
+        summary: tool.to_string(),
+        progress: 50,
+        started_at: None,
+        updated_at: None,
+        workspace: None,
+        evidence,
+        permissions: tool_permissions(tool),
+        decision: None,
+        result: None,
+        resume_handle: None,
+        pid: None,
+    }
+}
+
+fn tool_result_task(index: usize, entry: &TuiEntry) -> AgentTask {
+    let failed = entry.body.to_ascii_lowercase().contains("error")
+        || entry.body.to_ascii_lowercase().contains("failed");
+    let mut evidence = vec!["transcript tool-result".to_string()];
+    evidence.extend(tool_result_evidence(&entry.body));
+    AgentTask {
+        id: format!("tool-{}", index + 1),
+        parent_id: None,
+        agent: "robocode".to_string(),
+        kind: "tool".to_string(),
+        transport: "local-tool".to_string(),
+        title: first_line(&entry.body),
+        status: if failed { "failed" } else { "done" }.to_string(),
+        activity: if failed {
+            "tool failed".to_string()
+        } else {
+            "tool result ready".to_string()
+        },
+        summary: first_line(&entry.body),
+        progress: 100,
+        started_at: None,
+        updated_at: None,
+        workspace: None,
+        evidence,
+        permissions: Vec::new(),
+        decision: None,
+        result: Some(first_line(&entry.body)),
+        resume_handle: None,
+        pid: None,
+    }
+}
+
+fn test_result_task(index: usize, entry: &TuiEntry) -> AgentTask {
+    let status = rendered_field(&entry.body, "status").unwrap_or("unknown");
+    let command = rendered_field(&entry.body, "command").unwrap_or("<unknown command>");
+    let duration = rendered_field(&entry.body, "duration").unwrap_or("-");
+    let normalized = if matches!(status, "passed" | "ok" | "success") {
+        "done"
+    } else if status == "running" {
+        "testing"
+    } else {
+        "failed"
+    };
+    let mut evidence = vec![
+        "transcript test result".to_string(),
+        format!("command {command}"),
+        format!("status {status}"),
+        format!("duration {duration}"),
+    ];
+    for failure in rendered_section_items(&entry.body, "failure summary:", 2) {
+        evidence.push(format!("failure {failure}"));
+    }
+    for file in rendered_section_items(&entry.body, "failing files:", 3) {
+        evidence.push(format!("failing-file {file}"));
+    }
+    for tail in rendered_section_items(&entry.body, "output tail:", 2) {
+        evidence.push(format!("tail {tail}"));
+    }
+    if normalized == "failed" {
+        evidence.push(format!("rerun {command}"));
+    }
+    AgentTask {
+        id: format!("test-{}", index + 1),
+        parent_id: None,
+        agent: "shell".to_string(),
+        kind: "test".to_string(),
+        transport: "local-shell".to_string(),
+        title: command.to_string(),
+        status: normalized.to_string(),
+        activity: format!("testing {command}"),
+        summary: format!("{status} in {duration}"),
+        progress: 100,
+        started_at: None,
+        updated_at: None,
+        workspace: None,
+        evidence,
+        permissions: vec!["shell approval".to_string()],
+        decision: None,
+        result: Some(status.to_string()),
+        resume_handle: None,
+        pid: None,
+    }
+}
+
+fn approval_tool(body: &str) -> String {
+    body.split('`').nth(1).unwrap_or("tool").to_string()
+}
+
+fn approval_scope(body: &str) -> String {
+    body.lines()
+        .skip(1)
+        .find(|line| !line.trim().is_empty() && !line.contains("Press y"))
+        .unwrap_or("waiting for decision")
+        .trim()
+        .to_string()
+}
+
+fn first_line(body: &str) -> String {
+    body.lines()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| clean_display_fragment(line.trim(), 120))
+        .unwrap_or_else(|| "no detail available".to_string())
+}
+
+fn tool_call_activity(body: &str) -> String {
+    let detail = first_line(body);
+    if let Some((tool, rest)) = detail.split_once(" path: ") {
+        let path = rest.split_whitespace().next().unwrap_or(rest);
+        if matches!(tool, "write_file" | "edit_file") {
+            return format!("Editing {path}");
+        }
+    }
+    if detail.contains("cargo test")
+        || detail.contains("pytest")
+        || detail.contains("npm test")
+        || detail.contains(" test ")
+    {
+        format!("Testing {detail}")
+    } else {
+        format!("Running tool {detail}")
+    }
+}
+
+fn tool_call_evidence(body: &str) -> Vec<String> {
+    let detail = first_line(body);
+    let mut evidence = Vec::new();
+    if let Some(path) = field_after_marker(&detail, " path: ") {
+        evidence.push(format!("path {path}"));
+    }
+    if let Some(lines) = field_after_marker(&detail, " lines: ") {
+        evidence.push(format!("lines {lines}"));
+    }
+    if let Some(command) = field_after_marker(&detail, " command=") {
+        evidence.push(format!("command {command}"));
+    }
+    evidence
+}
+
+fn tool_result_evidence(body: &str) -> Vec<String> {
+    let mut evidence = Vec::new();
+    if let Some(path) = key_value_line(body, "path") {
+        evidence.push(format!("path {path}"));
+    } else if let Some(path) = wrote_path(body) {
+        evidence.push(format!("path {path}"));
+    }
+    if let Some(lines) = wrote_line_count(body) {
+        evidence.push(format!("lines {lines}"));
+    }
+    if let Some(files) = changed_files_summary(body) {
+        evidence.push(format!("changed {files}"));
+    }
+    evidence
+}
+
+fn field_after_marker(detail: &str, marker: &str) -> Option<String> {
+    detail
+        .split_once(marker)
+        .map(|(_, value)| {
+            value
+                .split_whitespace()
+                .next()
+                .unwrap_or(value)
+                .trim_matches('`')
+                .trim_matches(',')
+                .to_string()
+        })
+        .filter(|value| !value.is_empty())
+}
+
+fn key_value_line(body: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}=");
+    body.lines()
+        .find_map(|line| line.trim().strip_prefix(&prefix).map(str::trim))
+        .map(|value| value.trim_matches('`').to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn wrote_path(body: &str) -> Option<String> {
+    first_line(body)
+        .split_once(" to ")
+        .map(|(_, rest)| rest.split_whitespace().next().unwrap_or(rest).to_string())
+        .map(|path| path.trim_matches('`').to_string())
+        .filter(|path| path.contains('/'))
+}
+
+fn wrote_line_count(body: &str) -> Option<String> {
+    let line = first_line(body);
+    let (_, after_wrote) = line.split_once("Wrote ")?;
+    let (count, _) = after_wrote.split_once(" lines")?;
+    Some(count.trim().to_string()).filter(|count| !count.is_empty())
+}
+
+fn changed_files_summary(body: &str) -> Option<String> {
+    body.lines()
+        .skip_while(|line| !line.trim().eq_ignore_ascii_case("Changed files:"))
+        .skip(1)
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.trim_start_matches("- ").to_string())
+}
+
+fn rendered_section_items(body: &str, heading: &str, max: usize) -> Vec<String> {
+    body.lines()
+        .skip_while(|line| !line.trim().eq_ignore_ascii_case(heading))
+        .skip(1)
+        .map(str::trim)
+        .take_while(|line| !is_rendered_section_heading(line))
+        .filter(|line| !line.is_empty())
+        .map(|line| line.trim_start_matches("- ").trim_matches('`').to_string())
+        .filter(|line| !line.is_empty())
+        .take(max)
+        .collect()
+}
+
+fn is_rendered_section_heading(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.ends_with(':') && !trimmed.starts_with('-') && !trimmed.starts_with("error:")
+}
+
+fn tool_permissions(tool: &str) -> Vec<String> {
+    match tool {
+        "write_file" | "edit_file" | "shell" => vec!["approval required".to_string()],
+        _ => Vec::new(),
+    }
+}
+
+fn compact_entry_activity(entry: &TuiEntry) -> String {
+    match entry.label.as_str() {
+        "command" => "command result".to_string(),
+        "system" => "system event".to_string(),
+        _ => "transcript event".to_string(),
+    }
+}
+
+fn rendered_field<'a>(body: &'a str, key: &str) -> Option<&'a str> {
+    let prefix = format!("  {key}: ");
+    body.lines()
+        .find_map(|line| line.strip_prefix(&prefix).map(str::trim))
+        .filter(|value| !value.is_empty())
+}
+
+fn is_diff_view(body: &str) -> bool {
+    (body.starts_with("Latest diff:") || body.starts_with("Git diff:"))
+        && body.contains("  Summary: files=")
+}
+
+fn summary_field<'a>(body: &'a str, key: &str) -> Option<&'a str> {
+    let summary = body
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Summary: "))?;
+    summary.split_whitespace().find_map(|part| {
+        let (label, value) = part.split_once('=')?;
+        (label == key && !value.is_empty()).then_some(value)
+    })
+}
+
+fn diff_paths(body: &str) -> Vec<String> {
+    body.lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("diff --git ")?;
+            let mut parts = rest.split_whitespace();
+            let _before = parts.next()?;
+            let after = parts.next()?;
+            Some(after.trim_start_matches("b/").to_string())
+        })
+        .take(4)
+        .collect()
+}
+
+fn infer_work_status(title: &str, summary: &str) -> String {
+    let lower = format!("{title} {summary}").to_ascii_lowercase();
+    if ["test", "cargo", "pytest", "npm test"]
+        .iter()
+        .any(|needle| lower.contains(needle))
+    {
+        "testing".to_string()
+    } else if ["edit", "write", "patch", "diff", "file"]
+        .iter()
+        .any(|needle| lower.contains(needle))
+    {
+        "editing".to_string()
+    } else {
+        "thinking".to_string()
+    }
+}
+
+fn infer_running_activity(title: &str, summary: &str) -> String {
+    let lower = format!("{title} {summary}").to_ascii_lowercase();
+    if ["test", "cargo", "pytest", "npm test"]
+        .iter()
+        .any(|needle| lower.contains(needle))
+    {
+        format!("Running tests: {summary}")
+    } else if ["edit", "write", "patch", "diff", "file"]
+        .iter()
+        .any(|needle| lower.contains(needle))
+    {
+        format!("Editing: {summary}")
+    } else {
+        format!("Thinking: {summary}")
+    }
+}
+
+fn lane_pid(target: &str) -> Option<u32> {
+    target
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .find_map(|window| {
+            (window[0] == "pid")
+                .then(|| window[1].parse().ok())
+                .flatten()
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1198,35 +2133,86 @@ fn agent_job_evidence(log_path: Option<&Path>, result_path: Option<&Path>) -> Ve
                     continue;
                 }
                 match key.trim() {
-                    "thread" => evidence.push(format!("thread {value}")),
-                    "turn" => evidence.push(format!("turn {value}")),
-                    "status" => evidence.push(format!("turn status {value}")),
-                    "approvals" => evidence.push(format!("approvals {value}")),
+                    "thread" => push_unique_evidence(&mut evidence, format!("thread {value}")),
+                    "turn" => push_unique_evidence(&mut evidence, format!("turn {value}")),
+                    "status" => {
+                        push_unique_evidence(&mut evidence, format!("turn status {value}"));
+                    }
+                    "approvals" => {
+                        push_unique_evidence(&mut evidence, format!("approvals {value}"));
+                    }
+                    "resume" => push_unique_evidence(&mut evidence, format!("resume {value}")),
+                    "command" => push_unique_evidence(&mut evidence, format!("command {value}")),
+                    "message" => push_unique_evidence(&mut evidence, format!("message {value}")),
+                    "changed" | "file" | "files" => {
+                        push_unique_evidence(&mut evidence, format!("changed {value}"));
+                    }
+                    "signals" => {
+                        push_unique_evidence(&mut evidence, format!("signals {value}"));
+                    }
                     _ => {}
                 }
             }
         }
     }
-    if evidence.len() < 4 {
-        if let Some(log_path) = log_path {
-            let log = file_head(log_path, 80).join("\n");
-            for (needle, label) in [
-                ("thread/started", "thread started"),
-                ("turn/started", "turn started"),
-                ("turn/completed", "turn completed"),
-                ("requestApproval", "approval request captured"),
-            ] {
-                if log.contains(needle) && !evidence.iter().any(|item| item == label) {
-                    evidence.push(label.to_string());
-                }
-                if evidence.len() >= 4 {
-                    break;
-                }
+    if let Some(log_path) = log_path {
+        let log = log_head(log_path, 240).join("\n");
+        for (needle, label) in [
+            ("thread/resume", "resume available"),
+            ("thread/started", "thread started"),
+            ("turn/started", "turn started"),
+            ("turn/completed", "turn completed"),
+            (
+                "item/commandExecution/outputDelta",
+                "command output captured",
+            ),
+            ("item/fileChange/outputDelta", "file change captured"),
+            ("item/fileChange/patchUpdated", "file patch captured"),
+            ("turn/diff/updated", "diff updated"),
+            ("fs/changed", "fs changed"),
+            ("requestApproval", "approval request captured"),
+            ("\"method\":\"error\"", "app-server error captured"),
+        ] {
+            if log.contains(needle) {
+                push_unique_evidence(&mut evidence, label.to_string());
             }
         }
+        if let Some(message) = app_server_agent_message(&log) {
+            push_unique_evidence(&mut evidence, format!("message {message}"));
+        }
     }
-    evidence.truncate(4);
+    evidence.truncate(16);
     evidence
+}
+
+fn push_unique_evidence(evidence: &mut Vec<String>, item: String) {
+    if !evidence.iter().any(|existing| existing == &item) {
+        evidence.push(item);
+    }
+}
+
+fn log_head(path: &Path, max_lines: usize) -> Vec<String> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .take(max_lines)
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn app_server_agent_message(log: &str) -> Option<String> {
+    log.lines().rev().find_map(|line| {
+        if !line.contains("agentMessage") || !line.contains("text") {
+            return None;
+        }
+        let normalized = line.replace("\\\"", "\"");
+        json_string_field(&normalized, "text")
+            .map(|message| clean_display_fragment(&message, 96))
+            .filter(|message| !message.is_empty())
+    })
 }
 
 fn json_string_field(value: &str, field: &str) -> Option<String> {
@@ -1513,6 +2499,597 @@ mod tests {
                 "turn started".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn workspace_snapshot_loads_app_server_command_file_approval_and_resume_evidence() {
+        let root = temp_state_root();
+        let agents = root.join(".robocode").join("agents");
+        fs::create_dir_all(&agents).expect("agent dir");
+        let log_path = agents.join("codex-app-server.jsonl");
+        let result_path = agents.join("codex-app-server.result.md");
+        fs::write(
+            &log_path,
+            [
+                r#"{"direction":"server","payload":"{\"method\":\"thread/started\",\"params\":{\"thread\":{\"id\":\"thread_app\"}}}"}"#,
+                r#"{"direction":"server","payload":"{\"method\":\"turn/started\",\"params\":{\"threadId\":\"thread_app\",\"turn\":{\"id\":\"turn_app\"}}}"}"#,
+                r#"{"direction":"server","payload":"{\"method\":\"item/commandExecution/outputDelta\",\"params\":{\"command\":\"cargo test\",\"delta\":\"running\"}}"}"#,
+                r#"{"direction":"server","payload":"{\"method\":\"item/fileChange/patchUpdated\",\"params\":{\"path\":\"src/config.rs\"}}"}"#,
+                r#"{"direction":"server","payload":"{\"id\":9,\"method\":\"item/commandExecution/requestApproval\",\"params\":{\"command\":\"cargo test\"}}"}"#,
+                r#"{"direction":"server","payload":"{\"method\":\"item/completed\",\"params\":{\"item\":{\"type\":\"agentMessage\",\"text\":\"ROBOCODE_APP_SERVER_SMOKE_OK\"}}}"}"#,
+                r#"{"direction":"server","payload":"{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread_app\",\"turn\":{\"id\":\"turn_app\",\"status\":\"completed\"}}}"}"#,
+            ]
+            .join("\n"),
+        )
+        .expect("codex app-server log");
+        fs::write(
+            &result_path,
+            "# Codex app-server turn\n\nthread: thread_app\nturn: turn_app\nstatus: completed\nresume: thread_app\nmessage: ROBOCODE_APP_SERVER_SMOKE_OK\napprovals: item/commandExecution/requestApproval\nsignals: command-output, file-patch\n",
+        )
+        .expect("codex app-server result");
+        fs::write(
+            agents.join("codex-jobs.jsonl"),
+            format!(
+                r#"{{"ts":40,"event":"completed","id":"codex-app","kind":"app-server-turn","status":"finished","pid":6262,"command":"codex app-server turn/start","task":"run tests","log":"{}","result":"{}"}}"#,
+                log_path.display(),
+                result_path.display()
+            ),
+        )
+        .expect("jobs jsonl");
+
+        let workspace = WorkspaceSnapshot::load(root);
+        let job = workspace.agent_jobs.first().expect("agent job");
+
+        assert_eq!(job.evidence[0], "thread thread_app");
+        assert!(job.evidence.contains(&"turn turn_app".to_string()));
+        assert!(job.evidence.contains(&"turn status completed".to_string()));
+        assert!(job.evidence.contains(&"resume thread_app".to_string()));
+        assert!(
+            job.evidence
+                .contains(&"command output captured".to_string())
+        );
+        assert!(job.evidence.contains(&"file patch captured".to_string()));
+        assert!(
+            job.evidence
+                .contains(&"approval request captured".to_string())
+        );
+        assert!(
+            job.evidence
+                .contains(&"message ROBOCODE_APP_SERVER_SMOKE_OK".to_string())
+        );
+        assert!(
+            job.evidence
+                .contains(&"signals command-output, file-patch".to_string())
+        );
+
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: Vec::new(),
+            workspace,
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+        };
+        let tasks = agent_tasks(&state);
+        let task = tasks
+            .iter()
+            .find(|task| task.id == "codex-app")
+            .expect("task");
+
+        assert_eq!(task.transport, "app-server");
+        assert_eq!(task.resume_handle, Some("thread_app".to_string()));
+        assert!(task.evidence.contains(&"file patch captured".to_string()));
+        assert!(
+            task.evidence
+                .contains(&"command output captured".to_string())
+        );
+        assert!(
+            task.evidence
+                .contains(&"signals command-output, file-patch".to_string())
+        );
+    }
+
+    #[test]
+    fn agent_tasks_unify_lanes_and_codex_jobs() {
+        let mut workspace = WorkspaceSnapshot::fixture();
+        workspace.agent_jobs = vec![AgentJob {
+            id: "codex-1".to_string(),
+            kind: "run".to_string(),
+            status: "running".to_string(),
+            task: "review diff".to_string(),
+            pid: Some(4242),
+            log_path: None,
+            result_path: None,
+            evidence: vec!["thread thread_1".to_string()],
+            updated_at: 123,
+        }];
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: Vec::new(),
+            workspace,
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: vec![TerminalLane {
+                id: "L1".to_string(),
+                tool: "claude".to_string(),
+                title: "review config".to_string(),
+                status: "attached".to_string(),
+                target: "tmux robocode-l1".to_string(),
+                progress: 40,
+                summary: "reviewing config architecture".to_string(),
+                worktree: None,
+            }],
+            lane_store: None,
+            focused_lane: None,
+        };
+
+        let tasks = agent_tasks(&state);
+
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].id, "L1");
+        assert_eq!(tasks[0].agent, "claude");
+        assert_eq!(tasks[0].kind, "lane");
+        assert_eq!(tasks[0].transport, "tmux");
+        assert_eq!(tasks[0].status, "needs_input");
+        assert!(tasks[0].is_active());
+        assert_eq!(tasks[1].id, "codex-1");
+        assert_eq!(tasks[1].agent, "codex");
+        assert_eq!(tasks[1].kind, "job");
+        assert_eq!(tasks[1].transport, "app-server");
+        assert_eq!(tasks[1].status, "thinking");
+        assert_eq!(tasks[1].activity, "thread thread_1");
+    }
+
+    #[test]
+    fn agent_tasks_project_lane_apply_and_conflict_artifacts() {
+        let root = temp_state_root();
+        let lane_store = lane_store_path(&root);
+        let artifact_dir = root.join(".robocode").join("lanes");
+        fs::create_dir_all(&artifact_dir).expect("artifact dir");
+        fs::write(
+            artifact_dir.join("L1.apply.md"),
+            [
+                "# RoboCode Lane Apply",
+                "",
+                "Patch: /tmp/L1.apply.patch",
+                "",
+                "## Workspace changed files after apply",
+                "M src/config.rs",
+                "A tests/config_tests.rs",
+            ]
+            .join("\n"),
+        )
+        .expect("apply artifact");
+        fs::write(
+            artifact_dir.join("L2.apply-conflict.md"),
+            [
+                "# RoboCode Lane Apply Conflict",
+                "",
+                "Patch: /tmp/L2.apply.patch",
+                "",
+                "## Direct apply check",
+                "error: patch failed: src/config.rs:42",
+                "",
+                "## Lane worktree changed files",
+                "M src/config.rs",
+            ]
+            .join("\n"),
+        )
+        .expect("conflict artifact");
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: Vec::new(),
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: vec![
+                TerminalLane {
+                    id: "L1".to_string(),
+                    tool: "codex".to_string(),
+                    title: "apply config loader".to_string(),
+                    status: "applied".to_string(),
+                    target: "main".to_string(),
+                    progress: 100,
+                    summary: "applied patch /tmp/L1.apply.patch; cleanup remains separate"
+                        .to_string(),
+                    worktree: Some(root.join(".worktrees").join("L1")),
+                },
+                TerminalLane {
+                    id: "L2".to_string(),
+                    tool: "claude".to_string(),
+                    title: "review config loader".to_string(),
+                    status: "apply_conflict".to_string(),
+                    target: "main".to_string(),
+                    progress: 100,
+                    summary: "apply conflict; report /tmp/L2.apply-conflict.md".to_string(),
+                    worktree: Some(root.join(".worktrees").join("L2")),
+                },
+            ],
+            lane_store: Some(lane_store),
+            focused_lane: None,
+        };
+
+        let tasks = agent_tasks(&state);
+        let applied = tasks.iter().find(|task| task.id == "L1").expect("L1 task");
+        let conflict = tasks.iter().find(|task| task.id == "L2").expect("L2 task");
+
+        assert_eq!(applied.status, "done");
+        assert!(
+            applied
+                .evidence
+                .contains(&"patch /tmp/L1.apply.patch".to_string())
+        );
+        assert!(
+            applied
+                .evidence
+                .contains(&"changed M src/config.rs".to_string())
+        );
+        assert!(
+            conflict
+                .evidence
+                .contains(&"conflict error: patch failed: src/config.rs:42".to_string())
+        );
+        assert!(
+            conflict
+                .evidence
+                .contains(&"changed M src/config.rs".to_string())
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn agent_tasks_project_transcript_runtime_events() {
+        let mut workspace = WorkspaceSnapshot::fixture();
+        workspace.display_root = "/tmp/project".to_string();
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "deepseek".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: vec![
+                TuiEntry {
+                    label: "user".to_string(),
+                    body: "create hello world".to_string(),
+                },
+                TuiEntry {
+                    label: "tool-call".to_string(),
+                    body: "write_file path: hello.py lines: 1-2".to_string(),
+                },
+                TuiEntry {
+                    label: "approval".to_string(),
+                    body: "Permission request for `write_file`\npath: hello.py\nPress y to allow, n/Esc to deny.".to_string(),
+                },
+            ],
+            workspace,
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+        };
+
+        let tasks = agent_tasks(&state);
+
+        assert_eq!(tasks[0].kind, "approval");
+        assert_eq!(tasks[0].status, "waiting_approval");
+        assert_eq!(tasks[0].permissions, vec!["write_file".to_string()]);
+        assert!(
+            tasks[0]
+                .evidence
+                .contains(&"transcript approval".to_string())
+        );
+        assert_eq!(tasks[1].kind, "tool");
+        assert_eq!(tasks[1].status, "editing");
+        assert_eq!(tasks[1].activity, "Editing hello.py");
+        assert!(tasks[1].evidence.contains(&"path hello.py".to_string()));
+        assert!(tasks[1].evidence.contains(&"lines 1-2".to_string()));
+    }
+
+    #[test]
+    fn agent_tasks_do_not_keep_stale_approval_after_closure_event() {
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "deepseek".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: vec![
+                TuiEntry {
+                    label: "approval".to_string(),
+                    body: "Permission request for `write_file`\npath: hello.py\nPress y to allow, n/Esc to deny.".to_string(),
+                },
+                TuiEntry {
+                    label: "approval".to_string(),
+                    body: "Approved `write_file`.".to_string(),
+                },
+                TuiEntry {
+                    label: "tool-result".to_string(),
+                    body: "write_file completed\npath=hello.py\nWrote 2 lines to hello.py".to_string(),
+                },
+            ],
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+        };
+
+        let tasks = agent_tasks(&state);
+
+        assert!(tasks.iter().all(|task| task.kind != "approval"));
+        assert_eq!(tasks[0].kind, "tool");
+        assert_eq!(tasks[0].status, "done");
+        assert!(tasks[0].evidence.contains(&"path hello.py".to_string()));
+    }
+
+    #[test]
+    fn agent_tasks_project_test_result_evidence() {
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: vec![TuiEntry {
+                label: "command".to_string(),
+                body: [
+                    "Test result:",
+                    "  status: failed",
+                    "  exit code: 101",
+                    "  command: cargo test -p robocode-cli",
+                    "  duration: 42ms",
+                    "  failure summary:",
+                    "    - assertion failed in ops_screen",
+                    "  failing files:",
+                    "    - src/tui/ops_screen.rs:42:9",
+                    "  output tail:",
+                    "    thread 'ops_screen' panicked at src/tui/ops_screen.rs:42:9",
+                ]
+                .join("\n"),
+            }],
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+        };
+
+        let tasks = agent_tasks(&state);
+
+        assert_eq!(tasks[0].kind, "test");
+        assert_eq!(tasks[0].agent, "shell");
+        assert_eq!(tasks[0].status, "failed");
+        assert_eq!(tasks[0].summary, "failed in 42ms");
+        assert!(tasks[0].evidence.contains(&"status failed".to_string()));
+        assert!(
+            tasks[0]
+                .evidence
+                .contains(&"command cargo test -p robocode-cli".to_string())
+        );
+        assert!(
+            tasks[0]
+                .evidence
+                .contains(&"failure assertion failed in ops_screen".to_string())
+        );
+        assert!(
+            tasks[0]
+                .evidence
+                .contains(&"failing-file src/tui/ops_screen.rs:42:9".to_string())
+        );
+        assert!(tasks[0].evidence.contains(
+            &"tail thread 'ops_screen' panicked at src/tui/ops_screen.rs:42:9".to_string()
+        ));
+        assert!(
+            tasks[0]
+                .evidence
+                .contains(&"rerun cargo test -p robocode-cli".to_string())
+        );
+    }
+
+    #[test]
+    fn agent_tasks_project_diff_review_evidence() {
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: vec![TuiEntry {
+                label: "command".to_string(),
+                body: [
+                    "Latest diff:",
+                    "  Summary: files=2 additions=12 deletions=3",
+                    "",
+                    "Diff:",
+                    "diff --git a/src/config.rs b/src/config.rs",
+                    "--- a/src/config.rs",
+                    "+++ b/src/config.rs",
+                    "@@",
+                    "-old",
+                    "+new",
+                    "diff --git a/tests/config_tests.rs b/tests/config_tests.rs",
+                ]
+                .join("\n"),
+            }],
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+        };
+
+        let tasks = agent_tasks(&state);
+
+        assert_eq!(tasks[0].kind, "diff");
+        assert_eq!(tasks[0].status, "needs_input");
+        assert_eq!(tasks[0].activity, "review diff: 2 file(s) +12 -3");
+        assert!(tasks[0].is_active());
+        assert!(tasks[0].evidence.contains(&"files 2".to_string()));
+        assert!(tasks[0].evidence.contains(&"additions 12".to_string()));
+        assert!(tasks[0].evidence.contains(&"deletions 3".to_string()));
+        assert!(
+            tasks[0]
+                .evidence
+                .contains(&"path src/config.rs".to_string())
+        );
+        assert_eq!(tasks[0].resume_handle, Some("/diff".to_string()));
+    }
+
+    #[test]
+    fn agent_tasks_keep_recent_diff_test_tool_and_provider_entries() {
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: vec![
+                TuiEntry {
+                    label: "assistant".to_string(),
+                    body: "I patched the parser.".to_string(),
+                },
+                TuiEntry {
+                    label: "tool-result".to_string(),
+                    body: "write_file completed\npath=src/config.rs".to_string(),
+                },
+                TuiEntry {
+                    label: "command".to_string(),
+                    body: "Test result:\n  status: passed\n  command: cargo test\n  duration: 1s"
+                        .to_string(),
+                },
+                TuiEntry {
+                    label: "command".to_string(),
+                    body: "Latest diff:\n  Summary: files=1 additions=2 deletions=0\n\nDiff:\ndiff --git a/src/config.rs b/src/config.rs".to_string(),
+                },
+            ],
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+        };
+
+        let tasks = agent_tasks(&state);
+
+        assert!(tasks.iter().any(|task| task.kind == "diff"));
+        assert!(tasks.iter().any(|task| task.kind == "test"));
+        assert!(tasks.iter().any(|task| task.kind == "tool"));
+        assert!(tasks.iter().any(|task| task.kind == "provider"));
+    }
+
+    #[test]
+    fn agent_tasks_project_tool_result_structured_evidence() {
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            entries: vec![TuiEntry {
+                label: "tool-result".to_string(),
+                body: "Wrote 48 lines to src/config.rs (2.1 KB)\npath=src/config.rs".to_string(),
+            }],
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+        };
+
+        let tasks = agent_tasks(&state);
+
+        assert_eq!(tasks[0].kind, "tool");
+        assert_eq!(tasks[0].status, "done");
+        assert!(
+            tasks[0]
+                .evidence
+                .contains(&"path src/config.rs".to_string())
+        );
+        assert!(tasks[0].evidence.contains(&"lines 48".to_string()));
     }
 
     fn temp_state_root() -> PathBuf {

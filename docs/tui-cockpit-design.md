@@ -43,7 +43,8 @@ with the generated reference visuals and the terminal-agent workflow.
 - Demo values are allowed only in explicit `--tui-preview*` fixture paths.
 - Right rail data sources:
   - workspace: `WorkspaceSnapshot::load_current`.
-  - active tasks: pending approval plus running or queued terminal lanes.
+  - active tasks: pending approval plus the unified `AgentTask` view of running
+    or queued terminal lanes and delegated Codex jobs.
   - diagnostics: `WorkspaceSnapshot.diagnostics`, populated from the persisted
     `.robocode/diagnostics.txt` cache after background LSP checks, real
     `/lsp diagnostics <path>`, or post-edit LSP output; empty means
@@ -132,10 +133,48 @@ after the Claude Code Codex plugin pattern:
 - The UI must show "what is the delegate doing now?" in the main screen, not
   only inside side screens. Side screens add depth; the main screen remains the
   operator's truth surface.
+- Delegate and terminal work must flow through one visible `AgentTask` model
+  in the TUI. Codex jobs, Claude/DeepSeek/shell lanes, tmux sessions, PTY
+  bridges, and future ACP agents should share id, agent, transport, status,
+  activity, progress, evidence, pid, and result concepts before they get richer
+  agent-specific controls.
 - Delegate results must become evidence: changed files, commands, test output,
   final summaries, errors, and resume/thread handles.
 - Write-capable delegate work must be explicit and permission-gated; review and
   diagnostics can stay read-only.
+
+## AgentTask Runtime Model
+
+`AgentTask` is the TUI's unified observation model for answering "who is
+working, what phase are they in, and where is the evidence?" It is not a new
+source of truth. It is a normalized runtime view derived from transcript
+events, pending approvals, provider telemetry, test evidence, lane artifacts,
+Codex job records, tmux/PTY logs, and future ACP events.
+
+Minimum fields:
+
+- `id` / `parent_id`: link the primary reply to child-agent and tool work.
+- `agent` / `kind` / `transport`: distinguish `robocode`, `codex`, `claude`,
+  `deepseek`, `shell`, `mcp`, `skill`, `acp`, plus `provider`, `tool`, `lane`,
+  `job`, `test`, and `approval`.
+- `status`: use one set: `queued`, `thinking`, `streaming`, `editing`,
+  `running_tool`, `testing`, `waiting_approval`, `needs_input`, `blocked`,
+  `done`, `failed`, `cancelled`, and `archived`.
+- `activity` / `summary` / `progress`: feed the main-screen operation center
+  and side-screen rows.
+- `workspace` / `evidence` / `permissions` / `decision` / `result` /
+  `resume_handle`: connect audit evidence, permission boundaries, and follow-up
+  action. Evidence rows should prefer actionable facts: command, failure,
+  conflict, path, changed files, patch artifact, and review/apply result before
+  generic transcript labels.
+
+The primary reply status must also become an `AgentTask`: after submit it shows
+`thinking/streaming`, during tool calls it shows `running_tool`, during approval
+blocks it shows `waiting_approval`, and after completion it shows `done` plus
+the final summary. The main operation center, right-rail `ACTIVE TASKS`, side-1
+lane list, side-2 evidence, `/agent status`, and `/lane inspect` must consume
+the same normalized view instead of each stitching together its own status
+model.
 
 ## Current Implementation Notes
 
@@ -145,10 +184,24 @@ after the Claude Code Codex plugin pattern:
   native blinking bar cursor visible in the input row, and reserves a taller
   input well so the prompt remains easy to find during long sessions.
 - The main transcript reserves a fixed `OPERATION CENTER` band at the top. It
-  derives status from pending approvals, active lanes, Codex job records, the
+  derives status from pending approvals, the unified `AgentTask` view, the
   latest user turn, the latest tool call, or the latest transcript entry, so
-  the main screen can show `Thinking...`, compact edit summaries, lane
+  the main screen can show `DeepSeek is thinking`, `Approval needed: ...`,
+  `Supervising 2 agents: ...`, compact edit summaries, delegated-agent
   progress, and evidence source without inventing runtime data.
+- Approval overlays and `waiting_approval` tasks must be treated as live only
+  until a later approval resolution, tool result, assistant reply, or `/test`
+  command result closes them. Closed approvals must not keep blocking the
+  operation center or modal layer.
+- Failed tests and lane conflicts should surface as operator actions, not just
+  logs: show the failing command or conflict summary first, then the next action
+  (`open failure, patch, rerun tests` or `inspect conflict and revise/apply`).
+- `/diff` and `/git diff` output is also an `AgentTask`: non-empty diffs use
+  `kind=diff`, `status=needs_input`, files/additions/deletions/path evidence,
+  and a next action to review the diff before testing or committing.
+- Transcript-derived tasks keep the latest representative diff, test, tool, and
+  provider entries separately so side-2 can compare the current review surface
+  with recent verification and edit evidence.
 - The slash palette is local UI state; model calls are not involved. It now
   supports nested suggestions for `/lane`, `/agent`, `/extensions`, `/mcp`,
   `/skills`, `/screen`, `/provider`, `/lsp`, `/task`, `/memory`, and `/git`,
@@ -185,16 +238,22 @@ after the Claude Code Codex plugin pattern:
   resume/session hints plus touched-file evidence from result/log output, so
   status/result views can show `codex resume ...` and related files when
   available. The TUI also reads app-server result/log artifacts for thread,
-  turn, status, and approval evidence. The main `OPERATION CENTER` band and
-  right-rail `ACTIVE TASKS` panel read the same job records, so active Codex
-  work is visible while the operator keeps typing. ACP readiness is configured through
+  turn, status, approval, resume, command-output, file-change, patch, diff,
+  filesystem, error, and final-message evidence. App-server result summaries
+  persist final `agentMessage` text as `message:` so `/agent result`, side-2,
+  and `AgentTask` agree on the delegate answer. The main `OPERATION CENTER`
+  band and right-rail `ACTIVE TASKS` panel read the same job records, so active
+  Codex work is visible while the operator keeps typing. ACP readiness is configured through
   `ROBOCODE_AGENT_ACP_COMMAND`; `/agent doctor acp` can run a minimal JSON-RPC
   `initialize` handshake and writes `.robocode/agents/acp-doctor-*.jsonl`
   evidence. Full `/lane acp` execution is still follow-up work.
 - `/test <command>` is a real runtime command, not a visual placeholder. It
   runs through shell approval, records the latest status, exit code, duration,
   command, failure summary, likely failing files, and output tail, and makes
-  the compact status visible through `/status`.
+  the compact status visible through `/status`. Failed test output is also
+  normalized into `AgentTask.evidence` rows (`failure`, `failing-file`, `tail`,
+  and `rerun <command>`) so side-2 and the main operation center can guide the
+  patch/rerun recovery loop.
 - `/extensions doctor` and `/mcp doctor` are readiness reports, not placeholders:
   they show provider plugin dirs, MCP config files and server names, skill root
   counts across project/user/legacy scopes, and the permission boundary that
@@ -206,8 +265,14 @@ after the Claude Code Codex plugin pattern:
   parsed from real `/test` transcript evidence, LSP rows use
   `WorkspaceSnapshot.diagnostics`, MCP rows inspect workspace/user config file
   paths, extension rows summarize provider/catalog/lane/MCP/skill readiness,
-  and evidence rows show recent lane/tool/test artifacts instead of generic
-  chat summaries.
+  and `RECENT EVIDENCE` rows read the unified `AgentTask` runtime view for
+  approval, tool, lane, and Codex job `id / agent / status / progress /
+  activity`, with `evidence`, `decision`, `result`, and the next operator action
+  as secondary rows. For failed or blocked tasks, secondary rows prioritize
+  command, failure, failing-file, tail, rerun, path, lines, and changed-files
+  evidence so the operator sees actionable evidence first. Completed app-server
+  text turns prioritize final `message ...` evidence before lower-signal
+  protocol ids.
 - The right-rail `ACTIVE TASKS` panel reads the real workflow task store exposed
   by `/task` and `/tasks`, then combines those task records with pending
   approvals and active lanes.

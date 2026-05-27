@@ -35,7 +35,8 @@
 - demo 值只能出现在明确的 `--tui-preview*` fixture 路径。
 - 右栏数据源：
   - workspace：`WorkspaceSnapshot::load_current`。
-  - active tasks：pending approval 加 running/queued terminal lanes。
+  - active tasks：pending approval 加统一 `AgentTask` 视图中的 running/queued
+    terminal lanes 和 delegated Codex jobs。
   - diagnostics：`WorkspaceSnapshot.diagnostics`；后台 LSP 检查、真实
     `/lsp diagnostics <path>` 或 post-edit LSP 输出后会写入
     `.robocode/diagnostics.txt` cache；为空表示 unavailable/0。
@@ -112,10 +113,43 @@ Codex 插件的模式：
   后续都应该接入同一套 lifecycle，而不是各自拥有一套一次性面板。
 - UI 必须在主屏回答“delegate 现在在干什么”，不能只把状态放到副屏。副屏负责深度，
   主屏仍是 operator 的事实表面。
+- delegate 和 terminal work 必须在 TUI 中进入同一套可见 `AgentTask`
+  模型。Codex jobs、Claude/DeepSeek/shell lanes、tmux sessions、PTY
+  bridges 和未来 ACP agents 在拥有更丰富的 agent 专属控制前，应共享 id、
+  agent、transport、status、activity、progress、evidence、pid 和 result
+  概念。
 - delegate 结果必须转成 evidence：changed files、commands、test output、
   final summaries、errors，以及 resume/thread handles。
 - write-capable delegate work 必须显式并经过权限控制；review 和 diagnostics 可以
   保持 read-only。
+
+## AgentTask 运行模型
+
+`AgentTask` 是 TUI 的统一观察模型，用来回答“现在谁在工作、做到了哪一步、证据在哪里”。
+它不是新的 source of truth，而是从 transcript events、pending approvals、
+provider telemetry、test evidence、lane artifacts、Codex job records、tmux/PTY
+logs 和未来 ACP events 归一化出来的运行时视图。
+
+最小字段：
+
+- `id` / `parent_id`：支持主回复和子 agent / tool work 关联。
+- `agent` / `kind` / `transport`：区分 `robocode`、`codex`、`claude`、
+  `deepseek`、`shell`、`mcp`、`skill`、`acp`，以及 `provider`、`tool`、
+  `lane`、`job`、`test`、`approval`。
+- `status`：统一使用 `queued`、`thinking`、`streaming`、`editing`、
+  `running_tool`、`testing`、`waiting_approval`、`needs_input`、`blocked`、
+  `done`、`failed`、`cancelled`、`archived`。
+- `activity` / `summary` / `progress`：给主屏中央状态和 side-screen row 使用。
+- `workspace` / `evidence` / `permissions` / `decision` / `result` /
+  `resume_handle`：把可审计证据、权限边界和后续动作连起来。Evidence 行应优先展示
+  command、failure、conflict、path、changed files、patch artifact 和
+  review/apply result，再展示泛化 transcript 标签。
+
+主回复状态也必须进入 `AgentTask`：用户提交后显示 `thinking/streaming`，
+工具调用时显示 `running_tool`，审批阻塞时显示 `waiting_approval`，完成后显示
+`done` 和最后摘要。主屏 operation center、右栏 `ACTIVE TASKS`、side-1 lane
+列表、side-2 evidence、`/agent status` 和 `/lane inspect` 必须读取同一份
+normalized view，不能各自拼接一套状态。
 
 ## 当前实现备注
 
@@ -124,9 +158,23 @@ Codex 插件的模式：
 - composer 已按显示宽度处理中文等 CJK 输入；输入行保持原生 blinking bar
   cursor，并预留更高输入槽，让长会话里也容易找到输入位置。
 - 主 transcript 顶部会保留固定的 `OPERATION CENTER` 区域。它从 pending
-  approvals、active lanes、Codex job records、最近 user turn、最近 tool call 或
-  最近 transcript entry 推导状态，所以主屏可以展示 `Thinking...`、紧凑 edit
-  摘要、lane progress 和 evidence source，同时不编造运行时数据。
+  approvals、统一 `AgentTask` view、最近 user turn、最近 tool call 或最近
+  transcript entry 推导状态，所以主屏可以展示 `reply thinking`、
+  `DeepSeek is thinking`、`Approval needed: ...`、`Supervising 2 agents: ...`、
+  紧凑 edit 摘要、delegate-agent progress 和 evidence
+  source，同时不编造运行时数据。
+- Approval overlay 和 `waiting_approval` task 只有在仍然 live 时才算阻塞；如果后续
+  approval resolution、tool result、assistant reply 或 `/test` command result
+  已经闭环，就不能继续占用 operation center 或 modal layer。
+- 失败测试和 lane conflict 要显示成 operator action，而不是仅作为 log：先展示失败
+  command 或 conflict summary，再展示 next action（`open failure, patch, rerun
+  tests` 或 `inspect conflict and revise/apply`）。
+- `/diff` 和 `/git diff` 输出也属于 `AgentTask`：非空 diff 使用 `kind=diff`、
+  `status=needs_input`，带 files/additions/deletions/path evidence，并提示先 review
+  diff 再测试或提交。
+- transcript-derived tasks 会分别保留最近的 diff、test、tool 和 provider
+  representative entry，让 side-2 能把当前 review surface 和最近 verification /
+  edit evidence 放在一起比较。
 - slash 提示列表是本地 UI 状态，不触发模型调用。它现在支持 `/lane`、
   `/agent`、`/extensions`、`/mcp`、`/skills`、`/screen`、`/provider`、`/lsp`、
   `/task`、`/memory` 和 `/git` 的二级提示；
@@ -154,14 +202,20 @@ Codex 插件的模式：
   approval 后才让 Codex 以 `workspace-write` sandbox 启动。Codex jobs 会保存启动时 Git status baseline，并从 result/log output 中提取
   resume/session hints 和 touched-file evidence，所以 status/result 视图能在可用时显示
   `codex resume ...` 和相关文件。TUI 也会读取 app-server result/log artifacts，
-  提取 thread、turn、status 和 approval evidence。主窗口 `OPERATION CENTER` 区域和右栏
+  提取 thread、turn、status、approval、resume、command-output、file-change、
+  patch、diff、filesystem、error 和 final-message evidence。App-server result
+  summary 会把最终 `agentMessage` text 持久化为 `message:`，所以 `/agent
+  result`、side-2 和 `AgentTask` 对 delegate answer 的展示保持一致。主窗口 `OPERATION CENTER` 区域和右栏
   `ACTIVE TASKS` panel 会读取同一份 job records，所以 operator 继续输入时也能看到
   Codex 是否仍在工作。ACP readiness 通过 `ROBOCODE_AGENT_ACP_COMMAND` 配置；`/agent doctor acp`
   可以运行最小 JSON-RPC `initialize` handshake，并写入
   `.robocode/agents/acp-doctor-*.jsonl` evidence。完整 `/lane acp` 执行仍是后续工作。
 - `/test <command>` 是真实 runtime command，不是视觉占位符。它会走 shell
   approval，记录最近一次测试的 status、exit code、duration、command、failure
-  summary、可能失败文件和 output tail，并通过 `/status` 展示紧凑状态。
+  summary、可能失败文件和 output tail，并通过 `/status` 展示紧凑状态。失败测试输出
+  也会归一化成 `AgentTask.evidence` 行（`failure`、`failing-file`、`tail` 和
+  `rerun <command>`），让 side-2 和主屏 operation center 可以引导 patch/rerun
+  恢复闭环。
 - `/extensions doctor` 和 `/mcp doctor` 是 readiness reports，不是占位符：会展示
   provider plugin dirs、MCP config files 和 server names、project/user/legacy
   skill root counts，以及 extension mutation 必须进入共享 tool permission path
@@ -172,7 +226,13 @@ Codex 插件的模式：
   `EXTENSIONS` 和 `RECENT EVIDENCE` 面板。测试行来自真实 `/test` transcript
   evidence，LSP 行读取 `WorkspaceSnapshot.diagnostics`，MCP 行检查 workspace/user
   config 文件路径，extension 行汇总 provider/catalog/lane/MCP/skill readiness，
-  evidence 行展示最近 lane/tool/test artifacts，而不是普通聊天摘要。
+  `RECENT EVIDENCE` 行读取统一 `AgentTask` runtime view，展示 approval、tool、
+  lane、Codex job 的 `id / agent / status / progress / activity`，并把
+  `evidence`、`decision`、`result` 和下一步 operator action 作为二级行。
+  对 failed/blocked task，二级行优先展示 command、failure、failing-file、tail、
+  rerun、path、lines 和 changed files，确保 operator 先看到可以继续行动的证据。
+  completed app-server text turn 会优先展示最终 `message ...` evidence，再展示
+  低信号的 protocol id。
 - 右侧栏 `ACTIVE TASKS` 面板会读取 `/task` 和 `/tasks` 背后的真实 workflow
   task store，并把这些 task record 与 pending approval、active lane 合并展示。
 - live 副屏只读取持久化 lane 状态；如果没有 lane store，会显示空状态，而不

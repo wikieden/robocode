@@ -1,33 +1,33 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.7  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L2       │
+│ RoboCode  v0.1.8  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L1       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
-│   ◎ OPERATION CENTER  2 active lane(s)                                                            │ │ robocode/    ~/projects/robocode   │
-│      ┊  evidence: lane runtime                                                                    │ │ ↳ src/          FILES    128       │
-│      ┊  L1 running 64% patched failing tests; rerunning cargo                                     │ │ ↳ tests/        LINES  24531       │
-│      ┊  L2 attached 32% tmux session ready; reviewing config architecture                         │ │ ▣ Cargo.toml    LANGUAGE Rust      │
+│   ◎ OPERATION CENTER  Supervising 1 agent: codex testing                                          │ │ robocode/    ~/projects/robocode   │
+│      ┊  evidence: AgentTask L1 from summary patched failing tests; rerunning cargo                │ │ ↳ src/          FILES    128       │
+│      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
+│      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
+│   ♙  ┊  USER                                                                             06:04:49 │ └────────────────────────────────────┘
+│      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ ┌ ACTIVE TASKS ─────────────────── 4 ┐
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ L1 ⛭ codex  s1/pty/01  64%         │
+│   ⚒  ┊  TOOL CALL                                                                        06:04:51 │ │ tool-7 ✎ roboco local-tool/pty/xx  │
+│      ┊  [write_file] path: src/config.rs                                                          │ │ ● task_lo/prog Implement load_con  │
+│      ┊               lines: 1-120     gate: waiting                                               │ │ ◆ task_re/block Review config test │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ⚒  ┊  TOOL CALL                                                                        12:51:15 │ ┌ ACTIVE TASKS ─────────────────── 4 ┐
-│      ┊  [write_file] path: tests/config_tests.rs                                                  │ │ ● task_lo/prog Implement load_con  │
-│      ┊               lines: 1-200     gate: waiting                                               │ │ ◆ task_re/block Review config test │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ L1 ● codex  s1/pty/01  64%         │
-│   ✓  ┊  TOOL RESULT                                                                      12:51:17 │ │ L2 ◆ claude s1/pty/02  32%         │
-│      ┊  ✓ write_file completed                                                                    │ └────────────────────────────────────┘
-│      ┊  • Wrote 86 lines to tests/config_tests.rs (3.4 KB)                                        │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ diagnostics unavailable            │
-│   ✣  ┊  ASSISTANT                                                                        12:51:19 │ │ auto-checks or /lsp diagnostics    │
-│      ┊  Tests are staged. I found one parser edge case and need to update `src/config.rs` before  │ │                                    │
-│      ┊  running the suite.                                                                        │ └────────────────────────────────────┘
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ ┌ PROVIDER HEALTH ─────── Configured ┐
-│   ♙  ┊  USER                                                                             12:51:21 │ │ OpenAI (gpt-4o)                    │
-│      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ │ STATUS     Configured              │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ REQUESTS   0 ok / 0 err            │
-│   ⚒  ┊  TOOL CALL                                                                        12:51:23 │ │ LATENCY    last - avg -            │
-│      ┊  [write_file] path: src/config.rs                                                          │ │ TELEMETRY  awaiting first request  │
-│      ┊               lines: 1-120     gate: waiting                                               │ │                                    │
+│   ·  ┊  SYSTEM                                                                           06:04:53 │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
+│      ┊  Test result:                                                                              │ │ diagnostics unavailable            │
+│      ┊    status: failed                                                                          │ │ auto-checks or /lsp diagnostics    │
+│      ┊    exit code: 101                                                                          │ │                                    │
+│      ┊    command: cargo test -p robocode-cli config_tests                                        │ └────────────────────────────────────┘
+│      ┊    duration: 42ms                                                                          │ ┌ PROVIDER HEALTH ─────── Configured ┐
+│      ┊    failure summary:                                                                        │ │ OpenAI (gpt-4o)                    │
+│      ┊      - assertion failed in config_tests                                                    │ │ STATUS     Configured              │
+│      ┊    failing files:                                                                          │ │ REQUESTS   0 ok / 0 err            │
+│      ┊      - src/config.rs:42:15                                                                 │ │ LATENCY    last - avg -            │
+│      ┊    output tail:                                                                            │ │ TELEMETRY  awaiting first request  │
+│      ┊      thread 'config_tests' panicked at src/config.rs:42:15                                 │ │                                    │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ✣  ┊  ASSISTANT                                                                        12:51:25 │ ┌ RECENT FILES ──────────────── tail ┐
+│   ✣  ┊  ASSISTANT                                                                        06:04:55 │ ┌ RECENT FILES ──────────────── tail ┐
 │      ┊  No approval is blocking right now. The cockpit stays open for transcript review, input,   │ │ [Rs] src/config.rs         now     │
 │      ┊  diagnostics, and lane status.                                                             │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
@@ -37,4 +37,4 @@
 │                                                                                                                           │              │
 │ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 8    ┆ LANES 2  ┆ CONTEXT 128k                                                 Press ? for help │
+│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 9    ┆ LANES 1  ┆ CONTEXT 128k                                                 Press ? for help │

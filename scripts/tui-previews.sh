@@ -309,7 +309,7 @@ done
 assert_contains "$OUT_DIR/multiscreen.txt" "MAIN 140x40"
 assert_contains "$OUT_DIR/multiscreen.txt" "SIDE-1 80x40"
 assert_contains "$OUT_DIR/multiscreen.txt" "SIDE-2 80x40"
-assert_contains "$OUT_DIR/multiscreen.txt" "APPROVAL REQUIRED"
+assert_contains "$OUT_DIR/multiscreen.txt" "next wait for test result"
 assert_contains "$OUT_DIR/main-idle.txt" "No approval is blocking right now"
 assert_contains "$OUT_DIR/main-command-palette.txt" "COMMANDS"
 assert_contains "$OUT_DIR/main-command-palette.txt" "› /git add src/config.rs"
@@ -319,7 +319,7 @@ assert_contains "$OUT_DIR/main.txt" "evidence:"
 assert_contains "$OUT_DIR/main.txt" "TELEMETRY"
 assert_contains "$OUT_DIR/main.txt" "EVENTS"
 assert_contains "$OUT_DIR/main.txt" "LANES"
-if grep -Fq "APPROVAL REQUIRED" "$OUT_DIR/main-idle.txt"; then
+if grep -Fq "APPROVAL REQUIRED" "$OUT_DIR/main.txt" "$OUT_DIR/main-idle.txt"; then
   printf 'preview check failed: %s should not contain approval modal\n' "$OUT_DIR/main-idle.txt" >&2
   exit 1
 fi
@@ -342,7 +342,7 @@ for ansi_file in \
   "$OUT_DIR/side-2.ansi"; do
   assert_ansi_truecolor "$ansi_file"
 done
-assert_ansi_contains "$OUT_DIR/main.ansi" "APPROVAL REQUIRED"
+assert_ansi_contains "$OUT_DIR/main.ansi" "next wait for test result"
 assert_ansi_contains "$OUT_DIR/main-idle.ansi" "No approval is blocking right now"
 assert_ansi_contains "$OUT_DIR/main-command-palette.ansi" "COMMANDS"
 assert_ansi_contains "$OUT_DIR/main-lane.ansi" "LANE DETAIL"

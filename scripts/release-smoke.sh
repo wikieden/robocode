@@ -175,12 +175,7 @@ deepseek_cli_smoke() {
 }
 
 lane_operator_smoke() {
-  run_bash_step \
-    "shell-lane-smoke" \
-    "cargo test -p robocode-cli lane_run_ -- --test-threads=1"
-  run_bash_step \
-    "tmux-lane-smoke" \
-    "cargo test -p robocode-cli lane_tmux_ -- --test-threads=1"
+  run_step "lane-operator-loop-smoke" scripts/smoke-lane-operator-loop.sh
 }
 
 package_smoke() {
@@ -245,6 +240,8 @@ fi
 
 run_step "tui-previews" scripts/tui-previews.sh "$OUT_DIR/tui-previews"
 run_step "fallback-cli-smoke" fallback_cli_smoke
+run_step "codex-app-server-protocol-fixture" scripts/smoke-codex-app-server-protocol-fixture.sh
+run_step "codex-app-server-write-guard" scripts/smoke-codex-app-server-write-guard.sh
 lane_operator_smoke
 
 if [[ "$SKIP_PACKAGE" == "0" ]]; then

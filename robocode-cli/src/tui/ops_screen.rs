@@ -6,9 +6,8 @@ use std::{
 use super::{
     canvas::Frame,
     indicators::progress_bar,
-    lane::{command_hint, lane_next_action, pty_label, status_badge},
     panel::panel,
-    state::TuiState,
+    state::{AgentTask, TuiState, agent_tasks},
     statusbar::BOTTOM_BAR_HEIGHT,
     text::truncate,
 };
@@ -180,74 +179,146 @@ fn extension_health_label(state: &TuiState) -> &'static str {
 
 fn ops_evidence_rows(state: &TuiState) -> Vec<String> {
     let mut rows = Vec::new();
-    for lane in state.lanes.iter().take(4) {
-        rows.push(format!(
-            "{} {:<10} {:<10} {} {}",
-            lane.id,
-            truncate(terminal_label_for_ops(&lane.tool), 10),
-            status_badge(&lane.status),
-            progress_bar(lane.progress)
-                .split_whitespace()
-                .next()
-                .unwrap_or("░░░░░"),
-            truncate(
-                &format!(
-                    "{} :: {} :: next {}",
-                    pty_label(&lane.tool),
-                    command_hint(&lane.tool, &lane.title),
-                    lane_next_action(lane)
-                ),
-                54
-            )
-        ));
+    let mut tasks = agent_tasks(state);
+    tasks.sort_by_key(|task| std::cmp::Reverse(ops_evidence_task_priority(task)));
+    for task in tasks.into_iter().take(6) {
+        rows.push(agent_task_evidence_row(&task));
+        let detail_limit = if task.kind == "diff" {
+            6
+        } else if matches!(task.status.as_str(), "failed" | "blocked") {
+            6
+        } else {
+            2
+        };
+        rows.extend(agent_task_detail_rows(&task).into_iter().take(detail_limit));
     }
-    rows.extend(recent_evidence_entries(state).into_iter().take(3));
     if rows.is_empty() {
         rows.push("no tool/test/lane evidence yet".to_string());
     }
     rows
 }
 
-fn recent_evidence_entries(state: &TuiState) -> Vec<String> {
-    state
-        .entries
+fn ops_evidence_task_priority(task: &AgentTask) -> u8 {
+    if task
+        .evidence
         .iter()
-        .rev()
-        .filter(|entry| {
-            matches!(
-                entry.label.as_str(),
-                "tool-call" | "tool-result" | "approval" | "command"
-            ) || entry.body.contains("Test result:")
-        })
-        .map(|entry| {
-            format!(
-                "main {:<8} {}",
-                truncate(&entry.label, 8),
-                truncate(&compact_activity(entry), 56)
-            )
-        })
-        .collect()
-}
-
-fn terminal_label_for_ops(tool: &str) -> &'static str {
-    match tool {
-        "codex" => "codex tty",
-        "claude" => "claude tty",
-        "shell" | "run" => "ops tty",
-        _ => "agent tty",
+        .any(|item| item.starts_with("message "))
+    {
+        return 97;
+    }
+    match task.status.as_str() {
+        "waiting_approval" => 100,
+        "failed" | "blocked" => 95,
+        "testing" => 85,
+        "editing" | "running_tool" => 80,
+        "needs_input" => 75,
+        "thinking" | "streaming" => 60,
+        "done" => 40,
+        _ => 10,
     }
 }
 
-fn compact_activity(entry: &super::state::TuiEntry) -> String {
-    if entry.label == "approval" && entry.body.contains("write_file") {
-        let path = entry
-            .body
-            .lines()
-            .find_map(|line| line.strip_prefix("path: "))
-            .unwrap_or("workspace");
-        return format!("[waiting] write_file {path}");
+fn agent_task_evidence_row(task: &AgentTask) -> String {
+    let progress = progress_bar(task.progress);
+    let bar = progress.split_whitespace().next().unwrap_or("░░░░░");
+    format!(
+        "{} {} {} {} {}",
+        truncate(&task.id, 12),
+        truncate(&task.agent, 10),
+        task.status,
+        bar,
+        truncate(&task.activity, 52)
+    )
+}
+
+fn agent_task_detail_rows(task: &AgentTask) -> Vec<String> {
+    let mut rows = Vec::new();
+    let evidence = prioritized_task_evidence(task);
+    if matches!(task.status.as_str(), "failed" | "blocked") {
+        rows.extend(evidence.iter().take(4).map(|item| evidence_row(item)));
     }
-    entry.body.replace('\n', " / ")
+    if let Some(decision) = &task.decision {
+        rows.push(format!("  decision {}", truncate(decision, 64)));
+    }
+    if let Some(next) = agent_task_next_action(task) {
+        rows.push(format!("  next {}", truncate(next, 70)));
+    }
+    if let Some(result) = &task.result {
+        rows.push(format!("  result {}", truncate(result, 66)));
+    }
+    if matches!(task.status.as_str(), "failed" | "blocked") {
+        rows.extend(evidence.iter().skip(4).map(|item| evidence_row(item)));
+    }
+    if !matches!(task.status.as_str(), "failed" | "blocked") {
+        rows.extend(evidence.iter().map(|item| evidence_row(item)));
+    }
+    rows
+}
+
+fn prioritized_task_evidence(task: &AgentTask) -> Vec<String> {
+    let mut evidence = task
+        .evidence
+        .iter()
+        .filter(|item| !item.starts_with("transcript "))
+        .cloned()
+        .collect::<Vec<_>>();
+    evidence.sort_by_key(|item| evidence_priority(item));
+    if evidence.is_empty() {
+        evidence = task.evidence.clone();
+    }
+    evidence
+}
+
+fn evidence_priority(item: &str) -> u8 {
+    if item.starts_with("failure ") {
+        0
+    } else if item.starts_with("conflict ") {
+        0
+    } else if item.starts_with("failing-file ") {
+        1
+    } else if item.starts_with("files ") {
+        1
+    } else if item.starts_with("additions ") || item.starts_with("deletions ") {
+        1
+    } else if item.starts_with("command ") {
+        1
+    } else if item.starts_with("message ") {
+        1
+    } else if item.starts_with("tail ") || item.starts_with("rerun ") {
+        2
+    } else if item.starts_with("signals ") {
+        2
+    } else if item.starts_with("path ") {
+        2
+    } else if item.starts_with("lines ") || item.starts_with("changed ") {
+        3
+    } else if item.starts_with("patch ") {
+        4
+    } else {
+        9
+    }
+}
+
+fn evidence_row(item: &str) -> String {
+    format!("  evidence {}", truncate(item, 64))
+}
+
+fn agent_task_next_action(task: &AgentTask) -> Option<&'static str> {
+    match (
+        task.kind.as_str(),
+        task.status.as_str(),
+        task.decision.as_deref(),
+    ) {
+        ("lane", "done", Some("accepted")) if task.workspace.is_some() => {
+            Some("apply isolated changes")
+        }
+        ("lane", "blocked", _) => Some("resolve lane conflicts"),
+        ("diff", "needs_input", _) => Some("review diff, then test or commit"),
+        ("approval", "waiting_approval", _) => Some("approve, deny, or inspect diff"),
+        ("test", "failed", _) => Some("open failure, patch, rerun tests"),
+        ("tool", "failed", _) => Some("inspect failure evidence"),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -346,7 +417,8 @@ fn display_path(path: &Path) -> String {
 mod tests {
     use super::*;
     use crate::tui::state::{
-        ProviderOption, ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot,
+        AgentJob, ProviderOption, ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot,
+        lane_store_path,
     };
 
     fn test_state() -> TuiState {
@@ -382,8 +454,46 @@ mod tests {
 
         let rendered = ops_evidence_rows(&state).join("\n");
 
-        assert!(rendered.contains("L1 codex tty"));
+        assert!(rendered.contains("L1 codex done"));
         assert!(rendered.contains("next apply"));
+    }
+
+    #[test]
+    fn ops_evidence_rows_reuse_agent_task_runtime_view() {
+        let mut state = test_state();
+        state.entries.push(TuiEntry {
+            label: "approval".to_string(),
+            body: "Permission request for `write_file`\npath: src/lib.rs".to_string(),
+        });
+        state.entries.push(TuiEntry {
+            label: "tool-call".to_string(),
+            body: "shell command=cargo test -p robocode-cli".to_string(),
+        });
+        state.lanes.truncate(1);
+        state.lanes[0].status = "running".to_string();
+        state.lanes[0].title = "cargo test --workspace".to_string();
+        state.lanes[0].summary = "Running test suite".to_string();
+        state.workspace.agent_jobs = vec![AgentJob {
+            id: "codex-ops".to_string(),
+            kind: "run".to_string(),
+            status: "running".to_string(),
+            task: "review diagnostics".to_string(),
+            pid: Some(4242),
+            log_path: None,
+            result_path: None,
+            evidence: vec!["thread turn-123".to_string()],
+            updated_at: 99,
+        }];
+
+        let rendered = ops_evidence_rows(&state).join("\n");
+
+        assert!(rendered.contains("approval-1 robocode"));
+        assert!(rendered.contains("waiting_approval"));
+        assert!(rendered.contains("tool-2 robocode"));
+        assert!(rendered.contains("testing"));
+        assert!(rendered.contains("L1 codex testing"));
+        assert!(rendered.contains("codex-ops codex thinking"));
+        assert!(rendered.contains("evidence thread turn-123"));
     }
 
     #[test]
@@ -409,6 +519,140 @@ mod tests {
         assert!(rendered.contains("TEST    failed  42ms  cargo test -p robocode-cli ops_"));
         assert!(rendered.contains("LSP     1 diagnostic(s)"));
         assert!(rendered.contains("src/render.rs:7:2 warning unused"));
+    }
+
+    #[test]
+    fn ops_evidence_rows_prioritize_test_command_and_failure() {
+        let mut state = test_state();
+        state.entries.push(TuiEntry {
+            label: "command".to_string(),
+            body: [
+                "Test result:",
+                "  status: failed",
+                "  exit code: 101",
+                "  command: cargo test -p robocode-cli ops_",
+                "  duration: 42ms",
+                "  failure summary:",
+                "    - assertion failed in ops_screen",
+                "  failing files:",
+                "    - src/tui/ops_screen.rs:42:9",
+                "  output tail:",
+                "    expected operation evidence",
+            ]
+            .join("\n"),
+        });
+
+        let rendered = ops_evidence_rows(&state).join("\n");
+
+        assert!(rendered.find("test-1 shell failed") < rendered.find("L2 claude needs_input"));
+        assert!(rendered.contains("test-1 shell failed"));
+        assert!(rendered.contains("evidence command cargo test -p robocode-cli ops_"));
+        assert!(rendered.contains("evidence failure assertion failed in ops_screen"));
+        assert!(rendered.contains("evidence failing-file src/tui/ops_screen.rs:42:9"));
+        assert!(rendered.contains("evidence tail expected operation evidence"));
+        assert!(rendered.contains("next open failure, patch, rerun tests"));
+    }
+
+    #[test]
+    fn ops_evidence_rows_surface_diff_review_action() {
+        let mut state = test_state();
+        state.lanes.clear();
+        state.entries.push(TuiEntry {
+            label: "command".to_string(),
+            body: [
+                "Git diff:",
+                "  Summary: files=1 additions=5 deletions=1",
+                "",
+                "Diff:",
+                "diff --git a/src/render.rs b/src/render.rs",
+            ]
+            .join("\n"),
+        });
+
+        let rendered = ops_evidence_rows(&state).join("\n");
+
+        assert!(rendered.contains("diff-1 shell needs_input"));
+        assert!(rendered.contains("next review diff, then test or commit"));
+        assert!(rendered.contains("evidence files 1"));
+        assert!(rendered.contains("evidence path src/render.rs"));
+    }
+
+    #[test]
+    fn ops_evidence_rows_surface_lane_conflict_artifacts() {
+        let root = temp_root();
+        let lane_store = lane_store_path(&root);
+        let artifact_dir = root.join(".robocode").join("lanes");
+        std::fs::create_dir_all(&artifact_dir).expect("artifact dir");
+        std::fs::write(
+            artifact_dir.join("L1.apply-conflict.md"),
+            [
+                "# RoboCode Lane Apply Conflict",
+                "",
+                "Patch: /tmp/L1.apply.patch",
+                "",
+                "## Direct apply check",
+                "error: patch failed: src/config.rs:42",
+                "",
+                "## Lane worktree changed files",
+                "M src/config.rs",
+            ]
+            .join("\n"),
+        )
+        .expect("conflict artifact");
+        let mut state = test_state();
+        state.lane_store = Some(lane_store);
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "codex".to_string(),
+            title: "apply config loader".to_string(),
+            status: "apply_conflict".to_string(),
+            target: "main".to_string(),
+            progress: 100,
+            summary: "apply conflict; report /tmp/L1.apply-conflict.md".to_string(),
+            worktree: Some(root.join(".worktrees").join("L1")),
+        }];
+
+        let rendered = ops_evidence_rows(&state).join("\n");
+
+        assert!(rendered.contains("L1 codex blocked"));
+        assert!(rendered.contains("evidence conflict error: patch failed: src/config.rs:42"));
+        assert!(rendered.contains("evidence changed M src/config.rs"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ops_evidence_rows_prioritize_app_server_final_message() {
+        let mut state = test_state();
+        state.lanes.truncate(1);
+        state.lanes[0].status = "running".to_string();
+        state.workspace.agent_jobs = vec![AgentJob {
+            id: "codex-app".to_string(),
+            kind: "app-server-turn".to_string(),
+            status: "finished".to_string(),
+            task: "text smoke".to_string(),
+            pid: None,
+            log_path: None,
+            result_path: None,
+            evidence: vec![
+                "thread thread_app".to_string(),
+                "turn turn_app".to_string(),
+                "turn status completed".to_string(),
+                "resume thread_app".to_string(),
+                "message ROBOCODE_APP_SERVER_SMOKE_OK".to_string(),
+            ],
+            updated_at: 100,
+        }];
+
+        let rendered = ops_evidence_rows(&state).join("\n");
+
+        assert!(rendered.contains("codex-app codex done"));
+        assert!(rendered.find("codex-app codex done") < rendered.find("L1 codex testing"));
+        assert!(rendered.contains("evidence message ROBOCODE_APP_SERVER_SMOKE_OK"));
+        assert!(
+            rendered.find("evidence message ROBOCODE_APP_SERVER_SMOKE_OK")
+                < rendered.find("evidence thread thread_app")
+        );
     }
 
     #[test]

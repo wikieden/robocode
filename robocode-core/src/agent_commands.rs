@@ -127,7 +127,7 @@ impl SessionEngine {
             "  /agent doctor [id]",
             "  /agent review codex [--base <ref>] [prompt]",
             "  /agent challenge codex [prompt]",
-            "  /agent probe codex [--thread|--turn <task>]",
+            "  /agent probe codex [--thread|--turn <task>|--turn-write <task>]",
             "  /agent run codex [--write|--app-server] <task>",
             "  /agent status",
             "  /agent result <id>",
@@ -390,8 +390,16 @@ fn handle_codex_challenge_command(cwd: &Path, args: &[String]) -> Result<String,
 fn handle_codex_probe_command(cwd: &Path, args: &[String]) -> Result<String, String> {
     ensure_codex_target(args.first().map(String::as_str))?;
     let mode = parse_codex_probe_args(&args[1..])?;
+    if matches!(mode, CodexProbeMode::Turn { write: true, .. })
+        && !env_is_configured("ROBOCODE_EXPERIMENTAL_CODEX_APP_SERVER_WRITE")
+    {
+        return Err(
+            "`/agent probe codex --turn-write` is disabled by default because Codex app-server workspace-write turns can mutate files before RoboCode receives an approval request. Set ROBOCODE_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1 only in a disposable workspace."
+                .to_string(),
+        );
+    }
     let evidence = run_codex_app_server_probe(cwd, &codex_command(), mode.clone())?;
-    let tracked_job = if let CodexProbeMode::Turn(task) = &mode {
+    let tracked_job = if let CodexProbeMode::Turn { task, .. } = &mode {
         Some(record_codex_app_server_turn_probe(cwd, task, &evidence)?)
     } else {
         None
@@ -444,12 +452,20 @@ fn parse_codex_probe_args(args: &[String]) -> Result<CodexProbeMode, String> {
                 if task.trim().is_empty() {
                     return Err("Usage: /agent probe codex --turn <task>".to_string());
                 }
-                mode = CodexProbeMode::Turn(task);
+                mode = CodexProbeMode::Turn { task, write: false };
+                break;
+            }
+            "--turn-write" => {
+                let task = args[index + 1..].join(" ");
+                if task.trim().is_empty() {
+                    return Err("Usage: /agent probe codex --turn-write <task>".to_string());
+                }
+                mode = CodexProbeMode::Turn { task, write: true };
                 break;
             }
             other => {
                 return Err(format!(
-                    "Unknown Codex probe option `{other}`. Usage: /agent probe codex [--thread|--turn <task>]"
+                    "Unknown Codex probe option `{other}`. Usage: /agent probe codex [--thread|--turn <task>|--turn-write <task>]"
                 ));
             }
         }
@@ -565,7 +581,7 @@ struct ParsedCodexRunArgs {
 enum CodexProbeMode {
     Initialize,
     Thread,
-    Turn(String),
+    Turn { task: String, write: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -781,7 +797,10 @@ fn start_codex_app_server_job(cwd: &Path, command: &str, task: String) -> Result
         match run_codex_app_server_probe_with_log(
             &monitor_cwd,
             &monitor_command,
-            CodexProbeMode::Turn(monitor_task),
+            CodexProbeMode::Turn {
+                task: monitor_task,
+                write: false,
+            },
             log_path,
         ) {
             Ok(evidence) => {
@@ -1067,22 +1086,50 @@ fn write_codex_app_server_turn_result(
     result_path: &Path,
     evidence: &CodexAppServerProbeEvidence,
 ) -> Result<(), String> {
+    let signals = codex_app_server_signal_summary(&evidence.notifications);
     fs::write(
         result_path,
         format!(
-            "# Codex app-server turn\n\nthread: {}\nturn: {}\nstatus: {}\nlog: {}\napprovals: {}\n",
+            "# Codex app-server turn\n\nthread: {}\nturn: {}\nstatus: {}\nlog: {}\nresume: {}\nmessage: {}\napprovals: {}\nsignals: {}\n",
             evidence.thread_id.as_deref().unwrap_or("unknown"),
             evidence.turn_id.as_deref().unwrap_or("unknown"),
             evidence.turn_status.as_deref().unwrap_or("unknown"),
             evidence.log_path.display(),
+            evidence.thread_id.as_deref().unwrap_or("unknown"),
+            evidence.final_message.as_deref().unwrap_or("none"),
             if evidence.approval_requests.is_empty() {
                 "none".to_string()
             } else {
                 evidence.approval_requests.join(", ")
-            }
+            },
+            signals
         ),
     )
     .map_err(|err| format!("failed to write {}: {err}", result_path.display()))
+}
+
+fn codex_app_server_signal_summary(notifications: &[String]) -> String {
+    let mut signals = Vec::new();
+    for (method, label) in [
+        ("item/commandExecution/outputDelta", "command-output"),
+        ("item/fileChange/outputDelta", "file-change"),
+        ("item/fileChange/patchUpdated", "file-patch"),
+        ("turn/diff/updated", "diff-updated"),
+        ("fs/changed", "fs-changed"),
+        ("item/mcpToolCall", "mcp-tool-call"),
+        ("item/mcpToolCall/completed", "mcp-tool-completed"),
+        ("item/mcpToolCall/fs-write", "mcp-fs-write"),
+        ("error", "app-server-error"),
+    ] {
+        if notifications.iter().any(|item| item == method) {
+            signals.push(label);
+        }
+    }
+    if signals.is_empty() {
+        "none".to_string()
+    } else {
+        signals.join(", ")
+    }
 }
 
 fn codex_app_server_turn_job_status(evidence: &CodexAppServerProbeEvidence) -> String {
@@ -1620,6 +1667,7 @@ struct CodexAppServerProbeEvidence {
     thread_id: Option<String>,
     turn_id: Option<String>,
     turn_status: Option<String>,
+    final_message: Option<String>,
     notifications: Vec<String>,
     approval_requests: Vec<String>,
     log_path: PathBuf,
@@ -1675,8 +1723,9 @@ fn run_codex_app_server_probe_with_log(
     };
 
     let start_thread = !matches!(mode, CodexProbeMode::Initialize);
+    let write_turn = matches!(mode, CodexProbeMode::Turn { write: true, .. });
     let thread_id = if start_thread {
-        let request = codex_app_server_thread_start_request(cwd);
+        let request = codex_app_server_thread_start_request(cwd, write_turn);
         log_entries.push(jsonl_event("client", &request));
         if let Err(error) = stdin
             .write_all(request.as_bytes())
@@ -1709,7 +1758,7 @@ fn run_codex_app_server_probe_with_log(
 
     let mut turn_id = None;
     let mut turn_status = None;
-    if let CodexProbeMode::Turn(task) = &mode {
+    if let CodexProbeMode::Turn { task, write } = &mode {
         let Some(thread_id) = thread_id.as_deref() else {
             return Err(finish_failed_probe(
                 child,
@@ -1718,7 +1767,7 @@ fn run_codex_app_server_probe_with_log(
                 "Codex app-server thread/start did not return a thread id".to_string(),
             ));
         };
-        let request = codex_app_server_turn_start_request(cwd, thread_id, task);
+        let request = codex_app_server_turn_start_request(cwd, thread_id, task, *write);
         log_entries.push(jsonl_event("client", &request));
         if let Err(error) = stdin
             .write_all(request.as_bytes())
@@ -1777,12 +1826,13 @@ fn run_codex_app_server_probe_with_log(
                         .and_then(|_| stdin.flush());
                 }
             } else {
-                notifications.push(method);
+                record_codex_app_server_notification(&line, &method, &mut notifications);
             }
         }
     }
     let _ = child.kill();
     let _ = child.wait();
+    let final_message = codex_app_server_final_message(&log_entries);
     write_probe_log(&log_path, &log_entries)?;
 
     Ok(CodexAppServerProbeEvidence {
@@ -1795,6 +1845,7 @@ fn run_codex_app_server_probe_with_log(
         thread_id,
         turn_id,
         turn_status,
+        final_message,
         notifications,
         approval_requests,
         log_path,
@@ -1983,7 +2034,7 @@ fn read_codex_app_server_response(
                         })?;
                 }
             } else {
-                notifications.push(method);
+                record_codex_app_server_notification(&line, &method, notifications);
             }
         }
     }
@@ -2024,7 +2075,7 @@ fn collect_codex_app_server_notifications(
                         .and_then(|_| stdin.flush());
                 }
             } else {
-                notifications.push(method.clone());
+                record_codex_app_server_notification(&line, &method, notifications);
             }
             if until_method.is_some_and(|target| target == method) {
                 return Some(line);
@@ -2032,6 +2083,35 @@ fn collect_codex_app_server_notifications(
         }
     }
     None
+}
+
+fn codex_app_server_final_message(log_entries: &[String]) -> Option<String> {
+    log_entries.iter().rev().find_map(|entry| {
+        if !entry.contains("agentMessage") || !entry.contains("text") {
+            return None;
+        }
+        let normalized = entry.replace("\\\"", "\"");
+        json_string_field(&normalized, "text")
+            .map(|message| message.chars().take(500).collect::<String>())
+            .filter(|message| !message.trim().is_empty())
+    })
+}
+
+fn record_codex_app_server_notification(line: &str, method: &str, notifications: &mut Vec<String>) {
+    notifications.push(method.to_string());
+    // Some current Codex app-server write-capable turns perform work through
+    // MCP tool items instead of emitting fileChange/fs notifications. Preserve
+    // those as explicit signals so operator evidence does not collapse to
+    // `signals: none` after a real workspace mutation.
+    if line.contains(r#""type":"mcpToolCall""#) {
+        notifications.push("item/mcpToolCall".to_string());
+        if line.contains(r#""status":"completed""#) {
+            notifications.push("item/mcpToolCall/completed".to_string());
+        }
+        if line.contains("writeFile") || line.contains("node:fs") {
+            notifications.push("item/mcpToolCall/fs-write".to_string());
+        }
+    }
 }
 
 fn is_codex_app_server_request(method: &str) -> bool {
@@ -2104,19 +2184,36 @@ fn codex_app_server_initialize_request() -> String {
     .join("")
 }
 
-fn codex_app_server_thread_start_request(cwd: &Path) -> String {
+fn codex_app_server_thread_start_request(cwd: &Path, write: bool) -> String {
     let cwd = escape_json_fragment(&cwd.display().to_string());
+    let approval_policy = if write { "on-request" } else { "never" };
+    let sandbox = if write {
+        "workspace-write"
+    } else {
+        "read-only"
+    };
     format!(
-        r#"{{"id":2,"method":"thread/start","params":{{"model":null,"modelProvider":null,"cwd":"{cwd}","runtimeWorkspaceRoots":["{cwd}"],"approvalPolicy":"never","approvalsReviewer":"user","sandbox":"read-only","permissions":null,"config":null,"serviceName":"robocode","baseInstructions":null,"developerInstructions":null,"personality":null,"ephemeral":true,"sessionStartSource":"startup","threadSource":"subagent","environments":[],"dynamicTools":null,"experimentalRawEvents":false,"persistExtendedHistory":false}}}}"#
+        r#"{{"id":2,"method":"thread/start","params":{{"model":null,"modelProvider":null,"cwd":"{cwd}","runtimeWorkspaceRoots":["{cwd}"],"approvalPolicy":"{approval_policy}","approvalsReviewer":"user","sandbox":"{sandbox}","permissions":null,"config":null,"serviceName":"robocode","baseInstructions":null,"developerInstructions":null,"personality":null,"ephemeral":true,"sessionStartSource":"startup","threadSource":"subagent","environments":[],"dynamicTools":null,"experimentalRawEvents":false,"persistExtendedHistory":false}}}}"#
     )
 }
 
-fn codex_app_server_turn_start_request(cwd: &Path, thread_id: &str, task: &str) -> String {
+fn codex_app_server_turn_start_request(
+    cwd: &Path,
+    thread_id: &str,
+    task: &str,
+    write: bool,
+) -> String {
     let cwd = escape_json_fragment(&cwd.display().to_string());
     let thread_id = escape_json_fragment(thread_id);
     let task = escape_json_fragment(task);
+    let approval_policy = if write { "on-request" } else { "never" };
+    let sandbox_policy = if write {
+        format!(r#"{{"type":"workspaceWrite","writableRoots":["{cwd}"],"networkAccess":false}}"#)
+    } else {
+        r#"{"type":"readOnly","networkAccess":false}"#.to_string()
+    };
     format!(
-        r#"{{"id":3,"method":"turn/start","params":{{"threadId":"{thread_id}","input":[{{"type":"text","text":"{task}","text_elements":[]}}],"responsesapiClientMetadata":null,"environments":[],"cwd":"{cwd}","runtimeWorkspaceRoots":["{cwd}"],"approvalPolicy":"never","approvalsReviewer":"user","sandboxPolicy":{{"type":"readOnly","networkAccess":false}},"permissions":null,"model":null,"serviceTier":null,"effort":null,"summary":null,"personality":null,"outputSchema":null,"collaborationMode":null}}}}"#
+        r#"{{"id":3,"method":"turn/start","params":{{"threadId":"{thread_id}","input":[{{"type":"text","text":"{task}","text_elements":[]}}],"responsesapiClientMetadata":null,"environments":[],"cwd":"{cwd}","runtimeWorkspaceRoots":["{cwd}"],"approvalPolicy":"{approval_policy}","approvalsReviewer":"user","sandboxPolicy":{sandbox_policy},"permissions":null,"model":null,"serviceTier":null,"effort":null,"summary":null,"personality":null,"outputSchema":null,"collaborationMode":null}}}}"#
     )
 }
 
@@ -2285,6 +2382,40 @@ mod tests {
     }
 
     #[test]
+    fn codex_probe_args_support_opt_in_write_turns() {
+        assert_eq!(
+            parse_codex_probe_args(&["--turn".into(), "summarize".into()])
+                .expect("parse read-only turn"),
+            CodexProbeMode::Turn {
+                task: "summarize".to_string(),
+                write: false,
+            }
+        );
+        assert_eq!(
+            parse_codex_probe_args(&["--turn-write".into(), "edit".into(), "file".into()])
+                .expect("parse write turn"),
+            CodexProbeMode::Turn {
+                task: "edit file".to_string(),
+                write: true,
+            }
+        );
+    }
+
+    #[test]
+    fn codex_app_server_write_probe_requests_workspace_write_with_approval() {
+        let cwd = Path::new("/tmp/robocode-write-probe");
+        let thread = codex_app_server_thread_start_request(cwd, true);
+        let turn = codex_app_server_turn_start_request(cwd, "thread_1", "edit file", true);
+
+        assert!(thread.contains(r#""approvalPolicy":"on-request""#));
+        assert!(thread.contains(r#""sandbox":"workspace-write""#));
+        assert!(turn.contains(r#""approvalPolicy":"on-request""#));
+        assert!(turn.contains(r#""type":"workspaceWrite""#));
+        assert!(turn.contains(r#""writableRoots":["/tmp/robocode-write-probe"]"#));
+        assert!(turn.contains(r#""networkAccess":false"#));
+    }
+
+    #[test]
     fn codex_protocol_probe_reads_generated_schema_surface() {
         let root = temp_root("codex_schema_probe");
         fs::write(
@@ -2417,9 +2548,12 @@ mod tests {
                 "printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn_456\",\"items\":[],\"itemsView\":\"complete\",\"status\":\"inProgress\",\"error\":null,\"startedAt\":1,\"completedAt\":null,\"durationMs\":null}}}'",
                 "printf '%s\\n' '{\"method\":\"turn/started\",\"params\":{\"threadId\":\"thread_456\",\"turn\":{\"id\":\"turn_456\",\"status\":\"inProgress\"}}}'",
                 "printf '%s\\n' '{\"method\":\"item/agentMessage/delta\",\"params\":{\"threadId\":\"thread_456\",\"turnId\":\"turn_456\",\"delta\":\"ok\"}}'",
+                "printf '%s\\n' '{\"method\":\"item/started\",\"params\":{\"threadId\":\"thread_456\",\"turnId\":\"turn_456\",\"item\":{\"type\":\"mcpToolCall\",\"id\":\"call_1\",\"server\":\"node_repl\",\"tool\":\"js\",\"status\":\"inProgress\",\"arguments\":{\"code\":\"await fs.writeFile(\\\\\"live.txt\\\\\", \\\\\"ok\\\\\")\"}}}}'",
+                "printf '%s\\n' '{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread_456\",\"turnId\":\"turn_456\",\"item\":{\"type\":\"mcpToolCall\",\"id\":\"call_1\",\"server\":\"node_repl\",\"tool\":\"js\",\"status\":\"completed\",\"arguments\":{\"code\":\"await fs.writeFile(\\\\\"live.txt\\\\\", \\\\\"ok\\\\\")\"},\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}}}'",
                 "printf '%s\\n' '{\"id\":9,\"method\":\"item/commandExecution/requestApproval\",\"params\":{\"threadId\":\"thread_456\",\"turnId\":\"turn_456\",\"itemId\":\"item_1\",\"startedAtMs\":1,\"command\":\"cargo test\",\"cwd\":\"/tmp\"}}'",
                 "read approval",
                 "case \"$approval\" in *'\"id\":9'*'\"decision\":\"decline\"'*) ;; *) exit 5 ;; esac",
+                "printf '%s\\n' '{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread_456\",\"turnId\":\"turn_456\",\"item\":{\"type\":\"agentMessage\",\"text\":\"turn probe complete\"}}}'",
                 "printf '%s\\n' '{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread_456\",\"turn\":{\"id\":\"turn_456\",\"status\":\"completed\"}}}'",
                 "sleep 1",
             ]
@@ -2431,13 +2565,20 @@ mod tests {
         let evidence = run_codex_app_server_probe(
             &root,
             &script.to_string_lossy(),
-            CodexProbeMode::Turn("summarize status".to_string()),
+            CodexProbeMode::Turn {
+                task: "summarize status".to_string(),
+                write: false,
+            },
         )
         .expect("probe succeeds");
 
         assert_eq!(evidence.thread_id, Some("thread_456".to_string()));
         assert_eq!(evidence.turn_id, Some("turn_456".to_string()));
         assert_eq!(evidence.turn_status, Some("completed".to_string()));
+        assert_eq!(
+            evidence.final_message,
+            Some("turn probe complete".to_string())
+        );
         assert_eq!(
             evidence.approval_requests,
             vec!["item/commandExecution/requestApproval".to_string()]
@@ -2461,7 +2602,32 @@ mod tests {
         assert!(status.contains("finished"));
         assert!(result.contains("thread_456"));
         assert!(result.contains("turn_456"));
+        assert!(result.contains("resume: thread_456"));
+        assert!(result.contains("message: turn probe complete"));
         assert!(result.contains("approvals: item/commandExecution/requestApproval"));
+        assert!(result.contains("signals: mcp-tool-call, mcp-tool-completed, mcp-fs-write"));
+    }
+
+    #[test]
+    fn codex_app_server_signal_summary_reports_protocol_evidence() {
+        let notifications = vec![
+            "thread/started".to_string(),
+            "item/commandExecution/outputDelta".to_string(),
+            "item/fileChange/outputDelta".to_string(),
+            "item/fileChange/patchUpdated".to_string(),
+            "turn/diff/updated".to_string(),
+            "fs/changed".to_string(),
+            "item/mcpToolCall".to_string(),
+            "item/mcpToolCall/completed".to_string(),
+            "item/mcpToolCall/fs-write".to_string(),
+            "error".to_string(),
+        ];
+
+        assert_eq!(
+            codex_app_server_signal_summary(&notifications),
+            "command-output, file-change, file-patch, diff-updated, fs-changed, mcp-tool-call, mcp-tool-completed, mcp-fs-write, app-server-error"
+        );
+        assert_eq!(codex_app_server_signal_summary(&[]), "none");
     }
 
     #[cfg(unix)]
@@ -2482,6 +2648,7 @@ mod tests {
                 "printf '%s\\n' '{\"method\":\"thread/started\",\"params\":{\"thread\":{\"id\":\"thread_job\"}}}'",
                 "read _turn",
                 "printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn_job\",\"items\":[],\"itemsView\":\"complete\",\"status\":\"inProgress\",\"error\":null,\"startedAt\":1,\"completedAt\":null,\"durationMs\":null}}}'",
+                "printf '%s\\n' '{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread_job\",\"turnId\":\"turn_job\",\"item\":{\"type\":\"agentMessage\",\"text\":\"async job complete\"}}}'",
                 "printf '%s\\n' '{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread_job\",\"turn\":{\"id\":\"turn_job\",\"status\":\"completed\"}}}'",
                 "sleep 1",
             ]
@@ -2518,6 +2685,9 @@ mod tests {
         assert!(status.contains("finished"));
         assert!(result.contains("thread_job"));
         assert!(result.contains("turn_job"));
+        assert!(result.contains("resume: thread_job"));
+        assert!(result.contains("message: async job complete"));
+        assert!(result.contains("signals: none"));
     }
 
     #[test]

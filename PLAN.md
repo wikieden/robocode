@@ -25,18 +25,19 @@ Mainline landed status:
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Next planned slice (`0.1.7`):
+Next planned slice (`0.1.8`):
 
 - make Codex the first-class reference external-agent backend, using
   OpenAI's Claude Code Codex plugin as the product reference for setup,
   review, rescue/task, background status, result replay, cancellation, and
   resume flows
-- turn the cockpit into a live programming workbench: main-screen operation
-  center, stable composer/IME/cursor behavior, resize redraw, and approval
-  overlay cleanup
+- turn the cockpit into a live programming workbench: a unified AgentTask
+  model for lanes and delegated Codex jobs, a main-screen operation center
+  that answers what RoboCode is doing now, stable composer/IME/cursor behavior,
+  resize redraw, and approval overlay cleanup
 - make programming evidence first-class: `/test` results, edit summaries,
   diff/review entry points, side-2 ops evidence, and recent evidence timelines
-- harden external-agent lanes into an operator loop: normalized lane states,
+- harden external-agent lanes into an operator loop: normalized AgentTask states,
   `/lane inspect`, `/lane send`, revise/accept/discard/apply decisions, and
   real side-1 next actions
 - define the extension foundation for plugins, skills, MCP, tools, and agents:
@@ -51,7 +52,7 @@ Next planned slice (`0.1.7`):
    - Phase 1-7 of the current TUI/lane plan are landed on `main`: cockpit
      layout, theme variants, companion screens, lane runtime, external-tool
      adapters, isolation, and attachable terminal panes.
-   - Continue hardening with the `0.1.7` live cockpit goals: operation center,
+   - Continue hardening with the `0.1.8` live cockpit goals: operation center,
      composer usability, resize behavior, long-lived side screens, tmux/PTY log
      capture, `/lane send`, and operator review/apply loops.
    - Keep lane completion separate from acceptance, and keep apply/cleanup as

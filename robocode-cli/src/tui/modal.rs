@@ -38,18 +38,28 @@ pub(super) fn has_pending_approval(state: &TuiState) -> bool {
 }
 
 pub(super) fn latest_approval(state: &TuiState) -> Option<&str> {
-    for entry in state.entries.iter().rev() {
+    for (index, entry) in state.entries.iter().enumerate().rev() {
         if entry.label != "approval" {
             continue;
         }
         if entry.body.contains("Press y") {
-            return Some(entry.body.as_str());
+            return (!state.entries[index + 1..]
+                .iter()
+                .any(closes_pending_approval_modal))
+            .then_some(entry.body.as_str());
         }
         if entry.body.contains("Approved") || entry.body.contains("Denied") {
             return None;
         }
     }
     None
+}
+
+fn closes_pending_approval_modal(entry: &super::state::TuiEntry) -> bool {
+    matches!(
+        entry.label.as_str(),
+        "tool-result" | "assistant" | "command"
+    ) || (entry.label == "approval" && !entry.body.contains("Press y"))
 }
 
 fn focused_lane(state: &TuiState) -> Option<&TerminalLane> {
@@ -498,6 +508,17 @@ mod tests {
         state.entries.push(TuiEntry {
             label: "approval".to_string(),
             body: "Approved `write_file`.".to_string(),
+        });
+
+        assert!(latest_approval(&state).is_none());
+    }
+
+    #[test]
+    fn latest_approval_stops_after_runtime_closure_event() {
+        let mut state = approval_state();
+        state.entries.push(TuiEntry {
+            label: "command".to_string(),
+            body: "Test result:\n  status: failed".to_string(),
         });
 
         assert!(latest_approval(&state).is_none());

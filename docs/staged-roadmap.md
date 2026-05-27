@@ -116,12 +116,13 @@ Mainline landed:
 
 Next planned:
 
-- use `docs/release-0.1.7-plan.md` as the active next-iteration core:
-  Codex Adapter + Agent Orchestration Backbone
-- implement the Host-Delegate Agent Bridge loop: RoboCode host -> delegate
-  agent -> observable job -> evidence -> operator decision
-- continue programming experience, agent lane lifecycle, usable extension
-  diagnostics, and the ACP adapter spike from that core
+- use `docs/release-0.1.8-plan.md` as the active next-iteration core:
+  AgentTask + Live Multi-Agent Cockpit
+- establish a unified `AgentTask` runtime model so RoboCode primary replies,
+  tool/test/approval work, Codex jobs, Claude/DeepSeek/tmux/PTY lanes, and
+  future ACP agents share one status, evidence, and decision language
+- continue the main operation center, programming evidence, agent lane operator
+  loop, usable extension diagnostics, and ACP adapter spike from that core
 - finish provider compatibility coverage across the expanded provider matrix, using DeepSeek V4 as the strict compatibility contract
 
 That does not change the roadmap ordering. It means RoboCode has moved beyond an

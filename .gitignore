@@ -11,3 +11,6 @@
 /.sixth
 .DS_Store
 .omx/
+.codegraph/
+.cursor/
+.mcp.json

@@ -28,9 +28,9 @@ extension, MCP, and evidence state.
 - Workspace package version moved from `0.1.6` to `0.1.7`.
 - `Cargo.lock` package entries now resolve to `0.1.7`.
 - README install examples and release workflow defaults now point to `v0.1.7`.
-- The 0.1.7 plan is the active next-iteration core:
-  Host-Delegate Agent Bridge, Codex Adapter, live operation center, extension
-  diagnostics, and ACP adapter spike.
+- The 0.1.7 plan was the release core for Host-Delegate Agent Bridge, Codex
+  Adapter, live operation center, extension diagnostics, and the ACP adapter
+  spike. The active follow-up plan is `docs/release-0.1.8-plan.md`.
 - `/agent doctor codex` checks command availability, version, app-server
   support, auth status, config sources, and job-store path.
 - `/agent review codex`, `/agent challenge codex`, and

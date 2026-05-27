@@ -2,7 +2,7 @@
 │ RoboCode  SIDE-2  [WORK ~/projec] [FILES 128] [DIAG 0] [LINK side-1]         │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ TESTS / LSP ───────────────────────────────────────────────────────── 0 diag ┐
-│ TEST    no /test evidence yet                                                │
+│ TEST    failed  42ms  cargo test -p robocode-cli config_tests                │
 │ LSP     0 diagnostic(s)                                                      │
 │         waiting for auto-checks or /lsp diagnostics                          │
 │                                                                              │
@@ -23,18 +23,18 @@
 ┌ EXTENSIONS ─────────────────────────────────────────────────────────── ready ┐
 │ PROVIDER Configured not sampled                                              │
 │ CATALOG  4 provider(s)                                                       │
-│ AGENTS   2 active / 3 lane(s)                                                │
+│ AGENTS   1 active / 1 lane(s)                                                │
 │ MCP      0 configured config(s)                                              │
 │ SKILLS   85 discovered recipe(s)                                             │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ RECENT EVIDENCE ─────────────────────────────────────────────────────── tail ┐
-│ L1 codex tty  [in_prog]  ▓▓▓░░ pty/01 :: codex exec test fixes :: next watch │
-│ L2 claude tty [attach]   ▓░░░░ pty/02 :: claude -p review diff :: next watch │
-│ L3 ops tty    [idle]     ▓▓▓▓▓ pty/ops :: cargo test :: next inspect artifac │
-│ main approval [waiting] write_file src/config.rs                             │
-│ main tool-cal write_file path: src/config.rs lines: 1-120                    │
-│ main tool-res write_file completed / Wrote 86 lines to tests/config_te       │
-│                                                                              │
-│                                                                              │
+│ codex-app codex done ▓▓▓▓▓ result ready                                      │
+│   evidence message ROBOCODE_APP_SERVER_SMOKE_OK                              │
+│   evidence thread thread_app                                                 │
+│ test-9 shell failed ▓▓▓▓▓ testing cargo test -p robocode-cli config_tests    │
+│   evidence failure assertion failed in config_tests                          │
+│   evidence command cargo test -p robocode-cli config_tests                   │
+│   evidence failing-file src/config.rs:42:15                                  │
+│   evidence tail thread 'config_tests' panicked at src/config.rs:42:15        │
 └──────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED SES c4f2b7e  EVT 8   L2                                   ? help │
+│ ● CONNECTED SES c4f2b7e  EVT 9   L1                                   ? help │

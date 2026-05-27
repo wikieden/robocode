@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  SIDE-1  [SESSION c4f2b7e] [LANES 2/3] [FOCUS tail] [LINK main]     │
+│ RoboCode  SIDE-1  [SESSION c4f2b7e] [LANES 1/1] [FOCUS tail] [LINK main]     │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ AGENT LANES ───────────────────────────────────────────────────────── side-1 ┐
 │ ┌ ● L1 codex tty   [in_prog]  TRANSPORT template STATE testing               │
@@ -7,19 +7,19 @@
 │ └ CMD codex exec test fixes │ TASK test fixes                                │
 │   NEXT watch or attach with `/lane tmux L1`; stop with `/lane stop L1` if    │
 │   tail patched failing tests; rer │ artifact none                            │
-│ ┌ ◆ L2 claude tty  [attach]   TRANSPORT tmux     STATE needs input           │
-│ │ PTY pty/02  PID ----   ATTACH tmux attach -t robocode-c4f2b7e-l2           │
-│ └ CMD claude -p review diff │ TASK review diff                               │
-│   NEXT watch or attach with `tmux attach -t robocode-c4f2b7e-l2`; stop wi    │
-│   tail tmux session ready; review │ artifact none                            │
-│ ┌ ○ L3 shell tty   [idle]     TRANSPORT shell    STATE done                  │
-│ │ PTY pty/ops  PID ----   ATTACH /lane tmux L3                               │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ LIVE OUTPUT ─────────────────────────────────────────────────────────── tail ┐
 │ LANES tail persisted logs │ CONTROL inspect stop route                       │
 │ L1 codex tty  [in_prog]  ▓▓▓░░ │ /lane tmux L1 :: patched failing tests; rer │
-│ L2 claude tty [attach]   ▓░░░░ │ tmux attach -t robocode-c4f2b7e-l2 :: tmux  │
-│ L3 shell tty  [idle]     ▓▓▓▓▓ │ /lane tmux L3 :: last run green; no failure │
+│                                                                              │
+│                                                                              │
 │                                                                              │
 │                                                                              │
 │                                                                              │
@@ -29,7 +29,7 @@
 │ PROVIDER  openai / gpt-4o                                                    │
 │ WORKSPACE ~/projects/robocode                                                │
 │ SCREENS   main online   side-1 launched:4101   side-2 launched:4102   lanes  │
-│ TELEMETRY not sampled   EVENTS 8                                             │
+│ TELEMETRY not sampled   EVENTS 9                                             │
 │ CONTEXT   128k   DIAGNOSTICS 0                                               │
 │ DIAG      ok   THEME aurora-cyan                                             │
 │                                                                              │
@@ -37,4 +37,4 @@
 │                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED SES c4f2b7e  EVT 8   L2                                   ? help │
+│ ● CONNECTED SES c4f2b7e  EVT 9   L1                                   ? help │

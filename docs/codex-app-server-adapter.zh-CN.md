@@ -73,14 +73,27 @@ RoboCode 应把 app-server 数据映射到现有 host-delegate lifecycle：
    `.robocode/agents/codex-app-server-*.jsonl`。
 5. 已完成：completed turn probes 现在会把结构化 `threadId`、`turnId` 和
    completion status 映射为 tracked Codex job records 和 result summaries。
-6. 已完成：`/agent run codex --app-server <task>` 会启动异步 read-only
+   Result summaries 也会把最终 `agentMessage` text 持久化为 `message:`。
+6. 已完成：result summaries 现在会把 protocol `signals:` 持久化，用于摘要
+   command output、file change、patch update、diff update、filesystem change、
+   MCP tool call、MCP file write 和 app-server error。这些摘要来自 app-server
+   notifications，并且仍由原始 JSONL log 支撑。
+7. 已完成：`/agent probe codex --turn-write <task>` 只作为带环境变量保护的
+   disposable-workspace 实验路径存在。它默认禁用，因为 live safety trial 证明
+   workspace-write turn 可能在 RoboCode 收到 approval request 前直接修改文件。
+8. 已完成：`/agent run codex --app-server <task>` 会启动异步 read-only
    app-server turn job，同时默认 `/agent run codex` 仍走 CLI fallback。
-7. 已完成：approval-like server requests 会写入 JSONL evidence，并返回
+9. 已完成：approval-like server requests 会写入 JSONL evidence，并返回
    decline/no-grant responses，避免 app-server work 卡住或绕过 RoboCode
-   permission boundaries。
-8. 在 live smoke coverage 证明普通 jobs 可以安全使用 protocol path 后，再通过
+   permission boundaries。但这对 write-capable turn 还不够，因为部分
+   workspace-write mutation 可能在 request 发出前就已经发生。
+10. 已完成：TUI `AgentTask` projection 现在会读取 app-server result/log
+   artifacts，提取 thread、turn、status、approval、resume、command-output、
+   file-change、patch、diff、filesystem、MCP tool-call、MCP file-write、error 和
+   final-message evidence。
+11. 在 live smoke coverage 证明普通 jobs 可以安全使用 protocol path 后，再通过
    config flag/default 推广 app-server execution。
-9. 只有在普通 jobs 能拿到结构化 `threadId`、file、command 和 test events 后，
+12. 只有在普通 jobs 能拿到结构化 `threadId`、file、command 和 test events 后，
    再移除文本启发式解析。
 
 ## 当前边界
@@ -92,3 +105,26 @@ app-server turn execution 接入普通 jobs 前，CLI-backed jobs 仍是稳定 f
 - write-capable launch 前必须经过 RoboCode permission approval；
 - `.robocode/agents/` job records、logs、results、baseline status 和 evidence
   extraction。
+
+可重复本地 smoke：
+
+```bash
+scripts/smoke-codex-app-server.sh
+scripts/smoke-codex-app-server-protocol-fixture.sh
+scripts/smoke-codex-app-server-write-guard.sh
+```
+
+live smoke 依赖本机 Codex auth 和 rate limit 可用。它验证真实 text turn、tracked
+job completion、result `thread` / `turn` / `resume` / `message` 字段，以及
+final-message evidence。protocol-fixture smoke 使用 mock app-server，但走同一套
+CLI/probe/result 路径，确定性覆盖 command、file、approval、MCP tool-call / MCP
+file-write 和 error event 类。
+
+command、file、approval、MCP 和 error 的 live event smoke 仍是 app-server 成为默认路径前
+的后续工作。fixture 证明的是 RoboCode ingestion/display path，不代表真实模型每个
+live turn 都会稳定发出这些事件。2026-05-27 的 disposable live write probe 证明
+Codex Desktop 可以通过 `mcpToolCall` 在没有先发出 RoboCode approval request 的情况下修改
+workspace；RoboCode 现在会把它记录为 `mcp-tool-call`、`mcp-tool-completed` 和
+`mcp-fs-write`，但这条路径必须继续保持 opt-in。write-guard smoke 会验证 write-capable
+app-server probe 默认在启动前被拦截；只有在 disposable workspace 显式设置
+`ROBOCODE_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1` 时才允许实验。

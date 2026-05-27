@@ -6,7 +6,7 @@ use super::{
     panel::panel,
     right_rail::right_rail,
     side_screen::render_side_body,
-    state::TuiState,
+    state::{AgentTask, TuiState, agent_tasks},
     statusbar::{BOTTOM_BAR_HEIGHT, render_bottom_bar},
     text::truncate,
     topbar::{render_ops_top_bar, render_side_top_bar, render_top_bar},
@@ -134,108 +134,46 @@ fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
 }
 
 fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
-    // Priority mirrors operator urgency: unblock approvals, surface live lanes,
-    // then explain what the active session turn appears to be doing.
-    if let Some(approval) =
-        state.entries.iter().rev().find(|entry| {
-            entry.label == "approval" && entry.body.contains("Permission request for")
-        })
-    {
-        return LiveActivityStatus {
-            summary: "approval waiting".to_string(),
-            evidence: "pending approval transcript".to_string(),
-            details: vec![compact_approval_detail(&approval.body)],
-        };
-    }
-
-    let active_lanes = state
-        .lanes
-        .iter()
-        .filter(|lane| {
-            matches!(
-                lane.status.as_str(),
-                "queued" | "starting" | "running" | "attached" | "needs_input" | "reviewing"
-            )
-        })
+    // Priority mirrors operator urgency and reads from the normalized AgentTask
+    // view so every panel describes the same runtime state.
+    let active_agent_tasks = agent_tasks(state)
+        .into_iter()
+        .filter(AgentTask::is_active)
         .collect::<Vec<_>>();
-    if !active_lanes.is_empty() {
+    if !active_agent_tasks.is_empty() {
+        let primary = &active_agent_tasks[0];
+        let delegated_count = active_agent_tasks
+            .iter()
+            .filter(|task| matches!(task.kind.as_str(), "lane" | "job"))
+            .count();
+        let summary = operator_summary(primary, delegated_count);
         return LiveActivityStatus {
-            summary: format!("{} active lane(s)", active_lanes.len()),
-            evidence: "lane runtime".to_string(),
-            details: active_lanes
+            summary,
+            evidence: format!(
+                "AgentTask {} from {}",
+                primary.id,
+                primary_task_signal(primary)
+                    .as_deref()
+                    .or_else(|| primary.evidence.first().map(String::as_str))
+                    .unwrap_or("runtime view")
+            ),
+            details: active_agent_tasks
                 .into_iter()
-                .map(|lane| {
-                    format!(
-                        "{} {} {}% {}",
-                        lane.id, lane.status, lane.progress, lane.summary
-                    )
-                })
+                .map(|task| operator_detail(&task))
                 .collect(),
         };
     }
 
-    let active_agent_jobs = state
-        .workspace
-        .agent_jobs
-        .iter()
-        .rev()
-        .filter(|job| matches!(job.status.as_str(), "queued" | "running"))
-        .collect::<Vec<_>>();
-    if !active_agent_jobs.is_empty() {
-        return LiveActivityStatus {
-            summary: format!("{} active Codex job(s)", active_agent_jobs.len()),
-            evidence: "codex job store".to_string(),
-            details: active_agent_jobs
-                .into_iter()
-                .map(|job| {
-                    let evidence = if job.evidence.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" evidence={}", job.evidence.join("; "))
-                    };
-                    format!(
-                        "{} {} {} updated {} pid={} {}",
-                        job.id,
-                        job.kind,
-                        job.status,
-                        relative_millis(job.updated_at),
-                        job.pid
-                            .map(|pid| pid.to_string())
-                            .unwrap_or_else(|| "-".to_string()),
-                        truncate(&format!("{}{}", job.task, evidence), 92)
-                    )
-                })
-                .collect(),
-        };
-    }
-
-    if let Some(job) = state.workspace.agent_jobs.iter().rev().find(|job| {
-        matches!(job.status.as_str(), "finished" | "failed" | "observed")
-            && !job.evidence.is_empty()
+    if let Some(task) = agent_tasks(state).into_iter().rev().find(|task| {
+        matches!(
+            task.status.as_str(),
+            "done" | "failed" | "cancelled" | "finished" | "observed" | "completed"
+        ) && !task.evidence.is_empty()
     }) {
         return LiveActivityStatus {
-            summary: format!("latest Codex {} {}", job.kind, job.status),
-            evidence: "codex job result".to_string(),
-            details: vec![format!(
-                "{} {}",
-                job.id,
-                truncate(&job.evidence.join("; "), 88)
-            )],
-        };
-    }
-
-    if state
-        .entries
-        .last()
-        .is_some_and(|entry| entry.label == "user")
-    {
-        return LiveActivityStatus {
-            summary: "Thinking...".to_string(),
-            evidence: "latest user prompt".to_string(),
-            details: vec![format!(
-                "{} / {} is processing the latest prompt",
-                state.provider, state.model
-            )],
+            summary: historical_task_summary(&task),
+            evidence: primary_task_signal(&task).unwrap_or_else(|| "agent task result".to_string()),
+            details: vec![operator_detail(&task)],
         };
     }
 
@@ -262,10 +200,186 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
     }
 }
 
+fn operator_summary(task: &AgentTask, delegated_count: usize) -> String {
+    if delegated_count > 0 && matches!(task.kind.as_str(), "lane" | "job") {
+        if task.status == "blocked" {
+            return format!(
+                "Supervising {} agent{}: blocked on {}",
+                delegated_count,
+                if delegated_count == 1 { "" } else { "s" },
+                primary_task_signal(task).unwrap_or_else(|| task.activity.clone())
+            );
+        }
+        return format!(
+            "Supervising {} agent{}: {} {}",
+            delegated_count,
+            if delegated_count == 1 { "" } else { "s" },
+            operator_agent_label(task),
+            operator_status_label(task)
+        );
+    }
+    match task.status.as_str() {
+        "waiting_approval" => format!("Approval needed: {}", task.activity),
+        "needs_input" if task.kind == "diff" => task.activity.clone(),
+        "testing" => {
+            if let Some(command) = evidence_value(task, "command ") {
+                format!("Testing: {command}")
+            } else {
+                task.activity.clone()
+            }
+        }
+        "editing" | "running_tool" => task.activity.clone(),
+        "thinking" | "streaming" => format!("{} is thinking", operator_agent_label(task)),
+        "needs_input" => format!("Needs input: {}", operator_agent_label(task)),
+        "blocked" => format!(
+            "Blocked: {}",
+            primary_task_signal(task).unwrap_or_else(|| task.activity.clone())
+        ),
+        _ => task.activity.clone(),
+    }
+}
+
+fn operator_detail(task: &AgentTask) -> String {
+    let mut detail = format!(
+        "{} {} {} {}%",
+        task.id,
+        operator_agent_label(task),
+        operator_status_label(task),
+        task.progress
+    );
+    if let Some(next) = next_operator_action(task) {
+        detail.push_str(&format!(" :: next {next}"));
+    } else if !task.title.is_empty() {
+        detail.push_str(&format!(" :: {}", truncate(&task.title, 32)));
+    }
+    if let Some(signal) = primary_task_signal(task) {
+        detail.push_str(&format!(" :: signal {signal}"));
+    } else if !task.activity.is_empty() {
+        detail.push_str(&format!(" :: {}", truncate(&task.activity, 32)));
+    } else if !task.summary.is_empty() {
+        detail.push_str(&format!(" :: {}", truncate(&task.summary, 32)));
+    }
+    if let Some(updated_at) = task.updated_at {
+        detail.push_str(&format!(" :: updated {}", relative_millis(updated_at)));
+    }
+    detail
+}
+
+fn historical_task_summary(task: &AgentTask) -> String {
+    match (task.kind.as_str(), task.status.as_str()) {
+        ("test", "failed") => evidence_value(task, "command ")
+            .map(|command| format!("Tests failed: {command}"))
+            .unwrap_or_else(|| "Tests failed".to_string()),
+        ("test", "done") => evidence_value(task, "command ")
+            .map(|command| format!("Tests passed: {command}"))
+            .unwrap_or_else(|| "Tests passed".to_string()),
+        (_, "failed") => format!(
+            "Latest {} failed: {}",
+            operator_agent_label(task),
+            primary_task_signal(task).unwrap_or_else(|| task.activity.clone())
+        ),
+        (_, "cancelled") => format!("Latest {} task cancelled", operator_agent_label(task)),
+        _ => format!("Latest {} task {}", operator_agent_label(task), task.status),
+    }
+}
+
+fn primary_task_signal(task: &AgentTask) -> Option<String> {
+    // Operation center copy should surface the blocker or proof, not the lowest
+    // level source label like "transcript tool-result".
+    for prefix in [
+        "failure ",
+        "failing-file ",
+        "conflict ",
+        "approval ",
+        "message ",
+        "command ",
+        "tail ",
+        "rerun ",
+        "summary ",
+        "files ",
+        "additions ",
+        "deletions ",
+        "changed ",
+        "path ",
+        "resume ",
+        "thread ",
+        "turn ",
+    ] {
+        if let Some(value) = evidence_value(task, prefix) {
+            return Some(format!("{} {value}", prefix.trim()));
+        }
+    }
+    task.evidence
+        .iter()
+        .find(|item| !item.starts_with("transcript "))
+        .cloned()
+}
+
+fn evidence_value(task: &AgentTask, prefix: &str) -> Option<String> {
+    task.evidence
+        .iter()
+        .find_map(|item| item.strip_prefix(prefix).map(str::trim))
+        .map(|value| truncate(value, 88))
+        .filter(|value| !value.is_empty())
+}
+
+fn next_operator_action(task: &AgentTask) -> Option<&'static str> {
+    match task.status.as_str() {
+        "waiting_approval" => Some("approve, diff, or deny"),
+        "blocked" => Some("inspect conflict and revise/apply manually"),
+        "failed" if task.kind == "test" => Some("open failure, patch, rerun tests"),
+        "failed" => Some("inspect result and retry or discard"),
+        "needs_input" if task.kind == "diff" => Some("review diff, then test or commit"),
+        "needs_input" => Some("send follow-up to lane"),
+        "testing" => Some("wait for test result"),
+        "editing" | "running_tool" => Some("wait for tool result"),
+        "done" => Some("review result or continue"),
+        _ => None,
+    }
+}
+
+fn operator_agent_label(task: &AgentTask) -> String {
+    if task.agent == "robocode" && task.kind == "provider" {
+        provider_display_name(&task.transport)
+    } else {
+        task.agent.clone()
+    }
+}
+
+fn provider_display_name(provider: &str) -> String {
+    match provider {
+        "deepseek" => "DeepSeek".to_string(),
+        "openai" => "OpenAI".to_string(),
+        "anthropic" => "Anthropic".to_string(),
+        "ollama" => "Ollama".to_string(),
+        "fallback" => "Fallback".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn operator_status_label(task: &AgentTask) -> &'static str {
+    match task.status.as_str() {
+        "waiting_approval" => "waiting approval",
+        "running_tool" => "using tool",
+        "needs_input" => "needs input",
+        "cancelled" => "cancelled",
+        "archived" => "archived",
+        "queued" => "queued",
+        "thinking" => "thinking",
+        "streaming" => "streaming",
+        "editing" => "editing",
+        "testing" => "testing",
+        "blocked" => "blocked",
+        "done" => "done",
+        "failed" => "failed",
+        _ => "active",
+    }
+}
+
 fn compact_activity_label(label: &str) -> &'static str {
     match label {
-        "assistant" => "assistant response ready",
-        "tool-call" => "tool call in progress",
+        "assistant" => "reply ready",
+        "tool-call" => "reply using tool",
         "tool-result" => "tool result ready",
         "system" => "system idle",
         _ => "session idle",
@@ -285,23 +399,6 @@ fn compact_activity_detail(body: &str) -> String {
         }
     }
     detail
-}
-
-fn compact_approval_detail(body: &str) -> String {
-    let tool = body
-        .lines()
-        .find_map(|line| {
-            line.trim()
-                .strip_prefix("Permission request for `")
-                .and_then(|rest| rest.split_once('`').map(|(tool, _)| tool.to_string()))
-        })
-        .unwrap_or_else(|| "tool".to_string());
-    let scope = body
-        .lines()
-        .find(|line| line.trim_start().starts_with("path: "))
-        .map(|line| format!(" for {}", line.trim_start().trim_start_matches("path: ")))
-        .unwrap_or_default();
-    format!("Waiting for {tool} approval{scope}")
 }
 
 fn activity_separator(width: usize) -> String {
@@ -493,7 +590,7 @@ mod tests {
         assert!(!rendered.contains("312 ms"));
         assert!(!rendered.contains("28.4 t/s"));
         assert!(!rendered.contains("Implement load_config"));
-        assert!(rendered.contains("L1 ● codex"));
+        assert!(rendered.contains("L1 ⛭ codex"));
         assert!(rendered.contains("L2 ◆ claude"));
         assert!(rendered.contains("TOOL CALL"));
         assert!(rendered.contains("FILES    128"));
@@ -540,9 +637,8 @@ mod tests {
         let rendered = render_frame(&state, 140, 36);
 
         assert!(rendered.contains("OPERATION CENTER"));
-        assert!(rendered.contains("Thinking..."));
-        assert!(rendered.contains("evidence: latest user prompt"));
-        assert!(rendered.contains("deepseek / deepseek-v4-flash is processing"));
+        assert!(rendered.contains("DeepSeek is thinking"));
+        assert!(rendered.contains("evidence: AgentTask reply-"));
     }
 
     #[test]
@@ -557,15 +653,98 @@ mod tests {
         let lane_rendered = render_frame(&state, 140, 36);
 
         assert!(lane_rendered.contains("OPERATION CENTER"));
-        assert!(lane_rendered.contains("active lane(s)"));
-        assert!(lane_rendered.contains("evidence: lane runtime"));
-        assert!(lane_rendered.contains("L1 running"));
+        assert!(lane_rendered.contains("Supervising 2 agents: claude needs input"));
+        assert!(lane_rendered.contains("evidence: AgentTask"));
+        assert!(lane_rendered.contains("L1 codex testing 64%"));
 
         state.lanes.clear();
         let tool_rendered = render_frame(&state, 140, 36);
 
-        assert!(tool_rendered.contains("tool call in progress"));
         assert!(tool_rendered.contains("Editing src/render.rs"));
+    }
+
+    #[test]
+    fn render_frame_surfaces_failed_tests_after_approval_is_closed() {
+        let mut state = render_state();
+        state.entries = vec![
+            TuiEntry {
+                label: "approval".to_string(),
+                body: "Permission request for `write_file`\npath: src/config.rs\nPress y to allow, n/Esc to deny.".to_string(),
+            },
+            TuiEntry {
+                label: "approval".to_string(),
+                body: "Approved `write_file`.".to_string(),
+            },
+            TuiEntry {
+                label: "command".to_string(),
+                body: [
+                    "Test result:",
+                    "  status: failed",
+                    "  exit code: 101",
+                    "  command: cargo test -p robocode-cli config_tests",
+                    "  duration: 42ms",
+                    "  failure summary:",
+                    "    - assertion failed in config_tests",
+                    "  failing files:",
+                    "    - src/config.rs:12:5",
+                    "  output tail:",
+                    "    thread 'config_tests' panicked at src/config.rs:12:5",
+                ]
+                .join("\n"),
+            },
+        ];
+
+        let rendered = render_frame(&state, 140, 36);
+
+        assert!(rendered.contains("Tests failed: cargo test -p robocode-cli config_tests"));
+        assert!(rendered.contains("failure assertion failed in config_tests"));
+        assert!(rendered.contains("next open failure, patch, rerun tests"));
+        assert!(!rendered.contains("Approval needed"));
+        assert!(!rendered.contains("APPROVAL REQUIRED"));
+    }
+
+    #[test]
+    fn render_frame_surfaces_lane_conflict_as_operator_blocker() {
+        let mut state = render_state();
+        state.lanes = vec![TerminalLane {
+            id: "L9".to_string(),
+            tool: "codex".to_string(),
+            title: "apply config loader".to_string(),
+            status: "apply_conflict".to_string(),
+            target: "main".to_string(),
+            progress: 78,
+            summary: "conflict error: patch failed: src/config.rs:42".to_string(),
+            worktree: None,
+        }];
+
+        let rendered = render_frame(&state, 140, 36);
+
+        assert!(rendered.contains("Supervising 1 agent: blocked on"));
+        assert!(rendered.contains("summary conflict error: patch failed"));
+        assert!(rendered.contains("next inspect conflict and revise/apply manually"));
+    }
+
+    #[test]
+    fn render_frame_surfaces_diff_as_review_action() {
+        let mut state = render_state();
+        state.entries = vec![TuiEntry {
+            label: "command".to_string(),
+            body: [
+                "Latest diff:",
+                "  Summary: files=2 additions=12 deletions=3",
+                "",
+                "Diff:",
+                "diff --git a/src/config.rs b/src/config.rs",
+                "diff --git a/tests/config_tests.rs b/tests/config_tests.rs",
+            ]
+            .join("\n"),
+        }];
+
+        let rendered = render_frame(&state, 140, 36);
+
+        assert!(rendered.contains("review diff: 2 file(s) +12 -3"));
+        assert!(rendered.contains("next review diff, then test or commit"));
+        assert!(rendered.contains("signal files 2"));
     }
 
     #[test]
@@ -585,11 +764,11 @@ mod tests {
 
         let rendered = render_frame(&state, 140, 36);
 
-        assert!(rendered.contains("active Codex job(s)"));
-        assert!(rendered.contains("evidence: codex job store"));
-        assert!(rendered.contains("codex-123 run running updated"));
+        assert!(rendered.contains("Supervising 1 agent: codex thinking"));
+        assert!(rendered.contains("evidence: AgentTask codex-123"));
+        assert!(rendered.contains("codex-123 codex thinking 65%"));
         assert!(rendered.contains("thread thread_123"));
-        assert!(rendered.contains("◉ codex running"));
+        assert!(rendered.contains("codex"));
         assert!(rendered.contains("review payment"));
     }
 
@@ -939,11 +1118,11 @@ mod tests {
         assert!(rendered.contains("TEST    no /test evidence yet"));
         assert!(rendered.contains("LSP     0 diagnostic(s)"));
         assert!(rendered.contains("auto-checks or /lsp diagnostics"));
-        assert!(rendered.contains("L1 codex tty"));
-        assert!(rendered.contains("L2 claude tty"));
-        assert!(rendered.contains("pty/01 :: codex exec test fixes"));
-        assert!(rendered.contains("pty/02 :: claude -p review diff"));
-        assert!(rendered.contains("[waiting] write_file"));
+        assert!(rendered.contains("approval-1 robocode waiting_approval"));
+        assert!(rendered.contains("next approve, deny, or inspect diff"));
+        assert!(rendered.contains("L1 codex testing"));
+        assert!(rendered.contains("L2 claude needs_input"));
+        assert!(rendered.contains("evidence path: src/config.rs"));
         assert!(!rendered.contains("Type instruction"));
 
         let lines = rendered.lines().collect::<Vec<_>>();

@@ -157,6 +157,25 @@ fn agent_doctor_reports_adapter_readiness_without_mutation() {
 }
 
 #[test]
+fn agent_probe_codex_write_turn_is_guarded_by_default() {
+    let home = temp_dir("agent_codex_write_probe_guard_home");
+    let cwd = temp_dir("agent_codex_write_probe_guard_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let err = engine
+        .process_input_with_approval("/agent probe codex --turn-write create file", &mut approver)
+        .expect_err("write probe should be guarded");
+
+    assert!(err.contains("turn-write` is disabled by default"));
+    assert!(err.contains("ROBOCODE_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1"));
+}
+
+#[test]
 fn agent_doctor_reports_experimental_acp_readiness() {
     let home = temp_dir("agent_acp_doctor_home");
     let cwd = temp_dir("agent_acp_doctor_cwd");

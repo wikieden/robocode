@@ -1,8 +1,7 @@
 use super::{
     lane::pty_label,
-    modal::latest_approval,
     panel::panel,
-    state::{TerminalLane, TuiState},
+    state::{AgentTask, TuiState, agent_tasks},
     text::truncate,
 };
 
@@ -94,12 +93,19 @@ fn workspace_rows(state: &TuiState) -> Vec<String> {
 
 fn active_task_rows(state: &TuiState) -> Vec<String> {
     let mut rows = Vec::new();
-    if let Some(approval) = latest_approval(state) {
+    for agent_task in agent_tasks(state)
+        .into_iter()
+        .filter(AgentTask::is_active)
+        .take(4)
+    {
         rows.push(format!(
-            "◆ approval {:<8} [review]",
-            truncate(&approval_tool(approval), 8)
+            "{} {} {:<6} {:<8} {:>3}%",
+            agent_task.id,
+            status_dot(&agent_task.status),
+            truncate(&agent_task.agent, 6),
+            screen_hint(&agent_task),
+            agent_task.progress
         ));
-        rows.push(format!("  {}", truncate(&approval_scope(approval), 31)));
     }
     for task in state.tasks.iter().take(3) {
         rows.push(format!(
@@ -109,40 +115,6 @@ fn active_task_rows(state: &TuiState) -> Vec<String> {
             truncate(&task.title, 18)
         ));
     }
-    for lane in state
-        .lanes
-        .iter()
-        .filter(|lane| is_active_lane(lane))
-        .take(4)
-    {
-        rows.push(format!(
-            "{} {} {:<6} {:<8} {:>3}%",
-            lane.id,
-            status_dot(&lane.status),
-            rail_tool_label(&lane.tool),
-            screen_hint(lane),
-            lane.progress
-        ));
-    }
-    for job in state
-        .workspace
-        .agent_jobs
-        .iter()
-        .rev()
-        .filter(|job| matches!(job.status.as_str(), "queued" | "running"))
-        .take(4)
-    {
-        let detail = job
-            .evidence
-            .first()
-            .map(|evidence| evidence.as_str())
-            .unwrap_or(&job.task);
-        rows.push(format!(
-            "◉ codex {:<8} {}",
-            job.status,
-            truncate(detail, 18)
-        ));
-    }
     if rows.is_empty() {
         rows.push("○ no active tasks".to_string());
     }
@@ -150,22 +122,20 @@ fn active_task_rows(state: &TuiState) -> Vec<String> {
     rows
 }
 
-fn rail_tool_label(tool: &str) -> &'static str {
-    match tool {
-        "codex" => "codex",
-        "claude" => "claude",
-        "shell" | "run" => "ops",
-        _ => "agent",
-    }
+fn screen_hint(task: &AgentTask) -> String {
+    let screen = match task.agent.as_str() {
+        "codex" | "claude" => "s1",
+        "shell" => "s2",
+        _ => task.transport.as_str(),
+    };
+    format!("{screen}/{}", pty_label_for_agent(&task.agent))
 }
 
-fn screen_hint(lane: &TerminalLane) -> String {
-    let screen = match lane.tool.as_str() {
-        "codex" | "claude" => "s1",
-        "shell" | "run" => "s2",
-        _ => lane.target.as_str(),
-    };
-    format!("{screen}/{}", pty_label(&lane.tool))
+fn pty_label_for_agent(agent: &str) -> &'static str {
+    match agent {
+        "codex" | "claude" | "shell" => pty_label(agent),
+        _ => "pty/xx",
+    }
 }
 
 fn diagnostic_rows(state: &TuiState) -> Vec<String> {
@@ -283,18 +253,10 @@ fn recent_file_rows(state: &TuiState) -> Vec<String> {
 }
 
 fn active_task_count(state: &TuiState) -> usize {
-    usize::from(latest_approval(state).is_some())
-        + state.tasks.len()
-        + state
-            .lanes
-            .iter()
-            .filter(|lane| is_active_lane(lane))
-            .count()
-        + state
-            .workspace
-            .agent_jobs
-            .iter()
-            .filter(|job| matches!(job.status.as_str(), "queued" | "running"))
+    state.tasks.len()
+        + agent_tasks(state)
+            .into_iter()
+            .filter(AgentTask::is_active)
             .count()
 }
 
@@ -318,11 +280,16 @@ fn workspace_top_files(state: &TuiState) -> [String; 4] {
 
 fn status_dot(status: &str) -> &'static str {
     match status {
+        "thinking" | "streaming" | "running_tool" => "●",
+        "editing" => "✎",
+        "testing" => "⛭",
+        "waiting_approval" | "needs_input" | "blocked" => "◆",
         "running" => "●",
         "queued" => "◐",
         "attached" => "◆",
-        "completed" => "✓",
+        "done" | "completed" => "✓",
         "failed" => "✕",
+        "cancelled" => "·",
         _ => "○",
     }
 }
@@ -377,22 +344,4 @@ fn recent_time(modified: SystemTime) -> String {
     } else {
         format!("{}d", seconds / 86_400)
     }
-}
-
-fn is_active_lane(lane: &TerminalLane) -> bool {
-    matches!(lane.status.as_str(), "running" | "queued" | "attached")
-}
-
-fn approval_tool(approval: &str) -> String {
-    approval.split('`').nth(1).unwrap_or("tool").to_string()
-}
-
-fn approval_scope(approval: &str) -> String {
-    approval
-        .lines()
-        .skip(1)
-        .find(|line| !line.trim().is_empty() && !line.contains("Press y"))
-        .unwrap_or("waiting for decision")
-        .trim()
-        .to_string()
 }
