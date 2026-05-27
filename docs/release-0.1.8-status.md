@@ -6,12 +6,11 @@ Last updated: 2026-05-27
 
 ## Current Phase
 
-`0.1.8` is in release-candidate validation. The version target is documented in
+`0.1.8` is published. The version target is documented in
 [release-0.1.8-plan.md](release-0.1.8-plan.md).
 
-The workspace package version has been bumped to `0.1.8`; local packaging
-passes, and external GitHub/cross-platform publishing is the remaining release
-step.
+The workspace package version has been bumped to `0.1.8`, local packaging
+passes, and the GitHub release now contains cross-platform artifacts.
 
 This checkpoint focuses on the first P0 slice: the unified `AgentTask` runtime
 view, plus making the main operation center, right-rail `ACTIVE TASKS` panel,
@@ -147,6 +146,7 @@ scripts/smoke-lane-operator-loop.sh
 scripts/release-smoke.sh --quick --skip-package
 scripts/release-smoke.sh --quick --skip-package --deepseek --out-dir /tmp/robocode-018-release-smoke-deepseek-latest
 scripts/release-smoke.sh --version 0.1.8 --deepseek --out-dir /tmp/robocode-018-release-smoke-full
+gh workflow run release.yml --repo wikieden/robocode -f tag=v0.1.8 -f upload_to_release=true
 ```
 
 Result:
@@ -195,8 +195,32 @@ Result:
 - package smoke produced and verified
   `dist/robocode-v0.1.8-aarch64-apple-darwin.tar.gz`; extracted binary reports
   `robocode-cli 0.1.8`.
+- GitHub release workflow
+  [26494175931](https://github.com/wikieden/robocode/actions/runs/26494175931)
+  passed and uploaded all four target archives plus SHA-256 files.
+
+## Published Release
+
+`v0.1.8` is published at:
+
+- https://github.com/wikieden/robocode/releases/tag/v0.1.8
+
+Release assets:
+
+- `robocode-v0.1.8-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.8-aarch64-apple-darwin.tar.gz.sha256`
+- `robocode-v0.1.8-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.8-x86_64-apple-darwin.tar.gz.sha256`
+- `robocode-v0.1.8-x86_64-pc-windows-msvc.tar.gz`
+- `robocode-v0.1.8-x86_64-pc-windows-msvc.tar.gz.sha256`
+- `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz.sha256`
 
 ## Remaining P0
+
+None for the `0.1.8` release.
+
+## Follow-Up Risks
 
 - Main operation-center summaries still need more real-runtime sample
   validation, especially for long tool output and multi-step review sessions.

@@ -6,11 +6,11 @@
 
 ## 当前阶段
 
-`0.1.8` 正在进行 release-candidate 验证。版本目标见
+`0.1.8` 已发布。版本目标见
 [release-0.1.8-plan.zh-CN.md](release-0.1.8-plan.zh-CN.md)。
 
-workspace package version 已经 bump 到 `0.1.8`；本地 packaging 已通过，外部
-GitHub / 跨平台发布是剩余 release 步骤。
+workspace package version 已经 bump 到 `0.1.8`；本地 packaging 已通过，GitHub
+release 也已经包含跨平台 artifacts。
 
 本 checkpoint 聚焦 P0 的第一段：统一 `AgentTask` runtime view，并让主屏
 operation center、右侧 `ACTIVE TASKS` 面板和 side-2 `RECENT EVIDENCE`
@@ -131,6 +131,7 @@ scripts/smoke-lane-operator-loop.sh
 scripts/release-smoke.sh --quick --skip-package
 scripts/release-smoke.sh --quick --skip-package --deepseek --out-dir /tmp/robocode-018-release-smoke-deepseek-latest
 scripts/release-smoke.sh --version 0.1.8 --deepseek --out-dir /tmp/robocode-018-release-smoke-full
+gh workflow run release.yml --repo wikieden/robocode -f tag=v0.1.8 -f upload_to_release=true
 ```
 
 结果：
@@ -176,8 +177,32 @@ scripts/release-smoke.sh --version 0.1.8 --deepseek --out-dir /tmp/robocode-018-
 - package smoke 已生成并验证
   `dist/robocode-v0.1.8-aarch64-apple-darwin.tar.gz`；解压后的 binary 输出
   `robocode-cli 0.1.8`。
+- GitHub release workflow
+  [26494175931](https://github.com/wikieden/robocode/actions/runs/26494175931)
+  已通过，并上传了四个 target archive 和对应 SHA-256 文件。
+
+## 已发布版本
+
+`v0.1.8` 已发布：
+
+- https://github.com/wikieden/robocode/releases/tag/v0.1.8
+
+Release assets：
+
+- `robocode-v0.1.8-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.8-aarch64-apple-darwin.tar.gz.sha256`
+- `robocode-v0.1.8-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.8-x86_64-apple-darwin.tar.gz.sha256`
+- `robocode-v0.1.8-x86_64-pc-windows-msvc.tar.gz`
+- `robocode-v0.1.8-x86_64-pc-windows-msvc.tar.gz.sha256`
+- `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz.sha256`
 
 ## 剩余 P0
+
+`0.1.8` release 无剩余 P0。
+
+## 后续风险
 
 - 主屏 operation center 仍需要更多真实运行样本验证，尤其是长 tool output 和
   多步 review session 时的摘要压缩。
