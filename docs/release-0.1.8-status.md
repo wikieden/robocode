@@ -252,5 +252,4 @@ None for the `0.1.8` release.
 3. Run a real DeepSeek/Codex/Claude/tmux TUI pass and capture screenshots.
    The deterministic lane operator-loop smoke now covers the command path; the
    remaining work is visual/runtime sign-off across real side screens.
-4. Prepare GitHub release / cross-platform artifact validation from the 0.1.8
-   release-candidate state.
+4. Use the 0.1.8 follow-up risks as input to the next release plan.

@@ -226,4 +226,4 @@ Release assets：
 2. 继续收敛 side-1 / side-2 / right-rail 的状态词和颜色优先级。
 3. 在真实 DeepSeek/Codex/Claude/tmux 流程里做一轮手工 TUI 验证并截图。确定性
    lane operator-loop smoke 已覆盖命令路径；剩余是跨真实副屏的视觉/runtime sign-off。
-4. 基于当前 0.1.8 release-candidate 状态准备 GitHub release / 跨平台 artifact 验证。
+4. 把 0.1.8 的后续风险纳入下一版本计划。
