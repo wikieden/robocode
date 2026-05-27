@@ -10,8 +10,8 @@ Last updated: 2026-05-27
 documented in [release-0.1.10-plan.md](release-0.1.10-plan.md).
 
 Workspace package version has been bumped to `0.1.10`. Local release-candidate
-validation has passed. GitHub release assets and Homebrew tap verification are
-still pending until publication completes.
+validation, GitHub release publication, release assets, and Homebrew tap
+verification have all passed.
 
 ## Changes
 
@@ -79,16 +79,45 @@ dist/robocode-v0.1.10-aarch64-apple-darwin.tar.gz
 
 ## Publish Status
 
-Pending:
+Published and verified.
 
-- GitHub release: `v0.1.10`
-- Release workflow
-- Multi-platform release assets
-- Homebrew tap formula
-- Post-publish verification
+- GitHub release:
+  [v0.1.10](https://github.com/wikieden/robocode/releases/tag/v0.1.10)
+- Release workflow:
+  [run 26507982488](https://github.com/wikieden/robocode/actions/runs/26507982488)
+- Workflow status: `completed` / `success`
+- Release published at: `2026-05-27T11:18:45Z`
+- Main release commit: `7c7fcad`
+- Homebrew tap commit: `bffa27e`
+
+Uploaded release assets:
+
+- `robocode-v0.1.10-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.10-aarch64-apple-darwin.tar.gz.sha256`
+- `robocode-v0.1.10-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.10-x86_64-apple-darwin.tar.gz.sha256`
+- `robocode-v0.1.10-x86_64-pc-windows-msvc.tar.gz`
+- `robocode-v0.1.10-x86_64-pc-windows-msvc.tar.gz.sha256`
+- `robocode-v0.1.10-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.10-x86_64-unknown-linux-gnu.tar.gz.sha256`
+
+Post-publish verification:
+
+```bash
+scripts/release-smoke.sh --version 0.1.10 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0110-postpublish-check
+```
+
+Result:
+
+- passed: 10
+- failed: 0
+- skipped: 3
+- evidence: `/tmp/robocode-0110-postpublish-check/release-evidence.json`
+- Homebrew formula: `wikieden/tap/robocode 0.1.10`
 
 ## Remaining Risks
 
+- No release-blocking risks remain for `0.1.10`.
 - ACP, MCP mutation, and installable plugin/skill lifecycle remain deferred
   integration work.
 - Deterministic screenshots prove layout regressions, but true terminal cursor

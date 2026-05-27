@@ -9,8 +9,8 @@
 `0.1.10` 是 Programming Cockpit Feedback 版本。版本目标见
 [release-0.1.10-plan.zh-CN.md](release-0.1.10-plan.zh-CN.md)。
 
-workspace package version 已 bump 到 `0.1.10`。本地 release-candidate 验证已通过。
-GitHub release assets 和 Homebrew tap 仍需等发布完成后验证。
+workspace package version 已 bump 到 `0.1.10`。本地 release-candidate 验证、
+GitHub release 发布、release assets 和 Homebrew tap 验证均已通过。
 
 ## 主要变化
 
@@ -76,16 +76,45 @@ dist/robocode-v0.1.10-aarch64-apple-darwin.tar.gz
 
 ## 发布状态
 
-待完成：
+已发布并验证。
 
-- GitHub release: `v0.1.10`
-- Release workflow
-- 多平台 release assets
-- Homebrew tap formula
-- 发布后验证
+- GitHub release:
+  [v0.1.10](https://github.com/wikieden/robocode/releases/tag/v0.1.10)
+- Release workflow:
+  [run 26507982488](https://github.com/wikieden/robocode/actions/runs/26507982488)
+- Workflow status: `completed` / `success`
+- Release published at: `2026-05-27T11:18:45Z`
+- Main release commit: `7c7fcad`
+- Homebrew tap commit: `bffa27e`
+
+已上传 release assets：
+
+- `robocode-v0.1.10-aarch64-apple-darwin.tar.gz`
+- `robocode-v0.1.10-aarch64-apple-darwin.tar.gz.sha256`
+- `robocode-v0.1.10-x86_64-apple-darwin.tar.gz`
+- `robocode-v0.1.10-x86_64-apple-darwin.tar.gz.sha256`
+- `robocode-v0.1.10-x86_64-pc-windows-msvc.tar.gz`
+- `robocode-v0.1.10-x86_64-pc-windows-msvc.tar.gz.sha256`
+- `robocode-v0.1.10-x86_64-unknown-linux-gnu.tar.gz`
+- `robocode-v0.1.10-x86_64-unknown-linux-gnu.tar.gz.sha256`
+
+发布后验证：
+
+```bash
+scripts/release-smoke.sh --version 0.1.10 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0110-postpublish-check
+```
+
+结果：
+
+- passed: 10
+- failed: 0
+- skipped: 3
+- evidence: `/tmp/robocode-0110-postpublish-check/release-evidence.json`
+- Homebrew formula: `wikieden/tap/robocode 0.1.10`
 
 ## 剩余风险
 
+- `0.1.10` 没有剩余 release-blocking 风险。
 - ACP、MCP mutation、可安装 plugin/skill 生命周期仍是后续集成工作。
 - 确定性截图可以证明布局回归，但真实 terminal 光标闪烁、输入法位置和鼠标行为仍需要人工
   终端验证。
