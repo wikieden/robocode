@@ -1,32 +1,51 @@
 # RoboCode
 
-RoboCode 是一个本地优先的编程 Agent CLI，提供 cockpit 风格 TUI、带权限控制的工具执行，以及多模型 provider 支持。
+RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真实工具执行、审批、测试证据、任务、记忆、多 Agent lane 和副屏监控放进同一个终端操作台。
 
 英文版： [README.md](README.md)
 
-![RoboCode TUI 系统截图](docs/previews/robocode-tui-system-screenshot.svg)
+![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.9-tui-main.svg)
 
-## 产品特色
+## 为什么做它
 
-- Cockpit TUI：在一个终端屏幕里同时查看对话、工具调用、审批、诊断、workspace 上下文、任务状态和 provider 健康度。
-- 本地优先：transcript、任务状态和项目记忆默认保存在本机。
-- 权限感知编辑：文件、shell、Git 和 workflow 变更都会先经过权限模式和审批，再影响工作区。
-- 多 provider 支持：DeepSeek、OpenAI、Anthropic、OpenAI-compatible gateways、Ollama，以及离线 fallback provider。
-- 面向开发工作流的内置工具：文件读写编辑、搜索、shell、Web、Git、会话恢复、任务、记忆和 LSP 诊断。
-- 多平台二进制发布：支持 macOS、Linux 和 Windows。
+很多 coding agent 擅长单次对话，但真实编程工作更像“调度现场”：你需要知道模型现在在想什么、改了什么、测试失败在哪、哪些子 Agent 在跑、哪些操作需要你批准。RoboCode 的目标就是做一个多 Agent 编程编排工具，而不是只做一个聊天窗口。
+
+## 产品亮点
+
+- Cockpit TUI：主对话、审批状态、workspace 快照、active tasks、诊断、provider 健康度和最近证据同屏可见。
+- 真实工具执行：文件读写编辑、搜索、shell、Web、Git、LSP、测试命令、任务和记忆都走同一套 runtime。
+- 权限感知编辑：文件、shell、Git、workflow 和外部 Agent 写操作都会先经过权限模式或审批，再影响工作区。
+- 多 provider runtime：DeepSeek、OpenAI、Anthropic、OpenAI-compatible gateways、Ollama 和离线 fallback 共用一套 provider 接口，并支持 provider registry 诊断。
+- Agent 监督 lane：Codex、Claude、自定义 shell/template lane、tmux、嵌入式 PTY 和实验性 ACP 入口都被组织成可监督的 operator lane。
+- 本地持久上下文：transcript、session index、task events、memory events、lane artifacts 和 preview evidence 默认保存在本机。
+- 截图门禁：TUI 视觉改动必须生成确定性截图，方便每轮迭代确认效果。
+- 多平台安装：支持 Homebrew，以及 macOS、Linux、Windows release archives。
+
+## 真机运行图
+
+下面这些图来自当前 RoboCode TUI renderer 的 release evidence，不是产品概念图。
+
+### Slash command 提示
+
+![命令提示](docs/previews/generated/screenshots/0.1.9-tui-command-palette.svg)
+
+### Agent lane detail
+
+![Lane detail](docs/previews/generated/screenshots/0.1.9-tui-lane-detail.svg)
+
+### 副屏 side-1：Agent lanes
+
+![side-1 lanes](docs/previews/generated/screenshots/0.1.9-tui-side-1.svg)
+
+### 副屏 side-2：ops 与 evidence
+
+![side-2 ops](docs/previews/generated/screenshots/0.1.9-tui-side-2.svg)
 
 ## 安装
 
 ### Homebrew Tap
 
 macOS 和 Linux 推荐使用：
-
-```bash
-brew tap wikieden/tap
-brew install robocode
-```
-
-也可以一行安装：
 
 ```bash
 brew install wikieden/tap/robocode
@@ -74,21 +93,21 @@ $env:PATH += ";$env:USERPROFILE\bin"
 robocode-cli.exe --help
 ```
 
-## 使用
+## 快速开始
 
-运行离线 smoke test：
+运行离线 smoke session：
 
 ```bash
 robocode-cli --provider fallback --model test-local
 ```
 
-使用 fallback provider 启动 TUI：
+使用 fallback provider 启动 cockpit TUI：
 
 ```bash
 robocode-cli --tui --provider fallback --model test-local
 ```
 
-使用 DeepSeek V4 Flash 启动 TUI：
+使用 DeepSeek V4 Flash 启动 cockpit TUI：
 
 ```bash
 export DEEPSEEK_API_KEY="sk-..."
@@ -101,13 +120,27 @@ robocode-cli --tui --provider deepseek --model deepseek-v4-flash
 cargo run -p robocode-cli -- --tui --provider fallback --model test-local
 ```
 
-使用显式配置文件：
+## 核心工作流
 
-```bash
-robocode-cli --config .robocode/config.toml
-```
+1. 让 RoboCode 修改代码，然后对每个 mutating tool call 通过或拒绝。
+2. 用 `/test <command>` 运行测试；它会走同样的 shell 审批路径，并把失败证据写入 `/status` 和 TUI。
+3. 用 `/git diff`、`/diff`、`/git status` 在提交前审查实际改动。
+4. 用 `/task add`、`/tasks`、`/task resume-context` 和 `/memory` 管理长期上下文。
+5. 需要第二块屏幕时，用 `/screen side-1` 和 `/screen side-2` 打开 lane / ops 监控副屏。
+6. 用 `/lane codex`、`/lane claude`、`/lane run`、`/lane tmux` 或 `/agent run codex` 启动受监督的外部 Agent 工作。
 
-provider 配置示例：
+## 常用 TUI 操作
+
+- `Enter` 提交输入区；`Ctrl-J` 是显式发送动作。
+- `Ctrl-K` 清空输入区，`Ctrl-R` 重新生成，`Ctrl-N` 开启新任务。
+- `?` 打开 TUI 内帮助。
+- `Esc` 或 `Ctrl-C` 退出；`/quit` 和 `/exit` 也可以关闭 TUI。
+- 审批弹窗默认停在 `Approve`；按 `y` 通过，`n` 拒绝，`d` 聚焦 diff，也可以用 `Tab` / 方向键在动作间移动。
+- 输入 `/` 会打开命令提示。常用入口包括 `/help`、`/provider`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
+
+## 配置
+
+RoboCode 会读取平台默认配置路径，然后读取 `.robocode/config.toml`，CLI flags 优先级最高。
 
 ```toml
 provider = "deepseek"
@@ -121,26 +154,62 @@ api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
 
-## TUI 操作
+常用启动参数：
 
-- `Enter` 提交输入区；`Ctrl-J` 是显式发送动作。
-- `Ctrl-K` 清空输入区，`Ctrl-R` 重新生成，`Ctrl-N` 开启新任务。
-- `?` 打开 TUI 内帮助。
-- `Esc` 或 `Ctrl-C` 退出；`/quit` 和 `/exit` 也可以关闭 TUI。
-- 审批弹窗默认停在 `Approve`；按 `y` 通过，`n` 拒绝，`d` 聚焦 diff，也可以用 `Tab` / 方向键在动作间移动。
-- Slash commands 以 `/` 开头；常用入口包括 `/help`、`/provider`、`/status`、`/config`、`/permissions`、`/test <command>`、`/sessions`、`/resume latest`、`/task`、`/memory`、`/lane` 和 `/screen`。
-- `/test <command>` 会走和 agent tool call 相同的 shell 审批路径，并把最近一次测试的状态、exit code、耗时、命令和输出尾部记录到 `/status`。失败运行还会从 Rust/cargo 和 pytest 风格输出中提取常见 failure-summary 行和可能失败的文件。
-- `/status` 是紧凑的 cockpit 快照：provider/model、permissions、session paths、
-  最近 test evidence、dirty files、active tasks，以及来自 `.robocode/lanes.tsv`
-  的当前 lane 数量。
-- 文件写入结果会结构化显示 `path`、`size` 和 `effect` 行，让 edit 后的 transcript 更容易扫读。
-- `/lane tmux <id>` 会为 lane workspace 启动或复用一个 tmux session，并把 attach 命令记录到 `.robocode/lanes/`，让 Codex、Claude 或 shell lane 先拥有一个可监督的交互式终端面，而不需要立刻引入原生 PTY 依赖。
-- `/lane inspect <id>`、`/lane accept <id>`、`/lane apply <id>` 和
-  `/lane resolve <id>` 会用明确的 next action 引导 lane review、patch apply、
-  conflict recovery 和 cleanup。
-- `/screen side-1` 和 `/screen side-2` 会启动用于 lane / ops 监控的副屏 TUI；用 `/screen list` 和 `/screen close <side-1|side-2>` 管理已跟踪副屏。可以设置 `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`、`ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` 或共享的 `ROBOCODE_SCREEN_LAUNCH_TEMPLATE`，把副屏交给你的 terminal app、tmux 或显示器摆放脚本启动。
-  副屏会展示 lane next actions、recent output 以及 apply / conflict artifacts，
-  因此不只是装饰面板，而是可以用来监督子任务。
+```bash
+robocode-cli --config .robocode/config.toml
+robocode-cli --resume latest
+robocode-cli --permissions plan
+robocode-cli --tui-theme aurora-cyan
+robocode-cli --tui-screen side-1
+```
+
+## 当前实验边界
+
+- `/mcp`、`/skills` 和 `/extensions` 已能展示 MCP / skill / extension 可见性，但 MCP-backed tools 还没有接入 mutating permission path。
+- ACP 目前是实验性 Agent adapter 入口。
+- Codex app-server write-capable delegated turn 仍有 guard，因为真实测试发现它可能在 RoboCode 收到 approval event 之前修改 workspace。
+
+## 文档
+
+README 保持产品介绍和使用入口。完整使用说明和实现细节放在文档目录：
+
+- [用户指南](docs/user-guide.zh-CN.md)
+- [架构](docs/architecture.zh-CN.md)
+- [产品需求](docs/product-requirements.zh-CN.md)
+- [阶段路线图](docs/staged-roadmap.zh-CN.md)
+- [参考工程分析](docs/reference-analysis.zh-CN.md)
+- [Provider 真实调用矩阵](docs/provider-live-matrix.zh-CN.md)
+- [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
+- [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
+- [0.1.9 状态](docs/release-0.1.9-status.zh-CN.md)
+- [开发标准](docs/development-standards.zh-CN.md)
+
+## 维护者检查
+
+构建本地 release archive：
+
+```bash
+scripts/package-release.sh
+```
+
+运行 release smoke matrix：
+
+```bash
+scripts/release-smoke.sh
+```
+
+生成 TUI 视觉证据：
+
+```bash
+scripts/tui-regression.sh docs/previews/generated
+```
+
+发布后验证 release assets 和 Homebrew：
+
+```bash
+scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
+```
 
 ## 问题反馈
 
@@ -154,68 +223,6 @@ api_key_env = "DEEPSEEK_API_KEY"
 - provider 和 model，例如 `deepseek / deepseek-v4-flash`。
 - 执行的命令和最小复现步骤。
 - 相关日志或截图，注意先移除 API key 和私有路径。
-
-## 文档
-
-README 只保留产品介绍和使用入口。架构与实现细节放在文档目录：
-
-- [架构](docs/architecture.zh-CN.md)
-- [产品需求](docs/product-requirements.zh-CN.md)
-- [阶段路线图](docs/staged-roadmap.zh-CN.md)
-- [参考工程分析](docs/reference-analysis.zh-CN.md)
-- [Provider 真实调用矩阵](docs/provider-live-matrix.zh-CN.md)
-- [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
-- [0.1.7 发布状态](docs/release-0.1.7-status.zh-CN.md)
-- [0.1.8 计划：AgentTask + Live Multi-Agent Cockpit](docs/release-0.1.8-plan.zh-CN.md)
-- [0.1.8 状态](docs/release-0.1.8-status.zh-CN.md)
-- [0.1.9 计划：Verification Hardening + Screenshot-Gated UX](docs/release-0.1.9-plan.zh-CN.md)
-- [0.1.9 状态](docs/release-0.1.9-status.zh-CN.md)
-- [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
-- [0.1.6 发布状态](docs/release-0.1.6-status.zh-CN.md)
-- [0.1.6 计划](docs/release-0.1.6-plan.zh-CN.md)
-- [开发标准](docs/development-standards.zh-CN.md)
-
-维护者可以用下面命令在本地构建 release 压缩包：
-
-```bash
-scripts/package-release.sh
-```
-
-打 tag 前运行本地 smoke matrix：
-
-```bash
-scripts/release-smoke.sh
-```
-
-TUI 可见改动还必须生成视觉证据：
-
-```bash
-scripts/tui-regression.sh docs/previews/generated
-```
-
-开发过程中需要更快 checkpoint 时可以运行：
-
-```bash
-scripts/release-smoke.sh --quick
-```
-
-DeepSeek 真实 provider smoke 和 GitHub Actions artifact validation 是显式 opt-in：
-
-```bash
-scripts/release-smoke.sh --deepseek --github-actions
-```
-
-发布后验证 release assets 和 Homebrew：
-
-```bash
-scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
-```
-
-运行 workspace 测试：
-
-```bash
-cargo test --workspace
-```
 
 ## 授权
 

@@ -1,38 +1,68 @@
 # RoboCode
 
-RoboCode is a local-first coding agent CLI with a cockpit-style terminal UI,
-permission-aware tool execution, and multi-provider model support.
+RoboCode is a local-first coding-agent cockpit for developers who want one
+terminal surface to chat with a model, approve real workspace changes, supervise
+delegated agents, and keep enough evidence to resume work later.
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-![RoboCode TUI system screenshot](docs/previews/robocode-tui-system-screenshot.svg)
+![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.9-tui-main.svg)
+
+## Why It Exists
+
+Most coding agents are good at a single conversation. RoboCode is built around a
+slightly different job: coordinating programming work. It keeps the active
+conversation, tool effects, approvals, tests, tasks, memory, provider health,
+and external agent lanes visible in one operator cockpit.
 
 ## Highlights
 
-- Cockpit TUI for chat, tool calls, approvals, diagnostics, workspace context,
-  active tasks, and provider health in one terminal screen.
-- Local-first runtime: transcripts, task state, and project memory stay on your
-  machine by default.
-- Permission-aware editing: file, shell, Git, and workflow mutations pass
-  through approval modes before they touch your workspace.
-- Multi-provider model access: DeepSeek, OpenAI, Anthropic, OpenAI-compatible
-  gateways, Ollama, and an offline fallback provider.
-- Developer workflow tools: file read/write/edit, search, shell, web, Git,
-  sessions, resume, tasks, memory, and LSP diagnostics.
-- Multi-platform release binaries for macOS, Linux, and Windows.
+- Cockpit TUI: transcript, approval state, workspace snapshot, active tasks,
+  diagnostics, provider health, and recent evidence stay visible together.
+- Real tool execution: file read/write/edit, search, shell, web, Git, LSP, test
+  commands, task state, and memory all run through the shared runtime path.
+- Permission-aware edits: mutating file, shell, Git, workflow, and delegated
+  agent actions are mediated by permission modes before they affect the
+  workspace.
+- Multi-provider runtime: DeepSeek, OpenAI, Anthropic, OpenAI-compatible
+  gateways, Ollama, and offline fallback are available through one provider
+  interface, with provider registry diagnostics.
+- Agent supervision lanes: Codex, Claude, custom shell/template lanes, tmux,
+  embedded PTY, and experimental ACP surfaces are exposed as supervised
+  operator lanes.
+- Durable local context: transcripts, session index, task events, memory events,
+  lane artifacts, and preview evidence are stored locally by default.
+- Screenshot-gated TUI iteration: visual changes produce deterministic
+  screenshots for review before release.
+- Multi-platform install: Homebrew plus release archives for macOS, Linux, and
+  Windows.
+
+## Screenshots
+
+These are generated from the current RoboCode TUI renderer and kept as release
+evidence.
+
+### Slash-Command Palette
+
+![Command palette](docs/previews/generated/screenshots/0.1.9-tui-command-palette.svg)
+
+### Agent Lane Detail
+
+![Lane detail](docs/previews/generated/screenshots/0.1.9-tui-lane-detail.svg)
+
+### Side Screen: Agent Lanes
+
+![Side screen lanes](docs/previews/generated/screenshots/0.1.9-tui-side-1.svg)
+
+### Side Screen: Ops And Evidence
+
+![Side screen ops](docs/previews/generated/screenshots/0.1.9-tui-side-2.svg)
 
 ## Install
 
 ### Homebrew Tap
 
 Recommended on macOS and Linux:
-
-```bash
-brew tap wikieden/tap
-brew install robocode
-```
-
-Or install in one command:
 
 ```bash
 brew install wikieden/tap/robocode
@@ -80,21 +110,21 @@ $env:PATH += ";$env:USERPROFILE\bin"
 robocode-cli.exe --help
 ```
 
-## Usage
+## Quick Start
 
-Run an offline smoke test:
+Run an offline smoke session:
 
 ```bash
 robocode-cli --provider fallback --model test-local
 ```
 
-Start the TUI with the fallback provider:
+Start the cockpit TUI with the fallback provider:
 
 ```bash
 robocode-cli --tui --provider fallback --model test-local
 ```
 
-Start the TUI with DeepSeek V4 Flash:
+Start the cockpit TUI with DeepSeek V4 Flash:
 
 ```bash
 export DEEPSEEK_API_KEY="sk-..."
@@ -107,13 +137,38 @@ Start from source during development:
 cargo run -p robocode-cli -- --tui --provider fallback --model test-local
 ```
 
-Use an explicit config file:
+## Core Workflows
 
-```bash
-robocode-cli --config .robocode/config.toml
-```
+1. Ask RoboCode to change code, then approve or deny each mutating tool call.
+2. Run `/test <command>` to execute a test through the same permission path and
+   keep failure evidence visible in `/status` and the TUI.
+3. Use `/git diff`, `/diff`, and `/git status` to review what changed before
+   committing.
+4. Track durable work with `/task add`, `/tasks`, `/task resume-context`, and
+   `/memory`.
+5. Open side screens with `/screen side-1` and `/screen side-2` when you want a
+   second terminal to watch agent lanes or ops evidence.
+6. Start supervised external work with `/lane codex`, `/lane claude`,
+   `/lane run`, `/lane tmux`, or `/agent run codex`.
 
-Example provider config:
+## Essential TUI Controls
+
+- `Enter` submits the composer; `Ctrl-J` is the explicit send action.
+- `Ctrl-K` clears the composer, `Ctrl-R` regenerates, and `Ctrl-N` starts a new
+  task.
+- `?` opens the in-TUI help surface.
+- `Esc` or `Ctrl-C` exits; `/quit` and `/exit` also close the TUI.
+- Approval prompts default to `Approve`; press `y` to approve, `n` to deny,
+  `d` to focus diff, or use `Tab` / arrow keys to move between actions.
+- Type `/` to open command suggestions. Common entries include `/help`,
+  `/provider`, `/status`, `/config`, `/permissions`, `/test`, `/sessions`,
+  `/resume`, `/task`, `/memory`, `/lane`, `/agent`, `/screen`, `/lsp`, `/git`,
+  `/web`, `/extensions`, `/mcp`, and `/skills`.
+
+## Configuration
+
+RoboCode loads config from the platform config path and then from
+`.robocode/config.toml`, with CLI flags taking precedence.
 
 ```toml
 provider = "deepseek"
@@ -127,41 +182,65 @@ api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
 
-## TUI Controls
+Useful startup flags:
 
-- `Enter` submits the composer; `Ctrl-J` is the explicit send action.
-- `Ctrl-K` clears the composer, `Ctrl-R` regenerates, and `Ctrl-N` starts a new task.
-- `?` opens the in-TUI help surface.
-- `Esc` or `Ctrl-C` exits; `/quit` and `/exit` also close the TUI.
-- Approval prompts default to `Approve`; press `y` to approve, `n` to deny,
-  `d` to focus diff, or use `Tab` / arrow keys to move between actions.
-- Slash commands start with `/`; useful starters include `/help`, `/provider`,
-  `/status`, `/config`, `/permissions`, `/test <command>`, `/sessions`,
-  `/resume latest`, `/task`, `/memory`, `/lane`, and `/screen`.
-- `/test <command>` runs through the same shell approval path as agent tool
-  calls and records the latest test status, exit code, duration, command, and
-  output tail for `/status`. Failed runs also extract common failure-summary
-  lines and likely failing files from Rust/cargo and pytest-style output.
-- `/status` is the compact cockpit snapshot: provider/model, permissions,
-  session paths, last test evidence, dirty files, active tasks, and current
-  lane counts from `.robocode/lanes.tsv`.
-- File write results are structured with `path`, `size`, and `effect` lines so
-  the transcript is easier to scan after an edit.
-- `/lane tmux <id>` starts or reuses a tmux session for a lane workspace and
-  records the attach command under `.robocode/lanes/`, giving Codex, Claude, or
-  shell lanes a supervised interactive terminal surface without adding a native
-  PTY dependency.
-- `/lane inspect <id>`, `/lane accept <id>`, `/lane apply <id>`, and
-  `/lane resolve <id>` guide lane review, patch application, conflict recovery,
-  and cleanup through explicit next actions.
-- `/screen side-1` and `/screen side-2` launch companion TUI screens for lane
-  and ops monitoring. Use `/screen list` and `/screen close <side-1|side-2>` to
-  manage tracked side screens. Set `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
-  `ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE`, or the shared
-  `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` to route side screens through your terminal
-  app, tmux, or display-placement script.
-  Side screens surface lane next actions, recent output, and apply/conflict
-  artifacts so they can act as real supervision panels.
+```bash
+robocode-cli --config .robocode/config.toml
+robocode-cli --resume latest
+robocode-cli --permissions plan
+robocode-cli --tui-theme aurora-cyan
+robocode-cli --tui-screen side-1
+```
+
+## What Is Experimental
+
+- MCP and skills are visible through `/mcp`, `/skills`, and `/extensions`, but
+  MCP-backed tools are not yet wired into the mutation permission path.
+- ACP appears as an experimental agent adapter surface.
+- Codex app-server write-capable delegated turns are guarded because live trials
+  showed workspace writes can occur before RoboCode receives an approval event.
+
+## Documentation
+
+README stays focused on product usage. Full usage and implementation detail live
+in the docs:
+
+- [User Guide](docs/user-guide.md)
+- [Architecture](docs/architecture.md)
+- [Product Requirements](docs/product-requirements.md)
+- [Staged Roadmap](docs/staged-roadmap.md)
+- [Reference Analysis](docs/reference-analysis.md)
+- [Provider Live Matrix](docs/provider-live-matrix.md)
+- [TUI Cockpit Design](docs/tui-cockpit-design.md)
+- [Testing and Validation Plan](docs/testing-validation-plan.md)
+- [0.1.9 Status](docs/release-0.1.9-status.md)
+- [Development Standards](docs/development-standards.md)
+
+## Maintainer Checks
+
+Build a local archive:
+
+```bash
+scripts/package-release.sh
+```
+
+Run the release smoke matrix:
+
+```bash
+scripts/release-smoke.sh
+```
+
+Generate TUI visual evidence:
+
+```bash
+scripts/tui-regression.sh docs/previews/generated
+```
+
+After publishing, validate release assets and Homebrew:
+
+```bash
+scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
+```
 
 ## Feedback
 
@@ -175,69 +254,6 @@ Helpful issue details:
 - Provider and model, for example `deepseek / deepseek-v4-flash`.
 - The command you ran and the smallest reproduction steps.
 - Relevant logs or screenshots, with API keys and private paths redacted.
-
-## Documentation
-
-README stays focused on product usage. Architecture and implementation details
-live in the docs:
-
-- [Architecture](docs/architecture.md)
-- [Product Requirements](docs/product-requirements.md)
-- [Staged Roadmap](docs/staged-roadmap.md)
-- [Reference Analysis](docs/reference-analysis.md)
-- [Provider Live Matrix](docs/provider-live-matrix.md)
-- [TUI Cockpit Design](docs/tui-cockpit-design.md)
-- [0.1.7 Release Status](docs/release-0.1.7-status.md)
-- [0.1.8 Plan: AgentTask + Live Multi-Agent Cockpit](docs/release-0.1.8-plan.md)
-- [0.1.8 Status](docs/release-0.1.8-status.md)
-- [0.1.9 Plan: Verification Hardening + Screenshot-Gated UX](docs/release-0.1.9-plan.md)
-- [0.1.9 Status](docs/release-0.1.9-status.md)
-- [Testing and Validation Plan](docs/testing-validation-plan.md)
-- [0.1.6 Release Status](docs/release-0.1.6-status.md)
-- [0.1.6 Plan](docs/release-0.1.6-plan.md)
-- [Development Standards](docs/development-standards.md)
-
-Maintainers can build a release archive locally with:
-
-```bash
-scripts/package-release.sh
-```
-
-Before tagging a release, run the local smoke matrix:
-
-```bash
-scripts/release-smoke.sh
-```
-
-TUI-visible changes must also produce visual evidence:
-
-```bash
-scripts/tui-regression.sh docs/previews/generated
-```
-
-For a faster development checkpoint:
-
-```bash
-scripts/release-smoke.sh --quick
-```
-
-DeepSeek live provider smoke and GitHub Actions artifact validation are opt-in:
-
-```bash
-scripts/release-smoke.sh --deepseek --github-actions
-```
-
-After publishing, validate release assets and Homebrew:
-
-```bash
-scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
-```
-
-Run the workspace test suite:
-
-```bash
-cargo test --workspace
-```
 
 ## License
 
