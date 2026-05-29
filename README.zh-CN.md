@@ -4,7 +4,7 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 英文版： [README.md](README.md)
 
-![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.16-tui-main.svg)
+![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.17-tui-main.svg)
 
 ## 为什么做它
 
@@ -24,35 +24,35 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 ## 真机运行图
 
 下面这些图来自当前 RoboCode TUI renderer 的 release evidence，不是产品概念图。
-截图展示的是 `0.1.16` 交互可靠性 RC；最新已发布二进制版本以安装章节为准。
+截图展示的是 `0.1.17` 日常编码闭环 RC；最新已发布二进制版本以安装章节为准。
 
 ### Live provider turn
 
-![实时 provider 状态](docs/previews/generated/screenshots/0.1.16-tui-live-turn.svg)
+![实时 provider 状态](docs/previews/generated/screenshots/0.1.17-tui-live-turn.svg)
 
 ### Resize 后重绘
 
-![Resize 后重绘](docs/previews/generated/screenshots/0.1.16-tui-main-resize.svg)
+![Resize 后重绘](docs/previews/generated/screenshots/0.1.17-tui-main-resize.svg)
 
 ### 中文输入
 
-![中文输入](docs/previews/generated/screenshots/0.1.16-tui-cjk-input.svg)
+![中文输入](docs/previews/generated/screenshots/0.1.17-tui-cjk-input.svg)
 
 ### Slash command 提示
 
-![命令提示](docs/previews/generated/screenshots/0.1.16-tui-command-palette.svg)
+![命令提示](docs/previews/generated/screenshots/0.1.17-tui-command-palette.svg)
 
 ### Agent lane detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.16-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.17-tui-lane-detail.svg)
 
 ### 副屏 side-1：Agent lanes
 
-![side-1 lanes](docs/previews/generated/screenshots/0.1.16-tui-side-1.svg)
+![side-1 lanes](docs/previews/generated/screenshots/0.1.17-tui-side-1.svg)
 
 ### 副屏 side-2：ops 与 evidence
 
-![side-2 ops](docs/previews/generated/screenshots/0.1.16-tui-side-2.svg)
+![side-2 ops](docs/previews/generated/screenshots/0.1.17-tui-side-2.svg)
 
 ## 安装
 
@@ -72,7 +72,7 @@ robocode --help
 
 ### Release 压缩包
 
-从 [RoboCode v0.1.16](https://github.com/wikieden/robocode/releases/tag/v0.1.16)
+从 [RoboCode v0.1.17](https://github.com/wikieden/robocode/releases/tag/v0.1.17)
 下载 release 压缩包。
 
 当前 release targets：
@@ -85,7 +85,7 @@ robocode --help
 macOS 或 Linux 安装：
 
 ```bash
-VERSION=0.1.16
+VERSION=0.1.17
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -96,7 +96,7 @@ robocode-cli --help
 Windows PowerShell 安装：
 
 ```powershell
-$Version = "0.1.16"
+$Version = "0.1.17"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -108,26 +108,34 @@ robocode-cli.exe --help
 
 ## 快速开始
 
-运行离线 smoke session：
-
-```bash
-robocode-cli --provider fallback --model test-local
-```
-
-`robocode-cli` 现在默认进入 cockpit TUI。第一次使用时，可以直接在 TUI 里用
-`/settings` 查看 provider、model、API key 状态，并保存默认选择：
+直接启动 RoboCode。干净安装默认以 DeepSeek 作为在线 provider，并默认进入 cockpit TUI：
 
 ```bash
 robocode-cli
-/settings
-/settings provider deepseek deepseek-v4-flash
 ```
 
-使用 DeepSeek V4 Flash 启动 cockpit TUI：
+在 TUI 里用 `/setup` 进入交互式 provider/model 配置流程。它会展示 API key 状态、
+provider choices、默认模型和保存命令：
+
+```bash
+/setup
+/setup provider deepseek deepseek-v4-flash
+```
+
+设置 DeepSeek key 后即可进行真实 live turn：
 
 ```bash
 export DEEPSEEK_API_KEY="sk-..."
-robocode-cli --provider deepseek --model deepseek-v4-flash
+robocode-cli
+```
+
+如果当前模型不可用或调用失败，RoboCode 会显示换模型提示，给出具体的
+`/settings model ...`、`/settings provider ...` 和 `/provider doctor ...` 动作。
+
+不想使用 live provider 时，显式启动离线 smoke session：
+
+```bash
+robocode-cli --provider fallback --model test-local
 ```
 
 只有明确需要旧版行式 REPL 时才使用：
@@ -147,9 +155,10 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 1. 让 RoboCode 修改代码，然后对每个 mutating tool call 通过或拒绝。
 2. 用 `/test <command>` 运行测试；它会走同样的 shell 审批路径，并把失败证据写入 `/status` 和 TUI。
 3. 用 `/git diff`、`/diff`、`/git status` 在提交前审查实际改动。
-4. 用 `/task add`、`/tasks`、`/task resume-context` 和 `/memory` 管理长期上下文。
-5. 需要第二块屏幕时，用 `/screen side-1` 和 `/screen side-2` 打开 lane / ops 监控副屏。
-6. 用 `/lane codex`、`/lane claude`、`/lane run`、`/lane tmux` 或 `/agent run codex` 启动受监督的外部 Agent 工作。
+4. 用 `/brief <goal>` 或 `/spec <goal>` 创建轻量 active brief；需要项目约定进入 lane context 时，用 `/brief steering init`。
+5. 用 `/task add`、`/tasks`、`/task resume-context` 和 `/memory` 管理长期上下文。
+6. 需要第二块屏幕时，用 `/screen side-1` 和 `/screen side-2` 打开 lane / ops 监控副屏。
+7. 用 `/lane codex`、`/lane claude`、`/lane run`、`/lane tmux` 或 `/agent run codex` 启动受监督的外部 Agent 工作。
 
 ## 常用 TUI 操作
 
@@ -160,14 +169,14 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 - provider turn 正在运行时，cockpit 会持续刷新当前工作状态和 elapsed time。
   `Ctrl-C` 会请求取消，但已经发出的 provider 请求仍可能正常返回。
 - 审批弹窗默认停在 `Approve`；按 `y` 通过，`n` 拒绝，`d` 聚焦 diff，也可以用 `Tab` / 方向键在动作间移动。
-- 输入 `/` 会打开命令提示。常用入口包括 `/help`、`/settings`、`/setup`、`/provider`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
+- 输入 `/` 会打开命令提示。常用入口包括 `/help`、`/settings`、`/setup`、`/provider`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/brief`、`/spec`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
   长列表会保持选中行可见，并支持点击可见行补全。
 
 ## 配置
 
 RoboCode 会读取平台默认配置路径，然后读取 `.robocode/config.toml`，CLI flags 优先级最高。
 
-在 TUI 中，`/settings` 会展示当前 provider/model、API key 状态、可用 providers 和用户配置路径。`/settings provider <id> [model]`、`/settings model <model>` 和 `/settings save` 会持久化 provider/model 默认值，但不会写入 API key。
+在 TUI 中，`/setup` 会打开首次使用 provider/model 配置流程。`/settings` 会展示当前 provider/model、API key 状态、可用 providers 和用户配置路径。`/setup provider <id> [model]`、`/settings provider <id> [model]`、`/setup model <model>`、`/settings model <model>` 和 `/settings save` 会持久化 provider/model 默认值，但不会写入 API key。
 
 ```toml
 provider = "deepseek"
@@ -212,7 +221,7 @@ README 保持产品介绍和使用入口。完整使用说明和实现细节放�
 - [TUI 交互审计](docs/tui-interaction-audit-2026-05-29.zh-CN.md)
 - [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
 - [0.1.17 计划](docs/release-0.1.17-plan.zh-CN.md)
-- [0.1.16 状态](docs/release-0.1.16-status.zh-CN.md)
+- [0.1.17 状态](docs/release-0.1.17-status.zh-CN.md)
 - [0.1.16 计划](docs/release-0.1.16-plan.zh-CN.md)
 - [0.1.15 状态](docs/release-0.1.15-status.zh-CN.md)
 - [0.1.15 计划](docs/release-0.1.15-plan.zh-CN.md)

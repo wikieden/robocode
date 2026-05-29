@@ -10,7 +10,7 @@ use robocode_types::{
 };
 
 impl SessionEngine {
-    fn ensure_workflow_permission<F>(
+    pub(crate) fn ensure_workflow_permission<F>(
         &mut self,
         action: &str,
         preview: &str,

@@ -55,6 +55,8 @@ impl SessionEngine {
             "Workflows:",
             "  /tasks               List active project tasks",
             "  /task <subcommand>   Manage tasks or render resume context",
+            "  /brief <task goal>   Create or show the active task brief",
+            "  /spec <task goal>    Alias for /brief",
             "  /memory <subcommand> Manage project/session memory",
             "",
             "Fallback tool syntax:",
@@ -115,6 +117,12 @@ impl SessionEngine {
                     bundle.compaction_notes.join("; ")
                 ));
             }
+        }
+        if let Some(brief) = self.active_brief_snapshot() {
+            lines.push("Active brief:".to_string());
+            lines.push(format!("  Id: {}", brief.id));
+            lines.push(format!("  Title: {}", brief.title));
+            lines.push(format!("  Path: {}", brief.path.display()));
         }
         lines.extend(render_workflow_status(&self.workflows));
         lines.extend(render_lane_status(&self.cwd));

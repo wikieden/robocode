@@ -28,6 +28,31 @@ impl SessionEngine {
                 320,
             ),
         ];
+        if let Some(brief) = self.active_brief_snapshot() {
+            sources.push(context_source(
+                "active-brief",
+                "brief",
+                &format!("{}: {}", brief.id, brief.goal),
+                96,
+                420,
+            ));
+        }
+        let steering = self
+            .steering_summaries()
+            .into_iter()
+            .take(3)
+            .map(|(file, summary)| format!("{file}: {}", compact_text(&summary, 4)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !steering.trim().is_empty() {
+            sources.push(context_source(
+                "project-steering",
+                "steering-summary",
+                &steering,
+                82,
+                520,
+            ));
+        }
         if let Some(diff) = self
             .last_diff
             .as_deref()
@@ -289,6 +314,13 @@ pub(crate) fn context_evidence_rows(bundle: &ContextBundleRecord) -> Vec<String>
     }
     if let Some(source) = bundle.largest_sources.first() {
         rows.push(format!("largest_context_source {source}"));
+    }
+    if let Some(source) = bundle
+        .sources
+        .iter()
+        .find(|source| source.name == "active-brief")
+    {
+        rows.push(format!("active_brief {}", compact_text(&source.summary, 1)));
     }
     rows
 }

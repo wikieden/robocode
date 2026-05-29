@@ -37,7 +37,7 @@ pub struct ResolvedConfig {
 impl Default for ResolvedConfig {
     fn default() -> Self {
         Self {
-            provider: "anthropic".to_string(),
+            provider: "deepseek".to_string(),
             model: None,
             api_base: None,
             api_key: None,

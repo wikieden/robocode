@@ -25,6 +25,19 @@ fn map_env(values: &[(&str, &str)]) -> BTreeMap<String, String> {
 }
 
 #[test]
+fn default_config_uses_deepseek_as_online_provider() {
+    let cwd =
+        std::env::temp_dir().join(format!("robocode_default_deepseek_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&cwd);
+    fs::create_dir_all(&cwd).unwrap();
+
+    let config = load_config_with_env(&cwd, &CliOverrides::default(), &|_| None).unwrap();
+
+    assert_eq!(config.provider, "deepseek");
+    assert_eq!(config.model, None);
+}
+
+#[test]
 fn project_file_overrides_global_file_and_env_overrides_files() {
     let root = std::env::temp_dir().join(format!("robocode_config_{}", std::process::id()));
     let global_config_path = default_config_path_for_test(&root);

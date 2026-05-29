@@ -45,7 +45,7 @@ impl ProviderConfig {
         let kind = env::var("ROBOCODE_PROVIDER")
             .ok()
             .and_then(|value| ProviderKind::parse(&value))
-            .unwrap_or(ProviderKind::Anthropic);
+            .unwrap_or(ProviderKind::DeepSeek);
         let model = env::var("ROBOCODE_MODEL")
             .ok()
             .filter(|value| !value.trim().is_empty())

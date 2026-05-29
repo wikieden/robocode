@@ -47,6 +47,13 @@ impl SessionEngine {
         }
     }
 
+    pub(super) fn handle_setup_command(&mut self, args: &[String]) -> Result<String, String> {
+        match args.first().map(String::as_str) {
+            None | Some("show") | Some("help") => Ok(self.render_setup_wizard()),
+            _ => self.handle_settings_command(args),
+        }
+    }
+
     fn render_provider_list(&self) -> String {
         let Some(host) = self.provider_host.as_ref() else {
             return [
@@ -123,6 +130,52 @@ impl SessionEngine {
         } else {
             lines.push("".to_string());
             lines.push("Available providers: runtime registry unavailable".to_string());
+        }
+        lines.join("\n")
+    }
+
+    fn render_setup_wizard(&self) -> String {
+        let config_path = robocode_config::default_user_config_path()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|err| format!("<unavailable: {err}>"));
+        let current_provider = self.provider.provider_name();
+        let current_model = self.provider.model();
+        let mut lines = vec![
+            "Interactive provider/model setup:".to_string(),
+            format!("  Current: {current_provider} / {current_model}"),
+            format!("  API key: {}", self.current_provider_key_status()),
+            format!("  User config: {config_path}"),
+            "".to_string(),
+            "Recommended online path:".to_string(),
+            "  /setup provider deepseek deepseek-v4-flash".to_string(),
+            "  Set DEEPSEEK_API_KEY or ROBOCODE_DEEPSEEK_API_KEY before the first live turn."
+                .to_string(),
+            "".to_string(),
+            "Offline/test path:".to_string(),
+            "  /setup provider fallback test-local".to_string(),
+            "".to_string(),
+            "How to operate in the TUI:".to_string(),
+            "  Type `/setup provider `, use the command palette suggestions, then press Tab/Enter."
+                .to_string(),
+            "  Type `/setup model ` to pick a model for the current provider.".to_string(),
+            "  Use `/provider doctor <id>` to check env vars and compatibility.".to_string(),
+        ];
+        if let Some(host) = self.provider_host.as_ref() {
+            let mut descriptors = host.registry().descriptors().to_vec();
+            descriptors.sort_by(|left, right| left.provider_id.cmp(&right.provider_id));
+            lines.push("".to_string());
+            lines.push("Provider choices:".to_string());
+            lines.extend(descriptors.iter().map(|descriptor| {
+                let model = descriptor.default_model.as_deref().unwrap_or("<model>");
+                format!(
+                    "  - {} ({}) -> /setup provider {} {} | key={}",
+                    descriptor.provider_id,
+                    descriptor.display_name,
+                    descriptor.provider_id,
+                    model,
+                    descriptor_key_status(descriptor)
+                )
+            }));
         }
         lines.join("\n")
     }
@@ -308,6 +361,40 @@ impl SessionEngine {
         };
         Ok(provider)
     }
+
+    pub(super) fn provider_model_recovery_prompt(&self, error: &str) -> Option<String> {
+        if !looks_like_provider_model_failure(error) {
+            return None;
+        }
+        let provider_id = self.provider.provider_name();
+        let current_model = self.provider.model();
+        let default_model = self
+            .provider_host
+            .as_ref()
+            .and_then(|host| {
+                let registry = host.registry();
+                registry
+                    .descriptor(provider_id)
+                    .and_then(|descriptor| descriptor.default_model.clone())
+            })
+            .unwrap_or_else(|| current_model.to_string());
+        let candidates = compatible_model_candidates(provider_id, &default_model, current_model);
+        let candidate_text = candidates.join(", ");
+        Some(
+            [
+                "Provider/model recovery:".to_string(),
+                format!("  current: {provider_id} / {current_model}"),
+                "  The current model may be unavailable, unauthorized, or incompatible."
+                    .to_string(),
+                format!("  candidates: {candidate_text}"),
+                format!("  try: /settings model {default_model}"),
+                format!("  try: /settings provider {provider_id} {default_model}"),
+                format!("  diagnose: /provider doctor {provider_id}"),
+                "  offline fallback: /settings provider fallback test-local".to_string(),
+            ]
+            .join("\n"),
+        )
+    }
 }
 
 fn render_provider_descriptor(descriptor: &ProviderDescriptor) -> String {
@@ -380,6 +467,60 @@ fn descriptor_key_status(descriptor: &ProviderDescriptor) -> String {
     }
 }
 
+fn looks_like_provider_model_failure(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("cancelled") || lower.contains("canceled") {
+        return false;
+    }
+    [
+        "model",
+        "not found",
+        "does not exist",
+        "unavailable",
+        "unsupported",
+        "permission",
+        "unauthorized",
+        "forbidden",
+        "context_length",
+        "maximum context",
+        "api error (400)",
+        "api error (401)",
+        "api error (403)",
+        "api error (404)",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn compatible_model_candidates(
+    provider_id: &str,
+    default_model: &str,
+    current_model: &str,
+) -> Vec<String> {
+    let mut candidates = Vec::new();
+    push_unique(&mut candidates, default_model.to_string());
+    match provider_id {
+        "deepseek" | "deepseek-anthropic" => {
+            push_unique(&mut candidates, "deepseek-v4-flash".to_string());
+            push_unique(&mut candidates, "deepseek-v4-pro".to_string());
+        }
+        "fallback" => {
+            push_unique(&mut candidates, "test-local".to_string());
+        }
+        _ => {}
+    }
+    if current_model != default_model {
+        push_unique(&mut candidates, current_model.to_string());
+    }
+    candidates
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
 fn format_provider_plugin_error(err: &ProviderPluginError) -> String {
     let path = if err.path.as_os_str().is_empty() {
         "<registry>".to_string()
@@ -413,7 +554,9 @@ fn settings_help() -> String {
         "                             Switch provider/model and save defaults",
         "  /settings model <model>    Switch current model and save defaults",
         "  /settings save             Save current provider/model as defaults",
-        "  /setup                     Alias for /settings",
+        "  /setup                     Interactive provider/model setup guide",
+        "  /setup provider <id> [model]",
+        "                             Switch provider/model and save defaults",
     ]
     .join("\n")
 }

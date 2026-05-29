@@ -127,6 +127,15 @@ fn ops_context_rows(state: &TuiState) -> Vec<String> {
             state.provider_status.context_window, configured_mcp_count
         ),
     ];
+    if let Some((brief_id, title)) =
+        active_brief_label(&state.workspace.root).or_else(|| active_brief_evidence_label(state))
+    {
+        rows.push(format!(
+            "BRIEF   {}  {}",
+            truncate(&brief_id, 18),
+            truncate(&title, 48)
+        ));
+    }
     if let Some(pressure) = agent_tasks(state)
         .into_iter()
         .flat_map(|task| task.evidence)
@@ -159,6 +168,39 @@ fn ops_context_rows(state: &TuiState) -> Vec<String> {
         )
     }));
     rows
+}
+
+fn active_brief_label(root: &Path) -> Option<(String, String)> {
+    let content = fs::read_to_string(root.join(".robocode/briefs/active.md")).ok()?;
+    let id =
+        markdown_front_matter_field(&content, "id").unwrap_or_else(|| "brief_unknown".to_string());
+    let title = markdown_front_matter_field(&content, "title")
+        .unwrap_or_else(|| "Untitled brief".to_string());
+    Some((id, title))
+}
+
+fn active_brief_evidence_label(state: &TuiState) -> Option<(String, String)> {
+    agent_tasks(state)
+        .into_iter()
+        .flat_map(|task| task.evidence)
+        .find_map(|item| {
+            let value = item.strip_prefix("active_brief ")?;
+            let mut parts = value.splitn(2, ':');
+            let id = parts.next().unwrap_or("brief").trim().to_string();
+            let title = parts.next().unwrap_or(value).trim().to_string();
+            Some((id, title))
+        })
+}
+
+fn markdown_front_matter_field(content: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}:");
+    content
+        .lines()
+        .skip_while(|line| line.trim() == "---")
+        .take_while(|line| line.trim() != "---")
+        .find_map(|line| line.trim().strip_prefix(&prefix).map(str::trim))
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
 }
 
 fn ops_extension_rows(state: &TuiState) -> Vec<String> {
@@ -724,6 +766,7 @@ mod tests {
                 "context_pressure 12% (1536/128000)".to_string(),
                 "context_policy v1-priority-budget".to_string(),
                 "context_omitted 2".to_string(),
+                "active_brief brief_test: Improve context visibility".to_string(),
             ],
             permissions: Vec::new(),
             decision: None,
@@ -740,11 +783,32 @@ mod tests {
         assert!(context.contains("BUNDLE  pressure 12%"));
         assert!(context.contains("POLICY  v1-priority-budget"));
         assert!(context.contains("OMIT    2 source(s)"));
+        assert!(context.contains("BRIEF   brief_test"));
         assert!(context.contains("workspace  found"));
         assert!(context.contains("found"));
         assert!(extensions.contains("MCP      1 configured config(s)"));
         assert!(extensions.contains("SKILLS"));
         assert!(extensions.contains("discovered recipe(s)"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ops_context_rows_surface_active_brief() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join(".robocode/briefs")).expect("create brief dir");
+        std::fs::write(
+            root.join(".robocode/briefs/active.md"),
+            "---\nid: brief_ops\ntitle: Improve daily loop\n---\n\n## Goal\nImprove daily loop\n",
+        )
+        .expect("write active brief");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+
+        let context = ops_context_rows(&state).join("\n");
+
+        assert!(context.contains("BRIEF   brief_ops"));
+        assert!(context.contains("Improve daily loop"));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

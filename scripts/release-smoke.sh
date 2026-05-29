@@ -206,6 +206,10 @@ lane_operator_smoke() {
   run_step "lane-operator-loop-smoke" scripts/smoke-lane-operator-loop.sh
 }
 
+daily_loop_smoke() {
+  run_step "daily-loop-smoke" scripts/daily-loop-smoke.sh "$OUT_DIR/daily-loop-smoke"
+}
+
 package_smoke() {
   local package_log="$OUT_DIR/package-archive.log"
   local archive
@@ -387,6 +391,7 @@ fi
 
 run_step "tui-regression" scripts/tui-regression.sh "$OUT_DIR/tui-regression"
 run_step "fallback-cli-smoke" fallback_cli_smoke
+daily_loop_smoke
 run_step "codex-app-server-protocol-fixture" scripts/smoke-codex-app-server-protocol-fixture.sh
 run_step "codex-app-server-write-guard" scripts/smoke-codex-app-server-write-guard.sh
 lane_operator_smoke

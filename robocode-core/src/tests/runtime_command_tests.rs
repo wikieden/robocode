@@ -85,6 +85,80 @@ fn context_command_reports_missing_bundle_before_provider_turn() {
 }
 
 #[test]
+fn brief_command_creates_shows_and_status_reports_active_brief() {
+    let home = temp_dir("brief_home");
+    let cwd = temp_dir("brief_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/brief improve provider setup recovery", &mut approver)
+        .unwrap();
+    assert!(cwd.join(".robocode/briefs/active.md").exists());
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Active brief created")
+                && text.contains("improve provider setup recovery")
+    )));
+
+    let output = engine
+        .process_input_with_approval("/brief show", &mut approver)
+        .unwrap();
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Active brief")
+                && text.contains("## Goal")
+                && text.contains("improve provider setup recovery")
+    )));
+
+    let status = engine
+        .process_input_with_approval("/status", &mut approver)
+        .unwrap();
+    assert!(status.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Active brief:")
+                && text.contains("Title: improve provider setup recovery")
+    )));
+}
+
+#[test]
+fn spec_alias_and_steering_init_create_context_files() {
+    let home = temp_dir("brief_steering_home");
+    let cwd = temp_dir("brief_steering_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .process_input_with_approval("/spec add deterministic daily loop smoke", &mut approver)
+        .unwrap();
+    let output = engine
+        .process_input_with_approval("/brief steering init", &mut approver)
+        .unwrap();
+
+    assert!(cwd.join(".robocode/briefs/active.md").exists());
+    assert!(cwd.join(".robocode/steering/conventions.md").exists());
+    assert!(cwd.join(".robocode/steering/architecture.md").exists());
+    assert!(cwd.join(".robocode/steering/workflows.md").exists());
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Steering files ready")
+                && text.contains(".robocode/steering")
+    )));
+}
+
+#[test]
 fn status_command_reports_dirty_files_active_tasks_and_lanes() {
     let home = temp_dir("status_cockpit_home");
     let cwd = temp_dir("status_cockpit_cwd");
@@ -550,7 +624,7 @@ fn settings_command_reports_first_run_provider_model_setup() {
 }
 
 #[test]
-fn setup_command_is_settings_alias() {
+fn setup_command_renders_interactive_provider_model_flow() {
     let home = temp_dir("setup_alias_home");
     let cwd = temp_dir("setup_alias_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
@@ -567,7 +641,38 @@ fn setup_command_is_settings_alias() {
 
     assert!(output.iter().any(|event| matches!(
         event,
-        EngineEvent::Command(text) if text.contains("RoboCode settings:")
+        EngineEvent::Command(text)
+            if text.contains("Interactive provider/model setup:")
+                && text.contains("/setup provider deepseek deepseek-v4-flash")
+                && text.contains("/setup provider fallback test-local")
+                && text.contains("Provider choices:")
+                && text.contains("command palette suggestions")
+    )));
+}
+
+#[test]
+fn setup_provider_switches_and_saves_like_settings() {
+    let home = temp_dir("setup_provider_home");
+    let cwd = temp_dir("setup_provider_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/setup provider fallback test-local", &mut approver)
+        .unwrap();
+
+    assert_eq!(engine.provider_name(), "fallback");
+    assert_eq!(engine.model_name(), "test-local");
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Provider set to fallback (test-local)")
+                && text.contains("Saved default provider/model")
     )));
 }
 

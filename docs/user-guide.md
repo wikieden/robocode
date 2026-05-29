@@ -297,6 +297,12 @@ Tasks and memory:
 /task archive <task-id>
 /task restore <task-id>
 /task resume-context
+/brief <task goal>
+/spec <task goal>
+/brief show
+/brief clear
+/brief steering init
+/brief steering show
 /memory project
 /memory session
 /memory suggest <content>
@@ -435,6 +441,12 @@ memory must be confirmed before it becomes active project memory.
 
 `/task resume-context` combines task and memory state into a resumable project
 context snapshot.
+
+`/brief <task goal>` creates a lightweight active task brief under
+`.robocode/briefs/active.md`; `/spec` is an alias. When an active brief exists,
+provider ContextBundles, lane envelopes, and side-2 ops can reference it.
+`/brief steering init` creates minimal `.robocode/steering/` templates for
+project conventions, architecture, and workflows.
 
 `/context` shows the latest provider ContextBundle, including the v1 policy,
 source priorities, token estimates, omitted sources, and compaction notes. It is

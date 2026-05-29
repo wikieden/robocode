@@ -267,7 +267,7 @@ fn first_run_setup_entry(
     Some(TuiEntry {
         label: "setup".to_string(),
         body: format!(
-            "First-run setup: `{}` is selected but no API key is detected.\nUse `/settings` to inspect providers, `/settings provider <id> [model]` to choose, or set the matching API key env var. Current default model hint: `{default_model}`.",
+            "First-run setup: `{}` is selected but no API key is detected.\nOpen `/setup` for the interactive provider/model flow, use `/setup provider deepseek {default_model}` for the DeepSeek default, or set the matching API key env var. Offline escape hatch: `/setup provider fallback test-local`.",
             engine.provider_name()
         ),
     })

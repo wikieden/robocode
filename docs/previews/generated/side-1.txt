@@ -26,7 +26,7 @@
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ SIDE STATUS ───────────────────────────────────────────────────── Configured ┐
-│ PROVIDER  openai / gpt-4o                                                    │
+│ PROVIDER  deepseek / deepseek-v4-flash                                       │
 │ WORKSPACE ~/projects/robocode                                                │
 │ SCREENS   main online   side-1 launched:4101   side-2 launched:4102   lanes  │
 │ ROUTE    side-1 side-1:L1 codex template testing                             │

@@ -279,6 +279,12 @@ Code intelligence：
 /task archive <task-id>
 /task restore <task-id>
 /task resume-context
+/brief <task goal>
+/spec <task goal>
+/brief show
+/brief clear
+/brief steering init
+/brief steering show
 /memory project
 /memory session
 /memory suggest <content>
@@ -412,6 +418,11 @@ Sessions 以 JSONL transcript 保存，并用可重建的 SQLite index 加速查
 Tasks 和 memory 以 workflow events 保存。assistant suggested project memory 必须显式 confirm 后才会成为 active project memory。
 
 `/task resume-context` 会把 task 和 memory 状态组合成可恢复的项目上下文快照。
+
+`/brief <task goal>` 会在 `.robocode/briefs/active.md` 创建轻量 active task
+brief；`/spec` 是别名。有 active brief 时，provider ContextBundle、lane
+envelope 和 side-2 ops 都可以引用它。`/brief steering init` 会创建最小
+`.robocode/steering/` 模板，用于项目约定、架构和工作流。
 
 `/context` 会显示最近一次 provider turn 使用的 ContextBundle，包括 v1 policy、source priority、token 估算、被省略的 sources 和 compaction notes。它用于回答“这次请求到底带了哪些上下文、哪些被预算策略裁掉了”。
 

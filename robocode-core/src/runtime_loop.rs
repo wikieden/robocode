@@ -105,13 +105,17 @@ impl SessionEngine {
                 Err(err) => {
                     self.provider_telemetry
                         .record_failure(request_started.elapsed(), &err);
+                    let rendered_error = self
+                        .provider_model_recovery_prompt(&err)
+                        .map(|hint| format!("{err}\n\n{hint}"))
+                        .unwrap_or_else(|| err.clone());
                     provider_task.status = AgentTaskStatus::Failed.as_str().to_string();
                     provider_task.activity = format!("provider error: {err}");
                     provider_task.progress = 100;
                     provider_task.updated_at = Some(now_millis());
-                    provider_task.result = Some(err.clone());
+                    provider_task.result = Some(rendered_error.clone());
                     self.upsert_agent_task(provider_task);
-                    return Err(err);
+                    return Err(rendered_error);
                 }
             };
             let mut observed_tool_call = false;

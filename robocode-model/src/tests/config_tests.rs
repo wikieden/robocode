@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn from_env_defaults_to_deepseek_flash() {
+    let provider = std::env::var("ROBOCODE_PROVIDER").ok();
+    let model = std::env::var("ROBOCODE_MODEL").ok();
+
+    unsafe {
+        std::env::remove_var("ROBOCODE_PROVIDER");
+        std::env::remove_var("ROBOCODE_MODEL");
+    }
+    let config = ProviderConfig::from_env();
+    unsafe {
+        restore_env_var("ROBOCODE_PROVIDER", provider);
+        restore_env_var("ROBOCODE_MODEL", model);
+    }
+
+    assert_eq!(config.kind, ProviderKind::DeepSeek);
+    assert_eq!(config.model, "deepseek-v4-flash");
+}
+
+#[test]
 fn config_overrides_provider_and_model() {
     let config = ProviderConfig::from_env()
         .with_overrides(

@@ -289,6 +289,7 @@ fn preview_runtime_tasks() -> Vec<AgentTask> {
             "context_policy v1-priority-budget".to_string(),
             "context_omitted 1".to_string(),
             "largest_context_source latest-diff 6400 tok".to_string(),
+            "active_brief brief_load_config: Add load_config tests".to_string(),
         ],
         permissions: Vec::new(),
         decision: Some("recorded".to_string()),

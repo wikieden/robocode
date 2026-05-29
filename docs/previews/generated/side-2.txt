@@ -16,9 +16,9 @@
 │ BRANCH  main                                                                 │
 │ SCALE   files 128   lines 24531                                              │
 │ CTX     128k   MCP configs 0                                                 │
+│ BRIEF   brief_load_config  Add load_config tests                             │
 │ BUNDLE  pressure 18% (23040/128000)                                          │
 │ POLICY  v1-priority-budget                                                   │
-│ OMIT    1 source(s)                                                          │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ EXTENSIONS ─────────────────────────────────────────────────────────── ready ┐
 │ PROVIDER Configured not sampled                                              │

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::{path::PathBuf, time::Duration};
 
 mod agent_commands;
+mod brief_commands;
 mod command_dispatch;
 mod context_bundle;
 mod doctor;

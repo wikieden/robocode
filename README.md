@@ -6,7 +6,7 @@ delegated agents, and keep enough evidence to resume work later.
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.16-tui-main.svg)
+![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.17-tui-main.svg)
 
 ## Why It Exists
 
@@ -40,37 +40,37 @@ and external agent lanes visible in one operator cockpit.
 ## Screenshots
 
 These are generated from the current RoboCode TUI renderer and kept as release
-evidence. The screenshots below show the `0.1.16` interaction-reliability RC;
+evidence. The screenshots below show the `0.1.17` daily-coding-loop RC;
 the latest published binary release is listed separately in the install
 section.
 
 ### Live Provider Turn
 
-![Live provider turn](docs/previews/generated/screenshots/0.1.16-tui-live-turn.svg)
+![Live provider turn](docs/previews/generated/screenshots/0.1.17-tui-live-turn.svg)
 
 ### Resize-Safe Redraw
 
-![Resize-safe redraw](docs/previews/generated/screenshots/0.1.16-tui-main-resize.svg)
+![Resize-safe redraw](docs/previews/generated/screenshots/0.1.17-tui-main-resize.svg)
 
 ### CJK Input
 
-![CJK input](docs/previews/generated/screenshots/0.1.16-tui-cjk-input.svg)
+![CJK input](docs/previews/generated/screenshots/0.1.17-tui-cjk-input.svg)
 
 ### Slash-Command Palette
 
-![Command palette](docs/previews/generated/screenshots/0.1.16-tui-command-palette.svg)
+![Command palette](docs/previews/generated/screenshots/0.1.17-tui-command-palette.svg)
 
 ### Agent Lane Detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.16-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.17-tui-lane-detail.svg)
 
 ### Side Screen: Agent Lanes
 
-![Side screen lanes](docs/previews/generated/screenshots/0.1.16-tui-side-1.svg)
+![Side screen lanes](docs/previews/generated/screenshots/0.1.17-tui-side-1.svg)
 
 ### Side Screen: Ops And Evidence
 
-![Side screen ops](docs/previews/generated/screenshots/0.1.16-tui-side-2.svg)
+![Side screen ops](docs/previews/generated/screenshots/0.1.17-tui-side-2.svg)
 
 ## Install
 
@@ -91,7 +91,7 @@ robocode --help
 ### Release Archive
 
 Download a release archive from
-[RoboCode v0.1.16](https://github.com/wikieden/robocode/releases/tag/v0.1.16).
+[RoboCode v0.1.17](https://github.com/wikieden/robocode/releases/tag/v0.1.17).
 
 Available release targets:
 
@@ -103,7 +103,7 @@ Available release targets:
 Install on macOS or Linux:
 
 ```bash
-VERSION=0.1.16
+VERSION=0.1.17
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -114,7 +114,7 @@ robocode-cli --help
 Install on Windows PowerShell:
 
 ```powershell
-$Version = "0.1.16"
+$Version = "0.1.17"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -126,27 +126,36 @@ robocode-cli.exe --help
 
 ## Quick Start
 
-Run an offline smoke session:
-
-```bash
-robocode-cli --provider fallback --model test-local
-```
-
-`robocode-cli` now starts the cockpit TUI by default. Use `/settings` inside
-the TUI to inspect providers, choose a model, and save your default
-provider/model for later launches:
+Run RoboCode. Clean installs use DeepSeek as the default online provider and
+open the cockpit TUI by default:
 
 ```bash
 robocode-cli
-/settings
-/settings provider deepseek deepseek-v4-flash
 ```
 
-Start the cockpit TUI with DeepSeek V4 Flash:
+Use `/setup` inside the TUI for the interactive provider/model setup flow. It
+shows API-key status, provider choices, model defaults, and save commands:
+
+```bash
+/setup
+/setup provider deepseek deepseek-v4-flash
+```
+
+Set a DeepSeek key for live turns:
 
 ```bash
 export DEEPSEEK_API_KEY="sk-..."
-robocode-cli --provider deepseek --model deepseek-v4-flash
+robocode-cli
+```
+
+If the selected model fails or is unavailable, RoboCode shows a switch-model
+prompt with concrete `/settings model ...`, `/settings provider ...`, and
+`/provider doctor ...` actions.
+
+Run an explicit offline smoke session when you do not want a live provider:
+
+```bash
+robocode-cli --provider fallback --model test-local
 ```
 
 Use the legacy line REPL only when you explicitly need it:
@@ -168,11 +177,13 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
    keep failure evidence visible in `/status` and the TUI.
 3. Use `/git diff`, `/diff`, and `/git status` to review what changed before
    committing.
-4. Track durable work with `/task add`, `/tasks`, `/task resume-context`, and
+4. Create a lightweight active brief with `/brief <goal>` or `/spec <goal>`;
+   use `/brief steering init` when project conventions should guide lanes.
+5. Track durable work with `/task add`, `/tasks`, `/task resume-context`, and
    `/memory`.
-5. Open side screens with `/screen side-1` and `/screen side-2` when you want a
+6. Open side screens with `/screen side-1` and `/screen side-2` when you want a
    second terminal to watch agent lanes or ops evidence.
-6. Start supervised external work with `/lane codex`, `/lane claude`,
+7. Start supervised external work with `/lane codex`, `/lane claude`,
    `/lane run`, `/lane tmux`, or `/agent run codex`.
 
 ## Essential TUI Controls
@@ -189,8 +200,9 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
   `d` to focus diff, or use `Tab` / arrow keys to move between actions.
 - Type `/` to open command suggestions. Common entries include `/help`,
   `/settings`, `/setup`, `/provider`, `/status`, `/config`, `/permissions`,
-  `/test`, `/sessions`, `/resume`, `/task`, `/memory`, `/lane`, `/agent`,
-  `/screen`, `/lsp`, `/git`, `/web`, `/extensions`, `/mcp`, and `/skills`.
+  `/test`, `/sessions`, `/resume`, `/task`, `/brief`, `/spec`, `/memory`,
+  `/lane`, `/agent`, `/screen`, `/lsp`, `/git`, `/web`, `/extensions`,
+  `/mcp`, and `/skills`.
   Long suggestion lists keep the selected row visible and support mouse
   completion on visible rows.
 
@@ -199,10 +211,11 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 RoboCode loads config from the platform config path and then from
 `.robocode/config.toml`, with CLI flags taking precedence.
 
-Inside the TUI, `/settings` shows the active provider/model, API-key status,
-available providers, and the user config path. `/settings provider <id>
-[model]`, `/settings model <model>`, and `/settings save` persist the selected
-provider/model without storing API keys.
+Inside the TUI, `/setup` opens the first-run provider/model flow. `/settings`
+shows the active provider/model, API-key status, available providers, and the
+user config path. `/setup provider <id> [model]`, `/settings provider <id>
+[model]`, `/setup model <model>`, `/settings model <model>`, and
+`/settings save` persist the selected provider/model without storing API keys.
 
 ```toml
 provider = "deepseek"
@@ -250,7 +263,7 @@ in the docs:
 - [TUI Interaction Audit](docs/tui-interaction-audit-2026-05-29.md)
 - [Testing and Validation Plan](docs/testing-validation-plan.md)
 - [0.1.17 Plan](docs/release-0.1.17-plan.md)
-- [0.1.16 Status](docs/release-0.1.16-status.md)
+- [0.1.17 Status](docs/release-0.1.17-status.md)
 - [0.1.16 Plan](docs/release-0.1.16-plan.md)
 - [0.1.15 Status](docs/release-0.1.15-status.md)
 - [0.1.15 Plan](docs/release-0.1.15-plan.md)

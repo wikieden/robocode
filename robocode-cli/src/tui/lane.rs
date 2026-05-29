@@ -598,6 +598,30 @@ fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBu
             320,
         ),
     ];
+    if let Some((brief_id, title, goal)) = read_active_brief_summary(&state.workspace.root) {
+        sources.push(context_source(
+            "active-brief",
+            "brief",
+            &format!("{brief_id} {title}: {goal}"),
+            96,
+            420,
+        ));
+    }
+    let steering = read_steering_summaries(&state.workspace.root)
+        .into_iter()
+        .take(3)
+        .map(|(file, summary)| format!("{file}: {}", compact_lines(&summary, 4)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !steering.trim().is_empty() {
+        sources.push(context_source(
+            "project-steering",
+            "steering-summary",
+            &steering,
+            82,
+            520,
+        ));
+    }
     if !state.workspace.diagnostics.is_empty() {
         sources.push(context_source(
             "diagnostics",
@@ -794,6 +818,63 @@ fn compact_lines(text: &str, max_lines: usize) -> String {
 
 fn estimate_tokens(text: &str) -> u64 {
     (text.chars().count() as u64).saturating_add(3) / 4
+}
+
+fn read_active_brief_summary(root: &Path) -> Option<(String, String, String)> {
+    let content = fs::read_to_string(root.join(".robocode/briefs/active.md")).ok()?;
+    let id = front_matter_field(&content, "id").unwrap_or_else(|| "brief_unknown".to_string());
+    let title =
+        front_matter_field(&content, "title").unwrap_or_else(|| "Untitled brief".to_string());
+    let goal = markdown_section(&content, "Goal").unwrap_or_else(|| title.clone());
+    Some((id, title, goal))
+}
+
+fn read_steering_summaries(root: &Path) -> Vec<(String, String)> {
+    ["conventions.md", "architecture.md", "workflows.md"]
+        .into_iter()
+        .filter_map(|file| {
+            let content = fs::read_to_string(root.join(".robocode/steering").join(file)).ok()?;
+            let summary = content
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with("---"))
+                .take(4)
+                .collect::<Vec<_>>()
+                .join("\n");
+            (!summary.is_empty()).then(|| (file.to_string(), summary))
+        })
+        .collect()
+}
+
+fn front_matter_field(content: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}:");
+    content
+        .lines()
+        .skip_while(|line| line.trim() == "---")
+        .take_while(|line| line.trim() != "---")
+        .find_map(|line| line.trim().strip_prefix(&prefix).map(str::trim))
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn markdown_section(content: &str, title: &str) -> Option<String> {
+    let heading = format!("## {title}");
+    let mut lines = Vec::new();
+    let mut in_section = false;
+    for line in content.lines() {
+        if line.trim() == heading {
+            in_section = true;
+            continue;
+        }
+        if in_section && line.starts_with("## ") {
+            break;
+        }
+        if in_section {
+            lines.push(line);
+        }
+    }
+    let section = lines.join("\n").trim().to_string();
+    (!section.is_empty()).then_some(section)
 }
 
 fn list_or_none(items: &[String]) -> String {
@@ -4355,8 +4436,22 @@ mod tests {
 
     #[test]
     fn lane_envelope_includes_context_bundle_sources_and_pressure() {
+        let root = temp_lane_root();
         let mut state = test_state();
+        state.workspace.root = root.clone();
         state.workspace.diagnostics = vec!["src/lib.rs:1:1 warning unused".to_string()];
+        fs::create_dir_all(root.join(".robocode/briefs")).unwrap();
+        fs::create_dir_all(root.join(".robocode/steering")).unwrap();
+        fs::write(
+            root.join(".robocode/briefs/active.md"),
+            "---\nid: brief_test\ntitle: Tighten setup loop\n---\n\n## Goal\nTighten setup loop\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join(".robocode/steering/conventions.md"),
+            "# Project conventions\n\nPrefer focused smoke tests.\n",
+        )
+        .unwrap();
         state.entries.push(TuiEntry {
             label: "command".to_string(),
             body: "Test result:\n  status: passed\n  command: cargo test\n  duration: 42ms"
@@ -4382,9 +4477,12 @@ mod tests {
         assert!(envelope.contains("Risk:"));
         assert!(envelope.contains("Writable scope:"));
         assert!(envelope.contains("Context pressure:"));
+        assert!(envelope.contains("active-brief [brief]"));
+        assert!(envelope.contains("project-steering [steering-summary]"));
         assert!(envelope.contains("latest-test [test]"));
         assert!(envelope.contains("diagnostics [lsp]"));
         assert!(envelope.contains("raw transcript and lane logs remain"));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

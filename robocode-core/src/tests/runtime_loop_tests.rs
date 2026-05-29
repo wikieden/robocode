@@ -126,6 +126,12 @@ fn provider_turn_uses_ephemeral_context_bundle_without_transcript_mutation() {
     };
 
     engine
+        .process_input_with_approval("/brief summarize workspace safely", &mut approver)
+        .unwrap();
+    engine
+        .process_input_with_approval("/brief steering init", &mut approver)
+        .unwrap();
+    engine
         .process_input_with_approval("summarize the workspace", &mut approver)
         .unwrap();
 
@@ -145,6 +151,8 @@ fn provider_turn_uses_ephemeral_context_bundle_without_transcript_mutation() {
     assert!(context.content.contains("Omitted sources:"));
     assert!(context.content.contains("Context pressure:"));
     assert!(context.content.contains("workspace"));
+    assert!(context.content.contains("active-brief"));
+    assert!(context.content.contains("project-steering"));
 
     let bundle = engine
         .provider_context_bundle()
@@ -160,6 +168,19 @@ fn provider_turn_uses_ephemeral_context_bundle_without_transcript_mutation() {
             .sources
             .iter()
             .any(|source| source.name == "workspace")
+    );
+    assert!(
+        bundle
+            .sources
+            .iter()
+            .any(|source| source.name == "active-brief"
+                && source.summary.contains("summarize workspace safely"))
+    );
+    assert!(
+        bundle
+            .sources
+            .iter()
+            .any(|source| source.name == "project-steering")
     );
     assert_eq!(bundle.policy, "v1-priority-budget");
     assert!(bundle.sources.iter().all(|source| source.priority > 0));
@@ -210,6 +231,39 @@ fn provider_telemetry_records_failed_model_requests() {
     assert_eq!(telemetry.failure_count, 1);
     assert_eq!(telemetry.last_event_count, 0);
     assert_eq!(telemetry.last_error.as_deref(), Some("provider down"));
+}
+
+#[test]
+fn provider_model_failures_include_switch_model_recovery_prompt() {
+    let home = temp_dir("model_recovery_home");
+    let cwd = temp_dir("model_recovery_cwd");
+    let provider = Box::new(ModelFailingProvider);
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(
+        robocode_model::ProviderHost::with_builtins(),
+        Vec::new(),
+        None,
+        None,
+        90,
+        1,
+    );
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let err = engine
+        .process_input_with_approval("trigger model failure", &mut approver)
+        .unwrap_err();
+
+    assert!(err.contains("Provider/model recovery:"), "{err}");
+    assert!(err.contains("current: deepseek / made-up-model"), "{err}");
+    assert!(err.contains("/settings model deepseek-v4-flash"), "{err}");
+    assert!(
+        err.contains("/settings provider deepseek deepseek-v4-flash"),
+        "{err}"
+    );
+    assert!(err.contains("/provider doctor deepseek"), "{err}");
 }
 
 #[test]
@@ -505,6 +559,24 @@ impl ModelProvider for FailingProvider {
 
     fn next_events(&mut self, _request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
         Err("provider down".to_string())
+    }
+}
+
+struct ModelFailingProvider;
+
+impl ModelProvider for ModelFailingProvider {
+    fn provider_name(&self) -> &str {
+        "deepseek"
+    }
+
+    fn model(&self) -> &str {
+        "made-up-model"
+    }
+
+    fn set_model(&mut self, _model: String) {}
+
+    fn next_events(&mut self, _request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+        Err("API error (400): model `made-up-model` not found".to_string())
     }
 }
 

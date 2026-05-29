@@ -218,7 +218,7 @@ struct CommandTemplate {
     summary: &'static str,
 }
 
-const COMMANDS: [CommandTemplate; 25] = [
+const COMMANDS: [CommandTemplate; 27] = [
     CommandTemplate {
         command: "/help",
         summary: "Show commands",
@@ -262,6 +262,14 @@ const COMMANDS: [CommandTemplate; 25] = [
     CommandTemplate {
         command: "/task",
         summary: "Create or update tasks",
+    },
+    CommandTemplate {
+        command: "/brief",
+        summary: "Create or show active task brief",
+    },
+    CommandTemplate {
+        command: "/spec",
+        summary: "Alias for task brief",
     },
     CommandTemplate {
         command: "/tasks",
@@ -654,6 +662,44 @@ const TASK_COMMANDS: [CommandTemplate; 10] = [
     },
 ];
 
+const BRIEF_COMMANDS: [CommandTemplate; 5] = [
+    CommandTemplate {
+        command: "/brief show",
+        summary: "Show active brief",
+    },
+    CommandTemplate {
+        command: "/brief clear",
+        summary: "Clear active brief",
+    },
+    CommandTemplate {
+        command: "/brief steering init",
+        summary: "Create steering templates",
+    },
+    CommandTemplate {
+        command: "/brief steering show",
+        summary: "Show steering summaries",
+    },
+    CommandTemplate {
+        command: "/brief help",
+        summary: "Brief command help",
+    },
+];
+
+const SPEC_COMMANDS: [CommandTemplate; 3] = [
+    CommandTemplate {
+        command: "/spec show",
+        summary: "Show active brief",
+    },
+    CommandTemplate {
+        command: "/spec steering init",
+        summary: "Create steering templates",
+    },
+    CommandTemplate {
+        command: "/spec help",
+        summary: "Brief command help",
+    },
+];
+
 const TASK_ID_COMMANDS: [&str; 7] = [
     "/task view",
     "/task update",
@@ -829,6 +875,8 @@ fn is_nested_command_query(input: &str) -> bool {
         "/model",
         "/lsp",
         "/task",
+        "/brief",
+        "/spec",
         "/memory",
         "/git",
         "/git stash",
@@ -846,6 +894,7 @@ fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comma
         .or_else(|| skill_command_suggestions(query))
         .or_else(|| screen_command_suggestions(query, state))
         .or_else(|| task_command_suggestions(query, state))
+        .or_else(|| brief_command_suggestions(query))
         .or_else(|| lsp_command_suggestions(query, state))
         .or_else(|| git_stash_command_suggestions(query, state))
         .or_else(|| git_worktree_command_suggestions(query, state))
@@ -927,21 +976,21 @@ fn command_group_or_lane_ids(query: &str, state: &TuiState) -> Vec<CommandSugges
 }
 
 fn settings_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
-    if !query.starts_with("/settings ") {
+    let prefix = if query.starts_with("/settings ") {
+        "/settings"
+    } else if query.starts_with("/setup ") {
+        "/setup"
+    } else {
         return None;
-    }
+    };
     let words = query.split_whitespace().collect::<Vec<_>>();
     let suggestions = if words.len() <= 1 || query.ends_with(' ') && words.len() == 1 {
-        SETTINGS_COMMANDS
-            .into_iter()
-            .map(command_from_template)
-            .collect::<Vec<_>>()
+        settings_templates_for_prefix(prefix)
     } else if words.len() == 2 && !query.ends_with(' ') {
-        SETTINGS_COMMANDS
+        settings_templates_for_prefix(prefix)
             .into_iter()
             .filter(|item| item.command.starts_with(query))
-            .map(command_from_template)
-            .collect::<Vec<_>>()
+            .collect()
     } else if should_suggest_settings_provider_ids(query, &words) {
         settings_provider_id_suggestions(query, &words, state)
     } else if should_suggest_settings_provider_models(query, &words) {
@@ -954,10 +1003,23 @@ fn settings_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Com
     Some(suggestions)
 }
 
+fn settings_templates_for_prefix(prefix: &str) -> Vec<CommandSuggestion> {
+    SETTINGS_COMMANDS
+        .into_iter()
+        .map(|item| CommandSuggestion {
+            command: item.command.replacen("/settings", prefix, 1),
+            summary: item.summary.to_string(),
+        })
+        .collect()
+}
+
 fn should_suggest_settings_provider_ids(query: &str, words: &[&str]) -> bool {
     words.len() >= 2
         && words.len() <= 3
-        && format!("{} {}", words[0], words[1]) == "/settings provider"
+        && matches!(
+            format!("{} {}", words[0], words[1]).as_str(),
+            "/settings provider" | "/setup provider"
+        )
         && (query.ends_with(' ') && words.len() == 2
             || !query.ends_with(' ') && words.get(2).is_some())
 }
@@ -977,7 +1039,7 @@ fn settings_provider_id_suggestions(
         .iter()
         .filter(|provider| provider.provider_id.starts_with(partial_provider))
         .map(|provider| CommandSuggestion {
-            command: format!("/settings provider {}", provider.provider_id),
+            command: format!("{} provider {}", words[0], provider.provider_id),
             summary: provider_summary(provider),
         })
         .collect()
@@ -986,7 +1048,10 @@ fn settings_provider_id_suggestions(
 fn should_suggest_settings_provider_models(query: &str, words: &[&str]) -> bool {
     words.len() >= 3
         && words.len() <= 4
-        && format!("{} {}", words[0], words[1]) == "/settings provider"
+        && matches!(
+            format!("{} {}", words[0], words[1]).as_str(),
+            "/settings provider" | "/setup provider"
+        )
         && (query.ends_with(' ') || words.get(3).is_some())
 }
 
@@ -1008,7 +1073,7 @@ fn settings_provider_model_suggestions(
         .filter_map(|provider| {
             provider.default_model.as_ref().and_then(|model| {
                 model.starts_with(partial_model).then(|| CommandSuggestion {
-                    command: format!("/settings provider {provider_id} {model}"),
+                    command: format!("{} provider {provider_id} {model}", words[0]),
                     summary: format!("Default model for {}", provider.display_name),
                 })
             })
@@ -1019,7 +1084,10 @@ fn settings_provider_model_suggestions(
 fn should_suggest_settings_models(query: &str, words: &[&str]) -> bool {
     words.len() >= 2
         && words.len() <= 3
-        && format!("{} {}", words[0], words[1]) == "/settings model"
+        && matches!(
+            format!("{} {}", words[0], words[1]).as_str(),
+            "/settings model" | "/setup model"
+        )
         && (query.ends_with(' ') || words.get(2).is_some())
 }
 
@@ -1040,7 +1108,7 @@ fn settings_model_suggestions(
         .filter_map(|provider| {
             provider.default_model.as_ref().and_then(|model| {
                 model.starts_with(partial_model).then(|| CommandSuggestion {
-                    command: format!("/settings model {model}"),
+                    command: format!("{} model {model}", words[0]),
                     summary: format!("Default model for {}", provider.display_name),
                 })
             })
@@ -1331,6 +1399,16 @@ fn task_status_suggestions(query: &str, words: &[&str]) -> Vec<CommandSuggestion
             summary: status.summary.to_string(),
         })
         .collect()
+}
+
+fn brief_command_suggestions(query: &str) -> Option<Vec<CommandSuggestion>> {
+    if query.starts_with("/brief ") {
+        return template_group_suggestions(query, "/brief", &BRIEF_COMMANDS);
+    }
+    if query.starts_with("/spec ") {
+        return template_group_suggestions(query, "/spec", &SPEC_COMMANDS);
+    }
+    None
 }
 
 fn memory_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
@@ -2016,7 +2094,11 @@ mod tests {
         let settings = state_with_input("/settings ");
         let settings_provider = state_with_input("/settings provider dee");
         let settings_model = state_with_input("/settings model fall");
+        let setup_provider = state_with_input("/setup provider dee");
+        let setup_model = state_with_input("/setup model fall");
         let agent = state_with_input("/agent ");
+        let brief = state_with_input("/brief ");
+        let spec = state_with_input("/spec ");
         let extensions = state_with_input("/extensions ");
         let mcp = state_with_input("/mcp ");
         let skills = state_with_input("/skills ");
@@ -2045,9 +2127,29 @@ mod tests {
                 .any(|item| item.command == "/settings model fallback-local")
         );
         assert!(
+            command_suggestions_for_state(&setup_provider)
+                .iter()
+                .any(|item| item.command == "/setup provider deepseek")
+        );
+        assert!(
+            command_suggestions_for_state(&setup_model)
+                .iter()
+                .any(|item| item.command == "/setup model fallback-local")
+        );
+        assert!(
             command_suggestions_for_state(&agent)
                 .iter()
                 .any(|item| item.command == "/agent doctor")
+        );
+        assert!(
+            command_suggestions_for_state(&brief)
+                .iter()
+                .any(|item| item.command == "/brief steering init")
+        );
+        assert!(
+            command_suggestions_for_state(&spec)
+                .iter()
+                .any(|item| item.command == "/spec show")
         );
         assert!(
             command_suggestions_for_state(&extensions)

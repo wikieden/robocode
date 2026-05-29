@@ -1,18 +1,18 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.16  [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]             │
+│ RoboCode  v0.1.17  [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]             │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────┐
-│   ◎ NOW WORKING  OpenAI is thinking                                                              │
+│   ◎ NOW WORKING  DeepSeek is thinking                                                            │
 │      ┊  evidence: AgentTask turn-c4f2b7e-live from live provider request                         │
-│      ┊  turn-c4f2b7e-live OpenAI thinking 15% :: Refactor the config loader, then :: signal live │
+│      ┊  turn-c4f2b7e-live DeepSeek thinking 15% :: Refactor the config loader, then :: signal li │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
-│   ·  ┊  SYSTEM                                                                          06:19:17 │
+│   ·  ┊  SYSTEM                                                                          11:22:43 │
 │      ┊  RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.                                  │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
-│   ♙  ┊  USER                                                                            06:19:19 │
+│   ♙  ┊  USER                                                                            11:22:45 │
 │      ┊  Refactor the config loader, then run focused tests.                                      │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
-│   ·  ┊  SYSTEM                                                                          06:19:21 │
+│   ·  ┊  SYSTEM                                                                          11:22:47 │
 │      ┊  Resize-safe redraw check: stale borders cleared; composer and panels reflow from one     │
 │      ┊  frame.                                                                                   │
 │                                                                                                  │

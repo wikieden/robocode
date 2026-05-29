@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.16  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L1      │
+│ RoboCode  v0.1.17  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ◎ NOW WORKING  Supervising 1 agent: codex testing                                               │ │ robocode/    ~/projects/robocode   │
@@ -7,20 +7,20 @@
 │      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
 │      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
-│   ✣  ┊  ASSISTANT                                                                        06:19:14 │ └────────────────────────────────────┘
+│   ✣  ┊  ASSISTANT                                                                        11:22:37 │ └────────────────────────────────────┘
 │      ┊  Tests are staged. I found one parser edge case and need to update `src/config.rs` before  │ ┌ ACTIVE TASKS ─────────────────── 5 ┐
 │      ┊  running the suite.                                                                        │ │ L1 ⛭ codex  s1/pty/01  64%         │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ tool-7 ✎ roboco local-tool/pty/xx  │
-│   ♙  ┊  USER                                                                             06:19:16 │ │ reply-6 ● roboco openai/pty/xx  15 │
+│   ♙  ┊  USER                                                                             11:22:39 │ │ reply-6 ● roboco deepseek/pty/xx   │
 │      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ │ ● task_lo/prog Implement load_con  │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ⚒  ┊  TOOL CALL                                                                        06:19:18 │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
+│   ⚒  ┊  TOOL CALL                                                                        11:22:41 │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
 │      ┊  [write_file] path: src/config.rs                                                          │ │ diagnostics unavailable            │
 │      ┊               lines: 1-120     gate: waiting                                               │ │ auto-checks or /lsp diagnostics    │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │                                    │
-│   ·  ┊  SYSTEM                                                                           06:19:20 │ └────────────────────────────────────┘
+│   ·  ┊  SYSTEM                                                                           11:22:43 │ └────────────────────────────────────┘
 │      ┊  Test result:                                                                              │ ┌ PROVIDER HEALTH ─────── Configured ┐
-│      ┊    status: failed                                                                          │ │ OpenAI (gpt-4o)                    │
+│      ┊    status: failed                                                                          │ │ DeepSeek (deepseek-v4-flash)       │
 │      ┊    exit code: 101                                                                          │ │ STATUS     Configured              │
 │      ┊    command: cargo test -p robocode-cli config_tests                                        │ │ REQUESTS   0 ok / 0 err            │
 │      ┊    duration: 42ms                                                                          │ │ LATENCY    last - avg -            │
