@@ -10,9 +10,14 @@ fresh release.
 ## Release State
 
 - Workspace version: `0.1.18`
-- Release target: `v0.1.18`
+- Git commit: `e0e40537094d6384e2dd08b8454d1d6c5be3a750`
+- Git tag: `v0.1.18`
 - GitHub release: https://github.com/wikieden/robocode/releases/tag/v0.1.18
-- Homebrew target: `wikieden/tap/robocode` stable `0.1.18`
+- Release workflow: https://github.com/wikieden/robocode/actions/runs/26651202650
+- Homebrew tap commit: `wikieden/homebrew-tap@651c7a7`
+- Local package: `dist/robocode-v0.1.18-aarch64-apple-darwin.tar.gz`
+- Local package sha256:
+  `8a3f199b716708ae84a7531928cbe2f4804afb30f63a81f767cdcd8b79e85bc0`
 
 ## Included Changes
 
@@ -45,13 +50,17 @@ ROBOCODE_TUI_PREVIEW_MODEL=deepseek-v4-flash \
 scripts/tui-regression.sh docs/previews/generated
 ```
 
-Post-publish verification must include:
+Post-publish verification:
 
 ```bash
 scripts/release-smoke.sh --version 0.1.18 --quick \
   --github-release-assets --homebrew \
   --out-dir /tmp/robocode-0118-postpublish-check
 ```
+
+Result: passed at `2026-05-29T17:19:43Z` with 11 passed checks, 0 failed, and
+3 intentionally skipped checks (`package-smoke`, opt-in `deepseek-cli-smoke`,
+and explicit `github-actions-release-validation`).
 
 ## Screenshot Evidence
 

@@ -9,9 +9,14 @@ provider/model 设置体验。由于 `v0.1.17` 已经公开发布，本版本不
 ## 发布状态
 
 - Workspace version：`0.1.18`
-- Release target：`v0.1.18`
+- Git commit：`e0e40537094d6384e2dd08b8454d1d6c5be3a750`
+- Git tag：`v0.1.18`
 - GitHub release：https://github.com/wikieden/robocode/releases/tag/v0.1.18
-- Homebrew target：`wikieden/tap/robocode` stable `0.1.18`
+- Release workflow：https://github.com/wikieden/robocode/actions/runs/26651202650
+- Homebrew tap commit：`wikieden/homebrew-tap@651c7a7`
+- 本地 package：`dist/robocode-v0.1.18-aarch64-apple-darwin.tar.gz`
+- 本地 package sha256：
+  `8a3f199b716708ae84a7531928cbe2f4804afb30f63a81f767cdcd8b79e85bc0`
 
 ## 本版本内容
 
@@ -40,13 +45,17 @@ ROBOCODE_TUI_PREVIEW_MODEL=deepseek-v4-flash \
 scripts/tui-regression.sh docs/previews/generated
 ```
 
-发布后还必须验证：
+发布后验证：
 
 ```bash
 scripts/release-smoke.sh --version 0.1.18 --quick \
   --github-release-assets --homebrew \
   --out-dir /tmp/robocode-0118-postpublish-check
 ```
+
+结果：`2026-05-29T17:19:43Z` 通过，11 项 pass，0 项 fail，3 项按预期跳过
+（`package-smoke`、需显式开启的 `deepseek-cli-smoke`、以及单独的
+`github-actions-release-validation`）。
 
 ## 截图证据
 
