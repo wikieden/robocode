@@ -191,20 +191,12 @@ Mainline landed:
 
 Current published release:
 
-- `docs/release-0.1.13-status.md` records the tagged, published, and
-  post-publish-verified Operator Loop Hardening release.
-- `0.1.13` implemented the default TUI entry, first-run provider/model setup,
-  interaction reliability tests, focused lane diff/artifact commands, main
-  provider ContextBundle injection, GitHub Release assets, Homebrew tap update,
-  and live DeepSeek smoke.
-
-Current local RC:
-
-- `docs/release-0.1.16-plan.md` targets TUI Interaction Reliability:
-  non-blocking provider-turn feedback, command-palette scroll parity, approval
-  diff/evidence control, resize/caret/IME stability, and a footer promise audit.
-- `docs/release-0.1.16-status.md` records the local RC state and verification
-  evidence. GitHub Release assets and Homebrew tap update remain pending.
+- `docs/release-0.1.16-status.md` records the tagged, published, and
+  post-publish-verified TUI Interaction Reliability release.
+- `0.1.16` implemented non-blocking provider-turn feedback,
+  command-palette scroll parity, approval diff/evidence control,
+  resize/caret/IME stability, GitHub Release assets, Homebrew tap update, and
+  post-publish smoke.
 - `0.1.15` remains the Context Curator And Budget Controls checkpoint:
   ContextBundle v1 policy records, `/context` visibility, source priority,
   omitted-source evidence, side-2 context rows, and the foundation for future

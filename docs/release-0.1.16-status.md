@@ -4,12 +4,15 @@ Chinese version: [release-0.1.16-status.zh-CN.md](release-0.1.16-status.zh-CN.md
 
 ## Status
 
-`0.1.16` is a local release candidate for the inserted TUI interaction
-reliability slice. It is intentionally placed before the lightweight
-spec/steering workflow so the cockpit stays trustworthy before more workflow
-surface is added.
+`0.1.16` is the published release for the inserted TUI interaction reliability
+slice. It is intentionally placed before the lightweight spec/steering workflow
+so the cockpit stays trustworthy before more workflow surface is added.
 
-GitHub Release assets and the Homebrew tap update are not published yet.
+- Git tag: `v0.1.16`
+- Main commit: `a1a94f3`
+- GitHub Release: https://github.com/wikieden/robocode/releases/tag/v0.1.16
+- Release workflow: https://github.com/wikieden/robocode/actions/runs/26623120701
+- Homebrew tap commit: `3c6f0f1`
 
 ## Landed Scope
 
@@ -59,6 +62,41 @@ Smoke evidence directory:
 /tmp/robocode-0116-release-smoke-local
 ```
 
+Passed post-publish on 2026-05-29:
+
+```bash
+scripts/release-smoke.sh --version 0.1.16 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0116-postpublish-check
+```
+
+Post-publish evidence directory:
+
+```text
+/tmp/robocode-0116-postpublish-check
+```
+
+Post-publish smoke passed `github-release-assets-validation` and
+`homebrew-validation`. Homebrew reported stable `0.1.16` for
+`wikieden/tap/robocode`.
+
+## Release Assets
+
+GitHub release assets:
+
+- `robocode-v0.1.16-aarch64-apple-darwin.tar.gz`
+  - `sha256:df7591abfc8282897ff78a51e02bcee9c2db98a893fbce30adce9cf9947beab5`
+- `robocode-v0.1.16-x86_64-apple-darwin.tar.gz`
+  - `sha256:be8b814e04771bae9ae03e08e177dd36b217639e629bd817b9e4cf07d602981e`
+- `robocode-v0.1.16-x86_64-unknown-linux-gnu.tar.gz`
+  - `sha256:02cb651ded2e19fabfc6b681ba9596d5c94aa25555f5b216153e71bebcb53099`
+- `robocode-v0.1.16-x86_64-pc-windows-msvc.tar.gz`
+  - `sha256:592ac7b3d55d2fc282882346d7e7b7694ffbb95ab829fec7416290dc9db3c41c`
+
+Homebrew:
+
+```bash
+brew install wikieden/tap/robocode
+```
+
 ## Visual Evidence
 
 Deterministic 0.1.16 TUI screenshots:
@@ -91,8 +129,8 @@ Structured screenshot evidence:
   transcript links, and mouse wheel handling remain follow-up work.
 - Cursor blink and IME candidate-window placement still depend partly on the
   host terminal.
-- GitHub Release packaging, multi-platform assets, post-publish validation, and
-  Homebrew tap update remain outside this local RC.
+- DeepSeek live smoke was not rerun during post-publish validation in this
+  turn.
 
 ## Next
 

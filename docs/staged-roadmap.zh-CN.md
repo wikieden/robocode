@@ -161,19 +161,11 @@ Mainline landed：
 
 当前已发布版本：
 
-- `docs/release-0.1.13-status.zh-CN.md` 记录已打 tag、已发布、已完成发布后验证的
-  Operator Loop Hardening release。
-- `0.1.13` 已实现默认 TUI 入口、首次 provider/model 设置、交互可靠性测试、
-  聚焦 lane diff/artifact 命令、主 provider ContextBundle 注入、GitHub Release
-  assets、Homebrew tap 更新，以及 live DeepSeek smoke。
-
-当前本地 RC：
-
-- `docs/release-0.1.16-plan.zh-CN.md` 聚焦 TUI Interaction Reliability：
-  非阻塞 provider-turn 反馈、command palette 滚动一致性、approval
-  diff/evidence 控制、resize/caret/IME 稳定性，以及 footer promise audit。
-- `docs/release-0.1.16-status.zh-CN.md` 记录本地 RC 状态和验证证据。GitHub
-  Release assets 与 Homebrew tap 更新仍待发布闭环。
+- `docs/release-0.1.16-status.zh-CN.md` 记录已打 tag、已发布、已完成发布后验证的
+  TUI Interaction Reliability release。
+- `0.1.16` 已实现非阻塞 provider-turn 反馈、command palette 滚动一致性、
+  approval diff/evidence 控制、resize/caret/IME 稳定性、GitHub Release assets、
+  Homebrew tap 更新，以及 post-publish smoke。
 - `0.1.15` 仍是 Context Curator And Budget Controls 检查点：ContextBundle v1
   policy records、`/context` visibility、source priority、omitted-source
   evidence、side-2 context rows，以及后续 pin/omit 与 per-lane budget controls

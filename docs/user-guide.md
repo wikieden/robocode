@@ -471,9 +471,8 @@ mutation permission path. Skills are task recipes, not direct tools.
 
 ## Release Evidence
 
-For `0.1.12`, the release was verified with:
+For `0.1.16`, the release was verified with:
 
-- full local release smoke with DeepSeek;
 - clippy-as-gate;
 - workspace tests;
 - deterministic TUI screenshots;
@@ -481,13 +480,10 @@ For `0.1.12`, the release was verified with:
 - Codex app-server protocol fixture;
 - app-server write guard;
 - lane operator-loop smoke;
-- package archive smoke;
-- local 0.1.12 release archive smoke.
+- GitHub release asset validation;
+- Homebrew formula validation.
 
-GitHub release asset validation and Homebrew formula validation run after the
-GitHub release and tap are published.
-
-See [0.1.12 Status](release-0.1.12-status.md) for evidence paths and release
+See [0.1.16 Status](release-0.1.16-status.md) for evidence paths and release
 asset names.
 
 ## Feedback

@@ -4,11 +4,15 @@
 
 ## 状态
 
-`0.1.16` 是插入的 TUI 交互可靠性本地 release candidate。它被放在轻量
-spec/steering workflow 之前，目的是先让 cockpit 在真实使用时保持可信和可操作，
-再继续增加更大的 workflow surface。
+`0.1.16` 是已发布的 TUI 交互可靠性版本。它被放在轻量 spec/steering workflow
+之前，目的是先让 cockpit 在真实使用时保持可信和可操作，再继续增加更大的 workflow
+surface。
 
-GitHub Release assets 和 Homebrew tap 更新尚未发布。
+- Git tag：`v0.1.16`
+- Main commit：`a1a94f3`
+- GitHub Release：https://github.com/wikieden/robocode/releases/tag/v0.1.16
+- Release workflow：https://github.com/wikieden/robocode/actions/runs/26623120701
+- Homebrew tap commit：`3c6f0f1`
 
 ## 已落地范围
 
@@ -55,6 +59,40 @@ Smoke evidence 目录：
 /tmp/robocode-0116-release-smoke-local
 ```
 
+2026-05-29 发布后验证通过：
+
+```bash
+scripts/release-smoke.sh --version 0.1.16 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0116-postpublish-check
+```
+
+发布后 evidence 目录：
+
+```text
+/tmp/robocode-0116-postpublish-check
+```
+
+post-publish smoke 已通过 `github-release-assets-validation` 和
+`homebrew-validation`。Homebrew 确认 `wikieden/tap/robocode` stable 为 `0.1.16`。
+
+## Release Assets
+
+GitHub release assets：
+
+- `robocode-v0.1.16-aarch64-apple-darwin.tar.gz`
+  - `sha256:df7591abfc8282897ff78a51e02bcee9c2db98a893fbce30adce9cf9947beab5`
+- `robocode-v0.1.16-x86_64-apple-darwin.tar.gz`
+  - `sha256:be8b814e04771bae9ae03e08e177dd36b217639e629bd817b9e4cf07d602981e`
+- `robocode-v0.1.16-x86_64-unknown-linux-gnu.tar.gz`
+  - `sha256:02cb651ded2e19fabfc6b681ba9596d5c94aa25555f5b216153e71bebcb53099`
+- `robocode-v0.1.16-x86_64-pc-windows-msvc.tar.gz`
+  - `sha256:592ac7b3d55d2fc282882346d7e7b7694ffbb95ab829fec7416290dc9db3c41c`
+
+Homebrew：
+
+```bash
+brew install wikieden/tap/robocode
+```
+
 ## 视觉证据
 
 0.1.16 确定性 TUI 截图：
@@ -84,7 +122,7 @@ Smoke evidence 目录：
 - 鼠标支持仍偏窄：approval 和 command suggestions 已覆盖，右栏选择、副屏滚动、
   lane modal controls、transcript links 和 mouse wheel 仍是后续工作。
 - 光标闪烁和 IME candidate window 位置仍部分取决于宿主终端。
-- GitHub Release packaging、多平台 assets、发布后验证和 Homebrew tap 更新不属于本地 RC 闭环。
+- 本轮发布后验证没有重新跑 DeepSeek live smoke。
 
 ## 下一步
 

@@ -91,7 +91,7 @@ robocode --help
 ### Release Archive
 
 Download a release archive from
-[RoboCode v0.1.14](https://github.com/wikieden/robocode/releases/tag/v0.1.14).
+[RoboCode v0.1.16](https://github.com/wikieden/robocode/releases/tag/v0.1.16).
 
 Available release targets:
 
@@ -103,7 +103,7 @@ Available release targets:
 Install on macOS or Linux:
 
 ```bash
-VERSION=0.1.14
+VERSION=0.1.16
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -114,7 +114,7 @@ robocode-cli --help
 Install on Windows PowerShell:
 
 ```powershell
-$Version = "0.1.14"
+$Version = "0.1.16"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"

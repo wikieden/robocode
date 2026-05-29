@@ -28,24 +28,16 @@ Mainline landed status:
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Current published release (`0.1.13`):
+Current published release (`0.1.16`):
 
-- `docs/release-0.1.13-status.md` records the tagged, published, and
-  post-publish-verified release state.
-- The default TUI entry, first-run provider/model setup, interaction reliability
-  tests, focused lane diff/artifact evidence, main provider ContextBundle
-  injection, full local release smoke, GitHub Release assets, Homebrew tap
-  update, and DeepSeek live smoke are complete.
-
-Current local release candidate (`0.1.16`):
-
-- `docs/release-0.1.16-plan.md` defines **TUI Interaction Reliability**.
-- The local RC moves provider turns behind a worker/channel boundary so the
+- `docs/release-0.1.16-status.md` records the tagged, published, and
+  post-publish-verified TUI Interaction Reliability release.
+- `0.1.16` moves provider turns behind a worker/channel boundary so the
   cockpit can keep repainting, keeps command-palette long lists scrollable,
   makes approval diff/evidence useful, and documents remaining mouse, streaming,
   and cancellation gaps.
-- `docs/release-0.1.16-status.md` records the local RC state; GitHub Release
-  assets and Homebrew tap update remain pending.
+- GitHub Release assets, Homebrew tap update, and post-publish smoke are
+  complete.
 - `0.1.15` remains the Context Curator And Budget Controls checkpoint, recorded
   in `docs/release-0.1.15-plan.md` and `docs/release-0.1.15-status.md`.
 

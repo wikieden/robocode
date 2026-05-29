@@ -442,9 +442,8 @@ RoboCode 现在能发现这些 extension surfaces：
 
 ## Release Evidence
 
-`0.1.12` 通过了：
+`0.1.16` 发布验证覆盖：
 
-- full local release smoke with DeepSeek；
 - clippy-as-gate；
 - workspace tests；
 - deterministic TUI screenshots；
@@ -452,13 +451,10 @@ RoboCode 现在能发现这些 extension surfaces：
 - Codex app-server protocol fixture；
 - app-server write guard；
 - lane operator-loop smoke；
-- package archive smoke；
-- 本地 0.1.12 release archive smoke。
+- GitHub release asset validation；
+- Homebrew formula validation。
 
-GitHub release asset validation 和 Homebrew formula validation 需要在发布到
-GitHub release / tap 后再执行。
-
-证据路径和 release asset 名称见 [0.1.12 状态](release-0.1.12-status.zh-CN.md)。
+证据路径和 release asset 名称见 [0.1.16 状态](release-0.1.16-status.zh-CN.md)。
 
 ## 问题反馈
 
