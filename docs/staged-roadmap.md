@@ -191,31 +191,25 @@ Mainline landed:
 
 Current published release:
 
-- `docs/release-0.1.16-status.md` records the tagged, published, and
-  post-publish-verified TUI Interaction Reliability release.
-- `0.1.16` implemented non-blocking provider-turn feedback,
-  command-palette scroll parity, approval diff/evidence control,
-  resize/caret/IME stability, GitHub Release assets, Homebrew tap update, and
-  post-publish smoke.
-- `0.1.15` remains the Context Curator And Budget Controls checkpoint:
-  ContextBundle v1 policy records, `/context` visibility, source priority,
-  omitted-source evidence, side-2 context rows, and the foundation for future
-  pin/omit plus per-lane budget controls.
+- `docs/release-0.1.18-status.md` records the tagged, published, Homebrew-updated,
+  and post-publish-verified Interaction Hardening release.
+- `0.1.18` made provider/model/settings decisions selector-first, improved the
+  setup and model recovery path, and established the rule that future
+  interactive decision surfaces must be actionable pickers rather than passive
+  information pages.
+- `0.1.17` remains the Daily Coding Loop Baseline checkpoint: DeepSeek-first
+  setup, switch-model recovery, daily-loop smoke, task brief support, diff/test
+  evidence, and release evidence.
 
 Next planned:
 
-- `docs/release-0.1.17-plan.md` targets Daily Coding Loop Baseline:
-  setup/doctor clarity, deterministic coding-loop smoke, minimal task brief and
-  steering files, actionable diff/test evidence, and real-use screenshots.
-- `0.1.17` also makes DeepSeek the default online path for clean installs,
-  keeps fallback explicit for offline/testing, adds an interactive TUI
-  provider/model setup flow, and requires switch-model recovery when the current
-  model does not work.
-- Lightweight spec/steering remains in `0.1.17`, but only as support for the
-  daily coding loop.
-- `0.1.18` hardens settings interaction: `/settings`, `/provider`, `/models`,
-  `/permissions`, and `/theme` are selector-first, searchable, keyboard- and
-  mouse-operable configuration surfaces.
+- `docs/release-0.1.19-plan.md` targets Delegated Lane Usefulness: one
+  dependable Codex/shell/template delegated review loop, selector-first
+  lane/agent decisions, visible operator state, evidence-driven apply/discard,
+  and delegated-tool doctor output.
+- `0.1.19` should favor one excellent delegated lane workflow over many partial
+  integrations. Claude parity, ACP, MCP, and plugin runtime breadth remain
+  secondary until the Codex/shell/template path is trustworthy.
 - `0.1.20` is the usability beta gate: clean install, fallback provider path,
   live provider path, daily coding loop, and one delegated review loop should
   all be evidenced.

@@ -161,26 +161,21 @@ Mainline landed：
 
 当前已发布版本：
 
-- `docs/release-0.1.16-status.zh-CN.md` 记录已打 tag、已发布、已完成发布后验证的
-  TUI Interaction Reliability release。
-- `0.1.16` 已实现非阻塞 provider-turn 反馈、command palette 滚动一致性、
-  approval diff/evidence 控制、resize/caret/IME 稳定性、GitHub Release assets、
-  Homebrew tap 更新，以及 post-publish smoke。
-- `0.1.15` 仍是 Context Curator And Budget Controls 检查点：ContextBundle v1
-  policy records、`/context` visibility、source priority、omitted-source
-  evidence、side-2 context rows，以及后续 pin/omit 与 per-lane budget controls
-  的基础。
+- `docs/release-0.1.18-status.zh-CN.md` 记录已打 tag、已发布、已更新 Homebrew、已完成
+  post-publish verification 的 Interaction Hardening release。
+- `0.1.18` 已把 provider/model/settings 决策做成 selector-first，改善 setup 和
+  model recovery 路径，并锁定后续交互决策面必须是可执行 picker，而不是被动信息页。
+- `0.1.17` 仍是 Daily Coding Loop Baseline 检查点：DeepSeek-first setup、
+  switch-model recovery、daily-loop smoke、task brief 支撑、diff/test evidence
+  和 release evidence。
 
 下一个计划版本：
 
-- `docs/release-0.1.17-plan.zh-CN.md` 聚焦 Daily Coding Loop Baseline：setup/doctor
-  清晰度、确定性 coding-loop smoke、最小 task brief 和 steering files、可行动
-  diff/test evidence，以及真实使用截图。
-- `0.1.17` 还要让干净安装默认走 DeepSeek 在线路径，fallback 只作为显式离线/测试
-  路径；TUI 内提供交互式 provider/model setup，并在当前 model 不可用时给出换模恢复动作。
-- 轻量 spec/steering 仍放在 `0.1.17`，但只作为日常编码闭环的支撑层。
-- `0.1.18` 加固 settings 交互：`/settings`、`/provider`、`/models`、
-  `/permissions` 和 `/theme` 都是 selector-first、可搜索、可键盘/鼠标操作的配置入口。
+- `docs/release-0.1.19-plan.zh-CN.md` 聚焦 Delegated Lane Usefulness：一条可靠的
+  Codex/shell/template delegated review loop、selector-first lane/agent 决策、
+  可见 operator state、evidence-driven apply/discard，以及 delegated-tool doctor。
+- `0.1.19` 要优先做好一条 delegated lane workflow，而不是铺开很多半成品集成。
+  Claude parity、ACP、MCP 和 plugin runtime 扩面都等 Codex/shell/template 路径可信后再推进。
 - `0.1.20` 是 usability beta gate：干净安装、fallback provider path、live provider
   path、daily coding loop 和一条 delegated review loop 都应该有证据。
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物

@@ -33,16 +33,17 @@ Mainline landed：
 
 Next planned slice：
 
-- 以 `docs/release-0.1.12-plan.zh-CN.md` 作为当前 Agent Orchestration Operator
-  Loop 切片。
-- 让 provider turn、tool call、shell/test、external lane 和 approval 进入统一
-  `AgentTask` 事实层，并驱动 `NOW WORKING`、side-1、side-2、lane detail 和
-  recent evidence。
-- 跑通至少一个稳定 external-agent/lane 路径的 dispatch -> observe -> review -> apply
-  闭环。
+- 以 `docs/release-0.1.19-plan.zh-CN.md` 作为当前 Delegated Lane Usefulness
+  切片。
+- 先把一条 Codex/shell/template delegated review workflow 做到真实可用，再扩展
+  Claude、ACP、MCP 或 plugin runtime 范围。
+- 继续以共享 `AgentTask` 作为 `NOW WORKING`、right rail、side-1、side-2、
+  lane detail 和 delegated evidence 的事实源。
+- 当用户需要选择 id 或 action 时，lane 和 external-agent 决策都必须是
+  selector-first。
 - 每个用户可见功能点都要以真实使用截图或确定性视觉产物收尾，供产品侧确认。
-- 把 `ContextBundle`、压缩策略、token estimates 和 per-agent budget 从设计推进到
-  v0 实现。
+- `0.1.20` 仍作为 usability beta gate，要求 clean install、daily coding loop
+  和 delegated review loop 都有证据。
 
 ## 与 `.ref/claude-code-main` 的差距
 

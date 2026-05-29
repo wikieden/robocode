@@ -33,17 +33,18 @@ Mainline landed:
 
 Next planned slice:
 
-- use `docs/release-0.1.12-plan.md` as the active Agent Orchestration Operator
-  Loop slice.
-- promote provider turns, tool calls, shell/test runs, external lanes, and
-  approvals into one runtime `AgentTask` fact layer that feeds `NOW WORKING`,
-  side-1, side-2, lane detail, and recent evidence.
-- ship a minimal dispatch -> observe -> review -> apply loop for at least one
-  stable external-agent/lane path.
-- every user-visible feature point should finish with a real-use screenshot or
+- use `docs/release-0.1.19-plan.md` as the active Delegated Lane Usefulness
+  slice.
+- make one delegated Codex/shell/template review workflow dependable enough for
+  real use before broadening Claude, ACP, MCP, or plugin runtime scope.
+- keep shared `AgentTask` as the source of truth for `NOW WORKING`, right rail,
+  side-1, side-2, lane detail, and delegated evidence.
+- make lane and external-agent decisions selector-first whenever the user must
+  choose an id or action.
+- finish every user-visible feature point with a real-use screenshot or
   deterministic visual artifact for product review.
-- move the `ContextBundle`, compaction policy, token estimates, and per-agent
-  budgets from design into a v0 implementation.
+- keep `0.1.20` as the usability beta gate for clean install, daily coding
+  loop, and delegated review loop evidence.
 
 ## Gap vs `.ref/claude-code-main`
 
