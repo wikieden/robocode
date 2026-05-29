@@ -134,6 +134,22 @@ fn ops_context_rows(state: &TuiState) -> Vec<String> {
     {
         rows.push(format!("BUNDLE  pressure {pressure}"));
     }
+    let context_evidence = agent_tasks(state)
+        .into_iter()
+        .flat_map(|task| task.evidence)
+        .collect::<Vec<_>>();
+    if let Some(policy) = context_evidence
+        .iter()
+        .find_map(|item| item.strip_prefix("context_policy ").map(str::to_string))
+    {
+        rows.push(format!("POLICY  {}", truncate(&policy, 60)));
+    }
+    if let Some(omitted) = context_evidence
+        .iter()
+        .find_map(|item| item.strip_prefix("context_omitted ").map(str::to_string))
+    {
+        rows.push(format!("OMIT    {omitted} source(s)"));
+    }
     rows.extend(mcp_configs.iter().take(3).map(|config| {
         format!(
             "MCP     {:<10} {:<7} {}",
@@ -690,11 +706,40 @@ mod tests {
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.workspace.display_root = root.display().to_string();
+        state.runtime_tasks.push(AgentTask {
+            id: "turn-context".to_string(),
+            parent_id: None,
+            agent: "deepseek".to_string(),
+            kind: "provider".to_string(),
+            transport: "api".to_string(),
+            title: "ContextBundle visibility".to_string(),
+            status: "done".to_string(),
+            activity: "context recorded".to_string(),
+            summary: "provider context bundle".to_string(),
+            progress: 100,
+            started_at: None,
+            updated_at: None,
+            workspace: Some(root.display().to_string()),
+            evidence: vec![
+                "context_pressure 12% (1536/128000)".to_string(),
+                "context_policy v1-priority-budget".to_string(),
+                "context_omitted 2".to_string(),
+            ],
+            permissions: Vec::new(),
+            decision: None,
+            result: None,
+            resume_handle: None,
+            pid: None,
+            next_action: None,
+        });
 
         let context = ops_context_rows(&state).join("\n");
         let extensions = ops_extension_rows(&state).join("\n");
 
         assert!(context.contains("MCP configs 1"));
+        assert!(context.contains("BUNDLE  pressure 12%"));
+        assert!(context.contains("POLICY  v1-priority-budget"));
+        assert!(context.contains("OMIT    2 source(s)"));
         assert!(context.contains("workspace  found"));
         assert!(context.contains("found"));
         assert!(extensions.contains("MCP      1 configured config(s)"));

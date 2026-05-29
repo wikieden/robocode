@@ -141,6 +141,8 @@ fn provider_turn_uses_ephemeral_context_bundle_without_transcript_mutation() {
         .expect("ephemeral context message");
     assert_eq!(context.role, robocode_types::Role::System);
     assert!(context.content.contains("RoboCode ContextBundle"));
+    assert!(context.content.contains("Policy: v1-priority-budget"));
+    assert!(context.content.contains("Omitted sources:"));
     assert!(context.content.contains("Context pressure:"));
     assert!(context.content.contains("workspace"));
 
@@ -159,13 +161,31 @@ fn provider_turn_uses_ephemeral_context_bundle_without_transcript_mutation() {
             .iter()
             .any(|source| source.name == "workspace")
     );
+    assert_eq!(bundle.policy, "v1-priority-budget");
+    assert!(bundle.sources.iter().all(|source| source.priority > 0));
     assert!(engine.agent_task_snapshot().iter().any(|task| {
         task.kind == "provider"
             && task
                 .evidence
                 .iter()
                 .any(|row| row.starts_with("context_pressure "))
+            && task
+                .evidence
+                .iter()
+                .any(|row| row == "context_policy v1-priority-budget")
     }));
+
+    let output = engine
+        .process_input_with_approval("/context", &mut approver)
+        .unwrap();
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("ContextBundle:")
+                && text.contains("Policy: v1-priority-budget")
+                && text.contains("Sources by priority:")
+                && text.contains("Omitted sources:")
+    )));
 }
 
 #[test]

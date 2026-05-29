@@ -58,6 +58,7 @@
 - `Up` / `Down`：移动选中命令。
 - `Tab`：把选中命令补全到 composer。
 - `Enter`：补全部分命令；精确命令则提交。
+- 鼠标左键：按下时选中可见提示行，松开时补全该命令。
 - `Esc`：关闭当前 query 的提示列表。继续编辑 query 后重新打开。
 - `/exit`、`/quit`、`exit`、`quit`：退出 TUI。
 
@@ -66,6 +67,8 @@
 - 提示列表使用与主 TUI 一致的 cockpit 边框、标题和行样式。
 - 浮在 composer 正上方，不能遮挡输入光标。
 - 展示命令、说明和选中行标记。
+- 长提示列表会渲染一个可见窗口和 range hint；键盘移动时会调整窗口，保证选中项
+  始终可见。鼠标 hit testing 会先从可见行映射回完整 suggestion index，再执行补全。
 - 受支持的二级命令族会展示本地子命令和已知运行时对象。`/lane` 会提示 lane
   ID，`/screen close` 会提示已跟踪副屏，`/task` 会提示 task ID 和 task
   status，`/memory` 会提示可操作的 memory ID，`/provider use` 会提示已注册
@@ -86,6 +89,8 @@
 - checkbox 获得焦点时，`Space` 切换 apply-all。
 - `y` 批准，`n` / `Esc` / `Ctrl-C` 拒绝。
 - 鼠标点击可聚焦控件；在 deny 或 approve 上释放鼠标会完成审批。
+- `d` 会聚焦 diff/evidence 区域。该区域优先展示当前 approval prompt 携带的真实
+  preview 或 evidence 行；只有 prompt 没有 preview 内容时才使用小 fallback。
 - 批准或拒绝后，pending 弹窗必须立即消失，transcript 和右栏不能留下样式残影。
 
 ## 多屏方向
@@ -155,6 +160,9 @@ normalized view，不能各自拼接一套状态。
 
 - 主屏和副屏都会响应 resize 事件并重绘。
 - 行级 diff 渲染避免输入时整屏闪烁。
+- provider turn 通过 worker/channel 边界执行，主 TUI event loop 会继续轮询输入、
+  lane artifacts、approval prompt 和 repaint tick。审批 prompt 会桥接回 UI，并沿用
+  现有 permission path 处理，完成后 worker 才继续。
 - composer 已按显示宽度处理中文等 CJK 输入；输入行保持原生 blinking bar
   cursor，并预留更高输入槽，让长会话里也容易找到输入位置。
 - 主 transcript 顶部会保留固定的 `NOW WORKING` 区域。它从 pending
@@ -191,7 +199,8 @@ normalized view，不能各自拼接一套状态。
   的本地分支快照；`/git push` 还会读取 `git remote` 和 `git branch -r` 快照，用于
   提示 remote 和 remote branch target。`/git stash pop/drop` 会读取当前
   `git stash list` 快照并提示 stash ref；`/git worktree remove` 会读取当前
-  `git worktree list --porcelain` 快照并提示 worktree 路径。
+  `git worktree list --porcelain` 快照并提示 worktree 路径。长列表现在按窗口展示，
+  选中行保持可见，footer hint 会显示当前可见范围。
 - `/agent list` 和 `/agent doctor` 会展示 template、tmux、PTY、
   custom-template、Codex 和实验 ACP adapters。Codex readiness 会检查本地
   `codex` binary、app-server support、auth、config sources 和 job store path。
@@ -239,10 +248,11 @@ normalized view，不能各自拼接一套状态。
   回退到 preview/demo lane。
 - `/lane inspect <id>` 会读取持久化 lane artifacts：`.log` 尾部、`.done`
   exit code、log path、done path、envelope path、terminal attach/tmux/PTY
-  artifact path 和 envelope preview。
+  artifact path、timeline rows 和 envelope preview。`/lane timeline <id>` 会聚焦同一份
+  持久化 event chronology，方便 operator review。
 - template-launched Codex 和 Claude lane 会在 Git `HEAD` 可用时运行于
   `.robocode/worktrees/` 下的 per-lane 隔离 worktree。task envelope 会记录
-  lane workspace 和 mutation scope。
+  lane workspace、mutation scope、isolation warnings 以及 cleanup/verification hints。
 - `/lane inspect <id>` 还会展示相关 changed-file snapshot：隔离的外部 lane
   使用 lane worktree，非隔离 shell lane 使用当前 workspace。它也会展示来自
   exit/log artifact 的 verification evidence，以及显式 lane decision artifact。

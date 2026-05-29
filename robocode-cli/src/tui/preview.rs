@@ -1,6 +1,6 @@
 use super::state::{
-    AgentJob, CompanionScreen, PendingTurn, ProviderOption, ProviderStatus, TerminalLane, TuiEntry,
-    TuiState, WorkspaceSnapshot,
+    AgentJob, AgentTask, CompanionScreen, PendingTurn, ProviderOption, ProviderStatus,
+    TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
 };
 use super::{render, terminal};
 use robocode_types::{
@@ -188,7 +188,7 @@ fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
         pending_turn: None,
         workspace,
         tasks: preview_tasks(),
-        runtime_tasks: Vec::new(),
+        runtime_tasks: preview_runtime_tasks(),
         memory: preview_memory(),
         screens: preview_screens(),
         lanes: preview_lanes(),
@@ -265,6 +265,37 @@ fn preview_agent_jobs() -> Vec<AgentJob> {
             "message ROBOCODE_APP_SERVER_SMOKE_OK".to_string(),
         ],
         updated_at: 42,
+    }]
+}
+
+fn preview_runtime_tasks() -> Vec<AgentTask> {
+    vec![AgentTask {
+        id: "turn-context-preview".to_string(),
+        parent_id: None,
+        agent: "deepseek".to_string(),
+        kind: "provider".to_string(),
+        transport: "api".to_string(),
+        title: "ContextBundle v1 visibility".to_string(),
+        status: "done".to_string(),
+        activity: "context bundle recorded".to_string(),
+        summary: "policy v1-priority-budget, 1 omitted source".to_string(),
+        progress: 100,
+        started_at: Some(1),
+        updated_at: Some(2),
+        workspace: Some("~/Documents/GitHub/robocode".to_string()),
+        evidence: vec![
+            "context_pressure 18% (23040/128000)".to_string(),
+            "context_sources 6".to_string(),
+            "context_policy v1-priority-budget".to_string(),
+            "context_omitted 1".to_string(),
+            "largest_context_source latest-diff 6400 tok".to_string(),
+        ],
+        permissions: Vec::new(),
+        decision: Some("recorded".to_string()),
+        result: Some("visible in side-2 ops".to_string()),
+        resume_handle: None,
+        pid: None,
+        next_action: None,
     }]
 }
 
@@ -414,6 +445,8 @@ fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> Tui
         prompt: "Refactor the config loader, then run focused tests.".to_string(),
         workspace: state.workspace.display_root.clone(),
         started_at: 1,
+        phase: "Waiting for provider response".to_string(),
+        next_action: "wait".to_string(),
     });
     state.workspace.agent_jobs.clear();
     state.lanes.clear();

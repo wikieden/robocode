@@ -97,6 +97,52 @@ pub(super) fn complete_selected(state: &mut TuiState) -> bool {
     true
 }
 
+pub(super) fn select_suggestion_at(state: &mut TuiState, index: usize) -> bool {
+    if !is_command_palette_visible(state) {
+        return false;
+    }
+    let suggestions = command_suggestions_for_state(state);
+    if index >= suggestions.len() {
+        return false;
+    }
+    state.command_selection = index;
+    true
+}
+
+pub(super) fn command_suggestion_index_at(
+    state: &TuiState,
+    column: u16,
+    row: u16,
+    frame_width: u16,
+    frame_height: u16,
+) -> Option<usize> {
+    if !is_command_palette_visible(state) {
+        return None;
+    }
+    let suggestions = command_suggestions_for_state(state);
+    let visible = suggestions.len().min(MAX_VISIBLE_COMMANDS);
+    if visible == 0 {
+        return None;
+    }
+    let width = usize::from(frame_width).saturating_sub(8).clamp(48, 104);
+    let height = visible + 2;
+    let left = 2usize.min(usize::from(frame_width).saturating_sub(width));
+    let composer_top = usize::from(frame_height)
+        .saturating_sub(BOTTOM_BAR_HEIGHT)
+        .saturating_sub(COMPOSER_HEIGHT);
+    let top = composer_top.saturating_sub(height);
+    let column = usize::from(column);
+    let row = usize::from(row);
+    if !(left..left + width).contains(&column) || !(top + 1..top + 1 + visible).contains(&row) {
+        return None;
+    }
+    let selected = state
+        .command_selection
+        .min(suggestions.len().saturating_sub(1));
+    let start = visible_command_window_start(selected, suggestions.len(), visible);
+    Some(start + row - top - 1)
+}
+
 pub(super) fn should_complete_on_enter(state: &TuiState) -> bool {
     let Some(selected) = selected_command(state) else {
         return false;
@@ -128,9 +174,21 @@ pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {
     let selected = state
         .command_selection
         .min(suggestions.len().saturating_sub(1));
+    let start = visible_command_window_start(selected, suggestions.len(), visible);
+    let end = (start + visible).min(suggestions.len());
     let mut rows = Vec::with_capacity(height);
-    rows.push(panel_top("COMMANDS", width, Some("↑↓ tab enter esc")));
-    for (index, suggestion) in suggestions.iter().take(visible).enumerate() {
+    let hint = if suggestions.len() > visible {
+        format!(
+            "{}-{}/{} ↑↓ tab enter esc",
+            start + 1,
+            end,
+            suggestions.len()
+        )
+    } else {
+        "↑↓ tab enter esc".to_string()
+    };
+    rows.push(panel_top("COMMANDS", width, Some(&hint)));
+    for (index, suggestion) in suggestions.iter().enumerate().skip(start).take(visible) {
         rows.push(command_suggestion_row(
             suggestion,
             index == selected,
@@ -144,13 +202,23 @@ pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {
     frame.write_block(top, left, &rows);
 }
 
+fn visible_command_window_start(selected: usize, total: usize, visible: usize) -> usize {
+    if total <= visible || visible == 0 {
+        return 0;
+    }
+    let half = visible / 2;
+    selected
+        .saturating_sub(half)
+        .min(total.saturating_sub(visible))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CommandTemplate {
     command: &'static str,
     summary: &'static str,
 }
 
-const COMMANDS: [CommandTemplate; 24] = [
+const COMMANDS: [CommandTemplate; 25] = [
     CommandTemplate {
         command: "/help",
         summary: "Show commands",
@@ -202,6 +270,10 @@ const COMMANDS: [CommandTemplate; 24] = [
     CommandTemplate {
         command: "/memory",
         summary: "Project and session memory",
+    },
+    CommandTemplate {
+        command: "/context",
+        summary: "Inspect latest context bundle",
     },
     CommandTemplate {
         command: "/screen",
@@ -331,10 +403,14 @@ const SKILL_COMMANDS: [CommandTemplate; 1] = [CommandTemplate {
     summary: "List local skills",
 }];
 
-const LANE_COMMANDS: [CommandTemplate; 22] = [
+const LANE_COMMANDS: [CommandTemplate; 24] = [
     CommandTemplate {
         command: "/lane codex",
         summary: "Start Codex lane",
+    },
+    CommandTemplate {
+        command: "/lane codex-review",
+        summary: "Start read-only Codex review lane",
     },
     CommandTemplate {
         command: "/lane claude",
@@ -351,6 +427,10 @@ const LANE_COMMANDS: [CommandTemplate; 22] = [
     CommandTemplate {
         command: "/lane inspect",
         summary: "Inspect lane evidence",
+    },
+    CommandTemplate {
+        command: "/lane timeline",
+        summary: "Show lane event timeline",
     },
     CommandTemplate {
         command: "/lane diff",
@@ -422,8 +502,9 @@ const LANE_COMMANDS: [CommandTemplate; 22] = [
     },
 ];
 
-const LANE_ID_COMMANDS: [&str; 17] = [
+const LANE_ID_COMMANDS: [&str; 18] = [
     "/lane inspect",
+    "/lane timeline",
     "/lane diff",
     "/lane artifacts",
     "/lane stop",
@@ -1840,6 +1921,11 @@ mod tests {
         assert!(
             suggestions
                 .iter()
+                .any(|item| item.command == "/lane timeline")
+        );
+        assert!(
+            suggestions
+                .iter()
                 .any(|item| item.command == "/lane artifacts")
         );
         assert!(suggestions.iter().any(|item| item.command == "/lane apply"));
@@ -2231,6 +2317,47 @@ mod tests {
 
         assert_eq!(state.input, "/lane apply ");
         assert_eq!(state.command_selection, 0);
+    }
+
+    #[test]
+    fn mouse_hit_testing_selects_visible_suggestion_rows() {
+        let mut state = state_with_input("/p");
+
+        assert_eq!(command_suggestion_index_at(&state, 4, 26, 140, 36), Some(0));
+        assert_eq!(command_suggestion_index_at(&state, 4, 27, 140, 36), Some(1));
+        assert_eq!(command_suggestion_index_at(&state, 4, 25, 140, 36), None);
+        assert_eq!(command_suggestion_index_at(&state, 4, 28, 140, 36), None);
+        assert!(select_suggestion_at(&mut state, 1));
+
+        assert_eq!(state.command_selection, 1);
+        assert_eq!(selected_command(&state).unwrap().command, "/plan");
+    }
+
+    #[test]
+    fn long_command_lists_scroll_to_keep_keyboard_selection_visible() {
+        let mut state = state_with_input("/lane ");
+        state.command_selection = 8;
+        let mut frame = Frame::new(140, 36);
+
+        render_command_suggestions(&mut frame, &state);
+        let rendered = frame.to_string();
+
+        assert_eq!(visible_command_window_start(8, 24, MAX_VISIBLE_COMMANDS), 5);
+        assert!(rendered.contains("6-11/24"));
+        assert!(rendered.contains("› /lane artifacts"));
+        assert!(!rendered.contains(" /lane codex "));
+    }
+
+    #[test]
+    fn mouse_hit_testing_uses_scrolled_visible_window_indices() {
+        let mut state = state_with_input("/lane ");
+        state.command_selection = 8;
+
+        assert_eq!(command_suggestion_index_at(&state, 4, 25, 140, 36), Some(8));
+        assert!(select_suggestion_at(&mut state, 8));
+        assert!(complete_selected(&mut state));
+
+        assert_eq!(state.input, "/lane artifacts ");
     }
 
     #[test]

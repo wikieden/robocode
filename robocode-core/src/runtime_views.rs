@@ -97,6 +97,7 @@ impl SessionEngine {
         lines.extend(render_workspace_status(&self.cwd));
         if let Some(bundle) = self.provider_context_bundle() {
             lines.push("Provider context:".to_string());
+            lines.push(format!("  Policy: {}", bundle.policy));
             lines.push(format!(
                 "  Pressure: {}% ({}/{})",
                 bundle.pressure_percent(),
@@ -104,6 +105,7 @@ impl SessionEngine {
                 bundle.hard_token_limit
             ));
             lines.push(format!("  Sources: {}", bundle.sources.len()));
+            lines.push(format!("  Omitted: {}", bundle.omitted_sources.len()));
             if !bundle.largest_sources.is_empty() {
                 lines.push(format!("  Largest: {}", bundle.largest_sources.join(", ")));
             }

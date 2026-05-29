@@ -2,7 +2,7 @@
 
 英文版： [user-guide.md](user-guide.md)
 
-本文档说明 RoboCode `0.1.13` 已经真实支持的用户功能。
+本文档说明 RoboCode `0.1.16` 本地 release candidate 已经真实支持的用户功能。
 
 ## 心智模型
 
@@ -200,13 +200,20 @@ Provider commands：
 - `Enter`：提交输入区。
 - `Ctrl-J`：显式发送。
 - `Ctrl-K`：清空输入区。
-- `Ctrl-R`：重新生成。
-- `Ctrl-N`：新任务。
-- `?`：打开帮助。
+- `Ctrl-R`：把最近一次用户输入重新放回输入区，便于重新生成。
+- `Ctrl-N`：开始一个新的 `/task add ...` 命令。
+- `?`：输入区为空时打开帮助。
 - `Esc` 或 `Ctrl-C`：退出。
 - `/quit` 或 `/exit`：从命令输入退出。
-- `/`：打开命令提示。
+- `/`：打开命令提示。可以用 `Up` / `Down`、`Tab`、`Enter`，也可以点击可见提示行。
+- 长命令提示列表会随着键盘选择滚动，保证选中行可见，鼠标点击和键盘选择看到的是同一组行。
 - 审批弹窗：`y` 通过，`n` 拒绝，`d` 聚焦 diff，`Tab` / 方向键移动焦点。
+  diff 焦点会优先展示本次审批 prompt 里的真实 evidence / preview lines，而不是装饰性占位内容。
+- provider turn 运行中，TUI event loop 会继续工作；`NOW WORKING`、状态栏、
+  elapsed time、lane snapshot 和审批桥接都可以持续刷新。`Ctrl-C` 会请求取消；
+  但已经发出的 HTTP provider 请求仍可能先完成。
+- provider turn 尚未结束时，输入区可以保留下一条草稿，但 `Enter` 不会启动第二个
+  provider turn。
 
 ## Slash Commands
 
@@ -280,6 +287,7 @@ Code intelligence：
 /memory prune <memory-id>
 /memory add <content>
 /memory export
+/context
 ```
 
 Agents 和 lanes：
@@ -295,10 +303,12 @@ Agents 和 lanes：
 /agent cancel <id>
 /agent logs <id>
 /lane codex <task>
+/lane codex-review <task>
 /lane claude <task>
 /lane run <command>
 /lane ask <tool> <task>
 /lane inspect <id>
+/lane timeline <id>
 /lane diff <id>
 /lane artifacts <id>
 /lane stop <id>
@@ -316,6 +326,24 @@ Agents 和 lanes：
 /lane archive <id>
 /lane cleanup <id>
 ```
+
+`/agent doctor [id]` 会输出每个 adapter 的 capability record：就绪状态、
+变更模式、证据来源、配置来源和已知限制。把 Codex/Claude/template/tmux/ACP
+lane 交出去之前，先用它确认这条 lane 是否可信。
+
+`/lane codex-review <task>` 是 P0 只读 Codex 信任闭环路径。它会写入
+envelope；当 Codex 可用时启动 `codex review --uncommitted`，也支持
+`ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE` 覆盖；最终结果进入和其他 lane 一样的
+log/timeline/evidence 模型。
+
+`/lane tmux <id>` 现在会在标记 attached 之前检查默认 tmux/Claude 路径。
+如果缺少 `tmux` 或 `claude`，会记录 setup-needed timeline 事件，而不是误报
+attached；自定义路径可以通过 `ROBOCODE_LANE_TMUX_TEMPLATE` 和
+`ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE` 配置。
+
+`/lane inspect <id>` 会输出 lane 状态、命令、退出码、日志、产物、envelope、
+timeline、决策、下一步动作和变更文件。`/lane timeline <id>` 会打印有序事件流，
+用于 review/apply/debug 证据追踪。
 
 Extensions：
 
@@ -384,6 +412,8 @@ Sessions 以 JSONL transcript 保存，并用可重建的 SQLite index 加速查
 Tasks 和 memory 以 workflow events 保存。assistant suggested project memory 必须显式 confirm 后才会成为 active project memory。
 
 `/task resume-context` 会把 task 和 memory 状态组合成可恢复的项目上下文快照。
+
+`/context` 会显示最近一次 provider turn 使用的 ContextBundle，包括 v1 policy、source priority、token 估算、被省略的 sources 和 compaction notes。它用于回答“这次请求到底带了哪些上下文、哪些被预算策略裁掉了”。
 
 ## Agent Lanes
 

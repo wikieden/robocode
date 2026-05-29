@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use robocode_types::{ContextBundleRecord, ContextSourceRecord};
+use robocode_types::{ContextBundleRecord, ContextOmittedSourceRecord, ContextSourceRecord};
 
 use crate::{SessionEngine, TestEvidence};
 
@@ -14,7 +14,7 @@ impl SessionEngine {
 
     pub(crate) fn build_main_context_bundle(&self, input: &str) -> ContextBundleRecord {
         let mut sources = vec![
-            context_source("user-task", "task", input, 240),
+            context_source("user-task", "task", input, 100, 240),
             context_source(
                 "workspace",
                 "workspace",
@@ -24,6 +24,7 @@ impl SessionEngine {
                     git_branch_label(self),
                     dirty_file_count(self).unwrap_or(0)
                 ),
+                90,
                 320,
             ),
         ];
@@ -36,6 +37,7 @@ impl SessionEngine {
                 "latest-diff",
                 "diff",
                 &compact_text(diff, 18),
+                80,
                 720,
             ));
         }
@@ -44,6 +46,7 @@ impl SessionEngine {
                 "latest-test",
                 "test",
                 &test_summary(test),
+                85,
                 520,
             ));
         }
@@ -69,6 +72,7 @@ impl SessionEngine {
                 "recent-transcript",
                 "transcript-summary",
                 &transcript,
+                70,
                 480,
             ));
         }
@@ -87,7 +91,13 @@ impl SessionEngine {
             })
             .unwrap_or_default();
         if !tasks.trim().is_empty() {
-            sources.push(context_source("active-tasks", "task-summary", &tasks, 360));
+            sources.push(context_source(
+                "active-tasks",
+                "task-summary",
+                &tasks,
+                75,
+                360,
+            ));
         }
         let memory = self
             .workflows
@@ -105,7 +115,7 @@ impl SessionEngine {
             })
             .unwrap_or_default();
         if !memory.trim().is_empty() {
-            sources.push(context_source("memory", "memory", &memory, 360));
+            sources.push(context_source("memory", "memory", &memory, 65, 360));
         }
         let runtime = self
             .runtime_tasks
@@ -120,15 +130,24 @@ impl SessionEngine {
                 "runtime-tasks",
                 "runtime-summary",
                 &runtime,
+                72,
                 360,
             ));
         }
+        let omitted_sources = omit_sources_over_hard_limit(&mut sources, MAIN_HARD_LIMIT);
         let estimated_tokens = sources.iter().map(|source| source.estimated_tokens).sum();
         let largest_sources = largest_sources(&sources);
         let mut compaction_notes = vec![
             "long tool/test/lane output is summarized plus tail".to_string(),
             "raw transcript and tool audit remain in session storage".to_string(),
+            "v1 policy keeps high-priority task/workspace/test context before lower-priority summaries".to_string(),
         ];
+        if !omitted_sources.is_empty() {
+            compaction_notes.push(format!(
+                "{} source(s) omitted by hard budget policy",
+                omitted_sources.len()
+            ));
+        }
         if estimated_tokens > MAIN_SOFT_BUDGET {
             compaction_notes.push(
                 "soft budget exceeded; low-priority sources should be trimmed first".to_string(),
@@ -142,7 +161,9 @@ impl SessionEngine {
         ContextBundleRecord {
             bundle_id: format!("ctx-main-{}", self.session_id()),
             task_id: format!("turn-{}", self.session_id()),
+            policy: "v1-priority-budget".to_string(),
             sources,
+            omitted_sources,
             estimated_tokens,
             largest_sources,
             compaction_notes,
@@ -150,6 +171,75 @@ impl SessionEngine {
             hard_token_limit: MAIN_HARD_LIMIT,
         }
     }
+
+    pub(crate) fn render_context_command(&self) -> String {
+        let Some(bundle) = self.provider_context_bundle() else {
+            return "No provider ContextBundle yet. Send a provider turn first, then run `/context`."
+                .to_string();
+        };
+        render_context_bundle_detail(&bundle)
+    }
+}
+
+pub(crate) fn render_context_bundle_detail(bundle: &ContextBundleRecord) -> String {
+    let mut sources = bundle.sources.clone();
+    sources.sort_by_key(|source| {
+        (
+            std::cmp::Reverse(source.priority),
+            std::cmp::Reverse(source.estimated_tokens),
+        )
+    });
+    let source_rows = sources
+        .iter()
+        .map(|source| {
+            format!(
+                "  p{:<3} {:<18} {:<18} {:>6} tok  {}",
+                source.priority,
+                source.name,
+                source.kind,
+                source.estimated_tokens,
+                source.include_reason
+            )
+        })
+        .collect::<Vec<_>>();
+    let omitted_rows = bundle
+        .omitted_sources
+        .iter()
+        .map(|source| {
+            format!(
+                "  {:<18} {:<18} {:>6} tok  {}",
+                source.name, source.kind, source.estimated_tokens, source.reason
+            )
+        })
+        .collect::<Vec<_>>();
+    [
+        "ContextBundle:".to_string(),
+        format!("  Bundle: {}", bundle.bundle_id),
+        format!("  Policy: {}", bundle.policy),
+        format!(
+            "  Pressure: {}% ({}/{})",
+            bundle.pressure_percent(),
+            bundle.estimated_tokens,
+            bundle.hard_token_limit
+        ),
+        format!("  Soft budget: {}", bundle.soft_token_budget),
+        format!("  Sources: {}", bundle.sources.len()),
+        "Sources by priority:".to_string(),
+        if source_rows.is_empty() {
+            "  <none>".to_string()
+        } else {
+            source_rows.join("\n")
+        },
+        "Omitted sources:".to_string(),
+        if omitted_rows.is_empty() {
+            "  <none>".to_string()
+        } else {
+            omitted_rows.join("\n")
+        },
+        "Compaction notes:".to_string(),
+        list_or_none(&bundle.compaction_notes),
+    ]
+    .join("\n")
 }
 
 pub(crate) fn render_provider_context_message(bundle: &ContextBundleRecord) -> String {
@@ -165,8 +255,9 @@ pub(crate) fn render_provider_context_message(bundle: &ContextBundleRecord) -> S
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "RoboCode ContextBundle\nBundle: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\nSources:\n{}\nCompaction notes:\n{}",
+        "RoboCode ContextBundle\nBundle: {}\nPolicy: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\nSources:\n{}\nOmitted sources:\n{}\nCompaction notes:\n{}",
         bundle.bundle_id,
+        bundle.policy,
         bundle.estimated_tokens,
         bundle.pressure_percent(),
         bundle.soft_token_budget,
@@ -176,6 +267,7 @@ pub(crate) fn render_provider_context_message(bundle: &ContextBundleRecord) -> S
         } else {
             sources
         },
+        list_omitted_or_none(&bundle.omitted_sources),
         list_or_none(&bundle.compaction_notes)
     )
 }
@@ -190,7 +282,11 @@ pub(crate) fn context_evidence_rows(bundle: &ContextBundleRecord) -> Vec<String>
             bundle.hard_token_limit
         ),
         format!("context_sources {}", bundle.sources.len()),
+        format!("context_policy {}", bundle.policy),
     ];
+    if !bundle.omitted_sources.is_empty() {
+        rows.push(format!("context_omitted {}", bundle.omitted_sources.len()));
+    }
     if let Some(source) = bundle.largest_sources.first() {
         rows.push(format!("largest_context_source {source}"));
     }
@@ -201,14 +297,48 @@ fn context_source(
     name: &str,
     kind: &str,
     summary: &str,
+    priority: u8,
     minimum_tokens: u64,
 ) -> ContextSourceRecord {
     ContextSourceRecord {
         name: name.to_string(),
         kind: kind.to_string(),
+        priority,
         estimated_tokens: estimate_tokens(summary).max(minimum_tokens),
         summary: summary.to_string(),
+        include_reason: format!("priority {priority}; selected by v1-priority-budget policy"),
     }
+}
+
+fn omit_sources_over_hard_limit(
+    sources: &mut Vec<ContextSourceRecord>,
+    hard_limit: u64,
+) -> Vec<ContextOmittedSourceRecord> {
+    let mut total = sources
+        .iter()
+        .map(|source| source.estimated_tokens)
+        .sum::<u64>();
+    if total <= hard_limit {
+        return Vec::new();
+    }
+    sources.sort_by_key(|source| std::cmp::Reverse(source.priority));
+    let mut omitted = Vec::new();
+    let mut index = sources.len();
+    while total > hard_limit && index > 0 {
+        index -= 1;
+        let source = sources.remove(index);
+        total = total.saturating_sub(source.estimated_tokens);
+        omitted.push(ContextOmittedSourceRecord {
+            name: source.name,
+            kind: source.kind,
+            estimated_tokens: source.estimated_tokens,
+            reason: format!(
+                "priority {} omitted to stay under hard token budget {}",
+                source.priority, hard_limit
+            ),
+        });
+    }
+    omitted
 }
 
 fn estimate_tokens(text: &str) -> u64 {
@@ -271,6 +401,22 @@ fn list_or_none(values: &[String]) -> String {
             .collect::<Vec<_>>()
             .join("\n")
     }
+}
+
+fn list_omitted_or_none(values: &[ContextOmittedSourceRecord]) -> String {
+    if values.is_empty() {
+        return "- <none>".to_string();
+    }
+    values
+        .iter()
+        .map(|value| {
+            format!(
+                "- {} [{}] ~{} tok: {}",
+                value.name, value.kind, value.estimated_tokens, value.reason
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn dirty_file_count(engine: &SessionEngine) -> Option<usize> {

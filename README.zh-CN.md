@@ -4,7 +4,7 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 英文版： [README.md](README.md)
 
-![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.13-tui-main.svg)
+![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.16-tui-main.svg)
 
 ## 为什么做它
 
@@ -24,34 +24,35 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 ## 真机运行图
 
 下面这些图来自当前 RoboCode TUI renderer 的 release evidence，不是产品概念图。
+截图展示的是 `0.1.16` 交互可靠性 RC；最新已发布二进制版本以安装章节为准。
 
 ### Live provider turn
 
-![实时 provider 状态](docs/previews/generated/screenshots/0.1.13-tui-live-turn.svg)
+![实时 provider 状态](docs/previews/generated/screenshots/0.1.16-tui-live-turn.svg)
 
 ### Resize 后重绘
 
-![Resize 后重绘](docs/previews/generated/screenshots/0.1.13-tui-main-resize.svg)
+![Resize 后重绘](docs/previews/generated/screenshots/0.1.16-tui-main-resize.svg)
 
 ### 中文输入
 
-![中文输入](docs/previews/generated/screenshots/0.1.13-tui-cjk-input.svg)
+![中文输入](docs/previews/generated/screenshots/0.1.16-tui-cjk-input.svg)
 
 ### Slash command 提示
 
-![命令提示](docs/previews/generated/screenshots/0.1.13-tui-command-palette.svg)
+![命令提示](docs/previews/generated/screenshots/0.1.16-tui-command-palette.svg)
 
 ### Agent lane detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.13-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.16-tui-lane-detail.svg)
 
 ### 副屏 side-1：Agent lanes
 
-![side-1 lanes](docs/previews/generated/screenshots/0.1.13-tui-side-1.svg)
+![side-1 lanes](docs/previews/generated/screenshots/0.1.16-tui-side-1.svg)
 
 ### 副屏 side-2：ops 与 evidence
 
-![side-2 ops](docs/previews/generated/screenshots/0.1.13-tui-side-2.svg)
+![side-2 ops](docs/previews/generated/screenshots/0.1.16-tui-side-2.svg)
 
 ## 安装
 
@@ -71,7 +72,7 @@ robocode --help
 
 ### Release 压缩包
 
-从 [RoboCode v0.1.12](https://github.com/wikieden/robocode/releases/tag/v0.1.12)
+从 [RoboCode v0.1.14](https://github.com/wikieden/robocode/releases/tag/v0.1.14)
 下载 release 压缩包。
 
 当前 release targets：
@@ -84,7 +85,7 @@ robocode --help
 macOS 或 Linux 安装：
 
 ```bash
-VERSION=0.1.12
+VERSION=0.1.14
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -95,7 +96,7 @@ robocode-cli --help
 Windows PowerShell 安装：
 
 ```powershell
-$Version = "0.1.12"
+$Version = "0.1.14"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -153,11 +154,14 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 ## 常用 TUI 操作
 
 - `Enter` 提交输入区；`Ctrl-J` 是显式发送动作。
-- `Ctrl-K` 清空输入区，`Ctrl-R` 重新生成，`Ctrl-N` 开启新任务。
-- `?` 打开 TUI 内帮助。
+- `Ctrl-K` 清空输入区，`Ctrl-R` 重新载入最近一次用户输入，`Ctrl-N` 开始 `/task add ...`。
+- 输入区为空时，`?` 打开 TUI 内帮助。
 - `Esc` 或 `Ctrl-C` 退出；`/quit` 和 `/exit` 也可以关闭 TUI。
+- provider turn 正在运行时，cockpit 会持续刷新当前工作状态和 elapsed time。
+  `Ctrl-C` 会请求取消，但已经发出的 provider 请求仍可能正常返回。
 - 审批弹窗默认停在 `Approve`；按 `y` 通过，`n` 拒绝，`d` 聚焦 diff，也可以用 `Tab` / 方向键在动作间移动。
 - 输入 `/` 会打开命令提示。常用入口包括 `/help`、`/settings`、`/setup`、`/provider`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
+  长列表会保持选中行可见，并支持点击可见行补全。
 
 ## 配置
 
@@ -200,11 +204,19 @@ README 保持产品介绍和使用入口。完整使用说明和实现细节放�
 - [用户指南](docs/user-guide.zh-CN.md)
 - [架构](docs/architecture.zh-CN.md)
 - [产品需求](docs/product-requirements.zh-CN.md)
+- [长期路线图](docs/long-term-roadmap.zh-CN.md)
 - [阶段路线图](docs/staged-roadmap.zh-CN.md)
 - [参考工程分析](docs/reference-analysis.zh-CN.md)
 - [Provider 真实调用矩阵](docs/provider-live-matrix.zh-CN.md)
 - [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
+- [TUI 交互审计](docs/tui-interaction-audit-2026-05-29.zh-CN.md)
 - [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
+- [0.1.16 状态](docs/release-0.1.16-status.zh-CN.md)
+- [0.1.16 计划](docs/release-0.1.16-plan.zh-CN.md)
+- [0.1.15 状态](docs/release-0.1.15-status.zh-CN.md)
+- [0.1.15 计划](docs/release-0.1.15-plan.zh-CN.md)
+- [0.1.14 状态](docs/release-0.1.14-status.zh-CN.md)
+- [0.1.14 计划](docs/release-0.1.14-plan.zh-CN.md)
 - [0.1.13 状态](docs/release-0.1.13-status.zh-CN.md)
 - [0.1.13 计划](docs/release-0.1.13-plan.zh-CN.md)
 - [0.1.12 状态](docs/release-0.1.12-status.zh-CN.md)

@@ -590,11 +590,11 @@ fn collect_path_spans(line: &str, theme: &TuiTheme, spans: &mut Vec<(usize, usiz
 }
 
 fn collect_metric_spans(line: &str, theme: &TuiTheme, spans: &mut Vec<(usize, usize, SpanStyle)>) {
-    const METRICS: [&str; 39] = [
+    const METRICS: [&str; 37] = [
         "LATENCY", "RATE", "TPS", "CONTEXT", "TOKENS", "COST", "TIME", "LANES", "SCREEN", "FILES",
         "LINES", "LANG", "BUILD", "RLS", "GATE", "RISK", "ROUTE", "PTY", "PID", "TASK", "TAIL",
         "CMD", "JOB", "WATCH", "MUX", "CONTROL", "TERMINAL", "RUNTIME", "VERIFY", "STATE", "SYNC",
-        "LINK", "SES", "TOK", "LANE", "PRESSURE", "THEME", "E", "W",
+        "LINK", "SES", "TOK", "LANE", "PRESSURE", "THEME",
     ];
     for label in METRICS {
         collect_literal_spans(
@@ -1259,6 +1259,20 @@ mod tests {
             !segments
                 .iter()
                 .any(|segment| segment.text == "ok" && segment.foreground == theme.success),
+            "{segments:?}"
+        );
+    }
+
+    #[test]
+    fn semantic_highlighting_does_not_color_single_letters_inside_words() {
+        let theme = TuiTheme::aurora_cyan();
+        let segments = line_segments("│ next watch side-1 tail failure      │", &theme);
+
+        assert!(
+            !segments
+                .iter()
+                .any(|segment| matches!(segment.text.as_str(), "E" | "W")
+                    && segment.foreground == theme.title),
             "{segments:?}"
         );
     }

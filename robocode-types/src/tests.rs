@@ -128,12 +128,16 @@ fn agent_task_and_context_records_roundtrip_json() {
     let bundle = ContextBundleRecord {
         bundle_id: "ctx-lane-1".to_string(),
         task_id: task.id.clone(),
+        policy: "v1-priority-budget".to_string(),
         sources: vec![ContextSourceRecord {
             name: "latest-test".to_string(),
             kind: "test".to_string(),
+            priority: 85,
             estimated_tokens: 200,
             summary: "tail compacted".to_string(),
+            include_reason: "priority 85; selected by v1-priority-budget policy".to_string(),
         }],
+        omitted_sources: vec![],
         estimated_tokens: 200,
         largest_sources: vec!["latest-test 200 tok".to_string()],
         compaction_notes: vec!["raw transcript preserved".to_string()],
@@ -147,6 +151,55 @@ fn agent_task_and_context_records_roundtrip_json() {
         serde_json::from_str(&encoded).unwrap();
     assert_eq!(decoded_task.agent, "shell");
     assert_eq!(decoded_bundle.sources[0].kind, "test");
+}
+
+#[test]
+fn agent_lane_trust_loop_records_roundtrip_json() {
+    let event = AgentLaneEventRecord {
+        lane_id: "L1".to_string(),
+        sequence: 1,
+        timestamp: Some(10),
+        kind: "lane.started".to_string(),
+        summary: "started shell lane".to_string(),
+        detail: Some("printf ok".to_string()),
+        evidence_path: Some(".robocode/lanes/L1.log".to_string()),
+    };
+    let isolation = AgentLaneIsolationRecord {
+        lane_id: "L1".to_string(),
+        workspace: "/tmp/project".to_string(),
+        worktree: None,
+        writable_scope: "current workspace".to_string(),
+        env_vars: vec!["PATH".to_string()],
+        cache_dirs: vec!["target/".to_string()],
+        database_scope: None,
+        service_ports: Vec::new(),
+        setup_command: None,
+        verification_command: Some("cargo test".to_string()),
+        cleanup_command: None,
+        risk_level: "medium".to_string(),
+        warnings: vec!["shared workspace".to_string()],
+    };
+    let capability = AgentCapabilityRecord {
+        id: "shell".to_string(),
+        display_name: "Shell lane".to_string(),
+        transport: "shell".to_string(),
+        readiness: "ready".to_string(),
+        entrypoint: "/lane run <command>".to_string(),
+        mutation_mode: "permission-gated".to_string(),
+        evidence_mode: "log+done+timeline".to_string(),
+        config_source: None,
+        known_limits: vec!["no process sandbox".to_string()],
+    };
+
+    let encoded = serde_json::to_string(&(event, isolation, capability)).unwrap();
+    let (decoded_event, decoded_isolation, decoded_capability): (
+        AgentLaneEventRecord,
+        AgentLaneIsolationRecord,
+        AgentCapabilityRecord,
+    ) = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded_event.kind, "lane.started");
+    assert_eq!(decoded_isolation.risk_level, "medium");
+    assert_eq!(decoded_capability.evidence_mode, "log+done+timeline");
 }
 
 #[test]

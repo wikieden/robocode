@@ -2,8 +2,8 @@
 
 Chinese version: [user-guide.zh-CN.md](user-guide.zh-CN.md)
 
-This guide describes the user-facing features that are available in RoboCode
-`0.1.13`.
+This guide describes the user-facing features that are available in the
+RoboCode `0.1.16` local release candidate.
 
 ## Mental Model
 
@@ -214,14 +214,24 @@ setting `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
 - `Enter`: submit composer.
 - `Ctrl-J`: explicit send action.
 - `Ctrl-K`: clear composer.
-- `Ctrl-R`: regenerate.
-- `Ctrl-N`: new task.
-- `?`: open help.
+- `Ctrl-R`: reload the latest user prompt into the composer for regeneration.
+- `Ctrl-N`: start a new `/task add ...` command.
+- `?`: open help when the composer is empty.
 - `Esc` or `Ctrl-C`: exit.
 - `/quit` or `/exit`: exit from command input.
-- `/`: open command suggestions.
+- `/`: open command suggestions. Use `Up` / `Down`, `Tab`, `Enter`, or click a
+  visible suggestion row. Long suggestion lists scroll as the selection moves
+  so keyboard and mouse behavior stay aligned.
 - Approval modal: `y` approve, `n` deny, `d` focus diff, `Tab` / arrows move
-  focus.
+  focus. Diff focus now shows the prompt's actual evidence/preview lines when
+  they are available instead of a decorative placeholder.
+- Active provider turns keep the TUI event loop alive. The `NOW WORKING` area,
+  status bar, elapsed time, lane snapshots, and pending approval bridge can
+  repaint while the provider worker runs. `Ctrl-C` requests cancellation; an
+  already in-flight HTTP request may still complete before the provider returns.
+- During an active provider turn, the composer can keep a draft for the next
+  instruction, but `Enter` does not submit a second provider turn until the
+  current one finishes.
 
 ## Slash Commands
 
@@ -295,6 +305,7 @@ Tasks and memory:
 /memory prune <memory-id>
 /memory add <content>
 /memory export
+/context
 ```
 
 Agents and lanes:
@@ -310,10 +321,12 @@ Agents and lanes:
 /agent cancel <id>
 /agent logs <id>
 /lane codex <task>
+/lane codex-review <task>
 /lane claude <task>
 /lane run <command>
 /lane ask <tool> <task>
 /lane inspect <id>
+/lane timeline <id>
 /lane diff <id>
 /lane artifacts <id>
 /lane stop <id>
@@ -331,6 +344,24 @@ Agents and lanes:
 /lane archive <id>
 /lane cleanup <id>
 ```
+
+`/agent doctor [id]` reports each adapter capability record: readiness,
+mutation mode, evidence mode, config source, and known limits. Use it before
+trusting a delegated Codex/Claude/template/tmux/ACP lane.
+
+`/lane codex-review <task>` is the P0 read-only Codex trust-loop path. It writes
+an envelope, launches `codex review --uncommitted` when Codex is available (or a
+`ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE` override when configured), and stores the
+result in the same log/timeline/evidence model as other lanes.
+
+`/lane tmux <id>` now preflights the default tmux/Claude path before marking a
+lane attached. Missing `tmux` or `claude` produces a setup-needed timeline event
+instead of a false attached state; custom templates can be supplied with
+`ROBOCODE_LANE_TMUX_TEMPLATE` and `ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE`.
+
+`/lane inspect <id>` reports the lane status, command, exit code, log, artifacts,
+envelope, timeline, decision, next action, and changed files. `/lane timeline
+<id>` prints the ordered event stream for review/apply/debug evidence.
 
 Extensions:
 
@@ -404,6 +435,10 @@ memory must be confirmed before it becomes active project memory.
 
 `/task resume-context` combines task and memory state into a resumable project
 context snapshot.
+
+`/context` shows the latest provider ContextBundle, including the v1 policy,
+source priorities, token estimates, omitted sources, and compaction notes. It is
+read-only and does not expose raw secret values.
 
 ## Agent Lanes
 

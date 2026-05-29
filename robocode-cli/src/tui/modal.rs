@@ -199,7 +199,11 @@ fn render_approval_modal(
         ),
         "ACTION  Write (new content)  [MODIFIES FILE]".to_string(),
         "SIZE    +48 lines (2.1 KB)".to_string(),
-        "PREVIEW (first 20 lines)".to_string(),
+        if focused_approval_action(state) == ApprovalAction::Diff {
+            "DIFF / EVIDENCE (focused)".to_string()
+        } else {
+            "PREVIEW (first lines)".to_string()
+        },
     ];
     rows.extend(code_preview_rows(&details, bounds.width));
     rows.extend([
@@ -389,27 +393,36 @@ fn code_preview_rows(details: &ApprovalDetails<'_>, modal_width: usize) -> Vec<S
     let line_width = box_width.saturating_sub(10);
     let preview_lines = code_preview_lines(details);
     let mut rows = vec![format!("  ┌{label}{top_rule}┐")];
-    rows.extend(preview_lines.iter().enumerate().map(|(index, line)| {
-        format!(
-            "  │ +{:>2} │ {} │",
-            index + 1,
-            pad(&truncate(line, line_width), line_width)
-        )
-    }));
+    rows.extend(
+        preview_lines
+            .iter()
+            .take(4)
+            .enumerate()
+            .map(|(index, line)| {
+                format!(
+                    "  │ +{:>2} │ {} │",
+                    index + 1,
+                    pad(&truncate(line, line_width), line_width)
+                )
+            }),
+    );
     rows.push(format!("  └{bottom_rule}┘"));
     rows
 }
 
-fn code_preview_lines(details: &ApprovalDetails<'_>) -> [&'static str; 4] {
+fn code_preview_lines<'a>(details: &'a ApprovalDetails<'a>) -> Vec<&'a str> {
+    if !details.preview_lines.is_empty() {
+        return details.preview_lines.clone();
+    }
     if details.tool == "write_file" {
-        return [
+        return vec![
             "use std::{fs, path::Path};",
             "use anyhow::{Context, Result};",
             "pub fn load_config<P: AsRef<Path>>(path: P) -> Result<Config> {",
             "    let content = fs::read_to_string(path.as_ref())?;",
         ];
     }
-    [
+    vec![
         "let command = PermissionRequest::current();",
         "let result = workspace.apply(command)?;",
         "session.append_event(result.summary());",
@@ -437,28 +450,44 @@ fn clear_overlay_bounds(frame: &mut Frame, top: usize, height: usize, transcript
     );
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct ApprovalDetails<'a> {
     tool: &'a str,
     path: &'a str,
+    preview_lines: Vec<&'a str>,
 }
 
 impl<'a> ApprovalDetails<'a> {
     fn parse(value: &'a str) -> Self {
         let mut lines = value.lines();
         let first = lines.next().unwrap_or("Permission request");
-        let message = lines.next().unwrap_or("");
-        let preview = lines.next().unwrap_or("");
+        let rest = lines
+            .filter(|line| !line.starts_with("Press "))
+            .collect::<Vec<_>>();
         let tool = first
             .split('`')
             .nth(1)
             .filter(|value| !value.is_empty())
             .unwrap_or("tool action");
-        let path = message
-            .strip_prefix("path: ")
-            .or_else(|| preview.strip_prefix("path: "))
+        let path = rest
+            .iter()
+            .find_map(|line| {
+                line.strip_prefix("path: ")
+                    .or_else(|| line.strip_prefix("path="))
+            })
             .unwrap_or("current session");
-        Self { tool, path }
+        let preview_lines = rest
+            .iter()
+            .copied()
+            .filter(|line| !line.trim().is_empty())
+            .filter(|line| !line.starts_with("path: ") && !line.starts_with("path="))
+            .take(8)
+            .collect::<Vec<_>>();
+        Self {
+            tool,
+            path,
+            preview_lines,
+        }
     }
 }
 
@@ -565,6 +594,27 @@ mod tests {
             approval_focus_cursor(&state, 140, 36, 38),
             Some(((bounds.left + 38) as u16, bounds.action_row() as u16))
         );
+    }
+
+    #[test]
+    fn approval_diff_focus_renders_prompt_evidence_not_fake_preview_only() {
+        let mut state = approval_state();
+        state.approval_focus = APPROVAL_FOCUS_DIFF;
+        state.entries[0].body = [
+            "Permission request for `write_file`",
+            "path: hello.py",
+            "content=print(\"Hello, World!\")",
+            "Press y to allow, n/Esc to deny.",
+        ]
+        .join("\n");
+        let mut frame = Frame::new(140, 36);
+
+        render_approval_modal(&mut frame, latest_approval(&state).unwrap(), &state, 38);
+        let rendered = frame.to_string();
+
+        assert!(rendered.contains("DIFF / EVIDENCE"));
+        assert!(rendered.contains("hello.py"));
+        assert!(rendered.contains("content=print"));
     }
 
     #[test]

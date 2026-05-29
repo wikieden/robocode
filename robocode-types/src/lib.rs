@@ -232,18 +232,71 @@ impl AgentLaneRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentLaneEventRecord {
+    pub lane_id: AgentLaneId,
+    pub sequence: u64,
+    pub timestamp: Option<u128>,
+    pub kind: String,
+    pub summary: String,
+    pub detail: Option<String>,
+    pub evidence_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentLaneIsolationRecord {
+    pub lane_id: AgentLaneId,
+    pub workspace: String,
+    pub worktree: Option<String>,
+    pub writable_scope: String,
+    pub env_vars: Vec<String>,
+    pub cache_dirs: Vec<String>,
+    pub database_scope: Option<String>,
+    pub service_ports: Vec<String>,
+    pub setup_command: Option<String>,
+    pub verification_command: Option<String>,
+    pub cleanup_command: Option<String>,
+    pub risk_level: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentCapabilityRecord {
+    pub id: String,
+    pub display_name: String,
+    pub transport: String,
+    pub readiness: String,
+    pub entrypoint: String,
+    pub mutation_mode: String,
+    pub evidence_mode: String,
+    pub config_source: Option<String>,
+    pub known_limits: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ContextSourceRecord {
     pub name: String,
     pub kind: String,
+    pub priority: u8,
     pub estimated_tokens: u64,
     pub summary: String,
+    pub include_reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ContextOmittedSourceRecord {
+    pub name: String,
+    pub kind: String,
+    pub estimated_tokens: u64,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ContextBundleRecord {
     pub bundle_id: String,
     pub task_id: AgentTaskId,
+    pub policy: String,
     pub sources: Vec<ContextSourceRecord>,
+    pub omitted_sources: Vec<ContextOmittedSourceRecord>,
     pub estimated_tokens: u64,
     pub largest_sources: Vec<String>,
     pub compaction_notes: Vec<String>,

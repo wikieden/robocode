@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeSet,
-    fs,
+    fs::{self, OpenOptions},
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
     time::{Duration, SystemTime},
@@ -49,6 +50,8 @@ pub(super) struct PendingTurn {
     pub(super) prompt: String,
     pub(super) workspace: String,
     pub(super) started_at: u128,
+    pub(super) phase: String,
+    pub(super) next_action: String,
 }
 
 impl PendingTurn {
@@ -67,6 +70,8 @@ impl PendingTurn {
             prompt: first_line(prompt),
             workspace: workspace.to_string(),
             started_at,
+            phase: "Waiting for provider response".to_string(),
+            next_action: "wait".to_string(),
         }
     }
 }
@@ -164,16 +169,17 @@ fn agent_task_from_pending_turn(turn: &PendingTurn) -> AgentTask {
         transport: turn.provider.clone(),
         title: turn.prompt.clone(),
         status: "thinking".to_string(),
-        activity: "thinking through latest prompt".to_string(),
+        activity: turn.phase.clone(),
         summary: format!("{} / {} is processing", turn.provider, turn.model),
         progress: 15,
         started_at: Some(turn.started_at),
-        updated_at: Some(turn.started_at),
+        updated_at: Some(now_millis()),
         workspace: Some(turn.workspace.clone()),
         evidence: vec![
             "live provider request".to_string(),
             format!("provider {}", turn.provider),
             format!("model {}", turn.model),
+            format!("next_action {}", turn.next_action),
         ],
         permissions: Vec::new(),
         decision: None,
@@ -181,8 +187,8 @@ fn agent_task_from_pending_turn(turn: &PendingTurn) -> AgentTask {
         resume_handle: None,
         pid: None,
         next_action: Some(AgentNextAction {
-            label: "watch provider".to_string(),
-            command: Some("/status".to_string()),
+            label: turn.next_action.clone(),
+            command: (turn.next_action != "wait").then(|| "/status".to_string()),
             reason: Some("provider turn is active".to_string()),
         }),
     }
@@ -1253,7 +1259,7 @@ impl TerminalLane {
             return None;
         }
         let status = match tool {
-            "codex" | "claude" | "run" => "queued",
+            "codex" | "codex-review" | "claude" | "run" => "queued",
             _ => "manual",
         };
         Some(Self {
@@ -1455,6 +1461,12 @@ pub(super) fn refresh_lane_runtime(path: &Path, lanes: &mut [TerminalLane]) {
             if lane.summary.is_empty() {
                 lane.summary = "completed successfully".to_string();
             }
+            append_lane_timeline_once(
+                path,
+                &lane.id,
+                "lane.completed",
+                &format!("completed with exit 0: {}", lane.summary),
+            );
         } else {
             lane.status = "failed".to_string();
             lane.summary = if lane.summary.is_empty() {
@@ -1462,7 +1474,37 @@ pub(super) fn refresh_lane_runtime(path: &Path, lanes: &mut [TerminalLane]) {
             } else {
                 format!("{} (exit {exit_code})", lane.summary)
             };
+            append_lane_timeline_once(
+                path,
+                &lane.id,
+                "lane.failed",
+                &format!("failed with exit {exit_code}: {}", lane.summary),
+            );
         }
+    }
+}
+
+fn append_lane_timeline_once(store: &Path, lane_id: &str, kind: &str, summary: &str) {
+    let Some(parent) = store.parent() else {
+        return;
+    };
+    let artifact_dir = parent.join("lanes");
+    let path = artifact_dir.join(format!("{lane_id}.timeline.md"));
+    if fs::read_to_string(&path)
+        .ok()
+        .is_some_and(|content| content.contains(&format!("Kind: {kind}")))
+    {
+        return;
+    }
+    if fs::create_dir_all(&artifact_dir).is_err() {
+        return;
+    }
+    let timestamp = now_millis();
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(
+            file,
+            "## {timestamp} {kind}\nKind: {kind}\nSummary: {summary}\n"
+        );
     }
 }
 
@@ -2962,6 +3004,8 @@ mod tests {
                 prompt: "create hello world".to_string(),
                 workspace: "/tmp/project".to_string(),
                 started_at: 42,
+                phase: "Waiting for provider response".to_string(),
+                next_action: "wait".to_string(),
             }),
             entries: vec![TuiEntry {
                 label: "user".to_string(),

@@ -1,5 +1,7 @@
 use std::{
-    env, fs,
+    env,
+    fs::{self, OpenOptions},
+    io::Write,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
 };
@@ -11,7 +13,9 @@ use crate::tui::state::{
     LaneRuntimeEvidence, TerminalLane, TuiEntry, TuiState, lane_runtime_evidence,
     refresh_lane_runtime, save_lanes,
 };
-use robocode_types::{ContextBundleRecord, ContextSourceRecord};
+use robocode_types::{
+    AgentLaneIsolationRecord, ContextBundleRecord, ContextOmittedSourceRecord, ContextSourceRecord,
+};
 
 pub(super) fn status_badge(status: &str) -> &'static str {
     match status {
@@ -34,6 +38,7 @@ pub(super) fn status_badge(status: &str) -> &'static str {
 pub(super) fn terminal_label(tool: &str) -> &'static str {
     match tool {
         "codex" => "codex tty",
+        "codex-review" => "codex review",
         "claude" => "claude tty",
         "shell" | "run" => "shell tty",
         _ => "agent tty",
@@ -43,6 +48,7 @@ pub(super) fn terminal_label(tool: &str) -> &'static str {
 pub(super) fn pty_label(tool: &str) -> &'static str {
     match tool {
         "codex" => "pty/01",
+        "codex-review" => "pty/rev",
         "claude" => "pty/02",
         "shell" | "run" => "pty/ops",
         _ => "pty/xx",
@@ -58,6 +64,7 @@ pub(super) fn pid_hint(lane: &TerminalLane) -> String {
 pub(super) fn command_hint(tool: &str, task: &str) -> String {
     match tool {
         "codex" => format!("codex exec {task}"),
+        "codex-review" => format!("codex review --uncommitted {task}"),
         "claude" => format!("claude -p {task}"),
         "shell" | "run" => task.to_string(),
         _ => format!("{tool} {task}"),
@@ -85,6 +92,7 @@ pub(super) fn handle_tui_command(input: &str, state: &mut TuiState) -> bool {
     match parts.next() {
         Some("close") => close_lane_focus(state),
         Some("inspect") => inspect_lane(parts.next(), state),
+        Some("timeline") => timeline_lane(parts.next(), state),
         Some("diff") => diff_lane(parts.next(), state),
         Some("artifacts") => artifacts_lane(parts.next(), state),
         Some("stop") => stop_lane(parts.next(), state),
@@ -118,6 +126,13 @@ fn close_lane_focus(state: &mut TuiState) {
 fn queue_lane(input: &str, state: &mut TuiState) {
     match TerminalLane::from_command(state.lanes.len() + 1, input) {
         Some(lane) => {
+            record_lane_timeline(
+                state,
+                &lane.id,
+                "lane.created",
+                &format!("created {} lane for {}", lane.tool, lane.title),
+                Some(input),
+            );
             let lane = maybe_start_lane_adapter(lane, state);
             let body = format!(
                 "{} terminal lane `{}` using `{}` for `{}`.",
@@ -144,6 +159,15 @@ fn queue_lane(input: &str, state: &mut TuiState) {
 fn maybe_start_lane_adapter(mut lane: TerminalLane, state: &mut TuiState) -> TerminalLane {
     let command = match lane.tool.as_str() {
         "run" => lane.title.clone(),
+        "codex-review" => match codex_review_lane_command(&lane, state) {
+            Ok(Some(command)) => command,
+            Ok(None) => {
+                lane.status = "queued".to_string();
+                lane.summary = queued_codex_review_summary(&lane, state);
+                return lane;
+            }
+            Err(err) => return failed_lane(lane, err),
+        },
         "codex" => {
             match templated_agent_command("ROBOCODE_LANE_CODEX_TEMPLATE", &mut lane, state) {
                 Ok(Some(command)) => command,
@@ -216,6 +240,68 @@ fn templated_agent_command(
         cwd,
     );
     Ok((!command.trim().is_empty()).then_some(command))
+}
+
+fn codex_review_lane_command(
+    lane: &TerminalLane,
+    state: &mut TuiState,
+) -> Result<Option<String>, String> {
+    let envelope_path = write_lane_envelope(lane, state)
+        .map_err(|err| format!("failed to write lane envelope: {err}"))?;
+    if let Ok(template) = std::env::var("ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE") {
+        let command = expand_agent_template(
+            &template,
+            &lane.tool,
+            &lane.title,
+            Some(envelope_path.as_path()),
+            lane_workspace(lane, state),
+        );
+        return Ok((!command.trim().is_empty()).then_some(command));
+    }
+
+    let command = codex_lane_command();
+    if !command_exists(&command) {
+        let summary = format!(
+            "Codex CLI `{command}` missing; install Codex, set ROBOCODE_AGENT_CODEX_COMMAND, or set ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE; envelope {}",
+            envelope_path.display()
+        );
+        record_lane_timeline(
+            state,
+            &lane.id,
+            "lane.setup_needed",
+            &summary,
+            Some("read-only Codex review lane did not launch"),
+        );
+        return Ok(None);
+    }
+    let prompt = format!(
+        "Review the current working tree for this RoboCode delegated lane task: {}. Use the lane envelope at {} for context. Do not modify files; report findings, evidence, and next action.",
+        lane.title,
+        envelope_path.display()
+    );
+    Ok(Some(format!(
+        "{} review --uncommitted {}",
+        shell_quote_value(&command),
+        shell_quote_value(&prompt)
+    )))
+}
+
+fn codex_lane_command() -> String {
+    env::var("ROBOCODE_AGENT_CODEX_COMMAND")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "codex".to_string())
+}
+
+fn queued_codex_review_summary(lane: &TerminalLane, state: &TuiState) -> String {
+    let envelope = lane_artifact_path(state, &lane.id, "envelope.md")
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|_| "<unavailable>".to_string());
+    format!(
+        "queued; Codex CLI `{}` missing; install Codex, set ROBOCODE_AGENT_CODEX_COMMAND, or set ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE; envelope {envelope}",
+        codex_lane_command()
+    )
 }
 
 fn failed_lane(mut lane: TerminalLane, summary: String) -> TerminalLane {
@@ -306,6 +392,46 @@ fn lane_artifact_path(state: &TuiState, lane_id: &str, extension: &str) -> Resul
     Ok(artifact_dir.join(format!("{lane_id}.{extension}")))
 }
 
+fn record_lane_timeline(
+    state: &TuiState,
+    lane_id: &str,
+    kind: &str,
+    summary: &str,
+    detail: Option<&str>,
+) {
+    let Ok(path) = lane_artifact_path(state, lane_id, "timeline.md") else {
+        return;
+    };
+    let timestamp = current_millis();
+    let sequence = fs::read_to_string(&path)
+        .ok()
+        .map(|content| {
+            content
+                .lines()
+                .filter(|line| line.starts_with("## "))
+                .count()
+                + 1
+        })
+        .unwrap_or(1);
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(
+            file,
+            "## {sequence} {timestamp} {kind}\nKind: {kind}\nSummary: {summary}"
+        );
+        if let Some(detail) = detail.filter(|value| !value.trim().is_empty()) {
+            let _ = writeln!(file, "Detail: {detail}");
+        }
+        let _ = writeln!(file);
+    }
+}
+
+fn current_millis() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
+}
+
 fn render_lane_envelope(lane: &TerminalLane, state: &TuiState) -> String {
     let workspace = lane_workspace(lane, state).to_string_lossy().to_string();
     let mutation_scope = if lane.worktree.is_some() {
@@ -314,28 +440,59 @@ fn render_lane_envelope(lane: &TerminalLane, state: &TuiState) -> String {
         "current workspace"
     };
     let context_bundle = build_lane_context_bundle(lane, state);
+    let isolation = build_lane_isolation_record(lane, state);
     let context_sources = context_bundle
         .sources
         .iter()
         .map(|source| {
             format!(
+                "- {} [{}] p{} ~{} tok: {}",
+                source.name, source.kind, source.priority, source.estimated_tokens, source.summary
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let omitted_sources = context_bundle
+        .omitted_sources
+        .iter()
+        .map(|source| {
+            format!(
                 "- {} [{}] ~{} tok: {}",
-                source.name, source.kind, source.estimated_tokens, source.summary
+                source.name, source.kind, source.estimated_tokens, source.reason
             )
         })
         .collect::<Vec<_>>()
         .join("\n");
     let largest_sources = list_or_none(&context_bundle.largest_sources);
     let compaction_notes = list_or_none(&context_bundle.compaction_notes);
+    let isolation_warnings = list_or_none(&isolation.warnings);
+    let isolation_env = list_or_none(&isolation.env_vars);
+    let isolation_caches = list_or_none(&isolation.cache_dirs);
+    let isolation_ports = list_or_none(&isolation.service_ports);
     format!(
-        "# RoboCode Lane Task\n\nLane: {}\nTool: {}\nWorkspace: {workspace}\nMutation scope: {mutation_scope}\nSession: {}\nProvider: {}\nModel: {}\n\n## Task\n{}\n\n## ContextBundle v0\nBundle: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\n\n### Sources\n{}\n\n### Largest sources\n{}\n\n### Compaction notes\n{}\n\n## Handoff\n- summary\n- files changed\n- tests run\n- remaining risks\n- suggested next step\n\n## Constraints\n- Do not assume access to the full RoboCode transcript.\n- Use the ContextBundle sources above before asking for more context.\n- Keep changes scoped to the task.\n- Report commands run and verification evidence.\n",
+        "# RoboCode Lane Task\n\nLane: {}\nTool: {}\nWorkspace: {workspace}\nMutation scope: {mutation_scope}\nSession: {}\nProvider: {}\nModel: {}\n\n## Task\n{}\n\n## Isolation\nRisk: {}\nWritable scope: {}\nWorktree: {}\nDatabase/schema: {}\nSetup command: {}\nVerification command: {}\nCleanup command: {}\n\n### Env vars\n{}\n\n### Cache dirs\n{}\n\n### Service ports\n{}\n\n### Isolation warnings\n{}\n\n## ContextBundle v1\nBundle: {}\nPolicy: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\n\n### Sources\n{}\n\n### Omitted sources\n{}\n\n### Largest sources\n{}\n\n### Compaction notes\n{}\n\n## Handoff\n- summary\n- files changed\n- tests run\n- remaining risks\n- suggested next step\n\n## Constraints\n- Do not assume access to the full RoboCode transcript.\n- Use the ContextBundle sources above before asking for more context.\n- Keep changes scoped to the task.\n- Report commands run and verification evidence.\n",
         lane.id,
         lane.tool,
         state.session_id,
         state.provider,
         state.model,
         lane.title,
+        isolation.risk_level,
+        isolation.writable_scope,
+        isolation.worktree.as_deref().unwrap_or("<none>"),
+        isolation.database_scope.as_deref().unwrap_or("<none>"),
+        isolation.setup_command.as_deref().unwrap_or("<none>"),
+        isolation
+            .verification_command
+            .as_deref()
+            .unwrap_or("<none>"),
+        isolation.cleanup_command.as_deref().unwrap_or("<none>"),
+        isolation_env,
+        isolation_caches,
+        isolation_ports,
+        isolation_warnings,
         context_bundle.bundle_id,
+        context_bundle.policy,
         context_bundle.estimated_tokens,
         context_bundle.pressure_percent(),
         context_bundle.soft_token_budget,
@@ -345,9 +502,75 @@ fn render_lane_envelope(lane: &TerminalLane, state: &TuiState) -> String {
         } else {
             context_sources
         },
+        if omitted_sources.is_empty() {
+            "- <none>".to_string()
+        } else {
+            omitted_sources
+        },
         largest_sources,
         compaction_notes
     )
+}
+
+fn build_lane_isolation_record(lane: &TerminalLane, state: &TuiState) -> AgentLaneIsolationRecord {
+    let workspace = lane_workspace(lane, state).to_string_lossy().to_string();
+    let worktree = lane
+        .worktree
+        .as_ref()
+        .map(|path| path.to_string_lossy().to_string());
+    let writable_scope = if lane.tool == "codex-review" {
+        "read-only current workspace review".to_string()
+    } else if lane.worktree.is_some() {
+        "isolated per-lane worktree".to_string()
+    } else if matches!(lane.tool.as_str(), "run" | "shell") {
+        "current workspace shell command".to_string()
+    } else {
+        "current workspace until adapter prepares isolation".to_string()
+    };
+    let mut warnings = Vec::new();
+    if lane.worktree.is_none() && !matches!(lane.tool.as_str(), "codex" | "codex-review" | "claude")
+    {
+        warnings.push("lane shares the current workspace".to_string());
+    }
+    if matches!(lane.tool.as_str(), "run" | "shell") {
+        warnings.push("shell commands may touch shared caches, ports, or services".to_string());
+    }
+    if lane.worktree.is_some() && matches!(lane.tool.as_str(), "codex" | "claude") {
+        warnings.push("review/apply is required before main workspace mutation".to_string());
+    }
+    let risk_level = if lane.tool == "codex-review" || lane.worktree.is_some() {
+        "low".to_string()
+    } else if matches!(lane.tool.as_str(), "run" | "shell") {
+        "medium".to_string()
+    } else {
+        "unknown".to_string()
+    };
+    AgentLaneIsolationRecord {
+        lane_id: lane.id.clone(),
+        workspace,
+        worktree,
+        writable_scope,
+        env_vars: vec!["PATH".to_string(), "HOME".to_string()],
+        cache_dirs: vec!["target/".to_string(), ".robocode/".to_string()],
+        database_scope: None,
+        service_ports: Vec::new(),
+        setup_command: None,
+        verification_command: infer_lane_verification_command(&lane.title),
+        cleanup_command: lane
+            .worktree
+            .is_some()
+            .then(|| format!("/lane cleanup {}", lane.id)),
+        risk_level,
+        warnings,
+    }
+}
+
+fn infer_lane_verification_command(title: &str) -> Option<String> {
+    let lower = title.to_ascii_lowercase();
+    ["cargo test", "pytest", "npm test", "pnpm test", "yarn test"]
+        .iter()
+        .find(|command| lower.contains(**command))
+        .map(|command| (*command).to_string())
 }
 
 fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBundleRecord {
@@ -358,6 +581,7 @@ fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBu
             "lane-task",
             "task",
             &format!("{} {}", lane.tool, lane.title),
+            100,
             240,
         ),
         context_source(
@@ -370,6 +594,7 @@ fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBu
                 state.workspace.file_count,
                 state.workspace.line_count
             ),
+            90,
             320,
         ),
     ];
@@ -378,6 +603,7 @@ fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBu
             "diagnostics",
             "lsp",
             &compact_lines(&state.workspace.diagnostics.join("\n"), 6),
+            85,
             480,
         ));
     }
@@ -386,6 +612,7 @@ fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBu
             "latest-diff",
             "diff",
             &compact_text(diff, 12),
+            80,
             640,
         ));
     }
@@ -394,6 +621,7 @@ fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBu
             "latest-test",
             "test",
             &compact_text(test, 10),
+            88,
             520,
         ));
     }
@@ -408,6 +636,7 @@ fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBu
             "lane-log-tail",
             "lane-output",
             &compact_text(&lane_tail, 16),
+            72,
             600,
         ));
     }
@@ -425,6 +654,7 @@ fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBu
             "recent-lanes",
             "lane-summary",
             &recent_lanes,
+            65,
             360,
         ));
     }
@@ -436,8 +666,9 @@ fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBu
             .map(|entry| format!("{} {}", entry.kind, entry.content))
             .collect::<Vec<_>>()
             .join("\n");
-        sources.push(context_source("memory", "memory", &memory, 360));
+        sources.push(context_source("memory", "memory", &memory, 60, 360));
     }
+    let omitted_sources = omit_sources_over_hard_limit(&mut sources, HARD_LIMIT);
     let estimated_tokens = sources.iter().map(|source| source.estimated_tokens).sum();
     let mut largest_sources = sources
         .iter()
@@ -457,7 +688,15 @@ fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBu
     let mut compaction_notes = vec![
         "long tool/test/lane output is summarized plus tail".to_string(),
         "raw transcript and lane logs remain under audit storage".to_string(),
+        "v1 policy keeps high-priority task/workspace/test context before lower-priority summaries"
+            .to_string(),
     ];
+    if !omitted_sources.is_empty() {
+        compaction_notes.push(format!(
+            "{} source(s) omitted by hard budget policy",
+            omitted_sources.len()
+        ));
+    }
     if estimated_tokens > SOFT_BUDGET {
         compaction_notes
             .push("soft budget exceeded; prefer narrower follow-up context".to_string());
@@ -465,7 +704,9 @@ fn build_lane_context_bundle(lane: &TerminalLane, state: &TuiState) -> ContextBu
     ContextBundleRecord {
         bundle_id: format!("ctx-{}", lane.id),
         task_id: lane.id.clone(),
+        policy: "v1-priority-budget".to_string(),
         sources,
+        omitted_sources,
         estimated_tokens,
         largest_sources,
         compaction_notes,
@@ -478,14 +719,48 @@ fn context_source(
     name: &str,
     kind: &str,
     summary: &str,
+    priority: u8,
     minimum_tokens: u64,
 ) -> ContextSourceRecord {
     ContextSourceRecord {
         name: name.to_string(),
         kind: kind.to_string(),
+        priority,
         estimated_tokens: estimate_tokens(summary).max(minimum_tokens),
         summary: summary.to_string(),
+        include_reason: format!("priority {priority}; selected by v1-priority-budget policy"),
     }
+}
+
+fn omit_sources_over_hard_limit(
+    sources: &mut Vec<ContextSourceRecord>,
+    hard_limit: u64,
+) -> Vec<ContextOmittedSourceRecord> {
+    let mut total = sources
+        .iter()
+        .map(|source| source.estimated_tokens)
+        .sum::<u64>();
+    if total <= hard_limit {
+        return Vec::new();
+    }
+    sources.sort_by_key(|source| std::cmp::Reverse(source.priority));
+    let mut omitted = Vec::new();
+    let mut index = sources.len();
+    while total > hard_limit && index > 0 {
+        index -= 1;
+        let source = sources.remove(index);
+        total = total.saturating_sub(source.estimated_tokens);
+        omitted.push(ContextOmittedSourceRecord {
+            name: source.name,
+            kind: source.kind,
+            estimated_tokens: source.estimated_tokens,
+            reason: format!(
+                "priority {} omitted to stay under hard token budget {}",
+                source.priority, hard_limit
+            ),
+        });
+    }
+    omitted
 }
 
 fn latest_entry_body(state: &TuiState, predicate: fn(&TuiEntry) -> bool) -> Option<&str> {
@@ -538,6 +813,7 @@ fn start_background_lane(
     state: &mut TuiState,
     command: &str,
 ) -> TerminalLane {
+    let command_text = command.to_string();
     let Some(store) = state.lane_store.as_deref() else {
         lane.summary = "queued; no lane store available".to_string();
         return lane;
@@ -579,11 +855,25 @@ fn start_background_lane(
                 lane_workspace(&lane, state).display(),
                 log_path.display()
             );
+            record_lane_timeline(
+                state,
+                &lane.id,
+                "lane.started",
+                &format!("started {} lane as pid {}", lane.tool, child.id()),
+                Some(&command_text),
+            );
         }
         Err(err) => {
             lane.status = "failed".to_string();
             lane.progress = 100;
             lane.summary = format!("failed to start shell command: {err}");
+            record_lane_timeline(
+                state,
+                &lane.id,
+                "lane.start_failed",
+                &lane.summary,
+                Some(&command_text),
+            );
         }
     }
     lane
@@ -686,6 +976,20 @@ fn shell_quote_value(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+fn command_exists(command: &str) -> bool {
+    let path = PathBuf::from(command);
+    if path.components().count() > 1 {
+        return path.is_file();
+    }
+    env::var_os("PATH")
+        .and_then(|paths| {
+            env::split_paths(&paths)
+                .map(|dir| dir.join(command))
+                .find(|candidate| candidate.is_file())
+        })
+        .is_some()
+}
+
 fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
     let Some(id) = id else {
         push_lane_usage(state);
@@ -725,6 +1029,7 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
     let verification = verification_rows(evidence.as_ref());
     let decision = decision_rows(state, &lane.id);
     let terminal_artifacts = terminal_artifact_rows(state, &lane.id);
+    let timeline = lane_timeline_rows(state, &lane.id);
     let next_action = lane_next_action(lane);
     let exit_code = evidence
         .as_ref()
@@ -763,7 +1068,7 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
         body: format!(
-            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nWorktree: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nEnvelope: {envelope_path}\nExit: {exit_code}\nNext action: {next_action}\nTerminal artifacts:\n{terminal_artifacts}\nChanged files:\n{changed_files}\nVerification:\n{verification}\nDecision:\n{decision}\nTail:\n{tail}\nEnvelope preview:\n{envelope}",
+            "Lane `{}`\nTool: {}\nStatus: {}\nTarget: {}\nWorktree: {}\nProgress: {}%\nTask: {}\nLast output: {}\nLog: {log_path}\nDone: {done_path}\nEnvelope: {envelope_path}\nExit: {exit_code}\nNext action: {next_action}\nTerminal artifacts:\n{terminal_artifacts}\nTimeline:\n{timeline}\nChanged files:\n{changed_files}\nVerification:\n{verification}\nDecision:\n{decision}\nTail:\n{tail}\nEnvelope preview:\n{envelope}",
             lane.id,
             lane.tool,
             lane.status,
@@ -777,6 +1082,67 @@ fn inspect_lane(id: Option<&str>, state: &mut TuiState) {
             lane.summary
         ),
     });
+}
+
+fn timeline_lane(id: Option<&str>, state: &mut TuiState) {
+    let Some(id) = id else {
+        push_lane_usage(state);
+        return;
+    };
+    refresh_lanes(state);
+    let Some(lane) = state
+        .lanes
+        .iter()
+        .find(|lane| lane.id.eq_ignore_ascii_case(id))
+    else {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("No terminal lane `{id}` found."),
+        });
+        return;
+    };
+    state.focused_lane = Some(lane.id.clone());
+    state.entries.push(TuiEntry {
+        label: "system".to_string(),
+        body: format!(
+            "Lane `{}` timeline\nTask: {}\n\n{}",
+            lane.id,
+            lane.title,
+            lane_timeline_rows(state, &lane.id)
+        ),
+    });
+}
+
+fn lane_timeline_rows(state: &TuiState, lane_id: &str) -> String {
+    let Some(path) = lane_artifact_path(state, lane_id, "timeline.md").ok() else {
+        return "  <no lane store>".to_string();
+    };
+    let Ok(content) = fs::read_to_string(path) else {
+        return "  <none>".to_string();
+    };
+    let lines = content
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            trimmed.starts_with("## ")
+                || trimmed.starts_with("Kind:")
+                || trimmed.starts_with("Summary:")
+        })
+        .map(|line| format!("  {}", clean_timeline_line(line)))
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        "  <none>".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn clean_timeline_line(line: &str) -> String {
+    line.trim()
+        .trim_start_matches("## ")
+        .chars()
+        .take(140)
+        .collect()
 }
 
 fn diff_lane(id: Option<&str>, state: &mut TuiState) {
@@ -1128,6 +1494,13 @@ fn decide_lane(action: &str, id: Option<&str>, feedback: Vec<&str>, state: &mut 
     state.lanes[index].status = action.to_string();
     state.lanes[index].summary = format!("decision: {summary}");
     state.lanes[index].progress = 100;
+    record_lane_timeline(
+        state,
+        &lane.id,
+        "operator.decision",
+        &format!("{action}: {summary}"),
+        Some(&path.display().to_string()),
+    );
     persist_lanes(state);
     state.entries.push(TuiEntry {
         label: "system".to_string(),
@@ -1307,6 +1680,22 @@ fn tmux_lane(id: Option<&str>, state: &mut TuiState) {
         }
     };
     let session = lane_tmux_session(&lane, state);
+    if let Err(err) = tmux_lane_preflight(&lane) {
+        state.lanes[index].summary = err.clone();
+        persist_lanes(state);
+        record_lane_timeline(
+            state,
+            &lane.id,
+            "lane.tmux_setup_needed",
+            &err,
+            Some("tmux lane did not launch"),
+        );
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Cannot start tmux lane `{}`: {err}", lane.id),
+        });
+        return;
+    }
     let command = match lane_tmux_command(&lane, state, &session, &runtime_log) {
         Ok(command) => command,
         Err(err) => {
@@ -1336,6 +1725,13 @@ fn tmux_lane(id: Option<&str>, state: &mut TuiState) {
                 tmux_path.display()
             );
             state.focused_lane = Some(lane.id.clone());
+            record_lane_timeline(
+                state,
+                &lane.id,
+                "lane.tmux_attached",
+                &format!("started tmux session {session} via pid {pid}"),
+                Some(&command),
+            );
             persist_lanes(state);
             state.entries.push(TuiEntry {
                 label: "system".to_string(),
@@ -1345,11 +1741,37 @@ fn tmux_lane(id: Option<&str>, state: &mut TuiState) {
                 ),
             });
         }
-        Err(err) => state.entries.push(TuiEntry {
-            label: "system".to_string(),
-            body: format!("Failed to start tmux lane `{}`: {err}", lane.id),
-        }),
+        Err(err) => {
+            record_lane_timeline(
+                state,
+                &lane.id,
+                "lane.tmux_failed",
+                &format!("failed to start tmux session {session}: {err}"),
+                Some(&command),
+            );
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Failed to start tmux lane `{}`: {err}", lane.id),
+            });
+        }
     }
+}
+
+fn tmux_lane_preflight(lane: &TerminalLane) -> Result<(), String> {
+    if env::var("ROBOCODE_LANE_TMUX_TEMPLATE").is_err() && !command_exists("tmux") {
+        return Err(
+            "tmux binary missing; install tmux or set ROBOCODE_LANE_TMUX_TEMPLATE".to_string(),
+        );
+    }
+    if lane.tool == "claude"
+        && env::var("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE").is_err()
+        && !command_exists("claude")
+    {
+        return Err(
+            "Claude Code binary `claude` missing; install Claude Code or set ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE".to_string(),
+        );
+    }
+    Ok(())
 }
 
 fn lane_tmux_command(
@@ -1860,6 +2282,13 @@ fn apply_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
                     state.lanes[index].progress = 100;
                     state.lanes[index].summary =
                         format!("apply conflict; report {}", path.display());
+                    record_lane_timeline(
+                        state,
+                        &lane.id,
+                        "lane.apply_conflict",
+                        &format!("patch did not apply cleanly: {err}"),
+                        Some(&path.display().to_string()),
+                    );
                     persist_lanes(state);
                     path.display().to_string()
                 }
@@ -1913,6 +2342,13 @@ fn apply_lane(id: Option<&str>, args: Vec<&str>, state: &mut TuiState) {
     state.lanes[index].summary = format!(
         "applied patch {}; cleanup remains separate",
         patch_path.display()
+    );
+    record_lane_timeline(
+        state,
+        &lane.id,
+        "lane.applied",
+        &format!("applied patch {}", patch_path.display()),
+        Some(&apply_path.display().to_string()),
     );
     persist_lanes(state);
     state.entries.push(TuiEntry {
@@ -2284,6 +2720,13 @@ fn archive_lane(id: Option<&str>, state: &mut TuiState) {
     if state.focused_lane.as_deref() == Some(&lane.id) {
         state.focused_lane = None;
     }
+    record_lane_timeline(
+        state,
+        &lane.id,
+        "lane.archived",
+        &format!("archived lane evidence {}", archive_path.display()),
+        Some(&archive_path.display().to_string()),
+    );
     persist_lanes(state);
     state.entries.push(TuiEntry {
         label: "system".to_string(),
@@ -2439,10 +2882,10 @@ fn stop_lane(id: Option<&str>, state: &mut TuiState) {
         push_lane_usage(state);
         return;
     };
-    let Some(lane) = state
+    let Some(index) = state
         .lanes
-        .iter_mut()
-        .find(|lane| lane.id.eq_ignore_ascii_case(id))
+        .iter()
+        .position(|lane| lane.id.eq_ignore_ascii_case(id))
     else {
         state.entries.push(TuiEntry {
             label: "system".to_string(),
@@ -2450,12 +2893,19 @@ fn stop_lane(id: Option<&str>, state: &mut TuiState) {
         });
         return;
     };
-    let stop_result = stop_lane_process(lane);
-    lane.status = "stopped".to_string();
-    lane.progress = lane.progress.min(99);
-    lane.summary = stop_result;
-    let lane_id = lane.id.clone();
-    let lane_summary = lane.summary.clone();
+    let stop_result = stop_lane_process(&state.lanes[index]);
+    state.lanes[index].status = "stopped".to_string();
+    state.lanes[index].progress = state.lanes[index].progress.min(99);
+    state.lanes[index].summary = stop_result;
+    let lane_id = state.lanes[index].id.clone();
+    let lane_summary = state.lanes[index].summary.clone();
+    record_lane_timeline(
+        state,
+        &lane_id,
+        "operator.stop",
+        &lane_summary,
+        Some("/lane stop"),
+    );
     persist_lanes(state);
     state.entries.push(TuiEntry {
         label: "system".to_string(),
@@ -2497,6 +2947,20 @@ fn retry_lane(id: Option<&str>, state: &mut TuiState) {
             previous.id
         );
     }
+    record_lane_timeline(
+        state,
+        &previous.id,
+        "operator.retry",
+        &format!("retry requested as {}", lane.id),
+        Some(&previous.summary),
+    );
+    record_lane_timeline(
+        state,
+        &lane.id,
+        "lane.retry_created",
+        &format!("retry of {}", previous.id),
+        Some(&previous.title),
+    );
     let lane = maybe_start_lane_adapter(lane, state);
     let body = format!(
         "Retried lane `{}` as `{}` using `{}` for `{}`.",
@@ -2586,7 +3050,7 @@ pub(super) fn refresh_lanes(state: &mut TuiState) {
 fn push_lane_usage(state: &mut TuiState) {
     state.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Usage: /lane codex <task> | /lane claude <task> | /lane run <command> | /lane ask <tool> <task> | /lane inspect <id> | /lane diff <id> | /lane artifacts <id> | /lane stop <id> | /lane retry <id> | /lane attach <id> | /lane tmux <id> | /lane pty <id> | /lane send <id> <text> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane archive <id> | /lane cleanup <id> [--force] | /lane close"
+        body: "Usage: /lane codex <task> | /lane codex-review <task> | /lane claude <task> | /lane run <command> | /lane ask <tool> <task> | /lane inspect <id> | /lane timeline <id> | /lane diff <id> | /lane artifacts <id> | /lane stop <id> | /lane retry <id> | /lane attach <id> | /lane tmux <id> | /lane pty <id> | /lane send <id> <text> | /lane detach <id> | /lane accept <id> [note] | /lane revise <id> [note] | /lane discard <id> [note] | /lane apply <id> [--force] | /lane resolve <id> [--force] | /lane archive <id> | /lane cleanup <id> [--force] | /lane close"
             .to_string(),
     });
 }
@@ -2790,6 +3254,88 @@ mod tests {
         assert!(inspect.body.contains("Worktree:"));
         assert!(inspect.body.contains("Envelope preview:"));
         assert!(inspect.body.contains("summarize adapter"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn codex_review_lane_runs_read_only_template_without_worktree() {
+        let _env = ScopedEnv::set("ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE", "cat {envelope:q}");
+        let root = temp_lane_root();
+        init_git_repo(&root);
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store.clone());
+
+        assert!(handle_tui_command(
+            "/lane codex-review inspect current diff",
+            &mut state
+        ));
+
+        assert_eq!(state.lanes[0].tool, "codex-review");
+        assert_eq!(state.lanes[0].status, "running");
+        assert!(state.lanes[0].worktree.is_none());
+
+        let mut lanes = Vec::new();
+        for _ in 0..400 {
+            lanes = load_lanes(&store);
+            refresh_lane_runtime(&store, &mut lanes);
+            if lanes.first().is_some_and(|lane| lane.status == "completed") {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(25));
+        }
+
+        assert_eq!(lanes[0].status, "completed");
+        assert!(lanes[0].worktree.is_none());
+        let log = fs::read_to_string(root.join(".robocode").join("lanes").join("L1.log"))
+            .expect("lane log");
+        assert!(log.contains("Tool: codex-review"));
+        assert!(log.contains("read-only current workspace review"));
+
+        state.lanes = lanes;
+        assert!(handle_tui_command("/lane inspect L1", &mut state));
+        let inspect = state.entries.last().expect("inspect entry");
+        assert!(inspect.body.contains("Tool: codex-review"));
+        assert!(inspect.body.contains("Timeline:"));
+        assert!(inspect.body.contains("lane.completed"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn codex_review_lane_queues_with_actionable_setup_when_codex_missing() {
+        let _env = ScopedEnv::set_many(&[
+            ("ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE", None),
+            (
+                "ROBOCODE_AGENT_CODEX_COMMAND",
+                Some("/definitely/missing/robocode-codex"),
+            ),
+        ]);
+        let root = temp_lane_root();
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store);
+
+        assert!(handle_tui_command(
+            "/lane codex-review inspect current diff",
+            &mut state
+        ));
+
+        assert_eq!(state.lanes[0].tool, "codex-review");
+        assert_eq!(state.lanes[0].status, "queued");
+        assert!(state.lanes[0].summary.contains("Codex CLI"));
+        assert!(
+            state.lanes[0]
+                .summary
+                .contains("ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE")
+        );
+        let timeline =
+            fs::read_to_string(root.join(".robocode").join("lanes").join("L1.timeline.md"))
+                .expect("lane timeline");
+        assert!(timeline.contains("lane.setup_needed"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -3480,6 +4026,93 @@ mod tests {
         assert!(tmux.contains("Runtime log:"));
         assert!(tmux.contains(".robocode/lanes/L1.log"));
         assert!(tmux.contains("codex exec inspect interactively"));
+        let timeline =
+            fs::read_to_string(root.join(".robocode/lanes/L1.timeline.md")).expect("timeline");
+        assert!(timeline.contains("lane.tmux_attached"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lane_tmux_reports_setup_needed_when_tmux_is_missing() {
+        let _env = ScopedEnv::set_many(&[
+            ("ROBOCODE_LANE_TMUX_TEMPLATE", None),
+            ("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE", Some("printf noop")),
+            ("PATH", Some("")),
+        ]);
+        let root = temp_lane_root();
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store);
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "run".to_string(),
+            title: "inspect interactively".to_string(),
+            status: "queued".to_string(),
+            target: "main".to_string(),
+            progress: 0,
+            summary: "waiting".to_string(),
+            worktree: None,
+        }];
+
+        assert!(handle_tui_command("/lane tmux L1", &mut state));
+
+        assert_eq!(state.lanes[0].status, "queued");
+        assert!(state.lanes[0].summary.contains("tmux binary missing"));
+        assert!(
+            state
+                .entries
+                .last()
+                .expect("tmux setup entry")
+                .body
+                .contains("ROBOCODE_LANE_TMUX_TEMPLATE")
+        );
+        let timeline =
+            fs::read_to_string(root.join(".robocode/lanes/L1.timeline.md")).expect("timeline");
+        assert!(timeline.contains("lane.tmux_setup_needed"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn claude_tmux_reports_setup_needed_when_claude_is_missing() {
+        let _env = ScopedEnv::set_many(&[
+            ("ROBOCODE_LANE_TMUX_TEMPLATE", Some("printf noop")),
+            ("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE", None),
+            ("PATH", Some("")),
+        ]);
+        let root = temp_lane_root();
+        let store = root.join(".robocode").join("lanes.tsv");
+        let mut state = test_state();
+        state.workspace.root = root.clone();
+        state.lane_store = Some(store);
+        state.lanes = vec![TerminalLane {
+            id: "L1".to_string(),
+            tool: "claude".to_string(),
+            title: "review interactively".to_string(),
+            status: "queued".to_string(),
+            target: "main".to_string(),
+            progress: 0,
+            summary: "waiting".to_string(),
+            worktree: None,
+        }];
+
+        assert!(handle_tui_command("/lane tmux L1", &mut state));
+
+        assert_eq!(state.lanes[0].status, "queued");
+        assert!(state.lanes[0].summary.contains("Claude Code binary"));
+        assert!(
+            state
+                .entries
+                .last()
+                .expect("claude setup entry")
+                .body
+                .contains("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE")
+        );
+        let timeline =
+            fs::read_to_string(root.join(".robocode/lanes/L1.timeline.md")).expect("timeline");
+        assert!(timeline.contains("lane.tmux_setup_needed"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -3660,6 +4293,11 @@ mod tests {
         assert_eq!(lanes[0].status, "completed");
         assert_eq!(lanes[0].progress, 100);
         assert!(lanes[0].summary.contains("lane-ok"));
+        let timeline =
+            fs::read_to_string(root.join(".robocode/lanes/L1.timeline.md")).expect("lane timeline");
+        assert!(timeline.contains("Kind: lane.created"));
+        assert!(timeline.contains("Kind: lane.started"));
+        assert!(timeline.contains("Kind: lane.completed"));
 
         state.lanes = lanes;
         assert!(handle_tui_command("/lane inspect L1", &mut state));
@@ -3667,7 +4305,14 @@ mod tests {
         assert!(inspect.body.contains("Exit: 0"));
         assert!(inspect.body.contains("Log:"));
         assert!(inspect.body.contains("Done:"));
+        assert!(inspect.body.contains("Timeline:"));
+        assert!(inspect.body.contains("lane.completed"));
         assert!(inspect.body.contains("lane-ok"));
+
+        assert!(handle_tui_command("/lane timeline L1", &mut state));
+        let timeline_entry = state.entries.last().expect("timeline entry");
+        assert!(timeline_entry.body.contains("Lane `L1` timeline"));
+        assert!(timeline_entry.body.contains("lane.started"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -3730,7 +4375,12 @@ mod tests {
 
         let envelope = render_lane_envelope(&lane, &state);
 
-        assert!(envelope.contains("## ContextBundle v0"));
+        assert!(envelope.contains("## ContextBundle v1"));
+        assert!(envelope.contains("Policy: v1-priority-budget"));
+        assert!(envelope.contains("### Omitted sources"));
+        assert!(envelope.contains("## Isolation"));
+        assert!(envelope.contains("Risk:"));
+        assert!(envelope.contains("Writable scope:"));
         assert!(envelope.contains("Context pressure:"));
         assert!(envelope.contains("latest-test [test]"));
         assert!(envelope.contains("diagnostics [lsp]"));

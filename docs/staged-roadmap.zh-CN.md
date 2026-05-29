@@ -6,6 +6,9 @@
 
 这份路线图把完整的 RoboCode 产品需求翻译成可交付的阶段，而不是按当前仓库历史来倒推。
 
+更长期的产品战略见 [RoboCode 长期路线图](long-term-roadmap.zh-CN.md)。这份阶段路线图是
+交付地图；长期路线图是产品和市场地图。
+
 ## 长期定位
 
 RoboCode 的长期定位不是单一 TUI，也不是又一个 coding agent CLI，而是：
@@ -156,18 +159,30 @@ Mainline landed：
 - Provider hardening 检查点：descriptor validation、registry refresh coverage、blank-key handling、provider-scoped diagnostics，以及 offline/live smoke harnesses
 - DeepSeek V4 兼容标记：reasoning-content replay、非空 assistant tool-call content、显式 `tool_choice` capability，以及 `high`/`max` reasoning-effort metadata
 
-当前 release candidate：
+当前已发布版本：
 
-- `docs/release-0.1.13-status.zh-CN.md` 记录本地 Operator Loop Hardening RC。
+- `docs/release-0.1.13-status.zh-CN.md` 记录已打 tag、已发布、已完成发布后验证的
+  Operator Loop Hardening release。
 - `0.1.13` 已实现默认 TUI 入口、首次 provider/model 设置、交互可靠性测试、
-  聚焦 lane diff/artifact 命令，以及主 provider ContextBundle 注入。
-- 公开发布前剩余：完整 package smoke、可选 DeepSeek live smoke、tag/release
-  assets 发布、Homebrew tap 更新和 post-publish checks。
+  聚焦 lane diff/artifact 命令、主 provider ContextBundle 注入、GitHub Release
+  assets、Homebrew tap 更新，以及 live DeepSeek smoke。
 
-Next planned：
+当前本地 RC：
 
-- 准备好后完成公开 `0.1.13` 发布闭环，然后把下一轮推进到可复现的
-  Codex/Claude delegated lane happy path 和 ACP boundary hardening。
+- `docs/release-0.1.16-plan.zh-CN.md` 聚焦 TUI Interaction Reliability：
+  非阻塞 provider-turn 反馈、command palette 滚动一致性、approval
+  diff/evidence 控制、resize/caret/IME 稳定性，以及 footer promise audit。
+- `docs/release-0.1.16-status.zh-CN.md` 记录本地 RC 状态和验证证据。GitHub
+  Release assets 与 Homebrew tap 更新仍待发布闭环。
+- `0.1.15` 仍是 Context Curator And Budget Controls 检查点：ContextBundle v1
+  policy records、`/context` visibility、source priority、omitted-source
+  evidence、side-2 context rows，以及后续 pin/omit 与 per-lane budget controls
+  的基础。
+
+下一个计划版本：
+
+- 轻量 spec/steering 顺延到 `0.1.17`，因为在增加更多 workflow surface 前，TUI
+  operator loop 必须先保持响应和可信。
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

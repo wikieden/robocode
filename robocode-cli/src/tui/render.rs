@@ -259,6 +259,11 @@ fn operator_detail(task: &AgentTask) -> String {
     } else if !task.summary.is_empty() {
         detail.push_str(&format!(" :: {}", truncate(&task.summary, 32)));
     }
+    if task.is_active()
+        && let Some(started_at) = task.started_at
+    {
+        detail.push_str(&format!(" :: elapsed {}", elapsed_millis(started_at)));
+    }
     if let Some(updated_at) = task.updated_at {
         detail.push_str(&format!(" :: updated {}", relative_millis(updated_at)));
     }
@@ -428,6 +433,27 @@ fn relative_millis(updated_at: u128) -> String {
         format!("{}m ago", elapsed / 60_000)
     } else {
         format!("{}h ago", elapsed / 3_600_000)
+    }
+}
+
+fn elapsed_millis(started_at: u128) -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(started_at);
+    let elapsed = now.saturating_sub(started_at);
+    if elapsed < 1_000 {
+        "<1s".to_string()
+    } else if elapsed < 60_000 {
+        format!("{}s", elapsed / 1_000)
+    } else if elapsed < 3_600_000 {
+        format!("{}m {}s", elapsed / 60_000, (elapsed % 60_000) / 1_000)
+    } else {
+        format!(
+            "{}h {}m",
+            elapsed / 3_600_000,
+            (elapsed % 3_600_000) / 60_000
+        )
     }
 }
 
@@ -789,6 +815,8 @@ mod tests {
             prompt: "implement config loader".to_string(),
             workspace: "/tmp/project".to_string(),
             started_at: 42,
+            phase: "Waiting for provider response".to_string(),
+            next_action: "wait".to_string(),
         });
 
         let rendered = render_frame(&state, 140, 36);
@@ -1002,7 +1030,7 @@ mod tests {
         assert!(rendered.contains("ID: call_7f2a9c1e"));
         assert!(rendered.contains("ACTION  Write (new content)"));
         assert!(rendered.contains("MODIFIES FILE"));
-        assert!(rendered.contains("PREVIEW (first 20 lines)"));
+        assert!(rendered.contains("PREVIEW (first lines)"));
         assert!(rendered.contains("SIZE    +48 lines"));
         assert!(rendered.contains("│ + 1 │"));
         assert!(rendered.contains("load_config"));

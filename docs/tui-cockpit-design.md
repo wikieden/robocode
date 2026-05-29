@@ -68,6 +68,8 @@ Keyboard contract:
 - `Up` / `Down`: move the selected command.
 - `Tab`: complete the selected command into the composer.
 - `Enter`: complete a partial command; submit an exact command.
+- Mouse left click: select a visible suggestion on press and complete it on
+  release.
 - `Esc`: close the command palette for the current query. Editing the query
   reopens it.
 - `/exit`, `/quit`, `exit`, and `quit`: leave the TUI.
@@ -78,6 +80,10 @@ Rendering contract:
   the TUI.
 - It floats directly above the composer and must not obscure the input cursor.
 - It shows command, summary, and selected-row marker.
+- Long suggestion lists render a visible window with a range hint, and keyboard
+  navigation adjusts that window so the selected item always remains visible.
+  Mouse hit testing maps from visible rows back to the underlying suggestion
+  index before completion.
 - Supported nested command families show local subcommands and known runtime
   objects. `/lane` suggests lane IDs, `/screen close` suggests tracked side
   screens, `/task` suggests task IDs and task statuses, `/memory` suggests
@@ -102,6 +108,9 @@ Approval is an interactive overlay, not a passive transcript card.
 - `y` approves, `n` / `Esc` / `Ctrl-C` denies.
 - Mouse clicks focus controls; releasing on deny or approve resolves the
   prompt.
+- `d` focuses the diff/evidence region. That region must render the current
+  approval prompt's real preview or evidence lines when present, with a small
+  fallback only for prompts that do not carry preview content.
 - After approval or denial, the pending modal must disappear immediately and
   the transcript/right rail should redraw without style residue.
 
@@ -180,6 +189,10 @@ model.
 
 - Resize events trigger redraw for the main and side TUI screens.
 - Row-diff rendering avoids full-screen flicker during typing.
+- Provider turns run through a worker/channel boundary while the main TUI event
+  loop keeps polling input, lane artifacts, approval prompts, and repaint ticks.
+  Approval prompts are bridged back to the UI and resolved through the existing
+  permission path before the worker continues.
 - The composer uses display-width aware text handling for CJK input, keeps a
   native blinking bar cursor visible in the input row, and reserves a taller
   input well so the prompt remains easy to find during long sessions.
@@ -225,7 +238,8 @@ model.
   `git branch -r` snapshots for remote and remote-branch target suggestions.
   Stash pop/drop suggestions use the current `git stash list` snapshot;
   worktree remove suggestions use the current `git worktree list --porcelain`
-  snapshot.
+  snapshot. Long lists are windowed rather than clipped: the selected row stays
+  visible, and the footer hint shows the visible range.
 - `/agent list` and `/agent doctor` expose template, tmux, PTY,
   custom-template, Codex, and experimental ACP adapters. Codex readiness checks
   the local `codex` binary, app-server support, auth, config sources, and job
@@ -280,10 +294,12 @@ model.
   they show an empty state instead of falling back to preview/demo lanes.
 - `/lane inspect <id>` reads persisted lane artifacts: `.log` tail, `.done`
   exit code, log path, done path, envelope path, terminal attach/tmux/PTY
-  artifact paths, and envelope preview.
+  artifact paths, timeline rows, and envelope preview. `/lane timeline <id>`
+  focuses the same persisted event chronology for operator review.
 - Template-launched Codex and Claude lanes run in isolated per-lane Git
   worktrees under `.robocode/worktrees/` when a Git `HEAD` is available. The
-  task envelope records the lane workspace and mutation scope.
+  task envelope records the lane workspace, mutation scope, isolation warnings,
+  and cleanup/verification hints.
 - `/lane inspect <id>` also reports the relevant changed-file snapshot, using
   the lane worktree for isolated external lanes and the current workspace for
   non-isolated shell lanes. It includes lane verification evidence from

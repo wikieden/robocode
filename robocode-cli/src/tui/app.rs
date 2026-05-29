@@ -1,15 +1,18 @@
 use std::{
-    sync::mpsc::{Receiver, TryRecvError},
+    sync::mpsc::{self, Receiver, Sender, TryRecvError},
     time::{Duration, Instant},
 };
 
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use robocode_core::SessionEngine;
+use robocode_model::ModelRequestControl;
 use robocode_types::PermissionPrompt;
 
 use super::command_palette::{
-    close_on_escape, complete_selected, move_selection, reset_for_input_change,
-    should_complete_on_enter,
+    close_on_escape, command_suggestion_index_at, complete_selected, move_selection,
+    reset_for_input_change, select_suggestion_at, should_complete_on_enter,
 };
 use super::input::{close_focus_on_escape, prompt_for_tui_approval, should_exit};
 use super::lane::{handle_tui_command, refresh_lanes};
@@ -23,6 +26,14 @@ use super::terminal::TerminalGuard;
 
 const BACKGROUND_DIAGNOSTICS_INTERVAL: Duration = Duration::from_secs(30);
 const BACKGROUND_DIAGNOSTICS_PATH_LIMIT: usize = 4;
+const ACTIVE_TURN_REPAINT_INTERVAL: Duration = Duration::from_millis(150);
+
+enum ProviderTurnEvent {
+    Approval {
+        prompt: PermissionPrompt,
+        response: Sender<robocode_types::ApprovalResponse>,
+    },
+}
 
 pub(crate) fn run_tui_with_theme(
     engine: &mut SessionEngine,
@@ -65,6 +76,12 @@ pub(crate) fn run_tui_with_theme(
         let event = event::read().map_err(|err| err.to_string())?;
         let key = match event {
             Event::Key(key) => key,
+            Event::Mouse(mouse) => {
+                if handle_mouse(mouse, &mut state) {
+                    terminal.draw(&state)?;
+                }
+                continue;
+            }
             Event::Resize(_, _) => {
                 terminal.draw(&state)?;
                 continue;
@@ -100,7 +117,7 @@ pub(crate) fn run_tui_with_theme(
             KeyCode::Tab if !complete_selected(&mut state) => {
                 continue;
             }
-            KeyCode::Enter => {
+            _ if is_send_key(key) => {
                 if should_complete_on_enter(&state) {
                     complete_selected(&mut state);
                     terminal.draw(&state)?;
@@ -114,6 +131,7 @@ pub(crate) fn run_tui_with_theme(
                 state.input.pop();
                 reset_for_input_change(&mut state);
             }
+            _ if apply_composer_shortcut(key, &mut state) => {}
             KeyCode::Char(value) => {
                 state.input.push(value);
                 reset_for_input_change(&mut state);
@@ -124,6 +142,69 @@ pub(crate) fn run_tui_with_theme(
     }
 
     terminal.leave()
+}
+
+fn handle_mouse(mouse: MouseEvent, state: &mut TuiState) -> bool {
+    if !matches!(
+        mouse.kind,
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
+    ) {
+        return false;
+    }
+    let (width, height) = crossterm::terminal::size().unwrap_or((80, 24));
+    let Some(index) = command_suggestion_index_at(state, mouse.column, mouse.row, width, height)
+    else {
+        return false;
+    };
+    let selected = select_suggestion_at(state, index);
+    if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left)) {
+        complete_selected(state);
+    }
+    selected
+}
+
+fn is_send_key(key: KeyEvent) -> bool {
+    key.code == KeyCode::Enter
+        || (key.code == KeyCode::Char('j') && key.modifiers.contains(KeyModifiers::CONTROL))
+}
+
+fn apply_composer_shortcut(key: KeyEvent, state: &mut TuiState) -> bool {
+    match key.code {
+        KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            state.input.clear();
+            reset_for_input_change(state);
+            true
+        }
+        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            if let Some(input) = last_user_input(state) {
+                state.input = input;
+                reset_for_input_change(state);
+                true
+            } else {
+                false
+            }
+        }
+        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            state.input = "/task add ".to_string();
+            reset_for_input_change(state);
+            true
+        }
+        KeyCode::Char('?') if key.modifiers.is_empty() && state.input.is_empty() => {
+            state.input = "/help ".to_string();
+            reset_for_input_change(state);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn last_user_input(state: &TuiState) -> Option<String> {
+    state
+        .entries
+        .iter()
+        .rev()
+        .find(|entry| entry.label == "user" && !entry.body.trim().is_empty())
+        .map(|entry| entry.body.trim().to_string())
 }
 
 fn initial_state(
@@ -220,13 +301,8 @@ fn handle_enter(
         &state.workspace.display_root,
     ));
     terminal.draw(state)?;
-    let events = {
-        let mut approver =
-            |prompt: PermissionPrompt| prompt_for_tui_approval(prompt, state, terminal);
-        engine.process_input_with_approval(&input, &mut approver)
-    };
+    let events = run_provider_turn_interactive(engine, &input, state, terminal)?;
     state.pending_turn = None;
-    let events = events?;
     state
         .entries
         .extend(events.into_iter().map(entry_from_event));
@@ -240,6 +316,190 @@ fn handle_enter(
     state.memory = engine.memory_snapshot().unwrap_or_default();
     state.workspace = WorkspaceSnapshot::load_current();
     Ok(false)
+}
+
+fn run_provider_turn_interactive(
+    engine: &mut SessionEngine,
+    input: &str,
+    state: &mut TuiState,
+    terminal: &mut TerminalGuard,
+) -> Result<Vec<robocode_core::EngineEvent>, String> {
+    let (event_sender, event_receiver) = mpsc::channel::<ProviderTurnEvent>();
+    let (result_sender, result_receiver) =
+        mpsc::channel::<Result<Vec<robocode_core::EngineEvent>, String>>();
+    let control = ModelRequestControl::new();
+
+    std::thread::scope(|scope| {
+        let worker_control = control.clone();
+        let worker_input = input.to_string();
+        scope.spawn(move || {
+            let mut approver = |prompt: PermissionPrompt| {
+                let (response_sender, response_receiver) = mpsc::channel();
+                let event = ProviderTurnEvent::Approval {
+                    prompt,
+                    response: response_sender,
+                };
+                if event_sender.send(event).is_err() {
+                    return robocode_types::ApprovalResponse {
+                        approved: false,
+                        feedback: Some("TUI approval channel closed".to_string()),
+                    };
+                }
+                response_receiver
+                    .recv()
+                    .unwrap_or(robocode_types::ApprovalResponse {
+                        approved: false,
+                        feedback: Some("TUI approval response channel closed".to_string()),
+                    })
+            };
+            let result = engine.process_input_with_approval_and_control(
+                &worker_input,
+                &mut approver,
+                &worker_control,
+            );
+            let _ = result_sender.send(result);
+        });
+
+        loop {
+            if let Some(result) = poll_provider_turn_result(&result_receiver)? {
+                return Ok(result);
+            }
+            poll_provider_turn_events(&event_receiver, state, terminal)?;
+            if let Some(result) = poll_provider_turn_result(&result_receiver)? {
+                return Ok(result);
+            }
+            poll_active_turn_input(&control, state, terminal)?;
+            refresh_lanes(state);
+            state.workspace.refresh_agent_jobs();
+            terminal.draw(state)?;
+        }
+    })
+}
+
+fn poll_provider_turn_result(
+    receiver: &Receiver<Result<Vec<robocode_core::EngineEvent>, String>>,
+) -> Result<Option<Vec<robocode_core::EngineEvent>>, String> {
+    match receiver.try_recv() {
+        Ok(result) => result.map(Some),
+        Err(TryRecvError::Empty) => Ok(None),
+        Err(TryRecvError::Disconnected) => Err("provider turn worker stopped unexpectedly".into()),
+    }
+}
+
+fn poll_provider_turn_events(
+    receiver: &Receiver<ProviderTurnEvent>,
+    state: &mut TuiState,
+    terminal: &mut TerminalGuard,
+) -> Result<(), String> {
+    loop {
+        match receiver.try_recv() {
+            Ok(ProviderTurnEvent::Approval { prompt, response }) => {
+                mark_pending_turn_waiting_for_approval(state, &prompt);
+                let approval = prompt_for_tui_approval(prompt, state, terminal);
+                let _ = response.send(approval);
+                mark_pending_turn_waiting_for_provider(state);
+                terminal.draw(state)?;
+            }
+            Err(TryRecvError::Empty) => return Ok(()),
+            Err(TryRecvError::Disconnected) => return Ok(()),
+        }
+    }
+}
+
+fn poll_active_turn_input(
+    control: &ModelRequestControl,
+    state: &mut TuiState,
+    terminal: &mut TerminalGuard,
+) -> Result<(), String> {
+    if !event::poll(ACTIVE_TURN_REPAINT_INTERVAL).map_err(|err| err.to_string())? {
+        return Ok(());
+    }
+    match event::read().map_err(|err| err.to_string())? {
+        Event::Key(key) => handle_active_turn_key(key, control, state, terminal),
+        Event::Mouse(mouse) => {
+            if handle_mouse(mouse, state) {
+                terminal.draw(state)?;
+            }
+            Ok(())
+        }
+        Event::Resize(_, _) => terminal.draw(state),
+        _ => Ok(()),
+    }
+}
+
+fn handle_active_turn_key(
+    key: KeyEvent,
+    control: &ModelRequestControl,
+    state: &mut TuiState,
+    terminal: &mut TerminalGuard,
+) -> Result<(), String> {
+    if close_focus_on_escape(key, state) || close_on_escape(key, state) {
+        return terminal.draw(state);
+    }
+    match key.code {
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            control.cancel();
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: "Cancellation requested for the active provider turn. The current provider may finish its in-flight request before stopping.".to_string(),
+            });
+        }
+        KeyCode::Esc => {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: "Provider turn is active; keeping the cockpit open until the turn finishes."
+                    .to_string(),
+            });
+        }
+        KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            let theme_name = terminal.cycle_theme();
+            state.theme_name = theme_name.to_string();
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: format!("Switched TUI theme to `{theme_name}`."),
+            });
+        }
+        KeyCode::Up if move_selection(state, -1) => {}
+        KeyCode::Down if move_selection(state, 1) => {}
+        KeyCode::Tab if complete_selected(state) => {}
+        _ if is_send_key(key) => {
+            if should_complete_on_enter(state) {
+                complete_selected(state);
+            } else if !state.input.trim().is_empty() {
+                state.entries.push(TuiEntry {
+                    label: "system".to_string(),
+                    body:
+                        "Provider turn is still running; draft kept in composer for the next turn."
+                            .to_string(),
+                });
+            }
+        }
+        KeyCode::Backspace => {
+            state.input.pop();
+            reset_for_input_change(state);
+        }
+        _ if apply_composer_shortcut(key, state) => {}
+        KeyCode::Char(value) => {
+            state.input.push(value);
+            reset_for_input_change(state);
+        }
+        _ => {}
+    }
+    terminal.draw(state)
+}
+
+fn mark_pending_turn_waiting_for_approval(state: &mut TuiState, prompt: &PermissionPrompt) {
+    if let Some(turn) = state.pending_turn.as_mut() {
+        turn.phase = format!("Waiting for approval: {}", prompt.tool_name);
+        turn.next_action = "approve / deny".to_string();
+    }
+}
+
+fn mark_pending_turn_waiting_for_provider(state: &mut TuiState) {
+    if let Some(turn) = state.pending_turn.as_mut() {
+        turn.phase = "Waiting for provider response".to_string();
+        turn.next_action = "wait".to_string();
+    }
 }
 
 fn provider_catalog(engine: &SessionEngine) -> Vec<ProviderOption> {
@@ -337,10 +597,11 @@ fn is_exit_command(input: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        background_diagnostic_paths, is_exit_command, persist_rendered_diagnostics,
-        refresh_diagnostics_cache,
+        apply_composer_shortcut, background_diagnostic_paths, is_exit_command, is_send_key,
+        last_user_input, persist_rendered_diagnostics, refresh_diagnostics_cache,
     };
     use crate::tui::state::{ProviderStatus, TerminalLane, WorkspaceSnapshot};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::{
         fs,
         sync::atomic::{AtomicU64, Ordering},
@@ -355,6 +616,68 @@ mod tests {
         assert!(is_exit_command("/quit"));
         assert!(is_exit_command(" /QUIT "));
         assert!(!is_exit_command("/help"));
+    }
+
+    #[test]
+    fn composer_shortcuts_match_advertised_actions() {
+        let mut state = test_state("draft input");
+        state.entries.push(super::TuiEntry {
+            label: "user".to_string(),
+            body: "previous task".to_string(),
+        });
+
+        assert!(is_send_key(KeyEvent::new(
+            KeyCode::Char('j'),
+            KeyModifiers::CONTROL
+        )));
+        assert!(apply_composer_shortcut(
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
+            &mut state
+        ));
+        assert_eq!(state.input, "");
+        assert!(apply_composer_shortcut(
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL),
+            &mut state
+        ));
+        assert_eq!(state.input, "previous task");
+        assert!(apply_composer_shortcut(
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
+            &mut state
+        ));
+        assert_eq!(state.input, "/task add ");
+    }
+
+    #[test]
+    fn question_mark_opens_help_only_from_empty_composer() {
+        let mut empty = test_state("");
+        assert!(apply_composer_shortcut(
+            KeyEvent::new(KeyCode::Char('?'), KeyModifiers::empty()),
+            &mut empty
+        ));
+        assert_eq!(empty.input, "/help ");
+
+        let mut typing = test_state("what");
+        assert!(!apply_composer_shortcut(
+            KeyEvent::new(KeyCode::Char('?'), KeyModifiers::empty()),
+            &mut typing
+        ));
+        assert_eq!(typing.input, "what");
+    }
+
+    #[test]
+    fn regenerate_uses_latest_user_turn() {
+        let mut state = test_state("");
+        assert_eq!(last_user_input(&state), None);
+        state.entries.push(super::TuiEntry {
+            label: "assistant".to_string(),
+            body: "answer".to_string(),
+        });
+        state.entries.push(super::TuiEntry {
+            label: "user".to_string(),
+            body: "  retry this  ".to_string(),
+        });
+
+        assert_eq!(last_user_input(&state), Some("retry this".to_string()));
     }
 
     #[test]
@@ -460,6 +783,32 @@ mod tests {
             state.workspace.diagnostics,
             vec!["src/lib.rs:3:1 warning [fake/W1] note".to_string()]
         );
+    }
+
+    fn test_state(input: &str) -> super::TuiState {
+        super::TuiState {
+            session_id: "session".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_catalog: crate::tui::state::ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: input.to_string(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            pending_turn: None,
+            entries: Vec::new(),
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::<TerminalLane>::new(),
+            lane_store: None,
+            focused_lane: None,
+        }
     }
 
     fn temp_app_root() -> std::path::PathBuf {

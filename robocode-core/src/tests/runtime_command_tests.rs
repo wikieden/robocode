@@ -62,6 +62,29 @@ fn status_command_reports_current_runtime_state() {
 }
 
 #[test]
+fn context_command_reports_missing_bundle_before_provider_turn() {
+    let home = temp_dir("context_command_home");
+    let cwd = temp_dir("context_command_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/context", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("No provider ContextBundle yet")
+                && text.contains("Send a provider turn first")
+    )));
+}
+
+#[test]
 fn status_command_reports_dirty_files_active_tasks_and_lanes() {
     let home = temp_dir("status_cockpit_home");
     let cwd = temp_dir("status_cockpit_cwd");
@@ -151,6 +174,9 @@ fn agent_doctor_reports_adapter_readiness_without_mutation() {
         EngineEvent::Command(text)
             if text.contains("Agent diagnostics:")
                 && text.contains("codex")
+                && text.contains("readiness:")
+                && text.contains("mutation: read-only by default")
+                && text.contains("evidence: job result")
                 && text.contains("binary:")
                 && text.contains("template:")
     )));
@@ -195,6 +221,9 @@ fn agent_doctor_reports_experimental_acp_readiness() {
         EngineEvent::Command(text)
             if text.contains("ACP agent server")
                 && text.contains("transport: acp")
+                && text.contains("mutation: read-only probe only")
+                && text.contains("evidence: doctor/probe output")
+                && text.contains("experimental descriptor/probe surface only")
                 && text.contains("ROBOCODE_AGENT_ACP_COMMAND")
                 && text.contains("command: missing")
     )));

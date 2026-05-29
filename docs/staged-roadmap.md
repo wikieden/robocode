@@ -6,6 +6,10 @@ This roadmap translates the full RoboCode product requirements into delivery
 stages. It is intentionally derived from the target product, not from the
 history of the current repository.
 
+For the longer product strategy behind these delivery stages, see
+[RoboCode Long-Term Roadmap](long-term-roadmap.md). This staged roadmap is the
+delivery map; the long-term roadmap is the product and market map.
+
 ## Long-Term Positioning
 
 RoboCode is not only a TUI and not only another coding-agent CLI. The long-term
@@ -185,21 +189,31 @@ Mainline landed:
 - Provider hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Current release candidate:
+Current published release:
 
-- `docs/release-0.1.13-status.md` records the local Operator Loop Hardening RC.
-- `0.1.13` has implemented the default TUI entry, first-run provider/model
-  setup, interaction reliability tests, focused lane diff/artifact commands, and
-  main provider ContextBundle injection.
-- Remaining public-release work is full package smoke, optional live DeepSeek
-  smoke, tag/release asset publishing, Homebrew tap update, and post-publish
-  checks.
+- `docs/release-0.1.13-status.md` records the tagged, published, and
+  post-publish-verified Operator Loop Hardening release.
+- `0.1.13` implemented the default TUI entry, first-run provider/model setup,
+  interaction reliability tests, focused lane diff/artifact commands, main
+  provider ContextBundle injection, GitHub Release assets, Homebrew tap update,
+  and live DeepSeek smoke.
+
+Current local RC:
+
+- `docs/release-0.1.16-plan.md` targets TUI Interaction Reliability:
+  non-blocking provider-turn feedback, command-palette scroll parity, approval
+  diff/evidence control, resize/caret/IME stability, and a footer promise audit.
+- `docs/release-0.1.16-status.md` records the local RC state and verification
+  evidence. GitHub Release assets and Homebrew tap update remain pending.
+- `0.1.15` remains the Context Curator And Budget Controls checkpoint:
+  ContextBundle v1 policy records, `/context` visibility, source priority,
+  omitted-source evidence, side-2 context rows, and the foundation for future
+  pin/omit plus per-lane budget controls.
 
 Next planned:
 
-- complete the public `0.1.13` release loop when ready, then move the next
-  iteration toward reproducible Codex/Claude delegated lane happy paths and ACP
-  boundary hardening.
+- Lightweight spec/steering is pushed to `0.1.17` because the TUI operator loop
+  must stay responsive and trustworthy before more workflow surface is added.
 - require a real-use screenshot or deterministic visual artifact for every
   user-visible feature before it is marked complete
 

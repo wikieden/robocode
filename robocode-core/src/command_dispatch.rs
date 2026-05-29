@@ -32,6 +32,7 @@ impl SessionEngine {
             "/extensions" => self.handle_extensions_command(&args)?,
             "/mcp" => self.handle_mcp_command(&args)?,
             "/skills" => self.handle_skills_command(&args)?,
+            "/context" => self.render_context_command(),
             "/status" => self.render_status(),
             "/config" => self.render_config(),
             "/doctor" => self.render_doctor(),

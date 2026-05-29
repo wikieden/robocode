@@ -28,14 +28,31 @@ Mainline landed status:
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Current release candidate (`0.1.13`):
+Current published release (`0.1.13`):
 
-- `docs/release-0.1.13-status.md` records the local RC status and verification.
+- `docs/release-0.1.13-status.md` records the tagged, published, and
+  post-publish-verified release state.
 - The default TUI entry, first-run provider/model setup, interaction reliability
   tests, focused lane diff/artifact evidence, main provider ContextBundle
-  injection, and quick release smoke are implemented locally.
-- Public release work remains separate: full package smoke, optional DeepSeek
-  live smoke, tag/release assets, Homebrew tap update, and post-publish checks.
+  injection, full local release smoke, GitHub Release assets, Homebrew tap
+  update, and DeepSeek live smoke are complete.
+
+Current local release candidate (`0.1.16`):
+
+- `docs/release-0.1.16-plan.md` defines **TUI Interaction Reliability**.
+- The local RC moves provider turns behind a worker/channel boundary so the
+  cockpit can keep repainting, keeps command-palette long lists scrollable,
+  makes approval diff/evidence useful, and documents remaining mouse, streaming,
+  and cancellation gaps.
+- `docs/release-0.1.16-status.md` records the local RC state; GitHub Release
+  assets and Homebrew tap update remain pending.
+- `0.1.15` remains the Context Curator And Budget Controls checkpoint, recorded
+  in `docs/release-0.1.15-plan.md` and `docs/release-0.1.15-status.md`.
+
+Next planned release (`0.1.17`):
+
+- Lightweight spec/steering work is the next feature track, now intentionally
+  behind the 0.1.16 interaction-reliability insert.
 
 ## Near-Term Plan
 
@@ -43,9 +60,12 @@ Current release candidate (`0.1.13`):
    - Phase 1-7 of the current TUI/lane plan are landed on `main`: cockpit
      layout, theme variants, companion screens, lane runtime, external-tool
      adapters, isolation, and attachable terminal panes.
-   - `0.1.13` hardening is locally implemented for reliable exits, modal
-     cleanup, lane diff/artifact review, ContextBundle pressure visibility, and
-     release-smoke compatibility with the default TUI entry.
+   - `0.1.13` hardening landed reliable exits, modal cleanup, lane diff/artifact
+     review, ContextBundle pressure visibility, and release-smoke compatibility
+     with the default TUI entry.
+   - `0.1.16` lands interaction reliability: non-blocking active-turn feedback,
+     command-palette scroll parity, approval diff/evidence control, resize
+     stability, visible caret behavior, and truthful footer actions.
    - Keep lane completion separate from acceptance, and keep apply/cleanup as
      explicit operator actions.
 
@@ -66,7 +86,7 @@ Current release candidate (`0.1.13`):
      output, and reasoning/evidence summaries into RoboCode lane evidence.
    - Use read-only as the default review posture; require explicit permission
      boundaries for write-capable Codex work.
-   - In `0.1.13`, make read-only Codex review and Claude template/tmux lanes
+   - In `0.1.14`, make read-only Codex review and Claude template/tmux lanes
      reproducible before broadening write-capable external-agent workflows.
 
 4. External Coding Tool Adapter Expansion.
@@ -178,6 +198,7 @@ Primary planning docs:
 
 - `docs/product-requirements.md`
 - `docs/staged-roadmap.md`
+- `docs/long-term-roadmap.md`
 - `docs/ref-gap-matrix.md`
 - `docs/reference-analysis.md`
 - `docs/architecture.md`
@@ -185,6 +206,12 @@ Primary planning docs:
 - `docs/code-agent-benchmark.md`
 - `docs/tui-lane-architecture-plan.md`
 - `docs/tui-lane-architecture-plan.zh-CN.md`
+- `docs/release-0.1.16-plan.md`
+- `docs/release-0.1.16-plan.zh-CN.md`
+- `docs/release-0.1.15-plan.md`
+- `docs/release-0.1.15-plan.zh-CN.md`
+- `docs/release-0.1.14-plan.md`
+- `docs/release-0.1.14-plan.zh-CN.md`
 - `docs/superpowers/plans/2026-05-23-tui-cockpit-terminal-lanes.md`
 - `docs/superpowers/plans/2026-05-23-tui-cockpit-terminal-lanes.zh-CN.md`
 - `docs/superpowers/plans/2026-04-11-robocode-plan-index.md`

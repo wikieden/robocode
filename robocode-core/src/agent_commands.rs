@@ -11,8 +11,8 @@ use std::{
 use crate::{SessionEngine, presentation::render_permission_denial};
 use robocode_permissions::PermissionEngine;
 use robocode_types::{
-    ApprovalResponse, PermissionDecision, PermissionLogEntry, ToolInput, ToolSpec, TranscriptEntry,
-    now_timestamp,
+    AgentCapabilityRecord, ApprovalResponse, PermissionDecision, PermissionLogEntry, ToolInput,
+    ToolSpec, TranscriptEntry, now_timestamp,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,7 +32,7 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 6] = [
         id: "codex",
         display_name: "Codex CLI",
         transport: "app-server",
-        entrypoint: "/agent run codex [--write] <task> | /lane codex <task>",
+        entrypoint: "/agent review codex [prompt] | /lane codex-review <task> | /lane codex <task>",
         binary: Some("codex"),
         config_env: Some("ROBOCODE_LANE_CODEX_TEMPLATE"),
         config_label: "template",
@@ -254,19 +254,20 @@ fn codex_run_command_args(cwd: &Path, sandbox: &str, task: String) -> Vec<String
 fn render_agent_list() -> String {
     let mut lines = vec![
         "Agent adapters:".to_string(),
-        "  id               transport  readiness      entrypoint".to_string(),
+        "  id               transport  readiness      mutation".to_string(),
     ];
     lines.extend(AGENT_ADAPTERS.into_iter().map(|adapter| {
+        let capability = adapter_capability(adapter);
         format!(
             "  {:<16} {:<10} {:<14} {}",
-            adapter.id,
-            adapter.transport,
-            adapter_readiness(adapter),
-            adapter.entrypoint
+            capability.id, capability.transport, capability.readiness, capability.mutation_mode
         )
     }));
     lines.push(String::new());
-    lines.push("Use `/agent doctor [id]` for binary, template, and transport details.".to_string());
+    lines.push(
+        "Use `/agent doctor [id]` for binary, capability, evidence, and transport details."
+            .to_string(),
+    );
     lines.join("\n")
 }
 
@@ -283,9 +284,22 @@ fn render_agent_doctor(target: Option<&str>, cwd: &Path) -> String {
     };
     let mut lines = vec!["Agent diagnostics:".to_string()];
     for adapter in adapters {
-        lines.push(format!("  {} ({})", adapter.id, adapter.display_name));
-        lines.push(format!("    transport: {}", adapter.transport));
-        lines.push(format!("    entrypoint: {}", adapter.entrypoint));
+        let capability = adapter_capability(adapter);
+        lines.push(format!("  {} ({})", capability.id, capability.display_name));
+        lines.push(format!("    transport: {}", capability.transport));
+        lines.push(format!("    readiness: {}", capability.readiness));
+        lines.push(format!("    entrypoint: {}", capability.entrypoint));
+        lines.push(format!("    mutation: {}", capability.mutation_mode));
+        lines.push(format!("    evidence: {}", capability.evidence_mode));
+        if let Some(config_source) = capability.config_source.as_deref() {
+            lines.push(format!("    config source: {config_source}"));
+        }
+        if !capability.known_limits.is_empty() {
+            lines.push(format!(
+                "    limits: {}",
+                capability.known_limits.join("; ")
+            ));
+        }
         match adapter.binary {
             Some(binary) => lines.push(format!(
                 "    binary: {} ({binary})",
@@ -329,6 +343,67 @@ fn render_agent_doctor(target: Option<&str>, cwd: &Path) -> String {
         }
     }
     lines.join("\n")
+}
+
+fn adapter_capability(adapter: AgentAdapterDescriptor) -> AgentCapabilityRecord {
+    let known_limits = match adapter.id {
+        "codex" => vec![
+            "write-capable runs require RoboCode approval".to_string(),
+            "app-server write probe is guarded by an experimental flag".to_string(),
+        ],
+        "claude" => vec![
+            "requires a configured lane template before execution".to_string(),
+            "review/apply evidence is captured through lane artifacts".to_string(),
+        ],
+        "custom-template" => vec![
+            "resolved dynamically from the selected tool name".to_string(),
+            "template output must emit inspectable artifacts for review".to_string(),
+        ],
+        "tmux" => vec![
+            "operator-controlled interactive lane".to_string(),
+            "requires tmux and terminal-side task discipline".to_string(),
+        ],
+        "pty" => vec![
+            "embedded PTY lane is platform/template dependent".to_string(),
+            "review/apply still flows through lane evidence".to_string(),
+        ],
+        "acp" => vec![
+            "experimental descriptor/probe surface only".to_string(),
+            "mutating runtime is intentionally out of scope for this release".to_string(),
+        ],
+        _ => Vec::new(),
+    };
+    AgentCapabilityRecord {
+        id: adapter.id.to_string(),
+        display_name: adapter.display_name.to_string(),
+        transport: adapter.transport.to_string(),
+        readiness: adapter_readiness(adapter).to_string(),
+        entrypoint: adapter.entrypoint.to_string(),
+        mutation_mode: adapter_mutation_mode(adapter).to_string(),
+        evidence_mode: adapter_evidence_mode(adapter).to_string(),
+        config_source: adapter.config_env.map(str::to_string),
+        known_limits,
+    }
+}
+
+fn adapter_mutation_mode(adapter: AgentAdapterDescriptor) -> &'static str {
+    match adapter.id {
+        "codex" => "read-only by default; workspace-write requires approval",
+        "claude" | "custom-template" => "template-defined; isolate before apply",
+        "tmux" | "pty" => "interactive; operator-controlled",
+        "acp" => "read-only probe only",
+        _ => "unknown",
+    }
+}
+
+fn adapter_evidence_mode(adapter: AgentAdapterDescriptor) -> &'static str {
+    match adapter.id {
+        "codex" => "job result, protocol/app-server log, lane artifacts",
+        "claude" | "custom-template" => "lane log, envelope, timeline, artifacts",
+        "tmux" | "pty" => "terminal tail, lane log, timeline, artifacts",
+        "acp" => "doctor/probe output",
+        _ => "unknown",
+    }
 }
 
 fn render_agent_logs_help() -> String {
