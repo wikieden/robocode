@@ -3242,6 +3242,7 @@ mod tests {
         let root = temp_lane_root();
         let store = root.join(".robocode").join("lanes.tsv");
         let mut state = test_state();
+        state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
 
         assert!(handle_tui_command(
@@ -4301,6 +4302,7 @@ mod tests {
         let root = temp_lane_root();
         let store = root.join(".robocode").join("lanes.tsv");
         let mut state = test_state();
+        state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
 
         assert!(handle_tui_command(
@@ -4325,6 +4327,7 @@ mod tests {
         let root = temp_lane_root();
         let store = root.join(".robocode").join("lanes.tsv");
         let mut state = test_state();
+        state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
 
         assert!(handle_tui_command(
