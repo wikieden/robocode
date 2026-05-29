@@ -114,6 +114,11 @@ gh release view v<version>
 scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
 ```
 
+GitHub Release and Homebrew are a single release unit. Every published GitHub
+release must update `wikieden/homebrew-tap` to the same version before the
+release is considered complete. If the tap is not updated or the Homebrew check
+is skipped, record the release as incomplete, not merely partially verified.
+
 The release status document must record the command, evidence directory,
 release URL, workflow run, assets, Homebrew result, and remaining risks.
 

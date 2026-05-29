@@ -302,6 +302,10 @@ After publishing, validate release assets and Homebrew:
 scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
 ```
 
+Every GitHub Release must be paired with a same-version Homebrew tap update.
+Do not mark a release complete until the post-publish smoke validates both
+GitHub assets and Homebrew.
+
 ## Feedback
 
 Please report bugs and feature requests through

@@ -260,6 +260,9 @@ scripts/tui-regression.sh docs/previews/generated
 scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
 ```
 
+每次 GitHub Release 都必须同步相同版本的 Homebrew tap。只有 post-publish smoke
+同时验证 GitHub assets 和 Homebrew 后，发布才算完成。
+
 ## 问题反馈
 
 请通过 [GitHub Issues](https://github.com/wikieden/robocode/issues)

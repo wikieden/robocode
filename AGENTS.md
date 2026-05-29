@@ -55,6 +55,12 @@ extra platform machinery is not yet needed.
 - Follow `docs/development-standards.md` for the project coding standard,
   especially the documentation and code-comment requirements.
 - Keep root docs compact. Put full product detail under `docs/`.
+- Treat GitHub Release and Homebrew tap sync as one release unit:
+  - every GitHub Release must update `wikieden/homebrew-tap` to the same version;
+  - release completion requires post-publish smoke with both GitHub assets and
+    Homebrew validation;
+  - do not report a release as complete while the Homebrew tap is stale or
+    unverified.
 - Do not edit `.ref/`; it is reference material only.
 - Keep `.omx/`, `.robocode/`, `.worktrees/`, `.ref/`, and build artifacts out of tracked source.
 

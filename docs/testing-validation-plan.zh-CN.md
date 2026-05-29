@@ -105,6 +105,10 @@ gh release view v<version>
 scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
 ```
 
+GitHub Release 和 Homebrew 是同一个发布单元。每次发布 GitHub Release，都必须把
+`wikieden/homebrew-tap` 同步到相同版本后，才能认为发布完成。如果 tap 未更新，
+或跳过 Homebrew 检查，release status 必须记录为未完成，而不是部分通过。
+
 release status 文档必须记录命令、evidence 目录、release URL、workflow run、assets、
 Homebrew 结果和剩余风险。
 
