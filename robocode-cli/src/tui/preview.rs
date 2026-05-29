@@ -424,8 +424,8 @@ fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) 
     let mut state = idle_preview_state(provider, model, theme_name);
     state.provider = "deepseek".to_string();
     state.model = "deepseek-v4-flash".to_string();
-    state.input = "/models deep".to_string();
-    state.command_selection = 1;
+    state.input = "/settings".to_string();
+    state.command_selection = 3;
     state
 }
 
@@ -501,9 +501,9 @@ mod tests {
         assert!(cjk_input.contains("你好，帮我检查当前变更"));
         assert!(main.contains("src/config.rs"));
         assert!(idle.contains("No approval is blocking right now"));
-        assert!(command_palette.contains("SELECT MODEL"));
-        assert!(command_palette.contains("Search deep"));
-        assert!(command_palette.contains("deepseek-v4-flash"));
+        assert!(command_palette.contains("SETTINGS"));
+        assert!(command_palette.contains("permissions"));
+        assert!(command_palette.contains("theme"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(!main.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));

@@ -290,7 +290,10 @@ fn handle_enter(
         label: "user".to_string(),
         body: input.clone(),
     });
-    if handle_tui_command(&input, state) || handle_screen_command(&input, state) {
+    if handle_local_setting_command(&input, state, terminal)?
+        || handle_tui_command(&input, state)
+        || handle_screen_command(&input, state)
+    {
         return Ok(false);
     }
     state.pending_turn = Some(PendingTurn::new(
@@ -316,6 +319,49 @@ fn handle_enter(
     state.memory = engine.memory_snapshot().unwrap_or_default();
     state.workspace = WorkspaceSnapshot::load_current();
     Ok(false)
+}
+
+fn handle_local_setting_command(
+    input: &str,
+    state: &mut TuiState,
+    terminal: &mut TerminalGuard,
+) -> Result<bool, String> {
+    let mut parts = input.split_whitespace();
+    match (parts.next(), parts.next()) {
+        (Some("/theme"), Some(theme_name)) => {
+            apply_theme_command(theme_name, state, terminal)?;
+            Ok(true)
+        }
+        (Some("/settings" | "/setup"), Some("theme")) => {
+            if let Some(theme_name) = parts.next() {
+                apply_theme_command(theme_name, state, terminal)?;
+            } else {
+                state.entries.push(TuiEntry {
+                    label: "settings".to_string(),
+                    body: format!(
+                        "Theme picker: type `/settings theme <name>`. Available: {}",
+                        crate::tui::theme_names().join(", ")
+                    ),
+                });
+            }
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn apply_theme_command(
+    theme_name: &str,
+    state: &mut TuiState,
+    terminal: &mut TerminalGuard,
+) -> Result<(), String> {
+    let applied = terminal.set_theme(theme_name)?;
+    state.theme_name = applied.to_string();
+    state.entries.push(TuiEntry {
+        label: "settings".to_string(),
+        body: format!("TUI theme set to `{applied}`."),
+    });
+    Ok(())
 }
 
 fn run_provider_turn_interactive(

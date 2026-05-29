@@ -117,8 +117,10 @@ api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
 
-The TUI setup commands persist only the provider and model defaults. API keys
-remain in environment variables or manually maintained config fields.
+The TUI setup commands are picker-first: `/settings`, `/provider`, `/models`,
+`/permissions`, and `/theme` render selectable panels instead of status-only
+screens. They persist only provider/model defaults and permission mode changes.
+API keys remain in environment variables or manually maintained config fields.
 
 ```text
 /settings
@@ -126,6 +128,8 @@ remain in environment variables or manually maintained config fields.
 /provider <provider-id> [model]
 /model <model>
 /models
+/settings permissions <mode>
+/settings theme <name>
 /settings save
 ```
 
@@ -175,6 +179,8 @@ Provider commands:
 /model [name]
 /models [name]
 /settings
+/settings permissions [mode]
+/settings theme [name]
 /setup
 ```
 

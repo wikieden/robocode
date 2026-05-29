@@ -63,6 +63,12 @@ slash-prefixed tokens such as `/` or `/p`, and for supported nested command
 queries such as `/lane `, `/git st`, `/task status task_`, or
 `/lsp diagnostics src/`.
 
+Settings-style commands are picker-first. `/settings`, `/provider`, `/models`,
+`/permissions`, and `/theme` render centered selector panels with search,
+keyboard movement, mouse selection, and `Enter` apply semantics. They must not
+degrade into status-only pages unless the command is explicitly a diagnostic
+or details command such as `/config` or `/provider doctor`.
+
 Keyboard contract:
 
 - `Up` / `Down`: move the selected command.

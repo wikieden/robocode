@@ -170,14 +170,14 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 - provider turn 正在运行时，cockpit 会持续刷新当前工作状态和 elapsed time。
   `Ctrl-C` 会请求取消，但已经发出的 provider 请求仍可能正常返回。
 - 审批弹窗默认停在 `Approve`；按 `y` 通过，`n` 拒绝，`d` 聚焦 diff，也可以用 `Tab` / 方向键在动作间移动。
-- 输入 `/` 会打开命令提示。`/models` 会打开带搜索和键盘选择的模型选择器。常用入口包括 `/help`、`/settings`、`/setup`、`/provider`、`/models`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/brief`、`/spec`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
+- 输入 `/` 会打开命令提示。`/settings`、`/provider`、`/models`、`/permissions`、`/theme` 都会打开带搜索、键盘选择和鼠标选择的选择器。常用入口包括 `/help`、`/settings`、`/setup`、`/provider`、`/models`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/brief`、`/spec`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
   长列表会保持选中行可见，并支持点击可见行补全。
 
 ## 配置
 
 RoboCode 会读取平台默认配置路径，然后读取 `.robocode/config.toml`，CLI flags 优先级最高。
 
-在 TUI 中，`/setup` 会打开首次使用 provider/model 配置流程。`/provider` 会展示可执行的 provider picker；`/provider <id> [model]` 会切换并保存默认 provider/model。`/models` 会展示模型选择器；`/model <model>` 或 `/models <model>` 会为当前 provider 切换并保存 model。`/settings` 仍是详细状态页，`/settings save` 会持久化当前 provider/model，但不会写入 API key。
+在 TUI 中，`/setup` 会打开首次使用 provider/model 配置流程。`/settings` 是可操作的设置选择器，不再只是状态展示：provider、model、permissions、theme、保存默认值和诊断都可以直接选择。`/provider` 会展示 provider picker；`/provider <id> [model]` 会切换并保存默认 provider/model。`/models` 会展示模型选择器；`/model <model>` 或 `/models <model>` 会为当前 provider 切换并保存 model。`/settings permissions <mode>` 会修改审批模式，`/settings theme <name>` 会修改当前 TUI 主题，`/settings save` 会持久化当前 provider/model，但不会写入 API key。
 
 ```toml
 provider = "deepseek"

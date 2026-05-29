@@ -144,6 +144,17 @@ impl TerminalGuard {
         self.theme.name
     }
 
+    pub(super) fn set_theme(&mut self, theme_name: &str) -> Result<&'static str, String> {
+        if !TuiTheme::is_known(theme_name) {
+            return Err(format!(
+                "Unknown TUI theme `{theme_name}`. Available themes: {}",
+                TuiTheme::names().join(", ")
+            ));
+        }
+        self.theme = TuiTheme::named(theme_name);
+        Ok(self.theme.name)
+    }
+
     pub(super) fn theme_name(&self) -> &'static str {
         self.theme.name
     }

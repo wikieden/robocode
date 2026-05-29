@@ -41,6 +41,8 @@ steering 支撑层。
   palette 操作提示。
 - `/setup provider <id> [model]` 和 `/setup model <model>` 复用 `/settings` 的
   provider/model 保存路径，因此用户可以配置 provider/model，但不会保存 API key。
+- TUI 设置现在是 selector-first：`/settings`、`/provider`、`/models`、`/permissions`
+  和 `/theme` 都会打开可操作选择器，不再停留在信息展示页。
 - 当错误看起来像 model unavailable、unauthorized、unsupported 或 incompatible 时，
   provider/model failure 会附加换模型恢复提示。
 - `/brief <goal>` 和 `/spec <goal>` 会在 `.robocode/briefs/active.md`

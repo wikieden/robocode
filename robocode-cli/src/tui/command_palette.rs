@@ -8,6 +8,7 @@ use super::{
     state::TuiState,
     statusbar::BOTTOM_BAR_HEIGHT,
     text::{bottom_border, pad, truncate},
+    theme::TuiTheme,
 };
 
 const MAX_VISIBLE_COMMANDS: usize = 6;
@@ -37,6 +38,9 @@ pub(super) fn is_command_palette_visible(state: &TuiState) -> bool {
 }
 
 fn command_suggestions_for_state(state: &TuiState) -> Vec<CommandSuggestion> {
+    if let Some(suggestions) = selector_root_suggestions(&state.input, state) {
+        return suggestions;
+    }
     nested_command_suggestions(&state.input, state)
         .unwrap_or_else(|| static_command_suggestions(&state.input))
 }
@@ -120,6 +124,16 @@ pub(super) fn command_suggestion_index_at(
         return None;
     }
     let suggestions = command_suggestions_for_state(state);
+    if selector_kind(&state.input).is_some() {
+        return selector_suggestion_index_at(
+            state,
+            &suggestions,
+            column,
+            row,
+            frame_width,
+            frame_height,
+        );
+    }
     let visible = suggestions.len().min(MAX_VISIBLE_COMMANDS);
     if visible == 0 {
         return None;
@@ -158,8 +172,8 @@ pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {
     if suggestions.is_empty() {
         return;
     }
-    if is_model_selector_query(&state.input) {
-        render_model_selector(frame, state, &suggestions);
+    if let Some(kind) = selector_kind(&state.input) {
+        render_selector(frame, state, &suggestions, kind);
         return;
     }
 
@@ -206,11 +220,86 @@ pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {
     frame.write_block(top, left, &rows);
 }
 
-fn is_model_selector_query(input: &str) -> bool {
-    input == "/models" || input.starts_with("/models ")
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectorKind {
+    Settings,
+    Provider,
+    Model,
+    Permissions,
+    Theme,
 }
 
-fn render_model_selector(frame: &mut Frame, state: &TuiState, suggestions: &[CommandSuggestion]) {
+impl SelectorKind {
+    fn title(self) -> &'static str {
+        match self {
+            Self::Settings => "SETTINGS",
+            Self::Provider => "SELECT PROVIDER",
+            Self::Model => "SELECT MODEL",
+            Self::Permissions => "PERMISSIONS",
+            Self::Theme => "SELECT THEME",
+        }
+    }
+
+    fn footer(self) -> &'static str {
+        match self {
+            Self::Settings => "Enter apply   ↑↓ select   / search   esc close",
+            Self::Provider => "Enter apply   doctor: /provider doctor   esc close",
+            Self::Model => "Connect provider  ctrl+a   Favorite  ctrl+f",
+            Self::Permissions => "Enter apply   Suggest is the safe default",
+            Self::Theme => "Enter apply   Ctrl+T cycles theme",
+        }
+    }
+}
+
+fn selector_kind(input: &str) -> Option<SelectorKind> {
+    let normalized = input.trim_end();
+    if matches!(normalized, "/settings" | "/setup") {
+        return Some(SelectorKind::Settings);
+    }
+    if matches!(
+        normalized,
+        "/provider" | "/settings provider" | "/setup provider"
+    ) || normalized.starts_with("/provider ")
+        || normalized.starts_with("/settings provider ")
+        || normalized.starts_with("/setup provider ")
+    {
+        return Some(SelectorKind::Provider);
+    }
+    if matches!(
+        normalized,
+        "/model" | "/models" | "/settings model" | "/setup model"
+    ) || normalized.starts_with("/model ")
+        || normalized.starts_with("/models ")
+        || normalized.starts_with("/settings model ")
+        || normalized.starts_with("/setup model ")
+    {
+        return Some(SelectorKind::Model);
+    }
+    if matches!(
+        normalized,
+        "/permissions" | "/settings permissions" | "/setup permissions"
+    ) || normalized.starts_with("/permissions ")
+        || normalized.starts_with("/settings permissions ")
+        || normalized.starts_with("/setup permissions ")
+    {
+        return Some(SelectorKind::Permissions);
+    }
+    if matches!(normalized, "/theme" | "/settings theme" | "/setup theme")
+        || normalized.starts_with("/theme ")
+        || normalized.starts_with("/settings theme ")
+        || normalized.starts_with("/setup theme ")
+    {
+        return Some(SelectorKind::Theme);
+    }
+    None
+}
+
+fn render_selector(
+    frame: &mut Frame,
+    state: &TuiState,
+    suggestions: &[CommandSuggestion],
+    kind: SelectorKind,
+) {
     let width = frame
         .width
         .saturating_mul(2)
@@ -226,12 +315,12 @@ fn render_model_selector(frame: &mut Frame, state: &TuiState, suggestions: &[Com
     let start = visible_command_window_start(selected, suggestions.len(), visible);
     let search = state
         .input
-        .strip_prefix("/models")
+        .strip_prefix(selector_search_prefix(&state.input, kind))
         .unwrap_or("")
         .trim_start();
     let content_width = width.saturating_sub(4);
     let mut rows = vec![
-        panel_top("SELECT MODEL", width, Some("esc")),
+        panel_top(kind.title(), width, Some("esc")),
         format!("│ {} │", pad("", content_width)),
         format!(
             "│ {} │",
@@ -241,36 +330,24 @@ fn render_model_selector(frame: &mut Frame, state: &TuiState, suggestions: &[Com
             )
         ),
         format!("│ {} │", pad("", content_width)),
-        format!(
-            "│ {} │",
-            pad(
-                &format!("{}  {}", state.provider, state.model),
-                content_width
-            )
-        ),
+        format!("│ {} │", pad(&selector_context(state, kind), content_width)),
     ];
     for (index, suggestion) in suggestions.iter().enumerate().skip(start).take(visible) {
-        let model = suggestion
-            .command
-            .strip_prefix("/models ")
-            .unwrap_or(suggestion.command.as_str());
+        let label = selector_label(suggestion, kind);
         let marker = if index == selected { "●" } else { " " };
-        let label = if index == selected {
-            format!("{marker} {model}")
+        let line = if index == selected {
+            format!("{marker} {label}")
         } else {
-            format!("  {model}")
+            format!("  {label}")
         };
         rows.push(format!(
             "│ {} │",
-            pad(&truncate(&label, content_width), content_width)
+            pad(&truncate(&line, content_width), content_width)
         ));
     }
     rows.extend([
         format!("│ {} │", pad("", content_width)),
-        format!(
-            "│ {} │",
-            pad("Connect provider  ctrl+a   Favorite  ctrl+f", content_width)
-        ),
+        format!("│ {} │", pad(kind.footer(), content_width)),
         bottom_border(width),
     ]);
     while rows.len() < height {
@@ -287,6 +364,116 @@ fn render_model_selector(frame: &mut Frame, state: &TuiState, suggestions: &[Com
     frame.write_block(top, left, &rows);
 }
 
+fn selector_suggestion_index_at(
+    state: &TuiState,
+    suggestions: &[CommandSuggestion],
+    column: u16,
+    row: u16,
+    frame_width: u16,
+    frame_height: u16,
+) -> Option<usize> {
+    if suggestions.is_empty() {
+        return None;
+    }
+    let width = usize::from(frame_width)
+        .saturating_mul(2)
+        .saturating_div(5)
+        .clamp(56, 76);
+    let visible = suggestions.len().clamp(1, 12);
+    let height = (visible + 9)
+        .min(usize::from(frame_height).saturating_sub(4))
+        .max(12);
+    let left = usize::from(frame_width)
+        .saturating_sub(width)
+        .saturating_div(2);
+    let top = usize::from(frame_height)
+        .saturating_sub(height)
+        .saturating_div(2);
+    let column = usize::from(column);
+    let row = usize::from(row);
+    let item_top = top + 5;
+    if !(left..left + width).contains(&column) || !(item_top..item_top + visible).contains(&row) {
+        return None;
+    }
+    let selected = state
+        .command_selection
+        .min(suggestions.len().saturating_sub(1));
+    let start = visible_command_window_start(selected, suggestions.len(), visible);
+    Some(start + row - item_top)
+}
+
+fn selector_context(state: &TuiState, kind: SelectorKind) -> String {
+    match kind {
+        SelectorKind::Settings => format!(
+            "{}  {}  theme {}",
+            state.provider, state.model, state.theme_name
+        ),
+        SelectorKind::Provider => format!("current {} / {}", state.provider, state.model),
+        SelectorKind::Model => format!("{}  {}", state.provider, state.model),
+        SelectorKind::Permissions => "current mode is shown in the top bar".to_string(),
+        SelectorKind::Theme => format!("current {}", state.theme_name),
+    }
+}
+
+fn selector_search_prefix(input: &str, kind: SelectorKind) -> &str {
+    let normalized = input.trim_end();
+    match kind {
+        SelectorKind::Settings => normalized.split_whitespace().next().unwrap_or(normalized),
+        SelectorKind::Provider => ["/settings provider", "/setup provider", "/provider"]
+            .into_iter()
+            .find(|prefix| normalized.starts_with(prefix))
+            .unwrap_or("/provider"),
+        SelectorKind::Model => ["/settings model", "/setup model", "/models", "/model"]
+            .into_iter()
+            .find(|prefix| normalized.starts_with(prefix))
+            .unwrap_or("/models"),
+        SelectorKind::Permissions => [
+            "/settings permissions",
+            "/setup permissions",
+            "/permissions",
+        ]
+        .into_iter()
+        .find(|prefix| normalized.starts_with(prefix))
+        .unwrap_or("/permissions"),
+        SelectorKind::Theme => ["/settings theme", "/setup theme", "/theme"]
+            .into_iter()
+            .find(|prefix| normalized.starts_with(prefix))
+            .unwrap_or("/theme"),
+    }
+}
+
+fn selector_label(suggestion: &CommandSuggestion, kind: SelectorKind) -> String {
+    let command = suggestion.command.as_str();
+    match kind {
+        SelectorKind::Settings => command
+            .strip_prefix("/settings ")
+            .or_else(|| command.strip_prefix("/setup "))
+            .unwrap_or(command)
+            .to_string(),
+        SelectorKind::Provider => command
+            .strip_prefix("/settings provider ")
+            .or_else(|| command.strip_prefix("/setup provider "))
+            .or_else(|| command.strip_prefix("/provider "))
+            .unwrap_or(command)
+            .to_string(),
+        SelectorKind::Model => command
+            .split_whitespace()
+            .last()
+            .unwrap_or(command)
+            .to_string(),
+        SelectorKind::Permissions => command
+            .split_whitespace()
+            .last()
+            .unwrap_or(command)
+            .to_string(),
+        SelectorKind::Theme => command
+            .split_whitespace()
+            .last()
+            .unwrap_or(command)
+            .to_string(),
+    }
+}
+
 fn visible_command_window_start(selected: usize, total: usize, visible: usize) -> usize {
     if total <= visible || visible == 0 {
         return 0;
@@ -297,13 +484,117 @@ fn visible_command_window_start(selected: usize, total: usize, visible: usize) -
         .min(total.saturating_sub(visible))
 }
 
+fn selector_root_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    match selector_kind(query)? {
+        SelectorKind::Settings if matches!(query.trim_end(), "/settings" | "/setup") => {
+            Some(settings_templates_for_prefix(query.trim_end()))
+        }
+        SelectorKind::Provider if provider_selector_root_query(query) => {
+            Some(provider_selector_suggestions(query, state))
+        }
+        SelectorKind::Model if model_selector_root_query(query) => {
+            Some(model_selector_suggestions(query, state))
+        }
+        SelectorKind::Permissions if permission_selector_root_query(query) => {
+            Some(permission_selector_suggestions(query))
+        }
+        SelectorKind::Theme if theme_selector_root_query(query) => {
+            Some(theme_selector_suggestions(query))
+        }
+        _ => None,
+    }
+}
+
+fn provider_selector_root_query(query: &str) -> bool {
+    matches!(
+        query.trim_end(),
+        "/provider" | "/settings provider" | "/setup provider"
+    )
+}
+
+fn model_selector_root_query(query: &str) -> bool {
+    matches!(
+        query.trim_end(),
+        "/model" | "/models" | "/settings model" | "/setup model"
+    )
+}
+
+fn permission_selector_root_query(query: &str) -> bool {
+    matches!(
+        query.trim_end(),
+        "/permissions" | "/settings permissions" | "/setup permissions"
+    )
+}
+
+fn theme_selector_root_query(query: &str) -> bool {
+    matches!(
+        query.trim_end(),
+        "/theme" | "/settings theme" | "/setup theme"
+    )
+}
+
+fn provider_selector_suggestions(query: &str, state: &TuiState) -> Vec<CommandSuggestion> {
+    let prefix = selector_search_prefix(query, SelectorKind::Provider);
+    state
+        .provider_catalog
+        .iter()
+        .map(|provider| {
+            let model = provider.default_model.as_deref().unwrap_or("<model>");
+            CommandSuggestion {
+                command: format!("{prefix} {} {model}", provider.provider_id),
+                summary: provider_summary(provider),
+            }
+        })
+        .collect()
+}
+
+fn model_selector_suggestions(query: &str, state: &TuiState) -> Vec<CommandSuggestion> {
+    let prefix = selector_search_prefix(query, SelectorKind::Model);
+    state
+        .provider_catalog
+        .iter()
+        .filter(|provider| provider.provider_id == state.provider)
+        .filter_map(|provider| {
+            provider
+                .default_model
+                .as_ref()
+                .map(|model| CommandSuggestion {
+                    command: format!("{prefix} {model}"),
+                    summary: format!("Default model for {}", provider.display_name),
+                })
+        })
+        .collect()
+}
+
+fn permission_selector_suggestions(query: &str) -> Vec<CommandSuggestion> {
+    let prefix = selector_search_prefix(query, SelectorKind::Permissions);
+    PERMISSION_COMMANDS
+        .into_iter()
+        .map(|item| CommandSuggestion {
+            command: item.command.replacen("/permissions", prefix, 1),
+            summary: item.summary.to_string(),
+        })
+        .collect()
+}
+
+fn theme_selector_suggestions(query: &str) -> Vec<CommandSuggestion> {
+    let prefix = selector_search_prefix(query, SelectorKind::Theme);
+    TuiTheme::names()
+        .iter()
+        .map(|theme| CommandSuggestion {
+            command: format!("{prefix} {theme}"),
+            summary: "Apply TUI theme".to_string(),
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CommandTemplate {
     command: &'static str,
     summary: &'static str,
 }
 
-const COMMANDS: [CommandTemplate; 28] = [
+const COMMANDS: [CommandTemplate; 30] = [
     CommandTemplate {
         command: "/help",
         summary: "Show commands",
@@ -311,6 +602,10 @@ const COMMANDS: [CommandTemplate; 28] = [
     CommandTemplate {
         command: "/provider",
         summary: "List or switch providers",
+    },
+    CommandTemplate {
+        command: "/permissions",
+        summary: "Select approval mode",
     },
     CommandTemplate {
         command: "/settings",
@@ -327,6 +622,10 @@ const COMMANDS: [CommandTemplate; 28] = [
     CommandTemplate {
         command: "/models",
         summary: "Select model",
+    },
+    CommandTemplate {
+        command: "/theme",
+        summary: "Select TUI theme",
     },
     CommandTemplate {
         command: "/plan",
@@ -643,7 +942,7 @@ const PROVIDER_COMMANDS: [CommandTemplate; 5] = [
     },
 ];
 
-const SETTINGS_COMMANDS: [CommandTemplate; 5] = [
+const SETTINGS_COMMANDS: [CommandTemplate; 8] = [
     CommandTemplate {
         command: "/settings provider",
         summary: "Switch and save provider",
@@ -657,12 +956,47 @@ const SETTINGS_COMMANDS: [CommandTemplate; 5] = [
         summary: "Save current defaults",
     },
     CommandTemplate {
+        command: "/settings permissions",
+        summary: "Select approval mode",
+    },
+    CommandTemplate {
+        command: "/settings theme",
+        summary: "Select TUI theme",
+    },
+    CommandTemplate {
+        command: "/settings doctor",
+        summary: "Provider diagnostics",
+    },
+    CommandTemplate {
         command: "/settings show",
         summary: "Show settings",
     },
     CommandTemplate {
         command: "/settings help",
         summary: "Settings help",
+    },
+];
+
+const PERMISSION_COMMANDS: [CommandTemplate; 5] = [
+    CommandTemplate {
+        command: "/permissions default",
+        summary: "Suggest before mutations",
+    },
+    CommandTemplate {
+        command: "/permissions acceptEdits",
+        summary: "Auto-accept file edits",
+    },
+    CommandTemplate {
+        command: "/permissions plan",
+        summary: "Read-only planning mode",
+    },
+    CommandTemplate {
+        command: "/permissions bypassPermissions",
+        summary: "YOLO trusted workspace",
+    },
+    CommandTemplate {
+        command: "/permissions dontAsk",
+        summary: "Deny prompts instead of asking",
     },
 ];
 
@@ -963,6 +1297,8 @@ fn is_nested_command_query(input: &str) -> bool {
         "/settings",
         "/model",
         "/models",
+        "/permissions",
+        "/theme",
         "/lsp",
         "/task",
         "/brief",
@@ -991,6 +1327,8 @@ fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comma
         .or_else(|| provider_command_suggestions(query, state))
         .or_else(|| settings_command_suggestions(query, state))
         .or_else(|| model_command_suggestions(query, state))
+        .or_else(|| permission_command_suggestions(query))
+        .or_else(|| theme_command_suggestions(query))
         .or_else(|| memory_command_suggestions(query, state))
         .or_else(|| git_command_suggestions(query, state))
 }
@@ -1087,6 +1425,10 @@ fn settings_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Com
         settings_provider_model_suggestions(query, &words, state)
     } else if should_suggest_settings_models(query, &words) {
         settings_model_suggestions(query, &words, state)
+    } else if should_suggest_settings_permissions(query, &words) {
+        settings_permission_suggestions(query, &words)
+    } else if should_suggest_settings_themes(query, &words) {
+        settings_theme_suggestions(query, &words)
     } else {
         Vec::new()
     };
@@ -1104,13 +1446,15 @@ fn settings_templates_for_prefix(prefix: &str) -> Vec<CommandSuggestion> {
 }
 
 fn should_suggest_settings_provider_ids(query: &str, words: &[&str]) -> bool {
+    let exact_subcommand = matches!(query.trim_end(), "/settings provider" | "/setup provider");
     words.len() >= 2
         && words.len() <= 3
         && matches!(
             format!("{} {}", words[0], words[1]).as_str(),
             "/settings provider" | "/setup provider"
         )
-        && (query.ends_with(' ') && words.len() == 2
+        && (exact_subcommand
+            || query.ends_with(' ') && words.len() == 2
             || !query.ends_with(' ') && words.get(2).is_some())
 }
 
@@ -1172,13 +1516,14 @@ fn settings_provider_model_suggestions(
 }
 
 fn should_suggest_settings_models(query: &str, words: &[&str]) -> bool {
+    let exact_subcommand = matches!(query.trim_end(), "/settings model" | "/setup model");
     words.len() >= 2
         && words.len() <= 3
         && matches!(
             format!("{} {}", words[0], words[1]).as_str(),
             "/settings model" | "/setup model"
         )
-        && (query.ends_with(' ') || words.get(2).is_some())
+        && (exact_subcommand || query.ends_with(' ') || words.get(2).is_some())
 }
 
 fn settings_model_suggestions(
@@ -1202,6 +1547,60 @@ fn settings_model_suggestions(
                     summary: format!("Default model for {}", provider.display_name),
                 })
             })
+        })
+        .collect()
+}
+
+fn should_suggest_settings_permissions(query: &str, words: &[&str]) -> bool {
+    let exact_subcommand = query.trim_end() == "/settings permissions";
+    words.len() >= 2
+        && words.len() <= 3
+        && format!("{} {}", words[0], words[1]) == "/settings permissions"
+        && (exact_subcommand || query.ends_with(' ') || words.get(2).is_some())
+}
+
+fn settings_permission_suggestions(query: &str, words: &[&str]) -> Vec<CommandSuggestion> {
+    let partial = if query.ends_with(' ') || query.trim_end() == "/settings permissions" {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    PERMISSION_COMMANDS
+        .into_iter()
+        .filter(|item| {
+            item.command
+                .strip_prefix("/permissions ")
+                .is_some_and(|mode| mode.starts_with(partial))
+        })
+        .map(|item| CommandSuggestion {
+            command: item
+                .command
+                .replacen("/permissions", "/settings permissions", 1),
+            summary: item.summary.to_string(),
+        })
+        .collect()
+}
+
+fn should_suggest_settings_themes(query: &str, words: &[&str]) -> bool {
+    let exact_subcommand = query.trim_end() == "/settings theme";
+    words.len() >= 2
+        && words.len() <= 3
+        && format!("{} {}", words[0], words[1]) == "/settings theme"
+        && (exact_subcommand || query.ends_with(' ') || words.get(2).is_some())
+}
+
+fn settings_theme_suggestions(query: &str, words: &[&str]) -> Vec<CommandSuggestion> {
+    let partial = if query.ends_with(' ') || query.trim_end() == "/settings theme" {
+        ""
+    } else {
+        words.get(2).copied().unwrap_or("")
+    };
+    TuiTheme::names()
+        .iter()
+        .filter(|theme| theme.starts_with(partial))
+        .map(|theme| CommandSuggestion {
+            command: format!("/settings theme {theme}"),
+            summary: "Apply TUI theme".to_string(),
         })
         .collect()
 }
@@ -1356,6 +1755,60 @@ fn model_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comman
         })
         .collect();
     Some(suggestions)
+}
+
+fn permission_command_suggestions(query: &str) -> Option<Vec<CommandSuggestion>> {
+    if !(query == "/permissions "
+        || query.starts_with("/permissions ")
+        || query.trim_end() == "/permissions")
+    {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    if words.len() > 2 {
+        return Some(Vec::new());
+    }
+    let partial = if query.ends_with(' ') || query.trim_end() == "/permissions" {
+        ""
+    } else {
+        words.get(1).copied().unwrap_or("")
+    };
+    Some(
+        PERMISSION_COMMANDS
+            .into_iter()
+            .filter(|item| {
+                item.command
+                    .strip_prefix("/permissions ")
+                    .is_some_and(|mode| mode.starts_with(partial))
+            })
+            .map(command_from_template)
+            .collect(),
+    )
+}
+
+fn theme_command_suggestions(query: &str) -> Option<Vec<CommandSuggestion>> {
+    if !(query == "/theme " || query.starts_with("/theme ") || query.trim_end() == "/theme") {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    if words.len() > 2 {
+        return Some(Vec::new());
+    }
+    let partial = if query.ends_with(' ') || query.trim_end() == "/theme" {
+        ""
+    } else {
+        words.get(1).copied().unwrap_or("")
+    };
+    Some(
+        TuiTheme::names()
+            .iter()
+            .filter(|theme| theme.starts_with(partial))
+            .map(|theme| CommandSuggestion {
+                command: format!("/theme {theme}"),
+                summary: "Apply TUI theme".to_string(),
+            })
+            .collect(),
+    )
 }
 
 fn provider_subcommand_prefix(value: &str) -> bool {
@@ -2113,7 +2566,7 @@ mod tests {
                 .iter()
                 .map(|suggestion| suggestion.command.as_str())
                 .collect::<Vec<_>>(),
-            vec!["/provider", "/plan"]
+            vec!["/provider", "/permissions", "/plan"]
         );
     }
 
@@ -2239,12 +2692,22 @@ mod tests {
         assert!(
             command_suggestions_for_state(&provider)
                 .iter()
-                .any(|item| item.command == "/provider use")
+                .any(|item| item.command == "/provider deepseek deepseek-v4-flash")
         );
         assert!(
             command_suggestions_for_state(&settings)
                 .iter()
                 .any(|item| item.command == "/settings provider")
+        );
+        assert!(
+            command_suggestions_for_state(&settings)
+                .iter()
+                .any(|item| item.command == "/settings permissions")
+        );
+        assert!(
+            command_suggestions_for_state(&settings)
+                .iter()
+                .any(|item| item.command == "/settings theme")
         );
         assert!(
             command_suggestions_for_state(&settings_provider)
@@ -2446,6 +2909,60 @@ mod tests {
     }
 
     #[test]
+    fn settings_root_renders_actionable_selector_items() {
+        let state = state_with_input("/settings");
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(suggestions[0].command, "/settings provider");
+        assert!(
+            suggestions
+                .iter()
+                .any(|item| item.command == "/settings permissions")
+        );
+        assert!(
+            suggestions
+                .iter()
+                .any(|item| item.command == "/settings theme")
+        );
+        assert_eq!(selector_kind(&state.input), Some(SelectorKind::Settings));
+    }
+
+    #[test]
+    fn suggests_permission_and_theme_settings_values() {
+        let permissions = state_with_input("/settings permissions");
+        let themes = state_with_input("/settings theme");
+
+        assert!(
+            command_suggestions_for_state(&permissions)
+                .iter()
+                .any(|item| item.command == "/settings permissions acceptEdits")
+        );
+        assert!(
+            command_suggestions_for_state(&themes)
+                .iter()
+                .any(|item| item.command == "/settings theme ember-gold")
+        );
+    }
+
+    #[test]
+    fn exact_provider_and_model_roots_open_selectors() {
+        let mut provider = state_with_input("/provider");
+        provider.provider = "deepseek".to_string();
+        let mut model = state_with_input("/models");
+        model.provider = "deepseek".to_string();
+
+        assert_eq!(
+            command_suggestions_for_state(&provider)[0].command,
+            "/provider anthropic claude-sonnet-4-6"
+        );
+        assert_eq!(
+            command_suggestions_for_state(&model)[0].command,
+            "/models deepseek-v4-flash"
+        );
+    }
+
+    #[test]
     fn suggests_git_branches_for_switch() {
         let state = state_with_input("/git switch codex/");
 
@@ -2560,6 +3077,10 @@ mod tests {
         assert!(move_selection(&mut state, 1));
         assert_eq!(state.command_selection, 1);
         assert!(move_selection(&mut state, 1));
+        assert_eq!(state.command_selection, 2);
+        assert!(move_selection(&mut state, 1));
+        assert_eq!(state.command_selection, 2);
+        assert!(move_selection(&mut state, -1));
         assert_eq!(state.command_selection, 1);
         assert!(move_selection(&mut state, -1));
         assert_eq!(state.command_selection, 0);
@@ -2580,14 +3101,15 @@ mod tests {
     fn mouse_hit_testing_selects_visible_suggestion_rows() {
         let mut state = state_with_input("/p");
 
-        assert_eq!(command_suggestion_index_at(&state, 4, 26, 140, 36), Some(0));
-        assert_eq!(command_suggestion_index_at(&state, 4, 27, 140, 36), Some(1));
-        assert_eq!(command_suggestion_index_at(&state, 4, 25, 140, 36), None);
+        assert_eq!(command_suggestion_index_at(&state, 4, 25, 140, 36), Some(0));
+        assert_eq!(command_suggestion_index_at(&state, 4, 26, 140, 36), Some(1));
+        assert_eq!(command_suggestion_index_at(&state, 4, 27, 140, 36), Some(2));
+        assert_eq!(command_suggestion_index_at(&state, 4, 24, 140, 36), None);
         assert_eq!(command_suggestion_index_at(&state, 4, 28, 140, 36), None);
         assert!(select_suggestion_at(&mut state, 1));
 
         assert_eq!(state.command_selection, 1);
-        assert_eq!(selected_command(&state).unwrap().command, "/plan");
+        assert_eq!(selected_command(&state).unwrap().command, "/permissions");
     }
 
     #[test]
@@ -2615,6 +3137,20 @@ mod tests {
         assert!(complete_selected(&mut state));
 
         assert_eq!(state.input, "/lane artifacts ");
+    }
+
+    #[test]
+    fn mouse_hit_testing_supports_centered_setting_selectors() {
+        let mut state = state_with_input("/settings");
+
+        assert_eq!(
+            command_suggestion_index_at(&state, 70, 14, 140, 36),
+            Some(0)
+        );
+        assert!(select_suggestion_at(&mut state, 2));
+        assert!(complete_selected(&mut state));
+
+        assert_eq!(state.input, "/settings save ");
     }
 
     #[test]

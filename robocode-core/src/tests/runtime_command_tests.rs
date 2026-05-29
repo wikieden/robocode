@@ -614,10 +614,11 @@ fn settings_command_reports_first_run_provider_model_setup() {
     assert!(output.iter().any(|event| matches!(
         event,
         EngineEvent::Command(text)
-            if text.contains("RoboCode settings:")
-                && text.contains("Current provider: sequence (test-model)")
-                && text.contains("Change provider and save: /provider <id> [model]")
-                && text.contains("Guided model picker: /models")
+            if text.contains("Settings picker:")
+                && text.contains("Current: provider sequence / model test-model / permissions default")
+                && text.contains("- Provider       /settings provider")
+                && text.contains("- Permissions    /settings permissions")
+                && text.contains("- Theme          /settings theme")
                 && text.contains("Available providers:")
                 && text.contains("fallback")
     )));
@@ -648,6 +649,79 @@ fn setup_command_renders_interactive_provider_model_flow() {
                 && text.contains("/provider fallback test-local")
                 && text.contains("Provider choices:")
                 && text.contains("/setup provider deepseek deepseek-v4-flash")
+    )));
+}
+
+#[test]
+fn settings_permissions_without_args_renders_actionable_picker() {
+    let home = temp_dir("settings_permissions_picker_home");
+    let cwd = temp_dir("settings_permissions_picker_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/settings permissions", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Choose permission mode:")
+                && text.contains("/settings permissions default")
+                && text.contains("/settings permissions acceptEdits")
+                && text.contains("/settings permissions bypassPermissions")
+    )));
+}
+
+#[test]
+fn settings_permissions_sets_permission_mode() {
+    let home = temp_dir("settings_permissions_home");
+    let cwd = temp_dir("settings_permissions_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/settings permissions plan", &mut approver)
+        .unwrap();
+
+    assert_eq!(engine.mode().cli_name(), "plan");
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Permission mode set to plan")
+                && text.contains("provider sequence / model test-model / permissions plan")
+    )));
+}
+
+#[test]
+fn settings_theme_without_args_renders_actionable_picker() {
+    let home = temp_dir("settings_theme_home");
+    let cwd = temp_dir("settings_theme_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/settings theme", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Choose TUI theme:")
+                && text.contains("/settings theme aurora-cyan")
+                && text.contains("/settings theme ember-gold")
     )));
 }
 

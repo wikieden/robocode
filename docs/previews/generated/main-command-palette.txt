@@ -7,33 +7,33 @@
 │      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
 │      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
-│   ♙  ┊  USER                                                                             15:44:07 │ └────────────────────────────────────┘
-│      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ ┌ ACTIVE TASKS ─────────────────── 4 ┐
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ L1 ⛭ codex  s1/pty/01  64%         │
-│   ⚒  ┊  TOOL CALL                                                                        15:44:09 │ │ tool-7 ✎ roboco local-tool/pty/xx  │
+│   ♙  ┊  USER                                                                             16:43:00 │ └────────────────────────────────────┘
 
-                                          ┌ SELECT MODEL ─────────────────────────────────── esc ┐
+                                          ┌ SETTINGS ─────────────────────────────────────── esc ┐
                                           │                                                      │
-                                          │ Search deep                                          │
+                                          │ Search _                                             │
                                           │                                                      │
-                                          │ deepseek  deepseek-v4-flash                          │
-                                          │ ● deepseek-v4-flash                                  │
+                                          │ deepseek  deepseek-v4-flash  theme aurora-cyan       │
+                                          │   provider                                           │
+                                          │   model                                              │
+                                          │   save                                               │
+                                          │ ● permissions                                        │
+                                          │   theme                                              │
+                                          │   doctor                                             │
+                                          │   show                                               │
+                                          │   help                                               │
                                           │                                                      │
-                                          │ Connect provider  ctrl+a   Favorite  ctrl+f          │
-                                          │                                                      │
-                                          │                                                      │
+                                          │ Enter apply   ↑↓ select   / search   esc close       │
                                           │                                                      │
                                           └──────────────────────────────────────────────────────┘
 
-│      ┊      thread 'config_tests' panicked at src/config.rs:42:15                                 │ │                                    │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ✣  ┊  ASSISTANT                                                                        15:44:13 │ ┌ RECENT FILES ──────────────── tail ┐
+│   ✣  ┊  ASSISTANT                                                                        16:43:06 │ ┌ RECENT FILES ──────────────── tail ┐
 │      ┊  No approval is blocking right now. The cockpit stays open for transcript review, input,   │ │ [Rs] src/config.rs         now     │
 │      ┊  diagnostics, and lane status.                                                             │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
 ┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                                                           │              │
-│ › /models deep                                                                                                            │ MODE Code ▾  │
+│ › /settings                                                                                                               │ MODE Code ▾  │
 │                                                                                                                           │              │
 │ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

@@ -199,8 +199,9 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
   observe it, but an in-flight provider request may still finish.
 - Approval prompts default to `Approve`; press `y` to approve, `n` to deny,
   `d` to focus diff, or use `Tab` / arrow keys to move between actions.
-- Type `/` to open command suggestions. `/models` opens a model selector-style
-  popup with search and keyboard selection. Common entries include `/help`,
+- Type `/` to open command suggestions. `/settings`, `/provider`, `/models`,
+  `/permissions`, and `/theme` open selector-style popups with search, keyboard
+  selection, and mouse selection. Common entries include `/help`,
   `/settings`, `/setup`, `/provider`, `/models`, `/status`, `/config`, `/permissions`,
   `/test`, `/sessions`, `/resume`, `/task`, `/brief`, `/spec`, `/memory`,
   `/lane`, `/agent`, `/screen`, `/lsp`, `/git`, `/web`, `/extensions`,
@@ -213,12 +214,15 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 RoboCode loads config from the platform config path and then from
 `.robocode/config.toml`, with CLI flags taking precedence.
 
-Inside the TUI, `/setup` opens the first-run provider/model flow. `/provider`
-shows an actionable provider picker; `/provider <id> [model]` switches and
-saves the default provider/model. `/models` shows a model selector-style popup;
-`/model <model>` or `/models <model>` switches and saves the model for the
-current provider. `/settings` remains the detailed status page and
-`/settings save` persists the current provider/model without storing API keys.
+Inside the TUI, `/setup` opens the first-run provider/model flow. `/settings`
+opens an actionable settings picker instead of a read-only status page:
+provider, model, permissions, theme, save defaults, and diagnostics are all
+selectable. `/provider` shows a provider picker; `/provider <id> [model]`
+switches and saves the default provider/model. `/models` shows the model
+selector; `/model <model>` or `/models <model>` switches and saves the model
+for the current provider. `/settings permissions <mode>` changes approval mode,
+`/settings theme <name>` changes the live TUI theme, and `/settings save`
+persists the current provider/model without storing API keys.
 
 ```toml
 provider = "deepseek"

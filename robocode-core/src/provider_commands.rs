@@ -1,5 +1,6 @@
 use crate::SessionEngine;
 use robocode_model::{ProviderConfig, ProviderDescriptor, ProviderPluginError};
+use robocode_types::PermissionMode;
 
 impl SessionEngine {
     pub(super) fn handle_provider_command(&mut self, args: &[String]) -> Result<String, String> {
@@ -46,6 +47,11 @@ impl SessionEngine {
             None | Some("show") | Some("help") => Ok(self.render_settings()),
             Some("provider") | Some("use") => self.use_provider_and_maybe_save(&args[1..], true),
             Some("model") => self.handle_model_command(&args[1..]),
+            Some("permissions") | Some("permission") => {
+                self.handle_settings_permissions(&args[1..])
+            }
+            Some("doctor") => Ok(self.render_provider_doctor(args.get(1).map(String::as_str))),
+            Some("theme") => Ok(render_tui_theme_settings(args.get(1).map(String::as_str))),
             Some("save") => self.save_current_provider_model_defaults(),
             Some(subcommand) => Ok(format!(
                 "Unknown settings subcommand `{subcommand}`.\n\n{}",
@@ -63,6 +69,23 @@ impl SessionEngine {
             Some("model") if args.len() == 1 => Ok(self.render_model_picker("/setup model")),
             _ => self.handle_settings_command(args),
         }
+    }
+
+    fn handle_settings_permissions(&mut self, args: &[String]) -> Result<String, String> {
+        let Some(mode) = args.first() else {
+            return Ok(render_permission_picker(self.mode()));
+        };
+        let parsed = PermissionMode::parse_cli(mode)
+            .ok_or_else(|| format!("Unknown permission mode `{mode}`"))?;
+        self.set_permission_mode(parsed)?;
+        self.runtime_snapshot.permission_mode = parsed;
+        Ok(format!(
+            "Permission mode set to {}\nCurrent settings: provider {} / model {} / permissions {}.",
+            parsed.cli_name(),
+            self.provider.provider_name(),
+            self.provider.model(),
+            parsed.cli_name()
+        ))
     }
 
     fn render_provider_list(&self) -> String {
@@ -112,20 +135,26 @@ impl SessionEngine {
             .map(|path| path.display().to_string())
             .unwrap_or_else(|err| format!("<unavailable: {err}>"));
         let mut lines = vec![
-            "RoboCode settings:".to_string(),
+            "Settings picker:".to_string(),
             format!(
-                "  Current provider: {} ({})",
+                "  Current: provider {} / model {} / permissions {}",
                 self.provider.provider_name(),
-                self.provider.model()
+                self.provider.model(),
+                self.mode().cli_name()
             ),
             format!("  API key: {}", self.current_provider_key_status()),
             format!("  User config: {config_path}"),
-            "  Change provider and save: /provider <id> [model]".to_string(),
-            "  Change model and save: /model <model>".to_string(),
-            "  Guided provider picker: /setup provider".to_string(),
-            "  Guided model picker: /models".to_string(),
-            "  Persist current default: /settings save".to_string(),
-            "  Diagnostics: /provider doctor [id]".to_string(),
+            "".to_string(),
+            "Select one setting:".to_string(),
+            "  - Provider       /settings provider".to_string(),
+            "  - Model          /settings model".to_string(),
+            "  - Permissions    /settings permissions".to_string(),
+            "  - Theme          /settings theme".to_string(),
+            "  - Save defaults  /settings save".to_string(),
+            "  - Diagnostics    /settings doctor".to_string(),
+            "  - Config details /config".to_string(),
+            "".to_string(),
+            "TUI usage: type `/settings`, use arrows or mouse, then Enter.".to_string(),
         ];
         if let Some(host) = self.provider_host.as_ref() {
             let mut descriptors = host.registry().descriptors().to_vec();
@@ -162,6 +191,8 @@ impl SessionEngine {
             "Fast actions:".to_string(),
             "  /setup provider       open provider choices".to_string(),
             "  /models               open model choices for current provider".to_string(),
+            "  /settings permissions open approval mode choices".to_string(),
+            "  /settings theme       open TUI theme choices".to_string(),
             "  /provider deepseek deepseek-v4-flash".to_string(),
             "  /model deepseek-v4-flash".to_string(),
             "  Set DEEPSEEK_API_KEY or ROBOCODE_DEEPSEEK_API_KEY before the first live turn."
@@ -525,6 +556,40 @@ fn render_provider_diagnostic(descriptor: &ProviderDescriptor) -> String {
         descriptor.capabilities.supports_native_tool_calling,
         render_provider_compatibility(descriptor),
     )
+}
+
+fn render_permission_picker(current: PermissionMode) -> String {
+    [
+        "Choose permission mode:".to_string(),
+        format!("  Current: {}", current.cli_name()),
+        "  Enter one command below. It switches immediately.".to_string(),
+        "".to_string(),
+        "  - Suggest before mutations   command: /settings permissions default".to_string(),
+        "  - Auto-accept file edits     command: /settings permissions acceptEdits".to_string(),
+        "  - Plan/read-only             command: /settings permissions plan".to_string(),
+        "  - YOLO trusted workspace     command: /settings permissions bypassPermissions"
+            .to_string(),
+        "  - Deny instead of asking     command: /settings permissions dontAsk".to_string(),
+    ]
+    .join("\n")
+}
+
+fn render_tui_theme_settings(theme: Option<&str>) -> String {
+    match theme {
+        Some(theme) => format!(
+            "TUI theme `{theme}` is handled by the live TUI. Use `/settings theme {theme}` inside the cockpit or start with `--tui-theme {theme}`."
+        ),
+        None => [
+            "Choose TUI theme:".to_string(),
+            "  TUI-only setting; it applies immediately inside the cockpit.".to_string(),
+            "".to_string(),
+            "  - aurora-cyan      command: /settings theme aurora-cyan".to_string(),
+            "  - ember-gold       command: /settings theme ember-gold".to_string(),
+            "  - plasma-violet    command: /settings theme plasma-violet".to_string(),
+            "  - monochrome-ice   command: /settings theme monochrome-ice".to_string(),
+        ]
+        .join("\n"),
+    }
 }
 
 fn render_provider_compatibility(descriptor: &ProviderDescriptor) -> String {

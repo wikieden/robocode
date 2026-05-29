@@ -109,7 +109,7 @@ api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
 
-TUI 设置命令只会持久化 provider 和 model 默认值。API key 仍放在环境变量或手工维护的配置字段里。
+TUI 设置命令是选择器优先：`/settings`、`/provider`、`/models`、`/permissions`、`/theme` 都会渲染可选择面板，而不是只显示状态。它们只会持久化 provider/model 默认值和 permission mode 变更。API key 仍放在环境变量或手工维护的配置字段里。
 
 ```text
 /settings
@@ -117,6 +117,8 @@ TUI 设置命令只会持久化 provider 和 model 默认值。API key 仍放在
 /provider <provider-id> [model]
 /model <model>
 /models
+/settings permissions <mode>
+/settings theme <name>
 /settings save
 ```
 
@@ -164,6 +166,8 @@ Provider commands：
 /model [name]
 /models [name]
 /settings
+/settings permissions [mode]
+/settings theme [name]
 /setup
 ```
 
