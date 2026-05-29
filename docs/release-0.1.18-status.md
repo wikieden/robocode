@@ -62,6 +62,15 @@ Result: passed at `2026-05-29T17:19:43Z` with 11 passed checks, 0 failed, and
 3 intentionally skipped checks (`package-smoke`, opt-in `deepseek-cli-smoke`,
 and explicit `github-actions-release-validation`).
 
+Live DeepSeek smoke:
+
+```bash
+scripts/release-smoke.sh --version 0.1.18 --quick --deepseek \
+  --out-dir /tmp/robocode-0118-deepseek-smoke
+```
+
+Result: passed at `2026-05-29T17:29:16Z`, including `deepseek-cli-smoke`.
+
 ## Screenshot Evidence
 
 Deterministic 0.1.18 TUI screenshots:

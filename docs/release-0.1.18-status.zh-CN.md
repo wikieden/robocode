@@ -57,6 +57,15 @@ scripts/release-smoke.sh --version 0.1.18 --quick \
 （`package-smoke`、需显式开启的 `deepseek-cli-smoke`、以及单独的
 `github-actions-release-validation`）。
 
+DeepSeek live smoke：
+
+```bash
+scripts/release-smoke.sh --version 0.1.18 --quick --deepseek \
+  --out-dir /tmp/robocode-0118-deepseek-smoke
+```
+
+结果：`2026-05-29T17:29:16Z` 通过，包含 `deepseek-cli-smoke`。
+
 ## 截图证据
 
 0.1.18 确定性 TUI 截图：
