@@ -326,8 +326,8 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
    DeepSeek-first setup、交互式 provider/model 配置、switch-model recovery、
    scoped edit、approval、test、diff、final summary 和 resume evidence 能跑通。
    轻量 spec/steering 只作为 task brief 支撑层进入。
-2. `0.1.18`: Failure Recovery And Review Gates。让 failed tests、diff review、
-   apply conflict、rollback、rerun 和 final readiness state 都足够清楚。
+2. `0.1.18`: Interaction Hardening。补齐 provider/model/permissions/theme 的
+   selector-first 设置体验，让配置入口可操作，而不是信息展示页。
 3. `0.1.19`: Delegated Lane Usefulness。让一条 Codex/Claude/shell delegated
    review workflow 可靠到能真实使用。
 4. `0.1.20`: Usability Beta。干净安装后，应能跑通 daily coding loop 和一条

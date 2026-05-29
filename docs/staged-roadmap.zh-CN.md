@@ -179,6 +179,8 @@ Mainline landed：
 - `0.1.17` 还要让干净安装默认走 DeepSeek 在线路径，fallback 只作为显式离线/测试
   路径；TUI 内提供交互式 provider/model setup，并在当前 model 不可用时给出换模恢复动作。
 - 轻量 spec/steering 仍放在 `0.1.17`，但只作为日常编码闭环的支撑层。
+- `0.1.18` 加固 settings 交互：`/settings`、`/provider`、`/models`、
+  `/permissions` 和 `/theme` 都是 selector-first、可搜索、可键盘/鼠标操作的配置入口。
 - `0.1.20` 是 usability beta gate：干净安装、fallback provider path、live provider
   path、daily coding loop 和一条 delegated review loop 都应该有证据。
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物

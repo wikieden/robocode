@@ -1,15 +1,15 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.17  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
+│ RoboCode  v0.1.18  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ◎ NOW WORKING  DeepSeek is thinking                                                             │ │ robocode/    ~/projects/robocode   │
 │      ┊  evidence: AgentTask turn-c4f2b7e-live from live provider request                          │ │ ↳ src/          FILES    128       │
 │      ┊  turn-c4f2b7e-live DeepSeek thinking 15% :: Refactor the config loader, then :: signal liv │ │ ↳ tests/        LINES  24531       │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ Cargo.toml    LANGUAGE Rust      │
-│   ·  ┊  SYSTEM                                                                           16:43:03 │ │ ▣ README.md     EDITION   2024     │
+│   ·  ┊  SYSTEM                                                                           17:02:38 │ │ ▣ README.md     EDITION   2024     │
 │      ┊  RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.                                   │ └────────────────────────────────────┘
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ ┌ ACTIVE TASKS ─────────────────── 3 ┐
-│   ♙  ┊  USER                                                                             16:43:05 │ │ turn-c4f2b7e-live ● roboco deepsee │
+│   ♙  ┊  USER                                                                             17:02:40 │ │ turn-c4f2b7e-live ● roboco deepsee │
 │      ┊  Refactor the config loader, then run focused tests.                                       │ │ ● task_lo/prog Implement load_con  │
 │                                                                                                   │ │ ◆ task_re/block Review config test │
 │                                                                                                   │ │                                    │

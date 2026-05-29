@@ -213,6 +213,9 @@ Next planned:
   model does not work.
 - Lightweight spec/steering remains in `0.1.17`, but only as support for the
   daily coding loop.
+- `0.1.18` hardens settings interaction: `/settings`, `/provider`, `/models`,
+  `/permissions`, and `/theme` are selector-first, searchable, keyboard- and
+  mouse-operable configuration surfaces.
 - `0.1.20` is the usability beta gate: clean install, fallback provider path,
   live provider path, daily coding loop, and one delegated review loop should
   all be evidenced.

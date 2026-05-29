@@ -6,7 +6,7 @@ delegated agents, and keep enough evidence to resume work later.
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.17-tui-main.svg)
+![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.18-tui-main.svg)
 
 ## Why It Exists
 
@@ -40,37 +40,37 @@ and external agent lanes visible in one operator cockpit.
 ## Screenshots
 
 These are generated from the current RoboCode TUI renderer and kept as release
-evidence. The screenshots below show the `0.1.17` daily-coding-loop RC;
+evidence. The screenshots below show the `0.1.18` interaction-hardening RC;
 the latest published binary release is listed separately in the install
 section.
 
 ### Live Provider Turn
 
-![Live provider turn](docs/previews/generated/screenshots/0.1.17-tui-live-turn.svg)
+![Live provider turn](docs/previews/generated/screenshots/0.1.18-tui-live-turn.svg)
 
 ### Resize-Safe Redraw
 
-![Resize-safe redraw](docs/previews/generated/screenshots/0.1.17-tui-main-resize.svg)
+![Resize-safe redraw](docs/previews/generated/screenshots/0.1.18-tui-main-resize.svg)
 
 ### CJK Input
 
-![CJK input](docs/previews/generated/screenshots/0.1.17-tui-cjk-input.svg)
+![CJK input](docs/previews/generated/screenshots/0.1.18-tui-cjk-input.svg)
 
 ### Slash-Command Palette
 
-![Command palette](docs/previews/generated/screenshots/0.1.17-tui-command-palette.svg)
+![Command palette](docs/previews/generated/screenshots/0.1.18-tui-command-palette.svg)
 
 ### Agent Lane Detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.17-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.18-tui-lane-detail.svg)
 
 ### Side Screen: Agent Lanes
 
-![Side screen lanes](docs/previews/generated/screenshots/0.1.17-tui-side-1.svg)
+![Side screen lanes](docs/previews/generated/screenshots/0.1.18-tui-side-1.svg)
 
 ### Side Screen: Ops And Evidence
 
-![Side screen ops](docs/previews/generated/screenshots/0.1.17-tui-side-2.svg)
+![Side screen ops](docs/previews/generated/screenshots/0.1.18-tui-side-2.svg)
 
 ## Install
 
@@ -91,7 +91,7 @@ robocode --help
 ### Release Archive
 
 Download a release archive from
-[RoboCode v0.1.17](https://github.com/wikieden/robocode/releases/tag/v0.1.17).
+[RoboCode v0.1.18](https://github.com/wikieden/robocode/releases/tag/v0.1.18).
 
 Available release targets:
 
@@ -103,7 +103,7 @@ Available release targets:
 Install on macOS or Linux:
 
 ```bash
-VERSION=0.1.17
+VERSION=0.1.18
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -114,7 +114,7 @@ robocode-cli --help
 Install on Windows PowerShell:
 
 ```powershell
-$Version = "0.1.17"
+$Version = "0.1.18"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -269,6 +269,7 @@ in the docs:
 - [TUI Cockpit Design](docs/tui-cockpit-design.md)
 - [TUI Interaction Audit](docs/tui-interaction-audit-2026-05-29.md)
 - [Testing and Validation Plan](docs/testing-validation-plan.md)
+- [0.1.18 Status](docs/release-0.1.18-status.md)
 - [0.1.17 Plan](docs/release-0.1.17-plan.md)
 - [0.1.17 Status](docs/release-0.1.17-status.md)
 - [0.1.16 Plan](docs/release-0.1.16-plan.md)

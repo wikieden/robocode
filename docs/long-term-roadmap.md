@@ -348,8 +348,9 @@ After `0.1.16`, the likely sequence is:
    edit, approval, test, diff, final summary, and resume evidence in one
    deterministic workflow. Lightweight spec/steering is included only as
    task-brief support.
-2. `0.1.18`: Failure Recovery And Review Gates. Make failed tests, diff
-   review, apply conflict, rollback, rerun, and final readiness states obvious.
+2. `0.1.18`: Interaction Hardening. Finish selector-first setup for
+   provider/model/permissions/theme so configuration is actionable rather than
+   informational.
 3. `0.1.19`: Delegated Lane Usefulness. Make one Codex/Claude/shell delegated
    review workflow dependable enough for real use.
 4. `0.1.20`: Usability Beta. A clean install should complete the daily coding

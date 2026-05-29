@@ -44,9 +44,6 @@ Published release asset sha256:
 - `/setup provider <id> [model]` and `/setup model <model>` reuse the saved
   provider/model path from `/settings`, so users can configure provider/model
   without storing API keys.
-- Settings are now picker-first in the TUI: `/settings`, `/provider`,
-  `/models`, `/permissions`, and `/theme` open actionable selector panels
-  instead of stopping at information-only status output.
 - Provider/model failures now include a switch-model recovery block when the
   error looks like an unavailable, unauthorized, unsupported, or incompatible
   model.
