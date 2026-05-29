@@ -4,16 +4,34 @@ Chinese version: [release-0.1.17-status.zh-CN.md](release-0.1.17-status.zh-CN.md
 
 ## Status
 
-`0.1.17` is the local release candidate for the daily coding loop baseline.
+`0.1.17` is the published daily coding loop baseline release.
 It makes first-run setup DeepSeek-first, keeps fallback explicit for offline
 testing, adds model recovery guidance, and adds a deterministic daily-loop
 smoke to the release evidence path. It also lands the minimal task brief /
 steering support promised in the 0.1.17 plan.
 
 - Workspace version: `0.1.17`
+- Main commit: `49ba8df`
+- Git tag: `v0.1.17`
+- GitHub release: https://github.com/wikieden/robocode/releases/tag/v0.1.17
+- Rust CI: https://github.com/wikieden/robocode/actions/runs/26635714278
+- Release artifacts workflow:
+  https://github.com/wikieden/robocode/actions/runs/26635986910
+- Homebrew tap commit: `wikieden/homebrew-tap@2160d14`
 - Local package: `dist/robocode-v0.1.17-aarch64-apple-darwin.tar.gz`
 - Local package sha256:
   `999edafa93e9c5863370a9857d1e96c430174572ab2b8b6f1e3c7106e7933ed1`
+
+Published release asset sha256:
+
+- `aarch64-apple-darwin`:
+  `eaf0d02b6e7666b963ad20bb888616362e7bb02ba82504d729c2721db42c88b5`
+- `x86_64-apple-darwin`:
+  `c682906f44c4374d29f2e1a7ddc4b1587309b612ebd6617528b31cf15d9d492d`
+- `x86_64-unknown-linux-gnu`:
+  `cb4c51a491a2550ea8a0bfce85ddae5657428b2b3a612e9c32b50bcad7f84250`
+- `x86_64-pc-windows-msvc`:
+  `67e3efe36afd355e35860926d4ea194eb42326ea0c905a505ac1b329895679bf`
 
 ## Landed Scope
 
@@ -72,6 +90,8 @@ scripts/release-smoke.sh --version 0.1.17 --skip-package \
   --out-dir /tmp/robocode-0117-release-smoke-full-nopackage
 scripts/release-smoke.sh --version 0.1.17 --skip-package \
   --out-dir /tmp/robocode-0117-release-smoke-full-nopackage-brief
+scripts/release-smoke.sh --version 0.1.17 --quick --github-release-assets \
+  --homebrew --out-dir /tmp/robocode-0117-postpublish-check
 scripts/package-release.sh 0.1.17 aarch64-apple-darwin
 cd dist && shasum -a 256 -c robocode-v0.1.17-aarch64-apple-darwin.tar.gz.sha256
 ```
@@ -85,6 +105,7 @@ Evidence directories:
 /tmp/robocode-0117-release-smoke-local-brief
 /tmp/robocode-0117-release-smoke-full-nopackage
 /tmp/robocode-0117-release-smoke-full-nopackage-brief
+/tmp/robocode-0117-postpublish-check
 ```
 
 ## Visual Evidence
@@ -117,13 +138,10 @@ Daily-loop smoke evidence:
 - DeepSeek live smoke was not run in this local RC pass unless
   `DEEPSEEK_API_KEY` is supplied separately with `scripts/release-smoke.sh
   --deepseek`.
-- The local package check covers the current host target. Multi-platform
-  release assets still depend on the GitHub release workflow.
 - Task brief / steering is intentionally minimal; it is a daily-loop context
   aid, not a full Kiro-style spec product yet.
 
 ## Next
 
-Finish publish validation for `v0.1.17`: push the release tag, wait for the
-GitHub release workflow assets, update the Homebrew tap, and run post-publish
-smoke with GitHub assets and Homebrew validation.
+Continue into the next version with deeper interaction polish and provider
+configuration UX, using the 0.1.17 daily-loop smoke as a non-regression gate.

@@ -4,15 +4,33 @@
 
 ## 状态
 
-`0.1.17` 是日常编码闭环基线的本地 RC。它把首次使用路径调整为
+`0.1.17` 是已发布的日常编码闭环基线版本。它把首次使用路径调整为
 DeepSeek-first，fallback 只作为显式离线测试路径，并加入模型失败恢复提示和确定性
 daily-loop smoke。同时，本版本也落地了 0.1.17 计划里的最小 task brief /
 steering 支撑层。
 
 - Workspace version：`0.1.17`
+- Main commit：`49ba8df`
+- Git tag：`v0.1.17`
+- GitHub release：https://github.com/wikieden/robocode/releases/tag/v0.1.17
+- Rust CI：https://github.com/wikieden/robocode/actions/runs/26635714278
+- Release artifacts workflow：
+  https://github.com/wikieden/robocode/actions/runs/26635986910
+- Homebrew tap commit：`wikieden/homebrew-tap@2160d14`
 - 本地 package：`dist/robocode-v0.1.17-aarch64-apple-darwin.tar.gz`
 - 本地 package sha256：
   `999edafa93e9c5863370a9857d1e96c430174572ab2b8b6f1e3c7106e7933ed1`
+
+已发布 release asset sha256：
+
+- `aarch64-apple-darwin`：
+  `eaf0d02b6e7666b963ad20bb888616362e7bb02ba82504d729c2721db42c88b5`
+- `x86_64-apple-darwin`：
+  `c682906f44c4374d29f2e1a7ddc4b1587309b612ebd6617528b31cf15d9d492d`
+- `x86_64-unknown-linux-gnu`：
+  `cb4c51a491a2550ea8a0bfce85ddae5657428b2b3a612e9c32b50bcad7f84250`
+- `x86_64-pc-windows-msvc`：
+  `67e3efe36afd355e35860926d4ea194eb42326ea0c905a505ac1b329895679bf`
 
 ## 已落地范围
 
@@ -65,6 +83,8 @@ scripts/release-smoke.sh --version 0.1.17 --skip-package \
   --out-dir /tmp/robocode-0117-release-smoke-full-nopackage
 scripts/release-smoke.sh --version 0.1.17 --skip-package \
   --out-dir /tmp/robocode-0117-release-smoke-full-nopackage-brief
+scripts/release-smoke.sh --version 0.1.17 --quick --github-release-assets \
+  --homebrew --out-dir /tmp/robocode-0117-postpublish-check
 scripts/package-release.sh 0.1.17 aarch64-apple-darwin
 cd dist && shasum -a 256 -c robocode-v0.1.17-aarch64-apple-darwin.tar.gz.sha256
 ```
@@ -78,6 +98,7 @@ Evidence 目录：
 /tmp/robocode-0117-release-smoke-local-brief
 /tmp/robocode-0117-release-smoke-full-nopackage
 /tmp/robocode-0117-release-smoke-full-nopackage-brief
+/tmp/robocode-0117-postpublish-check
 ```
 
 ## 视觉证据
@@ -109,12 +130,10 @@ Daily-loop smoke evidence：
   等日常闭环稳定后再做更丰富的 picker。
 - 本地 RC 没有默认运行 DeepSeek live smoke；需要单独提供 `DEEPSEEK_API_KEY` 并执行
   `scripts/release-smoke.sh --deepseek`。
-- 本地 package check 覆盖当前 host target。多平台 release assets 仍依赖 GitHub
-  release workflow。
 - Task brief / steering 当前刻意保持最小，只作为 daily-loop context aid，
   还不是完整的 Kiro-style spec product。
 
 ## 下一步
 
-完成 `v0.1.17` 发布验证：推送 release tag，等待 GitHub release workflow 产出资产，
-更新 Homebrew tap，并运行包含 GitHub assets 和 Homebrew validation 的 post-publish smoke。
+进入下个版本，继续优化交互和 provider 配置体验，并把 0.1.17 daily-loop smoke 作为
+后续 non-regression gate。
