@@ -173,8 +173,12 @@ Mainline landed：
 
 下一个计划版本：
 
-- 轻量 spec/steering 顺延到 `0.1.17`，因为在增加更多 workflow surface 前，TUI
-  operator loop 必须先保持响应和可信。
+- `docs/release-0.1.17-plan.zh-CN.md` 聚焦 Daily Coding Loop Baseline：setup/doctor
+  清晰度、确定性 coding-loop smoke、最小 task brief 和 steering files、可行动
+  diff/test evidence，以及真实使用截图。
+- 轻量 spec/steering 仍放在 `0.1.17`，但只作为日常编码闭环的支撑层。
+- `0.1.20` 是 usability beta gate：干净安装、fallback provider path、live provider
+  path、daily coding loop 和一条 delegated review loop 都应该有证据。
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

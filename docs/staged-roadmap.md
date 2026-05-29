@@ -204,8 +204,14 @@ Current published release:
 
 Next planned:
 
-- Lightweight spec/steering is pushed to `0.1.17` because the TUI operator loop
-  must stay responsive and trustworthy before more workflow surface is added.
+- `docs/release-0.1.17-plan.md` targets Daily Coding Loop Baseline:
+  setup/doctor clarity, deterministic coding-loop smoke, minimal task brief and
+  steering files, actionable diff/test evidence, and real-use screenshots.
+- Lightweight spec/steering remains in `0.1.17`, but only as support for the
+  daily coding loop.
+- `0.1.20` is the usability beta gate: clean install, fallback provider path,
+  live provider path, daily coding loop, and one delegated review loop should
+  all be evidenced.
 - require a real-use screenshot or deterministic visual artifact for every
   user-visible feature before it is marked complete
 

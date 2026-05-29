@@ -341,14 +341,19 @@ Make RoboCode dependable enough to recommend for real project work.
 
 ## Recommended Next Sequence
 
-After `0.1.15`, the likely sequence is:
+After `0.1.16`, the likely sequence is:
 
-1. `0.1.16`: TUI interaction reliability and non-blocking operator feedback.
-2. `0.1.17`: Lightweight spec/steering workflow.
-3. `0.1.18`: Hook and credential boundary probes.
-4. `0.1.19`: ACP compatibility target and event mapping.
-5. `0.1.20`: Built-in reviewer/tester lane templates.
-6. `0.2.0`: Spec-driven, evidence-driven multi-agent workflow baseline.
+1. `0.1.17`: Daily Coding Loop Baseline. Prove setup, scoped edit,
+   approval, test, diff, final summary, and resume evidence in one deterministic
+   workflow. Lightweight spec/steering is included only as task-brief support.
+2. `0.1.18`: Failure Recovery And Review Gates. Make failed tests, diff
+   review, apply conflict, rollback, rerun, and final readiness states obvious.
+3. `0.1.19`: Delegated Lane Usefulness. Make one Codex/Claude/shell delegated
+   review workflow dependable enough for real use.
+4. `0.1.20`: Usability Beta. A clean install should complete the daily coding
+   loop and one delegated review loop with documented screenshots and smoke
+   evidence.
+5. `0.2.0`: Spec-driven, evidence-driven multi-agent workflow baseline.
 
 This sequence keeps RoboCode focused on the wedge: not maximum autonomy, but
 maximum operator trust.

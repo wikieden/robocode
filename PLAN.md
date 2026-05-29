@@ -43,8 +43,15 @@ Current published release (`0.1.16`):
 
 Next planned release (`0.1.17`):
 
-- Lightweight spec/steering work is the next feature track, now intentionally
-  behind the 0.1.16 interaction-reliability insert.
+- `docs/release-0.1.17-plan.md` defines **Daily Coding Loop Baseline**.
+- The target is true day-to-day usability: setup/doctor clarity, a deterministic
+  coding-loop smoke, minimal task brief and steering files, actionable
+  diff/test evidence, and screenshots that prove the main loop works.
+- Lightweight spec/steering remains part of `0.1.17`, but only as a support
+  layer for real coding tasks, not a separate product island.
+- `0.1.20` is the usability beta target: clean install, fallback provider path,
+  live provider path, daily coding loop, and one delegated review loop should
+  all be documented and evidenced.
 
 ## Near-Term Plan
 
@@ -65,6 +72,8 @@ Next planned release (`0.1.17`):
    - Promote test output, edit summaries, approval state, and changed-file
      evidence into the main screen and side-2.
    - Improve apply-conflict recovery beyond the current audited retry path.
+   - In `0.1.17`, prove the daily coding loop through a deterministic smoke:
+     request -> edit -> approve -> test -> diff -> final evidence.
    - Evaluate whether full cursor-addressed terminal replay is worth the added
      parser/rendering complexity after log-tail replay has covered the first
      cockpit observation need.
@@ -96,14 +105,25 @@ Next planned release (`0.1.17`):
    - Keep every extension invocation on the shared permission, runtime, and
      transcript path.
 
-6. Provider Compatibility Completion.
+6. 0.20 Usability Gate.
+   - `0.1.17`: Daily Coding Loop Baseline - make one ordinary coding task
+     repeatable and evidenced.
+   - `0.1.18`: Failure Recovery And Review Gates - make tests, diffs, apply,
+     rollback, and rerun flows obvious.
+   - `0.1.19`: Delegated Lane Usefulness - make one Codex/Claude/shell
+     delegated review workflow dependable.
+   - `0.1.20`: Usability Beta - a clean install should complete both the daily
+     coding loop and one delegated review loop with screenshots and smoke
+     evidence.
+
+7. Provider Compatibility Completion.
    - Keep the provider live matrix documented and aligned with built-in descriptors.
    - Validate real API compatibility across built-in and descriptor-backed OpenAI-compatible providers when credentials are available.
    - Keep dynamic loading, registry refresh, descriptor compatibility flags, and collision tests covered.
    - Keep provider binding instance-scoped so multiple sessions or agents can use different providers in the same process.
    - Harden OpenAI-style and Anthropic-style protocol compatibility, including DeepSeek reasoning/tool-call turns.
 
-7. V3 Platform Expansion.
+8. V3 Platform Expansion.
    - MCP runtime and plugin loading.
    - Skills/workflow plugin model.
    - Multi-agent coordinator.
@@ -200,6 +220,8 @@ Primary planning docs:
 - `docs/tui-lane-architecture-plan.zh-CN.md`
 - `docs/release-0.1.16-plan.md`
 - `docs/release-0.1.16-plan.zh-CN.md`
+- `docs/release-0.1.17-plan.md`
+- `docs/release-0.1.17-plan.zh-CN.md`
 - `docs/release-0.1.15-plan.md`
 - `docs/release-0.1.15-plan.zh-CN.md`
 - `docs/release-0.1.14-plan.md`

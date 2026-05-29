@@ -211,6 +211,7 @@ README 保持产品介绍和使用入口。完整使用说明和实现细节放�
 - [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
 - [TUI 交互审计](docs/tui-interaction-audit-2026-05-29.zh-CN.md)
 - [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
+- [0.1.17 计划](docs/release-0.1.17-plan.zh-CN.md)
 - [0.1.16 状态](docs/release-0.1.16-status.zh-CN.md)
 - [0.1.16 计划](docs/release-0.1.16-plan.zh-CN.md)
 - [0.1.15 状态](docs/release-0.1.15-status.zh-CN.md)

@@ -249,6 +249,7 @@ in the docs:
 - [TUI Cockpit Design](docs/tui-cockpit-design.md)
 - [TUI Interaction Audit](docs/tui-interaction-audit-2026-05-29.md)
 - [Testing and Validation Plan](docs/testing-validation-plan.md)
+- [0.1.17 Plan](docs/release-0.1.17-plan.md)
 - [0.1.16 Status](docs/release-0.1.16-status.md)
 - [0.1.16 Plan](docs/release-0.1.16-plan.md)
 - [0.1.15 Status](docs/release-0.1.15-status.md)

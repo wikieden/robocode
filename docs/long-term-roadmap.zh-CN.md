@@ -320,13 +320,17 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 
 ## 推荐后续顺序
 
-`0.1.15` 之后，建议顺序是：
+`0.1.16` 之后，建议顺序是：
 
-1. `0.1.16`: TUI interaction reliability 和非阻塞 operator feedback。
-2. `0.1.17`: 轻量 spec/steering workflow。
-3. `0.1.18`: Hook 和 credential boundary probes。
-4. `0.1.19`: ACP compatibility target 和 event mapping。
-5. `0.1.20`: 内置 reviewer/tester lane templates。
-6. `0.2.0`: spec-driven、evidence-driven 的 multi-agent workflow baseline。
+1. `0.1.17`: Daily Coding Loop Baseline。用一个确定性 workflow 证明 setup、
+   scoped edit、approval、test、diff、final summary 和 resume evidence 能跑通。
+   轻量 spec/steering 只作为 task brief 支撑层进入。
+2. `0.1.18`: Failure Recovery And Review Gates。让 failed tests、diff review、
+   apply conflict、rollback、rerun 和 final readiness state 都足够清楚。
+3. `0.1.19`: Delegated Lane Usefulness。让一条 Codex/Claude/shell delegated
+   review workflow 可靠到能真实使用。
+4. `0.1.20`: Usability Beta。干净安装后，应能跑通 daily coding loop 和一条
+   delegated review loop，并有文档化截图和 smoke evidence。
+5. `0.2.0`: spec-driven、evidence-driven 的 multi-agent workflow baseline。
 
 这条线保持 RoboCode 的核心 wedge：不是最大自治，而是最大 operator trust。
