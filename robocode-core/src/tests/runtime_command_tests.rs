@@ -616,8 +616,8 @@ fn settings_command_reports_first_run_provider_model_setup() {
         EngineEvent::Command(text)
             if text.contains("RoboCode settings:")
                 && text.contains("Current provider: sequence (test-model)")
-                && text.contains("Persist default: /settings save")
-                && text.contains("Choose provider: /settings provider <id> [model]")
+                && text.contains("Change provider and save: /provider <id> [model]")
+                && text.contains("Guided model picker: /models")
                 && text.contains("Available providers:")
                 && text.contains("fallback")
     )));
@@ -642,11 +642,38 @@ fn setup_command_renders_interactive_provider_model_flow() {
     assert!(output.iter().any(|event| matches!(
         event,
         EngineEvent::Command(text)
-            if text.contains("Interactive provider/model setup:")
-                && text.contains("/setup provider deepseek deepseek-v4-flash")
-                && text.contains("/setup provider fallback test-local")
+            if text.contains("Provider/model setup:")
+                && text.contains("/setup provider")
+                && text.contains("/provider deepseek deepseek-v4-flash")
+                && text.contains("/provider fallback test-local")
                 && text.contains("Provider choices:")
-                && text.contains("command palette suggestions")
+                && text.contains("/setup provider deepseek deepseek-v4-flash")
+    )));
+}
+
+#[test]
+fn setup_provider_without_args_renders_actionable_picker() {
+    let home = temp_dir("setup_provider_picker_home");
+    let cwd = temp_dir("setup_provider_picker_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/setup provider", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Choose a provider:")
+                && text.contains("/setup provider deepseek deepseek-v4-flash")
+                && text.contains("/setup provider fallback fallback-local")
+                && text.contains("writes user config")
     )));
 }
 
@@ -656,6 +683,7 @@ fn setup_provider_switches_and_saves_like_settings() {
     let cwd = temp_dir("setup_provider_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_user_config_path_override(cwd.join("user-config.toml"));
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
     let mut approver = |_prompt| ApprovalResponse {
         approved: true,
@@ -673,6 +701,86 @@ fn setup_provider_switches_and_saves_like_settings() {
         EngineEvent::Command(text)
             if text.contains("Provider set to fallback (test-local)")
                 && text.contains("Saved default provider/model")
+    )));
+}
+
+#[test]
+fn provider_direct_switches_and_saves_defaults() {
+    let home = temp_dir("provider_direct_home");
+    let cwd = temp_dir("provider_direct_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_user_config_path_override(cwd.join("user-config.toml"));
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/provider fallback test-local", &mut approver)
+        .unwrap();
+
+    assert_eq!(engine.provider_name(), "fallback");
+    assert_eq!(engine.model_name(), "test-local");
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Provider set to fallback (test-local)")
+                && text.contains("Saved default provider/model")
+                && text.contains("Next live turn uses")
+    )));
+}
+
+#[test]
+fn model_command_sets_and_saves_defaults() {
+    let home = temp_dir("model_direct_home");
+    let cwd = temp_dir("model_direct_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_user_config_path_override(cwd.join("user-config.toml"));
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/model test-local", &mut approver)
+        .unwrap();
+
+    assert_eq!(engine.model_name(), "test-local");
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Model set to test-local")
+                && text.contains("Saved default provider/model")
+                && text.contains("Current provider")
+    )));
+}
+
+#[test]
+fn model_without_args_shows_actionable_picker() {
+    let home = temp_dir("model_picker_home");
+    let cwd = temp_dir("model_picker_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/model", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Choose a model:")
+                && text.contains("/model test-model")
+                && text.contains("writes user config")
     )));
 }
 

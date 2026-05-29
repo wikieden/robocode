@@ -2,7 +2,7 @@
 
 英文版： [user-guide.md](user-guide.md)
 
-本文档说明 RoboCode `0.1.16` 本地 release candidate 已经真实支持的用户功能。
+本文档说明 RoboCode `0.1.17` release line 已经真实支持的用户功能。
 
 ## 心智模型
 
@@ -33,8 +33,10 @@ robocode-cli --provider fallback --model test-local
 `robocode-cli` 默认启动主 cockpit。第一次使用时，可以在输入区打开设置入口：
 
 ```text
-/settings
-/settings provider deepseek deepseek-v4-flash
+/setup
+/setup provider
+/provider deepseek deepseek-v4-flash
+/models
 ```
 
 带显式启动参数进入主 cockpit：
@@ -112,8 +114,9 @@ TUI 设置命令只会持久化 provider 和 model 默认值。API key 仍放在
 ```text
 /settings
 /setup
-/settings provider <provider-id> [model]
-/settings model <model>
+/provider <provider-id> [model]
+/model <model>
+/models
 /settings save
 ```
 
@@ -153,11 +156,13 @@ Provider commands：
 
 ```text
 /provider
+/provider <provider-id> [model]
 /provider list
 /provider doctor [provider-id]
 /provider reload
 /provider use <provider-id> [model]
 /model [name]
+/models [name]
 /settings
 /setup
 ```

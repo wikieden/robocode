@@ -422,7 +422,9 @@ fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState
 
 fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.input = "/lane a".to_string();
+    state.provider = "deepseek".to_string();
+    state.model = "deepseek-v4-flash".to_string();
+    state.input = "/models deep".to_string();
     state.command_selection = 1;
     state
 }
@@ -486,7 +488,7 @@ mod tests {
         let live_turn = render_live_turn_preview("fallback", "test-local");
         let resize = render_resize_preview("fallback", "test-local");
         let cjk_input = render_cjk_input_preview("fallback", "test-local");
-        let command_palette = render_command_palette_preview("fallback", "test-local");
+        let command_palette = render_command_palette_preview("deepseek", "deepseek-v4-flash");
         let side = render_side_preview("fallback", "test-local");
         let ops = render_ops_preview("fallback", "test-local");
 
@@ -499,9 +501,9 @@ mod tests {
         assert!(cjk_input.contains("你好，帮我检查当前变更"));
         assert!(main.contains("src/config.rs"));
         assert!(idle.contains("No approval is blocking right now"));
-        assert!(command_palette.contains("COMMANDS"));
-        assert!(command_palette.contains("› /lane artifacts"));
-        assert!(command_palette.contains("/lane apply"));
+        assert!(command_palette.contains("SELECT MODEL"));
+        assert!(command_palette.contains("Search deep"));
+        assert!(command_palette.contains("deepseek-v4-flash"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(!main.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));

@@ -4,41 +4,48 @@ use robocode_model::{ProviderConfig, ProviderDescriptor, ProviderPluginError};
 impl SessionEngine {
     pub(super) fn handle_provider_command(&mut self, args: &[String]) -> Result<String, String> {
         match args.first().map(String::as_str) {
-            None => Ok(format!(
-                "Current provider: {} ({})",
-                self.provider.provider_name(),
-                self.provider.model()
-            )),
+            None => Ok(self.render_provider_picker("/provider")),
             Some("list") => Ok(self.render_provider_list()),
             Some("doctor") => Ok(self.render_provider_doctor(args.get(1).map(String::as_str))),
             Some("reload") => self.reload_provider_registry(),
-            Some("use") => self.use_provider(&args[1..]),
+            Some("use") => self.use_provider_and_maybe_save(&args[1..], false),
             Some("help") => Ok(provider_help()),
-            Some(subcommand) => Ok(format!(
-                "Unknown provider subcommand `{subcommand}`.\n\n{}",
-                provider_help()
-            )),
+            Some(provider_id) => {
+                let rest = args
+                    .get(1..)
+                    .map(|items| items.to_vec())
+                    .unwrap_or_default();
+                let mut provider_args = Vec::with_capacity(rest.len() + 1);
+                provider_args.push(provider_id.to_string());
+                provider_args.extend(rest);
+                self.use_provider_and_maybe_save(&provider_args, true)
+            }
         }
+    }
+
+    pub(super) fn handle_model_command(&mut self, args: &[String]) -> Result<String, String> {
+        let Some(model) = args.first() else {
+            return Ok(self.render_model_picker("/model"));
+        };
+        self.provider.set_model(model.clone());
+        self.runtime_snapshot.model_label = self.provider.model().to_string();
+        self.persist_meta("model", self.provider.model())?;
+        let saved = self.save_current_provider_model_defaults()?;
+        Ok(format!(
+            "Model set to {}\nCurrent provider: {} ({})\n{saved}\nNext live turn uses {} / {}.",
+            self.provider.model(),
+            self.provider.provider_name(),
+            self.provider.model(),
+            self.provider.provider_name(),
+            self.provider.model()
+        ))
     }
 
     pub(super) fn handle_settings_command(&mut self, args: &[String]) -> Result<String, String> {
         match args.first().map(String::as_str) {
             None | Some("show") | Some("help") => Ok(self.render_settings()),
-            Some("provider") | Some("use") => {
-                let output = self.use_provider(&args[1..])?;
-                let saved = self.save_current_provider_model_defaults()?;
-                Ok(format!("{output}\n{saved}"))
-            }
-            Some("model") => {
-                let Some(model) = args.get(1) else {
-                    return Ok(settings_help());
-                };
-                self.provider.set_model(model.clone());
-                self.runtime_snapshot.model_label = self.provider.model().to_string();
-                self.persist_meta("model", self.provider.model())?;
-                let saved = self.save_current_provider_model_defaults()?;
-                Ok(format!("Model set to {}\n{saved}", self.provider.model()))
-            }
+            Some("provider") | Some("use") => self.use_provider_and_maybe_save(&args[1..], true),
+            Some("model") => self.handle_model_command(&args[1..]),
             Some("save") => self.save_current_provider_model_defaults(),
             Some(subcommand) => Ok(format!(
                 "Unknown settings subcommand `{subcommand}`.\n\n{}",
@@ -50,6 +57,10 @@ impl SessionEngine {
     pub(super) fn handle_setup_command(&mut self, args: &[String]) -> Result<String, String> {
         match args.first().map(String::as_str) {
             None | Some("show") | Some("help") => Ok(self.render_setup_wizard()),
+            Some("provider") if args.len() == 1 => {
+                Ok(self.render_provider_picker("/setup provider"))
+            }
+            Some("model") if args.len() == 1 => Ok(self.render_model_picker("/setup model")),
             _ => self.handle_settings_command(args),
         }
     }
@@ -109,9 +120,11 @@ impl SessionEngine {
             ),
             format!("  API key: {}", self.current_provider_key_status()),
             format!("  User config: {config_path}"),
-            "  Persist default: /settings save".to_string(),
-            "  Choose provider: /settings provider <id> [model]".to_string(),
-            "  Choose model: /settings model <model>".to_string(),
+            "  Change provider and save: /provider <id> [model]".to_string(),
+            "  Change model and save: /model <model>".to_string(),
+            "  Guided provider picker: /setup provider".to_string(),
+            "  Guided model picker: /models".to_string(),
+            "  Persist current default: /settings save".to_string(),
             "  Diagnostics: /provider doctor [id]".to_string(),
         ];
         if let Some(host) = self.provider_host.as_ref() {
@@ -141,23 +154,25 @@ impl SessionEngine {
         let current_provider = self.provider.provider_name();
         let current_model = self.provider.model();
         let mut lines = vec![
-            "Interactive provider/model setup:".to_string(),
+            "Provider/model setup:".to_string(),
             format!("  Current: {current_provider} / {current_model}"),
             format!("  API key: {}", self.current_provider_key_status()),
             format!("  User config: {config_path}"),
             "".to_string(),
-            "Recommended online path:".to_string(),
-            "  /setup provider deepseek deepseek-v4-flash".to_string(),
+            "Fast actions:".to_string(),
+            "  /setup provider       open provider choices".to_string(),
+            "  /models               open model choices for current provider".to_string(),
+            "  /provider deepseek deepseek-v4-flash".to_string(),
+            "  /model deepseek-v4-flash".to_string(),
             "  Set DEEPSEEK_API_KEY or ROBOCODE_DEEPSEEK_API_KEY before the first live turn."
                 .to_string(),
             "".to_string(),
             "Offline/test path:".to_string(),
-            "  /setup provider fallback test-local".to_string(),
+            "  /provider fallback test-local".to_string(),
             "".to_string(),
             "How to operate in the TUI:".to_string(),
-            "  Type `/setup provider `, use the command palette suggestions, then press Tab/Enter."
-                .to_string(),
-            "  Type `/setup model ` to pick a model for the current provider.".to_string(),
+            "  Type `/setup provider` to see provider choices.".to_string(),
+            "  Type `/models` or `/model` to see model choices.".to_string(),
             "  Use `/provider doctor <id>` to check env vars and compatibility.".to_string(),
         ];
         if let Some(host) = self.provider_host.as_ref() {
@@ -177,6 +192,68 @@ impl SessionEngine {
                 )
             }));
         }
+        lines.join("\n")
+    }
+
+    fn render_provider_picker(&self, prefix: &str) -> String {
+        let mut lines = vec![
+            "Choose a provider:".to_string(),
+            format!(
+                "  Current: {} / {}",
+                self.provider.provider_name(),
+                self.provider.model()
+            ),
+            "  Enter one command below. It switches immediately and writes user config."
+                .to_string(),
+            "  Tip: in TUI, type provider letters after the space and use Tab/Enter.".to_string(),
+            "".to_string(),
+        ];
+        if let Some(host) = self.provider_host.as_ref() {
+            let mut descriptors = host.registry().descriptors().to_vec();
+            descriptors.sort_by(|left, right| left.provider_id.cmp(&right.provider_id));
+            for descriptor in descriptors {
+                let model = descriptor.default_model.as_deref().unwrap_or("<model>");
+                lines.push(format!(
+                    "  - {:<18} {:<18} key={:<24} command: {prefix} {} {}",
+                    descriptor.display_name,
+                    descriptor.provider_id,
+                    descriptor_key_status(&descriptor),
+                    descriptor.provider_id,
+                    model
+                ));
+            }
+        } else {
+            lines.push(
+                "  Runtime registry unavailable; start RoboCode through the CLI.".to_string(),
+            );
+        }
+        lines.join("\n")
+    }
+
+    fn render_model_picker(&self, prefix: &str) -> String {
+        let provider_id = self.provider.provider_name();
+        let current_model = self.provider.model();
+        let mut lines = vec![
+            "Choose a model:".to_string(),
+            format!("  Current provider: {provider_id}"),
+            format!("  Current model: {current_model}"),
+            "  Enter one command below. It switches immediately and writes user config."
+                .to_string(),
+            "".to_string(),
+        ];
+        let mut models = compatible_model_candidates(provider_id, current_model, current_model);
+        if let Some(host) = self.provider_host.as_ref()
+            && let Some(descriptor) = host.registry().descriptor(provider_id)
+            && let Some(default_model) = descriptor.default_model.as_deref()
+        {
+            push_unique(&mut models, default_model.to_string());
+        }
+        for model in models {
+            let marker = if model == current_model { "*" } else { " " };
+            lines.push(format!("  {marker} {model:<30} command: {prefix} {model}"));
+        }
+        lines.push("".to_string());
+        lines.push("Provider picker: /setup provider".to_string());
         lines.join("\n")
     }
 
@@ -271,9 +348,13 @@ impl SessionEngine {
         }
     }
 
-    fn use_provider(&mut self, args: &[String]) -> Result<String, String> {
+    fn use_provider_and_maybe_save(
+        &mut self,
+        args: &[String],
+        save: bool,
+    ) -> Result<String, String> {
         let Some(provider_id) = args.first().map(String::as_str) else {
-            return Ok(provider_help());
+            return Ok(self.render_provider_picker("/provider"));
         };
         let requested_model = args.get(1).map(String::as_str);
         let Some(host) = self.provider_host.as_ref() else {
@@ -299,18 +380,39 @@ impl SessionEngine {
         self.runtime_snapshot.model_label = self.provider.model().to_string();
         self.persist_meta("provider", provider_id)?;
         self.persist_meta("model", self.provider.model())?;
-        Ok(format!(
+        let output = format!(
             "Provider set to {} ({})",
             self.provider.provider_name(),
             self.provider.model()
-        ))
+        );
+        if save {
+            let saved = self.save_current_provider_model_defaults()?;
+            Ok(format!(
+                "{output}\n{saved}\nNext live turn uses {} / {}.",
+                self.provider.provider_name(),
+                self.provider.model()
+            ))
+        } else {
+            Ok(format!(
+                "{output}\nSession-only switch. Save as default with /settings save."
+            ))
+        }
     }
 
     fn save_current_provider_model_defaults(&self) -> Result<String, String> {
-        let path = robocode_config::save_user_provider_model_defaults(
-            self.provider.provider_name(),
-            self.provider.model(),
-        )?;
+        let path = if let Some(path) = &self.user_config_path_override {
+            robocode_config::save_user_provider_model_defaults_at(
+                path,
+                self.provider.provider_name(),
+                self.provider.model(),
+            )?;
+            path.clone()
+        } else {
+            robocode_config::save_user_provider_model_defaults(
+                self.provider.provider_name(),
+                self.provider.model(),
+            )?
+        };
         Ok(format!(
             "Saved default provider/model to {}",
             path.display()
@@ -536,12 +638,15 @@ fn format_provider_plugin_error(err: &ProviderPluginError) -> String {
 fn provider_help() -> String {
     [
         "Provider commands:",
-        "  /provider          Show current provider and model",
+        "  /provider          Choose a provider and show switch commands",
+        "  /provider <id> [model]",
+        "                     Switch provider/model and save defaults",
         "  /provider list     List registered providers",
         "  /provider doctor [id]",
         "                     Show provider registry diagnostics",
         "  /provider reload   Reload provider plugin registry",
         "  /provider use <id> [model]",
+        "                     Legacy session-only switch; use /provider <id> to save",
     ]
     .join("\n")
 }
@@ -550,6 +655,9 @@ fn settings_help() -> String {
     [
         "Settings commands:",
         "  /settings                  Show provider/model setup status",
+        "  /provider <id> [model]     Switch provider/model and save defaults",
+        "  /model <model>             Switch model and save defaults",
+        "  /models                    Show model choices for the current provider",
         "  /settings provider <id> [model]",
         "                             Switch provider/model and save defaults",
         "  /settings model <model>    Switch current model and save defaults",

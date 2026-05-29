@@ -17,15 +17,7 @@ impl SessionEngine {
         let args: Vec<String> = parts.map(ToString::to_string).collect();
         let output = match command {
             "/help" => self.render_help(),
-            "/model" => {
-                if let Some(model) = args.first() {
-                    self.provider.set_model(model.clone());
-                    self.persist_meta("model", model)?;
-                    format!("Model set to {}", self.provider.model())
-                } else {
-                    format!("Current model: {}", self.provider.model())
-                }
-            }
+            "/model" | "/models" => self.handle_model_command(&args)?,
             "/provider" => self.handle_provider_command(&args)?,
             "/settings" => self.handle_settings_command(&args)?,
             "/setup" => self.handle_setup_command(&args)?,

@@ -158,6 +158,7 @@ pub struct SessionEngine {
     provider_plugin_dirs: Vec<PathBuf>,
     provider_request_timeout_secs: u64,
     provider_max_retries: u32,
+    user_config_path_override: Option<PathBuf>,
     tools: ToolRegistry,
     permissions: PermissionEngine,
     store: SessionStore,
@@ -221,6 +222,7 @@ impl SessionEngine {
             provider_plugin_dirs: Vec::new(),
             provider_request_timeout_secs: 90,
             provider_max_retries: 1,
+            user_config_path_override: None,
             tools: ToolRegistry::builtin(),
             permissions: PermissionEngine::new(&cwd),
             store,
@@ -261,6 +263,11 @@ impl SessionEngine {
             .as_ref()
             .map(|host| host.registry().descriptors().to_vec())
             .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_user_config_path_override(&mut self, path: PathBuf) {
+        self.user_config_path_override = Some(path);
     }
 
     pub fn active_task_snapshot(&self) -> Result<Vec<TaskRecord>, String> {

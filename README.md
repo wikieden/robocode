@@ -133,12 +133,13 @@ open the cockpit TUI by default:
 robocode-cli
 ```
 
-Use `/setup` inside the TUI for the interactive provider/model setup flow. It
-shows API-key status, provider choices, model defaults, and save commands:
+Use `/setup` inside the TUI for provider/model setup. The quickest paths are:
 
 ```bash
 /setup
-/setup provider deepseek deepseek-v4-flash
+/setup provider
+/provider deepseek deepseek-v4-flash
+/models
 ```
 
 Set a DeepSeek key for live turns:
@@ -149,8 +150,8 @@ robocode-cli
 ```
 
 If the selected model fails or is unavailable, RoboCode shows a switch-model
-prompt with concrete `/settings model ...`, `/settings provider ...`, and
-`/provider doctor ...` actions.
+prompt with concrete `/model ...`, `/provider ...`, and `/provider doctor ...`
+actions.
 
 Run an explicit offline smoke session when you do not want a live provider:
 
@@ -198,8 +199,9 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
   observe it, but an in-flight provider request may still finish.
 - Approval prompts default to `Approve`; press `y` to approve, `n` to deny,
   `d` to focus diff, or use `Tab` / arrow keys to move between actions.
-- Type `/` to open command suggestions. Common entries include `/help`,
-  `/settings`, `/setup`, `/provider`, `/status`, `/config`, `/permissions`,
+- Type `/` to open command suggestions. `/models` opens a model selector-style
+  popup with search and keyboard selection. Common entries include `/help`,
+  `/settings`, `/setup`, `/provider`, `/models`, `/status`, `/config`, `/permissions`,
   `/test`, `/sessions`, `/resume`, `/task`, `/brief`, `/spec`, `/memory`,
   `/lane`, `/agent`, `/screen`, `/lsp`, `/git`, `/web`, `/extensions`,
   `/mcp`, and `/skills`.
@@ -211,11 +213,12 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 RoboCode loads config from the platform config path and then from
 `.robocode/config.toml`, with CLI flags taking precedence.
 
-Inside the TUI, `/setup` opens the first-run provider/model flow. `/settings`
-shows the active provider/model, API-key status, available providers, and the
-user config path. `/setup provider <id> [model]`, `/settings provider <id>
-[model]`, `/setup model <model>`, `/settings model <model>`, and
-`/settings save` persist the selected provider/model without storing API keys.
+Inside the TUI, `/setup` opens the first-run provider/model flow. `/provider`
+shows an actionable provider picker; `/provider <id> [model]` switches and
+saves the default provider/model. `/models` shows a model selector-style popup;
+`/model <model>` or `/models <model>` switches and saves the model for the
+current provider. `/settings` remains the detailed status page and
+`/settings save` persists the current provider/model without storing API keys.
 
 ```toml
 provider = "deepseek"

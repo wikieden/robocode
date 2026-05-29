@@ -84,6 +84,43 @@ fn summary_metadata_counts_messages_commands_and_tool_calls() {
 }
 
 #[test]
+fn sqlite_index_preserves_sessions_with_multiline_command_previews() {
+    let home = temp_home("multiline_command_preview");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store = SessionStore::new_with_home(&home, &cwd, Some("session_multiline".into())).unwrap();
+    store
+        .append_entry(&TranscriptEntry::Command {
+            entry: CommandLogEntry {
+                timestamp: now_timestamp(),
+                name: "provider".into(),
+                args: vec!["deepseek".into(), "deepseek-v4-flash".into()],
+                output: "Provider set to deepseek (deepseek-v4-flash)\nSaved default provider/model to /tmp/config.toml\nNext live turn uses deepseek / deepseek-v4-flash.".into(),
+            },
+        })
+        .unwrap();
+
+    let summary = store
+        .list_sessions_for_cwd()
+        .unwrap()
+        .into_iter()
+        .find(|item| item.session_id == "session_multiline")
+        .unwrap();
+    assert_eq!(summary.command_count, 1);
+    assert_eq!(summary.last_activity_kind.as_deref(), Some("command"));
+    assert_eq!(
+        summary.last_activity_preview.as_deref(),
+        Some("Provider set to deepseek (deepseek-v4-flash) Saved default provider/model to /tm...")
+    );
+    assert!(
+        store
+            .load_by_id_for_cwd("session_multiline")
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
 fn falls_back_to_project_scan_when_sqlite_index_has_old_schema() {
     let home = temp_home("sqlite_fallback");
     let cwd = home.join("workspace");

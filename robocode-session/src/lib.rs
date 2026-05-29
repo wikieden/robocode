@@ -323,9 +323,9 @@ fn summary_from_entries(
             TranscriptEntry::Message { message } => {
                 message_count += 1;
                 if title.is_none() && message.role == Role::User {
-                    title = Some(truncate_for_preview(&message.content, 48));
+                    title = Some(single_line_preview(&message.content, 48));
                 }
-                let preview = truncate_for_preview(&message.content, 80);
+                let preview = single_line_preview(&message.content, 80);
                 last_preview = Some(preview.clone());
                 last_activity_preview = Some(preview);
                 last_activity_kind = Some(format!("message:{}", message.role.as_str()));
@@ -335,14 +335,14 @@ fn summary_from_entries(
                 last_activity_kind = Some("tool_call".to_string());
             }
             TranscriptEntry::ToolResult { result } => {
-                let preview = truncate_for_preview(&result.output, 80);
+                let preview = single_line_preview(&result.output, 80);
                 last_preview = Some(preview.clone());
                 last_activity_preview = Some(preview);
                 last_activity_kind = Some("tool_result".to_string());
             }
             TranscriptEntry::Command { entry } => {
                 command_count += 1;
-                let preview = truncate_for_preview(&entry.output, 80);
+                let preview = single_line_preview(&entry.output, 80);
                 last_preview = Some(preview.clone());
                 last_activity_preview = Some(preview);
                 last_activity_kind = Some("command".to_string());
@@ -365,6 +365,11 @@ fn summary_from_entries(
         created_at,
         last_updated_at,
     })
+}
+
+fn single_line_preview(input: &str, max_chars: usize) -> String {
+    let normalized = input.split_whitespace().collect::<Vec<_>>().join(" ");
+    truncate_for_preview(&normalized, max_chars)
 }
 
 fn sqlite_available() -> bool {

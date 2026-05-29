@@ -3,7 +3,7 @@
 Chinese version: [user-guide.zh-CN.md](user-guide.zh-CN.md)
 
 This guide describes the user-facing features that are available in the
-RoboCode `0.1.16` local release candidate.
+RoboCode `0.1.17` release line.
 
 ## Mental Model
 
@@ -39,8 +39,10 @@ robocode-cli --provider fallback --model test-local
 surface from the composer:
 
 ```text
-/settings
-/settings provider deepseek deepseek-v4-flash
+/setup
+/setup provider
+/provider deepseek deepseek-v4-flash
+/models
 ```
 
 Start the main cockpit with explicit startup overrides:
@@ -121,8 +123,9 @@ remain in environment variables or manually maintained config fields.
 ```text
 /settings
 /setup
-/settings provider <provider-id> [model]
-/settings model <model>
+/provider <provider-id> [model]
+/model <model>
+/models
 /settings save
 ```
 
@@ -164,11 +167,13 @@ Provider commands:
 
 ```text
 /provider
+/provider <provider-id> [model]
 /provider list
 /provider doctor [provider-id]
 /provider reload
 /provider use <provider-id> [model]
 /model [name]
+/models [name]
 /settings
 /setup
 ```

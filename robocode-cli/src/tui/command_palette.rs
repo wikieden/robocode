@@ -7,7 +7,7 @@ use super::{
     panel::{bordered_row, panel_top},
     state::TuiState,
     statusbar::BOTTOM_BAR_HEIGHT,
-    text::{bottom_border, pad},
+    text::{bottom_border, pad, truncate},
 };
 
 const MAX_VISIBLE_COMMANDS: usize = 6;
@@ -158,6 +158,10 @@ pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {
     if suggestions.is_empty() {
         return;
     }
+    if is_model_selector_query(&state.input) {
+        render_model_selector(frame, state, &suggestions);
+        return;
+    }
 
     let width = frame.width.saturating_sub(8).clamp(48, 104);
     let visible = suggestions.len().min(MAX_VISIBLE_COMMANDS);
@@ -202,6 +206,87 @@ pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {
     frame.write_block(top, left, &rows);
 }
 
+fn is_model_selector_query(input: &str) -> bool {
+    input == "/models" || input.starts_with("/models ")
+}
+
+fn render_model_selector(frame: &mut Frame, state: &TuiState, suggestions: &[CommandSuggestion]) {
+    let width = frame
+        .width
+        .saturating_mul(2)
+        .saturating_div(5)
+        .clamp(56, 76);
+    let visible = suggestions.len().clamp(1, 12);
+    let height = (visible + 9).min(frame.height.saturating_sub(4)).max(12);
+    let left = frame.width.saturating_sub(width).saturating_div(2);
+    let top = frame.height.saturating_sub(height).saturating_div(2);
+    let selected = state
+        .command_selection
+        .min(suggestions.len().saturating_sub(1));
+    let start = visible_command_window_start(selected, suggestions.len(), visible);
+    let search = state
+        .input
+        .strip_prefix("/models")
+        .unwrap_or("")
+        .trim_start();
+    let content_width = width.saturating_sub(4);
+    let mut rows = vec![
+        panel_top("SELECT MODEL", width, Some("esc")),
+        format!("│ {} │", pad("", content_width)),
+        format!(
+            "│ {} │",
+            pad(
+                &format!("Search {}", if search.is_empty() { "_" } else { search }),
+                content_width
+            )
+        ),
+        format!("│ {} │", pad("", content_width)),
+        format!(
+            "│ {} │",
+            pad(
+                &format!("{}  {}", state.provider, state.model),
+                content_width
+            )
+        ),
+    ];
+    for (index, suggestion) in suggestions.iter().enumerate().skip(start).take(visible) {
+        let model = suggestion
+            .command
+            .strip_prefix("/models ")
+            .unwrap_or(suggestion.command.as_str());
+        let marker = if index == selected { "●" } else { " " };
+        let label = if index == selected {
+            format!("{marker} {model}")
+        } else {
+            format!("  {model}")
+        };
+        rows.push(format!(
+            "│ {} │",
+            pad(&truncate(&label, content_width), content_width)
+        ));
+    }
+    rows.extend([
+        format!("│ {} │", pad("", content_width)),
+        format!(
+            "│ {} │",
+            pad("Connect provider  ctrl+a   Favorite  ctrl+f", content_width)
+        ),
+        bottom_border(width),
+    ]);
+    while rows.len() < height {
+        let insert_at = rows.len().saturating_sub(1);
+        rows.insert(insert_at, format!("│ {} │", pad("", content_width)));
+    }
+    frame.fill_rect_pattern(
+        top.saturating_sub(1),
+        0,
+        frame.width,
+        height + 2,
+        |_x, _y| ' ',
+    );
+    frame.write_block(top, left, &rows);
+}
+
 fn visible_command_window_start(selected: usize, total: usize, visible: usize) -> usize {
     if total <= visible || visible == 0 {
         return 0;
@@ -218,7 +303,7 @@ struct CommandTemplate {
     summary: &'static str,
 }
 
-const COMMANDS: [CommandTemplate; 27] = [
+const COMMANDS: [CommandTemplate; 28] = [
     CommandTemplate {
         command: "/help",
         summary: "Show commands",
@@ -238,6 +323,10 @@ const COMMANDS: [CommandTemplate; 27] = [
     CommandTemplate {
         command: "/model",
         summary: "Set current model",
+    },
+    CommandTemplate {
+        command: "/models",
+        summary: "Select model",
     },
     CommandTemplate {
         command: "/plan",
@@ -873,6 +962,7 @@ fn is_nested_command_query(input: &str) -> bool {
         "/provider",
         "/settings",
         "/model",
+        "/models",
         "/lsp",
         "/task",
         "/brief",
@@ -1126,7 +1216,7 @@ fn provider_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Com
             .into_iter()
             .map(command_from_template)
             .collect::<Vec<_>>()
-    } else if words.len() == 2 && !query.ends_with(' ') {
+    } else if words.len() == 2 && !query.ends_with(' ') && provider_subcommand_prefix(words[1]) {
         PROVIDER_COMMANDS
             .into_iter()
             .filter(|item| item.command.starts_with(query))
@@ -1143,11 +1233,14 @@ fn provider_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Com
 }
 
 fn should_suggest_provider_ids(query: &str, words: &[&str]) -> bool {
-    words.len() >= 2
-        && words.len() <= 3
-        && format!("{} {}", words[0], words[1]) == "/provider use"
-        && (query.ends_with(' ') && words.len() == 2
-            || !query.ends_with(' ') && words.get(2).is_some())
+    if words.first().copied() != Some("/provider") || words.len() > 3 {
+        return false;
+    }
+    if words.get(1).copied() == Some("use") {
+        return query.ends_with(' ') && words.len() == 2
+            || !query.ends_with(' ') && words.get(2).is_some();
+    }
+    words.len() == 2 && !provider_subcommand_prefix(words[1])
 }
 
 fn provider_id_suggestions(
@@ -1157,25 +1250,42 @@ fn provider_id_suggestions(
 ) -> Vec<CommandSuggestion> {
     let partial_provider = if query.ends_with(' ') {
         ""
-    } else {
+    } else if words.get(1).copied() == Some("use") {
         words.get(2).copied().unwrap_or("")
+    } else {
+        words.get(1).copied().unwrap_or("")
     };
     state
         .provider_catalog
         .iter()
         .filter(|provider| provider.provider_id.starts_with(partial_provider))
-        .map(|provider| CommandSuggestion {
-            command: format!("/provider use {}", provider.provider_id),
-            summary: provider_summary(provider),
+        .map(|provider| {
+            let command = if words.get(1).copied() == Some("use") {
+                format!("/provider use {}", provider.provider_id)
+            } else {
+                format!("/provider {}", provider.provider_id)
+            };
+            CommandSuggestion {
+                command,
+                summary: provider_summary(provider),
+            }
         })
         .collect()
 }
 
 fn should_suggest_provider_models(query: &str, words: &[&str]) -> bool {
-    words.len() >= 3
-        && words.len() <= 4
-        && format!("{} {}", words[0], words[1]) == "/provider use"
-        && (query.ends_with(' ') || words.get(3).is_some())
+    if words.first().copied() != Some("/provider") {
+        return false;
+    }
+    if words.get(1).copied() == Some("use") {
+        return words.len() >= 3
+            && words.len() <= 4
+            && (query.ends_with(' ') || words.get(3).is_some());
+    }
+    words.len() >= 2
+        && words.len() <= 3
+        && !provider_subcommand_prefix(words[1])
+        && (query.ends_with(' ') || words.get(2).is_some())
 }
 
 fn provider_model_suggestions(
@@ -1183,11 +1293,17 @@ fn provider_model_suggestions(
     words: &[&str],
     state: &TuiState,
 ) -> Vec<CommandSuggestion> {
-    let provider_id = words.get(2).copied().unwrap_or("");
+    let provider_id = if words.get(1).copied() == Some("use") {
+        words.get(2).copied().unwrap_or("")
+    } else {
+        words.get(1).copied().unwrap_or("")
+    };
     let partial_model = if query.ends_with(' ') {
         ""
-    } else {
+    } else if words.get(1).copied() == Some("use") {
         words.get(3).copied().unwrap_or("")
+    } else {
+        words.get(2).copied().unwrap_or("")
     };
     state
         .provider_catalog
@@ -1196,7 +1312,11 @@ fn provider_model_suggestions(
         .filter_map(|provider| {
             provider.default_model.as_ref().and_then(|model| {
                 model.starts_with(partial_model).then(|| CommandSuggestion {
-                    command: format!("/provider use {provider_id} {model}"),
+                    command: if words.get(1).copied() == Some("use") {
+                        format!("/provider use {provider_id} {model}")
+                    } else {
+                        format!("/provider {provider_id} {model}")
+                    },
                     summary: format!("Default model for {}", provider.display_name),
                 })
             })
@@ -1205,9 +1325,13 @@ fn provider_model_suggestions(
 }
 
 fn model_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
-    if !(query == "/model " || query.starts_with("/model ")) {
+    let prefix = if query == "/model " || query.starts_with("/model ") {
+        "/model"
+    } else if query == "/models " || query.starts_with("/models ") {
+        "/models"
+    } else {
         return None;
-    }
+    };
     let words = query.split_whitespace().collect::<Vec<_>>();
     if words.len() > 2 {
         return Some(Vec::new());
@@ -1225,13 +1349,19 @@ fn model_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comman
         .filter_map(|provider| {
             provider.default_model.as_ref().and_then(|model| {
                 model.starts_with(partial_model).then(|| CommandSuggestion {
-                    command: format!("/model {model}"),
+                    command: format!("{prefix} {model}"),
                     summary: format!("Default model for {}", provider.display_name),
                 })
             })
         })
         .collect();
     Some(suggestions)
+}
+
+fn provider_subcommand_prefix(value: &str) -> bool {
+    ["list", "doctor", "reload", "use", "help"]
+        .iter()
+        .any(|subcommand| subcommand.starts_with(value))
 }
 
 fn provider_summary(provider: &super::state::ProviderOption) -> String {
@@ -2262,12 +2392,27 @@ mod tests {
 
     #[test]
     fn suggests_provider_ids_and_default_models() {
+        let mut state = state_with_input("/provider dee");
+
+        let providers = command_suggestions_for_state(&state);
+
+        assert_eq!(providers[0].command, "/provider deepseek");
+        assert_eq!(providers[0].summary, "DeepSeek default deepseek-v4-flash");
+
+        state.input = "/provider deepseek deep".to_string();
+        let models = command_suggestions_for_state(&state);
+
+        assert_eq!(models[0].command, "/provider deepseek deepseek-v4-flash");
+        assert_eq!(models[0].summary, "Default model for DeepSeek");
+    }
+
+    #[test]
+    fn keeps_legacy_provider_use_suggestions() {
         let mut state = state_with_input("/provider use dee");
 
         let providers = command_suggestions_for_state(&state);
 
         assert_eq!(providers[0].command, "/provider use deepseek");
-        assert_eq!(providers[0].summary, "DeepSeek default deepseek-v4-flash");
 
         state.input = "/provider use deepseek deep".to_string();
         let models = command_suggestions_for_state(&state);
@@ -2276,7 +2421,6 @@ mod tests {
             models[0].command,
             "/provider use deepseek deepseek-v4-flash"
         );
-        assert_eq!(models[0].summary, "Default model for DeepSeek");
     }
 
     #[test]
@@ -2287,6 +2431,17 @@ mod tests {
         let suggestions = command_suggestions_for_state(&state);
 
         assert_eq!(suggestions[0].command, "/model deepseek-v4-flash");
+        assert_eq!(suggestions[0].summary, "Default model for DeepSeek");
+    }
+
+    #[test]
+    fn suggests_models_alias_for_current_provider() {
+        let mut state = state_with_input("/models deep");
+        state.provider = "deepseek".to_string();
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(suggestions[0].command, "/models deepseek-v4-flash");
         assert_eq!(suggestions[0].summary, "Default model for DeepSeek");
     }
 
