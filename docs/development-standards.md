@@ -78,6 +78,23 @@ future plans, placeholders, mock panels, or unverified provider behavior as
 finished features. If a feature is partial, label the current limitation and the
 next expected step.
 
+## Interactive TUI UX Standard
+
+Future interactive settings, mode switches, provider/model choices, permission
+choices, theme choices, lane/agent actions, and other user decisions should use
+the selector-first interaction model by default:
+
+- open an actionable picker instead of an information-only page;
+- support search/filtering when there are multiple choices;
+- support keyboard selection and `Enter` to apply;
+- support mouse selection when the command palette or overlay is visible;
+- show the current value and the effect of the highlighted action;
+- reserve passive information pages for explicit diagnostics, raw details, or
+  status commands such as `/config`, `/status`, or `/provider doctor`.
+
+If a future feature cannot use this pattern, document the reason in the design
+doc or code comment before shipping it.
+
 ## Code Comment Standard
 
 Use comments to explain intent that is not obvious from the code itself:

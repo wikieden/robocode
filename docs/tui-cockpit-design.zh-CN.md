@@ -64,10 +64,11 @@
 
 渲染契约：
 
-- 设置类命令必须选择器优先。`/settings`、`/provider`、`/models`、`/permissions`、
-  `/theme` 都要渲染居中的 selector panel，支持搜索、键盘移动、鼠标选择和 `Enter`
-  应用。除非是 `/config` 或 `/provider doctor` 这类明确诊断/详情命令，否则不要退化成
-  只展示信息的页面。
+- 交互决策类命令必须 selector-first。`/settings`、`/provider`、`/models`、
+  `/permissions`、`/theme` 都要渲染居中的 selector panel，支持搜索、键盘移动、
+  鼠标选择和 `Enter` 应用。未来新增的配置、模式切换、lane/agent 操作和多选项
+  工作流也要沿用同一模式。除非是 `/config`、`/status` 或 `/provider doctor`
+  这类明确诊断/详情命令，否则不要退化成只展示信息的页面。
 
 - 提示列表使用与主 TUI 一致的 cockpit 边框、标题和行样式。
 - 浮在 composer 正上方，不能遮挡输入光标。
