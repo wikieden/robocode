@@ -343,9 +343,11 @@ Make RoboCode dependable enough to recommend for real project work.
 
 After `0.1.16`, the likely sequence is:
 
-1. `0.1.17`: Daily Coding Loop Baseline. Prove setup, scoped edit,
-   approval, test, diff, final summary, and resume evidence in one deterministic
-   workflow. Lightweight spec/steering is included only as task-brief support.
+1. `0.1.17`: Daily Coding Loop Baseline. Prove DeepSeek-first setup,
+   interactive provider/model configuration, switch-model recovery, scoped
+   edit, approval, test, diff, final summary, and resume evidence in one
+   deterministic workflow. Lightweight spec/steering is included only as
+   task-brief support.
 2. `0.1.18`: Failure Recovery And Review Gates. Make failed tests, diff
    review, apply conflict, rollback, rerun, and final readiness states obvious.
 3. `0.1.19`: Delegated Lane Usefulness. Make one Codex/Claude/shell delegated

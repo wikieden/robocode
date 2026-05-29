@@ -207,6 +207,10 @@ Next planned:
 - `docs/release-0.1.17-plan.md` targets Daily Coding Loop Baseline:
   setup/doctor clarity, deterministic coding-loop smoke, minimal task brief and
   steering files, actionable diff/test evidence, and real-use screenshots.
+- `0.1.17` also makes DeepSeek the default online path for clean installs,
+  keeps fallback explicit for offline/testing, adds an interactive TUI
+  provider/model setup flow, and requires switch-model recovery when the current
+  model does not work.
 - Lightweight spec/steering remains in `0.1.17`, but only as support for the
   daily coding loop.
 - `0.1.20` is the usability beta gate: clean install, fallback provider path,

@@ -176,6 +176,8 @@ Mainline landed：
 - `docs/release-0.1.17-plan.zh-CN.md` 聚焦 Daily Coding Loop Baseline：setup/doctor
   清晰度、确定性 coding-loop smoke、最小 task brief 和 steering files、可行动
   diff/test evidence，以及真实使用截图。
+- `0.1.17` 还要让干净安装默认走 DeepSeek 在线路径，fallback 只作为显式离线/测试
+  路径；TUI 内提供交互式 provider/model setup，并在当前 model 不可用时给出换模恢复动作。
 - 轻量 spec/steering 仍放在 `0.1.17`，但只作为日常编码闭环的支撑层。
 - `0.1.20` 是 usability beta gate：干净安装、fallback provider path、live provider
   path、daily coding loop 和一条 delegated review loop 都应该有证据。

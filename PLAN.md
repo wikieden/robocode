@@ -47,6 +47,10 @@ Next planned release (`0.1.17`):
 - The target is true day-to-day usability: setup/doctor clarity, a deterministic
   coding-loop smoke, minimal task brief and steering files, actionable
   diff/test evidence, and screenshots that prove the main loop works.
+- DeepSeek becomes the default online path for clean installs, with fallback as
+  an explicit offline/test path. The TUI must include an interactive
+  provider/model setup flow, and model failures must prompt a concrete switch
+  model action instead of leaving the user with a raw provider error.
 - Lightweight spec/steering remains part of `0.1.17`, but only as a support
   layer for real coding tasks, not a separate product island.
 - `0.1.20` is the usability beta target: clean install, fallback provider path,
@@ -65,6 +69,9 @@ Next planned release (`0.1.17`):
    - `0.1.16` lands interaction reliability: non-blocking active-turn feedback,
      command-palette scroll parity, approval diff/evidence control, resize
      stability, visible caret behavior, and truthful footer actions.
+   - `0.1.17` should make first-run setup feel real: DeepSeek-first defaults,
+     interactive provider/model setup, and in-product switch-model recovery
+     when the selected model is unavailable or incompatible.
    - Keep lane completion separate from acceptance, and keep apply/cleanup as
      explicit operator actions.
 

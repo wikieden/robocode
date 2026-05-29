@@ -30,6 +30,11 @@ RoboCode should feel "truly usable" before `0.1.20` if these are true:
 
 - First run is understandable: provider/model/API-key status is visible, and
   the user can fix setup from the TUI.
+- DeepSeek is the default online path. Fallback/test-local stays available as
+  an explicit offline/testing path, not as the silent default for real use.
+- Model failure is recoverable from inside the product: unsupported model,
+  unavailable model, auth, and provider compatibility errors should suggest a
+  concrete provider/model switch.
 - The main coding loop works: change request, file edits, approval, shell/test,
   diff review, and final summary.
 - Failure recovery is obvious: test failures, apply conflicts, provider errors,
@@ -50,7 +55,8 @@ RoboCode should feel "truly usable" before `0.1.20` if these are true:
 Create a deterministic smoke scenario that proves RoboCode can complete the
 normal coding loop:
 
-1. Start with fallback or test provider.
+1. Start with the offline fallback/test provider for deterministic CI, and run
+   the same path with DeepSeek credentials during manual acceptance.
 2. Ask for a small code change in a fixture workspace.
 3. Trigger a file edit through the permission path.
 4. Approve the edit.
@@ -65,7 +71,8 @@ Acceptance:
   named daily-loop step.
 - Evidence must include transcript, changed file, test output, diff summary,
   and deterministic TUI screenshot or ANSI capture.
-- The smoke must run without a live provider key.
+- The smoke must run without a live provider key, while the real-use acceptance
+  path must also prove the DeepSeek-first launch path.
 
 ### 2. Task Brief And Steering Files
 
@@ -92,21 +99,47 @@ Acceptance:
 - The TUI shows the active brief id/title in `NOW WORKING` or side-2 when a
   brief is active.
 
-### 3. Setup And Doctor Tightening
+### 3. DeepSeek-First Setup And Model Recovery
 
 The tool should help a new user become productive:
 
-- `/setup` should clearly show provider, model, API key env var, config path,
-  and whether the current provider can make a request.
+- Clean installs should default to DeepSeek as the online provider target when
+  no explicit provider is configured.
+- `/setup` should open an interactive TUI configuration flow, not only print
+  instructions:
+  - choose provider
+  - choose model from provider defaults/candidates
+  - show API key env var and whether it is present
+  - show config path and save target
+  - test provider reachability when credentials are available
+- `/settings` keeps the command-based path for scripting:
+  `/settings provider <id> [model]`, `/settings model <model>`, and
+  `/settings save`.
 - `/doctor` should include TUI, provider, git workspace, release version, and
   lane prerequisites.
 - Missing provider credentials should produce a fix command or env-var hint.
+- If the current model does not work, RoboCode should show an actionable switch
+  prompt instead of a raw provider error. Covered cases include unknown model,
+  unavailable model, auth/model permission errors, context-limit mismatch, and
+  provider protocol incompatibility.
+- The model recovery prompt should suggest:
+  - the provider's default model
+  - known compatible alternatives
+  - `/settings model <candidate>`
+  - `/settings provider <provider> <model>`
+  - `/provider doctor <provider>`
 
 Acceptance:
 
 - `robocode-cli --provider fallback --model test-local` remains the offline
   escape hatch.
-- DeepSeek setup path is documented and visible.
+- Launching with no saved provider enters the DeepSeek-first setup path.
+- DeepSeek setup path is documented and visible in TUI, `/setup`, `/settings`,
+  and `/doctor`.
+- The interactive provider/model configuration flow can save provider/model
+  defaults without storing API keys.
+- A deliberately invalid model produces a visible "switch model" action with at
+  least one compatible DeepSeek candidate.
 - `doctor` output is captured in daily-loop or release smoke evidence.
 
 ### 4. Reviewable Diff And Test Evidence
@@ -134,6 +167,8 @@ Acceptance:
 For every P0 feature, produce one deterministic artifact or real screenshot:
 
 - setup/doctor
+- interactive provider/model setup
+- model failure and switch-model prompt
 - active brief
 - edit approval
 - test failure or success
@@ -149,6 +184,7 @@ For every P0 feature, produce one deterministic artifact or real screenshot:
 - First streaming token renderer when a provider exposes streaming events.
 - A `robocode doctor --json` output mode for automation.
 - A `--daily-loop-smoke` preview fixture for release screenshots.
+- Provider/model favorites and last-known-good model history.
 
 ## Non-Goals
 
@@ -164,6 +200,9 @@ Focused:
 - brief/steering command tests
 - ContextBundle includes active brief/steering summaries
 - setup/doctor provider diagnostics tests
+- default DeepSeek provider resolution tests
+- interactive provider/model setup reducer tests
+- provider/model failure classification and recovery-prompt tests
 - diff/test evidence reducers
 - TUI render tests for active brief and side-2 evidence
 
@@ -180,8 +219,12 @@ scripts/release-smoke.sh --version 0.1.17 --quick --out-dir /tmp/robocode-0117-r
 Manual:
 
 - Install from Homebrew.
-- Launch with fallback provider.
-- Launch with DeepSeek credentials.
+- Launch with no saved config and confirm the DeepSeek-first setup path.
+- Launch with fallback provider as the explicit offline path.
+- Launch with DeepSeek credentials and a valid model.
+- Launch with DeepSeek credentials and an invalid/unavailable model, then
+  confirm the switch-model prompt.
+- Save provider/model from the interactive setup flow and restart.
 - Run the daily coding loop on a small real repository.
 - Capture at least one real terminal screenshot for the loop.
 

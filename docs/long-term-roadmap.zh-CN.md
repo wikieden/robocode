@@ -322,7 +322,8 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 
 `0.1.16` 之后，建议顺序是：
 
-1. `0.1.17`: Daily Coding Loop Baseline。用一个确定性 workflow 证明 setup、
+1. `0.1.17`: Daily Coding Loop Baseline。用一个确定性 workflow 证明
+   DeepSeek-first setup、交互式 provider/model 配置、switch-model recovery、
    scoped edit、approval、test、diff、final summary 和 resume evidence 能跑通。
    轻量 spec/steering 只作为 task brief 支撑层进入。
 2. `0.1.18`: Failure Recovery And Review Gates。让 failed tests、diff review、
