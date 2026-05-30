@@ -10,11 +10,13 @@ evidence for the supplier-only provider list plus the provider detail form.
 ## Release State
 
 - Workspace version: `0.1.21`
-- Release commit: pending publication
-- Git tag: pending `v0.1.21`
-- GitHub release: pending `https://github.com/wikieden/robocode/releases/tag/v0.1.21`
-- Release workflow: pending
-- Homebrew tap commit: pending `wikieden/homebrew-tap`
+- Release commit: `07910a2f019f92127c322b18224aee5ec56b6348`
+- Git tag: `v0.1.21`
+- GitHub release:
+  `https://github.com/wikieden/robocode/releases/tag/v0.1.21`
+- Release workflow:
+  `https://github.com/wikieden/robocode/actions/runs/26689608294`
+- Homebrew tap commit: `wikieden/homebrew-tap@4108da0`
 - Local package: `dist/robocode-v0.1.21-aarch64-apple-darwin.tar.gz`
 - Local package sha256:
   `1f83e4dbf3f347d0dcbb4c67407f9bff4026f637e626a0782292260bb9505e55`
@@ -77,7 +79,17 @@ scripts/release-smoke.sh --version 0.1.21 --quick \
   --out-dir /tmp/robocode-0121-postpublish-check
 ```
 
-Result: pending publication.
+Result: passed. The smoke validated published GitHub release assets and the
+Homebrew formula at `/tmp/robocode-0121-postpublish-check`.
+
+Homebrew tap checks:
+
+```bash
+HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/robocode
+HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/robocode
+```
+
+Result: passed before pushing `wikieden/homebrew-tap@4108da0`.
 
 ## Screenshot Evidence
 
@@ -118,5 +130,6 @@ Feature mapping:
   direct text editing fields.
 - Mouse/focus behavior is covered for selector rows and modal previews, but
   richer pane scrolling and right-rail click routing remain follow-up work.
-- Live DeepSeek smoke was not run in this local RC turn; fallback, daily-loop,
-  lane operator-loop, package smoke, and deterministic TUI evidence passed.
+- Live DeepSeek smoke was not run in this release turn; fallback, daily-loop,
+  lane operator-loop, local package smoke, GitHub release asset validation,
+  Homebrew validation, and deterministic TUI evidence passed.

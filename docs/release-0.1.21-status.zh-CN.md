@@ -9,11 +9,13 @@ model 选择保持分离，并新增“供应商一级列表”和“provider �
 ## 发布状态
 
 - Workspace version：`0.1.21`
-- Release commit：等待发布
-- Git tag：等待 `v0.1.21`
-- GitHub release：等待 `https://github.com/wikieden/robocode/releases/tag/v0.1.21`
-- Release workflow：等待
-- Homebrew tap commit：等待 `wikieden/homebrew-tap`
+- Release commit：`07910a2f019f92127c322b18224aee5ec56b6348`
+- Git tag：`v0.1.21`
+- GitHub release：
+  `https://github.com/wikieden/robocode/releases/tag/v0.1.21`
+- Release workflow：
+  `https://github.com/wikieden/robocode/actions/runs/26689608294`
+- Homebrew tap commit：`wikieden/homebrew-tap@4108da0`
 - 本地 package：`dist/robocode-v0.1.21-aarch64-apple-darwin.tar.gz`
 - 本地 package sha256：
   `1f83e4dbf3f347d0dcbb4c67407f9bff4026f637e626a0782292260bb9505e55`
@@ -70,7 +72,17 @@ scripts/release-smoke.sh --version 0.1.21 --quick \
   --out-dir /tmp/robocode-0121-postpublish-check
 ```
 
-结果：等待发布。
+结果：通过。该 smoke 已验证发布后的 GitHub release assets 和 Homebrew formula，
+证据目录为 `/tmp/robocode-0121-postpublish-check`。
+
+Homebrew tap 检查：
+
+```bash
+HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/robocode
+HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/robocode
+```
+
+结果：通过，并已推送 `wikieden/homebrew-tap@4108da0`。
 
 ## 截图证据
 
@@ -110,5 +122,6 @@ scripts/release-smoke.sh --version 0.1.21 --quick \
   后续 settings-form 版本应加入真正的文本编辑字段。
 - Mouse/focus 已覆盖 selector row 和 modal preview，但更完整的 pane scrolling 与
   right-rail click routing 仍是后续工作。
-- 本地 RC 这轮没有跑 live DeepSeek smoke；fallback、daily-loop、lane operator-loop、
-  package smoke 和确定性 TUI 证据已通过。
+- 本轮发布没有跑 live DeepSeek smoke；fallback、daily-loop、lane operator-loop、
+  本地 package smoke、GitHub release asset validation、Homebrew validation 和确定性
+  TUI 证据已通过。
