@@ -280,6 +280,7 @@ in the docs:
 - [TUI Interaction Audit](docs/tui-interaction-audit-2026-05-29.md)
 - [Testing and Validation Plan](docs/testing-validation-plan.md)
 - [0.1.19 Plan](docs/release-0.1.19-plan.md)
+- [0.1.19 Status](docs/release-0.1.19-status.md)
 - [0.1.18 Status](docs/release-0.1.18-status.md)
 - [0.1.17 Plan](docs/release-0.1.17-plan.md)
 - [0.1.17 Status](docs/release-0.1.17-status.md)

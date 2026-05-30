@@ -31,16 +31,18 @@ Mainline landed：
 - provider-plugin runtime 与 DeepSeek V4 已在 main 落地。mainline 使用官方 DeepSeek 模型名：默认 `deepseek-v4-flash`，可显式选择 `deepseek-v4-pro`。
 - provider descriptor 矩阵已加入更多 OpenAI-compatible gateway providers：`openrouter`、`groq`、`mistral`、`together`、`kimi`、`qwen`、`zhipu`、`volcengine`。
 
-Next planned slice：
+当前已发布版本：
 
-- 以 `docs/release-0.1.19-plan.zh-CN.md` 作为当前 Delegated Lane Usefulness
-  切片。
-- 先把一条 Codex/shell/template delegated review workflow 做到真实可用，再扩展
-  Claude、ACP、MCP 或 plugin runtime 范围。
-- 继续以共享 `AgentTask` 作为 `NOW WORKING`、right rail、side-1、side-2、
-  lane detail 和 delegated evidence 的事实源。
-- 当用户需要选择 id 或 action 时，lane 和 external-agent 决策都必须是
-  selector-first。
+- `docs/release-0.1.19-status.zh-CN.md` 记录已打 tag、已发布、已更新 Homebrew、
+  已完成 post-publish verification 的 Delegated Lane Usefulness release。
+- `0.1.19` 把 provider 配置和 model 选择分离：`/provider` 查看供应商 credential、
+  endpoint、模型候选；`/models` 按供应商分组选择模型。
+- release validation 已把 daily-loop 和 lane operator-loop smoke 作为常规门禁。
+
+下一个计划切片：
+
+- 目标是 `0.1.20` usability beta gate：干净安装、首次使用设置、provider/model
+  recovery、daily coding loop，以及一条真实工作中可信的 delegated review loop。
 - 每个用户可见功能点都要以真实使用截图或确定性视觉产物收尾，供产品侧确认。
 - `0.1.20` 仍作为 usability beta gate，要求 clean install、daily coding loop
   和 delegated review loop 都有证据。

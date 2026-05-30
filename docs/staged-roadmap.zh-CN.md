@@ -161,23 +161,19 @@ Mainline landed：
 
 当前已发布版本：
 
-- `docs/release-0.1.18-status.zh-CN.md` 记录已打 tag、已发布、已更新 Homebrew、已完成
-  post-publish verification 的 Interaction Hardening release。
-- `0.1.18` 已把 provider/model/settings 决策做成 selector-first，改善 setup 和
-  model recovery 路径，并锁定后续交互决策面必须是可执行 picker，而不是被动信息页。
-- `0.1.17` 仍是 Daily Coding Loop Baseline 检查点：DeepSeek-first setup、
-  switch-model recovery、daily-loop smoke、task brief 支撑、diff/test evidence
-  和 release evidence。
+- `docs/release-0.1.19-status.zh-CN.md` 记录已打 tag、已发布、已更新 Homebrew、已完成
+  post-publish verification 的 Delegated Lane Usefulness release。
+- `0.1.19` 把供应商/provider 配置和 model 选择分离：`/provider` 是 key、endpoint、
+  candidate-model 配置面，`/models` 是按供应商分组的跨模型 picker。
+- `0.1.18` 仍是 Interaction Hardening 检查点：settings 决策是 selector-first，
+  后续交互决策面必须是可执行 picker，而不是被动信息页。
 
 下一个计划版本：
 
-- `docs/release-0.1.19-plan.zh-CN.md` 聚焦 Delegated Lane Usefulness：一条可靠的
-  Codex/shell/template delegated review loop、selector-first lane/agent 决策、
-  可见 operator state、evidence-driven apply/discard，以及 delegated-tool doctor。
-- `0.1.19` 要优先做好一条 delegated lane workflow，而不是铺开很多半成品集成。
-  Claude parity、ACP、MCP 和 plugin runtime 扩面都等 Codex/shell/template 路径可信后再推进。
-- `0.1.20` 是 usability beta gate：干净安装、fallback provider path、live provider
-  path、daily coding loop 和一条 delegated review loop 都应该有证据。
+- `0.1.20` 是 usability beta gate：干净安装、首次 provider 设置、fallback provider
+  path、live provider path、daily coding loop 和一条 delegated review loop 都应该有证据。
+- `0.1.20` 要继续优先优化真实 coding loop，再扩展 Claude parity、ACP、MCP 和
+  plugin runtime 范围。
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

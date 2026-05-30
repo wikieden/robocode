@@ -31,17 +31,22 @@ Mainline landed:
 - Provider-plugin runtime and DeepSeek V4 are implemented on main. Mainline uses official DeepSeek model names: `deepseek-v4-flash` by default and `deepseek-v4-pro` when selected explicitly.
 - The provider descriptor matrix includes additional OpenAI-compatible gateway providers: `openrouter`, `groq`, `mistral`, `together`, `kimi`, `qwen`, `zhipu`, and `volcengine`.
 
+Current published release:
+
+- `docs/release-0.1.19-status.md` records the tagged, published,
+  Homebrew-updated, and post-publish-verified Delegated Lane Usefulness release.
+- `0.1.19` separates provider configuration from model selection: `/provider`
+  inspects supplier credentials/endpoints/model candidates, while `/models`
+  selects provider-grouped models.
+- release validation now includes daily-loop and lane operator-loop smoke as
+  normal gates.
+
 Next planned slice:
 
-- use `docs/release-0.1.19-plan.md` as the active Delegated Lane Usefulness
-  slice.
-- make one delegated Codex/shell/template review workflow dependable enough for
-  real use before broadening Claude, ACP, MCP, or plugin runtime scope.
-- keep shared `AgentTask` as the source of truth for `NOW WORKING`, right rail,
-  side-1, side-2, lane detail, and delegated evidence.
-- make lane and external-agent decisions selector-first whenever the user must
-  choose an id or action.
-- finish every user-visible feature point with a real-use screenshot or
+- target the `0.1.20` usability beta gate: clean install, first-use setup,
+  provider/model recovery, daily coding loop, and one delegated review loop that
+  can be trusted in real work.
+- keep every user-visible feature point backed by a real-use screenshot or
   deterministic visual artifact for product review.
 - keep `0.1.20` as the usability beta gate for clean install, daily coding
   loop, and delegated review loop evidence.

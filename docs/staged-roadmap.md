@@ -191,28 +191,22 @@ Mainline landed:
 
 Current published release:
 
-- `docs/release-0.1.18-status.md` records the tagged, published, Homebrew-updated,
-  and post-publish-verified Interaction Hardening release.
-- `0.1.18` made provider/model/settings decisions selector-first, improved the
-  setup and model recovery path, and established the rule that future
-  interactive decision surfaces must be actionable pickers rather than passive
-  information pages.
-- `0.1.17` remains the Daily Coding Loop Baseline checkpoint: DeepSeek-first
-  setup, switch-model recovery, daily-loop smoke, task brief support, diff/test
-  evidence, and release evidence.
+- `docs/release-0.1.19-status.md` records the tagged, published,
+  Homebrew-updated, and post-publish-verified Delegated Lane Usefulness release.
+- `0.1.19` separates supplier/provider configuration from model selection:
+  `/provider` is the key/endpoint/candidate-model configuration surface, while
+  `/models` is the provider-grouped cross-model picker.
+- `0.1.18` remains the Interaction Hardening checkpoint: settings decisions are
+  selector-first and interactive decision surfaces must be actionable pickers
+  rather than passive information pages.
 
 Next planned:
 
-- `docs/release-0.1.19-plan.md` targets Delegated Lane Usefulness: one
-  dependable Codex/shell/template delegated review loop, selector-first
-  lane/agent decisions, visible operator state, evidence-driven apply/discard,
-  and delegated-tool doctor output.
-- `0.1.19` should favor one excellent delegated lane workflow over many partial
-  integrations. Claude parity, ACP, MCP, and plugin runtime breadth remain
-  secondary until the Codex/shell/template path is trustworthy.
-- `0.1.20` is the usability beta gate: clean install, fallback provider path,
-  live provider path, daily coding loop, and one delegated review loop should
-  all be evidenced.
+- `0.1.20` is the usability beta gate: clean install, first-use provider setup,
+  fallback provider path, live provider path, daily coding loop, and one
+  delegated review loop should all be evidenced.
+- `0.1.20` should keep improving the real coding loop before broadening Claude
+  parity, ACP, MCP, and plugin runtime scope.
 - require a real-use screenshot or deterministic visual artifact for every
   user-visible feature before it is marked complete
 
