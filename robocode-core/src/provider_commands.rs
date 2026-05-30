@@ -42,6 +42,21 @@ impl SessionEngine {
         ))
     }
 
+    pub(super) fn handle_models_command(&mut self, args: &[String]) -> Result<String, String> {
+        match args {
+            [] => Ok(self.render_models_picker()),
+            [provider_id, model] => {
+                self.use_provider_and_maybe_save(&[provider_id.clone(), model.clone()], true)
+            }
+            [_single] => Ok([
+                "Model choices are grouped by provider.",
+                "Use `/models` to browse, or `/settings provider <provider> <model>` to switch.",
+            ]
+            .join("\n")),
+            _ => Ok("Usage: /models | /models <provider> <model>".to_string()),
+        }
+    }
+
     pub(super) fn handle_settings_command(&mut self, args: &[String]) -> Result<String, String> {
         match args.first().map(String::as_str) {
             None | Some("show") | Some("help") => Ok(self.render_settings()),
@@ -189,12 +204,12 @@ impl SessionEngine {
             format!("  User config: {config_path}"),
             "".to_string(),
             "Fast actions:".to_string(),
-            "  /setup provider       open provider choices".to_string(),
-            "  /models               open model choices for current provider".to_string(),
+            "  /setup provider       open provider configuration choices".to_string(),
+            "  /models               open model choices grouped by provider".to_string(),
             "  /settings permissions open approval mode choices".to_string(),
             "  /settings theme       open TUI theme choices".to_string(),
-            "  /provider deepseek deepseek-v4-flash".to_string(),
-            "  /model deepseek-v4-flash".to_string(),
+            "  /settings provider deepseek deepseek-v4-flash".to_string(),
+            "  /model deepseek-v4-flash  (current provider only)".to_string(),
             "  Set DEEPSEEK_API_KEY or ROBOCODE_DEEPSEEK_API_KEY before the first live turn."
                 .to_string(),
             "".to_string(),
@@ -202,8 +217,8 @@ impl SessionEngine {
             "  /provider fallback test-local".to_string(),
             "".to_string(),
             "How to operate in the TUI:".to_string(),
-            "  Type `/setup provider` to see provider choices.".to_string(),
-            "  Type `/models` or `/model` to see model choices.".to_string(),
+            "  Type `/setup provider` to see provider key/env/endpoint configuration.".to_string(),
+            "  Type `/models` to choose any listed model grouped by provider.".to_string(),
             "  Use `/provider doctor <id>` to check env vars and compatibility.".to_string(),
         ];
         if let Some(host) = self.provider_host.as_ref() {
@@ -212,13 +227,11 @@ impl SessionEngine {
             lines.push("".to_string());
             lines.push("Provider choices:".to_string());
             lines.extend(descriptors.iter().map(|descriptor| {
-                let model = descriptor.default_model.as_deref().unwrap_or("<model>");
                 format!(
-                    "  - {} ({}) -> /setup provider {} {} | key={}",
+                    "  - {} ({}) -> /setup provider {} | models: /models | key={}",
                     descriptor.provider_id,
                     descriptor.display_name,
                     descriptor.provider_id,
-                    model,
                     descriptor_key_status(descriptor)
                 )
             }));
@@ -228,29 +241,40 @@ impl SessionEngine {
 
     fn render_provider_picker(&self, prefix: &str) -> String {
         let mut lines = vec![
-            "Choose a provider:".to_string(),
+            "Provider configuration:".to_string(),
             format!(
                 "  Current: {} / {}",
                 self.provider.provider_name(),
                 self.provider.model()
             ),
-            "  Enter one command below. It switches immediately and writes user config."
+            "  Providers show API key env vars, endpoint sources, and model candidates."
                 .to_string(),
-            "  Tip: in TUI, type provider letters after the space and use Tab/Enter.".to_string(),
+            "  Use `/models` to choose a model across providers.".to_string(),
+            "  Use `/settings provider <id>` to select a provider default.".to_string(),
             "".to_string(),
         ];
         if let Some(host) = self.provider_host.as_ref() {
             let mut descriptors = host.registry().descriptors().to_vec();
             descriptors.sort_by(|left, right| left.provider_id.cmp(&right.provider_id));
             for descriptor in descriptors {
-                let model = descriptor.default_model.as_deref().unwrap_or("<model>");
                 lines.push(format!(
-                    "  - {:<18} {:<18} key={:<24} command: {prefix} {} {}",
+                    "  - {:<18} key={:<24} endpoint={} models={}",
                     descriptor.display_name,
-                    descriptor.provider_id,
                     descriptor_key_status(&descriptor),
-                    descriptor.provider_id,
-                    model
+                    descriptor
+                        .default_api_base
+                        .as_deref()
+                        .unwrap_or("<configured>"),
+                    descriptor_model_candidates(
+                        &descriptor,
+                        self.provider.provider_name(),
+                        self.provider.model()
+                    )
+                    .join(", ")
+                ));
+                lines.push(format!(
+                    "    inspect: /provider doctor {} | select default: {prefix} {}",
+                    descriptor.provider_id, descriptor.provider_id
                 ));
             }
         } else {
@@ -285,6 +309,49 @@ impl SessionEngine {
         }
         lines.push("".to_string());
         lines.push("Provider picker: /setup provider".to_string());
+        lines.join("\n")
+    }
+
+    fn render_models_picker(&self) -> String {
+        let current_provider = self.provider.provider_name();
+        let current_model = self.provider.model();
+        let mut lines = vec![
+            "Choose a model:".to_string(),
+            format!("  Current: {current_provider} / {current_model}"),
+            "  Models are grouped by provider. Selecting one switches provider and model."
+                .to_string(),
+            "  You can also free-type: /settings provider <provider> <model>".to_string(),
+            "".to_string(),
+        ];
+        if let Some(host) = self.provider_host.as_ref() {
+            let mut descriptors = host.registry().descriptors().to_vec();
+            descriptors.sort_by(|left, right| left.provider_id.cmp(&right.provider_id));
+            for descriptor in descriptors {
+                lines.push(format!(
+                    "{} ({}) key={}",
+                    descriptor.display_name,
+                    descriptor.provider_id,
+                    descriptor_key_status(&descriptor)
+                ));
+                for model in
+                    descriptor_model_candidates(&descriptor, current_provider, current_model)
+                {
+                    let marker =
+                        if descriptor.provider_id == current_provider && model == current_model {
+                            "*"
+                        } else {
+                            " "
+                        };
+                    lines.push(format!(
+                        "  {marker} {:<34} command: /settings provider {} {}",
+                        model, descriptor.provider_id, model
+                    ));
+                }
+                lines.push("".to_string());
+            }
+        } else {
+            lines.push("Runtime registry unavailable; start RoboCode through the CLI.".to_string());
+        }
         lines.join("\n")
     }
 
@@ -682,6 +749,46 @@ fn compatible_model_candidates(
     candidates
 }
 
+fn descriptor_model_candidates(
+    descriptor: &ProviderDescriptor,
+    current_provider: &str,
+    current_model: &str,
+) -> Vec<String> {
+    let mut candidates = Vec::new();
+    if let Some(default_model) = descriptor.default_model.as_deref() {
+        push_unique(&mut candidates, default_model.to_string());
+    }
+    for model in known_provider_model_candidates(&descriptor.provider_id) {
+        push_unique(&mut candidates, model.to_string());
+    }
+    if descriptor.provider_id == current_provider {
+        push_unique(&mut candidates, current_model.to_string());
+    }
+    candidates
+}
+
+fn known_provider_model_candidates(provider_id: &str) -> &'static [&'static str] {
+    match provider_id {
+        "anthropic" => &["claude-sonnet-4-6", "claude-haiku-4-6"],
+        "deepseek" | "deepseek-anthropic" => &["deepseek-v4-flash", "deepseek-v4-pro"],
+        "fallback" => &["test-local", "fallback-local"],
+        "openai" => &["gpt-5.2", "gpt-5.2-codex", "gpt-4o-mini"],
+        "openai-compatible" => &["gpt-4o-mini"],
+        "openrouter" => &[
+            "openai/gpt-5.2",
+            "anthropic/claude-sonnet-4-6",
+            "deepseek/deepseek-v4-flash",
+        ],
+        "groq" => &["openai/gpt-oss-20b"],
+        "kimi" => &["kimi-k2.5", "kimi-k2.6"],
+        "mistral" => &["mistral-medium-latest"],
+        "qwen" => &["qwen-plus"],
+        "zhipu" => &["glm-4.6"],
+        "volcengine" => &["ark-code-latest", "deepseek-v3.2", "doubao-seed-2.0-code"],
+        _ => &[],
+    }
+}
+
 fn push_unique(values: &mut Vec<String>, value: String) {
     if !values.iter().any(|existing| existing == &value) {
         values.push(value);
@@ -703,7 +810,7 @@ fn format_provider_plugin_error(err: &ProviderPluginError) -> String {
 fn provider_help() -> String {
     [
         "Provider commands:",
-        "  /provider          Choose a provider and show switch commands",
+        "  /provider          Show provider configuration, keys, endpoints, and models",
         "  /provider <id> [model]",
         "                     Switch provider/model and save defaults",
         "  /provider list     List registered providers",
@@ -712,6 +819,7 @@ fn provider_help() -> String {
         "  /provider reload   Reload provider plugin registry",
         "  /provider use <id> [model]",
         "                     Legacy session-only switch; use /provider <id> to save",
+        "  /models            Choose model across provider groups",
     ]
     .join("\n")
 }
@@ -722,7 +830,7 @@ fn settings_help() -> String {
         "  /settings                  Show provider/model setup status",
         "  /provider <id> [model]     Switch provider/model and save defaults",
         "  /model <model>             Switch model and save defaults",
-        "  /models                    Show model choices for the current provider",
+        "  /models                    Show model choices grouped by provider",
         "  /settings provider <id> [model]",
         "                             Switch provider/model and save defaults",
         "  /settings model <model>    Switch current model and save defaults",

@@ -23,6 +23,16 @@ pub(crate) fn render_command_palette_preview(provider: &str, model: &str) -> Str
     render::render_frame(&state, 140, 40)
 }
 
+pub(crate) fn render_provider_selector_preview(provider: &str, model: &str) -> String {
+    let state = provider_selector_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub(crate) fn render_model_selector_preview(provider: &str, model: &str) -> String {
+    let state = model_selector_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
 pub(crate) fn render_live_turn_preview(provider: &str, model: &str) -> String {
     let state = live_turn_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
@@ -58,6 +68,32 @@ pub(crate) fn render_ansi_command_palette_preview_with_theme(
 ) -> String {
     let theme_name = theme_name.unwrap_or("aurora-cyan");
     let state = command_palette_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub(crate) fn render_ansi_provider_selector_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = provider_selector_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub(crate) fn render_ansi_model_selector_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = model_selector_preview_state(provider, model, theme_name);
     terminal::render_ansi_preview_with_theme(
         &render::render_frame(&state, 140, 40),
         Some(theme_name),
@@ -429,6 +465,20 @@ fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) 
     state
 }
 
+fn provider_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = command_palette_preview_state(provider, model, theme_name);
+    state.input = "/provider".to_string();
+    state.command_selection = 1;
+    state
+}
+
+fn model_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = command_palette_preview_state(provider, model, theme_name);
+    state.input = "/models".to_string();
+    state.command_selection = 2;
+    state
+}
+
 fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
     state.entries = vec![
@@ -489,6 +539,8 @@ mod tests {
         let resize = render_resize_preview("fallback", "test-local");
         let cjk_input = render_cjk_input_preview("fallback", "test-local");
         let command_palette = render_command_palette_preview("deepseek", "deepseek-v4-flash");
+        let provider_selector = render_provider_selector_preview("deepseek", "deepseek-v4-flash");
+        let model_selector = render_model_selector_preview("deepseek", "deepseek-v4-flash");
         let side = render_side_preview("fallback", "test-local");
         let ops = render_ops_preview("fallback", "test-local");
 
@@ -504,6 +556,12 @@ mod tests {
         assert!(command_palette.contains("SETTINGS"));
         assert!(command_palette.contains("permissions"));
         assert!(command_palette.contains("theme"));
+        assert!(provider_selector.contains("SELECT PROVIDER"));
+        assert!(provider_selector.contains("DEEPSEEK_API_KEY"));
+        assert!(provider_selector.contains("endpoint"));
+        assert!(model_selector.contains("SELECT MODEL"));
+        assert!(model_selector.contains("deepseek deepseek-v4-flash"));
+        assert!(model_selector.contains("openai gpt-5.2"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(!main.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));

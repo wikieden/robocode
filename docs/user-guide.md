@@ -121,13 +121,19 @@ The TUI setup commands are picker-first: `/settings`, `/provider`, `/models`,
 `/permissions`, and `/theme` render selectable panels instead of status-only
 screens. They persist only provider/model defaults and permission mode changes.
 API keys remain in environment variables or manually maintained config fields.
+Use `/provider` for supplier configuration and diagnostics: API-key env vars,
+endpoint sources, and the provider's known model candidates. Use `/models` for
+model selection across all providers; rows are grouped by provider and can
+switch provider plus model together. Use `/model <model>` only when you want to
+change the current provider's model directly.
 
 ```text
 /settings
 /setup
-/provider <provider-id> [model]
+/provider
 /model <model>
 /models
+/settings provider <provider-id> [model]
 /settings permissions <mode>
 /settings theme <name>
 /settings save
@@ -177,7 +183,8 @@ Provider commands:
 /provider reload
 /provider use <provider-id> [model]
 /model [name]
-/models [name]
+/models
+/models <provider-id> <model>
 /settings
 /settings permissions [mode]
 /settings theme [name]

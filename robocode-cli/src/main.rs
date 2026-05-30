@@ -150,6 +150,42 @@ fn run() -> Result<(), String> {
         }
         return Ok(());
     }
+    if startup.tui_preview_provider_selector || startup.tui_preview_provider_selector_ansi {
+        if startup.tui_preview_provider_selector_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_provider_selector_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_provider_selector_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
+    if startup.tui_preview_model_selector || startup.tui_preview_model_selector_ansi {
+        if startup.tui_preview_model_selector_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_model_selector_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_model_selector_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
     if startup.tui_preview_lane || startup.tui_preview_lane_ansi {
         if startup.tui_preview_lane_ansi {
             print!(
@@ -465,6 +501,10 @@ struct StartupOptions {
     tui_preview_cjk_input_ansi: bool,
     tui_preview_command_palette: bool,
     tui_preview_command_palette_ansi: bool,
+    tui_preview_provider_selector: bool,
+    tui_preview_provider_selector_ansi: bool,
+    tui_preview_model_selector: bool,
+    tui_preview_model_selector_ansi: bool,
     tui_preview_lane: bool,
     tui_preview_lane_ansi: bool,
     tui_preview_side: bool,
@@ -558,6 +598,18 @@ impl StartupOptions {
         }
         if self.tui_preview_command_palette_ansi {
             overrides.push("--tui-preview-command-palette-ansi".to_string());
+        }
+        if self.tui_preview_provider_selector {
+            overrides.push("--tui-preview-provider-selector".to_string());
+        }
+        if self.tui_preview_provider_selector_ansi {
+            overrides.push("--tui-preview-provider-selector-ansi".to_string());
+        }
+        if self.tui_preview_model_selector {
+            overrides.push("--tui-preview-model-selector".to_string());
+        }
+        if self.tui_preview_model_selector_ansi {
+            overrides.push("--tui-preview-model-selector-ansi".to_string());
         }
         if self.tui_preview_lane {
             overrides.push("--tui-preview-lane".to_string());
@@ -713,6 +765,18 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--tui-preview-command-palette-ansi" => {
                 options.tui_preview_command_palette_ansi = true;
             }
+            "--tui-preview-provider-selector" => {
+                options.tui_preview_provider_selector = true;
+            }
+            "--tui-preview-provider-selector-ansi" => {
+                options.tui_preview_provider_selector_ansi = true;
+            }
+            "--tui-preview-model-selector" => {
+                options.tui_preview_model_selector = true;
+            }
+            "--tui-preview-model-selector-ansi" => {
+                options.tui_preview_model_selector_ansi = true;
+            }
             "--tui-preview-lane" => {
                 options.tui_preview_lane = true;
             }
@@ -808,6 +872,14 @@ fn print_startup_help() {
     println!("                       Print a 140x40 TUI preview with slash command palette");
     println!("  --tui-preview-command-palette-ansi");
     println!("                       Print a themed ANSI slash command palette preview");
+    println!("  --tui-preview-provider-selector");
+    println!("                       Print a provider configuration selector preview");
+    println!("  --tui-preview-provider-selector-ansi");
+    println!("                       Print a themed provider configuration selector preview");
+    println!("  --tui-preview-model-selector");
+    println!("                       Print a grouped model selector preview");
+    println!("  --tui-preview-model-selector-ansi");
+    println!("                       Print a themed grouped model selector preview");
     println!("  --tui-preview-lane   Print a 140x40 focused lane-detail preview");
     println!("  --tui-preview-lane-ansi");
     println!("                       Print a themed ANSI focused lane-detail preview");
@@ -1120,6 +1192,46 @@ mod tests {
         assert_eq!(
             options.summary_overrides(),
             vec!["--tui-preview-command-palette-ansi".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_provider_selector_flags() {
+        let args = vec![
+            "--tui-preview-provider-selector".to_string(),
+            "--tui-preview-provider-selector-ansi".to_string(),
+        ];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_provider_selector);
+        assert!(options.tui_preview_provider_selector_ansi);
+        assert_eq!(
+            options.summary_overrides(),
+            vec![
+                "--tui-preview-provider-selector".to_string(),
+                "--tui-preview-provider-selector-ansi".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_model_selector_flags() {
+        let args = vec![
+            "--tui-preview-model-selector".to_string(),
+            "--tui-preview-model-selector-ansi".to_string(),
+        ];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_model_selector);
+        assert!(options.tui_preview_model_selector_ansi);
+        assert_eq!(
+            options.summary_overrides(),
+            vec![
+                "--tui-preview-model-selector".to_string(),
+                "--tui-preview-model-selector-ansi".to_string()
+            ]
         );
     }
 

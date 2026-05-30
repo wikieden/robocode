@@ -75,6 +75,11 @@ only printing text.
 
 Acceptance:
 
+- `/provider` is a provider configuration selector: key env status, endpoint
+  source, provider doctor, and known model candidates. It must not mix provider
+  configuration with cross-provider model selection.
+- `/models` is the grouped cross-provider model selector. Selecting a row can
+  switch provider plus model; `/model <model>` remains current-provider only.
 - `/lane` root opens an actionable command picker.
 - `/lane inspect`, `/lane timeline`, `/lane diff`, `/lane artifacts`,
   `/lane accept`, `/lane apply`, `/lane discard`, `/lane retry`,
@@ -209,4 +214,3 @@ Manual:
 - release status documents local RC, GitHub release, Homebrew tap update, and
   post-publish smoke
 - GitHub release assets and Homebrew formula are published for `0.1.19`
-

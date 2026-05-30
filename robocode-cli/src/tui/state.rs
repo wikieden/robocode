@@ -1143,7 +1143,10 @@ fn lane_pid(target: &str) -> Option<u32> {
 pub(super) struct ProviderOption {
     pub(super) provider_id: String,
     pub(super) display_name: String,
+    pub(super) default_api_base: Option<String>,
     pub(super) default_model: Option<String>,
+    pub(super) api_key_env: Option<String>,
+    pub(super) api_base_env: Option<String>,
 }
 
 impl ProviderOption {
@@ -1151,7 +1154,10 @@ impl ProviderOption {
         Self {
             provider_id: descriptor.provider_id.clone(),
             display_name: descriptor.display_name.clone(),
+            default_api_base: descriptor.default_api_base.clone(),
             default_model: descriptor.default_model.clone(),
+            api_key_env: descriptor.env_mappings.api_key_env.clone(),
+            api_base_env: descriptor.env_mappings.api_base_env.clone(),
         }
     }
 
@@ -1160,22 +1166,34 @@ impl ProviderOption {
             Self {
                 provider_id: "anthropic".to_string(),
                 display_name: "Anthropic".to_string(),
+                default_api_base: Some("https://api.anthropic.com".to_string()),
                 default_model: Some("claude-sonnet-4-6".to_string()),
+                api_key_env: Some("ANTHROPIC_API_KEY".to_string()),
+                api_base_env: Some("ROBOCODE_API_BASE".to_string()),
             },
             Self {
                 provider_id: "deepseek".to_string(),
                 display_name: "DeepSeek".to_string(),
+                default_api_base: Some("https://api.deepseek.com".to_string()),
                 default_model: Some("deepseek-v4-flash".to_string()),
+                api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
+                api_base_env: Some("DEEPSEEK_API_BASE".to_string()),
             },
             Self {
                 provider_id: "fallback".to_string(),
                 display_name: "Fallback".to_string(),
+                default_api_base: None,
                 default_model: Some("fallback-local".to_string()),
+                api_key_env: None,
+                api_base_env: None,
             },
             Self {
                 provider_id: "openai".to_string(),
                 display_name: "OpenAI".to_string(),
+                default_api_base: Some("https://api.openai.com/v1".to_string()),
                 default_model: Some("gpt-5.2".to_string()),
+                api_key_env: Some("OPENAI_API_KEY".to_string()),
+                api_base_env: Some("ROBOCODE_API_BASE".to_string()),
             },
         ]
     }

@@ -70,6 +70,13 @@
   工作流也要沿用同一模式。除非是 `/config`、`/status` 或 `/provider doctor`
   这类明确诊断/详情命令，否则不要退化成只展示信息的页面。
 
+- provider 和 model selector 的语义必须分开：`/provider` 是供应商配置界面，
+  行内展示供应商名称、API key 环境变量状态、endpoint 来源和已知模型候选；
+  默认动作应该是检查或配置供应商，而不是把 provider 选择伪装成 model 选择。
+  `/models` 是跨供应商模型选择器，按 provider 分组，选中一行会补全/执行同时
+  切换 provider 和 model 的命令。`/model <model>` 只表示当前 provider 内的快速
+  模型切换，不能隐藏“跨供应商选模型需要切 provider”这件事。
+
 - 提示列表使用与主 TUI 一致的 cockpit 边框、标题和行样式。
 - 浮在 composer 正上方，不能遮挡输入光标。
 - 展示命令、说明和选中行标记。

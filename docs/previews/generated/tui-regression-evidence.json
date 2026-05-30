@@ -2,15 +2,17 @@
   "status": "passed",
   "preview_dir": "docs/previews/generated",
   "screenshots": [
-    "docs/previews/generated/screenshots/0.1.18-tui-cjk-input.svg",
-    "docs/previews/generated/screenshots/0.1.18-tui-command-palette.svg",
-    "docs/previews/generated/screenshots/0.1.18-tui-lane-detail.svg",
-    "docs/previews/generated/screenshots/0.1.18-tui-live-turn.svg",
-    "docs/previews/generated/screenshots/0.1.18-tui-main-idle.svg",
-    "docs/previews/generated/screenshots/0.1.18-tui-main-resize.svg",
-    "docs/previews/generated/screenshots/0.1.18-tui-main.svg",
-    "docs/previews/generated/screenshots/0.1.18-tui-side-1.svg",
-    "docs/previews/generated/screenshots/0.1.18-tui-side-2.svg"
+    "docs/previews/generated/screenshots/0.1.19-tui-cjk-input.svg",
+    "docs/previews/generated/screenshots/0.1.19-tui-command-palette.svg",
+    "docs/previews/generated/screenshots/0.1.19-tui-lane-detail.svg",
+    "docs/previews/generated/screenshots/0.1.19-tui-live-turn.svg",
+    "docs/previews/generated/screenshots/0.1.19-tui-main-idle.svg",
+    "docs/previews/generated/screenshots/0.1.19-tui-main-resize.svg",
+    "docs/previews/generated/screenshots/0.1.19-tui-main.svg",
+    "docs/previews/generated/screenshots/0.1.19-tui-model-selector.svg",
+    "docs/previews/generated/screenshots/0.1.19-tui-provider-selector.svg",
+    "docs/previews/generated/screenshots/0.1.19-tui-side-1.svg",
+    "docs/previews/generated/screenshots/0.1.19-tui-side-2.svg"
   ],
   "checks": [
     "line counts",
@@ -19,6 +21,8 @@
     "live provider turn evidence",
     "resize redraw evidence",
     "CJK composer input",
+    "provider selector config evidence",
+    "model selector grouping evidence",
     "side-1 lanes",
     "side-2 tests/lsp",
     "screenshot artifact export"

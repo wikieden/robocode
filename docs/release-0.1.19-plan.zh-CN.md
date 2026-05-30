@@ -70,6 +70,10 @@ Lane/agent 操作必须遵守 0.1.18 后新增的交互规则：只要用户需�
 
 验收：
 
+- `/provider` 是 provider 配置 selector：展示 key 环境变量状态、endpoint 来源、
+  provider doctor 和已知模型候选。它不能把供应商配置和跨供应商模型选择混在一起。
+- `/models` 是按 provider 分组的跨供应商模型 selector。选中一行可以同时切换
+  provider 和 model；`/model <model>` 只表示当前 provider 内切换。
 - `/lane` root 打开可执行的 command picker。
 - `/lane inspect`、`/lane timeline`、`/lane diff`、`/lane artifacts`、
   `/lane accept`、`/lane apply`、`/lane discard`、`/lane retry`、
@@ -196,4 +200,3 @@ Manual：
 - README/user guide 描述 delegated lane workflow，但不夸大 Claude/ACP 成熟度
 - release status 记录 local RC、GitHub release、Homebrew tap update 和 post-publish smoke
 - GitHub release assets 与 Homebrew formula 都发布到 `0.1.19`
-

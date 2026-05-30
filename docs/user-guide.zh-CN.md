@@ -109,14 +109,15 @@ api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
 
-TUI 设置命令是选择器优先：`/settings`、`/provider`、`/models`、`/permissions`、`/theme` 都会渲染可选择面板，而不是只显示状态。它们只会持久化 provider/model 默认值和 permission mode 变更。API key 仍放在环境变量或手工维护的配置字段里。
+TUI 设置命令是选择器优先：`/settings`、`/provider`、`/models`、`/permissions`、`/theme` 都会渲染可选择面板，而不是只显示状态。它们只会持久化 provider/model 默认值和 permission mode 变更。API key 仍放在环境变量或手工维护的配置字段里。`/provider` 用来查看和配置供应商：API key 环境变量、endpoint 来源、诊断入口和该供应商已知模型；`/models` 用来按供应商分组选择模型，选中一行可以同时切换 provider 和 model；`/model <model>` 只用于当前 provider 内快速切换模型。
 
 ```text
 /settings
 /setup
-/provider <provider-id> [model]
+/provider
 /model <model>
 /models
+/settings provider <provider-id> [model]
 /settings permissions <mode>
 /settings theme <name>
 /settings save
@@ -164,7 +165,8 @@ Provider commands：
 /provider reload
 /provider use <provider-id> [model]
 /model [name]
-/models [name]
+/models
+/models <provider-id> <model>
 /settings
 /settings permissions [mode]
 /settings theme [name]

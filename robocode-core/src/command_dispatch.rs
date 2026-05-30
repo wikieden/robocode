@@ -17,7 +17,8 @@ impl SessionEngine {
         let args: Vec<String> = parts.map(ToString::to_string).collect();
         let output = match command {
             "/help" => self.render_help(),
-            "/model" | "/models" => self.handle_model_command(&args)?,
+            "/model" => self.handle_model_command(&args)?,
+            "/models" => self.handle_models_command(&args)?,
             "/provider" => self.handle_provider_command(&args)?,
             "/settings" => self.handle_settings_command(&args)?,
             "/setup" => self.handle_setup_command(&args)?,

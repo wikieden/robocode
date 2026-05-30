@@ -168,6 +168,8 @@ run_preview main-live-turn --tui-preview-live-turn
 run_preview main-resize --tui-preview-resize
 run_preview main-cjk-input --tui-preview-cjk-input
 run_preview main-command-palette --tui-preview-command-palette
+run_preview main-provider-selector --tui-preview-provider-selector
+run_preview main-model-selector --tui-preview-model-selector
 run_preview main-lane --tui-preview-lane
 run_preview side-1 --tui-preview-side
 run_preview side-2 --tui-preview-side-2
@@ -178,6 +180,8 @@ run_ansi_preview main-live-turn --tui-preview-live-turn-ansi
 run_ansi_preview main-resize --tui-preview-resize-ansi
 run_ansi_preview main-cjk-input --tui-preview-cjk-input-ansi
 run_ansi_preview main-command-palette --tui-preview-command-palette-ansi
+run_ansi_preview main-provider-selector --tui-preview-provider-selector-ansi
+run_ansi_preview main-model-selector --tui-preview-model-selector-ansi
 run_ansi_preview main-lane --tui-preview-lane-ansi
 run_ansi_preview side-1 --tui-preview-side-ansi
 run_ansi_preview side-2 --tui-preview-side-2-ansi
@@ -192,6 +196,8 @@ render_svg_preview "$OUT_DIR/main-live-turn.ansi" "$OUT_DIR/main-live-turn.svg"
 render_svg_preview "$OUT_DIR/main-resize.ansi" "$OUT_DIR/main-resize.svg"
 render_svg_preview "$OUT_DIR/main-cjk-input.ansi" "$OUT_DIR/main-cjk-input.svg"
 render_svg_preview "$OUT_DIR/main-command-palette.ansi" "$OUT_DIR/main-command-palette.svg"
+render_svg_preview "$OUT_DIR/main-provider-selector.ansi" "$OUT_DIR/main-provider-selector.svg"
+render_svg_preview "$OUT_DIR/main-model-selector.ansi" "$OUT_DIR/main-model-selector.svg"
 render_svg_preview "$OUT_DIR/main-lane.ansi" "$OUT_DIR/main-lane.svg"
 render_svg_preview "$OUT_DIR/side-1.ansi" "$OUT_DIR/side-1.svg"
 render_svg_preview "$OUT_DIR/side-2.ansi" "$OUT_DIR/side-2.svg"
@@ -297,6 +303,8 @@ assert_line_count "$OUT_DIR/main-live-turn.txt" 40
 assert_line_count "$OUT_DIR/main-resize.txt" 30
 assert_line_count "$OUT_DIR/main-cjk-input.txt" 30
 assert_line_count "$OUT_DIR/main-command-palette.txt" 40
+assert_line_count "$OUT_DIR/main-provider-selector.txt" 40
+assert_line_count "$OUT_DIR/main-model-selector.txt" 40
 assert_line_count "$OUT_DIR/main-lane.txt" 40
 assert_line_count "$OUT_DIR/side-1.txt" 40
 assert_line_count "$OUT_DIR/side-2.txt" 40
@@ -307,6 +315,8 @@ assert_char_width "$OUT_DIR/main-live-turn.txt" 140
 assert_char_width "$OUT_DIR/main-resize.txt" 100
 assert_max_char_width "$OUT_DIR/main-cjk-input.txt" 100
 assert_max_char_width "$OUT_DIR/main-command-palette.txt" 140
+assert_max_char_width "$OUT_DIR/main-provider-selector.txt" 140
+assert_max_char_width "$OUT_DIR/main-model-selector.txt" 140
 assert_max_char_width "$OUT_DIR/main-lane.txt" 140
 assert_char_width "$OUT_DIR/side-1.txt" 80
 assert_char_width "$OUT_DIR/side-2.txt" 80
@@ -318,6 +328,8 @@ for preview_file in \
   "$OUT_DIR/main-resize.txt" \
   "$OUT_DIR/main-cjk-input.txt" \
   "$OUT_DIR/main-command-palette.txt" \
+  "$OUT_DIR/main-provider-selector.txt" \
+  "$OUT_DIR/main-model-selector.txt" \
   "$OUT_DIR/main-lane.txt" \
   "$OUT_DIR/side-1.txt" \
   "$OUT_DIR/side-2.txt" \
@@ -334,6 +346,12 @@ assert_contains "$OUT_DIR/main-live-turn.txt" "live provider request"
 assert_contains "$OUT_DIR/main-command-palette.txt" "SETTINGS"
 assert_contains "$OUT_DIR/main-command-palette.txt" "permissions"
 assert_contains "$OUT_DIR/main-command-palette.txt" "theme"
+assert_contains "$OUT_DIR/main-provider-selector.txt" "SELECT PROVIDER"
+assert_contains "$OUT_DIR/main-provider-selector.txt" "DEEPSEEK_API_KEY"
+assert_contains "$OUT_DIR/main-provider-selector.txt" "endpoint"
+assert_contains "$OUT_DIR/main-model-selector.txt" "SELECT MODEL"
+assert_contains "$OUT_DIR/main-model-selector.txt" "deepseek deepseek-v4-flash"
+assert_contains "$OUT_DIR/main-model-selector.txt" "openai gpt-5.2"
 assert_contains "$OUT_DIR/main.txt" "NOW WORKING"
 assert_contains "$OUT_DIR/main.txt" "evidence:"
 assert_contains "$OUT_DIR/main-resize.txt" "NOW WORKING"
@@ -363,6 +381,8 @@ for ansi_file in \
   "$OUT_DIR/main-resize.ansi" \
   "$OUT_DIR/main-cjk-input.ansi" \
   "$OUT_DIR/main-command-palette.ansi" \
+  "$OUT_DIR/main-provider-selector.ansi" \
+  "$OUT_DIR/main-model-selector.ansi" \
   "$OUT_DIR/main-lane.ansi" \
   "$OUT_DIR/side-1.ansi" \
   "$OUT_DIR/side-2.ansi"; do
@@ -374,6 +394,8 @@ assert_ansi_contains "$OUT_DIR/main-live-turn.ansi" "is thinking"
 assert_ansi_contains "$OUT_DIR/main-resize.ansi" "Resize-safe redraw check"
 assert_ansi_contains "$OUT_DIR/main-cjk-input.ansi" "你好，帮我检查当前变更"
 assert_ansi_contains "$OUT_DIR/main-command-palette.ansi" "SETTINGS"
+assert_ansi_contains "$OUT_DIR/main-provider-selector.ansi" "SELECT PROVIDER"
+assert_ansi_contains "$OUT_DIR/main-model-selector.ansi" "SELECT MODEL"
 assert_ansi_contains "$OUT_DIR/main-lane.ansi" "LANE DETAIL"
 assert_ansi_contains "$OUT_DIR/side-1.ansi" "AGENT LANES"
 assert_ansi_contains "$OUT_DIR/side-2.ansi" "TESTS / LSP"
@@ -396,12 +418,14 @@ Files:
 - \`main-resize.txt\` / \`main-resize.ansi\`
 - \`main-cjk-input.txt\` / \`main-cjk-input.ansi\`
 - \`main-command-palette.txt\` / \`main-command-palette.ansi\`
+- \`main-provider-selector.txt\` / \`main-provider-selector.ansi\`
+- \`main-model-selector.txt\` / \`main-model-selector.ansi\`
 - \`main-lane.txt\` / \`main-lane.ansi\`
-- \`main.svg\` / \`main-idle.svg\` / \`main-live-turn.svg\` / \`main-resize.svg\` / \`main-cjk-input.svg\` / \`main-command-palette.svg\` / \`main-lane.svg\` quick visual screenshots
+- \`main.svg\` / \`main-idle.svg\` / \`main-live-turn.svg\` / \`main-resize.svg\` / \`main-cjk-input.svg\` / \`main-command-palette.svg\` / \`main-provider-selector.svg\` / \`main-model-selector.svg\` / \`main-lane.svg\` quick visual screenshots
 - \`side-1.txt\` / \`side-1.ansi\` / \`side-1.svg\`
 - \`side-2.txt\` / \`side-2.ansi\` / \`side-2.svg\`
 - \`multiscreen.txt\` combined plain-text workstation preview
 - \`main.<theme>.ansi\` for each generated theme variant
 EOF
 
-wc -l "$OUT_DIR"/main.txt "$OUT_DIR"/main-idle.txt "$OUT_DIR"/main-live-turn.txt "$OUT_DIR"/main-resize.txt "$OUT_DIR"/main-cjk-input.txt "$OUT_DIR"/main-command-palette.txt "$OUT_DIR"/main-lane.txt "$OUT_DIR"/side-1.txt "$OUT_DIR"/side-2.txt
+wc -l "$OUT_DIR"/main.txt "$OUT_DIR"/main-idle.txt "$OUT_DIR"/main-live-turn.txt "$OUT_DIR"/main-resize.txt "$OUT_DIR"/main-cjk-input.txt "$OUT_DIR"/main-command-palette.txt "$OUT_DIR"/main-provider-selector.txt "$OUT_DIR"/main-model-selector.txt "$OUT_DIR"/main-lane.txt "$OUT_DIR"/side-1.txt "$OUT_DIR"/side-2.txt

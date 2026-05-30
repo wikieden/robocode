@@ -71,6 +71,18 @@ should follow the same pattern. They must not degrade into status-only pages
 unless the command is explicitly a diagnostic or details command such as
 `/config`, `/status`, or `/provider doctor`.
 
+Provider/model selectors have separate semantics:
+
+- `/provider` is the supplier configuration surface. Rows show the provider
+  display name, API-key env status, endpoint source, and known model candidates.
+  The default action should inspect/configure the provider, not silently pretend
+  that provider selection is model selection.
+- `/models` is the cross-provider model selector. Rows are grouped by provider
+  and complete to commands that switch provider plus model together.
+- `/model <model>` is the current-provider quick switch. It must not hide the
+  fact that selecting a model from another provider requires switching provider
+  as well.
+
 Keyboard contract:
 
 - `Up` / `Down`: move the selected command.
