@@ -170,10 +170,14 @@ Mainline landed：
 
 下一个计划版本：
 
-- `0.1.20` 是 usability beta gate：干净安装、首次 provider 设置、fallback provider
-  path、live provider path、daily coding loop 和一条 delegated review loop 都应该有证据。
+- `docs/release-0.1.20-plan.zh-CN.md` 是当前 usability beta gate 计划：干净安装、
+  首次 provider 设置、fallback provider path、live provider path、daily coding loop、
+  interaction reliability 和一条 delegated review loop 都应该有证据。
 - `0.1.20` 要继续优先优化真实 coding loop，再扩展 Claude parity、ACP、MCP 和
   plugin runtime 范围。
+- `docs/release-0.1.21-plan.zh-CN.md` 是下一步交互系统收口计划：统一 settings/form、
+  完成首次 setup、定义 focus/mouse routing、加固 composer 和 command palette、
+  让 `AgentTask` 成为可见工作状态契约，并把 lane 编排做成 no-guess flow。
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

@@ -1,18 +1,18 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.19  [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]             │
+│ RoboCode  v0.1.20  [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]             │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────┐
 │   ◎ NOW WORKING  DeepSeek is thinking                                                            │
 │      ┊  evidence: AgentTask turn-c4f2b7e-live from live provider request                         │
 │      ┊  turn-c4f2b7e-live DeepSeek thinking 15% :: Refactor the config loader, then :: signal li │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
-│   ·  ┊  SYSTEM                                                                          06:28:46 │
+│   ·  ┊  SYSTEM                                                                          14:09:16 │
 │      ┊  RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.                                  │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
-│   ♙  ┊  USER                                                                            06:28:48 │
+│   ♙  ┊  USER                                                                            14:09:18 │
 │      ┊  Refactor the config loader, then run focused tests.                                      │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
-│   ·  ┊  SYSTEM                                                                          06:28:50 │
+│   ·  ┊  SYSTEM                                                                          14:09:20 │
 │      ┊  Resize-safe redraw check: stale borders cleared; composer and panels reflow from one     │
 │      ┊  frame.                                                                                   │
 │                                                                                                  │

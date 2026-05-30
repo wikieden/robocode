@@ -63,20 +63,30 @@ slash-prefixed tokens such as `/` or `/p`, and for supported nested command
 queries such as `/lane `, `/git st`, `/task status task_`, or
 `/lsp diagnostics src/`.
 
-Interactive decision commands are selector-first. `/settings`, `/provider`,
-`/models`, `/permissions`, and `/theme` render centered selector panels with
-search, keyboard movement, mouse selection, and `Enter` apply semantics. Future
-configuration, mode-switching, lane/agent action, and multi-choice workflows
-should follow the same pattern. They must not degrade into status-only pages
-unless the command is explicitly a diagnostic or details command such as
-`/config`, `/status`, or `/provider doctor`.
+Interactive decision commands are selector-first. `/setup`, `/settings`,
+`/provider`, `/models`, `/lane`, `/permissions`, and `/theme` render centered
+selector panels with search, keyboard movement, mouse selection, and `Enter`
+apply semantics. Future configuration, mode-switching, lane/agent action, and
+multi-choice workflows should follow the same pattern. They must not degrade
+into status-only pages unless the command is explicitly a diagnostic or details
+command such as `/config`, `/status`, or `/provider doctor`.
+
+`/setup` is the first-run wizard. It is not a passive help page: each row is a
+real next action, including provider config, model selection, permissions,
+theme, current-provider doctor, fallback smoke, and saving defaults.
+
+`/lane` is the orchestration action selector. It lists lane launch commands and,
+when lanes are active, id-specific inspect, timeline, diff, and artifacts
+actions so users do not have to memorize lane ids.
 
 Provider/model selectors have separate semantics:
 
 - `/provider` is the supplier configuration surface. Rows show the provider
-  display name, API-key env status, endpoint source, and known model candidates.
-  The default action should inspect/configure the provider, not silently pretend
-  that provider selection is model selection.
+  display name and short key/endpoint/model availability. Selecting a provider
+  opens a second-level `PROVIDER CONFIG` page with API-key env status, endpoint
+  source, known model candidates, diagnostics, save-default, and switch-now
+  actions. The default action should inspect/configure the provider, not
+  silently pretend that provider selection is model selection.
 - `/models` is the cross-provider model selector. Rows are grouped by provider
   and complete to commands that switch provider plus model together.
 - `/model <model>` is the current-provider quick switch. It must not hide the

@@ -15,10 +15,12 @@ Files:
 - `main-resize.txt` / `main-resize.ansi`
 - `main-cjk-input.txt` / `main-cjk-input.ansi`
 - `main-command-palette.txt` / `main-command-palette.ansi`
+- `main-setup-wizard.txt` / `main-setup-wizard.ansi`
 - `main-provider-selector.txt` / `main-provider-selector.ansi`
 - `main-model-selector.txt` / `main-model-selector.ansi`
+- `main-lane-selector.txt` / `main-lane-selector.ansi`
 - `main-lane.txt` / `main-lane.ansi`
-- `main.svg` / `main-idle.svg` / `main-live-turn.svg` / `main-resize.svg` / `main-cjk-input.svg` / `main-command-palette.svg` / `main-provider-selector.svg` / `main-model-selector.svg` / `main-lane.svg` quick visual screenshots
+- `main.svg` / `main-idle.svg` / `main-live-turn.svg` / `main-resize.svg` / `main-cjk-input.svg` / `main-command-palette.svg` / `main-setup-wizard.svg` / `main-provider-selector.svg` / `main-model-selector.svg` / `main-lane-selector.svg` / `main-lane.svg` quick visual screenshots
 - `side-1.txt` / `side-1.ansi` / `side-1.svg`
 - `side-2.txt` / `side-2.ansi` / `side-2.svg`
 - `multiscreen.txt` combined plain-text workstation preview

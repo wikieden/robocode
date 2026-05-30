@@ -223,9 +223,15 @@ fn initial_state(
         label: "system".to_string(),
         body: format!("RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.\n{startup_summary}"),
     }];
-    if let Some(entry) = first_run_setup_entry(engine, startup_summary, &provider_catalog) {
+    let first_run_setup = first_run_setup_entry(engine, startup_summary, &provider_catalog);
+    if let Some(entry) = first_run_setup.clone() {
         entries.push(entry);
     }
+    let input = if first_run_setup.is_some() {
+        "/setup".to_string()
+    } else {
+        String::new()
+    };
     TuiState {
         session_id: engine.session_id().to_string(),
         provider: engine.provider_name().to_string(),
@@ -233,7 +239,7 @@ fn initial_state(
         provider_catalog,
         provider_status: ProviderStatus::from_telemetry(&engine.provider_telemetry()),
         theme_name: theme_name.to_string(),
-        input: String::new(),
+        input,
         command_selection: 0,
         command_palette_hidden_for: None,
         approval_focus: 0,
@@ -643,11 +649,14 @@ fn is_exit_command(input: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_composer_shortcut, background_diagnostic_paths, is_exit_command, is_send_key,
-        last_user_input, persist_rendered_diagnostics, refresh_diagnostics_cache,
+        apply_composer_shortcut, background_diagnostic_paths, initial_state, is_exit_command,
+        is_send_key, last_user_input, persist_rendered_diagnostics, refresh_diagnostics_cache,
     };
     use crate::tui::state::{ProviderStatus, TerminalLane, WorkspaceSnapshot};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use robocode_core::SessionEngine;
+    use robocode_model::ModelProvider;
+    use robocode_types::{ModelEvent, ModelRequest};
     use std::{
         fs,
         sync::atomic::{AtomicU64, Ordering},
@@ -708,6 +717,55 @@ mod tests {
             &mut typing
         ));
         assert_eq!(typing.input, "what");
+    }
+
+    #[test]
+    fn initial_state_preloads_setup_when_online_provider_key_is_missing() {
+        let root = temp_app_root();
+        let home = root.join("session-home");
+        let provider = Box::new(TestProvider {
+            provider: "deepseek".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+        });
+        let engine = SessionEngine::new_with_home(&root, provider, Some(home)).unwrap();
+
+        let state = initial_state(
+            &engine,
+            "provider=deepseek model=deepseek-v4-flash key=missing",
+            None,
+            Vec::new(),
+            "aurora-cyan",
+        );
+
+        assert_eq!(state.input, "/setup");
+        assert!(
+            state
+                .entries
+                .iter()
+                .any(|entry| entry.label == "setup" && entry.body.contains("First-run setup"))
+        );
+    }
+
+    #[test]
+    fn initial_state_does_not_preload_setup_for_fallback_provider() {
+        let root = temp_app_root();
+        let home = root.join("session-home");
+        let provider = Box::new(TestProvider {
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+        });
+        let engine = SessionEngine::new_with_home(&root, provider, Some(home)).unwrap();
+
+        let state = initial_state(
+            &engine,
+            "provider=fallback model=test-local key=missing",
+            None,
+            Vec::new(),
+            "aurora-cyan",
+        );
+
+        assert_eq!(state.input, "");
+        assert!(!state.entries.iter().any(|entry| entry.label == "setup"));
     }
 
     #[test]
@@ -867,5 +925,28 @@ mod tests {
         let root = std::env::temp_dir().join(format!("robocode-tui-app-test-{nanos}-{suffix}"));
         fs::create_dir_all(&root).expect("temp root");
         root
+    }
+
+    struct TestProvider {
+        provider: String,
+        model: String,
+    }
+
+    impl ModelProvider for TestProvider {
+        fn provider_name(&self) -> &str {
+            &self.provider
+        }
+
+        fn model(&self) -> &str {
+            &self.model
+        }
+
+        fn set_model(&mut self, model: String) {
+            self.model = model;
+        }
+
+        fn next_events(&mut self, _request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+            Ok(Vec::new())
+        }
     }
 }

@@ -64,15 +64,24 @@
 
 渲染契约：
 
-- 交互决策类命令必须 selector-first。`/settings`、`/provider`、`/models`、
-  `/permissions`、`/theme` 都要渲染居中的 selector panel，支持搜索、键盘移动、
+- 交互决策类命令必须 selector-first。`/setup`、`/settings`、`/provider`、`/models`、
+  `/lane`、`/permissions`、`/theme` 都要渲染居中的 selector panel，支持搜索、键盘移动、
   鼠标选择和 `Enter` 应用。未来新增的配置、模式切换、lane/agent 操作和多选项
   工作流也要沿用同一模式。除非是 `/config`、`/status` 或 `/provider doctor`
   这类明确诊断/详情命令，否则不要退化成只展示信息的页面。
 
+- `/setup` 是 first-run wizard，不是被动 help 页。每一行都必须是真实动作，包括
+  provider 配置、model 选择、permissions、theme、当前 provider doctor、fallback
+  smoke 和保存默认值。
+
+- `/lane` 是编排动作 selector。它会列出 lane 启动命令；已有 lane 时，还会列出带
+  lane id 的 inspect、timeline、diff 和 artifacts 动作，避免用户记 lane id。
+
 - provider 和 model selector 的语义必须分开：`/provider` 是供应商配置界面，
-  行内展示供应商名称、API key 环境变量状态、endpoint 来源和已知模型候选；
-  默认动作应该是检查或配置供应商，而不是把 provider 选择伪装成 model 选择。
+  列表页只展示供应商名称和简短 key/endpoint/model 可用性；选中供应商后进入
+  二级 `PROVIDER CONFIG` 页面，再展示 API key 环境变量状态、endpoint 来源、
+  已知模型候选、诊断、保存默认值和当前会话切换动作。默认动作应该是检查或配置
+  供应商，而不是把 provider 选择伪装成 model 选择。
   `/models` 是跨供应商模型选择器，按 provider 分组，选中一行会补全/执行同时
   切换 provider 和 model 的命令。`/model <model>` 只表示当前 provider 内的快速
   模型切换，不能隐藏“跨供应商选模型需要切 provider”这件事。

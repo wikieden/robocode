@@ -257,6 +257,7 @@ fn provider_model_failures_include_switch_model_recovery_prompt() {
         .unwrap_err();
 
     assert!(err.contains("Provider/model recovery:"), "{err}");
+    assert!(err.contains("class: model_unavailable"), "{err}");
     assert!(err.contains("current: deepseek / made-up-model"), "{err}");
     assert!(err.contains("/settings model deepseek-v4-flash"), "{err}");
     assert!(

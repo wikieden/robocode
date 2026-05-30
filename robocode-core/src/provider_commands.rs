@@ -563,9 +563,7 @@ impl SessionEngine {
     }
 
     pub(super) fn provider_model_recovery_prompt(&self, error: &str) -> Option<String> {
-        if !looks_like_provider_model_failure(error) {
-            return None;
-        }
+        let failure = classify_provider_model_failure(error)?;
         let provider_id = self.provider.provider_name();
         let current_model = self.provider.model();
         let default_model = self
@@ -583,10 +581,11 @@ impl SessionEngine {
         Some(
             [
                 "Provider/model recovery:".to_string(),
+                format!("  class: {}", failure.class),
                 format!("  current: {provider_id} / {current_model}"),
-                "  The current model may be unavailable, unauthorized, or incompatible."
-                    .to_string(),
+                format!("  reason: {}", failure.reason),
                 format!("  candidates: {candidate_text}"),
+                format!("  next: {}", failure.next_action),
                 format!("  try: /settings model {default_model}"),
                 format!("  try: /settings provider {provider_id} {default_model}"),
                 format!("  diagnose: /provider doctor {provider_id}"),
@@ -701,29 +700,85 @@ fn descriptor_key_status(descriptor: &ProviderDescriptor) -> String {
     }
 }
 
-fn looks_like_provider_model_failure(error: &str) -> bool {
+struct ProviderFailureClass {
+    class: &'static str,
+    reason: &'static str,
+    next_action: &'static str,
+}
+
+fn classify_provider_model_failure(error: &str) -> Option<ProviderFailureClass> {
     let lower = error.to_ascii_lowercase();
     if lower.contains("cancelled") || lower.contains("canceled") {
-        return false;
+        return None;
     }
-    [
-        "model",
-        "not found",
-        "does not exist",
-        "unavailable",
-        "unsupported",
-        "permission",
-        "unauthorized",
-        "forbidden",
-        "context_length",
-        "maximum context",
-        "api error (400)",
-        "api error (401)",
-        "api error (403)",
-        "api error (404)",
-    ]
-    .iter()
-    .any(|needle| lower.contains(needle))
+    let class = if lower.contains("api key")
+        || lower.contains("missing key")
+        || lower.contains("key=missing")
+        || lower.contains("no api key")
+    {
+        ProviderFailureClass {
+            class: "missing_key",
+            reason: "API key is missing or not visible to this process.",
+            next_action: "open provider config, export the listed key env var, then retry",
+        }
+    } else if lower.contains("unauthorized")
+        || lower.contains("forbidden")
+        || lower.contains("permission")
+        || lower.contains("api error (401)")
+        || lower.contains("api error (403)")
+    {
+        ProviderFailureClass {
+            class: "auth",
+            reason: "Provider rejected the credentials or account permissions.",
+            next_action: "run provider doctor, verify key scope, or switch to fallback",
+        }
+    } else if lower.contains("rate limit") || lower.contains("too many requests") {
+        ProviderFailureClass {
+            class: "rate_limit",
+            reason: "Provider is rate limiting the current key or model.",
+            next_action: "retry later, switch model/provider, or use fallback",
+        }
+    } else if lower.contains("timeout") || lower.contains("timed out") {
+        ProviderFailureClass {
+            class: "timeout",
+            reason: "Provider request timed out before a usable response.",
+            next_action: "retry, increase request timeout, or switch provider",
+        }
+    } else if lower.contains("context_length")
+        || lower.contains("maximum context")
+        || lower.contains("context overflow")
+    {
+        ProviderFailureClass {
+            class: "context_overflow",
+            reason: "The request is larger than the provider/model context limit.",
+            next_action: "compact context or switch to a larger-context model",
+        }
+    } else if lower.contains("tool_calls")
+        || lower.contains("tool call")
+        || lower.contains("tool_choice")
+        || lower.contains("unsupported")
+    {
+        ProviderFailureClass {
+            class: "compatibility",
+            reason: "The model/provider response is incompatible with RoboCode tool calls.",
+            next_action: "switch to a known-compatible model or inspect provider doctor",
+        }
+    } else if lower.contains("model")
+        || lower.contains("not found")
+        || lower.contains("does not exist")
+        || lower.contains("unavailable")
+        || lower.contains("api error (400)")
+        || lower.contains("api error (404)")
+    {
+        ProviderFailureClass {
+            class: "model_unavailable",
+            reason: "The selected model may be missing, retired, or unavailable for this key.",
+            next_action: "open /models and switch to a known model candidate",
+        }
+    } else {
+        return None;
+    };
+    Some(class)
 }
 
 fn compatible_model_candidates(
@@ -840,4 +895,36 @@ fn settings_help() -> String {
         "                             Switch provider/model and save defaults",
     ]
     .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_provider_model_failure;
+
+    #[test]
+    fn classifies_common_provider_recovery_failures() {
+        let cases = [
+            ("missing API key for DeepSeek", "missing_key"),
+            ("API error (401): unauthorized", "auth"),
+            ("rate limit exceeded", "rate_limit"),
+            ("request timed out after 90s", "timeout"),
+            ("maximum context length exceeded", "context_overflow"),
+            (
+                "assistant message with tool_calls is unsupported",
+                "compatibility",
+            ),
+            ("model does not exist", "model_unavailable"),
+        ];
+
+        for (message, expected) in cases {
+            let class = classify_provider_model_failure(message).expect(message);
+            assert_eq!(class.class, expected, "{message}");
+            assert!(!class.next_action.is_empty(), "{message}");
+        }
+    }
+
+    #[test]
+    fn cancelled_provider_request_does_not_show_recovery_prompt() {
+        assert!(classify_provider_model_failure("model request cancelled").is_none());
+    }
 }

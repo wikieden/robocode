@@ -27,8 +27,10 @@ copy_artifact "$OUT_DIR/main-live-turn.svg" "$SCREENSHOT_DIR/${VERSION}-tui-live
 copy_artifact "$OUT_DIR/main-resize.svg" "$SCREENSHOT_DIR/${VERSION}-tui-main-resize.svg"
 copy_artifact "$OUT_DIR/main-cjk-input.svg" "$SCREENSHOT_DIR/${VERSION}-tui-cjk-input.svg"
 copy_artifact "$OUT_DIR/main-command-palette.svg" "$SCREENSHOT_DIR/${VERSION}-tui-command-palette.svg"
+copy_artifact "$OUT_DIR/main-setup-wizard.svg" "$SCREENSHOT_DIR/${VERSION}-tui-setup-wizard.svg"
 copy_artifact "$OUT_DIR/main-provider-selector.svg" "$SCREENSHOT_DIR/${VERSION}-tui-provider-selector.svg"
 copy_artifact "$OUT_DIR/main-model-selector.svg" "$SCREENSHOT_DIR/${VERSION}-tui-model-selector.svg"
+copy_artifact "$OUT_DIR/main-lane-selector.svg" "$SCREENSHOT_DIR/${VERSION}-tui-lane-selector.svg"
 copy_artifact "$OUT_DIR/main-lane.svg" "$SCREENSHOT_DIR/${VERSION}-tui-lane-detail.svg"
 copy_artifact "$OUT_DIR/side-1.svg" "$SCREENSHOT_DIR/${VERSION}-tui-side-1.svg"
 copy_artifact "$OUT_DIR/side-2.svg" "$SCREENSHOT_DIR/${VERSION}-tui-side-2.svg"
@@ -48,8 +50,10 @@ required = {
     "main_resize": out_dir / "main-resize.txt",
     "main_cjk_input": out_dir / "main-cjk-input.txt",
     "command_palette": out_dir / "main-command-palette.txt",
+    "setup_wizard": out_dir / "main-setup-wizard.txt",
     "provider_selector": out_dir / "main-provider-selector.txt",
     "model_selector": out_dir / "main-model-selector.txt",
+    "lane_selector": out_dir / "main-lane-selector.txt",
     "lane_detail": out_dir / "main-lane.txt",
     "side_1": out_dir / "side-1.txt",
     "side_2": out_dir / "side-2.txt",
@@ -86,12 +90,20 @@ if "你好，帮我检查当前变更" not in main_cjk_input:
     fail("CJK input preview does not show Chinese composer input")
 
 provider_selector = required["provider_selector"].read_text(encoding="utf-8")
-if "SELECT PROVIDER" not in provider_selector or "DEEPSEEK_API_KEY" not in provider_selector:
+if "PROVIDER CONFIG" not in provider_selector or "DEEPSEEK_API_KEY" not in provider_selector:
     fail("provider selector preview does not show provider config evidence")
+
+setup_wizard = required["setup_wizard"].read_text(encoding="utf-8")
+if "SETUP WIZARD" not in setup_wizard or "provider doctor" not in setup_wizard:
+    fail("setup wizard preview does not show first-run actions")
 
 model_selector = required["model_selector"].read_text(encoding="utf-8")
 if "SELECT MODEL" not in model_selector or "deepseek deepseek-v4-flash" not in model_selector:
     fail("model selector preview does not show grouped model evidence")
+
+lane_selector = required["lane_selector"].read_text(encoding="utf-8")
+if "LANE ACTIONS" not in lane_selector or "inspect L1" not in lane_selector:
+    fail("lane selector preview does not show lane action evidence")
 
 side_1 = required["side_1"].read_text(encoding="utf-8")
 side_2 = required["side_2"].read_text(encoding="utf-8")
@@ -145,8 +157,10 @@ Each SVG is a deterministic visual artifact for product review:
 - \`${VERSION}-tui-main-resize.svg\`: resized 100x30 redraw evidence
 - \`${VERSION}-tui-cjk-input.svg\`: CJK input and cursor-placement evidence
 - \`${VERSION}-tui-command-palette.svg\`: slash-command suggestion surface
+- \`${VERSION}-tui-setup-wizard.svg\`: first-run setup wizard
 - \`${VERSION}-tui-provider-selector.svg\`: provider config selector evidence
 - \`${VERSION}-tui-model-selector.svg\`: provider-grouped model selector evidence
+- \`${VERSION}-tui-lane-selector.svg\`: lane action selector evidence
 - \`${VERSION}-tui-lane-detail.svg\`: focused lane detail
 - \`${VERSION}-tui-side-1.svg\`: lane side screen
 - \`${VERSION}-tui-side-2.svg\`: ops/test side screen

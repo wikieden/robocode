@@ -202,11 +202,16 @@ Current published release:
 
 Next planned:
 
-- `0.1.20` is the usability beta gate: clean install, first-use provider setup,
-  fallback provider path, live provider path, daily coding loop, and one
-  delegated review loop should all be evidenced.
+- `docs/release-0.1.20-plan.md` is the active usability beta gate plan:
+  clean install, first-use provider setup, fallback provider path, live
+  provider path, daily coding loop, interaction reliability, and one delegated
+  review loop should all be evidenced.
 - `0.1.20` should keep improving the real coding loop before broadening Claude
   parity, ACP, MCP, and plugin runtime scope.
+- `docs/release-0.1.21-plan.md` is the next interaction-system completion plan:
+  unify settings/forms, finish first-run setup, define focus/mouse routing,
+  harden composer and command palette reliability, make `AgentTask` the visible
+  work-state contract, and turn lane orchestration into a no-guess flow.
 - require a real-use screenshot or deterministic visual artifact for every
   user-visible feature before it is marked complete
 

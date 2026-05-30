@@ -6,34 +6,34 @@
 │      ┊  evidence: AgentTask L1 from summary patched failing tests; rerunning cargo                │ │ ↳ src/          FILES    128       │
 │      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
 │      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
-│   ♙  ┊  USER                                                                             14:09:23 │ └────────────────────────────────────┘
 
-                               ┌ PROVIDER CONFIG ───────────────────────────────────────────────────── esc ┐
-                               │                                                                           │
-                               │ deepseek / DeepSeek                                                       │
-                               │ key: DEEPSEEK_API_KEY present                                             │
-                               │ endpoint: https://api.deepseek.com (DEEPSEEK_API_BASE override)           │
-                               │ models: deepseek-v4-flash, deepseek-v4-pro                                │
-                               │                                                                           │
-                               │ ● set default provider  Save as default provider                          │
-                               │   use now  Switch provider for this session                               │
-                               │   doctor  Run provider diagnostics                                        │
-                               │   /models  Open provider-grouped model picker                             │
-                               │   model deepseek-v4-flash  Save DeepSeek with model deepseek-v4-flash     │
-                               │   model deepseek-v4-pro  Save DeepSeek with model deepseek-v4-pro         │
-                               │                                                                           │
-                               │ Enter action   /models for all models   esc close                         │
-                               │                                                                           │
-                               └───────────────────────────────────────────────────────────────────────────┘
+                                      ┌ LANE ACTIONS ─────────────────────────────────────────── esc ┐
+                                      │                                                              │
+                                      │ Search _                                                     │
+                                      │                                                              │
+                                      │ 1 lane(s) tracked                                            │
+                                      │ ● inspect L1  test fixes [running]                           │
+                                      │   timeline L1  test fixes [running]                          │
+                                      │   diff L1  test fixes [running]                              │
+                                      │   artifacts L1  test fixes [running]                         │
+                                      │   codex  Start Codex lane                                    │
+                                      │   codex-review  Start read-only Codex review lane            │
+                                      │   claude  Start Claude lane                                  │
+                                      │   run  Run shell lane                                        │
+                                      │   ask  Start custom tool lane                                │
+                                      │   inspect  Inspect lane evidence                             │
+                                      │   timeline  Show lane event timeline                         │
+                                      │   diff  Show lane patch                                      │
+                                      │                                                              │
+                                      │ Enter open/run   lane ids appear after a lane starts         │
+                                      │                                                              │
+                                      └──────────────────────────────────────────────────────────────┘
 
-│   ✣  ┊  ASSISTANT                                                                        14:09:29 │ ┌ RECENT FILES ──────────────── tail ┐
-│      ┊  No approval is blocking right now. The cockpit stays open for transcript review, input,   │ │ [Rs] src/config.rs         now     │
 │      ┊  diagnostics, and lane status.                                                             │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
 ┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                                                           │              │
-│ › /provider deepseek                                                                                                      │ MODE Code ▾  │
+│ › /lane                                                                                                                   │ MODE Code ▾  │
 │                                                                                                                           │              │
 │ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

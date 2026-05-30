@@ -35,13 +35,14 @@ robocode-cli --version
 robocode-cli --provider fallback --model test-local
 ```
 
-`robocode-cli` starts the main cockpit by default. On first run, open the setup
-surface from the composer:
+`robocode-cli` starts the main cockpit by default. If the selected online
+provider is missing an API key, the cockpit opens the `/setup` wizard
+automatically. You can also reopen setup from the composer:
 
 ```text
 /setup
 /setup provider
-/provider deepseek deepseek-v4-flash
+/provider deepseek
 /models
 ```
 
@@ -89,6 +90,10 @@ Preview flags for visual review:
 - `--tui-preview-resize`
 - `--tui-preview-cjk-input`
 - `--tui-preview-lane`
+- `--tui-preview-setup-wizard`
+- `--tui-preview-provider-selector`
+- `--tui-preview-model-selector`
+- `--tui-preview-lane-selector`
 - `--tui-preview-side`
 - `--tui-preview-side-2`
 
@@ -117,15 +122,23 @@ api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
 
-The TUI setup commands are picker-first: `/settings`, `/provider`, `/models`,
-`/permissions`, and `/theme` render selectable panels instead of status-only
-screens. They persist only provider/model defaults and permission mode changes.
-API keys remain in environment variables or manually maintained config fields.
-Use `/provider` for supplier configuration and diagnostics: API-key env vars,
-endpoint sources, and the provider's known model candidates. Use `/models` for
+The TUI setup commands are picker-first. `/setup` opens a first-run wizard with
+concrete steps for provider configuration, model choice, permission mode,
+theme, doctor checks, fallback smoke, and saving defaults. `/settings`,
+`/provider`, `/models`, `/permissions`, and `/theme` render selectable panels
+instead of status-only screens. They persist only provider/model defaults and
+permission mode changes. API keys remain in environment variables or manually
+maintained config fields. Use `/provider` for supplier configuration. The first
+panel lists suppliers with short key/endpoint/model availability; selecting one
+opens a `PROVIDER CONFIG` page with API-key env vars, endpoint source,
+diagnostics, save-default actions, and known model candidates. Use `/models` for
 model selection across all providers; rows are grouped by provider and can
 switch provider plus model together. Use `/model <model>` only when you want to
-change the current provider's model directly.
+change the current provider's model directly. Provider failures are classified
+into recovery classes such as missing key, auth, rate limit, timeout, context
+overflow, compatibility, and model unavailable; the recovery prompt includes
+concrete commands to open doctor, switch model/provider, retry later, or use
+fallback.
 
 ```text
 /settings
@@ -372,6 +385,10 @@ Agents and lanes:
 `/agent doctor [id]` reports each adapter capability record: readiness,
 mutation mode, evidence mode, config source, and known limits. Use it before
 trusting a delegated Codex/Claude/template/tmux/ACP lane.
+
+Inside the TUI, `/lane` opens a centered action selector. It lists lane launch
+commands and adds id-specific inspect, timeline, diff, and artifacts actions for
+active lanes, so you can operate lanes without memorizing their ids.
 
 `/lane codex-review <task>` is the P0 read-only Codex trust-loop path. It writes
 an envelope, launches `codex review --uncommitted` when Codex is available (or a

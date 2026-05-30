@@ -4,7 +4,7 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 英文版： [README.md](README.md)
 
-![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.19-tui-main.svg)
+![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.20-tui-main.svg)
 
 ## 为什么做它
 
@@ -24,43 +24,52 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 ## 真机运行图
 
 下面这些图来自当前 RoboCode TUI renderer 的 release evidence，不是产品概念图。
-截图展示的是 `0.1.19` delegated lane 和 provider 配置 RC；最新已发布二进制版本以安装章节为准。
+截图展示的是 `0.1.20` usability beta gate：首次 setup、provider/model 配置、
+delegated lane 操作和日常 coding cockpit；最新已发布二进制版本以安装章节为准。
 
 ### Live provider turn
 
-![实时 provider 状态](docs/previews/generated/screenshots/0.1.19-tui-live-turn.svg)
+![实时 provider 状态](docs/previews/generated/screenshots/0.1.20-tui-live-turn.svg)
 
 ### Resize 后重绘
 
-![Resize 后重绘](docs/previews/generated/screenshots/0.1.19-tui-main-resize.svg)
+![Resize 后重绘](docs/previews/generated/screenshots/0.1.20-tui-main-resize.svg)
 
 ### 中文输入
 
-![中文输入](docs/previews/generated/screenshots/0.1.19-tui-cjk-input.svg)
+![中文输入](docs/previews/generated/screenshots/0.1.20-tui-cjk-input.svg)
 
 ### Slash command 提示
 
-![命令提示](docs/previews/generated/screenshots/0.1.19-tui-command-palette.svg)
+![命令提示](docs/previews/generated/screenshots/0.1.20-tui-command-palette.svg)
+
+### 首次 Setup 向导
+
+![Setup wizard](docs/previews/generated/screenshots/0.1.20-tui-setup-wizard.svg)
 
 ### Provider 配置选择器
 
-![Provider selector](docs/previews/generated/screenshots/0.1.19-tui-provider-selector.svg)
+![Provider selector](docs/previews/generated/screenshots/0.1.20-tui-provider-selector.svg)
 
 ### 按供应商分组的模型选择器
 
-![Model selector](docs/previews/generated/screenshots/0.1.19-tui-model-selector.svg)
+![Model selector](docs/previews/generated/screenshots/0.1.20-tui-model-selector.svg)
+
+### Lane action selector
+
+![Lane selector](docs/previews/generated/screenshots/0.1.20-tui-lane-selector.svg)
 
 ### Agent lane detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.19-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.20-tui-lane-detail.svg)
 
 ### 副屏 side-1：Agent lanes
 
-![side-1 lanes](docs/previews/generated/screenshots/0.1.19-tui-side-1.svg)
+![side-1 lanes](docs/previews/generated/screenshots/0.1.20-tui-side-1.svg)
 
 ### 副屏 side-2：ops 与 evidence
 
-![side-2 ops](docs/previews/generated/screenshots/0.1.19-tui-side-2.svg)
+![side-2 ops](docs/previews/generated/screenshots/0.1.20-tui-side-2.svg)
 
 ## 安装
 
@@ -80,7 +89,7 @@ robocode --help
 
 ### Release 压缩包
 
-从 [RoboCode v0.1.19](https://github.com/wikieden/robocode/releases/tag/v0.1.19)
+从 [RoboCode v0.1.20](https://github.com/wikieden/robocode/releases/tag/v0.1.20)
 下载 release 压缩包。
 
 当前 release targets：
@@ -93,7 +102,7 @@ robocode --help
 macOS 或 Linux 安装：
 
 ```bash
-VERSION=0.1.19
+VERSION=0.1.20
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -104,7 +113,7 @@ robocode-cli --help
 Windows PowerShell 安装：
 
 ```powershell
-$Version = "0.1.19"
+$Version = "0.1.20"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -122,12 +131,13 @@ robocode-cli.exe --help
 robocode-cli
 ```
 
-在 TUI 里用 `/setup` 进入 provider/model 配置流程。最快路径是：
+如果当前在线 provider 缺少 API key，TUI 会自动打开 `/setup`。你也可以随时用
+`/setup` 进入 provider/model 配置流程。最快路径是：
 
 ```bash
 /setup
 /setup provider
-/provider deepseek deepseek-v4-flash
+/provider deepseek
 /models
 ```
 
@@ -185,7 +195,7 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 
 RoboCode 会读取平台默认配置路径，然后读取 `.robocode/config.toml`，CLI flags 优先级最高。
 
-在 TUI 中，`/setup` 会打开首次使用 provider/model 配置流程。`/settings` 是可操作的设置选择器，不再只是状态展示：provider、model、permissions、theme、保存默认值和诊断都可以直接选择。`/provider` 是供应商配置入口，用来看 API key 环境变量、endpoint 来源、诊断入口以及该供应商已知模型；`/models` 是按供应商分组的模型选择器，选中一行会同时切换 provider 和 model。`/model <model>` 只作为当前 provider 的快速模型切换。`/settings permissions <mode>` 会修改审批模式，`/settings theme <name>` 会修改当前 TUI 主题，`/settings save` 会持久化当前 provider/model，但不会写入 API key。
+在 TUI 中，`/setup` 会打开首次使用 provider/model 向导，里面包含 provider 配置、model 选择、权限模式、主题、doctor 检查、fallback smoke 和保存默认值这些可执行步骤。`/settings` 是可操作的设置选择器，不再只是状态展示：provider、model、permissions、theme、保存默认值和诊断都可以直接选择。`/provider` 是供应商配置入口：先选择供应商，再进入 `PROVIDER CONFIG` 二级页查看 API key 环境变量、endpoint 来源、诊断入口、保存默认值动作和该供应商已知模型；`/models` 是按供应商分组的模型选择器，选中一行会同时切换 provider 和 model。`/model <model>` 只作为当前 provider 的快速模型切换。`/settings permissions <mode>` 会修改审批模式，`/settings theme <name>` 会修改当前 TUI 主题，`/settings save` 会持久化当前 provider/model，但不会写入 API key。
 
 ```toml
 provider = "deepseek"
@@ -229,6 +239,7 @@ README 保持产品介绍和使用入口。完整使用说明和实现细节放�
 - [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
 - [TUI 交互审计](docs/tui-interaction-audit-2026-05-29.zh-CN.md)
 - [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
+- [0.1.20 计划](docs/release-0.1.20-plan.zh-CN.md)
 - [0.1.19 计划](docs/release-0.1.19-plan.zh-CN.md)
 - [0.1.19 状态](docs/release-0.1.19-status.zh-CN.md)
 - [0.1.18 状态](docs/release-0.1.18-status.zh-CN.md)
