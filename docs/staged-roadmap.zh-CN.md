@@ -161,8 +161,10 @@ Mainline landed：
 
 当前已发布版本：
 
-- `docs/release-0.1.19-status.zh-CN.md` 记录已打 tag、已发布、已更新 Homebrew、已完成
-  post-publish verification 的 Delegated Lane Usefulness release。
+- `docs/release-0.1.20-status.zh-CN.md` 记录已打 tag、已发布、已更新 Homebrew、已完成
+  post-publish verification 的 Usability Beta Gate release。
+- `0.1.20` 增加可操作 setup wizard、缺 key 首次启动入口、provider failure recovery
+  分类、居中的 lane action selector，以及刷新后的 0.1.20 截图证据。
 - `0.1.19` 把供应商/provider 配置和 model 选择分离：`/provider` 是 key、endpoint、
   candidate-model 配置面，`/models` 是按供应商分组的跨模型 picker。
 - `0.1.18` 仍是 Interaction Hardening 检查点：settings 决策是 selector-first，
@@ -170,11 +172,6 @@ Mainline landed：
 
 下一个计划版本：
 
-- `docs/release-0.1.20-plan.zh-CN.md` 是当前 usability beta gate 计划：干净安装、
-  首次 provider 设置、fallback provider path、live provider path、daily coding loop、
-  interaction reliability 和一条 delegated review loop 都应该有证据。
-- `0.1.20` 要继续优先优化真实 coding loop，再扩展 Claude parity、ACP、MCP 和
-  plugin runtime 范围。
 - `docs/release-0.1.21-plan.zh-CN.md` 是下一步交互系统收口计划：统一 settings/form、
   完成首次 setup、定义 focus/mouse routing、加固 composer 和 command palette、
   让 `AgentTask` 成为可见工作状态契约，并把 lane 编排做成 no-guess flow。

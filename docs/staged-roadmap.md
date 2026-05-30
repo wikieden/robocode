@@ -191,8 +191,11 @@ Mainline landed:
 
 Current published release:
 
-- `docs/release-0.1.19-status.md` records the tagged, published,
-  Homebrew-updated, and post-publish-verified Delegated Lane Usefulness release.
+- `docs/release-0.1.20-status.md` records the tagged, published,
+  Homebrew-updated, and post-publish-verified Usability Beta Gate release.
+- `0.1.20` adds an actionable setup wizard, missing-key first-run entry,
+  provider failure recovery classes, a centered lane action selector, and
+  refreshed 0.1.20 screenshot evidence.
 - `0.1.19` separates supplier/provider configuration from model selection:
   `/provider` is the key/endpoint/candidate-model configuration surface, while
   `/models` is the provider-grouped cross-model picker.
@@ -202,12 +205,6 @@ Current published release:
 
 Next planned:
 
-- `docs/release-0.1.20-plan.md` is the active usability beta gate plan:
-  clean install, first-use provider setup, fallback provider path, live
-  provider path, daily coding loop, interaction reliability, and one delegated
-  review loop should all be evidenced.
-- `0.1.20` should keep improving the real coding loop before broadening Claude
-  parity, ACP, MCP, and plugin runtime scope.
 - `docs/release-0.1.21-plan.md` is the next interaction-system completion plan:
   unify settings/forms, finish first-run setup, define focus/mouse routing,
   harden composer and command palette reliability, make `AgentTask` the visible

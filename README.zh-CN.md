@@ -240,6 +240,7 @@ README 保持产品介绍和使用入口。完整使用说明和实现细节放�
 - [TUI 交互审计](docs/tui-interaction-audit-2026-05-29.zh-CN.md)
 - [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
 - [0.1.20 计划](docs/release-0.1.20-plan.zh-CN.md)
+- [0.1.20 状态](docs/release-0.1.20-status.zh-CN.md)
 - [0.1.19 计划](docs/release-0.1.19-plan.zh-CN.md)
 - [0.1.19 状态](docs/release-0.1.19-status.zh-CN.md)
 - [0.1.18 状态](docs/release-0.1.18-status.zh-CN.md)
