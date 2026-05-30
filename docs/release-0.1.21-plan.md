@@ -67,10 +67,11 @@ Acceptance:
   diagnostics, and setup entries.
 - `/setup` is a staged wizard backed by the same selector/form runtime, not a
   special one-off renderer.
-- `/provider` lists suppliers. Enter or click opens provider detail. Provider
-  detail supports inspect, set as default, switch now, edit endpoint, show key
-  env hint, run doctor, probe model, and open `/models` filtered to that
-  provider.
+- `/provider` lists only supplier ids such as `deepseek` and `openrouter`, with
+  no key, endpoint, or model explanation on the first-level rows. Enter or
+  click opens provider detail. Provider detail supports inspect, set as
+  default, switch now, edit endpoint, show key env hint, run doctor, probe
+  model, and open `/models` filtered to that provider.
 - `/models` groups models by provider and clearly marks current, configured,
   favorite, risky, and unavailable states when the data exists.
 - `/permissions`, `/theme`, and mode/default settings use the same keyboard,

@@ -43,12 +43,12 @@ Current published release:
 
 Next planned slice:
 
-- target the `0.1.20` usability beta gate: clean install, first-use setup,
+- target the `0.1.21` usability beta gate: clean install, first-use setup,
   provider/model recovery, daily coding loop, and one delegated review loop that
   can be trusted in real work.
 - keep every user-visible feature point backed by a real-use screenshot or
   deterministic visual artifact for product review.
-- keep `0.1.20` as the usability beta gate for clean install, daily coding
+- keep `0.1.21` as the usability beta gate for clean install, daily coding
   loop, and delegated review loop evidence.
 
 ## Gap vs `.ref/claude-code-main`

@@ -4,7 +4,7 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 英文版： [README.md](README.md)
 
-![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.20-tui-main.svg)
+![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.21-tui-main.svg)
 
 ## 为什么做它
 
@@ -24,52 +24,56 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 ## 真机运行图
 
 下面这些图来自当前 RoboCode TUI renderer 的 release evidence，不是产品概念图。
-截图展示的是 `0.1.20` usability beta gate：首次 setup、provider/model 配置、
+截图展示的是 `0.1.21` usability beta gate：首次 setup、provider/model 配置、
 delegated lane 操作和日常 coding cockpit；最新已发布二进制版本以安装章节为准。
 
 ### Live provider turn
 
-![实时 provider 状态](docs/previews/generated/screenshots/0.1.20-tui-live-turn.svg)
+![实时 provider 状态](docs/previews/generated/screenshots/0.1.21-tui-live-turn.svg)
 
 ### Resize 后重绘
 
-![Resize 后重绘](docs/previews/generated/screenshots/0.1.20-tui-main-resize.svg)
+![Resize 后重绘](docs/previews/generated/screenshots/0.1.21-tui-main-resize.svg)
 
 ### 中文输入
 
-![中文输入](docs/previews/generated/screenshots/0.1.20-tui-cjk-input.svg)
+![中文输入](docs/previews/generated/screenshots/0.1.21-tui-cjk-input.svg)
 
 ### Slash command 提示
 
-![命令提示](docs/previews/generated/screenshots/0.1.20-tui-command-palette.svg)
+![命令提示](docs/previews/generated/screenshots/0.1.21-tui-command-palette.svg)
 
 ### 首次 Setup 向导
 
-![Setup wizard](docs/previews/generated/screenshots/0.1.20-tui-setup-wizard.svg)
+![Setup wizard](docs/previews/generated/screenshots/0.1.21-tui-setup-wizard.svg)
 
 ### Provider 配置选择器
 
-![Provider selector](docs/previews/generated/screenshots/0.1.20-tui-provider-selector.svg)
+![Provider selector](docs/previews/generated/screenshots/0.1.21-tui-provider-selector.svg)
+
+### Provider 详情配置
+
+![Provider detail](docs/previews/generated/screenshots/0.1.21-tui-provider-detail.svg)
 
 ### 按供应商分组的模型选择器
 
-![Model selector](docs/previews/generated/screenshots/0.1.20-tui-model-selector.svg)
+![Model selector](docs/previews/generated/screenshots/0.1.21-tui-model-selector.svg)
 
 ### Lane action selector
 
-![Lane selector](docs/previews/generated/screenshots/0.1.20-tui-lane-selector.svg)
+![Lane selector](docs/previews/generated/screenshots/0.1.21-tui-lane-selector.svg)
 
 ### Agent lane detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.20-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.21-tui-lane-detail.svg)
 
 ### 副屏 side-1：Agent lanes
 
-![side-1 lanes](docs/previews/generated/screenshots/0.1.20-tui-side-1.svg)
+![side-1 lanes](docs/previews/generated/screenshots/0.1.21-tui-side-1.svg)
 
 ### 副屏 side-2：ops 与 evidence
 
-![side-2 ops](docs/previews/generated/screenshots/0.1.20-tui-side-2.svg)
+![side-2 ops](docs/previews/generated/screenshots/0.1.21-tui-side-2.svg)
 
 ## 安装
 
@@ -89,7 +93,7 @@ robocode --help
 
 ### Release 压缩包
 
-从 [RoboCode v0.1.20](https://github.com/wikieden/robocode/releases/tag/v0.1.20)
+从 [RoboCode v0.1.21](https://github.com/wikieden/robocode/releases/tag/v0.1.21)
 下载 release 压缩包。
 
 当前 release targets：
@@ -102,7 +106,7 @@ robocode --help
 macOS 或 Linux 安装：
 
 ```bash
-VERSION=0.1.20
+VERSION=0.1.21
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -113,7 +117,7 @@ robocode-cli --help
 Windows PowerShell 安装：
 
 ```powershell
-$Version = "0.1.20"
+$Version = "0.1.21"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -239,8 +243,8 @@ README 保持产品介绍和使用入口。完整使用说明和实现细节放�
 - [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
 - [TUI 交互审计](docs/tui-interaction-audit-2026-05-29.zh-CN.md)
 - [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
-- [0.1.20 计划](docs/release-0.1.20-plan.zh-CN.md)
-- [0.1.20 状态](docs/release-0.1.20-status.zh-CN.md)
+- [0.1.21 计划](docs/release-0.1.21-plan.zh-CN.md)
+- [0.1.21 状态](docs/release-0.1.21-status.zh-CN.md)
 - [0.1.19 计划](docs/release-0.1.19-plan.zh-CN.md)
 - [0.1.19 状态](docs/release-0.1.19-status.zh-CN.md)
 - [0.1.18 状态](docs/release-0.1.18-status.zh-CN.md)

@@ -41,10 +41,10 @@ Mainline landed：
 
 下一个计划切片：
 
-- 目标是 `0.1.20` usability beta gate：干净安装、首次使用设置、provider/model
+- 目标是 `0.1.21` usability beta gate：干净安装、首次使用设置、provider/model
   recovery、daily coding loop，以及一条真实工作中可信的 delegated review loop。
 - 每个用户可见功能点都要以真实使用截图或确定性视觉产物收尾，供产品侧确认。
-- `0.1.20` 仍作为 usability beta gate，要求 clean install、daily coding loop
+- `0.1.21` 仍作为 usability beta gate，要求 clean install、daily coding loop
   和 delegated review loop 都有证据。
 
 ## 与 `.ref/claude-code-main` 的差距

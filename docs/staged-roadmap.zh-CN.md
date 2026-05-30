@@ -161,10 +161,10 @@ Mainline landed：
 
 当前已发布版本：
 
-- `docs/release-0.1.20-status.zh-CN.md` 记录已打 tag、已发布、已更新 Homebrew、已完成
+- `docs/release-0.1.21-status.zh-CN.md` 记录已打 tag、已发布、已更新 Homebrew、已完成
   post-publish verification 的 Usability Beta Gate release。
-- `0.1.20` 增加可操作 setup wizard、缺 key 首次启动入口、provider failure recovery
-  分类、居中的 lane action selector，以及刷新后的 0.1.20 截图证据。
+- `0.1.21` 增加可操作 setup wizard、缺 key 首次启动入口、provider failure recovery
+  分类、居中的 lane action selector，以及刷新后的 0.1.21 截图证据。
 - `0.1.19` 把供应商/provider 配置和 model 选择分离：`/provider` 是 key、endpoint、
   candidate-model 配置面，`/models` 是按供应商分组的跨模型 picker。
 - `0.1.18` 仍是 Interaction Hardening 检查点：settings 决策是 selector-first，

@@ -81,12 +81,13 @@ actions so users do not have to memorize lane ids.
 
 Provider/model selectors have separate semantics:
 
-- `/provider` is the supplier configuration surface. Rows show the provider
-  display name and short key/endpoint/model availability. Selecting a provider
-  opens a second-level `PROVIDER CONFIG` page with API-key env status, endpoint
-  source, known model candidates, diagnostics, save-default, and switch-now
-  actions. The default action should inspect/configure the provider, not
-  silently pretend that provider selection is model selection.
+- `/provider` is the supplier configuration surface. The first-level list shows
+  only provider ids such as `deepseek` and `openrouter`; it must not include
+  key, endpoint, or model explanations on the supplier rows. Selecting a
+  provider opens a second-level `PROVIDER CONFIG` page with API-key env status,
+  endpoint source, known/default model candidates, diagnostics, save-default,
+  and switch-now actions. The default action should inspect/configure the
+  provider, not silently pretend that provider selection is model selection.
 - `/models` is the cross-provider model selector. Rows are grouped by provider
   and complete to commands that switch provider plus model together.
 - `/model <model>` is the current-provider quick switch. It must not hide the

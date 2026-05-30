@@ -129,9 +129,10 @@ theme, doctor checks, fallback smoke, and saving defaults. `/settings`,
 instead of status-only screens. They persist only provider/model defaults and
 permission mode changes. API keys remain in environment variables or manually
 maintained config fields. Use `/provider` for supplier configuration. The first
-panel lists suppliers with short key/endpoint/model availability; selecting one
-opens a `PROVIDER CONFIG` page with API-key env vars, endpoint source,
-diagnostics, save-default actions, and known model candidates. Use `/models` for
+panel lists provider ids only, such as `deepseek` or `openrouter`; it does not
+mix key, endpoint, or model details into the supplier list. Selecting one opens
+a `PROVIDER CONFIG` page with API-key env vars, endpoint source, diagnostics,
+save-default actions, and known/default model candidates. Use `/models` for
 model selection across all providers; rows are grouped by provider and can
 switch provider plus model together. Use `/model <model>` only when you want to
 change the current provider's model directly. Provider failures are classified

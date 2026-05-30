@@ -191,11 +191,11 @@ Mainline landed:
 
 Current published release:
 
-- `docs/release-0.1.20-status.md` records the tagged, published,
+- `docs/release-0.1.21-status.md` records the tagged, published,
   Homebrew-updated, and post-publish-verified Usability Beta Gate release.
-- `0.1.20` adds an actionable setup wizard, missing-key first-run entry,
+- `0.1.21` adds an actionable setup wizard, missing-key first-run entry,
   provider failure recovery classes, a centered lane action selector, and
-  refreshed 0.1.20 screenshot evidence.
+  refreshed 0.1.21 screenshot evidence.
 - `0.1.19` separates supplier/provider configuration from model selection:
   `/provider` is the key/endpoint/candidate-model configuration surface, while
   `/models` is the provider-grouped cross-model picker.

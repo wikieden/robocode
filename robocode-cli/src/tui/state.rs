@@ -1180,6 +1180,14 @@ impl ProviderOption {
                 api_base_env: Some("DEEPSEEK_API_BASE".to_string()),
             },
             Self {
+                provider_id: "openrouter".to_string(),
+                display_name: "OpenRouter".to_string(),
+                default_api_base: Some("https://openrouter.ai/api/v1".to_string()),
+                default_model: None,
+                api_key_env: Some("OPENROUTER_API_KEY".to_string()),
+                api_base_env: Some("OPENROUTER_API_BASE".to_string()),
+            },
+            Self {
                 provider_id: "fallback".to_string(),
                 display_name: "Fallback".to_string(),
                 default_api_base: None,

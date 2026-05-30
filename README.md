@@ -6,7 +6,7 @@ delegated agents, and keep enough evidence to resume work later.
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.20-tui-main.svg)
+![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.21-tui-main.svg)
 
 ## Why It Exists
 
@@ -40,7 +40,7 @@ and external agent lanes visible in one operator cockpit.
 ## Screenshots
 
 These are generated from the current RoboCode TUI renderer and kept as release
-evidence. The screenshots below show the `0.1.20` usability beta gate:
+evidence. The screenshots below show the `0.1.21` usability beta gate:
 first-run setup, provider/model configuration, delegated-lane operation, and
 the daily coding cockpit;
 the latest published binary release is listed separately in the install
@@ -48,47 +48,51 @@ section.
 
 ### Live Provider Turn
 
-![Live provider turn](docs/previews/generated/screenshots/0.1.20-tui-live-turn.svg)
+![Live provider turn](docs/previews/generated/screenshots/0.1.21-tui-live-turn.svg)
 
 ### Resize-Safe Redraw
 
-![Resize-safe redraw](docs/previews/generated/screenshots/0.1.20-tui-main-resize.svg)
+![Resize-safe redraw](docs/previews/generated/screenshots/0.1.21-tui-main-resize.svg)
 
 ### CJK Input
 
-![CJK input](docs/previews/generated/screenshots/0.1.20-tui-cjk-input.svg)
+![CJK input](docs/previews/generated/screenshots/0.1.21-tui-cjk-input.svg)
 
 ### Slash-Command Palette
 
-![Command palette](docs/previews/generated/screenshots/0.1.20-tui-command-palette.svg)
+![Command palette](docs/previews/generated/screenshots/0.1.21-tui-command-palette.svg)
 
 ### First-Run Setup Wizard
 
-![Setup wizard](docs/previews/generated/screenshots/0.1.20-tui-setup-wizard.svg)
+![Setup wizard](docs/previews/generated/screenshots/0.1.21-tui-setup-wizard.svg)
 
 ### Provider Configuration Selector
 
-![Provider selector](docs/previews/generated/screenshots/0.1.20-tui-provider-selector.svg)
+![Provider selector](docs/previews/generated/screenshots/0.1.21-tui-provider-selector.svg)
+
+### Provider Detail Form
+
+![Provider detail](docs/previews/generated/screenshots/0.1.21-tui-provider-detail.svg)
 
 ### Grouped Model Selector
 
-![Model selector](docs/previews/generated/screenshots/0.1.20-tui-model-selector.svg)
+![Model selector](docs/previews/generated/screenshots/0.1.21-tui-model-selector.svg)
 
 ### Lane Action Selector
 
-![Lane selector](docs/previews/generated/screenshots/0.1.20-tui-lane-selector.svg)
+![Lane selector](docs/previews/generated/screenshots/0.1.21-tui-lane-selector.svg)
 
 ### Agent Lane Detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.20-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.21-tui-lane-detail.svg)
 
 ### Side Screen: Agent Lanes
 
-![Side screen lanes](docs/previews/generated/screenshots/0.1.20-tui-side-1.svg)
+![Side screen lanes](docs/previews/generated/screenshots/0.1.21-tui-side-1.svg)
 
 ### Side Screen: Ops And Evidence
 
-![Side screen ops](docs/previews/generated/screenshots/0.1.20-tui-side-2.svg)
+![Side screen ops](docs/previews/generated/screenshots/0.1.21-tui-side-2.svg)
 
 ## Install
 
@@ -109,7 +113,7 @@ robocode --help
 ### Release Archive
 
 Download a release archive from
-[RoboCode v0.1.20](https://github.com/wikieden/robocode/releases/tag/v0.1.20).
+[RoboCode v0.1.21](https://github.com/wikieden/robocode/releases/tag/v0.1.21).
 
 Available release targets:
 
@@ -121,7 +125,7 @@ Available release targets:
 Install on macOS or Linux:
 
 ```bash
-VERSION=0.1.20
+VERSION=0.1.21
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -132,7 +136,7 @@ robocode-cli --help
 Install on Windows PowerShell:
 
 ```powershell
-$Version = "0.1.20"
+$Version = "0.1.21"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -293,8 +297,8 @@ in the docs:
 - [TUI Cockpit Design](docs/tui-cockpit-design.md)
 - [TUI Interaction Audit](docs/tui-interaction-audit-2026-05-29.md)
 - [Testing and Validation Plan](docs/testing-validation-plan.md)
-- [0.1.20 Plan](docs/release-0.1.20-plan.md)
-- [0.1.20 Status](docs/release-0.1.20-status.md)
+- [0.1.21 Plan](docs/release-0.1.21-plan.md)
+- [0.1.21 Status](docs/release-0.1.21-status.md)
 - [0.1.19 Plan](docs/release-0.1.19-plan.md)
 - [0.1.19 Status](docs/release-0.1.19-status.md)
 - [0.1.18 Status](docs/release-0.1.18-status.md)

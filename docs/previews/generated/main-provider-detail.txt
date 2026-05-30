@@ -7,33 +7,33 @@
 │      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
 │      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
-│   ♙  ┊  USER                                                                             16:27:03 │ └────────────────────────────────────┘
-│      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ ┌ ACTIVE TASKS ─────────────────── 4 ┐
+│   ♙  ┊  USER                                                                             16:27:06 │ └────────────────────────────────────┘
 
-                                      ┌ SETUP WIZARD ─────────────────────────────────────────── esc ┐
-                                      │                                                              │
-                                      │ Search _                                                     │
-                                      │                                                              │
-                                      │ current deepseek / deepseek-v4-flash  key DEEPSEEK_API_KEY p │
-                                      │ ● provider  Open provider config: key, endpoint, models      │
-                                      │   models  Choose any model grouped by provider               │
-                                      │   permissions  Pick approval mode before edits run           │
-                                      │   theme  Pick cockpit color theme                            │
-                                      │   provider doctor deepseek  Check current provider key and e │
-                                      │   provider fallback test-local  Use offline fallback for smo │
-                                      │   save  Persist current provider/model defaults              │
-                                      │                                                              │
-                                      │ Enter open   step-by-step first run   esc close              │
-                                      │                                                              │
-                                      └──────────────────────────────────────────────────────────────┘
+                               ┌ PROVIDER CONFIG ───────────────────────────────────────────────────── esc ┐
+                               │                                                                           │
+                               │ deepseek / DeepSeek                                                       │
+                               │ key: DEEPSEEK_API_KEY present                                             │
+                               │ endpoint: https://api.deepseek.com (DEEPSEEK_API_BASE override)           │
+                               │ models: deepseek-v4-flash, deepseek-v4-pro                                │
+                               │                                                                           │
+                               │ ● set default provider  Save as default provider                          │
+                               │   use now  Switch provider for this session                               │
+                               │   doctor  Run provider diagnostics                                        │
+                               │   /models  Open provider-grouped model picker                             │
+                               │   model deepseek-v4-flash  Save DeepSeek with model deepseek-v4-flash     │
+                               │   model deepseek-v4-pro  Save DeepSeek with model deepseek-v4-pro         │
+                               │                                                                           │
+                               │ Enter action   /models for all models   esc close                         │
+                               │                                                                           │
+                               └───────────────────────────────────────────────────────────────────────────┘
 
-│   ✣  ┊  ASSISTANT                                                                        16:27:09 │ ┌ RECENT FILES ──────────────── tail ┐
+│   ✣  ┊  ASSISTANT                                                                        16:27:12 │ ┌ RECENT FILES ──────────────── tail ┐
 │      ┊  No approval is blocking right now. The cockpit stays open for transcript review, input,   │ │ [Rs] src/config.rs         now     │
 │      ┊  diagnostics, and lane status.                                                             │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
 ┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                                                           │              │
-│ › /setup                                                                                                                  │ MODE Code ▾  │
+│ › /provider deepseek                                                                                                      │ MODE Code ▾  │
 │                                                                                                                           │              │
 │ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

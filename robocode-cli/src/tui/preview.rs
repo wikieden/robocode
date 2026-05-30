@@ -33,6 +33,11 @@ pub(crate) fn render_provider_selector_preview(provider: &str, model: &str) -> S
     render::render_frame(&state, 140, 40)
 }
 
+pub(crate) fn render_provider_detail_preview(provider: &str, model: &str) -> String {
+    let state = provider_detail_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
 pub(crate) fn render_model_selector_preview(provider: &str, model: &str) -> String {
     let state = model_selector_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
@@ -104,6 +109,19 @@ pub(crate) fn render_ansi_provider_selector_preview_with_theme(
 ) -> String {
     let theme_name = theme_name.unwrap_or("aurora-cyan");
     let state = provider_selector_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub(crate) fn render_ansi_provider_detail_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = provider_detail_preview_state(provider, model, theme_name);
     terminal::render_ansi_preview_with_theme(
         &render::render_frame(&state, 140, 40),
         Some(theme_name),
@@ -510,7 +528,14 @@ fn setup_wizard_preview_state(provider: &str, model: &str, theme_name: &str) -> 
 
 fn provider_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
-    state.input = "/provider deepseek ".to_string();
+    state.input = "/provider".to_string();
+    state.command_selection = 1;
+    state
+}
+
+fn provider_detail_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = command_palette_preview_state(provider, model, theme_name);
+    state.input = format!("/provider {provider}");
     state.command_selection = 0;
     state
 }
@@ -591,6 +616,7 @@ mod tests {
         let command_palette = render_command_palette_preview("deepseek", "deepseek-v4-flash");
         let setup_wizard = render_setup_wizard_preview("deepseek", "deepseek-v4-flash");
         let provider_selector = render_provider_selector_preview("deepseek", "deepseek-v4-flash");
+        let provider_detail = render_provider_detail_preview("deepseek", "deepseek-v4-flash");
         let model_selector = render_model_selector_preview("deepseek", "deepseek-v4-flash");
         let lane_selector = render_lane_selector_preview("deepseek", "deepseek-v4-flash");
         let side = render_side_preview("fallback", "test-local");
@@ -611,10 +637,16 @@ mod tests {
         assert!(setup_wizard.contains("SETUP WIZARD"));
         assert!(setup_wizard.contains("provider"));
         assert!(setup_wizard.contains("provider doctor"));
-        assert!(provider_selector.contains("PROVIDER CONFIG"));
-        assert!(provider_selector.contains("DEEPSEEK_API_KEY"));
-        assert!(provider_selector.contains("endpoint"));
-        assert!(provider_selector.contains("set default provider"));
+        assert!(provider_selector.contains("SELECT PROVIDER"));
+        assert!(provider_selector.contains("deepseek"));
+        assert!(provider_selector.contains("openrouter"));
+        assert!(!provider_selector.contains("DEEPSEEK_API_KEY"));
+        assert!(!provider_selector.contains("default endpoint"));
+        assert!(provider_detail.contains("PROVIDER CONFIG"));
+        assert!(provider_detail.contains("DEEPSEEK_API_KEY"));
+        assert!(provider_detail.contains("endpoint:"));
+        assert!(provider_detail.contains("set default provider"));
+        assert!(provider_detail.contains("doctor"));
         assert!(model_selector.contains("SELECT MODEL"));
         assert!(model_selector.contains("deepseek deepseek-v4-flash"));
         assert!(model_selector.contains("openai gpt-5.2"));

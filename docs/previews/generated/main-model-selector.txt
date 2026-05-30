@@ -1,13 +1,11 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.20  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
+│ RoboCode  v0.1.21  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ◎ NOW WORKING  Supervising 1 agent: codex testing                                               │ │ robocode/    ~/projects/robocode   │
 │      ┊  evidence: AgentTask L1 from summary patched failing tests; rerunning cargo                │ │ ↳ src/          FILES    128       │
 │      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
 │      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
-│   ♙  ┊  USER                                                                             14:09:24 │ └────────────────────────────────────┘
 
                                ┌ SELECT MODEL ──────────────────────────────────────────────────────── esc ┐
                                │                                                                           │
@@ -18,6 +16,9 @@
                                │   anthropic claude-haiku-4-6  Anthropic · ANTHROPIC_API_KEY:missing       │
                                │ ● deepseek deepseek-v4-flash  DeepSeek default · DEEPSEEK_API_KEY:present │
                                │   deepseek deepseek-v4-pro  DeepSeek · DEEPSEEK_API_KEY:present           │
+                               │   openrouter openai/gpt-5.2  OpenRouter · OPENROUTER_API_KEY:missing      │
+                               │   openrouter anthropic/claude-sonnet-4-6  OpenRouter · OPENROUTER_API_KEY │
+                               │   openrouter deepseek/deepseek-v4-flash  OpenRouter · OPENROUTER_API_KEY: │
                                │   fallback fallback-local  Fallback default · key not required            │
                                │   fallback test-local  Fallback · key not required                        │
                                │   openai gpt-5.2  OpenAI default · OPENAI_API_KEY:missing                 │
@@ -28,7 +29,6 @@
                                │                                                                           │
                                └───────────────────────────────────────────────────────────────────────────┘
 
-│      ┊  No approval is blocking right now. The cockpit stays open for transcript review, input,   │ │ [Rs] src/config.rs         now     │
 │      ┊  diagnostics, and lane status.                                                             │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
 ┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐

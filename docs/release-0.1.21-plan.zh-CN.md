@@ -50,7 +50,7 @@
 
 - `/settings` 打开 settings hub，包含 provider、model、permissions、theme、defaults、diagnostics、setup。
 - `/setup` 使用同一套 selector/form runtime，不再是特殊渲染的一次性页面。
-- `/provider` 列出供应商。Enter 或点击进入 provider detail。Provider detail 支持 inspect、设为默认、立即切换、编辑 endpoint、显示 key env hint、运行 doctor、probe model、打开过滤到当前 provider 的 `/models`。
+- `/provider` 一级只列供应商 id，例如 `deepseek`、`openrouter`，不在一级行里混入 key、endpoint 或 model 解释。Enter 或点击进入 provider detail。Provider detail 支持 inspect、设为默认、立即切换、编辑 endpoint、显示 key env hint、运行 doctor、probe model、打开过滤到当前 provider 的 `/models`。
 - `/models` 按 provider 分组，并在数据存在时明确标记 current、configured、favorite、risky、unavailable。
 - `/permissions`、`/theme` 和模式/default 设置使用相同 keyboard、mouse、footer 和 screenshot 契约。
 - 长行使用 summary + detail pane，而不是把关键信息横向截断。

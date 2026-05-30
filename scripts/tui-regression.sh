@@ -29,6 +29,7 @@ copy_artifact "$OUT_DIR/main-cjk-input.svg" "$SCREENSHOT_DIR/${VERSION}-tui-cjk-
 copy_artifact "$OUT_DIR/main-command-palette.svg" "$SCREENSHOT_DIR/${VERSION}-tui-command-palette.svg"
 copy_artifact "$OUT_DIR/main-setup-wizard.svg" "$SCREENSHOT_DIR/${VERSION}-tui-setup-wizard.svg"
 copy_artifact "$OUT_DIR/main-provider-selector.svg" "$SCREENSHOT_DIR/${VERSION}-tui-provider-selector.svg"
+copy_artifact "$OUT_DIR/main-provider-detail.svg" "$SCREENSHOT_DIR/${VERSION}-tui-provider-detail.svg"
 copy_artifact "$OUT_DIR/main-model-selector.svg" "$SCREENSHOT_DIR/${VERSION}-tui-model-selector.svg"
 copy_artifact "$OUT_DIR/main-lane-selector.svg" "$SCREENSHOT_DIR/${VERSION}-tui-lane-selector.svg"
 copy_artifact "$OUT_DIR/main-lane.svg" "$SCREENSHOT_DIR/${VERSION}-tui-lane-detail.svg"
@@ -52,6 +53,7 @@ required = {
     "command_palette": out_dir / "main-command-palette.txt",
     "setup_wizard": out_dir / "main-setup-wizard.txt",
     "provider_selector": out_dir / "main-provider-selector.txt",
+    "provider_detail": out_dir / "main-provider-detail.txt",
     "model_selector": out_dir / "main-model-selector.txt",
     "lane_selector": out_dir / "main-lane-selector.txt",
     "lane_detail": out_dir / "main-lane.txt",
@@ -90,8 +92,19 @@ if "你好，帮我检查当前变更" not in main_cjk_input:
     fail("CJK input preview does not show Chinese composer input")
 
 provider_selector = required["provider_selector"].read_text(encoding="utf-8")
-if "PROVIDER CONFIG" not in provider_selector or "DEEPSEEK_API_KEY" not in provider_selector:
-    fail("provider selector preview does not show provider config evidence")
+if "SELECT PROVIDER" not in provider_selector or "deepseek" not in provider_selector:
+    fail("provider selector preview does not show provider list evidence")
+if "DEEPSEEK_API_KEY" in provider_selector or "default endpoint" in provider_selector:
+    fail("provider selector preview should not show provider config details")
+
+provider_detail = required["provider_detail"].read_text(encoding="utf-8")
+if (
+    "PROVIDER CONFIG" not in provider_detail
+    or "API_KEY" not in provider_detail
+    or "endpoint:" not in provider_detail
+    or "set default provider" not in provider_detail
+):
+    fail("provider detail preview does not show actionable provider config evidence")
 
 setup_wizard = required["setup_wizard"].read_text(encoding="utf-8")
 if "SETUP WIZARD" not in setup_wizard or "provider doctor" not in setup_wizard:
@@ -130,6 +143,7 @@ if len(artifacts) < 6:
                 "resize redraw evidence",
                 "CJK composer input",
                 "provider selector config evidence",
+                "provider detail config actions",
                 "model selector grouping evidence",
                 "side-1 lanes",
                 "side-2 tests/lsp",
@@ -158,7 +172,8 @@ Each SVG is a deterministic visual artifact for product review:
 - \`${VERSION}-tui-cjk-input.svg\`: CJK input and cursor-placement evidence
 - \`${VERSION}-tui-command-palette.svg\`: slash-command suggestion surface
 - \`${VERSION}-tui-setup-wizard.svg\`: first-run setup wizard
-- \`${VERSION}-tui-provider-selector.svg\`: provider config selector evidence
+- \`${VERSION}-tui-provider-selector.svg\`: provider supplier picker with first-level ids only
+- \`${VERSION}-tui-provider-detail.svg\`: provider detail form with key, endpoint, doctor, and model actions
 - \`${VERSION}-tui-model-selector.svg\`: provider-grouped model selector evidence
 - \`${VERSION}-tui-lane-selector.svg\`: lane action selector evidence
 - \`${VERSION}-tui-lane-detail.svg\`: focused lane detail

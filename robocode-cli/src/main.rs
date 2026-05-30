@@ -186,6 +186,24 @@ fn run() -> Result<(), String> {
         }
         return Ok(());
     }
+    if startup.tui_preview_provider_detail || startup.tui_preview_provider_detail_ansi {
+        if startup.tui_preview_provider_detail_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_provider_detail_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_provider_detail_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
     if startup.tui_preview_model_selector || startup.tui_preview_model_selector_ansi {
         if startup.tui_preview_model_selector_ansi {
             print!(
@@ -541,6 +559,8 @@ struct StartupOptions {
     tui_preview_setup_wizard_ansi: bool,
     tui_preview_provider_selector: bool,
     tui_preview_provider_selector_ansi: bool,
+    tui_preview_provider_detail: bool,
+    tui_preview_provider_detail_ansi: bool,
     tui_preview_model_selector: bool,
     tui_preview_model_selector_ansi: bool,
     tui_preview_lane_selector: bool,
@@ -650,6 +670,12 @@ impl StartupOptions {
         }
         if self.tui_preview_provider_selector_ansi {
             overrides.push("--tui-preview-provider-selector-ansi".to_string());
+        }
+        if self.tui_preview_provider_detail {
+            overrides.push("--tui-preview-provider-detail".to_string());
+        }
+        if self.tui_preview_provider_detail_ansi {
+            overrides.push("--tui-preview-provider-detail-ansi".to_string());
         }
         if self.tui_preview_model_selector {
             overrides.push("--tui-preview-model-selector".to_string());
@@ -829,6 +855,12 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--tui-preview-provider-selector-ansi" => {
                 options.tui_preview_provider_selector_ansi = true;
             }
+            "--tui-preview-provider-detail" => {
+                options.tui_preview_provider_detail = true;
+            }
+            "--tui-preview-provider-detail-ansi" => {
+                options.tui_preview_provider_detail_ansi = true;
+            }
             "--tui-preview-model-selector" => {
                 options.tui_preview_model_selector = true;
             }
@@ -944,6 +976,10 @@ fn print_startup_help() {
     println!("                       Print a provider configuration selector preview");
     println!("  --tui-preview-provider-selector-ansi");
     println!("                       Print a themed provider configuration selector preview");
+    println!("  --tui-preview-provider-detail");
+    println!("                       Print a provider detail configuration preview");
+    println!("  --tui-preview-provider-detail-ansi");
+    println!("                       Print a themed provider detail configuration preview");
     println!("  --tui-preview-model-selector");
     println!("                       Print a grouped model selector preview");
     println!("  --tui-preview-model-selector-ansi");
@@ -1303,6 +1339,26 @@ mod tests {
             vec![
                 "--tui-preview-provider-selector".to_string(),
                 "--tui-preview-provider-selector-ansi".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_tui_preview_provider_detail_flags() {
+        let args = vec![
+            "--tui-preview-provider-detail".to_string(),
+            "--tui-preview-provider-detail-ansi".to_string(),
+        ];
+
+        let options = parse_startup_options(&args).unwrap();
+
+        assert!(options.tui_preview_provider_detail);
+        assert!(options.tui_preview_provider_detail_ansi);
+        assert_eq!(
+            options.summary_overrides(),
+            vec![
+                "--tui-preview-provider-detail".to_string(),
+                "--tui-preview-provider-detail-ansi".to_string()
             ]
         );
     }

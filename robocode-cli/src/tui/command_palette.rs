@@ -651,6 +651,7 @@ fn selector_row_text(suggestion: &CommandSuggestion, kind: SelectorKind) -> Stri
     let label = selector_label(suggestion, kind);
     match kind {
         SelectorKind::Setup => format!("{label}  {}", suggestion.summary),
+        SelectorKind::Provider if suggestion.summary.is_empty() => label,
         SelectorKind::Provider | SelectorKind::Model | SelectorKind::Lane => {
             format!("{label}  {}", suggestion.summary)
         }
@@ -747,6 +748,7 @@ fn provider_selector_suggestions(query: &str, state: &TuiState) -> Vec<CommandSu
     state
         .provider_catalog
         .iter()
+        .filter(|provider| provider.provider_id != "fallback")
         .map(|provider| {
             let command = if prefix == "/provider" {
                 format!("/provider {}", provider.provider_id)
@@ -755,7 +757,7 @@ fn provider_selector_suggestions(query: &str, state: &TuiState) -> Vec<CommandSu
             };
             CommandSuggestion {
                 command,
-                summary: provider_list_summary(provider),
+                summary: String::new(),
             }
         })
         .collect()
@@ -2149,20 +2151,7 @@ fn current_provider_key_hint(state: &TuiState) -> String {
 }
 
 fn provider_list_summary(provider: &super::state::ProviderOption) -> String {
-    let model_count = provider_model_candidates(provider).len();
-    let models = if model_count == 0 {
-        "free-type models".to_string()
-    } else if model_count == 1 {
-        "1 model".to_string()
-    } else {
-        format!("{model_count} models")
-    };
-    format!(
-        "{} · {} · {} · {models}",
-        provider.display_name,
-        provider_key_detail(provider),
-        provider_endpoint_short(provider)
-    )
+    provider.provider_id.clone()
 }
 
 fn provider_key_detail(provider: &super::state::ProviderOption) -> String {
@@ -2177,19 +2166,6 @@ fn provider_key_detail(provider: &super::state::ProviderOption) -> String {
             }
         })
         .unwrap_or_else(|| "key not required".to_string())
-}
-
-fn provider_endpoint_short(provider: &super::state::ProviderOption) -> String {
-    if let Some(env) = provider.api_base_env.as_deref()
-        && std::env::var_os(env).is_some()
-    {
-        return format!("{env} endpoint");
-    }
-    if provider.default_api_base.is_some() {
-        "default endpoint".to_string()
-    } else {
-        "built-in endpoint".to_string()
-    }
 }
 
 fn provider_endpoint_detail(provider: &super::state::ProviderOption) -> String {
@@ -3385,8 +3361,16 @@ mod tests {
         let providers = command_suggestions_for_state(&state);
 
         assert_eq!(providers[0].command, "/provider deepseek");
-        assert!(providers[0].summary.contains("DEEPSEEK_API_KEY"));
-        assert!(providers[0].summary.contains("models"));
+        assert_eq!(providers[0].summary, "deepseek");
+
+        state.input = "/provider".to_string();
+        let root = command_suggestions_for_state(&state);
+        assert!(
+            root.iter()
+                .any(|item| item.command == "/provider openrouter")
+        );
+        assert!(!root.iter().any(|item| item.command == "/provider fallback"));
+        assert!(root.iter().all(|item| item.summary.is_empty()));
 
         state.input = "/provider deepseek ".to_string();
         let actions = command_suggestions_for_state(&state);
