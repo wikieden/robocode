@@ -9,11 +9,13 @@ so it behaves more like a compact settings form.
 ## Release State
 
 - Workspace version: `0.1.22`
-- Release commit: pending publication
-- Git tag: pending `v0.1.22`
-- GitHub release: pending `https://github.com/wikieden/robocode/releases/tag/v0.1.22`
-- Release workflow: pending
-- Homebrew tap commit: pending `wikieden/homebrew-tap`
+- Release commit: `d27b4e43209477ba93327148ca72c013ba8da945`
+- Git tag: `v0.1.22`
+- GitHub release:
+  `https://github.com/wikieden/robocode/releases/tag/v0.1.22`
+- Release workflow:
+  `https://github.com/wikieden/robocode/actions/runs/26699720640`
+- Homebrew tap commit: `wikieden/homebrew-tap@fece0ca`
 - Local package: `dist/robocode-v0.1.22-aarch64-apple-darwin.tar.gz`
 - Local package sha256:
   `e4c093d141ac6e13957f84a5196ea2e76e14af3cdea2590284e35f088ee02b89`
@@ -72,7 +74,17 @@ scripts/release-smoke.sh --version 0.1.22 --quick \
   --out-dir /tmp/robocode-0122-postpublish-check
 ```
 
-Result: pending publication.
+Result: passed. The smoke validated published GitHub release assets and the
+Homebrew formula at `/tmp/robocode-0122-postpublish-check`.
+
+Homebrew tap checks:
+
+```bash
+HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/robocode
+HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/robocode
+```
+
+Result: passed before pushing `wikieden/homebrew-tap@fece0ca`.
 
 ## Screenshot Evidence
 
@@ -98,4 +110,6 @@ Deterministic 0.1.22 TUI screenshots:
 - Provider detail is still an actionable selector page, not a true editable
   form. The next interaction release should add focused field editing for key
   source, endpoint, default model, connection test, save, and cancel.
-- Live DeepSeek smoke is opt-in and not part of the default local release smoke.
+- Live DeepSeek smoke was not run in this release turn; fallback, daily-loop,
+  lane operator-loop, local package smoke, GitHub release asset validation,
+  Homebrew validation, and deterministic TUI evidence passed.
