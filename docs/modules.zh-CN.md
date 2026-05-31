@@ -33,19 +33,20 @@ Mainline landed：
 
 当前已发布版本：
 
-- `docs/release-0.1.19-status.zh-CN.md` 记录已打 tag、已发布、已更新 Homebrew、
-  已完成 post-publish verification 的 Delegated Lane Usefulness release。
-- `0.1.19` 把 provider 配置和 model 选择分离：`/provider` 查看供应商 credential、
-  endpoint、模型候选；`/models` 按供应商分组选择模型。
-- release validation 已把 daily-loop 和 lane operator-loop smoke 作为常规门禁。
+- `docs/release-0.1.23-status.zh-CN.md` 记录 provider/model 设置补丁：opencode 风格
+  `/connect` 供应商选择、`/models` Favorites 和 Recent、按供应商分组的 active model 行、
+  auth-mode 元数据、GitHub Release、Homebrew tap 和 post-publish smoke。
+- `0.1.23` 保持 provider 连接与 model 选择分离：`/connect` 配置供应商，`/models`
+  从 Favorites、Recent 和供应商分组切换 provider/model 组合，并且收藏项不会重复显示。
+- release validation 已把 daily-loop、lane operator-loop、本地 package、确定性 TUI 截图、
+  GitHub release assets 和 Homebrew 检查作为常规门禁。
 
 下一个计划切片：
 
-- `0.1.22` 是 usability beta gate 之上的 provider detail 可用性补丁：API key
-  脱敏显示，以及只展示当前值的简洁动作行。
+- 把 provider/detail 页推进成真正聚焦的可编辑表单：key 来源、endpoint、默认 model、
+  连接测试、保存和取消都在一个字段级流程里完成。
+- 继续收紧首次 setup，让 API key、网页登录和本地 provider 流程分别展示正确动作，而不是通用状态页。
 - 每个用户可见功能点都要以真实使用截图或确定性视觉产物收尾，供产品侧确认。
-- 下一步把 provider/detail 页推进成真正可编辑表单：key 来源、endpoint、默认 model、
-  连接测试、保存和取消都在一个焦点流程里完成。
 
 ## 与 `.ref/claude-code-main` 的差距
 

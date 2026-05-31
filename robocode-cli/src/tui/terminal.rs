@@ -321,6 +321,7 @@ fn semantic_spans(line: &str, theme: &TuiTheme) -> Vec<(usize, usize, SpanStyle)
 
     collect_approval_field_spans(line, theme, &mut spans);
     collect_hud_field_spans(line, theme, &mut spans);
+    collect_model_provider_suffix_spans(line, theme, &mut spans);
     collect_role_spans(line, theme, &mut spans);
     collect_path_spans(line, theme, &mut spans);
     collect_metric_spans(line, theme, &mut spans);
@@ -330,6 +331,50 @@ fn semantic_spans(line: &str, theme: &TuiTheme) -> Vec<(usize, usize, SpanStyle)
     collect_sparkline_spans(line, theme, &mut spans);
     spans.sort_by_key(|(start, _, _)| *start);
     non_overlapping_spans(spans)
+}
+
+fn collect_model_provider_suffix_spans(
+    line: &str,
+    theme: &TuiTheme,
+    spans: &mut Vec<(usize, usize, SpanStyle)>,
+) {
+    const PROVIDERS: [&str; 9] = [
+        "DeepSeek",
+        "OpenRouter",
+        "OpenAI",
+        "Anthropic",
+        "Fallback",
+        "Volcano Engine",
+        "Alibaba (China)",
+        "Qwen",
+        "Kimi",
+    ];
+    if !line.contains('│') || line.contains("PROVIDER CONFIG") {
+        return;
+    }
+    for provider in PROVIDERS {
+        let mut cursor = 0;
+        while let Some(offset) = line[cursor..].find(provider) {
+            let start = cursor + offset;
+            let end = start + provider.len();
+            let prefix = line[..start].trim_start_matches(['│', ' ', '●']);
+            let is_suffix = !prefix.is_empty()
+                && prefix.chars().last().is_some_and(|ch| {
+                    ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '/' | '.')
+                });
+            if is_suffix {
+                spans.push((
+                    start,
+                    end,
+                    SpanStyle {
+                        foreground: theme.muted,
+                        background: background_for_line(line, theme),
+                    },
+                ));
+            }
+            cursor = end;
+        }
+    }
 }
 
 fn collect_frame_glyph_spans(

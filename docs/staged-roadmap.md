@@ -201,18 +201,28 @@ Current published release:
 - `0.1.21` adds an actionable setup wizard, missing-key first-run entry,
   provider failure recovery classes, a centered lane action selector, and
   refreshed 0.1.21 screenshot evidence.
-- `0.1.19` separates supplier/provider configuration from model selection:
-  `/provider` is the key/endpoint/candidate-model configuration surface, while
-  `/models` is the provider-grouped cross-model picker.
+- `docs/release-0.1.23-status.md` records the provider/model setup patch:
+  opencode-style supplier connection, Favorites-first model selection,
+  provider auth-mode metadata, deterministic screenshots, GitHub Release,
+  Homebrew tap, and post-publish smoke.
+- `0.1.23` moves supplier/model selection toward the opencode pattern:
+  `/connect` is the provider connection picker, `/provider` remains the
+  command-style provider surface, and `/models` shows Favorites, Recent, and
+  provider-grouped active model rows. Favorites are provider/model pairs, are
+  not repeated in provider groups, and can be pinned from the selector with
+  `Ctrl-F`. `/connect <provider>` now leads to provider-scoped config actions
+  for key env, endpoint, default model, and the active/favorite model lists used
+  by `/models`.
 - `0.1.18` remains the Interaction Hardening checkpoint: settings decisions are
   selector-first and interactive decision surfaces must be actionable pickers
   rather than passive information pages.
 
 Next planned:
 
-- The next interaction slice should turn provider/detail pages from actionable
-  selector surfaces into true editable forms: API key source, endpoint, default
-  model, connection test, save, and cancel in one focused flow.
+- continue the provider configuration flow with a fuller focused edit form,
+  connection test, save/cancel semantics, and clearer field focus. The
+  provider-scoped key env, endpoint, default model, active model list, favorite
+  model list, and auth-mode metadata now have real runtime/config plumbing.
 - require a real-use screenshot or deterministic visual artifact for every
   user-visible feature before it is marked complete
 

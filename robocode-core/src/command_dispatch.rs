@@ -19,6 +19,7 @@ impl SessionEngine {
             "/help" => self.render_help(),
             "/model" => self.handle_model_command(&args)?,
             "/models" => self.handle_models_command(&args)?,
+            "/connect" => self.handle_connect_command(&args)?,
             "/provider" => self.handle_provider_command(&args)?,
             "/settings" => self.handle_settings_command(&args)?,
             "/setup" => self.handle_setup_command(&args)?,

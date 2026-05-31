@@ -6,7 +6,7 @@ delegated agents, and keep enough evidence to resume work later.
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.22-tui-main.svg)
+![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.23-tui-main.svg)
 
 ## Why It Exists
 
@@ -40,7 +40,7 @@ and external agent lanes visible in one operator cockpit.
 ## Screenshots
 
 These are generated from the current RoboCode TUI renderer and kept as release
-evidence. The screenshots below show the `0.1.22` provider-detail usability patch:
+evidence. The screenshots below show the `0.1.23` provider and model setup patch:
 first-run setup, provider/model configuration, delegated-lane operation, and
 the daily coding cockpit;
 the latest published binary release is listed separately in the install
@@ -48,51 +48,51 @@ section.
 
 ### Live Provider Turn
 
-![Live provider turn](docs/previews/generated/screenshots/0.1.22-tui-live-turn.svg)
+![Live provider turn](docs/previews/generated/screenshots/0.1.23-tui-live-turn.svg)
 
 ### Resize-Safe Redraw
 
-![Resize-safe redraw](docs/previews/generated/screenshots/0.1.22-tui-main-resize.svg)
+![Resize-safe redraw](docs/previews/generated/screenshots/0.1.23-tui-main-resize.svg)
 
 ### CJK Input
 
-![CJK input](docs/previews/generated/screenshots/0.1.22-tui-cjk-input.svg)
+![CJK input](docs/previews/generated/screenshots/0.1.23-tui-cjk-input.svg)
 
 ### Slash-Command Palette
 
-![Command palette](docs/previews/generated/screenshots/0.1.22-tui-command-palette.svg)
+![Command palette](docs/previews/generated/screenshots/0.1.23-tui-command-palette.svg)
 
 ### First-Run Setup Wizard
 
-![Setup wizard](docs/previews/generated/screenshots/0.1.22-tui-setup-wizard.svg)
+![Setup wizard](docs/previews/generated/screenshots/0.1.23-tui-setup-wizard.svg)
 
 ### Provider Configuration Selector
 
-![Provider selector](docs/previews/generated/screenshots/0.1.22-tui-provider-selector.svg)
+![Provider selector](docs/previews/generated/screenshots/0.1.23-tui-provider-selector.svg)
 
 ### Provider Detail Form
 
-![Provider detail](docs/previews/generated/screenshots/0.1.22-tui-provider-detail.svg)
+![Provider detail](docs/previews/generated/screenshots/0.1.23-tui-provider-detail.svg)
 
 ### Grouped Model Selector
 
-![Model selector](docs/previews/generated/screenshots/0.1.22-tui-model-selector.svg)
+![Model selector](docs/previews/generated/screenshots/0.1.23-tui-model-selector.svg)
 
 ### Lane Action Selector
 
-![Lane selector](docs/previews/generated/screenshots/0.1.22-tui-lane-selector.svg)
+![Lane selector](docs/previews/generated/screenshots/0.1.23-tui-lane-selector.svg)
 
 ### Agent Lane Detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.22-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.23-tui-lane-detail.svg)
 
 ### Side Screen: Agent Lanes
 
-![Side screen lanes](docs/previews/generated/screenshots/0.1.22-tui-side-1.svg)
+![Side screen lanes](docs/previews/generated/screenshots/0.1.23-tui-side-1.svg)
 
 ### Side Screen: Ops And Evidence
 
-![Side screen ops](docs/previews/generated/screenshots/0.1.22-tui-side-2.svg)
+![Side screen ops](docs/previews/generated/screenshots/0.1.23-tui-side-2.svg)
 
 ## Install
 
@@ -113,7 +113,7 @@ robocode --help
 ### Release Archive
 
 Download a release archive from
-[RoboCode v0.1.22](https://github.com/wikieden/robocode/releases/tag/v0.1.22).
+[RoboCode v0.1.23](https://github.com/wikieden/robocode/releases/tag/v0.1.23).
 
 Available release targets:
 
@@ -125,7 +125,7 @@ Available release targets:
 Install on macOS or Linux:
 
 ```bash
-VERSION=0.1.22
+VERSION=0.1.23
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -136,7 +136,7 @@ robocode-cli --help
 Install on Windows PowerShell:
 
 ```powershell
-$Version = "0.1.22"
+$Version = "0.1.23"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -162,7 +162,7 @@ The quickest paths are:
 ```bash
 /setup
 /setup provider
-/provider deepseek
+/connect
 /models
 ```
 
@@ -223,10 +223,10 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
   observe it, but an in-flight provider request may still finish.
 - Approval prompts default to `Approve`; press `y` to approve, `n` to deny,
   `d` to focus diff, or use `Tab` / arrow keys to move between actions.
-- Type `/` to open command suggestions. `/settings`, `/provider`, `/models`,
+- Type `/` to open command suggestions. `/settings`, `/connect`, `/provider`, `/models`,
   `/permissions`, and `/theme` open selector-style popups with search, keyboard
   selection, and mouse selection. Common entries include `/help`,
-  `/settings`, `/setup`, `/provider`, `/models`, `/status`, `/config`, `/permissions`,
+  `/settings`, `/setup`, `/connect`, `/provider`, `/models`, `/status`, `/config`, `/permissions`,
   `/test`, `/sessions`, `/resume`, `/task`, `/brief`, `/spec`, `/memory`,
   `/lane`, `/agent`, `/screen`, `/lsp`, `/git`, `/web`, `/extensions`,
   `/mcp`, and `/skills`.
@@ -242,16 +242,25 @@ Inside the TUI, `/setup` opens the first-run provider/model wizard with concrete
 steps for provider config, model choice, permissions, theme, doctor checks,
 fallback smoke, and saving defaults. `/settings` opens an actionable settings
 picker instead of a read-only status page: provider, model, permissions, theme,
-save defaults, and diagnostics are all selectable. `/provider` opens provider
-configuration: choose a supplier first, then inspect API-key env vars, endpoint
-source, diagnostics, save-default actions, and known model candidates on the
-`PROVIDER CONFIG` page. Present API keys are shown only as masked
-prefix/suffix values.
-`/models` opens the model selector grouped by provider, and selecting a row
-switches provider plus model together. `/model <model>` remains the quick switch
-for the current provider only. `/settings permissions <mode>` changes approval
-mode, `/settings theme <name>` changes the live TUI theme, and `/settings save`
-persists the current provider/model without storing API keys.
+save defaults, and diagnostics are all selectable. `/connect` opens
+opencode-style provider configuration: choose a supplier first, then inspect
+auth mode, API-key env vars, endpoint source, diagnostics, save-default actions,
+and known model candidates on the `PROVIDER CONFIG` page. Providers can declare
+different auth modes: OpenAI can be represented as web login or API key,
+gateway providers such as DeepSeek/OpenRouter use API keys, and local providers
+such as Ollama/Fallback require no key. Present API keys are shown only as
+masked prefix/suffix values. Provider detail includes editable rows that
+complete the composer to `/settings provider <id> key-env ...`, `/settings
+provider <id> endpoint ...`, `/settings provider <id> default-model ...`, or
+`/settings provider <id> enable-model <model>`. The enabled models become the
+provider's active entries in `/models`; `/settings provider <id> models ...`
+replaces that active list, and `/settings provider <id> favorite-model <model>`
+pins a provider/model pair. `/models` then shows Favorites first, then Recent,
+then configured-provider groups containing only active models. Favorites are not
+duplicated in their provider group; `Ctrl-F` favorites the selected row, and
+selecting a row switches provider plus model together. `/model <model>` remains
+the quick switch for the current provider only. These commands update
+`[providers.<id>]` without storing raw API keys.
 
 ```toml
 provider = "deepseek"
@@ -263,6 +272,9 @@ max_retries = 2
 [providers.deepseek]
 api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
+default_model = "deepseek-v4-flash"
+models = ["deepseek-v4-flash", "deepseek-v4-pro"]
+favorite_models = ["deepseek-v4-pro"]
 ```
 
 Useful startup flags:
@@ -298,7 +310,7 @@ in the docs:
 - [TUI Cockpit Design](docs/tui-cockpit-design.md)
 - [TUI Interaction Audit](docs/tui-interaction-audit-2026-05-29.md)
 - [Testing and Validation Plan](docs/testing-validation-plan.md)
-- [0.1.22 Status](docs/release-0.1.22-status.md)
+- [0.1.23 Status](docs/release-0.1.23-status.md)
 - [0.1.21 Plan](docs/release-0.1.21-plan.md)
 - [0.1.21 Status](docs/release-0.1.21-status.md)
 - [0.1.19 Plan](docs/release-0.1.19-plan.md)

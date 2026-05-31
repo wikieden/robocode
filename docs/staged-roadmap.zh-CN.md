@@ -170,15 +170,23 @@ Mainline landed：
   post-publish verification 的 Usability Beta Gate release。
 - `0.1.21` 增加可操作 setup wizard、缺 key 首次启动入口、provider failure recovery
   分类、居中的 lane action selector，以及刷新后的 0.1.21 截图证据。
-- `0.1.19` 把供应商/provider 配置和 model 选择分离：`/provider` 是 key、endpoint、
-  candidate-model 配置面，`/models` 是按供应商分组的跨模型 picker。
+- `docs/release-0.1.23-status.zh-CN.md` 记录 provider/model 设置补丁：opencode 风格的供应商
+  连接、Favorites 优先的 model 选择、provider auth-mode 元数据、确定性截图、GitHub
+  Release、Homebrew tap 和 post-publish smoke。
+- `0.1.23` 把供应商/model 选择进一步靠近 opencode 模式：`/connect` 是供应商
+  连接 picker，`/provider` 保留为命令式 provider 操作入口，`/models` 显示 Favorites、
+  Recent 和按供应商分组的 active model 行。Favorites 是 provider/model 组合，不会
+  在后续 provider 分组重复出现，也可以在 selector 里用 `Ctrl-F` 置顶。`/connect
+  <provider>` 现在会进入真实的 provider scoped 配置动作：key env、endpoint、默认模型，
+  以及 `/models` 使用的 active/favorite model 列表。
 - `0.1.18` 仍是 Interaction Hardening 检查点：settings 决策是 selector-first，
   后续交互决策面必须是可执行 picker，而不是被动信息页。
 
 下一个计划版本：
 
-- 下一个交互切片应该把 provider/detail 页从“可操作选择器”推进到真正可编辑表单：
-  API key 来源、endpoint、默认 model、连接测试、保存和取消在同一个焦点流程里完成。
+- 继续推进 provider 配置流程，下一步是更完整的聚焦编辑表单，包括连接测试、保存/取消语义
+  和更清晰的字段焦点。当前 provider scoped 的 key env、endpoint、默认模型、active
+  model 列表、favorite model 列表和 auth-mode 元数据已经具备真实运行时/配置接线。
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

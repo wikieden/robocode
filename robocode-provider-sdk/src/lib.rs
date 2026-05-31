@@ -8,6 +8,13 @@ pub enum ProtocolFamily {
     OpenAi,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProviderAuthMode {
+    ApiKey,
+    WebLogin,
+    Local,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProviderEnvMappings {
     pub api_key_env: Option<String>,
@@ -58,6 +65,8 @@ pub struct PluginDescriptor {
     pub capabilities: ProviderCapabilities,
     #[serde(default)]
     pub compatibility: ProviderCompatibility,
+    #[serde(default)]
+    pub auth_modes: Vec<ProviderAuthMode>,
     pub config_schema_version: u32,
 }
 
@@ -96,6 +105,7 @@ mod tests {
                 reasoning_effort_high: Some("high".to_string()),
                 reasoning_effort_max: Some("max".to_string()),
             },
+            auth_modes: vec![ProviderAuthMode::ApiKey],
             config_schema_version: 1,
         };
 

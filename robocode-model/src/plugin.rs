@@ -5,12 +5,12 @@ use std::path::{Path, PathBuf};
 use libloading::{Library, Symbol};
 use robocode_provider_sdk::{
     PluginDescriptor, PluginDescriptorFn, ProtocolFamily as PluginProtocolFamily,
-    ROBOCODE_PLUGIN_DESCRIPTOR_SYMBOL,
+    ProviderAuthMode as PluginProviderAuthMode, ROBOCODE_PLUGIN_DESCRIPTOR_SYMBOL,
 };
 
 use crate::{
-    ProtocolFamily, ProviderCapabilities, ProviderCompatibility, ProviderDescriptor,
-    ProviderEnvMappings, descriptor::validate_provider_descriptor,
+    ProtocolFamily, ProviderAuthMode, ProviderCapabilities, ProviderCompatibility,
+    ProviderDescriptor, ProviderEnvMappings, descriptor::validate_provider_descriptor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,6 +198,15 @@ fn into_provider_descriptor(descriptor: PluginDescriptor) -> ProviderDescriptor 
             reasoning_effort_high: descriptor.compatibility.reasoning_effort_high,
             reasoning_effort_max: descriptor.compatibility.reasoning_effort_max,
         },
+        auth_modes: descriptor
+            .auth_modes
+            .into_iter()
+            .map(|mode| match mode {
+                PluginProviderAuthMode::ApiKey => ProviderAuthMode::ApiKey,
+                PluginProviderAuthMode::WebLogin => ProviderAuthMode::WebLogin,
+                PluginProviderAuthMode::Local => ProviderAuthMode::Local,
+            })
+            .collect(),
         config_schema_version: descriptor.config_schema_version,
     }
 }

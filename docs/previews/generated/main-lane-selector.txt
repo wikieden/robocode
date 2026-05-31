@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.22  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
+│ RoboCode  v0.1.23  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ◎ NOW WORKING  Supervising 1 agent: codex testing                                               │ │ robocode/    ~/projects/robocode   │

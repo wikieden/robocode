@@ -4,7 +4,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${1:-"$ROOT/docs/previews/generated"}"
 SCREENSHOT_DIR="$OUT_DIR/screenshots"
-VERSION="${ROBOCODE_TUI_SCREENSHOT_VERSION:-0.1.12}"
+VERSION="${ROBOCODE_TUI_SCREENSHOT_VERSION:-}"
+if [[ -z "$VERSION" ]]; then
+  VERSION="$(cargo pkgid -p robocode-cli | sed 's/.*#//')"
+fi
 
 mkdir -p "$SCREENSHOT_DIR"
 
@@ -92,7 +95,7 @@ if "你好，帮我检查当前变更" not in main_cjk_input:
     fail("CJK input preview does not show Chinese composer input")
 
 provider_selector = required["provider_selector"].read_text(encoding="utf-8")
-if "SELECT PROVIDER" not in provider_selector or "deepseek" not in provider_selector:
+if "Connect a provider" not in provider_selector or "DeepSeek" not in provider_selector:
     fail("provider selector preview does not show provider list evidence")
 if "DEEPSEEK_API_KEY" in provider_selector or "default endpoint" in provider_selector:
     fail("provider selector preview should not show provider config details")
@@ -111,7 +114,11 @@ if "SETUP WIZARD" not in setup_wizard or "provider doctor" not in setup_wizard:
     fail("setup wizard preview does not show first-run actions")
 
 model_selector = required["model_selector"].read_text(encoding="utf-8")
-if "SELECT MODEL" not in model_selector or "deepseek deepseek-v4-flash" not in model_selector:
+if (
+    "Select model" not in model_selector
+    or "deepseek-v4-flash" not in model_selector
+    or "DeepSeek" not in model_selector
+):
     fail("model selector preview does not show grouped model evidence")
 
 lane_selector = required["lane_selector"].read_text(encoding="utf-8")

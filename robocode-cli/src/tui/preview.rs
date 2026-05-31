@@ -3,6 +3,7 @@ use super::state::{
     TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
 };
 use super::{render, terminal};
+use robocode_model::ProviderAuthMode;
 use robocode_types::{
     MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskPriority, TaskRecord,
     TaskStatus,
@@ -528,14 +529,14 @@ fn setup_wizard_preview_state(provider: &str, model: &str, theme_name: &str) -> 
 
 fn provider_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
-    state.input = "/provider".to_string();
-    state.command_selection = 1;
+    state.input = "/connect".to_string();
+    state.command_selection = 0;
     state
 }
 
-fn provider_detail_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
-    let mut state = command_palette_preview_state(provider, model, theme_name);
-    state.input = format!("/provider {provider}");
+fn provider_detail_preview_state(_provider: &str, _model: &str, theme_name: &str) -> TuiState {
+    let mut state = command_palette_preview_state("openai", "gpt-5.2", theme_name);
+    state.input = "/connect openai".to_string();
     state.command_selection = 0;
     state
 }
@@ -543,8 +544,50 @@ fn provider_detail_preview_state(provider: &str, model: &str, theme_name: &str) 
 fn model_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
     state.input = "/models".to_string();
-    state.command_selection = 2;
+    state.command_selection = 0;
+    state.provider_catalog = configured_model_preview_catalog();
     state
+}
+
+fn configured_model_preview_catalog() -> Vec<ProviderOption> {
+    vec![
+        ProviderOption {
+            provider_id: "deepseek".to_string(),
+            display_name: "DeepSeek".to_string(),
+            default_api_base: Some("https://api.deepseek.com".to_string()),
+            default_model: Some("deepseek-v4-flash".to_string()),
+            enabled_models: vec![
+                "deepseek-v4-flash".to_string(),
+                "deepseek-v4-pro".to_string(),
+            ],
+            favorite_models: vec!["deepseek-v4-pro".to_string()],
+            api_key_env: None,
+            api_base_env: Some("DEEPSEEK_API_BASE".to_string()),
+            auth_modes: vec![ProviderAuthMode::ApiKey],
+        },
+        ProviderOption {
+            provider_id: "openai".to_string(),
+            display_name: "OpenAI".to_string(),
+            default_api_base: Some("https://api.openai.com/v1".to_string()),
+            default_model: Some("gpt-5.2".to_string()),
+            enabled_models: vec!["gpt-5.2".to_string()],
+            favorite_models: Vec::new(),
+            api_key_env: Some("__ROBOCODE_PREVIEW_MISSING_OPENAI_KEY__".to_string()),
+            api_base_env: None,
+            auth_modes: vec![ProviderAuthMode::WebLogin, ProviderAuthMode::ApiKey],
+        },
+        ProviderOption {
+            provider_id: "fallback".to_string(),
+            display_name: "Fallback".to_string(),
+            default_api_base: None,
+            default_model: Some("fallback-local".to_string()),
+            enabled_models: vec!["fallback-local".to_string(), "test-local".to_string()],
+            favorite_models: Vec::new(),
+            api_key_env: None,
+            api_base_env: None,
+            auth_modes: vec![ProviderAuthMode::Local],
+        },
+    ]
 }
 
 fn lane_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
@@ -637,21 +680,25 @@ mod tests {
         assert!(setup_wizard.contains("SETUP WIZARD"));
         assert!(setup_wizard.contains("provider"));
         assert!(setup_wizard.contains("provider doctor"));
-        assert!(provider_selector.contains("SELECT PROVIDER"));
-        assert!(provider_selector.contains("deepseek"));
-        assert!(provider_selector.contains("openrouter"));
+        assert!(provider_selector.contains("Connect a provider"));
+        assert!(provider_selector.contains("DeepSeek"));
+        assert!(provider_selector.contains("OpenRouter"));
         assert!(!provider_selector.contains("DEEPSEEK_API_KEY"));
         assert!(!provider_selector.contains("default endpoint"));
         assert!(provider_detail.contains("PROVIDER CONFIG"));
-        assert!(provider_detail.contains("DEEPSEEK_API_KEY"));
+        assert!(provider_detail.contains("auth: web login or API key"));
+        assert!(provider_detail.contains("OPENAI_API_KEY"));
         assert!(provider_detail.contains("endpoint:"));
         assert!(provider_detail.contains("set default provider"));
         assert!(provider_detail.contains("doctor"));
         assert!(!provider_detail.contains("Save as default provider"));
         assert!(!provider_detail.contains("Switch provider for this session"));
-        assert!(model_selector.contains("SELECT MODEL"));
-        assert!(model_selector.contains("deepseek deepseek-v4-flash"));
-        assert!(model_selector.contains("openai gpt-5.2"));
+        assert!(model_selector.contains("Select model"));
+        assert!(model_selector.contains("deepseek-v4-flash"));
+        assert!(model_selector.contains("DeepSeek"));
+        assert!(model_selector.contains("fallback-local"));
+        assert!(model_selector.contains("Fallback"));
+        assert!(!model_selector.contains("OpenAI"));
         assert!(lane_selector.contains("LANE ACTIONS"));
         assert!(lane_selector.contains("codex-review"));
         assert!(lane_selector.contains("inspect L1"));

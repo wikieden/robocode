@@ -4,7 +4,7 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 英文版： [README.md](README.md)
 
-![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.22-tui-main.svg)
+![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.23-tui-main.svg)
 
 ## 为什么做它
 
@@ -24,56 +24,56 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 ## 真机运行图
 
 下面这些图来自当前 RoboCode TUI renderer 的 release evidence，不是产品概念图。
-截图展示的是 `0.1.22` provider-detail usability patch：首次 setup、provider/model 配置、
+截图展示的是 `0.1.23` provider 和 model 设置补丁：首次 setup、provider/model 配置、
 delegated lane 操作和日常 coding cockpit；最新已发布二进制版本以安装章节为准。
 
 ### Live provider turn
 
-![实时 provider 状态](docs/previews/generated/screenshots/0.1.22-tui-live-turn.svg)
+![实时 provider 状态](docs/previews/generated/screenshots/0.1.23-tui-live-turn.svg)
 
 ### Resize 后重绘
 
-![Resize 后重绘](docs/previews/generated/screenshots/0.1.22-tui-main-resize.svg)
+![Resize 后重绘](docs/previews/generated/screenshots/0.1.23-tui-main-resize.svg)
 
 ### 中文输入
 
-![中文输入](docs/previews/generated/screenshots/0.1.22-tui-cjk-input.svg)
+![中文输入](docs/previews/generated/screenshots/0.1.23-tui-cjk-input.svg)
 
 ### Slash command 提示
 
-![命令提示](docs/previews/generated/screenshots/0.1.22-tui-command-palette.svg)
+![命令提示](docs/previews/generated/screenshots/0.1.23-tui-command-palette.svg)
 
 ### 首次 Setup 向导
 
-![Setup wizard](docs/previews/generated/screenshots/0.1.22-tui-setup-wizard.svg)
+![Setup wizard](docs/previews/generated/screenshots/0.1.23-tui-setup-wizard.svg)
 
 ### Provider 配置选择器
 
-![Provider selector](docs/previews/generated/screenshots/0.1.22-tui-provider-selector.svg)
+![Provider selector](docs/previews/generated/screenshots/0.1.23-tui-provider-selector.svg)
 
 ### Provider 详情配置
 
-![Provider detail](docs/previews/generated/screenshots/0.1.22-tui-provider-detail.svg)
+![Provider detail](docs/previews/generated/screenshots/0.1.23-tui-provider-detail.svg)
 
 ### 按供应商分组的模型选择器
 
-![Model selector](docs/previews/generated/screenshots/0.1.22-tui-model-selector.svg)
+![Model selector](docs/previews/generated/screenshots/0.1.23-tui-model-selector.svg)
 
 ### Lane action selector
 
-![Lane selector](docs/previews/generated/screenshots/0.1.22-tui-lane-selector.svg)
+![Lane selector](docs/previews/generated/screenshots/0.1.23-tui-lane-selector.svg)
 
 ### Agent lane detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.22-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.23-tui-lane-detail.svg)
 
 ### 副屏 side-1：Agent lanes
 
-![side-1 lanes](docs/previews/generated/screenshots/0.1.22-tui-side-1.svg)
+![side-1 lanes](docs/previews/generated/screenshots/0.1.23-tui-side-1.svg)
 
 ### 副屏 side-2：ops 与 evidence
 
-![side-2 ops](docs/previews/generated/screenshots/0.1.22-tui-side-2.svg)
+![side-2 ops](docs/previews/generated/screenshots/0.1.23-tui-side-2.svg)
 
 ## 安装
 
@@ -93,7 +93,7 @@ robocode --help
 
 ### Release 压缩包
 
-从 [RoboCode v0.1.22](https://github.com/wikieden/robocode/releases/tag/v0.1.22)
+从 [RoboCode v0.1.23](https://github.com/wikieden/robocode/releases/tag/v0.1.23)
 下载 release 压缩包。
 
 当前 release targets：
@@ -106,7 +106,7 @@ robocode --help
 macOS 或 Linux 安装：
 
 ```bash
-VERSION=0.1.22
+VERSION=0.1.23
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -117,7 +117,7 @@ robocode-cli --help
 Windows PowerShell 安装：
 
 ```powershell
-$Version = "0.1.22"
+$Version = "0.1.23"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -141,7 +141,7 @@ robocode-cli
 ```bash
 /setup
 /setup provider
-/provider deepseek
+/connect
 /models
 ```
 
@@ -192,14 +192,14 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 - provider turn 正在运行时，cockpit 会持续刷新当前工作状态和 elapsed time。
   `Ctrl-C` 会请求取消，但已经发出的 provider 请求仍可能正常返回。
 - 审批弹窗默认停在 `Approve`；按 `y` 通过，`n` 拒绝，`d` 聚焦 diff，也可以用 `Tab` / 方向键在动作间移动。
-- 输入 `/` 会打开命令提示。`/settings`、`/provider`、`/models`、`/permissions`、`/theme` 都会打开带搜索、键盘选择和鼠标选择的选择器。常用入口包括 `/help`、`/settings`、`/setup`、`/provider`、`/models`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/brief`、`/spec`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
+- 输入 `/` 会打开命令提示。`/settings`、`/connect`、`/provider`、`/models`、`/permissions`、`/theme` 都会打开带搜索、键盘选择和鼠标选择的选择器。常用入口包括 `/help`、`/settings`、`/setup`、`/connect`、`/provider`、`/models`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/brief`、`/spec`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
   长列表会保持选中行可见，并支持点击可见行补全。
 
 ## 配置
 
 RoboCode 会读取平台默认配置路径，然后读取 `.robocode/config.toml`，CLI flags 优先级最高。
 
-在 TUI 中，`/setup` 会打开首次使用 provider/model 向导，里面包含 provider 配置、model 选择、权限模式、主题、doctor 检查、fallback smoke 和保存默认值这些可执行步骤。`/settings` 是可操作的设置选择器，不再只是状态展示：provider、model、permissions、theme、保存默认值和诊断都可以直接选择。`/provider` 是供应商配置入口：先选择供应商，再进入 `PROVIDER CONFIG` 二级页查看 API key 环境变量、endpoint 来源、诊断入口、保存默认值动作和该供应商已知模型；已存在的 API key 只显示开头和结尾，中间全部脱敏。`/models` 是按供应商分组的模型选择器，选中一行会同时切换 provider 和 model。`/model <model>` 只作为当前 provider 的快速模型切换。`/settings permissions <mode>` 会修改审批模式，`/settings theme <name>` 会修改当前 TUI 主题，`/settings save` 会持久化当前 provider/model，但不会写入 API key。
+在 TUI 中，`/setup` 会打开首次使用 provider/model 向导，里面包含 provider 配置、model 选择、权限模式、主题、doctor 检查、fallback smoke 和保存默认值这些可执行步骤。`/settings` 是可操作的设置选择器，不再只是状态展示：provider、model、permissions、theme、保存默认值和诊断都可以直接选择。`/connect` 是 opencode 风格的供应商配置入口：先选择供应商，再进入 `PROVIDER CONFIG` 二级页查看 auth mode、API key 环境变量、endpoint 来源、诊断入口、保存默认值动作和该供应商已知模型。Provider 可以声明不同认证方式：OpenAI 可展示为网页登录或 API key，DeepSeek/OpenRouter 这类 gateway provider 使用 API key，Ollama/Fallback 这类本地 provider 不需要 key；已存在的 API key 只显示开头和结尾，中间全部脱敏。Provider detail 里的 editable rows 会把输入框补成 `/settings provider <id> key-env ...`、`/settings provider <id> endpoint ...`、`/settings provider <id> default-model ...` 或 `/settings provider <id> enable-model <model>`；启用的模型会成为 `/models` 中该 provider 的 active entries，`/settings provider <id> models ...` 可以整体替换 active model 列表，`/settings provider <id> favorite-model <model>` 可以把某个 provider/model 组合置顶。提交值后会写入 `[providers.<id>]`，但不会保存明文 API key。`/models` 是 Favorites 优先、再显示 Recent、再按已配置供应商分组的模型选择器，只显示已激活模型；收藏项不会在后面的供应商分组重复出现，`Ctrl-F` 可以收藏当前选中的模型行，选中一行会同时切换 provider 和 model。`/model <model>` 只作为当前 provider 的快速模型切换。
 
 ```toml
 provider = "deepseek"
@@ -211,6 +211,9 @@ max_retries = 2
 [providers.deepseek]
 api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
+default_model = "deepseek-v4-flash"
+models = ["deepseek-v4-flash", "deepseek-v4-pro"]
+favorite_models = ["deepseek-v4-pro"]
 ```
 
 常用启动参数：
@@ -243,7 +246,7 @@ README 保持产品介绍和使用入口。完整使用说明和实现细节放�
 - [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
 - [TUI 交互审计](docs/tui-interaction-audit-2026-05-29.zh-CN.md)
 - [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
-- [0.1.22 状态](docs/release-0.1.22-status.zh-CN.md)
+- [0.1.23 状态](docs/release-0.1.23-status.zh-CN.md)
 - [0.1.21 计划](docs/release-0.1.21-plan.zh-CN.md)
 - [0.1.21 状态](docs/release-0.1.21-status.zh-CN.md)
 - [0.1.19 计划](docs/release-0.1.19-plan.zh-CN.md)

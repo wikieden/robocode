@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use robocode_model::ProviderAuthMode;
 use robocode_types::MemoryStatus;
 
 use super::{
@@ -158,6 +159,9 @@ pub(super) fn command_suggestion_index_at(
 }
 
 pub(super) fn should_complete_on_enter(state: &TuiState) -> bool {
+    if is_complete_provider_config_value_command(state.input.trim()) {
+        return false;
+    }
     let Some(selected) = selected_command(state) else {
         return false;
     };
@@ -236,8 +240,8 @@ impl SelectorKind {
         match self {
             Self::Setup => "Enter open   step-by-step first run   esc close",
             Self::Settings => "Enter apply   ↑↓ select   / search   esc close",
-            Self::Provider => "Enter open   click opens config   esc close",
-            Self::Model => "Enter switch   grouped by provider   free-type any model",
+            Self::Provider => "Enter connect   /models model picker   esc close",
+            Self::Model => "Enter switch   /connect activates models   esc close",
             Self::Lane => "Enter open/run   lane ids appear after a lane starts",
             Self::Permissions => "Enter apply   Suggest is the safe default",
             Self::Theme => "Enter apply   Ctrl+T cycles theme",
@@ -255,8 +259,9 @@ fn selector_kind(input: &str) -> Option<SelectorKind> {
     }
     if matches!(
         normalized,
-        "/provider" | "/settings provider" | "/setup provider"
-    ) || normalized.starts_with("/provider ")
+        "/connect" | "/provider" | "/settings provider" | "/setup provider"
+    ) || normalized.starts_with("/connect ")
+        || normalized.starts_with("/provider ")
         || normalized.starts_with("/settings provider ")
         || normalized.starts_with("/setup provider ")
     {
@@ -301,7 +306,10 @@ fn render_selector(
     kind: SelectorKind,
 ) {
     let width = selector_width(frame.width, kind);
-    let visible = suggestions.len().clamp(1, 12);
+    let display_rows = selector_display_rows(suggestions, kind, state);
+    let visible = display_rows
+        .len()
+        .clamp(1, selector_visible_row_limit(kind));
     let header_len = selector_header_len(state, kind);
     let height = (visible + header_len + 4)
         .min(frame.height.saturating_sub(4))
@@ -311,16 +319,23 @@ fn render_selector(
     let selected = state
         .command_selection
         .min(suggestions.len().saturating_sub(1));
-    let start = visible_command_window_start(selected, suggestions.len(), visible);
+    let selected_row = display_rows
+        .iter()
+        .position(|row| row.suggestion_index == Some(selected))
+        .unwrap_or(0);
+    let start = visible_command_window_start(selected_row, display_rows.len(), visible);
     let content_width = width.saturating_sub(4);
     let mut rows = selector_header_rows(state, kind, width, content_width);
-    for (index, suggestion) in suggestions.iter().enumerate().skip(start).take(visible) {
-        let label = selector_row_text(suggestion, kind);
-        let marker = if index == selected { "●" } else { " " };
-        let line = if index == selected {
-            format!("{marker} {label}")
+    for row in display_rows.iter().skip(start).take(visible) {
+        let line = if row.section {
+            format!("  {}", row.text)
         } else {
-            format!("  {label}")
+            let marker = if row.suggestion_index == Some(selected) {
+                "●"
+            } else {
+                row.marker
+            };
+            format!("{marker} {}", row.text)
         };
         rows.push(format!(
             "│ {} │",
@@ -359,7 +374,10 @@ fn selector_suggestion_index_at(
     }
     let kind = selector_kind(&state.input)?;
     let width = selector_width(usize::from(frame_width), kind);
-    let visible = suggestions.len().clamp(1, 12);
+    let display_rows = selector_display_rows(suggestions, kind, state);
+    let visible = display_rows
+        .len()
+        .clamp(1, selector_visible_row_limit(kind));
     let header_len = selector_header_len(state, kind);
     let height = (visible + header_len + 4)
         .min(usize::from(frame_height).saturating_sub(4))
@@ -379,8 +397,14 @@ fn selector_suggestion_index_at(
     let selected = state
         .command_selection
         .min(suggestions.len().saturating_sub(1));
-    let start = visible_command_window_start(selected, suggestions.len(), visible);
-    Some(start + row - item_top)
+    let selected_row = display_rows
+        .iter()
+        .position(|row| row.suggestion_index == Some(selected))
+        .unwrap_or(0);
+    let start = visible_command_window_start(selected_row, display_rows.len(), visible);
+    display_rows
+        .get(start + row - item_top)
+        .and_then(|display| display.suggestion_index)
 }
 
 fn selector_width(frame_width: usize, kind: SelectorKind) -> usize {
@@ -404,6 +428,164 @@ fn selector_width(frame_width: usize, kind: SelectorKind) -> usize {
     }
 }
 
+fn selector_visible_row_limit(kind: SelectorKind) -> usize {
+    match kind {
+        SelectorKind::Model => 28,
+        SelectorKind::Provider => 22,
+        _ => 12,
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SelectorDisplayRow {
+    suggestion_index: Option<usize>,
+    text: String,
+    marker: &'static str,
+    section: bool,
+}
+
+fn selector_display_rows(
+    suggestions: &[CommandSuggestion],
+    kind: SelectorKind,
+    state: &TuiState,
+) -> Vec<SelectorDisplayRow> {
+    match kind {
+        SelectorKind::Provider if selected_provider_for_detail(&state.input, state).is_none() => {
+            provider_selector_display_rows(suggestions, state)
+        }
+        SelectorKind::Model => model_selector_display_rows(suggestions, state),
+        _ => suggestions
+            .iter()
+            .enumerate()
+            .map(|(index, suggestion)| SelectorDisplayRow {
+                suggestion_index: Some(index),
+                text: selector_row_text(suggestion, kind),
+                marker: " ",
+                section: false,
+            })
+            .collect(),
+    }
+}
+
+fn provider_selector_display_rows(
+    suggestions: &[CommandSuggestion],
+    state: &TuiState,
+) -> Vec<SelectorDisplayRow> {
+    let mut rows = Vec::new();
+    let mut popular_started = false;
+    let mut provider_started = false;
+    for (index, suggestion) in suggestions.iter().enumerate() {
+        let provider_id = provider_id_from_provider_command(&suggestion.command);
+        let is_popular = provider_id
+            .as_deref()
+            .is_some_and(is_popular_provider_for_connect);
+        if is_popular && !popular_started {
+            rows.push(selector_section_row("Popular"));
+            popular_started = true;
+        } else if !is_popular && !provider_started {
+            rows.push(selector_section_row("Providers"));
+            provider_started = true;
+        }
+        let current = provider_id.as_deref() == Some(state.provider.as_str());
+        let text = provider_id
+            .as_deref()
+            .and_then(|id| provider_by_id(state, id))
+            .map(|provider| provider.display_name.clone())
+            .unwrap_or_else(|| selector_label(suggestion, SelectorKind::Provider));
+        rows.push(SelectorDisplayRow {
+            suggestion_index: Some(index),
+            text,
+            marker: if current { "✓" } else { " " },
+            section: false,
+        });
+    }
+    rows
+}
+
+fn model_selector_display_rows(
+    suggestions: &[CommandSuggestion],
+    state: &TuiState,
+) -> Vec<SelectorDisplayRow> {
+    let mut rows = Vec::new();
+    let mut seen = Vec::<(String, String)>::new();
+    let has_favorites = suggestions.iter().any(|suggestion| {
+        provider_model_from_command(&suggestion.command).is_some_and(|(provider_id, model)| {
+            is_favorite_provider_model(state, &provider_id, &model)
+        })
+    });
+    if has_favorites {
+        rows.push(selector_section_row("Favorites"));
+    }
+    for (index, suggestion) in suggestions.iter().enumerate() {
+        let Some((provider_id, model)) = provider_model_from_command(&suggestion.command) else {
+            continue;
+        };
+        if !is_favorite_provider_model(state, &provider_id, &model)
+            || seen
+                .iter()
+                .any(|seen| seen == &(provider_id.clone(), model.clone()))
+        {
+            continue;
+        }
+        seen.push((provider_id.clone(), model.clone()));
+        let current = provider_id == state.provider && model == state.model;
+        rows.push(SelectorDisplayRow {
+            suggestion_index: Some(index),
+            text: model_selector_row_text(suggestion, false, state),
+            marker: if current { "●" } else { " " },
+            section: false,
+        });
+    }
+
+    let mut last_provider = None::<String>;
+    let mut recent_added = false;
+    for (index, suggestion) in suggestions.iter().enumerate() {
+        let (provider_id, model) =
+            provider_model_from_command(&suggestion.command).unwrap_or_else(|| {
+                (
+                    state.provider.clone(),
+                    selector_label(suggestion, SelectorKind::Model),
+                )
+            });
+        let current = provider_id == state.provider && model == state.model;
+        if seen
+            .iter()
+            .any(|seen| seen == &(provider_id.clone(), model.clone()))
+        {
+            continue;
+        }
+        if current && !recent_added {
+            rows.push(selector_section_row("Recent"));
+            recent_added = true;
+        } else if last_provider.as_deref() != Some(provider_id.as_str()) {
+            if let Some(provider) = provider_by_id(state, &provider_id) {
+                rows.push(selector_section_row(&provider.display_name));
+            } else {
+                rows.push(selector_section_row(&provider_id));
+            }
+            last_provider = Some(provider_id.clone());
+        }
+        seen.push((provider_id.clone(), model.clone()));
+        let row_text = model_selector_row_text(suggestion, !current, state);
+        rows.push(SelectorDisplayRow {
+            suggestion_index: Some(index),
+            text: row_text,
+            marker: if current { "●" } else { " " },
+            section: false,
+        });
+    }
+    rows
+}
+
+fn selector_section_row(label: &str) -> SelectorDisplayRow {
+    SelectorDisplayRow {
+        suggestion_index: None,
+        text: label.to_string(),
+        marker: " ",
+        section: true,
+    }
+}
+
 fn selector_context(state: &TuiState, kind: SelectorKind) -> String {
     match kind {
         SelectorKind::Setup => format!(
@@ -424,18 +606,21 @@ fn selector_context(state: &TuiState, kind: SelectorKind) -> String {
     }
 }
 
-fn selector_title(state: &TuiState, kind: SelectorKind) -> &'static str {
+fn selector_title(state: &TuiState, kind: SelectorKind) -> String {
     match kind {
-        SelectorKind::Setup => "SETUP WIZARD",
-        SelectorKind::Settings => "SETTINGS",
+        SelectorKind::Setup => "SETUP WIZARD".to_string(),
+        SelectorKind::Settings => "SETTINGS".to_string(),
         SelectorKind::Provider if selected_provider_for_detail(&state.input, state).is_some() => {
-            "PROVIDER CONFIG"
+            "PROVIDER CONFIG".to_string()
         }
-        SelectorKind::Provider => "SELECT PROVIDER",
-        SelectorKind::Model => "SELECT MODEL",
-        SelectorKind::Lane => "LANE ACTIONS",
-        SelectorKind::Permissions => "PERMISSIONS",
-        SelectorKind::Theme => "SELECT THEME",
+        SelectorKind::Provider if state.input.trim_start().starts_with("/connect") => {
+            "Connect a provider".to_string()
+        }
+        SelectorKind::Provider => "SELECT PROVIDER".to_string(),
+        SelectorKind::Model => "Select model".to_string(),
+        SelectorKind::Lane => "LANE ACTIONS".to_string(),
+        SelectorKind::Permissions => "PERMISSIONS".to_string(),
+        SelectorKind::Theme => "SELECT THEME".to_string(),
     }
 }
 
@@ -450,7 +635,7 @@ fn selector_footer(state: &TuiState, kind: SelectorKind) -> String {
 fn selector_header_len(state: &TuiState, kind: SelectorKind) -> usize {
     if kind == SelectorKind::Provider && selected_provider_for_detail(&state.input, state).is_some()
     {
-        7
+        9
     } else {
         5
     }
@@ -465,19 +650,30 @@ fn selector_header_rows(
     if kind == SelectorKind::Provider
         && let Some(provider) = selected_provider_for_detail(&state.input, state)
     {
-        let models = provider_model_candidates(provider);
-        let models = if models.is_empty() {
-            "models: free-type".to_string()
+        let active_models = active_provider_model_candidates(provider);
+        let active_models = if active_models.is_empty() {
+            "active models: <none>".to_string()
         } else {
-            format!("models: {}", models.join(", "))
+            format!("active models: {}", active_models.join(", "))
         };
+        let default_model = provider.default_model.as_deref().unwrap_or("<choose one>");
         return vec![
-            panel_top(selector_title(state, kind), width, Some("esc")),
+            panel_top(&selector_title(state, kind), width, Some("esc")),
             format!("│ {} │", pad("", content_width)),
             format!(
                 "│ {} │",
                 pad(
                     &format!("{} / {}", provider.provider_id, provider.display_name),
+                    content_width
+                )
+            ),
+            format!(
+                "│ {} │",
+                pad(
+                    &truncate(
+                        &format!("auth: {}", provider_auth_detail(provider)),
+                        content_width
+                    ),
                     content_width
                 )
             ),
@@ -497,7 +693,14 @@ fn selector_header_rows(
             ),
             format!(
                 "│ {} │",
-                pad(&truncate(&models, content_width), content_width)
+                pad(
+                    &truncate(&format!("default model: {default_model}"), content_width),
+                    content_width
+                )
+            ),
+            format!(
+                "│ {} │",
+                pad(&truncate(&active_models, content_width), content_width)
             ),
             format!("│ {} │", pad("", content_width)),
         ];
@@ -505,7 +708,7 @@ fn selector_header_rows(
 
     let search = selector_search_text(state, kind);
     vec![
-        panel_top(selector_title(state, kind), width, Some("esc")),
+        panel_top(&selector_title(state, kind), width, Some("esc")),
         format!("│ {} │", pad("", content_width)),
         format!(
             "│ {} │",
@@ -529,7 +732,9 @@ fn selector_search_text(state: &TuiState, kind: SelectorKind) -> String {
     if kind == SelectorKind::Provider
         && let Some(provider) = selected_provider_for_detail(&state.input, state)
     {
-        let prefix = if state.input.starts_with("/setup provider ") {
+        let prefix = if state.input.starts_with("/connect ") {
+            format!("/connect {}", provider.provider_id)
+        } else if state.input.starts_with("/setup provider ") {
             format!("/setup provider {}", provider.provider_id)
         } else if state.input.starts_with("/settings provider ") {
             format!("/settings provider {}", provider.provider_id)
@@ -556,10 +761,15 @@ fn selector_search_prefix(input: &str, kind: SelectorKind) -> &str {
     match kind {
         SelectorKind::Setup => "/setup",
         SelectorKind::Settings => normalized.split_whitespace().next().unwrap_or(normalized),
-        SelectorKind::Provider => ["/settings provider", "/setup provider", "/provider"]
-            .into_iter()
-            .find(|prefix| normalized.starts_with(prefix))
-            .unwrap_or("/provider"),
+        SelectorKind::Provider => [
+            "/settings provider",
+            "/setup provider",
+            "/connect",
+            "/provider",
+        ]
+        .into_iter()
+        .find(|prefix| normalized.starts_with(prefix))
+        .unwrap_or("/connect"),
         SelectorKind::Model => ["/settings model", "/setup model", "/models", "/model"]
             .into_iter()
             .find(|prefix| normalized.starts_with(prefix))
@@ -612,7 +822,7 @@ fn selector_label(suggestion: &CommandSuggestion, kind: SelectorKind) -> String 
             .unwrap_or_else(|| command.to_string()),
         SelectorKind::Model => {
             if let Some(value) = command.strip_prefix("/settings provider ") {
-                value.to_string()
+                provider_model_label(value)
             } else {
                 command
                     .split_whitespace()
@@ -642,7 +852,33 @@ fn provider_settings_label(value: &str) -> String {
     let words = value.split_whitespace().collect::<Vec<_>>();
     match words.as_slice() {
         [_provider] => "set default provider".to_string(),
+        [_provider, "endpoint" | "api-base" | "api_base"] => "edit endpoint".to_string(),
+        [_provider, "key-env" | "api-key-env" | "api_key_env"] => "edit key env".to_string(),
+        [_provider, "default-model" | "default_model"] => "edit default model".to_string(),
+        [_provider, "enable-model" | "enable"] => "enable model".to_string(),
+        [_provider, "favorite-model" | "favorite"] => "favorite model".to_string(),
+        [_provider, "models" | "enabled-models" | "enabled_models"] => {
+            "replace active models".to_string()
+        }
+        [_provider, "endpoint" | "api-base" | "api_base", _endpoint] => "endpoint".to_string(),
+        [_provider, "key-env" | "api-key-env" | "api_key_env", _env] => "key env".to_string(),
+        [_provider, "default-model" | "default_model", _model] => "default model".to_string(),
+        [_provider, "enable-model" | "enable", model] => format!("enable {model}"),
+        [_provider, "favorite-model" | "favorite", model] => format!("favorite {model}"),
+        [
+            _provider,
+            "models" | "enabled-models" | "enabled_models",
+            ..,
+        ] => "active models".to_string(),
         [_provider, model] => format!("model {model}"),
+        _ => value.to_string(),
+    }
+}
+
+fn provider_model_label(value: &str) -> String {
+    let words = value.split_whitespace().collect::<Vec<_>>();
+    match words.as_slice() {
+        [_provider, model] => (*model).to_string(),
         _ => value.to_string(),
     }
 }
@@ -695,7 +931,7 @@ fn selector_root_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comman
 fn provider_selector_root_query(query: &str) -> bool {
     matches!(
         query.trim_end(),
-        "/provider" | "/settings provider" | "/setup provider"
+        "/connect" | "/provider" | "/settings provider" | "/setup provider"
     )
 }
 
@@ -745,19 +981,40 @@ fn lane_selector_suggestions(state: &TuiState) -> Vec<CommandSuggestion> {
 
 fn provider_selector_suggestions(query: &str, state: &TuiState) -> Vec<CommandSuggestion> {
     let prefix = selector_search_prefix(query, SelectorKind::Provider);
-    state
+    let partial = selector_search_text(state, SelectorKind::Provider).to_ascii_lowercase();
+    let mut providers = state
         .provider_catalog
         .iter()
         .filter(|provider| provider.provider_id != "fallback")
+        .filter(|provider| {
+            partial.is_empty()
+                || provider.provider_id.to_ascii_lowercase().contains(&partial)
+                || provider
+                    .display_name
+                    .to_ascii_lowercase()
+                    .contains(&partial)
+        })
+        .collect::<Vec<_>>();
+    providers.sort_by_key(|provider| {
+        (
+            provider.provider_id != state.provider,
+            !is_popular_provider_for_connect(&provider.provider_id),
+            provider.display_name.to_ascii_lowercase(),
+        )
+    });
+    providers
+        .into_iter()
         .map(|provider| {
-            let command = if prefix == "/provider" {
+            let command = if prefix == "/connect" {
+                format!("/connect {}", provider.provider_id)
+            } else if prefix == "/provider" {
                 format!("/provider {}", provider.provider_id)
             } else {
                 format!("{prefix} {}", provider.provider_id)
             };
             CommandSuggestion {
                 command,
-                summary: String::new(),
+                summary: provider.display_name.clone(),
             }
         })
         .collect()
@@ -765,10 +1022,11 @@ fn provider_selector_suggestions(query: &str, state: &TuiState) -> Vec<CommandSu
 
 fn model_selector_suggestions(query: &str, state: &TuiState) -> Vec<CommandSuggestion> {
     let prefix = selector_search_prefix(query, SelectorKind::Model);
+    let partial = selector_search_text(state, SelectorKind::Model);
     if prefix == "/models" {
-        all_provider_model_suggestions("", state)
+        all_provider_model_suggestions(&partial, state)
     } else {
-        current_provider_model_suggestions(prefix, "", state)
+        current_provider_model_suggestions(prefix, &partial, state)
     }
 }
 
@@ -800,10 +1058,14 @@ struct CommandTemplate {
     summary: &'static str,
 }
 
-const COMMANDS: [CommandTemplate; 30] = [
+const COMMANDS: [CommandTemplate; 31] = [
     CommandTemplate {
         command: "/help",
         summary: "Show commands",
+    },
+    CommandTemplate {
+        command: "/connect",
+        summary: "Connect or configure providers",
     },
     CommandTemplate {
         command: "/provider",
@@ -1499,6 +1761,7 @@ fn is_nested_command_query(input: &str) -> bool {
         "/mcp",
         "/skills",
         "/screen",
+        "/connect",
         "/provider",
         "/settings",
         "/setup",
@@ -1531,6 +1794,7 @@ fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comma
         .or_else(|| lsp_command_suggestions(query, state))
         .or_else(|| git_stash_command_suggestions(query, state))
         .or_else(|| git_worktree_command_suggestions(query, state))
+        .or_else(|| connect_command_suggestions(query, state))
         .or_else(|| provider_command_suggestions(query, state))
         .or_else(|| settings_command_suggestions(query, state))
         .or_else(|| model_command_suggestions(query, state))
@@ -1588,6 +1852,40 @@ fn lane_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Command
     query
         .starts_with("/lane ")
         .then(|| command_group_or_lane_ids(query, state))
+}
+
+fn connect_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
+    if !(query == "/connect " || query.starts_with("/connect ") || query.trim_end() == "/connect") {
+        return None;
+    }
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    if selected_provider_for_detail(query, state).is_some() {
+        return Some(provider_detail_suggestions(query, &words, state));
+    }
+    let partial = if query.ends_with(' ') || query.trim_end() == "/connect" {
+        ""
+    } else {
+        words.get(1).copied().unwrap_or("")
+    };
+    Some(
+        state
+            .provider_catalog
+            .iter()
+            .filter(|provider| provider.provider_id != "fallback")
+            .filter(|provider| {
+                partial.is_empty()
+                    || provider.provider_id.starts_with(partial)
+                    || provider
+                        .display_name
+                        .to_ascii_lowercase()
+                        .contains(&partial.to_ascii_lowercase())
+            })
+            .map(|provider| CommandSuggestion {
+                command: format!("/connect {}", provider.provider_id),
+                summary: provider_config_short(provider),
+            })
+            .collect(),
+    )
 }
 
 fn command_group_or_lane_ids(query: &str, state: &TuiState) -> Vec<CommandSuggestion> {
@@ -1936,6 +2234,8 @@ fn provider_detail_suggestions(
         return Vec::new();
     };
     let partial = match words {
+        ["/connect", _provider] if !query.ends_with(' ') => "",
+        ["/connect", _provider, partial, ..] => partial,
         ["/provider", _provider] if !query.ends_with(' ') => "",
         ["/provider", _provider, partial, ..] => partial,
         ["/setup" | "/settings", "provider", _provider] if !query.ends_with(' ') => "",
@@ -1945,27 +2245,79 @@ fn provider_detail_suggestions(
     let mut suggestions = vec![
         CommandSuggestion {
             command: format!("/settings provider {}", provider.provider_id),
-            summary: provider.provider_id.clone(),
+            summary: "save as default provider".to_string(),
         },
         CommandSuggestion {
             command: format!("/provider use {}", provider.provider_id),
-            summary: provider.provider_id.clone(),
+            summary: "switch provider for this session".to_string(),
         },
+    ];
+    if let Some(api_key_env) = provider.api_key_env.as_deref() {
+        suggestions.push(CommandSuggestion {
+            command: format!("/settings provider {} key-env", provider.provider_id),
+            summary: format!("current {api_key_env}"),
+        });
+        suggestions.push(CommandSuggestion {
+            command: format!(
+                "/settings provider {} key-env {api_key_env}",
+                provider.provider_id
+            ),
+            summary: provider_key_detail(provider),
+        });
+    }
+    if let Some(endpoint) = provider.default_api_base.as_deref() {
+        suggestions.push(CommandSuggestion {
+            command: format!("/settings provider {} endpoint", provider.provider_id),
+            summary: format!("current {endpoint}"),
+        });
+        suggestions.push(CommandSuggestion {
+            command: format!(
+                "/settings provider {} endpoint {endpoint}",
+                provider.provider_id
+            ),
+            summary: endpoint.to_string(),
+        });
+    }
+    if let Some(default_model) = provider.default_model.as_deref() {
+        suggestions.push(CommandSuggestion {
+            command: format!("/settings provider {} default-model", provider.provider_id),
+            summary: format!("current {default_model}"),
+        });
+        suggestions.push(CommandSuggestion {
+            command: format!(
+                "/settings provider {} default-model {default_model}",
+                provider.provider_id
+            ),
+            summary: default_model.to_string(),
+        });
+    }
+    suggestions.extend([
         CommandSuggestion {
             command: format!("/provider doctor {}", provider.provider_id),
-            summary: provider.provider_id.clone(),
+            summary: "run provider diagnostics".to_string(),
         },
         CommandSuggestion {
             command: "/models".to_string(),
-            summary: provider.provider_id.clone(),
+            summary: "open active model picker".to_string(),
         },
-    ];
+    ]);
     suggestions.extend(
         provider_model_candidates(provider)
             .into_iter()
             .map(|model| CommandSuggestion {
-                command: format!("/settings provider {} {model}", provider.provider_id),
-                summary: String::new(),
+                command: format!(
+                    "/settings provider {} enable-model {model}",
+                    provider.provider_id
+                ),
+                summary: if provider
+                    .enabled_models
+                    .iter()
+                    .any(|active| active == &model)
+                {
+                    "already active in /models".to_string()
+                } else {
+                    "add to /models".to_string()
+                },
             }),
     );
     suggestions
@@ -2120,13 +2472,40 @@ fn provider_subcommand_prefix(value: &str) -> bool {
         .any(|subcommand| subcommand.starts_with(value))
 }
 
+fn is_complete_provider_config_value_command(input: &str) -> bool {
+    let words = input.split_whitespace().collect::<Vec<_>>();
+    matches!(
+        words.as_slice(),
+        [
+            "/settings" | "/setup",
+            "provider",
+            _provider,
+            "endpoint"
+                | "api-base"
+                | "api_base"
+                | "key-env"
+                | "api-key-env"
+                | "api_key_env"
+                | "default-model"
+                | "default_model"
+                | "enable-model"
+                | "enable"
+                | "models"
+                | "enabled-models"
+                | "enabled_models",
+            _value,
+            ..
+        ]
+    )
+}
+
 fn selected_provider_for_detail<'a>(
     input: &str,
     state: &'a TuiState,
 ) -> Option<&'a super::state::ProviderOption> {
     let words = input.split_whitespace().collect::<Vec<_>>();
     let provider_id = match words.as_slice() {
-        ["/provider", provider_id, ..] => Some(*provider_id),
+        ["/connect", provider_id, ..] | ["/provider", provider_id, ..] => Some(*provider_id),
         ["/setup", "provider", provider_id, ..] | ["/settings", "provider", provider_id, ..] => {
             Some(*provider_id)
         }
@@ -2154,6 +2533,75 @@ fn provider_list_summary(provider: &super::state::ProviderOption) -> String {
     provider.provider_id.clone()
 }
 
+fn provider_by_id<'a>(
+    state: &'a TuiState,
+    provider_id: &str,
+) -> Option<&'a super::state::ProviderOption> {
+    state
+        .provider_catalog
+        .iter()
+        .find(|provider| provider.provider_id == provider_id)
+}
+
+fn is_popular_provider_for_connect(provider_id: &str) -> bool {
+    matches!(
+        provider_id,
+        "deepseek" | "openrouter" | "openai" | "anthropic" | "ollama" | "qwen" | "kimi"
+    )
+}
+
+fn provider_id_from_provider_command(command: &str) -> Option<String> {
+    command
+        .strip_prefix("/settings provider ")
+        .or_else(|| command.strip_prefix("/setup provider "))
+        .or_else(|| command.strip_prefix("/connect "))
+        .or_else(|| command.strip_prefix("/provider "))
+        .and_then(|value| value.split_whitespace().next())
+        .map(ToString::to_string)
+}
+
+fn provider_model_from_command(command: &str) -> Option<(String, String)> {
+    if let Some(value) = command.strip_prefix("/settings provider ") {
+        let mut words = value.split_whitespace();
+        return Some((words.next()?.to_string(), words.next()?.to_string()));
+    }
+    if let Some(value) = command.strip_prefix("/models ") {
+        let mut words = value.split_whitespace();
+        return Some((words.next()?.to_string(), words.next()?.to_string()));
+    }
+    command.strip_prefix("/model ")?;
+    None
+}
+
+fn model_selector_row_text(
+    suggestion: &CommandSuggestion,
+    nested: bool,
+    state: &TuiState,
+) -> String {
+    let label = selector_label(suggestion, SelectorKind::Model);
+    let provider_label = provider_model_from_command(&suggestion.command)
+        .and_then(|(provider_id, _)| {
+            provider_by_id(state, &provider_id).map(|provider| provider.display_name.clone())
+        })
+        .unwrap_or_else(|| {
+            suggestion
+                .summary
+                .split('·')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        });
+    let text = if provider_label.is_empty() {
+        label
+    } else if suggestion.summary.contains("default") {
+        format!("{label} {provider_label} default")
+    } else {
+        format!("{label} {provider_label}")
+    };
+    if nested { format!("  {text}") } else { text }
+}
+
 fn provider_key_detail(provider: &super::state::ProviderOption) -> String {
     provider
         .api_key_env
@@ -2171,6 +2619,25 @@ fn provider_key_detail(provider: &super::state::ProviderOption) -> String {
             }
         })
         .unwrap_or_else(|| "key not required".to_string())
+}
+
+fn provider_auth_detail(provider: &super::state::ProviderOption) -> String {
+    if provider.auth_modes.is_empty() {
+        if provider.api_key_env.is_some() {
+            return "api key".to_string();
+        }
+        return "local / no key".to_string();
+    }
+    provider
+        .auth_modes
+        .iter()
+        .map(|mode| match mode {
+            ProviderAuthMode::ApiKey => "API key",
+            ProviderAuthMode::WebLogin => "web login",
+            ProviderAuthMode::Local => "local / no key",
+        })
+        .collect::<Vec<_>>()
+        .join(" or ")
 }
 
 fn mask_secret(value: &str) -> String {
@@ -2239,27 +2706,70 @@ fn current_provider_model_suggestions(
 }
 
 fn all_provider_model_suggestions(partial: &str, state: &TuiState) -> Vec<CommandSuggestion> {
+    let partial = partial.to_ascii_lowercase();
+    let mut providers = configured_model_providers(state);
+    if providers.is_empty() {
+        providers = state
+            .provider_catalog
+            .iter()
+            .filter(|provider| provider.provider_id == "fallback")
+            .collect();
+    }
+    providers.sort_by_key(|provider| {
+        (
+            provider.provider_id != state.provider,
+            provider.provider_id == "fallback",
+            provider.provider_id.as_str(),
+        )
+    });
+    let mut suggestions = Vec::new();
+    let mut seen = Vec::<(String, String)>::new();
+    for provider in &providers {
+        for model in favorite_provider_model_candidates(provider) {
+            if model_matches_query(provider, &model, &partial) {
+                seen.push((provider.provider_id.clone(), model.clone()));
+                suggestions.push(CommandSuggestion {
+                    command: format!("/models {} {model}", provider.provider_id),
+                    summary: model_summary(provider, &model),
+                });
+            }
+        }
+    }
+    for provider in providers {
+        for model in active_provider_model_candidates(provider) {
+            if seen
+                .iter()
+                .any(|seen| seen == &(provider.provider_id.clone(), model.clone()))
+            {
+                continue;
+            }
+            if model_matches_query(provider, &model, &partial) {
+                suggestions.push(CommandSuggestion {
+                    command: format!("/models {} {model}", provider.provider_id),
+                    summary: model_summary(provider, &model),
+                });
+            }
+        }
+    }
+    suggestions
+}
+
+fn configured_model_providers(state: &TuiState) -> Vec<&super::state::ProviderOption> {
     state
         .provider_catalog
         .iter()
-        .flat_map(|provider| {
-            provider_model_candidates(provider)
-                .into_iter()
-                .filter(move |model| {
-                    partial.is_empty()
-                        || model.starts_with(partial)
-                        || provider.provider_id.starts_with(partial)
-                        || provider
-                            .display_name
-                            .to_ascii_lowercase()
-                            .starts_with(partial)
-                })
-                .map(move |model| CommandSuggestion {
-                    command: format!("/settings provider {} {model}", provider.provider_id),
-                    summary: model_summary(provider, &model),
-                })
+        .filter(|provider| {
+            provider_is_configured_for_models(provider)
+                && !active_provider_model_candidates(provider).is_empty()
         })
         .collect()
+}
+
+fn provider_is_configured_for_models(provider: &super::state::ProviderOption) -> bool {
+    provider
+        .api_key_env
+        .as_deref()
+        .is_none_or(|env| std::env::var(env).is_ok_and(|value| !value.trim().is_empty()))
 }
 
 fn model_summary(provider: &super::state::ProviderOption, model: &str) -> String {
@@ -2268,14 +2778,20 @@ fn model_summary(provider: &super::state::ProviderOption, model: &str) -> String
         .as_deref()
         .is_some_and(|default| default == model)
     {
-        " default"
+        " · default"
+    } else {
+        ""
+    };
+    let offline = if provider.provider_id == "fallback" {
+        " · offline"
     } else {
         ""
     };
     format!(
-        "{}{} · {}",
+        "{}{}{} · {}",
         provider.display_name,
         default,
+        offline,
         provider_config_short(provider)
     )
 }
@@ -2343,6 +2859,53 @@ fn provider_model_candidates(provider: &super::state::ProviderOption) -> Vec<Str
         _ => {}
     }
     models
+}
+
+fn active_provider_model_candidates(provider: &super::state::ProviderOption) -> Vec<String> {
+    let mut models = Vec::new();
+    for model in &provider.enabled_models {
+        push_unique_string(&mut models, model);
+    }
+    if models.is_empty()
+        && let Some(default_model) = provider.default_model.as_deref()
+    {
+        push_unique_string(&mut models, default_model);
+    }
+    models
+}
+
+fn favorite_provider_model_candidates(provider: &super::state::ProviderOption) -> Vec<String> {
+    let active = active_provider_model_candidates(provider);
+    let mut favorites = Vec::new();
+    for model in &provider.favorite_models {
+        if active.iter().any(|active| active == model) {
+            push_unique_string(&mut favorites, model);
+        }
+    }
+    favorites
+}
+
+fn is_favorite_provider_model(state: &TuiState, provider_id: &str, model: &str) -> bool {
+    provider_by_id(state, provider_id).is_some_and(|provider| {
+        provider
+            .favorite_models
+            .iter()
+            .any(|favorite| favorite == model)
+    })
+}
+
+fn model_matches_query(
+    provider: &super::state::ProviderOption,
+    model: &str,
+    partial: &str,
+) -> bool {
+    if partial.is_empty() {
+        return true;
+    }
+    let model = model.to_ascii_lowercase();
+    let provider_id = provider.provider_id.to_ascii_lowercase();
+    let display_name = provider.display_name.to_ascii_lowercase();
+    model.contains(partial) || provider_id.contains(partial) || display_name.contains(partial)
 }
 
 fn push_unique_string(values: &mut Vec<String>, value: &str) {
@@ -3015,6 +3578,7 @@ mod tests {
     use super::*;
     use crate::tui::state::{CompanionScreen, ProviderStatus, TerminalLane, WorkspaceSnapshot};
     use crate::tui::text::char_width;
+    use robocode_model::ProviderAuthMode;
     use robocode_types::{
         MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskPriority, TaskRecord,
         TaskStatus,
@@ -3044,6 +3608,58 @@ mod tests {
             lane_store: None,
             focused_lane: None,
         }
+    }
+
+    fn model_picker_catalog() -> Vec<crate::tui::state::ProviderOption> {
+        vec![
+            crate::tui::state::ProviderOption {
+                provider_id: "deepseek".to_string(),
+                display_name: "DeepSeek".to_string(),
+                default_api_base: Some("https://api.deepseek.com".to_string()),
+                default_model: Some("deepseek-v4-flash".to_string()),
+                enabled_models: vec![
+                    "deepseek-v4-flash".to_string(),
+                    "deepseek-v4-pro".to_string(),
+                ],
+                favorite_models: vec!["deepseek-v4-pro".to_string()],
+                api_key_env: None,
+                api_base_env: Some("DEEPSEEK_API_BASE".to_string()),
+                auth_modes: vec![ProviderAuthMode::ApiKey],
+            },
+            crate::tui::state::ProviderOption {
+                provider_id: "openai".to_string(),
+                display_name: "OpenAI".to_string(),
+                default_api_base: Some("https://api.openai.com/v1".to_string()),
+                default_model: Some("gpt-5.2".to_string()),
+                enabled_models: vec!["gpt-5.2".to_string()],
+                favorite_models: Vec::new(),
+                api_key_env: Some("__ROBOCODE_TEST_MISSING_OPENAI_KEY__".to_string()),
+                api_base_env: None,
+                auth_modes: vec![ProviderAuthMode::WebLogin, ProviderAuthMode::ApiKey],
+            },
+            crate::tui::state::ProviderOption {
+                provider_id: "openrouter".to_string(),
+                display_name: "OpenRouter".to_string(),
+                default_api_base: Some("https://openrouter.ai/api/v1".to_string()),
+                default_model: None,
+                enabled_models: vec!["deepseek/deepseek-v4-flash".to_string()],
+                favorite_models: Vec::new(),
+                api_key_env: None,
+                api_base_env: None,
+                auth_modes: vec![ProviderAuthMode::ApiKey],
+            },
+            crate::tui::state::ProviderOption {
+                provider_id: "fallback".to_string(),
+                display_name: "Fallback".to_string(),
+                default_api_base: None,
+                default_model: Some("fallback-local".to_string()),
+                enabled_models: vec!["fallback-local".to_string(), "test-local".to_string()],
+                favorite_models: Vec::new(),
+                api_key_env: None,
+                api_base_env: None,
+                auth_modes: vec![ProviderAuthMode::Local],
+            },
+        ]
     }
 
     fn task(id: &str, title: &str, status: TaskStatus) -> TaskRecord {
@@ -3395,30 +4011,73 @@ mod tests {
                 .any(|item| item.command == "/provider openrouter")
         );
         assert!(!root.iter().any(|item| item.command == "/provider fallback"));
-        assert!(root.iter().all(|item| item.summary.is_empty()));
+        assert!(root.iter().any(|item| item.summary == "DeepSeek"));
 
         state.input = "/provider deepseek ".to_string();
         let actions = command_suggestions_for_state(&state);
 
         assert_eq!(actions[0].command, "/settings provider deepseek");
-        assert_eq!(actions[0].summary, "deepseek");
+        assert_eq!(actions[0].summary, "save as default provider");
         assert!(
             actions
                 .iter()
                 .any(|item| item.command == "/provider doctor deepseek")
         );
-        assert!(
-            actions
-                .iter()
-                .any(|item| item.command == "/settings provider deepseek deepseek-v4-flash")
-        );
+        assert!(actions.iter().any(|item| {
+            item.command == "/settings provider deepseek key-env"
+                && item.summary == "current DEEPSEEK_API_KEY"
+        }));
+        assert!(actions.iter().any(|item| {
+            item.command == "/settings provider deepseek endpoint"
+                && item.summary == "current https://api.deepseek.com"
+        }));
+        assert!(actions.iter().any(|item| {
+            item.command == "/settings provider deepseek default-model"
+                && item.summary == "current deepseek-v4-flash"
+        }));
+        assert!(actions.iter().any(|item| {
+            item.command == "/settings provider deepseek key-env DEEPSEEK_API_KEY"
+                && item.summary.contains("DEEPSEEK_API_KEY")
+        }));
+        assert!(actions.iter().any(|item| {
+            item.command == "/settings provider deepseek endpoint https://api.deepseek.com"
+                && item.summary == "https://api.deepseek.com"
+        }));
+        assert!(actions.iter().any(|item| {
+            item.command == "/settings provider deepseek default-model deepseek-v4-flash"
+                && item.summary == "deepseek-v4-flash"
+        }));
+        assert!(actions.iter().any(
+            |item| item.command == "/settings provider deepseek enable-model deepseek-v4-flash"
+        ));
         let model_action = actions
             .iter()
-            .find(|item| item.command == "/settings provider deepseek deepseek-v4-flash")
+            .find(|item| {
+                item.command == "/settings provider deepseek enable-model deepseek-v4-flash"
+            })
             .expect("deepseek model action");
-        assert!(model_action.summary.is_empty());
+        assert_eq!(model_action.summary, "already active in /models");
         assert_eq!(mask_secret("sk-1234567890abcd"), "sk-1*********abcd");
         assert_eq!(mask_secret("abcd"), "****");
+    }
+
+    #[test]
+    fn provider_config_edit_rows_complete_to_editable_prefixes() {
+        let mut state = state_with_input("/provider deepseek ");
+        let actions = command_suggestions_for_state(&state);
+        let index = actions
+            .iter()
+            .position(|item| item.command == "/settings provider deepseek endpoint")
+            .expect("editable endpoint action");
+        state.command_selection = index;
+
+        assert!(complete_selected(&mut state));
+        assert_eq!(state.input, "/settings provider deepseek endpoint ");
+
+        state.input = "/settings provider deepseek endpoint https://api.deepseek.com".to_string();
+        reset_for_input_change(&mut state);
+
+        assert!(!should_complete_on_enter(&state));
     }
 
     #[test]
@@ -3446,26 +4105,145 @@ mod tests {
         let suggestions = command_suggestions_for_state(&state);
 
         assert_eq!(suggestions[0].command, "/model deepseek-v4-flash");
-        assert!(suggestions[0].summary.contains("DeepSeek default"));
+        assert!(suggestions[0].summary.contains("DeepSeek · default"));
     }
 
     #[test]
     fn suggests_models_alias_grouped_by_provider() {
         let mut state = state_with_input("/models deep");
         state.provider = "deepseek".to_string();
+        state.provider_catalog = model_picker_catalog();
 
         let suggestions = command_suggestions_for_state(&state);
 
+        assert_eq!(suggestions[0].command, "/models deepseek deepseek-v4-pro");
         assert_eq!(
-            suggestions[0].command,
-            "/settings provider deepseek deepseek-v4-flash"
+            selector_label(&suggestions[0], SelectorKind::Model),
+            "deepseek-v4-pro"
         );
-        assert!(suggestions[0].summary.contains("DeepSeek default"));
+        assert!(suggestions[0].summary.contains("DeepSeek"));
         assert!(
             suggestions
                 .iter()
-                .any(|item| item.command == "/settings provider deepseek deepseek-v4-pro")
+                .any(|item| item.command == "/models deepseek deepseek-v4-pro")
         );
+        assert!(
+            suggestions
+                .iter()
+                .all(|item| item.command.contains("deepseek") || item.summary.contains("DeepSeek"))
+        );
+    }
+
+    #[test]
+    fn connect_selector_groups_providers_like_picker() {
+        let mut state = state_with_input("/connect");
+        state.provider = "deepseek".to_string();
+
+        let suggestions = command_suggestions_for_state(&state);
+        let rows = selector_display_rows(&suggestions, SelectorKind::Provider, &state);
+
+        assert_eq!(suggestions[0].command, "/connect deepseek");
+        assert_eq!(rows[0].text, "Popular");
+        assert!(
+            rows.iter()
+                .any(|row| row.text == "DeepSeek" && row.marker == "✓")
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.text == "OpenRouter" && row.suggestion_index.is_some())
+        );
+    }
+
+    #[test]
+    fn provider_detail_header_shows_auth_mode() {
+        let state = state_with_input("/connect openai");
+
+        let rows = selector_header_rows(&state, SelectorKind::Provider, 92, 88);
+
+        assert!(rows.iter().any(|row| row.contains("openai / OpenAI")));
+        assert!(
+            rows.iter()
+                .any(|row| row.contains("auth: web login or API key"))
+        );
+    }
+
+    #[test]
+    fn model_selector_renders_recent_and_provider_sections() {
+        let mut state = state_with_input("/models");
+        state.provider = "deepseek".to_string();
+        state.model = "deepseek-v4-flash".to_string();
+        state.provider_catalog = model_picker_catalog();
+
+        let suggestions = command_suggestions_for_state(&state);
+        let rows = selector_display_rows(&suggestions, SelectorKind::Model, &state);
+
+        assert_eq!(rows[0].text, "Favorites");
+        assert!(
+            rows.iter()
+                .any(|row| row.text == "deepseek-v4-pro DeepSeek" && row.marker == " ")
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.text == "deepseek-v4-flash DeepSeek default" && row.marker == "●")
+        );
+        assert!(!rows.iter().any(|row| row.text == "DeepSeek" && row.section));
+        assert!(
+            rows.iter()
+                .filter(|row| row.text.contains("deepseek-v4-pro"))
+                .count()
+                == 1
+        );
+        assert!(!rows.iter().any(|row| row.text == "OpenAI" && row.section));
+        assert!(
+            rows.iter()
+                .any(|row| row.text == "OpenRouter" && row.section)
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.text == "  deepseek/deepseek-v4-flash OpenRouter"
+                    && row.marker == " ")
+        );
+    }
+
+    #[test]
+    fn models_selector_filters_unconfigured_providers() {
+        let mut state = state_with_input("/models");
+        state.provider = "deepseek".to_string();
+        state.provider_catalog = model_picker_catalog();
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert!(
+            suggestions
+                .iter()
+                .any(|item| item.command == "/models deepseek deepseek-v4-flash")
+        );
+        assert!(
+            suggestions
+                .iter()
+                .any(|item| item.command == "/models openrouter deepseek/deepseek-v4-flash")
+        );
+        assert!(
+            !suggestions
+                .iter()
+                .any(|item| item.command == "/models openai gpt-5.2")
+        );
+    }
+
+    #[test]
+    fn model_selector_orders_current_provider_first() {
+        let mut state = state_with_input("/models");
+        state.provider = "openrouter".to_string();
+        state.provider_catalog = model_picker_catalog();
+
+        let suggestions = command_suggestions_for_state(&state);
+
+        assert_eq!(suggestions[0].command, "/models deepseek deepseek-v4-pro");
+        assert_eq!(
+            selector_label(&suggestions[0], SelectorKind::Model),
+            "deepseek-v4-pro"
+        );
+        assert!(suggestions[0].summary.contains("DeepSeek"));
     }
 
     #[test]
@@ -3535,11 +4313,11 @@ mod tests {
 
         assert_eq!(
             command_suggestions_for_state(&provider)[0].command,
-            "/provider anthropic"
+            "/provider deepseek"
         );
         assert_eq!(
             command_suggestions_for_state(&model)[0].command,
-            "/settings provider anthropic claude-sonnet-4-6"
+            "/models deepseek deepseek-v4-pro"
         );
     }
 

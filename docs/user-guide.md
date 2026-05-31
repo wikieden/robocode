@@ -42,7 +42,7 @@ automatically. You can also reopen setup from the composer:
 ```text
 /setup
 /setup provider
-/provider deepseek
+/connect
 /models
 ```
 
@@ -120,22 +120,40 @@ max_retries = 2
 [providers.deepseek]
 api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
+default_model = "deepseek-v4-flash"
+models = ["deepseek-v4-flash", "deepseek-v4-pro"]
+favorite_models = ["deepseek-v4-pro"]
 ```
 
 The TUI setup commands are picker-first. `/setup` opens a first-run wizard with
 concrete steps for provider configuration, model choice, permission mode,
 theme, doctor checks, fallback smoke, and saving defaults. `/settings`,
-`/provider`, `/models`, `/permissions`, and `/theme` render selectable panels
+`/connect`, `/provider`, `/models`, `/permissions`, and `/theme` render selectable panels
 instead of status-only screens. They persist only provider/model defaults and
 permission mode changes. API keys remain in environment variables or manually
-maintained config fields. Use `/provider` for supplier configuration. The first
-panel lists provider ids only, such as `deepseek` or `openrouter`; it does not
+maintained config fields. Use `/connect` for opencode-style supplier configuration. The first
+panel lists supplier names under Popular/Providers, such as DeepSeek or OpenRouter; it does not
 mix key, endpoint, or model details into the supplier list. Selecting one opens
-a `PROVIDER CONFIG` page with masked API-key values when present, endpoint
-source, diagnostics, save-default actions, and known/default model candidates. Use `/models` for
-model selection across all providers; rows are grouped by provider and can
-switch provider plus model together. Use `/model <model>` only when you want to
-change the current provider's model directly. Provider failures are classified
+a `PROVIDER CONFIG` page with auth mode, masked API-key values when present,
+endpoint source, diagnostics, save-default actions, and known/default model
+candidates. Provider descriptors now distinguish API-key providers,
+web-login-capable providers, and local/no-key providers, so OpenAI can expose a
+web-login-or-API-key setup path while DeepSeek/OpenRouter remain API-key flows
+and Ollama/Fallback remain no-key local flows.
+The provider detail edit rows complete the composer to `/settings provider
+<provider-id> key-env ...`, `/settings provider <provider-id> endpoint ...`, or
+`/settings provider <provider-id> default-model ...`. Model rows use
+`/settings provider <provider-id> enable-model <model>` to activate models for
+the grouped `/models` picker; `/settings provider <provider-id> models ...`
+replaces that active list, and `/settings provider <provider-id> favorite-model
+<model>` pins one provider/model pair to the top. Submitting a value writes
+`[providers.<provider-id>]` fields without persisting raw API keys. Use
+`/models` for model selection across configured providers; rows show Favorites
+first, then the current Recent model, then provider groups containing only models
+activated through `/connect`/`enable-model`. Favorite rows are not repeated later
+in their provider group, and `Ctrl-F` favorites the selected model row. Selecting
+a row switches provider plus model together. Use `/model <model>` only when you
+want to change the current provider's model directly. Provider failures are classified
 into recovery classes such as missing key, auth, rate limit, timeout, context
 overflow, compatibility, and model unavailable; the recovery prompt includes
 concrete commands to open doctor, switch model/provider, retry later, or use
@@ -144,10 +162,17 @@ fallback.
 ```text
 /settings
 /setup
+/connect
 /provider
 /model <model>
 /models
 /settings provider <provider-id> [model]
+/settings provider <provider-id> key-env <ENV_NAME>
+/settings provider <provider-id> endpoint <url>
+/settings provider <provider-id> default-model <model>
+/settings provider <provider-id> enable-model <model>
+/settings provider <provider-id> favorite-model <model>
+/settings provider <provider-id> models <model> [model...]
 /settings permissions <mode>
 /settings theme <name>
 /settings save
@@ -191,6 +216,7 @@ Provider commands:
 
 ```text
 /provider
+/connect
 /provider <provider-id> [model]
 /provider list
 /provider doctor [provider-id]

@@ -97,6 +97,7 @@ fn provider_host_creates_dynamic_openai_provider_from_registry_descriptor() {
             supports_native_tool_calling: true,
         },
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -132,6 +133,7 @@ fn provider_host_uses_dynamic_provider_api_base_env_mapping() {
             supports_native_tool_calling: true,
         },
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -175,6 +177,7 @@ fn provider_host_treats_blank_dynamic_provider_api_key_env_as_missing() {
             supports_native_tool_calling: true,
         },
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -287,6 +290,7 @@ fn provider_host_prefers_explicit_api_base_over_dynamic_provider_env_mapping() {
             supports_native_tool_calling: true,
         },
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -334,6 +338,7 @@ fn provider_host_rejects_invalid_dynamic_provider_api_base_env_mapping() {
             supports_native_tool_calling: true,
         },
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -376,6 +381,7 @@ fn provider_host_reports_missing_dynamic_provider_api_base_after_env_lookup() {
             supports_native_tool_calling: true,
         },
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(
@@ -413,6 +419,7 @@ fn provider_host_keeps_dynamic_provider_instances_independent() {
             supports_native_tool_calling: true,
         },
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
     let registry = ProviderRegistry::from_descriptor_sources(

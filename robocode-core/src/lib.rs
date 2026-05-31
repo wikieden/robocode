@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 mod agent_commands;
 mod brief_commands;
@@ -244,6 +247,10 @@ impl SessionEngine {
 
     pub fn session_id(&self) -> &str {
         self.store.session_id()
+    }
+
+    pub fn cwd(&self) -> &Path {
+        &self.cwd
     }
 
     pub fn provider_name(&self) -> &str {

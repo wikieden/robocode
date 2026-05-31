@@ -49,6 +49,12 @@ fn supported_provider_strings_match_builtin_registry_ids() {
 fn builtin_openai_compatible_gateway_descriptors_expose_capability_matrix() {
     let registry = ProviderRegistry::with_builtins();
 
+    let openai = registry.descriptor("openai").unwrap();
+    assert_eq!(
+        openai.auth_modes,
+        vec![ProviderAuthMode::WebLogin, ProviderAuthMode::ApiKey]
+    );
+
     let openrouter = registry.descriptor("openrouter").unwrap();
     assert_eq!(openrouter.protocol_family, ProtocolFamily::OpenAi);
     assert_eq!(
@@ -61,6 +67,7 @@ fn builtin_openai_compatible_gateway_descriptors_expose_capability_matrix() {
     );
     assert!(openrouter.capabilities.supports_streaming);
     assert!(openrouter.capabilities.supports_native_tool_calling);
+    assert_eq!(openrouter.auth_modes, vec![ProviderAuthMode::ApiKey]);
 
     let volcengine = registry.descriptor("volcengine").unwrap();
     assert_eq!(volcengine.protocol_family, ProtocolFamily::OpenAi);
@@ -73,6 +80,19 @@ fn builtin_openai_compatible_gateway_descriptors_expose_capability_matrix() {
         Some("ARK_API_KEY")
     );
     assert_eq!(volcengine.default_model, None);
+}
+
+#[test]
+fn builtin_local_descriptors_do_not_require_api_keys() {
+    let registry = ProviderRegistry::with_builtins();
+
+    let ollama = registry.descriptor("ollama").unwrap();
+    assert_eq!(ollama.auth_modes, vec![ProviderAuthMode::Local]);
+    assert_eq!(ollama.env_mappings.api_key_env, None);
+
+    let fallback = registry.descriptor("fallback").unwrap();
+    assert_eq!(fallback.auth_modes, vec![ProviderAuthMode::Local]);
+    assert_eq!(fallback.env_mappings.api_key_env, None);
 }
 
 #[test]
@@ -132,6 +152,7 @@ fn descriptor_keeps_provider_identity_separate_from_protocol_family() {
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
 
@@ -151,6 +172,7 @@ fn provider_descriptor_validation_rejects_invalid_plugin_identity() {
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
 
@@ -170,6 +192,7 @@ fn provider_descriptor_validation_rejects_unsupported_schema_version() {
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 99,
     };
 
@@ -189,6 +212,7 @@ fn provider_descriptor_validation_rejects_empty_default_model() {
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
 
@@ -208,6 +232,7 @@ fn provider_descriptor_validation_rejects_invalid_api_base() {
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
 
@@ -230,6 +255,7 @@ fn provider_descriptor_validation_rejects_invalid_env_mapping() {
         },
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
 
@@ -256,6 +282,7 @@ fn registry_rejects_plugin_descriptor_that_conflicts_with_builtin_provider_id() 
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
 
@@ -279,6 +306,7 @@ fn registry_rejects_duplicate_builtin_provider_ids() {
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
 
@@ -301,6 +329,7 @@ fn registry_rejects_duplicate_plugin_provider_ids() {
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
     let second = ProviderDescriptor {
@@ -313,6 +342,7 @@ fn registry_rejects_duplicate_plugin_provider_ids() {
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
 
@@ -343,6 +373,7 @@ fn registry_accepts_valid_non_builtin_plugin_descriptor() {
             supports_native_tool_calling: true,
         },
         compatibility: ProviderCompatibility::default(),
+        auth_modes: Vec::new(),
         config_schema_version: 1,
     };
 

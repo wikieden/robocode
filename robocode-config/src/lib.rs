@@ -34,6 +34,24 @@ pub struct ResolvedConfig {
     pub loaded_files: Vec<PathBuf>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderConfigUpdate {
+    pub api_base: Option<String>,
+    pub api_key_env: Option<String>,
+    pub default_model: Option<String>,
+    pub models: Option<Vec<String>>,
+    pub favorite_models: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderUiConfig {
+    pub api_base: Option<String>,
+    pub api_key_env: Option<String>,
+    pub default_model: Option<String>,
+    pub models: Vec<String>,
+    pub favorite_models: Vec<String>,
+}
+
 impl Default for ResolvedConfig {
     fn default() -> Self {
         Self {
@@ -76,6 +94,8 @@ struct ProviderScopedFileConfig {
     api_key: Option<String>,
     api_key_env: Option<String>,
     default_model: Option<String>,
+    models: Option<Vec<String>>,
+    favorite_models: Option<Vec<String>>,
 }
 
 type ProvidersFileConfig = BTreeMap<String, ProviderScopedFileConfig>;
@@ -130,19 +150,7 @@ pub fn save_user_provider_model_defaults_at(
         return Err("Model cannot be empty.".to_string());
     }
 
-    let mut value = if path.exists() {
-        let contents = fs::read_to_string(path)
-            .map_err(|err| format!("Failed to read config {}: {err}", path.display()))?;
-        if contents.trim().is_empty() {
-            Value::Table(Map::new())
-        } else {
-            contents
-                .parse::<Value>()
-                .map_err(|err| format!("Failed to parse config {}: {err}", path.display()))?
-        }
-    } else {
-        Value::Table(Map::new())
-    };
+    let mut value = read_config_value_for_write(path)?;
 
     let table = value
         .as_table_mut()
@@ -150,14 +158,245 @@ pub fn save_user_provider_model_defaults_at(
     table.insert("provider".to_string(), Value::String(provider.to_string()));
     table.insert("model".to_string(), Value::String(model.to_string()));
 
+    write_config_value(path, &value)
+}
+
+pub fn save_user_provider_config(
+    provider: &str,
+    update: ProviderConfigUpdate,
+) -> Result<PathBuf, String> {
+    let path = std::env::var("ROBOCODE_CONFIG")
+        .ok()
+        .map(PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(default_user_config_path)?;
+    save_user_provider_config_at(&path, provider, update)?;
+    Ok(path)
+}
+
+pub fn save_user_provider_config_at(
+    path: &Path,
+    provider: &str,
+    update: ProviderConfigUpdate,
+) -> Result<(), String> {
+    let provider = provider.trim();
+    if provider.is_empty() {
+        return Err("Provider cannot be empty.".to_string());
+    }
+
+    let api_base = trim_optional(update.api_base, "API base")?;
+    let api_key_env = trim_optional(update.api_key_env, "API key env")?;
+    let default_model = trim_optional(update.default_model, "Default model")?;
+    let models = trim_optional_list(update.models, "Model")?;
+    let favorite_models = trim_optional_list(update.favorite_models, "Favorite model")?;
+    if api_base.is_none()
+        && api_key_env.is_none()
+        && default_model.is_none()
+        && models.is_none()
+        && favorite_models.is_none()
+    {
+        return Err("No provider config fields were provided.".to_string());
+    }
+
+    let mut value = read_config_value_for_write(path)?;
+    let table = value
+        .as_table_mut()
+        .ok_or_else(|| format!("Config {} must be a TOML table", path.display()))?;
+    let providers = table
+        .entry("providers".to_string())
+        .or_insert_with(|| Value::Table(Map::new()));
+    let providers_table = providers.as_table_mut().ok_or_else(|| {
+        format!(
+            "Config {} field `providers` must be a table",
+            path.display()
+        )
+    })?;
+    let provider_value = providers_table
+        .entry(provider.to_string())
+        .or_insert_with(|| Value::Table(Map::new()));
+    let provider_table = provider_value.as_table_mut().ok_or_else(|| {
+        format!(
+            "Config {} field `providers.{provider}` must be a table",
+            path.display()
+        )
+    })?;
+
+    if let Some(api_base) = api_base {
+        provider_table.insert("api_base".to_string(), Value::String(api_base));
+    }
+    if let Some(api_key_env) = api_key_env {
+        provider_table.insert("api_key_env".to_string(), Value::String(api_key_env));
+    }
+    if let Some(default_model) = default_model {
+        provider_table.insert("default_model".to_string(), Value::String(default_model));
+    }
+    if let Some(models) = models {
+        provider_table.insert(
+            "models".to_string(),
+            Value::Array(models.into_iter().map(Value::String).collect()),
+        );
+    }
+    if let Some(favorite_models) = favorite_models {
+        provider_table.insert(
+            "favorite_models".to_string(),
+            Value::Array(favorite_models.into_iter().map(Value::String).collect()),
+        );
+    }
+
+    write_config_value(path, &value)
+}
+
+pub fn add_user_provider_model(provider: &str, model: &str) -> Result<PathBuf, String> {
+    let path = std::env::var("ROBOCODE_CONFIG")
+        .ok()
+        .map(PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(default_user_config_path)?;
+    add_user_provider_model_at(&path, provider, model)?;
+    Ok(path)
+}
+
+pub fn add_user_provider_model_at(path: &Path, provider: &str, model: &str) -> Result<(), String> {
+    let mut current = load_provider_ui_config_at(path)?
+        .remove(provider)
+        .unwrap_or_default()
+        .models;
+    push_unique_string(&mut current, model.trim())?;
+    save_user_provider_config_at(
+        path,
+        provider,
+        ProviderConfigUpdate {
+            models: Some(current),
+            ..ProviderConfigUpdate::default()
+        },
+    )
+}
+
+pub fn add_user_provider_favorite_model(provider: &str, model: &str) -> Result<PathBuf, String> {
+    let path = std::env::var("ROBOCODE_CONFIG")
+        .ok()
+        .map(PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(default_user_config_path)?;
+    add_user_provider_favorite_model_at(&path, provider, model)?;
+    Ok(path)
+}
+
+pub fn add_user_provider_favorite_model_at(
+    path: &Path,
+    provider: &str,
+    model: &str,
+) -> Result<(), String> {
+    let mut config = load_provider_ui_config_at(path)?
+        .remove(provider)
+        .unwrap_or_default();
+    push_unique_string(&mut config.models, model.trim())?;
+    move_unique_to_front(&mut config.favorite_models, model.trim())?;
+    save_user_provider_config_at(
+        path,
+        provider,
+        ProviderConfigUpdate {
+            models: Some(config.models),
+            favorite_models: Some(config.favorite_models),
+            ..ProviderConfigUpdate::default()
+        },
+    )
+}
+
+pub fn load_provider_ui_configs(cwd: &Path) -> Result<BTreeMap<String, ProviderUiConfig>, String> {
+    let env_lookup = |key: &str| std::env::var(key).ok();
+    let cli = CliOverrides::default();
+    let mut merged = BTreeMap::new();
+    for path in config_paths(cwd, &cli, &env_lookup)? {
+        merge_provider_ui_configs(&mut merged, load_provider_ui_config_at(&path)?);
+    }
+    Ok(merged)
+}
+
+pub fn load_provider_ui_config_at(
+    path: &Path,
+) -> Result<BTreeMap<String, ProviderUiConfig>, String> {
+    if !path.exists() {
+        return Ok(BTreeMap::new());
+    }
+    let Some(file_config) = read_config_file(path, &|key| std::env::var(key).ok())? else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(file_config
+        .providers
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(provider, config)| {
+            (
+                provider,
+                ProviderUiConfig {
+                    api_base: config.api_base,
+                    api_key_env: config.api_key_env,
+                    default_model: config.default_model,
+                    models: config.models.unwrap_or_default(),
+                    favorite_models: config.favorite_models.unwrap_or_default(),
+                },
+            )
+        })
+        .collect())
+}
+
+fn read_config_value_for_write(path: &Path) -> Result<Value, String> {
+    if !path.exists() {
+        return Ok(Value::Table(Map::new()));
+    }
+    let contents = fs::read_to_string(path)
+        .map_err(|err| format!("Failed to read config {}: {err}", path.display()))?;
+    if contents.trim().is_empty() {
+        Ok(Value::Table(Map::new()))
+    } else {
+        contents
+            .parse::<Value>()
+            .map_err(|err| format!("Failed to parse config {}: {err}", path.display()))
+    }
+}
+
+fn write_config_value(path: &Path, value: &Value) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| format!("Failed to create config dir {}: {err}", parent.display()))?;
     }
-    let contents = toml::to_string_pretty(&value)
+    let contents = toml::to_string_pretty(value)
         .map_err(|err| format!("Failed to serialize config {}: {err}", path.display()))?;
     fs::write(path, contents)
         .map_err(|err| format!("Failed to write config {}: {err}", path.display()))
+}
+
+fn trim_optional(value: Option<String>, field: &str) -> Result<Option<String>, String> {
+    value
+        .map(|value| {
+            let trimmed = value.trim().to_string();
+            if trimmed.is_empty() {
+                Err(format!("{field} cannot be empty."))
+            } else {
+                Ok(trimmed)
+            }
+        })
+        .transpose()
+}
+
+fn trim_optional_list(
+    value: Option<Vec<String>>,
+    field: &str,
+) -> Result<Option<Vec<String>>, String> {
+    value
+        .map(|items| {
+            let mut cleaned = Vec::new();
+            for item in items {
+                let trimmed = item.trim();
+                if trimmed.is_empty() {
+                    return Err(format!("{field} cannot be empty."));
+                }
+                push_unique_string(&mut cleaned, trimmed)?;
+            }
+            Ok(cleaned)
+        })
+        .transpose()
 }
 
 fn load_config_with_env<F>(
@@ -406,6 +645,57 @@ fn merge_provider_scoped_config(
     if incoming.default_model.is_some() {
         entry.default_model = incoming.default_model;
     }
+    if incoming.models.is_some() {
+        entry.models = incoming.models;
+    }
+    if incoming.favorite_models.is_some() {
+        entry.favorite_models = incoming.favorite_models;
+    }
+}
+
+fn merge_provider_ui_configs(
+    target: &mut BTreeMap<String, ProviderUiConfig>,
+    incoming: BTreeMap<String, ProviderUiConfig>,
+) {
+    for (provider, incoming) in incoming {
+        let entry = target.entry(provider).or_default();
+        if incoming.api_base.is_some() {
+            entry.api_base = incoming.api_base;
+        }
+        if incoming.api_key_env.is_some() {
+            entry.api_key_env = incoming.api_key_env;
+        }
+        if incoming.default_model.is_some() {
+            entry.default_model = incoming.default_model;
+        }
+        if !incoming.models.is_empty() {
+            entry.models = incoming.models;
+        }
+        if !incoming.favorite_models.is_empty() {
+            entry.favorite_models = incoming.favorite_models;
+        }
+    }
+}
+
+fn push_unique_string(values: &mut Vec<String>, value: &str) -> Result<(), String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("Model cannot be empty.".to_string());
+    }
+    if !values.iter().any(|existing| existing == value) {
+        values.push(value.to_string());
+    }
+    Ok(())
+}
+
+fn move_unique_to_front(values: &mut Vec<String>, value: &str) -> Result<(), String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("Favorite model cannot be empty.".to_string());
+    }
+    values.retain(|existing| existing != value);
+    values.insert(0, value.to_string());
+    Ok(())
 }
 
 fn provider_alias(provider: &str) -> Option<&'static str> {

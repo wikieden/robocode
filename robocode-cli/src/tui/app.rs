@@ -8,11 +8,11 @@ use crossterm::event::{
 };
 use robocode_core::SessionEngine;
 use robocode_model::ModelRequestControl;
-use robocode_types::PermissionPrompt;
+use robocode_types::{ApprovalResponse, PermissionPrompt};
 
 use super::command_palette::{
     close_on_escape, command_suggestion_index_at, complete_selected, move_selection,
-    reset_for_input_change, select_suggestion_at, should_complete_on_enter,
+    reset_for_input_change, select_suggestion_at, selected_command, should_complete_on_enter,
 };
 use super::input::{close_focus_on_escape, prompt_for_tui_approval, should_exit};
 use super::lane::{handle_tui_command, refresh_lanes};
@@ -108,6 +108,13 @@ pub(crate) fn run_tui_with_theme(
                     body: format!("Switched TUI theme to `{theme_name}`."),
                 });
             }
+            KeyCode::Char('f')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && favorite_selected_model(engine, &mut state)? =>
+            {
+                terminal.draw(&state)?;
+                continue;
+            }
             KeyCode::Up if !move_selection(&mut state, -1) => {
                 continue;
             }
@@ -142,6 +149,49 @@ pub(crate) fn run_tui_with_theme(
     }
 
     terminal.leave()
+}
+
+fn favorite_selected_model(
+    engine: &mut SessionEngine,
+    state: &mut TuiState,
+) -> Result<bool, String> {
+    if !state.input.trim_start().starts_with("/models") {
+        return Ok(false);
+    }
+    let Some(suggestion) = selected_command(state) else {
+        return Ok(false);
+    };
+    let Some((provider_id, model)) = parse_models_command(&suggestion.command) else {
+        return Ok(false);
+    };
+    let command = format!("/settings provider {provider_id} favorite-model {model}");
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let events = engine.process_input_with_approval(&command, &mut approver)?;
+    state.entries.push(TuiEntry {
+        label: "settings".to_string(),
+        body: format!(
+            "Favorited `{model}` for `{provider_id}`. It will appear first in `/models`."
+        ),
+    });
+    state
+        .entries
+        .extend(events.into_iter().map(entry_from_event));
+    state.provider_catalog = provider_catalog(engine);
+    state.command_selection = 0;
+    Ok(true)
+}
+
+fn parse_models_command(command: &str) -> Option<(String, String)> {
+    let mut words = command.split_whitespace();
+    match (words.next(), words.next(), words.next()) {
+        (Some("/models"), Some(provider), Some(model)) => {
+            Some((provider.to_string(), model.to_string()))
+        }
+        _ => None,
+    }
 }
 
 fn handle_mouse(mouse: MouseEvent, state: &mut TuiState) -> bool {
@@ -555,10 +605,32 @@ fn mark_pending_turn_waiting_for_provider(state: &mut TuiState) {
 }
 
 fn provider_catalog(engine: &SessionEngine) -> Vec<ProviderOption> {
+    let ui_config = robocode_config::load_provider_ui_configs(engine.cwd()).unwrap_or_default();
     engine
         .provider_descriptors()
         .iter()
-        .map(ProviderOption::from_descriptor)
+        .map(|descriptor| {
+            let mut option = ProviderOption::from_descriptor(descriptor);
+            if let Some(config) = ui_config.get(&option.provider_id) {
+                if config.api_base.is_some() {
+                    option.default_api_base = config.api_base.clone();
+                }
+                if config.api_key_env.is_some() {
+                    option.api_key_env = config.api_key_env.clone();
+                }
+                if config.default_model.is_some() {
+                    option.default_model = config.default_model.clone();
+                }
+                option.enabled_models = config.models.clone();
+                option.favorite_models = config.favorite_models.clone();
+            }
+            if option.enabled_models.is_empty()
+                && let Some(default_model) = option.default_model.clone()
+            {
+                option.enabled_models.push(default_model);
+            }
+            option
+        })
         .collect()
 }
 

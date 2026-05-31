@@ -8,7 +8,7 @@ use std::{
 };
 
 use robocode_core::{EngineEvent, ProviderTelemetry};
-use robocode_model::ProviderDescriptor;
+use robocode_model::{ProviderAuthMode, ProviderDescriptor};
 use robocode_types::{AgentLaneRecord, AgentNextAction, AgentTaskRecord, MemoryEntry, TaskRecord};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1145,8 +1145,11 @@ pub(super) struct ProviderOption {
     pub(super) display_name: String,
     pub(super) default_api_base: Option<String>,
     pub(super) default_model: Option<String>,
+    pub(super) enabled_models: Vec<String>,
+    pub(super) favorite_models: Vec<String>,
     pub(super) api_key_env: Option<String>,
     pub(super) api_base_env: Option<String>,
+    pub(super) auth_modes: Vec<ProviderAuthMode>,
 }
 
 impl ProviderOption {
@@ -1156,8 +1159,11 @@ impl ProviderOption {
             display_name: descriptor.display_name.clone(),
             default_api_base: descriptor.default_api_base.clone(),
             default_model: descriptor.default_model.clone(),
+            enabled_models: Vec::new(),
+            favorite_models: Vec::new(),
             api_key_env: descriptor.env_mappings.api_key_env.clone(),
             api_base_env: descriptor.env_mappings.api_base_env.clone(),
+            auth_modes: descriptor.auth_modes.clone(),
         }
     }
 
@@ -1168,40 +1174,58 @@ impl ProviderOption {
                 display_name: "Anthropic".to_string(),
                 default_api_base: Some("https://api.anthropic.com".to_string()),
                 default_model: Some("claude-sonnet-4-6".to_string()),
+                enabled_models: vec!["claude-sonnet-4-6".to_string()],
+                favorite_models: Vec::new(),
                 api_key_env: Some("ANTHROPIC_API_KEY".to_string()),
                 api_base_env: Some("ROBOCODE_API_BASE".to_string()),
+                auth_modes: vec![ProviderAuthMode::ApiKey],
             },
             Self {
                 provider_id: "deepseek".to_string(),
                 display_name: "DeepSeek".to_string(),
                 default_api_base: Some("https://api.deepseek.com".to_string()),
                 default_model: Some("deepseek-v4-flash".to_string()),
+                enabled_models: vec![
+                    "deepseek-v4-flash".to_string(),
+                    "deepseek-v4-pro".to_string(),
+                ],
+                favorite_models: vec!["deepseek-v4-pro".to_string()],
                 api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
                 api_base_env: Some("DEEPSEEK_API_BASE".to_string()),
+                auth_modes: vec![ProviderAuthMode::ApiKey],
             },
             Self {
                 provider_id: "openrouter".to_string(),
                 display_name: "OpenRouter".to_string(),
                 default_api_base: Some("https://openrouter.ai/api/v1".to_string()),
                 default_model: None,
+                enabled_models: vec!["deepseek/deepseek-v4-flash".to_string()],
+                favorite_models: Vec::new(),
                 api_key_env: Some("OPENROUTER_API_KEY".to_string()),
                 api_base_env: Some("OPENROUTER_API_BASE".to_string()),
+                auth_modes: vec![ProviderAuthMode::ApiKey],
             },
             Self {
                 provider_id: "fallback".to_string(),
                 display_name: "Fallback".to_string(),
                 default_api_base: None,
                 default_model: Some("fallback-local".to_string()),
+                enabled_models: vec!["fallback-local".to_string(), "test-local".to_string()],
+                favorite_models: Vec::new(),
                 api_key_env: None,
                 api_base_env: None,
+                auth_modes: vec![ProviderAuthMode::Local],
             },
             Self {
                 provider_id: "openai".to_string(),
                 display_name: "OpenAI".to_string(),
                 default_api_base: Some("https://api.openai.com/v1".to_string()),
                 default_model: Some("gpt-5.2".to_string()),
+                enabled_models: vec!["gpt-5.2".to_string()],
+                favorite_models: Vec::new(),
                 api_key_env: Some("OPENAI_API_KEY".to_string()),
                 api_base_env: Some("ROBOCODE_API_BASE".to_string()),
+                auth_modes: vec![ProviderAuthMode::WebLogin, ProviderAuthMode::ApiKey],
             },
         ]
     }

@@ -1,8 +1,21 @@
 use crate::SessionEngine;
-use robocode_model::{ProviderConfig, ProviderDescriptor, ProviderPluginError};
+use robocode_config::ProviderConfigUpdate;
+use robocode_model::{ProviderAuthMode, ProviderConfig, ProviderDescriptor, ProviderPluginError};
 use robocode_types::PermissionMode;
 
 impl SessionEngine {
+    pub(super) fn handle_connect_command(&mut self, args: &[String]) -> Result<String, String> {
+        match args.first().map(String::as_str) {
+            None => Ok(self.render_provider_picker("/connect")),
+            Some(provider_id) if args.len() == 1 => {
+                Ok(self.render_connect_provider_detail(provider_id))
+            }
+            Some(provider_id) => {
+                self.handle_settings_provider(&args_for_provider(provider_id, &args[1..]))
+            }
+        }
+    }
+
     pub(super) fn handle_provider_command(&mut self, args: &[String]) -> Result<String, String> {
         match args.first().map(String::as_str) {
             None => Ok(self.render_provider_picker("/provider")),
@@ -60,7 +73,8 @@ impl SessionEngine {
     pub(super) fn handle_settings_command(&mut self, args: &[String]) -> Result<String, String> {
         match args.first().map(String::as_str) {
             None | Some("show") | Some("help") => Ok(self.render_settings()),
-            Some("provider") | Some("use") => self.use_provider_and_maybe_save(&args[1..], true),
+            Some("provider") => self.handle_settings_provider(&args[1..]),
+            Some("use") => self.use_provider_and_maybe_save(&args[1..], true),
             Some("model") => self.handle_model_command(&args[1..]),
             Some("permissions") | Some("permission") => {
                 self.handle_settings_permissions(&args[1..])
@@ -72,6 +86,77 @@ impl SessionEngine {
                 "Unknown settings subcommand `{subcommand}`.\n\n{}",
                 settings_help()
             )),
+        }
+    }
+
+    fn handle_settings_provider(&mut self, args: &[String]) -> Result<String, String> {
+        let Some(provider_id) = args.first().map(String::as_str) else {
+            return Ok(self.render_provider_picker("/settings provider"));
+        };
+        match args.get(1).map(String::as_str) {
+            Some("endpoint" | "api-base" | "api_base") => {
+                let value = provider_config_value(args, "endpoint")?;
+                self.save_provider_config_update(
+                    provider_id,
+                    ProviderConfigUpdate {
+                        api_base: Some(value.clone()),
+                        ..ProviderConfigUpdate::default()
+                    },
+                    format!("endpoint {value}"),
+                )
+            }
+            Some("key-env" | "api-key-env" | "api_key_env") => {
+                let value = provider_config_value(args, "key-env")?;
+                self.save_provider_config_update(
+                    provider_id,
+                    ProviderConfigUpdate {
+                        api_key_env: Some(value.clone()),
+                        ..ProviderConfigUpdate::default()
+                    },
+                    format!("key env {value}"),
+                )
+            }
+            Some("default-model" | "default_model") => {
+                let value = provider_config_value(args, "default-model")?;
+                self.save_provider_config_update(
+                    provider_id,
+                    ProviderConfigUpdate {
+                        default_model: Some(value.clone()),
+                        ..ProviderConfigUpdate::default()
+                    },
+                    format!("default model {value}"),
+                )
+            }
+            Some("enable-model" | "enable") => {
+                let value = provider_config_value(args, "enable-model")?;
+                self.add_provider_model(provider_id, &value)
+            }
+            Some("favorite-model" | "favorite") => {
+                let value = provider_config_value(args, "favorite-model")?;
+                self.add_provider_favorite_model(provider_id, &value)
+            }
+            Some("models" | "enabled-models" | "enabled_models") => {
+                let values = args
+                    .get(2..)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>();
+                if values.is_empty() {
+                    return Ok(format!(
+                        "Usage: /settings provider {provider_id} models <model> [model...]\nThis controls which models appear in `/models` for this provider."
+                    ));
+                }
+                self.save_provider_config_update(
+                    provider_id,
+                    ProviderConfigUpdate {
+                        models: Some(values.clone()),
+                        ..ProviderConfigUpdate::default()
+                    },
+                    format!("active models {}", values.join(", ")),
+                )
+            }
+            _ => self.use_provider_and_maybe_save(args, true),
         }
     }
 
@@ -312,6 +397,104 @@ impl SessionEngine {
         lines.join("\n")
     }
 
+    fn render_connect_provider_detail(&self, provider_id: &str) -> String {
+        let Some(host) = self.provider_host.as_ref() else {
+            return [
+                "Connect provider:",
+                "  Runtime registry: unavailable",
+                "  Start RoboCode through the CLI to enable provider configuration.",
+            ]
+            .join("\n");
+        };
+        let registry = host.registry();
+        let Some(descriptor) = registry.descriptor(provider_id) else {
+            return format!("Provider `{provider_id}` is not registered.");
+        };
+        let configured = self.provider_ui_config_for(provider_id);
+        let active_models = configured
+            .as_ref()
+            .map(|config| config.models.as_slice())
+            .unwrap_or(&[]);
+        let favorite_models = configured
+            .as_ref()
+            .map(|config| config.favorite_models.as_slice())
+            .unwrap_or(&[]);
+        let endpoint = configured
+            .as_ref()
+            .and_then(|config| config.api_base.as_deref())
+            .or(descriptor.default_api_base.as_deref())
+            .unwrap_or("<provider built-in>");
+        let key_env = configured
+            .as_ref()
+            .and_then(|config| config.api_key_env.as_deref())
+            .or(descriptor.env_mappings.api_key_env.as_deref())
+            .unwrap_or("<not required>");
+        let default_model = configured
+            .as_ref()
+            .and_then(|config| config.default_model.as_deref())
+            .or(descriptor.default_model.as_deref())
+            .unwrap_or("<choose one>");
+        let active_models_label = if active_models.is_empty() {
+            "<none yet>".to_string()
+        } else {
+            active_models.join(", ")
+        };
+        let favorite_models_label = if favorite_models.is_empty() {
+            "<none yet>".to_string()
+        } else {
+            favorite_models.join(", ")
+        };
+        let candidates = descriptor_model_candidates(
+            descriptor,
+            self.provider.provider_name(),
+            self.provider.model(),
+        );
+        let mut lines = vec![
+            format!(
+                "Connect provider: {provider_id} / {}",
+                descriptor.display_name
+            ),
+            format!("  auth: {}", descriptor_auth_detail(descriptor)),
+            format!("  key env: {key_env} ({})", key_env_status(key_env)),
+            format!("  endpoint: {endpoint}"),
+            format!("  default model: {default_model}"),
+            format!("  active in /models: {active_models_label}"),
+            format!("  favorites: {favorite_models_label}"),
+            "".to_string(),
+            "Configure:".to_string(),
+            format!("  /settings provider {provider_id} key-env <ENV_NAME>"),
+            format!("  /settings provider {provider_id} endpoint <URL>"),
+            format!("  /settings provider {provider_id} default-model <MODEL>"),
+            format!("  /settings provider {provider_id} enable-model <MODEL>"),
+            format!("  /settings provider {provider_id} favorite-model <MODEL>"),
+            format!("  /settings provider {provider_id} models <MODEL> [MODEL...]"),
+            "".to_string(),
+            "Suggested models:".to_string(),
+        ];
+        if candidates.is_empty() {
+            lines.push(format!(
+                "  - Free-type one: /settings provider {provider_id} enable-model <model>"
+            ));
+        } else {
+            lines.extend(candidates.iter().map(|model| {
+                let marker = if active_models.iter().any(|active| active == model) {
+                    "*"
+                } else {
+                    " "
+                };
+                format!(
+                    "  {marker} {model:<32} /settings provider {provider_id} enable-model {model}"
+                )
+            }));
+        }
+        lines.push("".to_string());
+        lines.push(
+            "After configuration, open `/models` to pick only the active models for configured providers."
+                .to_string(),
+        );
+        lines.join("\n")
+    }
+
     fn render_models_picker(&self) -> String {
         let current_provider = self.provider.provider_name();
         let current_model = self.provider.model();
@@ -517,6 +700,68 @@ impl SessionEngine {
         ))
     }
 
+    fn save_provider_config_update(
+        &self,
+        provider_id: &str,
+        update: ProviderConfigUpdate,
+        summary: String,
+    ) -> Result<String, String> {
+        let path = if let Some(path) = &self.user_config_path_override {
+            robocode_config::save_user_provider_config_at(path, provider_id, update)?;
+            path.clone()
+        } else {
+            robocode_config::save_user_provider_config(provider_id, update)?
+        };
+        Ok(format!(
+            "Saved provider config: {provider_id} {summary}\nUser config: {}\nUse `/settings provider {provider_id}` to switch to this provider, `/models` to choose a model, or `/provider doctor {provider_id}` to verify env and endpoint readiness.",
+            path.display()
+        ))
+    }
+
+    fn add_provider_model(&self, provider_id: &str, model: &str) -> Result<String, String> {
+        let path = if let Some(path) = &self.user_config_path_override {
+            robocode_config::add_user_provider_model_at(path, provider_id, model)?;
+            path.clone()
+        } else {
+            robocode_config::add_user_provider_model(provider_id, model)?
+        };
+        Ok(format!(
+            "Enabled model for /models: {provider_id} / {model}\nUser config: {}\nNext: set default with `/settings provider {provider_id} default-model {model}` or choose it from `/models`.",
+            path.display()
+        ))
+    }
+
+    fn add_provider_favorite_model(
+        &self,
+        provider_id: &str,
+        model: &str,
+    ) -> Result<String, String> {
+        let path = if let Some(path) = &self.user_config_path_override {
+            robocode_config::add_user_provider_favorite_model_at(path, provider_id, model)?;
+            path.clone()
+        } else {
+            robocode_config::add_user_provider_favorite_model(provider_id, model)?
+        };
+        Ok(format!(
+            "Favorited model for /models: {provider_id} / {model}\nUser config: {}\nThis model now appears first in the Favorites section without duplicating in provider groups.",
+            path.display()
+        ))
+    }
+
+    fn provider_ui_config_for(
+        &self,
+        provider_id: &str,
+    ) -> Option<robocode_config::ProviderUiConfig> {
+        if let Some(path) = &self.user_config_path_override {
+            return robocode_config::load_provider_ui_config_at(path)
+                .ok()
+                .and_then(|mut configs| configs.remove(provider_id));
+        }
+        robocode_config::load_provider_ui_configs(&self.cwd)
+            .ok()
+            .and_then(|mut configs| configs.remove(provider_id))
+    }
+
     fn current_provider_key_status(&self) -> String {
         if self.provider.provider_name() == "fallback" {
             return "not required".to_string();
@@ -596,12 +841,20 @@ impl SessionEngine {
     }
 }
 
+fn args_for_provider(provider_id: &str, rest: &[String]) -> Vec<String> {
+    let mut args = Vec::with_capacity(rest.len() + 1);
+    args.push(provider_id.to_string());
+    args.extend(rest.iter().cloned());
+    args
+}
+
 fn render_provider_descriptor(descriptor: &ProviderDescriptor) -> String {
     format!(
-        "  - {} ({}) family={:?} default_model={} streaming={} tools={} compat={}",
+        "  - {} ({}) family={:?} auth={} default_model={} streaming={} tools={} compat={}",
         descriptor.provider_id,
         descriptor.display_name,
         descriptor.protocol_family,
+        descriptor_auth_detail(descriptor),
         descriptor.default_model.as_deref().unwrap_or("<none>"),
         descriptor.capabilities.supports_streaming,
         descriptor.capabilities.supports_native_tool_calling,
@@ -689,6 +942,36 @@ fn render_env_status(env_name: Option<&str>) -> String {
         Some(name) => format!("{name}(missing)"),
         None => "<none>".to_string(),
     }
+}
+
+fn key_env_status(env_name: &str) -> String {
+    if env_name == "<not required>" {
+        return "not required".to_string();
+    }
+    if std::env::var_os(env_name).is_some() {
+        "present".to_string()
+    } else {
+        "missing".to_string()
+    }
+}
+
+fn descriptor_auth_detail(descriptor: &ProviderDescriptor) -> String {
+    if descriptor.auth_modes.is_empty() {
+        if descriptor.env_mappings.api_key_env.is_some() {
+            return "API key".to_string();
+        }
+        return "local / no key".to_string();
+    }
+    descriptor
+        .auth_modes
+        .iter()
+        .map(|mode| match mode {
+            ProviderAuthMode::ApiKey => "API key",
+            ProviderAuthMode::WebLogin => "web login",
+            ProviderAuthMode::Local => "local / no key",
+        })
+        .collect::<Vec<_>>()
+        .join(" or ")
 }
 
 fn descriptor_key_status(descriptor: &ProviderDescriptor) -> String {
@@ -865,6 +1148,7 @@ fn format_provider_plugin_error(err: &ProviderPluginError) -> String {
 fn provider_help() -> String {
     [
         "Provider commands:",
+        "  /connect           Open the provider connection picker",
         "  /provider          Show provider configuration, keys, endpoints, and models",
         "  /provider <id> [model]",
         "                     Switch provider/model and save defaults",
@@ -875,6 +1159,18 @@ fn provider_help() -> String {
         "  /provider use <id> [model]",
         "                     Legacy session-only switch; use /provider <id> to save",
         "  /models            Choose model across provider groups",
+        "  /settings provider <id> endpoint <url>",
+        "                     Save provider endpoint",
+        "  /settings provider <id> key-env <ENV_NAME>",
+        "                     Save provider key env source",
+        "  /settings provider <id> default-model <model>",
+        "                     Save provider-scoped default model",
+        "  /settings provider <id> enable-model <model>",
+        "                     Add a model to the /models picker for this provider",
+        "  /settings provider <id> favorite-model <model>",
+        "                     Pin a provider/model pair to the top of /models",
+        "  /settings provider <id> models <model> [model...]",
+        "                     Replace the provider's active /models list",
     ]
     .join("\n")
 }
@@ -883,11 +1179,18 @@ fn settings_help() -> String {
     [
         "Settings commands:",
         "  /settings                  Show provider/model setup status",
+        "  /connect                   Open the provider connection picker",
         "  /provider <id> [model]     Switch provider/model and save defaults",
         "  /model <model>             Switch model and save defaults",
         "  /models                    Show model choices grouped by provider",
         "  /settings provider <id> [model]",
         "                             Switch provider/model and save defaults",
+        "  /settings provider <id> endpoint <url>",
+        "                             Save provider API endpoint",
+        "  /settings provider <id> key-env <ENV_NAME>",
+        "                             Save provider API key environment variable",
+        "  /settings provider <id> default-model <model>",
+        "                             Save provider-scoped default model",
         "  /settings model <model>    Switch current model and save defaults",
         "  /settings save             Save current provider/model as defaults",
         "  /setup                     Interactive provider/model setup guide",
@@ -895,6 +1198,15 @@ fn settings_help() -> String {
         "                             Switch provider/model and save defaults",
     ]
     .join("\n")
+}
+
+fn provider_config_value(args: &[String], field: &str) -> Result<String, String> {
+    let value = args
+        .get(2)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("Usage: /settings provider <id> {field} <value>"))?;
+    Ok(value.to_string())
 }
 
 #[cfg(test)]

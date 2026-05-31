@@ -1,5 +1,5 @@
 use std::cell::{Cell, RefCell};
-use std::path::Path;
+use std::{fs, path::Path};
 
 use crate::{DependencyStatus, DoctorReport, EngineEvent, SessionEngine};
 use robocode_model::ProviderHost;
@@ -779,6 +779,63 @@ fn setup_provider_switches_and_saves_like_settings() {
 }
 
 #[test]
+fn settings_provider_can_save_provider_scoped_config() {
+    let home = temp_dir("settings_provider_config_home");
+    let cwd = temp_dir("settings_provider_config_cwd");
+    let config_path = cwd.join("user-config.toml");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_user_config_path_override(config_path.clone());
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let endpoint = engine
+        .process_input_with_approval(
+            "/settings provider deepseek endpoint https://api.deepseek.com",
+            &mut approver,
+        )
+        .unwrap();
+    let key_env = engine
+        .process_input_with_approval(
+            "/settings provider deepseek key-env DEEPSEEK_API_KEY",
+            &mut approver,
+        )
+        .unwrap();
+    let model = engine
+        .process_input_with_approval(
+            "/settings provider deepseek default-model deepseek-v4-pro",
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(endpoint.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Saved provider config: deepseek endpoint https://api.deepseek.com")
+    )));
+    assert!(key_env.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Saved provider config: deepseek key env DEEPSEEK_API_KEY")
+    )));
+    assert!(model.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Saved provider config: deepseek default model deepseek-v4-pro")
+    )));
+
+    let contents = std::fs::read_to_string(config_path).unwrap();
+    assert!(contents.contains("[providers.deepseek]"));
+    assert!(contents.contains(r#"api_base = "https://api.deepseek.com""#));
+    assert!(contents.contains(r#"api_key_env = "DEEPSEEK_API_KEY""#));
+    assert!(contents.contains(r#"default_model = "deepseek-v4-pro""#));
+    assert!(!contents.contains("api_key ="));
+}
+
+#[test]
 fn provider_direct_switches_and_saves_defaults() {
     let home = temp_dir("provider_direct_home");
     let cwd = temp_dir("provider_direct_cwd");
@@ -883,6 +940,120 @@ fn models_without_args_groups_choices_by_provider() {
                 && text.contains("Kimi (kimi)")
                 && text.contains("/settings provider kimi kimi-k2.6")
                 && !text.contains("<free-type>")
+    )));
+}
+
+#[test]
+fn connect_without_args_opens_provider_connection_picker() {
+    let home = temp_dir("connect_picker_home");
+    let cwd = temp_dir("connect_picker_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/connect", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Provider configuration:")
+                && text.contains("select default: /connect deepseek")
+                && text.contains("Use `/models` to choose a model across providers.")
+    )));
+}
+
+#[test]
+fn connect_provider_detail_reports_auth_mode() {
+    let home = temp_dir("connect_auth_mode_home");
+    let cwd = temp_dir("connect_auth_mode_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/connect openai", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Connect provider: openai / OpenAI")
+                && text.contains("auth: web login or API key")
+                && text.contains("key env: OPENAI_API_KEY")
+    )));
+}
+
+#[test]
+fn settings_provider_enable_model_writes_active_model_list() {
+    let home = temp_dir("provider_enable_model_home");
+    let cwd = temp_dir("provider_enable_model_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let config_path = cwd.join("user-config.toml");
+    engine.set_user_config_path_override(config_path.clone());
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval(
+            "/settings provider deepseek enable-model deepseek-v4-pro",
+            &mut approver,
+        )
+        .unwrap();
+
+    let contents = fs::read_to_string(config_path).unwrap();
+    assert!(contents.contains("[providers.deepseek]"));
+    assert!(contents.contains(r#"models = ["deepseek-v4-pro"]"#));
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Enabled model for /models: deepseek / deepseek-v4-pro")
+    )));
+}
+
+#[test]
+fn settings_provider_favorite_model_writes_favorite_and_active_model() {
+    let home = temp_dir("provider_favorite_model_home");
+    let cwd = temp_dir("provider_favorite_model_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let config_path = cwd.join("user-config.toml");
+    engine.set_user_config_path_override(config_path.clone());
+    engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval(
+            "/settings provider deepseek favorite-model deepseek-v4-pro",
+            &mut approver,
+        )
+        .unwrap();
+
+    let contents = fs::read_to_string(config_path).unwrap();
+    assert!(contents.contains("[providers.deepseek]"));
+    assert!(contents.contains(r#"models = ["deepseek-v4-pro"]"#));
+    assert!(contents.contains(r#"favorite_models = ["deepseek-v4-pro"]"#));
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Favorited model for /models: deepseek / deepseek-v4-pro")
+                && text.contains("without duplicating in provider groups")
     )));
 }
 

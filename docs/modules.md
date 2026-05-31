@@ -33,22 +33,25 @@ Mainline landed:
 
 Current published release:
 
-- `docs/release-0.1.19-status.md` records the tagged, published,
-  Homebrew-updated, and post-publish-verified Delegated Lane Usefulness release.
-- `0.1.19` separates provider configuration from model selection: `/provider`
-  inspects supplier credentials/endpoints/model candidates, while `/models`
-  selects provider-grouped models.
-- release validation now includes daily-loop and lane operator-loop smoke as
+- `docs/release-0.1.23-status.md` records the provider/model setup patch:
+  opencode-style `/connect` supplier selection, `/models` Favorites and Recent,
+  provider-grouped active model rows, auth-mode metadata, GitHub Release,
+  Homebrew tap, and post-publish smoke.
+- `0.1.23` keeps provider connection and model selection separate: `/connect`
+  configures the supplier, while `/models` switches provider/model pairs from
+  Favorites, Recent, and provider groups without duplicating favorite rows.
+- release validation includes daily-loop, lane operator-loop, local package,
+  deterministic TUI screenshots, GitHub release assets, and Homebrew checks as
   normal gates.
 
 Next planned slice:
 
-- `0.1.22` is a provider-detail usability patch on top of the usability beta
-  gate: masked API-key display and concise current-value action rows.
+- turn provider/detail pages into true focused editable forms for key source,
+  endpoint, default model, connection test, save, and cancel.
+- continue tightening first-run setup so API-key, web-login, and local-provider
+  flows each expose the right action instead of a generic status page.
 - keep every user-visible feature point backed by a real-use screenshot or
   deterministic visual artifact for product review.
-- next, turn provider/detail pages into true editable forms for key source,
-  endpoint, default model, connection test, save, and cancel.
 
 ## Gap vs `.ref/claude-code-main`
 

@@ -4638,7 +4638,7 @@ mod tests {
     fn init_git_repo(root: &Path) {
         fs::create_dir_all(root).expect("repo root");
         assert!(
-            Command::new("git")
+            Command::new(test_git_binary())
                 .arg("init")
                 .current_dir(root)
                 .status()
@@ -4647,7 +4647,7 @@ mod tests {
         );
         fs::write(root.join("README.md"), "fixture\n").expect("fixture file");
         assert!(
-            Command::new("git")
+            Command::new(test_git_binary())
                 .arg("add")
                 .arg("README.md")
                 .current_dir(root)
@@ -4656,7 +4656,7 @@ mod tests {
                 .success()
         );
         assert!(
-            Command::new("git")
+            Command::new(test_git_binary())
                 .args(["-c", "user.email=robot@example.invalid"])
                 .args(["-c", "user.name=RoboCode Test"])
                 .args(["commit", "-m", "initial"])
@@ -4665,6 +4665,17 @@ mod tests {
                 .expect("git commit")
                 .success()
         );
+    }
+
+    fn test_git_binary() -> &'static str {
+        // Some lane tests intentionally clear PATH to exercise missing-binary
+        // diagnostics. Use the normal system git path so parallel tests do not
+        // make repository fixtures flaky.
+        if Path::new("/usr/bin/git").is_file() {
+            "/usr/bin/git"
+        } else {
+            "git"
+        }
     }
 
     struct ScopedEnv {

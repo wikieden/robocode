@@ -212,6 +212,124 @@ api_base = "https://api.deepseek.example"
 }
 
 #[test]
+fn save_user_provider_config_updates_scoped_provider_fields() {
+    let root = std::env::temp_dir().join(format!(
+        "robocode_save_provider_config_{}",
+        std::process::id()
+    ));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        &path,
+        r#"
+provider = "deepseek"
+permission_mode = "plan"
+
+[providers.deepseek]
+api_base = "https://old.example"
+"#,
+    )
+    .unwrap();
+
+    save_user_provider_config_at(
+        &path,
+        "deepseek",
+        ProviderConfigUpdate {
+            api_base: Some("https://api.deepseek.com".to_string()),
+            api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
+            default_model: Some("deepseek-v4-pro".to_string()),
+            models: None,
+            favorite_models: None,
+        },
+    )
+    .unwrap();
+
+    let contents = fs::read_to_string(&path).unwrap();
+    assert!(contents.contains(r#"provider = "deepseek""#));
+    assert!(contents.contains(r#"permission_mode = "plan""#));
+    assert!(contents.contains("[providers.deepseek]"));
+    assert!(contents.contains(r#"api_base = "https://api.deepseek.com""#));
+    assert!(contents.contains(r#"api_key_env = "DEEPSEEK_API_KEY""#));
+    assert!(contents.contains(r#"default_model = "deepseek-v4-pro""#));
+    assert!(!contents.contains("api_key ="));
+
+    let cli = CliOverrides {
+        config_path: Some(path),
+        provider: Some("deepseek".to_string()),
+        model: None,
+        ..CliOverrides::default()
+    };
+    let env_map = map_env(&[("DEEPSEEK_API_KEY", "deepseek-provider-key")]);
+    let config = load_config_with_env(&root, &cli, &|key| env_map.get(key).cloned()).unwrap();
+
+    assert_eq!(config.api_base.as_deref(), Some("https://api.deepseek.com"));
+    assert_eq!(config.api_key.as_deref(), Some("deepseek-provider-key"));
+    assert_eq!(config.model.as_deref(), Some("deepseek-v4-pro"));
+}
+
+#[test]
+fn save_user_provider_config_rejects_empty_updates() {
+    let root = std::env::temp_dir().join(format!(
+        "robocode_save_provider_config_empty_{}",
+        std::process::id()
+    ));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+
+    let err = save_user_provider_config_at(
+        &path,
+        "deepseek",
+        ProviderConfigUpdate {
+            api_base: Some(" ".to_string()),
+            ..ProviderConfigUpdate::default()
+        },
+    )
+    .unwrap_err();
+
+    assert!(err.contains("API base cannot be empty"));
+}
+
+#[test]
+fn add_user_provider_favorite_model_moves_unique_model_to_front() {
+    let root = std::env::temp_dir().join(format!(
+        "robocode_favorite_provider_model_{}",
+        std::process::id()
+    ));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        &path,
+        r#"
+[providers.deepseek]
+models = ["deepseek-v4-flash", "deepseek-v4-pro"]
+favorite_models = ["deepseek-v4-flash"]
+"#,
+    )
+    .unwrap();
+
+    add_user_provider_favorite_model_at(&path, "deepseek", "deepseek-v4-pro").unwrap();
+
+    let config = load_provider_ui_config_at(&path).unwrap();
+    let deepseek = config.get("deepseek").unwrap();
+    assert_eq!(
+        deepseek.models,
+        vec![
+            "deepseek-v4-flash".to_string(),
+            "deepseek-v4-pro".to_string()
+        ]
+    );
+    assert_eq!(
+        deepseek.favorite_models,
+        vec![
+            "deepseek-v4-pro".to_string(),
+            "deepseek-v4-flash".to_string()
+        ]
+    );
+}
+
+#[test]
 fn deepseek_provider_scoped_config_from_global_applies_after_project_provider_selection() {
     let root =
         std::env::temp_dir().join(format!("robocode_deepseek_global_{}", std::process::id()));

@@ -14,6 +14,7 @@ impl SessionEngine {
             "",
             "Runtime:",
             "  /help                Show available commands",
+            "  /connect             Connect or configure a provider",
             "  /provider            Show current provider and model",
             "  /provider list       List registered providers",
             "  /provider doctor     Show provider registry diagnostics",

@@ -36,7 +36,7 @@ robocode-cli --provider fallback --model test-local
 ```text
 /setup
 /setup provider
-/provider deepseek
+/connect
 /models
 ```
 
@@ -112,17 +112,27 @@ max_retries = 2
 [providers.deepseek]
 api_base = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
+default_model = "deepseek-v4-flash"
+models = ["deepseek-v4-flash", "deepseek-v4-pro"]
+favorite_models = ["deepseek-v4-pro"]
 ```
 
-TUI 设置命令是选择器优先：`/setup` 会打开首次使用向导，里面有 provider 配置、model 选择、权限模式、主题、doctor 检查、fallback smoke 和保存默认值这些可执行步骤；`/settings`、`/provider`、`/models`、`/permissions`、`/theme` 都会渲染可选择面板，而不是只显示状态。它们只会持久化 provider/model 默认值和 permission mode 变更。API key 仍放在环境变量或手工维护的配置字段里。`/provider` 用来查看和配置供应商：第一页只列供应商 id，例如 `deepseek`、`openrouter`，不把 key、endpoint、model 解释混进供应商列表；选中后进入 `PROVIDER CONFIG` 二级页，再展示脱敏后的 API key、endpoint 来源、诊断入口、保存默认值动作和该供应商已知/默认模型；`/models` 用来按供应商分组选择模型，选中一行可以同时切换 provider 和 model；`/model <model>` 只用于当前 provider 内快速切换模型。Provider 失败会被分类为 missing key、auth、rate limit、timeout、context overflow、compatibility 或 model unavailable 等 recovery class，并给出打开 doctor、切换 model/provider、稍后重试或使用 fallback 的具体命令。
+TUI 设置命令是选择器优先：`/setup` 会打开首次使用向导，里面有 provider 配置、model 选择、权限模式、主题、doctor 检查、fallback smoke 和保存默认值这些可执行步骤；`/settings`、`/connect`、`/provider`、`/models`、`/permissions`、`/theme` 都会渲染可选择面板，而不是只显示状态。它们只会持久化 provider/model 默认值和 permission mode 变更。API key 仍放在环境变量或手工维护的配置字段里。`/connect` 用来连接和配置供应商：第一页按 Popular/Providers 只列供应商名称，例如 DeepSeek、OpenRouter，不把 key、endpoint、model 解释混进供应商列表；选中后进入 `PROVIDER CONFIG` 二级页，再展示 auth mode、脱敏后的 API key、endpoint 来源、诊断入口、保存默认值动作和该供应商已知/默认模型。Provider descriptor 现在会区分 API-key provider、支持网页登录的 provider 和本地/no-key provider，因此 OpenAI 可以展示网页登录或 API key 的设置路径，DeepSeek/OpenRouter 仍是 API key 流程，Ollama/Fallback 仍是本地免 key 流程。Provider detail 的 edit rows 会把 composer 补成 `/settings provider <provider-id> key-env ...`、`/settings provider <provider-id> endpoint ...` 或 `/settings provider <provider-id> default-model ...`；模型行会补成 `/settings provider <provider-id> enable-model <model>`，用于把模型激活到 `/models`；`/settings provider <provider-id> models ...` 会替换该供应商的 active model 列表，`/settings provider <provider-id> favorite-model <model>` 会把某个 provider/model 组合置顶到 Favorites。提交值后会写入 `[providers.<provider-id>]`，但不会持久化明文 API key。`/models` 用来按 opencode 风格选择模型，顶部先显示 Favorites，再显示当前 Recent，下面只按已配置供应商分组显示已激活模型；收藏模型不会在后面的 provider 分组重复出现，`Ctrl-F` 可以收藏当前选中的模型行，选中一行可以同时切换 provider 和 model；`/model <model>` 只用于当前 provider 内快速切换模型。Provider 失败会被分类为 missing key、auth、rate limit、timeout、context overflow、compatibility 或 model unavailable 等 recovery class，并给出打开 doctor、切换 model/provider、稍后重试或使用 fallback 的具体命令。
 
 ```text
 /settings
 /setup
+/connect
 /provider
 /model <model>
 /models
 /settings provider <provider-id> [model]
+/settings provider <provider-id> key-env <ENV_NAME>
+/settings provider <provider-id> endpoint <url>
+/settings provider <provider-id> default-model <model>
+/settings provider <provider-id> enable-model <model>
+/settings provider <provider-id> favorite-model <model>
+/settings provider <provider-id> models <model> [model...]
 /settings permissions <mode>
 /settings theme <name>
 /settings save
@@ -164,6 +174,7 @@ Provider commands：
 
 ```text
 /provider
+/connect
 /provider <provider-id> [model]
 /provider list
 /provider doctor [provider-id]

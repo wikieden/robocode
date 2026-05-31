@@ -1,7 +1,7 @@
 use crate::config::ProviderKind;
 use crate::descriptor::{
-    ProtocolFamily, ProviderCapabilities, ProviderCompatibility, ProviderDescriptor,
-    ProviderEnvMappings,
+    ProtocolFamily, ProviderAuthMode, ProviderCapabilities, ProviderCompatibility,
+    ProviderDescriptor, ProviderEnvMappings,
 };
 use crate::http::{
     ANTHROPIC_API_BASE, DEEPSEEK_ANTHROPIC_API_BASE, DEEPSEEK_API_BASE, GROQ_API_BASE,
@@ -21,6 +21,7 @@ struct BuiltinProviderMetadata {
     api_base_env: Option<&'static str>,
     supports_streaming: bool,
     supports_native_tool_calling: bool,
+    auth_modes: &'static [ProviderAuthMode],
 }
 
 const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
@@ -35,6 +36,7 @@ const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
         api_base_env: Some("ROBOCODE_API_BASE"),
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
     BuiltinProviderMetadata {
         kind: ProviderKind::OpenAi,
@@ -47,6 +49,7 @@ const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
         api_base_env: Some("ROBOCODE_API_BASE"),
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::WebLogin, ProviderAuthMode::ApiKey],
     },
     BuiltinProviderMetadata {
         kind: ProviderKind::OpenAiCompatible,
@@ -59,6 +62,7 @@ const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
         api_base_env: Some("ROBOCODE_API_BASE"),
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
     BuiltinProviderMetadata {
         kind: ProviderKind::DeepSeek,
@@ -71,6 +75,7 @@ const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
         api_base_env: Some("DEEPSEEK_API_BASE"),
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
     BuiltinProviderMetadata {
         kind: ProviderKind::DeepSeekAnthropic,
@@ -83,6 +88,7 @@ const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
         api_base_env: Some("DEEPSEEK_API_BASE"),
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
     BuiltinProviderMetadata {
         kind: ProviderKind::Ollama,
@@ -95,6 +101,7 @@ const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
         api_base_env: Some("ROBOCODE_API_BASE"),
         supports_streaming: false,
         supports_native_tool_calling: false,
+        auth_modes: &[ProviderAuthMode::Local],
     },
     BuiltinProviderMetadata {
         kind: ProviderKind::Fallback,
@@ -107,6 +114,7 @@ const BUILTIN_PROVIDER_METADATA: &[BuiltinProviderMetadata] = &[
         api_base_env: None,
         supports_streaming: false,
         supports_native_tool_calling: false,
+        auth_modes: &[ProviderAuthMode::Local],
     },
 ];
 
@@ -120,6 +128,7 @@ struct BuiltinGatewayMetadata {
     api_base_env: &'static str,
     supports_streaming: bool,
     supports_native_tool_calling: bool,
+    auth_modes: &'static [ProviderAuthMode],
 }
 
 const BUILTIN_GATEWAY_METADATA: &[BuiltinGatewayMetadata] = &[
@@ -132,6 +141,7 @@ const BUILTIN_GATEWAY_METADATA: &[BuiltinGatewayMetadata] = &[
         api_base_env: "OPENROUTER_API_BASE",
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
     BuiltinGatewayMetadata {
         provider_id: "groq",
@@ -142,6 +152,7 @@ const BUILTIN_GATEWAY_METADATA: &[BuiltinGatewayMetadata] = &[
         api_base_env: "GROQ_API_BASE",
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
     BuiltinGatewayMetadata {
         provider_id: "mistral",
@@ -152,6 +163,7 @@ const BUILTIN_GATEWAY_METADATA: &[BuiltinGatewayMetadata] = &[
         api_base_env: "MISTRAL_API_BASE",
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
     BuiltinGatewayMetadata {
         provider_id: "together",
@@ -162,6 +174,7 @@ const BUILTIN_GATEWAY_METADATA: &[BuiltinGatewayMetadata] = &[
         api_base_env: "TOGETHER_API_BASE",
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
     BuiltinGatewayMetadata {
         provider_id: "kimi",
@@ -172,6 +185,7 @@ const BUILTIN_GATEWAY_METADATA: &[BuiltinGatewayMetadata] = &[
         api_base_env: "MOONSHOT_API_BASE",
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
     BuiltinGatewayMetadata {
         provider_id: "qwen",
@@ -182,6 +196,7 @@ const BUILTIN_GATEWAY_METADATA: &[BuiltinGatewayMetadata] = &[
         api_base_env: "DASHSCOPE_API_BASE",
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
     BuiltinGatewayMetadata {
         provider_id: "zhipu",
@@ -192,6 +207,7 @@ const BUILTIN_GATEWAY_METADATA: &[BuiltinGatewayMetadata] = &[
         api_base_env: "ZHIPU_API_BASE",
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
     BuiltinGatewayMetadata {
         provider_id: "volcengine",
@@ -202,6 +218,7 @@ const BUILTIN_GATEWAY_METADATA: &[BuiltinGatewayMetadata] = &[
         api_base_env: "ARK_API_BASE",
         supports_streaming: true,
         supports_native_tool_calling: true,
+        auth_modes: &[ProviderAuthMode::ApiKey],
     },
 ];
 
@@ -270,6 +287,7 @@ pub(crate) fn builtin_provider_descriptors() -> Vec<ProviderDescriptor> {
                 supports_native_tool_calling: metadata.supports_native_tool_calling,
             },
             compatibility: builtin_provider_compatibility(metadata.kind),
+            auth_modes: metadata.auth_modes.to_vec(),
             config_schema_version: 1,
         })
         .collect::<Vec<_>>();
@@ -292,6 +310,7 @@ pub(crate) fn builtin_provider_descriptors() -> Vec<ProviderDescriptor> {
                     supports_native_tool_calling: metadata.supports_native_tool_calling,
                 },
                 compatibility: ProviderCompatibility::default(),
+                auth_modes: metadata.auth_modes.to_vec(),
                 config_schema_version: 1,
             }),
     );
