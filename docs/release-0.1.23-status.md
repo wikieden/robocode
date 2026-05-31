@@ -10,12 +10,13 @@ without treating every provider as API-key-only.
 ## Release State
 
 - Workspace version: `0.1.23`
-- Release commit: pending final publish
+- Release commit: `ec608e62d94bde511f2c25b6a1322baa873c7b76`
 - Git tag: `v0.1.23`
 - GitHub release:
   `https://github.com/wikieden/robocode/releases/tag/v0.1.23`
-- Release workflow: pending final publish
-- Homebrew tap commit: pending final publish
+- Release workflow:
+  `https://github.com/wikieden/robocode/actions/runs/26711635516`
+- Homebrew tap commit: `wikieden/homebrew-tap@708cef1`
 - Local package: `dist/robocode-v0.1.23-aarch64-apple-darwin.tar.gz`
 - Local package sha256:
   `5c20394e27a68187ebfe095d9a5afb6e80e562c9fa7f7d577aa125b41f77ed61`
@@ -75,6 +76,18 @@ scripts/release-smoke.sh --version 0.1.23 --quick \
   --github-release-assets --homebrew --skip-package \
   --out-dir /tmp/robocode-0123-postpublish-check
 ```
+
+Result: passed. The smoke validated published GitHub release assets and the
+Homebrew formula at `/tmp/robocode-0123-postpublish-check`.
+
+Homebrew tap checks:
+
+```bash
+HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/robocode
+HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/robocode
+```
+
+Result: passed before pushing `wikieden/homebrew-tap@708cef1`.
 
 ## Screenshot Evidence
 

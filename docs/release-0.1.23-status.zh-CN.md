@@ -9,12 +9,13 @@
 ## 发布状态
 
 - Workspace version：`0.1.23`
-- Release commit：等待最终发布
+- Release commit：`ec608e62d94bde511f2c25b6a1322baa873c7b76`
 - Git tag：`v0.1.23`
 - GitHub release：
   `https://github.com/wikieden/robocode/releases/tag/v0.1.23`
-- Release workflow：等待最终发布
-- Homebrew tap commit：等待最终发布
+- Release workflow：
+  `https://github.com/wikieden/robocode/actions/runs/26711635516`
+- Homebrew tap commit：`wikieden/homebrew-tap@708cef1`
 - 本地 package：`dist/robocode-v0.1.23-aarch64-apple-darwin.tar.gz`
 - 本地 package sha256：
   `5c20394e27a68187ebfe095d9a5afb6e80e562c9fa7f7d577aa125b41f77ed61`
@@ -68,6 +69,18 @@ scripts/release-smoke.sh --version 0.1.23 --quick \
   --github-release-assets --homebrew --skip-package \
   --out-dir /tmp/robocode-0123-postpublish-check
 ```
+
+结果：通过。该 smoke 已验证发布后的 GitHub release assets 和 Homebrew formula，
+证据目录为 `/tmp/robocode-0123-postpublish-check`。
+
+Homebrew tap 检查：
+
+```bash
+HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/robocode
+HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/robocode
+```
+
+结果：通过，并已推送 `wikieden/homebrew-tap@708cef1`。
 
 ## 截图证据
 
