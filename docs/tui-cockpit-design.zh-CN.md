@@ -80,7 +80,7 @@
 - provider 和 model selector 的语义必须分开：`/provider` 是供应商配置界面，
   一级列表只展示供应商 id，例如 `deepseek`、`openrouter`，不要在供应商行里混入
   key、endpoint、model 解释；选中供应商后进入二级 `PROVIDER CONFIG` 页面，再展示
-  API key 环境变量状态、endpoint 来源、已知/默认模型候选、诊断、保存默认值和当前会话切换动作。
+  脱敏后的 API key、endpoint 来源、已知/默认模型候选、诊断、保存默认值和当前会话切换动作。
   默认动作应该是检查或配置供应商，而不是把 provider 选择伪装成 model 选择。
   `/models` 是跨供应商模型选择器，按 provider 分组，选中一行会补全/执行同时
   切换 provider 和 model 的命令。`/model <model>` 只表示当前 provider 内的快速

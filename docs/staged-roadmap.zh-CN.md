@@ -161,6 +161,11 @@ Mainline landed：
 
 当前已发布版本：
 
+- `docs/release-0.1.22-status.zh-CN.md` 记录 provider detail 可用性补丁：API key
+  脱敏显示、provider detail 动作行简化、确定性截图证据、GitHub Release、
+  Homebrew tap 和 post-publish smoke。
+- `0.1.22` 保持 0.1.21 的交互系统不变，把 provider detail 进一步收敛成
+  settings-form 风格的配置界面。
 - `docs/release-0.1.21-status.zh-CN.md` 记录已打 tag、已发布、已更新 Homebrew、已完成
   post-publish verification 的 Usability Beta Gate release。
 - `0.1.21` 增加可操作 setup wizard、缺 key 首次启动入口、provider failure recovery
@@ -172,9 +177,8 @@ Mainline landed：
 
 下一个计划版本：
 
-- `docs/release-0.1.21-plan.zh-CN.md` 是下一步交互系统收口计划：统一 settings/form、
-  完成首次 setup、定义 focus/mouse routing、加固 composer 和 command palette、
-  让 `AgentTask` 成为可见工作状态契约，并把 lane 编排做成 no-guess flow。
+- 下一个交互切片应该把 provider/detail 页从“可操作选择器”推进到真正可编辑表单：
+  API key 来源、endpoint、默认 model、连接测试、保存和取消在同一个焦点流程里完成。
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

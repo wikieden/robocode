@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.21  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
+│ RoboCode  v0.1.22  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ◎ NOW WORKING  Supervising 1 agent: codex testing                                               │ │ robocode/    ~/projects/robocode   │
@@ -12,18 +12,18 @@
                                │ Search _                                                                  │
                                │                                                                           │
                                │ current deepseek / deepseek-v4-flash                                      │
-                               │   anthropic claude-sonnet-4-6  Anthropic default · ANTHROPIC_API_KEY:miss │
-                               │   anthropic claude-haiku-4-6  Anthropic · ANTHROPIC_API_KEY:missing       │
+                               │   anthropic claude-sonnet-4-6  Anthropic default · ANTHROPIC_API_KEY:pres │
+                               │   anthropic claude-haiku-4-6  Anthropic · ANTHROPIC_API_KEY:present       │
                                │ ● deepseek deepseek-v4-flash  DeepSeek default · DEEPSEEK_API_KEY:present │
                                │   deepseek deepseek-v4-pro  DeepSeek · DEEPSEEK_API_KEY:present           │
-                               │   openrouter openai/gpt-5.2  OpenRouter · OPENROUTER_API_KEY:missing      │
+                               │   openrouter openai/gpt-5.2  OpenRouter · OPENROUTER_API_KEY:present      │
                                │   openrouter anthropic/claude-sonnet-4-6  OpenRouter · OPENROUTER_API_KEY │
                                │   openrouter deepseek/deepseek-v4-flash  OpenRouter · OPENROUTER_API_KEY: │
                                │   fallback fallback-local  Fallback default · key not required            │
                                │   fallback test-local  Fallback · key not required                        │
-                               │   openai gpt-5.2  OpenAI default · OPENAI_API_KEY:missing                 │
-                               │   openai gpt-5.2-codex  OpenAI · OPENAI_API_KEY:missing                   │
-                               │   openai gpt-4o-mini  OpenAI · OPENAI_API_KEY:missing                     │
+                               │   openai gpt-5.2  OpenAI default · OPENAI_API_KEY:present                 │
+                               │   openai gpt-5.2-codex  OpenAI · OPENAI_API_KEY:present                   │
+                               │   openai gpt-4o-mini  OpenAI · OPENAI_API_KEY:present                     │
                                │                                                                           │
                                │ Enter switch   grouped by provider   free-type any model                  │
                                │                                                                           │

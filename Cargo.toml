@@ -17,6 +17,6 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.1.21"
+version = "0.1.22"
 license = "MIT"
 authors = ["wiki"]

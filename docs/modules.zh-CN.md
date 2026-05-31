@@ -41,11 +41,11 @@ Mainline landed：
 
 下一个计划切片：
 
-- 目标是 `0.1.21` usability beta gate：干净安装、首次使用设置、provider/model
-  recovery、daily coding loop，以及一条真实工作中可信的 delegated review loop。
+- `0.1.22` 是 usability beta gate 之上的 provider detail 可用性补丁：API key
+  脱敏显示，以及只展示当前值的简洁动作行。
 - 每个用户可见功能点都要以真实使用截图或确定性视觉产物收尾，供产品侧确认。
-- `0.1.21` 仍作为 usability beta gate，要求 clean install、daily coding loop
-  和 delegated review loop 都有证据。
+- 下一步把 provider/detail 页推进成真正可编辑表单：key 来源、endpoint、默认 model、
+  连接测试、保存和取消都在一个焦点流程里完成。
 
 ## 与 `.ref/claude-code-main` 的差距
 

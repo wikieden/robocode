@@ -13,7 +13,16 @@ mkdir -p "$OUT_DIR"
 run_preview() {
   local name="$1"
   shift
-  cargo run -p robocode-cli -- "$@" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.txt"
+  env \
+    -u DEEPSEEK_API_BASE \
+    -u OPENAI_API_BASE \
+    -u OPENROUTER_API_BASE \
+    -u ANTHROPIC_API_BASE \
+    DEEPSEEK_API_KEY="sk-preview000000demo" \
+    OPENAI_API_KEY="sk-preview000000demo" \
+    OPENROUTER_API_KEY="sk-preview000000demo" \
+    ANTHROPIC_API_KEY="sk-preview000000demo" \
+    cargo run -p robocode-cli -- "$@" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.txt"
   case "$name" in
     main-command-palette | main-setup-wizard | main-provider-selector | main-provider-detail | main-model-selector | main-lane-selector | main-lane)
       perl -0pi -e 's/[ \t]+$//mg' "$OUT_DIR/$name.txt"
@@ -24,7 +33,16 @@ run_preview() {
 run_ansi_preview() {
   local name="$1"
   shift
-  cargo run -p robocode-cli -- "$@" --tui-theme "$THEME" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.ansi"
+  env \
+    -u DEEPSEEK_API_BASE \
+    -u OPENAI_API_BASE \
+    -u OPENROUTER_API_BASE \
+    -u ANTHROPIC_API_BASE \
+    DEEPSEEK_API_KEY="sk-preview000000demo" \
+    OPENAI_API_KEY="sk-preview000000demo" \
+    OPENROUTER_API_KEY="sk-preview000000demo" \
+    ANTHROPIC_API_KEY="sk-preview000000demo" \
+    cargo run -p robocode-cli -- "$@" --tui-theme "$THEME" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.ansi"
 }
 
 render_svg_preview() {
@@ -220,6 +238,15 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local file="$1"
+  local needle="$2"
+  if grep -Fq "$needle" "$file"; then
+    printf 'preview check failed: %s should not contain %s\n' "$file" "$needle" >&2
+    exit 1
+  fi
+}
+
 assert_ansi_truecolor() {
   local file="$1"
   if ! grep -q $'\033\\[38;2;' "$file"; then
@@ -372,9 +399,12 @@ assert_contains "$OUT_DIR/main-provider-selector.txt" "deepseek"
 assert_contains "$OUT_DIR/main-provider-selector.txt" "openrouter"
 assert_contains "$OUT_DIR/main-provider-detail.txt" "PROVIDER CONFIG"
 assert_contains "$OUT_DIR/main-provider-detail.txt" "API_KEY"
+assert_contains "$OUT_DIR/main-provider-detail.txt" "********"
 assert_contains "$OUT_DIR/main-provider-detail.txt" "endpoint:"
 assert_contains "$OUT_DIR/main-provider-detail.txt" "set default provider"
 assert_contains "$OUT_DIR/main-provider-detail.txt" "doctor"
+assert_not_contains "$OUT_DIR/main-provider-detail.txt" "Save as default provider"
+assert_not_contains "$OUT_DIR/main-provider-detail.txt" "Switch provider for this session"
 assert_contains "$OUT_DIR/main-model-selector.txt" "SELECT MODEL"
 assert_contains "$OUT_DIR/main-model-selector.txt" "deepseek deepseek-v4-flash"
 assert_contains "$OUT_DIR/main-model-selector.txt" "openai gpt-5.2"

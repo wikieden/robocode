@@ -84,9 +84,9 @@ Provider/model selectors have separate semantics:
 - `/provider` is the supplier configuration surface. The first-level list shows
   only provider ids such as `deepseek` and `openrouter`; it must not include
   key, endpoint, or model explanations on the supplier rows. Selecting a
-  provider opens a second-level `PROVIDER CONFIG` page with API-key env status,
-  endpoint source, known/default model candidates, diagnostics, save-default,
-  and switch-now actions. The default action should inspect/configure the
+  provider opens a second-level `PROVIDER CONFIG` page with masked API-key
+  values when present, endpoint source, known/default model candidates,
+  diagnostics, save-default, and switch-now actions. The default action should inspect/configure the
   provider, not silently pretend that provider selection is model selection.
 - `/models` is the cross-provider model selector. Rows are grouped by provider
   and complete to commands that switch provider plus model together.

@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.21  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
+│ RoboCode  v0.1.22  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ◎ NOW WORKING  Supervising 1 agent: codex testing                                               │ │ robocode/    ~/projects/robocode   │
@@ -7,27 +7,27 @@
 │      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
 │      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
-│   ♙  ┊  USER                                                                             16:27:06 │ └────────────────────────────────────┘
+│   ♙  ┊  USER                                                                             00:55:36 │ └────────────────────────────────────┘
 
                                ┌ PROVIDER CONFIG ───────────────────────────────────────────────────── esc ┐
                                │                                                                           │
                                │ deepseek / DeepSeek                                                       │
-                               │ key: DEEPSEEK_API_KEY present                                             │
+                               │ key: DEEPSEEK_API_KEY sk-p************demo                                │
                                │ endpoint: https://api.deepseek.com (DEEPSEEK_API_BASE override)           │
                                │ models: deepseek-v4-flash, deepseek-v4-pro                                │
                                │                                                                           │
-                               │ ● set default provider  Save as default provider                          │
-                               │   use now  Switch provider for this session                               │
-                               │   doctor  Run provider diagnostics                                        │
-                               │   /models  Open provider-grouped model picker                             │
-                               │   model deepseek-v4-flash  Save DeepSeek with model deepseek-v4-flash     │
-                               │   model deepseek-v4-pro  Save DeepSeek with model deepseek-v4-pro         │
+                               │ ● set default provider  deepseek                                          │
+                               │   use now  deepseek                                                       │
+                               │   doctor  deepseek                                                        │
+                               │   /models  deepseek                                                       │
+                               │   model deepseek-v4-flash                                                 │
+                               │   model deepseek-v4-pro                                                   │
                                │                                                                           │
                                │ Enter action   /models for all models   esc close                         │
                                │                                                                           │
                                └───────────────────────────────────────────────────────────────────────────┘
 
-│   ✣  ┊  ASSISTANT                                                                        16:27:12 │ ┌ RECENT FILES ──────────────── tail ┐
+│   ✣  ┊  ASSISTANT                                                                        00:55:42 │ ┌ RECENT FILES ──────────────── tail ┐
 │      ┊  No approval is blocking right now. The cockpit stays open for transcript review, input,   │ │ [Rs] src/config.rs         now     │
 │      ┊  diagnostics, and lane status.                                                             │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘

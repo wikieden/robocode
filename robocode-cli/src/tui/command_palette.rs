@@ -1945,19 +1945,19 @@ fn provider_detail_suggestions(
     let mut suggestions = vec![
         CommandSuggestion {
             command: format!("/settings provider {}", provider.provider_id),
-            summary: "Save as default provider".to_string(),
+            summary: provider.provider_id.clone(),
         },
         CommandSuggestion {
             command: format!("/provider use {}", provider.provider_id),
-            summary: "Switch provider for this session".to_string(),
+            summary: provider.provider_id.clone(),
         },
         CommandSuggestion {
             command: format!("/provider doctor {}", provider.provider_id),
-            summary: "Run provider diagnostics".to_string(),
+            summary: provider.provider_id.clone(),
         },
         CommandSuggestion {
             command: "/models".to_string(),
-            summary: "Open provider-grouped model picker".to_string(),
+            summary: provider.provider_id.clone(),
         },
     ];
     suggestions.extend(
@@ -1965,7 +1965,7 @@ fn provider_detail_suggestions(
             .into_iter()
             .map(|model| CommandSuggestion {
                 command: format!("/settings provider {} {model}", provider.provider_id),
-                summary: format!("Save {} with model {model}", provider.display_name),
+                summary: String::new(),
             }),
     );
     suggestions
@@ -2159,13 +2159,38 @@ fn provider_key_detail(provider: &super::state::ProviderOption) -> String {
         .api_key_env
         .as_deref()
         .map(|env| {
-            if std::env::var_os(env).is_some() {
-                format!("{env} present")
+            if let Ok(value) = std::env::var(env) {
+                let value = value.trim();
+                if value.is_empty() {
+                    format!("{env} empty")
+                } else {
+                    format!("{env} {}", mask_secret(value))
+                }
             } else {
                 format!("{env} missing")
             }
         })
         .unwrap_or_else(|| "key not required".to_string())
+}
+
+fn mask_secret(value: &str) -> String {
+    let chars: Vec<char> = value.chars().collect();
+    let len = chars.len();
+    if len <= 4 {
+        return "*".repeat(len.max(1));
+    }
+    let head = if len <= 12 { 2 } else { 4 };
+    let tail = if len <= 12 { 2 } else { 4 };
+    let masked = len.saturating_sub(head + tail).max(3);
+    format!(
+        "{}{}{}",
+        chars.iter().take(head).collect::<String>(),
+        "*".repeat(masked),
+        chars
+            .iter()
+            .skip(len.saturating_sub(tail))
+            .collect::<String>()
+    )
 }
 
 fn provider_endpoint_detail(provider: &super::state::ProviderOption) -> String {
@@ -3376,6 +3401,7 @@ mod tests {
         let actions = command_suggestions_for_state(&state);
 
         assert_eq!(actions[0].command, "/settings provider deepseek");
+        assert_eq!(actions[0].summary, "deepseek");
         assert!(
             actions
                 .iter()
@@ -3386,6 +3412,13 @@ mod tests {
                 .iter()
                 .any(|item| item.command == "/settings provider deepseek deepseek-v4-flash")
         );
+        let model_action = actions
+            .iter()
+            .find(|item| item.command == "/settings provider deepseek deepseek-v4-flash")
+            .expect("deepseek model action");
+        assert!(model_action.summary.is_empty());
+        assert_eq!(mask_secret("sk-1234567890abcd"), "sk-1*********abcd");
+        assert_eq!(mask_secret("abcd"), "****");
     }
 
     #[test]

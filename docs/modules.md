@@ -43,13 +43,12 @@ Current published release:
 
 Next planned slice:
 
-- target the `0.1.21` usability beta gate: clean install, first-use setup,
-  provider/model recovery, daily coding loop, and one delegated review loop that
-  can be trusted in real work.
+- `0.1.22` is a provider-detail usability patch on top of the usability beta
+  gate: masked API-key display and concise current-value action rows.
 - keep every user-visible feature point backed by a real-use screenshot or
   deterministic visual artifact for product review.
-- keep `0.1.21` as the usability beta gate for clean install, daily coding
-  loop, and delegated review loop evidence.
+- next, turn provider/detail pages into true editable forms for key source,
+  endpoint, default model, connection test, save, and cancel.
 
 ## Gap vs `.ref/claude-code-main`
 

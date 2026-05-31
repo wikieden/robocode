@@ -647,6 +647,8 @@ mod tests {
         assert!(provider_detail.contains("endpoint:"));
         assert!(provider_detail.contains("set default provider"));
         assert!(provider_detail.contains("doctor"));
+        assert!(!provider_detail.contains("Save as default provider"));
+        assert!(!provider_detail.contains("Switch provider for this session"));
         assert!(model_selector.contains("SELECT MODEL"));
         assert!(model_selector.contains("deepseek deepseek-v4-flash"));
         assert!(model_selector.contains("openai gpt-5.2"));

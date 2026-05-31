@@ -191,6 +191,11 @@ Mainline landed:
 
 Current published release:
 
+- `docs/release-0.1.22-status.md` records the provider-detail usability patch:
+  masked API-key display, concise provider-detail action rows, deterministic
+  screenshot evidence, GitHub Release, Homebrew tap, and post-publish smoke.
+- `0.1.22` keeps the 0.1.21 interaction system intact and narrows the provider
+  detail page toward a settings-form style surface.
 - `docs/release-0.1.21-status.md` records the tagged, published,
   Homebrew-updated, and post-publish-verified Usability Beta Gate release.
 - `0.1.21` adds an actionable setup wizard, missing-key first-run entry,
@@ -205,10 +210,9 @@ Current published release:
 
 Next planned:
 
-- `docs/release-0.1.21-plan.md` is the next interaction-system completion plan:
-  unify settings/forms, finish first-run setup, define focus/mouse routing,
-  harden composer and command palette reliability, make `AgentTask` the visible
-  work-state contract, and turn lane orchestration into a no-guess flow.
+- The next interaction slice should turn provider/detail pages from actionable
+  selector surfaces into true editable forms: API key source, endpoint, default
+  model, connection test, save, and cancel in one focused flow.
 - require a real-use screenshot or deterministic visual artifact for every
   user-visible feature before it is marked complete
 
