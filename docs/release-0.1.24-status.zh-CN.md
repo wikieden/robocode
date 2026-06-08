@@ -10,15 +10,19 @@
 ## 发布状态
 
 - Workspace version：`0.1.24`
-- Git tag：待发布
-- GitHub release：待发布
-- Release workflow：待运行
-- Homebrew tap commit：待同步
+- Git tag：`v0.1.24`
+- Release commit：`60a3f42bd9da7232d1f7a62f1d3a688a542e20d5`
+- GitHub release：
+  `https://github.com/wikieden/robocode/releases/tag/v0.1.24`
+- Release workflow：
+  `https://github.com/wikieden/robocode/actions/runs/27128819985` 已通过
+- Homebrew tap commit：`23b1ad68e9783db408eb341e58185bc244445e4e`
 - Prepublish evidence：`/tmp/robocode-0124-release-gate/prepublish`
 - 本地 package：`dist/robocode-v0.1.24-aarch64-apple-darwin.tar.gz`
 - 本地 package sha256：
   `5a9bd29040f071a0a4f623a9b9c9795ab8229025b13d04857461a2a9bd952a1b`
-- Post-publish evidence：等待 GitHub assets 与 Homebrew 验证
+- Post-publish evidence：`/tmp/robocode-0124-postpublish-gate/postpublish`
+- 分发状态：GitHub Release assets 与 Homebrew tap validation 已通过
 
 ## 已包含改动
 
@@ -90,6 +94,26 @@ DeepSeek 真实开发场景：
 scripts/release-gate.sh --version 0.1.24 --phase postpublish
 ```
 
+结果：2026-06-08 postpublish 通过。证据目录：
+`/tmp/robocode-0124-postpublish-gate`。
+
+Postpublish smoke 结果：
+
+- `cargo-fmt`：通过
+- `tdd-testing-contract-smoke`：通过
+- `tui-turn-controller-smoke`：通过
+- `cargo-clippy`：通过
+- `robocode-cli-terminal-tests`：通过
+- `tui-regression`：通过
+- `fallback-cli-smoke`：通过
+- `plan-mode-smoke`：通过
+- `daily-loop-smoke`：通过
+- `codex-app-server-protocol-fixture`：通过
+- `codex-app-server-write-guard`：通过
+- `lane-operator-loop-smoke`：通过
+- `github-release-assets-validation`：通过
+- `homebrew-validation`：通过
+
 ## 截图证据
 
 确定性的 0.1.24 TUI 截图：
@@ -119,4 +143,5 @@ scripts/release-gate.sh --version 0.1.24 --phase postpublish
   让 queue 状态可见，但真正 UI-agnostic 的 core/runtime queue 仍是后续工作。
 - Live provider 行为仍依赖账号、模型和上游 provider 可用性。prepublish gate 已通过真实
   DeepSeek development smoke，但发布用户仍可能遇到账号、额度或 provider-specific 错误。
-- GitHub release assets 和 Homebrew formula 验证都必须通过，才能把本版本视为完成。
+- 发布 artifacts 已验证，但后续 `0.1.x` 仍要继续收紧 provider-specific payload limits、
+  UI scroll stability 和更丰富的 live progress rendering。

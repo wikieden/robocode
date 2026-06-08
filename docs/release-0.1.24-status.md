@@ -10,15 +10,19 @@ redrawing, accepting input, handling approval, and preserving queued prompts.
 ## Release State
 
 - Workspace version: `0.1.24`
-- Git tag: pending
-- GitHub release: pending
-- Release workflow: pending
-- Homebrew tap commit: pending
+- Git tag: `v0.1.24`
+- Release commit: `60a3f42bd9da7232d1f7a62f1d3a688a542e20d5`
+- GitHub release:
+  `https://github.com/wikieden/robocode/releases/tag/v0.1.24`
+- Release workflow:
+  `https://github.com/wikieden/robocode/actions/runs/27128819985` passed
+- Homebrew tap commit: `23b1ad68e9783db408eb341e58185bc244445e4e`
 - Prepublish evidence: `/tmp/robocode-0124-release-gate/prepublish`
 - Local package: `dist/robocode-v0.1.24-aarch64-apple-darwin.tar.gz`
 - Local package sha256:
   `5a9bd29040f071a0a4f623a9b9c9795ab8229025b13d04857461a2a9bd952a1b`
-- Post-publish evidence: pending GitHub assets and Homebrew validation
+- Post-publish evidence: `/tmp/robocode-0124-postpublish-gate/postpublish`
+- Distribution state: GitHub Release assets and Homebrew tap validation passed
 
 ## Included Changes
 
@@ -95,6 +99,26 @@ Post-publish verification:
 scripts/release-gate.sh --version 0.1.24 --phase postpublish
 ```
 
+Result: passed postpublish on 2026-06-08. Evidence:
+`/tmp/robocode-0124-postpublish-gate`.
+
+Postpublish smoke result:
+
+- `cargo-fmt`: passed
+- `tdd-testing-contract-smoke`: passed
+- `tui-turn-controller-smoke`: passed
+- `cargo-clippy`: passed
+- `robocode-cli-terminal-tests`: passed
+- `tui-regression`: passed
+- `fallback-cli-smoke`: passed
+- `plan-mode-smoke`: passed
+- `daily-loop-smoke`: passed
+- `codex-app-server-protocol-fixture`: passed
+- `codex-app-server-write-guard`: passed
+- `lane-operator-loop-smoke`: passed
+- `github-release-assets-validation`: passed
+- `homebrew-validation`: passed
+
 ## Screenshot Evidence
 
 Deterministic 0.1.24 TUI screenshots:
@@ -126,5 +150,6 @@ Structured TUI evidence:
 - Live provider behavior still depends on account, model, and upstream provider
   availability. The prepublish gate passed a real DeepSeek development smoke,
   but published users can still hit provider-specific account or quota errors.
-- GitHub release assets and Homebrew formula validation must both pass before
-  this release can be considered complete.
+- The published artifacts are validated, but follow-up `0.1.x` work should keep
+  tightening provider-specific payload limits, UI scroll stability, and richer
+  live progress rendering.
