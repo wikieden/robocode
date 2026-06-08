@@ -6,6 +6,7 @@ use robocode_model::ModelProvider;
 use robocode_types::{ModelEvent, ModelRequest, fresh_id};
 
 mod git_command_tests;
+mod live_deepseek_tests;
 mod lsp_command_tests;
 mod lsp_render_tests;
 mod runtime_command_tests;

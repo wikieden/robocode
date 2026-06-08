@@ -29,27 +29,32 @@ Mainline landed:
 - V2-B LSP foundation is implemented: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document sync.
 - V2-D structured terminal view slices are implemented: grouped diagnostics, grouped symbols, compact references, structured sessions/tasks/memory, structured permission denials, structured `/git diff` and `/diff`, and shared `robocode-core` presentation helpers.
 - Provider-plugin runtime and DeepSeek V4 are implemented on main. Mainline uses official DeepSeek model names: `deepseek-v4-flash` by default and `deepseek-v4-pro` when selected explicitly.
-- The provider descriptor matrix includes additional OpenAI-compatible gateway providers: `openrouter`, `groq`, `mistral`, `together`, `kimi`, `qwen`, `zhipu`, and `volcengine`.
+- The provider descriptor matrix includes additional OpenAI-compatible gateway providers: `openrouter`, `groq`, `mistral`, `together`, `kimi`, `qwen`, `dashscope-coding-plan`, `dashscope-coding-plan-anthropic`, `dashscope-tokenplan`, `dashscope-tokenplan-anthropic`, `zhipu`, and `volcengine`.
 
 Current published release:
 
 - `docs/release-0.1.23-status.md` records the provider/model setup patch:
-  opencode-style `/connect` supplier selection, `/models` Favorites and Recent,
-  provider-grouped active model rows, auth-mode metadata, GitHub Release,
+  opencode-style `/connect` supplier selection, provider-grouped `/models`
+  rows for configured/activated models, auth-mode metadata, GitHub Release,
   Homebrew tap, and post-publish smoke.
 - `0.1.23` keeps provider connection and model selection separate: `/connect`
-  configures the supplier, while `/models` switches provider/model pairs from
-  Favorites, Recent, and provider groups without duplicating favorite rows.
+  configures the supplier, while `/models` switches provider/model pairs only
+  from configured providers and activated model rows.
 - release validation includes daily-loop, lane operator-loop, local package,
   deterministic TUI screenshots, GitHub release assets, and Homebrew checks as
   normal gates.
 
 Next planned slice:
 
-- turn provider/detail pages into true focused editable forms for key source,
-  endpoint, default model, connection test, save, and cancel.
+- the current `0.1.24` slice is **Provider Setup + Non-blocking Operator Loop
+  Gate**: continue provider/detail focused editable forms while moving provider
+  turns, plan mode, approval, streaming, context building, doctor/probe, and
+  tool/lane jobs onto the same non-blocking TUI main event loop.
 - continue tightening first-run setup so API-key, web-login, and local-provider
   flows each expose the right action instead of a generic status page.
+- introduce `TurnController` or an equivalent runtime controller so long-running
+  work returns to the UI through events, callbacks, job tails, and evidence
+  instead of nested input loops.
 - keep every user-visible feature point backed by a real-use screenshot or
   deterministic visual artifact for product review.
 
@@ -74,5 +79,9 @@ Missing: MCP, general skills/plugins beyond provider plugins, multi-agent/team c
 - `robocode-types/README.md`
 - `robocode-workflows/README.md`
 - `docs/provider-live-matrix.md`
+- `docs/provider-adapter-design.md`
+- `docs/product-design-operator-loop.md`
+- `docs/production-coding-loop-architecture.md`
+- `docs/spec-review-0.1.24.md`
 
 See `PLAN.md`, `docs/product-requirements.md`, `docs/staged-roadmap.md`, and `docs/ref-gap-matrix.md` for full roadmap context.

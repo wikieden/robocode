@@ -184,7 +184,7 @@ V1 includes a provider factory with these backend families:
 - `openai-compatible`
 - `deepseek` as an independent provider family using the official OpenAI-style API surface
 - `deepseek-anthropic` for DeepSeek's official Anthropic-compatible API surface
-- OpenAI-compatible gateway descriptors for `openrouter`, `groq`, `mistral`, `together`, `kimi`, `qwen`, `zhipu`, and `volcengine`
+- OpenAI-compatible gateway descriptors for `openrouter`, `groq`, `mistral`, `together`, `kimi`, `qwen`, `dashscope-coding-plan`, `dashscope-coding-plan-anthropic`, `dashscope-tokenplan`, `dashscope-tokenplan-anthropic`, `zhipu`, and `volcengine`
 - `ollama`
 - `fallback`
 

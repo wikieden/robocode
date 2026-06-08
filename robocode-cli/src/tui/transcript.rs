@@ -1,5 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use super::{
     state::{TuiEntry, TuiState},
     text::{char_width, truncate, wrap_words},
@@ -7,16 +5,32 @@ use super::{
 
 pub(super) fn transcript_rows(state: &TuiState, width: usize) -> Vec<String> {
     let mut rows = Vec::new();
-    let visible_entries = state
+    let mut visible_entries = state
         .entries
         .iter()
         .filter(|entry| !(entry.label == "approval" && entry.body.contains("Press y")))
         .collect::<Vec<_>>();
+    let streaming_entry;
+    if let Some(streaming) = state
+        .streaming_assistant
+        .as_deref()
+        .filter(|content| !content.trim().is_empty())
+    {
+        streaming_entry = TuiEntry {
+            label: "assistant".to_string(),
+            body: streaming.to_string(),
+        };
+        visible_entries.push(&streaming_entry);
+    }
     let total = visible_entries.len();
     for (index, entry) in visible_entries.iter().enumerate() {
         let (icon, label) = transcript_role(entry.label.as_str());
-        let offset = total.saturating_sub(index + 1) as u64 * 2;
-        rows.push(header_row(icon, label, &clock_label(offset), width));
+        rows.push(header_row(
+            icon,
+            label,
+            &stable_entry_label(index, total),
+            width,
+        ));
         rows.extend(body_rows(entry, width));
         if index + 1 < total {
             rows.push(separator_row(width));
@@ -123,19 +137,12 @@ fn separator_row(width: usize) -> String {
     truncate(&format!("     ┊  {}", "┄".repeat(rule_width)), width)
 }
 
-fn clock_label(offset_secs: u64) -> String {
-    let seconds = now_seconds().saturating_sub(offset_secs) % 86_400;
-    let hour = seconds / 3_600;
-    let minute = (seconds % 3_600) / 60;
-    let second = seconds % 60;
-    format!("{hour:02}:{minute:02}:{second:02}")
-}
-
-fn now_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0)
+fn stable_entry_label(index: usize, total: usize) -> String {
+    if index + 1 == total {
+        "latest".to_string()
+    } else {
+        format!("#{:03}", index + 1)
+    }
 }
 
 #[cfg(test)]
@@ -157,6 +164,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries,
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
@@ -166,6 +175,7 @@ mod tests {
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         }
     }
 
@@ -216,5 +226,20 @@ mod tests {
         assert!(rendered.iter().any(|line| line.contains("wrap across")));
         assert!(rendered.iter().any(|line| line.contains("panel edge.")));
         assert!(rendered.len() > 2);
+    }
+
+    #[test]
+    fn transcript_rows_include_streaming_assistant_draft() {
+        let mut state = state(vec![TuiEntry {
+            label: "user".to_string(),
+            body: "write a summary".to_string(),
+        }]);
+        state.streaming_assistant = Some("partial answer".to_string());
+
+        let rendered = transcript_rows(&state, 80).join("\n");
+
+        assert!(rendered.contains("ASSISTANT"));
+        assert!(rendered.contains("partial answer"));
+        assert!(rendered.contains("latest"));
     }
 }

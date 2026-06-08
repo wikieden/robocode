@@ -239,6 +239,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: vec![TuiEntry {
                 label: "system".to_string(),
                 body: "ready".to_string(),
@@ -251,6 +253,7 @@ mod tests {
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         }
     }
 

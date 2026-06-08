@@ -59,6 +59,8 @@ pub struct ProviderDescriptor {
     pub protocol_family: ProtocolFamily,
     pub default_api_base: Option<String>,
     pub default_model: Option<String>,
+    #[serde(default)]
+    pub known_models: Vec<String>,
     pub env_mappings: ProviderEnvMappings,
     pub capabilities: ProviderCapabilities,
     #[serde(default)]
@@ -78,6 +80,9 @@ pub(crate) fn validate_provider_descriptor(descriptor: &ProviderDescriptor) -> R
     validate_non_empty("version", &descriptor.version)?;
     if let Some(default_model) = descriptor.default_model.as_deref() {
         validate_non_empty("default_model", default_model)?;
+    }
+    for model in &descriptor.known_models {
+        validate_non_empty("known_models", model)?;
     }
     if let Some(default_api_base) = descriptor.default_api_base.as_deref() {
         validate_api_base(default_api_base)?;

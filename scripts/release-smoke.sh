@@ -7,6 +7,8 @@ TARGET=""
 OUT_DIR=""
 QUICK=0
 RUN_DEEPSEEK=0
+PROVIDER_SMOKE_ID=""
+PROVIDER_SMOKE_MODEL=""
 RUN_GITHUB_ACTIONS=0
 RUN_GITHUB_RELEASE_ASSETS=0
 RUN_HOMEBREW=0
@@ -24,7 +26,10 @@ Options:
   --out-dir <dir>         Evidence directory; defaults to /tmp/robocode-release-smoke-...
   --quick                 Run a faster local check set without full workspace tests or package smoke.
   --skip-package          Skip host package archive smoke.
-  --deepseek              Run the opt-in DeepSeek provider smoke. Requires DEEPSEEK_API_KEY.
+  --deepseek              Run the opt-in DeepSeek development scenario smoke. Requires DEEPSEEK_API_KEY.
+  --provider-smoke <id>   Run a live provider smoke through scripts/provider-live-smoke.sh.
+  --provider-smoke-model <model>
+                          Model for --provider-smoke; provider default if omitted.
   --github-actions        Dispatch release.yml with upload_to_release=false. Requires gh auth.
   --github-release-assets Validate the published GitHub release assets and checksums.
   --homebrew              Validate the published Homebrew tap formula.
@@ -58,6 +63,14 @@ while [[ $# -gt 0 ]]; do
     --deepseek)
       RUN_DEEPSEEK=1
       shift
+      ;;
+    --provider-smoke)
+      PROVIDER_SMOKE_ID="${2:-}"
+      shift 2
+      ;;
+    --provider-smoke-model)
+      PROVIDER_SMOKE_MODEL="${2:-}"
+      shift 2
       ;;
     --github-actions)
       RUN_GITHUB_ACTIONS=1
@@ -173,33 +186,22 @@ fallback_cli_smoke() {
   cat "$transcript"
 }
 
-deepseek_cli_smoke() {
-  local transcript="$OUT_DIR/deepseek-cli-transcript.log"
+deepseek_dev_scenario_smoke() {
   if [[ -z "${DEEPSEEK_API_KEY:-}" ]]; then
     printf 'DEEPSEEK_API_KEY is required for --deepseek\n' >&2
     return 2
   fi
+  local smoke_dir="$OUT_DIR/deepseek-dev-scenario"
+  scripts/deepseek-dev-scenario-smoke.sh --out-dir "$smoke_dir"
+  cat "$smoke_dir/summary.md"
+}
 
-  local work_dir="$OUT_DIR/deepseek-workspace"
-  rm -rf "$work_dir"
-  mkdir -p "$work_dir"
-  (
-    cd "$work_dir"
-    git init >/dev/null
-    git config user.email smoke@example.com
-    git config user.name "RoboCode Smoke"
-    printf 'smoke\n' >README.md
-    git add README.md
-    git commit -m initial >/dev/null
-    printf 'Reply with exactly: robocode-deepseek-smoke-ok\n/exit\n' |
-      cargo run -p robocode-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
-        --no-tui \
-        --provider deepseek \
-        --model deepseek-v4-flash
-  ) >"$transcript" 2>&1
-
-  grep -Fq "robocode-deepseek-smoke-ok" "$transcript"
-  cat "$transcript"
+provider_live_smoke() {
+  local args=(--provider "$PROVIDER_SMOKE_ID" --out-dir "$OUT_DIR/provider-live-smoke-$PROVIDER_SMOKE_ID")
+  if [[ -n "$PROVIDER_SMOKE_MODEL" ]]; then
+    args+=(--model "$PROVIDER_SMOKE_MODEL")
+  fi
+  scripts/provider-live-smoke.sh "${args[@]}"
 }
 
 lane_operator_smoke() {
@@ -380,6 +382,8 @@ record ""
 record "## Results"
 
 run_step "cargo-fmt" cargo fmt --check
+run_step "tdd-testing-contract-smoke" scripts/tdd-testing-contract-smoke.sh
+run_step "tui-turn-controller-smoke" scripts/tui-turn-controller-smoke.sh
 run_step "cargo-clippy" cargo clippy --workspace --all-targets -- -D warnings
 
 if [[ "$QUICK" == "1" ]]; then
@@ -391,6 +395,7 @@ fi
 
 run_step "tui-regression" scripts/tui-regression.sh "$OUT_DIR/tui-regression"
 run_step "fallback-cli-smoke" fallback_cli_smoke
+run_step "plan-mode-smoke" scripts/plan-mode-smoke.sh "$OUT_DIR/plan-mode-smoke"
 daily_loop_smoke
 run_step "codex-app-server-protocol-fixture" scripts/smoke-codex-app-server-protocol-fixture.sh
 run_step "codex-app-server-write-guard" scripts/smoke-codex-app-server-write-guard.sh
@@ -405,11 +410,19 @@ else
 fi
 
 if [[ "$RUN_DEEPSEEK" == "1" ]]; then
-  run_step "deepseek-cli-smoke" deepseek_cli_smoke
+  run_step "deepseek-dev-scenario-smoke" deepseek_dev_scenario_smoke
 else
-  log "SKIP  deepseek-cli-smoke (use --deepseek)"
-  record "- SKIP \`deepseek-cli-smoke\` (use \`--deepseek\`)"
-  record_step_result "deepseek-cli-smoke" "skip" "0" ""
+  log "SKIP  deepseek-dev-scenario-smoke (use --deepseek)"
+  record "- SKIP \`deepseek-dev-scenario-smoke\` (use \`--deepseek\`)"
+  record_step_result "deepseek-dev-scenario-smoke" "skip" "0" ""
+fi
+
+if [[ -n "$PROVIDER_SMOKE_ID" ]]; then
+  run_step "provider-live-smoke-$PROVIDER_SMOKE_ID" provider_live_smoke
+else
+  log "SKIP  provider-live-smoke (use --provider-smoke <id>)"
+  record "- SKIP \`provider-live-smoke\` (use \`--provider-smoke <id>\`)"
+  record_step_result "provider-live-smoke" "skip" "0" ""
 fi
 
 if [[ "$RUN_GITHUB_ACTIONS" == "1" ]]; then

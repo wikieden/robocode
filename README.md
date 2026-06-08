@@ -6,7 +6,7 @@ delegated agents, and keep enough evidence to resume work later.
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.23-tui-main.svg)
+![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.24-tui-main.svg)
 
 ## Why It Exists
 
@@ -40,59 +40,63 @@ and external agent lanes visible in one operator cockpit.
 ## Screenshots
 
 These are generated from the current RoboCode TUI renderer and kept as release
-evidence. The screenshots below show the `0.1.23` provider and model setup patch:
+evidence. The screenshots below show the `0.1.24` non-blocking operator-loop patch:
 first-run setup, provider/model configuration, delegated-lane operation, and
 the daily coding cockpit;
 the latest published binary release is listed separately in the install
 section.
 
+### First-Launch Welcome
+
+![First-launch welcome](docs/previews/generated/main-idle.svg)
+
 ### Live Provider Turn
 
-![Live provider turn](docs/previews/generated/screenshots/0.1.23-tui-live-turn.svg)
+![Live provider turn](docs/previews/generated/screenshots/0.1.24-tui-live-turn.svg)
 
 ### Resize-Safe Redraw
 
-![Resize-safe redraw](docs/previews/generated/screenshots/0.1.23-tui-main-resize.svg)
+![Resize-safe redraw](docs/previews/generated/screenshots/0.1.24-tui-main-resize.svg)
 
 ### CJK Input
 
-![CJK input](docs/previews/generated/screenshots/0.1.23-tui-cjk-input.svg)
+![CJK input](docs/previews/generated/screenshots/0.1.24-tui-cjk-input.svg)
 
 ### Slash-Command Palette
 
-![Command palette](docs/previews/generated/screenshots/0.1.23-tui-command-palette.svg)
+![Command palette](docs/previews/generated/screenshots/0.1.24-tui-command-palette.svg)
 
 ### First-Run Setup Wizard
 
-![Setup wizard](docs/previews/generated/screenshots/0.1.23-tui-setup-wizard.svg)
+![Setup wizard](docs/previews/generated/screenshots/0.1.24-tui-setup-wizard.svg)
 
 ### Provider Configuration Selector
 
-![Provider selector](docs/previews/generated/screenshots/0.1.23-tui-provider-selector.svg)
+![Provider selector](docs/previews/generated/screenshots/0.1.24-tui-provider-selector.svg)
 
 ### Provider Detail Form
 
-![Provider detail](docs/previews/generated/screenshots/0.1.23-tui-provider-detail.svg)
+![Provider detail](docs/previews/generated/screenshots/0.1.24-tui-provider-detail.svg)
 
 ### Grouped Model Selector
 
-![Model selector](docs/previews/generated/screenshots/0.1.23-tui-model-selector.svg)
+![Model selector](docs/previews/generated/screenshots/0.1.24-tui-model-selector.svg)
 
 ### Lane Action Selector
 
-![Lane selector](docs/previews/generated/screenshots/0.1.23-tui-lane-selector.svg)
+![Lane selector](docs/previews/generated/screenshots/0.1.24-tui-lane-selector.svg)
 
 ### Agent Lane Detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.23-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.24-tui-lane-detail.svg)
 
 ### Side Screen: Agent Lanes
 
-![Side screen lanes](docs/previews/generated/screenshots/0.1.23-tui-side-1.svg)
+![Side screen lanes](docs/previews/generated/screenshots/0.1.24-tui-side-1.svg)
 
 ### Side Screen: Ops And Evidence
 
-![Side screen ops](docs/previews/generated/screenshots/0.1.23-tui-side-2.svg)
+![Side screen ops](docs/previews/generated/screenshots/0.1.24-tui-side-2.svg)
 
 ## Install
 
@@ -113,7 +117,7 @@ robocode --help
 ### Release Archive
 
 Download a release archive from
-[RoboCode v0.1.23](https://github.com/wikieden/robocode/releases/tag/v0.1.23).
+[RoboCode v0.1.24](https://github.com/wikieden/robocode/releases/tag/v0.1.24).
 
 Available release targets:
 
@@ -125,7 +129,7 @@ Available release targets:
 Install on macOS or Linux:
 
 ```bash
-VERSION=0.1.23
+VERSION=0.1.24
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -136,7 +140,7 @@ robocode-cli --help
 Install on Windows PowerShell:
 
 ```powershell
-$Version = "0.1.23"
+$Version = "0.1.24"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -155,9 +159,11 @@ open the cockpit TUI by default:
 robocode-cli
 ```
 
-If the selected online provider is missing an API key, the TUI opens `/setup`
-automatically. You can also use `/setup` for provider/model setup at any time.
-The quickest paths are:
+On a clean session the TUI starts on a focused welcome composer instead of
+opening setup automatically. It stays on that welcome surface while you run
+setup commands; the full cockpit appears after the first normal task prompt.
+Use `Ctrl-P` for commands, or submit one of these entries when you want
+provider/model setup:
 
 ```bash
 /setup
@@ -223,9 +229,9 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
   observe it, but an in-flight provider request may still finish.
 - Approval prompts default to `Approve`; press `y` to approve, `n` to deny,
   `d` to focus diff, or use `Tab` / arrow keys to move between actions.
-- Type `/` to open command suggestions. `/settings`, `/connect`, `/provider`, `/models`,
-  `/permissions`, and `/theme` open selector-style popups with search, keyboard
-  selection, and mouse selection. Common entries include `/help`,
+- Type `/` to open command suggestions. Provider and model commands stay in
+  the compact completion surface while you are typing; they do not open a large
+  modal until the command is submitted. Common entries include `/help`,
   `/settings`, `/setup`, `/connect`, `/provider`, `/models`, `/status`, `/config`, `/permissions`,
   `/test`, `/sessions`, `/resume`, `/task`, `/brief`, `/spec`, `/memory`,
   `/lane`, `/agent`, `/screen`, `/lsp`, `/git`, `/web`, `/extensions`,
@@ -238,29 +244,33 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 RoboCode loads config from the platform config path and then from
 `.robocode/config.toml`, with CLI flags taking precedence.
 
-Inside the TUI, `/setup` opens the first-run provider/model wizard with concrete
-steps for provider config, model choice, permissions, theme, doctor checks,
-fallback smoke, and saving defaults. `/settings` opens an actionable settings
-picker instead of a read-only status page: provider, model, permissions, theme,
-save defaults, and diagnostics are all selectable. `/connect` opens
-opencode-style provider configuration: choose a supplier first, then inspect
-auth mode, API-key env vars, endpoint source, diagnostics, save-default actions,
-and known model candidates on the `PROVIDER CONFIG` page. Providers can declare
-different auth modes: OpenAI can be represented as web login or API key,
-gateway providers such as DeepSeek/OpenRouter use API keys, and local providers
-such as Ollama/Fallback require no key. Present API keys are shown only as
-masked prefix/suffix values. Provider detail includes editable rows that
-complete the composer to `/settings provider <id> key-env ...`, `/settings
-provider <id> endpoint ...`, `/settings provider <id> default-model ...`, or
-`/settings provider <id> enable-model <model>`. The enabled models become the
-provider's active entries in `/models`; `/settings provider <id> models ...`
-replaces that active list, and `/settings provider <id> favorite-model <model>`
-pins a provider/model pair. `/models` then shows Favorites first, then Recent,
-then configured-provider groups containing only active models. Favorites are not
-duplicated in their provider group; `Ctrl-F` favorites the selected row, and
-selecting a row switches provider plus model together. `/model <model>` remains
-the quick switch for the current provider only. These commands update
-`[providers.<id>]` without storing raw API keys.
+Inside the TUI, `/connect`, `/provider`, `/setup provider`, and
+`/settings provider` open an opencode-style provider picker. Select a supplier
+inside the panel, enter an API key there when required, and then use the
+provider config panel to change the key, clear the current session key, run
+doctor, or choose that provider's default model. Choosing that provider-scoped
+model saves the provider/model, runs provider doctor, and writes readiness
+evidence back into the transcript. `/models`, `/model`, `/setup model`, and
+`/settings model` open a provider-grouped model picker that only includes
+configured providers. For configured providers, the picker includes active,
+favorite, default, and known models; selecting a row applies the provider/model
+switch immediately. API keys are masked in the panel and
+RoboCode saves the env var name, not the raw key. Direct commands such as
+`/settings provider <provider> ...`, `/models <provider> <model>`, and
+`/model <model>` remain available for scripts and advanced users.
+
+Live provider smoke evidence can be collected without opening the TUI:
+
+```bash
+scripts/provider-live-smoke.sh --provider deepseek --model deepseek-v4-flash
+scripts/provider-live-smoke.sh --provider dashscope-coding-plan --model qwen3.6-plus
+scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
+```
+
+`scripts/deepseek-dev-scenario-smoke.sh` is the billable development smoke:
+it asks DeepSeek to create a tiny Python module, generate and run its test, and
+then writes `usage.json` plus a Markdown summary with input/output/total tokens
+and an estimated CNY cost.
 
 ```toml
 provider = "deepseek"
@@ -310,6 +320,8 @@ in the docs:
 - [TUI Cockpit Design](docs/tui-cockpit-design.md)
 - [TUI Interaction Audit](docs/tui-interaction-audit-2026-05-29.md)
 - [Testing and Validation Plan](docs/testing-validation-plan.md)
+- [0.1.24 Status](docs/release-0.1.24-status.md)
+- [0.1.24 Plan](docs/release-0.1.24-plan.md)
 - [0.1.23 Status](docs/release-0.1.23-status.md)
 - [0.1.21 Plan](docs/release-0.1.21-plan.md)
 - [0.1.21 Status](docs/release-0.1.21-status.md)
@@ -344,6 +356,16 @@ Run the release smoke matrix:
 scripts/release-smoke.sh
 ```
 
+When `DEEPSEEK_API_KEY` is available, add `--deepseek` to include the live
+DeepSeek development scenario and token/cost summary.
+
+For an actual release, use the mandatory release gate instead of ad-hoc smoke
+commands:
+
+```bash
+scripts/release-gate.sh --version <version>
+```
+
 Generate TUI visual evidence:
 
 ```bash
@@ -353,12 +375,13 @@ scripts/tui-regression.sh docs/previews/generated
 After publishing, validate release assets and Homebrew:
 
 ```bash
-scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
+scripts/release-gate.sh --version <version> --phase postpublish
 ```
 
 Every GitHub Release must be paired with a same-version Homebrew tap update.
 Do not mark a release complete until the post-publish smoke validates both
-GitHub assets and Homebrew.
+GitHub assets and Homebrew. The release status must also include the DeepSeek
+live smoke token/cost summary from the prepublish gate.
 
 ## Feedback
 

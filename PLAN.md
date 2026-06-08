@@ -1,5 +1,56 @@
 # RoboCode Engineering Plan
 
+## Current Planning Revision
+
+As of the 0.1.24 planning line, the next release is upgraded from a
+provider-setup-only interaction patch to **Provider Setup + Non-blocking
+Operator Loop Gate**.
+
+`docs/spec-review-0.1.24.md` is the controlling spec review for this planning
+line. The release cannot be called complete while its P0 gaps remain open or
+undocumented in release status.
+
+This changes the immediate engineering plan:
+
+```mermaid
+flowchart TD
+    A["0.1.24"] --> B["TurnController"]
+    A --> C["Provider Setup Forms"]
+    A --> D["Plan Mode Queue"]
+    A --> E["Non-blocking Approval"]
+    A --> F["Streaming And Scrollback"]
+    B --> G["Single Main TUI Event Loop"]
+    C --> G
+    D --> G
+    E --> G
+    F --> G
+    G --> H["Daily Coding Loop Usable"]
+    H --> I["Broader Multi-agent Work"]
+```
+
+Immediate P0:
+
+- keep `TuiRuntime`/`TurnController` as the only provider-turn path; the former
+  blocking `run_provider_turn_interactive` loop has been removed;
+- finish runtime-visible queue state for provider turns, plan mode, queued
+  follow-ups, and provider errors;
+- keep approval on the main event loop and later clean it into first-class
+  panel state;
+- make ContextBundle builds, provider doctor/probe, shell/tool jobs, lane jobs,
+  and release smoke emit events/tails/evidence instead of blocking the UI;
+- preserve the welcome surface while `/connect`, `/models`, `/settings`,
+  `/provider`, and setup panels are used before a real task starts;
+- gate the release on plan-mode queue smoke, streaming/scrollback behavior,
+  approval non-blocking checks, provider setup evidence, DeepSeek live coding
+  smoke, screenshots/previews, GitHub Release assets, and Homebrew sync.
+
+The final 0.1.x line is a TUI stability exit, not a feature-expansion sprint.
+RoboCode should not enter `0.2.x` until known P0/P1 display and interaction
+bugs are cleared: input locks, Plan mode locks, approval/modal focus traps,
+resize corruption, scrollback loss, stale active-work state, provider/model
+setup confusion, and misleading side-panel status are release blockers. The
+controlling gate is `docs/tui-stability-zero-bug-gate.md`.
+
 ## Current State
 
 Mainline landed status:
@@ -28,34 +79,50 @@ Mainline landed status:
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Current published release (`0.1.16`):
+Current published release (`0.1.23`):
 
-- `docs/release-0.1.16-status.md` records the tagged, published, and
-  post-publish-verified TUI Interaction Reliability release.
-- `0.1.16` moves provider turns behind a worker/channel boundary so the
-  cockpit can keep repainting, keeps command-palette long lists scrollable,
-  makes approval diff/evidence useful, and documents remaining mouse, streaming,
-  and cancellation gaps.
-- GitHub Release assets, Homebrew tap update, and post-publish smoke are
-  complete.
-- `0.1.15` remains the Context Curator And Budget Controls checkpoint, recorded
-  in `docs/release-0.1.15-plan.md` and `docs/release-0.1.15-status.md`.
+- `docs/release-0.1.23-status.md` records the provider/model setup patch:
+  opencode-style `/connect`, provider-grouped `/models`, auth-mode metadata,
+  GitHub Release, Homebrew tap, and post-publish smoke.
+- `0.1.23` keeps provider connection and model selection separate. `/connect`
+  configures the supplier; `/models` switches only configured provider and
+  activated model pairs.
+- GitHub Release assets, Homebrew tap update, and post-publish smoke are part
+  of the same release unit.
 
-Next planned release (`0.1.17`):
+Next planned release (`0.1.24`):
 
-- `docs/release-0.1.17-plan.md` defines **Daily Coding Loop Baseline**.
-- The target is true day-to-day usability: setup/doctor clarity, a deterministic
-  coding-loop smoke, minimal task brief and steering files, actionable
-  diff/test evidence, and screenshots that prove the main loop works.
-- DeepSeek becomes the default online path for clean installs, with fallback as
-  an explicit offline/test path. The TUI must include an interactive
-  provider/model setup flow, and model failures must prompt a concrete switch
-  model action instead of leaving the user with a raw provider error.
-- Lightweight spec/steering remains part of `0.1.17`, but only as a support
-  layer for real coding tasks, not a separate product island.
-- `0.1.20` is the usability beta target: clean install, fallback provider path,
-  live provider path, daily coding loop, and one delegated review loop should
-  all be documented and evidenced.
+- `docs/release-0.1.24-plan.md` defines **Provider Setup + Non-blocking
+  Operator Loop Gate**.
+- The target is daily coding reliability: provider setup forms, trustworthy
+  model switching, non-blocking Plan mode, non-blocking approval, streaming
+  scrollback, provider error recovery, and visible background work.
+- The release is gated by `docs/spec-review-0.1.24.md`, deterministic TUI
+  regression, plan-mode smoke, daily-loop smoke, live DeepSeek development
+  smoke, screenshots/previews, GitHub Release assets, and Homebrew sync.
+
+0.1.x final planning:
+
+- `0.1.25`: TUI display cleanup - align borders, side panels, timestamps,
+  colors, palette placement, caret/IME positioning, resize redraw, and
+  transcript scrollback.
+- `0.1.26`: TUI regression pack - turn welcome, main idle, thinking,
+  streaming, approval, provider setup, model picker, command palette, side-1,
+  side-2, error recovery, and resize states into deterministic preview/smoke
+  evidence.
+- `0.1.27`: daily coding loop hardening - prove a real prompt -> streaming ->
+  tool/approval -> test/diff -> final answer loop without blocking input or
+  losing history.
+- `0.1.28`: delegated lane visibility cleanup - make lane state, evidence,
+  next action, accept/apply/discard, side-screen status, and background counts
+  truthful and stable.
+- `0.1.29`: release-candidate stabilization - freeze new surface area, burn
+  down all known P0/P1 TUI bugs, and run Terminal/iTerm2 manual screenshot
+  acceptance.
+- `0.1.30`: final 0.1.x zero-bug gate - publish only when known P0/P1 TUI bugs
+  are zero, screenshot evidence is complete, full smoke is green, GitHub
+  Release assets are uploaded, Homebrew is synced, and post-publish validation
+  passes.
 
 ## Near-Term Plan
 

@@ -201,6 +201,8 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 - ContextBundle v1 可见
 - lane isolation preflight 存在
 - docs、screenshots、release assets 和 Homebrew 形成常规流程
+- 0.1.x final 前通过 [TUI Stability Zero-Bug Gate](tui-stability-zero-bug-gate.zh-CN.md)：
+  已知 P0/P1 TUI 显示、输入、弹窗、滚动、resize 和状态错误清零
 
 暂时不做：
 
@@ -311,6 +313,7 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 
 - 每个 release 都应该改进 observability、context efficiency、isolation、
   reviewability 或 repeatability 之一。
+- 0.1.x final 是 TUI 稳定性出口：在 P0/P1 TUI bug 清零前，不进入 0.2.x。
 - 每个用户可见功能都需要真实截图或 deterministic visual artifact。
 - 新 adapters 先 read-only 或 supervised，再进入 mutating。
 - 新 extension surfaces 先 descriptor/doctor/probe，再 invocation。
@@ -320,18 +323,19 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 
 ## 推荐后续顺序
 
-`0.1.16` 之后，建议顺序是：
+`0.1.24` 之后，建议顺序是：
 
-1. `0.1.17`: Daily Coding Loop Baseline。用一个确定性 workflow 证明
-   DeepSeek-first setup、交互式 provider/model 配置、switch-model recovery、
-   scoped edit、approval、test、diff、final summary 和 resume evidence 能跑通。
-   轻量 spec/steering 只作为 task brief 支撑层进入。
-2. `0.1.18`: Interaction Hardening。补齐 provider/model/permissions/theme 的
-   selector-first 设置体验，让配置入口可操作，而不是信息展示页。
-3. `0.1.19`: Delegated Lane Usefulness。让一条 Codex/Claude/shell delegated
-   review workflow 可靠到能真实使用。
-4. `0.1.20`: Usability Beta。干净安装后，应能跑通 daily coding loop 和一条
-   delegated review loop，并有文档化截图和 smoke evidence。
-5. `0.2.0`: spec-driven、evidence-driven 的 multi-agent workflow baseline。
+1. `0.1.25`: TUI Display Cleanup。集中清理边框、竖线、颜色、IME、光标、modal
+   位置、right rail drift 和提示框位置。
+2. `0.1.26`: TUI Regression Pack。把历史显示 bug 做成 deterministic preview、
+   terminal smoke 或人工截图 checklist。
+3. `0.1.27`: Daily Coding Loop Hardening。用真实开发任务验证输入、审批、测试、diff、
+   error recovery、scrollback 和 provider setup。
+4. `0.1.28`: Delegated Lane Visibility Cleanup。确保 side screens、lane evidence、
+   Codex/Claude/shell job 状态一致且不假显示。
+5. `0.1.29`: 0.1.x RC Stabilization。停止扩大新 UI surface，只修 P0/P1 TUI bug。
+6. `0.1.30`: 0.1.x Final Zero-Bug Gate。P0/P1 TUI backlog 清零、截图证据齐全、
+   quick/full release gates 通过、GitHub Release 与 Homebrew 同步后，才进入 0.2.x。
+7. `0.2.0`: spec-driven、context-efficient、evidence-driven 的 workflow runtime baseline。
 
 这条线保持 RoboCode 的核心 wedge：不是最大自治，而是最大 operator trust。

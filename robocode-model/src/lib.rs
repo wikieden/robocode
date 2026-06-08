@@ -48,10 +48,11 @@ pub trait ModelProvider: Send {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ModelRequestControl {
     cancelled: Arc<AtomicBool>,
     prefer_streaming: bool,
+    stream_sink: Option<Arc<dyn Fn(String) + Send + Sync>>,
 }
 
 impl ModelRequestControl {
@@ -59,6 +60,7 @@ impl ModelRequestControl {
         Self {
             cancelled: Arc::new(AtomicBool::new(false)),
             prefer_streaming: false,
+            stream_sink: None,
         }
     }
 
@@ -66,6 +68,18 @@ impl ModelRequestControl {
         Self {
             cancelled: Arc::new(AtomicBool::new(false)),
             prefer_streaming,
+            stream_sink: None,
+        }
+    }
+
+    pub fn with_streaming_sink<F>(prefer_streaming: bool, stream_sink: F) -> Self
+    where
+        F: Fn(String) + Send + Sync + 'static,
+    {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+            prefer_streaming,
+            stream_sink: Some(Arc::new(stream_sink)),
         }
     }
 
@@ -79,6 +93,18 @@ impl ModelRequestControl {
 
     pub fn prefer_streaming(&self) -> bool {
         self.prefer_streaming
+    }
+
+    pub fn emit_stream_delta(&self, delta: String) {
+        if let Some(sink) = &self.stream_sink
+            && !delta.is_empty()
+        {
+            sink(delta);
+        }
+    }
+
+    pub fn has_stream_sink(&self) -> bool {
+        self.stream_sink.is_some()
     }
 
     pub fn check_cancelled(&self) -> Result<(), String> {

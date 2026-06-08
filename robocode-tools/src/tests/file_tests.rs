@@ -64,3 +64,44 @@ fn read_write_edit_round_trip() {
     assert!(edit_result.output.contains("effect: edited 1 line"));
     assert!(edit_result.diff.unwrap().contains("+hello rust"));
 }
+
+#[test]
+fn file_tools_report_directory_paths_clearly() {
+    let cwd = temp_dir("file_tool_directory_errors");
+    std::fs::create_dir_all(cwd.join("src")).unwrap();
+    let ctx = ToolExecutionContext {
+        cwd,
+        semantic: None,
+    };
+    let registry = ToolRegistry::builtin();
+
+    let mut read_input = ToolInput::new();
+    read_input.insert("path".into(), "src".into());
+    let read_error = registry
+        .execute(
+            &ToolCall {
+                id: "tool_read_dir".into(),
+                name: "read_file".into(),
+                input: read_input,
+            },
+            &ctx,
+        )
+        .unwrap_err();
+    assert!(read_error.contains("expected a file"));
+    assert!(read_error.contains("is a directory"));
+
+    let mut write_input = ToolInput::new();
+    write_input.insert("path".into(), "src".into());
+    write_input.insert("content".into(), "hello".into());
+    let write_error = registry
+        .execute(
+            &ToolCall {
+                id: "tool_write_dir".into(),
+                name: "write_file".into(),
+                input: write_input,
+            },
+            &ctx,
+        )
+        .unwrap_err();
+    assert!(write_error.contains("existing directory"));
+}

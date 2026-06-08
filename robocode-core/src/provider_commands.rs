@@ -381,13 +381,13 @@ impl SessionEngine {
                 .to_string(),
             "".to_string(),
         ];
-        let mut models = compatible_model_candidates(provider_id, current_model, current_model);
-        if let Some(host) = self.provider_host.as_ref()
+        let models = if let Some(host) = self.provider_host.as_ref()
             && let Some(descriptor) = host.registry().descriptor(provider_id)
-            && let Some(default_model) = descriptor.default_model.as_deref()
         {
-            push_unique(&mut models, default_model.to_string());
-        }
+            descriptor_model_candidates(descriptor, provider_id, current_model)
+        } else {
+            compatible_model_candidates(provider_id, current_model, current_model)
+        };
         for model in models {
             let marker = if model == current_model { "*" } else { " " };
             lines.push(format!("  {marker} {model:<30} command: {prefix} {model}"));
@@ -501,24 +501,32 @@ impl SessionEngine {
         let mut lines = vec![
             "Choose a model:".to_string(),
             format!("  Current: {current_provider} / {current_model}"),
-            "  Models are grouped by provider. Selecting one switches provider and model."
+            "  Models are grouped by configured provider. Selecting one switches provider and model."
                 .to_string(),
-            "  You can also free-type: /settings provider <provider> <model>".to_string(),
+            "  Use `/connect` to add provider keys, endpoints, and active models.".to_string(),
             "".to_string(),
         ];
+        let mut rendered = 0usize;
         if let Some(host) = self.provider_host.as_ref() {
             let mut descriptors = host.registry().descriptors().to_vec();
             descriptors.sort_by(|left, right| left.provider_id.cmp(&right.provider_id));
             for descriptor in descriptors {
+                let configured = self.provider_ui_config_for(&descriptor.provider_id);
+                let models = configured_model_candidates(
+                    configured.as_ref(),
+                    &descriptor,
+                    current_provider,
+                    current_model,
+                );
+                if models.is_empty() {
+                    continue;
+                }
+                rendered += 1;
                 lines.push(format!(
-                    "{} ({}) key={}",
-                    descriptor.display_name,
-                    descriptor.provider_id,
-                    descriptor_key_status(&descriptor)
+                    "{} ({})",
+                    descriptor.display_name, descriptor.provider_id
                 ));
-                for model in
-                    descriptor_model_candidates(&descriptor, current_provider, current_model)
-                {
+                for model in models {
                     let marker =
                         if descriptor.provider_id == current_provider && model == current_model {
                             "*"
@@ -526,7 +534,7 @@ impl SessionEngine {
                             " "
                         };
                     lines.push(format!(
-                        "  {marker} {:<34} command: /settings provider {} {}",
+                        "  {marker} {:<34} /models {} {}",
                         model, descriptor.provider_id, model
                     ));
                 }
@@ -534,6 +542,10 @@ impl SessionEngine {
             }
         } else {
             lines.push("Runtime registry unavailable; start RoboCode through the CLI.".to_string());
+        }
+        if rendered == 0 {
+            lines.push("No configured provider models yet.".to_string());
+            lines.push("Open `/connect`, choose a provider, enter the key if needed, then choose the default model.".to_string());
         }
         lines.join("\n")
     }
@@ -571,6 +583,7 @@ impl SessionEngine {
                     self.provider.model()
                 ),
                 render_provider_diagnostic(descriptor),
+                render_provider_doctor_detail(descriptor),
             ]
             .join("\n");
         }
@@ -811,18 +824,26 @@ impl SessionEngine {
         let failure = classify_provider_model_failure(error)?;
         let provider_id = self.provider.provider_name();
         let current_model = self.provider.model();
-        let default_model = self
-            .provider_host
+        let descriptor = self.provider_host.as_ref().and_then(|host| {
+            let registry = host.registry();
+            registry.descriptor(provider_id).cloned()
+        });
+        let default_model = descriptor
             .as_ref()
-            .and_then(|host| {
-                let registry = host.registry();
-                registry
-                    .descriptor(provider_id)
-                    .and_then(|descriptor| descriptor.default_model.clone())
-            })
+            .and_then(|descriptor| descriptor.default_model.clone())
             .unwrap_or_else(|| current_model.to_string());
-        let candidates = compatible_model_candidates(provider_id, &default_model, current_model);
+        let candidates = descriptor
+            .as_ref()
+            .map(|descriptor| descriptor_model_candidates(descriptor, provider_id, current_model))
+            .filter(|models| !models.is_empty())
+            .unwrap_or_else(|| {
+                compatible_model_candidates(provider_id, &default_model, current_model)
+            });
         let candidate_text = candidates.join(", ");
+        let primary_candidate = candidates
+            .first()
+            .cloned()
+            .unwrap_or_else(|| default_model.clone());
         Some(
             [
                 "Provider/model recovery:".to_string(),
@@ -831,9 +852,11 @@ impl SessionEngine {
                 format!("  reason: {}", failure.reason),
                 format!("  candidates: {candidate_text}"),
                 format!("  next: {}", failure.next_action),
-                format!("  try: /settings model {default_model}"),
-                format!("  try: /settings provider {provider_id} {default_model}"),
+                format!("  try: /models {provider_id} {primary_candidate}"),
+                "  picker: /models".to_string(),
+                format!("  reconnect: /connect {provider_id}"),
                 format!("  diagnose: /provider doctor {provider_id}"),
+                format!("  live smoke: scripts/provider-live-smoke.sh --provider {provider_id} --model {primary_candidate}"),
                 "  offline fallback: /settings provider fallback test-local".to_string(),
             ]
             .join("\n"),
@@ -875,6 +898,51 @@ fn render_provider_diagnostic(descriptor: &ProviderDescriptor) -> String {
         descriptor.capabilities.supports_native_tool_calling,
         render_provider_compatibility(descriptor),
     )
+}
+
+fn render_provider_doctor_detail(descriptor: &ProviderDescriptor) -> String {
+    let default_model = descriptor
+        .default_model
+        .as_deref()
+        .unwrap_or("<choose one>");
+    let known_models = if descriptor.known_models.is_empty() {
+        "<none declared>".to_string()
+    } else {
+        descriptor.known_models.join(", ")
+    };
+    let key_env = descriptor
+        .env_mappings
+        .api_key_env
+        .as_deref()
+        .unwrap_or("<not required>");
+    let key_hint = if key_env == "<not required>" {
+        "key: not required".to_string()
+    } else if std::env::var_os(key_env).is_some() {
+        format!("key: {key_env} present")
+    } else {
+        format!("key: {key_env} missing")
+    };
+    let endpoint = descriptor
+        .default_api_base
+        .as_deref()
+        .unwrap_or("<provider built-in>");
+    [
+        "  readiness:".to_string(),
+        format!("    {key_hint}"),
+        format!("    endpoint: {endpoint}"),
+        format!("    default model: {default_model}"),
+        format!("    known models: {known_models}"),
+        format!("    configure: /connect {}", descriptor.provider_id),
+        format!(
+            "    choose model: /models {} {default_model}",
+            descriptor.provider_id
+        ),
+        format!(
+            "    live smoke: scripts/provider-live-smoke.sh --provider {} --model {default_model}",
+            descriptor.provider_id
+        ),
+    ]
+    .join("\n")
 }
 
 fn render_permission_picker(current: PermissionMode) -> String {
@@ -1021,6 +1089,16 @@ fn classify_provider_model_failure(error: &str) -> Option<ProviderFailureClass> 
             reason: "Provider is rate limiting the current key or model.",
             next_action: "retry later, switch model/provider, or use fallback",
         }
+    } else if lower.contains("api error (413)")
+        || lower.contains("http 413")
+        || lower.contains("payload too large")
+        || lower.contains("request entity too large")
+    {
+        ProviderFailureClass {
+            class: "request_too_large",
+            reason: "Provider rejected the serialized request body before model execution.",
+            next_action: "compact provider context, retry with a smaller prompt, or switch provider",
+        }
     } else if lower.contains("timeout") || lower.contains("timed out") {
         ProviderFailureClass {
             class: "timeout",
@@ -1064,6 +1142,11 @@ fn classify_provider_model_failure(error: &str) -> Option<ProviderFailureClass> 
     Some(class)
 }
 
+pub(crate) fn is_request_too_large_provider_failure(error: &str) -> bool {
+    classify_provider_model_failure(error)
+        .is_some_and(|failure| failure.class == "request_too_large")
+}
+
 fn compatible_model_candidates(
     provider_id: &str,
     default_model: &str,
@@ -1096,7 +1179,7 @@ fn descriptor_model_candidates(
     if let Some(default_model) = descriptor.default_model.as_deref() {
         push_unique(&mut candidates, default_model.to_string());
     }
-    for model in known_provider_model_candidates(&descriptor.provider_id) {
+    for model in &descriptor.known_models {
         push_unique(&mut candidates, model.to_string());
     }
     if descriptor.provider_id == current_provider {
@@ -1105,26 +1188,48 @@ fn descriptor_model_candidates(
     candidates
 }
 
-fn known_provider_model_candidates(provider_id: &str) -> &'static [&'static str] {
-    match provider_id {
-        "anthropic" => &["claude-sonnet-4-6", "claude-haiku-4-6"],
-        "deepseek" | "deepseek-anthropic" => &["deepseek-v4-flash", "deepseek-v4-pro"],
-        "fallback" => &["test-local", "fallback-local"],
-        "openai" => &["gpt-5.2", "gpt-5.2-codex", "gpt-4o-mini"],
-        "openai-compatible" => &["gpt-4o-mini"],
-        "openrouter" => &[
-            "openai/gpt-5.2",
-            "anthropic/claude-sonnet-4-6",
-            "deepseek/deepseek-v4-flash",
-        ],
-        "groq" => &["openai/gpt-oss-20b"],
-        "kimi" => &["kimi-k2.5", "kimi-k2.6"],
-        "mistral" => &["mistral-medium-latest"],
-        "qwen" => &["qwen-plus"],
-        "zhipu" => &["glm-4.6"],
-        "volcengine" => &["ark-code-latest", "deepseek-v3.2", "doubao-seed-2.0-code"],
-        _ => &[],
+fn configured_model_candidates(
+    config: Option<&robocode_config::ProviderUiConfig>,
+    descriptor: &ProviderDescriptor,
+    current_provider: &str,
+    current_model: &str,
+) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let configured = config.is_some()
+        || descriptor.provider_id == current_provider
+        || descriptor
+            .env_mappings
+            .api_key_env
+            .as_deref()
+            .is_some_and(|env| {
+                std::env::var(env)
+                    .ok()
+                    .is_some_and(|value| !value.trim().is_empty())
+            })
+        || descriptor.env_mappings.api_key_env.is_none();
+    if let Some(config) = config {
+        for model in &config.favorite_models {
+            push_unique(&mut candidates, model.to_string());
+        }
+        for model in &config.models {
+            push_unique(&mut candidates, model.to_string());
+        }
+        if let Some(default_model) = config.default_model.as_deref() {
+            push_unique(&mut candidates, default_model.to_string());
+        }
     }
+    if descriptor.provider_id == current_provider {
+        push_unique(&mut candidates, current_model.to_string());
+    }
+    if configured {
+        if let Some(default_model) = descriptor.default_model.as_deref() {
+            push_unique(&mut candidates, default_model.to_string());
+        }
+        for model in &descriptor.known_models {
+            push_unique(&mut candidates, model.to_string());
+        }
+    }
+    candidates
 }
 
 fn push_unique(values: &mut Vec<String>, value: String) {
@@ -1219,6 +1324,10 @@ mod tests {
             ("missing API key for DeepSeek", "missing_key"),
             ("API error (401): unauthorized", "auth"),
             ("rate limit exceeded", "rate_limit"),
+            (
+                "API error (413): deepseek returned HTTP 413",
+                "request_too_large",
+            ),
             ("request timed out after 90s", "timeout"),
             ("maximum context length exceeded", "context_overflow"),
             (

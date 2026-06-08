@@ -91,6 +91,7 @@ fn provider_host_creates_dynamic_openai_provider_from_registry_descriptor() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://models.example.com".to_string()),
         default_model: Some("custom-model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities {
             supports_streaming: true,
@@ -124,6 +125,7 @@ fn provider_host_uses_dynamic_provider_api_base_env_mapping() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: None,
         default_model: Some("env-model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
             api_key_env: None,
             api_base_env: Some("ROBOCODE_TEST_ENV_OPENAI_API_BASE".to_string()),
@@ -168,6 +170,7 @@ fn provider_host_treats_blank_dynamic_provider_api_key_env_as_missing() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("http://127.0.0.1:9".to_string()),
         default_model: Some("blank-key-model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
             api_key_env: Some("ROBOCODE_TEST_BLANK_OPENAI_API_KEY".to_string()),
             api_base_env: None,
@@ -281,6 +284,7 @@ fn provider_host_prefers_explicit_api_base_over_dynamic_provider_env_mapping() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: None,
         default_model: Some("explicit-model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
             api_key_env: None,
             api_base_env: Some("ROBOCODE_TEST_EXPLICIT_OPENAI_API_BASE".to_string()),
@@ -329,6 +333,7 @@ fn provider_host_rejects_invalid_dynamic_provider_api_base_env_mapping() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: None,
         default_model: Some("invalid-env-model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
             api_key_env: None,
             api_base_env: Some("ROBOCODE_TEST_INVALID_OPENAI_API_BASE".to_string()),
@@ -372,6 +377,7 @@ fn provider_host_reports_missing_dynamic_provider_api_base_after_env_lookup() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: None,
         default_model: Some("missing-base-model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
             api_key_env: None,
             api_base_env: Some("ROBOCODE_TEST_MISSING_OPENAI_API_BASE".to_string()),
@@ -413,6 +419,7 @@ fn provider_host_keeps_dynamic_provider_instances_independent() {
         protocol_family: ProtocolFamily::Anthropic,
         default_api_base: Some("https://team.example.com".to_string()),
         default_model: Some("team-default".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities {
             supports_streaming: true,

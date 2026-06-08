@@ -18,9 +18,10 @@
 - 顶栏：产品、provider、model、session、context window、Git 分支、权限模式、
   active-lane 数量和 telemetry 可用性。
 - Transcript：左侧主面板，时间线式消息，最近内容固定留在底部可见。
-- Live activity：transcript 区内部固定保留一条当前运行状态，直接回答
-  RoboCode 正在干什么，例如 `Thinking...`、`Editing src/render.rs`、等待审批，
-  或正在监督 active lanes。
+- Live activity：transcript 区内部在最近可见对话内容后追加一条尾部状态行，
+  用小脉冲符号直接回答 RoboCode 正在干什么，例如
+  `RoboCode is planning ·`、`Editing src/render.rs`、等待审批，或正在监督
+  active lanes。
 - 右侧栏：workspace、active tasks、diagnostics、provider health、recent files。
 - Composer：始终在底部可见，输入区是更高的三行输入槽，输入光标位于输入行内
   并使用原生 blinking bar cursor，带 action hints 和 approval-mode chips。
@@ -64,11 +65,13 @@
 
 渲染契约：
 
-- 交互决策类命令必须 selector-first。`/setup`、`/settings`、`/provider`、`/models`、
-  `/lane`、`/permissions`、`/theme` 都要渲染居中的 selector panel，支持搜索、键盘移动、
-  鼠标选择和 `Enter` 应用。未来新增的配置、模式切换、lane/agent 操作和多选项
-  工作流也要沿用同一模式。除非是 `/config`、`/status` 或 `/provider doctor`
-  这类明确诊断/详情命令，否则不要退化成只展示信息的页面。
+- 交互决策类命令最终必须 selector/modal-first，但不能在用户还没按 Enter
+  时抢屏。输入 `/connect`、`/models`、`/settings provider` 这类命令时，composer
+  上方只显示紧凑补全；提交后才进入独立 modal 状态。`/setup`、`/settings`、
+  `/provider`、`/models`、`/lane`、`/permissions`、`/theme` 的正式 modal
+  必须支持搜索、键盘移动、鼠标选择和 `Enter` 应用。未来新增的配置、模式切换、
+  lane/agent 操作和多选项工作流也要沿用同一模式。除非是 `/config`、`/status`
+  或 `/provider doctor` 这类明确诊断/详情命令，否则不要退化成只展示信息的页面。
 
 - `/setup` 是 first-run wizard，不是被动 help 页。每一行都必须是真实动作，包括
   provider 配置、model 选择、permissions、theme、当前 provider doctor、fallback
@@ -77,14 +80,15 @@
 - `/lane` 是编排动作 selector。它会列出 lane 启动命令；已有 lane 时，还会列出带
   lane id 的 inspect、timeline、diff 和 artifacts 动作，避免用户记 lane id。
 
-- provider 和 model selector 的语义必须分开：`/provider` 是供应商配置界面，
-  一级列表只展示供应商 id，例如 `deepseek`、`openrouter`，不要在供应商行里混入
-  key、endpoint、model 解释；选中供应商后进入二级 `PROVIDER CONFIG` 页面，再展示
-  脱敏后的 API key、endpoint 来源、已知/默认模型候选、诊断、保存默认值和当前会话切换动作。
-  默认动作应该是检查或配置供应商，而不是把 provider 选择伪装成 model 选择。
-  `/models` 是跨供应商模型选择器，按 provider 分组，选中一行会补全/执行同时
-  切换 provider 和 model 的命令。`/model <model>` 只表示当前 provider 内的快速
-  模型切换，不能隐藏“跨供应商选模型需要切 provider”这件事。
+- provider 和 model selector 的语义必须分开：`/provider`/`/connect` 是供应商连接流程，
+  一级列表只展示供应商，例如 `DeepSeek`、`OpenRouter`，不要在供应商行里混入
+  key、endpoint、model 解释；选中供应商后，如果需要 key，进入独立 API key 输入面板，
+  key 必须脱敏显示且只保存环境变量名，不能保存明文；随后进入该供应商的 model picker。
+  `/models` 是跨供应商模型选择器，必须按 provider 分组，用缩进表示 provider 下面的
+  model；它只展示已经配置/激活过的 provider/model，不展示未配置 provider 的 descriptor
+  默认模型。选中一行直接应用 provider/model 切换，不再先补全一条命令让用户猜怎么执行。
+  `/model <model>` 只表示当前 provider 内已激活模型的快速切换，不能隐藏“跨供应商选模型
+  需要切 provider”这件事。
 
 - 提示列表使用与主 TUI 一致的 cockpit 边框、标题和行样式。
 - 浮在 composer 正上方，不能遮挡输入光标。
@@ -182,17 +186,17 @@ normalized view，不能各自拼接一套状态。
 
 - 主屏和副屏都会响应 resize 事件并重绘。
 - 行级 diff 渲染避免输入时整屏闪烁。
-- provider turn 通过 worker/channel 边界执行，主 TUI event loop 会继续轮询输入、
-  lane artifacts、approval prompt 和 repaint tick。审批 prompt 会桥接回 UI，并沿用
-  现有 permission path 处理，完成后 worker 才继续。
+- provider turn 现在通过 `TuiRuntime` worker 执行，并把 stream、approval、cancel、
+  finish 和 error event 回送给 TUI 主事件循环。0.1.24 剩余工作是让 queued input
+  成为 runtime-visible 状态，并补强 slow-provider、approval、resize 的 smoke evidence。
 - composer 已按显示宽度处理中文等 CJK 输入；输入行保持原生 blinking bar
   cursor，并预留更高输入槽，让长会话里也容易找到输入位置。
-- 主 transcript 顶部会保留固定的 `NOW WORKING` 区域。它从 pending
-  approvals、统一 `AgentTask` view、最近 user turn、最近 tool call 或最近
-  transcript entry 推导状态，所以主屏可以展示 `reply thinking`、
-  `DeepSeek is thinking`、`Approval needed: ...`、`Supervising 2 agents: ...`、
-  紧凑 edit 摘要、delegate-agent progress 和 evidence
-  source，同时不编造运行时数据。
+- 主 transcript 在 live tail 保留轻量 inline activity 提示，直接跟在最近对话内容
+  后面，不再使用挡住内容的居中卡片，也不再放成脱离对话流的顶部状态条。它从
+  pending approvals、统一 `AgentTask` view、最近 user turn、最近 tool call
+  或最近 transcript entry 推导状态，所以主屏可以展示带脉冲的
+  `RoboCode is planning`、`Approval needed: ...`、`Supervising 2 agents: ...`、
+  紧凑 edit 摘要、delegate-agent progress 和可读 signal，同时不编造运行时数据。
 - Approval overlay 和 `waiting_approval` task 只有在仍然 live 时才算阻塞；如果后续
   approval resolution、tool result、assistant reply 或 `/test` command result
   已经闭环，就不能继续占用 operation center 或 modal layer。

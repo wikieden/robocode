@@ -1,40 +1,40 @@
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.23  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L1      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
-│   ◎ NOW WORKING  Supervising 1 agent: codex testing                                               │ │ robocode/    ~/projects/robocode   │
-│      ┊  evidence: AgentTask L1 from summary patched failing tests; rerunning cargo                │ │ ↳ src/          FILES    128       │
-│      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
-│      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
-│   ♙  ┊  USER                                                                             11:14:43 │ └────────────────────────────────────┘
-│      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ ┌ ACTIVE TASKS ─────────────────── 4 ┐
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ L1 ⛭ codex  s1/pty/01  64%         │
-│   ⚒  ┊  TOOL CALL                                                                        11:14:45 │ │ tool-7 ✎ roboco local-tool/pty/xx  │
-│      ┊  [write_file] path: src/config.rs                                                          │ │ ● task_lo/prog Implement load_con  │
-│      ┊               lines: 1-120     gate: waiting                                               │ │ ◆ task_re/block Review config test │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ·  ┊  SYSTEM                                                                           11:14:47 │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
-│      ┊  Test result:                                                                              │ │ diagnostics unavailable            │
-│      ┊    status: failed                                                                          │ │ auto-checks or /lsp diagnostics    │
-│      ┊    exit code: 101                                                                          │ │                                    │
-│      ┊    command: cargo test -p robocode-cli config_tests                                        │ └────────────────────────────────────┘
-│      ┊    duration: 42ms                                                                          │ ┌ PROVIDER HEALTH ─────── Configured ┐
-│      ┊    failure summary:                                                                        │ │ OpenAI (gpt-4o)                    │
-│      ┊      - assertion failed in config_tests                                                    │ │ STATUS     Configured              │
-│      ┊    failing files:                                                                          │ │ REQUESTS   0 ok / 0 err            │
-│      ┊      - src/config.rs:42:15                                                                 │ │ LATENCY    last - avg -            │
-│      ┊    output tail:                                                                            │ │ TELEMETRY  awaiting first request  │
-│      ┊      thread 'config_tests' panicked at src/config.rs:42:15                                 │ │                                    │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ✣  ┊  ASSISTANT                                                                        11:14:49 │ ┌ RECENT FILES ──────────────── tail ┐
-│      ┊  No approval is blocking right now. The cockpit stays open for transcript review, input,   │ │ [Rs] src/config.rs         now     │
-│      ┊  diagnostics, and lane status.                                                             │ │ [Rs] tests/config_tests.rs 1m      │
-└───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
-┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                                                           │              │
-│ › Review current diff, then run tests when ready                                                                          │ MODE Code ▾  │
-│                                                                                                                           │              │
-│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 9    ┆ LANES 1  ┆ CONTEXT 128k                                                 Press ? for help │
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                     /\                                                                     
+                                                                ____/  \____                                                                
+                                                               / __  /\  __ \                                                               
+                                                              /_/  |/__\|  \_\                                                              
+                                                              |  []  /\  []  |                                                              
+                                                              |_____/  \_____|                                                              
+                                                                 /_ROBOCODE_\                                                               
+                                                                                                                                            
+                                                                                                                                            
+                      ▌  Ask anything... "Fix broken tests"                                                                                 
+                      ▌                                                                                                                     
+                      ▌ RoboCode - Operator · gpt-4o OpenAI                                                                                 
+                                                                                                                                            
+                                                                               tab agents   ctrl+p commands   /connect                      
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.24  
+                                                                                                                                            

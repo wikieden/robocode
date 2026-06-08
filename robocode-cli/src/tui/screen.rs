@@ -1,8 +1,8 @@
 use std::{
-    env,
+    env, fs,
     path::Path,
     process::{Command, Stdio},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
@@ -15,6 +15,8 @@ use super::state::{
     save_screens, screen_store_path,
 };
 use super::terminal::TerminalGuard;
+
+const SCREEN_SHELL_SCRIPT_THRESHOLD: usize = 32 * 1024;
 
 pub(crate) fn run_side_tui_with_theme(
     engine: &SessionEngine,
@@ -43,6 +45,8 @@ pub(crate) fn run_side_tui_with_theme(
         approval_focus: 0,
         approval_apply_all: false,
         pending_turn: None,
+        streaming_assistant: None,
+        transcript_scroll: 0,
         entries: vec![TuiEntry {
             label: "system".to_string(),
             body: format!("RoboCode side monitor ready. Esc or Ctrl-C exits.\n{startup_summary}"),
@@ -55,6 +59,7 @@ pub(crate) fn run_side_tui_with_theme(
         lanes: load_side_lanes(lane_store.as_deref()),
         lane_store,
         focused_lane: None,
+        interaction_panel: None,
     };
     if let Some(path) = screen_store.as_deref() {
         let _ = save_screens(path, &state.screens);
@@ -291,7 +296,7 @@ fn screen_launch_template(screen: &str) -> Option<(String, String)> {
 }
 
 fn spawn_shell_command(command: &str) -> Result<u32, String> {
-    let mut shell = platform_shell_command(command);
+    let mut shell = platform_shell_command(command)?;
     shell
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -301,17 +306,76 @@ fn spawn_shell_command(command: &str) -> Result<u32, String> {
 }
 
 #[cfg(windows)]
-fn platform_shell_command(command: &str) -> Command {
-    let mut shell = Command::new("cmd");
-    shell.arg("/C").arg(command);
-    shell
+fn platform_shell_command(command: &str) -> Result<Command, String> {
+    build_platform_shell_command(command, true)
 }
 
 #[cfg(not(windows))]
-fn platform_shell_command(command: &str) -> Command {
-    let mut shell = Command::new("sh");
-    shell.arg("-lc").arg(command);
-    shell
+fn platform_shell_command(command: &str) -> Result<Command, String> {
+    build_platform_shell_command(command, false)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ShellCommandPlan {
+    program: &'static str,
+    inline_args: Vec<String>,
+    script_extension: Option<&'static str>,
+    script_body: Option<String>,
+}
+
+fn screen_shell_command_plan(command: &str, windows: bool) -> ShellCommandPlan {
+    let requires_script = command.len() > SCREEN_SHELL_SCRIPT_THRESHOLD;
+    if windows {
+        return ShellCommandPlan {
+            program: "cmd",
+            inline_args: if requires_script {
+                vec!["/C".to_string()]
+            } else {
+                vec!["/C".to_string(), command.to_string()]
+            },
+            script_extension: requires_script.then_some("cmd"),
+            script_body: requires_script.then(|| command.to_string()),
+        };
+    }
+
+    ShellCommandPlan {
+        program: "sh",
+        inline_args: if requires_script {
+            Vec::new()
+        } else {
+            vec!["-lc".to_string(), command.to_string()]
+        },
+        script_extension: requires_script.then_some("sh"),
+        script_body: requires_script.then(|| format!("set -eu\n{command}\n")),
+    }
+}
+
+fn build_platform_shell_command(command: &str, windows: bool) -> Result<Command, String> {
+    let plan = screen_shell_command_plan(command, windows);
+    let mut shell = Command::new(plan.program);
+    shell.args(plan.inline_args);
+    if let Some(body) = plan.script_body {
+        let extension = plan.script_extension.unwrap_or("cmd");
+        let path = screen_shell_script_path(extension);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("failed to create screen shell script dir: {err}"))?;
+        }
+        fs::write(&path, body)
+            .map_err(|err| format!("failed to write screen shell script: {err}"))?;
+        shell.arg(path);
+    }
+    Ok(shell)
+}
+
+fn screen_shell_script_path(extension: &str) -> std::path::PathBuf {
+    let millis = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    std::env::temp_dir()
+        .join("robocode-screen-shell")
+        .join(format!("screen-launch-{millis}.{extension}"))
 }
 
 #[derive(Debug, Clone)]
@@ -515,6 +579,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
@@ -524,6 +590,7 @@ mod tests {
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         }
     }
 
@@ -666,6 +733,33 @@ mod tests {
         assert!(command.contains("'side-2'"));
         assert!(command.contains("--role ops"));
         assert!(command.contains("--display-index 2"));
+    }
+
+    #[test]
+    fn screen_shell_command_uses_script_for_long_templates() {
+        let command = format!("printf ok\n# {}", "x".repeat(40 * 1024));
+        let plan = screen_shell_command_plan(&command, false);
+
+        assert_eq!(plan.program, "sh");
+        assert!(plan.inline_args.is_empty());
+        assert_eq!(plan.script_extension, Some("sh"));
+        assert_eq!(
+            plan.script_body.as_deref(),
+            Some(format!("set -eu\n{command}\n").as_str())
+        );
+    }
+
+    #[test]
+    fn screen_shell_command_keeps_short_templates_inline() {
+        let plan = screen_shell_command_plan("exit 0", false);
+
+        assert_eq!(plan.program, "sh");
+        assert_eq!(
+            plan.inline_args,
+            vec!["-lc".to_string(), "exit 0".to_string()]
+        );
+        assert!(plan.script_extension.is_none());
+        assert!(plan.script_body.is_none());
     }
 
     fn screen_template_env(template: &'static str) -> ScopedEnv {

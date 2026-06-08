@@ -102,7 +102,7 @@ fn active_task_rows(state: &TuiState) -> Vec<String> {
             "{} {} {:<6} {:<8} {:>3}%",
             agent_task.id,
             status_dot(&agent_task.status),
-            truncate(&agent_task.agent, 6),
+            truncate(&active_agent_label(&agent_task), 6),
             screen_hint(&agent_task),
             agent_task.progress
         ));
@@ -123,16 +123,29 @@ fn active_task_rows(state: &TuiState) -> Vec<String> {
 }
 
 fn screen_hint(task: &AgentTask) -> String {
-    let screen = match task.agent.as_str() {
-        "codex" | "claude" => "s1",
-        "shell" => "s2",
-        _ => task.transport.as_str(),
+    let screen = if task.agent == "robocode" && task.kind == "provider" {
+        "main"
+    } else {
+        match task.agent.as_str() {
+            "codex" | "claude" => "s1",
+            "shell" => "s2",
+            _ => task.transport.as_str(),
+        }
     };
     format!("{screen}/{}", pty_label_for_agent(&task.agent))
 }
 
+fn active_agent_label(task: &AgentTask) -> String {
+    if task.agent == "robocode" && task.kind == "provider" {
+        "RoboCode".to_string()
+    } else {
+        task.agent.clone()
+    }
+}
+
 fn pty_label_for_agent(agent: &str) -> &'static str {
     match agent {
+        "robocode" => "robo",
         "codex" | "claude" | "shell" => pty_label(agent),
         _ => "pty/xx",
     }

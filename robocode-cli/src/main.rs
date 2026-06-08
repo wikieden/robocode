@@ -361,11 +361,7 @@ fn run() -> Result<(), String> {
                 startup.tui_theme.as_deref(),
             );
         }
-        return tui::run_tui_with_theme(
-            &mut engine,
-            &provider_summary,
-            startup.tui_theme.as_deref(),
-        );
+        return tui::run_tui_with_theme(engine, &provider_summary, startup.tui_theme.as_deref());
     }
 
     println!(

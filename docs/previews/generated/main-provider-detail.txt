@@ -1,40 +1,40 @@
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.23  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
-│   ◎ NOW WORKING  Supervising 1 agent: codex testing                                               │ │ robocode/    ~/projects/robocode   │
-│      ┊  evidence: AgentTask L1 from summary patched failing tests; rerunning cargo                │ │ ↳ src/          FILES    128       │
 
-                               ┌ PROVIDER CONFIG ───────────────────────────────────────────────────── esc ┐
-                               │                                                                           │
-                               │ openai / OpenAI                                                           │
-                               │ auth: web login or API key                                                │
-                               │ key: OPENAI_API_KEY sk-p************demo                                  │
-                               │ endpoint: https://api.openai.com/v1 (ROBOCODE_API_BASE override)          │
-                               │ default model: gpt-5.2                                                    │
-                               │ active models: gpt-5.2                                                    │
-                               │                                                                           │
-                               │ ● set default provider  save as default provider                          │
-                               │   use now  switch provider for this session                               │
-                               │   edit key env  current OPENAI_API_KEY                                    │
-                               │   key env  OPENAI_API_KEY sk-p************demo                            │
-                               │   edit endpoint  current https://api.openai.com/v1                        │
-                               │   endpoint  https://api.openai.com/v1                                     │
-                               │   edit default model  current gpt-5.2                                     │
-                               │   default model  gpt-5.2                                                  │
-                               │   doctor  run provider diagnostics                                        │
-                               │   /models  open active model picker                                       │
-                               │   enable gpt-5.2  already active in /models                               │
-                               │   enable gpt-5.2-codex  add to /models                                    │
-                               │   enable gpt-4o-mini  add to /models                                      │
-                               │                                                                           │
-                               │ Enter action   /models for all models   esc close                         │
-                               │                                                                           │
-                               └───────────────────────────────────────────────────────────────────────────┘
 
-│                                                                                                                           │              │
-│ › /connect openai                                                                                                         │ MODE Code ▾  │
-│                                                                                                                           │              │
-│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 9    ┆ LANES 1  ┆ CONTEXT 128k                                                 Press ? for help │
+
+
+
+
+
+
+                    ┌ API key ──────────────────────────────────────────── esc ┐
+                    │ OpenAI needs an API key.                                 │
+                    │ It will be used for this session via OPENAI_API_KEY.     │
+                    │ RoboCode will save the env var name, not the raw key.    │
+                    │                                                          │
+                    │ API key _                                                │
+                    │                                                          │
+                    │ Enter submit    esc back                                 │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │                    ommands   /connect
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    └──────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.24
+

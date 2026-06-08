@@ -108,6 +108,41 @@ Required invariants:
 - assistant tool-call intent is represented in session state
 - transcript order is sufficient to reconstruct a session
 
+### Non-Blocking Interaction Runtime
+
+RoboCode must treat "UI and input never freeze because agent work is active" as
+a core product requirement, not as a TUI polish item.
+
+Any flow that may wait on a provider, tool, shell, Git, LSP, MCP, plugin,
+external agent, context compaction, doctor, release smoke, or user approval must
+return to the UI through a background task, event, callback, or cancellable job.
+The TUI main event loop must not synchronously wait for those flows to finish.
+
+```mermaid
+flowchart TD
+    A["User Input"] --> B["Main Event Loop"]
+    B --> C{"Short UI action?"}
+    C -->|yes| D["Update UI State"]
+    C -->|no| E["Spawn Background Work"]
+    E --> F["Emit Runtime Event"]
+    F --> B
+    D --> G["Render Snapshot"]
+    G --> B
+```
+
+Required invariants:
+
+- `/plan`, provider turns, approvals, streaming, tool execution, lanes, doctor,
+  probes, and ContextBundle builds must never take over the main input loop;
+- while a turn is active, the composer remains editable and `Enter` explicitly
+  queues follow-up input or applies a visible interrupt/replace policy;
+- approval is state plus callback, not a blocking `event::read` sub-loop;
+- streaming appends deltas while render cadence is owned by the main loop;
+- scrollback, resize, mouse, IME, and command panels remain usable during
+  background work;
+- every background work item maps to visible activity, AgentTask, Evidence, or
+  error recovery.
+
 ### Permission Model
 
 Permissions are a domain concept, not a purely interactive UI concept.

@@ -12,6 +12,10 @@ fn registry_lists_builtin_provider_ids() {
     assert!(ids.contains(&"together".to_string()));
     assert!(ids.contains(&"kimi".to_string()));
     assert!(ids.contains(&"qwen".to_string()));
+    assert!(ids.contains(&"dashscope-coding-plan".to_string()));
+    assert!(ids.contains(&"dashscope-coding-plan-anthropic".to_string()));
+    assert!(ids.contains(&"dashscope-tokenplan".to_string()));
+    assert!(ids.contains(&"dashscope-tokenplan-anthropic".to_string()));
     assert!(ids.contains(&"zhipu".to_string()));
     assert!(ids.contains(&"volcengine".to_string()));
     assert!(ids.contains(&"openai".to_string()));
@@ -79,7 +83,86 @@ fn builtin_openai_compatible_gateway_descriptors_expose_capability_matrix() {
         volcengine.env_mappings.api_key_env.as_deref(),
         Some("ARK_API_KEY")
     );
-    assert_eq!(volcengine.default_model, None);
+    assert_eq!(
+        volcengine.default_model.as_deref(),
+        Some("doubao-seed-2.0-code")
+    );
+
+    let coding_plan = registry.descriptor("dashscope-coding-plan").unwrap();
+    assert_eq!(coding_plan.protocol_family, ProtocolFamily::OpenAi);
+    assert_eq!(
+        coding_plan.default_api_base.as_deref(),
+        Some("https://coding.dashscope.aliyuncs.com/v1")
+    );
+    assert_eq!(
+        coding_plan.env_mappings.api_key_env.as_deref(),
+        Some("DASHSCOPE_CODING_PLAN_API_KEY")
+    );
+    assert!(
+        coding_plan
+            .known_models
+            .iter()
+            .any(|model| model == "qwen3-coder-next")
+    );
+    assert!(
+        coding_plan
+            .known_models
+            .iter()
+            .any(|model| model == "MiniMax-M2.5")
+    );
+
+    let coding_plan_anthropic = registry
+        .descriptor("dashscope-coding-plan-anthropic")
+        .unwrap();
+    assert_eq!(
+        coding_plan_anthropic.protocol_family,
+        ProtocolFamily::Anthropic
+    );
+    assert_eq!(
+        coding_plan_anthropic.default_api_base.as_deref(),
+        Some("https://coding.dashscope.aliyuncs.com/apps/anthropic")
+    );
+
+    let tokenplan = registry.descriptor("dashscope-tokenplan").unwrap();
+    assert_eq!(tokenplan.protocol_family, ProtocolFamily::OpenAi);
+    assert_eq!(
+        tokenplan.default_api_base.as_deref(),
+        Some("https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1")
+    );
+    assert_eq!(
+        tokenplan.env_mappings.api_key_env.as_deref(),
+        Some("DASHSCOPE_API_KEY")
+    );
+    assert!(
+        tokenplan
+            .known_models
+            .iter()
+            .any(|model| model == "qwen3.7-max")
+    );
+    assert!(
+        tokenplan
+            .known_models
+            .iter()
+            .any(|model| model == "MiniMax-M2.5")
+    );
+    assert!(
+        tokenplan
+            .known_models
+            .iter()
+            .any(|model| model == "deepseek-v4-flash")
+    );
+
+    let tokenplan_anthropic = registry
+        .descriptor("dashscope-tokenplan-anthropic")
+        .unwrap();
+    assert_eq!(
+        tokenplan_anthropic.protocol_family,
+        ProtocolFamily::Anthropic
+    );
+    assert_eq!(
+        tokenplan_anthropic.default_api_base.as_deref(),
+        Some("https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic")
+    );
 }
 
 #[test]
@@ -108,6 +191,10 @@ fn provider_live_matrix_docs_cover_gateway_descriptors() {
         "together",
         "kimi",
         "qwen",
+        "dashscope-coding-plan",
+        "dashscope-coding-plan-anthropic",
+        "dashscope-tokenplan",
+        "dashscope-tokenplan-anthropic",
         "zhipu",
         "volcengine",
     ] {
@@ -149,6 +236,7 @@ fn descriptor_keeps_provider_identity_separate_from_protocol_family() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://api.deepseek.com".to_string()),
         default_model: Some("deepseek-v4-flash".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
@@ -169,6 +257,7 @@ fn provider_descriptor_validation_rejects_invalid_plugin_identity() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://example.com".to_string()),
         default_model: Some("bad-model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
@@ -189,6 +278,7 @@ fn provider_descriptor_validation_rejects_unsupported_schema_version() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://example.com".to_string()),
         default_model: Some("future-model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
@@ -209,6 +299,7 @@ fn provider_descriptor_validation_rejects_empty_default_model() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://example.com".to_string()),
         default_model: Some("   ".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
@@ -229,6 +320,7 @@ fn provider_descriptor_validation_rejects_invalid_api_base() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("ftp://example.com".to_string()),
         default_model: Some("model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
@@ -249,6 +341,7 @@ fn provider_descriptor_validation_rejects_invalid_env_mapping() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://example.com".to_string()),
         default_model: Some("model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
             api_key_env: Some("1BAD_ENV".to_string()),
             api_base_env: None,
@@ -279,6 +372,7 @@ fn registry_rejects_plugin_descriptor_that_conflicts_with_builtin_provider_id() 
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://example.com".to_string()),
         default_model: Some("conflict-model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
@@ -303,6 +397,7 @@ fn registry_rejects_duplicate_builtin_provider_ids() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://example.com".to_string()),
         default_model: Some("model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
@@ -326,6 +421,7 @@ fn registry_rejects_duplicate_plugin_provider_ids() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://a.example.com".to_string()),
         default_model: Some("model-a".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
@@ -339,6 +435,7 @@ fn registry_rejects_duplicate_plugin_provider_ids() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://b.example.com".to_string()),
         default_model: Some("model-b".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings::default(),
         capabilities: ProviderCapabilities::default(),
         compatibility: ProviderCompatibility::default(),
@@ -364,6 +461,7 @@ fn registry_accepts_valid_non_builtin_plugin_descriptor() {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://models.example.com".to_string()),
         default_model: Some("custom-model".to_string()),
+        known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
             api_key_env: Some("CUSTOM_OPENAI_API_KEY".to_string()),
             api_base_env: Some("CUSTOM_OPENAI_API_BASE".to_string()),

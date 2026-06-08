@@ -4,7 +4,7 @@ use super::{
     indicators::{progress_bar, status_dot},
     lane::{command_hint, interaction_hint, pid_hint, pty_label, terminal_label},
     panel::panel,
-    state::{TerminalLane, TuiState, lane_runtime_evidence},
+    state::{InteractionPanel, ProviderOption, TerminalLane, TuiState, lane_runtime_evidence},
     text::{char_width, horizontal, pad, truncate},
 };
 
@@ -28,8 +28,442 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, right_rail_wi
     }
     if let Some(approval) = latest_approval(state) {
         render_approval_modal(frame, approval, state, right_rail_width);
+    } else if state.interaction_panel.is_some() {
+        render_interaction_panel(frame, state, right_rail_width);
     } else {
         render_command_suggestions(frame, state);
+    }
+}
+
+pub(super) fn interaction_panel_index_at(
+    state: &TuiState,
+    column: u16,
+    row: u16,
+    frame_width: u16,
+    frame_height: u16,
+    right_rail_width: usize,
+) -> Option<usize> {
+    state.interaction_panel.as_ref()?;
+    let bounds = interaction_panel_bounds(
+        frame_width as usize,
+        frame_height as usize,
+        right_rail_width,
+    );
+    let column = column as usize;
+    let row = row as usize;
+    if !(bounds.left + 2..bounds.left + bounds.width.saturating_sub(2)).contains(&column) {
+        return None;
+    }
+    let content_row = row.checked_sub(bounds.top + 1)?;
+    interaction_panel_selectable_rows(state)
+        .into_iter()
+        .find_map(|(selectable_row, index)| (selectable_row == content_row).then_some(index))
+}
+
+fn render_interaction_panel(frame: &mut Frame, state: &TuiState, right_rail_width: usize) {
+    let bounds = interaction_panel_bounds(frame.width, frame.height, right_rail_width);
+    let (title, rows, right_title) = match state.interaction_panel.as_ref() {
+        Some(InteractionPanel::ConnectProvider { search, selected }) => (
+            "Connect a provider",
+            provider_panel_rows(state, search, *selected, bounds.width),
+            "esc",
+        ),
+        Some(InteractionPanel::ProviderConfig {
+            provider_id,
+            selected,
+        }) => (
+            "Provider config",
+            provider_config_panel_rows(state, provider_id, *selected, bounds.width),
+            "esc",
+        ),
+        Some(InteractionPanel::ProviderApiKey { provider_id, input }) => (
+            "API key",
+            api_key_panel_rows(state, provider_id, input, bounds.width),
+            "esc",
+        ),
+        Some(InteractionPanel::ModelPicker {
+            provider_id,
+            search,
+            selected,
+        }) => (
+            "Select model",
+            model_panel_rows(
+                state,
+                provider_id.as_deref(),
+                search,
+                *selected,
+                bounds.width,
+            ),
+            "esc",
+        ),
+        None => return,
+    };
+    let modal = panel(title, rows, bounds.width, bounds.height, Some(right_title));
+    clear_overlay_bounds(frame, bounds.top, bounds.height, bounds.transcript_width);
+    render_modal_shadow(frame, bounds.top, bounds.left, bounds.width, bounds.height);
+    frame.write_block(bounds.top, bounds.left, &modal);
+}
+
+fn provider_panel_rows(
+    state: &TuiState,
+    search: &str,
+    selected: usize,
+    modal_width: usize,
+) -> Vec<String> {
+    let choices = filtered_providers(state, search);
+    let mut rows = vec![
+        format!("Search {}", search_cursor(search)),
+        "".to_string(),
+        "Popular".to_string(),
+    ];
+    rows.extend(choices.iter().enumerate().map(|(index, provider)| {
+        selectable_row(index, selected, &provider.display_name, modal_width)
+    }));
+    rows.extend([
+        "".to_string(),
+        "Enter select    type search    esc close".to_string(),
+    ]);
+    rows
+}
+
+fn provider_config_panel_rows(
+    state: &TuiState,
+    provider_id: &str,
+    selected: usize,
+    modal_width: usize,
+) -> Vec<String> {
+    let provider = state
+        .provider_catalog
+        .iter()
+        .find(|provider| provider.provider_id == provider_id);
+    let display_name = provider
+        .map(|provider| provider.display_name.as_str())
+        .unwrap_or(provider_id);
+    let key_status = provider
+        .and_then(|provider| provider.api_key_env.as_deref())
+        .map(|env| {
+            let status = std::env::var(env)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| mask_api_key(&value))
+                .unwrap_or_else(|| "missing".to_string());
+            format!("{env}: {status}")
+        })
+        .unwrap_or_else(|| "not required".to_string());
+    let model = provider
+        .and_then(|provider| provider.default_model.as_deref())
+        .unwrap_or("<choose model>");
+    let actions = [
+        format!("choose model    {model}"),
+        "change API key".to_string(),
+        "clear session key".to_string(),
+        "run doctor".to_string(),
+    ];
+    let mut rows = vec![
+        format!("{provider_id} / {display_name}"),
+        format!("key: {key_status}"),
+        "".to_string(),
+    ];
+    rows.extend(
+        actions
+            .iter()
+            .enumerate()
+            .map(|(index, label)| selectable_row(index, selected, label, modal_width)),
+    );
+    rows.extend([
+        "".to_string(),
+        "Enter apply    ↑↓ select    esc close".to_string(),
+    ]);
+    rows
+}
+
+fn api_key_panel_rows(
+    state: &TuiState,
+    provider_id: &str,
+    input: &str,
+    modal_width: usize,
+) -> Vec<String> {
+    let provider = state
+        .provider_catalog
+        .iter()
+        .find(|provider| provider.provider_id == provider_id);
+    let display_name = provider
+        .map(|provider| provider.display_name.as_str())
+        .unwrap_or(provider_id);
+    let key_env = provider
+        .and_then(|provider| provider.api_key_env.as_deref())
+        .unwrap_or("API_KEY");
+    vec![
+        format!("{display_name} needs an API key."),
+        format!("It will be used for this session via {key_env}."),
+        "RoboCode will save the env var name, not the raw key.".to_string(),
+        "".to_string(),
+        format!(
+            "API key {}",
+            input_cursor(input, modal_width.saturating_sub(12))
+        ),
+        "".to_string(),
+        "Enter submit    esc back".to_string(),
+    ]
+}
+
+fn model_panel_rows(
+    state: &TuiState,
+    provider_filter: Option<&str>,
+    search: &str,
+    selected: usize,
+    modal_width: usize,
+) -> Vec<String> {
+    let choices = filtered_models(state, provider_filter, search);
+    let mut rows = vec![format!("Search {}", search_cursor(search)), "".to_string()];
+    let mut last_provider = "";
+    for (index, choice) in choices.iter().enumerate() {
+        if choice.provider_id != last_provider {
+            rows.push(choice.provider_name.clone());
+            last_provider = &choice.provider_id;
+        }
+        let label = format!("  {}", choice.model);
+        rows.push(selectable_row(index, selected, &label, modal_width));
+    }
+    rows.extend([
+        "".to_string(),
+        "Enter switch    type search    esc close".to_string(),
+    ]);
+    rows
+}
+
+fn selectable_row(index: usize, selected: usize, label: &str, modal_width: usize) -> String {
+    let marker = if index == selected { "› " } else { "  " };
+    truncate(&format!("{marker}{label}"), modal_width.saturating_sub(4))
+}
+
+fn search_cursor(value: &str) -> String {
+    if value.is_empty() {
+        "_".to_string()
+    } else {
+        format!("{value}_")
+    }
+}
+
+fn input_cursor(value: &str, width: usize) -> String {
+    if value.is_empty() {
+        "_".to_string()
+    } else {
+        truncate(&format!("{}_", mask_api_key(value)), width)
+    }
+}
+
+fn mask_api_key(value: &str) -> String {
+    let value = value.trim();
+    if value.len() <= 8 {
+        "*".repeat(value.len().max(1))
+    } else {
+        format!(
+            "{}{}{}",
+            &value[..4],
+            "*".repeat(value.len() - 8),
+            &value[value.len() - 4..]
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ModelChoice {
+    provider_id: String,
+    provider_name: String,
+    model: String,
+}
+
+fn interaction_panel_selectable_rows(state: &TuiState) -> Vec<(usize, usize)> {
+    match state.interaction_panel.as_ref() {
+        Some(InteractionPanel::ConnectProvider { search, .. }) => filtered_providers(state, search)
+            .iter()
+            .enumerate()
+            .map(|(index, _)| (3 + index, index))
+            .collect(),
+        Some(InteractionPanel::ProviderConfig { .. }) => {
+            (0..4).map(|index| (3 + index, index)).collect()
+        }
+        Some(InteractionPanel::ModelPicker {
+            provider_id,
+            search,
+            ..
+        }) => {
+            let choices = filtered_models(state, provider_id.as_deref(), search);
+            let mut rows = Vec::new();
+            let mut content_row = 2usize;
+            let mut last_provider = "";
+            for (index, choice) in choices.iter().enumerate() {
+                if choice.provider_id != last_provider {
+                    content_row += 1;
+                    last_provider = &choice.provider_id;
+                }
+                rows.push((content_row, index));
+                content_row += 1;
+            }
+            rows
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn filtered_providers<'a>(state: &'a TuiState, search: &str) -> Vec<&'a ProviderOption> {
+    let needle = search.trim().to_ascii_lowercase();
+    let mut providers = state
+        .provider_catalog
+        .iter()
+        .filter(|provider| provider.provider_id != "fallback")
+        .filter(|provider| {
+            needle.is_empty()
+                || provider.provider_id.to_ascii_lowercase().contains(&needle)
+                || provider.display_name.to_ascii_lowercase().contains(&needle)
+        })
+        .collect::<Vec<_>>();
+    providers.sort_by_key(|provider| {
+        (
+            provider.provider_id != state.provider,
+            !matches!(
+                provider.provider_id.as_str(),
+                "deepseek" | "dashscope-coding-plan" | "openrouter" | "openai" | "anthropic"
+            ),
+            provider.display_name.to_ascii_lowercase(),
+        )
+    });
+    providers
+}
+
+fn filtered_models(
+    state: &TuiState,
+    provider_filter: Option<&str>,
+    search: &str,
+) -> Vec<ModelChoice> {
+    let needle = search.trim().to_ascii_lowercase();
+    let mut choices = Vec::new();
+    for provider in &state.provider_catalog {
+        if provider_filter.is_some_and(|filter| filter != provider.provider_id) {
+            continue;
+        }
+        let models = if provider_filter.is_some() {
+            provider_models(provider)
+        } else if provider_is_available_for_model_picker(provider) {
+            configured_provider_models(provider)
+        } else {
+            Vec::new()
+        };
+        for model in models {
+            if needle.is_empty()
+                || model.to_ascii_lowercase().contains(&needle)
+                || provider.display_name.to_ascii_lowercase().contains(&needle)
+            {
+                choices.push(ModelChoice {
+                    provider_id: provider.provider_id.clone(),
+                    provider_name: provider.display_name.clone(),
+                    model,
+                });
+            }
+        }
+    }
+    choices.sort_by_key(|choice| {
+        (
+            choice.provider_id != state.provider,
+            choice.provider_name.to_ascii_lowercase(),
+            choice.model.to_ascii_lowercase(),
+        )
+    });
+    choices
+}
+
+fn provider_models(provider: &ProviderOption) -> Vec<String> {
+    let mut models = provider.favorite_models.clone();
+    for model in &provider.enabled_models {
+        if !models.contains(model) {
+            models.push(model.clone());
+        }
+    }
+    if let Some(default_model) = &provider.default_model
+        && !models.contains(default_model)
+    {
+        models.push(default_model.clone());
+    }
+    for model in &provider.known_models {
+        if !models.contains(model) {
+            models.push(model.clone());
+        }
+    }
+    models
+}
+
+fn active_provider_models(provider: &ProviderOption) -> Vec<String> {
+    let mut models = provider.favorite_models.clone();
+    for model in &provider.enabled_models {
+        if !models.contains(model) {
+            models.push(model.clone());
+        }
+    }
+    models
+}
+
+fn configured_provider_models(provider: &ProviderOption) -> Vec<String> {
+    let mut models = active_provider_models(provider);
+    if let Some(default_model) = &provider.default_model
+        && !models.contains(default_model)
+    {
+        models.push(default_model.clone());
+    }
+    for model in &provider.known_models {
+        if !models.contains(model) {
+            models.push(model.clone());
+        }
+    }
+    models
+}
+
+fn provider_is_available_for_model_picker(provider: &ProviderOption) -> bool {
+    !active_provider_models(provider).is_empty()
+        || provider.api_key_env.as_deref().is_some_and(|env| {
+            std::env::var(env)
+                .ok()
+                .is_some_and(|value| !value.trim().is_empty())
+        })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct InteractionBounds {
+    top: usize,
+    left: usize,
+    width: usize,
+    height: usize,
+    transcript_width: usize,
+}
+
+fn interaction_panel_bounds(
+    frame_width: usize,
+    frame_height: usize,
+    right_rail_width: usize,
+) -> InteractionBounds {
+    let width = frame_width
+        .saturating_mul(3)
+        .saturating_div(7)
+        .clamp(58, 82);
+    let height = frame_height
+        .saturating_mul(3)
+        .saturating_div(5)
+        .clamp(18, 30);
+    let top = frame_height
+        .saturating_sub(height)
+        .saturating_div(2)
+        .min(frame_height.saturating_sub(height));
+    let transcript_width = frame_width.saturating_sub(right_rail_width + 1);
+    let left = transcript_width
+        .saturating_sub(width)
+        .saturating_div(2)
+        .min(transcript_width.saturating_sub(width));
+    InteractionBounds {
+        top,
+        left,
+        width,
+        height,
+        transcript_width,
     }
 }
 
@@ -516,6 +950,8 @@ mod tests {
             approval_focus: DEFAULT_APPROVAL_FOCUS,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: vec![TuiEntry {
                 label: "approval".to_string(),
                 body: "Permission request for `write_file`\npath: src/lib.rs\nPress y to allow, n/Esc to deny.".to_string(),
@@ -528,6 +964,7 @@ mod tests {
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         }
     }
 

@@ -2,7 +2,7 @@
 
 英文版： [user-guide.md](user-guide.md)
 
-本文档说明 RoboCode `0.1.17` release line 已经真实支持的用户功能。
+本文档说明 RoboCode `0.1.24` development line 已经真实支持的用户功能。
 
 ## 心智模型
 
@@ -30,8 +30,10 @@ robocode-cli --version
 robocode-cli --provider fallback --model test-local
 ```
 
-`robocode-cli` 默认启动主 cockpit。如果当前在线 provider 缺少 API key，cockpit 会自动
-打开 `/setup` 向导。你也可以随时在输入区重新打开设置入口：
+`robocode-cli` 默认启动主 TUI。干净会话会先进入聚焦的 welcome 输入界面，
+不会自动提交命令或自动打开 setup。需要配置 provider/model 时，用 `Ctrl-P`
+打开命令，或直接提交下面这些入口。slash 设置命令执行后仍停留在 welcome；
+提交第一个普通任务 prompt 后才进入完整 cockpit。
 
 ```text
 /setup
@@ -76,7 +78,7 @@ robocode-cli --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
 用于视觉 review 的 preview flags：
 
 - `--tui-preview`
-- `--tui-preview-idle`
+- `--tui-preview-idle`：首次进入的 welcome 输入界面
 - `--tui-preview-command-palette`
 - `--tui-preview-live-turn`
 - `--tui-preview-resize`
@@ -117,7 +119,7 @@ models = ["deepseek-v4-flash", "deepseek-v4-pro"]
 favorite_models = ["deepseek-v4-pro"]
 ```
 
-TUI 设置命令是选择器优先：`/setup` 会打开首次使用向导，里面有 provider 配置、model 选择、权限模式、主题、doctor 检查、fallback smoke 和保存默认值这些可执行步骤；`/settings`、`/connect`、`/provider`、`/models`、`/permissions`、`/theme` 都会渲染可选择面板，而不是只显示状态。它们只会持久化 provider/model 默认值和 permission mode 变更。API key 仍放在环境变量或手工维护的配置字段里。`/connect` 用来连接和配置供应商：第一页按 Popular/Providers 只列供应商名称，例如 DeepSeek、OpenRouter，不把 key、endpoint、model 解释混进供应商列表；选中后进入 `PROVIDER CONFIG` 二级页，再展示 auth mode、脱敏后的 API key、endpoint 来源、诊断入口、保存默认值动作和该供应商已知/默认模型。Provider descriptor 现在会区分 API-key provider、支持网页登录的 provider 和本地/no-key provider，因此 OpenAI 可以展示网页登录或 API key 的设置路径，DeepSeek/OpenRouter 仍是 API key 流程，Ollama/Fallback 仍是本地免 key 流程。Provider detail 的 edit rows 会把 composer 补成 `/settings provider <provider-id> key-env ...`、`/settings provider <provider-id> endpoint ...` 或 `/settings provider <provider-id> default-model ...`；模型行会补成 `/settings provider <provider-id> enable-model <model>`，用于把模型激活到 `/models`；`/settings provider <provider-id> models ...` 会替换该供应商的 active model 列表，`/settings provider <provider-id> favorite-model <model>` 会把某个 provider/model 组合置顶到 Favorites。提交值后会写入 `[providers.<provider-id>]`，但不会持久化明文 API key。`/models` 用来按 opencode 风格选择模型，顶部先显示 Favorites，再显示当前 Recent，下面只按已配置供应商分组显示已激活模型；收藏模型不会在后面的 provider 分组重复出现，`Ctrl-F` 可以收藏当前选中的模型行，选中一行可以同时切换 provider 和 model；`/model <model>` 只用于当前 provider 内快速切换模型。Provider 失败会被分类为 missing key、auth、rate limit、timeout、context overflow、compatibility 或 model unavailable 等 recovery class，并给出打开 doctor、切换 model/provider、稍后重试或使用 fallback 的具体命令。
+TUI 设置路径在提交命令后进入独立面板：`/connect`、`/provider`、`/setup provider`、`/settings provider` 会打开供应商选择面板；`Enter` 选择供应商，缺 key 时进入 API key 输入面板，然后进入 provider config 动作页。这个动作页可以更换 API key、清除当前进程里的 key、运行 provider doctor，或打开该 provider 的模型选择面板。在 provider-scoped 模型面板里选中模型后，会保存 provider/model、自动运行 provider doctor，并把 readiness 结果写回 transcript。`/models`、`/model`、`/setup model`、`/settings model` 会打开按供应商分组的模型选择面板，只显示已经配置过的 provider；对已配置 provider，会显示 active、favorite、default 和 known models。选中模型后会立即切换 provider/model。API key 在界面里脱敏展示，RoboCode 只保存环境变量名，不保存明文 key。直接命令 `/settings provider <provider-id> ...`、`/models <provider-id> <model>`、`/model <model>` 仍保留给脚本和高级用户。Provider 失败会被分类为 missing key、auth、rate limit、timeout、context overflow、compatibility 或 model unavailable 等 recovery class，并给出打开 doctor、切换 model/provider、稍后重试或使用 fallback 的具体命令。当 provider 因请求过大拒绝执行时，RoboCode 会记录压缩说明，用更小的 provider request view 自动重试一次，同时保留完整本地 transcript 作为审计记录。
 
 ```text
 /settings
@@ -157,6 +159,10 @@ TUI 设置命令是选择器优先：`/setup` 会打开首次使用向导，里�
 - `anthropic`
 - `deepseek`
 - `deepseek-anthropic`
+- `dashscope-coding-plan`
+- `dashscope-coding-plan-anthropic`
+- `dashscope-tokenplan`
+- `dashscope-tokenplan-anthropic`
 - `fallback`
 - `groq`
 - `kimi`
@@ -190,6 +196,20 @@ Provider commands：
 ```
 
 `fallback` 适合离线 smoke test，不会调用远程模型。
+
+真实 provider smoke 会走和普通 non-TUI 请求相同的 runtime path，并保存 transcript 证据：
+
+```bash
+scripts/provider-live-smoke.sh --provider deepseek --model deepseek-v4-flash
+scripts/provider-live-smoke.sh --provider dashscope-coding-plan --model qwen3.6-plus
+scripts/provider-live-smoke.sh --provider dashscope-tokenplan --model qwen3.6-plus
+scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
+```
+
+`dashscope-coding-plan` 使用 `DASHSCOPE_CODING_PLAN_API_KEY`。
+`dashscope-tokenplan` 使用 `DASHSCOPE_API_KEY`。
+DeepSeek 开发场景 smoke 会产生真实费用，会写出 `usage.json` 和 `summary.md`，
+记录 input/output/total token 以及按当前模型单价估算的 CNY 费用。
 
 ## TUI 屏幕
 
@@ -234,13 +254,21 @@ Provider commands：
 - `/quit` 或 `/exit`：从命令输入退出。
 - `/`：打开命令提示。可以用 `Up` / `Down`、`Tab`、`Enter`，也可以点击可见提示行。
 - 长命令提示列表会随着键盘选择滚动，保证选中行可见，鼠标点击和键盘选择看到的是同一组行。
+- transcript 历史：用 `PageUp` / `PageDown` 或鼠标滚轮浏览更早的 transcript 行。
+  `Ctrl-Home` 跳到最早可见历史，`Ctrl-End` 回到实时尾部。进入历史模式时，
+  transcript 面板角标会从 `live session` 变成 `history N`。
 - 审批弹窗：`y` 通过，`n` 拒绝，`d` 聚焦 diff，`Tab` / 方向键移动焦点。
   diff 焦点会优先展示本次审批 prompt 里的真实 evidence / preview lines，而不是装饰性占位内容。
-- provider turn 运行中，TUI event loop 会继续工作；`NOW WORKING`、状态栏、
-  elapsed time、lane snapshot 和审批桥接都可以持续刷新。`Ctrl-C` 会请求取消；
+- provider turn 运行中，TUI event loop 会继续工作；transcript live tail 会在最近
+  对话内容下面显示轻量 inline activity 提示，并用小脉冲符号表示 provider 正在思考。
+  状态栏、elapsed time、lane snapshot 和审批桥接都可以持续刷新。`Ctrl-C` 会请求取消；
   但已经发出的 HTTP provider 请求仍可能先完成。
-- provider turn 尚未结束时，输入区可以保留下一条草稿，但 `Enter` 不会启动第二个
-  provider turn。
+- 支持 streaming 的 HTTP provider 在 TUI turn 中会请求 server-sent streaming。
+  模型返回的 text delta 会先追加到临时 assistant transcript 行里；turn 完成后，
+  再替换为正式持久化 transcript event。
+- provider turn 尚未结束时，输入区仍可编辑。按 `Enter` 会把当前草稿排成下一条
+  prompt，RoboCode 会立即清空输入区，并在当前 turn 结束后自动执行队列里的 prompt。
+  如果当前 turn 失败，会把第一条已排队 prompt 放回输入区，方便你修改后重试。
 
 ## Slash Commands
 
@@ -255,6 +283,10 @@ Runtime：
 /plan [on|off]
 /test <command>
 ```
+
+`/plan` 是即时 TUI 命令：它只切换只读规划模式，完成后会直接回到可输入状态，
+不会启动一次 provider turn。在首次启动的 welcome 屏里，`/plan` 会继续停留在
+welcome 输入界面，直到提交真正任务 prompt 后才进入完整会话页。
 
 Sessions：
 

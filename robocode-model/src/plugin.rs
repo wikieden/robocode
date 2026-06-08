@@ -179,6 +179,7 @@ fn into_provider_descriptor(descriptor: PluginDescriptor) -> ProviderDescriptor 
         },
         default_api_base: descriptor.default_api_base,
         default_model: descriptor.default_model,
+        known_models: descriptor.known_models,
         env_mappings: ProviderEnvMappings {
             api_key_env: descriptor.env_mappings.api_key_env,
             api_base_env: descriptor.env_mappings.api_base_env,

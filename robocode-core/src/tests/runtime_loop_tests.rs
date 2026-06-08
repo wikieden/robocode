@@ -210,6 +210,169 @@ fn provider_turn_uses_ephemeral_context_bundle_without_transcript_mutation() {
 }
 
 #[test]
+fn provider_turn_compacts_long_transcript_before_request() {
+    let home = temp_dir("compact_provider_request_home");
+    let cwd = temp_dir("compact_provider_request_cwd");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let turns = (0..26)
+        .map(|index| {
+            vec![ModelEvent::AssistantText {
+                content: format!("assistant response {index} {}", "r".repeat(5_000)),
+            }]
+        })
+        .collect::<Vec<_>>();
+    let provider = Box::new(RecordingSequenceProvider::new(turns, Arc::clone(&requests)));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    for index in 0..25 {
+        engine
+            .process_input_with_approval(
+                &format!(
+                    "older prompt {index} ancient-marker-{index} {}",
+                    "u".repeat(5_000)
+                ),
+                &mut approver,
+            )
+            .unwrap();
+    }
+    engine
+        .process_input_with_approval("final concise task", &mut approver)
+        .unwrap();
+
+    let requests = requests.lock().unwrap();
+    let request = requests.last().expect("final provider request");
+    let combined = request
+        .messages
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(matches!(request.messages.last(), Some(message)
+            if message.role == robocode_types::Role::User
+                && message.content == "final concise task"));
+    assert!(
+        combined.len() < 60_000,
+        "provider request should be compacted, got {} chars",
+        combined.len()
+    );
+    assert!(combined.contains("RoboCode ContextBundle"));
+    assert!(combined.contains("RoboCode compacted transcript summary"));
+    assert!(
+        !combined.contains("ancient-marker-0"),
+        "oldest transcript details should not be replayed verbatim"
+    );
+}
+
+#[test]
+fn provider_turn_retries_request_too_large_with_smaller_context() {
+    let home = temp_dir("retry_413_home");
+    let cwd = temp_dir("retry_413_cwd");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RequestTooLargeOnceProvider::new(Arc::clone(&requests)));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .process_input_with_approval(
+            &format!("summarize this oversized task {}", "detail ".repeat(6_000)),
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EngineEvent::System(text)
+            if text.contains("Provider request was too large")
+                && text.contains("retrying with compacted context")
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EngineEvent::Assistant(text) if text.contains("retried successfully")
+    )));
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    let first_chars = request_chars(&requests[0]);
+    let second_chars = request_chars(&requests[1]);
+    assert!(
+        second_chars < first_chars,
+        "retry request should shrink: first={first_chars} second={second_chars}"
+    );
+    assert!(requests[1].messages.iter().any(|message| {
+        message
+            .content
+            .contains("RoboCode compacted provider request after a request-too-large error")
+    }));
+    let telemetry = engine.provider_telemetry();
+    assert_eq!(telemetry.failure_count, 1);
+    assert_eq!(telemetry.success_count, 1);
+}
+
+#[test]
+fn failed_tool_execution_is_returned_to_provider_without_ending_turn() {
+    let home = temp_dir("failed_tool_result_home");
+    let cwd = temp_dir("failed_tool_result_cwd");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingSequenceProvider::new(
+        vec![
+            vec![ModelEvent::ToolCall(ToolCall {
+                id: "tool_read_dir".to_string(),
+                name: "read_file".to_string(),
+                input: ToolInput::from([("path".to_string(), "src".to_string())]),
+            })],
+            vec![ModelEvent::AssistantText {
+                content: "I should inspect files with glob instead.".to_string(),
+            }],
+        ],
+        Arc::clone(&requests),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .process_input_with_approval("read the src directory", &mut approver)
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EngineEvent::ToolResult(text)
+            if text.contains("Tool `read_file` failed")
+                && text.contains("is a directory")
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EngineEvent::Assistant(text) if text.contains("glob instead")
+    )));
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    let replay = &requests[1].messages;
+    assert!(replay.iter().any(|message| {
+        message.role == robocode_types::Role::Tool
+            && message.tool_call_id.as_deref() == Some("tool_read_dir")
+            && message.content.contains("Tool `read_file` failed")
+    }));
+}
+
+fn request_chars(request: &ModelRequest) -> usize {
+    request
+        .messages
+        .iter()
+        .map(|message| message.content.chars().count())
+        .sum()
+}
+
+#[test]
 fn provider_telemetry_records_failed_model_requests() {
     let home = temp_dir("telemetry_failure_home");
     let cwd = temp_dir("telemetry_failure_cwd");
@@ -259,12 +422,15 @@ fn provider_model_failures_include_switch_model_recovery_prompt() {
     assert!(err.contains("Provider/model recovery:"), "{err}");
     assert!(err.contains("class: model_unavailable"), "{err}");
     assert!(err.contains("current: deepseek / made-up-model"), "{err}");
-    assert!(err.contains("/settings model deepseek-v4-flash"), "{err}");
+    assert!(err.contains("/models deepseek deepseek-v4-flash"), "{err}");
+    assert!(err.contains("/connect deepseek"), "{err}");
+    assert!(err.contains("/provider doctor deepseek"), "{err}");
     assert!(
-        err.contains("/settings provider deepseek deepseek-v4-flash"),
+        err.contains(
+            "scripts/provider-live-smoke.sh --provider deepseek --model deepseek-v4-flash"
+        ),
         "{err}"
     );
-    assert!(err.contains("/provider doctor deepseek"), "{err}");
 }
 
 #[test]
@@ -451,6 +617,48 @@ fn plan_mode_blocks_mutating_tools() {
 }
 
 #[test]
+fn plan_mode_denies_long_shell_commands_before_spawn() {
+    let home = temp_dir("plan_long_shell_home");
+    let cwd = temp_dir("plan_long_shell_cwd");
+    let mut shell_input = ToolInput::new();
+    shell_input.insert(
+        "command".to_string(),
+        format!("printf ok\n# {}", "x".repeat(40 * 1024)),
+    );
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::ToolCall(
+        ToolCall {
+            id: "tool_shell".to_string(),
+            name: "shell".to_string(),
+            input: shell_input,
+        },
+    )]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .process_input_with_approval("/plan on", &mut approver)
+        .unwrap();
+
+    let events = engine
+        .process_input_with_approval("inspect without mutating", &mut approver)
+        .unwrap();
+    let rendered = events
+        .iter()
+        .filter_map(|event| match event {
+            EngineEvent::System(text) | EngineEvent::ToolResult(text) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("tool: shell"));
+    assert!(rendered.contains("reason: PlanMode"));
+    assert!(!rendered.contains("Argument list too long"));
+}
+
+#[test]
 fn denied_tool_calls_are_followed_by_tool_result_messages() {
     let home = temp_dir("deny_tool_result_home");
     let cwd = temp_dir("deny_tool_result_cwd");
@@ -560,6 +768,43 @@ impl ModelProvider for FailingProvider {
 
     fn next_events(&mut self, _request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
         Err("provider down".to_string())
+    }
+}
+
+struct RequestTooLargeOnceProvider {
+    failed_once: bool,
+    requests: Arc<Mutex<Vec<ModelRequest>>>,
+}
+
+impl RequestTooLargeOnceProvider {
+    fn new(requests: Arc<Mutex<Vec<ModelRequest>>>) -> Self {
+        Self {
+            failed_once: false,
+            requests,
+        }
+    }
+}
+
+impl ModelProvider for RequestTooLargeOnceProvider {
+    fn provider_name(&self) -> &str {
+        "deepseek"
+    }
+
+    fn model(&self) -> &str {
+        "deepseek-v4-flash"
+    }
+
+    fn set_model(&mut self, _model: String) {}
+
+    fn next_events(&mut self, request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+        self.requests.lock().unwrap().push(request.clone());
+        if !self.failed_once {
+            self.failed_once = true;
+            return Err("API error (413): deepseek returned HTTP 413".to_string());
+        }
+        Ok(vec![ModelEvent::AssistantText {
+            content: "retried successfully".to_string(),
+        }])
     }
 }
 

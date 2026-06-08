@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 
 use crossterm::{
-    cursor,
+    SynchronizedUpdate, cursor,
     event::{DisableMouseCapture, EnableMouseCapture},
     execute, queue,
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
@@ -10,7 +10,7 @@ use crossterm::{
 
 use super::{
     command_palette::is_command_palette_visible,
-    composer::composer_cursor_position,
+    composer::{composer_cursor_position, should_render_welcome},
     modal::{approval_focus_cursor, has_pending_approval},
     render::{render_frame, render_ops_frame, render_side_frame},
     state::TuiState,
@@ -83,59 +83,60 @@ impl TerminalGuard {
         let full_redraw = self.last_size != Some(size)
             || self.last_style_signature.as_ref() != Some(&style_signature);
         let mut stdout = io::stdout();
-        if full_redraw {
-            queue!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))
-                .map_err(|err| err.to_string())?;
-        }
-        let dirty_rows = dirty_rows(&self.last_lines, &lines, full_redraw);
-        for row in dirty_rows {
-            let line = lines.get(row).map(String::as_str).unwrap_or("");
-            queue!(
-                stdout,
-                cursor::MoveTo(0, row as u16),
-                Clear(ClearType::CurrentLine)
-            )
+        let update_result = stdout
+            .sync_update(|stdout| -> io::Result<()> {
+                if full_redraw {
+                    queue!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))?;
+                }
+                let dirty_rows = dirty_rows(&self.last_lines, &lines, full_redraw);
+                for row in dirty_rows {
+                    let line = lines.get(row).map(String::as_str).unwrap_or("");
+                    queue!(
+                        stdout,
+                        cursor::MoveTo(0, row as u16),
+                        Clear(ClearType::CurrentLine)
+                    )?;
+                    let mut drawn_width = 0usize;
+                    for segment in line_segments(line, &self.theme) {
+                        drawn_width += char_width(&segment.text);
+                        queue!(
+                            stdout,
+                            SetForegroundColor(segment.foreground),
+                            SetBackgroundColor(segment.background),
+                            Print(segment.text)
+                        )?;
+                    }
+                    let remaining = usize::from(size.0).saturating_sub(drawn_width);
+                    if remaining > 0 {
+                        queue!(
+                            stdout,
+                            SetForegroundColor(self.theme.text),
+                            SetBackgroundColor(self.theme.background),
+                            Print(" ".repeat(remaining))
+                        )?;
+                    }
+                    queue!(stdout, ResetColor)?;
+                }
+                if let Some((column, row)) = cursor_position {
+                    queue!(
+                        stdout,
+                        cursor::MoveTo(
+                            column.min(size.0.saturating_sub(1)),
+                            row.min(size.1.saturating_sub(1))
+                        ),
+                        cursor::SetCursorStyle::BlinkingBar,
+                        cursor::Show
+                    )?;
+                } else {
+                    queue!(stdout, cursor::Hide)?;
+                }
+                Ok(())
+            })
             .map_err(|err| err.to_string())?;
-            let mut drawn_width = 0usize;
-            for segment in line_segments(line, &self.theme) {
-                drawn_width += char_width(&segment.text);
-                queue!(
-                    stdout,
-                    SetForegroundColor(segment.foreground),
-                    SetBackgroundColor(segment.background),
-                    Print(segment.text)
-                )
-                .map_err(|err| err.to_string())?;
-            }
-            let remaining = usize::from(size.0).saturating_sub(drawn_width);
-            if remaining > 0 {
-                queue!(
-                    stdout,
-                    SetForegroundColor(self.theme.text),
-                    SetBackgroundColor(self.theme.background),
-                    Print(" ".repeat(remaining))
-                )
-                .map_err(|err| err.to_string())?;
-            }
-            queue!(stdout, ResetColor).map_err(|err| err.to_string())?;
-        }
+        update_result.map_err(|err| err.to_string())?;
         self.last_lines = lines;
         self.last_size = Some(size);
         self.last_style_signature = Some(style_signature);
-        if let Some((column, row)) = cursor_position {
-            queue!(
-                stdout,
-                cursor::MoveTo(
-                    column.min(size.0.saturating_sub(1)),
-                    row.min(size.1.saturating_sub(1))
-                ),
-                cursor::SetCursorStyle::BlinkingBar,
-                cursor::Show
-            )
-            .map_err(|err| err.to_string())?;
-        } else {
-            queue!(stdout, cursor::Hide).map_err(|err| err.to_string())?;
-        }
         stdout.flush().map_err(|err| err.to_string())
     }
 
@@ -189,8 +190,13 @@ fn dirty_rows(previous: &[String], next: &[String], full_redraw: bool) -> Vec<us
 
 fn style_signature(state: &TuiState, theme: &TuiTheme) -> String {
     format!(
-        "{}|approval={}|lane={}|palette={}",
+        "{}|layout={}|approval={}|lane={}|palette={}",
         theme.name,
+        if should_render_welcome(state) {
+            "welcome"
+        } else {
+            "cockpit"
+        },
         has_pending_approval(state),
         state.focused_lane.as_deref().unwrap_or(""),
         is_command_palette_visible(state)

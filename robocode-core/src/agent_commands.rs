@@ -15,6 +15,8 @@ use robocode_types::{
     ToolSpec, TranscriptEntry, now_timestamp,
 };
 
+const SHELL_SCRIPT_THRESHOLD: usize = 32 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AgentAdapterDescriptor {
     id: &'static str,
@@ -2002,7 +2004,8 @@ fn acp_initialize_request() -> String {
 }
 
 fn spawn_acp_process(cwd: &Path, command: &str) -> Result<Child, String> {
-    shell_command(command)
+    let mut command = shell_command(cwd, command)?;
+    command
         .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -2022,19 +2025,64 @@ fn spawn_codex_app_server(cwd: &Path, command: &str) -> Result<Child, String> {
         .map_err(|err| format!("failed to launch Codex app-server: {err}"))
 }
 
-fn shell_command(command: &str) -> Command {
-    #[cfg(windows)]
-    {
-        let mut process = Command::new("cmd");
-        process.arg("/C").arg(command);
-        process
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ShellCommandPlan {
+    program: &'static str,
+    inline_args: Vec<String>,
+    script_extension: Option<&'static str>,
+    script_body: Option<String>,
+}
+
+fn shell_command_plan(command: &str, windows: bool) -> ShellCommandPlan {
+    let requires_script = command.len() > SHELL_SCRIPT_THRESHOLD;
+    if windows {
+        return ShellCommandPlan {
+            program: "cmd",
+            inline_args: if requires_script {
+                vec!["/C".to_string()]
+            } else {
+                vec!["/C".to_string(), command.to_string()]
+            },
+            script_extension: requires_script.then_some("cmd"),
+            script_body: requires_script.then(|| command.to_string()),
+        };
     }
-    #[cfg(not(windows))]
-    {
-        let mut process = Command::new("sh");
-        process.arg("-lc").arg(command);
-        process
+
+    ShellCommandPlan {
+        program: "sh",
+        inline_args: if requires_script {
+            Vec::new()
+        } else {
+            vec!["-lc".to_string(), command.to_string()]
+        },
+        script_extension: requires_script.then_some("sh"),
+        script_body: requires_script.then(|| format!("set -eu\n{command}\n")),
     }
+}
+
+fn shell_command(cwd: &Path, command: &str) -> Result<Command, String> {
+    let plan = shell_command_plan(command, cfg!(windows));
+    let mut process = Command::new(plan.program);
+    process.args(plan.inline_args);
+    if let Some(body) = plan.script_body {
+        let extension = plan.script_extension.unwrap_or("cmd");
+        let path = acp_shell_script_path(cwd, extension);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("failed to create ACP shell script dir: {err}"))?;
+        }
+        fs::write(&path, body).map_err(|err| format!("failed to write ACP shell script: {err}"))?;
+        process.arg(path);
+    }
+    Ok(process)
+}
+
+fn acp_shell_script_path(cwd: &Path, extension: &str) -> PathBuf {
+    cwd.join(".robocode").join("tmp").join(format!(
+        "acp-command-{}.{}",
+        timestamp_millis(),
+        extension
+    ))
 }
 
 fn read_lines_async(
@@ -2522,6 +2570,51 @@ mod tests {
                 "approvals"
             ]
         );
+    }
+
+    #[test]
+    fn acp_shell_command_uses_script_for_long_commands() {
+        let long_command = format!("printf ok\n# {}", "x".repeat(40 * 1024));
+        let plan = shell_command_plan(&long_command, false);
+
+        assert_eq!(plan.program, "sh");
+        assert!(plan.inline_args.is_empty());
+        assert_eq!(plan.script_extension, Some("sh"));
+        assert_eq!(
+            plan.script_body.as_deref(),
+            Some(format!("set -eu\n{long_command}\n").as_str())
+        );
+    }
+
+    #[test]
+    fn acp_shell_command_keeps_short_commands_inline() {
+        let plan = shell_command_plan("printf ok", false);
+
+        assert_eq!(plan.program, "sh");
+        assert_eq!(
+            plan.inline_args,
+            vec!["-lc".to_string(), "printf ok".to_string()]
+        );
+        assert!(plan.script_extension.is_none());
+        assert!(plan.script_body.is_none());
+    }
+
+    #[test]
+    fn acp_shell_command_writes_long_command_script() {
+        let cwd = temp_root("acp_shell_script");
+        let long_command = format!("printf ok\n# {}", "x".repeat(40 * 1024));
+
+        let _command = shell_command(&cwd, &long_command).expect("build shell command");
+
+        let tmp_dir = cwd.join(".robocode").join("tmp");
+        let scripts = fs::read_dir(&tmp_dir)
+            .expect("read tmp dir")
+            .map(|entry| entry.expect("script entry").path())
+            .collect::<Vec<_>>();
+        assert_eq!(scripts.len(), 1);
+        let script = fs::read_to_string(&scripts[0]).expect("read script");
+        assert!(script.starts_with("set -eu\nprintf ok"));
+        assert!(script.ends_with('\n'));
     }
 
     #[cfg(unix)]

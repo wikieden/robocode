@@ -2,7 +2,7 @@
 
 Chinese version: [testing-validation-plan.zh-CN.md](testing-validation-plan.zh-CN.md)
 
-Last updated: 2026-05-27
+Last updated: 2026-06-07
 
 ## Purpose
 
@@ -40,7 +40,70 @@ If a change touches TUI rendering, lane orchestration, permissions, provider
 protocols, release packaging, or install flows, also run the relevant focused
 smoke script.
 
-### 3. TUI Visual Checks
+### 3. Spec Drift Checks
+
+For any user-visible behavior, architecture boundary, command semantics, or
+configuration-flow change, check the relevant spec document first:
+
+- If docs say "current", "implemented", or "available", they must point to
+  code, tests, screenshots, or smoke evidence.
+- If the code does not yet do it, the docs must say "target", "planned", or
+  "future version", and the release plan must include an acceptance gate.
+- Long-running TUI work must not add new nested input loops. Provider turns,
+  approval, doctor/probe, context building, and tool/lane jobs must report
+  through the main event loop or background job events.
+- `/connect`, `/models`, `/setup`, `/permissions`, `/theme`, and similar
+  interactive settings must not regress into "show command instructions and
+  make the user guess". In TUI they should be selector/form/modal first; core
+  command text is only a no-TUI fallback.
+
+For 0.1.24 operator-loop or provider setup work, also review
+`docs/spec-review-0.1.24.md`. A release cannot be marked complete while P0 gaps
+from that review remain open.
+
+Suggested focused gates:
+
+```bash
+rg -n "event::read\\(" robocode-cli/src/tui
+scripts/plan-mode-smoke.sh /tmp/robocode-spec-plan-smoke
+scripts/tui-regression.sh docs/previews/generated
+scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
+```
+
+The `event::read()` grep is not a permanent ban on all terminal event reads; it
+is a review reminder to check whether a modal, approval flow, or active turn has
+introduced a blocking reader that takes over the main loop.
+
+### 4. TDD Release Contract
+
+All behavior changes must follow `RED -> GREEN -> REFACTOR`. Behavior includes
+code capability, TUI interaction, provider adaptation, release gates, testing
+scripts, and documentation contracts themselves.
+
+Each TDD vertical slice must satisfy:
+
+- one behavior, one failing test, one minimal implementation; do not write a
+  batch of tests horizontally and then fill in all implementation later.
+- RED: add or adjust one observable behavior test, run it, and confirm it fails
+  because the target behavior is missing.
+- GREEN: write only the minimum implementation needed for the current test.
+- REFACTOR: clean up names, duplication, and boundaries only after relevant
+  tests are green.
+- Completion notes should record the red command, green command, changed files,
+  and whether screenshot evidence is required.
+
+Before release, run the testing contract smoke:
+
+```bash
+scripts/tdd-testing-contract-smoke.sh
+```
+
+This smoke confirms that the testing plan, release plan, spec review, and
+`scripts/release-smoke.sh` still contain the TDD gate. It does not replace
+behavior tests; it keeps the testing process itself from drifting out of the
+release flow.
+
+### 5. TUI Visual Checks
 
 Every TUI-visible change requires a visual artifact. Prefer deterministic SVG
 or ANSI snapshots when possible; use real terminal screenshots when the feature
@@ -67,7 +130,7 @@ Required states for TUI feature work:
 Feature completion reports must include the artifact path and a short note
 describing what the screenshot proves.
 
-### 4. Safety and Permission Checks
+### 6. Safety and Permission Checks
 
 Run when touching tools, approvals, permissions, lanes, app-server integration,
 plugins, MCP, skills, or workflow state:
@@ -76,38 +139,58 @@ plugins, MCP, skills, or workflow state:
 scripts/smoke-codex-app-server-write-guard.sh
 scripts/smoke-codex-app-server-protocol-fixture.sh
 scripts/smoke-lane-operator-loop.sh
+scripts/plan-mode-smoke.sh
 ```
 
 The expected default is fail-closed. A mutating path without a valid permission
-decision should not proceed.
+decision should not proceed. `scripts/plan-mode-smoke.sh` runs a real no-TUI
+session that proves Plan mode blocks both direct file mutation and shell-backed
+`/test` execution before allowing the same write path after `/plan off`.
 
-### 5. Live Provider Checks
+### 7. Live Provider Checks
 
 Use deterministic fallback tests for default CI. Run live providers only when
 credentials and rate limits are available:
 
 ```bash
 scripts/release-smoke.sh --quick --deepseek
+scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
 ```
 
-Live checks should prove provider compatibility, not replace deterministic
-fixtures.
+The DeepSeek smoke is a real development scenario, not an echo test. It creates
+and tests a generated Python module, then records token usage and estimated CNY
+cost in `usage.json` and `summary.md`. Live checks should prove provider
+compatibility, not replace deterministic fixtures.
 
-### 6. Release Checks
+### 8. Mandatory Release Checks
 
-Before tagging a release candidate:
+Every release must pass the release gate. Do not tag, publish, or mark a
+version complete from ad-hoc local checks.
+
+Before tagging or publishing a release candidate, run the prepublish gate:
 
 ```bash
-scripts/release-smoke.sh --version <version>
+scripts/release-gate.sh --version <version>
 ```
 
-When credentials are available:
+The prepublish gate wraps full `scripts/release-smoke.sh --deepseek`, so it
+requires `DEEPSEEK_API_KEY` and records the live DeepSeek development scenario
+token/cost summary. If the key is unavailable, the release is blocked; it can be
+called a local RC at most, not a completed release.
+
+If you need the lower-level command for debugging, it is:
 
 ```bash
-scripts/release-smoke.sh --version <version> --deepseek --github-actions
+scripts/release-smoke.sh --version <version> --deepseek
 ```
 
-After publishing:
+After publishing GitHub assets and updating Homebrew, run the postpublish gate:
+
+```bash
+scripts/release-gate.sh --version <version> --phase postpublish
+```
+
+This wraps:
 
 ```bash
 gh release view v<version>
@@ -119,8 +202,9 @@ release must update `wikieden/homebrew-tap` to the same version before the
 release is considered complete. If the tap is not updated or the Homebrew check
 is skipped, record the release as incomplete, not merely partially verified.
 
-The release status document must record the command, evidence directory,
-release URL, workflow run, assets, Homebrew result, and remaining risks.
+The release status document must record the exact gate command, evidence
+directory, release URL, workflow run, assets, Homebrew result, live provider
+token/cost summary, and remaining risks.
 
 ## Screenshot Evidence Contract
 
@@ -175,9 +259,11 @@ Use stable names:
 
 ### Release Full
 
+- `scripts/release-gate.sh --version <version>`
 - supported-platform package builds
 - release asset upload
 - sha256 validation
+- live DeepSeek development smoke with token/cost summary
 - GitHub release inspection
 - Homebrew tap update and fetch verification
 - screenshot evidence review

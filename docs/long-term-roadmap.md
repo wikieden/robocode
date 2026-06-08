@@ -218,6 +218,8 @@ Key outcomes:
 - ContextBundle v1 is visible
 - lane isolation preflight exists
 - docs, screenshots, release assets, and Homebrew are routine
+- before 0.1.x final, pass the [TUI Stability Zero-Bug Gate](tui-stability-zero-bug-gate.md):
+  zero known P0/P1 TUI display, input, modal, scrollback, resize, and stale-state bugs
 
 What not to do yet:
 
@@ -331,6 +333,8 @@ Make RoboCode dependable enough to recommend for real project work.
 
 - Every release should improve one of: observability, context efficiency,
   isolation, reviewability, or repeatability.
+- 0.1.x final is the TUI stability exit: do not enter 0.2.x while known P0/P1
+  TUI bugs remain open.
 - Every user-visible feature needs a real screenshot or deterministic visual
   artifact.
 - New adapters start read-only or supervised before becoming mutating.
@@ -341,22 +345,24 @@ Make RoboCode dependable enough to recommend for real project work.
 
 ## Recommended Next Sequence
 
-After `0.1.16`, the likely sequence is:
+After `0.1.24`, the likely sequence is:
 
-1. `0.1.17`: Daily Coding Loop Baseline. Prove DeepSeek-first setup,
-   interactive provider/model configuration, switch-model recovery, scoped
-   edit, approval, test, diff, final summary, and resume evidence in one
-   deterministic workflow. Lightweight spec/steering is included only as
-   task-brief support.
-2. `0.1.18`: Interaction Hardening. Finish selector-first setup for
-   provider/model/permissions/theme so configuration is actionable rather than
-   informational.
-3. `0.1.19`: Delegated Lane Usefulness. Make one Codex/Claude/shell delegated
-   review workflow dependable enough for real use.
-4. `0.1.20`: Usability Beta. A clean install should complete the daily coding
-   loop and one delegated review loop with documented screenshots and smoke
-   evidence.
-5. `0.2.0`: Spec-driven, evidence-driven multi-agent workflow baseline.
+1. `0.1.25`: TUI Display Cleanup. Focus on borders, vertical lines, colors,
+   IME, cursor, modal position, right rail drift, and popup placement.
+2. `0.1.26`: TUI Regression Pack. Convert historical display bugs into
+   deterministic previews, terminal smoke, or manual screenshot checklists.
+3. `0.1.27`: Daily Coding Loop Hardening. Validate input, approval, tests,
+   diff, error recovery, scrollback, and provider setup with real development
+   tasks.
+4. `0.1.28`: Delegated Lane Visibility Cleanup. Ensure side screens, lane
+   evidence, and Codex/Claude/shell job status are consistent and not fake.
+5. `0.1.29`: 0.1.x RC Stabilization. Stop expanding new UI surfaces and fix
+   only P0/P1 TUI bugs.
+6. `0.1.30`: 0.1.x Final Zero-Bug Gate. Enter 0.2.x only after P0/P1 TUI
+   backlog is zero, screenshot evidence is complete, quick/full release gates
+   pass, and GitHub Release plus Homebrew are synchronized.
+7. `0.2.0`: Spec-driven, context-efficient, evidence-driven workflow runtime
+   baseline.
 
 This sequence keeps RoboCode focused on the wedge: not maximum autonomy, but
 maximum operator trust.

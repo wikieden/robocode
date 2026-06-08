@@ -165,7 +165,7 @@ provider 返回流式或批式事件：
 - `openai-compatible`
 - `deepseek`，作为独立 provider family，使用官方 OpenAI-style API surface
 - `deepseek-anthropic`，用于 DeepSeek 官方 Anthropic-compatible API surface
-- OpenAI-compatible gateway descriptors：`openrouter`、`groq`、`mistral`、`together`、`kimi`、`qwen`、`zhipu`、`volcengine`
+- OpenAI-compatible gateway descriptors：`openrouter`、`groq`、`mistral`、`together`、`kimi`、`qwen`、`dashscope-coding-plan`、`dashscope-coding-plan-anthropic`、`dashscope-tokenplan`、`dashscope-tokenplan-anthropic`、`zhipu`、`volcengine`
 - `ollama`
 - `fallback`
 

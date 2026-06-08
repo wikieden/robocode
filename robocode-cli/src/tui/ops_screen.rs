@@ -508,6 +508,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: Vec::<TuiEntry>::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
@@ -517,6 +519,7 @@ mod tests {
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         }
     }
 

@@ -279,6 +279,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: Vec::<TuiEntry>::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
@@ -294,6 +296,7 @@ mod tests {
             lanes: Vec::<TerminalLane>::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         };
 
         let rows = side_status_rows(&state);
@@ -321,6 +324,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: Vec::<TuiEntry>::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
@@ -330,6 +335,7 @@ mod tests {
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         };
         state.lanes[0].target = "tmux robocode-session-l1".to_string();
 
@@ -365,6 +371,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: Vec::<TuiEntry>::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
@@ -374,6 +382,7 @@ mod tests {
             lanes: TerminalLane::preview_lanes(),
             lane_store: Some(lane_store),
             focused_lane: None,
+            interaction_panel: None,
         };
         state.lanes.truncate(1);
         state.lanes[0].status = "apply_conflict".to_string();
@@ -410,6 +419,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: Vec::<TuiEntry>::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
@@ -419,6 +430,7 @@ mod tests {
             lanes: TerminalLane::preview_lanes(),
             lane_store: Some(lane_store),
             focused_lane: None,
+            interaction_panel: None,
         };
         state.lanes.truncate(1);
 

@@ -20,7 +20,7 @@ use git::{
 use lsp::{LspDiagnosticsTool, LspReferencesTool, LspSymbolsTool};
 use search::{GlobTool, GrepTool};
 use shell::ShellTool;
-pub use shell::build_shell_invocation;
+pub use shell::{build_shell_invocation, shell_requires_stdin};
 use web::{WebFetchTool, WebSearchTool};
 #[cfg(test)]
 pub(crate) use web::{html_to_text, parse_duckduckgo_results, url_encode};

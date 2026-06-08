@@ -22,9 +22,10 @@ with the generated reference visuals and the terminal-agent workflow.
   permission mode, active-lane count, and telemetry availability.
 - Transcript: dominant left pane, timeline-styled entries, recent rows kept
   visible at the bottom.
-- Live activity: a fixed strip inside the transcript area that answers what
-  RoboCode is doing right now, such as `Thinking...`, `Editing src/render.rs`,
-  waiting for approval, or supervising active lanes.
+- Live activity: an inline tail row inside the transcript area, directly after
+  the latest visible conversation entry, that answers what RoboCode is doing
+  right now with a small pulse glyph such as `RoboCode is planning ·`,
+  `Editing src/render.rs`, waiting for approval, or supervising active lanes.
 - Right rail: workspace, active tasks, diagnostics, provider health, recent
   files.
 - Composer: always visible at the bottom, with a taller three-row input well,
@@ -63,13 +64,15 @@ slash-prefixed tokens such as `/` or `/p`, and for supported nested command
 queries such as `/lane `, `/git st`, `/task status task_`, or
 `/lsp diagnostics src/`.
 
-Interactive decision commands are selector-first. `/setup`, `/settings`,
-`/provider`, `/models`, `/lane`, `/permissions`, and `/theme` render centered
-selector panels with search, keyboard movement, mouse selection, and `Enter`
-apply semantics. Future configuration, mode-switching, lane/agent action, and
-multi-choice workflows should follow the same pattern. They must not degrade
-into status-only pages unless the command is explicitly a diagnostic or details
-command such as `/config`, `/status`, or `/provider doctor`.
+Interactive decision commands are modal-first after submission, but they should
+not steal focus while the user is still typing. `/connect`, `/models`, and
+`/settings provider` stay in the compact completion surface until `Enter`
+submits them; then the dedicated modal owns search, keyboard movement, mouse
+selection, and `Enter` apply semantics. Future configuration, mode-switching,
+lane/agent action, and multi-choice workflows should follow the same pattern.
+They must not degrade into status-only pages unless the command is explicitly a
+diagnostic or details command such as `/config`, `/status`, or `/provider
+doctor`.
 
 `/setup` is the first-run wizard. It is not a passive help page: each row is a
 real next action, including provider config, model selection, permissions,
@@ -81,18 +84,19 @@ actions so users do not have to memorize lane ids.
 
 Provider/model selectors have separate semantics:
 
-- `/provider` is the supplier configuration surface. The first-level list shows
-  only provider ids such as `deepseek` and `openrouter`; it must not include
-  key, endpoint, or model explanations on the supplier rows. Selecting a
-  provider opens a second-level `PROVIDER CONFIG` page with masked API-key
-  values when present, endpoint source, known/default model candidates,
-  diagnostics, save-default, and switch-now actions. The default action should inspect/configure the
-  provider, not silently pretend that provider selection is model selection.
+- `/provider` and `/connect` are the supplier connection flow. The first-level
+  list shows supplier names such as `DeepSeek` and `OpenRouter`; it must not
+  include key, endpoint, or model explanations on the supplier rows. Selecting a
+  provider opens API-key entry when needed, masks the typed key, saves only the
+  env var name, and then opens that provider's model picker.
 - `/models` is the cross-provider model selector. Rows are grouped by provider
-  and complete to commands that switch provider plus model together.
-- `/model <model>` is the current-provider quick switch. It must not hide the
-  fact that selecting a model from another provider requires switching provider
-  as well.
+  with models indented underneath, and it only shows providers/models that have
+  already been configured or activated. Descriptor-only defaults for
+  unconfigured providers must not appear as runnable choices. Selecting a row
+  applies the provider/model switch directly.
+- `/model <model>` is the current-provider quick switch for activated models.
+  It must not hide the fact that selecting a model from another provider
+  requires switching provider as well.
 
 Keyboard contract:
 
@@ -220,19 +224,21 @@ model.
 
 - Resize events trigger redraw for the main and side TUI screens.
 - Row-diff rendering avoids full-screen flicker during typing.
-- Provider turns run through a worker/channel boundary while the main TUI event
-  loop keeps polling input, lane artifacts, approval prompts, and repaint ticks.
-  Approval prompts are bridged back to the UI and resolved through the existing
-  permission path before the worker continues.
+- Provider turns now run through the `TuiRuntime` worker and feed stream,
+  approval, cancel, finish, and error events back into the main TUI event loop.
+  Remaining 0.1.24 work is to make queued input runtime-visible and broaden the
+  slow-provider/approval/resize smoke evidence.
 - The composer uses display-width aware text handling for CJK input, keeps a
   native blinking bar cursor visible in the input row, and reserves a taller
   input well so the prompt remains easy to find during long sessions.
-- The main transcript reserves a fixed `NOW WORKING` band at the top. It
-  derives status from pending approvals, the unified `AgentTask` view, the
-  latest user turn, the latest tool call, or the latest transcript entry, so
-  the main screen can show `DeepSeek is thinking`, `Approval needed: ...`,
-  `Supervising 2 agents: ...`, compact edit summaries, delegated-agent
-  progress, and evidence source without inventing runtime data.
+- The main transcript keeps a compact inline activity hint at the live tail,
+  directly below the latest conversation content, instead of a blocking center
+  card or a detached top strip. It derives status from pending approvals, the
+  unified `AgentTask` view, the latest user turn, the latest tool call, or the
+  latest transcript entry, so the main screen can show a pulsing
+  `RoboCode is planning`, `Approval needed: ...`, `Supervising 2 agents: ...`,
+  compact edit summaries, delegated-agent progress, and a human-readable signal
+  without inventing runtime data.
 - Approval overlays and `waiting_approval` tasks must be treated as live only
   until a later approval resolution, tool result, assistant reply, or `/test`
   command result closes them. Closed approvals must not keep blocking the

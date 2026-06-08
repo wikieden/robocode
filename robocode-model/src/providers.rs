@@ -11,7 +11,7 @@ use crate::render::{
     OpenAiRenderCompatibility, build_anthropic_body_with_stream, build_ollama_body,
     build_openai_body_with_stream_and_compat,
 };
-use crate::transport::post_json_with_control;
+use crate::transport::{HttpRequestControl, post_json_with_control};
 use crate::{ModelProvider, ModelRequestControl};
 use robocode_types::{ModelEvent, ModelRequest};
 
@@ -371,9 +371,12 @@ impl ModelProvider for HttpProvider {
             path,
             &headers,
             &body,
-            self.request_timeout_secs,
-            self.max_retries,
-            control,
+            HttpRequestControl {
+                timeout_secs: self.request_timeout_secs,
+                max_retries: self.max_retries,
+                control,
+                stream_delta: stream_delta_parser(self.mode),
+            },
         )?;
         control.check_cancelled()?;
         if response.status_code >= 400 {
@@ -411,6 +414,55 @@ impl ModelProvider for HttpProvider {
         events.push(ModelEvent::Done);
         Ok(events)
     }
+}
+
+fn stream_delta_parser(mode: HttpMode) -> Option<fn(&str) -> Option<String>> {
+    match mode {
+        HttpMode::Anthropic => Some(anthropic_stream_delta_line),
+        HttpMode::OpenAiCompatible => Some(openai_stream_delta_line),
+        HttpMode::Ollama => None,
+    }
+}
+
+fn openai_stream_delta_line(line: &str) -> Option<String> {
+    let data = line.trim().strip_prefix("data:")?.trim();
+    if data == "[DONE]" {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(data).ok()?;
+    let delta = value
+        .get("choices")?
+        .get(0)?
+        .get("delta")
+        .or_else(|| value.get("choices")?.get(0)?.get("message"))?;
+    delta
+        .get("content")
+        .and_then(|value| value.as_str())
+        .or_else(|| {
+            delta
+                .get("reasoning_content")
+                .and_then(|value| value.as_str())
+        })
+        .map(str::to_string)
+}
+
+fn anthropic_stream_delta_line(line: &str) -> Option<String> {
+    let data = line.trim().strip_prefix("data:")?.trim();
+    let value: serde_json::Value = serde_json::from_str(data).ok()?;
+    if value.get("type")?.as_str()? != "content_block_delta" {
+        return None;
+    }
+    let delta = value.get("delta")?;
+    if !matches!(
+        delta.get("type").and_then(|value| value.as_str()),
+        Some("text_delta")
+    ) {
+        return None;
+    }
+    delta
+        .get("text")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
 }
 
 fn parse_stream_or_json(
@@ -544,4 +596,31 @@ fn validate_resolved_api_base(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod streaming_delta_tests {
+    use super::{anthropic_stream_delta_line, openai_stream_delta_line};
+
+    #[test]
+    fn openai_stream_delta_line_extracts_content() {
+        let line = r#"data: {"choices":[{"delta":{"content":"hello"}}]}"#;
+
+        assert_eq!(openai_stream_delta_line(line), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn openai_stream_delta_line_extracts_reasoning_content() {
+        let line = r#"data: {"choices":[{"delta":{"reasoning_content":"thinking"}}]}"#;
+
+        assert_eq!(openai_stream_delta_line(line), Some("thinking".to_string()));
+    }
+
+    #[test]
+    fn anthropic_stream_delta_line_extracts_text_delta() {
+        let line =
+            r#"data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hello"}}"#;
+
+        assert_eq!(anthropic_stream_delta_line(line), Some("hello".to_string()));
+    }
 }

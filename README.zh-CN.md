@@ -4,7 +4,7 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 英文版： [README.md](README.md)
 
-![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.23-tui-main.svg)
+![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.24-tui-main.svg)
 
 ## 为什么做它
 
@@ -24,56 +24,60 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 ## 真机运行图
 
 下面这些图来自当前 RoboCode TUI renderer 的 release evidence，不是产品概念图。
-截图展示的是 `0.1.23` provider 和 model 设置补丁：首次 setup、provider/model 配置、
+截图展示的是 `0.1.24` 非阻塞 operator-loop 补丁：首次 setup、provider/model 配置、
 delegated lane 操作和日常 coding cockpit；最新已发布二进制版本以安装章节为准。
+
+### 首次进入 Welcome
+
+![首次进入 Welcome](docs/previews/generated/main-idle.svg)
 
 ### Live provider turn
 
-![实时 provider 状态](docs/previews/generated/screenshots/0.1.23-tui-live-turn.svg)
+![实时 provider 状态](docs/previews/generated/screenshots/0.1.24-tui-live-turn.svg)
 
 ### Resize 后重绘
 
-![Resize 后重绘](docs/previews/generated/screenshots/0.1.23-tui-main-resize.svg)
+![Resize 后重绘](docs/previews/generated/screenshots/0.1.24-tui-main-resize.svg)
 
 ### 中文输入
 
-![中文输入](docs/previews/generated/screenshots/0.1.23-tui-cjk-input.svg)
+![中文输入](docs/previews/generated/screenshots/0.1.24-tui-cjk-input.svg)
 
 ### Slash command 提示
 
-![命令提示](docs/previews/generated/screenshots/0.1.23-tui-command-palette.svg)
+![命令提示](docs/previews/generated/screenshots/0.1.24-tui-command-palette.svg)
 
 ### 首次 Setup 向导
 
-![Setup wizard](docs/previews/generated/screenshots/0.1.23-tui-setup-wizard.svg)
+![Setup wizard](docs/previews/generated/screenshots/0.1.24-tui-setup-wizard.svg)
 
 ### Provider 配置选择器
 
-![Provider selector](docs/previews/generated/screenshots/0.1.23-tui-provider-selector.svg)
+![Provider selector](docs/previews/generated/screenshots/0.1.24-tui-provider-selector.svg)
 
 ### Provider 详情配置
 
-![Provider detail](docs/previews/generated/screenshots/0.1.23-tui-provider-detail.svg)
+![Provider detail](docs/previews/generated/screenshots/0.1.24-tui-provider-detail.svg)
 
 ### 按供应商分组的模型选择器
 
-![Model selector](docs/previews/generated/screenshots/0.1.23-tui-model-selector.svg)
+![Model selector](docs/previews/generated/screenshots/0.1.24-tui-model-selector.svg)
 
 ### Lane action selector
 
-![Lane selector](docs/previews/generated/screenshots/0.1.23-tui-lane-selector.svg)
+![Lane selector](docs/previews/generated/screenshots/0.1.24-tui-lane-selector.svg)
 
 ### Agent lane detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.23-tui-lane-detail.svg)
+![Lane detail](docs/previews/generated/screenshots/0.1.24-tui-lane-detail.svg)
 
 ### 副屏 side-1：Agent lanes
 
-![side-1 lanes](docs/previews/generated/screenshots/0.1.23-tui-side-1.svg)
+![side-1 lanes](docs/previews/generated/screenshots/0.1.24-tui-side-1.svg)
 
 ### 副屏 side-2：ops 与 evidence
 
-![side-2 ops](docs/previews/generated/screenshots/0.1.23-tui-side-2.svg)
+![side-2 ops](docs/previews/generated/screenshots/0.1.24-tui-side-2.svg)
 
 ## 安装
 
@@ -93,7 +97,7 @@ robocode --help
 
 ### Release 压缩包
 
-从 [RoboCode v0.1.23](https://github.com/wikieden/robocode/releases/tag/v0.1.23)
+从 [RoboCode v0.1.24](https://github.com/wikieden/robocode/releases/tag/v0.1.24)
 下载 release 压缩包。
 
 当前 release targets：
@@ -106,7 +110,7 @@ robocode --help
 macOS 或 Linux 安装：
 
 ```bash
-VERSION=0.1.23
+VERSION=0.1.24
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -117,7 +121,7 @@ robocode-cli --help
 Windows PowerShell 安装：
 
 ```powershell
-$Version = "0.1.23"
+$Version = "0.1.24"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
@@ -135,8 +139,9 @@ robocode-cli.exe --help
 robocode-cli
 ```
 
-如果当前在线 provider 缺少 API key，TUI 会自动打开 `/setup`。你也可以随时用
-`/setup` 进入 provider/model 配置流程。最快路径是：
+干净会话会先进入聚焦的 welcome 输入界面，不再自动弹出 setup。执行配置命令
+后也会停留在 welcome；只有提交第一个普通任务 prompt 后才进入完整 cockpit。
+需要配置 provider/model 时，用 `Ctrl-P` 打开命令，或直接提交下面这些入口：
 
 ```bash
 /setup
@@ -192,14 +197,27 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 - provider turn 正在运行时，cockpit 会持续刷新当前工作状态和 elapsed time。
   `Ctrl-C` 会请求取消，但已经发出的 provider 请求仍可能正常返回。
 - 审批弹窗默认停在 `Approve`；按 `y` 通过，`n` 拒绝，`d` 聚焦 diff，也可以用 `Tab` / 方向键在动作间移动。
-- 输入 `/` 会打开命令提示。`/settings`、`/connect`、`/provider`、`/models`、`/permissions`、`/theme` 都会打开带搜索、键盘选择和鼠标选择的选择器。常用入口包括 `/help`、`/settings`、`/setup`、`/connect`、`/provider`、`/models`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/brief`、`/spec`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
+- 输入 `/` 会打开命令提示。provider/model 相关命令在输入过程中只显示紧凑补全，
+  不会在你还没按 Enter 时弹出大窗口。常用入口包括 `/help`、`/settings`、`/setup`、`/connect`、`/provider`、`/models`、`/status`、`/config`、`/permissions`、`/test`、`/sessions`、`/resume`、`/task`、`/brief`、`/spec`、`/memory`、`/lane`、`/agent`、`/screen`、`/lsp`、`/git`、`/web`、`/extensions`、`/mcp` 和 `/skills`。
   长列表会保持选中行可见，并支持点击可见行补全。
 
 ## 配置
 
 RoboCode 会读取平台默认配置路径，然后读取 `.robocode/config.toml`，CLI flags 优先级最高。
 
-在 TUI 中，`/setup` 会打开首次使用 provider/model 向导，里面包含 provider 配置、model 选择、权限模式、主题、doctor 检查、fallback smoke 和保存默认值这些可执行步骤。`/settings` 是可操作的设置选择器，不再只是状态展示：provider、model、permissions、theme、保存默认值和诊断都可以直接选择。`/connect` 是 opencode 风格的供应商配置入口：先选择供应商，再进入 `PROVIDER CONFIG` 二级页查看 auth mode、API key 环境变量、endpoint 来源、诊断入口、保存默认值动作和该供应商已知模型。Provider 可以声明不同认证方式：OpenAI 可展示为网页登录或 API key，DeepSeek/OpenRouter 这类 gateway provider 使用 API key，Ollama/Fallback 这类本地 provider 不需要 key；已存在的 API key 只显示开头和结尾，中间全部脱敏。Provider detail 里的 editable rows 会把输入框补成 `/settings provider <id> key-env ...`、`/settings provider <id> endpoint ...`、`/settings provider <id> default-model ...` 或 `/settings provider <id> enable-model <model>`；启用的模型会成为 `/models` 中该 provider 的 active entries，`/settings provider <id> models ...` 可以整体替换 active model 列表，`/settings provider <id> favorite-model <model>` 可以把某个 provider/model 组合置顶。提交值后会写入 `[providers.<id>]`，但不会保存明文 API key。`/models` 是 Favorites 优先、再显示 Recent、再按已配置供应商分组的模型选择器，只显示已激活模型；收藏项不会在后面的供应商分组重复出现，`Ctrl-F` 可以收藏当前选中的模型行，选中一行会同时切换 provider 和 model。`/model <model>` 只作为当前 provider 的快速模型切换。
+在 TUI 中，`/connect`、`/provider`、`/setup provider`、`/settings provider` 会打开类似 opencode 的供应商选择面板：在面板里选供应商，缺 key 时进入 API key 输入面板，然后进入 provider config 动作页。这个动作页可以更换 key、清除当前 session 里的 key、运行 doctor，或继续选择该 provider 的默认模型。在 provider-scoped 模型面板里选中模型后，会保存 provider/model、自动运行 provider doctor，并把 readiness 证据写回 transcript。`/models`、`/model`、`/setup model`、`/settings model` 会打开按供应商分组的模型选择面板，只显示已经配置过的 provider；对已配置 provider，会显示 active、favorite、default 和 known models，选中一行后立即切换 provider/model。API key 在界面里脱敏展示，RoboCode 只保存环境变量名，不保存明文 key。`/settings provider <provider> ...`、`/models <provider> <model>`、`/model <model>` 这些直接命令仍保留给脚本和高级用户。
+
+不打开 TUI 也可以收集真实 provider smoke 证据：
+
+```bash
+scripts/provider-live-smoke.sh --provider deepseek --model deepseek-v4-flash
+scripts/provider-live-smoke.sh --provider dashscope-coding-plan --model qwen3.6-plus
+scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
+```
+
+`scripts/deepseek-dev-scenario-smoke.sh` 是会产生真实费用的开发场景 smoke：
+它会让 DeepSeek 创建一个小 Python 模块、生成并运行测试，然后写出 `usage.json`
+和 Markdown summary，里面包含 input/output/total tokens 与 CNY 费用估算。
 
 ```toml
 provider = "deepseek"
@@ -246,6 +264,8 @@ README 保持产品介绍和使用入口。完整使用说明和实现细节放�
 - [TUI Cockpit 设计](docs/tui-cockpit-design.zh-CN.md)
 - [TUI 交互审计](docs/tui-interaction-audit-2026-05-29.zh-CN.md)
 - [测试与验证计划](docs/testing-validation-plan.zh-CN.md)
+- [0.1.24 状态](docs/release-0.1.24-status.zh-CN.md)
+- [0.1.24 计划](docs/release-0.1.24-plan.zh-CN.md)
 - [0.1.23 状态](docs/release-0.1.23-status.zh-CN.md)
 - [0.1.21 计划](docs/release-0.1.21-plan.zh-CN.md)
 - [0.1.21 状态](docs/release-0.1.21-status.zh-CN.md)
@@ -280,6 +300,15 @@ scripts/package-release.sh
 scripts/release-smoke.sh
 ```
 
+如果环境里有 `DEEPSEEK_API_KEY`，加 `--deepseek` 会把真实 DeepSeek 开发场景
+和 token/费用汇总纳入 release smoke。
+
+真正发布时不要靠临时 smoke 命令，统一跑强制 release gate：
+
+```bash
+scripts/release-gate.sh --version <version>
+```
+
 生成 TUI 视觉证据：
 
 ```bash
@@ -289,11 +318,12 @@ scripts/tui-regression.sh docs/previews/generated
 发布后验证 release assets 和 Homebrew：
 
 ```bash
-scripts/release-smoke.sh --version <version> --github-release-assets --homebrew --skip-package
+scripts/release-gate.sh --version <version> --phase postpublish
 ```
 
 每次 GitHub Release 都必须同步相同版本的 Homebrew tap。只有 post-publish smoke
-同时验证 GitHub assets 和 Homebrew 后，发布才算完成。
+同时验证 GitHub assets 和 Homebrew 后，发布才算完成。Release status 还必须包含
+prepublish gate 里的 DeepSeek live smoke token/费用 summary。
 
 ## 问题反馈
 

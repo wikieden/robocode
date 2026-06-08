@@ -31,6 +31,8 @@ pub(super) struct TuiState {
     pub(super) approval_focus: usize,
     pub(super) approval_apply_all: bool,
     pub(super) pending_turn: Option<PendingTurn>,
+    pub(super) streaming_assistant: Option<String>,
+    pub(super) transcript_scroll: usize,
     pub(super) entries: Vec<TuiEntry>,
     pub(super) workspace: WorkspaceSnapshot,
     pub(super) tasks: Vec<TaskRecord>,
@@ -40,6 +42,28 @@ pub(super) struct TuiState {
     pub(super) lanes: Vec<TerminalLane>,
     pub(super) lane_store: Option<PathBuf>,
     pub(super) focused_lane: Option<String>,
+    pub(super) interaction_panel: Option<InteractionPanel>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum InteractionPanel {
+    ConnectProvider {
+        search: String,
+        selected: usize,
+    },
+    ProviderConfig {
+        provider_id: String,
+        selected: usize,
+    },
+    ProviderApiKey {
+        provider_id: String,
+        input: String,
+    },
+    ModelPicker {
+        provider_id: Option<String>,
+        search: String,
+        selected: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +76,7 @@ pub(super) struct PendingTurn {
     pub(super) started_at: u128,
     pub(super) phase: String,
     pub(super) next_action: String,
+    pub(super) queued_inputs: Vec<String>,
 }
 
 impl PendingTurn {
@@ -72,6 +97,7 @@ impl PendingTurn {
             started_at,
             phase: "Waiting for provider response".to_string(),
             next_action: "wait".to_string(),
+            queued_inputs: Vec::new(),
         }
     }
 }
@@ -161,6 +187,14 @@ fn agent_task_from_codex_job(job: &AgentJob) -> AgentTask {
 }
 
 fn agent_task_from_pending_turn(turn: &PendingTurn) -> AgentTask {
+    let queued_count = turn.queued_inputs.len();
+    let queued_suffix = if queued_count == 0 {
+        String::new()
+    } else if queued_count == 1 {
+        " · 1 prompt queued".to_string()
+    } else {
+        format!(" · {queued_count} prompts queued")
+    };
     AgentTask {
         id: turn.id.clone(),
         parent_id: None,
@@ -170,7 +204,7 @@ fn agent_task_from_pending_turn(turn: &PendingTurn) -> AgentTask {
         title: turn.prompt.clone(),
         status: "thinking".to_string(),
         activity: turn.phase.clone(),
-        summary: format!("{} / {} is processing", turn.provider, turn.model),
+        summary: format!("RoboCode is processing the request{queued_suffix}"),
         progress: 15,
         started_at: Some(turn.started_at),
         updated_at: Some(now_millis()),
@@ -180,6 +214,7 @@ fn agent_task_from_pending_turn(turn: &PendingTurn) -> AgentTask {
             format!("provider {}", turn.provider),
             format!("model {}", turn.model),
             format!("next_action {}", turn.next_action),
+            format!("queued_inputs {}", turn.queued_inputs.len()),
         ],
         permissions: Vec::new(),
         decision: None,
@@ -187,7 +222,7 @@ fn agent_task_from_pending_turn(turn: &PendingTurn) -> AgentTask {
         resume_handle: None,
         pid: None,
         next_action: Some(AgentNextAction {
-            label: turn.next_action.clone(),
+            label: format!("{}{}", turn.next_action, queued_suffix),
             command: (turn.next_action != "wait").then(|| "/status".to_string()),
             reason: Some("provider turn is active".to_string()),
         }),
@@ -555,6 +590,7 @@ fn transcript_agent_tasks(state: &TuiState) -> Vec<AgentTask> {
     }
     if state.pending_turn.is_none()
         && let Some((index, entry)) = latest_entry_matching(&state.entries, is_provider_entry)
+        && !provider_turn_failed_after(&state.entries, index)
         && seen.insert(index)
     {
         tasks.push(agent_task_from_entry(index, entry, state));
@@ -602,6 +638,15 @@ fn is_tool_entry(entry: &TuiEntry) -> bool {
 
 fn is_provider_entry(entry: &TuiEntry) -> bool {
     matches!(entry.label.as_str(), "user" | "assistant")
+}
+
+fn provider_turn_failed_after(entries: &[TuiEntry], provider_index: usize) -> bool {
+    entries[provider_index + 1..].iter().any(|entry| {
+        entry.label == "system"
+            && entry
+                .body
+                .contains("Provider turn failed, but RoboCode kept the TUI open.")
+    })
 }
 
 fn agent_task_from_approval(index: usize, entry: &TuiEntry) -> AgentTask {
@@ -1145,6 +1190,7 @@ pub(super) struct ProviderOption {
     pub(super) display_name: String,
     pub(super) default_api_base: Option<String>,
     pub(super) default_model: Option<String>,
+    pub(super) known_models: Vec<String>,
     pub(super) enabled_models: Vec<String>,
     pub(super) favorite_models: Vec<String>,
     pub(super) api_key_env: Option<String>,
@@ -1159,6 +1205,7 @@ impl ProviderOption {
             display_name: descriptor.display_name.clone(),
             default_api_base: descriptor.default_api_base.clone(),
             default_model: descriptor.default_model.clone(),
+            known_models: descriptor.known_models.clone(),
             enabled_models: Vec::new(),
             favorite_models: Vec::new(),
             api_key_env: descriptor.env_mappings.api_key_env.clone(),
@@ -1173,8 +1220,13 @@ impl ProviderOption {
                 provider_id: "anthropic".to_string(),
                 display_name: "Anthropic".to_string(),
                 default_api_base: Some("https://api.anthropic.com".to_string()),
-                default_model: Some("claude-sonnet-4-6".to_string()),
-                enabled_models: vec!["claude-sonnet-4-6".to_string()],
+                default_model: Some("claude-sonnet-4-5".to_string()),
+                known_models: vec![
+                    "claude-opus-4-5".to_string(),
+                    "claude-sonnet-4-5".to_string(),
+                    "claude-haiku-4-5".to_string(),
+                ],
+                enabled_models: vec!["claude-sonnet-4-5".to_string()],
                 favorite_models: Vec::new(),
                 api_key_env: Some("ANTHROPIC_API_KEY".to_string()),
                 api_base_env: Some("ROBOCODE_API_BASE".to_string()),
@@ -1185,6 +1237,12 @@ impl ProviderOption {
                 display_name: "DeepSeek".to_string(),
                 default_api_base: Some("https://api.deepseek.com".to_string()),
                 default_model: Some("deepseek-v4-flash".to_string()),
+                known_models: vec![
+                    "deepseek-v4-flash".to_string(),
+                    "deepseek-v4-pro".to_string(),
+                    "deepseek-chat".to_string(),
+                    "deepseek-reasoner".to_string(),
+                ],
                 enabled_models: vec![
                     "deepseek-v4-flash".to_string(),
                     "deepseek-v4-pro".to_string(),
@@ -1195,10 +1253,61 @@ impl ProviderOption {
                 auth_modes: vec![ProviderAuthMode::ApiKey],
             },
             Self {
+                provider_id: "dashscope-coding-plan".to_string(),
+                display_name: "DashScope Coding Plan".to_string(),
+                default_api_base: Some("https://coding.dashscope.aliyuncs.com/v1".to_string()),
+                default_model: Some("qwen3.6-plus".to_string()),
+                known_models: vec![
+                    "qwen3.6-plus".to_string(),
+                    "qwen3.5-plus".to_string(),
+                    "qwen3-max-2026-01-23".to_string(),
+                    "qwen3-coder-next".to_string(),
+                    "qwen3-coder-plus".to_string(),
+                    "kimi-k2.5".to_string(),
+                    "glm-5".to_string(),
+                    "glm-4.7".to_string(),
+                    "MiniMax-M2.5".to_string(),
+                ],
+                enabled_models: Vec::new(),
+                favorite_models: Vec::new(),
+                api_key_env: Some("DASHSCOPE_CODING_PLAN_API_KEY".to_string()),
+                api_base_env: Some("DASHSCOPE_CODING_PLAN_API_BASE".to_string()),
+                auth_modes: vec![ProviderAuthMode::ApiKey],
+            },
+            Self {
+                provider_id: "dashscope-tokenplan".to_string(),
+                display_name: "DashScope TokenPlan".to_string(),
+                default_api_base: Some(
+                    "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+                        .to_string(),
+                ),
+                default_model: Some("qwen3.6-plus".to_string()),
+                known_models: vec![
+                    "qwen3.7-max".to_string(),
+                    "qwen3.6-plus".to_string(),
+                    "qwen3.6-flash".to_string(),
+                    "deepseek-v4-flash".to_string(),
+                    "kimi-k2.6".to_string(),
+                    "kimi-k2.5".to_string(),
+                    "glm-5.1".to_string(),
+                    "MiniMax-M2.5".to_string(),
+                ],
+                enabled_models: Vec::new(),
+                favorite_models: Vec::new(),
+                api_key_env: Some("DASHSCOPE_API_KEY".to_string()),
+                api_base_env: Some("DASHSCOPE_TOKENPLAN_API_BASE".to_string()),
+                auth_modes: vec![ProviderAuthMode::ApiKey],
+            },
+            Self {
                 provider_id: "openrouter".to_string(),
                 display_name: "OpenRouter".to_string(),
                 default_api_base: Some("https://openrouter.ai/api/v1".to_string()),
                 default_model: None,
+                known_models: vec![
+                    "openai/gpt-5.2".to_string(),
+                    "anthropic/claude-sonnet-4.5".to_string(),
+                    "qwen/qwen3-coder-plus".to_string(),
+                ],
                 enabled_models: vec!["deepseek/deepseek-v4-flash".to_string()],
                 favorite_models: Vec::new(),
                 api_key_env: Some("OPENROUTER_API_KEY".to_string()),
@@ -1210,6 +1319,7 @@ impl ProviderOption {
                 display_name: "Fallback".to_string(),
                 default_api_base: None,
                 default_model: Some("fallback-local".to_string()),
+                known_models: vec!["fallback-local".to_string(), "test-local".to_string()],
                 enabled_models: vec!["fallback-local".to_string(), "test-local".to_string()],
                 favorite_models: Vec::new(),
                 api_key_env: None,
@@ -1221,6 +1331,11 @@ impl ProviderOption {
                 display_name: "OpenAI".to_string(),
                 default_api_base: Some("https://api.openai.com/v1".to_string()),
                 default_model: Some("gpt-5.2".to_string()),
+                known_models: vec![
+                    "gpt-5.2".to_string(),
+                    "gpt-5.2-codex".to_string(),
+                    "gpt-5.1".to_string(),
+                ],
                 enabled_models: vec!["gpt-5.2".to_string()],
                 favorite_models: Vec::new(),
                 api_key_env: Some("OPENAI_API_KEY".to_string()),
@@ -2827,6 +2942,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: Vec::new(),
             workspace,
             tasks: Vec::new(),
@@ -2836,6 +2953,7 @@ mod tests {
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         };
         let tasks = agent_tasks(&state);
         let task = tasks
@@ -2883,6 +3001,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: Vec::new(),
             workspace,
             tasks: Vec::new(),
@@ -2901,6 +3021,7 @@ mod tests {
             }],
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         };
 
         let tasks = agent_tasks(&state);
@@ -2969,6 +3090,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
@@ -3000,6 +3123,7 @@ mod tests {
             ],
             lane_store: Some(lane_store),
             focused_lane: None,
+            interaction_panel: None,
         };
 
         let tasks = agent_tasks(&state);
@@ -3056,7 +3180,13 @@ mod tests {
                 started_at: 42,
                 phase: "Waiting for provider response".to_string(),
                 next_action: "wait".to_string(),
+                queued_inputs: vec![
+                    "then run tests".to_string(),
+                    "summarize the diff".to_string(),
+                ],
             }),
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: vec![TuiEntry {
                 label: "user".to_string(),
                 body: "create hello world".to_string(),
@@ -3069,6 +3199,7 @@ mod tests {
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         };
 
         let tasks = agent_tasks(&state);
@@ -3079,13 +3210,61 @@ mod tests {
         assert_eq!(tasks[0].transport, "deepseek");
         assert_eq!(
             tasks[0].summary,
-            "deepseek / deepseek-v4-flash is processing"
+            "RoboCode is processing the request · 2 prompts queued"
         );
         assert!(
             tasks[0]
                 .evidence
                 .contains(&"live provider request".to_string())
         );
+        assert!(tasks[0].evidence.contains(&"queued_inputs 2".to_string()));
+        assert_eq!(
+            tasks[0].next_action.as_ref().expect("next action").label,
+            "wait · 2 prompts queued"
+        );
+    }
+
+    #[test]
+    fn agent_tasks_do_not_keep_failed_provider_turn_active() {
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "deepseek".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
+            entries: vec![
+                TuiEntry {
+                    label: "user".to_string(),
+                    body: "plan an embodied AI project".to_string(),
+                },
+                TuiEntry {
+                    label: "system".to_string(),
+                    body: "Provider turn failed, but RoboCode kept the TUI open.\nerror: Argument list too long (os error 7)".to_string(),
+                },
+            ],
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+            interaction_panel: None,
+        };
+
+        let tasks = agent_tasks(&state);
+
+        assert!(tasks.iter().all(|task| task.kind != "provider"));
     }
 
     #[test]
@@ -3105,6 +3284,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: vec![
                 TuiEntry {
                     label: "user".to_string(),
@@ -3127,6 +3308,7 @@ mod tests {
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         };
 
         let tasks = agent_tasks(&state);
@@ -3161,6 +3343,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: vec![
                 TuiEntry {
                     label: "approval".to_string(),
@@ -3183,6 +3367,7 @@ mod tests {
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         };
 
         let tasks = agent_tasks(&state);
@@ -3208,6 +3393,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: vec![TuiEntry {
                 label: "command".to_string(),
                 body: [
@@ -3233,6 +3420,7 @@ mod tests {
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         };
 
         let tasks = agent_tasks(&state);
@@ -3282,6 +3470,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: vec![TuiEntry {
                 label: "command".to_string(),
                 body: [
@@ -3307,6 +3497,7 @@ mod tests {
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         };
 
         let tasks = agent_tasks(&state);
@@ -3341,6 +3532,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: vec![
                 TuiEntry {
                     label: "assistant".to_string(),
@@ -3368,6 +3561,7 @@ mod tests {
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         };
 
         let tasks = agent_tasks(&state);
@@ -3393,6 +3587,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: vec![TuiEntry {
                 label: "tool-result".to_string(),
                 body: "Wrote 48 lines to src/config.rs (2.1 KB)\npath=src/config.rs".to_string(),
@@ -3405,6 +3601,7 @@ mod tests {
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
         };
 
         let tasks = agent_tasks(&state);

@@ -1,11 +1,11 @@
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.23  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
-│   ◎ NOW WORKING  Supervising 1 agent: codex testing                                               │ │ robocode/    ~/projects/robocode   │
-│      ┊  evidence: AgentTask L1 from summary patched failing tests; rerunning cargo                │ │ ↳ src/          FILES    128       │
-│      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
-│      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
+
+
+
+
+
+
+
+
 
                                       ┌ LANE ACTIONS ─────────────────────────────────────────── esc ┐
                                       │                                                              │
@@ -29,12 +29,12 @@
                                       │                                                              │
                                       └──────────────────────────────────────────────────────────────┘
 
-│      ┊  diagnostics, and lane status.                                                             │ │ [Rs] tests/config_tests.rs 1m      │
-└───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
-┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                                                           │              │
-│ › /lane                                                                                                                   │ MODE Code ▾  │
-│                                                                                                                           │              │
-│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 9    ┆ LANES 1  ┆ CONTEXT 128k                                                 Press ? for help │
+
+
+
+
+
+
+
+~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.24
+

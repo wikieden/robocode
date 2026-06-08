@@ -1,19 +1,12 @@
-use crossterm::event::{
-    self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-};
-use robocode_types::{ApprovalResponse, PermissionPrompt};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::modal::{
-    ApprovalAction, DEFAULT_APPROVAL_FOCUS, approval_action_at, focused_approval_action,
-    move_approval_focus, set_approval_focus_for_action,
+    ApprovalAction, focused_approval_action, move_approval_focus, set_approval_focus_for_action,
 };
 use super::state::{TuiEntry, TuiState};
-use super::terminal::TerminalGuard;
-
-const APPROVAL_RIGHT_RAIL_WIDTH: usize = 38;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ApprovalKeyEffect {
+pub(super) enum ApprovalKeyEffect {
     None,
     Redraw,
     Resolve(bool),
@@ -31,60 +24,7 @@ pub(super) fn close_focus_on_escape(key: KeyEvent, state: &mut TuiState) -> bool
     true
 }
 
-pub(super) fn prompt_for_tui_approval(
-    prompt: PermissionPrompt,
-    state: &mut TuiState,
-    terminal: &mut TerminalGuard,
-) -> ApprovalResponse {
-    state.approval_focus = DEFAULT_APPROVAL_FOCUS;
-    state.approval_apply_all = false;
-    state.entries.push(TuiEntry {
-        label: "approval".to_string(),
-        body: format!(
-            "Permission request for `{}`\n{}\n{}\nPress y to allow, n/Esc to deny. Tab/arrows move, Enter activates, click buttons.",
-            prompt.tool_name, prompt.message, prompt.input_preview
-        ),
-    });
-    let _ = terminal.draw(state);
-    loop {
-        match event::read() {
-            Ok(Event::Key(key)) => {
-                if let Some(response) = handle_approval_key(key, &prompt, state, terminal) {
-                    return response;
-                }
-            }
-            Ok(Event::Mouse(mouse)) => {
-                if let Some(response) = handle_approval_mouse(mouse, &prompt, state, terminal) {
-                    return response;
-                }
-            }
-            Ok(Event::Resize(_, _)) => {
-                let _ = terminal.draw(state);
-            }
-            _ => continue,
-        }
-    }
-}
-
-fn handle_approval_key(
-    key: KeyEvent,
-    prompt: &PermissionPrompt,
-    state: &mut TuiState,
-    terminal: &mut TerminalGuard,
-) -> Option<ApprovalResponse> {
-    match apply_approval_key(key, state) {
-        ApprovalKeyEffect::None => None,
-        ApprovalKeyEffect::Redraw => {
-            let _ = terminal.draw(state);
-            None
-        }
-        ApprovalKeyEffect::Resolve(approved) => {
-            Some(resolve_approval(approved, prompt, state, terminal))
-        }
-    }
-}
-
-fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> ApprovalKeyEffect {
+pub(super) fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> ApprovalKeyEffect {
     match key.code {
         KeyCode::Char('y') | KeyCode::Char('Y') => ApprovalKeyEffect::Resolve(true),
         KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => ApprovalKeyEffect::Resolve(false),
@@ -115,54 +55,10 @@ fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> ApprovalKeyEffect 
     }
 }
 
-fn handle_approval_mouse(
-    mouse: MouseEvent,
-    prompt: &PermissionPrompt,
-    state: &mut TuiState,
-    terminal: &mut TerminalGuard,
-) -> Option<ApprovalResponse> {
-    if !matches!(
-        mouse.kind,
-        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
-    ) {
-        return None;
-    }
-    let (width, height) = crossterm::terminal::size().unwrap_or((80, 24));
-    let action = approval_action_at(
-        state,
-        mouse.column,
-        mouse.row,
-        width,
-        height,
-        APPROVAL_RIGHT_RAIL_WIDTH,
-    )?;
-    set_approval_focus_for_action(state, action);
-    if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-        let _ = terminal.draw(state);
-        return None;
-    }
-    activate_approval_action(action, prompt, state, terminal)
-}
-
-fn activate_approval_action(
+pub(super) fn apply_approval_action(
     action: ApprovalAction,
-    prompt: &PermissionPrompt,
     state: &mut TuiState,
-    terminal: &mut TerminalGuard,
-) -> Option<ApprovalResponse> {
-    match apply_approval_action(action, state) {
-        ApprovalKeyEffect::None => None,
-        ApprovalKeyEffect::Redraw => {
-            let _ = terminal.draw(state);
-            None
-        }
-        ApprovalKeyEffect::Resolve(approved) => {
-            Some(resolve_approval(approved, prompt, state, terminal))
-        }
-    }
-}
-
-fn apply_approval_action(action: ApprovalAction, state: &mut TuiState) -> ApprovalKeyEffect {
+) -> ApprovalKeyEffect {
     match action {
         ApprovalAction::ToggleApplyAll => {
             state.approval_apply_all = !state.approval_apply_all;
@@ -174,31 +70,6 @@ fn apply_approval_action(action: ApprovalAction, state: &mut TuiState) -> Approv
     }
 }
 
-fn resolve_approval(
-    approved: bool,
-    prompt: &PermissionPrompt,
-    state: &mut TuiState,
-    terminal: &mut TerminalGuard,
-) -> ApprovalResponse {
-    let verb = if approved { "Approved" } else { "Denied" };
-    let apply_all = if state.approval_apply_all {
-        " apply_all=true"
-    } else {
-        ""
-    };
-    state.entries.push(TuiEntry {
-        label: "approval".to_string(),
-        body: format!("{verb} `{}`.{apply_all}", prompt.tool_name),
-    });
-    state.approval_focus = DEFAULT_APPROVAL_FOCUS;
-    state.approval_apply_all = false;
-    let _ = terminal.draw(state);
-    ApprovalResponse {
-        approved,
-        feedback: None,
-    }
-}
-
 pub(super) fn should_exit(key: KeyEvent) -> bool {
     key.code == KeyCode::Esc
         || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
@@ -206,6 +77,7 @@ pub(super) fn should_exit(key: KeyEvent) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::super::modal::DEFAULT_APPROVAL_FOCUS;
     use super::super::state::{ProviderStatus, TerminalLane, WorkspaceSnapshot};
     use super::*;
 
@@ -227,6 +99,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             entries: Vec::new(),
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
@@ -236,6 +110,7 @@ mod tests {
             lanes: TerminalLane::preview_lanes(),
             lane_store: None,
             focused_lane: Some("L1".to_string()),
+            interaction_panel: None,
         }
     }
 

@@ -475,6 +475,53 @@ fn test_command_records_last_test_evidence_in_status() {
 }
 
 #[test]
+fn plan_mode_blocks_test_command_shell_execution() {
+    let home = temp_dir("plan_test_command_home");
+    let cwd = temp_dir("plan_test_command_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let approvals = Cell::new(0usize);
+    let mut approver = |_prompt| {
+        approvals.set(approvals.get() + 1);
+        ApprovalResponse {
+            approved: true,
+            feedback: None,
+        }
+    };
+
+    engine
+        .process_input_with_approval("/plan on", &mut approver)
+        .unwrap();
+    let output = engine
+        .process_input_with_approval("/test printf plan-should-not-run", &mut approver)
+        .unwrap();
+    let rendered = output
+        .iter()
+        .filter_map(|event| match event {
+            EngineEvent::Command(text) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert_eq!(approvals.get(), 0);
+    assert!(rendered.contains("Test result:"));
+    assert!(rendered.contains("status: failed"));
+    assert!(rendered.contains("command: printf plan-should-not-run"));
+    assert!(rendered.contains("reason: PlanMode"));
+    assert!(rendered.contains("message: shell is blocked while plan mode is active"));
+    assert!(!rendered.contains("status: passed"));
+
+    let status_output = engine
+        .process_input_with_approval("/status", &mut approver)
+        .unwrap();
+    assert!(status_output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text) if text.contains("Last test: failed")
+    )));
+}
+
+#[test]
 fn test_command_records_exit_code_for_failed_shell_command() {
     let home = temp_dir("test_exit_code_home");
     let cwd = temp_dir("test_exit_code_cwd");
@@ -919,14 +966,28 @@ fn model_without_args_shows_actionable_picker() {
 fn models_without_args_groups_choices_by_provider() {
     let home = temp_dir("models_picker_home");
     let cwd = temp_dir("models_picker_cwd");
+    let config_path = cwd.join("user-config.toml");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_user_config_path_override(config_path);
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
     let mut approver = |_prompt| ApprovalResponse {
         approved: true,
         feedback: None,
     };
 
+    engine
+        .process_input_with_approval(
+            "/settings provider deepseek models deepseek-v4-flash deepseek-v4-pro",
+            &mut approver,
+        )
+        .unwrap();
+    engine
+        .process_input_with_approval(
+            "/settings provider deepseek favorite-model deepseek-v4-pro",
+            &mut approver,
+        )
+        .unwrap();
     let output = engine
         .process_input_with_approval("/models", &mut approver)
         .unwrap();
@@ -934,11 +995,11 @@ fn models_without_args_groups_choices_by_provider() {
     assert!(output.iter().any(|event| matches!(
         event,
         EngineEvent::Command(text)
-            if text.contains("Models are grouped by provider")
+            if text.contains("Models are grouped by configured provider")
                 && text.contains("DeepSeek (deepseek)")
-                && text.contains("/settings provider deepseek deepseek-v4-flash")
-                && text.contains("Kimi (kimi)")
-                && text.contains("/settings provider kimi kimi-k2.6")
+                && text.contains("/models deepseek deepseek-v4-flash")
+                && text.contains("/models deepseek deepseek-v4-pro")
+                && !text.contains("Kimi (kimi)")
                 && !text.contains("<free-type>")
     )));
 }
@@ -1136,6 +1197,7 @@ fn provider_doctor_can_focus_on_one_registered_provider() {
                 && text.contains("api_key_env=OPENROUTER_API_KEY")
                 && text.contains("streaming=true")
                 && text.contains("tools=true")
+                && text.contains("live smoke: scripts/provider-live-smoke.sh --provider openrouter")
                 && !text.contains("  - openai ")
     )));
 }

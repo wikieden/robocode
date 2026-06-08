@@ -61,6 +61,8 @@ pub struct PluginDescriptor {
     pub protocol_family: ProtocolFamily,
     pub default_api_base: Option<String>,
     pub default_model: Option<String>,
+    #[serde(default)]
+    pub known_models: Vec<String>,
     pub env_mappings: ProviderEnvMappings,
     pub capabilities: ProviderCapabilities,
     #[serde(default)]
@@ -90,6 +92,10 @@ mod tests {
             protocol_family: ProtocolFamily::OpenAi,
             default_api_base: Some("https://api.deepseek.com".to_string()),
             default_model: Some("deepseek-v4-flash".to_string()),
+            known_models: vec![
+                "deepseek-v4-flash".to_string(),
+                "deepseek-v4-pro".to_string(),
+            ],
             env_mappings: ProviderEnvMappings {
                 api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
                 api_base_env: Some("DEEPSEEK_API_BASE".to_string()),

@@ -35,6 +35,8 @@ pub(super) fn status_badge(status: &str) -> &'static str {
     }
 }
 
+const SHELL_STDIN_THRESHOLD: usize = 32 * 1024;
+
 pub(super) fn terminal_label(tool: &str) -> &'static str {
     match tool {
         "codex" => "codex tty",
@@ -916,17 +918,30 @@ fn start_background_lane(
         shell_quote_path(&log_path),
         shell_quote_path(&done_path)
     );
-    let mut command = Command::new("sh");
+    let mut command = platform_shell_command(&shell);
     command
-        .arg("-lc")
-        .arg(shell)
         .current_dir(lane_workspace(&lane, state))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    let pipe_shell = shell_requires_stdin(&shell);
+    if pipe_shell {
+        command.stdin(Stdio::piped());
+    }
     configure_lane_process_group(&mut command);
     match command.spawn() {
-        Ok(child) => {
+        Ok(mut child) => {
+            if pipe_shell
+                && let Some(stdin) = child.stdin.as_mut()
+                && let Err(err) = write_shell_stdin(stdin, &shell)
+            {
+                lane.status = "failed".to_string();
+                lane.summary = format!("failed to write lane command to shell stdin: {err}");
+                return lane;
+            }
+            if pipe_shell {
+                let _ = child.stdin.take();
+            }
             lane.status = "running".to_string();
             lane.progress = 10;
             lane.target = format!("pid {}", child.id());
@@ -2896,26 +2911,53 @@ fn remove_lane_worktree(root: &Path, worktree: &Path, force: bool) -> Result<(),
 
 fn spawn_shell_command(command: &str) -> Result<u32, String> {
     let mut shell = platform_shell_command(command);
-    shell
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    let child = shell.spawn().map_err(|err| err.to_string())?;
+    let pipe_shell = shell_requires_stdin(command);
+    shell.stdout(Stdio::null()).stderr(Stdio::null());
+    if pipe_shell {
+        shell.stdin(Stdio::piped());
+    } else {
+        shell.stdin(Stdio::null());
+    }
+    let mut child = shell.spawn().map_err(|err| err.to_string())?;
+    if pipe_shell {
+        if let Some(stdin) = child.stdin.as_mut() {
+            write_shell_stdin(stdin, command)
+                .map_err(|err| format!("failed to write command to shell stdin: {err}"))?;
+        }
+        let _ = child.stdin.take();
+    }
     Ok(child.id())
+}
+
+fn shell_requires_stdin(command: &str) -> bool {
+    command.len() > SHELL_STDIN_THRESHOLD
 }
 
 #[cfg(windows)]
 fn platform_shell_command(command: &str) -> Command {
     let mut shell = Command::new("cmd");
-    shell.arg("/C").arg(command);
+    if shell_requires_stdin(command) {
+        shell.arg("/Q");
+    } else {
+        shell.arg("/C").arg(command);
+    }
     shell
 }
 
 #[cfg(not(windows))]
 fn platform_shell_command(command: &str) -> Command {
     let mut shell = Command::new("sh");
-    shell.arg("-lc").arg(command);
+    if shell_requires_stdin(command) {
+        shell.arg("-s");
+    } else {
+        shell.arg("-lc").arg(command);
+    }
     shell
+}
+
+fn write_shell_stdin(stdin: &mut dyn Write, command: &str) -> std::io::Result<()> {
+    stdin.write_all(command.as_bytes())?;
+    stdin.write_all(b"\n")
 }
 
 #[cfg(unix)]
@@ -3164,6 +3206,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
             runtime_tasks: Vec::new(),
@@ -3172,6 +3216,7 @@ mod tests {
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
             entries: Vec::new(),
         }
     }
@@ -3234,6 +3279,20 @@ mod tests {
             command,
             "codex exec 'fix '\\''quoted'\\'' task' --prompt-file '/tmp/task envelope.md' --cwd '/tmp/lane cwd'"
         );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn long_lane_shell_commands_use_stdin_script_mode() {
+        let command = format!("printf ok\n# {}", "x".repeat(40 * 1024));
+        let shell = platform_shell_command(&command);
+        let args = shell
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(shell_requires_stdin(&command));
+        assert_eq!(args, vec!["-s"]);
     }
 
     #[test]

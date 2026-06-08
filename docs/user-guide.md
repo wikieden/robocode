@@ -3,7 +3,7 @@
 Chinese version: [user-guide.zh-CN.md](user-guide.zh-CN.md)
 
 This guide describes the user-facing features that are available in the
-RoboCode `0.1.17` release line.
+RoboCode `0.1.24` development line.
 
 ## Mental Model
 
@@ -35,9 +35,11 @@ robocode-cli --version
 robocode-cli --provider fallback --model test-local
 ```
 
-`robocode-cli` starts the main cockpit by default. If the selected online
-provider is missing an API key, the cockpit opens the `/setup` wizard
-automatically. You can also reopen setup from the composer:
+`robocode-cli` starts the main TUI by default. A clean session opens on the
+focused welcome composer first; it does not auto-submit or auto-open setup. Use
+`Ctrl-P` for commands, or submit one of these entries when you want
+provider/model setup. Slash setup commands keep the welcome surface active; the
+full cockpit appears after the first normal task prompt.
 
 ```text
 /setup
@@ -84,7 +86,7 @@ Common flags:
 Preview flags for visual review:
 
 - `--tui-preview`
-- `--tui-preview-idle`
+- `--tui-preview-idle` for the first-launch welcome composer
 - `--tui-preview-command-palette`
 - `--tui-preview-live-turn`
 - `--tui-preview-resize`
@@ -125,39 +127,31 @@ models = ["deepseek-v4-flash", "deepseek-v4-pro"]
 favorite_models = ["deepseek-v4-pro"]
 ```
 
-The TUI setup commands are picker-first. `/setup` opens a first-run wizard with
-concrete steps for provider configuration, model choice, permission mode,
-theme, doctor checks, fallback smoke, and saving defaults. `/settings`,
-`/connect`, `/provider`, `/models`, `/permissions`, and `/theme` render selectable panels
-instead of status-only screens. They persist only provider/model defaults and
-permission mode changes. API keys remain in environment variables or manually
-maintained config fields. Use `/connect` for opencode-style supplier configuration. The first
-panel lists supplier names under Popular/Providers, such as DeepSeek or OpenRouter; it does not
-mix key, endpoint, or model details into the supplier list. Selecting one opens
-a `PROVIDER CONFIG` page with auth mode, masked API-key values when present,
-endpoint source, diagnostics, save-default actions, and known/default model
-candidates. Provider descriptors now distinguish API-key providers,
-web-login-capable providers, and local/no-key providers, so OpenAI can expose a
-web-login-or-API-key setup path while DeepSeek/OpenRouter remain API-key flows
-and Ollama/Fallback remain no-key local flows.
-The provider detail edit rows complete the composer to `/settings provider
-<provider-id> key-env ...`, `/settings provider <provider-id> endpoint ...`, or
-`/settings provider <provider-id> default-model ...`. Model rows use
-`/settings provider <provider-id> enable-model <model>` to activate models for
-the grouped `/models` picker; `/settings provider <provider-id> models ...`
-replaces that active list, and `/settings provider <provider-id> favorite-model
-<model>` pins one provider/model pair to the top. Submitting a value writes
-`[providers.<provider-id>]` fields without persisting raw API keys. Use
-`/models` for model selection across configured providers; rows show Favorites
-first, then the current Recent model, then provider groups containing only models
-activated through `/connect`/`enable-model`. Favorite rows are not repeated later
-in their provider group, and `Ctrl-F` favorites the selected model row. Selecting
-a row switches provider plus model together. Use `/model <model>` only when you
-want to change the current provider's model directly. Provider failures are classified
+The TUI setup path is panel-first after you submit the command. `/connect`,
+`/provider`, `/setup provider`, and `/settings provider` open a provider picker;
+`Enter` selects the highlighted supplier, opens API-key entry when that supplier
+needs one, and then opens the provider config action panel. That panel can
+change the API key, clear the current process key, run provider doctor, or open
+the provider-scoped model picker. Selecting a model from that provider-scoped
+picker saves the provider/model, runs provider doctor, and writes the readiness
+result back into the transcript. `/models`, `/model`, `/setup model`, and
+`/settings model` open a provider-grouped model picker; it only shows providers
+that have been configured/activated in provider settings. For configured
+providers, the picker includes active, favorite, default, and known models.
+Choosing a model applies the provider/model switch immediately. API keys are
+masked in the TUI and RoboCode saves the env var name, not the raw key.
+
+Typed commands still use compact completion while you are editing, so a large
+selector does not steal the composer before you press Enter. Direct commands
+such as `/settings provider <provider-id> ...`, `/models <provider-id> <model>`,
+and `/model <model>` remain available for scripts and advanced users. Provider
+failures are classified
 into recovery classes such as missing key, auth, rate limit, timeout, context
 overflow, compatibility, and model unavailable; the recovery prompt includes
 concrete commands to open doctor, switch model/provider, retry later, or use
-fallback.
+fallback. When a provider rejects a request as too large, RoboCode records a
+compaction note, retries once with a smaller provider request view, and keeps the
+full local transcript intact for audit.
 
 ```text
 /settings
@@ -199,6 +193,10 @@ registry includes:
 - `anthropic`
 - `deepseek`
 - `deepseek-anthropic`
+- `dashscope-coding-plan`
+- `dashscope-coding-plan-anthropic`
+- `dashscope-tokenplan`
+- `dashscope-tokenplan-anthropic`
 - `fallback`
 - `groq`
 - `kimi`
@@ -232,6 +230,22 @@ Provider commands:
 ```
 
 `fallback` is useful for offline smoke tests. It does not call a remote model.
+
+Live provider smoke tests use the same runtime path as a normal non-TUI request
+and store transcript evidence:
+
+```bash
+scripts/provider-live-smoke.sh --provider deepseek --model deepseek-v4-flash
+scripts/provider-live-smoke.sh --provider dashscope-coding-plan --model qwen3.6-plus
+scripts/provider-live-smoke.sh --provider dashscope-tokenplan --model qwen3.6-plus
+scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
+```
+
+`dashscope-coding-plan` uses `DASHSCOPE_CODING_PLAN_API_KEY`.
+`dashscope-tokenplan` uses `DASHSCOPE_API_KEY`.
+The DeepSeek development scenario is billable. It writes `usage.json` and
+`summary.md` with input/output/total token counts and an estimated CNY cost
+using the configured model price.
 
 ## TUI Screens
 
@@ -280,16 +294,27 @@ setting `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
 - `/`: open command suggestions. Use `Up` / `Down`, `Tab`, `Enter`, or click a
   visible suggestion row. Long suggestion lists scroll as the selection moves
   so keyboard and mouse behavior stay aligned.
+- Transcript history: use `PageUp` / `PageDown` or the mouse wheel to browse
+  older transcript rows. `Ctrl-Home` jumps to the oldest visible history and
+  `Ctrl-End` returns to the live tail. When history mode is active, the
+  transcript panel badge changes from `live session` to `history N`.
 - Approval modal: `y` approve, `n` deny, `d` focus diff, `Tab` / arrows move
   focus. Diff focus now shows the prompt's actual evidence/preview lines when
   they are available instead of a decorative placeholder.
-- Active provider turns keep the TUI event loop alive. The `NOW WORKING` area,
-  status bar, elapsed time, lane snapshots, and pending approval bridge can
-  repaint while the provider worker runs. `Ctrl-C` requests cancellation; an
-  already in-flight HTTP request may still complete before the provider returns.
-- During an active provider turn, the composer can keep a draft for the next
-  instruction, but `Enter` does not submit a second provider turn until the
-  current one finishes.
+- Active provider turns keep the TUI event loop alive. The transcript live tail
+  shows a compact inline activity hint directly below the latest conversation
+  content, with a small pulse glyph while the provider is thinking. The status
+  bar, elapsed time, lane snapshots, and pending approval bridge can repaint
+  while the provider worker runs. `Ctrl-C` requests cancellation; an already
+  in-flight HTTP request may still complete before the provider returns.
+- Streaming-capable HTTP providers request server-sent streaming during TUI
+  turns. Text deltas are appended to a temporary assistant transcript row while
+  the provider is still responding, then replaced by the canonical transcript
+  event when the turn completes.
+- During an active provider turn, the composer stays editable. Press `Enter` to
+  queue the draft as the next prompt; RoboCode clears the composer immediately
+  and runs queued prompts after the current turn finishes. If the active turn
+  fails, the first queued prompt is restored to the composer.
 
 ## Slash Commands
 
@@ -304,6 +329,11 @@ Runtime:
 /plan [on|off]
 /test <command>
 ```
+
+`/plan` is an immediate TUI command: it toggles read-only planning mode and
+returns the composer to normal input without starting a provider turn. On the
+first-launch welcome screen, `/plan` keeps the welcome composer visible until a
+real task prompt starts the session.
 
 Sessions:
 

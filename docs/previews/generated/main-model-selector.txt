@@ -1,40 +1,40 @@
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.23  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
-│   ◎ NOW WORKING  Supervising 1 agent: codex testing                                               │ │ robocode/    ~/projects/robocode   │
-│      ┊  evidence: AgentTask L1 from summary patched failing tests; rerunning cargo                │ │ ↳ src/          FILES    128       │
-│      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
-│      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
-│   ♙  ┊  USER                                                                             11:14:52 │ └────────────────────────────────────┘
-│      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ ┌ ACTIVE TASKS ─────────────────── 4 ┐
 
-                               ┌ Select model ──────────────────────────────────────────────────────── esc ┐
-                               │                                                                           │
-                               │ Search _                                                                  │
-                               │                                                                           │
-                               │ current deepseek / deepseek-v4-flash                                      │
-                               │   Favorites                                                               │
-                               │ ● deepseek-v4-pro DeepSeek                                                │
-                               │   Recent                                                                  │
-                               │ ● deepseek-v4-flash DeepSeek default                                      │
-                               │   Fallback                                                                │
-                               │     fallback-local Fallback default                                       │
-                               │     test-local Fallback                                                   │
-                               │                                                                           │
-                               │ Enter switch   /connect activates models   esc close                      │
-                               │                                                                           │
-                               └───────────────────────────────────────────────────────────────────────────┘
 
-│   ✣  ┊  ASSISTANT                                                                        11:14:58 │ ┌ RECENT FILES ──────────────── tail ┐
-│      ┊  No approval is blocking right now. The cockpit stays open for transcript review, input,   │ │ [Rs] src/config.rs         now     │
-│      ┊  diagnostics, and lane status.                                                             │ │ [Rs] tests/config_tests.rs 1m      │
-└───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
-┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                                                           │              │
-│ › /models                                                                                                                 │ MODE Code ▾  │
-│                                                                                                                           │              │
-│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 9    ┆ LANES 1  ┆ CONTEXT 128k                                                 Press ? for help │
+
+
+
+
+
+
+                    ┌ Select model ─────────────────────────────────────── esc ┐
+                    │ Search _                                                 │
+                    │                                                          │
+                    │ DeepSeek                                                 │
+                    │ ›   deepseek-chat                                        │
+                    │     deepseek-v4-flash                                    │
+                    │     deepseek-v4-pro                                      │
+                    │                                                          │
+                    │ Enter switch    type search    esc close                 │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │                    ommands   /connect
+                    │                                                          │
+                    │                                                          │
+                    │                                                          │
+                    └──────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.24
+

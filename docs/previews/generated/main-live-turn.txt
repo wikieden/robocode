@@ -1,16 +1,16 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.23  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L0      │
+│ RoboCode  v0.1.24  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L0      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
-│   ◎ NOW WORKING  OpenAI is thinking                                                               │ │ robocode/    ~/projects/robocode   │
-│      ┊  evidence: AgentTask turn-c4f2b7e-live from live provider request                          │ │ ↳ src/          FILES    128       │
-│      ┊  turn-c4f2b7e-live OpenAI thinking 15% :: Refactor the config loader, then :: signal live  │ │ ↳ tests/        LINES  24531       │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ Cargo.toml    LANGUAGE Rust      │
-│   ·  ┊  SYSTEM                                                                           11:14:47 │ │ ▣ README.md     EDITION   2024     │
-│      ┊  RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.                                   │ └────────────────────────────────────┘
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ ┌ ACTIVE TASKS ─────────────────── 3 ┐
-│   ♙  ┊  USER                                                                             11:14:49 │ │ turn-c4f2b7e-live ● roboco openai/ │
-│      ┊  Refactor the config loader, then run focused tests.                                       │ │ ● task_lo/prog Implement load_con  │
+│   ·  ┊  SYSTEM                                                                               #001 │ │ robocode/    ~/projects/robocode   │
+│      ┊  RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.                                   │ │ ↳ src/          FILES    128       │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ↳ tests/        LINES  24531       │
+│   ♙  ┊  USER                                                                               latest │ │ ▣ Cargo.toml    LANGUAGE Rust      │
+│      ┊  Refactor the config loader, then run focused tests.                                       │ │ ▣ README.md     EDITION   2024     │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
+│      ┊  ✦ RoboCode is planning ∙                                                                  │ ┌ ACTIVE TASKS ─────────────────── 3 ┐
+│      ┊    └ RoboCode planning · 15% · live provider request · elapsed now · updated now           │ │ turn-c4f2b7e-live ● RoboCo main/ro │
+│                                                                                                   │ │ ● task_lo/prog Implement load_con  │
 │                                                                                                   │ │ ◆ task_re/block Review config test │
 │                                                                                                   │ │                                    │
 │                                                                                                   │ └────────────────────────────────────┘

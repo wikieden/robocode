@@ -12,9 +12,20 @@ use robocode_model::ModelRequestControl;
 use robocode_permissions::PermissionEngine;
 use robocode_tools::ToolExecutionContext;
 use robocode_types::{
-    AgentTaskStatus, ApprovalResponse, Message, ModelEvent, ModelRequest, PermissionDecision,
-    PermissionLogEntry, Role, ToolCall, ToolResult, TranscriptEntry, fresh_id, now_timestamp,
+    AgentTaskStatus, ApprovalResponse, ContextBundleRecord, Message, ModelEvent, ModelRequest,
+    PermissionDecision, PermissionLogEntry, Role, ToolCall, ToolResult, TranscriptEntry, fresh_id,
+    now_timestamp,
 };
+
+const PROVIDER_REQUEST_CHAR_BUDGET: usize = 48_000;
+const PROVIDER_RECENT_HISTORY_LIMIT: usize = 8;
+const PROVIDER_HISTORY_MESSAGE_CHAR_LIMIT: usize = 1_500;
+const PROVIDER_TAIL_MESSAGE_CHAR_LIMIT: usize = 4_000;
+const PROVIDER_SUMMARY_LINE_LIMIT: usize = 180;
+const PROVIDER_SUMMARY_LINE_COUNT: usize = 20;
+const PROVIDER_RETRY_REQUEST_CHAR_BUDGET: usize = 16_000;
+const PROVIDER_RETRY_HISTORY_MESSAGE_CHAR_LIMIT: usize = 800;
+const PROVIDER_RETRY_TAIL_MESSAGE_CHAR_LIMIT: usize = 1_200;
 
 impl SessionEngine {
     pub fn process_input_with_approval<F>(
@@ -64,26 +75,18 @@ impl SessionEngine {
             .extend(context_evidence_rows(&context_bundle));
         self.upsert_agent_task(provider_task.clone());
 
+        let mut retried_request_too_large = false;
         for _ in 0..8 {
             provider_task.status = AgentTaskStatus::Thinking.as_str().to_string();
             provider_task.activity = "waiting for provider response".to_string();
             provider_task.progress = provider_task.progress.max(20);
             provider_task.updated_at = Some(now_millis());
             self.upsert_agent_task(provider_task.clone());
-            let mut request_messages = self.messages.clone();
-            let context_message = Message::new(
-                Role::System,
-                render_provider_context_message(&context_bundle),
-            );
-            if request_messages
-                .last()
-                .is_some_and(|message| message.role == Role::User)
-            {
-                let insert_at = request_messages.len().saturating_sub(1);
-                request_messages.insert(insert_at, context_message);
+            let request_messages = if retried_request_too_large {
+                build_provider_retry_request_messages(&self.messages, &context_bundle)
             } else {
-                request_messages.push(context_message);
-            }
+                build_provider_request_messages(&self.messages, &context_bundle)
+            };
             let request = ModelRequest {
                 session_id: self.session_id().to_string(),
                 model: self.provider.model().to_string(),
@@ -105,6 +108,29 @@ impl SessionEngine {
                 Err(err) => {
                     self.provider_telemetry
                         .record_failure(request_started.elapsed(), &err);
+                    if crate::provider_commands::is_request_too_large_provider_failure(&err)
+                        && !retried_request_too_large
+                    {
+                        retried_request_too_large = true;
+                        let note =
+                            "Provider request was too large; retrying with compacted context.";
+                        let system_message = Message::new(Role::System, note);
+                        self.messages.push(system_message.clone());
+                        self.store_entry(TranscriptEntry::Message {
+                            message: system_message,
+                        })?;
+                        events.push(EngineEvent::System(note.to_string()));
+                        provider_task.status = AgentTaskStatus::Thinking.as_str().to_string();
+                        provider_task.activity =
+                            "compacting provider context after request-too-large".to_string();
+                        provider_task.progress = provider_task.progress.max(35);
+                        provider_task
+                            .evidence
+                            .push("provider_retry request_too_large compacted".to_string());
+                        provider_task.updated_at = Some(now_millis());
+                        self.upsert_agent_task(provider_task.clone());
+                        continue;
+                    }
                     let rendered_error = self
                         .provider_model_recovery_prompt(&err)
                         .map(|hint| format!("{err}\n\n{hint}"))
@@ -245,7 +271,7 @@ impl SessionEngine {
                 task.decision = Some("allow".to_string());
                 task.updated_at = Some(now_millis());
                 self.upsert_agent_task(task.clone());
-                let result = self.tools.execute(
+                let result = match self.tools.execute(
                     &call,
                     &ToolExecutionContext {
                         cwd: self.cwd.clone(),
@@ -253,7 +279,17 @@ impl SessionEngine {
                             runtime: Arc::clone(&self.lsp_runtime),
                         })),
                     },
-                )?;
+                ) {
+                    Ok(result) => result,
+                    Err(error) => ToolResult {
+                        tool_call_id: call.id.clone(),
+                        name: call.name.clone(),
+                        output: format!("Tool `{}` failed: {error}", call.name),
+                        diff: None,
+                        success: false,
+                        exit_code: None,
+                    },
+                };
                 let post_edit_diagnostics = if result.success {
                     self.post_edit_diagnostics_message(&call)
                 } else {
@@ -450,4 +486,229 @@ fn add_optional(left: Option<u64>, right: Option<u64>) -> Option<u64> {
 
 fn now_millis() -> u128 {
     u128::from(now_timestamp()) * 1000
+}
+
+fn build_provider_request_messages(
+    transcript: &[Message],
+    context_bundle: &ContextBundleRecord,
+) -> Vec<Message> {
+    build_provider_request_messages_with_limits(
+        transcript,
+        context_bundle,
+        ProviderRequestLimits::normal(),
+        false,
+    )
+}
+
+fn build_provider_retry_request_messages(
+    transcript: &[Message],
+    context_bundle: &ContextBundleRecord,
+) -> Vec<Message> {
+    build_provider_request_messages_with_limits(
+        transcript,
+        context_bundle,
+        ProviderRequestLimits::request_too_large_retry(),
+        true,
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProviderRequestLimits {
+    request_char_budget: usize,
+    recent_history_limit: usize,
+    history_message_char_limit: usize,
+    tail_message_char_limit: usize,
+    summary_line_limit: usize,
+    summary_line_count: usize,
+}
+
+impl ProviderRequestLimits {
+    fn normal() -> Self {
+        Self {
+            request_char_budget: PROVIDER_REQUEST_CHAR_BUDGET,
+            recent_history_limit: PROVIDER_RECENT_HISTORY_LIMIT,
+            history_message_char_limit: PROVIDER_HISTORY_MESSAGE_CHAR_LIMIT,
+            tail_message_char_limit: PROVIDER_TAIL_MESSAGE_CHAR_LIMIT,
+            summary_line_limit: PROVIDER_SUMMARY_LINE_LIMIT,
+            summary_line_count: PROVIDER_SUMMARY_LINE_COUNT,
+        }
+    }
+
+    fn request_too_large_retry() -> Self {
+        Self {
+            request_char_budget: PROVIDER_RETRY_REQUEST_CHAR_BUDGET,
+            recent_history_limit: PROVIDER_RECENT_HISTORY_LIMIT / 2,
+            history_message_char_limit: PROVIDER_RETRY_HISTORY_MESSAGE_CHAR_LIMIT,
+            tail_message_char_limit: PROVIDER_RETRY_TAIL_MESSAGE_CHAR_LIMIT,
+            summary_line_limit: PROVIDER_SUMMARY_LINE_LIMIT / 2,
+            summary_line_count: PROVIDER_SUMMARY_LINE_COUNT / 2,
+        }
+    }
+}
+
+fn build_provider_request_messages_with_limits(
+    transcript: &[Message],
+    context_bundle: &ContextBundleRecord,
+    limits: ProviderRequestLimits,
+    request_too_large_retry: bool,
+) -> Vec<Message> {
+    let context_message = Message::new(
+        Role::System,
+        render_provider_context_message(context_bundle),
+    );
+    let Some(latest_user_index) = transcript
+        .iter()
+        .rposition(|message| message.role == Role::User)
+    else {
+        return vec![context_message];
+    };
+
+    let history = &transcript[..latest_user_index];
+    let live_turn = &transcript[latest_user_index..];
+    let mut request = Vec::new();
+    if let Some(summary) = compact_transcript_summary(history, limits) {
+        request.push(Message::new(Role::System, summary));
+    }
+    if request_too_large_retry {
+        request.push(Message::new(
+            Role::System,
+            "RoboCode compacted provider request after a request-too-large error. The full transcript remains available in local audit storage.",
+        ));
+    }
+    request.extend(recent_plain_history(history, limits));
+    request.push(context_message);
+    request.extend(
+        live_turn
+            .iter()
+            .map(|message| compact_live_turn_message(message, limits)),
+    );
+    fit_provider_request_budget(request, limits.request_char_budget)
+}
+
+fn recent_plain_history(history: &[Message], limits: ProviderRequestLimits) -> Vec<Message> {
+    let mut recent = Vec::new();
+    for message in history.iter().rev() {
+        if recent.len() >= limits.recent_history_limit {
+            break;
+        }
+        if message.tool_name.is_some()
+            || message.tool_call_id.is_some()
+            || message.role == Role::Tool
+        {
+            continue;
+        }
+        let mut compacted = message.clone();
+        compacted.content = compact_chars(&compacted.content, limits.history_message_char_limit);
+        recent.push(compacted);
+    }
+    recent.reverse();
+    recent
+}
+
+fn compact_transcript_summary(
+    history: &[Message],
+    limits: ProviderRequestLimits,
+) -> Option<String> {
+    if history.is_empty() {
+        return None;
+    }
+    let omitted = history.len();
+    let start = history.len().saturating_sub(limits.summary_line_count);
+    let lines = history[start..]
+        .iter()
+        .map(|message| {
+            let tool = message
+                .tool_name
+                .as_deref()
+                .map(|name| format!(" tool={name}"))
+                .unwrap_or_default();
+            format!(
+                "- {}{}: {}",
+                message.role.as_str(),
+                tool,
+                one_line(&message.content, limits.summary_line_limit)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(format!(
+        "RoboCode compacted transcript summary\nOmitted durable messages: {omitted}\nRecent omitted facts:\n{lines}\n\nThe full transcript remains in RoboCode storage; this summary is only the provider request view."
+    ))
+}
+
+fn compact_live_turn_message(message: &Message, limits: ProviderRequestLimits) -> Message {
+    let mut compacted = message.clone();
+    compacted.content = compact_chars(&compacted.content, limits.tail_message_char_limit);
+    compacted
+}
+
+fn fit_provider_request_budget(
+    mut messages: Vec<Message>,
+    request_char_budget: usize,
+) -> Vec<Message> {
+    while total_message_chars(&messages) > request_char_budget && messages.len() > 2 {
+        let removable_recent_index = messages
+            .iter()
+            .position(|message| message.content.contains("RoboCode ContextBundle"))
+            .filter(|context_index| *context_index > 1)
+            .and_then(|context_index| {
+                (1..context_index).find(|index| !is_provider_request_protected(&messages[*index]))
+            });
+        if let Some(index) = removable_recent_index {
+            messages.remove(index);
+        } else if let Some(index) = messages.iter().position(|message| {
+            !is_provider_request_protected(message)
+                && message.role != Role::User
+                && message.tool_call_id.is_none()
+        }) {
+            messages.remove(index);
+        } else {
+            break;
+        }
+    }
+    messages
+}
+
+fn is_provider_request_protected(message: &Message) -> bool {
+    message
+        .content
+        .contains("RoboCode compacted transcript summary")
+        || message.content.contains("RoboCode ContextBundle")
+        || message
+            .content
+            .contains("RoboCode compacted provider request after a request-too-large error")
+}
+
+fn total_message_chars(messages: &[Message]) -> usize {
+    messages
+        .iter()
+        .map(|message| message.content.chars().count())
+        .sum()
+}
+
+fn compact_chars(input: &str, max_chars: usize) -> String {
+    if input.chars().count() <= max_chars {
+        return input.to_string();
+    }
+    let keep = max_chars.saturating_sub(96);
+    let head = keep / 2;
+    let tail = keep.saturating_sub(head);
+    let start = input.chars().take(head).collect::<String>();
+    let end = input
+        .chars()
+        .rev()
+        .take(tail)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    format!(
+        "{start}\n...[RoboCode compacted {} chars for provider request budget]...\n{end}",
+        input.chars().count().saturating_sub(keep)
+    )
+}
+
+fn one_line(input: &str, max_chars: usize) -> String {
+    let collapsed = input.split_whitespace().collect::<Vec<_>>().join(" ");
+    compact_chars(&collapsed, max_chars)
 }

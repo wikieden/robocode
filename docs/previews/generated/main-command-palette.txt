@@ -1,40 +1,40 @@
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.23  [PROVIDER ● DeepSeek] [MODEL deep~flash] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]            │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
-│   ◎ NOW WORKING  Supervising 1 agent: codex testing                                               │ │ robocode/    ~/projects/robocode   │
-│      ┊  evidence: AgentTask L1 from summary patched failing tests; rerunning cargo                │ │ ↳ src/          FILES    128       │
-│      ┊  L1 codex testing 64% :: next wait for test result :: signal summary patched failing tests │ │ ↳ tests/        LINES  24531       │
-│      ┊  tool-7 robocode editing 50% :: next wait for tool result :: signal path src/config.rs     │ │ ▣ Cargo.toml    LANGUAGE Rust      │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ▣ README.md     EDITION   2024     │
-│   ♙  ┊  USER                                                                             11:14:47 │ └────────────────────────────────────┘
 
-                                          ┌ SETTINGS ─────────────────────────────────────── esc ┐
-                                          │                                                      │
-                                          │ Search _                                             │
-                                          │                                                      │
-                                          │ deepseek  deepseek-v4-flash  theme aurora-cyan       │
-                                          │   provider                                           │
-                                          │   model                                              │
-                                          │   save                                               │
-                                          │ ● permissions                                        │
-                                          │   theme                                              │
-                                          │   doctor                                             │
-                                          │   show                                               │
-                                          │   help                                               │
-                                          │                                                      │
-                                          │ Enter apply   ↑↓ select   / search   esc close       │
-                                          │                                                      │
-                                          └──────────────────────────────────────────────────────┘
 
-│   ✣  ┊  ASSISTANT                                                                        11:14:53 │ ┌ RECENT FILES ──────────────── tail ┐
-│      ┊  No approval is blocking right now. The cockpit stays open for transcript review, input,   │ │ [Rs] src/config.rs         now     │
-│      ┊  diagnostics, and lane status.                                                             │ │ [Rs] tests/config_tests.rs 1m      │
-└───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
-┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                                                           │              │
-│ › /settings                                                                                                               │ MODE Code ▾  │
-│                                                                                                                           │              │
-│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 9    ┆ LANES 1  ┆ CONTEXT 128k                                                 Press ? for help │
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                     /\
+                                                                ____/  \____
+                                                               / __  /\  __ \
+                                                              /_/  |/__\|  \_\
+                                                              |  []  /\  []  |
+                                                              |_____/  \_____|
+                                                                 /_ROBOCODE_\
+
+
+                      ▌ /
+                      ▌
+                      ┌ COMMANDS ─────────────────────────────────────────────────────────── 1-6/31 ↑↓ tab enter esc ┐
+                      │ › /help                                                 Show commands                        │
+                      │   /connect                                              Connect or configure providers       │
+                      │   /provider                                             List or switch providers             │
+                      │   /permissions                                          Select approval mode                 │
+                      │   /settings                                             Configure provider/model             │
+                      │   /setup                                                First-run setup guide                │
+                      └──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.24
+

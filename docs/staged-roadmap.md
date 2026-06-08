@@ -79,6 +79,9 @@ Required capabilities:
 - memory and task management
 - richer TUI and interaction patterns
 - live working-state feedback and a shared `AgentTask` view
+- non-blocking TUI main event loop: provider turns, plan mode, approval,
+  streaming, doctor, lanes, tools, and context builds must not freeze input,
+  scrollback, resize, or command panels
 
 Exit criteria:
 
@@ -89,6 +92,8 @@ Exit criteria:
 - session and task continuity feel deliberate instead of incidental
 - users can always tell what the agent is doing, what evidence backs that
   state, and what the next available action is
+- users can keep typing, queue next steps, scroll history, handle approvals, or
+  cancel active work while any background task is running
 
 ### V3: Agent Orchestration And Token Efficiency Layer
 
@@ -176,6 +181,51 @@ Exit criteria:
   same runtime and follow after the TUI-led product line is stable
 - long-term platform features should follow, not lead, core workflow maturity
 
+### Interaction Reliability Gate
+
+V2 releases must pass the interaction reliability gate before expanding the
+agent surface further.
+
+```mermaid
+flowchart TD
+    A["V2 Interaction Work"] --> B["Single Main Event Loop"]
+    B --> C["Provider Turns As Events"]
+    B --> D["Approvals As Callbacks"]
+    B --> E["Lanes As Jobs"]
+    B --> F["Panels As State"]
+    C --> G["Input Always Available"]
+    D --> G
+    E --> G
+    F --> G
+    G --> H["Daily Coding Loop Reliable"]
+    H --> I["Expand Multi-agent And ACP"]
+```
+
+### 0.1.x TUI Zero-Bug Gate
+
+The final 0.1.x line must be treated as a TUI stability exit, not a feature
+expansion sprint. RoboCode should not enter the 0.2.x line while known P0/P1
+TUI display or interaction bugs remain.
+
+For the full gate, see
+[TUI Stability Zero-Bug Gate](tui-stability-zero-bug-gate.md).
+
+Required exit criteria:
+
+- known P0/P1 TUI bugs are zero: input lock, Plan mode lock, approval lock,
+  resize corruption, scrollback loss, incorrect active-work state, provider
+  setup/model picker confusion, and modal/palette focus traps are release
+  blockers
+- welcome, main idle, thinking/streaming, approval, provider setup, model
+  picker, command palette, side-1, side-2, error recovery, and resize states
+  all have deterministic preview or real terminal screenshot evidence
+- `tui-regression`, plan-mode smoke, daily-loop smoke, slow-provider
+  non-blocking smoke, approval non-blocking smoke, streaming scrollback smoke,
+  and provider/model setup smoke pass before final release
+- no new agent, ACP, MCP, plugin, or multi-surface feature may trade away TUI
+  input stability, scrollback stability, approval operability, or truthful
+  working-state display
+
 ## Current Repository Mapping
 
 Mainline landed:
@@ -219,12 +269,20 @@ Current published release:
 
 Next planned:
 
-- continue the provider configuration flow with a fuller focused edit form,
-  connection test, save/cancel semantics, and clearer field focus. The
-  provider-scoped key env, endpoint, default model, active model list, favorite
-  model list, and auth-mode metadata now have real runtime/config plumbing.
+- `0.1.24` is upgraded to the **Provider Setup + Non-blocking Operator Loop
+  Gate**: continue the provider configuration flow while treating plan-mode
+  input freezes, blocking approval, streaming/scrollback conflicts,
+  doctor/probe panel freezes, and lane/tool/context-build main-loop blocking as
+  release blockers. The next implementation step is `TurnController` or an
+  equivalent runtime controller so long-running work returns to the same TUI
+  main loop through events, callbacks, job tails, and evidence.
 - require a real-use screenshot or deterministic visual artifact for every
   user-visible feature before it is marked complete
+
+The recommended final 0.1.x checkpoint is `0.1.30`: enter `0.2.x` only after
+the known P0/P1 TUI backlog is zero, screenshot evidence is complete, quick and
+full stability gates pass, and GitHub Release plus Homebrew validation are
+green.
 
 That does not change the roadmap ordering. It means RoboCode has moved beyond an
 early V1-only repository state, but later phases should still be pulled

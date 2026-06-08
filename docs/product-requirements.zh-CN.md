@@ -102,6 +102,37 @@ RoboCode 必须保留参考工程最核心的行为：
 - assistant 的 tool-call 意图必须进入 session state
 - transcript 顺序必须足以重建会话
 
+### 非阻塞交互运行时
+
+RoboCode 必须把“UI 和输入不被 agent 工作卡住”作为核心产品需求，而不是 TUI 层的体验补丁。
+
+任何可能等待 provider、tool、shell、Git、LSP、MCP、plugin、external agent、context
+compaction、doctor、release smoke 或用户审批的流程，都必须通过后台任务、事件、callback
+或可取消 job 回到 UI。TUI 主事件循环不能同步等待这些流程完成。
+
+```mermaid
+flowchart TD
+    A["User Input"] --> B["Main Event Loop"]
+    B --> C{"Short UI action?"}
+    C -->|yes| D["Update UI State"]
+    C -->|no| E["Spawn Background Work"]
+    E --> F["Emit Runtime Event"]
+    F --> B
+    D --> G["Render Snapshot"]
+    G --> B
+```
+
+硬性要求：
+
+- `/plan`、provider turn、approval、streaming、tool execution、lane、doctor、probe 和
+  ContextBundle build 都不能接管主输入循环；
+- active turn 期间 composer 保持可编辑，`Enter` 将后续输入显式入队或执行可见的
+  interrupt/replace 策略；
+- approval 是状态和 callback，不是阻塞式 `event::read` 子循环；
+- streaming 只追加 delta，渲染节奏由主循环控制；
+- scrollback、resize、鼠标、IME 和命令面板在后台任务运行时仍可用；
+- 所有后台 work 都必须映射为可见的 activity、AgentTask、Evidence 或 error recovery。
+
 ### 权限模型
 
 权限是领域概念，而不是单纯的交互 UI 状态。

@@ -69,6 +69,8 @@ CLI automation、API server、desktop、Web、IDE/ACP adapter 等其他入口。
 - memory 与 task 管理
 - 更丰富的 TUI 和交互
 - 主屏实时工作状态与统一 `AgentTask` 视图
+- 非阻塞 TUI 主事件循环：provider turn、Plan 模式、approval、streaming、doctor、
+  lane、tool 和 context build 都不能卡住输入、scrollback、resize 或命令面板
 
 退出标准：
 
@@ -77,6 +79,7 @@ CLI automation、API server、desktop、Web、IDE/ACP adapter 等其他入口。
 - 具备超越 grep / file editing 的语义级代码辅助
 - session 和 task 的连续性从“能用”提升到“有意设计”
 - 用户始终能从 TUI 中判断当前 agent 正在做什么、证据来自哪里、下一步可以如何操作
+- 用户在任何后台任务运行期间都能继续输入、排队下一步、滚动历史、处理审批或取消当前任务
 
 ### V3：Agent 编排与 Token 效能层
 
@@ -146,6 +149,36 @@ CLI automation、API server、desktop、Web、IDE/ACP adapter 等其他入口。
 - TUI 是长期主界面；其他形态必须复用同一 runtime，并在 TUI 主线稳定后再扩展
 - 远期平台能力必须服从核心工作流成熟度
 
+### 交互可靠性闸门
+
+V2 后续版本必须先通过交互可靠性闸门，再继续拉大 agent surface。
+
+```mermaid
+flowchart TD
+    A["V2 Interaction Work"] --> B["Single Main Event Loop"]
+    B --> C["Provider Turns As Events"]
+    B --> D["Approvals As Callbacks"]
+    B --> E["Lanes As Jobs"]
+    B --> F["Panels As State"]
+    C --> G["Input Always Available"]
+    D --> G
+    E --> G
+    F --> G
+    G --> H["Daily Coding Loop Reliable"]
+    H --> I["Expand Multi-agent And ACP"]
+```
+
+### 0.1.x TUI Zero-Bug 闸门
+
+0.1.x 的最后版本必须作为 TUI 稳定性出口，而不是继续扩新功能。进入 0.2.x 前必须满足
+[TUI Stability Zero-Bug Gate](tui-stability-zero-bug-gate.zh-CN.md)：
+
+- P0/P1 TUI 显示、输入、弹窗、scrollback、resize 和状态错乱 bug 清零。
+- 常见终端尺寸、macOS Terminal 和 iTerm2 有真实截图或 deterministic preview 证据。
+- welcome、main idle、thinking/streaming、approval、provider setup、model picker、
+  command palette、side-1、side-2、error recovery 和 resize 后布局都有证据。
+- 0.1.x 后半段禁止为了新增 agent surface 牺牲 TUI 稳定性。
+
 ## 当前仓库映射
 
 Mainline landed：
@@ -184,9 +217,14 @@ Mainline landed：
 
 下一个计划版本：
 
-- 继续推进 provider 配置流程，下一步是更完整的聚焦编辑表单，包括连接测试、保存/取消语义
-  和更清晰的字段焦点。当前 provider scoped 的 key env、endpoint、默认模型、active
-  model 列表、favorite model 列表和 auth-mode 元数据已经具备真实运行时/配置接线。
+- `0.1.24` 升级为 **Provider Setup + Non-blocking Operator Loop Gate**：继续推进
+  provider 配置流程，同时把 Plan 模式卡输入、approval 阻塞、streaming/scrollback 互抢、
+  doctor/probe 卡面板、lane/tool/context build 阻塞主循环这些问题作为 release blocker。
+  下一步需要引入 `TurnController` 或等价 runtime 控制器，让所有长任务通过事件、callback、
+  job tail 和 evidence 回到同一个 TUI 主循环。
 - 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
+
+0.1.x final 建议定为 `0.1.30`：在 P0/P1 TUI bug backlog 清零、截图证据齐全、
+quick/full release gates 通过、GitHub Release 与 Homebrew 同步后，才进入 0.2.x。
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

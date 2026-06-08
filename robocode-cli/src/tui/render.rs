@@ -1,6 +1,6 @@
 use super::{
     canvas::Frame,
-    composer::{COMPOSER_HEIGHT, render_composer},
+    composer::{COMPOSER_HEIGHT, render_composer, render_welcome, should_render_welcome},
     modal::render_overlays,
     ops_screen::render_ops_body,
     panel::panel,
@@ -21,6 +21,12 @@ pub(super) fn render_frame(state: &TuiState, width: u16, height: u16) -> String 
     let width = (width as usize).max(MIN_WIDTH);
     let height = (height as usize).max(MIN_HEIGHT);
     let mut frame = Frame::new(width, height);
+
+    if should_render_welcome(state) {
+        render_welcome(&mut frame, state);
+        render_overlays(&mut frame, state, RIGHT_RAIL_WIDTH);
+        return frame.to_string();
+    }
 
     render_top_bar(&mut frame, state);
     if width >= 112 {
@@ -71,12 +77,13 @@ fn render_landscape_body(frame: &mut Frame, state: &TuiState) {
         transcript_width.saturating_sub(4),
         body_height.saturating_sub(2),
     );
+    let transcript_badge = transcript_status_label(state);
     let transcript = panel(
         "TRANSCRIPT",
         transcript_rows,
         transcript_width,
         body_height,
-        Some("live session"),
+        Some(transcript_badge.as_str()),
     );
     frame.write_block(body_top, 0, &transcript);
 
@@ -104,32 +111,49 @@ fn render_compact_body(frame: &mut Frame, state: &TuiState) {
 }
 
 fn main_transcript_rows(state: &TuiState, width: usize, max_rows: usize) -> Vec<String> {
+    let mut rows = transcript_rows(state, width);
     let activity = operation_center_rows(state, width);
-    let activity_rows = activity.len() + 1;
-    let transcript_limit = max_rows.saturating_sub(activity_rows).max(1);
-    let mut rows = activity;
-    rows.push(activity_separator(width));
-    rows.extend(recent_rows(transcript_rows(state, width), transcript_limit));
-    rows
+    if !activity.is_empty() {
+        if !rows.is_empty() {
+            rows.push(activity_separator(width));
+        }
+        rows.extend(activity);
+    }
+    recent_rows(rows, max_rows, state.transcript_scroll)
+}
+
+fn transcript_status_label(state: &TuiState) -> String {
+    if state.transcript_scroll > 0 {
+        let marker = if state.streaming_assistant.is_some() || state.pending_turn.is_some() {
+            " · new output"
+        } else {
+            ""
+        };
+        format!("history {}{marker}", state.transcript_scroll)
+    } else {
+        "live session".to_string()
+    }
 }
 
 fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
     let status = live_activity_status(state);
     let mut rows = vec![truncate(
-        &format!("  ◎ NOW WORKING  {}", status.summary),
+        &format!("     ┊  ✦ {} {}", status.summary, thinking_pulse()),
         width,
     )];
-    rows.push(truncate(
-        &format!("     ┊  evidence: {}", status.evidence),
-        width,
-    ));
-    rows.extend(
-        status
-            .details
-            .iter()
-            .take(2)
-            .map(|detail| truncate(&format!("     ┊  {detail}"), width)),
-    );
+    if let Some(detail) = status.details.first() {
+        rows.push(truncate(&format!("     ┊    └ {}", detail), width));
+    } else {
+        rows.push(truncate(&format!("     ┊    └ {}", status.evidence), width));
+    }
+    if !status.evidence.starts_with("AgentTask")
+        && !rows.iter().any(|row| row.contains(&status.evidence))
+    {
+        rows.push(truncate(
+            &format!("     ┊      signal {}", status.evidence),
+            width,
+        ));
+    }
     rows
 }
 
@@ -229,7 +253,11 @@ fn operator_summary(task: &AgentTask, delegated_count: usize) -> String {
             }
         }
         "editing" | "running_tool" => task.activity.clone(),
-        "thinking" | "streaming" => format!("{} is thinking", operator_agent_label(task)),
+        "thinking" | "streaming" => format!(
+            "{} {}",
+            operator_agent_label(task),
+            operator_activity_phrase(task)
+        ),
         "needs_input" => format!("Needs input: {}", operator_agent_label(task)),
         "blocked" => format!(
             "Blocked: {}",
@@ -240,34 +268,35 @@ fn operator_summary(task: &AgentTask, delegated_count: usize) -> String {
 }
 
 fn operator_detail(task: &AgentTask) -> String {
-    let mut detail = format!(
-        "{} {} {} {}%",
-        task.id,
+    let mut parts = vec![format!(
+        "{} {}",
         operator_agent_label(task),
-        operator_status_label(task),
-        task.progress
-    );
+        operator_status_label(task)
+    )];
+    if task.is_active() && task.progress > 0 {
+        parts.push(format!("{}%", task.progress));
+    }
     if let Some(next) = next_operator_action(task) {
-        detail.push_str(&format!(" :: next {next}"));
-    } else if !task.title.is_empty() {
-        detail.push_str(&format!(" :: {}", truncate(&task.title, 32)));
+        parts.push(format!("next {next}"));
     }
     if let Some(signal) = primary_task_signal(task) {
-        detail.push_str(&format!(" :: signal {signal}"));
+        parts.push(signal);
     } else if !task.activity.is_empty() {
-        detail.push_str(&format!(" :: {}", truncate(&task.activity, 32)));
+        parts.push(truncate(&task.activity, 40));
     } else if !task.summary.is_empty() {
-        detail.push_str(&format!(" :: {}", truncate(&task.summary, 32)));
+        parts.push(truncate(&task.summary, 40));
+    } else if !task.title.is_empty() {
+        parts.push(truncate(&task.title, 40));
     }
     if task.is_active()
         && let Some(started_at) = task.started_at
     {
-        detail.push_str(&format!(" :: elapsed {}", elapsed_millis(started_at)));
+        parts.push(format!("elapsed {}", elapsed_millis(started_at)));
     }
     if let Some(updated_at) = task.updated_at {
-        detail.push_str(&format!(" :: updated {}", relative_millis(updated_at)));
+        parts.push(format!("updated {}", relative_millis(updated_at)));
     }
-    detail
+    parts.join(" · ")
 }
 
 fn historical_task_summary(task: &AgentTask) -> String {
@@ -345,20 +374,9 @@ fn next_operator_action(task: &AgentTask) -> Option<&'static str> {
 
 fn operator_agent_label(task: &AgentTask) -> String {
     if task.agent == "robocode" && task.kind == "provider" {
-        provider_display_name(&task.transport)
+        "RoboCode".to_string()
     } else {
         task.agent.clone()
-    }
-}
-
-fn provider_display_name(provider: &str) -> String {
-    match provider {
-        "deepseek" => "DeepSeek".to_string(),
-        "openai" => "OpenAI".to_string(),
-        "anthropic" => "Anthropic".to_string(),
-        "ollama" => "Ollama".to_string(),
-        "fallback" => "Fallback".to_string(),
-        other => other.to_string(),
     }
 }
 
@@ -370,6 +388,8 @@ fn operator_status_label(task: &AgentTask) -> &'static str {
         "cancelled" => "cancelled",
         "archived" => "archived",
         "queued" => "queued",
+        "thinking" if task.kind == "provider" => "planning",
+        "streaming" if task.kind == "provider" => "drafting",
         "thinking" => "thinking",
         "streaming" => "streaming",
         "editing" => "editing",
@@ -378,6 +398,18 @@ fn operator_status_label(task: &AgentTask) -> &'static str {
         "done" => "done",
         "failed" => "failed",
         _ => "active",
+    }
+}
+
+fn operator_activity_phrase(task: &AgentTask) -> &'static str {
+    if task.kind == "provider" && task.activity.contains("compacting") {
+        return "is reducing context";
+    }
+    match (task.kind.as_str(), task.status.as_str()) {
+        ("provider", "streaming") => "is drafting",
+        ("provider", "thinking") => "is planning",
+        (_, "streaming") => "is streaming",
+        _ => "is thinking",
     }
 }
 
@@ -411,6 +443,15 @@ fn activity_separator(width: usize) -> String {
         &format!("     ┊  {}", "┄".repeat(width.saturating_sub(8).min(88))),
         width,
     )
+}
+
+fn thinking_pulse() -> &'static str {
+    const FRAMES: [&str; 4] = ["·", "∙", "•", "∙"];
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    FRAMES[((now / 350) as usize) % FRAMES.len()]
 }
 
 struct LiveActivityStatus {
@@ -448,6 +489,8 @@ fn elapsed_millis(started_at: u128) -> String {
         format!("{}s", elapsed / 1_000)
     } else if elapsed < 3_600_000 {
         format!("{}m {}s", elapsed / 60_000, (elapsed % 60_000) / 1_000)
+    } else if elapsed > 86_400_000 {
+        "now".to_string()
     } else {
         format!(
             "{}h {}m",
@@ -457,9 +500,11 @@ fn elapsed_millis(started_at: u128) -> String {
     }
 }
 
-fn recent_rows(mut rows: Vec<String>, max_rows: usize) -> Vec<String> {
+fn recent_rows(mut rows: Vec<String>, max_rows: usize, scroll: usize) -> Vec<String> {
     if rows.len() > max_rows {
-        rows = rows.split_off(rows.len() - max_rows);
+        let max_scroll = rows.len().saturating_sub(max_rows);
+        let start = max_scroll.saturating_sub(scroll.min(max_scroll));
+        rows = rows[start..start + max_rows].to_vec();
     }
     while rows
         .first()
@@ -502,6 +547,8 @@ mod tests {
             approval_focus: 0,
             approval_apply_all: false,
             pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
             workspace: WorkspaceSnapshot::fixture(),
             tasks: Vec::new(),
             runtime_tasks: Vec::new(),
@@ -510,6 +557,7 @@ mod tests {
             lanes: Vec::new(),
             lane_store: None,
             focused_lane: None,
+            interaction_panel: None,
             entries: vec![TuiEntry {
                 label: "assistant".to_string(),
                 body: "hello".to_string(),
@@ -537,6 +585,25 @@ mod tests {
             },
         ];
         state
+    }
+
+    #[test]
+    fn transcript_status_marks_new_output_while_viewing_history() {
+        let mut state = render_state();
+        state.transcript_scroll = 8;
+        state.pending_turn = Some(PendingTurn::new(
+            "session_123",
+            "fallback",
+            "test-local",
+            "fix tests",
+            "/repo",
+        ));
+        state.streaming_assistant = Some("working".to_string());
+
+        assert_eq!(transcript_status_label(&state), "history 8 · new output");
+
+        state.transcript_scroll = 0;
+        assert_eq!(transcript_status_label(&state), "live session");
     }
 
     fn assert_no_visual_regressions(rendered: &str) {
@@ -585,6 +652,84 @@ mod tests {
                 "{line}"
             );
         }
+    }
+
+    #[test]
+    fn render_frame_uses_welcome_layout_for_first_empty_session() {
+        let mut state = render_state();
+        state.entries = vec![TuiEntry {
+            label: "system".to_string(),
+            body: "RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
+        }];
+        state.input = String::new();
+
+        let rendered = render_frame(&state, 140, 40);
+
+        assert!(rendered.contains("Ask anything... \"Fix broken tests\""));
+        assert!(rendered.contains("RoboCode - Operator"));
+        assert!(rendered.contains("ctrl+p commands"));
+        assert!(rendered.contains("v"));
+        assert!(!rendered.contains("TRANSCRIPT"));
+        assert!(!rendered.contains("WORKSPACE"));
+        assert!(!rendered.contains("APPROVAL MODE:"));
+    }
+
+    #[test]
+    fn render_frame_keeps_welcome_after_setup_until_real_prompt() {
+        let mut state = render_state();
+        state.entries = vec![
+            TuiEntry {
+                label: "system".to_string(),
+                body: "RoboCode TUI ready. Enter submits.".to_string(),
+            },
+            TuiEntry {
+                label: "user".to_string(),
+                body: "/connect".to_string(),
+            },
+            TuiEntry {
+                label: "settings".to_string(),
+                body: "Provider switched to deepseek.".to_string(),
+            },
+        ];
+
+        let rendered = render_frame(&state, 140, 40);
+
+        assert!(rendered.contains("Ask anything"));
+        assert!(!rendered.contains("TRANSCRIPT"));
+
+        state.entries.push(TuiEntry {
+            label: "user".to_string(),
+            body: "fix broken tests".to_string(),
+        });
+
+        let rendered = render_frame(&state, 140, 40);
+        assert!(rendered.contains("TRANSCRIPT"));
+    }
+
+    #[test]
+    fn render_frame_keeps_welcome_after_immediate_plan_command() {
+        let mut state = render_state();
+        state.entries = vec![
+            TuiEntry {
+                label: "system".to_string(),
+                body: "RoboCode TUI ready. Enter submits.".to_string(),
+            },
+            TuiEntry {
+                label: "user".to_string(),
+                body: "/plan".to_string(),
+            },
+            TuiEntry {
+                label: "command".to_string(),
+                body: "Plan mode is now on".to_string(),
+            },
+        ];
+
+        let rendered = render_frame(&state, 140, 40);
+
+        assert!(rendered.contains("Ask anything"));
+        assert!(rendered.contains("RoboCode - Operator"));
+        assert!(!rendered.contains("TRANSCRIPT"));
+        assert!(!rendered.contains("WORKSPACE"));
     }
 
     #[test]
@@ -667,9 +812,23 @@ mod tests {
 
         let rendered = render_frame(&state, 140, 36);
 
-        assert!(rendered.contains("NOW WORKING"));
-        assert!(rendered.contains("DeepSeek is thinking"));
-        assert!(rendered.contains("evidence: AgentTask reply-"));
+        assert!(rendered.contains("✦ RoboCode is planning"));
+        assert!(rendered.contains("RoboCode is planning"));
+        assert!(rendered.contains("reply-"));
+        assert!(!rendered.contains("RoboCode is thinking"));
+        assert!(!rendered.contains("DeepSeek is thinking"));
+        assert!(!rendered.contains("┌ NOW WORKING"));
+
+        let lines = rendered.lines().collect::<Vec<_>>();
+        let user_index = lines
+            .iter()
+            .position(|line| line.contains("add tests and summarize"))
+            .expect("latest user transcript row");
+        let activity_index = lines
+            .iter()
+            .position(|line| line.contains("✦ RoboCode is planning"))
+            .expect("inline activity row");
+        assert!(activity_index > user_index);
     }
 
     #[test]
@@ -683,10 +842,10 @@ mod tests {
 
         let lane_rendered = render_frame(&state, 140, 36);
 
-        assert!(lane_rendered.contains("NOW WORKING"));
+        assert!(lane_rendered.contains("✦ Supervising 2 agents: claude needs input"));
         assert!(lane_rendered.contains("Supervising 2 agents: claude needs input"));
-        assert!(lane_rendered.contains("evidence: AgentTask"));
-        assert!(lane_rendered.contains("L1 codex testing 64%"));
+        assert!(lane_rendered.contains("claude needs input"));
+        assert!(!lane_rendered.contains("┌ NOW WORKING"));
 
         state.lanes.clear();
         let tool_rendered = render_frame(&state, 140, 36);
@@ -775,7 +934,7 @@ mod tests {
 
         assert!(rendered.contains("review diff: 2 file(s) +12 -3"));
         assert!(rendered.contains("next review diff, then test or commit"));
-        assert!(rendered.contains("signal files 2"));
+        assert!(rendered.contains("files 2"));
     }
 
     #[test]
@@ -796,11 +955,9 @@ mod tests {
         let rendered = render_frame(&state, 140, 36);
 
         assert!(rendered.contains("Supervising 1 agent: codex thinking"));
-        assert!(rendered.contains("evidence: AgentTask codex-123"));
-        assert!(rendered.contains("codex-123 codex thinking 65%"));
+        assert!(rendered.contains("codex thinking · 65%"));
         assert!(rendered.contains("thread thread_123"));
         assert!(rendered.contains("codex"));
-        assert!(rendered.contains("review payment"));
     }
 
     #[test]
@@ -817,14 +974,17 @@ mod tests {
             started_at: 42,
             phase: "Waiting for provider response".to_string(),
             next_action: "wait".to_string(),
+            queued_inputs: Vec::new(),
         });
 
         let rendered = render_frame(&state, 140, 36);
 
-        assert!(rendered.contains("DeepSeek is thinking"));
-        assert!(rendered.contains("evidence: AgentTask turn-session-42"));
+        assert!(rendered.contains("RoboCode is planning"));
         assert!(rendered.contains("live provider request"));
-        assert!(rendered.contains("turn-session-42 DeepSeek thinking 15%"));
+        assert!(rendered.contains("RoboCode planning · 15%"));
+        assert!(!rendered.contains("RoboCode is thinking"));
+        assert!(!rendered.contains("DeepSeek is thinking"));
+        assert!(!rendered.contains("┌ NOW WORKING"));
     }
 
     #[test]
@@ -957,7 +1117,7 @@ mod tests {
                 || first_content.contains("ASSISTANT")
                 || first_content.contains("TOOL")
                 || first_content.contains("APPROVAL")
-                || first_content.contains("NOW WORKING"),
+                || first_content.contains("✦"),
             "{first_content}"
         );
     }

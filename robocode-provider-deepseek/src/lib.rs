@@ -13,6 +13,12 @@ pub fn descriptor() -> PluginDescriptor {
         protocol_family: ProtocolFamily::OpenAi,
         default_api_base: Some("https://api.deepseek.com".to_string()),
         default_model: Some("deepseek-v4-flash".to_string()),
+        known_models: vec![
+            "deepseek-v4-flash".to_string(),
+            "deepseek-v4-pro".to_string(),
+            "deepseek-chat".to_string(),
+            "deepseek-reasoner".to_string(),
+        ],
         env_mappings: ProviderEnvMappings {
             api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
             api_base_env: Some("DEEPSEEK_API_BASE".to_string()),
@@ -42,6 +48,7 @@ pub extern "C" fn robocode_provider_descriptor_json() -> *const c_char {
         "\"protocol_family\":\"OpenAi\",",
         "\"default_api_base\":\"https://api.deepseek.com\",",
         "\"default_model\":\"deepseek-v4-flash\",",
+        "\"known_models\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\",\"deepseek-chat\",\"deepseek-reasoner\"],",
         "\"env_mappings\":{\"api_key_env\":\"DEEPSEEK_API_KEY\",\"api_base_env\":\"DEEPSEEK_API_BASE\"},",
         "\"capabilities\":{\"supports_streaming\":true,\"supports_native_tool_calling\":true},",
         "\"compatibility\":{\"supports_tool_choice\":false,\"requires_reasoning_content_for_tool_calls\":true,\"requires_non_null_tool_call_content\":true,\"reasoning_effort_high\":\"high\",\"reasoning_effort_max\":\"max\"},",
