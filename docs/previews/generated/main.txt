@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.24  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L1      │
+│ RoboCode  v0.1.25  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L1      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │      ┊  • Wrote 86 lines to tests/config_tests.rs (3.4 KB)                                        │ │ robocode/    ~/projects/robocode   │
@@ -28,7 +28,7 @@
 │      ┊    output tail:                                                                            │ │                                    │
 │      ┊      thread 'config_tests' panicked at src/config.rs:42:15                                 │ └────────────────────────────────────┘
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ ┌ RECENT FILES ──────────────── tail ┐
-│      ┊  ✦ Supervising 1 agent: codex testing •                                                    │ │ [Rs] src/config.rs         now     │
+│      ┊  ✦ Supervising 1 agent: codex testing ∙                                                    │ │ [Rs] src/config.rs         now     │
 │      ┊    └ codex testing · 64% · next wait for test result · summary patched failing tests; reru │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
 ┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐

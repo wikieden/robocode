@@ -1,4 +1,7 @@
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    time::{Duration, Instant},
+};
 
 use crossterm::{
     SynchronizedUpdate, cursor,
@@ -25,9 +28,13 @@ pub(super) struct TerminalGuard {
     last_lines: Vec<String>,
     last_size: Option<(u16, u16)>,
     last_style_signature: Option<String>,
+    last_full_redraw: Instant,
 }
 
 const MAIN_RIGHT_RAIL_WIDTH: usize = 38;
+// Terminal emulators can lose alternate-screen contents after sleep, focus, or
+// long idle periods; periodic full redraw keeps the dirty-row cache honest.
+const FULL_REDRAW_INTERVAL: Duration = Duration::from_secs(5);
 
 impl TerminalGuard {
     pub(super) fn enter_with_theme(theme_name: Option<&str>) -> Result<Self, String> {
@@ -49,6 +56,7 @@ impl TerminalGuard {
             last_lines: Vec::new(),
             last_size: None,
             last_style_signature: None,
+            last_full_redraw: Instant::now(),
         })
     }
 
@@ -80,8 +88,14 @@ impl TerminalGuard {
     ) -> Result<(), String> {
         let size = terminal::size().unwrap_or((80, 24));
         let lines = frame.lines().map(str::to_string).collect::<Vec<_>>();
-        let full_redraw = self.last_size != Some(size)
-            || self.last_style_signature.as_ref() != Some(&style_signature);
+        let now = Instant::now();
+        let full_redraw = should_full_redraw(
+            self.last_size,
+            self.last_style_signature.as_deref(),
+            size,
+            &style_signature,
+            now.duration_since(self.last_full_redraw),
+        );
         let mut stdout = io::stdout();
         let update_result = stdout
             .sync_update(|stdout| -> io::Result<()> {
@@ -137,6 +151,9 @@ impl TerminalGuard {
         self.last_lines = lines;
         self.last_size = Some(size);
         self.last_style_signature = Some(style_signature);
+        if full_redraw {
+            self.last_full_redraw = now;
+        }
         stdout.flush().map_err(|err| err.to_string())
     }
 
@@ -186,6 +203,18 @@ fn dirty_rows(previous: &[String], next: &[String], full_redraw: bool) -> Vec<us
     (0..height)
         .filter(|row| previous.get(*row) != next.get(*row))
         .collect()
+}
+
+fn should_full_redraw(
+    last_size: Option<(u16, u16)>,
+    last_style_signature: Option<&str>,
+    next_size: (u16, u16),
+    next_style_signature: &str,
+    elapsed_since_full_redraw: Duration,
+) -> bool {
+    last_size != Some(next_size)
+        || last_style_signature != Some(next_style_signature)
+        || elapsed_since_full_redraw >= FULL_REDRAW_INTERVAL
 }
 
 fn style_signature(state: &TuiState, theme: &TuiTheme) -> String {
@@ -1209,6 +1238,42 @@ mod tests {
                 "{line}: {segments:?}"
             );
         }
+    }
+
+    #[test]
+    fn forces_periodic_full_redraw_even_when_frame_cache_matches() {
+        assert!(!should_full_redraw(
+            Some((160, 48)),
+            Some("aurora-cyan|layout=cockpit"),
+            (160, 48),
+            "aurora-cyan|layout=cockpit",
+            FULL_REDRAW_INTERVAL - Duration::from_millis(1)
+        ));
+        assert!(should_full_redraw(
+            Some((160, 48)),
+            Some("aurora-cyan|layout=cockpit"),
+            (160, 48),
+            "aurora-cyan|layout=cockpit",
+            FULL_REDRAW_INTERVAL
+        ));
+    }
+
+    #[test]
+    fn full_redraw_still_triggers_on_resize_or_style_change() {
+        assert!(should_full_redraw(
+            Some((160, 48)),
+            Some("aurora-cyan|layout=cockpit"),
+            (120, 48),
+            "aurora-cyan|layout=cockpit",
+            Duration::ZERO
+        ));
+        assert!(should_full_redraw(
+            Some((160, 48)),
+            Some("aurora-cyan|layout=cockpit"),
+            (160, 48),
+            "aurora-cyan|layout=welcome",
+            Duration::ZERO
+        ));
     }
 
     #[test]

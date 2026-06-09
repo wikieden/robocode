@@ -2,7 +2,7 @@
 
 Chinese version: [tui-stability-zero-bug-gate.zh-CN.md](tui-stability-zero-bug-gate.zh-CN.md)
 
-Last updated: 2026-06-07
+Last updated: 2026-06-09
 
 ## Purpose
 
@@ -101,3 +101,19 @@ Before the final 0.1.x release is declared complete:
   screenshot.
 - Known display errors are not "polish" when they affect judgment, input,
   approval, scrolling, or status understanding; they are P0/P1.
+
+## Active Regression Notes
+
+- 2026-06-08: Long-running coding sessions can expose terminal repaint drift
+  after sleep/focus/idle: the dirty-row cache may believe the full screen is
+  still present while the emulator has lost rows, and terminal protocol tails
+  such as `2;28;95;132m` can appear in the composer. Guardrail: force periodic
+  full redraws during TUI operation and filter ANSI/mouse residue before it is
+  rendered as user input. Verification should include focused terminal/app
+  tests plus TUI regression output.
+- 2026-06-09: Focus, paste, and SGR mouse events must not be silent from the
+  renderer's point of view. Guardrail: focus/paste events trigger a repaint
+  without becoming composer text, SGR mouse residues ending in `m` or `M` are
+  discarded, and welcome-screen interaction modals clear the full frame because
+  the welcome layout has no right rail. Verification should include app event
+  policy tests, composer residue tests, render modal tests, and preview output.

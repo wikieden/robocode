@@ -24,7 +24,9 @@ pub(super) fn render_frame(state: &TuiState, width: u16, height: u16) -> String 
 
     if should_render_welcome(state) {
         render_welcome(&mut frame, state);
-        render_overlays(&mut frame, state, RIGHT_RAIL_WIDTH);
+        // The welcome screen has no right rail; overlays must clear across the
+        // full frame or setup hints can bleed through modal backgrounds.
+        render_overlays(&mut frame, state, 0);
         return frame.to_string();
     }
 
@@ -525,8 +527,8 @@ mod tests {
     use super::*;
     use crate::tui::{
         state::{
-            AgentJob, PendingTurn, ProviderStatus, TerminalLane, TuiEntry, TuiState,
-            WorkspaceSnapshot,
+            AgentJob, InteractionPanel, PendingTurn, ProviderStatus, TerminalLane, TuiEntry,
+            TuiState, WorkspaceSnapshot,
         },
         text::char_width,
     };
@@ -730,6 +732,30 @@ mod tests {
         assert!(rendered.contains("RoboCode - Operator"));
         assert!(!rendered.contains("TRANSCRIPT"));
         assert!(!rendered.contains("WORKSPACE"));
+    }
+
+    #[test]
+    fn welcome_interaction_modal_clears_underlying_hint_text() {
+        let mut state = render_state();
+        state.entries = vec![TuiEntry {
+            label: "system".to_string(),
+            body: "RoboCode TUI ready. Enter submits.".to_string(),
+        }];
+        state.input = "/connect".to_string();
+        state.interaction_panel = Some(InteractionPanel::ConnectProvider {
+            search: String::new(),
+            selected: 0,
+        });
+
+        let rendered = render_frame(&state, 140, 40);
+
+        assert!(rendered.contains("Connect a provider"));
+        assert!(
+            !rendered
+                .lines()
+                .any(|line| line.contains("ommands") || line.contains("commands   /connect")),
+            "{rendered}"
+        );
     }
 
     #[test]

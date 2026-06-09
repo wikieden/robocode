@@ -6,35 +6,35 @@
 
 
 
-                    ┌ Select model ─────────────────────────────────────── esc ┐
-                    │ Search _                                                 │
-                    │                                                          │
-                    │ DeepSeek                                                 │
-                    │ ›   deepseek-chat                                        │
-                    │     deepseek-v4-flash                                    │
-                    │     deepseek-v4-pro                                      │
-                    │                                                          │
-                    │ Enter switch    type search    esc close                 │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │                    ommands   /connect
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    └──────────────────────────────────────────────────────────┘
+                                       ┌ Select model ─────────────────────────────────────── esc ┐
+                                       │ Search _                                                 │
+                                       │                                                          │
+                                       │ DeepSeek                                                 │
+                                       │ ›   deepseek-chat                                        │
+                                       │     deepseek-v4-flash                                    │
+                                       │     deepseek-v4-pro                                      │
+                                       │                                                          │
+                                       │ Enter switch    type search    esc close                 │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       └──────────────────────────────────────────────────────────┘
 
 
 
 
 
 
-~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.24
+~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.25
 

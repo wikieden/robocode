@@ -90,22 +90,19 @@ Current published release (`0.1.23`):
 - GitHub Release assets, Homebrew tap update, and post-publish smoke are part
   of the same release unit.
 
-Next planned release (`0.1.24`):
+Current patch release (`0.1.25`):
 
-- `docs/release-0.1.24-plan.md` defines **Provider Setup + Non-blocking
-  Operator Loop Gate**.
-- The target is daily coding reliability: provider setup forms, trustworthy
-  model switching, non-blocking Plan mode, non-blocking approval, streaming
-  scrollback, provider error recovery, and visible background work.
-- The release is gated by `docs/spec-review-0.1.24.md`, deterministic TUI
+- `docs/release-0.1.25-plan.md` defines **TUI Display Cleanup And Idle
+  Stability**.
+- The target is visible coding-loop reliability: long-idle repaint, focus/paste
+  repaint, composer protocol-residue filtering, modal clearing, popup
+  placement, scrollback, caret/IME, and screenshot evidence.
+- The release is gated by `docs/spec-review-0.1.25.md`, deterministic TUI
   regression, plan-mode smoke, daily-loop smoke, live DeepSeek development
   smoke, screenshots/previews, GitHub Release assets, and Homebrew sync.
 
 0.1.x final planning:
 
-- `0.1.25`: TUI display cleanup - align borders, side panels, timestamps,
-  colors, palette placement, caret/IME positioning, resize redraw, and
-  transcript scrollback.
 - `0.1.26`: TUI regression pack - turn welcome, main idle, thinking,
   streaming, approval, provider setup, model picker, command palette, side-1,
   side-2, error recovery, and resize states into deterministic preview/smoke

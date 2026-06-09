@@ -2,7 +2,7 @@
 
 英文版： [tui-stability-zero-bug-gate.md](tui-stability-zero-bug-gate.md)
 
-最后更新：2026-06-07
+最后更新：2026-06-09
 
 ## 目的
 
@@ -83,3 +83,16 @@
 - 每次修 bug 必须优先走 TDD：先补能复现问题的测试或 deterministic preview，再改实现。
 - 如果 bug 无法自动化，必须补人工验收 checklist 和真实终端截图。
 - 不能把“已知显示错误”标成 polish；只要影响用户判断、输入、审批、滚动或状态理解，就是 P0/P1。
+
+## 当前回归记录
+
+- 2026-06-08：长时间 coding session 在 sleep/focus/idle 后可能暴露 terminal repaint
+  drift：dirty-row cache 仍以为全屏内容存在，但终端已经丢了部分行；同时类似
+  `2;28;95;132m` 的 terminal protocol 尾巴可能进入 composer。Guardrail：TUI 运行中
+  周期性强制全屏重绘，并在输入渲染前过滤 ANSI/mouse residue。验证需要覆盖 focused
+  terminal/app tests 和 TUI regression output。
+- 2026-06-09：focus、paste 和 SGR mouse 事件不能在 renderer 视角里静默。Guardrail：
+  focus/paste 事件只触发 repaint，不进入 composer；以 `m` 或 `M` 结尾的 SGR mouse
+  residue 会被丢弃；welcome screen 的 interaction modal 需要按全屏清理，因为 welcome
+  layout 没有 right rail。验证需要覆盖 app event policy tests、composer residue tests、
+  render modal tests 和 preview output。

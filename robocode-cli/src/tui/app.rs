@@ -374,6 +374,10 @@ pub(crate) fn run_tui_with_theme(
                 terminal.draw(&state)?;
                 continue;
             }
+            event if event_requires_repaint(&event) => {
+                terminal.draw(&state)?;
+                continue;
+            }
             _ => continue,
         };
         if handle_active_approval_key(
@@ -467,10 +471,7 @@ pub(crate) fn run_tui_with_theme(
                 reset_for_input_change(&mut state);
             }
             _ if apply_composer_shortcut(key, &mut state) => {}
-            KeyCode::Char(value) => {
-                state.input.push(value);
-                reset_for_input_change(&mut state);
-            }
+            KeyCode::Char(value) => push_composer_char(&mut state, value),
             _ => {}
         }
         terminal.draw(&state)?;
@@ -634,6 +635,42 @@ fn apply_composer_shortcut(key: KeyEvent, state: &mut TuiState) -> bool {
         }
         _ => false,
     }
+}
+
+fn push_composer_char(state: &mut TuiState, value: char) {
+    state.input.push(value);
+    // Some terminals can leak SGR mouse/color escape tails as printable chars;
+    // clear those protocol residues instead of rendering them in the composer.
+    if looks_like_terminal_escape_residue(&state.input) {
+        state.input.clear();
+    }
+    reset_for_input_change(state);
+}
+
+fn looks_like_terminal_escape_residue(input: &str) -> bool {
+    let trimmed = input.trim();
+    if trimmed.len() < 6 || !(trimmed.ends_with('m') || trimmed.ends_with('M')) {
+        return false;
+    }
+    let body = trimmed[..trimmed.len() - 1].trim_start_matches(['\u{1b}', '[', '<', '?']);
+    let mut parts = body.split(';').collect::<Vec<_>>();
+    if parts.len() < 3 || parts.len() > 5 {
+        return false;
+    }
+    if parts[0].is_empty() {
+        parts.remove(0);
+    }
+    let all_numeric = parts
+        .iter()
+        .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()));
+    all_numeric && parts.len() >= 3
+}
+
+fn event_requires_repaint(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::FocusGained | Event::FocusLost | Event::Paste(_)
+    )
 }
 
 fn last_user_input(state: &TuiState) -> Option<String> {
@@ -1677,16 +1714,17 @@ fn is_exit_command(input: &str) -> bool {
 mod tests {
     use super::{
         append_streaming_assistant_delta, apply_composer_shortcut, background_diagnostic_paths,
-        begin_active_approval, filtered_interaction_models, handle_immediate_runtime_command,
-        initial_state, is_exit_command, is_immediate_runtime_command, is_send_key, last_user_input,
-        open_local_picker_command, persist_rendered_diagnostics, queue_active_turn_input,
+        begin_active_approval, event_requires_repaint, filtered_interaction_models,
+        handle_immediate_runtime_command, initial_state, is_exit_command,
+        is_immediate_runtime_command, is_send_key, last_user_input, open_local_picker_command,
+        persist_rendered_diagnostics, push_composer_char, queue_active_turn_input,
         refresh_diagnostics_cache, render_provider_turn_error, resolve_active_approval,
         restore_first_queued_input, scroll_transcript,
     };
     use crate::tui::state::{
         InteractionPanel, ProviderOption, ProviderStatus, TerminalLane, WorkspaceSnapshot,
     };
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use robocode_core::SessionEngine;
     use robocode_model::{ModelProvider, ProviderAuthMode};
     use robocode_types::{ModelEvent, ModelRequest, PermissionPrompt};
@@ -1778,6 +1816,49 @@ mod tests {
             &mut state
         ));
         assert_eq!(state.input, "/task add ");
+    }
+
+    #[test]
+    fn composer_discards_terminal_escape_residue_instead_of_rendering_it() {
+        let mut state = test_state("");
+        for ch in "2;28;95;132m".chars() {
+            push_composer_char(&mut state, ch);
+        }
+
+        assert_eq!(state.input, "");
+
+        for ch in "<2;28;95;132m".chars() {
+            push_composer_char(&mut state, ch);
+        }
+
+        assert_eq!(state.input, "");
+    }
+
+    #[test]
+    fn composer_discards_uppercase_sgr_mouse_residue() {
+        let mut state = test_state("");
+        for ch in "0;105;25M".chars() {
+            push_composer_char(&mut state, ch);
+        }
+
+        assert_eq!(state.input, "");
+    }
+
+    #[test]
+    fn composer_keeps_normal_digit_prompts() {
+        let mut state = test_state("");
+        for ch in "2 failing tests; fix both".chars() {
+            push_composer_char(&mut state, ch);
+        }
+
+        assert_eq!(state.input, "2 failing tests; fix both");
+    }
+
+    #[test]
+    fn focus_and_paste_events_force_repaint_without_becoming_input() {
+        assert!(event_requires_repaint(&Event::FocusGained));
+        assert!(event_requires_repaint(&Event::FocusLost));
+        assert!(event_requires_repaint(&Event::Paste("draft".to_string())));
     }
 
     #[test]

@@ -6,35 +6,35 @@
 
 
 
-                    ┌ API key ──────────────────────────────────────────── esc ┐
-                    │ OpenAI needs an API key.                                 │
-                    │ It will be used for this session via OPENAI_API_KEY.     │
-                    │ RoboCode will save the env var name, not the raw key.    │
-                    │                                                          │
-                    │ API key _                                                │
-                    │                                                          │
-                    │ Enter submit    esc back                                 │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │                    ommands   /connect
-                    │                                                          │
-                    │                                                          │
-                    │                                                          │
-                    └──────────────────────────────────────────────────────────┘
+                                       ┌ API key ──────────────────────────────────────────── esc ┐
+                                       │ OpenAI needs an API key.                                 │
+                                       │ It will be used for this session via OPENAI_API_KEY.     │
+                                       │ RoboCode will save the env var name, not the raw key.    │
+                                       │                                                          │
+                                       │ API key _                                                │
+                                       │                                                          │
+                                       │ Enter submit    esc back                                 │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       │                                                          │
+                                       └──────────────────────────────────────────────────────────┘
 
 
 
 
 
 
-~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.24
+~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.25
 
