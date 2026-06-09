@@ -9,8 +9,9 @@ release gate。它也继续把真实 DeepSeek 开发 smoke 作为发布就绪的
 
 - Workspace version：`0.1.26`
 - Git tag：`v0.1.26`
-- GitHub Release：等待发布
-- Homebrew tap：等待同步发布
+- GitHub Release：已发布到
+  <https://github.com/wikieden/robocode/releases/tag/v0.1.26>
+- Homebrew tap：已同步到 `wikieden/homebrew-tap` commit `d604599`
 
 ## 已实现
 
@@ -35,6 +36,8 @@ release gate。它也继续把真实 DeepSeek 开发 smoke 作为发布就绪的
 - `scripts/daily-loop-smoke.sh /tmp/robocode-0126-daily-loop-smoke`：通过
 - `scripts/tui-regression.sh docs/previews/generated`：通过
 - `scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash --out-dir /tmp/robocode-0126-deepseek-dev-smoke`：通过
+- `scripts/release-gate.sh --version 0.1.26 --phase prepublish --out-dir /tmp/robocode-0126-release-gate`：通过
+- `scripts/release-gate.sh --version 0.1.26 --phase postpublish --out-dir /tmp/robocode-0126-release-gate`：通过
 
 ## DeepSeek Smoke 证据
 
@@ -52,6 +55,7 @@ release gate。它也继续把真实 DeepSeek 开发 smoke 作为发布就绪的
 
 - `scripts/release-gate.sh --version 0.1.26 --phase prepublish` 通过；已完成，
   证据在 `/tmp/robocode-0126-release-gate/prepublish`；
-- GitHub Release `v0.1.26` assets 发布；
-- `wikieden/homebrew-tap` 同步到 `0.1.26`；
-- `scripts/release-gate.sh --version 0.1.26 --phase postpublish` 通过。
+- GitHub Release `v0.1.26` assets 发布；已完成，`8` 个资产；
+- `wikieden/homebrew-tap` 同步到 `0.1.26`；已完成，commit `d604599`；
+- `scripts/release-gate.sh --version 0.1.26 --phase postpublish` 通过；已完成，
+  证据在 `/tmp/robocode-0126-release-gate/postpublish`。

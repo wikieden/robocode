@@ -10,8 +10,9 @@ development smoke as mandatory evidence for release readiness.
 
 - Workspace version: `0.1.26`
 - Git tag: `v0.1.26`
-- GitHub Release: pending publish
-- Homebrew tap: pending publish sync
+- GitHub Release: published at
+  <https://github.com/wikieden/robocode/releases/tag/v0.1.26>
+- Homebrew tap: synced in `wikieden/homebrew-tap` commit `d604599`
 
 ## Implemented
 
@@ -39,6 +40,8 @@ development smoke as mandatory evidence for release readiness.
 - `scripts/daily-loop-smoke.sh /tmp/robocode-0126-daily-loop-smoke`: passed
 - `scripts/tui-regression.sh docs/previews/generated`: passed
 - `scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash --out-dir /tmp/robocode-0126-deepseek-dev-smoke`: passed
+- `scripts/release-gate.sh --version 0.1.26 --phase prepublish --out-dir /tmp/robocode-0126-release-gate`: passed
+- `scripts/release-gate.sh --version 0.1.26 --phase postpublish --out-dir /tmp/robocode-0126-release-gate`: passed
 
 ## DeepSeek Smoke Evidence
 
@@ -56,6 +59,7 @@ development smoke as mandatory evidence for release readiness.
 
 - `scripts/release-gate.sh --version 0.1.26 --phase prepublish` passes; done,
   evidence at `/tmp/robocode-0126-release-gate/prepublish`;
-- GitHub Release `v0.1.26` assets are published;
-- `wikieden/homebrew-tap` is updated to `0.1.26`;
-- `scripts/release-gate.sh --version 0.1.26 --phase postpublish` passes.
+- GitHub Release `v0.1.26` assets are published; done, `8` assets;
+- `wikieden/homebrew-tap` is updated to `0.1.26`; done, commit `d604599`;
+- `scripts/release-gate.sh --version 0.1.26 --phase postpublish` passes; done,
+  evidence at `/tmp/robocode-0126-release-gate/postpublish`.
