@@ -92,7 +92,9 @@ impl SessionEngine {
                 model: self.provider.model().to_string(),
                 messages: request_messages,
                 tools: self.tools.specs(),
+                work_mode: self.runtime_snapshot.work_mode,
                 permission_mode: self.permissions.mode(),
+                permission_level: self.runtime_snapshot.permission_level,
             };
             let request_started = Instant::now();
             let model_events = match self.provider.next_events_with_control(&request, control) {

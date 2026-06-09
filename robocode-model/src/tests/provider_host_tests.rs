@@ -201,7 +201,9 @@ fn provider_host_treats_blank_dynamic_provider_api_key_env_as_missing() {
         model: "blank-key-model".to_string(),
         messages: vec![Message::new(Role::User, "hello")],
         tools: Vec::new(),
+        work_mode: WorkMode::Build,
         permission_mode: PermissionMode::Default,
+        permission_level: PermissionLevel::Ask,
     });
     unsafe {
         std::env::remove_var("ROBOCODE_TEST_BLANK_OPENAI_API_KEY");
@@ -263,7 +265,9 @@ fn deepseek_v4_accepts_replayed_tool_call_reasoning_content() {
                 is_mutating: true,
                 input_schema_hint: "path=file content=text".to_string(),
             }],
+            work_mode: WorkMode::Build,
             permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
         })
         .expect("DeepSeek V4 Flash should accept replayed tool-call history");
 

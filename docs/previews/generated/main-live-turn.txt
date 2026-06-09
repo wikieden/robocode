@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.25  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L0      │
+│ RoboCode  v0.1.26  [PROVIDER ● OpenAI] [MODEL gpt-4o] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]   · auto L0    │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ·  ┊  SYSTEM                                                                               #001 │ │ robocode/    ~/projects/robocode   │
@@ -8,11 +8,11 @@
 │   ♙  ┊  USER                                                                               latest │ │ ▣ Cargo.toml    LANGUAGE Rust      │
 │      ┊  Refactor the config loader, then run focused tests.                                       │ │ ▣ README.md     EDITION   2024     │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│      ┊  ✦ RoboCode is planning ·                                                                  │ ┌ ACTIVE TASKS ─────────────────── 3 ┐
-│      ┊    └ RoboCode planning · 15% · live provider request · elapsed now · updated now           │ │ turn-c4f2b7e-live ● RoboCo main/ro │
-│                                                                                                   │ │ ● task_lo/prog Implement load_con  │
-│                                                                                                   │ │ ◆ task_re/block Review config test │
-│                                                                                                   │ │                                    │
+│      ╭─ LIVE WORK • ─────────────────────────────────────────────────────────────────────────     │ ┌ ACTIVE TASKS ─────────────────── 3 ┐
+│      │ ◉ RoboCode working                                                                         │ │ turn-c4f2b7e-live ● RoboCo main/ro │
+│      │ phase planning · signal live provider request · RoboCode planning · live provider request  │ │ ● task_lo/prog Implement load_con  │
+│      │ input open · type next step anytime; Enter queues follow-up                                │ │ ◆ task_re/block Review config test │
+│      ╰──────────────────────────────────────────────────────────────────────────────────────────  │ │                                    │
 │                                                                                                   │ └────────────────────────────────────┘
 │                                                                                                   │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
 │                                                                                                   │ │ diagnostics unavailable            │
@@ -33,8 +33,8 @@
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
 ┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                                                           │              │
-│ › Add a note about the validation result                                                                                  │ MODE Code ▾  │
+│ › Add a note about the validation result                                                                                  │ MODE Build ▾ │
 │                                                                                                                           │              │
-│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
+│ MODE [Build]  PERM [Ask]                                                         ACTIONS: [^J Queue] [^C Cancel] [PgUp History] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 │ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 2    ┆ LANES 0  ┆ CONTEXT 128k                                                 Press ? for help │

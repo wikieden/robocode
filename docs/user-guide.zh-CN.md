@@ -2,7 +2,7 @@
 
 英文版： [user-guide.md](user-guide.md)
 
-本文档说明 RoboCode `0.1.24` development line 已经真实支持的用户功能。
+本文档说明当前 RoboCode development line 已经真实支持的用户功能。
 
 ## 心智模型
 
@@ -65,7 +65,7 @@ robocode-cli --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
 - `--model <name>`：覆盖 model label。
 - `--api-base <url>` 和 `--api-key <value>`：覆盖 provider connection。
 - `--provider-plugin-dir <dir>`：增加动态 provider plugin 目录。
-- `--permissions <mode>`：设置默认权限模式。
+- `--permissions <level>`：设置默认 permission level。
 - `--session-home <dir>`：覆盖 transcript/index home。
 - `--request-timeout <seconds>` 和 `--max-retries <n>`：调整 provider HTTP 行为。
 - `--config <path>`：加载显式 TOML 配置。
@@ -107,7 +107,7 @@ RoboCode 按顺序加载：
 ```toml
 provider = "deepseek"
 model = "deepseek-v4-flash"
-permission_mode = "acceptEdits"
+permission_mode = "auto_edit"
 request_timeout_secs = 120
 max_retries = 2
 
@@ -135,7 +135,7 @@ TUI 设置路径在提交命令后进入独立面板：`/connect`、`/provider`�
 /settings provider <provider-id> enable-model <model>
 /settings provider <provider-id> favorite-model <model>
 /settings provider <provider-id> models <model> [model...]
-/settings permissions <mode>
+/settings permissions <level>
 /settings theme <name>
 /settings save
 ```
@@ -260,9 +260,9 @@ DeepSeek 开发场景 smoke 会产生真实费用，会写出 `usage.json` 和 `
 - 审批弹窗：`y` 通过，`n` 拒绝，`d` 聚焦 diff，`Tab` / 方向键移动焦点。
   diff 焦点会优先展示本次审批 prompt 里的真实 evidence / preview lines，而不是装饰性占位内容。
 - provider turn 运行中，TUI event loop 会继续工作；transcript live tail 会在最近
-  对话内容下面显示轻量 inline activity 提示，并用小脉冲符号表示 provider 正在思考。
-  状态栏、elapsed time、lane snapshot 和审批桥接都可以持续刷新。`Ctrl-C` 会请求取消；
-  但已经发出的 HTTP provider 请求仍可能先完成。
+  对话内容下面显示更醒目的 `LIVE WORK` strip，展示 phase、signal 和下一步 guidance。
+  Provider thinking 不再显示假进度百分比。状态栏、elapsed time、lane snapshot 和审批桥接
+  都可以持续刷新。`Ctrl-C` 会请求取消；但已经发出的 HTTP provider 请求仍可能先完成。
 - 支持 streaming 的 HTTP provider 在 TUI turn 中会请求 server-sent streaming。
   模型返回的 text delta 会先追加到临时 assistant transcript 行里；turn 完成后，
   再替换为正式持久化 transcript event。
@@ -279,14 +279,20 @@ Runtime：
 /status
 /config
 /doctor
-/permissions [mode]
+/mode [build|plan]
+/permissions [level]
 /plan [on|off]
 /test <command>
 ```
 
-`/plan` 是即时 TUI 命令：它只切换只读规划模式，完成后会直接回到可输入状态，
+`/plan` 是即时 TUI 命令：它切换到 Plan 模式，完成后会直接回到可输入状态，
 不会启动一次 provider turn。在首次启动的 welcome 屏里，`/plan` 会继续停留在
 welcome 输入界面，直到提交真正任务 prompt 后才进入完整会话页。
+
+Plan 模式用于规划产品需求、架构、实现方案、测试策略和开发计划。它可以读取和分析项目，
+但不会写代码、修改文件、执行 mutating shell/Git/workflow 操作，计划内容先输出在 transcript
+里。确认要实现后，再切回 Build，并选择 `ask`、`auto_edit`、`read_only` 或
+`full_access` 作为 permission level。
 
 Sessions：
 
@@ -463,16 +469,21 @@ tool read_file path=Cargo.toml
 tool grep pattern=SessionEngine path=robocode-core/src
 ```
 
-## 权限模式
+## 模式和权限
 
-Permission modes：
+RoboCode 把工作意图和信任等级分开：
 
-- `default`：safe reads 允许，mutating actions 询问。
-- `acceptEdits`：文件编辑更积极地接受，shell/Git mutation 仍走策略。
-- `plan`：拒绝 mutating actions，适合只读规划。
-- `dontAsk` 和 `bypassPermissions`：用于可信本地工作流。
+- Work Mode：`build` 用于实现，`plan` 用于产品需求、架构、实现方案、测试策略和开发计划。
+- Permission Level：`ask`、`auto_edit`、`read_only` 或 `full_access`。
 
-权限路径覆盖文件变更、shell、Git、workflow task/memory 变更，以及 write-capable delegated Codex jobs。
+`/plan` 是进入 Plan work mode 并切到 Read Only permission level 的快捷入口，不写代码。
+`/permissions` 只改变信任边界，不改变 provider/model，也不改变 work mode。
+
+`default`、`acceptEdits`、`bypassPermissions` 和 `dontAsk` 等兼容 alias 仍会被 parser 接受，
+用于旧配置和脚本；新的文档和 UI 使用 canonical permission-level 名称。
+
+权限路径覆盖文件变更、shell、Git、workflow task/memory 变更，以及 write-capable delegated
+Codex jobs。
 
 ## Sessions、Tasks 和 Memory
 

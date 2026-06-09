@@ -57,13 +57,16 @@ fn top_bar_content(state: &TuiState, width: usize) -> String {
     let session = compact_middle(&state.session_id, 8);
     let branch = truncate(&state.workspace.git_branch, 10);
     let provider = display_provider(&state.provider);
+    let work_mode = state.provider_status.work_mode.label();
+    let permission_level = state.provider_status.permission_level.label();
     let mut chips = vec![
         chip("PROVIDER", &format!("● {provider}")),
         chip("MODEL", &state.model),
+        chip("WORK", work_mode),
         chip("SESSION", &session),
         chip("CONTEXT", state.provider_status.context_window.as_str()),
         chip("GIT", &branch),
-        chip("PERMISSIONS", "@ Suggest ▾"),
+        chip("PERM", &format!("{permission_level} ▾")),
     ];
     let status = right_status_cluster(state, StatusDensity::Full);
     let mut content = top_bar_with_status(&chips, &status, width);
@@ -74,10 +77,11 @@ fn top_bar_content(state: &TuiState, width: usize) -> String {
     chips = vec![
         chip("PROVIDER", &compact_middle(&format!("● {provider}"), 12)),
         chip("MODEL", &compact_middle(&state.model, 12)),
+        chip("WORK", work_mode),
         chip("SESSION", &session),
         chip("CONTEXT", state.provider_status.context_window.as_str()),
         chip("GIT", &branch),
-        chip("PERMISSIONS", "Suggest"),
+        chip("PERM", permission_level),
     ];
     let status = right_status_cluster(state, StatusDensity::Compact);
     content = top_bar_with_status(&chips, &status, width);
@@ -87,10 +91,11 @@ fn top_bar_content(state: &TuiState, width: usize) -> String {
     chips = vec![
         chip("PROVIDER", &compact_middle(&format!("● {provider}"), 11)),
         chip("MODEL", &compact_middle(&state.model, 10)),
+        chip("WORK", work_mode),
         chip("SESSION", &session),
         chip("CONTEXT", state.provider_status.context_window.as_str()),
         chip("GIT", &branch),
-        chip("PERMISSIONS", "Suggest"),
+        chip("PERM", permission_level),
     ];
     let status = right_status_cluster(state, StatusDensity::Tiny);
     content = top_bar_with_status(&chips, &status, width);
@@ -224,6 +229,7 @@ mod tests {
         ProviderOption, ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot,
     };
     use robocode_core::ProviderTelemetry;
+    use robocode_types::{PermissionLevel, WorkMode};
 
     fn state_with_status(provider_status: ProviderStatus) -> TuiState {
         TuiState {
@@ -292,5 +298,17 @@ mod tests {
         let state = state_with_status(ProviderStatus::configured());
 
         assert_eq!(telemetry_status(&state), "telemetry idle");
+    }
+
+    #[test]
+    fn top_bar_uses_runtime_mode_and_permission_state() {
+        let mut state = state_with_status(ProviderStatus::configured());
+        state.provider_status.work_mode = WorkMode::Plan;
+        state.provider_status.permission_level = PermissionLevel::ReadOnly;
+
+        let content = super::top_bar_content(&state, 200);
+
+        assert!(content.contains("[WORK Plan]"));
+        assert!(content.contains("[PERM Read Only"));
     }
 }

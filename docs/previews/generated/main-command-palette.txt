@@ -23,18 +23,18 @@
 
                       ▌ /
                       ▌
-                      ┌ COMMANDS ─────────────────────────────────────────────────────────── 1-6/31 ↑↓ tab enter esc ┐
+                      ┌ COMMANDS ─────────────────────────────────────────────────────────── 1-6/32 ↑↓ tab enter esc ┐
                       │ › /help                                                 Show commands                        │
                       │   /connect                                              Connect or configure providers       │
                       │   /provider                                             List or switch providers             │
-                      │   /permissions                                          Select approval mode                 │
+                      │   /permissions                                          Select permission level              │
+                      │   /mode                                                 Select work mode                     │
                       │   /settings                                             Configure provider/model             │
-                      │   /setup                                                First-run setup guide                │
                       └──────────────────────────────────────────────────────────────────────────────────────────────┘
 
 
 
 
 
-~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.25
+~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.26
 

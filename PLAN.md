@@ -90,23 +90,19 @@ Current published release (`0.1.23`):
 - GitHub Release assets, Homebrew tap update, and post-publish smoke are part
   of the same release unit.
 
-Current patch release (`0.1.25`):
+Current patch release (`0.1.26`):
 
-- `docs/release-0.1.25-plan.md` defines **TUI Display Cleanup And Idle
+- `docs/release-0.1.26-plan.md` defines **TUI Regression Pack And Mode
   Stability**.
-- The target is visible coding-loop reliability: long-idle repaint, focus/paste
-  repaint, composer protocol-residue filtering, modal clearing, popup
-  placement, scrollback, caret/IME, and screenshot evidence.
-- The release is gated by `docs/spec-review-0.1.25.md`, deterministic TUI
-  regression, plan-mode smoke, daily-loop smoke, live DeepSeek development
-  smoke, screenshots/previews, GitHub Release assets, and Homebrew sync.
+- The target is visible coding-loop reliability after the 0.1.25 display pass:
+  truthful Mode / Permission chips, active-turn input queueing, cancellation,
+  scrollback, stale-thinking cleanup, resize evidence, and screenshot evidence.
+- The release is gated by deterministic TUI regression, plan-mode smoke,
+  daily-loop smoke, live DeepSeek development smoke with token/cost evidence,
+  GitHub Release assets, and Homebrew sync.
 
 0.1.x final planning:
 
-- `0.1.26`: TUI regression pack - turn welcome, main idle, thinking,
-  streaming, approval, provider setup, model picker, command palette, side-1,
-  side-2, error recovery, and resize states into deterministic preview/smoke
-  evidence.
 - `0.1.27`: daily coding loop hardening - prove a real prompt -> streaming ->
   tool/approval -> test/diff -> final answer loop without blocking input or
   losing history.

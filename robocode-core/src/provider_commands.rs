@@ -176,15 +176,16 @@ impl SessionEngine {
             return Ok(render_permission_picker(self.mode()));
         };
         let parsed = PermissionMode::parse_cli(mode)
-            .ok_or_else(|| format!("Unknown permission mode `{mode}`"))?;
+            .ok_or_else(|| format!("Unknown permission level `{mode}`"))?;
         self.set_permission_mode(parsed)?;
         self.runtime_snapshot.permission_mode = parsed;
+        let level = robocode_types::PermissionLevel::from_legacy_mode(parsed);
         Ok(format!(
-            "Permission mode set to {}\nCurrent settings: provider {} / model {} / permissions {}.",
-            parsed.cli_name(),
+            "Permission level set to {}\nCurrent settings: provider {} / model {} / permissions {}.",
+            level.cli_name(),
             self.provider.provider_name(),
             self.provider.model(),
-            parsed.cli_name()
+            level.cli_name()
         ))
     }
 
@@ -291,7 +292,7 @@ impl SessionEngine {
             "Fast actions:".to_string(),
             "  /setup provider       open provider configuration choices".to_string(),
             "  /models               open model choices grouped by provider".to_string(),
-            "  /settings permissions open approval mode choices".to_string(),
+            "  /settings permissions open permission level choices".to_string(),
             "  /settings theme       open TUI theme choices".to_string(),
             "  /settings provider deepseek deepseek-v4-flash".to_string(),
             "  /model deepseek-v4-flash  (current provider only)".to_string(),
@@ -946,17 +947,16 @@ fn render_provider_doctor_detail(descriptor: &ProviderDescriptor) -> String {
 }
 
 fn render_permission_picker(current: PermissionMode) -> String {
+    let current_level = robocode_types::PermissionLevel::from_legacy_mode(current);
     [
-        "Choose permission mode:".to_string(),
-        format!("  Current: {}", current.cli_name()),
-        "  Enter one command below. It switches immediately.".to_string(),
+        "Choose permission level:".to_string(),
+        format!("  Current: {}", current_level.cli_name()),
+        "  Enter one command below. Work mode is changed with /mode.".to_string(),
         "".to_string(),
-        "  - Suggest before mutations   command: /settings permissions default".to_string(),
-        "  - Auto-accept file edits     command: /settings permissions acceptEdits".to_string(),
-        "  - Plan/read-only             command: /settings permissions plan".to_string(),
-        "  - YOLO trusted workspace     command: /settings permissions bypassPermissions"
-            .to_string(),
-        "  - Deny instead of asking     command: /settings permissions dontAsk".to_string(),
+        "  - Ask before mutations       command: /settings permissions ask".to_string(),
+        "  - Auto-accept file edits     command: /settings permissions auto_edit".to_string(),
+        "  - Read-only permissions      command: /settings permissions read_only".to_string(),
+        "  - Full trusted workspace     command: /settings permissions full_access".to_string(),
     ]
     .join("\n")
 }

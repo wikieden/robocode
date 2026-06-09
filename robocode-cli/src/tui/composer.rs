@@ -65,7 +65,7 @@ pub(super) fn render_composer(frame: &mut Frame, state: &TuiState, bottom_bar_he
     frame.write_line(
         top + 4,
         &bordered_row(
-            &composer_actions(frame.width.saturating_sub(4)),
+            &composer_actions(state, frame.width.saturating_sub(4)),
             frame.width,
         ),
     );
@@ -95,10 +95,11 @@ fn composer_input_row(state: &TuiState, width: usize) -> String {
             content_width.saturating_sub(6)
         )
     );
+    let mode_chip = format!("MODE {} ▾", state.provider_status.work_mode.label());
     format!(
         "│ {}│ {} │",
         pad(&input, width.saturating_sub(18)),
-        pad("MODE Code ▾", 12)
+        pad(&truncate(&mode_chip, 12), 12)
     )
 }
 
@@ -162,21 +163,37 @@ pub(super) fn composer_anchor(
     }
 }
 
-fn composer_actions(width: usize) -> String {
-    let left = "APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]";
-    let right = "ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help]";
-    let left_width = char_width(left);
+fn composer_actions(state: &TuiState, width: usize) -> String {
+    let left = format!(
+        "MODE [{}]  PERM [{}]",
+        state.provider_status.work_mode.label(),
+        state.provider_status.permission_level.label()
+    );
+    let right = if state.pending_turn.is_some() {
+        "ACTIONS: [^J Queue] [^C Cancel] [PgUp History] [? Help]"
+    } else {
+        "ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help]"
+    };
+    let left_width = char_width(&left);
     let right_width = char_width(right);
     if left_width + right_width + 3 <= width {
         return format!(
-            "{left}{} {right}",
+            "{}{} {right}",
+            left,
             " ".repeat(width.saturating_sub(left_width + right_width + 1))
         );
     }
     if left_width <= width {
-        return left.to_string();
+        return left;
     }
-    truncate(&format!("{left}   {right}"), width)
+    truncate(
+        &format!(
+            "MODE {}  PERMISSIONS {}",
+            state.provider_status.work_mode.label(),
+            state.provider_status.permission_level.label()
+        ),
+        width,
+    )
 }
 
 fn is_session_entry(entry: &super::state::TuiEntry) -> bool {
@@ -325,6 +342,7 @@ fn positioned_line(width: usize, left: usize, value: &str) -> String {
 mod tests {
     use super::*;
     use crate::tui::state::{ProviderStatus, TerminalLane, WorkspaceSnapshot};
+    use robocode_types::{PermissionLevel, WorkMode};
 
     fn state_with_input(input: &str) -> TuiState {
         TuiState {
@@ -382,7 +400,24 @@ mod tests {
         assert!(lines[34].contains("│"));
         assert!(lines[35].contains("› hello"));
         assert!(lines[36].contains("│"));
-        assert!(lines[37].contains("APPROVAL MODE:"));
+        assert!(lines[37].contains("MODE"));
+        assert!(lines[37].contains("PERM"));
+    }
+
+    #[test]
+    fn composer_actions_use_runtime_mode_and_permission_state() {
+        let mut state = state_with_input("hello");
+        state.provider_status.work_mode = WorkMode::Plan;
+        state.provider_status.permission_level = PermissionLevel::ReadOnly;
+
+        let mut frame = Frame::new(120, 40);
+        render_composer(&mut frame, &state, 1);
+        let rendered = frame.to_string();
+
+        assert!(rendered.contains("MODE [Plan]"));
+        assert!(rendered.contains("PERM [Read Only]"));
+        assert!(rendered.contains("MODE Plan"));
+        assert!(!rendered.contains("MODE Code"));
     }
 
     #[test]
@@ -413,6 +448,26 @@ mod tests {
         let rendered = frame.to_string();
 
         assert!(rendered.contains("1 prompt queued; type another prompt"));
+    }
+
+    #[test]
+    fn composer_actions_show_queue_and_cancel_during_active_turn() {
+        let mut state = state_with_input("");
+        state.pending_turn = Some(super::super::state::PendingTurn::new(
+            "session",
+            "deepseek",
+            "deepseek-v4-flash",
+            "first task",
+            "/tmp/project",
+        ));
+
+        let mut frame = Frame::new(120, 40);
+        render_composer(&mut frame, &state, 1);
+        let rendered = frame.to_string();
+
+        assert!(rendered.contains("[^J Queue]"));
+        assert!(rendered.contains("[^C Cancel]"));
+        assert!(!rendered.contains("[^R Regenerate]"));
     }
 
     #[test]

@@ -3,6 +3,8 @@
 This document records the current TUI target so implementation stays aligned
 with the generated reference visuals and the terminal-agent workflow.
 
+Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-design.md).
+
 ## Visual Baseline
 
 - Primary visual state: **no modal open**. Dialogs must inherit the same
@@ -18,19 +20,18 @@ with the generated reference visuals and the terminal-agent workflow.
 
 ## Main Screen
 
-- Top bar: product, provider, model, session, context window, Git branch,
-  permission mode, active-lane count, and telemetry availability.
+- Top bar: product, provider, model, session, context window, Git branch, work
+  mode, permission level, active-lane count, and telemetry availability.
 - Transcript: dominant left pane, timeline-styled entries, recent rows kept
   visible at the bottom.
-- Live activity: an inline tail row inside the transcript area, directly after
-  the latest visible conversation entry, that answers what RoboCode is doing
-  right now with a small pulse glyph such as `RoboCode is planning ·`,
-  `Editing src/render.rs`, waiting for approval, or supervising active lanes.
+- Live activity: a prominent `LIVE WORK` strip inside the transcript area,
+  directly after the latest visible conversation entry, that answers what
+  RoboCode is doing right now with phase, signal, and next-action guidance.
 - Right rail: workspace, active tasks, diagnostics, provider health, recent
   files.
 - Composer: always visible at the bottom, with a taller three-row input well,
-  native blinking bar cursor placed inside the input row, action hints, and
-  approval-mode chips.
+  native blinking bar cursor placed inside the input row, action hints, work
+  mode chips, and permission level chips.
 - Bottom status: connection, session, event count, active lanes, context window,
   theme/help hints. Token, cost, and rate metrics should appear only after real
   provider telemetry is wired.
@@ -231,14 +232,15 @@ model.
 - The composer uses display-width aware text handling for CJK input, keeps a
   native blinking bar cursor visible in the input row, and reserves a taller
   input well so the prompt remains easy to find during long sessions.
-- The main transcript keeps a compact inline activity hint at the live tail,
-  directly below the latest conversation content, instead of a blocking center
-  card or a detached top strip. It derives status from pending approvals, the
-  unified `AgentTask` view, the latest user turn, the latest tool call, or the
-  latest transcript entry, so the main screen can show a pulsing
-  `RoboCode is planning`, `Approval needed: ...`, `Supervising 2 agents: ...`,
-  compact edit summaries, delegated-agent progress, and a human-readable signal
-  without inventing runtime data.
+- The main transcript keeps a compact but prominent `LIVE WORK` strip at the
+  live tail, directly below the latest conversation content, instead of a
+  blocking center card or a detached top strip. It derives status from pending
+  approvals, the unified `AgentTask` view, the latest user turn, the latest
+  tool call, or the latest transcript entry, so the main screen can show
+  `RoboCode working`, `Approval needed: ...`, `Supervising 2 agents: ...`,
+  compact edit summaries, delegated-agent progress, next actions, and a
+  human-readable signal without inventing runtime data or fake provider
+  progress percentages.
 - Approval overlays and `waiting_approval` tasks must be treated as live only
   until a later approval resolution, tool result, assistant reply, or `/test`
   command result closes them. Closed approvals must not keep blocking the

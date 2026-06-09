@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 
 use crate::{DependencyStatus, DoctorReport, EngineEvent, SessionEngine};
 use robocode_model::ProviderHost;
-use robocode_types::{AgentTaskStatus, ApprovalResponse};
+use robocode_types::{AgentTaskStatus, ApprovalResponse, PermissionMode, WorkMode};
 
 use super::{SequenceProvider, temp_dir};
 
@@ -55,7 +55,8 @@ fn status_command_reports_current_runtime_state() {
         EngineEvent::Command(text)
             if text.contains("Session:")
                 && text.contains("Provider:")
-                && text.contains("Permission mode:")
+                && text.contains("Work mode:")
+                && text.contains("Permission level:")
                 && text.contains("Transcript:")
                 && text.contains("Index:")
     )));
@@ -717,10 +718,11 @@ fn settings_permissions_without_args_renders_actionable_picker() {
     assert!(output.iter().any(|event| matches!(
         event,
         EngineEvent::Command(text)
-            if text.contains("Choose permission mode:")
-                && text.contains("/settings permissions default")
-                && text.contains("/settings permissions acceptEdits")
-                && text.contains("/settings permissions bypassPermissions")
+            if text.contains("Choose permission level:")
+                && text.contains("/settings permissions ask")
+                && text.contains("/settings permissions auto_edit")
+                && text.contains("/settings permissions read_only")
+                && text.contains("/settings permissions full_access")
     )));
 }
 
@@ -743,8 +745,44 @@ fn settings_permissions_sets_permission_mode() {
     assert!(output.iter().any(|event| matches!(
         event,
         EngineEvent::Command(text)
-            if text.contains("Permission mode set to plan")
-                && text.contains("provider sequence / model test-model / permissions plan")
+            if text.contains("Permission level set to read_only")
+                && text.contains("provider sequence / model test-model / permissions read_only")
+    )));
+}
+
+#[test]
+fn mode_command_switches_between_plan_and_build_work_modes() {
+    let home = temp_dir("mode_command_home");
+    let cwd = temp_dir("mode_command_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let plan_output = engine
+        .process_input_with_approval("/mode plan", &mut approver)
+        .unwrap();
+    assert_eq!(engine.work_mode(), WorkMode::Plan);
+    assert_eq!(engine.mode(), PermissionMode::Plan);
+    assert!(plan_output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Work mode set to plan")
+                && text.contains("permission read_only")
+    )));
+
+    let build_output = engine
+        .process_input_with_approval("/mode build", &mut approver)
+        .unwrap();
+    assert_eq!(engine.work_mode(), WorkMode::Build);
+    assert_eq!(engine.mode(), PermissionMode::Default);
+    assert!(build_output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Work mode set to build")
+                && text.contains("permission ask")
     )));
 }
 

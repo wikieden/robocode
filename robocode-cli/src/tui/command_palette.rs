@@ -282,7 +282,7 @@ impl SelectorKind {
             Self::Provider => "Enter connect   /models model picker   esc close",
             Self::Model => "Enter switch   /connect activates models   esc close",
             Self::Lane => "Enter open/run   lane ids appear after a lane starts",
-            Self::Permissions => "Enter apply   Suggest is the safe default",
+            Self::Permissions => "Enter apply   Ask is the safe default",
             Self::Theme => "Enter apply   Ctrl+T cycles theme",
         }
     }
@@ -1010,7 +1010,7 @@ struct CommandTemplate {
     summary: &'static str,
 }
 
-const COMMANDS: [CommandTemplate; 31] = [
+const COMMANDS: [CommandTemplate; 32] = [
     CommandTemplate {
         command: "/help",
         summary: "Show commands",
@@ -1025,7 +1025,11 @@ const COMMANDS: [CommandTemplate; 31] = [
     },
     CommandTemplate {
         command: "/permissions",
-        summary: "Select approval mode",
+        summary: "Select permission level",
+    },
+    CommandTemplate {
+        command: "/mode",
+        summary: "Select work mode",
     },
     CommandTemplate {
         command: "/settings",
@@ -1377,7 +1381,7 @@ const SETTINGS_COMMANDS: [CommandTemplate; 8] = [
     },
     CommandTemplate {
         command: "/settings permissions",
-        summary: "Select approval mode",
+        summary: "Select permission level",
     },
     CommandTemplate {
         command: "/settings theme",
@@ -1397,26 +1401,33 @@ const SETTINGS_COMMANDS: [CommandTemplate; 8] = [
     },
 ];
 
-const PERMISSION_COMMANDS: [CommandTemplate; 5] = [
+const PERMISSION_COMMANDS: [CommandTemplate; 4] = [
     CommandTemplate {
-        command: "/permissions default",
-        summary: "Suggest before mutations",
+        command: "/permissions ask",
+        summary: "Ask before mutations",
     },
     CommandTemplate {
-        command: "/permissions acceptEdits",
+        command: "/permissions auto_edit",
         summary: "Auto-accept file edits",
     },
     CommandTemplate {
-        command: "/permissions plan",
-        summary: "Read-only planning mode",
+        command: "/permissions read_only",
+        summary: "Read-only permission level",
     },
     CommandTemplate {
-        command: "/permissions bypassPermissions",
-        summary: "YOLO trusted workspace",
+        command: "/permissions full_access",
+        summary: "Trusted local automation",
+    },
+];
+
+const MODE_COMMANDS: [CommandTemplate; 2] = [
+    CommandTemplate {
+        command: "/mode build",
+        summary: "Build, edit, test, and iterate",
     },
     CommandTemplate {
-        command: "/permissions dontAsk",
-        summary: "Deny prompts instead of asking",
+        command: "/mode plan",
+        summary: "Plan requirements, architecture, and tasks",
     },
 ];
 
@@ -1719,6 +1730,7 @@ fn is_nested_command_query(input: &str) -> bool {
         "/setup",
         "/model",
         "/models",
+        "/mode",
         "/permissions",
         "/theme",
         "/lsp",
@@ -1750,6 +1762,7 @@ fn nested_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<Comma
         .or_else(|| provider_command_suggestions(query, state))
         .or_else(|| settings_command_suggestions(query, state))
         .or_else(|| model_command_suggestions(query, state))
+        .or_else(|| mode_command_suggestions(query))
         .or_else(|| permission_command_suggestions(query))
         .or_else(|| theme_command_suggestions(query))
         .or_else(|| memory_command_suggestions(query, state))
@@ -1798,6 +1811,10 @@ fn mcp_command_suggestions(query: &str) -> Option<Vec<CommandSuggestion>> {
 
 fn skill_command_suggestions(query: &str) -> Option<Vec<CommandSuggestion>> {
     template_group_suggestions(query, "/skills", &SKILL_COMMANDS)
+}
+
+fn mode_command_suggestions(query: &str) -> Option<Vec<CommandSuggestion>> {
+    template_group_suggestions(query, "/mode", &MODE_COMMANDS)
 }
 
 fn lane_command_suggestions(query: &str, state: &TuiState) -> Option<Vec<CommandSuggestion>> {
@@ -1928,7 +1945,7 @@ fn setup_templates(state: &TuiState) -> Vec<CommandSuggestion> {
         },
         CommandSuggestion {
             command: "/settings permissions".to_string(),
-            summary: "Pick approval mode before edits run".to_string(),
+            summary: "Pick permission level before edits run".to_string(),
         },
         CommandSuggestion {
             command: "/settings theme".to_string(),
@@ -4045,7 +4062,7 @@ mod tests {
         assert!(
             command_suggestions_for_state(&permissions)
                 .iter()
-                .any(|item| item.command == "/settings permissions acceptEdits")
+                .any(|item| item.command == "/settings permissions auto_edit")
         );
         assert!(
             command_suggestions_for_state(&themes)

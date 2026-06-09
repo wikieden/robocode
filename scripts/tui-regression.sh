@@ -75,19 +75,25 @@ for name, path in required.items():
 main_lines = required["main"].read_text(encoding="utf-8").splitlines()
 if len(main_lines) != 40:
     fail(f"main preview has {len(main_lines)} lines, expected 40")
-if not any("✦" in line for line in main_lines):
-    fail("main preview does not show inline activity")
+if not any("LIVE WORK" in line for line in main_lines):
+    fail("main preview does not show live work activity")
 if not any("RoboCode >" in line for line in main_lines):
     fail("main preview does not show composer title")
 if not any("› " in line for line in main_lines):
     fail("main preview does not show composer prompt")
 
 main_live_turn = required["main_live_turn"].read_text(encoding="utf-8")
-if "is planning" not in main_live_turn or "live provider request" not in main_live_turn:
+if (
+    "LIVE WORK" not in main_live_turn
+    or "live provider request" not in main_live_turn
+    or "input open" not in main_live_turn
+    or "[^J Queue]" not in main_live_turn
+    or "[^C Cancel]" not in main_live_turn
+):
     fail("main live-turn preview does not show provider activity evidence")
 
 main_resize = required["main_resize"].read_text(encoding="utf-8")
-if "Resize-safe redraw check" not in main_resize or "✦" not in main_resize:
+if "Resize-safe redraw check" not in main_resize or "LIVE WORK" not in main_resize:
     fail("resize preview does not show redraw/inline activity evidence")
 
 main_cjk_input = required["main_cjk_input"].read_text(encoding="utf-8")
@@ -139,7 +145,7 @@ if len(artifacts) < 6:
             "screenshots": artifacts,
             "checks": [
                 "line counts",
-                "inline activity",
+                "live work activity",
                 "composer visibility",
                 "live provider turn evidence",
                 "resize redraw evidence",

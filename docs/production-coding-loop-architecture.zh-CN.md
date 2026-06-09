@@ -381,8 +381,9 @@ flowchart TD
    或 `PendingApproval` 状态，由主循环继续处理键盘/鼠标。
 6. queued follow-up 要进入 core-visible state，至少在 `RuntimeViewSnapshot` 里可见，后续可迁到
    `robocode-core` 的 turn queue。
-7. Plan mode 只是 permission policy，不应该改变输入并发模型：
-   - plan mode 下 mutating tools 被 permission layer 阻止；
+7. Plan mode 是 planner intent 加 read-only enforcement，不应该改变输入并发模型：
+   - provider instruction 只产出需求、架构、实现方案、测试策略和任务计划，不写代码；
+   - plan mode 下 mutating tools 被 permission layer 阻止，并且不通过 native tool schema 暴露；
    - 用户仍然可以继续输入下一步；
    - 如果当前 turn 在计划，下一条输入进入 queue 或显式 interrupt/replace。
 
@@ -493,7 +494,7 @@ provider、LSP、MCP 或用户审批，都不能在 TUI 主事件循环里同步
 | provider request | 网络慢、stream 间隔长、超时 | worker thread + `TurnEvent` channel + cancel token | composer 可输入，follow-up 可入队 |
 | streaming render | 高频 delta 导致重绘撕裂 | append delta + render cadence throttle | scrollback 不被抢到底部 |
 | approval | 当前 `event::read` 子循环接管输入 | `PendingApproval` state + response callback | 鼠标、resize、scroll、输入都继续走主循环 |
-| `/plan` turn | 规划很久导致不能输入下一步 | plan 是 permission policy，turn 仍走 `TurnController` | 下一步进入 queue 或 interrupt |
+| `/plan` turn | 规划很久导致不能输入下一步 | planner intent + read-only permission，turn 仍走 `TurnController` | 下一步进入 queue 或 interrupt |
 | `/connect`/`/models` | 表单/doctor/model 查询卡住 welcome | panel state + async doctor/probe event | 配置后回 welcome，不启动会话 |
 | ContextBundle build | 大 repo、长日志、压缩耗时 | background context job + progress events | 显示 context building，可取消 |
 | shell/tool execution | 命令卡住或输出很大 | job worker + bounded tail + artifact file | tail 流式显示，输入不阻塞 |

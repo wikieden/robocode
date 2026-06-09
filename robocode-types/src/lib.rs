@@ -379,14 +379,121 @@ pub enum PermissionMode {
     Plan,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum WorkMode {
+    Plan,
+    #[default]
+    Build,
+    Review,
+    Explore,
+}
+
+impl WorkMode {
+    pub fn parse_cli(input: &str) -> Option<Self> {
+        match input.trim() {
+            "plan" => Some(Self::Plan),
+            "build" | "code" | "coding" => Some(Self::Build),
+            "review" => Some(Self::Review),
+            "explore" | "inspect" => Some(Self::Explore),
+            _ => None,
+        }
+    }
+
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Self::Plan => "plan",
+            Self::Build => "build",
+            Self::Review => "review",
+            Self::Explore => "explore",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Plan => "Plan",
+            Self::Build => "Build",
+            Self::Review => "Review",
+            Self::Explore => "Explore",
+        }
+    }
+}
+
+impl Display for WorkMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.cli_name())
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionLevel {
+    #[default]
+    Ask,
+    AutoEdit,
+    Auto,
+    ReadOnly,
+    FullAccess,
+}
+
+impl PermissionLevel {
+    pub fn parse_cli(input: &str) -> Option<Self> {
+        match input.trim() {
+            "ask" | "suggest" | "default" => Some(Self::Ask),
+            "auto_edit" | "auto-edit" | "acceptEdits" | "accept_edits" => Some(Self::AutoEdit),
+            "auto" => Some(Self::Auto),
+            "read_only" | "read-only" | "readonly" | "plan" => Some(Self::ReadOnly),
+            "full_access" | "full-access" | "full" | "bypassPermissions" | "bypass_permissions" => {
+                Some(Self::FullAccess)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Self::Ask => "ask",
+            Self::AutoEdit => "auto_edit",
+            Self::Auto => "auto",
+            Self::ReadOnly => "read_only",
+            Self::FullAccess => "full_access",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ask => "Ask",
+            Self::AutoEdit => "Auto Edit",
+            Self::Auto => "Auto",
+            Self::ReadOnly => "Read Only",
+            Self::FullAccess => "Full Access",
+        }
+    }
+
+    pub fn from_legacy_mode(mode: PermissionMode) -> Self {
+        match mode {
+            PermissionMode::Default => Self::Ask,
+            PermissionMode::AcceptEdits => Self::AutoEdit,
+            PermissionMode::BypassPermissions | PermissionMode::DontAsk => Self::FullAccess,
+            PermissionMode::Plan => Self::ReadOnly,
+        }
+    }
+}
+
+impl Display for PermissionLevel {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.cli_name())
+    }
+}
+
 impl PermissionMode {
     pub fn parse_cli(input: &str) -> Option<Self> {
         match input.trim() {
-            "default" => Some(Self::Default),
-            "acceptEdits" | "accept_edits" => Some(Self::AcceptEdits),
-            "bypassPermissions" | "bypass_permissions" => Some(Self::BypassPermissions),
+            "default" | "ask" | "suggest" => Some(Self::Default),
+            "acceptEdits" | "accept_edits" | "auto_edit" | "auto-edit" => Some(Self::AcceptEdits),
+            "bypassPermissions" | "bypass_permissions" | "full_access" | "full-access" | "full" => {
+                Some(Self::BypassPermissions)
+            }
             "dontAsk" | "dont_ask" => Some(Self::DontAsk),
-            "plan" => Some(Self::Plan),
+            "plan" | "read_only" | "read-only" | "readonly" => Some(Self::Plan),
             _ => None,
         }
     }
@@ -541,7 +648,9 @@ pub struct ModelRequest {
     pub model: String,
     pub messages: Vec<Message>,
     pub tools: Vec<ToolSpec>,
+    pub work_mode: WorkMode,
     pub permission_mode: PermissionMode,
+    pub permission_level: PermissionLevel,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -565,7 +674,9 @@ pub struct RuntimeSnapshot {
     pub cwd: PathBuf,
     pub provider_family: String,
     pub model_label: String,
+    pub work_mode: WorkMode,
     pub permission_mode: PermissionMode,
+    pub permission_level: PermissionLevel,
     pub config_summary: String,
     pub loaded_config_files: Vec<PathBuf>,
     pub startup_overrides: Vec<String>,

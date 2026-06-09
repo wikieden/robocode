@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn work_modes_and_permission_levels_parse_cli_names() {
+    assert_eq!(WorkMode::parse_cli("plan"), Some(WorkMode::Plan));
+    assert_eq!(WorkMode::parse_cli("build"), Some(WorkMode::Build));
+    assert_eq!(WorkMode::Plan.cli_name(), "plan");
+    assert_eq!(WorkMode::default(), WorkMode::Build);
+
+    assert_eq!(
+        PermissionLevel::parse_cli("ask"),
+        Some(PermissionLevel::Ask)
+    );
+    assert_eq!(
+        PermissionLevel::parse_cli("auto_edit"),
+        Some(PermissionLevel::AutoEdit)
+    );
+    assert_eq!(
+        PermissionLevel::parse_cli("read-only"),
+        Some(PermissionLevel::ReadOnly)
+    );
+    assert_eq!(
+        PermissionLevel::from_legacy_mode(PermissionMode::Plan),
+        PermissionLevel::ReadOnly
+    );
+    assert_eq!(
+        PermissionLevel::from_legacy_mode(PermissionMode::AcceptEdits),
+        PermissionLevel::AutoEdit
+    );
+}
+
+#[test]
 fn workflow_enums_roundtrip_through_cli_names_and_json() {
     assert_eq!(
         TaskStatus::parse_cli("in_progress"),

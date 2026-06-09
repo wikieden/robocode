@@ -405,8 +405,11 @@ Required changes:
    handled by the normal keyboard/mouse path.
 6. Queued follow-ups should become core-visible state, at least through
    `RuntimeViewSnapshot`, and later move into a core turn queue.
-7. Plan mode is only a permission policy:
-   - mutating tools are blocked by the permission layer;
+7. Plan mode is planner intent plus read-only enforcement:
+   - provider instructions produce requirements, architecture, implementation
+     approach, tests, and task plans, not code;
+   - mutating tools are blocked by the permission layer and not exposed through
+     native tool schemas;
    - users can still type the next step;
    - the next step queues or explicitly interrupts/replaces the active plan turn.
 
@@ -539,7 +542,7 @@ must never block the TUI main event loop.
 | provider request | slow network, long stream gap, timeout | worker thread + `TurnEvent` channel + cancel token | composer stays editable, follow-ups queue |
 | streaming render | high-frequency deltas causing visual tearing | append delta + render cadence throttle | scrollback is not stolen |
 | approval | current `event::read` sub-loop owns input | `PendingApproval` state + response callback | mouse, resize, scroll, and typing stay on the main loop |
-| `/plan` turn | long planning blocks next input | plan is permission policy; turn still uses `TurnController` | next step queues or interrupts |
+| `/plan` turn | long planning blocks next input | planner intent + read-only permission; turn still uses `TurnController` | next step queues or interrupts |
 | `/connect`/`/models` | form, doctor, or model query freezes welcome | panel state + async doctor/probe event | config returns to welcome without starting a session |
 | ContextBundle build | large repo, long logs, compaction cost | background context job + progress events | context building is visible and cancellable |
 | shell/tool execution | command hangs or emits huge output | job worker + bounded tail + artifact file | tail streams while input stays live |

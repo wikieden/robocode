@@ -1,18 +1,18 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.25  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L1      │
+│ RoboCode  v0.1.26  [PROVIDER ● OpenAI] [MODEL gpt-4o] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]   · auto L1    │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
-│      ┊  • Wrote 86 lines to tests/config_tests.rs (3.4 KB)                                        │ │ robocode/    ~/projects/robocode   │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ↳ src/          FILES    128       │
-│   ✣  ┊  ASSISTANT                                                                            #005 │ │ ↳ tests/        LINES  24531       │
-│      ┊  Tests are staged. I found one parser edge case and need to update `src/config.rs` before  │ │ ▣ Cargo.toml    LANGUAGE Rust      │
-│      ┊  running the suite.                                                                        │ │ ▣ README.md     EDITION   2024     │
+│      ┊  Tests are staged. I found one parser edge case and need to update `src/config.rs` before  │ │ robocode/    ~/projects/robocode   │
+│      ┊  running the suite.                                                                        │ │ ↳ src/          FILES    128       │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ↳ tests/        LINES  24531       │
+│   ♙  ┊  USER                                                                                 #006 │ │ ▣ Cargo.toml    LANGUAGE Rust      │
+│      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ │ ▣ README.md     EDITION   2024     │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ♙  ┊  USER                                                                                 #006 │ ┌ ACTIVE TASKS ─────────────────── 5 ┐
+│   ⚒  ┊  TOOL CALL                                                                            #007 │ ┌ ACTIVE TASKS ─────────────────── 4 ┐
 │                                                                                                   │ │ L1 ⛭ codex  s1/pty/01  64%         │
 │                     ┌ LANE DETAIL ────────────────────────────────── focus ┐                      │ │ tool-7 ✎ roboco local-tool/robo  5 │
-│                     │ L1 codex  [codex tty]                                │                      │ │ reply-6 ● RoboCo main/robo  15%    │
-│                     │ PTY    pty/01  PID ----     ROUTE main→side-1        │                      │ │ ● task_lo/prog Implement load_con  │
+│                     │ L1 codex  [codex tty]                                │                      │ │ ● task_lo/prog Implement load_con  │
+│                     │ PTY    pty/01  PID ----     ROUTE main→side-1        │                      │ │ ◆ task_re/block Review config test │
 │                     │ TASK   test fixes                                    │                      │ └────────────────────────────────────┘
 │                     │ STATE  ● ▓▓▓░░  64%                                  │                      │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
 │                     │ CMD    codex exec test fixes                         │                      │ │ diagnostics unavailable            │
@@ -26,15 +26,15 @@
 │                     │                                                      │                      │ │ LATENCY    last - avg -            │
 │                     │                                                      │                      │ │ TELEMETRY  awaiting first request  │
 │                     └──────────────────────────────────────────────────────┘                      │ │                                    │
-│      ┊      thread 'config_tests' panicked at src/config.rs:42:15                                 │ └────────────────────────────────────┘
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ ┌ RECENT FILES ──────────────── tail ┐
-│      ┊  ✦ Supervising 1 agent: codex testing •                                                    │ │ [Rs] src/config.rs         now     │
+│      │ ◉ Supervising 1 agent: codex testing                                                       │ └────────────────────────────────────┘
+│      │ phase testing · signal summary patched failing tests; rerunning cargo · codex testing · 64 │ ┌ RECENT FILES ──────────────── tail ┐
+│      │ next wait for test result · input open                                                     │ │ [Rs] src/config.rs         now     │
   ┌ COMMANDS ────────────────────────────────────────────────────────────────────────── ↑↓ tab enter esc ┐
   │ › /lane inspect L1                                          test fixes [running]                     │
   └──────────────────────────────────────────────────────────────────────────────────────────────────────┘
 │                                                                                                                           │              │
-│ › /lane inspect L1                                                                                                        │ MODE Code ▾  │
+│ › /lane inspect L1                                                                                                        │ MODE Build ▾ │
 │                                                                                                                           │              │
-│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
+│ MODE [Build]  PERM [Ask]                                              ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 │ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 8    ┆ LANES 1  ┆ CONTEXT 128k                                                 Press ? for help │

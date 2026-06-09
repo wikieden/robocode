@@ -34,8 +34,8 @@ use robocode_permissions::PermissionEngine;
 use robocode_session::SessionStore;
 use robocode_tools::ToolRegistry;
 use robocode_types::{
-    AgentTaskRecord, ContextBundleRecord, MemoryEntry, Message, ModelUsage, PermissionMode,
-    RuntimeSnapshot, TaskRecord,
+    AgentTaskRecord, ContextBundleRecord, MemoryEntry, Message, ModelUsage, PermissionLevel,
+    PermissionMode, RuntimeSnapshot, TaskRecord, WorkMode,
 };
 use robocode_workflows::stores::WorkflowStore;
 
@@ -191,11 +191,14 @@ impl SessionEngine {
             cwd: cwd.clone(),
             provider_family: provider.provider_name().to_string(),
             model_label: provider.model().to_string(),
+            work_mode: WorkMode::Build,
             permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
             config_summary: format!(
-                "provider={} model={} permission_mode={} session_home=<default> timeout=<unknown> retries=<unknown>",
+                "provider={} model={} work_mode={} permission_mode={} session_home=<default> timeout=<unknown> retries=<unknown>",
                 provider.provider_name(),
                 provider.model(),
+                WorkMode::Build.cli_name(),
                 PermissionMode::Default.cli_name()
             ),
             loaded_config_files: Vec::new(),
@@ -239,6 +242,7 @@ impl SessionEngine {
             provider_telemetry: ProviderTelemetry::default(),
             last_context_bundle: None,
         };
+        engine.persist_meta("work_mode", engine.runtime_snapshot.work_mode.cli_name())?;
         engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;
         let model = engine.provider.model().to_string();
         engine.persist_meta("model", &model)?;
@@ -325,7 +329,49 @@ impl SessionEngine {
 
     pub fn set_permission_mode(&mut self, mode: PermissionMode) -> Result<(), String> {
         self.permissions.set_mode(mode);
+        self.runtime_snapshot.permission_mode = mode;
+        self.runtime_snapshot.permission_level = PermissionLevel::from_legacy_mode(mode);
+        if mode == PermissionMode::Plan {
+            self.runtime_snapshot.work_mode = WorkMode::Plan;
+            self.persist_meta("work_mode", WorkMode::Plan.cli_name())?;
+        } else if self.runtime_snapshot.work_mode == WorkMode::Plan {
+            self.runtime_snapshot.work_mode = WorkMode::Build;
+            self.persist_meta("work_mode", WorkMode::Build.cli_name())?;
+        }
         self.persist_meta("permission_mode", mode.cli_name())
+    }
+
+    pub fn work_mode(&self) -> WorkMode {
+        self.runtime_snapshot.work_mode
+    }
+
+    pub fn permission_level(&self) -> PermissionLevel {
+        self.runtime_snapshot.permission_level
+    }
+
+    pub fn set_work_mode(&mut self, mode: WorkMode) -> Result<(), String> {
+        self.runtime_snapshot.work_mode = mode;
+        self.persist_meta("work_mode", mode.cli_name())?;
+        match mode {
+            WorkMode::Plan | WorkMode::Review | WorkMode::Explore => {
+                self.permissions.set_mode(PermissionMode::Plan);
+                self.runtime_snapshot.permission_mode = PermissionMode::Plan;
+                self.runtime_snapshot.permission_level = PermissionLevel::ReadOnly;
+                self.persist_meta("permission_mode", PermissionMode::Plan.cli_name())?;
+            }
+            WorkMode::Build => {
+                if self.permissions.mode() == PermissionMode::Plan {
+                    self.permissions.set_mode(PermissionMode::Default);
+                    self.runtime_snapshot.permission_mode = PermissionMode::Default;
+                    self.runtime_snapshot.permission_level = PermissionLevel::Ask;
+                    self.persist_meta("permission_mode", PermissionMode::Default.cli_name())?;
+                } else {
+                    self.runtime_snapshot.permission_level =
+                        PermissionLevel::from_legacy_mode(self.permissions.mode());
+                }
+            }
+        }
+        Ok(())
     }
 }
 

@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.25  [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]             │
+│ RoboCode  v0.1.26  [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]           │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────┐
 │   ·  ┊  SYSTEM                                                                              #001 │
@@ -8,11 +8,11 @@
 │   ♙  ┊  USER                                                                              latest │
 │      ┊  中文输入法候选窗应该靠近 composer 光标，输入区要保持足够高。                             │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
-│      ┊  ✦ Supervising 1 agent: codex testing ∙                                                   │
-│      ┊    └ codex testing · 64% · next wait for test result · summary patched failing tests; rer │
-│                                                                                                  │
-│                                                                                                  │
-│                                                                                                  │
+│      ╭─ LIVE WORK ∙ ────────────────────────────────────────────────────────────────────────     │
+│      │ ◉ Supervising 1 agent: codex testing                                                      │
+│      │ phase testing · signal summary patched failing tests; rerunning cargo · codex testing · 6 │
+│      │ next wait for test result · input open                                                    │
+│      ╰─────────────────────────────────────────────────────────────────────────────────────────  │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
@@ -23,8 +23,8 @@
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                   │              │
-│ › 你好，帮我检查当前变更                                                          │ MODE Code ▾  │
+│ › 你好，帮我检查当前变更                                                          │ MODE Build ▾ │
 │                                                                                   │              │
-│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                                             │
+│ MODE [Build]  PERM [Ask]      ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 │ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 2    ┆ LANES 1  ┆ CONTEXT 128k                  Press ? │

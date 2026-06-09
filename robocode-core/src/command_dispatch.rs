@@ -1,6 +1,7 @@
 use crate::{EngineEvent, SessionEngine, presentation::render_diff_view};
 use robocode_types::{
-    ApprovalResponse, CommandLogEntry, PermissionMode, TranscriptEntry, now_timestamp,
+    ApprovalResponse, CommandLogEntry, PermissionLevel, PermissionMode, TranscriptEntry, WorkMode,
+    now_timestamp,
 };
 
 impl SessionEngine {
@@ -36,31 +37,59 @@ impl SessionEngine {
             "/permissions" => {
                 if let Some(mode) = args.first() {
                     let parsed = PermissionMode::parse_cli(mode)
-                        .ok_or_else(|| format!("Unknown permission mode `{mode}`"))?;
+                        .ok_or_else(|| format!("Unknown permission level `{mode}`"))?;
                     self.permissions.set_mode(parsed);
+                    self.runtime_snapshot.permission_level =
+                        PermissionLevel::from_legacy_mode(parsed);
+                    if parsed == PermissionMode::Plan {
+                        self.runtime_snapshot.work_mode = WorkMode::Plan;
+                        self.persist_meta("work_mode", WorkMode::Plan.cli_name())?;
+                    } else if self.runtime_snapshot.work_mode == WorkMode::Plan {
+                        self.runtime_snapshot.work_mode = WorkMode::Build;
+                        self.persist_meta("work_mode", WorkMode::Build.cli_name())?;
+                    }
                     self.persist_meta("permission_mode", parsed.cli_name())?;
                     self.runtime_snapshot.permission_mode = parsed;
-                    format!("Permission mode set to {}", parsed.cli_name())
+                    format!(
+                        "Permission level set to {}",
+                        self.permission_level().cli_name()
+                    )
                 } else {
                     format!(
-                        "Current permission mode: {}",
-                        self.permissions.mode().cli_name()
+                        "Current permission level: {}",
+                        self.permission_level().cli_name()
+                    )
+                }
+            }
+            "/mode" => {
+                if let Some(mode) = args.first() {
+                    let parsed = WorkMode::parse_cli(mode)
+                        .ok_or_else(|| format!("Unknown work mode `{mode}`"))?;
+                    self.set_work_mode(parsed)?;
+                    format!(
+                        "Work mode set to {} / permission {}",
+                        self.work_mode().cli_name(),
+                        self.permission_level().cli_name()
+                    )
+                } else {
+                    format!(
+                        "Current work mode: {} / permission {}",
+                        self.work_mode().cli_name(),
+                        self.permission_level().cli_name()
                     )
                 }
             }
             "/plan" => {
                 let next_mode = match args.first().map(String::as_str) {
-                    Some("on") => PermissionMode::Plan,
-                    Some("off") => PermissionMode::Default,
-                    _ if self.permissions.mode() == PermissionMode::Plan => PermissionMode::Default,
-                    _ => PermissionMode::Plan,
+                    Some("on") => WorkMode::Plan,
+                    Some("off") => WorkMode::Build,
+                    _ if self.work_mode() == WorkMode::Plan => WorkMode::Build,
+                    _ => WorkMode::Plan,
                 };
-                self.permissions.set_mode(next_mode);
-                self.persist_meta("permission_mode", next_mode.cli_name())?;
-                self.runtime_snapshot.permission_mode = next_mode;
+                self.set_work_mode(next_mode)?;
                 format!(
                     "Plan mode is now {}",
-                    if next_mode == PermissionMode::Plan {
+                    if next_mode == WorkMode::Plan {
                         "on"
                     } else {
                         "off"

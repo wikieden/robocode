@@ -104,7 +104,9 @@ fn provider_without_key_falls_back_cleanly() {
                 is_mutating: false,
                 input_schema_hint: String::new(),
             }],
+            work_mode: WorkMode::Build,
             permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
         })
         .unwrap();
     assert!(
@@ -139,7 +141,9 @@ fn provider_request_control_cancels_before_dispatch() {
                 model: provider.model().to_string(),
                 messages: vec![Message::new(Role::User, "hello")],
                 tools: Vec::new(),
+                work_mode: WorkMode::Build,
                 permission_mode: PermissionMode::Default,
+                permission_level: PermissionLevel::Ask,
             },
             &control,
         )

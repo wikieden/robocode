@@ -1,5 +1,6 @@
 use robocode_types::{
-    Message, ModelRequest, Role, ToolInput, ToolSpec, decode_tool_input, fresh_id,
+    Message, ModelRequest, PermissionLevel, PermissionMode, Role, ToolInput, ToolSpec, WorkMode,
+    decode_tool_input, fresh_id,
 };
 use serde_json::{Map, Value, json};
 
@@ -18,14 +19,15 @@ pub(crate) fn build_anthropic_body_with_stream(
     let mut payload = json!({
         "model": model,
         "max_tokens": 2048,
-        "system": provider_system_prompt(),
+        "system": provider_system_prompt(request.work_mode, request.permission_mode),
         "messages": render_anthropic_messages(&request.messages),
     });
     if stream {
         payload["stream"] = Value::Bool(true);
     }
-    if !request.tools.is_empty() {
-        payload["tools"] = Value::Array(render_anthropic_tools(&request.tools));
+    let tools = provider_visible_tools(request);
+    if !tools.is_empty() {
+        payload["tools"] = Value::Array(render_anthropic_tools(&tools));
     }
     serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
 }
@@ -52,7 +54,7 @@ pub(crate) fn build_openai_body_with_stream_and_compat(
 ) -> String {
     let mut messages = vec![json!({
         "role": "system",
-        "content": provider_system_prompt(),
+        "content": provider_system_prompt(request.work_mode, request.permission_mode),
     })];
     messages.extend(render_openai_messages(&request.messages, compatibility));
     let mut payload = json!({
@@ -63,8 +65,9 @@ pub(crate) fn build_openai_body_with_stream_and_compat(
     if stream {
         payload["stream"] = Value::Bool(true);
     }
-    if !request.tools.is_empty() {
-        payload["tools"] = Value::Array(render_openai_tools(&request.tools));
+    let tools = provider_visible_tools(request);
+    if !tools.is_empty() {
+        payload["tools"] = Value::Array(render_openai_tools(&tools));
     }
     serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
 }
@@ -72,7 +75,7 @@ pub(crate) fn build_openai_body_with_stream_and_compat(
 pub(crate) fn build_ollama_body(model: &str, request: &ModelRequest) -> String {
     let mut messages = vec![json!({
         "role": "system",
-        "content": provider_system_prompt(),
+        "content": provider_system_prompt(request.work_mode, request.permission_mode),
     })];
     messages.extend(render_simple_messages(&request.messages));
     let payload = json!({
@@ -81,6 +84,19 @@ pub(crate) fn build_ollama_body(model: &str, request: &ModelRequest) -> String {
         "messages": messages,
     });
     serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn provider_visible_tools(request: &ModelRequest) -> Vec<ToolSpec> {
+    request
+        .tools
+        .iter()
+        .filter(|tool| {
+            let read_only = request.work_mode == WorkMode::Plan
+                || request.permission_level == PermissionLevel::ReadOnly;
+            !read_only || !tool.is_mutating
+        })
+        .cloned()
+        .collect()
 }
 
 fn render_anthropic_messages(messages: &[Message]) -> Vec<Value> {
@@ -289,15 +305,29 @@ fn tool_input_to_json(input: &ToolInput) -> Value {
     Value::Object(object)
 }
 
-fn provider_system_prompt() -> String {
-    [
+fn provider_system_prompt(work_mode: WorkMode, permission_mode: PermissionMode) -> String {
+    let mut lines = vec![
         "You are RoboCode, a coding assistant running in a terminal.",
         "When native tool calling is available, prefer the provided tool interface.",
         "If native tool calling is unavailable, respond with exactly one line in this format:",
         "tool <tool_name> key=value key=value",
         "Do not wrap tool calls in JSON or markdown fences.",
-        "Available tools include shell, read_file, write_file, edit_file, glob, grep, and git helpers.",
         "If no tool is required, answer normally in plain text.",
-    ]
-    .join("\n")
+    ];
+
+    if work_mode == WorkMode::Plan || permission_mode == PermissionMode::Plan {
+        lines.extend([
+            "Plan mode is active.",
+            "Plan product requirements, architecture, implementation approach, test strategy, and development tasks.",
+            "Do not write code, modify files, run mutating shell/Git/workflow actions, or claim that implementation is complete.",
+            "Use only read-only inspection tools when needed, then return the plan in the transcript.",
+            "Available tools are limited to read-only inspection such as read_file, glob, grep, and safe status/diff helpers.",
+        ]);
+    } else {
+        lines.push(
+            "Available tools include shell, read_file, write_file, edit_file, glob, grep, and git helpers.",
+        );
+    }
+
+    lines.join("\n")
 }

@@ -9,7 +9,7 @@ use crossterm::event::{
 };
 use robocode_core::SessionEngine;
 use robocode_model::ModelRequestControl;
-use robocode_types::{ApprovalResponse, PermissionPrompt};
+use robocode_types::{ApprovalResponse, PermissionLevel, PermissionPrompt, WorkMode};
 
 use super::command_palette::{
     close_on_escape, command_suggestion_index_at, complete_selected, move_selection,
@@ -48,6 +48,8 @@ type TuiRuntimeResult = Result<TuiRuntimeOutput, Box<TuiRuntimeFailure>>;
 struct TuiRuntimeSnapshot {
     provider: String,
     model: String,
+    work_mode: WorkMode,
+    permission_level: PermissionLevel,
     provider_catalog: Vec<ProviderOption>,
     provider_status: ProviderStatus,
     tasks: Vec<robocode_types::TaskRecord>,
@@ -60,6 +62,8 @@ impl TuiRuntimeSnapshot {
         Self {
             provider: engine.provider_name().to_string(),
             model: engine.model_name().to_string(),
+            work_mode: engine.work_mode(),
+            permission_level: engine.permission_level(),
             provider_catalog: provider_catalog(engine),
             provider_status: ProviderStatus::from_telemetry(&engine.provider_telemetry()),
             tasks: engine.active_task_snapshot().unwrap_or_default(),
@@ -72,6 +76,8 @@ impl TuiRuntimeSnapshot {
         Self {
             provider: String::new(),
             model: String::new(),
+            work_mode: WorkMode::Build,
+            permission_level: PermissionLevel::Ask,
             provider_catalog: Vec::new(),
             provider_status: ProviderStatus::configured(),
             tasks: Vec::new(),
@@ -694,6 +700,9 @@ fn initial_state(
     let tasks = engine.active_task_snapshot().unwrap_or_default();
     let memory = engine.memory_snapshot().unwrap_or_default();
     let provider_catalog = provider_catalog(engine);
+    let mut provider_status = ProviderStatus::from_telemetry(&engine.provider_telemetry());
+    provider_status.work_mode = engine.work_mode();
+    provider_status.permission_level = engine.permission_level();
     let entries = vec![TuiEntry {
         label: "system".to_string(),
         body: format!("RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.\n{startup_summary}"),
@@ -703,7 +712,7 @@ fn initial_state(
         provider: engine.provider_name().to_string(),
         model: engine.model_name().to_string(),
         provider_catalog,
-        provider_status: ProviderStatus::from_telemetry(&engine.provider_telemetry()),
+        provider_status,
         theme_name: theme_name.to_string(),
         input: String::new(),
         command_selection: 0,
@@ -755,8 +764,30 @@ fn handle_submitted_input(
         {
             return Ok(false);
         }
-        state.input = input;
-        queue_active_turn_input(state);
+        match active_turn_input_intent(&input) {
+            ActiveTurnInputIntent::Cancel => {
+                runtime.cancel_active_turn();
+                state.entries.push(TuiEntry {
+                    label: "system".to_string(),
+                    body: "Cancellation requested for the active provider turn. The composer stays available for your next prompt.".to_string(),
+                });
+            }
+            ActiveTurnInputIntent::ImmediateCommand => {
+                handle_immediate_runtime_command(runtime, state, &input)?;
+            }
+            ActiveTurnInputIntent::Command => {
+                state.input = input;
+                reset_for_input_change(state);
+                state.entries.push(TuiEntry {
+                    label: "system".to_string(),
+                    body: "Command kept in the composer while the active turn runs. Press Enter after it finishes, or type /cancel to stop the turn.".to_string(),
+                });
+            }
+            ActiveTurnInputIntent::Prompt => {
+                state.input = input;
+                queue_active_turn_input(state);
+            }
+        }
         return Ok(false);
     }
     state.entries.push(TuiEntry {
@@ -915,8 +946,44 @@ fn handle_immediate_runtime_command(
 fn is_immediate_runtime_command(input: &str) -> bool {
     matches!(
         input.split_whitespace().collect::<Vec<_>>().as_slice(),
-        ["/plan"] | ["/plan", "on"] | ["/plan", "off"]
+        ["/plan"]
+            | ["/plan", "on"]
+            | ["/plan", "off"]
+            | ["/mode"]
+            | ["/mode", "build"]
+            | ["/mode", "plan"]
     )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveTurnInputIntent {
+    Cancel,
+    ImmediateCommand,
+    Command,
+    Prompt,
+}
+
+fn active_turn_input_intent(input: &str) -> ActiveTurnInputIntent {
+    if is_active_turn_cancel_command(input) {
+        ActiveTurnInputIntent::Cancel
+    } else if is_immediate_runtime_command(input) {
+        ActiveTurnInputIntent::ImmediateCommand
+    } else if is_slash_command(input) {
+        ActiveTurnInputIntent::Command
+    } else {
+        ActiveTurnInputIntent::Prompt
+    }
+}
+
+fn is_active_turn_cancel_command(input: &str) -> bool {
+    matches!(
+        input.trim().to_ascii_lowercase().as_str(),
+        "/cancel" | "/stop" | "/interrupt" | "/abort"
+    )
+}
+
+fn is_slash_command(input: &str) -> bool {
+    input.trim_start().starts_with('/')
 }
 
 fn sync_state_from_runtime_snapshot(state: &mut TuiState, snapshot: TuiRuntimeSnapshot) {
@@ -924,6 +991,8 @@ fn sync_state_from_runtime_snapshot(state: &mut TuiState, snapshot: TuiRuntimeSn
     state.model = snapshot.model;
     state.provider_catalog = snapshot.provider_catalog;
     state.provider_status = snapshot.provider_status;
+    state.provider_status.work_mode = snapshot.work_mode;
+    state.provider_status.permission_level = snapshot.permission_level;
     state.tasks = snapshot.tasks;
     state.runtime_tasks = snapshot.runtime_tasks;
     state.memory = snapshot.memory;
@@ -1713,13 +1782,13 @@ fn is_exit_command(input: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_streaming_assistant_delta, apply_composer_shortcut, background_diagnostic_paths,
-        begin_active_approval, event_requires_repaint, filtered_interaction_models,
-        handle_immediate_runtime_command, initial_state, is_exit_command,
-        is_immediate_runtime_command, is_send_key, last_user_input, open_local_picker_command,
-        persist_rendered_diagnostics, push_composer_char, queue_active_turn_input,
-        refresh_diagnostics_cache, render_provider_turn_error, resolve_active_approval,
-        restore_first_queued_input, scroll_transcript,
+        ActiveTurnInputIntent, active_turn_input_intent, append_streaming_assistant_delta,
+        apply_composer_shortcut, background_diagnostic_paths, begin_active_approval,
+        event_requires_repaint, filtered_interaction_models, handle_immediate_runtime_command,
+        initial_state, is_exit_command, is_immediate_runtime_command, is_send_key, last_user_input,
+        open_local_picker_command, persist_rendered_diagnostics, push_composer_char,
+        queue_active_turn_input, refresh_diagnostics_cache, render_provider_turn_error,
+        resolve_active_approval, restore_first_queued_input, scroll_transcript,
     };
     use crate::tui::state::{
         InteractionPanel, ProviderOption, ProviderStatus, TerminalLane, WorkspaceSnapshot,
@@ -1727,7 +1796,7 @@ mod tests {
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use robocode_core::SessionEngine;
     use robocode_model::{ModelProvider, ProviderAuthMode};
-    use robocode_types::{ModelEvent, ModelRequest, PermissionPrompt};
+    use robocode_types::{ModelEvent, ModelRequest, PermissionLevel, PermissionPrompt, WorkMode};
     use std::{
         fs,
         sync::{
@@ -1775,6 +1844,11 @@ mod tests {
         assert_eq!(state.input, "");
         assert!(state.pending_turn.is_none());
         assert!(state.streaming_assistant.is_none());
+        assert_eq!(state.provider_status.work_mode, WorkMode::Plan);
+        assert_eq!(
+            state.provider_status.permission_level,
+            PermissionLevel::ReadOnly
+        );
         assert!(
             state
                 .entries
@@ -1893,6 +1967,26 @@ mod tests {
                 .entries
                 .iter()
                 .any(|entry| entry.body.contains("2 prompts queued"))
+        );
+    }
+
+    #[test]
+    fn active_turn_input_intent_keeps_commands_out_of_prompt_queue() {
+        assert_eq!(
+            active_turn_input_intent("/cancel"),
+            ActiveTurnInputIntent::Cancel
+        );
+        assert_eq!(
+            active_turn_input_intent("/mode plan"),
+            ActiveTurnInputIntent::ImmediateCommand
+        );
+        assert_eq!(
+            active_turn_input_intent("/status"),
+            ActiveTurnInputIntent::Command
+        );
+        assert_eq!(
+            active_turn_input_intent("continue with the next step"),
+            ActiveTurnInputIntent::Prompt
         );
     }
 

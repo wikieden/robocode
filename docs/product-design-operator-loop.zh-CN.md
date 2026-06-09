@@ -27,6 +27,9 @@ TUI 是第一个产品形态，不是最终边界。真正的核心产品是 ope
 - `docs/long-term-roadmap.md`
 - `docs/staged-roadmap.md`
 - `docs/tui-cockpit-design.md`
+- `docs/mode-system-design.zh-CN.md`
+- `docs/tui-interaction-flow-design.zh-CN.md`
+- `docs/permission-mode-design.zh-CN.md`
 - `docs/code-agent-hn-demand-radar-2026-05-28.md`
 - `docs/code-agent-experience-benchmark-2026-05-25.md`
 - `docs/context-bundle-token-efficiency.md`
@@ -106,7 +109,7 @@ RoboCode 应该让用户随时能回答：
 
 ## 产品原则
 
-- **RoboCode 是行动主体。** Provider 是基础设施。UI 应该说 `RoboCode is planning`、
+- **RoboCode 是行动主体。** Provider 是基础设施。UI 应该说 `RoboCode working`、
   `Builder is editing`、`Tester is running tests`，而不是默认说 `DeepSeek is thinking`。
 - **配置是直接操作。** Provider、model、permission、theme 都应该是可搜索、可编辑、
   选择即生效的面板，不应该让用户猜下一条命令怎么写。
@@ -184,10 +187,10 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["/plan on"] --> B["Permission policy becomes read-only planning"]
+    A["/plan on"] --> B["Set planner work intent<br/>and read-only permissions"]
     B --> C["User submits planning prompt"]
-    C --> D["Planner Turn"]
-    D --> E["Plan Artifact Or Inline Plan"]
+    C --> D["Planner Turn<br/>requirements / architecture / approach / tasks"]
+    D --> E["Inline Plan In Transcript"]
     D --> F{"User types while active"}
     F -->|Enter| G["Queue Follow-up"]
     F -->|Cancel| H["Cancel Active Turn"]
@@ -195,7 +198,9 @@ flowchart TD
     G --> J["Run Follow-up At Safe Boundary"]
 ```
 
-`/plan` 改变的是权限策略，不应该改变输入并发模型。Plan 模式结束后，composer 必须继续可输入。
+`/plan` 同时改变 planner work intent 和权限策略：RoboCode 只规划产品需求、架构、实现方案、
+测试策略和开发计划，不写代码、不修改文件、不落盘计划。它不应该改变输入并发模型。Plan
+模式结束后，composer 必须继续可输入。
 
 #### Provider Turn 与 Tool Loop
 
@@ -351,7 +356,8 @@ flowchart TD
 4. 在 side-1 和 side-2 里保持 lane evidence 可见。
 5. 只在 review/apply 决策后合并。
 
-`/plan` 应该产出 plan artifact，并保持 composer 可输入。计划结束后不能锁住 UI。
+`/plan` 应该在 transcript 中产出 inline plan，并保持 composer 可输入。它不应写文件，也不能在
+计划结束后锁住 UI。
 
 ## Welcome 与 First-Run Experience
 
@@ -376,7 +382,8 @@ Welcome 应该像一个等待任务的 operator console，而不是 splash scree
 - 顶栏：product、session、Git branch、permission mode、active lanes、context pressure、
   provider/model summary。
 - Transcript：左侧主区域，展示流式对话、tool events 和 durable history。
-- Inline activity：live status 直接追加在最近可见对话内容之后，不使用突兀的中间大卡片。
+- Inline activity：醒目的 `LIVE WORK` strip 直接追加在最近可见对话内容之后，不使用突兀的
+  中间大卡片。
 - 右栏：workspace、active tasks、diagnostics、provider health、recent files、budgets。
   只有真实数据存在时才显示预算/健康值。
 - Composer：更高、光标清晰、IME 位置稳定、支持 follow-up queue。
@@ -386,8 +393,8 @@ Welcome 应该像一个等待任务的 operator console，而不是 splash scree
 
 ## Live Status 与动画
 
-当前 `is thinking` 模式太弱。RoboCode 应把 activity 渲染成紧凑的 live work log，并使用
-更多阶段化表达。
+旧的单行 `is thinking` 模式太弱。RoboCode 应把 activity 渲染成紧凑的 `LIVE WORK`
+strip，并使用更多阶段化表达、证据信号和下一步 guidance。
 
 规范：
 

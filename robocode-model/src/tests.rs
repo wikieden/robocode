@@ -10,7 +10,9 @@ use crate::render::{
     build_openai_body_with_stream_and_compat,
 };
 use crate::transport::split_response_and_status;
-use robocode_types::{Message, ModelRequest, PermissionMode, Role, ToolSpec};
+use robocode_types::{
+    Message, ModelRequest, PermissionLevel, PermissionMode, Role, ToolSpec, WorkMode,
+};
 use serde_json::Value;
 
 mod config_tests;

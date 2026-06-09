@@ -332,7 +332,8 @@ fn protect_frame_glyph_segments(
 fn background_for_line(line: &str, theme: &TuiTheme) -> Color {
     if line.contains(" INPUT  ")
         || line.contains("│ ›")
-        || line.contains("APPROVAL MODE:")
+        || line.contains("MODE [")
+        || line.contains("PERM [")
         || line.contains("ACTIONS:")
     {
         theme.surface
@@ -589,10 +590,11 @@ fn collect_hud_field_spans(
     spans: &mut Vec<(usize, usize, SpanStyle)>,
 ) {
     let is_chip_line = line.contains('[');
-    const LABELS: [&str; 15] = [
+    const LABELS: [&str; 16] = [
         "STATUS",
         "INPUT",
         "COMMAND",
+        "MODE ",
         "MODE:",
         "ACTIONS:",
         "PERM",
@@ -809,7 +811,13 @@ fn collect_bracket_spans(line: &str, theme: &TuiTheme, spans: &mut Vec<(usize, u
             theme.warning
         } else if text.contains("stream") || text.contains("input") || text.contains("event") {
             theme.accent
-        } else if text.contains("PERMISSIONS") || text.contains("PERM") || text.contains("Suggest")
+        } else if text.contains("PERMISSIONS")
+            || text.contains("PERM")
+            || text.contains("Suggest")
+            || matches!(
+                text,
+                "[Ask]" | "[AutoEdit]" | "[ReadOnly]" | "[Full]" | "[Auto Edit]" | "[Full Access]"
+            )
         {
             theme.warning
         } else if text.contains("in_prog") {
@@ -988,7 +996,7 @@ fn color_for_line(line: &str, theme: &TuiTheme) -> Color {
     } else if line.contains("mutation review")
         || line.contains("! approval required")
         || line.contains("PERM")
-        || line.contains("permissions Suggest")
+        || line.contains("[PERM ")
         || line.contains("[waiting]")
     {
         theme.warning
@@ -1105,7 +1113,7 @@ mod tests {
     #[test]
     fn splits_inline_chips_into_semantic_segments() {
         let theme = TuiTheme::aurora_cyan();
-        let segments = line_segments("│ [MODEL test-local] [PERMISSIONS Suggest] │", &theme);
+        let segments = line_segments("│ [MODEL test-local] [WORK Build] [PERM Ask] │", &theme);
 
         assert!(
             segments
@@ -1114,13 +1122,9 @@ mod tests {
                     && segment.foreground == theme.accent
                     && segment.background == theme.chip)
         );
-        assert!(
-            segments
-                .iter()
-                .any(|segment| segment.text == "[PERMISSIONS Suggest]"
-                    && segment.foreground == theme.warning
-                    && segment.background == theme.chip)
-        );
+        assert!(segments.iter().any(|segment| segment.text == "[PERM Ask]"
+            && segment.foreground == theme.warning
+            && segment.background == theme.chip));
     }
 
     #[test]
@@ -1339,7 +1343,7 @@ mod tests {
             && segment.background == theme.surface));
 
         let segments = line_segments(
-            "│ POLICY  Suggest mode           EFFECT Mutating command │",
+            "│ POLICY  Ask level              EFFECT Mutating command │",
             &theme,
         );
         assert!(segments.iter().any(|segment| segment.text == "EFFECT"
@@ -1408,14 +1412,14 @@ mod tests {
     fn highlights_command_deck_and_status_labels() {
         let theme = TuiTheme::aurora_cyan();
         let segments = line_segments(
-            "│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual] │",
+            "│ MODE [Build] [Plan]  PERM [Ask] [AutoEdit] [ReadOnly] [Full] │",
             &theme,
         );
 
-        assert!(segments.iter().any(|segment| segment.text == "MODE:"
+        assert!(segments.iter().any(|segment| segment.text == "MODE "
             && segment.foreground == theme.accent
             && segment.background == theme.surface));
-        assert!(segments.iter().any(|segment| segment.text == "[Suggest]"
+        assert!(segments.iter().any(|segment| segment.text == "[Ask]"
             && segment.foreground == theme.warning
             && segment.background == theme.chip));
 
@@ -1517,7 +1521,7 @@ mod tests {
 
     #[test]
     fn ansi_preview_uses_explicit_theme_when_provided() {
-        let frame = "│ [MODEL test-local] [PERMISSIONS Suggest] │";
+        let frame = "│ [MODEL test-local] [WORK Build] [PERM Ask] │";
 
         let aurora = render_ansi_preview_with_theme(frame, Some("aurora-cyan"));
         let ember = render_ansi_preview_with_theme(frame, Some("ember-gold"));

@@ -2,6 +2,8 @@
 
 本文记录当前 TUI 目标，避免开发偏离前期生成的主视觉和终端 agent 工作流。
 
+交互流程配套文档：[TUI 交互流程设计](tui-interaction-flow-design.zh-CN.md)。
+
 ## 视觉基线
 
 - 主视觉状态：**无弹窗态**。所有弹窗必须继承同一套 aurora-cyan cockpit
@@ -15,16 +17,15 @@
 
 ## 主屏幕
 
-- 顶栏：产品、provider、model、session、context window、Git 分支、权限模式、
-  active-lane 数量和 telemetry 可用性。
+- 顶栏：产品、provider、model、session、context window、Git 分支、work mode、
+  permission level、active-lane 数量和 telemetry 可用性。
 - Transcript：左侧主面板，时间线式消息，最近内容固定留在底部可见。
-- Live activity：transcript 区内部在最近可见对话内容后追加一条尾部状态行，
-  用小脉冲符号直接回答 RoboCode 正在干什么，例如
-  `RoboCode is planning ·`、`Editing src/render.rs`、等待审批，或正在监督
-  active lanes。
+- Live activity：transcript 区内部在最近可见对话内容后追加醒目的 `LIVE WORK` strip，
+  用 phase、signal 和下一步 guidance 直接回答 RoboCode 正在干什么。
 - 右侧栏：workspace、active tasks、diagnostics、provider health、recent files。
 - Composer：始终在底部可见，输入区是更高的三行输入槽，输入光标位于输入行内
-  并使用原生 blinking bar cursor，带 action hints 和 approval-mode chips。
+  并使用原生 blinking bar cursor，带 action hints、work mode chips 和 permission
+  level chips。
 - 底部状态栏：连接状态、session、event 数量、active lanes、context window、
   theme/help 提示。token、cost、rate 指标只有接入真实 provider telemetry 后才能显示。
 
@@ -191,12 +192,13 @@ normalized view，不能各自拼接一套状态。
   成为 runtime-visible 状态，并补强 slow-provider、approval、resize 的 smoke evidence。
 - composer 已按显示宽度处理中文等 CJK 输入；输入行保持原生 blinking bar
   cursor，并预留更高输入槽，让长会话里也容易找到输入位置。
-- 主 transcript 在 live tail 保留轻量 inline activity 提示，直接跟在最近对话内容
+- 主 transcript 在 live tail 保留紧凑但醒目的 `LIVE WORK` strip，直接跟在最近对话内容
   后面，不再使用挡住内容的居中卡片，也不再放成脱离对话流的顶部状态条。它从
   pending approvals、统一 `AgentTask` view、最近 user turn、最近 tool call
-  或最近 transcript entry 推导状态，所以主屏可以展示带脉冲的
-  `RoboCode is planning`、`Approval needed: ...`、`Supervising 2 agents: ...`、
-  紧凑 edit 摘要、delegate-agent progress 和可读 signal，同时不编造运行时数据。
+  或最近 transcript entry 推导状态，所以主屏可以展示 `RoboCode working`、
+  `Approval needed: ...`、`Supervising 2 agents: ...`、紧凑 edit 摘要、
+  delegate-agent progress、next action 和可读 signal，同时不编造运行时数据或假
+  provider progress 百分比。
 - Approval overlay 和 `waiting_approval` task 只有在仍然 live 时才算阻塞；如果后续
   approval resolution、tool result、assistant reply 或 `/test` command result
   已经闭环，就不能继续占用 operation center 或 modal layer。

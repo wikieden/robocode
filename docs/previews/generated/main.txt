@@ -1,40 +1,40 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.25  [PROVIDER ● OpenAI] [MODEL gpt-4o] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]   · auto L1      │
+│ RoboCode  v0.1.26  [PROVIDER ● OpenAI] [MODEL gpt-4o] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]   · auto L1    │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
-│      ┊  • Wrote 86 lines to tests/config_tests.rs (3.4 KB)                                        │ │ robocode/    ~/projects/robocode   │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ↳ src/          FILES    128       │
-│   ✣  ┊  ASSISTANT                                                                            #005 │ │ ↳ tests/        LINES  24531       │
-│      ┊  Tests are staged. I found one parser edge case and need to update `src/config.rs` before  │ │ ▣ Cargo.toml    LANGUAGE Rust      │
-│      ┊  running the suite.                                                                        │ │ ▣ README.md     EDITION   2024     │
+│      ┊  Tests are staged. I found one parser edge case and need to update `src/config.rs` before  │ │ robocode/    ~/projects/robocode   │
+│      ┊  running the suite.                                                                        │ │ ↳ src/          FILES    128       │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ↳ tests/        LINES  24531       │
+│   ♙  ┊  USER                                                                                 #006 │ │ ▣ Cargo.toml    LANGUAGE Rust      │
+│      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ │ ▣ README.md     EDITION   2024     │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
-│   ♙  ┊  USER                                                                                 #006 │ ┌ ACTIVE TASKS ─────────────────── 5 ┐
-│      ┊  Good. Keep the change narrow and show me the diff before applying.                        │ │ L1 ⛭ codex  s1/pty/01  64%         │
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ tool-7 ✎ roboco local-tool/robo  5 │
-│   ⚒  ┊  TOOL CALL                                                                            #007 │ │ reply-6 ● RoboCo main/robo  15%    │
-│      ┊  [write_file] path: src/config.rs                                                          │ │ ● task_lo/prog Implement load_con  │
-│      ┊               lines: 1-120     gate: waiting                                               │ └────────────────────────────────────┘
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
-│   ·  ┊  SYSTEM                                                                             latest │ │ diagnostics unavailable            │
-│      ┊  Test result:                                                                              │ │ auto-checks or /lsp diagnostics    │
-│      ┊    status: failed                                                                          │ │                                    │
-│      ┊    exit code: 101                                                                          │ └────────────────────────────────────┘
-│      ┊    command: cargo test -p robocode-cli config_tests                                        │ ┌ PROVIDER HEALTH ─────── Configured ┐
-│      ┊    duration: 42ms                                                                          │ │ OpenAI (gpt-4o)                    │
-│      ┊    failure summary:                                                                        │ │ STATUS     Configured              │
-│      ┊      - assertion failed in config_tests                                                    │ │ REQUESTS   0 ok / 0 err            │
-│      ┊    failing files:                                                                          │ │ LATENCY    last - avg -            │
-│      ┊      - src/config.rs:42:15                                                                 │ │ TELEMETRY  awaiting first request  │
-│      ┊    output tail:                                                                            │ │                                    │
-│      ┊      thread 'config_tests' panicked at src/config.rs:42:15                                 │ └────────────────────────────────────┘
-│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ ┌ RECENT FILES ──────────────── tail ┐
-│      ┊  ✦ Supervising 1 agent: codex testing ∙                                                    │ │ [Rs] src/config.rs         now     │
-│      ┊    └ codex testing · 64% · next wait for test result · summary patched failing tests; reru │ │ [Rs] tests/config_tests.rs 1m      │
+│   ⚒  ┊  TOOL CALL                                                                            #007 │ ┌ ACTIVE TASKS ─────────────────── 4 ┐
+│      ┊  [write_file] path: src/config.rs                                                          │ │ L1 ⛭ codex  s1/pty/01  64%         │
+│      ┊               lines: 1-120     gate: waiting                                               │ │ tool-7 ✎ roboco local-tool/robo  5 │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ● task_lo/prog Implement load_con  │
+│   ·  ┊  SYSTEM                                                                             latest │ │ ◆ task_re/block Review config test │
+│      ┊  Test result:                                                                              │ └────────────────────────────────────┘
+│      ┊    status: failed                                                                          │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
+│      ┊    exit code: 101                                                                          │ │ diagnostics unavailable            │
+│      ┊    command: cargo test -p robocode-cli config_tests                                        │ │ auto-checks or /lsp diagnostics    │
+│      ┊    duration: 42ms                                                                          │ │                                    │
+│      ┊    failure summary:                                                                        │ └────────────────────────────────────┘
+│      ┊      - assertion failed in config_tests                                                    │ ┌ PROVIDER HEALTH ─────── Configured ┐
+│      ┊    failing files:                                                                          │ │ OpenAI (gpt-4o)                    │
+│      ┊      - src/config.rs:42:15                                                                 │ │ STATUS     Configured              │
+│      ┊    output tail:                                                                            │ │ REQUESTS   0 ok / 0 err            │
+│      ┊      thread 'config_tests' panicked at src/config.rs:42:15                                 │ │ LATENCY    last - avg -            │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ TELEMETRY  awaiting first request  │
+│      ╭─ LIVE WORK · ─────────────────────────────────────────────────────────────────────────     │ │                                    │
+│      │ ◉ Supervising 1 agent: codex testing                                                       │ └────────────────────────────────────┘
+│      │ phase testing · signal summary patched failing tests; rerunning cargo · codex testing · 64 │ ┌ RECENT FILES ──────────────── tail ┐
+│      │ next wait for test result · input open                                                     │ │ [Rs] src/config.rs         now     │
+│      ╰──────────────────────────────────────────────────────────────────────────────────────────  │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
 ┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                                                           │              │
-│ › Add tests for load_config and summarize the diff                                                                        │ MODE Code ▾  │
+│ › Add tests for load_config and summarize the diff                                                                        │ MODE Build ▾ │
 │                                                                                                                           │              │
-│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                  ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
+│ MODE [Build]  PERM [Ask]                                              ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 │ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 9    ┆ LANES 1  ┆ CONTEXT 128k                                                 Press ? for help │

@@ -8,7 +8,7 @@ use robocode_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use robocode_model::{ModelProvider, ModelRequestControl};
 use robocode_types::{
     AgentTaskStatus, ApprovalResponse, ModelEvent, ModelRequest, ModelUsage, PermissionMode,
-    ToolCall, ToolInput,
+    ToolCall, ToolInput, WorkMode,
 };
 
 use super::{SequenceProvider, temp_dir};
@@ -614,6 +614,36 @@ fn plan_mode_blocks_mutating_tools() {
                 && text.contains("decision=deny")
                 && text.contains("tool: write_file")))
     );
+}
+
+#[test]
+fn plan_mode_provider_request_uses_planner_work_mode() {
+    let home = temp_dir("plan_request_home");
+    let cwd = temp_dir("plan_request_cwd");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingSequenceProvider::new(
+        vec![vec![ModelEvent::AssistantText {
+            content: "Here is the plan.".to_string(),
+        }]],
+        Arc::clone(&requests),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .process_input_with_approval("/plan on", &mut approver)
+        .unwrap();
+    engine
+        .process_input_with_approval("规划这个功能", &mut approver)
+        .unwrap();
+
+    let requests = requests.lock().unwrap();
+    let request = requests.first().expect("provider request");
+    assert_eq!(request.work_mode, WorkMode::Plan);
+    assert_eq!(request.permission_mode, PermissionMode::Plan);
 }
 
 #[test]

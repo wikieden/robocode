@@ -96,3 +96,12 @@
   residue 会被丢弃；welcome screen 的 interaction modal 需要按全屏清理，因为 welcome
   layout 没有 right rail。验证需要覆盖 app event policy tests、composer residue tests、
   render modal tests 和 preview output。
+- 2026-06-09：合成出来的 inline activity 不能比触发它的 transcript 事件活得更久。
+  Guardrail：`latest user turn` 只有在 user message 仍是最新 transcript entry，或存在
+  真实 pending/streaming/runtime task 时，才可以渲染为 planning。后续出现 tool result、
+  system event 或 assistant entry 后，必须清掉合成 planning 行。验证需要覆盖
+  `user -> tool-result(exit status 1)` 的 render test。
+- 2026-06-09：active thinking indicator 必须足够明显，同时不能阻塞输入。Guardrail：
+  active work 渲染为最近可见对话下面的 `LIVE WORK` strip，展示 phase、signal 和下一步
+  guidance；provider thinking 不显示假进度百分比。验证需要覆盖 provider turn、
+  lane/tool activity、diff review action、conflict blocker 和 preview output。

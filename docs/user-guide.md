@@ -2,8 +2,8 @@
 
 Chinese version: [user-guide.zh-CN.md](user-guide.zh-CN.md)
 
-This guide describes the user-facing features that are available in the
-RoboCode `0.1.24` development line.
+This guide describes the user-facing features that are available in the current
+RoboCode development line.
 
 ## Mental Model
 
@@ -71,7 +71,7 @@ Common flags:
 - `--model <name>`: override model label.
 - `--api-base <url>` and `--api-key <value>`: override provider connection.
 - `--provider-plugin-dir <dir>`: add a dynamic provider plugin directory.
-- `--permissions <mode>`: set default permission mode.
+- `--permissions <level>`: set default permission level.
 - `--session-home <dir>`: override transcript/index home.
 - `--request-timeout <seconds>` and `--max-retries <n>`: tune provider HTTP
   behavior.
@@ -115,7 +115,7 @@ Example:
 ```toml
 provider = "deepseek"
 model = "deepseek-v4-flash"
-permission_mode = "acceptEdits"
+permission_mode = "auto_edit"
 request_timeout_secs = 120
 max_retries = 2
 
@@ -167,7 +167,7 @@ full local transcript intact for audit.
 /settings provider <provider-id> enable-model <model>
 /settings provider <provider-id> favorite-model <model>
 /settings provider <provider-id> models <model> [model...]
-/settings permissions <mode>
+/settings permissions <level>
 /settings theme <name>
 /settings save
 ```
@@ -302,11 +302,12 @@ setting `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
   focus. Diff focus now shows the prompt's actual evidence/preview lines when
   they are available instead of a decorative placeholder.
 - Active provider turns keep the TUI event loop alive. The transcript live tail
-  shows a compact inline activity hint directly below the latest conversation
-  content, with a small pulse glyph while the provider is thinking. The status
-  bar, elapsed time, lane snapshots, and pending approval bridge can repaint
-  while the provider worker runs. `Ctrl-C` requests cancellation; an already
-  in-flight HTTP request may still complete before the provider returns.
+  shows a prominent `LIVE WORK` strip directly below the latest conversation
+  content, with phase, signal, and next-action guidance while RoboCode works.
+  Provider thinking does not show fake progress percentages. The status bar,
+  elapsed time, lane snapshots, and pending approval bridge can repaint while
+  the provider worker runs. `Ctrl-C` requests cancellation; an already in-flight
+  HTTP request may still complete before the provider returns.
 - Streaming-capable HTTP providers request server-sent streaming during TUI
   turns. Text deltas are appended to a temporary assistant transcript row while
   the provider is still responding, then replaced by the canonical transcript
@@ -325,15 +326,23 @@ Runtime:
 /status
 /config
 /doctor
-/permissions [mode]
+/mode [build|plan]
+/permissions [level]
 /plan [on|off]
 /test <command>
 ```
 
-`/plan` is an immediate TUI command: it toggles read-only planning mode and
-returns the composer to normal input without starting a provider turn. On the
-first-launch welcome screen, `/plan` keeps the welcome composer visible until a
-real task prompt starts the session.
+`/plan` is an immediate TUI command: it switches to Plan mode and returns the
+composer to normal input without starting a provider turn. On the first-launch
+welcome screen, `/plan` keeps the welcome composer visible until a real task
+prompt starts the session.
+
+Plan mode is for planning product requirements, architecture, implementation
+approach, test strategy, and development steps. It may read and inspect the
+project, but it does not write code, modify files, run mutating shell/Git/workflow
+actions, or persist the plan. Plan output stays in the transcript until you
+confirm implementation and switch back to Build with `ask`, `auto_edit`,
+`read_only`, or `full_access`.
 
 Sessions:
 
@@ -510,15 +519,21 @@ tool read_file path=Cargo.toml
 tool grep pattern=SessionEngine path=robocode-core/src
 ```
 
-## Permissions
+## Modes And Permissions
 
-Permission modes:
+RoboCode separates work intent from trust level:
 
-- `default`: safe reads are allowed; mutating actions ask.
-- `acceptEdits`: file edits can be accepted more aggressively while shell/Git
-  mutation still follows policy.
-- `plan`: mutating actions are denied; useful for read-only planning.
-- `dontAsk` and `bypassPermissions`: available for trusted local workflows.
+- Work Mode: `build` for implementation, `plan` for requirements,
+  architecture, implementation approach, test strategy, and development plans.
+- Permission Level: `ask`, `auto_edit`, `read_only`, or `full_access`.
+
+`/plan` is a shortcut to Plan work mode with Read Only permission level. It
+does not write code. `/permissions` changes the trust boundary only; it does not
+change provider/model or the work mode.
+
+Compatibility aliases such as `default`, `acceptEdits`, `bypassPermissions`,
+and `dontAsk` are still accepted by the parser for older configs and scripts,
+but new docs and UI use the canonical permission-level names.
 
 The permission path covers file mutation, shell, Git, workflow task/memory
 changes, and write-capable delegated Codex jobs.

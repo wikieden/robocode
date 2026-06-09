@@ -139,6 +139,9 @@ fn transcript_status_label(state: &TuiState) -> String {
 
 fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
     let status = live_activity_status(state);
+    if status.is_live {
+        return live_work_strip_rows(&status, width);
+    }
     let mut rows = vec![truncate(
         &format!("     ┊  ✦ {} {}", status.summary, thinking_pulse()),
         width,
@@ -159,6 +162,57 @@ fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
     rows
 }
 
+fn live_work_strip_rows(status: &LiveActivityStatus, width: usize) -> Vec<String> {
+    let header_rule = "─".repeat(width.saturating_sub(24).min(96));
+    let footer_rule = "─".repeat(width.saturating_sub(7).min(112));
+    let detail = status
+        .details
+        .first()
+        .map(String::as_str)
+        .unwrap_or(status.evidence.as_str());
+    let phase = status.phase.as_deref().unwrap_or("active");
+    let signal = live_work_signal(status)
+        .map(|value| format!(" · signal {value}"))
+        .unwrap_or_default();
+    let guidance = status
+        .next_action
+        .as_deref()
+        .map(|action| format!("next {action} · input open"))
+        .unwrap_or_else(|| {
+            "input open · type next step anytime; Enter queues follow-up".to_string()
+        });
+    let mut rows = vec![
+        truncate(
+            &format!("     ╭─ LIVE WORK {} {header_rule}", thinking_pulse()),
+            width,
+        ),
+        truncate(
+            &format!("     │ ◉ {}", live_work_headline(&status.summary)),
+            width,
+        ),
+        truncate(&format!("     │ phase {phase}{signal} · {detail}"), width),
+        truncate(&format!("     │ {guidance}"), width),
+    ];
+    rows.push(truncate(&format!("     ╰{footer_rule}"), width));
+    rows
+}
+
+fn live_work_headline(summary: &str) -> String {
+    if summary.starts_with("RoboCode is ") {
+        "RoboCode working".to_string()
+    } else {
+        summary.to_string()
+    }
+}
+
+fn live_work_signal(status: &LiveActivityStatus) -> Option<&str> {
+    status
+        .evidence
+        .split_once(" from ")
+        .map(|(_, signal)| signal)
+        .or_else(|| Some(status.evidence.as_str()).filter(|value| !value.starts_with("AgentTask")))
+}
+
 fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
     // Priority mirrors operator urgency and reads from the normalized AgentTask
     // view so every panel describes the same runtime state.
@@ -173,6 +227,8 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
             .filter(|task| matches!(task.kind.as_str(), "lane" | "job"))
             .count();
         let summary = operator_summary(primary, delegated_count);
+        let phase = operator_status_label(primary).to_string();
+        let next_action = next_operator_action(primary).map(str::to_string);
         return LiveActivityStatus {
             summary,
             evidence: format!(
@@ -187,6 +243,9 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
                 .into_iter()
                 .map(|task| operator_detail(&task))
                 .collect(),
+            phase: Some(phase),
+            next_action,
+            is_live: true,
         };
     }
 
@@ -200,6 +259,9 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
             summary: historical_task_summary(&task),
             evidence: primary_task_signal(&task).unwrap_or_else(|| "agent task result".to_string()),
             details: vec![operator_detail(&task)],
+            phase: None,
+            next_action: None,
+            is_live: false,
         };
     }
 
@@ -208,6 +270,9 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
             summary: compact_activity_label(entry.label.as_str()).to_string(),
             evidence: "latest transcript event".to_string(),
             details: vec![compact_activity_detail(&entry.body)],
+            phase: None,
+            next_action: None,
+            is_live: false,
         };
     }
 
@@ -223,6 +288,9 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
         summary: provider_state,
         evidence: "provider telemetry".to_string(),
         details: vec![format!("{} / {}", state.provider, state.model)],
+        phase: None,
+        next_action: None,
+        is_live: false,
     }
 }
 
@@ -275,7 +343,7 @@ fn operator_detail(task: &AgentTask) -> String {
         operator_agent_label(task),
         operator_status_label(task)
     )];
-    if task.is_active() && task.progress > 0 {
+    if task.is_active() && task.progress > 0 && task.kind != "provider" {
         parts.push(format!("{}%", task.progress));
     }
     if let Some(next) = next_operator_action(task) {
@@ -460,6 +528,9 @@ struct LiveActivityStatus {
     summary: String,
     evidence: String,
     details: Vec<String>,
+    phase: Option<String>,
+    next_action: Option<String>,
+    is_live: bool,
 }
 
 fn relative_millis(updated_at: u128) -> String {
@@ -645,7 +716,8 @@ mod tests {
         assert!(rendered.contains("hello"));
         assert!(rendered.contains("› /help"));
         assert!(rendered.contains("/help"));
-        assert!(rendered.contains("APPROVAL MODE:"));
+        assert!(rendered.contains("MODE"));
+        assert!(rendered.contains("PERM"));
         assert!(rendered.contains("CONNECTED"));
         for line in rendered.lines() {
             assert_eq!(
@@ -778,8 +850,9 @@ mod tests {
 
         let rendered = render_frame(&state, 140, 36);
 
-        assert!(rendered.contains("Suggest"));
-        assert!(rendered.contains("PERMISSIONS"));
+        assert!(rendered.contains("Ask"));
+        assert!(rendered.contains("PERM"));
+        assert!(rendered.contains("WORK"));
         assert!(rendered.contains("WORKSPACE"));
         assert!(rendered.contains("ACTIVE TASKS"));
         assert!(rendered.contains("LSP DIAGNOSTICS"));
@@ -810,7 +883,8 @@ mod tests {
         assert!(rendered.contains("ACTIVE TASKS"));
         assert!(rendered.contains("[^R Regenerate]"));
         assert!(rendered.contains("[^N New Task]"));
-        assert!(rendered.contains("APPROVAL MODE: [Suggest]"));
+        assert!(rendered.contains("MODE [Build]"));
+        assert!(rendered.contains("PERM [Ask]"));
 
         let lines = rendered.lines().collect::<Vec<_>>();
         let recent_index = lines
@@ -838,8 +912,12 @@ mod tests {
 
         let rendered = render_frame(&state, 140, 36);
 
-        assert!(rendered.contains("✦ RoboCode is planning"));
-        assert!(rendered.contains("RoboCode is planning"));
+        assert!(rendered.contains("LIVE WORK"));
+        assert!(rendered.contains("RoboCode working"));
+        assert!(rendered.contains("phase planning"));
+        assert!(rendered.contains("type next step anytime"));
+        assert!(!rendered.contains("RoboCode is planning"));
+        assert!(!rendered.contains("15%"));
         assert!(rendered.contains("reply-"));
         assert!(!rendered.contains("RoboCode is thinking"));
         assert!(!rendered.contains("DeepSeek is thinking"));
@@ -852,9 +930,33 @@ mod tests {
             .expect("latest user transcript row");
         let activity_index = lines
             .iter()
-            .position(|line| line.contains("✦ RoboCode is planning"))
-            .expect("inline activity row");
+            .position(|line| line.contains("LIVE WORK"))
+            .expect("live work strip");
         assert!(activity_index > user_index);
+    }
+
+    #[test]
+    fn render_frame_clears_synthetic_planning_after_tool_result() {
+        let mut state = render_state();
+        state.provider = "deepseek".to_string();
+        state.model = "deepseek-v4-flash".to_string();
+        state.entries = vec![
+            TuiEntry {
+                label: "user".to_string(),
+                body: "plan and run a formatting check".to_string(),
+            },
+            TuiEntry {
+                label: "tool-result".to_string(),
+                body: "Command exited with exit status: 1".to_string(),
+            },
+        ];
+
+        let rendered = render_frame(&state, 140, 36);
+
+        assert!(!rendered.contains("RoboCode is planning"));
+        assert!(!rendered.contains("latest user turn"));
+        assert!(rendered.contains("TOOL RESULT"));
+        assert!(rendered.contains("Command exited with exit status: 1"));
     }
 
     #[test]
@@ -868,7 +970,7 @@ mod tests {
 
         let lane_rendered = render_frame(&state, 140, 36);
 
-        assert!(lane_rendered.contains("✦ Supervising 2 agents: claude needs input"));
+        assert!(lane_rendered.contains("LIVE WORK"));
         assert!(lane_rendered.contains("Supervising 2 agents: claude needs input"));
         assert!(lane_rendered.contains("claude needs input"));
         assert!(!lane_rendered.contains("┌ NOW WORKING"));
@@ -1005,9 +1107,14 @@ mod tests {
 
         let rendered = render_frame(&state, 140, 36);
 
-        assert!(rendered.contains("RoboCode is planning"));
+        assert!(rendered.contains("LIVE WORK"));
+        assert!(rendered.contains("RoboCode working"));
+        assert!(rendered.contains("phase planning"));
+        assert!(rendered.contains("type next step anytime"));
         assert!(rendered.contains("live provider request"));
-        assert!(rendered.contains("RoboCode planning · 15%"));
+        assert!(rendered.contains("RoboCode planning"));
+        assert!(!rendered.contains("15%"));
+        assert!(!rendered.contains("RoboCode is planning"));
         assert!(!rendered.contains("RoboCode is thinking"));
         assert!(!rendered.contains("DeepSeek is thinking"));
         assert!(!rendered.contains("┌ NOW WORKING"));
@@ -1226,7 +1333,8 @@ mod tests {
         assert!(rendered.contains("[Approve (y)]"));
         assert!(rendered.contains("[Deny (n)]"));
         assert!(rendered.contains("[Diff]"));
-        assert!(rendered.contains("APPROVAL MODE: [Suggest]"));
+        assert!(rendered.contains("MODE [Build]"));
+        assert!(rendered.contains("PERM [Ask]"));
     }
 
     #[test]
@@ -1296,7 +1404,8 @@ mod tests {
         assert_no_visual_regressions(&main);
         assert_no_visual_regressions(&side);
         assert_no_visual_regressions(&ops);
-        assert!(main.contains("[PERMISSIONS"));
+        assert!(main.contains("[WORK"));
+        assert!(main.contains("[PERM"));
         assert!(side.contains("[FOCUS tail]"));
         assert!(ops.contains("TESTS / LSP"));
         assert!(ops.contains("LSP     0 diagnostic(s)"));

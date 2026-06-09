@@ -23,7 +23,7 @@
 ┌ EXTENSIONS ─────────────────────────────────────────────────────────── ready ┐
 │ PROVIDER Configured not sampled                                              │
 │ CATALOG  7 provider(s)                                                       │
-│ AGENTS   3 active / 6 lane(s)                                                │
+│ AGENTS   2 active / 5 lane(s)                                                │
 │ LANE     side-1 codex L1 patched failing te target main                      │
 │ MCP      0 configured config(s)                                              │
 └──────────────────────────────────────────────────────────────────────────────┘

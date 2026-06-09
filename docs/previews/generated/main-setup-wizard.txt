@@ -17,7 +17,7 @@
                                       │ current deepseek / deepseek-v4-flash  key DEEPSEEK_API_KEY s │
                                       │ ● provider  Open provider config: key, endpoint, models      │
                                       │   models  Choose any model grouped by provider               │
-                                      │   permissions  Pick approval mode before edits run           │
+                                      │   permissions  Pick permission level before edits run        │
                                       │   theme  Pick cockpit color theme                            │
                                       │   provider doctor deepseek  Check current provider key and e │
                                       │   provider fallback test-local  Use offline fallback for smo │
@@ -36,5 +36,5 @@
 
 
 
-~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.25
+~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.26
 

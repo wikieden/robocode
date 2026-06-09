@@ -4,7 +4,9 @@ use robocode_model::{
     ModelProvider, ProviderConfig, ProviderHost, ProviderPluginError, ProviderRegistry,
     list_supported_provider_strings,
 };
-use robocode_types::{ApprovalResponse, PermissionPrompt, RuntimeSnapshot};
+use robocode_types::{
+    ApprovalResponse, PermissionLevel, PermissionPrompt, RuntimeSnapshot, WorkMode,
+};
 use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
@@ -315,7 +317,13 @@ fn run() -> Result<(), String> {
         cwd: cwd.clone(),
         provider_family: resolved_config.provider.clone(),
         model_label: provider_selection.model_label.clone(),
+        work_mode: if resolved_config.permission_mode == robocode_types::PermissionMode::Plan {
+            WorkMode::Plan
+        } else {
+            WorkMode::Build
+        },
         permission_mode: resolved_config.permission_mode,
+        permission_level: PermissionLevel::from_legacy_mode(resolved_config.permission_mode),
         config_summary: resolved_config.summary(),
         loaded_config_files: resolved_config.loaded_files.clone(),
         startup_overrides: startup.summary_overrides(),
@@ -746,7 +754,7 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
                 let value = required_flag_value(args, index, "--permissions")?;
                 options.permission_mode = Some(
                     robocode_types::PermissionMode::parse_cli(&value)
-                        .ok_or_else(|| format!("Unknown permission mode `{value}`"))?,
+                        .ok_or_else(|| format!("Unknown permission level `{value}`"))?,
                 );
             }
             "--session-home" => {
@@ -929,7 +937,8 @@ fn print_startup_help() {
     println!("  --api-key <value>    Override API key");
     println!("  --provider-plugin-dir <dir>");
     println!("                       Add a dynamic provider plugin directory");
-    println!("  --permissions <mode> Set default permission mode");
+    println!("  --permissions <level>");
+    println!("                       Set default permission level");
     println!("  --session-home <dir> Override transcript/index home");
     println!("  --request-timeout <s> Override provider HTTP timeout");
     println!("  --max-retries <n>    Override provider retry count");

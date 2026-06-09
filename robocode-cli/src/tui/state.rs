@@ -9,7 +9,10 @@ use std::{
 
 use robocode_core::{EngineEvent, ProviderTelemetry};
 use robocode_model::{ProviderAuthMode, ProviderDescriptor};
-use robocode_types::{AgentLaneRecord, AgentNextAction, AgentTaskRecord, MemoryEntry, TaskRecord};
+use robocode_types::{
+    AgentLaneRecord, AgentNextAction, AgentTaskRecord, MemoryEntry, PermissionLevel, TaskRecord,
+    WorkMode,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TuiEntry {
@@ -205,7 +208,7 @@ fn agent_task_from_pending_turn(turn: &PendingTurn) -> AgentTask {
         status: "thinking".to_string(),
         activity: turn.phase.clone(),
         summary: format!("RoboCode is processing the request{queued_suffix}"),
-        progress: 15,
+        progress: 0,
         started_at: Some(turn.started_at),
         updated_at: Some(now_millis()),
         workspace: Some(turn.workspace.clone()),
@@ -590,6 +593,7 @@ fn transcript_agent_tasks(state: &TuiState) -> Vec<AgentTask> {
     }
     if state.pending_turn.is_none()
         && let Some((index, entry)) = latest_entry_matching(&state.entries, is_provider_entry)
+        && provider_entry_can_drive_activity(&state.entries, index, entry)
         && !provider_turn_failed_after(&state.entries, index)
         && seen.insert(index)
     {
@@ -638,6 +642,14 @@ fn is_tool_entry(entry: &TuiEntry) -> bool {
 
 fn is_provider_entry(entry: &TuiEntry) -> bool {
     matches!(entry.label.as_str(), "user" | "assistant")
+}
+
+fn provider_entry_can_drive_activity(
+    entries: &[TuiEntry],
+    provider_index: usize,
+    entry: &TuiEntry,
+) -> bool {
+    entry.label != "user" || provider_index + 1 == entries.len()
 }
 
 fn provider_turn_failed_after(entries: &[TuiEntry], provider_index: usize) -> bool {
@@ -692,7 +704,7 @@ fn agent_task_from_entry(index: usize, entry: &TuiEntry, state: &TuiState) -> Ag
             status: "thinking".to_string(),
             activity: "thinking through latest prompt".to_string(),
             summary: format!("{} / {} is processing", state.provider, state.model),
-            progress: 15,
+            progress: 0,
             started_at: None,
             updated_at: None,
             workspace: Some(state.workspace.display_root.clone()),
@@ -1840,6 +1852,8 @@ pub(super) struct ProviderStatus {
     pub(super) connection: String,
     pub(super) telemetry: String,
     pub(super) context_window: String,
+    pub(super) work_mode: WorkMode,
+    pub(super) permission_level: PermissionLevel,
     pub(super) request_count: u64,
     pub(super) success_count: u64,
     pub(super) failure_count: u64,
@@ -1881,6 +1895,8 @@ impl ProviderStatus {
             connection: connection.to_string(),
             telemetry: telemetry_label,
             context_window: "128k".to_string(),
+            work_mode: WorkMode::Build,
+            permission_level: PermissionLevel::Ask,
             request_count: telemetry.request_count,
             success_count: telemetry.success_count,
             failure_count: telemetry.failure_count,

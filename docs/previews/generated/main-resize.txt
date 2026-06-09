@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.25  [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERMISSIONS Suggest]             │
+│ RoboCode  v0.1.26  [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]           │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────┐
 │   ·  ┊  SYSTEM                                                                              #001 │
@@ -12,19 +12,19 @@
 │      ┊  Resize-safe redraw check: stale borders cleared; composer and panels reflow from one     │
 │      ┊  frame.                                                                                   │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
-│      ┊  ✦ RoboCode is planning ∙                                                                 │
-│      ┊    └ RoboCode planning · 15% · live provider request · elapsed now · updated now          │
-│                                                                                                  │
-│                                                                                                  │
-│                                                                                                  │
+│      ╭─ LIVE WORK · ────────────────────────────────────────────────────────────────────────     │
+│      │ ◉ RoboCode working                                                                        │
+│      │ phase planning · signal live provider request · RoboCode planning · live provider request │
+│      │ input open · type next step anytime; Enter queues follow-up                               │
+│      ╰─────────────────────────────────────────────────────────────────────────────────────────  │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                   │              │
-│ › Resize-safe redraw check                                                        │ MODE Code ▾  │
+│ › Resize-safe redraw check                                                        │ MODE Build ▾ │
 │                                                                                   │              │
-│ APPROVAL MODE: [Suggest] [Auto Edit] [Plan] [Manual]                                             │
+│ MODE [Build]  PERM [Ask]                 ACTIONS: [^J Queue] [^C Cancel] [PgUp History] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 │ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 3    ┆ LANES 0  ┆ CONTEXT 128k                  Press ? │

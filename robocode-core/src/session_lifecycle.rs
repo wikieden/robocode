@@ -1,8 +1,8 @@
 use robocode_permissions::PermissionEngine;
 use robocode_session::SessionStore;
 use robocode_types::{
-    Message, PermissionMode, Role, SessionMetaEntry, SessionSummary, TranscriptEntry, fresh_id,
-    now_timestamp,
+    Message, PermissionLevel, PermissionMode, Role, SessionMetaEntry, SessionSummary,
+    TranscriptEntry, WorkMode, fresh_id, now_timestamp,
 };
 
 use crate::SessionEngine;
@@ -126,10 +126,20 @@ impl SessionEngine {
                     });
                 }
                 TranscriptEntry::SessionMeta { entry } => match entry.key.as_str() {
+                    "work_mode" => {
+                        if let Some(mode) = WorkMode::parse_cli(&entry.value) {
+                            self.runtime_snapshot.work_mode = mode;
+                        }
+                    }
                     "permission_mode" => {
                         if let Some(mode) = PermissionMode::parse_cli(&entry.value) {
                             self.permissions.set_mode(mode);
                             self.runtime_snapshot.permission_mode = mode;
+                            self.runtime_snapshot.permission_level =
+                                PermissionLevel::from_legacy_mode(mode);
+                            if mode == PermissionMode::Plan {
+                                self.runtime_snapshot.work_mode = WorkMode::Plan;
+                            }
                         }
                     }
                     "model" => {

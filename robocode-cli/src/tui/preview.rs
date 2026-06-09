@@ -659,9 +659,10 @@ mod tests {
 
         assert!(main.contains("~/projects/robocode"));
         assert!(idle.contains("~/projects/robocode"));
-        assert!(live_turn.contains("RoboCode is planning"));
+        assert!(live_turn.contains("LIVE WORK"));
+        assert!(live_turn.contains("RoboCode working"));
         assert!(live_turn.contains("live provider request"));
-        assert!(resize.contains("✦"));
+        assert!(resize.contains("LIVE WORK"));
         assert!(resize.contains("Resize-safe redraw check"));
         assert!(cjk_input.contains("你好，帮我检查当前变更"));
         assert!(main.contains("src/config.rs"));

@@ -117,3 +117,15 @@ Before the final 0.1.x release is declared complete:
   discarded, and welcome-screen interaction modals clear the full frame because
   the welcome layout has no right rail. Verification should include app event
   policy tests, composer residue tests, render modal tests, and preview output.
+- 2026-06-09: Synthetic inline activity must not outlive the transcript event
+  that created it. Guardrail: `latest user turn` can render as planning only
+  while the user message is still the latest transcript entry, or when a real
+  pending/streaming/runtime task exists. A following tool result, system event,
+  or assistant entry must clear the synthetic planning row. Verification should
+  include a render test for `user -> tool-result(exit status 1)`.
+- 2026-06-09: Active thinking indicators must be obvious without blocking
+  input. Guardrail: active work renders as a `LIVE WORK` strip under the latest
+  visible conversation, with phase, signal, and next-action guidance; provider
+  thinking does not show fake progress percentages. Verification should cover
+  provider turns, lane/tool activity, diff review actions, conflict blockers,
+  and preview output.

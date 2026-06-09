@@ -1,40 +1,40 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                                                                     /\
-                                                                ____/  \____
-                                                               / __  /\  __ \
-                                                              /_/  |/__\|  \_\
-                                                              |  []  /\  []  |
-                                                              |_____/  \_____|
-                                                                 /_ROBOCODE_\
-
-
-                      ▌  Ask anything... "Fix broken tests"
-                      ▌
-                      ▌ RoboCode - Operator · gpt-4o OpenAI
-
-                                                                               tab agents   ctrl+p commands   /connect
-
-
-
-
-
-
-
-
-
-
-~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.25
-
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                     /\                                                                     
+                                                                ____/  \____                                                                
+                                                               / __  /\  __ \                                                               
+                                                              /_/  |/__\|  \_\                                                              
+                                                              |  []  /\  []  |                                                              
+                                                              |_____/  \_____|                                                              
+                                                                 /_ROBOCODE_\                                                               
+                                                                                                                                            
+                                                                                                                                            
+                      ▌  Ask anything... "Fix broken tests"                                                                                 
+                      ▌                                                                                                                     
+                      ▌ RoboCode - Operator · gpt-4o OpenAI                                                                                 
+                                                                                                                                            
+                                                                               tab agents   ctrl+p commands   /connect                      
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.26  
+                                                                                                                                            

@@ -29,6 +29,9 @@ This design consolidates the current repository and prior design notes:
 - `docs/long-term-roadmap.md`
 - `docs/staged-roadmap.md`
 - `docs/tui-cockpit-design.md`
+- `docs/mode-system-design.md`
+- `docs/tui-interaction-flow-design.md`
+- `docs/permission-mode-design.md`
 - `docs/code-agent-hn-demand-radar-2026-05-28.md`
 - `docs/code-agent-experience-benchmark-2026-05-25.md`
 - `docs/context-bundle-token-efficiency.md`
@@ -117,8 +120,8 @@ Every visible feature should help answer at least one of those questions.
 ## Product Principles
 
 - **RoboCode is the actor.** Providers are infrastructure. The UI should say
-  "RoboCode is planning", "Builder is editing", or "Tester is running tests",
-  not default to "DeepSeek is thinking."
+  "RoboCode working", "Builder is editing", or "Tester is running tests", not
+  default to "DeepSeek is thinking."
 - **Configuration is direct manipulation.** Provider, model, permission, and
   theme surfaces should be searchable panels where selection or editing applies
   directly. They should not make users guess which command to type next.
@@ -202,10 +205,10 @@ explicit history action starts the work session.
 
 ```mermaid
 flowchart TD
-    A["/plan on"] --> B["Permission policy becomes read-only planning"]
+    A["/plan on"] --> B["Set planner work intent<br/>and read-only permissions"]
     B --> C["User submits planning prompt"]
-    C --> D["Planner Turn"]
-    D --> E["Plan Artifact Or Inline Plan"]
+    C --> D["Planner Turn<br/>requirements / architecture / approach / tasks"]
+    D --> E["Inline Plan In Transcript"]
     D --> F{"User types while active"}
     F -->|Enter| G["Queue Follow-up"]
     F -->|Cancel| H["Cancel Active Turn"]
@@ -213,8 +216,11 @@ flowchart TD
     G --> J["Run Follow-up At Safe Boundary"]
 ```
 
-`/plan` changes permission policy. It must not change the input concurrency
-model. After a plan finishes, the composer must stay editable.
+`/plan` changes both planner work intent and permission policy: RoboCode plans
+product requirements, architecture, implementation approach, test strategy, and
+development steps, without writing code, modifying files, or persisting the
+plan. It must not change the input concurrency model. After a plan finishes, the
+composer must stay editable.
 
 #### Provider Turn And Tool Loop
 
@@ -373,8 +379,8 @@ For broader implementation, RoboCode should use a spec-driven operator loop:
 4. Keep lane evidence visible in side-1 and side-2.
 5. Merge only after review/apply decisions.
 
-`/plan` should produce a plan artifact and keep the composer usable. It should
-not lock the UI after the plan completes.
+`/plan` should produce an inline plan in the transcript and keep the composer
+usable. It should not write files or lock the UI after the plan completes.
 
 ## Welcome And First-Run Experience
 
@@ -406,8 +412,8 @@ After a real task begins, the cockpit should be organized around work:
   pressure, provider/model summary.
 - Transcript: dominant left area with streamed conversation, tool events, and
   durable history.
-- Inline activity: live status directly after the latest visible conversation
-  content, not as a detached center card.
+- Inline activity: a prominent `LIVE WORK` strip directly after the latest
+  visible conversation content, not as a detached center card.
 - Right rail: workspace, active tasks, diagnostics, provider health, recent
   files, and budgets only when real data exists.
 - Composer: taller, visible cursor, stable IME placement, queued follow-up
@@ -419,8 +425,9 @@ After a real task begins, the cockpit should be organized around work:
 
 ## Live Status And Animation
 
-The current "is thinking" pattern is too weak. RoboCode should render activity
-as a compact live work log with varied phase language.
+The old one-line "is thinking" pattern is too weak. RoboCode should render
+activity as a compact `LIVE WORK` strip with varied phase language, evidence
+signals, and next-action guidance.
 
 Guidelines:
 
@@ -428,9 +435,12 @@ Guidelines:
   `Builder`, `Reviewer`, `Tester`, `Lane Supervisor`, `Release Captain`.
 - Avoid provider names unless the user is looking at provider health or a
   provider-specific error.
+- Do not show fake progress percentages for provider thinking; show real phase,
+  signal, elapsed, and next-action details instead.
 - Do not show fake progress percentages. Use percent only when backed by real
   progress.
-- Use a small pulse/spinner glyph plus changing text, not a large blocking card.
+- Use the `LIVE WORK` strip with a pulse/spinner glyph plus changing text, not a
+  large blocking card.
 - Show elapsed time, latest event, queue count, and next action when available.
 
 Example phrases:
