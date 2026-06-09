@@ -9,17 +9,19 @@ focus/paste gaps, composer protocol residue, and welcome/modal clearing bugs.
 ## Release State
 
 - Workspace version: `0.1.25`
-- Git tag: pending `v0.1.25`
-- Release commit: pending
-- GitHub release: pending
-- Release workflow: pending
-- Homebrew tap commit: pending
+- Git tag: `v0.1.25`
+- Release commit: `dd96f01de9f250ac9e5cb0ed8d7fe89007462941`
+- GitHub release:
+  `https://github.com/wikieden/robocode/releases/tag/v0.1.25`
+- Release workflow:
+  `https://github.com/wikieden/robocode/actions/runs/27182146015` passed
+- Homebrew tap commit: `77dd0224a740a0a6583efc8ad10a663d5d302095`
 - Prepublish evidence: `/tmp/robocode-0125-release-gate/prepublish`
 - Local package: `dist/robocode-v0.1.25-aarch64-apple-darwin.tar.gz`
 - Local package sha256:
   `19a7423158910cb9fbab8823bf45122613593057c2e4bb6628c416e94b23a5e6`
-- Post-publish evidence: pending
-- Distribution state: pending GitHub Release assets and Homebrew validation
+- Post-publish evidence: `/tmp/robocode-0125-postpublish-gate/postpublish`
+- Distribution state: GitHub Release assets and Homebrew tap validation passed
 
 ## Included Changes
 
@@ -85,7 +87,25 @@ Post-publish verification:
 scripts/release-gate.sh --version 0.1.25 --phase postpublish
 ```
 
-Result: pending.
+Result: passed postpublish on 2026-06-09. Evidence:
+`/tmp/robocode-0125-postpublish-gate`.
+
+Postpublish smoke result:
+
+- `cargo-fmt`: passed
+- `tdd-testing-contract-smoke`: passed
+- `tui-turn-controller-smoke`: passed
+- `cargo-clippy`: passed
+- `robocode-cli-terminal-tests`: passed
+- `tui-regression`: passed
+- `fallback-cli-smoke`: passed
+- `plan-mode-smoke`: passed
+- `daily-loop-smoke`: passed
+- `codex-app-server-protocol-fixture`: passed
+- `codex-app-server-write-guard`: passed
+- `lane-operator-loop-smoke`: passed
+- `github-release-assets-validation`: passed
+- `homebrew-validation`: passed
 
 ## DeepSeek Live Development Scenario
 
