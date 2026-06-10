@@ -2,15 +2,16 @@
 
 Chinese version: [release-0.1.27-status.zh-CN.md](release-0.1.27-status.zh-CN.md)
 
-`0.1.27` is in progress. This release closes daily coding-loop stability before
+`0.1.27` is complete. This release closes daily coding-loop stability before
 the next delegated-lane cleanup slice.
 
 ## Status
 
 - Workspace version: `0.1.27`
-- Git tag: pending
-- GitHub Release: pending
-- Homebrew tap: pending
+- Git tag: `v0.1.27`
+- GitHub Release: published at
+  <https://github.com/wikieden/robocode/releases/tag/v0.1.27>
+- Homebrew tap: synced in `wikieden/homebrew-tap` commit `eccca4c`
 
 ## Implemented So Far
 
@@ -39,14 +40,16 @@ the next delegated-lane cleanup slice.
   the sandbox; the sandboxed run blocked a local HTTP test server with
   `Operation not permitted`.
 - `scripts/release-gate.sh --version 0.1.27 --phase prepublish --out-dir /tmp/robocode-0127-release-gate`: passed
+- `scripts/release-gate.sh --version 0.1.27 --phase postpublish --out-dir /tmp/robocode-0127-release-gate`: passed
 
 ## Release Gate
 
-Pending before completion:
+`0.1.27` is complete:
 
-- GitHub Release `v0.1.27`
-- Homebrew tap sync to `0.1.27`
-- `scripts/release-gate.sh --version 0.1.27 --phase postpublish`
+- prepublish gate passed, evidence at `/tmp/robocode-0127-release-gate/prepublish`;
+- GitHub Release `v0.1.27` published with `8` assets;
+- Homebrew tap synced to `0.1.27`, commit `eccca4c`;
+- postpublish gate passed, evidence at `/tmp/robocode-0127-release-gate/postpublish`.
 
 ## DeepSeek Smoke Evidence
 

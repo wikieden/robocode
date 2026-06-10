@@ -2,15 +2,16 @@
 
 English version: [release-0.1.27-status.md](release-0.1.27-status.md)
 
-`0.1.27` 正在进行中。本版本在下一轮 delegated lane 清理前，先收口日常编程
+`0.1.27` 已完成。本版本在下一轮 delegated lane 清理前，先收口日常编程
 闭环稳定性。
 
 ## 状态
 
 - Workspace version：`0.1.27`
-- Git tag：待发布
-- GitHub Release：待发布
-- Homebrew tap：待同步
+- Git tag：`v0.1.27`
+- GitHub Release：已发布：
+  <https://github.com/wikieden/robocode/releases/tag/v0.1.27>
+- Homebrew tap：已同步到 `wikieden/homebrew-tap` commit `eccca4c`
 
 ## 当前已实现
 
@@ -36,14 +37,16 @@ English version: [release-0.1.27-status.md](release-0.1.27-status.md)
 - `cargo test --workspace --quiet -- --test-threads=1`：提权后通过；sandbox
   内本地 HTTP test server 被 `Operation not permitted` 阻止。
 - `scripts/release-gate.sh --version 0.1.27 --phase prepublish --out-dir /tmp/robocode-0127-release-gate`：通过
+- `scripts/release-gate.sh --version 0.1.27 --phase postpublish --out-dir /tmp/robocode-0127-release-gate`：通过
 
 ## 发布 Gate
 
-完成前仍需：
+`0.1.27` 已完成：
 
-- GitHub Release `v0.1.27`
-- Homebrew tap 同步到 `0.1.27`
-- `scripts/release-gate.sh --version 0.1.27 --phase postpublish`
+- prepublish gate 已通过，证据在 `/tmp/robocode-0127-release-gate/prepublish`；
+- GitHub Release `v0.1.27` 已发布，包含 `8` 个 assets；
+- Homebrew tap 已同步到 `0.1.27`，commit `eccca4c`；
+- postpublish gate 已通过，证据在 `/tmp/robocode-0127-release-gate/postpublish`。
 
 ## DeepSeek Smoke 证据
 

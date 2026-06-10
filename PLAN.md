@@ -79,33 +79,29 @@ Mainline landed status:
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Current published release (`0.1.23`):
+Current published release (`0.1.27`):
 
-- `docs/release-0.1.23-status.md` records the provider/model setup patch:
-  opencode-style `/connect`, provider-grouped `/models`, auth-mode metadata,
-  GitHub Release, Homebrew tap, and post-publish smoke.
-- `0.1.23` keeps provider connection and model selection separate. `/connect`
-  configures the supplier; `/models` switches only configured provider and
-  activated model pairs.
+- `docs/release-0.1.27-status.md` records the daily coding-loop hardening
+  patch: RuntimeSnapshot-backed mode/permission UI, non-blocking approval
+  typing, queued follow-up regression coverage, topbar activity truthfulness,
+  elapsed/token/cost DeepSeek smoke evidence, GitHub Release, Homebrew tap, and
+  post-publish smoke.
+- `0.1.27` proves the core prompt -> streaming -> approval -> tool ->
+  queued-follow-up path without locking composer input.
 - GitHub Release assets, Homebrew tap update, and post-publish smoke are part
   of the same release unit.
 
-Current patch release (`0.1.27`):
+Current patch release (`0.1.28`):
 
-- `docs/release-0.1.27-plan.md` defines **Daily Coding Loop Hardening**.
-- The target is production-feeling coding-loop reliability: RuntimeSnapshot
-  values drive topbar/composer/status, active provider and approval turns do
-  not lock normal typing, queued follow-ups stay visible, and stale live-work
-  indicators clear when the turn completes.
+- The target is delegated lane visibility cleanup: lane state, evidence, next
+  action, accept/apply/discard, side-screen status, and background counts must
+  be truthful and stable.
 - The release is gated by deterministic TUI regression, plan-mode smoke,
   daily-loop smoke, live DeepSeek development smoke with token/cost evidence,
   GitHub Release assets, and Homebrew sync.
 
 0.1.x final planning:
 
-- `0.1.28`: delegated lane visibility cleanup - make lane state, evidence,
-  next action, accept/apply/discard, side-screen status, and background counts
-  truthful and stable.
 - `0.1.29`: release-candidate stabilization - freeze new surface area, burn
   down all known P0/P1 TUI bugs, and run Terminal/iTerm2 manual screenshot
   acceptance.
