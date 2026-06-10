@@ -474,10 +474,15 @@ fn lane_next_action_record(lane: &TerminalLane) -> Option<AgentNextAction> {
             Some(format!("/lane inspect {}", lane.id)),
             "lane is still active",
         ),
-        "completed" | "accepted" if lane.worktree.is_some() => (
+        "completed" if lane.worktree.is_some() => (
+            "accept lane",
+            Some(format!("/lane accept {}", lane.id)),
+            "isolated lane needs operator acceptance before apply",
+        ),
+        "accepted" if lane.worktree.is_some() => (
             "apply lane",
             Some(format!("/lane apply {}", lane.id)),
-            "isolated lane has reviewable changes",
+            "accepted isolated lane has reviewable changes",
         ),
         "completed" => (
             "archive lane",
@@ -3166,6 +3171,80 @@ mod tests {
             conflict
                 .evidence
                 .contains(&"changed M src/config.rs".to_string())
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn agent_tasks_separate_completed_accept_and_accepted_apply_lane_actions() {
+        let root = temp_state_root();
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
+            entries: Vec::new(),
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: vec![
+                TerminalLane {
+                    id: "L1".to_string(),
+                    tool: "codex".to_string(),
+                    title: "implement config loader".to_string(),
+                    status: "completed".to_string(),
+                    target: "main".to_string(),
+                    progress: 100,
+                    summary: "lane worktree has reviewable changes".to_string(),
+                    worktree: Some(root.join(".worktrees").join("L1")),
+                },
+                TerminalLane {
+                    id: "L2".to_string(),
+                    tool: "claude".to_string(),
+                    title: "apply accepted cleanup".to_string(),
+                    status: "accepted".to_string(),
+                    target: "main".to_string(),
+                    progress: 100,
+                    summary: "operator accepted lane changes".to_string(),
+                    worktree: Some(root.join(".worktrees").join("L2")),
+                },
+            ],
+            lane_store: None,
+            focused_lane: None,
+            interaction_panel: None,
+        };
+
+        let tasks = agent_tasks(&state);
+        let completed = tasks.iter().find(|task| task.id == "L1").expect("L1 task");
+        let accepted = tasks.iter().find(|task| task.id == "L2").expect("L2 task");
+
+        let completed_action = completed.next_action.as_ref().expect("completed action");
+        assert_eq!(completed_action.label, "accept lane");
+        assert_eq!(completed_action.command.as_deref(), Some("/lane accept L1"));
+        assert_eq!(
+            completed_action.reason.as_deref(),
+            Some("isolated lane needs operator acceptance before apply")
+        );
+
+        let accepted_action = accepted.next_action.as_ref().expect("accepted action");
+        assert_eq!(accepted_action.label, "apply lane");
+        assert_eq!(accepted_action.command.as_deref(), Some("/lane apply L2"));
+        assert_eq!(
+            accepted_action.reason.as_deref(),
+            Some("accepted isolated lane has reviewable changes")
         );
 
         let _ = fs::remove_dir_all(root);
