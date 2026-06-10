@@ -62,7 +62,10 @@ mkdir -p "$OUT_DIR"
 LOG="$OUT_DIR/deepseek-dev-scenario.log"
 USAGE_JSON="$OUT_DIR/usage.json"
 SUMMARY="$OUT_DIR/summary.md"
+FAILURE_CLASSIFICATION="$OUT_DIR/failure-classification.md"
 
+START_EPOCH="$(date +%s)"
+set +e
 (
   cd "$ROOT"
   ROBOCODE_LIVE_DEEPSEEK_MODEL="$MODEL" \
@@ -70,6 +73,52 @@ SUMMARY="$OUT_DIR/summary.md"
       deepseek_live_development_scenario_creates_and_runs_program \
       -- --ignored --nocapture --test-threads=1
 ) >"$LOG" 2>&1
+rc=$?
+set -e
+if [[ "$rc" != "0" ]]; then
+  END_EPOCH="$(date +%s)"
+  ELAPSED_SECONDS="$((END_EPOCH - START_EPOCH))"
+  python3 - "$LOG" "$FAILURE_CLASSIFICATION" "$rc" "$ELAPSED_SECONDS" <<'PY'
+import sys
+from pathlib import Path
+
+log_path = Path(sys.argv[1])
+target = Path(sys.argv[2])
+exit_code = sys.argv[3]
+elapsed = sys.argv[4]
+text = log_path.read_text(encoding="utf-8", errors="replace")
+lower = text.lower()
+if "http 413" in lower or "context length" in lower or "too large" in lower:
+    kind = "context_too_large"
+elif "argument list too long" in lower or "os error 7" in lower:
+    kind = "argv_too_long"
+elif "401" in lower or "403" in lower or "unauthorized" in lower or "api key" in lower:
+    kind = "auth"
+elif "429" in lower or "rate limit" in lower:
+    kind = "rate_limit"
+elif "timeout" in lower or "timed out" in lower:
+    kind = "timeout"
+elif "dns" in lower or "connection" in lower or "network" in lower:
+    kind = "network"
+elif "tool" in lower and "failed" in lower:
+    kind = "tool_failure"
+else:
+    kind = "unknown"
+target.write_text(
+    "# DeepSeek Development Scenario Failure\n\n"
+    f"- Classification: `{kind}`\n"
+    f"- Exit code: `{exit_code}`\n"
+    f"- Elapsed seconds: `{elapsed}`\n"
+    f"- Log: `{log_path}`\n",
+    encoding="utf-8",
+)
+print(f"DeepSeek live smoke failed: classification={kind} elapsed_seconds={elapsed} log={log_path}", file=sys.stderr)
+PY
+  tail -120 "$LOG" >&2 || true
+  exit "$rc"
+fi
+END_EPOCH="$(date +%s)"
+ELAPSED_SECONDS="$((END_EPOCH - START_EPOCH))"
 
 usage_line="$(grep -o 'ROBOCODE_LIVE_USAGE_JSON=.*' "$LOG" | tail -1 || true)"
 if [[ -z "$usage_line" ]]; then
@@ -79,7 +128,7 @@ if [[ -z "$usage_line" ]]; then
 fi
 printf '%s\n' "${usage_line#ROBOCODE_LIVE_USAGE_JSON=}" >"$USAGE_JSON"
 
-python3 - "$USAGE_JSON" "$SUMMARY" "$LOG" <<'PY'
+python3 - "$USAGE_JSON" "$SUMMARY" "$LOG" "$ELAPSED_SECONDS" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -87,7 +136,10 @@ from pathlib import Path
 usage_path = Path(sys.argv[1])
 summary_path = Path(sys.argv[2])
 log_path = Path(sys.argv[3])
+elapsed_seconds = int(sys.argv[4])
 payload = json.loads(usage_path.read_text(encoding="utf-8"))
+payload["elapsed_seconds"] = elapsed_seconds
+usage_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 cost = payload.get("estimated_cost_cny")
 cost_text = "unknown" if cost is None else f"¥{cost:.6f} CNY"
 summary = f"""# DeepSeek Development Scenario Smoke
@@ -98,6 +150,7 @@ summary = f"""# DeepSeek Development Scenario Smoke
 - Workspace: `{payload.get("workspace")}`
 - Requests: `{payload.get("request_count")}` ok=`{payload.get("success_count")}` err=`{payload.get("failure_count")}`
 - Tokens: input=`{payload.get("input_tokens")}` output=`{payload.get("output_tokens")}` total=`{payload.get("total_tokens")}`
+- Elapsed seconds: `{payload.get("elapsed_seconds")}`
 - Estimated cost: `{cost_text}`
 - Pricing basis: `{payload.get("pricing_basis")}`; input cache-miss `¥{payload.get("input_cny_per_million_cache_miss")}/1M`, output `¥{payload.get("output_cny_per_million")}/1M`
 - Raw usage: `{usage_path}`
@@ -112,6 +165,7 @@ print(
     f"input_tokens={payload.get('input_tokens')} "
     f"output_tokens={payload.get('output_tokens')} "
     f"total_tokens={payload.get('total_tokens')} "
+    f"elapsed_seconds={payload.get('elapsed_seconds')} "
     f"estimated_cost_cny={payload.get('estimated_cost_cny')}"
 )
 PY

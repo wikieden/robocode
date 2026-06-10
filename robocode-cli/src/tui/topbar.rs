@@ -146,11 +146,44 @@ enum StatusDensity {
 fn right_status_cluster(state: &TuiState, density: StatusDensity) -> String {
     let active = active_lane_count(state);
     let telemetry = telemetry_status(state);
+    let activity = activity_status(state);
     match density {
-        StatusDensity::Full => format!("· auto  {telemetry}  L{active}"),
-        StatusDensity::Compact => format!("· auto {telemetry} L{active}"),
-        StatusDensity::Tiny => format!("· auto L{active}"),
+        StatusDensity::Full => format!("· {activity}  {telemetry}  L{active}"),
+        StatusDensity::Compact => format!("· {activity} {telemetry} L{active}"),
+        StatusDensity::Tiny => format!("· {activity} L{active}"),
     }
+}
+
+fn activity_status(state: &TuiState) -> &'static str {
+    if let Some(turn) = &state.pending_turn {
+        if turn.next_action.contains("approve") || turn.phase.contains("approval") {
+            return "approval";
+        }
+        return "working";
+    }
+    if state.runtime_tasks.iter().any(|task| {
+        matches!(
+            task.status.as_str(),
+            "queued"
+                | "thinking"
+                | "streaming"
+                | "editing"
+                | "running_tool"
+                | "testing"
+                | "waiting_approval"
+                | "needs_input"
+                | "blocked"
+                | "reviewing"
+                | "running"
+                | "attached"
+        )
+    }) {
+        return "working";
+    }
+    if state.provider_status.failure_count > 0 {
+        return "check";
+    }
+    "idle"
 }
 
 fn telemetry_status(state: &TuiState) -> String {
@@ -226,7 +259,7 @@ fn active_lane_count(state: &TuiState) -> usize {
 mod tests {
     use super::telemetry_status;
     use crate::tui::state::{
-        ProviderOption, ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot,
+        PendingTurn, ProviderOption, ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot,
     };
     use robocode_core::ProviderTelemetry;
     use robocode_types::{PermissionLevel, WorkMode};
@@ -310,5 +343,22 @@ mod tests {
 
         assert!(content.contains("[WORK Plan]"));
         assert!(content.contains("[PERM Read Only"));
+    }
+
+    #[test]
+    fn top_bar_status_reflects_active_turn_instead_of_static_auto_text() {
+        let mut state = state_with_status(ProviderStatus::configured());
+        state.pending_turn = Some(PendingTurn::new(
+            "session",
+            "deepseek",
+            "deepseek-v4-flash",
+            "fix tests",
+            "/tmp/project",
+        ));
+
+        let content = super::top_bar_content(&state, 200);
+
+        assert!(content.contains("· working"));
+        assert!(!content.contains("· auto"));
     }
 }

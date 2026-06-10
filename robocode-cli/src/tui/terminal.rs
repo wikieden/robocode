@@ -60,6 +60,18 @@ impl TerminalGuard {
         })
     }
 
+    #[cfg(test)]
+    pub(super) fn test() -> Self {
+        Self {
+            active: false,
+            theme: TuiTheme::named("aurora-cyan"),
+            last_lines: Vec::new(),
+            last_size: None,
+            last_style_signature: None,
+            last_full_redraw: Instant::now(),
+        }
+    }
+
     pub(super) fn draw(&mut self, state: &TuiState) -> Result<(), String> {
         let (width, height) = terminal::size().unwrap_or((80, 24));
         let frame = render_frame(state, width, height);
@@ -86,6 +98,9 @@ impl TerminalGuard {
         cursor_position: Option<(u16, u16)>,
         style_signature: String,
     ) -> Result<(), String> {
+        if !self.active {
+            return Ok(());
+        }
         let size = terminal::size().unwrap_or((80, 24));
         let lines = frame.lines().map(str::to_string).collect::<Vec<_>>();
         let now = Instant::now();

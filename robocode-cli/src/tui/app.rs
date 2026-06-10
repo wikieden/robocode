@@ -1530,6 +1530,7 @@ fn handle_active_approval_key(
                 terminal.draw(state)?;
                 Ok(true)
             }
+            KeyCode::Backspace | KeyCode::Char(_) => Ok(false),
             _ => Ok(true),
         },
     }
@@ -1795,9 +1796,12 @@ mod tests {
     };
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use robocode_core::SessionEngine;
-    use robocode_model::{ModelProvider, ProviderAuthMode};
-    use robocode_types::{ModelEvent, ModelRequest, PermissionLevel, PermissionPrompt, WorkMode};
+    use robocode_model::{ModelProvider, ModelRequestControl, ProviderAuthMode};
+    use robocode_types::{
+        ModelEvent, ModelRequest, PermissionLevel, PermissionPrompt, ToolCall, ToolInput, WorkMode,
+    };
     use std::{
+        collections::VecDeque,
         fs,
         sync::{
             atomic::{AtomicU64, Ordering},
@@ -1861,6 +1865,41 @@ mod tests {
                 .iter()
                 .all(|task| !task.activity.contains("provider"))
         );
+    }
+
+    #[test]
+    fn mode_and_permission_commands_immediately_sync_tui_runtime_status() {
+        let root = temp_app_root();
+        let home = root.join("session-home");
+        let provider = Box::new(TestProvider {
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+        });
+        let engine = SessionEngine::new_with_home(&root, provider, Some(home)).unwrap();
+        let runtime = super::TuiRuntime::start(engine);
+        let mut state = test_state("");
+
+        super::run_settings_command(&runtime, &mut state, "/mode plan").unwrap();
+        assert_eq!(state.provider_status.work_mode, WorkMode::Plan);
+        assert_eq!(
+            state.provider_status.permission_level,
+            PermissionLevel::ReadOnly
+        );
+
+        super::run_settings_command(&runtime, &mut state, "/mode build").unwrap();
+        assert_eq!(state.provider_status.work_mode, WorkMode::Build);
+        assert_eq!(state.provider_status.permission_level, PermissionLevel::Ask);
+
+        super::run_settings_command(&runtime, &mut state, "/permissions auto_edit").unwrap();
+        assert_eq!(state.provider_status.work_mode, WorkMode::Build);
+        assert_eq!(
+            state.provider_status.permission_level,
+            PermissionLevel::AutoEdit
+        );
+
+        super::run_settings_command(&runtime, &mut state, "/permissions ask").unwrap();
+        assert_eq!(state.provider_status.work_mode, WorkMode::Build);
+        assert_eq!(state.provider_status.permission_level, PermissionLevel::Ask);
     }
 
     #[test]
@@ -2035,6 +2074,90 @@ mod tests {
     }
 
     #[test]
+    fn provider_turn_streams_approves_tools_runs_queued_followup_and_releases_composer() {
+        let root = temp_app_root();
+        let home = root.join("session-home");
+        let provider = Box::new(CodingLoopProvider::new());
+        let engine = SessionEngine::new_with_home(&root, provider, Some(home)).unwrap();
+        let mut runtime = super::TuiRuntime::start(engine);
+        let mut terminal = super::TerminalGuard::test();
+        let mut state = test_state("");
+        let mut active_approval = None;
+
+        super::handle_submitted_input(
+            &mut runtime,
+            &mut state,
+            &mut terminal,
+            "create a tiny python file".to_string(),
+        )
+        .unwrap();
+        assert!(runtime.is_turn_active());
+
+        super::handle_submitted_input(
+            &mut runtime,
+            &mut state,
+            &mut terminal,
+            "then summarize what changed".to_string(),
+        )
+        .unwrap();
+        assert_eq!(state.input, "");
+        assert_eq!(
+            state
+                .pending_turn
+                .as_ref()
+                .expect("pending turn")
+                .queued_inputs,
+            vec!["then summarize what changed"]
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            super::poll_turn_controller_events(
+                &mut runtime,
+                &mut state,
+                &mut active_approval,
+                &mut terminal,
+            )
+            .unwrap();
+            if active_approval.is_some() {
+                resolve_active_approval(true, &mut active_approval, &mut state);
+            }
+            if !runtime.is_turn_active()
+                && state.pending_turn.is_none()
+                && state.entries.iter().any(|entry| {
+                    entry.label == "assistant" && entry.body.contains("Queued follow-up complete")
+                })
+            {
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+
+        assert!(root.join("hello.py").exists());
+        assert_eq!(state.input, "");
+        assert!(state.pending_turn.is_none());
+        assert!(state.streaming_assistant.is_none());
+        assert!(
+            state
+                .entries
+                .iter()
+                .any(|entry| entry.label == "user" && entry.body == "then summarize what changed")
+        );
+        assert!(
+            state
+                .entries
+                .iter()
+                .any(|entry| entry.label == "approval" && entry.body == "Approved `write_file`.")
+        );
+        assert!(state.entries.iter().any(|entry| {
+            entry.label == "tool-result" && entry.body.contains("write_file completed")
+        }));
+        assert!(state.entries.iter().any(|entry| {
+            entry.label == "assistant" && entry.body.contains("Queued follow-up complete")
+        }));
+    }
+
+    #[test]
     fn failed_active_turn_restores_first_queued_prompt_to_composer() {
         let mut state = test_state("");
         state.pending_turn = Some(super::PendingTurn::new(
@@ -2119,6 +2242,47 @@ mod tests {
                 .next_action,
             "wait"
         );
+    }
+
+    #[test]
+    fn active_approval_does_not_swallow_composer_typing() {
+        let root = temp_app_root();
+        let home = root.join("session-home");
+        let provider = Box::new(TestProvider {
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+        });
+        let engine = SessionEngine::new_with_home(&root, provider, Some(home)).unwrap();
+        let runtime = super::TuiRuntime::start(engine);
+        let mut terminal = super::TerminalGuard::test();
+        let mut state = test_state("");
+        state.pending_turn = Some(super::PendingTurn::new(
+            "session",
+            "deepseek",
+            "deepseek-v4-flash",
+            "edit file",
+            "/tmp/project",
+        ));
+        let (sender, _receiver) = mpsc::channel();
+        let prompt = PermissionPrompt {
+            tool_name: "write_file".to_string(),
+            message: "Allow write?".to_string(),
+            input_preview: "path=src/lib.rs".to_string(),
+        };
+        let mut active = Some(begin_active_approval(prompt, sender, &mut state));
+
+        let handled = super::handle_active_approval_key(
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::empty()),
+            &mut active,
+            &runtime,
+            &mut state,
+            &mut terminal,
+        )
+        .unwrap();
+
+        assert!(!handled);
+        assert!(active.is_some());
+        assert_eq!(state.input, "");
     }
 
     #[test]
@@ -2579,6 +2743,74 @@ mod tests {
                 },
                 ModelEvent::Done,
             ])
+        }
+    }
+
+    struct CodingLoopProvider {
+        turns: VecDeque<Vec<ModelEvent>>,
+    }
+
+    impl CodingLoopProvider {
+        fn new() -> Self {
+            let mut write_input = ToolInput::new();
+            write_input.insert("path".to_string(), "hello.py".to_string());
+            write_input.insert(
+                "content".to_string(),
+                "print('daily-loop-ok')\n".to_string(),
+            );
+            Self {
+                turns: VecDeque::from([
+                    vec![
+                        ModelEvent::ToolCall(ToolCall {
+                            id: "call-write".to_string(),
+                            name: "write_file".to_string(),
+                            input: write_input,
+                        }),
+                        ModelEvent::AssistantText {
+                            content: "Created hello.py.".to_string(),
+                        },
+                        ModelEvent::Done,
+                    ],
+                    vec![
+                        ModelEvent::AssistantText {
+                            content: "Queued follow-up complete.".to_string(),
+                        },
+                        ModelEvent::Done,
+                    ],
+                ]),
+            }
+        }
+    }
+
+    impl ModelProvider for CodingLoopProvider {
+        fn provider_name(&self) -> &str {
+            "fallback"
+        }
+
+        fn model(&self) -> &str {
+            "test-local"
+        }
+
+        fn set_model(&mut self, _model: String) {}
+
+        fn next_events(&mut self, _request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+            Ok(self.turns.pop_front().unwrap_or_else(|| {
+                vec![
+                    ModelEvent::AssistantText {
+                        content: "No scripted turn remaining.".to_string(),
+                    },
+                    ModelEvent::Done,
+                ]
+            }))
+        }
+
+        fn next_events_with_control(
+            &mut self,
+            request: &ModelRequest,
+            control: &ModelRequestControl,
+        ) -> Result<Vec<ModelEvent>, String> {
+            control.emit_stream_delta(format!("drafting from {}...", request.model));
+            self.next_events(request)
         }
     }
 }

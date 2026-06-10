@@ -90,22 +90,19 @@ Current published release (`0.1.23`):
 - GitHub Release assets, Homebrew tap update, and post-publish smoke are part
   of the same release unit.
 
-Current patch release (`0.1.26`):
+Current patch release (`0.1.27`):
 
-- `docs/release-0.1.26-plan.md` defines **TUI Regression Pack And Mode
-  Stability**.
-- The target is visible coding-loop reliability after the 0.1.25 display pass:
-  truthful Mode / Permission chips, active-turn input queueing, cancellation,
-  scrollback, stale-thinking cleanup, resize evidence, and screenshot evidence.
+- `docs/release-0.1.27-plan.md` defines **Daily Coding Loop Hardening**.
+- The target is production-feeling coding-loop reliability: RuntimeSnapshot
+  values drive topbar/composer/status, active provider and approval turns do
+  not lock normal typing, queued follow-ups stay visible, and stale live-work
+  indicators clear when the turn completes.
 - The release is gated by deterministic TUI regression, plan-mode smoke,
   daily-loop smoke, live DeepSeek development smoke with token/cost evidence,
   GitHub Release assets, and Homebrew sync.
 
 0.1.x final planning:
 
-- `0.1.27`: daily coding loop hardening - prove a real prompt -> streaming ->
-  tool/approval -> test/diff -> final answer loop without blocking input or
-  losing history.
 - `0.1.28`: delegated lane visibility cleanup - make lane state, evidence,
   next action, accept/apply/discard, side-screen status, and background counts
   truthful and stable.
