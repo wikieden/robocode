@@ -2,16 +2,17 @@
 
 Chinese version: [release-0.1.28-status.zh-CN.md](release-0.1.28-status.zh-CN.md)
 
-`0.1.28` is in progress. This release focuses on making delegated lane state,
+`0.1.28` is complete. This release focuses on making delegated lane state,
 evidence, next actions, and side-screen counts truthful before the final
 `0.1.x` stability gate.
 
 ## Status
 
 - Workspace version: `0.1.28`
-- Git tag: pending
-- GitHub Release: pending
-- Homebrew tap: pending
+- Git tag: `v0.1.28`
+- GitHub Release: published at
+  <https://github.com/wikieden/robocode/releases/tag/v0.1.28>
+- Homebrew tap: synced in `wikieden/homebrew-tap` commit `5561846`
 
 ## Implemented So Far
 
@@ -37,12 +38,22 @@ evidence, next actions, and side-screen counts truthful before the final
     plan-mode smoke, daily-loop smoke, Codex app-server protocol/write guards,
     lane operator loop smoke, package smoke, DeepSeek dev scenario smoke.
   - Evidence: `/tmp/robocode-0128-release-gate/prepublish`
+- GitHub Release workflow run `27277703367`: passed and uploaded `8` assets.
+- `scripts/release-smoke.sh --version 0.1.28 --quick --skip-package --github-release-assets --out-dir /tmp/robocode-0128-github-release-check`: passed
+- `HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --force --formula wikieden/tap/robocode`: passed, formula `robocode (0.1.28)`
+- `HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/robocode`: passed
+- `scripts/release-gate.sh --version 0.1.28 --phase postpublish --out-dir /tmp/robocode-0128-release-gate`: passed
+  - PASS: GitHub release asset validation and Homebrew validation.
+  - Evidence: `/tmp/robocode-0128-release-gate/postpublish`
 
-## Remaining Gate
+## Release Gate
 
-- Publish GitHub Release `v0.1.28`.
-- Sync `wikieden/homebrew-tap` to `0.1.28`.
-- Run `scripts/release-gate.sh --version 0.1.28 --phase postpublish --out-dir /tmp/robocode-0128-release-gate`.
+`0.1.28` is complete:
+
+- prepublish gate passed, evidence at `/tmp/robocode-0128-release-gate/prepublish`;
+- GitHub Release `v0.1.28` published with `8` assets;
+- Homebrew tap synced to `0.1.28`, commit `5561846`;
+- postpublish gate passed, evidence at `/tmp/robocode-0128-release-gate/postpublish`.
 
 ## DeepSeek Smoke Evidence
 

@@ -2,15 +2,16 @@
 
 English version: [release-0.1.28-status.md](release-0.1.28-status.md)
 
-`0.1.28` 正在进行。本版本聚焦 delegated lane 的状态、证据、下一步动作和 side
+`0.1.28` 已完成。本版本聚焦 delegated lane 的状态、证据、下一步动作和 side
 screen 计数，在最终 `0.1.x` 稳定性 gate 前把这些显示做真实。
 
 ## 状态
 
 - Workspace version：`0.1.28`
-- Git tag：待发布
-- GitHub Release：待发布
-- Homebrew tap：待同步
+- Git tag：`v0.1.28`
+- GitHub Release：已发布：
+  <https://github.com/wikieden/robocode/releases/tag/v0.1.28>
+- Homebrew tap：已同步到 `wikieden/homebrew-tap` commit `5561846`
 
 ## 当前已实现
 
@@ -35,12 +36,22 @@ screen 计数，在最终 `0.1.x` 稳定性 gate 前把这些显示做真实。
     plan-mode smoke、daily-loop smoke、Codex app-server protocol/write guards、
     lane operator loop smoke、package smoke、DeepSeek dev scenario smoke。
   - 证据：`/tmp/robocode-0128-release-gate/prepublish`
+- GitHub Release workflow run `27277703367`：通过，并上传 `8` 个 assets。
+- `scripts/release-smoke.sh --version 0.1.28 --quick --skip-package --github-release-assets --out-dir /tmp/robocode-0128-github-release-check`：通过
+- `HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --force --formula wikieden/tap/robocode`：通过，formula `robocode (0.1.28)`
+- `HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/robocode`：通过
+- `scripts/release-gate.sh --version 0.1.28 --phase postpublish --out-dir /tmp/robocode-0128-release-gate`：通过
+  - PASS：GitHub release asset validation 和 Homebrew validation。
+  - 证据：`/tmp/robocode-0128-release-gate/postpublish`
 
-## 剩余 Gate
+## 发布 Gate
 
-- 发布 GitHub Release `v0.1.28`。
-- 同步 `wikieden/homebrew-tap` 到 `0.1.28`。
-- 运行 `scripts/release-gate.sh --version 0.1.28 --phase postpublish --out-dir /tmp/robocode-0128-release-gate`。
+`0.1.28` 已完成：
+
+- prepublish gate 已通过，证据在 `/tmp/robocode-0128-release-gate/prepublish`；
+- GitHub Release `v0.1.28` 已发布，包含 `8` 个 assets；
+- Homebrew tap 已同步到 `0.1.28`，commit `5561846`；
+- postpublish gate 已通过，证据在 `/tmp/robocode-0128-release-gate/postpublish`。
 
 ## DeepSeek Smoke 证据
 

@@ -79,26 +79,26 @@ Mainline landed status:
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Current published release (`0.1.27`):
+Current published release (`0.1.28`):
 
-- `docs/release-0.1.27-status.md` records the daily coding-loop hardening
-  patch: RuntimeSnapshot-backed mode/permission UI, non-blocking approval
-  typing, queued follow-up regression coverage, topbar activity truthfulness,
-  elapsed/token/cost DeepSeek smoke evidence, GitHub Release, Homebrew tap, and
-  post-publish smoke.
-- `0.1.27` proves the core prompt -> streaming -> approval -> tool ->
-  queued-follow-up path without locking composer input.
+- `docs/release-0.1.28-status.md` records the delegated lane visibility cleanup:
+  completed isolated lanes now require accept before apply, side status shows
+  active/review/blocked/done delegated lane counts, and closed operator lane
+  states no longer render as active thinking work.
+- `0.1.28` proves lane next actions, side-screen status, lane operator smoke,
+  daily-loop smoke, live DeepSeek development smoke, GitHub Release assets, and
+  Homebrew validation in one release unit.
 - GitHub Release assets, Homebrew tap update, and post-publish smoke are part
   of the same release unit.
 
-Current patch release (`0.1.28`):
+Current patch release (`0.1.29`):
 
-- The target is delegated lane visibility cleanup: lane state, evidence, next
-  action, accept/apply/discard, side-screen status, and background counts must
-  be truthful and stable.
+- The target is release-candidate stabilization: freeze new surface area, burn
+  down known P0/P1 TUI bugs, and run Terminal/iTerm2 manual screenshot
+  acceptance before the final `0.1.x` zero-bug gate.
 - The release is gated by deterministic TUI regression, plan-mode smoke,
-  daily-loop smoke, live DeepSeek development smoke with token/cost evidence,
-  GitHub Release assets, and Homebrew sync.
+  daily-loop smoke, lane operator smoke, live DeepSeek development smoke with
+  token/cost evidence, GitHub Release assets, and Homebrew sync.
 
 0.1.x final planning:
 
