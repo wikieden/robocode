@@ -194,35 +194,19 @@ Mainline landed：
 
 当前已发布版本：
 
-- `docs/release-0.1.22-status.zh-CN.md` 记录 provider detail 可用性补丁：API key
-  脱敏显示、provider detail 动作行简化、确定性截图证据、GitHub Release、
-  Homebrew tap 和 post-publish smoke。
-- `0.1.22` 保持 0.1.21 的交互系统不变，把 provider detail 进一步收敛成
-  settings-form 风格的配置界面。
-- `docs/release-0.1.21-status.zh-CN.md` 记录已打 tag、已发布、已更新 Homebrew、已完成
-  post-publish verification 的 Usability Beta Gate release。
-- `0.1.21` 增加可操作 setup wizard、缺 key 首次启动入口、provider failure recovery
-  分类、居中的 lane action selector，以及刷新后的 0.1.21 截图证据。
-- `docs/release-0.1.23-status.zh-CN.md` 记录 provider/model 设置补丁：opencode 风格的供应商
-  连接、Favorites 优先的 model 选择、provider auth-mode 元数据、确定性截图、GitHub
-  Release、Homebrew tap 和 post-publish smoke。
-- `0.1.23` 把供应商/model 选择进一步靠近 opencode 模式：`/connect` 是供应商
-  连接 picker，`/provider` 保留为命令式 provider 操作入口，`/models` 显示 Favorites、
-  Recent 和按供应商分组的 active model 行。Favorites 是 provider/model 组合，不会
-  在后续 provider 分组重复出现，也可以在 selector 里用 `Ctrl-F` 置顶。`/connect
-  <provider>` 现在会进入真实的 provider scoped 配置动作：key env、endpoint、默认模型，
-  以及 `/models` 使用的 active/favorite model 列表。
-- `0.1.18` 仍是 Interaction Hardening 检查点：settings 决策是 selector-first，
-  后续交互决策面必须是可执行 picker，而不是被动信息页。
+- `docs/release-0.1.29-status.zh-CN.md` 记录 RC TUI 稳定性版本：release-visible
+  P0/P1 guardrails、RC TUI stability smoke、刷新后的 0.1.29 确定性截图、live
+  DeepSeek development smoke、GitHub Release、Homebrew tap 和 post-publish smoke。
+- `0.1.29` 在最终 0.1.x gate 前冻结新的 UI surface，并证明 Plan 模式、daily-loop、
+  lane operator、provider/model setup、scrollback、repaint 和 synthetic-planning
+  cleanup guardrails 已进入 release gate。
 
 下一个计划版本：
 
-- `0.1.24` 升级为 **Provider Setup + Non-blocking Operator Loop Gate**：继续推进
-  provider 配置流程，同时把 Plan 模式卡输入、approval 阻塞、streaming/scrollback 互抢、
-  doctor/probe 卡面板、lane/tool/context build 阻塞主循环这些问题作为 release blocker。
-  下一步需要引入 `TurnController` 或等价 runtime 控制器，让所有长任务通过事件、callback、
-  job tail 和 evidence 回到同一个 TUI 主循环。
-- 每个用户可见功能点完成前，都必须提供一张真实使用截图或确定性视觉产物
+- `0.1.30` 是最终 0.1.x zero-bug gate：在 P0/P1 TUI bug backlog 清零、截图证据齐全、
+  quick/full stability gates 通过、GitHub Release 和 Homebrew validation 全绿前，不进入 0.2.x。
+- 补齐剩余真实终端验收证据，尤其是 macOS Terminal 和 iTerm2 下 long-idle、active-turn、
+  scrollback、provider/model setup 与 error-recovery 状态截图。
 
 0.1.x final 建议定为 `0.1.30`：在 P0/P1 TUI bug backlog 清零、截图证据齐全、
 quick/full release gates 通过、GitHub Release 与 Homebrew 同步后，才进入 0.2.x。

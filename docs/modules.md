@@ -33,28 +33,19 @@ Mainline landed:
 
 Current published release:
 
-- `docs/release-0.1.23-status.md` records the provider/model setup patch:
-  opencode-style `/connect` supplier selection, provider-grouped `/models`
-  rows for configured/activated models, auth-mode metadata, GitHub Release,
-  Homebrew tap, and post-publish smoke.
-- `0.1.23` keeps provider connection and model selection separate: `/connect`
-  configures the supplier, while `/models` switches provider/model pairs only
-  from configured providers and activated model rows.
-- release validation includes daily-loop, lane operator-loop, local package,
-  deterministic TUI screenshots, GitHub release assets, and Homebrew checks as
-  normal gates.
+- `docs/release-0.1.29-status.md` records the RC TUI stability release:
+  RC TUI stability smoke, refreshed deterministic screenshots, live DeepSeek
+  development smoke, GitHub Release assets, Homebrew tap, and post-publish
+  validation.
+- release validation now includes the RC stability smoke, daily-loop,
+  lane operator-loop, local package, deterministic TUI screenshots, GitHub
+  release assets, and Homebrew checks as normal gates.
 
 Next planned slice:
 
-- the current `0.1.24` slice is **Provider Setup + Non-blocking Operator Loop
-  Gate**: continue provider/detail focused editable forms while moving provider
-  turns, plan mode, approval, streaming, context building, doctor/probe, and
-  tool/lane jobs onto the same non-blocking TUI main event loop.
-- continue tightening first-run setup so API-key, web-login, and local-provider
-  flows each expose the right action instead of a generic status page.
-- introduce `TurnController` or an equivalent runtime controller so long-running
-  work returns to the UI through events, callbacks, job tails, and evidence
-  instead of nested input loops.
+- the current `0.1.30` slice is the final 0.1.x zero-bug gate: clear known
+  P0/P1 TUI bugs, finish real-terminal screenshot evidence, keep all stability
+  smokes green, and only then move toward the 0.2.x surface.
 - keep every user-visible feature point backed by a real-use screenshot or
   deterministic visual artifact for product review.
 

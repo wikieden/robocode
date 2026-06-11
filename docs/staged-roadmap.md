@@ -241,43 +241,22 @@ Mainline landed:
 
 Current published release:
 
-- `docs/release-0.1.22-status.md` records the provider-detail usability patch:
-  masked API-key display, concise provider-detail action rows, deterministic
-  screenshot evidence, GitHub Release, Homebrew tap, and post-publish smoke.
-- `0.1.22` keeps the 0.1.21 interaction system intact and narrows the provider
-  detail page toward a settings-form style surface.
-- `docs/release-0.1.21-status.md` records the tagged, published,
-  Homebrew-updated, and post-publish-verified Usability Beta Gate release.
-- `0.1.21` adds an actionable setup wizard, missing-key first-run entry,
-  provider failure recovery classes, a centered lane action selector, and
-  refreshed 0.1.21 screenshot evidence.
-- `docs/release-0.1.23-status.md` records the provider/model setup patch:
-  opencode-style supplier connection, Favorites-first model selection,
-  provider auth-mode metadata, deterministic screenshots, GitHub Release,
+- `docs/release-0.1.29-status.md` records the RC TUI stability release:
+  release-visible P0/P1 guardrails, RC TUI stability smoke, refreshed 0.1.29
+  deterministic screenshots, live DeepSeek development smoke, GitHub Release,
   Homebrew tap, and post-publish smoke.
-- `0.1.23` moves supplier/model selection toward the opencode pattern:
-  `/connect` is the provider connection picker, `/provider` remains the
-  command-style provider surface, and `/models` shows Favorites, Recent, and
-  provider-grouped active model rows. Favorites are provider/model pairs, are
-  not repeated in provider groups, and can be pinned from the selector with
-  `Ctrl-F`. `/connect <provider>` now leads to provider-scoped config actions
-  for key env, endpoint, default model, and the active/favorite model lists used
-  by `/models`.
-- `0.1.18` remains the Interaction Hardening checkpoint: settings decisions are
-  selector-first and interactive decision surfaces must be actionable pickers
-  rather than passive information pages.
+- `0.1.29` freezes new UI surface area before the final 0.1.x gate and proves
+  that plan mode, daily-loop, lane operator, provider/model setup, scrollback,
+  repaint, and synthetic-planning cleanup guardrails stay in the release gate.
 
 Next planned:
 
-- `0.1.24` is upgraded to the **Provider Setup + Non-blocking Operator Loop
-  Gate**: continue the provider configuration flow while treating plan-mode
-  input freezes, blocking approval, streaming/scrollback conflicts,
-  doctor/probe panel freezes, and lane/tool/context-build main-loop blocking as
-  release blockers. The next implementation step is `TurnController` or an
-  equivalent runtime controller so long-running work returns to the same TUI
-  main loop through events, callbacks, job tails, and evidence.
-- require a real-use screenshot or deterministic visual artifact for every
-  user-visible feature before it is marked complete
+- `0.1.30` is the final 0.1.x zero-bug gate: do not enter 0.2.x until known
+  P0/P1 TUI bugs are zero, screenshot evidence is complete, quick and full
+  stability gates pass, and GitHub Release plus Homebrew validation are green.
+- Complete the remaining real-terminal acceptance evidence, especially macOS
+  Terminal and iTerm2 screenshots for long-idle, active-turn, scrollback,
+  provider/model setup, and error-recovery states.
 
 The recommended final 0.1.x checkpoint is `0.1.30`: enter `0.2.x` only after
 the known P0/P1 TUI backlog is zero, screenshot evidence is complete, quick and

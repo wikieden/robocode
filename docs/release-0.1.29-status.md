@@ -2,15 +2,16 @@
 
 Chinese version: [release-0.1.29-status.zh-CN.md](release-0.1.29-status.zh-CN.md)
 
-`0.1.29` is in progress. This release freezes new UI surface area and turns the
+`0.1.29` is complete. This release freezes new UI surface area and turns the
 remaining P0/P1 TUI guardrails into a release-visible RC smoke gate.
 
 ## Status
 
 - Workspace version: `0.1.29`
-- Git tag: pending
-- GitHub Release: pending
-- Homebrew tap: pending
+- Git tag: `v0.1.29`
+- GitHub Release: published at
+  <https://github.com/wikieden/robocode/releases/tag/v0.1.29>
+- Homebrew tap: synced in `wikieden/homebrew-tap` commit `0681269`
 
 ## Implemented So Far
 
@@ -44,9 +45,21 @@ remaining P0/P1 TUI guardrails into a release-visible RC smoke gate.
 
 ## Remaining Gate
 
-- Publish GitHub Release `v0.1.29`.
-- Sync `wikieden/homebrew-tap` to `0.1.29`.
-- Run `scripts/release-gate.sh --version 0.1.29 --phase postpublish --out-dir /tmp/robocode-0129-release-gate`.
+No remaining release gate for `0.1.29`.
+
+## Release Gate
+
+`0.1.29` is complete:
+
+- prepublish gate passed, evidence at
+  `/tmp/robocode-0129-release-gate/prepublish`;
+- GitHub Release workflow run
+  [`27318839422`](https://github.com/wikieden/robocode/actions/runs/27318839422)
+  passed and uploaded `8` assets;
+- GitHub Release `v0.1.29` is published with assets and checksums;
+- Homebrew tap is synced to `0.1.29`, commit `0681269`;
+- postpublish gate passed, evidence at
+  `/tmp/robocode-0129-release-gate/postpublish`.
 
 ## DeepSeek Smoke Evidence
 

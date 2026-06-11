@@ -33,23 +33,16 @@ Mainline landed：
 
 当前已发布版本：
 
-- `docs/release-0.1.23-status.zh-CN.md` 记录 provider/model 设置补丁：opencode 风格
-  `/connect` 供应商选择、`/models` 只显示已配置/已激活模型的供应商分组行、
-  auth-mode 元数据、GitHub Release、Homebrew tap 和 post-publish smoke。
-- `0.1.23` 保持 provider 连接与 model 选择分离：`/connect` 配置供应商，`/models`
-  只从已配置 provider 和已激活 model 行切换 provider/model 组合。
-- release validation 已把 daily-loop、lane operator-loop、本地 package、确定性 TUI 截图、
-  GitHub release assets 和 Homebrew 检查作为常规门禁。
+- `docs/release-0.1.29-status.zh-CN.md` 记录 RC TUI 稳定性版本：RC TUI stability
+  smoke、刷新后的确定性截图、live DeepSeek development smoke、GitHub Release assets、
+  Homebrew tap 和 post-publish validation。
+- release validation 现在把 RC stability smoke、daily-loop、lane operator-loop、本地
+  package、确定性 TUI 截图、GitHub release assets 和 Homebrew 检查作为常规门禁。
 
 下一个计划切片：
 
-- `0.1.24` 当前计划切片是 **Provider Setup + Non-blocking Operator Loop Gate**：
-  provider/detail 页继续推进成真正聚焦的可编辑表单，同时把 provider turn、Plan 模式、
-  approval、streaming、context build、doctor/probe、tool/lane job 全部收敛到同一个
-  非阻塞 TUI 主事件循环。
-- 继续收紧首次 setup，让 API key、网页登录和本地 provider 流程分别展示正确动作，而不是通用状态页。
-- 引入 `TurnController` 或等价 runtime 控制器，让长任务通过 event/callback/job tail/evidence
-  回到 UI，而不是用嵌套 input loop 接管输入。
+- 当前 `0.1.30` 切片是最终 0.1.x zero-bug gate：清空已知 P0/P1 TUI bugs，补齐
+  真实终端截图证据，保持所有稳定性 smokes 通过，然后再进入 0.2.x surface。
 - 每个用户可见功能点都要以真实使用截图或确定性视觉产物收尾，供产品侧确认。
 
 ## 与 `.ref/claude-code-main` 的差距

@@ -79,23 +79,23 @@ Mainline landed status:
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Current published release (`0.1.28`):
+Current published release (`0.1.29`):
 
-- `docs/release-0.1.28-status.md` records the delegated lane visibility cleanup:
-  completed isolated lanes now require accept before apply, side status shows
-  active/review/blocked/done delegated lane counts, and closed operator lane
-  states no longer render as active thinking work.
-- `0.1.28` proves lane next actions, side-screen status, lane operator smoke,
-  daily-loop smoke, live DeepSeek development smoke, GitHub Release assets, and
-  Homebrew validation in one release unit.
+- `docs/release-0.1.29-status.md` records the release-candidate TUI stability
+  gate: RC TUI stability smoke, deterministic 0.1.29 screenshots, plan-mode
+  smoke, daily-loop smoke, lane operator smoke, live DeepSeek development smoke,
+  GitHub Release assets, and Homebrew validation.
+- `0.1.29` freezes new UI surface area and makes the remaining P0/P1 TUI
+  guardrails release-visible before the final `0.1.x` zero-bug gate.
 - GitHub Release assets, Homebrew tap update, and post-publish smoke are part
   of the same release unit.
 
-Current patch release (`0.1.29`):
+Current patch release (`0.1.30`):
 
-- The target is release-candidate stabilization: freeze new surface area, burn
-  down known P0/P1 TUI bugs, and run Terminal/iTerm2 manual screenshot
-  acceptance before the final `0.1.x` zero-bug gate.
+- The target is the final 0.1.x zero-bug gate: publish only when known P0/P1
+  TUI bugs are zero, screenshot evidence is complete, full smoke is green,
+  GitHub Release assets are uploaded, Homebrew is synced, and post-publish
+  validation passes.
 - The release is gated by deterministic TUI regression, plan-mode smoke,
   daily-loop smoke, lane operator smoke, live DeepSeek development smoke with
   token/cost evidence, GitHub Release assets, and Homebrew sync.

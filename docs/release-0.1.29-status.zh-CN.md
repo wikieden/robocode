@@ -2,15 +2,16 @@
 
 English version: [release-0.1.29-status.md](release-0.1.29-status.md)
 
-`0.1.29` 正在进行。本版本冻结新的 UI surface，把剩余 P0/P1 TUI guardrails
+`0.1.29` 已完成。本版本冻结新的 UI surface，把剩余 P0/P1 TUI guardrails
 收敛成 release-visible 的 RC smoke gate。
 
 ## 状态
 
 - Workspace version：`0.1.29`
-- Git tag：待发布
-- GitHub Release：待发布
-- Homebrew tap：待同步
+- Git tag：`v0.1.29`
+- GitHub Release：已发布在
+  <https://github.com/wikieden/robocode/releases/tag/v0.1.29>
+- Homebrew tap：已在 `wikieden/homebrew-tap` commit `0681269` 同步
 
 ## 当前已实现
 
@@ -43,9 +44,19 @@ English version: [release-0.1.29-status.md](release-0.1.29-status.md)
 
 ## 剩余 Gate
 
-- 发布 GitHub Release `v0.1.29`。
-- 同步 `wikieden/homebrew-tap` 到 `0.1.29`。
-- 运行 `scripts/release-gate.sh --version 0.1.29 --phase postpublish --out-dir /tmp/robocode-0129-release-gate`。
+`0.1.29` 已无剩余 release gate。
+
+## Release Gate
+
+`0.1.29` 已完成：
+
+- prepublish gate 通过，证据在 `/tmp/robocode-0129-release-gate/prepublish`；
+- GitHub Release workflow run
+  [`27318839422`](https://github.com/wikieden/robocode/actions/runs/27318839422)
+  通过，并上传 `8` 个 assets；
+- GitHub Release `v0.1.29` 已发布，包含 assets 和 checksums；
+- Homebrew tap 已同步到 `0.1.29`，commit `0681269`；
+- postpublish gate 通过，证据在 `/tmp/robocode-0129-release-gate/postpublish`。
 
 ## DeepSeek Smoke 证据
 
