@@ -4,7 +4,7 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 英文版： [README.md](README.md)
 
-![RoboCode TUI 主 cockpit](docs/previews/generated/screenshots/0.1.26-tui-main.svg)
+![RoboCode TUI 主 cockpit](docs/previews/manual/0.1.30/readme/main.png)
 
 ## 为什么做它
 
@@ -23,62 +23,62 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 ## 真机运行图
 
-下面这些图来自当前 RoboCode TUI renderer 的 release evidence，不是产品概念图。
-截图展示的是 `0.1.26` TUI 回归包与模式稳定性补丁：真实 Mode / Permission chips、
-active-turn queue/cancel 操作、首次 setup、provider/model 配置、delegated lane 操作和日常
-coding cockpit；最新已发布二进制版本以安装章节为准。
+下面这些图是真机 macOS Terminal 截图，来自 RoboCode `0.1.30` 的 release-preview
+状态，使用 `deepseek / deepseek-v4-flash`。它们覆盖 welcome 输入界面、live-turn
+cockpit、resize/中文输入重绘、provider/model 配置、delegated lane 操作和副屏证据。
+确定性 SVG 仍保留在 `docs/previews/generated/` 用于回归审查。
 
 ### 首次进入 Welcome
 
-![首次进入 Welcome](docs/previews/generated/main-idle.svg)
+![首次进入 Welcome](docs/previews/manual/0.1.30/readme/main-idle.png)
 
 ### Live provider turn
 
-![实时 provider 状态](docs/previews/generated/screenshots/0.1.26-tui-live-turn.svg)
+![实时 provider 状态](docs/previews/manual/0.1.30/readme/live-turn.png)
 
 ### Resize 后重绘
 
-![Resize 后重绘](docs/previews/generated/screenshots/0.1.26-tui-main-resize.svg)
+![Resize 后重绘](docs/previews/manual/0.1.30/readme/resize.png)
 
 ### 中文输入
 
-![中文输入](docs/previews/generated/screenshots/0.1.26-tui-cjk-input.svg)
+![中文输入](docs/previews/manual/0.1.30/readme/cjk-input.png)
 
 ### Slash command 提示
 
-![命令提示](docs/previews/generated/screenshots/0.1.26-tui-command-palette.svg)
+![命令提示](docs/previews/manual/0.1.30/readme/command-palette.png)
 
 ### 首次 Setup 向导
 
-![Setup wizard](docs/previews/generated/screenshots/0.1.26-tui-setup-wizard.svg)
+![Setup wizard](docs/previews/manual/0.1.30/readme/setup-wizard.png)
 
 ### Provider 配置选择器
 
-![Provider selector](docs/previews/generated/screenshots/0.1.26-tui-provider-selector.svg)
+![Provider selector](docs/previews/manual/0.1.30/readme/provider-selector.png)
 
 ### Provider 详情配置
 
-![Provider detail](docs/previews/generated/screenshots/0.1.26-tui-provider-detail.svg)
+![Provider detail](docs/previews/manual/0.1.30/readme/provider-detail.png)
 
 ### 按供应商分组的模型选择器
 
-![Model selector](docs/previews/generated/screenshots/0.1.26-tui-model-selector.svg)
+![Model selector](docs/previews/manual/0.1.30/readme/model-selector.png)
 
 ### Lane action selector
 
-![Lane selector](docs/previews/generated/screenshots/0.1.26-tui-lane-selector.svg)
+![Lane selector](docs/previews/manual/0.1.30/readme/lane-selector.png)
 
 ### Agent lane detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.26-tui-lane-detail.svg)
+![Lane detail](docs/previews/manual/0.1.30/readme/lane-detail.png)
 
 ### 副屏 side-1：Agent lanes
 
-![side-1 lanes](docs/previews/generated/screenshots/0.1.26-tui-side-1.svg)
+![side-1 lanes](docs/previews/manual/0.1.30/readme/side-lanes.png)
 
 ### 副屏 side-2：ops 与 evidence
 
-![side-2 ops](docs/previews/generated/screenshots/0.1.26-tui-side-2.svg)
+![side-2 ops](docs/previews/manual/0.1.30/readme/side-ops.png)
 
 ## 安装
 
@@ -98,7 +98,7 @@ robocode --help
 
 ### Release 压缩包
 
-从 [RoboCode v0.1.26](https://github.com/wikieden/robocode/releases/tag/v0.1.26)
+从 [RoboCode v0.1.30](https://github.com/wikieden/robocode/releases/tag/v0.1.30)
 下载 release 压缩包。
 
 当前 release targets：
@@ -111,7 +111,7 @@ robocode --help
 macOS 或 Linux 安装：
 
 ```bash
-VERSION=0.1.26
+VERSION=0.1.30
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -122,7 +122,7 @@ robocode-cli --help
 Windows PowerShell 安装：
 
 ```powershell
-$Version = "0.1.26"
+$Version = "0.1.30"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"

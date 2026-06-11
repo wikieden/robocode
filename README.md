@@ -6,7 +6,7 @@ delegated agents, and keep enough evidence to resume work later.
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-![RoboCode TUI main cockpit](docs/previews/generated/screenshots/0.1.26-tui-main.svg)
+![RoboCode TUI main cockpit](docs/previews/manual/0.1.30/readme/main.png)
 
 ## Why It Exists
 
@@ -39,65 +39,64 @@ and external agent lanes visible in one operator cockpit.
 
 ## Screenshots
 
-These are generated from the current RoboCode TUI renderer and kept as release
-evidence. The screenshots below show the `0.1.26` TUI regression and
-mode-stability patch: truthful Mode / Permission chips, active-turn queue and
-cancel affordances, first-run setup, provider/model configuration,
-delegated-lane operation, and the daily coding cockpit;
-the latest published binary release is listed separately in the install
-section.
+These are real macOS Terminal screenshots captured from RoboCode `0.1.30`
+release-preview states with `deepseek / deepseek-v4-flash`. They cover the
+welcome composer, live-turn cockpit, resize/CJK redraw behavior,
+provider/model setup, delegated-lane operation, and side-screen evidence.
+Deterministic SVG previews remain under `docs/previews/generated/` for
+regression review.
 
 ### First-Launch Welcome
 
-![First-launch welcome](docs/previews/generated/main-idle.svg)
+![First-launch welcome](docs/previews/manual/0.1.30/readme/main-idle.png)
 
 ### Live Provider Turn
 
-![Live provider turn](docs/previews/generated/screenshots/0.1.26-tui-live-turn.svg)
+![Live provider turn](docs/previews/manual/0.1.30/readme/live-turn.png)
 
 ### Resize-Safe Redraw
 
-![Resize-safe redraw](docs/previews/generated/screenshots/0.1.26-tui-main-resize.svg)
+![Resize-safe redraw](docs/previews/manual/0.1.30/readme/resize.png)
 
 ### CJK Input
 
-![CJK input](docs/previews/generated/screenshots/0.1.26-tui-cjk-input.svg)
+![CJK input](docs/previews/manual/0.1.30/readme/cjk-input.png)
 
 ### Slash-Command Palette
 
-![Command palette](docs/previews/generated/screenshots/0.1.26-tui-command-palette.svg)
+![Command palette](docs/previews/manual/0.1.30/readme/command-palette.png)
 
 ### First-Run Setup Wizard
 
-![Setup wizard](docs/previews/generated/screenshots/0.1.26-tui-setup-wizard.svg)
+![Setup wizard](docs/previews/manual/0.1.30/readme/setup-wizard.png)
 
 ### Provider Configuration Selector
 
-![Provider selector](docs/previews/generated/screenshots/0.1.26-tui-provider-selector.svg)
+![Provider selector](docs/previews/manual/0.1.30/readme/provider-selector.png)
 
 ### Provider Detail Form
 
-![Provider detail](docs/previews/generated/screenshots/0.1.26-tui-provider-detail.svg)
+![Provider detail](docs/previews/manual/0.1.30/readme/provider-detail.png)
 
 ### Grouped Model Selector
 
-![Model selector](docs/previews/generated/screenshots/0.1.26-tui-model-selector.svg)
+![Model selector](docs/previews/manual/0.1.30/readme/model-selector.png)
 
 ### Lane Action Selector
 
-![Lane selector](docs/previews/generated/screenshots/0.1.26-tui-lane-selector.svg)
+![Lane selector](docs/previews/manual/0.1.30/readme/lane-selector.png)
 
 ### Agent Lane Detail
 
-![Lane detail](docs/previews/generated/screenshots/0.1.26-tui-lane-detail.svg)
+![Lane detail](docs/previews/manual/0.1.30/readme/lane-detail.png)
 
 ### Side Screen: Agent Lanes
 
-![Side screen lanes](docs/previews/generated/screenshots/0.1.26-tui-side-1.svg)
+![Side screen lanes](docs/previews/manual/0.1.30/readme/side-lanes.png)
 
 ### Side Screen: Ops And Evidence
 
-![Side screen ops](docs/previews/generated/screenshots/0.1.26-tui-side-2.svg)
+![Side screen ops](docs/previews/manual/0.1.30/readme/side-ops.png)
 
 ## Install
 
@@ -118,7 +117,7 @@ robocode --help
 ### Release Archive
 
 Download a release archive from
-[RoboCode v0.1.26](https://github.com/wikieden/robocode/releases/tag/v0.1.26).
+[RoboCode v0.1.30](https://github.com/wikieden/robocode/releases/tag/v0.1.30).
 
 Available release targets:
 
@@ -130,7 +129,7 @@ Available release targets:
 Install on macOS or Linux:
 
 ```bash
-VERSION=0.1.26
+VERSION=0.1.30
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
@@ -141,7 +140,7 @@ robocode-cli --help
 Install on Windows PowerShell:
 
 ```powershell
-$Version = "0.1.26"
+$Version = "0.1.30"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
