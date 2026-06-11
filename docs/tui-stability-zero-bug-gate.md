@@ -65,6 +65,9 @@ Before the final 0.1.x release is declared complete:
   summary.
 - `scripts/plan-mode-smoke.sh` passes.
 - `scripts/daily-loop-smoke.sh` passes.
+- `scripts/final-zero-bug-smoke.sh` passes with
+  `ROBOCODE_TUI_MANUAL_EVIDENCE_DIR` pointing at real macOS Terminal and iTerm2
+  screenshots.
 - fake slow provider non-blocking TUI smoke passes.
 - deterministic approval non-blocking smoke passes.
 - streaming scrollback smoke passes.
@@ -101,6 +104,9 @@ Before the final 0.1.x release is declared complete:
   preview before implementation.
 - The 0.1.x RC gate is `scripts/rc-tui-stability-smoke.sh`; do not remove it
   from release smoke while TUI stability is the release blocker.
+- The 0.1.x final gate is `scripts/final-zero-bug-smoke.sh`; `0.1.30`
+  prepublish release-gate runs it automatically and treats missing manual
+  Terminal/iTerm2 evidence as a release blocker.
 - If the bug cannot be automated, add a manual checklist and real terminal
   screenshot.
 - Known display errors are not "polish" when they affect judgment, input,

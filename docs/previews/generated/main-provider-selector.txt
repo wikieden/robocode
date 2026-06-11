@@ -36,5 +36,5 @@
 
 
 
-~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.29
+~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.30
 

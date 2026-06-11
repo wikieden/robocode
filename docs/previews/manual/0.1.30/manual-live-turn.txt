@@ -1,0 +1,40 @@
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ RoboCode  v0.1.30  [PROVIDER ● DeepSeek] [MODEL deep~flash] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
+│   ·  ┊  SYSTEM                                                                               #001 │ │ robocode/    ~/projects/robocode   │
+│      ┊  RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.                                   │ │ ↳ src/          FILES    128       │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ↳ tests/        LINES  24531       │
+│   ♙  ┊  USER                                                                               latest │ │ ▣ Cargo.toml    LANGUAGE Rust      │
+│      ┊  Refactor the config loader, then run focused tests.                                       │ │ ▣ README.md     EDITION   2024     │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
+│      ╭─ LIVE WORK ∙ ─────────────────────────────────────────────────────────────────────────     │ ┌ ACTIVE TASKS ─────────────────── 3 ┐
+│      │ ◉ RoboCode working                                                                         │ │ turn-c4f2b7e-live ● RoboCo main/ro │
+│      │ phase planning · signal live provider request · RoboCode planning · live provider request  │ │ ● task_lo/prog Implement load_con  │
+│      │ input open · type next step anytime; Enter queues follow-up                                │ │ ◆ task_re/block Review config test │
+│      ╰──────────────────────────────────────────────────────────────────────────────────────────  │ │                                    │
+│                                                                                                   │ └────────────────────────────────────┘
+│                                                                                                   │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
+│                                                                                                   │ │ diagnostics unavailable            │
+│                                                                                                   │ │ auto-checks or /lsp diagnostics    │
+│                                                                                                   │ │                                    │
+│                                                                                                   │ └────────────────────────────────────┘
+│                                                                                                   │ ┌ PROVIDER HEALTH ─────── Configured ┐
+│                                                                                                   │ │ DeepSeek (deepseek-v4-flash)       │
+│                                                                                                   │ │ STATUS     Configured              │
+│                                                                                                   │ │ REQUESTS   0 ok / 0 err            │
+│                                                                                                   │ │ LATENCY    last - avg -            │
+│                                                                                                   │ │ TELEMETRY  awaiting first request  │
+│                                                                                                   │ │                                    │
+│                                                                                                   │ └────────────────────────────────────┘
+│                                                                                                   │ ┌ RECENT FILES ──────────────── tail ┐
+│                                                                                                   │ │ [Rs] src/config.rs         now     │
+│                                                                                                   │ │ [Rs] tests/config_tests.rs 1m      │
+└───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
+┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                                           │              │
+│ › Add a note about the validation result                                                                                  │ MODE Build ▾ │
+│                                                                                                                           │              │
+│ MODE [Build]  PERM [Ask]                                                         ACTIONS: [^J Queue] [^C Cancel] [PgUp History] [? Help] │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+│ ● CONNECTED  ┆ MODE Build ┆ PERM Ask       ┆ SESSION c4f2b7e  ┆ EVENTS 2    ┆ LANES 0  ┆ CONTEXT 128k                   Press ? for help │

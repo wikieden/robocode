@@ -385,6 +385,7 @@ run_step "cargo-fmt" cargo fmt --check
 run_step "tdd-testing-contract-smoke" scripts/tdd-testing-contract-smoke.sh
 run_step "tui-turn-controller-smoke" scripts/tui-turn-controller-smoke.sh
 run_step "rc-tui-stability-contract-smoke" scripts/rc-tui-stability-contract-smoke.sh
+run_step "final-zero-bug-contract-smoke" scripts/final-zero-bug-contract-smoke.sh
 run_step "cargo-clippy" cargo clippy --workspace --all-targets -- -D warnings
 
 if [[ "$QUICK" == "1" ]]; then

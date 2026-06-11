@@ -52,6 +52,8 @@
 - `scripts/rc-tui-stability-smoke.sh` 通过，并记录 P0/P1 backlog 摘要。
 - `scripts/plan-mode-smoke.sh` 通过。
 - `scripts/daily-loop-smoke.sh` 通过。
+- `scripts/final-zero-bug-smoke.sh` 通过，并且
+  `ROBOCODE_TUI_MANUAL_EVIDENCE_DIR` 指向真实 macOS Terminal 和 iTerm2 截图。
 - fake slow provider non-blocking TUI smoke 通过。
 - deterministic approval non-blocking smoke 通过。
 - streaming scrollback smoke 通过。
@@ -84,6 +86,8 @@
 - 每次修 bug 必须优先走 TDD：先补能复现问题的测试或 deterministic preview，再改实现。
 - 0.1.x RC gate 是 `scripts/rc-tui-stability-smoke.sh`；TUI 稳定性仍是 release
   blocker 时，不要把它从 release smoke 中移除。
+- 0.1.x final gate 是 `scripts/final-zero-bug-smoke.sh`；`0.1.30`
+  prepublish release-gate 会自动运行它，缺少 Terminal/iTerm2 人工证据时必须阻断发布。
 - 如果 bug 无法自动化，必须补人工验收 checklist 和真实终端截图。
 - 不能把“已知显示错误”标成 polish；只要影响用户判断、输入、审批、滚动或状态理解，就是 P0/P1。
 

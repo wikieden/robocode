@@ -9,6 +9,10 @@ PHASE="prepublish"
 RUN_GITHUB_ACTIONS=0
 DRY_RUN=0
 
+final_zero_bug_required() {
+  [[ "${ROBOCODE_REQUIRE_FINAL_ZERO_BUG:-0}" == "1" || "$VERSION" == "0.1.30" ]]
+}
+
 usage() {
   cat <<'EOF'
 Usage: scripts/release-gate.sh --version <version> [options]
@@ -131,6 +135,9 @@ run_prepublish() {
     args+=(--github-actions)
   fi
   run_or_print "${args[@]}"
+  if final_zero_bug_required; then
+    run_or_print scripts/final-zero-bug-smoke.sh "$phase_dir/final-zero-bug"
+  fi
   record "- prepublish: \`$phase_dir\`"
 }
 
