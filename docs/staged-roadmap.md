@@ -241,27 +241,25 @@ Mainline landed:
 
 Current published release:
 
-- `docs/release-0.1.29-status.md` records the RC TUI stability release:
-  release-visible P0/P1 guardrails, RC TUI stability smoke, refreshed 0.1.29
-  deterministic screenshots, live DeepSeek development smoke, GitHub Release,
-  Homebrew tap, and post-publish smoke.
-- `0.1.29` freezes new UI surface area before the final 0.1.x gate and proves
-  that plan mode, daily-loop, lane operator, provider/model setup, scrollback,
-  repaint, and synthetic-planning cleanup guardrails stay in the release gate.
+- `docs/release-0.1.30-status.md` records the final 0.1.x zero-bug TUI gate:
+  release-visible P0/P1 backlog at `0`, final zero-bug smoke, RC TUI stability
+  smoke, refreshed 0.1.30 deterministic screenshots, real macOS Terminal/iTerm2
+  evidence, live DeepSeek development smoke, GitHub Release, Homebrew tap, and
+  post-publish smoke.
+- `0.1.30` completes the final 0.1.x checkpoint and keeps plan mode,
+  daily-loop, lane operator, provider/model setup, scrollback, repaint,
+  synthetic-planning cleanup, and Mode/Permission visibility in the release
+  gate.
 
 Next planned:
 
-- `0.1.30` is the final 0.1.x zero-bug gate: do not enter 0.2.x until known
-  P0/P1 TUI bugs are zero, screenshot evidence is complete, quick and full
-  stability gates pass, and GitHub Release plus Homebrew validation are green.
-- Complete the remaining real-terminal acceptance evidence, especially macOS
-  Terminal and iTerm2 screenshots for long-idle, active-turn, scrollback,
-  provider/model setup, and error-recovery states.
+- Start 0.2.x spec/context/evidence runtime work while preserving the 0.1.30
+  zero-bug TUI gates as release regressions.
+- Keep every GitHub Release coupled to Homebrew sync and postpublish validation.
 
-The recommended final 0.1.x checkpoint is `0.1.30`: enter `0.2.x` only after
-the known P0/P1 TUI backlog is zero, screenshot evidence is complete, quick and
-full stability gates pass, and GitHub Release plus Homebrew validation are
-green.
+The final 0.1.x checkpoint is `0.1.30`: P0/P1 TUI backlog is zero, screenshot
+evidence is complete, quick and full stability gates pass, and GitHub Release
+plus Homebrew validation are green.
 
 That does not change the roadmap ordering. It means RoboCode has moved beyond an
 early V1-only repository state, but later phases should still be pulled

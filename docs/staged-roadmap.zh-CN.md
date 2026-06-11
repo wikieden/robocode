@@ -194,21 +194,21 @@ Mainline landed：
 
 当前已发布版本：
 
-- `docs/release-0.1.29-status.zh-CN.md` 记录 RC TUI 稳定性版本：release-visible
-  P0/P1 guardrails、RC TUI stability smoke、刷新后的 0.1.29 确定性截图、live
-  DeepSeek development smoke、GitHub Release、Homebrew tap 和 post-publish smoke。
-- `0.1.29` 在最终 0.1.x gate 前冻结新的 UI surface，并证明 Plan 模式、daily-loop、
-  lane operator、provider/model setup、scrollback、repaint 和 synthetic-planning
-  cleanup guardrails 已进入 release gate。
+- `docs/release-0.1.30-status.zh-CN.md` 记录最终 0.1.x zero-bug TUI gate：
+  release-visible P0/P1 backlog 为 `0`、final zero-bug smoke、RC TUI stability
+  smoke、刷新后的 0.1.30 确定性截图、真实 macOS Terminal/iTerm2 证据、live DeepSeek
+  development smoke、GitHub Release、Homebrew tap 和 post-publish smoke。
+- `0.1.30` 已完成最终 0.1.x checkpoint，并把 Plan 模式、daily-loop、lane operator、
+  provider/model setup、scrollback、repaint、synthetic-planning cleanup，以及
+  Mode/Permission 可见性继续留在 release gate。
 
 下一个计划版本：
 
-- `0.1.30` 是最终 0.1.x zero-bug gate：在 P0/P1 TUI bug backlog 清零、截图证据齐全、
-  quick/full stability gates 通过、GitHub Release 和 Homebrew validation 全绿前，不进入 0.2.x。
-- 补齐剩余真实终端验收证据，尤其是 macOS Terminal 和 iTerm2 下 long-idle、active-turn、
-  scrollback、provider/model setup 与 error-recovery 状态截图。
+- 启动 0.2.x spec/context/evidence runtime 工作，同时把 0.1.30 zero-bug TUI gates
+  保留为后续 release regression。
+- 每次 GitHub Release 继续必须绑定 Homebrew 同步和 postpublish validation。
 
-0.1.x final 建议定为 `0.1.30`：在 P0/P1 TUI bug backlog 清零、截图证据齐全、
-quick/full release gates 通过、GitHub Release 与 Homebrew 同步后，才进入 0.2.x。
+0.1.x final checkpoint 是 `0.1.30`：P0/P1 TUI backlog 已清零、截图证据齐全、
+quick/full release gates 已通过，GitHub Release 与 Homebrew validation 全绿。
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

@@ -79,36 +79,34 @@ Mainline landed status:
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
 - DeepSeek V4 compatibility flags: reasoning-content replay, non-null assistant tool-call content, explicit `tool_choice` capability, and `high`/`max` reasoning-effort metadata
 
-Current published release (`0.1.29`):
+Current published release (`0.1.30`):
 
-- `docs/release-0.1.29-status.md` records the release-candidate TUI stability
-  gate: RC TUI stability smoke, deterministic 0.1.29 screenshots, plan-mode
-  smoke, daily-loop smoke, lane operator smoke, live DeepSeek development smoke,
-  GitHub Release assets, and Homebrew validation.
-- `0.1.29` freezes new UI surface area and makes the remaining P0/P1 TUI
-  guardrails release-visible before the final `0.1.x` zero-bug gate.
+- `docs/release-0.1.30-status.md` records the final 0.1.x zero-bug TUI gate:
+  final zero-bug smoke, RC TUI stability smoke, deterministic 0.1.30
+  screenshots, manual Terminal/iTerm2 evidence, plan-mode smoke, daily-loop
+  smoke, lane operator smoke, live DeepSeek development smoke, GitHub Release
+  assets, and Homebrew validation.
+- `0.1.30` closes the known P0/P1 TUI backlog at `0` and makes the remaining
+  Mode/Permission/provider/model UI stability checks release-visible before
+  0.2.x work starts.
 - GitHub Release assets, Homebrew tap update, and post-publish smoke are part
   of the same release unit.
 
-Current patch release (`0.1.30`):
+Next release planning (`0.2.x`):
 
-- The target is the final 0.1.x zero-bug gate: publish only when known P0/P1
-  TUI bugs are zero, screenshot evidence is complete, full smoke is green,
-  GitHub Release assets are uploaded, Homebrew is synced, and post-publish
-  validation passes.
-- The release is gated by deterministic TUI regression, plan-mode smoke,
-  daily-loop smoke, lane operator smoke, live DeepSeek development smoke with
-  token/cost evidence, GitHub Release assets, and Homebrew sync.
+- Move from TUI stabilization into spec/context/evidence runtime work only
+  after preserving the 0.1.30 release gates as regression checks.
+- Keep Mode/Permission, provider/model, plan-mode, daily-loop, and live
+  DeepSeek token/cost smoke in the release gate for future releases.
 
 0.1.x final planning:
 
 - `0.1.29`: release-candidate stabilization - freeze new surface area, burn
   down all known P0/P1 TUI bugs, and run Terminal/iTerm2 manual screenshot
   acceptance.
-- `0.1.30`: final 0.1.x zero-bug gate - publish only when known P0/P1 TUI bugs
-  are zero, screenshot evidence is complete, full smoke is green, GitHub
-  Release assets are uploaded, Homebrew is synced, and post-publish validation
-  passes.
+- `0.1.30`: final 0.1.x zero-bug gate - complete with known P0/P1 TUI bugs at
+  zero, deterministic and manual screenshot evidence, full smoke, GitHub
+  Release assets, Homebrew sync, and post-publish validation.
 
 ## Near-Term Plan
 

@@ -2,15 +2,16 @@
 
 English version: [release-0.1.30-status.md](release-0.1.30-status.md)
 
-`0.1.30` 正在进行中。本版本是进入 0.2.x spec/context/evidence runtime 前，
+`0.1.30` 已完成。本版本是进入 0.2.x spec/context/evidence runtime 前，
 0.1.x TUI 稳定性的最终收口。
 
 ## 状态
 
 - Workspace version：`0.1.30`
-- Git tag：pending
-- GitHub Release：pending
-- Homebrew tap：pending
+- Git tag：`v0.1.30`
+- GitHub Release：已发布在
+  <https://github.com/wikieden/robocode/releases/tag/v0.1.30>
+- Homebrew tap：已在 `wikieden/homebrew-tap` commit `0dbaa26` 同步
 
 ## 当前已实现
 
@@ -42,7 +43,10 @@ English version: [release-0.1.30-status.md](release-0.1.30-status.md)
   `/tmp/robocode-0130-release-gate/prepublish/final-zero-bug/summary.md`
 - Deterministic screenshots：`docs/previews/generated/screenshots/`
 - Manual Terminal/iTerm2 screenshots：`docs/previews/manual/0.1.30/`
-- Pending 发布 GitHub Release 和 Homebrew 同步后的 postpublish gate。
+- PASS `scripts/release-gate.sh --version 0.1.30 --phase postpublish --out-dir /tmp/robocode-0130-release-gate`
+- Postpublish evidence：`/tmp/robocode-0130-release-gate/postpublish/summary.md`
+- Structured postpublish evidence：
+  `/tmp/robocode-0130-release-gate/postpublish/release-evidence.json`
 
 ## DeepSeek Smoke 证据
 
@@ -55,3 +59,17 @@ English version: [release-0.1.30-status.md](release-0.1.30-status.md)
 - Failure classification：无；smoke passed。
 - Evidence：
   `/tmp/robocode-0130-release-gate/prepublish/deepseek-dev-scenario/summary.md`
+
+## Release Gate
+
+`0.1.30` 已完成：
+
+- prepublish gate 通过，证据在 `/tmp/robocode-0130-release-gate/prepublish`；
+- final zero-bug gate 通过，证据在
+  `/tmp/robocode-0130-release-gate/prepublish/final-zero-bug`；
+- GitHub Release workflow run
+  [`27323510336`](https://github.com/wikieden/robocode/actions/runs/27323510336)
+  通过，并上传 `8` 个 assets；
+- GitHub Release `v0.1.30` 已发布，包含 assets 和 checksums；
+- Homebrew tap 已同步到 `0.1.30`，commit `0dbaa26`；
+- postpublish gate 通过，证据在 `/tmp/robocode-0130-release-gate/postpublish`。

@@ -2,15 +2,16 @@
 
 Chinese version: [release-0.1.30-status.zh-CN.md](release-0.1.30-status.zh-CN.md)
 
-`0.1.30` is in progress. This release is the final 0.1.x TUI stability closure
+`0.1.30` is complete. This release is the final 0.1.x TUI stability closure
 before the project moves into 0.2.x spec/context/evidence runtime work.
 
 ## Status
 
 - Workspace version: `0.1.30`
-- Git tag: pending
-- GitHub Release: pending
-- Homebrew tap: pending
+- Git tag: `v0.1.30`
+- GitHub Release: published at
+  <https://github.com/wikieden/robocode/releases/tag/v0.1.30>
+- Homebrew tap: synced in `wikieden/homebrew-tap` commit `0dbaa26`
 
 ## Implemented So Far
 
@@ -44,7 +45,11 @@ before the project moves into 0.2.x spec/context/evidence runtime work.
   `/tmp/robocode-0130-release-gate/prepublish/final-zero-bug/summary.md`
 - Deterministic screenshots: `docs/previews/generated/screenshots/`
 - Manual Terminal/iTerm2 screenshots: `docs/previews/manual/0.1.30/`
-- Pending postpublish gate after GitHub Release and Homebrew sync.
+- PASS `scripts/release-gate.sh --version 0.1.30 --phase postpublish --out-dir /tmp/robocode-0130-release-gate`
+- Postpublish evidence:
+  `/tmp/robocode-0130-release-gate/postpublish/summary.md`
+- Structured postpublish evidence:
+  `/tmp/robocode-0130-release-gate/postpublish/release-evidence.json`
 
 ## DeepSeek Smoke Evidence
 
@@ -57,3 +62,19 @@ before the project moves into 0.2.x spec/context/evidence runtime work.
 - Failure classification: none; smoke passed.
 - Evidence:
   `/tmp/robocode-0130-release-gate/prepublish/deepseek-dev-scenario/summary.md`
+
+## Release Gate
+
+`0.1.30` is complete:
+
+- prepublish gate passed, evidence at
+  `/tmp/robocode-0130-release-gate/prepublish`;
+- final zero-bug gate passed, evidence at
+  `/tmp/robocode-0130-release-gate/prepublish/final-zero-bug`;
+- GitHub Release workflow run
+  [`27323510336`](https://github.com/wikieden/robocode/actions/runs/27323510336)
+  passed and uploaded `8` assets;
+- GitHub Release `v0.1.30` is published with assets and checksums;
+- Homebrew tap is synced to `0.1.30`, commit `0dbaa26`;
+- postpublish gate passed, evidence at
+  `/tmp/robocode-0130-release-gate/postpublish`.
