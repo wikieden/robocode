@@ -37,4 +37,4 @@
 │   evidence failing-file src/config.rs:42:15                                  │
 │   evidence tail thread 'config_tests' panicked at src/config.rs:42:15        │
 └──────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED SES c4f2b7e  EVT 9   L1                                   ? help │
+│ ● CONNECTED MODE Build PERM Ask SES c4f2b7e  EVT 9   L1               ? help │

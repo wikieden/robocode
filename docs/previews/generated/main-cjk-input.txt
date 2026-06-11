@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.26  [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]           │
+│ RoboCode  v0.1.29  [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]           │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────┐
 │   ·  ┊  SYSTEM                                                                              #001 │
@@ -27,4 +27,4 @@
 │                                                                                   │              │
 │ MODE [Build]  PERM [Ask]      ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 2    ┆ LANES 1  ┆ CONTEXT 128k                  Press ? │
+│ ● CONNECTED  ┆ MODE Build ┆ PERM Ask       ┆ SESSION c4f2b7e  ┆ EVENTS 2    ┆ LANES 1    Press ? │

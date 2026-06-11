@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.26  [PROVIDER ● OpenAI] [MODEL gpt-4o] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]   · auto L1    │
+│ RoboCode  v0.1.29  [PROVIDER ● OpenAI] [MODEL gpt-4o] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]   · idle L1    │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │      ┊  Tests are staged. I found one parser edge case and need to update `src/config.rs` before  │ │ robocode/    ~/projects/robocode   │
@@ -25,7 +25,7 @@
 │      ┊    output tail:                                                                            │ │ REQUESTS   0 ok / 0 err            │
 │      ┊      thread 'config_tests' panicked at src/config.rs:42:15                                 │ │ LATENCY    last - avg -            │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ TELEMETRY  awaiting first request  │
-│      ╭─ LIVE WORK · ─────────────────────────────────────────────────────────────────────────     │ │                                    │
+│      ╭─ LIVE WORK • ─────────────────────────────────────────────────────────────────────────     │ │                                    │
 │      │ ◉ Supervising 1 agent: codex testing                                                       │ └────────────────────────────────────┘
 │      │ phase testing · signal summary patched failing tests; rerunning cargo · codex testing · 64 │ ┌ RECENT FILES ──────────────── tail ┐
 │      │ next wait for test result · input open                                                     │ │ [Rs] src/config.rs         now     │
@@ -37,4 +37,4 @@
 │                                                                                                                           │              │
 │ MODE [Build]  PERM [Ask]                                              ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 9    ┆ LANES 1  ┆ CONTEXT 128k                                                 Press ? for help │
+│ ● CONNECTED  ┆ MODE Build ┆ PERM Ask       ┆ SESSION c4f2b7e  ┆ EVENTS 9    ┆ LANES 1  ┆ CONTEXT 128k                   Press ? for help │

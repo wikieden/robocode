@@ -29,12 +29,12 @@
 │ PROVIDER  openai / gpt-4o                                                    │
 │ WORKSPACE ~/projects/robocode                                                │
 │ SCREENS   main online   side-1 launched:4101   side-2 launched:4102   lanes  │
+│ LANES    active 1/1   review 0   blocked 0   done 0                          │
 │ ROUTE    side-1 side-1:L1 codex template testing                             │
 │ TELEMETRY not sampled   EVENTS 9                                             │
 │ CONTEXT   128k   DIAGNOSTICS 0                                               │
 │ DIAG      ok   THEME aurora-cyan                                             │
 │                                                                              │
 │                                                                              │
-│                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED SES c4f2b7e  EVT 9   L1                                   ? help │
+│ ● CONNECTED MODE Build PERM Ask SES c4f2b7e  EVT 9   L1               ? help │

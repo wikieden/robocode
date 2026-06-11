@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.26  [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]           │
+│ RoboCode  v0.1.29  [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]           │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────┐
 │   ·  ┊  SYSTEM                                                                              #001 │
@@ -12,7 +12,7 @@
 │      ┊  Resize-safe redraw check: stale borders cleared; composer and panels reflow from one     │
 │      ┊  frame.                                                                                   │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
-│      ╭─ LIVE WORK · ────────────────────────────────────────────────────────────────────────     │
+│      ╭─ LIVE WORK • ────────────────────────────────────────────────────────────────────────     │
 │      │ ◉ RoboCode working                                                                        │
 │      │ phase planning · signal live provider request · RoboCode planning · live provider request │
 │      │ input open · type next step anytime; Enter queues follow-up                               │
@@ -27,4 +27,4 @@
 │                                                                                   │              │
 │ MODE [Build]  PERM [Ask]                 ACTIONS: [^J Queue] [^C Cancel] [PgUp History] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 3    ┆ LANES 0  ┆ CONTEXT 128k                  Press ? │
+│ ● CONNECTED  ┆ MODE Build ┆ PERM Ask       ┆ SESSION c4f2b7e  ┆ EVENTS 3    ┆ LANES 0    Press ? │

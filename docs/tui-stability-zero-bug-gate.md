@@ -61,6 +61,8 @@ Before the final 0.1.x release is declared complete:
 
 - P0/P1 TUI bug backlog is zero.
 - `scripts/tui-regression.sh docs/previews/generated` passes.
+- `scripts/rc-tui-stability-smoke.sh` passes and records the P0/P1 backlog
+  summary.
 - `scripts/plan-mode-smoke.sh` passes.
 - `scripts/daily-loop-smoke.sh` passes.
 - fake slow provider non-blocking TUI smoke passes.
@@ -97,6 +99,8 @@ Before the final 0.1.x release is declared complete:
   fix PR/commit, and verification evidence.
 - Every bug fix should follow TDD first: add the failing test or deterministic
   preview before implementation.
+- The 0.1.x RC gate is `scripts/rc-tui-stability-smoke.sh`; do not remove it
+  from release smoke while TUI stability is the release blocker.
 - If the bug cannot be automated, add a manual checklist and real terminal
   screenshot.
 - Known display errors are not "polish" when they affect judgment, input,

@@ -13,6 +13,16 @@ mkdir -p "$SCREENSHOT_DIR"
 
 "$ROOT/scripts/tui-previews.sh" "$OUT_DIR"
 
+python3 - "$OUT_DIR" <<'PY'
+from pathlib import Path
+import sys
+
+out_dir = Path(sys.argv[1])
+for path in out_dir.glob("*.txt"):
+    lines = path.read_text(encoding="utf-8").splitlines()
+    path.write_text("\n".join(line.rstrip() for line in lines) + "\n", encoding="utf-8")
+PY
+
 copy_artifact() {
   local source="$1"
   local target="$2"

@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.26  [PROVIDER ● OpenAI] [MODEL gpt-4o] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]   · auto L0    │
+│ RoboCode  v0.1.29  [PROVIDER ● OpenAI] [MODEL gpt-4o] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]   · working L0 │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
 │   ·  ┊  SYSTEM                                                                               #001 │ │ robocode/    ~/projects/robocode   │
@@ -37,4 +37,4 @@
 │                                                                                                                           │              │
 │ MODE [Build]  PERM [Ask]                                                         ACTIONS: [^J Queue] [^C Cancel] [PgUp History] [? Help] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-│ ● CONNECTED  ┆ SESSION c4f2b7e  ┆ EVENTS 2    ┆ LANES 0  ┆ CONTEXT 128k                                                 Press ? for help │
+│ ● CONNECTED  ┆ MODE Build ┆ PERM Ask       ┆ SESSION c4f2b7e  ┆ EVENTS 2    ┆ LANES 0  ┆ CONTEXT 128k                   Press ? for help │

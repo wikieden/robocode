@@ -49,6 +49,7 @@
 
 - P0/P1 TUI bug backlog 为 0。
 - `scripts/tui-regression.sh docs/previews/generated` 通过。
+- `scripts/rc-tui-stability-smoke.sh` 通过，并记录 P0/P1 backlog 摘要。
 - `scripts/plan-mode-smoke.sh` 通过。
 - `scripts/daily-loop-smoke.sh` 通过。
 - fake slow provider non-blocking TUI smoke 通过。
@@ -81,6 +82,8 @@
 - 0.1.x 后半段不再因为“新 agent surface”牺牲 TUI 稳定性。
 - 每个 TUI bug 必须有复现步骤、影响等级、截图或 transcript、修复 PR/commit、验证证据。
 - 每次修 bug 必须优先走 TDD：先补能复现问题的测试或 deterministic preview，再改实现。
+- 0.1.x RC gate 是 `scripts/rc-tui-stability-smoke.sh`；TUI 稳定性仍是 release
+  blocker 时，不要把它从 release smoke 中移除。
 - 如果 bug 无法自动化，必须补人工验收 checklist 和真实终端截图。
 - 不能把“已知显示错误”标成 polish；只要影响用户判断、输入、审批、滚动或状态理解，就是 P0/P1。
 
