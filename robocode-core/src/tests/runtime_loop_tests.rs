@@ -364,6 +364,63 @@ fn failed_tool_execution_is_returned_to_provider_without_ending_turn() {
     }));
 }
 
+#[test]
+fn failed_tool_result_includes_failure_classification_and_next_action() {
+    let home = temp_dir("failure_class_home");
+    let cwd = temp_dir("failure_class_cwd");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let mut read_input = ToolInput::new();
+    read_input.insert("path".to_string(), "does/not/exist.txt".to_string());
+    let provider = Box::new(RecordingSequenceProvider::new(
+        vec![
+            vec![ModelEvent::ToolCall(ToolCall {
+                id: "tool_missing".to_string(),
+                name: "read_file".to_string(),
+                input: read_input,
+            })],
+            vec![ModelEvent::AssistantText {
+                content: "I'll locate it first.".to_string(),
+            }],
+        ],
+        Arc::clone(&requests),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .process_input_with_approval("read a missing file", &mut approver)
+        .unwrap();
+
+    // Failure is classified and paired with a concrete next action, fed back so
+    // the model recovers instead of blindly retrying.
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, EngineEvent::System(text)
+            if text.contains("failure class: not_found") && text.contains("locate"))),
+        "expected failure classification + next action, got {events:?}"
+    );
+    let snapshot = engine.agent_task_snapshot();
+    assert!(snapshot.iter().any(|task| {
+        task.id == "tool-tool_missing"
+            && task
+                .evidence
+                .iter()
+                .any(|row| row.contains("failure_class not_found"))
+    }));
+    let requests = requests.lock().unwrap();
+    assert!(
+        requests[1]
+            .messages
+            .iter()
+            .any(|message| message.content.contains("failure class: not_found")),
+        "classification must be replayed to the provider on the follow-up turn"
+    );
+}
+
 fn request_chars(request: &ModelRequest) -> usize {
     request
         .messages
@@ -497,6 +554,99 @@ fn tool_loop_executes_and_reinjects_result() {
             && task.status == AgentTaskStatus::Done.as_str()
             && task.evidence.iter().any(|item| item == "success true")
     }));
+}
+
+#[test]
+fn assistant_text_with_tool_call_in_same_turn_continues_loop() {
+    let home = temp_dir("text_plus_tool_home");
+    let cwd = temp_dir("text_plus_tool_cwd");
+    fs::write(cwd.join("sample.txt"), "hello").unwrap();
+    let mut read_input = ToolInput::new();
+    read_input.insert("path".to_string(), "sample.txt".to_string());
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingSequenceProvider::new(
+        vec![
+            vec![
+                ModelEvent::AssistantText {
+                    content: "Let me read the file.".to_string(),
+                },
+                ModelEvent::ToolCall(ToolCall {
+                    id: "tool_read".to_string(),
+                    name: "read_file".to_string(),
+                    input: read_input,
+                }),
+            ],
+            vec![ModelEvent::AssistantText {
+                content: "done reading".to_string(),
+            }],
+        ],
+        Arc::clone(&requests),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .process_input_with_approval("read it", &mut approver)
+        .unwrap();
+
+    // A tool call must keep the turn open even when the same turn also streamed
+    // assistant text, so the tool result is fed back for a follow-up turn.
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, EngineEvent::ToolResult(text) if text.contains("hello")))
+    );
+    assert!(events.iter().any(
+        |event| matches!(event, EngineEvent::Assistant(text) if text.contains("done reading"))
+    ));
+    let requests = requests.lock().unwrap();
+    assert_eq!(
+        requests.len(),
+        2,
+        "assistant text alongside a tool call must not end the turn early"
+    );
+    assert!(requests[1].messages.iter().any(|message| {
+        message.role == robocode_types::Role::Tool && message.content.contains("hello")
+    }));
+}
+
+#[test]
+fn tool_loop_respects_iteration_budget_and_emits_event() {
+    let home = temp_dir("turn_budget_home");
+    let cwd = temp_dir("turn_budget_cwd");
+    fs::write(cwd.join("sample.txt"), "hello").unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(AlwaysToolCallProvider::new(
+        "sample.txt",
+        Arc::clone(&requests),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_max_tool_iterations(3);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .process_input_with_approval("loop without ever finishing", &mut approver)
+        .unwrap();
+
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            EngineEvent::System(text) if text.contains("turn budget exhausted")
+        )),
+        "expected a budget-exhausted system event, got {events:?}"
+    );
+    let requests = requests.lock().unwrap();
+    assert_eq!(
+        requests.len(),
+        3,
+        "the loop must stop at the configured iteration ceiling"
+    );
 }
 
 #[test]
@@ -780,6 +930,50 @@ impl ModelProvider for RecordingSequenceProvider {
             .turns
             .pop_front()
             .unwrap_or_else(|| vec![ModelEvent::Done]))
+    }
+}
+
+struct AlwaysToolCallProvider {
+    model: String,
+    path: String,
+    requests: Arc<Mutex<Vec<ModelRequest>>>,
+    counter: usize,
+}
+
+impl AlwaysToolCallProvider {
+    fn new(path: &str, requests: Arc<Mutex<Vec<ModelRequest>>>) -> Self {
+        Self {
+            model: "test-model".to_string(),
+            path: path.to_string(),
+            requests,
+            counter: 0,
+        }
+    }
+}
+
+impl ModelProvider for AlwaysToolCallProvider {
+    fn provider_name(&self) -> &str {
+        "always-tool"
+    }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    fn set_model(&mut self, model: String) {
+        self.model = model;
+    }
+
+    fn next_events(&mut self, request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+        self.requests.lock().unwrap().push(request.clone());
+        self.counter += 1;
+        let mut input = ToolInput::new();
+        input.insert("path".to_string(), self.path.clone());
+        Ok(vec![ModelEvent::ToolCall(ToolCall {
+            id: format!("tool_read_{}", self.counter),
+            name: "read_file".to_string(),
+            input,
+        })])
     }
 }
 

@@ -76,7 +76,11 @@ impl SessionEngine {
         self.upsert_agent_task(provider_task.clone());
 
         let mut retried_request_too_large = false;
-        for _ in 0..8 {
+        let max_tool_iterations = self.turn_budget.max_tool_iterations.max(1);
+        // Stays true only if the loop exhausts its iteration ceiling while tool
+        // calls are still pending — i.e. the turn was paused, not completed.
+        let mut paused_on_budget = true;
+        for _ in 0..max_tool_iterations {
             provider_task.status = AgentTaskStatus::Thinking.as_str().to_string();
             provider_task.activity = "waiting for provider response".to_string();
             provider_task.progress = provider_task.progress.max(20);
@@ -147,7 +151,6 @@ impl SessionEngine {
                 }
             };
             let mut observed_tool_call = false;
-            let mut observed_text = false;
             for model_event in model_events {
                 match model_event {
                     ModelEvent::AssistantText { content } => {
@@ -159,7 +162,6 @@ impl SessionEngine {
                         provider_task.progress = provider_task.progress.max(65);
                         provider_task.updated_at = Some(now_millis());
                         self.upsert_agent_task(provider_task.clone());
-                        observed_text = true;
                         let assistant = Message::new(Role::Assistant, &content);
                         self.messages.push(assistant.clone());
                         self.store_entry(TranscriptEntry::Message { message: assistant })?;
@@ -178,12 +180,34 @@ impl SessionEngine {
                     ModelEvent::Done => {}
                 }
             }
-            if !observed_tool_call || observed_text {
+            // A turn ends only when the model stops requesting tools. Assistant
+            // text alongside a tool call does NOT end the turn, so every tool
+            // result is fed back for a follow-up turn.
+            if !observed_tool_call {
+                paused_on_budget = false;
                 break;
             }
         }
+        if paused_on_budget {
+            let note = format!(
+                "RoboCode turn budget exhausted after {max_tool_iterations} tool iterations; pausing this turn. Send another message to continue."
+            );
+            let system_message = Message::new(Role::System, &note);
+            self.messages.push(system_message.clone());
+            self.store_entry(TranscriptEntry::Message {
+                message: system_message,
+            })?;
+            provider_task
+                .evidence
+                .push(format!("turn_budget_exhausted {max_tool_iterations}"));
+            events.push(EngineEvent::System(note));
+        }
         provider_task.status = AgentTaskStatus::Done.as_str().to_string();
-        provider_task.activity = "provider turn complete".to_string();
+        provider_task.activity = if paused_on_budget {
+            format!("turn paused: tool budget exhausted after {max_tool_iterations} iterations")
+        } else {
+            "provider turn complete".to_string()
+        };
         provider_task.progress = 100;
         provider_task.updated_at = Some(now_millis());
         provider_task.result = Some("turn complete".to_string());
@@ -297,6 +321,18 @@ impl SessionEngine {
                 } else {
                     None
                 };
+                let failure_guidance = (!result.success).then(|| {
+                    let class = classify_tool_failure(&call.name, &result.output, result.exit_code);
+                    (
+                        class,
+                        format!(
+                            "Tool `{}` failure class: {} — {}",
+                            call.name,
+                            class.as_str(),
+                            class.next_action()
+                        ),
+                    )
+                });
                 self.persist_tool_result(&result)?;
                 task.status = if result.success {
                     AgentTaskStatus::Done.as_str().to_string()
@@ -314,10 +350,22 @@ impl SessionEngine {
                 if let Some(code) = result.exit_code {
                     task.evidence.push(format!("exit_code {code}"));
                 }
+                if let Some((class, _)) = failure_guidance.as_ref() {
+                    task.evidence
+                        .push(format!("failure_class {}", class.as_str()));
+                }
                 task.updated_at = Some(now_millis());
                 self.upsert_agent_task(task);
                 events.push(EngineEvent::ToolResult(result.output.clone()));
                 if let Some(message) = post_edit_diagnostics {
+                    let system_message = Message::new(Role::System, message.clone());
+                    self.messages.push(system_message.clone());
+                    self.store_entry(TranscriptEntry::Message {
+                        message: system_message,
+                    })?;
+                    events.push(EngineEvent::System(message));
+                }
+                if let Some((_, message)) = failure_guidance {
                     let system_message = Message::new(Role::System, message.clone());
                     self.messages.push(system_message.clone());
                     self.store_entry(TranscriptEntry::Message {
@@ -713,4 +761,87 @@ fn compact_chars(input: &str, max_chars: usize) -> String {
 fn one_line(input: &str, max_chars: usize) -> String {
     let collapsed = input.split_whitespace().collect::<Vec<_>>().join(" ");
     compact_chars(&collapsed, max_chars)
+}
+
+/// Heuristic classification of a failed tool result, used to feed the model a
+/// concrete next action instead of a bare error string. Best-effort and string
+/// based; promote to a shared `robocode-types` contract when supervised roles
+/// (Phase E) need to branch on it programmatically.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolFailureClass {
+    NotFound,
+    DirectoryTarget,
+    CompileError,
+    TestFailure,
+    Timeout,
+    Other,
+}
+
+impl ToolFailureClass {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ToolFailureClass::NotFound => "not_found",
+            ToolFailureClass::DirectoryTarget => "directory_target",
+            ToolFailureClass::CompileError => "compile_error",
+            ToolFailureClass::TestFailure => "test_failure",
+            ToolFailureClass::Timeout => "timeout",
+            ToolFailureClass::Other => "other",
+        }
+    }
+
+    fn next_action(&self) -> &'static str {
+        match self {
+            ToolFailureClass::NotFound => {
+                "Target not found. Use `glob`/`grep` to locate it or correct the path before retrying."
+            }
+            ToolFailureClass::DirectoryTarget => {
+                "Path is a directory. Use `glob` or `grep` to inspect its contents instead."
+            }
+            ToolFailureClass::CompileError => {
+                "Compilation failed. Read the cited diagnostics and fix those lines before re-running."
+            }
+            ToolFailureClass::TestFailure => {
+                "Tests failed. Inspect the failing cases and fix the cause before re-running."
+            }
+            ToolFailureClass::Timeout => {
+                "The command timed out. Narrow its scope or raise the limit, then retry."
+            }
+            ToolFailureClass::Other => {
+                "The tool failed. Review the error output and adjust inputs before retrying."
+            }
+        }
+    }
+}
+
+fn classify_tool_failure(
+    tool_name: &str,
+    output: &str,
+    exit_code: Option<i32>,
+) -> ToolFailureClass {
+    let lower = output.to_ascii_lowercase();
+    if lower.contains("no such file")
+        || lower.contains("not found")
+        || lower.contains("does not exist")
+    {
+        return ToolFailureClass::NotFound;
+    }
+    if lower.contains("is a directory") {
+        return ToolFailureClass::DirectoryTarget;
+    }
+    if lower.contains("timed out") || lower.contains("timeout") {
+        return ToolFailureClass::Timeout;
+    }
+    if lower.contains("error[e") || (lower.contains("error:") && lower.contains(".rs")) {
+        return ToolFailureClass::CompileError;
+    }
+    let nonzero_exit = exit_code.map(|code| code != 0).unwrap_or(false);
+    if tool_name == "shell"
+        && nonzero_exit
+        && (lower.contains("test result: failed")
+            || lower.contains("failures:")
+            || lower.contains("assertion"))
+    {
+        return ToolFailureClass::TestFailure;
+    }
+    ToolFailureClass::Other
 }

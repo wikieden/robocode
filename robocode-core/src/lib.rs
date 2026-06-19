@@ -50,6 +50,25 @@ pub enum EngineEvent {
     Command(String),
 }
 
+/// Budget bounding one user turn's autonomous tool-iteration loop.
+///
+/// The loop keeps requesting provider turns while the model keeps emitting tool
+/// calls; it stops the moment a turn yields no tool call. `max_tool_iterations`
+/// is the safety ceiling on that loop — reaching it pauses the turn with an
+/// explicit budget event instead of silently breaking mid-task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TurnBudget {
+    pub max_tool_iterations: usize,
+}
+
+impl Default for TurnBudget {
+    fn default() -> Self {
+        Self {
+            max_tool_iterations: 25,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ProviderTelemetry {
     pub request_count: u64,
@@ -174,6 +193,7 @@ pub struct SessionEngine {
     runtime_tasks: Vec<AgentTaskRecord>,
     provider_telemetry: ProviderTelemetry,
     last_context_bundle: Option<ContextBundleRecord>,
+    turn_budget: TurnBudget,
 }
 
 impl SessionEngine {
@@ -241,6 +261,7 @@ impl SessionEngine {
             runtime_tasks: Vec::new(),
             provider_telemetry: ProviderTelemetry::default(),
             last_context_bundle: None,
+            turn_budget: TurnBudget::default(),
         };
         engine.persist_meta("work_mode", engine.runtime_snapshot.work_mode.cli_name())?;
         engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;
@@ -321,6 +342,16 @@ impl SessionEngine {
         self.provider_api_key = api_key;
         self.provider_request_timeout_secs = request_timeout_secs.max(1);
         self.provider_max_retries = max_retries;
+    }
+
+    pub fn turn_budget(&self) -> TurnBudget {
+        self.turn_budget
+    }
+
+    /// Set the per-turn autonomous tool-iteration ceiling. Clamped to >= 1 so a
+    /// turn always gets at least one provider round-trip.
+    pub fn set_max_tool_iterations(&mut self, max_tool_iterations: usize) {
+        self.turn_budget.max_tool_iterations = max_tool_iterations.max(1);
     }
 
     pub fn mode(&self) -> PermissionMode {
