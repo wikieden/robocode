@@ -210,4 +210,9 @@ plan-mode 冒烟通过。
   - 测试：`repeated_identical_tool_outputs_are_deduped_in_provider_request`。
     （`runtime_loop_tests` 21 过。）
   - 阶段 B 仍开放：真实的按 provider token 计数（估算仍是 `chars/4`）；统一字符请求预算与
-    ContextBundle token 预算；快照中暴露累计成本。
+    ContextBundle token 预算。
+- **2026-06-19 — 阶段 B（第二切片）：累计成本可见。**
+  `robocode-core/runtime_loop.rs`：每个 provider 轮次在其 task evidence 记一行
+  `session_spend tokens=<n> cost_micro_usd=<n>`（取自 `ProviderTelemetry` 累计），
+  使花费显示在 TUI 渲染的 agent-task 快照里——解决 gap #2 的“invisible spend”那半。
+  - 测试：`provider_turn_records_cumulative_spend_evidence`。（`runtime_loop_tests` 22 过。）

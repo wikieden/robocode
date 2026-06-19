@@ -245,4 +245,11 @@ bilingual docs updated. State honestly what was not tested.
     (`runtime_loop_tests` 21 passed.)
   - Still open in Phase B: real per-provider token counting (estimate is still
     `chars/4`); unifying the char-based request budget with the ContextBundle token
-    budget; cumulative cost surfaced in the snapshot.
+    budget.
+- **2026-06-19 — Phase B (second slice): cumulative spend is visible.**
+  `robocode-core/runtime_loop.rs`: each provider turn records a `session_spend
+  tokens=<n> cost_micro_usd=<n>` row on its task evidence (from `ProviderTelemetry`
+  totals), so spend shows up in the agent-task snapshot the TUI renders — addresses
+  the "invisible spend" half of gap #2.
+  - Test: `provider_turn_records_cumulative_spend_evidence`.
+    (`runtime_loop_tests` 22 passed.)

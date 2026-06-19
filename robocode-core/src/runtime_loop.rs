@@ -219,6 +219,11 @@ impl SessionEngine {
         } else {
             "turn complete".to_string()
         });
+        provider_task.evidence.push(format!(
+            "session_spend tokens={} cost_micro_usd={}",
+            self.provider_telemetry.total_tokens,
+            self.provider_telemetry.total_cost_micro_usd.unwrap_or(0)
+        ));
         self.upsert_agent_task(provider_task);
 
         Ok(events)

@@ -73,6 +73,45 @@ fn provider_telemetry_records_successful_model_requests() {
 }
 
 #[test]
+fn provider_turn_records_cumulative_spend_evidence() {
+    let home = temp_dir("spend_evidence_home");
+    let cwd = temp_dir("spend_evidence_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "priced response".to_string(),
+        },
+        ModelEvent::Usage(ModelUsage {
+            input_tokens: Some(13),
+            output_tokens: Some(7),
+            total_tokens: Some(20),
+            cost_micro_usd: Some(1500),
+        }),
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .process_input_with_approval("spend something", &mut approver)
+        .unwrap();
+
+    let snapshot = engine.agent_task_snapshot();
+    assert!(
+        snapshot.iter().any(|task| {
+            task.kind == "provider"
+                && task.evidence.iter().any(|row| {
+                    row.contains("session_spend")
+                        && row.contains("tokens=20")
+                        && row.contains("cost_micro_usd=1500")
+                })
+        }),
+        "a provider turn should record cumulative spend on its task evidence"
+    );
+}
+
+#[test]
 fn provider_telemetry_records_model_usage_when_provider_reports_it() {
     let home = temp_dir("telemetry_usage_home");
     let cwd = temp_dir("telemetry_usage_cwd");
