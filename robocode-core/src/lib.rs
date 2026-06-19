@@ -194,6 +194,7 @@ pub struct SessionEngine {
     provider_telemetry: ProviderTelemetry,
     last_context_bundle: Option<ContextBundleRecord>,
     turn_budget: TurnBudget,
+    verify_command: Option<String>,
 }
 
 impl SessionEngine {
@@ -262,6 +263,7 @@ impl SessionEngine {
             provider_telemetry: ProviderTelemetry::default(),
             last_context_bundle: None,
             turn_budget: TurnBudget::default(),
+            verify_command: None,
         };
         engine.persist_meta("work_mode", engine.runtime_snapshot.work_mode.cli_name())?;
         engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;
@@ -352,6 +354,13 @@ impl SessionEngine {
     /// turn always gets at least one provider round-trip.
     pub fn set_max_tool_iterations(&mut self, max_tool_iterations: usize) {
         self.turn_budget.max_tool_iterations = max_tool_iterations.max(1);
+    }
+
+    /// Set the optional post-edit verification command (e.g. `cargo test`). When
+    /// set, a successful mutating edit triggers this command and feeds its result
+    /// back into the turn. `None` (default) disables verification.
+    pub fn set_verify_command(&mut self, verify_command: Option<String>) {
+        self.verify_command = verify_command.filter(|command| !command.trim().is_empty());
     }
 
     pub fn mode(&self) -> PermissionMode {

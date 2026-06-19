@@ -216,3 +216,15 @@ plan-mode 冒烟通过。
   `session_spend tokens=<n> cost_micro_usd=<n>`（取自 `ProviderTelemetry` 累计），
   使花费显示在 TUI 渲染的 agent-task 快照里——解决 gap #2 的“invisible spend”那半。
   - 测试：`provider_turn_records_cumulative_spend_evidence`。（`runtime_loop_tests` 22 过。）
+- **2026-06-19 — 阶段 C1（首切片）：edit 后验证。** 选择性开启的 `verify_command`
+  （配置文件 `verify_command` / 环境 `ROBOCODE_VERIFY_COMMAND` /
+  `SessionEngine::set_verify_command`，默认关）。当某轮中有 mutating edit
+  （`write_file`/`edit_file`）成功且该轮完成（非预算暂停）时，`run_verify_command()`
+  经 shell 工具运行一次，向 transcript 注入 `Post-edit verification (…) passed/FAILED`
+  系统消息，记 `post_edit_verification passed|failed` evidence，并经 done 闸——
+  验证失败把该轮标 `Blocked` 而非 `Done`。plan 模式跳过（不跑 shell）。当前同步执行。
+  - 测试：`post_edit_verification_runs_after_successful_edit`、
+    `post_edit_verification_failure_blocks_the_turn`（core）；
+    `verify_command_resolves_from_file_and_env`（config）。（`runtime_loop_tests` 24。）
+  - C1 仍开放：把验证结果回灌并**在同一轮继续**让模型自动修复（本切片只记录 + 闸 + 留到下一轮）；
+    每轮去抖已处理（只跑一次，非每次 edit）；异步验证属 gap #7。

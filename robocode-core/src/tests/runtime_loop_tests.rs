@@ -518,6 +518,96 @@ fn repeated_identical_tool_outputs_are_deduped_in_provider_request() {
     );
 }
 
+#[test]
+fn post_edit_verification_runs_after_successful_edit() {
+    let home = temp_dir("verify_ok_home");
+    let cwd = temp_dir("verify_ok_cwd");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    let mut write_input = ToolInput::new();
+    write_input.insert("path".to_string(), "src/lib.rs".to_string());
+    write_input.insert("content".to_string(), "// edited\n".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![
+        vec![ModelEvent::ToolCall(ToolCall {
+            id: "w1".to_string(),
+            name: "write_file".to_string(),
+            input: write_input,
+        })],
+        vec![ModelEvent::AssistantText {
+            content: "edited and verified".to_string(),
+        }],
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_verify_command(Some("true".to_string()));
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .process_input_with_approval("edit and verify", &mut approver)
+        .unwrap();
+
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, EngineEvent::System(text)
+            if text.contains("Post-edit verification") && text.contains("passed"))),
+        "expected a passing post-edit verification message, got {events:?}"
+    );
+    let snapshot = engine.agent_task_snapshot();
+    assert!(
+        snapshot.iter().any(|task| {
+            task.kind == "provider" && task.status == AgentTaskStatus::Done.as_str()
+        })
+    );
+}
+
+#[test]
+fn post_edit_verification_failure_blocks_the_turn() {
+    let home = temp_dir("verify_fail_home");
+    let cwd = temp_dir("verify_fail_cwd");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    let mut write_input = ToolInput::new();
+    write_input.insert("path".to_string(), "src/lib.rs".to_string());
+    write_input.insert("content".to_string(), "// broken\n".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![
+        vec![ModelEvent::ToolCall(ToolCall {
+            id: "w1".to_string(),
+            name: "write_file".to_string(),
+            input: write_input,
+        })],
+        vec![ModelEvent::AssistantText {
+            content: "I think it is done".to_string(),
+        }],
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_verify_command(Some("false".to_string()));
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .process_input_with_approval("edit then claim done", &mut approver)
+        .unwrap();
+
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, EngineEvent::System(text)
+            if text.contains("Post-edit verification") && text.contains("FAILED"))),
+        "expected a failing post-edit verification message, got {events:?}"
+    );
+    // Honesty: a turn whose post-edit verification failed is not Done.
+    let snapshot = engine.agent_task_snapshot();
+    assert!(
+        snapshot.iter().any(|task| {
+            task.kind == "provider" && task.status == AgentTaskStatus::Blocked.as_str()
+        }),
+        "a turn with failing verification must report Blocked, not Done"
+    );
+}
+
 fn request_chars(request: &ModelRequest) -> usize {
     request
         .messages

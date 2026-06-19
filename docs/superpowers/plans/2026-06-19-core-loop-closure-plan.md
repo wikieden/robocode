@@ -253,3 +253,18 @@ bilingual docs updated. State honestly what was not tested.
   the "invisible spend" half of gap #2.
   - Test: `provider_turn_records_cumulative_spend_evidence`.
     (`runtime_loop_tests` 22 passed.)
+- **2026-06-19 — Phase C1 (first slice): post-edit verification.** Opt-in
+  `verify_command` (config file `verify_command` / env `ROBOCODE_VERIFY_COMMAND` /
+  `SessionEngine::set_verify_command`, default off). After a turn in which a
+  mutating edit (`write_file`/`edit_file`) succeeded and the turn completed (not
+  budget-paused), `run_verify_command()` runs it once via the shell tool, injects
+  a `Post-edit verification (…) passed/FAILED` system message into the transcript,
+  records `post_edit_verification passed|failed` evidence, and — via the done-gate
+  — a failing verification marks the turn `Blocked`, not `Done`. Skipped in plan
+  mode (no shell). Synchronous for now.
+  - Tests: `post_edit_verification_runs_after_successful_edit`,
+    `post_edit_verification_failure_blocks_the_turn` (core);
+    `verify_command_resolves_from_file_and_env` (config). (`runtime_loop_tests` 24.)
+  - Open in C1: feed the verify result back and **continue the same turn** so the
+    model auto-fixes (this slice records + gates + defers to next turn); per-turn
+    debounce already handled (runs once, not per edit); async verify is gap #7.

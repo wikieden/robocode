@@ -111,6 +111,42 @@ fn max_tool_iterations_defaults_and_resolves_from_file_and_env() {
 }
 
 #[test]
+fn verify_command_resolves_from_file_and_env() {
+    let cwd = std::env::temp_dir().join(format!("robocode_verify_default_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&cwd);
+    fs::create_dir_all(&cwd).unwrap();
+    let default_config = load_config_with_env(&cwd, &CliOverrides::default(), &|_| None).unwrap();
+    assert_eq!(default_config.verify_command, None);
+
+    let root = std::env::temp_dir().join(format!("robocode_verify_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
+    fs::write(
+        root.join("project").join(".robocode").join("config.toml"),
+        "verify_command = 'cargo test'\n",
+    )
+    .unwrap();
+    let env_only_home = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let file_config =
+        load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+            env_only_home.get(key).cloned()
+        })
+        .unwrap();
+    assert_eq!(file_config.verify_command.as_deref(), Some("cargo test"));
+
+    let env_override = map_env(&[
+        ("HOME", root.to_string_lossy().as_ref()),
+        ("ROBOCODE_VERIFY_COMMAND", "cargo check"),
+    ]);
+    let env_config =
+        load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+            env_override.get(key).cloned()
+        })
+        .unwrap();
+    assert_eq!(env_config.verify_command.as_deref(), Some("cargo check"));
+}
+
+#[test]
 fn cli_overrides_win() {
     let cwd = std::env::temp_dir();
     let plugin_dir = cwd.join("cli-provider-plugins");

@@ -343,6 +343,7 @@ fn run() -> Result<(), String> {
         resolved_config.max_retries,
     );
     engine.set_max_tool_iterations(resolved_config.max_tool_iterations);
+    engine.set_verify_command(resolved_config.verify_command.clone());
     engine.set_permission_mode(resolved_config.permission_mode)?;
 
     let stdin = io::stdin();

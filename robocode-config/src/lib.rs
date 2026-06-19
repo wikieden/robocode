@@ -32,6 +32,7 @@ pub struct ResolvedConfig {
     pub request_timeout_secs: u64,
     pub max_retries: u32,
     pub max_tool_iterations: usize,
+    pub verify_command: Option<String>,
     pub loaded_files: Vec<PathBuf>,
 }
 
@@ -66,6 +67,7 @@ impl Default for ResolvedConfig {
             request_timeout_secs: 90,
             max_retries: 1,
             max_tool_iterations: 25,
+            verify_command: None,
             loaded_files: Vec::new(),
         }
     }
@@ -115,6 +117,7 @@ struct FileConfig {
     request_timeout_secs: Option<u64>,
     max_retries: Option<u32>,
     max_tool_iterations: Option<usize>,
+    verify_command: Option<String>,
     providers: Option<ProvidersFileConfig>,
 }
 
@@ -535,6 +538,9 @@ fn apply_file_config(
     if let Some(max_tool_iterations) = file.max_tool_iterations {
         resolved.max_tool_iterations = max_tool_iterations.max(1);
     }
+    if let Some(verify_command) = file.verify_command {
+        resolved.verify_command = Some(verify_command);
+    }
     Ok(())
 }
 
@@ -582,6 +588,9 @@ where
             .parse::<usize>()
             .map_err(|_| "ROBOCODE_MAX_TOOL_ITERATIONS must be an integer".to_string())?
             .max(1);
+    }
+    if let Some(verify_command) = env_lookup("ROBOCODE_VERIFY_COMMAND") {
+        resolved.verify_command = Some(verify_command);
     }
     Ok(())
 }

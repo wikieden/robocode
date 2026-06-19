@@ -13,8 +13,8 @@ use robocode_permissions::PermissionEngine;
 use robocode_tools::ToolExecutionContext;
 use robocode_types::{
     AgentTaskStatus, ApprovalResponse, ContextBundleRecord, Message, ModelEvent, ModelRequest,
-    PermissionDecision, PermissionLogEntry, Role, ToolCall, ToolResult, TranscriptEntry, fresh_id,
-    now_timestamp,
+    PermissionDecision, PermissionLogEntry, PermissionMode, Role, ToolCall, ToolResult,
+    TranscriptEntry, fresh_id, now_timestamp,
 };
 
 const PROVIDER_REQUEST_CHAR_BUDGET: usize = 48_000;
@@ -80,6 +80,8 @@ impl SessionEngine {
         // Stays true only if the loop exhausts its iteration ceiling while tool
         // calls are still pending — i.e. the turn was paused, not completed.
         let mut paused_on_budget = true;
+        // Whether a mutating edit succeeded this turn, gating post-edit verification.
+        let mut edited_this_turn = false;
         for _ in 0..max_tool_iterations {
             provider_task.status = AgentTaskStatus::Thinking.as_str().to_string();
             provider_task.activity = "waiting for provider response".to_string();
@@ -174,7 +176,12 @@ impl SessionEngine {
                         provider_task.progress = provider_task.progress.max(75);
                         provider_task.updated_at = Some(now_millis());
                         self.upsert_agent_task(provider_task.clone());
-                        let _ = self.handle_tool_call(call, approver, &mut events)?;
+                        let tool_result = self.handle_tool_call(call, approver, &mut events)?;
+                        if tool_result.success
+                            && matches!(tool_result.name.as_str(), "write_file" | "edit_file")
+                        {
+                            edited_this_turn = true;
+                        }
                     }
                     ModelEvent::Usage(_) => {}
                     ModelEvent::Done => {}
@@ -202,13 +209,38 @@ impl SessionEngine {
                 .push(format!("turn_budget_exhausted {max_tool_iterations}"));
             events.push(EngineEvent::System(note));
         }
-        provider_task.status = if paused_on_budget {
+        // Post-edit verification: once per turn, only if an edit succeeded and the
+        // turn completed (not budget-paused). Feeds the result into the transcript
+        // and gates the turn's done-status.
+        let verification = if edited_this_turn && !paused_on_budget {
+            self.run_verify_command()
+        } else {
+            None
+        };
+        if let Some((ok, message)) = &verification {
+            let system_message = Message::new(Role::System, message.clone());
+            self.messages.push(system_message.clone());
+            self.store_entry(TranscriptEntry::Message {
+                message: system_message,
+            })?;
+            provider_task.evidence.push(format!(
+                "post_edit_verification {}",
+                if *ok { "passed" } else { "failed" }
+            ));
+            events.push(EngineEvent::System(message.clone()));
+        }
+        let verification_failed = matches!(&verification, Some((false, _)));
+        let needs_attention = paused_on_budget || verification_failed;
+
+        provider_task.status = if needs_attention {
             AgentTaskStatus::Blocked.as_str().to_string()
         } else {
             AgentTaskStatus::Done.as_str().to_string()
         };
         provider_task.activity = if paused_on_budget {
             format!("turn paused: tool budget exhausted after {max_tool_iterations} iterations")
+        } else if verification_failed {
+            "turn ended: post-edit verification failed".to_string()
         } else {
             "provider turn complete".to_string()
         };
@@ -216,6 +248,8 @@ impl SessionEngine {
         provider_task.updated_at = Some(now_millis());
         provider_task.result = Some(if paused_on_budget {
             format!("paused: tool budget exhausted after {max_tool_iterations} iterations")
+        } else if verification_failed {
+            "post-edit verification failed".to_string()
         } else {
             "turn complete".to_string()
         });
@@ -441,6 +475,46 @@ impl SessionEngine {
                 events.push(EngineEvent::System(denial_guidance));
                 Ok(result)
             }
+        }
+    }
+
+    /// Run the configured post-edit verification command (e.g. `cargo test`) and
+    /// summarize the outcome. Returns `(success, message)`, or `None` when no
+    /// command is configured or plan mode forbids running it. Synchronous for now;
+    /// async/non-blocking verification is a later (gap #7) increment.
+    fn run_verify_command(&self) -> Option<(bool, String)> {
+        let command = self.verify_command.as_deref()?;
+        if self.permissions.mode() == PermissionMode::Plan {
+            return None;
+        }
+        let mut input = robocode_types::ToolInput::new();
+        input.insert("command".to_string(), command.to_string());
+        let verify_call = ToolCall {
+            id: fresh_id("verify"),
+            name: "shell".to_string(),
+            input,
+        };
+        let ctx = ToolExecutionContext {
+            cwd: self.cwd.clone(),
+            semantic: None,
+        };
+        match self.tools.execute(&verify_call, &ctx) {
+            Ok(result) => {
+                let status = if result.success { "passed" } else { "FAILED" };
+                let exit = result
+                    .exit_code
+                    .map(|code| format!(" (exit {code})"))
+                    .unwrap_or_default();
+                let tail = compact_chars(&result.output, 1_500);
+                Some((
+                    result.success,
+                    format!("Post-edit verification (`{command}`) {status}{exit}:\n{tail}"),
+                ))
+            }
+            Err(error) => Some((
+                false,
+                format!("Post-edit verification (`{command}`) could not run: {error}"),
+            )),
         }
     }
 
