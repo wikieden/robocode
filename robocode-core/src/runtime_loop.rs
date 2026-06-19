@@ -202,7 +202,11 @@ impl SessionEngine {
                 .push(format!("turn_budget_exhausted {max_tool_iterations}"));
             events.push(EngineEvent::System(note));
         }
-        provider_task.status = AgentTaskStatus::Done.as_str().to_string();
+        provider_task.status = if paused_on_budget {
+            AgentTaskStatus::Blocked.as_str().to_string()
+        } else {
+            AgentTaskStatus::Done.as_str().to_string()
+        };
         provider_task.activity = if paused_on_budget {
             format!("turn paused: tool budget exhausted after {max_tool_iterations} iterations")
         } else {
@@ -210,7 +214,11 @@ impl SessionEngine {
         };
         provider_task.progress = 100;
         provider_task.updated_at = Some(now_millis());
-        provider_task.result = Some("turn complete".to_string());
+        provider_task.result = Some(if paused_on_budget {
+            format!("paused: tool budget exhausted after {max_tool_iterations} iterations")
+        } else {
+            "turn complete".to_string()
+        });
         self.upsert_agent_task(provider_task);
 
         Ok(events)

@@ -219,3 +219,12 @@ bilingual docs updated. State honestly what was not tested.
   - Not done: surfacing the value in `ResolvedConfig::summary()` (skipped to avoid
     churning summary-string assertions); a CLI flag (`CliOverrides`) — config file +
     env cover it for now; user-facing config doc for the new key/env.
+- **2026-06-19 — Phase C3 (first slice): honest done-gate for budget pause.**
+  `robocode-core/runtime_loop.rs`: a turn that hits the iteration ceiling now ends
+  with provider-task status `Blocked` (+ "paused" result), not `Done` — it is
+  unfinished and awaiting continuation. Genuine completions stay `Done`.
+  - Test: `tool_loop_respects_iteration_budget_and_emits_event` extended to assert
+    `Blocked`. (`runtime_loop_tests` 20 passed.)
+  - Scope note: this is the unambiguous half of C3 (budget pause). The "last tool
+    failed then the model stopped" done-gate is deferred — it needs C1 (auto-verify)
+    to be a reliable signal rather than a heuristic.

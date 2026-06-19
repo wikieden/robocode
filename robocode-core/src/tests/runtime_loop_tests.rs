@@ -647,6 +647,14 @@ fn tool_loop_respects_iteration_budget_and_emits_event() {
         3,
         "the loop must stop at the configured iteration ceiling"
     );
+    // Honesty: a turn paused on the budget ceiling is unfinished, not Done.
+    let snapshot = engine.agent_task_snapshot();
+    assert!(
+        snapshot.iter().any(|task| {
+            task.kind == "provider" && task.status == AgentTaskStatus::Blocked.as_str()
+        }),
+        "a budget-paused turn must report Blocked, not Done"
+    );
 }
 
 #[test]

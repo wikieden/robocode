@@ -191,3 +191,10 @@ plan-mode 冒烟通过。
   - 测试：`max_tool_iterations_defaults_and_resolves_from_file_and_env`（默认 / 文件 / 环境覆盖文件）。
   - 未做：`ResolvedConfig::summary()` 暴露该值（避免改动 summary 断言）；CLI flag（`CliOverrides`，
     现由文件 + 环境覆盖）；新键/环境变量的面向用户配置文档。
+- **2026-06-19 — 阶段 C3（首切片）：预算暂停的诚实 done 闸。**
+  `robocode-core/runtime_loop.rs`：命中迭代上限的轮次现在以 provider-task 状态 `Blocked`
+  （+ "paused" result）结束，而非 `Done`——它未完成、待继续。真正完成的轮次仍是 `Done`。
+  - 测试：`tool_loop_respects_iteration_budget_and_emits_event` 扩展断言 `Blocked`。
+    （`runtime_loop_tests` 20 过。）
+  - 范围说明：这是 C3 无歧义的那半（预算暂停）。“最后工具失败后模型停下”的 done 闸推迟——
+    它需要 C1（自动验证）才能成为可靠信号而非启发式。
