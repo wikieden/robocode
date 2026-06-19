@@ -235,3 +235,14 @@ bilingual docs updated. State honestly what was not tested.
   `failure_class denied` on the task evidence — consistent with tool failures.
   - Test: `plan_mode_blocks_mutating_tools` extended to assert the structured
     denial guidance. (`runtime_loop_tests` 20 passed.)
+- **2026-06-19 — Phase B (first slice): tool-result dedup in provider requests.**
+  `robocode-core/runtime_loop.rs`: `dedupe_repeated_tool_outputs()` runs before the
+  budget fit — when the same tool output repeats (e.g. the model re-reads an
+  unchanged file), every copy but the last is replaced with a short elision stub;
+  order and tool_call_id pairing are preserved. Pure context savings, no behavior
+  change.
+  - Test: `repeated_identical_tool_outputs_are_deduped_in_provider_request`.
+    (`runtime_loop_tests` 21 passed.)
+  - Still open in Phase B: real per-provider token counting (estimate is still
+    `chars/4`); unifying the char-based request budget with the ContextBundle token
+    budget; cumulative cost surfaced in the snapshot.

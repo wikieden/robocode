@@ -421,6 +421,64 @@ fn failed_tool_result_includes_failure_classification_and_next_action() {
     );
 }
 
+#[test]
+fn repeated_identical_tool_outputs_are_deduped_in_provider_request() {
+    let home = temp_dir("dedupe_tool_home");
+    let cwd = temp_dir("dedupe_tool_cwd");
+    fs::write(cwd.join("sample.txt"), "DUPLICATE-CONTENT-MARKER").unwrap();
+    let mut read_input = ToolInput::new();
+    read_input.insert("path".to_string(), "sample.txt".to_string());
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingSequenceProvider::new(
+        vec![
+            vec![ModelEvent::ToolCall(ToolCall {
+                id: "read_1".to_string(),
+                name: "read_file".to_string(),
+                input: read_input.clone(),
+            })],
+            vec![ModelEvent::ToolCall(ToolCall {
+                id: "read_2".to_string(),
+                name: "read_file".to_string(),
+                input: read_input,
+            })],
+            vec![ModelEvent::AssistantText {
+                content: "done".to_string(),
+            }],
+        ],
+        Arc::clone(&requests),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .process_input_with_approval("read the same file twice", &mut approver)
+        .unwrap();
+
+    // The third provider request sees both reads; the earlier identical tool
+    // output must be elided to a stub, keeping the content only once.
+    let requests = requests.lock().unwrap();
+    let third = &requests[2];
+    let full_copies = third
+        .messages
+        .iter()
+        .filter(|message| message.content == "DUPLICATE-CONTENT-MARKER")
+        .count();
+    assert_eq!(
+        full_copies, 1,
+        "identical repeated tool output should appear once, got {full_copies}"
+    );
+    assert!(
+        third
+            .messages
+            .iter()
+            .any(|message| message.content.contains("identical tool output elided")),
+        "the earlier duplicate should be replaced with an elision stub"
+    );
+}
+
 fn request_chars(request: &ModelRequest) -> usize {
     request
         .messages

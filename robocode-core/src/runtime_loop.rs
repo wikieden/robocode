@@ -653,6 +653,7 @@ fn build_provider_request_messages_with_limits(
             .iter()
             .map(|message| compact_live_turn_message(message, limits)),
     );
+    dedupe_repeated_tool_outputs(&mut request);
     fit_provider_request_budget(request, limits.request_char_budget)
 }
 
@@ -711,6 +712,36 @@ fn compact_live_turn_message(message: &Message, limits: ProviderRequestLimits) -
     let mut compacted = message.clone();
     compacted.content = compact_chars(&compacted.content, limits.tail_message_char_limit);
     compacted
+}
+
+/// Collapse identical repeated tool outputs in a provider request: when the same
+/// tool output appears more than once (e.g. the model re-read an unchanged file),
+/// every occurrence but the last is replaced with a short stub. Saves request
+/// budget without losing content — the latest copy stays verbatim, and message
+/// order / tool_call_id pairing are preserved.
+fn dedupe_repeated_tool_outputs(messages: &mut [Message]) {
+    use std::collections::HashMap;
+    let mut last_index_for_content: HashMap<String, usize> = HashMap::new();
+    for (index, message) in messages.iter().enumerate() {
+        if message.role == Role::Tool && !message.content.is_empty() {
+            last_index_for_content.insert(message.content.clone(), index);
+        }
+    }
+    let stub_targets: Vec<(usize, usize)> = messages
+        .iter()
+        .enumerate()
+        .filter(|(index, message)| {
+            message.role == Role::Tool
+                && !message.content.is_empty()
+                && last_index_for_content.get(&message.content) != Some(index)
+        })
+        .map(|(index, message)| (index, message.content.chars().count()))
+        .collect();
+    for (index, original_len) in stub_targets {
+        messages[index].content = format!(
+            "[RoboCode: identical tool output elided to save context; {original_len} chars repeated in a later read]"
+        );
+    }
 }
 
 fn fit_provider_request_budget(

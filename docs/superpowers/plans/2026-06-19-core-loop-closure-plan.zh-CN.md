@@ -203,3 +203,11 @@ plan-mode 冒烟通过。
   现在回灌结构化的 `failure class: denied — <next action>` 消息（与既有的渲染拒绝并列），
   并在 task evidence 记 `failure_class denied`——与工具失败一致。
   - 测试：`plan_mode_blocks_mutating_tools` 扩展断言结构化拒绝指引。（`runtime_loop_tests` 20 过。）
+- **2026-06-19 — 阶段 B（首切片）：provider 请求中的 tool-result 去重。**
+  `robocode-core/runtime_loop.rs`：`dedupe_repeated_tool_outputs()` 在预算裁剪前运行——
+  同一工具输出重复时（如模型重读未改动文件），除最后一份外都替换为简短省略桩；
+  顺序与 tool_call_id 配对保留。纯上下文节省，无行为变化。
+  - 测试：`repeated_identical_tool_outputs_are_deduped_in_provider_request`。
+    （`runtime_loop_tests` 21 过。）
+  - 阶段 B 仍开放：真实的按 provider token 计数（估算仍是 `chars/4`）；统一字符请求预算与
+    ContextBundle token 预算；快照中暴露累计成本。
