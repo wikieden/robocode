@@ -198,3 +198,8 @@ plan-mode 冒烟通过。
     （`runtime_loop_tests` 20 过。）
   - 范围说明：这是 C3 无歧义的那半（预算暂停）。“最后工具失败后模型停下”的 done 闸推迟——
     它需要 C1（自动验证）才能成为可靠信号而非启发式。
+- **2026-06-19 — 阶段 C2 收尾：权限拒绝也被分类。**
+  `robocode-core/runtime_loop.rs`：新增 `Denied` 的 `ToolFailureClass` 变体；被拒的工具调用
+  现在回灌结构化的 `failure class: denied — <next action>` 消息（与既有的渲染拒绝并列），
+  并在 task evidence 记 `failure_class denied`——与工具失败一致。
+  - 测试：`plan_mode_blocks_mutating_tools` 扩展断言结构化拒绝指引。（`runtime_loop_tests` 20 过。）

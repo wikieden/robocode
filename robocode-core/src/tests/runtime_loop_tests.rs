@@ -772,6 +772,14 @@ fn plan_mode_blocks_mutating_tools() {
                 && text.contains("decision=deny")
                 && text.contains("tool: write_file")))
     );
+    // Denials carry the same structured class + next action as tool failures.
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, EngineEvent::System(text)
+            if text.contains("failure class: denied"))),
+        "a denied tool call should feed back a structured class + next action"
+    );
 }
 
 #[test]

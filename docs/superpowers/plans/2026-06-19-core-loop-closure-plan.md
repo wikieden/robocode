@@ -228,3 +228,10 @@ bilingual docs updated. State honestly what was not tested.
   - Scope note: this is the unambiguous half of C3 (budget pause). The "last tool
     failed then the model stopped" done-gate is deferred — it needs C1 (auto-verify)
     to be a reliable signal rather than a heuristic.
+- **2026-06-19 — Phase C2 completion: permission denials are classified too.**
+  `robocode-core/runtime_loop.rs`: added a `Denied` `ToolFailureClass` variant; a
+  denied tool call now feeds back a structured `failure class: denied — <next
+  action>` message (alongside the existing rendered denial) and records
+  `failure_class denied` on the task evidence — consistent with tool failures.
+  - Test: `plan_mode_blocks_mutating_tools` extended to assert the structured
+    denial guidance. (`runtime_loop_tests` 20 passed.)

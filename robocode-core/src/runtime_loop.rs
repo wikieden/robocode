@@ -402,6 +402,7 @@ impl SessionEngine {
                 task.progress = 100;
                 task.decision = Some("deny".to_string());
                 task.result = Some(deny.message.clone());
+                task.evidence.push("failure_class denied".to_string());
                 task.updated_at = Some(now_millis());
                 self.upsert_agent_task(task);
                 let rendered_denial = render_permission_denial(&call.name, &reason, &deny.message);
@@ -421,6 +422,18 @@ impl SessionEngine {
                     message: system_message,
                 })?;
                 events.push(EngineEvent::System(rendered_denial));
+                let denial_guidance = format!(
+                    "Tool `{}` failure class: {} — {}",
+                    call.name,
+                    ToolFailureClass::Denied.as_str(),
+                    ToolFailureClass::Denied.next_action()
+                );
+                let guidance_message = Message::new(Role::System, denial_guidance.clone());
+                self.messages.push(guidance_message.clone());
+                self.store_entry(TranscriptEntry::Message {
+                    message: guidance_message,
+                })?;
+                events.push(EngineEvent::System(denial_guidance));
                 Ok(result)
             }
         }
@@ -782,6 +795,7 @@ enum ToolFailureClass {
     CompileError,
     TestFailure,
     Timeout,
+    Denied,
     Other,
 }
 
@@ -793,6 +807,7 @@ impl ToolFailureClass {
             ToolFailureClass::CompileError => "compile_error",
             ToolFailureClass::TestFailure => "test_failure",
             ToolFailureClass::Timeout => "timeout",
+            ToolFailureClass::Denied => "denied",
             ToolFailureClass::Other => "other",
         }
     }
@@ -813,6 +828,9 @@ impl ToolFailureClass {
             }
             ToolFailureClass::Timeout => {
                 "The command timed out. Narrow its scope or raise the limit, then retry."
+            }
+            ToolFailureClass::Denied => {
+                "Blocked by permission policy. Adjust the request or narrow its scope; in plan mode, mutating tools require build mode, or ask the operator to approve."
             }
             ToolFailureClass::Other => {
                 "The tool failed. Review the error output and adjust inputs before retrying."
