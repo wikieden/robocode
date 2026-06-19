@@ -265,6 +265,13 @@ bilingual docs updated. State honestly what was not tested.
   - Tests: `post_edit_verification_runs_after_successful_edit`,
     `post_edit_verification_failure_blocks_the_turn` (core);
     `verify_command_resolves_from_file_and_env` (config). (`runtime_loop_tests` 24.)
-  - Open in C1: feed the verify result back and **continue the same turn** so the
-    model auto-fixes (this slice records + gates + defers to next turn); per-turn
-    debounce already handled (runs once, not per edit); async verify is gap #7.
+  - Per-turn debounce handled (runs once, not per edit); async verify is gap #7.
+- **2026-06-19 — Phase C1 (second slice): verify feeds back and auto-fixes in-turn.**
+  `robocode-core/runtime_loop.rs`: verification moved inside the loop. When the
+  model stops requesting tools, any unverified edit is checked first; a **failing**
+  check is fed back as a system message and the turn **continues** so the model can
+  fix it — a fresh edit re-arms verification, and the iteration budget bounds the
+  loop (runaway → `Blocked` via budget pause). A passing check ends the turn `Done`.
+  This closes the C1 feedback loop; gap #3's verification closure is now end-to-end.
+  - Test: `failed_verification_lets_the_model_fix_within_the_same_turn` (fail → fix
+    → pass → Done). Prior C1 tests still hold. (`runtime_loop_tests` 25 passed.)

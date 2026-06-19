@@ -563,6 +563,73 @@ fn post_edit_verification_runs_after_successful_edit() {
 }
 
 #[test]
+fn failed_verification_lets_the_model_fix_within_the_same_turn() {
+    let home = temp_dir("verify_autofix_home");
+    let cwd = temp_dir("verify_autofix_cwd");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    let mut first_edit = ToolInput::new();
+    first_edit.insert("path".to_string(), "src/lib.rs".to_string());
+    first_edit.insert("content".to_string(), "// first attempt\n".to_string());
+    let mut fix_edit = ToolInput::new();
+    fix_edit.insert("path".to_string(), "fixed.flag".to_string());
+    fix_edit.insert("content".to_string(), "ok\n".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![
+        vec![ModelEvent::ToolCall(ToolCall {
+            id: "w1".to_string(),
+            name: "write_file".to_string(),
+            input: first_edit,
+        })],
+        vec![ModelEvent::AssistantText {
+            content: "first attempt done".to_string(),
+        }],
+        vec![ModelEvent::ToolCall(ToolCall {
+            id: "w2".to_string(),
+            name: "write_file".to_string(),
+            input: fix_edit,
+        })],
+        vec![ModelEvent::AssistantText {
+            content: "fixed it".to_string(),
+        }],
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    // Passes only once `fixed.flag` exists — i.e. after the second edit.
+    engine.set_verify_command(Some(format!(
+        "test -f '{}'",
+        cwd.join("fixed.flag").display()
+    )));
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .process_input_with_approval("edit, fail, then fix", &mut approver)
+        .unwrap();
+
+    let verification_messages: Vec<&String> = events
+        .iter()
+        .filter_map(|event| match event {
+            EngineEvent::System(text) if text.contains("Post-edit verification") => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        verification_messages.len(),
+        2,
+        "verification should run after the failing edit and again after the fix, got {verification_messages:?}"
+    );
+    assert!(verification_messages[0].contains("FAILED"));
+    assert!(verification_messages[1].contains("passed"));
+    // The turn auto-recovered, so it ends Done, not Blocked.
+    let snapshot = engine.agent_task_snapshot();
+    assert!(
+        snapshot.iter().any(|task| {
+            task.kind == "provider" && task.status == AgentTaskStatus::Done.as_str()
+        })
+    );
+}
+
+#[test]
 fn post_edit_verification_failure_blocks_the_turn() {
     let home = temp_dir("verify_fail_home");
     let cwd = temp_dir("verify_fail_cwd");

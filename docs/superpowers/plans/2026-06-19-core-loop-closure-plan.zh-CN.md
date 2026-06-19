@@ -226,5 +226,11 @@ plan-mode 冒烟通过。
   - 测试：`post_edit_verification_runs_after_successful_edit`、
     `post_edit_verification_failure_blocks_the_turn`（core）；
     `verify_command_resolves_from_file_and_env`（config）。（`runtime_loop_tests` 24。）
-  - C1 仍开放：把验证结果回灌并**在同一轮继续**让模型自动修复（本切片只记录 + 闸 + 留到下一轮）；
-    每轮去抖已处理（只跑一次，非每次 edit）；异步验证属 gap #7。
+  - 每轮去抖已处理（只跑一次，非每次 edit）；异步验证属 gap #7。
+- **2026-06-19 — 阶段 C1（第二切片）：验证回灌并在轮内自动修复。**
+  `robocode-core/runtime_loop.rs`：验证移入循环。当模型停止请求工具时，先检查未验证的 edit；
+  **失败**的检查作为系统消息回灌，且该轮**继续**让模型修复——新的 edit 重新武装验证，
+  迭代预算兜底（跑飞 → 经预算暂停标 `Blocked`）。通过的检查则以 `Done` 结束该轮。
+  C1 反馈闭环就此闭合；gap #3 的验证闭环端到端打通。
+  - 测试：`failed_verification_lets_the_model_fix_within_the_same_turn`（失败 → 修复 → 通过 → Done）。
+    既有 C1 测试仍过。（`runtime_loop_tests` 25 过。）

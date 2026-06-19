@@ -80,8 +80,11 @@ impl SessionEngine {
         // Stays true only if the loop exhausts its iteration ceiling while tool
         // calls are still pending — i.e. the turn was paused, not completed.
         let mut paused_on_budget = true;
-        // Whether a mutating edit succeeded this turn, gating post-edit verification.
-        let mut edited_this_turn = false;
+        // Tracks mutating edits not yet verified, plus the latest verification
+        // result, so post-edit verification runs once per fresh edit and gates the
+        // turn's done-status.
+        let mut unverified_edits = false;
+        let mut last_verification_failed = false;
         for _ in 0..max_tool_iterations {
             provider_task.status = AgentTaskStatus::Thinking.as_str().to_string();
             provider_task.activity = "waiting for provider response".to_string();
@@ -180,7 +183,7 @@ impl SessionEngine {
                         if tool_result.success
                             && matches!(tool_result.name.as_str(), "write_file" | "edit_file")
                         {
-                            edited_this_turn = true;
+                            unverified_edits = true;
                         }
                     }
                     ModelEvent::Usage(_) => {}
@@ -191,6 +194,29 @@ impl SessionEngine {
             // text alongside a tool call does NOT end the turn, so every tool
             // result is fed back for a follow-up turn.
             if !observed_tool_call {
+                // Before ending, verify any unverified edits. A failing check is
+                // fed back and the turn continues so the model can fix it; a fresh
+                // edit re-arms verification. The iteration budget bounds the loop.
+                // `None` means no verification configured (or plan mode) — just end.
+                if unverified_edits
+                    && let Some((ok, message)) = self.run_verify_command()
+                {
+                    unverified_edits = false;
+                    last_verification_failed = !ok;
+                    let system_message = Message::new(Role::System, message.clone());
+                    self.messages.push(system_message.clone());
+                    self.store_entry(TranscriptEntry::Message {
+                        message: system_message,
+                    })?;
+                    provider_task.evidence.push(format!(
+                        "post_edit_verification {}",
+                        if ok { "passed" } else { "failed" }
+                    ));
+                    events.push(EngineEvent::System(message));
+                    if !ok {
+                        continue;
+                    }
+                }
                 paused_on_budget = false;
                 break;
             }
@@ -209,27 +235,9 @@ impl SessionEngine {
                 .push(format!("turn_budget_exhausted {max_tool_iterations}"));
             events.push(EngineEvent::System(note));
         }
-        // Post-edit verification: once per turn, only if an edit succeeded and the
-        // turn completed (not budget-paused). Feeds the result into the transcript
-        // and gates the turn's done-status.
-        let verification = if edited_this_turn && !paused_on_budget {
-            self.run_verify_command()
-        } else {
-            None
-        };
-        if let Some((ok, message)) = &verification {
-            let system_message = Message::new(Role::System, message.clone());
-            self.messages.push(system_message.clone());
-            self.store_entry(TranscriptEntry::Message {
-                message: system_message,
-            })?;
-            provider_task.evidence.push(format!(
-                "post_edit_verification {}",
-                if *ok { "passed" } else { "failed" }
-            ));
-            events.push(EngineEvent::System(message.clone()));
-        }
-        let verification_failed = matches!(&verification, Some((false, _)));
+        // Post-edit verification ran inside the loop (it can continue the turn so
+        // the model fixes a failure); its latest outcome gates the done-status.
+        let verification_failed = last_verification_failed;
         let needs_attention = paused_on_budget || verification_failed;
 
         provider_task.status = if needs_attention {
