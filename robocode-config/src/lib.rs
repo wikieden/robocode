@@ -31,6 +31,7 @@ pub struct ResolvedConfig {
     pub session_home: Option<PathBuf>,
     pub request_timeout_secs: u64,
     pub max_retries: u32,
+    pub max_tool_iterations: usize,
     pub loaded_files: Vec<PathBuf>,
 }
 
@@ -64,6 +65,7 @@ impl Default for ResolvedConfig {
             session_home: None,
             request_timeout_secs: 90,
             max_retries: 1,
+            max_tool_iterations: 25,
             loaded_files: Vec::new(),
         }
     }
@@ -112,6 +114,7 @@ struct FileConfig {
     session_home: Option<String>,
     request_timeout_secs: Option<u64>,
     max_retries: Option<u32>,
+    max_tool_iterations: Option<usize>,
     providers: Option<ProvidersFileConfig>,
 }
 
@@ -529,6 +532,9 @@ fn apply_file_config(
     if let Some(max_retries) = file.max_retries {
         resolved.max_retries = max_retries;
     }
+    if let Some(max_tool_iterations) = file.max_tool_iterations {
+        resolved.max_tool_iterations = max_tool_iterations.max(1);
+    }
     Ok(())
 }
 
@@ -570,6 +576,12 @@ where
         resolved.max_retries = max_retries
             .parse::<u32>()
             .map_err(|_| "ROBOCODE_MAX_RETRIES must be an integer".to_string())?;
+    }
+    if let Some(max_tool_iterations) = env_lookup("ROBOCODE_MAX_TOOL_ITERATIONS") {
+        resolved.max_tool_iterations = max_tool_iterations
+            .parse::<usize>()
+            .map_err(|_| "ROBOCODE_MAX_TOOL_ITERATIONS must be an integer".to_string())?
+            .max(1);
     }
     Ok(())
 }

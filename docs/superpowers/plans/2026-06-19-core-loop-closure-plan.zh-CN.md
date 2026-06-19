@@ -181,3 +181,13 @@ plan-mode 冒烟通过。
     `failed_tool_execution_is_returned_to_provider_without_ending_turn` 仍过（现也带 directory_target 提示）。
   - 验证：`cargo test -p robocode-core` 130 过 / 1 ignored；clippy 干净。
   - `ToolFailureClass` 暂为私有字符串枚举；阶段 E 角色需程序化分支时再提升到 `robocode-types`。
+  - 切片 A1/A2 + C2 已提交到分支 `core-loop-closure`（`main` 未动）：
+    `cargo test --workspace` 587 过 / 4 ignored。
+- **2026-06-19 — 阶段 A2 后续：预算改为配置解析。** 轮次迭代上限不再仅默认：
+  - `robocode-config`：`ResolvedConfig.max_tool_iterations`（默认 25），文件键
+    `max_tool_iterations`，环境变量 `ROBOCODE_MAX_TOOL_ITERATIONS`（均钳制 >= 1）。
+  - `robocode-cli/main.rs`：启动时把 `resolved_config.max_tool_iterations` 应用到引擎
+    （唯一生产站点；`tui/app.rs` 7 处为测试）。
+  - 测试：`max_tool_iterations_defaults_and_resolves_from_file_and_env`（默认 / 文件 / 环境覆盖文件）。
+  - 未做：`ResolvedConfig::summary()` 暴露该值（避免改动 summary 断言）；CLI flag（`CliOverrides`，
+    现由文件 + 环境覆盖）；新键/环境变量的面向用户配置文档。

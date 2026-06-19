@@ -342,6 +342,7 @@ fn run() -> Result<(), String> {
         resolved_config.request_timeout_secs,
         resolved_config.max_retries,
     );
+    engine.set_max_tool_iterations(resolved_config.max_tool_iterations);
     engine.set_permission_mode(resolved_config.permission_mode)?;
 
     let stdin = io::stdin();

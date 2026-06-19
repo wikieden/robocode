@@ -71,6 +71,46 @@ fn project_file_overrides_global_file_and_env_overrides_files() {
 }
 
 #[test]
+fn max_tool_iterations_defaults_and_resolves_from_file_and_env() {
+    // Default when unset.
+    let cwd =
+        std::env::temp_dir().join(format!("robocode_max_iter_default_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&cwd);
+    fs::create_dir_all(&cwd).unwrap();
+    let default_config = load_config_with_env(&cwd, &CliOverrides::default(), &|_| None).unwrap();
+    assert_eq!(default_config.max_tool_iterations, 25);
+
+    // Config file sets the ceiling.
+    let root = std::env::temp_dir().join(format!("robocode_max_iter_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
+    fs::write(
+        root.join("project").join(".robocode").join("config.toml"),
+        "max_tool_iterations = 40\n",
+    )
+    .unwrap();
+    let env_only_home = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let file_config =
+        load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+            env_only_home.get(key).cloned()
+        })
+        .unwrap();
+    assert_eq!(file_config.max_tool_iterations, 40);
+
+    // Environment overrides the file.
+    let env_override = map_env(&[
+        ("HOME", root.to_string_lossy().as_ref()),
+        ("ROBOCODE_MAX_TOOL_ITERATIONS", "12"),
+    ]);
+    let env_config =
+        load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+            env_override.get(key).cloned()
+        })
+        .unwrap();
+    assert_eq!(env_config.max_tool_iterations, 12);
+}
+
+#[test]
 fn cli_overrides_win() {
     let cwd = std::env::temp_dir();
     let plugin_dir = cwd.join("cli-provider-plugins");

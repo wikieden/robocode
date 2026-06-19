@@ -206,3 +206,16 @@ bilingual docs updated. State honestly what was not tested.
   - `ToolFailureClass` is a private string-based enum for now; promote to a shared
     `robocode-types` contract when Phase E roles branch on it. Verification: see
     workspace gate result below.
+  - Slices A1/A2 + C2 committed on branch `core-loop-closure` (`main` untouched):
+    `cargo test --workspace` 587 passed / 4 ignored.
+- **2026-06-19 — Phase A2 follow-up: budget is now config-resolved.** The turn
+  iteration ceiling is no longer default-only:
+  - `robocode-config`: `ResolvedConfig.max_tool_iterations` (default 25), file key
+    `max_tool_iterations`, env `ROBOCODE_MAX_TOOL_ITERATIONS` (both clamped >= 1).
+  - `robocode-cli/main.rs`: applies `resolved_config.max_tool_iterations` to the
+    engine at startup (single production site; the 7 `tui/app.rs` sites are tests).
+  - Test: `max_tool_iterations_defaults_and_resolves_from_file_and_env`
+    (default / file / env-overrides-file).
+  - Not done: surfacing the value in `ResolvedConfig::summary()` (skipped to avoid
+    churning summary-string assertions); a CLI flag (`CliOverrides`) — config file +
+    env cover it for now; user-facing config doc for the new key/env.
