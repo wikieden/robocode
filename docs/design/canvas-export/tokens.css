@@ -1,0 +1,172 @@
+/* ============================================================
+   Viden · tokens.css — 设计 Token 单一真源（Single Source of Truth）
+   ------------------------------------------------------------
+   规则（见 CLAUDE.md / DESIGN-REF.md）：
+   · 所有组件只引用 var(--*)，绝不写裸 #hex / rgba()。
+   · hex / rgba 只允许定义在本文件（check-tokens.js 跳过 tokens.css）。
+   · 中性 + 强调色随 data-theme 换肤；密度随 data-density。
+   · 改了本文件 → 同步 docs/DESIGN-REF.md 的 Token 速查表 + 写 CHANGELOG。
+   来源：Core/「Aurora 主题」+ GUI/TUI 现有皮肤，整理收编为命名 token。
+   ============================================================ */
+
+:root{
+  /* ---------- 字体 ---------- */
+  --font-mono:'JetBrains Mono','SF Mono','DejaVu Sans Mono','Noto Sans SC',monospace;
+  --font-sans:'Inter','Noto Sans SC',-apple-system,system-ui,sans-serif;
+  /* 兼容旧别名（现有页面用过 --mono / --sans） */
+  --mono:var(--font-mono);
+  --sans:var(--font-sans);
+
+  /* ---------- 字阶（桌面 · 高密度） ---------- */
+  --fs-kicker:12px;   /* mono 小标签 / kicker */
+  --fs-micro:11px;    /* 角标 / 计数 */
+  --fs-xs:12px;       /* 元数据 */
+  --fs-sm:13px;       /* TUI 正文 / 次要正文 */
+  --fs-base:15px;     /* 正文 */
+  --fs-lead:17px;     /* 引言 */
+  --fs-h3:14.5px;
+  --fs-h2:27px;
+  --fs-h1:42px;
+  --lh-tight:1.15;
+  --lh-ui:1.5;
+  --lh-body:1.6;
+  --ls-kicker:2.5px;  /* kicker 字距 */
+  --ls-label:1px;     /* 面板标题字距 */
+
+  /* ---------- 间距（4px 基准） ---------- */
+  --sp-1:4px;  --sp-2:8px;  --sp-3:12px; --sp-4:16px;
+  --sp-5:20px; --sp-6:24px; --sp-8:32px; --sp-10:40px;
+  --sp-12:48px; --sp-16:64px;
+
+  /* ---------- 圆角（TUI 方硬 → GUI 圆润） ---------- */
+  --r-xs:3px;    /* TUI 面板 / 选择列表 */
+  --r-sm:6px;    /* chip / 小按钮 */
+  --r-md:8px;    /* GUI 输入框 / 按钮 */
+  --r-lg:11px;   /* 卡片 */
+  --r-xl:14px;   /* GUI 窗口框 */
+  --r-full:999px;
+
+  /* ---------- 阴影 ---------- */
+  --shadow-sm:0 4px 14px -8px rgba(0,0,0,.6);
+  --shadow-md:0 24px 60px -30px rgba(0,0,0,.7);
+  --shadow-lg:0 24px 70px rgba(0,0,0,.5);
+  --shadow-pop:3px 3px 0 rgba(0,0,0,.55);   /* TUI 弹层硬投影 */
+
+  /* ---------- 动效 ---------- */
+  --motion-fast:.15s;
+  --motion-base:.25s;
+  --ease:ease;
+
+  /* ---------- 层级 ---------- */
+  --z-nav:50;
+  --z-pop:40;
+  --z-modal:60;
+
+  /* ---------- 仿真实终端 / 桌面窗口外框（theme-independent · 刻意区别于 Aurora 应用面）----------
+     这些 mock 是「真实终端保真基线」：模拟一台真终端/桌面窗口,固定深色、不随皮肤换肤,
+     以便与 Aurora 应用层(随 data-theme 变)在视觉上读作「外部的真实终端」。 */
+  --term-screen:#06090e;    /* 模拟终端内屏底 */
+  --term-chrome:#070d13;    /* 终端 chrome 条 / dock / appbar 底 */
+  --term-bar:#0a141d;       /* 状态栏 / 标题栏底 */
+  --term-edge:#11212e;      /* 终端框边 / 内分隔 */
+  --win-edge:#1c2c3a;       /* 桌面窗口外框（略亮于终端框）*/
+
+  /* ---------- 密度（帧间距，默认 regular） ---------- */
+  --c-gap:8px; --panel-pad-y:9px; --panel-pad-x:11px; --rail-mb:9px; --topbar-mb:9px;
+}
+
+/* ---------- 密度变体（data-density） ---------- */
+[data-density="compact"]{--c-gap:5px; --panel-pad-y:6px; --panel-pad-x:9px;  --rail-mb:5px;  --topbar-mb:6px;}
+[data-density="regular"]{--c-gap:8px; --panel-pad-y:9px; --panel-pad-x:11px; --rail-mb:9px;  --topbar-mb:9px;}
+[data-density="comfy"]  {--c-gap:12px;--panel-pad-y:12px;--panel-pad-x:14px; --rail-mb:12px; --topbar-mb:12px;}
+
+/* ============================================================
+   配色主题（data-theme）— 换肤即换这一层，组件只用语义 token
+   每套含：背景 6 档 · 前景 4 档 · 强调（青 accent + 金 gold）·
+            语义 4 色 · 边框 · 页面 chrome
+   ============================================================ */
+
+/* ---------- DARK（主目标，:root 缺省即 dark） ---------- */
+:root,
+[data-theme="dark"]{
+  --bg-void:#05090f;   --bg-base:#0a1019;  --bg-panel:#0c1521; --bg-topbar:#0a141e;
+  --bg-elev:#10202f;   --bg-sel:#143049;
+  --fg-primary:#d4e6f1; --fg-secondary:#8aa9bf; --fg-muted:#5a7384; --fg-faint:#3a4d5e;
+  --accent:#34bdd9;    --accent-bright:#74e4f2; --accent-dim:#1f5366;
+  --gold:#e3ab44;      --gold-bright:#f6cb63;
+  --success:#54c06a;   --warning:#e6b53f; --error:#e0564f; --progress:#3fa6e6;
+  --builtin:#9b87d4;   /* 内置工具 / 第四类强调（GUI） */
+  --border:#173a4d;    --border-soft:#122936; --border-active:#34bdd9;
+  --page-bg:#070b11;   --page-card:#0c131c; --page-line:#1a2734;
+  --page-ink:#cfdde7;  --page-ink-dim:#7c93a3; --page-accent:#34bdd9;
+}
+
+/* ---------- LIGHT（可选变体） ---------- */
+[data-theme="light"]{
+  --bg-void:#dde6ec;   --bg-base:#f5f8fb;  --bg-panel:#ebf1f6; --bg-topbar:#e6eef4;
+  --bg-elev:#ffffff;   --bg-sel:#d2e7f2;
+  --fg-primary:#14242f; --fg-secondary:#41606f; --fg-muted:#6d8693; --fg-faint:#a3b5c0;
+  --accent:#0c87a4;    --accent-bright:#0aa6c6; --accent-dim:#9cc4d2;
+  --gold:#a9750f;      --gold-bright:#c08a18;
+  --success:#2c8c46;   --warning:#a87a12; --error:#c0403a; --progress:#1d7cbd;
+  --builtin:#6a52b8;
+  --border:#c7d6df;    --border-soft:#dbe6ee; --border-active:#0c87a4;
+  --page-bg:#eef3f7;   --page-card:#ffffff; --page-line:#d8e2e9;
+  --page-ink:#1a2933;  --page-ink-dim:#5e7480; --page-accent:#0c87a4;
+}
+
+/* ---------- AMBER TERMINAL ---------- */
+[data-theme="amber"]{
+  --bg-void:#0c0a06;   --bg-base:#14100a;  --bg-panel:#1a140c; --bg-topbar:#171109;
+  --bg-elev:#221a0f;   --bg-sel:#3a2a12;
+  --fg-primary:#f0e4d0; --fg-secondary:#bda886; --fg-muted:#8a7758; --fg-faint:#5a4d39;
+  --accent:#e09a3e;    --accent-bright:#ffc266; --accent-dim:#6b4a1c;
+  --gold:#e0b24a;      --gold-bright:#f6cf78;
+  --success:#8aa84a;   --warning:#e6a93f; --error:#d9624a; --progress:#56a0b0;
+  --builtin:#c08a5a;
+  --border:#3a2c14;    --border-soft:#281e0f; --border-active:#e09a3e;
+  --page-bg:#0a0805;   --page-card:#14100a; --page-line:#2a2012;
+  --page-ink:#e7dcc8;  --page-ink-dim:#998663; --page-accent:#e09a3e;
+}
+
+/* ---------- PHOSPHOR GREEN（CRT） ---------- */
+[data-theme="phosphor"]{
+  --bg-void:#020604;   --bg-base:#04140a;  --bg-panel:#06180d; --bg-topbar:#051209;
+  --bg-elev:#0a2010;   --bg-sel:#0e3018;
+  --fg-primary:#c8f0cf; --fg-secondary:#7fbf8c; --fg-muted:#4f8259; --fg-faint:#2f5639;
+  --accent:#41d97a;    --accent-bright:#74f2a0; --accent-dim:#1c5630;
+  --gold:#c9d94a;      --gold-bright:#e4f278;
+  --success:#41d97a;   --warning:#d9c94a; --error:#e0734f; --progress:#46c0a3;
+  --builtin:#7ad99a;
+  --border:#143a22;    --border-soft:#0c2615; --border-active:#41d97a;
+  --page-bg:#030a06;   --page-card:#06140c; --page-line:#12281a;
+  --page-ink:#bfe6c6;  --page-ink-dim:#5e8268; --page-accent:#41d97a;
+}
+
+/* ---------- ICE BLUE ---------- */
+[data-theme="ice"]{
+  --bg-void:#05080f;   --bg-base:#080d17;  --bg-panel:#0b1320; --bg-topbar:#091018;
+  --bg-elev:#101d2e;   --bg-sel:#132a47;
+  --fg-primary:#dbe6f2; --fg-secondary:#94aac4; --fg-muted:#5f7591; --fg-faint:#3a4b63;
+  --accent:#5b8def;    --accent-bright:#86b0ff; --accent-dim:#243f6b;
+  --gold:#9aa7c4;      --gold-bright:#c2cce4;
+  --success:#4fb38a;   --warning:#d8b24a; --error:#e0606a; --progress:#48b0e6;
+  --builtin:#9b87d4;
+  --border:#1a2c47;    --border-soft:#121f33; --border-active:#5b8def;
+  --page-bg:#06090f;   --page-card:#0b1018; --page-line:#1a2436;
+  --page-ink:#cdd9ea;  --page-ink-dim:#73869f; --page-accent:#5b8def;
+}
+
+/* ---------- MONO SLATE（单强调，最克制） ---------- */
+[data-theme="mono"]{
+  --bg-void:#080a0c;   --bg-base:#0d1013;  --bg-panel:#111519; --bg-topbar:#0e1216;
+  --bg-elev:#161b20;   --bg-sel:#1f2937;
+  --fg-primary:#dfe4e8; --fg-secondary:#9aa4ad; --fg-muted:#646e77; --fg-faint:#3d454d;
+  --accent:#34bdd9;    --accent-bright:#74e4f2; --accent-dim:#21424e;
+  --gold:#c9b485;      --gold-bright:#e0cda0;
+  --success:#6fae74;   --warning:#d4ad55; --error:#d76a62; --progress:#5aa6cf;
+  --builtin:#9b87d4;
+  --border:#262e36;    --border-soft:#1b2128; --border-active:#34bdd9;
+  --page-bg:#0a0c0e;   --page-card:#111418; --page-line:#222a31;
+  --page-ink:#d6dce1;  --page-ink-dim:#79838c; --page-accent:#34bdd9;
+}

@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · TUI Session Main Screen & Multi-lane</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="i18n.js"></script>
+<script src="chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+:root{ --acp:var(--accent); --tmux:var(--gold); }
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1480px;margin:0 auto;padding:26px 24px 90px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:27px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:13.5px;color:var(--fg-secondary);margin:0 0 20px;max-width:980px;line-height:1.65;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+.plead .c{color:var(--accent-bright);font-family:var(--mono);font-size:12.5px;}
+
+.sech{display:flex;align-items:baseline;gap:11px;margin:30px 0 14px;}
+.sech .no{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:700;}
+.sech h2{font-size:18px;margin:0;letter-spacing:-.3px;}
+.sech .en{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);letter-spacing:1px;text-transform:uppercase;}
+.sech .sp{flex:1;height:1px;background:var(--border-soft);align-self:center;}
+
+.stagewrap{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start;}
+
+/* terminal */
+.term{font-family:var(--mono);background:var(--bg-void);border:1px solid var(--term-edge);border-radius:8px;overflow:hidden;box-shadow:0 26px 64px -30px rgba(0,0,0,.8);position:relative;}
+.term-chrome{display:flex;align-items:center;gap:9px;height:34px;padding:0 12px;background:var(--term-chrome);border-bottom:1px solid var(--term-edge);}
+.tlt{display:flex;gap:6px;} .tlt i{width:10px;height:10px;border-radius:50%;}
+.tnm{font-size:11px;color:var(--fg-muted);margin-left:3px;}
+.term-chrome .sp{flex:1;}
+.modepill{font-size:10.5px;color:var(--fg-secondary);border:1px solid var(--border);border-radius:6px;padding:2px 9px;display:flex;align-items:center;gap:6px;}
+.modepill .a{color:var(--accent-bright);}
+
+.tscreen{display:flex;flex-direction:column;height:638px;position:relative;}
+
+/* zone anatomy number badge */
+.zone{position:relative;}
+.znum{position:absolute;left:-11px;top:7px;width:19px;height:19px;border-radius:50%;background:var(--accent);color:var(--bg-void);font-family:var(--mono);font-size:10.5px;font-weight:800;display:grid;place-items:center;z-index:6;box-shadow:0 0 0 3px var(--bg-void);}
+.term.noanat .znum{display:none;}
+
+/* statline */
+.statline{flex:none;display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--border-soft);background:rgba(5,9,15,.5);white-space:nowrap;overflow:hidden;font-size:12.5px;}
+.statline .sp{flex:1;}
+.t-acc{color:var(--accent);}.t-br{color:var(--accent-bright);}.t-gold{color:var(--gold-bright);}.t-gd{color:var(--gold);}
+.t-suc{color:var(--success);}.t-warn{color:var(--warning);}.t-err{color:var(--error);}.t-prog{color:var(--progress);}
+.t-mut{color:var(--fg-muted);}.t-fnt{color:var(--fg-faint);}.t-sec{color:var(--fg-secondary);}.t-pri{color:var(--fg-primary);}.bld{font-weight:700;}
+.t-builtin{color:var(--builtin);}.t-tmux{color:var(--tmux);}
+
+/* lane bar */
+.lanebar{flex:none;display:flex;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--border-soft);background:rgba(10,16,25,.6);white-space:nowrap;overflow:hidden;font-size:13px;}
+.lanebar .cur{display:flex;align-items:center;gap:9px;}
+.lanebar .bar{width:3px;height:16px;background:var(--accent);border-radius:2px;}
+.lanebar .lid{color:var(--accent);font-weight:800;}
+.lanebar .lrole{font-weight:700;color:var(--fg-primary);}
+.backend{font-family:var(--mono);font-size:10.5px;font-weight:700;border-radius:5px;padding:1px 8px;border:1px solid;display:inline-flex;align-items:center;gap:6px;}
+.backend.acp{color:var(--acp);border-color:var(--accent-dim);background:color-mix(in srgb,var(--accent) 6%,transparent);}
+.backend.builtin{color:var(--builtin);border-color:color-mix(in srgb,var(--builtin) 45%,transparent);background:color-mix(in srgb,var(--builtin) 6%,transparent);}
+.backend.tmux{color:var(--tmux);border-color:color-mix(in srgb,var(--gold) 45%,transparent);background:color-mix(in srgb,var(--gold) 6%,transparent);}
+.lanebar .meta{color:var(--fg-muted);font-size:11.5px;}
+.lanebar .sp{flex:1;}
+.lanebar .swbtn{font-family:var(--mono);font-size:11px;color:var(--fg-secondary);border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer;}
+.lanebar .swbtn:hover{color:var(--accent-bright);border-color:var(--accent-dim);}
+.lanebar .swbtn kbd{color:var(--fg-faint);}
+
+/* session strip */
+.sessstrip{flex:none;display:flex;align-items:stretch;gap:0;padding:0 8px;border-bottom:1px solid var(--border-soft);background:rgba(5,9,15,.4);white-space:nowrap;overflow:hidden;}
+.stab{display:flex;align-items:center;gap:7px;padding:7px 13px;font-size:12px;color:var(--fg-muted);cursor:pointer;border-bottom:2px solid transparent;}
+.stab:hover{color:var(--fg-secondary);}
+.stab.on{color:var(--fg-primary);border-bottom-color:var(--accent);background:color-mix(in srgb,var(--bg-sel) 40%,transparent);}
+.stab .sid{font-family:var(--mono);font-weight:700;color:var(--accent);}
+.stab.on .sid{color:var(--accent-bright);}
+.stab .sled{width:7px;height:7px;border-radius:50%;flex:none;}
+.stab .x{font-size:9px;}
+.sessstrip .newt{display:flex;align-items:center;gap:6px;padding:7px 12px;font-size:11.5px;color:var(--fg-faint);cursor:pointer;}
+.sessstrip .newt:hover{color:var(--accent);}
+.sessstrip .sp{flex:1;}
+.sessstrip .listbtn{display:flex;align-items:center;gap:6px;padding:7px 11px;font-size:11px;color:var(--fg-muted);cursor:pointer;}
+.sessstrip .listbtn:hover{color:var(--accent-bright);}
+.sessstrip .listbtn kbd{color:var(--fg-faint);}
+kbd{font-family:var(--mono);border:1px solid var(--border);border-radius:4px;padding:0 4px;color:var(--fg-secondary);font-size:10px;}
+
+/* transcript */
+.tbody{flex:1;overflow:auto;padding:12px 15px;display:flex;flex-direction:column;gap:11px;font-size:13px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.umsg{display:flex;gap:9px;align-items:baseline;background:var(--bg-base);border-left:2px solid var(--accent-dim);border-radius:0 6px 6px 0;padding:6px 11px;}
+.umsg .p{color:var(--accent-bright);font-weight:700;}
+.umsg .x{color:var(--fg-primary);line-height:1.5;}
+.amsg{display:flex;flex-direction:column;gap:6px;}
+.ahdr{font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.ahdr.acp{color:var(--acp);}.ahdr.builtin{color:var(--builtin);}.ahdr.tmux{color:var(--tmux);}
+.ahdr .m{color:var(--fg-faint);font-weight:400;font-size:11px;}
+.athink{color:var(--fg-faint);line-height:1.5;}
+.atext{color:var(--fg-secondary);line-height:1.55;} .atext b{color:var(--fg-primary);}
+.tool{border-left:2px solid var(--border);padding:2px 0 2px 11px;display:flex;flex-direction:column;gap:2px;}
+.tool .th{color:var(--fg-muted);} .tool .th .g{color:var(--accent);font-weight:700;}
+.tool .to{color:var(--fg-secondary);white-space:pre;overflow:hidden;text-overflow:ellipsis;}
+.tool .add{color:var(--success);} .tool .del{color:var(--error);} .tool .ok{color:var(--success);} .tool .wn{color:var(--warning);}
+.gatemsg{border:1px solid color-mix(in srgb,var(--gold) 32%,transparent);background:color-mix(in srgb,var(--gold) 8%,var(--bg-void));border-radius:6px;padding:7px 12px;color:var(--gold-bright);line-height:1.55;}
+.gatemsg b{font-weight:700;} .gatemsg .lk{color:var(--accent-bright);}
+.routing{font-family:var(--mono);font-size:11px;color:var(--builtin);border:1px dashed color-mix(in srgb,var(--builtin) 40%,transparent);border-radius:6px;padding:5px 11px;background:color-mix(in srgb,var(--builtin) 5%,transparent);}
+
+/* tmux mirror */
+.tmuxbanner{display:flex;align-items:center;gap:9px;background:color-mix(in srgb,var(--gold) 9%,var(--bg-void));border:1px solid color-mix(in srgb,var(--gold) 32%,transparent);border-radius:6px;padding:6px 12px;font-size:11.5px;color:var(--gold-bright);}
+.tmuxbanner b{font-weight:700;}
+.tmuxmirror{background:#04070c;border:1px solid var(--border);border-radius:6px;padding:10px 13px;font-size:12px;line-height:1.5;color:var(--fg-secondary);white-space:pre-wrap;}
+.tmuxmirror .pr{color:var(--success);} .tmuxmirror .dim{color:var(--fg-muted);} .tmuxmirror .hl{color:var(--accent-bright);} .tmuxmirror .er{color:var(--error);}
+.tmuxmirror .cur{display:inline-block;width:7px;height:13px;background:var(--gold-bright);vertical-align:-2px;animation:blink 1.1s steps(1) infinite;}
+@keyframes blink{50%{opacity:0;}}
+
+/* composer */
+.composer{flex:none;border-top:1px solid var(--border-soft);padding:9px 14px;background:rgba(5,9,15,.4);}
+.cline{display:flex;align-items:center;gap:9px;background:var(--bg-base);border:1px solid var(--border);border-radius:7px;padding:8px 11px;}
+.cline:focus-within{border-color:var(--accent-dim);}
+.cprompt{color:var(--accent-bright);font-weight:700;}
+.cin{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--fg-primary);font-family:var(--mono);font-size:13px;}
+.cin::placeholder{color:var(--fg-faint);}
+.cmodes{display:flex;gap:6px;}
+.cm{font-size:10px;color:var(--fg-muted);border:1px solid var(--border);border-radius:11px;padding:1px 8px;white-space:nowrap;}
+
+/* keybar */
+.keybar{flex:none;display:flex;align-items:center;gap:14px;padding:8px 14px;border-top:1px solid var(--border-soft);background:rgba(5,9,15,.5);font-size:11.5px;color:var(--fg-muted);white-space:nowrap;overflow:hidden;}
+.keybar .sp{flex:1;} .keybar b{color:var(--accent-bright);font-weight:600;} .keybar .fk{color:var(--fg-faint);}
+
+/* emulator chrome (NOT ours) + lean tmux-style status bar */
+.emu{display:flex;align-items:center;gap:9px;height:30px;padding:0 12px;background:var(--term-screen);border-bottom:1px solid var(--term-edge);opacity:.55;}
+.emunm{font-size:10.5px;color:var(--fg-faint);}
+.emutag{font-size:9.5px;color:var(--fg-faint);font-style:italic;}
+.emu .sp{flex:1;}
+.ourmark{padding:3px 14px 3px 22px;background:color-mix(in srgb,var(--accent) 5%,transparent);border-bottom:1px solid var(--border-soft);font-family:var(--mono);font-size:10px;color:var(--accent);}
+.term.noanat .ourmark{display:none;}
+.chint{margin-left:auto;font-size:10.5px;white-space:nowrap;}
+.statusbar{flex:none;display:flex;align-items:center;height:26px;background:var(--term-bar);border-top:1px solid var(--border-soft);font-size:11.5px;white-space:nowrap;overflow:hidden;}
+.statusbar .seg{padding:0 10px;display:flex;align-items:center;gap:6px;height:100%;flex:none;}
+.statusbar .sbscroll{flex:1 1 auto;min-width:0;display:flex;align-items:center;height:100%;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;scroll-behavior:auto;}
+.statusbar .sbscroll::-webkit-scrollbar{display:none;}
+.statusbar .sbscroll.more{-webkit-mask-image:linear-gradient(90deg,transparent,#000 20px,#000 calc(100% - 20px),transparent);mask-image:linear-gradient(90deg,transparent,#000 20px,#000 calc(100% - 20px),transparent);}
+.statusbar .scrollauto{flex:none;display:flex;align-items:center;padding:0 7px;color:var(--accent);font-family:var(--mono);font-size:10px;opacity:.55;}
+.statusbar .seg.proj{background:var(--accent);color:var(--bg-void);font-weight:800;}
+.statusbar .seg.lane{color:var(--fg-primary);cursor:pointer;}
+.statusbar .seg.lane kbd{color:var(--fg-faint);border-color:#1d3645;}
+.statusbar .seg.be{font-weight:700;}
+.statusbar .seg.be.acp{color:var(--acp);} .statusbar .seg.be.builtin{color:var(--builtin);} .statusbar .seg.be.tmux{color:var(--tmux);}
+.statusbar .wins{display:flex;align-items:center;height:100%;flex:none;}
+.statusbar .win{padding:0 9px;height:100%;display:flex;align-items:center;gap:5px;color:var(--fg-muted);cursor:pointer;}
+.statusbar .win .wn{font-weight:700;color:var(--fg-faint);}
+.statusbar .win:hover{color:var(--fg-secondary);}
+.statusbar .win.on{background:var(--bg-sel);color:var(--accent-bright);}
+.statusbar .win.on .wn{color:var(--accent);}
+.statusbar .win.add{color:var(--fg-faint);}
+.statusbar .sp{flex:1;}
+.statusbar .seg.r{padding:0 8px;color:var(--fg-muted);}
+.statusbar .seg.r.gold{color:var(--gold-bright);}
+.statusbar .seg.help{color:var(--fg-faint);}
+.anr.bad .n{background:color-mix(in srgb,var(--error) 10%,transparent);border-color:color-mix(in srgb,var(--error) 45%,transparent);color:var(--error);}
+.ba{display:flex;flex-direction:column;gap:5px;margin:9px 0;}
+.b1,.b2{font-family:var(--mono);font-size:10px;border-radius:5px;padding:4px 9px;line-height:1.4;}
+.b1{color:var(--error);background:color-mix(in srgb,var(--error) 7%,transparent);border:1px solid color-mix(in srgb,var(--error) 28%,transparent);}
+.b2{color:var(--success);background:color-mix(in srgb,var(--success) 7%,transparent);border:1px solid color-mix(in srgb,var(--success) 28%,transparent);}
+
+/* overlay switcher */
+.ovl{position:absolute;inset:0;background:rgba(3,6,11,.6);backdrop-filter:blur(2px);display:flex;align-items:flex-start;justify-content:center;padding-top:78px;z-index:20;}
+.switch{width:min(560px,86%);background:var(--bg-panel);border:1px solid var(--accent-dim);border-radius:10px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6);}
+.switch .sh{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--border-soft);font-size:11px;color:var(--fg-muted);letter-spacing:.5px;text-transform:uppercase;}
+.switch .sh .q{flex:1;font-family:var(--mono);color:var(--fg-secondary);text-transform:none;letter-spacing:0;font-size:12.5px;}
+.switch .sh .cur2{display:inline-block;width:7px;height:13px;background:var(--accent-bright);vertical-align:-2px;animation:blink 1.1s steps(1) infinite;}
+.srow{display:flex;align-items:center;gap:11px;padding:9px 15px;cursor:pointer;border-left:2px solid transparent;}
+.srow:hover{background:var(--bg-base);}
+.srow.on{background:var(--bg-sel);border-left-color:var(--accent);}
+.srow .sid{font-family:var(--mono);font-weight:800;color:var(--accent);width:30px;flex:none;}
+.srow.on .sid{color:var(--accent-bright);}
+.srow .nm{font-size:13px;color:var(--fg-primary);font-weight:600;min-width:96px;}
+.srow .sub{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.srow .sp{flex:1;}
+.srow .stt{font-family:var(--mono);font-size:10.5px;display:flex;align-items:center;gap:5px;}
+.srow .stt .led{width:7px;height:7px;border-radius:50%;}
+.switch .sf{padding:7px 14px;border-top:1px solid var(--border-soft);font-family:var(--mono);font-size:10px;color:var(--fg-faint);display:flex;gap:14px;}
+.switch .sf kbd{font-size:9px;}
+
+/* right rail annotation */
+.rail{position:sticky;top:18px;}
+.rail .rh{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-muted);margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+.rail .rh::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.anat{display:flex;flex-direction:column;gap:8px;}
+.anr{display:flex;gap:10px;align-items:flex-start;}
+.anr .n{width:19px;height:19px;border-radius:50%;background:var(--bg-sel);border:1px solid var(--accent-dim);color:var(--accent-bright);font-family:var(--mono);font-size:10px;font-weight:800;display:grid;place-items:center;flex:none;margin-top:1px;}
+.anr .tx{font-size:12px;line-height:1.45;}
+.anr .tx b{color:var(--fg-primary);font-weight:600;} .anr .tx .d{color:var(--fg-muted);}
+.navnote{margin-top:16px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:9px;padding:12px 14px;font-size:11.5px;color:var(--fg-secondary);line-height:1.6;}
+.navnote .h{font-family:var(--mono);font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--accent);margin-bottom:6px;}
+.navnote b{color:var(--fg-primary);} .navnote .k{font-family:var(--mono);color:var(--accent-bright);font-size:11px;}
+.navnote hr{border:none;border-top:1px solid var(--border-soft);margin:9px 0;}
+
+/* backend explain cards */
+.becards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+.bec{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:14px 16px;border-top:2px solid;}
+.bec.acp{border-top-color:var(--acp);} .bec.builtin{border-top-color:var(--builtin);} .bec.tmux{border-top-color:var(--tmux);}
+.bec .h{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:7px;}
+.bec .h .tag{font-family:var(--mono);font-size:9.5px;font-weight:700;border-radius:4px;padding:1px 7px;border:1px solid;}
+.bec.acp .h .tag{color:var(--acp);border-color:var(--accent-dim);} .bec.builtin .h .tag{color:var(--builtin);border-color:color-mix(in srgb,var(--builtin) 45%,transparent);} .bec.tmux .h .tag{color:var(--tmux);border-color:color-mix(in srgb,var(--gold) 45%,transparent);}
+.bec p{font-size:12px;color:var(--fg-secondary);line-height:1.55;margin:5px 0;} .bec p b{color:var(--fg-primary);}
+.bec .rn{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);border-top:1px dashed var(--border-soft);margin-top:9px;padding-top:8px;line-height:1.6;}
+.bec .rn b{color:var(--fg-primary);}
+
+/* multiscreen options */
+.opts{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+.opt{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:14px 16px;}
+.opt .h{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:9px;}
+.opt .h .tag{font-family:var(--mono);font-size:9px;font-weight:700;color:var(--warning);border:1px solid color-mix(in srgb,var(--warning) 40%,transparent);border-radius:4px;padding:1px 6px;}
+.sketch{height:96px;border:1px solid var(--border);border-radius:7px;background:var(--bg-void);display:flex;gap:4px;padding:6px;margin-bottom:10px;}
+.sk{border:1px solid var(--border);border-radius:4px;background:color-mix(in srgb,var(--bg-sel) 25%,transparent);display:flex;flex-direction:column;gap:3px;padding:6px;}
+.sk .t1{height:6px;width:60%;background:var(--accent-dim);border-radius:2px;}
+.sk .t2{height:4px;width:85%;background:var(--border);border-radius:2px;}
+.sk .t3{height:4px;width:70%;background:var(--border);border-radius:2px;}
+.sk.acc{border-color:var(--accent-dim);background:color-mix(in srgb,var(--bg-sel) 50%,transparent);}
+.sk.sm{padding:4px;}
+.sk.sm .t1{width:80%;}
+.opt p{font-size:12px;color:var(--fg-secondary);line-height:1.55;margin:5px 0;}
+.opt .tr{font-family:var(--mono);font-size:10.5px;margin-top:8px;line-height:1.6;}
+.opt .tr .ok{color:var(--success);} .opt .tr .x{color:var(--error);}
+.opt .tr .h2{color:var(--fg-muted);text-transform:uppercase;letter-spacing:.5px;font-size:9px;}
+
+.divnote{font-size:13.5px;color:var(--fg-secondary);line-height:1.7;background:var(--bg-panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:13px 17px;margin-top:14px;text-wrap:pretty;}
+.divnote b{color:var(--fg-primary);} .divnote .c{color:var(--accent-bright);font-family:var(--mono);font-size:12.5px;}
+
+/* ── navigator rail (opencode-style sectioned sidebar) ── */
+.bodyrow{flex:1;display:flex;min-height:0;}
+.bodyrow .tbody{flex:1;min-width:0;}
+.railzone{position:relative;flex:none;}
+.railzone .znum{left:-10px;right:auto;}
+.srail{width:238px;height:100%;display:flex;flex-direction:column;background:var(--term-chrome);border-left:1px solid var(--border-soft);min-height:0;}
+.srail .srhdr{flex:none;display:flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-bottom:1px solid var(--border-soft);font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:1.5px;color:var(--fg-muted);}
+.srail .srhdr .sp{flex:1;}
+.srail .srhdr .x{cursor:pointer;color:var(--fg-faint);letter-spacing:0;font-size:9px;}
+.srail .srhdr .x:hover{color:var(--accent-bright);}
+.srail .srbody{flex:1;overflow:auto;padding:4px 8px 12px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.srail .srbody::-webkit-scrollbar{width:7px;} .srail .srbody::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+.rsec{margin-bottom:9px;}
+.rsh{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1px;color:var(--fg-faint);padding:9px 6px 6px;}
+.rsh .bar{width:3px;height:11px;border-radius:2px;flex:none;}
+.rsh .sp{flex:1;}
+.rsh .ct{font-weight:600;letter-spacing:.5px;color:var(--fg-faint);text-transform:none;}
+.srow{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12px;color:var(--fg-secondary);font-family:var(--mono);border-left:2px solid transparent;}
+.srow:hover{background:var(--bg-base);}
+.srow.on{background:var(--bg-sel);color:var(--accent-bright);border-left-color:var(--accent);}
+.srow .n{width:13px;text-align:center;color:var(--fg-faint);font-weight:700;flex:none;font-size:11px;}
+.srow.on .n{color:var(--accent);}
+.srow .led{width:7px;height:7px;border-radius:50%;flex:none;}
+.srow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.srow .st{font-size:9px;color:var(--fg-faint);flex:none;}
+.srow.on .st{color:var(--accent-dim);}
+.srow.add{color:var(--fg-faint);} .srow.add:hover{color:var(--accent);} .srow.add .n{color:inherit;}
+.srow.dim{cursor:pointer;padding:6px 8px 2px;} .srow.dim .nm{font-size:10px;}
+.srow .bk{font-size:8px;font-weight:700;border-radius:4px;padding:0 5px;border:1px solid;flex:none;letter-spacing:.3px;}
+.srow .bk.acp{color:var(--acp);border-color:var(--accent-dim);} .srow .bk.builtin{color:var(--builtin);border-color:color-mix(in srgb,var(--builtin) 45%,transparent);} .srow .bk.tmux{color:var(--tmux);border-color:color-mix(in srgb,var(--gold) 45%,transparent);}
+.crow{display:flex;align-items:center;gap:8px;padding:4px 8px;font-size:11px;font-family:var(--mono);}
+.crow .k{width:64px;color:var(--fg-muted);flex:none;}
+.crow .v{color:var(--fg-secondary);display:flex;align-items:center;gap:6px;}
+.ctxbar{display:inline-block;width:46px;height:4px;border-radius:2px;background:#15222e;overflow:hidden;vertical-align:middle;}
+.ctxbar i{display:block;height:100%;background:var(--accent);}
+.statusbar .seg.railtgl{color:var(--fg-muted);cursor:pointer;}
+.statusbar .seg.railtgl.on{color:var(--accent-bright);}
+.statusbar .seg.railtgl kbd{color:var(--fg-faint);border-color:#1d3645;}
+
+/* ── borrowed: 4-tier command gate (hermes) ── */
+.gatebox{width:min(540px,88%);background:var(--bg-panel);border:1px solid color-mix(in srgb,var(--gold) 42%,transparent);border-radius:11px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.62);font-family:var(--mono);}
+.gatebox .gh{display:flex;align-items:center;gap:9px;padding:11px 15px;background:color-mix(in srgb,var(--gold) 9%,transparent);border-bottom:1px solid color-mix(in srgb,var(--gold) 24%,transparent);font-size:13px;font-weight:700;color:var(--gold-bright);}
+.gatebox .gh .rk{margin-left:auto;font-size:9.5px;color:var(--gold);border:1px solid color-mix(in srgb,var(--gold) 38%,transparent);border-radius:4px;padding:1px 7px;letter-spacing:.5px;}
+.gatebox .gsub{font-family:var(--sans);font-size:12px;color:var(--fg-muted);padding:11px 15px 0;line-height:1.5;}
+.gatebox .gcmd{font-size:13px;color:var(--fg-primary);padding:9px 15px 0;} .gatebox .gcmd .pr{color:var(--accent);}
+.gatebox .gcsq{font-size:11.5px;color:var(--error);padding:5px 15px 11px;}
+.gatebox .gopts{display:flex;flex-direction:column;gap:2px;padding:0 9px;}
+.gatebox .gopt{display:flex;align-items:center;gap:11px;font-size:13px;padding:8px 12px;border-radius:7px;color:var(--fg-secondary);cursor:pointer;border-left:2px solid transparent;}
+.gatebox .gopt .n{color:var(--fg-faint);font-weight:700;width:13px;}
+.gatebox .gopt .lb{font-weight:600;white-space:nowrap;}
+.gatebox .gopt .sub{margin-left:auto;font-size:10px;color:var(--fg-faint);font-weight:400;}
+.gatebox .gopt:hover{background:var(--bg-base);}
+.gatebox .gopt.on{background:var(--bg-sel);color:var(--accent-bright);border-left-color:var(--accent);}
+.gatebox .gopt.on .n{color:var(--accent);}
+.gatebox .gopt.deny{color:var(--fg-muted);}
+.gatebox .gopt.deny.on{color:var(--error);border-left-color:var(--error);background:color-mix(in srgb,var(--error) 8%,transparent);}
+.gatebox .gopt.deny.on .n{color:var(--error);}
+.gatebox .gfoot{display:flex;align-items:center;gap:13px;padding:10px 15px;margin-top:6px;border-top:1px solid var(--border-soft);font-size:10px;color:var(--fg-faint);}
+.gatebox .gfoot .sp{flex:1;}
+.gatebox .gfoot kbd{font-size:9px;}
+.gatebox .gfoot .cd{color:var(--gold-bright);display:flex;align-items:center;gap:7px;}
+.gatebox .gfoot .cd .bar{display:inline-block;width:62px;height:4px;border-radius:2px;background:#231d10;overflow:hidden;}
+.gatebox .gfoot .cd .bar i{display:block;height:100%;background:var(--gold);transition:width 1s linear;}
+
+/* borrowed: denied fallback in transcript */
+.denied{border:1px solid color-mix(in srgb,var(--gold) 30%,transparent);border-radius:6px;background:color-mix(in srgb,var(--gold) 5%,var(--bg-void));margin-top:2px;}
+.denied .dh{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:700;color:var(--gold-bright);padding:7px 12px 0;}
+.denied .db{font-family:var(--sans);font-size:12px;color:var(--fg-secondary);line-height:1.6;padding:5px 13px 10px;}
+.denied .db .run{display:block;font-family:var(--mono);color:var(--accent-bright);background:var(--bg-base);border:1px solid var(--border-soft);border-radius:5px;padding:5px 9px;margin:7px 0;}
+.denied .db .gr{color:var(--success);} .denied .db code{font-family:var(--mono);font-size:11.5px;color:var(--accent-bright);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:4px;padding:0 5px;}
+.gateack{font-family:var(--mono);font-size:11.5px;border-radius:6px;padding:6px 12px;margin-top:2px;line-height:1.5;}
+.gateack.ok{color:var(--success);border:1px solid color-mix(in srgb,var(--success) 30%,transparent);background:color-mix(in srgb,var(--success) 6%,transparent);}
+.gateack.ok b{color:var(--fg-primary);}
+
+/* ── borrowed: streaming tool/skill timeline (hermes) ── */
+.stl{background:var(--bg-void);border:1px solid var(--border);border-radius:9px;overflow:hidden;font-family:var(--mono);}
+.stl .stlhdr{display:flex;align-items:center;gap:9px;padding:8px 13px;border-bottom:1px solid var(--border-soft);background:rgba(10,16,25,.5);font-size:11.5px;}
+.stl .stlhdr .dot{width:8px;height:8px;border-radius:50%;}
+.stl .stlhdr .ttl{color:var(--fg-secondary);font-weight:600;}
+.stl .stlhdr .meta{color:var(--fg-faint);}
+.stl .stlhdr .sp{flex:1;}
+.stl .stlhdr .replay{color:var(--accent);cursor:pointer;border:1px solid var(--border);border-radius:6px;padding:2px 10px;}
+.stl .stlhdr .replay:hover{color:var(--accent-bright);border-color:var(--accent-dim);}
+.stl .stlbody{padding:10px 13px;display:flex;flex-direction:column;gap:1px;min-height:172px;}
+.stlr{display:flex;align-items:center;gap:10px;font-size:12.5px;padding:3px 0;animation:stlin .22s ease-out;}
+@keyframes stlin{from{opacity:0;transform:translateY(3px);}to{opacity:1;transform:none;}}
+.stlr .gut{flex:none;width:13px;text-align:center;color:var(--border);}
+.stlr .ic{flex:none;width:15px;text-align:center;}
+.stlr .lb{flex:none;width:64px;color:var(--fg-muted);}
+.stlr .ar{flex:1;color:var(--fg-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.stlr .du{flex:none;color:var(--fg-faint);font-size:10.5px;}
+.stlr.prep .ic,.stlr.prep .ar{color:var(--fg-muted);}
+.stlr.ask .ic{color:var(--gold-bright);} .stlr.ask .lb{color:var(--gold);} .stlr.ask .ar{color:var(--gold-bright);}
+.stlr.done .ic{color:var(--accent-bright);} .stlr.done .lb{color:var(--accent);}
+.stlr.ok .ic{color:var(--success);} .stlr.ok .lb{color:var(--success);}
+.stlr.run .ic{color:var(--progress);} .stlr.run .lb{color:var(--progress);} .stlr.run .du{color:var(--progress);}
+.stlgate{font-size:11.5px;color:var(--gold-bright);background:color-mix(in srgb,var(--gold) 8%,var(--bg-void));border:1px solid color-mix(in srgb,var(--gold) 30%,transparent);border-radius:6px;padding:6px 11px;margin-top:8px;line-height:1.5;font-family:var(--sans);}
+.stlgate b{font-family:var(--mono);} .stlgate .lk{font-family:var(--mono);color:var(--accent-bright);}
+
+.tryline{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 4px;font-size:12px;color:var(--fg-muted);}
+.trybtn{font-family:var(--mono);font-size:11.5px;color:var(--gold-bright);border:1px solid color-mix(in srgb,var(--gold) 40%,transparent);background:color-mix(in srgb,var(--gold) 6%,transparent);border-radius:7px;padding:5px 13px;cursor:pointer;}
+.trybtn:hover{background:color-mix(in srgb,var(--gold) 12%,transparent);}
+.trybtn.cy{color:var(--accent-bright);border-color:var(--accent-dim);background:color-mix(in srgb,var(--accent) 6%,transparent);}
+.trybtn.cy:hover{background:color-mix(in srgb,var(--accent) 12%,transparent);}
+.tryline kbd{font-family:var(--mono);}
+
+@media(max-width:1080px){.stagewrap{grid-template-columns:1fr;}.becards,.opts{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="pwrap">
+  <div id="root"></div>
+</div>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="tui-gate-timeline.jsx"></script>
+<script type="text/babel">
+const {useState,useEffect,useRef} = React;
+const t = window.t || ((en,zh)=>en);
+
+const LANES=[
+  {id:'L1',role:t('Design','策划'),backend:'acp',agent:'claude',model:'claude-sonnet-4.6',st:'gate',sttc:'t-gold',sttx:t('⏸ contract gate','⏸ 契约闸待批'),led:'var(--warning)',sess:2},
+  {id:'L2',role:'Gameplay',backend:'acp',agent:'codex',model:'gpt-5-codex',st:'run',sttc:'t-prog',sttx:t('▶ S1 run · current','▶ S1 run · 当前'),led:'var(--progress)',sess:3},
+  {id:'L3',role:'Gameplay',backend:'acp',agent:'codex',model:'gpt-5-codex',st:'run',sttc:'t-prog',sttx:'▶ run',led:'var(--progress)',sess:1},
+  {id:'L4',role:t('Content gen','内容生成'),backend:'builtin',agent:t('built-in','内置'),model:'gemini-2.5-pro',st:'gate',sttc:'t-gold',sttx:t('⏸ gallery gate','⏸ 画廊闸'),led:'var(--warning)',sess:2},
+  {id:'L6',role:'渲染/VFX',backend:'tmux',agent:'kiro',model:'kiro-default',st:'wait',sttc:'t-mut',sttx:t('◷ tmux offline suspended','◷ tmux 离线挂起'),led:'var(--fg-faint)',sess:1},
+  {id:'L0',role:t('Scribe','书记官'),backend:'builtin',agent:t('built-in · read-only','内置·只读'),model:'deepseek-v4',st:'done',sttc:'t-suc',sttx:t('✓ briefing sent','✓ 简报已发'),led:'var(--success)',sess:1},
+];
+const BACKEND_LABEL={acp:'ACP',builtin:t('built-in','内置'),tmux:'tmux'};
+const BACKEND_FULL={acp:t('ACP external agent','ACP 外部 agent'),builtin:t('built-in agent','内置 agent'),tmux:t('tmux bridge','tmux 桥接')};
+
+const L2_SESSIONS=[
+  {id:'S1',nm:t('hitstun 0.18→0.24','受击硬直 0.18→0.24'),led:'var(--gold)',stt:t('your turn · gate forming','待你 · 闸成形')},
+  {id:'S2',nm:t('dash-cancel window','冲刺取消窗口'),led:'var(--progress)',stt:'run · 38s'},
+  {id:'S3',nm:t('phase-2 bullet density','二阶段弹幕密度'),led:'var(--accent)',stt:t('in review','评审中')},
+];
+
+const SPIN=['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+
+const ANAT=[
+  ['1',t('Status line','状态行'),t('project · branch · fleet overview (how many lanes / pending / running)','项目 · 分支 · fleet 概览(几条 lane / 几个待批 / 几个 run)')],
+  ['2',t('Lane bar + backend','Lane 条 + 后端'),t('current lane + role + backend badge (built-in/ACP/tmux) + target/branch · ⌃L switch lane','当前 lane + 角色 + 后端徽标(内置/ACP/tmux)+ target/分支 · ⌃L 切 lane')],
+  ['3',t('Session bar','会话条'),t('the current lane\u2019s N sessions (tabs) · highlight current · + new session · ⌃S session list','当前 lane 的 N 个 session(tab)· 高亮当前 · + 新会话 · ⌃S 会话列表')],
+  ['4',t('Transcript / mirror','对话/镜像区'),t('the current session body: ACP/built-in = structured stream; tmux = mirrored pane','当前 session 主体:ACP/内置=结构化流;tmux=镜像 pane')],
+  ['5',t('Input area','输入区'),t('prompt + mode pills (model/target/ctx) · / command palette','prompt + 模式 pill(模型/target/ctx)· / 命令面板')],
+  ['6',t('Keybar','键位行'),t('this screen\u2019s shortcuts · ⌃L lane · ⌃S session · ⌃T new session','本屏快捷键 · ⌃L lane · ⌃S 会话 · ⌃T 新会话')],
+];
+
+function LaneSwitcher({cur,setCur,close}){
+  const [sel,setSel]=useState(LANES.findIndex(l=>l.id===cur));
+  useEffect(()=>{
+    const h=(e)=>{
+      if(e.key==='Escape')return close();
+      if(e.key==='ArrowDown'){setSel(s=>Math.min(LANES.length-1,s+1));e.preventDefault();}
+      if(e.key==='ArrowUp'){setSel(s=>Math.max(0,s-1));e.preventDefault();}
+      if(e.key==='Enter'){setCur(LANES[sel].id);close();e.preventDefault();}
+    };
+    window.addEventListener('keydown',h,true);return()=>window.removeEventListener('keydown',h,true);
+  },[sel]);
+  return (
+    <div className="ovl" onClick={close}>
+      <div className="switch" onClick={e=>e.stopPropagation()}>
+        <div className="sh">{t('switch lane','切换 lane')}<span className="q">▏<span className="cur2"></span></span><span>{LANES.length} {t('lanes','条')}</span></div>
+        {LANES.map((l,i)=>(
+          <div key={l.id} className={"srow "+(sel===i?'on':'')} onMouseEnter={()=>setSel(i)} onClick={()=>{setCur(l.id);close();}}>
+            <span className="sid">{l.id}</span>
+            <span className="nm">{l.role}</span>
+            <span className={"backend "+l.backend}>{BACKEND_LABEL[l.backend]} {l.agent}</span>
+            <span className="sp"></span>
+            <span className="sub">{l.sess} {t('sessions','会话')}</span>
+            <span className={"stt "+l.sttc}><span className="led" style={{background:l.led}}></span>{l.sttx}</span>
+          </div>
+        ))}
+        <div className="sf"><span><kbd>↑↓</kbd> {t('pick','选')}</span><span><kbd>↵</kbd> {t('enter','进入')}</span><span><kbd>esc</kbd> {t('close','关')}</span><span>{t('fuzzy search: type name/number','模糊搜索:输入名/编号')}</span></div>
+      </div>
+    </div>
+  );
+}
+
+function SessionSwitcher({lane,cur,setCur,close}){
+  const sessions=lane==='L2'?L2_SESSIONS:[{id:'S1',nm:t('main session','主会话'),led:'var(--progress)',stt:'run'}];
+  const [sel,setSel]=useState(Math.max(0,sessions.findIndex(s=>s.id===cur)));
+  useEffect(()=>{
+    const h=(e)=>{
+      if(e.key==='Escape')return close();
+      if(e.key==='ArrowDown'){setSel(s=>Math.min(sessions.length-1,s+1));e.preventDefault();}
+      if(e.key==='ArrowUp'){setSel(s=>Math.max(0,s-1));e.preventDefault();}
+      if(e.key==='Enter'){setCur(sessions[sel].id);close();e.preventDefault();}
+    };
+    window.addEventListener('keydown',h,true);return()=>window.removeEventListener('keydown',h,true);
+  },[sel]);
+  return (
+    <div className="ovl" onClick={close}>
+      <div className="switch" onClick={e=>e.stopPropagation()}>
+        <div className="sh">{lane} {t('session list','会话列表')}<span className="q">▏<span className="cur2"></span></span><span>{sessions.length} {t('items','个')}</span></div>
+        {sessions.map((s,i)=>(
+          <div key={s.id} className={"srow "+(sel===i?'on':'')} onMouseEnter={()=>setSel(i)} onClick={()=>{setCur(s.id);close();}}>
+            <span className="sid">{s.id}</span>
+            <span className="nm" style={{minWidth:'200px'}}>{s.nm}</span>
+            <span className="sp"></span>
+            <span className="stt"><span className="led" style={{background:s.led}}></span><span className="t-mut">{s.stt}</span></span>
+          </div>
+        ))}
+        <div className="sf"><span><kbd>↑↓</kbd> {t('pick','选')}</span><span><kbd>↵</kbd> {t('switch to','切到')}</span><span><kbd>⌃T</kbd> {t('new session','新会话')}</span><span><kbd>esc</kbd> {t('close','关')}</span></div>
+      </div>
+    </div>
+  );
+}
+
+/* transcript bodies per backend */
+function AcpTranscript({backend,agent}){
+  return (
+    <React.Fragment>
+      <div className="umsg"><span className="p">❯</span><span className="x">{t('Bump hitstun from 0.18 to 0.24, run replay-regression to confirm combos no longer stick and the counter window is enough.','把受击硬直从 0.18 提到 0.24,跑回放回归确认连段不再卡、反击窗口够。')}</span></div>
+      <div className="amsg">
+        <div className={"ahdr "+backend}>⡾ {agent}<span className="m">· {backend==='builtin'?t('built-in agent · model routing','内置 agent · 模型路由'):'ACP'}{t(' · reads design-spec.md §4 · stagger.gd',' · 读 design-spec.md §4 · stagger.gd')}</span></div>
+        {backend==='builtin' && <div className="routing">{t('⇄ Model routing: organize/retrieve → deepseek-v4 · implement/refactor → gemini-2.5-pro (team viden.toml [models])','⇄ 模型路由:整理/检索 → deepseek-v4 · 实现/重构 → gemini-2.5-pro(team viden.toml [models])')}</div>}
+        <div className="atext">{t('Plan: ① change ','计划:① 改 ')}<b>HITSTUN</b>{t(' constant → ② run replay sequence ',' 常数 → ② 跑回放序列 ')}<b>stagger-combo</b>{t(' → ③ check combo/counter/stunlock assertions.',' → ③ 看连段/反击/stunlock 断言。')}</div>
+        <div className="tool">
+          <div className="th"><span className="g">⚙ edit</span> · src/enemy/stagger.gd <span className="t-fnt">+1 −1</span></div>
+          <div className="to del">{t('- const HITSTUN := 0.18  # old: combos stick easily','- const HITSTUN := 0.18  # 旧:连段易卡')}</div>
+          <div className="to add">{t('+ const HITSTUN := 0.24  # align contract §4','+ const HITSTUN := 0.24  # 对齐契约 §4')}</div>
+        </div>
+        <div className="tool">
+          <div className="th"><span className="g">⚙ run</span> · godot --headless replay/stagger-combo.vseq <span className="t-fnt">· 240f</span></div>
+          <div className="to"><span className="ok">✓</span>{t(' combos no longer stick ',' 连段不再卡两段 ')}<span className="t-fnt">@38f</span>  <span className="ok">✓</span>{t(' counter window 7 frames ',' 反击窗口 7 帧 ')} <span className="wn">⚠</span> stunlock 28f <span className="t-fnt">{t('threshold 30','阈值30')}</span></div>
+        </div>
+        <div className="gatemsg">⏸ {t('Change touched ','改动触及 ')}<b>src/enemy/**</b>{t(' → a “replay-regression gate” was formed with evidence. Type ',' → 已生成「回放回归闸」并附证据。输入 ')}<span className="lk">/gate</span>{t(' to view, or switch to the Decision Center to approve.',' 查看,或切「决策中心」批。')}</div>
+        <div className="atext">{t('Done. stunlock 28f is near the threshold but not crossed; want me to clamp the cap to 26f to be safer?','完成。stunlock 28f 接近阈值但未越线;要顺带把上限钳到 26f 更稳吗?')}</div>
+      </div>
+    </React.Fragment>
+  );
+}
+function TmuxTranscript(){
+  return (
+    <React.Fragment>
+      <div className="tmuxbanner">⌥ <b>{t('tmux bridge','tmux 桥接')}</b>{t(' · mirrored pane ',' · 镜像 pane ')}<b>kiro:0.1</b>{t(' · Viden overlays gate detection on file changes, but the conversation is a ',' · Viden 在文件改动上叠加闸检测,但对话是')}<b>{t('raw terminal stream','原始终端流')}</b>{t(' (unstructured)','(非结构化)')}</div>
+      <div className="tmuxmirror"><span className="dim">$ </span><span className="hl">kiro</span><span className="dim"> --project boss-rush</span>{`
+`}<span className="dim">kiro></span> {t('add dark-band dither to the cavern volumetric fog, pass the golden-frame gate','给溶洞场景体积雾做暗部 dither,过金样画面闸')}{`
+`}<span className="dim">⠹ thinking…</span>{`
+`}{t('writing shaders/volumetric_fog.gdshader … ','写 shaders/volumetric_fog.gdshader … ')}<span className="pr">done</span>{`
+`}{t('capture golden frames: scene=cave  ','采集金样:scene=cave  ')}<span className="pr">{t('12 frames','12 帧')}</span>{'  → docs/evidence/v0.6/fog/'}{`
+`}<span className="er">{t('✗ dark-band banding over tolerance','✗ 暗部色带超容差')}</span>{' ΔE 4.2 > 3.0 @band 7'}{`
+`}<span className="dim">kiro></span> {t('add 8x ordered dither, resample …','加 8x 有序 dither 重采 …')}{`
+`}<span className="hl">▌Viden:</span> {t('detected shaders/** change → golden-frame gate suspended, evidence pending','检测到 shaders/** 改动 → 金样画面闸已挂起,证据待采')} <span className="cur"></span></div>
+      <div className="gatemsg" style={{marginTop:'10px'}}>⏸ {t('A tmux lane can form gates too — Viden watches worktree file changes + runner artifacts, ','tmux lane 同样能成闸 —— Viden 监 worktree 文件变更 + runner 产物,')}<b>{t('no agent protocol required','不依赖 agent 协议')}</b>{t('. But conversation replay is less structured than ACP (no tool-call chunking).','。但对话回放不如 ACP 结构化(无 tool-call 分块)。')}</div>
+    </React.Fragment>
+  );
+}
+
+function SessionRail({sessions,curSess,setCurSess,lane,curLane,backend,agent,pickLane,model,openSessionNew,close}){
+  const otherLanes=LANES.filter(l=>l.id!==curLane);
+  return (
+    <div className="srail">
+      <div className="srhdr"><span className="t">{t('NAVIGATOR','导航栏')}</span><span className="sp"></span><span className="x" title={t('collapse · ⌃]','收起 · ⌃]')} onClick={close}>⌃] ✕</span></div>
+      <div className="srbody">
+        {/* SESSIONS */}
+        <div className="rsec">
+          <div className="rsh"><span className="bar" style={{background:'var(--accent)'}}></span>{t('SESSIONS','会话')}<span className="sp"></span><span className="ct">{lane.id} · {sessions.length}</span></div>
+          {sessions.map((s,i)=>(
+            <div key={s.id} className={"srow "+(curSess===s.id?'on':'')} onClick={()=>setCurSess(s.id)}>
+              <span className="n">{i+1}</span>
+              <span className="led" style={{background:s.led}}></span>
+              <span className="nm">{s.nm}</span>
+              <span className="st">{s.stt}</span>
+            </div>
+          ))}
+          <div className="srow add" onClick={openSessionNew}><span className="n">+</span><span className="nm">{t('New session','新会话')}</span><span className="st">⌃T</span></div>
+        </div>
+        {/* LANES */}
+        <div className="rsec">
+          <div className="rsh"><span className="bar" style={{background:'var(--gold)'}}></span>{t('LANES','工位')}<span className="sp"></span><span className="ct">{t('fleet','fleet')} · {LANES.length}</span></div>
+          <div className={"srow lane on"} onClick={()=>{}}>
+            <span className="led" style={{background:lane.led}}></span>
+            <span className="nm">{lane.id} {lane.role}</span>
+            <span className={"bk "+backend}>{BACKEND_LABEL[backend]}</span>
+          </div>
+          {otherLanes.map(l=>(
+            <div key={l.id} className="srow lane" onClick={()=>pickLane(l.id)}>
+              <span className="led" style={{background:l.led}}></span>
+              <span className="nm">{l.id} {l.role}</span>
+              <span className={"bk "+l.backend}>{BACKEND_LABEL[l.backend]}</span>
+            </div>
+          ))}
+          <div className="srow dim" onClick={()=>pickLane(curLane)}><span className="nm t-mut">{t('⌃B · full lane board →','⌃B 全 lane board →')}</span></div>
+        </div>
+        {/* CONTEXT */}
+        <div className="rsec">
+          <div className="rsh"><span className="bar" style={{background:'var(--builtin)'}}></span>{t('CONTEXT','上下文')}</div>
+          <div className="crow"><span className="k">{t('target','执行目标')}</span><span className="v t-acc">⊨ local</span></div>
+          <div className="crow"><span className="k">{t('model','模型')}</span><span className="v">{agent}</span></div>
+          <div className="crow"><span className="k">{t('context','上下文')}</span><span className="v"><span className="ctxbar"><i style={{width:'24%'}}></i></span> 24%</span></div>
+          <div className="crow"><span className="k">{t('cost','花费')}</span><span className="v">$0.42</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "backend": "ACP · codex",
+    "anatomy": false,
+    "crowd": true
+  }/*EDITMODE-END*/);
+  const [railOpen,setRailOpen]=useState(true);   // 左侧导航 rail(opencode 式分区)·⌃]
+  const [curLane,setCurLane]=useState('L2');
+  const [curSess,setCurSess]=useState('S1');
+  const [spin,setSpin]=useState(0);
+  const [ovl,setOvl]=useState(null);   // 'lane' | 'session'
+  const [val,setVal]=useState('');
+  const [gate,setGate]=useState(null);     // null | {cmd,consequence,risk}
+  const [verdict,setVerdict]=useState(null); // null | {decision,reason}
+  const [pending,setPending]=useState(3);    // 状态栏 ⏸ N
+
+  const SAMPLE_GATE={cmd:'git push --force origin main',consequence:t('rewrites remote history on a protected branch','改写受保护分支的远端历史'),risk:t('ELEVATED','高危')};
+  const openGate=()=>{setVerdict(null);setGate(SAMPLE_GATE);};
+  const resolveGate=(d)=>{
+    setGate(null);setVerdict(d);
+    if(d.decision==='deny'){/* 拒绝:队列不变 */}
+    else if(d.decision==='allow'){setPending(p=>Math.max(0,p-1));}
+  };
+
+  const lane=LANES.find(l=>l.id===curLane);
+  // 后端由 Tweak 覆盖当前 lane(用于演示三种渲染)
+  const backend=tw.backend.startsWith('ACP')?'acp':tw.backend.startsWith('内置')?'builtin':'tmux';
+  const agent=backend==='tmux'?'kiro':backend==='builtin'?t('built-in agent','内置 agent'):lane.agent;
+  const baseSessions=curLane==='L2'?L2_SESSIONS:[{id:'S1',nm:t('main session','主会话'),led:'var(--progress)',stt:'run'}];
+  const CROWD_EXTRA=[
+    {id:'S4',nm:t('parry i-frames 3→4','招架无敌帧 3→4'),led:'var(--accent)',stt:'idle'},
+    {id:'S5',nm:t('hurtbox shrink on dash','冲刺缩受击框'),led:'var(--progress)',stt:'run'},
+    {id:'S6',nm:t('boss phase-3 telegraph','BOSS 三阶段预警'),led:'var(--gold)',stt:t('your turn','待你')},
+    {id:'S7',nm:t('combo damage scaling','连段伤害衰减'),led:'var(--accent)',stt:'idle'},
+  ];
+  const sessions=(curLane==='L2'&&tw.crowd)?[...L2_SESSIONS,...CROWD_EXTRA]:baseSessions;
+
+  useEffect(()=>{const id=setInterval(()=>setSpin(s=>(s+1)%SPIN.length),90);return()=>clearInterval(id);},[]);
+  useEffect(()=>{
+    const h=(e)=>{
+      if(e.target&&e.target.tagName==='INPUT')return;
+      if(ovl||gate){return;} // overlay / gate 自己处理键
+      if((e.ctrlKey||e.metaKey)&&e.key===']'){setRailOpen(o=>!o);e.preventDefault();return;}
+      if((e.ctrlKey||e.metaKey)&&(e.key==='l'||e.key==='L')){setOvl('lane');e.preventDefault();return;}
+      if((e.ctrlKey||e.metaKey)&&(e.key==='s'||e.key==='S')){setOvl('session');e.preventDefault();return;}
+      if((e.ctrlKey||e.metaKey)&&(e.key==='g'||e.key==='G')){openGate();e.preventDefault();return;}
+      if(!e.ctrlKey&&!e.metaKey&&!e.altKey){const ix='123456789'.indexOf(e.key);if(ix>=0&&ix<sessions.length){setCurSess(sessions[ix].id);e.preventDefault();}}
+    };
+    window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);
+  },[ovl,gate,sessions]);
+
+  const pickLane=(id)=>{setCurLane(id);setCurSess('S1');};
+
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · TUI concept · {t('session main screen + multi-lane nav','会话主屏 + 多 lane 导航')}</div>
+      <h1 className="ph1">{t('Session main screen & multi-lane','会话主屏与多 lane')} <span className="ac">lane × session × backend</span></h1>
+      <p className="plead"><b>{t('Lane = workstation (resident daemon) · Session = one task on it (1 lane : N sessions) · Backend = one of built-in / ACP / tmux','Lane = 工位(常驻 daemon)· Session = 工位上的一件任务(1 lane : N session)· 后端 = 内置 / ACP / tmux 三选一')}</b>{t('. Single-screen mode focuses, at any moment, ','。单屏模式同一时刻聚焦')}<b>{t('one session of the current lane','当前 lane 的某个 session')}</b>{t(': inside the lane click ',':lane 内点')}<b>{t('the session in the rail (or status bar marker)','rail 里的会话')}</b>{t(' or ','或 ')}<span className="c">⌃S</span>{t(' to quick-switch sessions; switch other lanes with ',' 快切 session;别的 lane 用 ')}<span className="c">⌃L</span>{t('. We run inside ',' 切换。我们跑在')}<b>{t('someone else\u2019s terminal','别人的终端')}</b>{t(' — the emulator chrome (title bar / traffic lights) isn\u2019t ours to change; viden only draws ','里 —— emulator chrome(标题栏/红绿灯)改不了,viden 自己只画 ')}<b>{t('content + 1 input line + 1 status bar','内容 + 1 行输入 + 1 行状态栏')}</b>{t(' (breakdown at right). Top-right Tweaks switches the ','(右侧拆解)。右上 Tweaks 切')}<b>{t('current lane\u2019s backend','当前 lane 后端')}</b>{t(' to compare the three renderings. Multi-screen mode is listed at the bottom as a design option (TBD).','看三种渲染差异。多屏模式列在最下方作设计选项(待定)。')}</p>
+
+      {/* STAGE */}
+      <div className="sech"><span className="no">01</span><h2>{t('Single-screen mode · session main (minimal chrome)','单屏模式 · 会话主屏(chrome 极简)')}</h2><span className="en">one lane · one session · minimal chrome</span><span className="sp"></span></div>
+      <div className="stagewrap">
+        <div className={"term "+(tw.anatomy?'':'noanat')}>
+          <div className="emu">
+            <div className="tlt"><i style={{background:'#e0564f'}}></i><i style={{background:'#e6b53f'}}></i><i style={{background:'#54c06a'}}></i></div>
+            <span className="emunm">{t('your terminal · iTerm2 / kitty / wezterm …','你的终端 · iTerm2 / kitty / wezterm …')}</span>
+            <span className="sp"></span>
+            <span className="emutag">{t('emulator chrome — not ours to change, not drawn','emulator chrome —— 我们改不了、不画')}</span>
+          </div>
+          <div className="tscreen">
+            {tw.anatomy && <div className="ourmark">{t('↓ below is what viden draws — inside the emulator viewport','↓ 以下才是 viden 画的 —— emulator 视口内')}</div>}
+            {/* 0 导航 rail + 1 内容区 */}
+            <div className="bodyrow">
+              <div className="tbody zone"><span className="znum">1</span>
+                {backend==='tmux'?<TmuxTranscript/>:<AcpTranscript backend={backend} agent={agent}/>}
+              </div>
+              {railOpen && <div className="zone railzone"><span className="znum">0</span><SessionRail sessions={sessions} curSess={curSess} setCurSess={setCurSess} lane={lane} curLane={curLane} backend={backend} agent={agent} pickLane={pickLane} openSessionNew={()=>setOvl('session')} close={()=>setRailOpen(false)}/></div>}
+            </div>
+            {/* 2 输入行 */}
+            <div className="composer zone"><span className="znum">2</span>
+              <div className="cline">
+                <span className="cprompt">❯</span>
+                <input className="cin" value={val} onChange={e=>setVal(e.target.value)} placeholder={backend==='tmux'?t('Keys go straight to the tmux pane · / is still a viden command…','按键直达 tmux pane · / 仍是 viden 命令…'):t('Ask ','问 ')+agent+t(', or / for commands…',',或 / 调命令…')}/>
+                <span className="chint t-fnt">{t('/ command · ⏎ send · ⌃C interrupt','/ 命令 · ⏎ 发送 · ⌃C 打断')}</span>
+              </div>
+            </div>
+            {/* 3 状态栏 · 会话列已移入左侧 rail,这里只留身份 + 状态 */}
+            <div className="statusbar zone"><span className="znum">3</span>
+              <span className="seg proj">◉ boss-rush</span>
+              <span className="seg lane" onClick={()=>setOvl('lane')}>{lane.id} {lane.role} · {curSess} <kbd>⌃L</kbd></span>
+              <span className={"seg be "+backend}>{BACKEND_LABEL[backend]}:{agent}</span>
+              <span className={"seg railtgl "+(railOpen?'on':'')} onClick={()=>setRailOpen(o=>!o)} title={t('toggle navigator rail','开关导航 rail')}>{railOpen?'◧':'◨'} <kbd>⌃]</kbd></span>
+              <span className="sp"></span>
+              <span className="seg r gold" style={{cursor:'pointer'}} onClick={openGate} title={t('Pending gates across all lanes — click to open the Decision Center','跨 lane 待批闸数 —— 点开决策中心')}>⏸ {pending}</span>
+              <span className="seg r help" title={t('Fleet pulse: spinner + how many lanes are running · press ? for the keymap','fleet 脉搏:spinner + 几条 lane 在 run · 按 ? 查键位')}>{SPIN[spin]} {t('2 run · ? keys','2 run · ? 键位')}</span>
+            </div>
+
+            {ovl==='lane' && <LaneSwitcher cur={curLane} setCur={pickLane} close={()=>setOvl(null)}/>}
+            {ovl==='session' && <SessionSwitcher lane={curLane} cur={curSess} setCur={setCurSess} close={()=>setOvl(null)}/>}
+            {gate && <CommandGate cmd={gate.cmd} consequence={gate.consequence} risk={gate.risk} total={50} onResolve={resolveGate}/>}
+          </div>
+        </div>
+
+        {/* right rail: 画在哪 */}
+        <div className="rail">
+          <div className="rh">{t('what we draw · what we don\u2019t','画在哪 · 不画哪')}</div>
+          <div className="anat">
+            <div className="anr bad"><span className="n">✕</span><span className="tx"><b>emulator chrome</b> · <span className="d">{t('title bar / traffic lights belong to the terminal — not ours to change, not drawn','标题栏 / 红绿灯是终端的 —— 改不了、不画')}</span></span></div>
+            <div className="anr"><span className="n">0</span><span className="tx"><b>{t('Navigator rail','导航 rail')}</b> · <span className="d">{t('opencode-style sectioned sidebar: SESSIONS (this lane, 1–9 to jump) · LANES (fleet) · CONTEXT (target / model / ctx% / cost). Opt-in — ⌃] toggles it.','opencode 式分区侧栏:SESSIONS(本 lane,1–9 跳)· LANES(fleet)· CONTEXT(目标 / 模型 / ctx% / 花费)。opt-in — ⌃] 开关。')}</span></span></div>
+            <div className="anr"><span className="n">1</span><span className="tx"><b>{t('Content area','内容区')}</b> · <span className="d">{t('conversation / mirror, fills the viewport — the star','对话 / 镜像,吃满视口 —— 主角')}</span></span></div>
+            <div className="anr"><span className="n">2</span><span className="tx"><b>{t('Input line','输入行')}</b> · <span className="d">{t('prompt + / command · 1 line','prompt + / 命令 · 1 行')}</span></span></div>
+            <div className="anr"><span className="n">3</span><span className="tx"><b>{t('Status bar','状态栏')}</b> · <span className="d">{t('slimmed to identity + status: project ◉ · lane·session · backend · ⌃] rail toggle │ ⏸ gate count · fleet pulse. The session list moved into the rail — no more cramming.','瘦化为身份 + 状态:项目 ◉ · lane·session · 后端 · ⌃] rail 开关 │ ⏸ 待批数 · fleet 脉搏。会话列表已移进 rail —— 不再拥挤。')}</span></span></div>
+          </div>
+          <div className="navnote">
+            <div className="h">{t('Sessions live in the rail now','会话现在住在 rail')}</div>
+            {t('We run inside ','我们跑在')}<b>{t('someone else\u2019s terminal','别人的终端')}</b>{t(', can\u2019t change the window UI, so we restrain what we draw. ','里,改不了窗口 UI,只能克制自己画的。')}<b>{t('Persistent chrome is just 2 lines','持久 chrome 只留 2 行')}</b>{t(' (input + status); lane / session / backend all fold into the status bar.','(输入 + 状态),lane / session / backend 全折进状态栏。')}
+            <div className="ba"><span className="b1">{t('✗ Before: emulator + status + lane + session bar = 4 bars, content squeezed','✗ 之前:emulator + 状态 + lane + 会话条 = 4 层 bar,内容被挤')}</span><span className="b2">{t('✓ Now: content fills + 1 input line + 1 status line','✓ 现在:内容吃满 + 输入 1 行 + 状态 1 行')}</span></div>
+            <b>{t('Switchers aren\u2019t resident','切换器不常驻')}</b>{t(': ','::')}<span className="k">⌃S</span>{t(' session / ',' 会话 / ')}<span className="k">⌃L</span>{t(' lane pop on demand; the rail lists them in sections (SESSIONS / LANES / CONTEXT).',' lane 按需弹浮层;rail 把它们按区列出(SESSIONS / LANES / CONTEXT)。')}
+          </div>
+        </div>
+      </div>
+
+      {/* live borrowed interactions — both live on the session main screen */}
+      <div className="tryline">
+        <span style={{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--accent)',fontWeight:700,letterSpacing:'.5px',textTransform:'uppercase'}}>{t('try it','试一下')}</span>
+        <span>{t('Borrowed from hermes — a shell command the agent can\u2019t run unattended pops a ','借自 hermes —— agent 不能擅自执行的 shell 命令会弹')}<b style={{color:'var(--gold-bright)'}}>{t('4-tier command gate','4 档命令闸')}</b>{t(' with an auto-deny countdown.',',带超时自动拒倒计时。')}</span>
+        <span className="trybtn" onClick={openGate}>⚠ {t('Trigger command gate','触发命令闸')}</span>
+        <span style={{fontSize:'11px'}}>{t('or press ','或按 ')}<kbd>⌃G</kbd>{t(' · click the ','· 点状态栏 ')}<span style={{color:'var(--gold-bright)'}}>⏸ {pending}</span>{t(' badge',' 徽标')}</span>
+      </div>
+
+      {/* verdict feedback */}
+      {verdict && verdict.decision==='deny' && (
+        <div className="denied">
+          <div className="dh">◆ {t('Command denied','命令已拒')}{verdict.reason==='timeout' && <span style={{color:'var(--fg-faint)',fontWeight:400,fontFamily:'var(--mono)',fontSize:'10.5px'}}>· {t('timed out → auto-deny','超时 → 自动拒')}</span>}{verdict.reason==='esc' && <span style={{color:'var(--fg-faint)',fontWeight:400,fontFamily:'var(--mono)',fontSize:'10.5px'}}>· esc</span>}</div>
+          <div className="db">{t('I won\u2019t retry — the gate denied it. You can run it yourself:','我不会重试 —— 闸已拒。你可以自己跑:')}<span className="run">git push --force origin main</span>{t('To let me run it next time, re-authorize via ','要我下次来跑,请通过 ')}<code>/gate allow</code>{t(' or pick a non-deny tier when the gate reopens.',' 重新授权,或下次在闸里选非拒绝档。')}</div>
+        </div>
+      )}
+      {verdict && verdict.decision!=='deny' && (
+        <div className="gateack ok">✓ {t('Authorized','已授权')} · <b>{verdict.decision==='once'?t('this run only','仅此一次'):verdict.decision==='session'?t('whole session','整个会话'):t('added to repo allowlist','已加入本仓库白名单')}</b>{t(' — running ','—— 执行 ')}<span style={{color:'var(--accent-bright)'}}>git push --force origin main</span>{verdict.decision==='allow' && t(' · future identical commands skip the gate',' · 后续相同命令免闸')}</div>
+      )}
+
+      {/* streaming tool/skill timeline */}
+      <div className="sech" style={{marginTop:'26px'}}><span className="no">·</span><h2 style={{fontSize:'16px'}}>{t('Streaming tool / skill timeline','流式工具 / 技能时间线')}</h2><span className="en">borrowed from hermes · color = state (§ T4 08)</span><span className="sp"></span></div>
+      <p style={{fontSize:'12.5px',color:'var(--fg-muted)',margin:'0 0 12px',lineHeight:1.6,maxWidth:'880px'}}>{t('Every tool / skill call streams as a named, timed row — ','每次工具 / 技能调用都流式成一行带名、带时的步骤 —— ')}<b style={{color:'var(--fg-secondary)'}}>{t('preparing → result','preparing → 结果')}</b>{t('. Running steps spin live; finished ones settle to a glyph + duration; the run closes into a gate. Glyphs follow T4 §08: ','。运行中实时转;完成的落成字形 + 耗时;运行收束成闸。字形遵循 T4 §08:')}<span style={{color:'var(--gold-bright)',fontFamily:'var(--mono)'}}>◆ {t('your turn','待你')}</span> · <span style={{color:'var(--progress)',fontFamily:'var(--mono)'}}>▶ run</span> · <span style={{color:'var(--success)',fontFamily:'var(--mono)'}}>✓ done</span> · <span style={{color:'var(--fg-muted)',fontFamily:'var(--mono)'}}>◌ {t('wait','待命')}</span>.</p>
+      <div style={{maxWidth:'760px'}}><StreamTimeline/></div>
+
+      {/* BACKEND */}
+      <div className="sech"><span className="no">02</span><h2>{t('Three backends · same lane shell, different session kernel','三种后端 · 同一个 lane 壳,不同的 session 内核')}</h2><span className="en">builtin · ACP · tmux</span><span className="sp"></span></div>
+      <div className="becards">
+        <div className="bec acp">
+          <div className="h">{t('ACP external agent','ACP 外部 agent')} <span className="tag">ACP</span></div>
+          <p>{t('codex / claude-code etc. speak ','codex / claude-code 等走 ')}<b>Agent Client Protocol</b>{t('. Viden gets structured events: ','。Viden 拿到结构化事件:')}<b>{t('tool-call chunks, streaming tokens, diffs','tool-call 分块、流式 token、diff')}</b>{t(', sessions fully replayable, gate evidence auto-collected.',',会话可完整回放、闸证据自动归集。')}</p>
+          <div className="rn">{t('Render: ','渲染:')}<b>{t('structured stream','结构化流')}</b>{t(' · richest · gate/evidence seamless',' · 最丰富 · 闸/证据无缝')}</div>
+        </div>
+        <div className="bec builtin">
+          <div className="h">{t('Built-in agent','内置 agent')} <span className="tag">{t('built-in','内置')}</span></div>
+          <p>{t('Viden ships its own agent, ','Viden 自带 agent,')}<b>{t('swappable models + routing policy','模型可换 + 路由策略')}</b>{t(' (small model to organize, strong model to implement). Also structured, exposes one extra ','(整理用小模型、实现用强模型)。同样结构化,额外暴露 ')}<b>{t('model routing','模型路由')}</b>{t(' line; can be deployed locally for privacy.',' 一行;含隐私场景可本地部署。')}</p>
+          <div className="rn">{t('Render: ','渲染:')}<b>{t('structured stream + visible routing','结构化流 + 路由可视')}</b>{t(' · pluggable models',' · 模型可插拔')}</div>
+        </div>
+        <div className="bec tmux">
+          <div className="h">{t('tmux bridge','tmux 桥接')} <span className="tag">tmux</span></div>
+          <p>{t('Terminal-style agents that don\u2019t speak ACP (like the current kiro) are wrapped in a ','不说 ACP 的终端式 agent(如当前 kiro)包进 ')}<b>tmux pane</b>{t(', Viden drives via ',',Viden ')}<b>{t('mirroring the pane + sending keys','镜像 pane + 发按键')}</b>{t('. The conversation is a ','驱动。对话是')}<b>{t('raw terminal stream','原始终端流')}</b>{t(', but gates work as usual — Viden watches ',',但闸照常 —— Viden 监 ')}<b>{t('worktree file changes + runner artifacts','worktree 文件变更 + runner 产物')}</b>{t(' to form gates, ','成闸,')}<b>{t('no agent protocol required','不依赖 agent 协议')}</b>{t('.','。')}</p>
+          <div className="rn">{t('Render: ','渲染:')}<b>{t('mirrored pane','镜像 pane')}</b>{t(' · unstructured · gate falls back to the file layer (escape hatch)',' · 非结构化 · 闸靠文件层兜底(逃生通道)')}</div>
+        </div>
+      </div>
+      <div className="divnote"><b>{t('In one line','一句话')}</b>{t(': ','：')}<span className="c">{t('the lane shell is unified (worktree + gate + evidence); the session kernel has three states by backend','lane 壳统一(worktree + 闸 + 证据),session 内核按后端三态')}</span>{t('. ACP / built-in give you structured conversation and seamless gates; tmux is the \u201cany terminal agent can enter Viden\u201d escape hatch, at the cost of unstructured conversation and gates falling back to file-layer detection. ','。ACP / 内置给你结构化对话与无缝闸;tmux 是"任何终端 agent 都能进 Viden"的逃生通道,代价是对话不结构化、闸退到文件层检测。')}<b>{t('Switch the \u201ccurrent lane backend\u201d in Tweaks above to compare the three renderings live.','切上面 Tweaks 的「当前 lane 后端」可现场对比三种渲染。')}</b></div>
+
+      {/* MULTISCREEN */}
+      <div className="sech"><span className="no">03</span><h2>{t('Multi-screen mode · design options (TBD)','多屏模式 · 设计选项(待定)')}</h2><span className="en">multi-pane · still thinking</span><span className="sp"></span></div>
+      <div className="opts">
+        <div className="opt">
+          <div className="h">A · {t('tile two lanes','平铺两 lane')} <span className="tag">{t('TBD','待定')}</span></div>
+          <div className="sketch"><div className="sk acc" style={{flex:1}}><div className="t1"></div><div className="t2"></div><div className="t3"></div></div><div className="sk" style={{flex:1}}><div className="t1"></div><div className="t2"></div><div className="t3"></div></div></div>
+          <p>{t('tmux-style left/right split, each with its own session + input. ','tmux 式左右分屏,各自 session + 各自输入。')}<b>{t('Problem','问题')}</b>{t(': on narrow screens both box-drawing sessions are cramped; focus/key routing must be explicit (active pane highlighted border).',':窄屏下两个 box-drawing 会话都挤;焦点/键路由给谁要明确(active pane 高亮边框)。')}</p>
+          <div className="tr"><span className="h2">{t('Trade-off','取舍')}</span> <span className="ok">{t('✓ truly watch two in parallel','✓ 真并行盯两条')}</span> · <span className="x">{t('✗ each narrower, key ownership ambiguous','✗ 各自变窄、键归属歧义')}</span></div>
+        </div>
+        <div className="opt">
+          <div className="h">B · {t('master/detail + thumbnail sidebar','主从 + 缩略侧栏')} <span className="tag">{t('TBD','待定')}</span></div>
+          <div className="sketch"><div className="sk acc" style={{flex:2}}><div className="t1"></div><div className="t2"></div><div className="t3"></div></div><div className="sk sm" style={{flex:1}}><div className="t1"></div><div className="t1"></div><div className="t1"></div></div></div>
+          <p>{t('One lane occupies the main area; other lanes show only ','一条 lane 占主区干活,其它 lane 在侧栏只显 ')}<b>{t('status / loss thumbnail / spark','状态 / loss 缩略 / spark')}</b>{t(' in the sidebar. ','。')}<b>{t('Problem','问题')}</b>{t(': clicking a sidebar lane makes it the main area — essentially a resident board.',':侧栏点哪条就成主区,本质是 board 的常驻化。')}</p>
+          <div className="tr"><span className="h2">{t('Trade-off','取舍')}</span> <span className="ok">{t('✓ clear focus + peripheral awareness','✓ 焦点清晰 + 余光在')}</span> · <span className="x">{t('✗ sidebar view-only','✗ 侧栏只能看不能干')}</span></div>
+        </div>
+        <div className="opt">
+          <div className="h">C · {t('follow mode','跟车模式')} <span className="tag">{t('TBD','待定')}</span></div>
+          <div className="sketch"><div className="sk acc" style={{flex:1}}><div className="t1"></div><div className="t2"></div><div className="t3"></div></div><div className="sk" style={{flex:1}}><div className="t2"></div><div className="t2"></div><div className="t3"></div></div></div>
+          <p>{t('One pane works, the other is ','一格干活,另一格')}<b>{t('read-only','只读')}</b>{t(' watching another running lane\u2019s output (e.g. training loss / long task). ','盯另一条 run lane 的输出流(如训练 loss / 长任务)。')}<b>{t('Problem','问题')}</b>{t(': should the read-only pane be upgradable to interactive? If so, back to A.',':只读格要不要可升格为可交互?升了就回到 A。')}</p>
+          <div className="tr"><span className="h2">{t('Trade-off','取舍')}</span> <span className="ok">{t('✓ watch long tasks while they run','✓ 长任务边跑边看')}</span> · <span className="x">{t('✗ read-only, must switch to act','✗ 只读,要切才动手')}</span></div>
+        </div>
+      </div>
+      <div className="divnote"><b>{t('Leaning','倾向')}</b>{t(': default ','：默认')}<span className="c">{t('single-screen focus + quick-switch (⌃L/⌃S)','单屏聚焦 + 快切(⌃L/⌃S)')}</span>{t(' covers 90% of cases — people are single-threaded, gates pull attention over, no need to watch all lanes at once. Multi-screen as ','覆盖 90% 场景 —— 人是单线程,闸把注意力拉过来,不需要时刻盯所有 lane。多屏作为 ')}<span className="c">power-user opt-in</span>{t(', do ',',先做 ')}<b>{t('B (master/detail)','B(主从)')}</b>{t(' first: it doesn\u2019t tear focus and adds the \u201cparallel feel\u201d via peripheral vision; A/C depend on real demand. ',':它不撕裂焦点,又把"并行感"用余光补上;A/C 看真实需求再说。')}<b>{t('This part still needs thought — which direction do you prefer?','这块确实还要想 —— 你更想要哪个方向?')}</b></div>
+
+      <TweaksPanel>
+        <TweakSection label={t('Demo','演示')} />
+        <TweakRadio label={t('Current lane backend','当前 lane 后端')} value={tw.backend} options={[{value:"ACP · codex",label:"ACP · codex"},{value:"内置 builtin",label:t('built-in','内置 builtin')},{value:"tmux → kiro",label:"tmux → kiro"}]} onChange={v=>setTweak('backend',v)} />
+        <TweakToggle label={t('Show element numbers (anatomy)','显示元素编号(anatomy)')} value={tw.anatomy} onChange={v=>setTweak('anatomy',v)} />
+        <TweakToggle label={t('Crowd sessions (fill the rail)','挤满会话(填满 rail)')} value={tw.crowd} onChange={v=>setTweak('crowd',v)} />
+      </TweaksPanel>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

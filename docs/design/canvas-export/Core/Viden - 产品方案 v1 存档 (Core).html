@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden V1 · 产品方案</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="i18n.js"></script>
+<script src="chrome.js"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;font-size:15px;line-height:1.7;}
+.doc{max-width:920px;margin:0 auto;padding:44px 32px 110px;}
+
+.kicker{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.kicker::before{content:"";width:26px;height:2px;background:var(--accent);}
+h1{font-size:34px;line-height:1.15;margin:0 0 10px;letter-spacing:-.8px;}
+h1 .ac{color:var(--accent);}
+.sub{font-size:15.5px;color:var(--fg-secondary);margin:0 0 6px;max-width:760px;text-wrap:pretty;}
+.meta{font-family:var(--mono);font-size:11px;color:var(--fg-faint);margin-top:14px;display:flex;gap:18px;flex-wrap:wrap;}
+
+h2{font-size:21px;margin:54px 0 6px;letter-spacing:-.3px;display:flex;align-items:baseline;gap:10px;}
+h2 .no{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:700;}
+h2 .en{font-family:var(--mono);font-size:11px;color:var(--fg-faint);font-weight:400;letter-spacing:1px;text-transform:uppercase;}
+h3{font-size:15.5px;margin:26px 0 6px;color:var(--fg-primary);}
+p{margin:8px 0;color:var(--fg-secondary);text-wrap:pretty;}
+p b,li b{color:var(--fg-primary);font-weight:600;}
+ul{margin:8px 0;padding-left:22px;color:var(--fg-secondary);}
+li{margin:4px 0;}
+code{font-family:var(--mono);font-size:12.5px;color:var(--accent-bright);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:4px;padding:1px 5px;}
+.hr{height:1px;background:var(--border-soft);margin:10px 0 18px;}
+
+.thesis{background:var(--bg-panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:16px 20px;margin:18px 0;font-size:16px;color:var(--fg-primary);text-wrap:pretty;}
+.thesis .en{display:block;font-family:var(--mono);font-size:11px;color:var(--fg-muted);margin-top:8px;}
+
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px;}
+th{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-muted);text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);}
+td{padding:9px 12px;border-bottom:1px solid var(--border-soft);color:var(--fg-secondary);vertical-align:top;}
+td b{color:var(--fg-primary);font-weight:600;}
+td .mono,.mono{font-family:var(--mono);font-size:12px;}
+tr:hover td{background:var(--bg-base);}
+
+.tag{display:inline-block;font-family:var(--mono);font-size:9.5px;font-weight:700;border-radius:4px;padding:1px 7px;white-space:nowrap;letter-spacing:.5px;}
+.p0{color:var(--accent-bright);border:1px solid var(--accent-dim);background:color-mix(in srgb,var(--accent) 7%,transparent);}
+.p1{color:var(--gold-bright);border:1px solid color-mix(in srgb,var(--gold) 45%,transparent);background:color-mix(in srgb,var(--gold) 7%,transparent);}
+.p2{color:var(--fg-muted);border:1px solid var(--border);}
+.dom{color:var(--fg-secondary);border:1px solid var(--border);background:var(--bg-panel);}
+.tag.rec{color:var(--success);border:1px solid color-mix(in srgb,var(--success) 45%,transparent);background:color-mix(in srgb,var(--success) 7%,transparent);}
+
+.cols3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:16px 0;}
+.card{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:15px 17px;}
+.card .h{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14.5px;font-weight:700;color:var(--fg-primary);}
+.card .h .dot{width:8px;height:8px;border-radius:50%;flex:none;}
+.card .h .en{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);font-weight:400;margin-left:auto;letter-spacing:.5px;}
+.card p{font-size:12.5px;margin:5px 0;}
+.card ul{font-size:12.5px;padding-left:18px;}
+.card .gates{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);border-top:1px dashed var(--border-soft);margin-top:10px;padding-top:8px;line-height:1.8;}
+.card .gates b{color:var(--gold);font-weight:600;}
+
+.stack{font-family:var(--mono);font-size:12px;line-height:2;background:var(--bg-base);border:1px solid var(--border);border-radius:11px;padding:18px 22px;margin:16px 0;color:var(--fg-secondary);white-space:pre;overflow-x:auto;}
+.stack .c{color:var(--accent-bright);}
+.stack .g{color:var(--gold);}
+.stack .m{color:var(--fg-faint);}
+
+.qa{margin:14px 0;}
+.qa .q{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:10px;padding:13px 17px;margin-bottom:10px;}
+.qa .q .t{font-size:14px;font-weight:700;color:var(--fg-primary);margin-bottom:4px;display:flex;gap:8px;align-items:baseline;}
+.qa .q .t .n{font-family:var(--mono);font-size:11px;color:var(--accent);}
+.qa .q p{font-size:13px;margin:4px 0;}
+
+.toc{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:16px 20px;margin:26px 0 0;font-size:13px;display:grid;grid-template-columns:1fr 1fr;gap:4px 26px;}
+.toc a{color:var(--fg-secondary);text-decoration:none;display:flex;gap:9px;padding:3px 0;}
+.toc a:hover{color:var(--accent-bright);}
+.toc a .n{font-family:var(--mono);font-size:11px;color:var(--accent);width:18px;flex:none;}
+
+.note{font-family:var(--mono);font-size:11px;color:var(--fg-faint);margin-top:6px;}
+@media (max-width:760px){.cols3{grid-template-columns:1fr;}.toc{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="doc">
+
+<div class="kicker">viden · product plan · v1 draft</div>
+<h1>Viden V1 产品方案 <span class="ac">Agent 团队驾驶舱</span></h1>
+<p class="sub">把"多个 agent 在同一工程协作"做成产品：lane 并行、闸控边界、证据评审。本方案收敛此前关于机器人、AI/ML、游戏三领域与团队协作的全部讨论，给出 V1 的范围切割与设计任务清单。</p>
+<div class="meta"><span>状态 · 待评审</span><span>日期 · 2026-06-12</span><span>基座 · RoboCode (Rust CLI) + Viden Desktop</span><span>关联 · MuseGameWorkshop</span></div>
+
+<div class="toc" data-screen-label="目录">
+  <a href="#s1"><span class="n">01</span>定位与核心论点</a>
+  <a href="#s2"><span class="n">02</span>概念模型（定稿）</a>
+  <a href="#s3"><span class="n">03</span>架构判断：内核 + 领域包</a>
+  <a href="#s4"><span class="n">04</span>V1 范围（P0 / P1 / P2）</a>
+  <a href="#s5"><span class="n">05</span>三个领域包规格</a>
+  <a href="#s6"><span class="n">06</span>团队协作（V1.5）</a>
+  <a href="#s7"><span class="n">07</span>关键界面清单（设计任务）</a>
+  <a href="#s8"><span class="n">08</span>非目标</a>
+  <a href="#s9"><span class="n">09</span>验收场景</a>
+  <a href="#s10"><span class="n">10</span>待决策问题</a>
+  <a href="#s11"><span class="n">11</span>模型与工具层</a>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="s1"><span class="no">01</span>定位与核心论点 <span class="en">Positioning</span></h2>
+<div class="hr"></div>
+
+<p><b>一句话</b>：Viden 是 agent 团队的驾驶舱 —— 多个不同 agent（codex / claude-code / kiro / 内置）在同一工程里分工并行，人评审它们的<b>行为</b>，给行为上<b>闸</b>。</p>
+
+<div class="thesis">机器人怕炸电机，ML 怕分数回退，游戏怕手感变坏 —— 都是"行为"问题，代码 diff 看不出来。Viden 评审行为、给行为上闸；领域差异只是证据的形态和闸的类型。
+<span class="en">Agents change behavior, not just code. Viden reviews behavior and gates behavior.</span></div>
+
+<p><b>与参照物的分野</b>：Zed 解决人与人实时共编文本（agent 时代该假设已弱化）；WorkBuddy 解决一人指挥多 agent 办公（无"多个人"概念，无工程纵深）；Cursor/Windsurf 只有代码 diff（无行为证据）。Viden 的空白地带：<b>N 个人 × M 个 agent × 一个工程</b>，异步、闸驱动、可审计。</p>
+
+<!-- ================================================================ -->
+<h2 id="s2"><span class="no">02</span>概念模型（定稿） <span class="en">Conceptual Model</span></h2>
+<div class="hr"></div>
+
+<div class="stack">Project 工程            一个 git 仓库
+ └─ <span class="c">Lane 泳道</span>            角色工位：agent 长期坐镇，独立 worktree + 分支
+     ├─ Session 会话      lane 内一次具体任务，可多开并行
+     │   └─ Subagent      会话内编排的下级（planner / editor / test…）
+     ├─ Worktree 工作树   该 lane 专属的工作目录
+     └─ <span class="g">Target 执行目标</span>   命令在哪跑：本地 / SSH 远程（机器人主控板、多卡主机）/ 仿真实例
+
+<span class="g">跨 lane 协作四原语</span>（产物穿边界必经 ⏸ 闸）
+ 交接 handoff · 评审请求 review request · 契约 contract · 依赖 dependency</span></div>
+
+<p><b>已定稿的三个决策</b>（见协作机制图）：① 每 lane 独立 worktree，集成闸合并，冲突退回原 lane；② 评审是<b>动作</b>不是角色，任何 lane 可向任何 lane 发起；③ V1 由人手动编排（点交接、批闸），自动编排（orchestrator lane）留到 V2。</p>
+
+<p><b>本方案新增第五原语</b>：<b>验证 Validation</b> —— 闸的前置条件由领域包提供的 runner 自动执行（跑仿真 / 跑 eval / 跑回放回归），结果作为证据挂在闸上。<b>闸 = 自动验证 + 人工批准</b>，二者缺一不可。</p>
+
+<!-- ================================================================ -->
+<h2 id="s3"><span class="no">03</span>架构判断：内核 + 领域包 <span class="en">Core + Domain Packs</span></h2>
+<div class="hr"></div>
+
+<p>三个领域的需求不在内核里写死，而是抽象成一个扩展点：<b>领域包 Domain Pack</b>。内核只认识 lane / 闸 / 证据 / 契约；领域包向内核注册四样东西：</p>
+
+<table>
+<tr><th>扩展点</th><th>说明</th><th>机器人包</th><th>ML 包</th><th>游戏包</th></tr>
+<tr><td><b>闸类型</b><br><span class="mono">gate type</span></td><td>闸的前置条件与强度分级</td><td>sim → bench → field 分级实机闸</td><td>eval 闸（分数不回退）</td><td>金样画面闸 · 帧预算闸 · 回放回归闸</td></tr>
+<tr><td><b>验证 runner</b><br><span class="mono">validator</span></td><td>闸前自动执行的验证器</td><td>仿真实例（MuJoCo / Isaac / Gazebo）</td><td>eval harness · benchmark</td><td>headless 引擎（Godot 优先）</td></tr>
+<tr><td><b>证据渲染器</b><br><span class="mono">evidence view</span></td><td>行为证据在评审里怎么呈现</td><td>遥测曲线 · rosbag 回放</td><td>loss/eval 曲线 · 对比表</td><td>试玩回放视频 · 截图 diff · 画廊</td></tr>
+<tr><td><b>契约 schema</b><br><span class="mono">contract</span></td><td>contracts/ 里管什么</td><td>.msg / .srv / URDF / TF</td><td>数据集版本 · model card</td><td>数值平衡表 · GDD · 资产规范</td></tr>
+</table>
+
+<p>领域包还可挂载 <b>skill 库</b>：lane 创建时选"角色 + agent + skill 包"。游戏包首发直接挂 <b>MuseGameWorkshop</b>（14 个 P0 skills + 27 个模板 + review gate / evidence 目录约定）—— 它的 <code>templates/production/review-gate.md</code> 和 <code>docs/evidence/</code> 与 Viden 的闸、证据是同一套思想，Viden 把它从"文档纪律"升级为"产品强制"。</p>
+
+<p><b>首发领域包选游戏</b>。理由：① 已有 MuseGameWorkshop 资产与 Godot 示例工程可直接验证；② 反馈环最快、无硬件依赖（机器人需要实机/仿真环境，ML 需要算力）；③ 画廊评审、回放证据等界面形态最丰富，能把"行为评审"的故事讲透。机器人包与 ML 包在 V1.x 以同一扩展点跟进。</p>
+
+<!-- ================================================================ -->
+<h2 id="s4"><span class="no">04</span>V1 范围 <span class="en">Scope</span></h2>
+<div class="hr"></div>
+
+<p>V1 是<b>单机单人</b>版本：一个开发者 + 一队 agent。团队能力在 V1.5（见 06 节），但 V1 的技术选型必须为它铺路（lane 以 daemon 形态运行，驾驶舱只是视图）。</p>
+
+<table>
+<tr><th style="width:54px;">优先级</th><th>能力</th><th>内容</th></tr>
+<tr><td><span class="tag p0">P0</span></td><td><b>Lane 内核</b></td><td>lane 创建（角色 + agent + skill 包 + 闸策略）；ACP 接入 codex / claude-code / kiro + 内置 agent；worktree 自动管理；session 多开；状态机 run / wait / gate / done</td></tr>
+<tr><td><span class="tag p0">P0</span></td><td><b>执行目标抽象</b></td><td>lane 绑定 target：V1 实现 local + SSH 远程（持久会话、断线重连、命令队列）；代码同步策略（远程 worktree / rsync）；端口转发（tensorboard / foxglove 回传）；证据从目标采集回拉。机器人 / ML 开发都是远程连目标机，抽象必须在 V1 内核</td></tr>
+<tr><td><span class="tag p0">P0</span></td><td><b>四原语 + 验证</b></td><td>交接、评审请求、契约（<code>contracts/</code> 目录 + 修改走闸）、依赖（阻塞/解锁）、闸前自动验证</td></tr>
+<tr><td><span class="tag p0">P0</span></td><td><b>闸系统</b></td><td>闸定义、前置验证、批/驳/退回；<b>闸策略即代码</b>（仓库内声明式规则，如 <code>contracts/** → 强闸</code>）；V1 审批人都是自己</td></tr>
+<tr><td><span class="tag p0">P0</span></td><td><b>行为 Diff 评审</b></td><td>评审视图 = 代码 diff + 行为证据并排；证据自动写回 <code>docs/evidence/</code>（git-native，可审计）</td></tr>
+<tr><td><span class="tag p0">P0</span></td><td><b>游戏领域包</b></td><td>Godot headless runner；试玩回放证据；回放回归闸；数值契约；画廊评审；挂载 MuseGameWorkshop skills</td></tr>
+<tr><td><span class="tag p0">P0</span></td><td><b>集成闸</b></td><td>多 lane 分支 → diff review → 人工合并 → main；冲突退回原 lane</td></tr>
+<tr><td><span class="tag p1">P1</span></td><td><b>游戏包增强</b></td><td>金样画面闸、帧预算闸、手感调参会话（实时滑杆 → agent 写回终值）</td></tr>
+<tr><td><span class="tag p1">P1</span></td><td><b>ML 包</b></td><td>训练 lane（长任务 + loss 缩略图）、eval 闸、checkpoint/数据集 artifact</td></tr>
+<tr><td><span class="tag p1">P1</span></td><td><b>机器人包</b></td><td>仿真 lane、分级实机闸（sim/bench/field）、遥测证据、设备占用锁</td></tr>
+<tr><td><span class="tag p1">P1</span></td><td><b>团队基础</b></td><td>闸收件箱、lane 认领/移交、团队时间线（详见 06）</td></tr>
+<tr><td><span class="tag p2">P2</span></td><td><b>V2 候选</b></td><td>orchestrator lane 自动编排、旁观/接管、IM 批闸、token 预算治理、Unreal runner、创意 AI 工具接入（生图/音频/3D 走资产闸）</td></tr>
+</table>
+
+<p class="note">创意 AI 工具（ComfyUI / 音乐生成 / 3D 生成）刻意放到 P2：MuseGameWorkshop 的 asset brief / provenance / review 流程先以模板 + 闸的形式跑通，工具直连是之后的事 —— 先有闸，再接生成。</p>
+
+<!-- ================================================================ -->
+<h2 id="s5"><span class="no">05</span>三个领域包规格 <span class="en">Domain Pack Specs</span></h2>
+<div class="hr"></div>
+
+<div class="cols3">
+  <div class="card" data-screen-label="游戏包">
+    <div class="h"><span class="dot" style="background:var(--accent);"></span>游戏包 <span class="tag rec">V1 首发</span><span class="en">GAME</span></div>
+    <p><b>典型 lane 团队</b>：策划（claude · GDD/数值契约）· gameplay（codex）· 渲染/VFX（kiro）· 内容生成（内置）</p>
+    <ul>
+      <li>试玩即证据：headless 试玩 → 回放视频挂 patch</li>
+      <li>回放回归：确定性输入回放做行为单测</li>
+      <li>画廊评审：批量生成内容 keep / kill</li>
+      <li>数值契约：碰平衡表必走策划闸</li>
+      <li>skill 库：MuseGameWorkshop 直挂</li>
+    </ul>
+    <div class="gates"><b>闸</b>：回放回归 ⏸ · 金样画面 ⏸ · 帧预算 ⏸<br><b>runner</b>：Godot headless（P0）→ Unreal（P2）</div>
+  </div>
+  <div class="card" data-screen-label="ML 包">
+    <div class="h"><span class="dot" style="background:var(--progress);"></span>ML 包 <span class="tag p1">V1.x</span><span class="en">ML / AI</span></div>
+    <p><b>典型 lane 团队</b>：数据（清洗/版本）· 训练（长任务 lane）· 评测（eval harness）</p>
+    <ul>
+      <li>训练 lane：8 小时任务常驻，卡片显示 loss 缩略图 + GPU</li>
+      <li>远程多卡主机：lane 绑 SSH target，GPU 槽位租约，tensorboard 端口回传</li>
+      <li>needs-input 特化："loss 发散，回滚 ckpt？"</li>
+      <li>实验交叉评审：eval 结果互评，胜者进契约</li>
+      <li>artifact 扩展：checkpoint / 数据集版本</li>
+    </ul>
+    <div class="gates"><b>闸</b>：eval 不回退 ⏸ · 数据集变更 ⏸<br><b>runner</b>：eval harness / benchmark 套件</div>
+  </div>
+  <div class="card" data-screen-label="机器人包">
+    <div class="h"><span class="dot" style="background:var(--gold);"></span>机器人包 <span class="tag p1">V1.x</span><span class="en">ROBOTICS</span></div>
+    <p><b>典型 lane 团队</b>：感知 · 规划/控制 · 仿真验证；与 RoboCode CLI 同源生态</p>
+    <ul>
+      <li>分级实机闸：sim 自由 → bench 轻闸 → field 强闸 + e-stop 前置</li>
+      <li>仿真 lane：lane 绑仿真实例，回放进证据</li>
+      <li>远程上板：SSH 连主控板开发，断线续会话；RoboCode（Rust）足够轻可直接上 ARM 板</li>
+      <li>行为 diff：PID 改动旁边放阶跃响应曲线</li>
+      <li>ROS 契约：.msg / URDF 变更自动告警依赖方</li>
+      <li>设备占用锁：实机时间片 lease</li>
+    </ul>
+    <div class="gates"><b>闸</b>：仿真通过 ⏸ · 实机分级 ⏸⏸<br><b>runner</b>：MuJoCo / Isaac / Gazebo</div>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="s6"><span class="no">06</span>团队协作（V1.5） <span class="en">Team</span></h2>
+<div class="hr"></div>
+
+<p>核心立场：当代码由 agent 写，<b>人和人协作的对象从文本变成决策</b>。不做同步共编（Zed 的核心），不做 IM 聊天机器人（WorkBuddy 的核心）；做异步、闸驱动的混合团队（人 + agent 同为"工位"）。</p>
+
+<table>
+<tr><th>能力</th><th>说明</th><th>版本</th></tr>
+<tr><td><b>闸收件箱</b> gate inbox</td><td>闸按策略指派到人（数值契约 → 主策划）；每人一个跨 lane 待批队列，批闸看到行为 diff + 证据。<b>团队日常 = 清闸队列</b></td><td><span class="tag p1">V1.5</span></td></tr>
+<tr><td><b>认领 / 移交</b> claim / handover</td><td>lane 可移交同事、夜间自动驾驶（闸积压到早上）。前提：lane 以 headless daemon 运行，驾驶舱只是视图 —— V1 架构已按此设计</td><td><span class="tag p1">V1.5</span></td></tr>
+<tr><td><b>团队时间线</b> timeline</td><td>谁批了哪个闸、哪条 lane 产出什么、契约第几版谁改 —— git-native 审计流，企业合规卖点</td><td><span class="tag p1">V1.5</span></td></tr>
+<tr><td><b>变更通告</b> change notice</td><td>契约变更、合入 main、闸决策自动生成通告，按<b>订阅图</b>路由（依赖关系 + 闸策略 ownership + lane 声明的 watch 路径），不全员广播。破坏性契约变更即时推送，其余进简报</td><td><span class="tag p1">V1.5</span></td></tr>
+<tr><td><b>书记官 lane</b> scribe</td><td>团队主 agent：一条只读的内置 lane，定期（每日 / 每次集成后）汇总文档与契约变更、闸决策，生成<b>团队简报</b>并按订阅分发；顺手维护 CHANGELOG / AGENTS.md。只整理不指挥 —— 是 V2 orchestrator 的安全前身</td><td><span class="tag p1">V1.5</span></td></tr>
+<tr><td><b>旁观 / 接管</b> spectate</td><td>attach 同事 lane 只读跟车，可评论、请求接管</td><td><span class="tag p2">V2</span></td></tr>
+<tr><td><b>IM 批闸</b></td><td>企微/飞书只推闸通知 + 一键批/驳，不在 IM 干活（与 WorkBuddy 反向收窄）</td><td><span class="tag p2">V2</span></td></tr>
+</table>
+
+<h3>信息如何在人和 agent 之间流动</h3>
+<p>同一份变更通告走<b>双通道</b>，按接收者形态投递：</p>
+<ul>
+  <li><b>送到人</b>：进闸收件箱 / 定期简报（V2 起可转发 IM）—— 人读摘要、做决策；</li>
+  <li><b>送到 agent</b>：写成<b>备忘 memo</b> 注入对方 lane 的工作上下文（<code>memos/</code> 目录，session 启动必读）。agent 必须 ack，并自行决定动作：rebase、更新调用方、或向变更方发起评审请求 —— <b>agent 收到的不是聊天消息，是上下文补丁</b>。</li>
+</ul>
+<p>例：codex lane 改了 <code>contracts/tech-plan.md</code> 的接口章节 → 书记官识别出 kiro lane 依赖该契约 → kiro 的下一个 session 启动时上下文里已有这份变更备忘，它主动 rebase 并回 ack；同时负责人会在当天简报里看到这条变更和 kiro 的响应状态。</p>
+
+<!-- ================================================================ -->
+<h2 id="s7"><span class="no">07</span>关键界面清单（接下来的设计任务） <span class="en">Screens to Design</span></h2>
+<div class="hr"></div>
+
+<table>
+<tr><th style="width:30px;">#</th><th>界面</th><th>说明</th><th>状态</th></tr>
+<tr><td class="mono">D1</td><td><b>驾驶舱主视图</b></td><td>lane 边栏 + 会话 tab + 上下文 dock（tab 与 lane 数据需打通，见此前结论）</td><td>已有概念稿，需修订</td></tr>
+<tr><td class="mono">D2</td><td><b>行为 Diff 评审</b></td><td>代码 diff + 行为证据并排；一套骨架三种证据形态（回放视频 / eval 表 / 遥测曲线）。<b>产品灵魂界面，优先级最高</b></td><td>待设计</td></tr>
+<tr><td class="mono">D3</td><td><b>闸审批流</b></td><td>闸卡片：前置验证结果 + 证据 + 批/驳/退回；分级闸（实机）的递进确认</td><td>待设计</td></tr>
+<tr><td class="mono">D4</td><td><b>Lane 创建流程</b></td><td>角色 + agent（ACP/内置）+ skill 包 + 闸策略，四步开工位</td><td>待设计</td></tr>
+<tr><td class="mono">D5</td><td><b>画廊评审</b></td><td>批量生成内容的 keep/kill 网格（游戏包）</td><td>待设计</td></tr>
+<tr><td class="mono">D6</td><td><b>协作图</b></td><td>lane 间交接/评审/依赖的实时图（静态机制图已确认，做成驾驶舱视图）</td><td>机制图已定稿</td></tr>
+<tr><td class="mono">D7</td><td><b>闸收件箱</b></td><td>团队版主界面（V1.5，可先出概念稿占位）</td><td>待设计</td></tr>
+<tr><td class="mono">D8</td><td><b>团队简报 / 变更通告</b></td><td>书记官产出的简报视图 + 通告卡片（人侧）；agent 侧 memo 的 ack 状态追踪</td><td>待设计</td></tr>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="s8"><span class="no">08</span>非目标 <span class="en">Non-goals</span></h2>
+<div class="hr"></div>
+<ul>
+  <li>不做游戏引擎、训练框架、仿真器 —— 只做它们的 runner 接入和证据呈现。</li>
+  <li>不做同步共编、不做 IM 内对话式干活。</li>
+  <li>不做"一键生成完整游戏/完整机器人"叙事；不鼓励绕闸（与 MuseGameWorkshop 的"不要这样用"一致）。</li>
+  <li>V1 不做自动编排 —— 先让手动协作的每一步都可信，再谈自动化。</li>
+  <li>不自研模型，模型与 CLI 均为可插拔（ACP / 内置双轨已定）。</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="s9"><span class="no">09</span>验收场景 <span class="en">Acceptance</span></h2>
+<div class="hr"></div>
+<p>V1 验收用一个真实小项目跑通全链路 —— 直接用 MuseGameWorkshop 的 <b>Boss Rush《反击试炼》</b>：</p>
+<ul>
+  <li>3 条 lane（claude 策划 / codex gameplay / kiro 渲染）从 pitch 到可试玩 demo，全程在 Viden 内完成；</li>
+  <li>设计契约、技术方案交叉评审、回放回归闸、集成闸各至少走通一次；</li>
+  <li><code>docs/evidence/</code> 自动累积全部证据，事后可完整复盘"每个行为改动是谁批的、凭什么批的"；</li>
+  <li>评审一次行为 diff 的平均耗时 &lt; 评审同等代码 diff（证据让评审更快，而不是更繁琐）。</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="s10"><span class="no">10</span>待决策问题 <span class="en">Open Questions</span></h2>
+<div class="hr"></div>
+<div class="qa">
+  <div class="q"><div class="t"><span class="n">Q1</span>闸策略文件的格式与位置</div><p>建议仓库根 <code>viden.toml</code>（RoboCode 同源 Rust 生态，TOML 自然），声明闸类型、路由规则、领域包启用。备选：YAML / 沿用 AGENTS.md 章节。</p></div>
+  <div class="q"><div class="t"><span class="n">Q2</span>契约的载体</div><p>建议 Markdown + frontmatter（人可读、git 可 diff、MuseGameWorkshop 模板可直接复用），结构化校验由领域包的 schema 做。备选：纯结构化（JSON/TOML）。</p></div>
+  <div class="q"><div class="t"><span class="n">Q3</span>回放证据的格式</div><p>视频文件（直观但重、git 不友好）vs 确定性输入序列 + 实时重演（轻、可交互，但要求引擎确定性）。建议双轨：闸用输入序列，评审 UI 现场重演。</p></div>
+  <div class="q"><div class="t"><span class="n">Q4</span>kiro 的 ACP 成熟度</div><p>三个首发 CLI 中 kiro 的 ACP 桥接需要验证；不行则 V1 先 codex + claude-code，kiro 走终端适配。</p></div>
+  <div class="q"><div class="t"><span class="n">Q5</span>命名</div><p>Lane 保留英文已定；产品内"领域包"对外叫 Domain Pack 还是直接叫"游戏模式/机器人模式"？影响首页叙事，可后定。</p></div>
+  <div class="q"><div class="t"><span class="n">Q6</span>闸决策日志的可训练格式</div><p>闸数据飞轮的前提：V1 起把每次闸决策（diff + 证据 + 批/驳 + 理由）按可训练格式落盘（opt-in），为评审者模型微调做准备。格式待定。</p></div>
+  <div class="q"><div class="t"><span class="n">Q7</span>远程 target 的代码同步策略</div><p>远程 worktree（git 在目标机上）vs rsync 推送（板子友好但失去 git 语义）vs agent 直接装在目标机（多卡主机可行，ARM 板看 RoboCode 体积）。可能需要按目标类型双轨。</p></div>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="s11"><span class="no">11</span>模型与工具层 <span class="en">Models &amp; Tools</span></h2>
+<div class="hr"></div>
+
+<p><b>总原则：弱模型 + 强验证。</b>验证 runner 和闸的存在降低了对模型的要求，大多数需求不该用微调解决。模型层分三档：</p>
+
+<table>
+<tr><th style="width:110px;">档位</th><th>适用</th><th>说明</th></tr>
+<tr><td><b>不动模型</b></td><td>协作原语遵从、工程规范、配置生成</td><td>prompt + skill 库 + schema 约束解码 + 校验器兜底</td></tr>
+<tr><td><b>小模型路由</b></td><td>书记官简报、通告分类路由、证据摘要、闸前预检</td><td>调用量最大、智能要求最低；含团队隐私 → 可本地部署。<b>模型路由策略 V1 内建</b>（整理用小模型、实现用强模型的团队级配置）</td></tr>
+<tr><td><b>值得微调</b></td><td>仅三个点，见下</td><td>其余一律先问：prompt + 验证能不能兜住</td></tr>
+</table>
+
+<h3>三个微调方向</h3>
+<ul>
+  <li><b>Godot 4 / GDScript 域适配</b>（游戏包）：通用模型大量混淆 Godot 3/4 API，GDScript 语料少。LoRA 成本最低、收益最确定，作内置 lane 的游戏特化选项。</li>
+  <li><b>ROS2 / 控制代码域适配</b>（机器人包）：物理单位、坐标系（TF 方向）、实时约束是通用模型弱项。仿真闸已兜住安全，微调是提一次通过率、省 token。</li>
+  <li><b>评审者模型</b>（战略级）：<b>闸在天然生产标注数据</b> —— 每次闸决策 = 一条样本（diff + 证据 + 批/驳 + 理由）。用它微调闸前预审模型，是纯代码工具们没有的数据资产。V1 先落盘（Q6），微调放 V2。</li>
+</ul>
+<p class="note">明确不微调：曲线读图（loss 发散 / 遥测异常 / 超调）用经典检测器做，LLM 只负责解释结果。</p>
+
+<h3>工具接入：ACP 给 agent，MCP 给工具</h3>
+<div class="stack">Lane
+ ├─ <span class="c">ACP</span>  → 完整 agent（codex / claude-code / kiro）              已定
+ ├─ <span class="c">MCP</span>  → 工具（godot-mcp、第三方/购买工具、ROS/实验跟踪）   新增正式层
+ └─ <span class="g">Validation Runner</span> → 闸前验证（必须第一方）</div>
+<ul>
+  <li><b>MCP 工具受闸策略管</b>：lane 创建时声明工具白名单，每次调用进审计流，产物照走证据。买来的工具不可信任，但闸在自己手里。</li>
+  <li><b>验证 runner 不外包</b>：agent 干活可用任何 MCP 工具，但闸前验证由第一方 headless 调用执行，否则闸的可信度被外包。</li>
+  <li>机器人包接 ROS / 仿真工具、ML 包接实验跟踪工具时，复用同一白名单 + 审计机制。</li>
+</ul>
+
+<div class="hr" style="margin-top:50px;"></div>
+<p class="note">通过本方案后，设计顺序建议：D2 行为 Diff 评审（三领域三形态）→ D3 闸审批流 → D1 主视图修订 → D4 创建流程。术语全表见此前对话定稿的中英对照。</p>
+
+</div>
+</body>
+</html>

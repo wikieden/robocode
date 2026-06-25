@@ -9,8 +9,21 @@
 /.omx
 /.claude
 /.sixth
+/.superpowers
 .DS_Store
 .omx/
 .codegraph/
 .cursor/
 .mcp.json
+
+# design-system (node package) build + tooling artifacts; source is committed
+/design-system/node_modules
+/design-system/dist
+/design-system/storybook-static
+/design-system/ds-bundle
+# design-sync converter working state (scripts staged, reference build, caches)
+/design-system/.ds-sync
+/design-system/.design-sync/sb-reference
+/design-system/.design-sync/.cache
+/design-system/.design-sync/learnings
+/design-system/.design-sync/node_modules

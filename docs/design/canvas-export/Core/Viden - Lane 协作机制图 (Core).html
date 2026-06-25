@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>viden · Lane 协作机制图</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="i18n.js"></script>
+<script src="chrome.js"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+
+.pwrap{max-width:1500px;margin:0 auto;padding:34px 28px 90px;}
+.pkicker{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+.pkicker::before{content:"";width:26px;height:2px;background:var(--accent);}
+.ph1{font-size:36px;line-height:1.12;margin:0 0 14px;letter-spacing:-1px;font-weight:700;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:16px;color:var(--fg-secondary);max-width:920px;margin:0 0 8px;line-height:1.65;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+
+/* ===== three-layer model strip ===== */
+.modelstrip{display:flex;align-items:center;gap:0;margin:26px 0 10px;flex-wrap:wrap;}
+.mbox{background:var(--bg-panel);border:1px solid var(--border);border-radius:9px;padding:10px 16px;}
+.mbox .en{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent-bright);letter-spacing:.5px;}
+.mbox .zh{font-size:12px;color:var(--fg-secondary);margin-top:2px;}
+.mbox .sub{font-family:var(--mono);font-size:10px;color:var(--fg-faint);margin-top:4px;}
+.marr{font-family:var(--mono);color:var(--fg-faint);padding:0 13px;font-size:13px;}
+
+/* ===== legend ===== */
+.legend{display:flex;gap:22px;flex-wrap:wrap;align-items:center;margin:18px 0 30px;padding:12px 18px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:10px;}
+.lg{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--fg-secondary);}
+.lg b{color:var(--fg-primary);font-weight:600;}
+.lg .en{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.sw{width:46px;flex:none;display:flex;align-items:center;justify-content:center;}
+.sw-handoff{height:0;border-top:2px solid var(--accent);position:relative;}
+.sw-handoff::after{content:"";position:absolute;right:-2px;top:-4.5px;border:4.5px solid transparent;border-left-color:var(--accent);border-right:none;}
+.sw-review{height:0;border-top:2px dashed var(--gold);position:relative;}
+.sw-review::before,.sw-review::after{content:"";position:absolute;top:-4.5px;border:4.5px solid transparent;}
+.sw-review::after{right:-2px;border-left-color:var(--gold);border-right:none;}
+.sw-review::before{left:-2px;border-right-color:var(--gold);border-left:none;}
+.sw-dep{height:0;border-top:2px dotted var(--fg-muted);position:relative;}
+.sw-dep::after{content:"";position:absolute;right:-2px;top:-4.5px;border:4.5px solid transparent;border-left-color:var(--fg-muted);border-right:none;}
+.sw-contract{height:12px;width:46px;border-radius:3px;background:var(--bg-sel);border:1px solid var(--accent-dim);}
+.gatechip{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--gold);border:1px solid var(--gold);border-radius:4px;padding:1px 6px;background:color-mix(in srgb,var(--gold) 8%,transparent);white-space:nowrap;}
+
+/* ===== diagram board ===== */
+.board{background:var(--bg-base);border:1px solid var(--border);border-radius:14px;padding:22px 24px 28px;overflow-x:auto;}
+.grid{display:grid;grid-template-columns:86px repeat(3,1fr);gap:0 22px;min-width:1180px;}
+
+/* phase rail */
+.phase{grid-column:1;display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding-top:6px;}
+.phase .no{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent);}
+.phase .zh{font-size:12.5px;font-weight:600;color:var(--fg-primary);}
+.phase .en{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);letter-spacing:.5px;}
+
+/* lane headers */
+.lanehead{border-radius:10px;border:1px solid var(--border);background:var(--bg-panel);padding:11px 14px;position:relative;overflow:hidden;}
+.lanehead::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--lc);}
+.lanehead .r1{display:flex;align-items:center;gap:8px;font-size:13px;}
+.lanehead .lid{font-family:var(--mono);font-weight:700;color:var(--lc);}
+.lanehead .ag{font-weight:700;color:var(--fg-primary);}
+.lanehead .role{color:var(--fg-secondary);font-size:12px;}
+.lanehead .via{font-family:var(--mono);font-size:9px;font-weight:700;color:var(--accent);border:1px solid var(--accent-dim);border-radius:4px;padding:1px 5px;margin-left:auto;}
+.lanehead .r2{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-top:5px;display:flex;gap:12px;}
+.lanehead .r2 .br{color:var(--lc);}
+
+/* lane column background */
+.lanecol{position:relative;border-left:1px dashed var(--border-soft);border-right:1px dashed var(--border-soft);margin-top:-2px;}
+
+/* session card */
+.sess{background:var(--bg-panel);border:1px solid var(--border);border-radius:10px;padding:10px 13px;position:relative;}
+.sess.idle{border-style:dashed;background:transparent;}
+.sess .t{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--fg-primary);}
+.sess .sid{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--lc);border:1px solid color-mix(in srgb,var(--lc) 45%,transparent);border-radius:4px;padding:1px 5px;}
+.sess .st{width:7px;height:7px;border-radius:50%;flex:none;margin-left:auto;}
+.sess .d{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-top:5px;line-height:1.6;}
+.sess .d .hl{color:var(--fg-secondary);}
+.sess.idle .t{color:var(--fg-muted);font-weight:500;}
+.sess .inchip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9.5px;color:var(--gold);border:1px dashed color-mix(in srgb,var(--gold) 50%,transparent);border-radius:5px;padding:2px 7px;margin-top:7px;}
+.art{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;color:var(--accent-bright);background:var(--bg-elev);border:1px solid var(--border);border-radius:6px;padding:3px 8px;margin-top:8px;}
+.art .k{color:var(--fg-faint);}
+
+/* vertical connectors */
+.vcon{display:flex;flex-direction:column;align-items:center;height:46px;justify-content:center;position:relative;}
+.vcon .line{width:0;flex:1;border-left:2px solid var(--accent);}
+.vcon .line.dep{border-left-style:dotted;border-left-color:var(--fg-muted);}
+.vcon .head{border:5px solid transparent;border-top-color:var(--accent);border-bottom:none;margin-top:-1px;}
+.vcon .head.dep{border-top-color:var(--fg-muted);}
+.vcon .lab{position:absolute;left:50%;transform:translateX(12px);top:50%;margin-top:-9px;font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);white-space:nowrap;}
+.vcon .lab b{color:var(--accent);font-weight:600;}
+.vcon .lab b.dep{color:var(--fg-secondary);}
+
+/* milestone / contract bar */
+.milestone{grid-column:2 / -1;background:var(--bg-sel);border:1px solid var(--accent-dim);border-radius:10px;padding:10px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.milestone .ic{font-size:14px;}
+.milestone .nm{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent-bright);}
+.milestone .zh{font-size:12px;color:var(--fg-primary);font-weight:600;}
+.milestone .meta{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-left:auto;display:flex;gap:12px;align-items:center;}
+.milestone.merge{background:color-mix(in srgb,var(--success) 7%,transparent);border-color:color-mix(in srgb,var(--success) 45%,transparent);}
+.milestone.merge .nm{color:var(--success);}
+
+/* cross review bar */
+.xrev{grid-column:3 / 5;display:flex;flex-direction:column;align-items:stretch;margin:2px 30px;}
+.xrev .ticks{display:flex;justify-content:space-between;padding:0 18%;}
+.xrev .tick{width:0;height:14px;border-left:2px dashed var(--gold);}
+.xrev .bar{display:flex;align-items:center;}
+.xrev .seg{flex:1;height:0;border-top:2px dashed var(--gold);position:relative;}
+.xrev .seg.l::before{content:"";position:absolute;left:-2px;top:-5px;border:5px solid transparent;border-right-color:var(--gold);border-left:none;}
+.xrev .seg.r::after{content:"";position:absolute;right:-2px;top:-5px;border:5px solid transparent;border-left-color:var(--gold);border-right:none;}
+.xrev .mid{flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;}
+.xrev .mid .zh{font-size:12px;font-weight:700;color:var(--gold-bright);white-space:nowrap;}
+.xrev .mid .en{font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);white-space:nowrap;}
+.xrev .note{text-align:center;font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);margin-top:6px;}
+
+.spacer-row{height:18px;}
+.cell{display:flex;flex-direction:column;}
+
+/* ===== primitive definition cards ===== */
+.prims{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:34px;}
+.prim{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:14px 16px;}
+.prim .h{display:flex;align-items:center;gap:9px;margin-bottom:7px;}
+.prim .h .swh{width:34px;}
+.prim .h .zh{font-size:14px;font-weight:700;color:var(--fg-primary);}
+.prim .h .en{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.prim p{margin:0;font-size:12px;color:var(--fg-secondary);line-height:1.65;text-wrap:pretty;}
+.prim p b{color:var(--fg-primary);font-weight:600;}
+.prim .ex{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-top:8px;border-top:1px dashed var(--border-soft);padding-top:7px;line-height:1.6;}
+.prim .ex .a{color:var(--accent);}
+
+/* ===== decisions ===== */
+.decs{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:14px;}
+.dec{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:13px 16px;}
+.dec .q{font-size:12.5px;font-weight:700;color:var(--fg-primary);margin-bottom:6px;}
+.dec .pick{font-size:12px;color:var(--fg-secondary);line-height:1.6;}
+.dec .pick .tag{font-family:var(--mono);font-size:9.5px;font-weight:700;color:var(--success);border:1px solid color-mix(in srgb,var(--success) 45%,transparent);border-radius:4px;padding:1px 6px;margin-right:6px;}
+.secthead{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--fg-muted);margin:36px 0 12px;display:flex;align-items:center;gap:10px;}
+.secthead::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+
+.footnote{margin-top:30px;font-family:var(--mono);font-size:11px;color:var(--fg-faint);line-height:1.7;}
+.footnote .a{color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="pwrap">
+
+  <div class="pkicker">viden · collaboration model · draft 01</div>
+  <h1 class="ph1">Lane 协作机制图 <span class="ac">Lane Collaboration Map</span></h1>
+  <p class="plead">场景：<b>同一工程</b>下，claude 负责产品设计，codex 与 kiro 并行开发并<b>交叉评审</b>技术方案。Lane 之间不直接修改对方代码 —— <b>产物（artifact）穿过 lane 边界时必须经过审批闸（gate）</b>，共识沉淀为契约（contract），时间自上而下。</p>
+
+  <div class="modelstrip" data-screen-label="三层结构">
+    <div class="mbox"><div class="en">Project</div><div class="zh">工程 · 一个 git 仓库</div><div class="sub">viden/</div></div>
+    <div class="marr">─┬─▶</div>
+    <div class="mbox"><div class="en">Lane</div><div class="zh">泳道 · 角色工位，agent 长期坐镇</div><div class="sub">独立 worktree + 分支</div></div>
+    <div class="marr">─┬─▶</div>
+    <div class="mbox"><div class="en">Session</div><div class="zh">会话 · lane 内一次具体任务，可多开</div><div class="sub">S1 / S2 / …</div></div>
+    <div class="marr">─┬─▶</div>
+    <div class="mbox"><div class="en">Subagent</div><div class="zh">子智能体 · 会话内编排的下级</div><div class="sub">planner / editor / test</div></div>
+  </div>
+
+  <div class="legend" data-screen-label="图例">
+    <div class="lg"><span class="sw"><span class="sw-handoff" style="width:46px;"></span></span><b>交接</b><span class="en">handoff</span></div>
+    <div class="lg"><span class="sw"><span class="sw-review" style="width:46px;"></span></span><b>评审请求</b><span class="en">review request</span></div>
+    <div class="lg"><span class="sw"><span class="sw-dep" style="width:46px;"></span></span><b>依赖</b><span class="en">dependency</span></div>
+    <div class="lg"><span class="sw sw-contract"></span><b>契约</b><span class="en">contract · 单一事实来源</span></div>
+    <div class="lg"><span class="gatechip">⏸ GATE</span><b>审批闸</b><span class="en">产物跨边界必经</span></div>
+  </div>
+
+  <div class="board" data-screen-label="协作泳道图">
+    <div class="grid">
+
+      <!-- ===== lane headers ===== -->
+      <div></div>
+      <div class="lanehead" style="--lc:var(--gold);">
+        <div class="r1"><span class="lid">L1</span><span class="ag">claude</span><span class="role">· 设计 design</span><span class="via">ACP</span></div>
+        <div class="r2"><span class="br">⎇ vd/design</span><span>claude-code</span><span>sessions · 2</span></div>
+      </div>
+      <div class="lanehead" style="--lc:var(--accent);">
+        <div class="r1"><span class="lid">L2</span><span class="ag">codex</span><span class="role">· 开发 dev</span><span class="via">ACP</span></div>
+        <div class="r2"><span class="br">⎇ vd/core</span><span>codex-cli</span><span>sessions · 2</span></div>
+      </div>
+      <div class="lanehead" style="--lc:var(--progress);">
+        <div class="r1"><span class="lid">L3</span><span class="ag">kiro</span><span class="role">· 开发 dev</span><span class="via">ACP</span></div>
+        <div class="r2"><span class="br">⎇ vd/cli</span><span>kiro-cli</span><span>sessions · 2</span></div>
+      </div>
+
+      <div class="spacer-row" style="grid-column:1/-1;"></div>
+
+      <!-- ===== phase 1: design ===== -->
+      <div class="phase"><span class="no">①</span><span class="zh">设计</span><span class="en">DESIGN</span></div>
+      <div class="cell" style="--lc:var(--gold);">
+        <div class="sess">
+          <div class="t"><span class="sid">S1</span>产品设计<span class="st" style="background:var(--success);"></span></div>
+          <div class="d">交互稿 + 信息架构 · <span class="hl">claude-sonnet</span></div>
+          <div class="art"><span class="k">artifact</span> design-spec.md <span style="color:var(--success);">done</span></div>
+        </div>
+      </div>
+      <div class="cell" style="--lc:var(--accent);">
+        <div class="sess idle"><div class="t"><span class="sid">—</span>等待依赖 waiting on ①</div></div>
+      </div>
+      <div class="cell" style="--lc:var(--progress);">
+        <div class="sess idle"><div class="t"><span class="sid">—</span>等待依赖 waiting on ①</div></div>
+      </div>
+
+      <!-- handoff into contract -->
+      <div></div>
+      <div class="vcon"><div class="line"></div><div class="head"></div><div class="lab"><b>交接 handoff</b> · <span class="gatechip">⏸ 人工批准</span></div></div>
+      <div></div>
+      <div></div>
+
+      <!-- ===== milestone: design contract ===== -->
+      <div class="phase"><span class="no">◆</span><span class="zh">契约</span><span class="en">CONTRACT</span></div>
+      <div class="milestone">
+        <span class="ic">📜</span>
+        <span class="nm">contracts/design-spec.md</span>
+        <span class="zh">设计契约定稿 v1.0</span>
+        <span class="meta"><span>所有 lane 只读引用 · 修改需走评审闸</span><span class="gatechip">⏸ GATE</span></span>
+      </div>
+
+      <!-- dependency arrows down to dev lanes -->
+      <div></div>
+      <div></div>
+      <div class="vcon"><div class="line dep"></div><div class="head dep"></div><div class="lab"><b class="dep">依赖 dependency</b></div></div>
+      <div class="vcon"><div class="line dep"></div><div class="head dep"></div><div class="lab"><b class="dep">依赖 dependency</b></div></div>
+
+      <!-- ===== phase 2: tech plan ===== -->
+      <div class="phase"><span class="no">②</span><span class="zh">方案</span><span class="en">PLAN</span></div>
+      <div class="cell" style="--lc:var(--gold);">
+        <div class="sess idle"><div class="t"><span class="sid">—</span>待命 standby · 可随时被问询</div></div>
+      </div>
+      <div class="cell" style="--lc:var(--accent);">
+        <div class="sess">
+          <div class="t"><span class="sid">S1</span>技术方案 · 核心模块<span class="st" style="background:var(--success);"></span></div>
+          <div class="d">读取设计契约 → 拆解 core 架构 · <span class="hl">gpt-5-codex</span></div>
+          <div class="art"><span class="k">artifact</span> tech-plan-core.md</div>
+        </div>
+      </div>
+      <div class="cell" style="--lc:var(--progress);">
+        <div class="sess">
+          <div class="t"><span class="sid">S1</span>技术方案 · CLI 模块<span class="st" style="background:var(--success);"></span></div>
+          <div class="d">读取设计契约 → 拆解 cli 架构 · <span class="hl">kiro-agent</span></div>
+          <div class="art"><span class="k">artifact</span> tech-plan-cli.md</div>
+        </div>
+      </div>
+
+      <!-- ===== phase 3: cross review ===== -->
+      <div class="phase" style="padding-top:14px;"><span class="no">③</span><span class="zh">交叉评审</span><span class="en">X-REVIEW</span></div>
+      <div></div>
+      <div class="xrev">
+        <div class="ticks"><span class="tick"></span><span class="tick"></span></div>
+        <div class="bar">
+          <span class="seg l"></span>
+          <span class="mid"><span class="zh">交叉评审</span><span class="gatechip">⏸ ×2</span><span class="en">review request · 双向</span></span>
+          <span class="seg r"></span>
+        </div>
+        <div class="note">codex 评 kiro 的方案 ⇄ kiro 评 codex 的方案 · 双方批准后方案才能定稿</div>
+      </div>
+
+      <!-- handoff into tech contract -->
+      <div></div>
+      <div></div>
+      <div class="vcon"><div class="line"></div><div class="head"></div><div class="lab"><b>交接 handoff</b></div></div>
+      <div class="vcon"><div class="line"></div><div class="head"></div></div>
+
+      <!-- ===== milestone: tech plan contract ===== -->
+      <div class="phase"><span class="no">◆</span><span class="zh">契约</span><span class="en">CONTRACT</span></div>
+      <div class="milestone">
+        <span class="ic">📜</span>
+        <span class="nm">contracts/tech-plan.md</span>
+        <span class="zh">技术方案定稿 v1.0 · 含 core + cli 两部分</span>
+        <span class="meta"><span>评审通过才合入</span><span class="gatechip">⏸ GATE</span></span>
+      </div>
+
+      <!-- dependency to implementation -->
+      <div></div>
+      <div></div>
+      <div class="vcon"><div class="line dep"></div><div class="head dep"></div><div class="lab"><b class="dep">依赖</b></div></div>
+      <div class="vcon"><div class="line dep"></div><div class="head dep"></div><div class="lab"><b class="dep">依赖</b></div></div>
+
+      <!-- ===== phase 4: implementation ===== -->
+      <div class="phase"><span class="no">④</span><span class="zh">实现</span><span class="en">BUILD</span></div>
+      <div class="cell" style="--lc:var(--gold);">
+        <div class="sess">
+          <div class="t"><span class="sid">S2</span>设计跟进<span class="st" style="background:var(--progress);"></span></div>
+          <div class="d">解答实现中的设计问题 · 微调契约走小闸</div>
+          <span class="inchip">⇠ 问询 query · 来自 L3 kiro</span>
+        </div>
+      </div>
+      <div class="cell" style="--lc:var(--accent);">
+        <div class="sess">
+          <div class="t"><span class="sid">S2</span>实现 · core<span class="st" style="background:var(--gold);"></span></div>
+          <div class="d">在 <span class="hl">⎇ vd/core</span> worktree 内自由提交</div>
+          <div class="art"><span class="k">patch</span> +124 −31 · 测试通过</div>
+        </div>
+      </div>
+      <div class="cell" style="--lc:var(--progress);">
+        <div class="sess">
+          <div class="t"><span class="sid">S2</span>实现 · cli<span class="st" style="background:var(--gold);"></span></div>
+          <div class="d">在 <span class="hl">⎇ vd/cli</span> worktree 内自由提交</div>
+          <div class="art"><span class="k">patch</span> +86 −12 · 测试通过</div>
+        </div>
+      </div>
+
+      <!-- handoff to integration -->
+      <div></div>
+      <div></div>
+      <div class="vcon"><div class="line"></div><div class="head"></div><div class="lab"><b>交接 handoff</b> · <span class="gatechip">⏸</span></div></div>
+      <div class="vcon"><div class="line"></div><div class="head"></div><div class="lab"><b>交接 handoff</b> · <span class="gatechip">⏸</span></div></div>
+
+      <!-- ===== phase 5: integration ===== -->
+      <div class="phase"><span class="no">⑤</span><span class="zh">集成</span><span class="en">MERGE</span></div>
+      <div class="milestone merge">
+        <span class="ic">⛙</span>
+        <span class="nm">集成闸 integration gate</span>
+        <span class="zh">⎇ vd/core + ⎇ vd/cli → main · diff review 后由人合并</span>
+        <span class="meta"><span>冲突时退回对应 lane 修复</span><span class="gatechip">⏸ 人工批准</span></span>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="secthead">四个协作原语 · collaboration primitives</div>
+  <div class="prims" data-screen-label="协作原语">
+    <div class="prim">
+      <div class="h"><span class="sw swh"><span class="sw-handoff" style="width:34px;"></span></span><span class="zh">交接</span><span class="en">handoff</span></div>
+      <p>把<b>产物</b>从一条 lane 推给另一条，触发对方开新 session。单向、有明确的交付物。</p>
+      <div class="ex"><span class="a">L1</span> design-spec → <span class="a">L2/L3</span> 开工</div>
+    </div>
+    <div class="prim">
+      <div class="h"><span class="sw swh"><span class="sw-review" style="width:34px;"></span></span><span class="zh">评审请求</span><span class="en">review request</span></div>
+      <p>A 的产出送 B 给意见或批准，<b>带审批闸</b>。任何 lane 都能向任何 lane 发起 —— 评审是动作不是角色。</p>
+      <div class="ex"><span class="a">L2</span> ⇄ <span class="a">L3</span> 互评技术方案</div>
+    </div>
+    <div class="prim">
+      <div class="h"><span class="sw swh sw-contract" style="width:34px;"></span><span class="zh">契约</span><span class="en">contract</span></div>
+      <p>所有 lane 共享的<b>单一事实来源</b>，存放于 <code style="font-family:var(--mono);font-size:11px;">contracts/</code>。只读引用，修改必须走评审闸。</p>
+      <div class="ex">design-spec.md · tech-plan.md</div>
+    </div>
+    <div class="prim">
+      <div class="h"><span class="sw swh"><span class="sw-dep" style="width:34px;"></span></span><span class="zh">依赖</span><span class="en">dependency</span></div>
+      <p>B 的 session <b>阻塞</b>在 A 的产出上，A 的契约定稿后自动解锁。驾驶舱里表现为 lane 的 waiting 状态。</p>
+      <div class="ex">L2/L3 方案 ← 依赖 → 设计契约 v1.0</div>
+    </div>
+  </div>
+
+  <div class="secthead">三个已选定的设计决策 · decisions</div>
+  <div class="decs" data-screen-label="设计决策">
+    <div class="dec">
+      <div class="q">隔离 vs 共享工作区？</div>
+      <div class="pick"><span class="tag">已选 A</span>每条 lane 独立 worktree + 分支，天然防冲突；最后经集成闸合并，冲突退回原 lane。</div>
+    </div>
+    <div class="dec">
+      <div class="q">评审是角色还是动作？</div>
+      <div class="pick"><span class="tag">已选 动作</span>任何 lane 可向任何 lane 发评审请求；也可把某条 lane 标记为常驻评审职责。</div>
+    </div>
+    <div class="dec">
+      <div class="q">谁来编排协作？</div>
+      <div class="pick"><span class="tag">先 手动</span>人在驾驶舱里点交接 / 批闸；自动编排（orchestrator lane）留作 v2。</div>
+    </div>
+  </div>
+
+  <div class="footnote">备注 · 时间自上而下；同一相位内各 lane 并行。lane 内多 session（S1/S2…）可同时活跃 —— 如 ④ 中 L1 在「设计跟进」的同时，L2/L3 各自实现。<span class="a">所有跨 lane 的线都至少经过一个 ⏸ 闸</span>，lane 内部（session → subagent）则完全自治。</div>
+
+</div>
+</body>
+</html>

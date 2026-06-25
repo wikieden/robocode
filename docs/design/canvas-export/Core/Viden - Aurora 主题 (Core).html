@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-density="compact">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>viden · Aurora Cockpit Theme</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../tokens.css">
+<script src="i18n.js"></script>
+<style>
+/* ============================================================
+   viden — Aurora Cockpit Theme — Spec Sheet
+   ============================================================ */
+/* 设计 Token 单一真源 → ../tokens.css
+   颜色(6 套皮肤)/ 字体 / 间距 / 圆角 / 阴影 / 密度全在那里;本页只用 var(--*)。
+   data-theme(dark|light|amber|phosphor|ice|mono) / data-density 在 <html> 上声明。 */
+
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0;background:var(--page-bg);color:var(--page-ink);
+  font-family:var(--sans);font-size:15px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  transition:background .25s,color .25s;
+}
+
+/* ---------------- Top nav ---------------- */
+.topnav{
+  position:sticky;top:0;z-index:50;
+  display:flex;align-items:center;gap:18px;
+  padding:12px 28px;
+  background:color-mix(in srgb,var(--page-bg) 86%,transparent);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--page-line);
+}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-weight:800;font-size:15px;letter-spacing:.5px;}
+.brand .r{color:var(--gold);}
+.brand .c{color:var(--accent);}
+.brand .sep{color:var(--page-ink-dim);font-weight:400;}
+.brand .tag{color:var(--page-ink-dim);font-weight:500;font-size:12px;}
+.navlinks{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap;}
+.navlinks a{
+  color:var(--page-ink-dim);text-decoration:none;font-size:12.5px;font-weight:500;
+  padding:5px 11px;border-radius:6px;font-family:var(--mono);letter-spacing:.2px;
+}
+.navlinks a:hover{color:var(--page-ink);background:var(--page-card);}
+.toggle{
+  display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+  font-family:var(--mono);font-size:12px;font-weight:600;color:var(--page-ink);
+  border:1px solid var(--page-line);background:var(--page-card);
+  padding:6px 12px;border-radius:7px;
+}
+.toggle .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);}
+
+/* ---------------- Layout ---------------- */
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px 120px;}
+section{padding-top:64px;}
+.kicker{
+  font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:2.5px;
+  text-transform:uppercase;color:var(--accent);margin:0 0 10px;
+  display:flex;align-items:center;gap:10px;
+}
+.kicker::before{content:"";width:26px;height:2px;background:var(--accent);display:inline-block;}
+h1{font-size:42px;line-height:1.1;margin:0 0 18px;letter-spacing:-1px;font-weight:700;}
+h1 .ac{color:var(--accent);}
+h2{font-size:27px;margin:0 0 8px;letter-spacing:-.4px;font-weight:700;}
+.lead{font-size:17px;color:var(--page-ink-dim);max-width:760px;margin:0 0 26px;}
+.note{font-size:13.5px;color:var(--page-ink-dim);}
+.mono{font-family:var(--mono);}
+
+/* hero */
+.hero{padding-top:42px;}
+.metaline{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:22px;font-family:var(--mono);font-size:12.5px;color:var(--page-ink-dim);}
+.metaline b{color:var(--page-ink);font-weight:600;}
+
+/* reasoning cards */
+.reasoning{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:8px;}
+.rcard{
+  background:var(--page-card);border:1px solid var(--page-line);border-radius:10px;
+  padding:18px 20px;
+}
+.rcard h3{margin:0 0 7px;font-size:14.5px;font-family:var(--mono);color:var(--accent);letter-spacing:.3px;}
+.rcard p{margin:0;font-size:13.5px;color:var(--page-ink-dim);line-height:1.65;}
+.rcard p b{color:var(--page-ink);font-weight:600;}
+
+/* ============================================================
+   TUI MOCK  (faithful monospace character-grid cockpit)
+   ============================================================ */
+.tui{
+  font-family:var(--mono);font-size:13px;line-height:1.5;
+  background:var(--bg-base);color:var(--fg-primary);
+  border:1px solid var(--border);border-radius:4px;
+  padding:0;overflow:hidden;
+  --row:21px;
+  box-shadow:var(--shadow-md);
+}
+.tui.win{border-radius:9px;}
+.tui-chrome{
+  display:flex;align-items:center;gap:8px;height:34px;padding:0 14px;
+  background:var(--bg-void);border-bottom:1px solid var(--border);
+}
+.tlights{display:flex;gap:7px;}
+.tlights i{width:11px;height:11px;border-radius:50%;display:block;}
+.tlights .l1{background:var(--error);}.tlights .l2{background:var(--warning);}.tlights .l3{background:var(--success);}
+.tlabel{margin-left:6px;font-size:11.5px;color:var(--fg-muted);letter-spacing:.4px;}
+
+.tui-screen{padding:9px 11px 11px;}
+/* main cockpit: fixed-height window so the status bar pins to the bottom edge */
+#cockpitMock .tui-screen{display:flex;flex-direction:column;height:640px;padding-bottom:7px;}
+#cockpitMock .c-body{flex:1;min-height:0;overflow:hidden;}
+#cockpitMock .c-body > *{min-height:0;overflow:hidden;}
+#cockpitMock .c-statusbar{margin-top:auto;}
+#cockpitMock .composer{margin-top:var(--c-gap);}
+
+/* generic colored text */
+.k-accent{color:var(--accent);}
+.k-bright{color:var(--accent-bright);}
+.k-gold{color:var(--gold);}
+.k-goldb{color:var(--gold-bright);}
+.k-success{color:var(--success);}
+.k-warn{color:var(--warning);}
+.k-error{color:var(--error);}
+.k-prog{color:var(--progress);}
+.k-pri{color:var(--fg-primary);}
+.k-sec{color:var(--fg-secondary);}
+.k-mut{color:var(--fg-muted);}
+.k-faint{color:var(--fg-faint);}
+.b{font-weight:700;}
+
+/* top status bar of cockpit — single bottom rule, no full box */
+.c-topbar{
+  display:flex;align-items:center;gap:14px;flex-wrap:nowrap;overflow:hidden;
+  border:none;border-bottom:1px solid var(--border);background:transparent;
+  padding:5px 4px 7px;border-radius:0;margin-bottom:var(--topbar-mb);
+}
+.c-topbar .chip{white-space:nowrap;}
+.c-topbar .wm{font-weight:800;letter-spacing:.3px;}
+.c-topbar .ver{color:var(--gold);font-weight:600;}
+.chip{color:var(--fg-secondary);}
+.chip b{color:var(--gold);font-weight:600;}
+.chip .lbl{color:var(--accent);}
+.dotp{color:var(--progress);}
+.spacer{margin-left:auto;}
+.rail-toggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;border:1px solid var(--border);border-radius:3px;padding:2px 8px;color:var(--fg-secondary);font-size:11px;user-select:none;}
+.rail-toggle:hover{border-color:var(--accent-dim);color:var(--accent);}
+.rail-toggle .rt-ic{color:var(--accent);}
+
+/* cockpit body grid */
+.c-body{display:grid;grid-template-columns:1fr 326px;gap:var(--c-gap);transition:grid-template-columns .2s ease;}
+.c-body.railhidden{grid-template-columns:1fr 0fr;}
+.c-body.railhidden > .railwrap{opacity:0;overflow:hidden;pointer-events:none;}
+.c-body > .railwrap{transition:opacity .15s ease;min-width:0;}
+@media(max-width:880px){.c-body{grid-template-columns:1fr;}}
+
+/* lean panels: line dividers instead of full boxes */
+.panel{
+  position:relative;border:none;border-radius:0;
+  background:transparent;padding:2px var(--panel-pad-x) 0 0;
+}
+.panel.rail{background:transparent;padding:8px 0;border-bottom:1px solid var(--border);}
+.railwrap .panel.rail:last-child{border-bottom:none;}
+.railwrap{border-left:1px solid var(--border);padding-left:13px;}
+.panel > .ptitle{
+  position:static;display:inline-block;padding:0;margin-bottom:5px;
+  background:transparent;font-size:11px;letter-spacing:1.5px;font-weight:700;
+  color:var(--accent-bright);
+}
+.panel.rail > .ptitle{background:transparent;}
+.panel > .pcount{
+  position:static;float:right;padding:0;font-size:11px;font-weight:700;
+}
+.panel.focused{border-color:var(--border-active);}
+
+/* transcript */
+.tr-row{display:flex;gap:0;}
+.tr-gut{width:20px;flex:none;color:var(--fg-muted);text-align:center;}
+.tr-rail{width:11px;flex:none;color:var(--accent-dim);}
+.tr-body{flex:1;min-width:0;}
+.tr-head{display:flex;justify-content:space-between;align-items:baseline;}
+.tr-role{font-weight:700;letter-spacing:1px;white-space:nowrap;}
+.tr-id{color:var(--fg-muted);font-size:12px;}
+.tr-text{color:var(--fg-primary);}
+.tr-div{color:var(--accent-dim);user-select:none;white-space:nowrap;overflow:hidden;}
+
+/* LIVE WORK strip */
+.livework{
+  border:1px solid var(--accent-dim);border-radius:6px;
+  background:color-mix(in srgb,var(--accent) 7%,var(--bg-base));
+  padding:7px 11px;margin-top:var(--c-gap);
+}
+.livework .lw-title{color:var(--accent-bright);font-weight:700;letter-spacing:1px;font-size:11.5px;}
+.livework .lw-main{color:var(--accent);font-weight:600;margin-top:2px;}
+.livework .lw-main .pulse{color:var(--progress);}
+.livework .lw-meta{color:var(--fg-muted);font-size:12px;margin-top:2px;}
+.livework .lw-meta b{color:var(--fg-secondary);font-weight:600;}
+.livework .lw-faint{color:var(--fg-faint);font-size:12px;}
+
+/* rail rows */
+.kv{display:flex;justify-content:space-between;gap:10px;white-space:nowrap;align-items:baseline;}
+.kv .kk{color:var(--fg-secondary);flex:none;}
+.kv .vv{color:var(--fg-primary);min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:right;}
+.rrow{display:flex;gap:7px;align-items:baseline;white-space:nowrap;overflow:hidden;}
+.rrow > *{flex:none;}
+.rrow > :last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;}
+.task-pct{color:var(--progress);font-weight:600;}
+.bar{height:5px;border-radius:2px;background:var(--bg-void);overflow:hidden;margin-top:3px;border:1px solid var(--border);}
+.bar > i{display:block;height:100%;background:var(--progress);}
+
+/* selector highlight row — the load-bearing element */
+.sel-list{border:1px solid var(--border);border-radius:3px;background:var(--bg-base);overflow:hidden;}
+.sel-row{display:flex;gap:10px;padding:3px 12px;color:var(--fg-secondary);white-space:nowrap;overflow:hidden;}
+.sel-row .cmd{color:var(--fg-secondary);flex:none;}
+.sel-row .desc{margin-left:auto;color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis;}
+.sel-row.on{
+  background:var(--bg-sel);
+  box-shadow:inset 3px 0 0 var(--accent);
+}
+.sel-row.on .cmd{color:var(--accent-bright);font-weight:700;}
+.sel-row.on .desc{color:var(--accent);}
+.sel-row.on .mk{color:var(--accent-bright);}
+.sel-row .mk{color:transparent;width:8px;}
+
+/* composer — top rule only, no full box */
+.composer{
+  border:none;border-top:1px solid var(--border);border-radius:0;background:transparent;
+  margin-top:var(--c-gap);position:relative;
+}
+.composer .cinput{display:flex;align-items:flex-start;gap:10px;padding:9px 2px 5px;}
+.composer .ctext{min-height:calc(2 * 1.5em);}
+.composer .cprompt,.composer .modepill{flex:none;}
+.composer .cprompt{color:var(--accent);}
+.composer .ctext{color:var(--fg-primary);flex:1;}
+.composer .ph{color:var(--fg-muted);}
+.cur{display:inline-block;width:8px;height:15px;background:var(--accent-bright);vertical-align:-3px;margin-left:1px;animation:blink 1.1s steps(1) infinite;}
+@keyframes blink{50%{opacity:0;}}
+.composer .modepill{border:1px solid var(--border);border-radius:3px;padding:2px 9px;color:var(--gold);font-weight:600;cursor:pointer;white-space:nowrap;position:relative;}
+.composer .modepill:hover{border-color:var(--gold);}
+.composer .modepill.perm{color:var(--warning);}
+/* TUI mode selector popup — box-drawing + reverse-video highlight */
+.mode-pop{position:absolute;bottom:calc(100% + 6px);right:0;min-width:236px;
+  border:1px solid var(--gold);background:var(--bg-elev);
+  box-shadow:var(--shadow-pop);z-index:40;padding:0;text-align:left;
+  font-weight:400;cursor:default;display:none;}
+.composer .modepill.open .mode-pop{display:block;}
+.mode-pop .mp-head{display:flex;gap:8px;align-items:center;padding:5px 10px;border-bottom:1px solid var(--border);color:var(--gold);font-size:11px;letter-spacing:1px;}
+.mode-pop .mp-head .x{margin-left:auto;color:var(--fg-muted);}
+.mode-pop .mp-row{display:flex;gap:9px;align-items:baseline;padding:4px 10px;color:var(--fg-secondary);}
+.mode-pop .mp-row .ky{color:var(--gold);width:10px;flex:none;}
+.mode-pop .mp-row .nm{color:var(--fg-primary);font-weight:600;width:54px;flex:none;}
+.mode-pop .mp-row .ds{color:var(--fg-muted);font-size:12px;}
+.mode-pop .mp-row .mk{width:8px;flex:none;color:transparent;}
+.mode-pop .mp-row.on{background:var(--bg-sel);box-shadow:inset 3px 0 0 var(--gold);}
+.mode-pop .mp-row.on .nm{color:var(--gold-bright);}
+.mode-pop .mp-row.on .ds{color:var(--gold);}
+.mode-pop .mp-row.on .mk{color:var(--gold-bright);}
+.mode-pop .mp-foot{padding:4px 10px 6px;border-top:1px solid var(--border);color:var(--fg-muted);font-size:11.5px;}
+.mode-pop .mp-foot b{color:var(--gold);font-weight:600;}
+
+/* merged + scrolling bottom status bar — top rule only, no full box */
+.c-statusbar{display:flex;align-items:center;gap:11px;height:24px;margin-top:6px;padding:0 2px;
+  border:none;border-top:1px solid var(--border);border-radius:0;background:transparent;
+  color:var(--fg-secondary);font-size:12px;overflow:hidden;}
+.sb-fixed{display:flex;align-items:center;gap:8px;flex:none;}
+.sb-fixed .sd{color:var(--gold);}
+.sb-fixed .ok{color:var(--success);font-weight:600;}
+.sb-gear{color:var(--fg-muted);cursor:pointer;border-left:1px solid var(--border);padding-left:9px;user-select:none;}
+.sb-gear:hover{color:var(--accent);}
+.sb-ticker{flex:1;overflow:hidden;
+  -webkit-mask-image:linear-gradient(90deg,transparent,black 3%,black 97%,transparent);
+  mask-image:linear-gradient(90deg,transparent,black 3%,black 97%,transparent);}
+.sb-track{display:inline-flex;white-space:nowrap;animation:ticker 28s linear infinite;}
+.sb-track:hover{animation-play-state:paused;}
+@keyframes ticker{from{transform:translateX(0);}to{transform:translateX(-50%);}}
+.sb-item{padding:0 13px;}
+.sb-item .lbl{color:var(--fg-muted);}
+.sb-item .v{color:var(--fg-primary);}
+.sb-item b{color:var(--accent);font-weight:600;}
+.sb-sep{color:var(--fg-faint);}
+.sb-help{flex:none;color:var(--gold);padding-left:2px;}
+
+/* approval modal — authentic TUI: square, box-drawing, selector-style actions */
+.modal-stage{position:relative;}
+.scrim{position:absolute;inset:0;background:color-mix(in srgb,var(--bg-void) 62%,transparent);border-radius:3px;}
+.approval{
+  position:relative;border:1px solid var(--warning);border-radius:0;
+  background:var(--bg-elev);
+  box-shadow:var(--shadow-pop);
+  padding:0;overflow:hidden;
+}
+.ap-head{display:flex;align-items:center;gap:10px;padding:9px 13px;background:color-mix(in srgb,var(--warning) 12%,var(--bg-elev));border-bottom:1px solid color-mix(in srgb,var(--warning) 40%,transparent);}
+.ap-head .badge{color:var(--bg-void);background:var(--warning);font-weight:700;padding:1px 8px;border-radius:0;font-size:11px;letter-spacing:1px;}
+.ap-head .title{color:var(--fg-primary);font-weight:700;}
+.ap-head .perm{margin-left:auto;color:var(--warning);font-weight:600;}
+.ap-body{padding:11px 13px 12px;}
+.diffbox{border:1px solid var(--border);border-radius:0;background:var(--bg-base);padding:8px 11px;margin:8px 0 11px;}
+.dl-add{color:var(--success);}
+.dl-del{color:var(--error);}
+.dl-ctx{color:var(--fg-muted);}
+.dl-hdr{color:var(--accent);}
+/* TUI action menu (keyboard-first, reverse-video focus) */
+.ap-acts{display:flex;gap:0;flex-wrap:wrap;border:1px solid var(--border);}
+.tact{font-family:var(--mono);font-size:12.5px;font-weight:600;padding:6px 14px;color:var(--fg-secondary);border-right:1px solid var(--border);display:flex;align-items:center;gap:7px;cursor:pointer;}
+.tact:last-child{border-right:none;}
+.tact .ky{color:var(--accent);}
+.tact.deny .ky{color:var(--error);}
+.tact.focus{background:var(--bg-sel);color:var(--accent-bright);box-shadow:inset 3px 0 0 var(--accent);}
+.tact.focus .ky{color:var(--accent-bright);}
+.tact:hover:not(.focus){background:color-mix(in srgb,var(--bg-sel) 55%,transparent);color:var(--fg-primary);}
+.ap-hint{font-family:var(--mono);font-size:11.5px;color:var(--fg-muted);margin-top:10px;line-height:1.5;}
+.ap-hint b{color:var(--gold);font-weight:600;}
+.checkrow{display:flex;align-items:center;gap:8px;color:var(--fg-secondary);margin-bottom:10px;font-size:12.5px;}
+.checkrow .box{color:var(--accent);}
+
+/* welcome */
+.welcome{
+  background:radial-gradient(120% 90% at 50% 0%,color-mix(in srgb,var(--accent) 7%,var(--bg-base)),var(--bg-base) 62%);
+  border:1px solid var(--border);border-radius:4px;padding:40px 20px 22px;text-align:center;
+}
+.robot{font-family:var(--mono);white-space:pre;color:var(--accent);font-size:14px;line-height:1.15;display:inline-block;text-align:left;text-shadow:0 0 16px color-mix(in srgb,var(--accent) 45%,transparent);}
+.robot .eye{color:var(--accent-bright);font-weight:700;}
+.robot .base{color:var(--accent-dim);}
+.welcome .wtag{font-family:var(--mono);color:var(--fg-muted);margin-top:18px;font-size:13px;letter-spacing:.5px;}
+.welcome .wtag b .r{color:var(--gold);font-weight:700;}
+.welcome .wtag b .c{color:var(--accent);font-weight:700;}
+
+/* ===== TUI LANE MONITOR MODE ===== */
+.lm-banner{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);padding:4px 4px 7px;margin-bottom:7px;white-space:nowrap;overflow:hidden;}
+.lm-banner .mode{background:var(--accent);color:var(--bg-void);font-weight:700;font-size:11px;letter-spacing:1px;padding:1px 8px;flex:none;}
+.lm-banner .msub{color:var(--fg-secondary);font-size:12px;overflow:hidden;text-overflow:ellipsis;}
+.lm-banner .esc{margin-left:auto;color:var(--fg-muted);font-size:12px;flex:none;}
+.lm-banner .esc b{color:var(--gold);font-weight:600;}
+.lm-grid{display:grid;grid-template-columns:292px 1fr;}
+.lm-left{padding-right:10px;}
+.lm-right{border-left:1px solid var(--border);padding-left:13px;min-width:0;}
+.lm-htitle{font-size:11px;letter-spacing:1.5px;font-weight:700;color:var(--accent-bright);margin-bottom:5px;display:flex;justify-content:space-between;white-space:nowrap;overflow:hidden;gap:10px;}
+.lm-htitle .ct{color:var(--fg-muted);font-weight:600;letter-spacing:0;overflow:hidden;text-overflow:ellipsis;}
+.lm-item{padding:4px 8px;cursor:default;}
+.lm-item.on{background:var(--bg-sel);box-shadow:inset 3px 0 0 var(--accent);}
+.lm-item .l1{display:flex;gap:8px;white-space:nowrap;overflow:hidden;}
+.lm-item .l1 .mk{width:10px;color:transparent;}
+.lm-item.on .l1 .mk{color:var(--accent-bright);}
+.lm-item .l1 .lid{color:var(--accent);font-weight:700;}
+.lm-item.on .l1 .nm2{color:var(--accent-bright);font-weight:700;}
+.lm-item .l1 .nm2{color:var(--fg-primary);font-weight:600;}
+.lm-item .l1 .stt{margin-left:auto;}
+.lm-item .l2{display:flex;gap:8px;color:var(--fg-muted);font-size:12px;padding-left:18px;white-space:nowrap;overflow:hidden;}
+.lm-item .l2 .br2{color:var(--accent-dim);}
+.lm-item.on .l2 .br2{color:var(--accent);}
+.tbar{font-size:12px;letter-spacing:-1px;}
+.tbar .fill{color:var(--progress);}
+.tbar .rest{color:var(--fg-faint);}
+.tr2{display:flex;gap:9px;white-space:nowrap;overflow:hidden;padding:2px 8px;}
+.tr2 .guide{color:var(--fg-faint);white-space:pre;}
+.tr2 .nm{color:var(--fg-primary);font-weight:600;}
+.tr2 .act{color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis;}
+.tr2 .tok{margin-left:auto;color:var(--fg-faint);font-size:12px;flex:none;}
+.tr2.on{background:var(--bg-sel);box-shadow:inset 3px 0 0 var(--accent);}
+.tr2.on .nm{color:var(--accent-bright);}
+.tr2.on .act{color:var(--accent);}
+.lm-out{border-top:1px solid var(--border);margin-top:8px;padding-top:7px;}
+.lm-out .oline{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;line-height:1.55;}
+.lm-keys{border-top:1px solid var(--border);margin-top:8px;padding-top:6px;display:flex;gap:16px;color:var(--fg-muted);font-size:12px;flex-wrap:wrap;}
+.lm-keys b{color:var(--gold);font-weight:600;}
+.lm-keys .gate{margin-left:auto;color:var(--warning);}
+
+/* ============================================================
+   TOKEN TABLES
+   ============================================================ */
+.tok-group{margin-bottom:30px;}
+.tok-group h3{font-family:var(--mono);font-size:14px;color:var(--accent);letter-spacing:.4px;margin:0 0 4px;}
+.tok-group .gd{font-size:13px;color:var(--page-ink-dim);margin:0 0 14px;}
+.toktable{width:100%;border-collapse:collapse;font-size:12.5px;}
+.toktable th{
+  text-align:left;font-family:var(--mono);font-size:11px;letter-spacing:.6px;
+  text-transform:uppercase;color:var(--page-ink-dim);font-weight:600;
+  padding:6px 12px;border-bottom:1px solid var(--page-line);
+}
+.toktable td{padding:9px 12px;border-bottom:1px solid var(--page-line);vertical-align:middle;}
+.toktable tr:hover td{background:color-mix(in srgb,var(--page-accent) 5%,transparent);}
+.swatch{display:flex;align-items:center;gap:11px;}
+.swatch .chipbox{width:34px;height:34px;border-radius:6px;border:1px solid var(--page-line);flex:none;}
+.swatch .nm{font-family:var(--mono);font-weight:600;color:var(--page-ink);}
+.swatch .vr{font-family:var(--mono);font-size:11px;color:var(--page-ink-dim);}
+.hex{font-family:var(--mono);font-weight:600;}
+.ansi{font-family:var(--mono);color:var(--page-ink-dim);}
+.ansi .nn{display:inline-block;min-width:30px;text-align:center;border:1px solid var(--page-line);border-radius:4px;padding:1px 6px;color:var(--page-ink);font-weight:600;margin-right:6px;}
+.use{color:var(--page-ink-dim);font-size:12.5px;}
+.lighthex{font-family:var(--mono);color:var(--page-ink-dim);font-size:12px;}
+
+/* hierarchy ladder */
+.ladder{display:flex;flex-direction:column;gap:8px;}
+.lrow{
+  display:grid;grid-template-columns:48px 1fr;gap:14px;align-items:center;
+  background:var(--page-card);border:1px solid var(--page-line);border-radius:9px;padding:12px 16px;
+}
+.lrow .lvl{font-family:var(--mono);font-weight:800;font-size:18px;text-align:center;}
+.lrow h4{margin:0 0 2px;font-size:14.5px;font-family:var(--mono);}
+.lrow p{margin:0;font-size:13px;color:var(--page-ink-dim);}
+.lrow .tagrow{margin-top:5px;display:flex;gap:6px;flex-wrap:wrap;}
+.minitag{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid var(--page-line);color:var(--page-ink-dim);}
+
+/* state gallery */
+.gallery{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
+@media(max-width:760px){.gallery{grid-template-columns:1fr;}.reasoning{grid-template-columns:1fr;}}
+.gcard{background:var(--page-card);border:1px solid var(--page-line);border-radius:10px;padding:16px 18px;}
+.gcard .glabel{font-family:var(--mono);font-size:12px;color:var(--page-ink-dim);margin-bottom:11px;letter-spacing:.3px;}
+.demo{background:var(--bg-base);border:1px solid var(--border);border-radius:4px;padding:11px 12px;font-family:var(--mono);font-size:12.5px;}
+
+.callout{
+  border-left:3px solid var(--accent);background:color-mix(in srgb,var(--page-accent) 6%,var(--page-card));
+  padding:13px 17px;border-radius:0 9px 9px 0;margin:18px 0;font-size:13.5px;color:var(--page-ink-dim);
+}
+.callout b{color:var(--page-ink);}
+
+footer{border-top:1px solid var(--page-line);margin-top:80px;padding:28px;text-align:center;color:var(--page-ink-dim);font-size:12.5px;font-family:var(--mono);}
+.divider{height:1px;background:var(--page-line);margin:0;}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="brand"><span class="mono"><span class="c">[</span><span style="color:var(--accent-bright)">◉</span><span class="c">]</span></span><span class="mono"><span class="r">v</span><span class="c">iden</span></span><span class="sep">·</span><span class="tag" data-zh="Aurora 驾驶舱主题">Aurora Cockpit Theme</span></div>
+  <div class="navlinks">
+    <a href="#cockpit" data-zh="驾驶舱">Cockpit</a>
+    <a href="#tokens" data-zh="配色 Token">Color tokens</a>
+    <a href="#hierarchy" data-zh="视觉层级">Hierarchy</a>
+    <a href="#approval" data-zh="审批态">Approval</a>
+    <a href="#welcome" data-zh="欢迎界面">Welcome</a>
+    <a href="#lanemode" data-zh="Lane 监控">Lane monitor</a>
+    <a href="#components" data-zh="组件状态">Components</a>
+  </div>
+  <div class="toggle" id="themeToggle" title="Click to cycle schemes · or use the Tweaks panel"><span class="dot"></span><span id="themeLabel">Aurora</span></div>
+</nav>
+
+<div class="wrap">
+
+  <!-- ===== HERO / REASONING ===== -->
+  <section class="hero" id="top">
+    <div class="kicker" data-zh="交付物 A · TUI 主题皮肤">Deliverable A · TUI theme skin</div>
+    <h1 data-zh="Aurora —— viden 终端驾驶舱的<span class='ac'>视觉主题</span>">Aurora — the <span class="ac">visual theme</span> for viden’s terminal cockpit</h1>
+    <p class="lead" data-zh="只换皮肤,不动布局。这套主题把现有 0.1.30 TUI 已有的「深蓝黑底 + 青色边框 + 金色注意 + 绿色成功」整理成一套有命名、有层级、可降级到 ANSI 256 的 token 系统,并把<b style='color:var(--page-ink)'>选择器高亮行</b>确立为整个界面的视觉锚点。">Skin only, no layout change. This theme organizes what the existing 0.1.30 TUI already has («deep blue-black ground + cyan borders + gold attention + green success») into a named, layered token system that degrades to ANSI 256, and establishes the <b style="color:var(--page-ink)">selected highlight row</b> as the visual anchor of the whole interface.</p>
+    <div class="metaline">
+      <span data-zh="主色 <b>青(robot logo 同源)</b>">Primary <b>cyan (same as the robot logo)</b></span>
+      <span data-zh="次强调 <b>金(viden 字标 / 工作模式)</b>">Secondary <b>gold (viden wordmark / work mode)</b></span>
+      <span data-zh="目标 <b>truecolor</b> · 降级 <b>ANSI 256</b>">Target <b>truecolor</b> · degrades to <b>ANSI 256</b></span>
+      <span data-zh="右上角可切换 <b>Dark / Light</b>">Toggle <b>Dark / Light</b> top-right</span>
+    </div>
+
+    <div style="height:30px;"></div>
+    <div class="reasoning">
+      <div class="rcard">
+        <h3 data-zh="我读到的现状">What I read of the status quo</h3>
+        <p data-zh="原字标 Robo 金 / Code 青,在 viden 中继承为 <b>v</b> 金、<b>iden</b> 青;吉祥物机器人头是青色线稿。现有界面青色既当边框、又当标题、又当高亮,语义偏「平」。金色已经承担「工具门控 / 待审批 / 工作模式」三件事。">The original wordmark Robo gold / Code cyan carries into viden as <b>v</b> gold, <b>iden</b> cyan; the mascot robot head is a cyan line drawing. In the current UI cyan is border, title and highlight all at once — semantically «flat». Gold already carries three things: «tool gating / pending approval / work mode».</p>
+      </div>
+      <div class="rcard">
+        <h3 data-zh="我的判断">My call</h3>
+        <p data-zh="把青色收敛为「品牌 + 交互焦点」一种角色,加深背景层次拉开<b>主背景 / 面板 / 高亮行</b>三档,让选择器高亮成为最亮的一行。金色专职「需要人」的注意语义,绿/红/蓝补齐成功 / 失败 / 进行中。">Converge cyan to a single role: «brand + interaction focus». Deepen background depth into three tiers — <b>main ground / panel / highlight row</b> — making the selected highlight the brightest line. Gold is dedicated to the «needs a human» attention semantic; green/red/blue fill success / failure / in-progress.</p>
+      </div>
+      <div class="rcard">
+        <h3 data-zh="硬约束我守住了">Hard constraints I kept</h3>
+        <p data-zh="一切对齐到等宽单元格;无亚像素 / 无圆角 / 无阴影(TUI 内);边框仅用 box-drawing;中文宽字符占两格;每个 token 都给了 ANSI 256 近似,256 色下高亮行退化为中性灰但保留<b>青色左侧竖条</b>不丢焦点。">Everything aligns to monospace cells; no sub-pixel / no rounded corners / no shadows (inside the TUI); borders use box-drawing only; CJK wide chars take two cells; every token has an ANSI 256 approximation, and at 256 colors the highlight row degrades to neutral gray but keeps the <b>cyan left bar</b> so focus is not lost.</p>
+      </div>
+      <div class="rcard">
+        <h3 data-zh="这页怎么读">How to read this page</h3>
+        <p data-zh="下面第一屏是用新 token 重绘的<b>主驾驶舱</b>(结构与截图一致);随后是 token 全表、视觉层级阶梯、审批弹出态、启动欢迎界面与组件状态。Dark 为主,Light 为可选变体 —— 右上角实时切换。">The first screen below is the <b>main cockpit</b> redrawn with the new tokens (structure matches the screenshot); then the full token tables, the hierarchy ladder, the approval popup, the launch welcome screen and component states. Dark is primary, Light an optional variant — toggle live top-right.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== COCKPIT MOCK ===== -->
+  <section id="cockpit">
+    <div class="kicker" data-zh="重绘 · 主驾驶舱(默认态)">Redraw · main cockpit (default state)</div>
+    <h2 data-zh="同一套布局,新的皮肤">Same layout, new skin</h2>
+    <p class="lead" data-zh="下图是按 <span class='mono'>main.png</span> 的信息架构、用 Aurora token 重绘。注意层级:进行中的 <span class='mono k-accent'>LIVE WORK</span> 最亮,转录区最新一条次之,右栏快照类信息整体退后。<b style='color:var(--page-ink)'>此版把输入区下方与底部两条状态条合并为一条滚动 ticker</b>，去掉与顶栏重复的 MODE/PERM/SESSION/CONTEXT，把垂直空间尽量还给 Transcript。">The image below follows the information architecture of <span class="mono">main.png</span>, redrawn with Aurora tokens. Note the hierarchy: the in-progress <span class="mono k-accent">LIVE WORK</span> is brightest, the latest transcript line next, the right-rail snapshots recede overall. <b style="color:var(--page-ink)">This version merges the two status bars (below the input and at the bottom) into one scrolling ticker</b>, drops the MODE/PERM/SESSION/CONTEXT that duplicate the top bar, and gives the vertical space back to the Transcript.</p>
+
+    <div class="tui win" id="cockpitMock">
+      <div class="tui-chrome">
+        <div class="tlights"><i class="l1"></i><i class="l2"></i><i class="l3"></i></div>
+        <span class="tlabel">viden — fish — 142×40</span>
+      </div>
+      <div class="tui-screen">
+        <!-- top status -->
+        <div class="c-topbar">
+          <span class="wm"><span class="k-accent">[</span><span class="k-bright">◉</span><span class="k-accent">]</span> <span class="k-gold">v</span><span class="k-accent">iden</span></span>
+          <span class="ver">v0.1.30</span>
+          <span class="chip"><span class="lbl">PROVIDER</span> <span class="dotp">●</span> <b>DeepSeek</b></span>
+          <span class="chip"><span class="lbl">MODEL</span> <b>deep~flash</b></span>
+          <span class="chip"><span class="lbl">WORK</span> <b>Build</b></span>
+          <span class="chip"><span class="lbl">PERM</span> <b>Ask</b></span>
+          <span class="spacer"></span>
+          <span class="rail-toggle" id="railToggle" onclick="document.getElementById('cbody').classList.toggle('railhidden');this.querySelector('.rt-lbl').textContent=document.getElementById('cbody').classList.contains('railhidden')?'Show panels':'Hide panels';"><span class="rt-ic">⊟</span> <span class="rt-lbl">Hide panels</span> <span class="k-faint">^B</span></span>
+        </div>
+
+        <div class="c-body" id="cbody">
+          <!-- transcript -->
+          <div class="panel" style="min-height:0;overflow:hidden;">
+            <span class="ptitle">TRANSCRIPT</span>
+            <span class="pcount k-accent" style="font-weight:600;letter-spacing:.5px;">live session</span>
+
+            <div style="margin-top:4px;">
+              <div class="tr-row">
+                <div class="tr-gut"></div><div class="tr-rail">┊</div>
+                <div class="tr-body">
+                  <span class="tr-text k-sec">Tests are staged. I found one parser edge case and need to update <span class="k-accent">src/config.rs</span> before running the suite.</span>
+                  <div class="tr-div">┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄</div>
+                </div>
+              </div>
+              <div class="tr-row">
+                <div class="tr-gut k-accent">♙</div><div class="tr-rail">┊</div>
+                <div class="tr-body">
+                  <div class="tr-head"><span class="tr-role k-accent">USER</span><span class="tr-id">#006</span></div>
+                  <div class="tr-text">Good. Keep the change narrow and show me the diff before applying.</div>
+                  <div class="tr-div">┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄</div>
+                </div>
+              </div>
+              <div class="tr-row">
+                <div class="tr-gut k-gold">⚒</div><div class="tr-rail">┊</div>
+                <div class="tr-body">
+                  <div class="tr-head"><span class="tr-role k-gold">TOOL CALL</span><span class="tr-id">#007</span></div>
+                  <div class="tr-text"><span class="k-accent">[write_file]</span> <span class="k-sec">path:</span> src/config.rs</div>
+                  <div class="tr-text k-sec" style="padding-left:14px;">lines: <span class="k-pri">1–120</span>&nbsp;&nbsp;&nbsp;&nbsp;gate: <span class="k-gold b">waiting</span></div>
+                  <div class="tr-div">┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄</div>
+                </div>
+              </div>
+              <div class="tr-row">
+                <div class="tr-gut k-mut">·</div><div class="tr-rail">┊</div>
+                <div class="tr-body">
+                  <div class="tr-head"><span class="tr-role k-mut">SYSTEM</span><span class="tr-id">latest</span></div>
+                  <div class="tr-text k-sec">Test result:</div>
+                  <div class="tr-text" style="padding-left:14px;"><span class="k-sec">status:</span> <span class="k-error b">failed</span></div>
+                  <div class="tr-text k-sec" style="padding-left:14px;">command: <span class="k-mut">cargo test -p viden-cli config_tests</span></div>
+                  <div class="tr-text k-sec" style="padding-left:14px;">failing files:</div>
+                  <div class="tr-text" style="padding-left:28px;"><span class="k-error">- src/config.rs:42:15</span></div>
+                </div>
+              </div>
+
+              <!-- LIVE WORK -->
+              <div class="livework">
+                <div class="lw-title">╭─ LIVE WORK •</div>
+                <div class="lw-main"><span class="pulse">◉</span> Supervising 1 agent: <span class="k-prog">codex testing</span> · <span class="k-gold">3 subagents ▸</span></div>
+                <div class="lw-meta"><b>phase</b> testing · <b>signal</b> patched failing tests; rerunning cargo · <span class="k-prog">64%</span></div>
+                <div class="lw-faint">next wait for test result · input open · <span class="k-gold">^L</span> lane monitor</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- right rail -->
+          <div class="railwrap">
+            <div class="panel rail">
+              <span class="ptitle">WORKSPACE</span>
+              <div class="kv"><span class="kk k-accent">viden/</span><span class="vv k-mut">~/projects/viden</span></div>
+              <div class="kv"><span class="kk k-sec">↳ src/</span><span class="vv"><span class="k-mut">FILES</span> 128</span></div>
+              <div class="kv"><span class="kk k-sec">↳ tests/</span><span class="vv"><span class="k-mut">LINES</span> 24531</span></div>
+              <div class="kv"><span class="kk k-sec">▣ Cargo.toml</span><span class="vv"><span class="k-mut">LANG</span> Rust</span></div>
+            </div>
+
+            <div class="panel rail">
+              <span class="ptitle">ACTIVE TASKS</span><span class="pcount k-accent">4</span>
+              <div class="rrow"><span class="k-accent">L1</span> <span class="k-gold">⛭ codex</span> <span class="k-mut">s1/pty/01</span> <span class="task-pct">64%</span></div>
+              <div class="bar"><i style="width:64%"></i></div>
+              <div class="rrow" style="margin-top:6px;"><span class="k-prog">●</span> <span class="k-accent">task_lo/prog</span> <span class="k-sec">Implement load_con…</span></div>
+              <div class="rrow"><span class="k-warn">◆</span> <span class="k-accent">task_re/block</span> <span class="k-sec">Review config test</span></div>
+            </div>
+
+            <div class="panel rail">
+              <span class="ptitle"><span class="k-success">LSP DIAGNOSTICS</span></span><span class="pcount k-success">0</span>
+              <div class="k-sec">diagnostics unavailable</div>
+              <div class="k-faint">auto-checks or /lsp diagnostics</div>
+            </div>
+
+            <div class="panel rail">
+              <span class="ptitle">PROVIDER HEALTH</span><span class="pcount k-success">Configured</span>
+              <div class="k-sec">DeepSeek (deepseek-v4-flash)</div>
+              <div class="kv"><span class="kk k-accent">STATUS</span><span class="vv k-success">Configured</span></div>
+              <div class="kv"><span class="kk k-accent">REQUESTS</span><span class="vv k-sec">0 <span class="k-success">ok</span> / 0 err</span></div>
+              <div class="kv"><span class="kk k-accent">LATENCY</span><span class="vv k-mut">last – avg –</span></div>
+            </div>
+
+            <div class="panel rail" style="margin-bottom:0;">
+              <span class="ptitle">RECENT FILES</span><span class="pcount k-mut">tail</span>
+              <div class="kv"><span class="kk"><span class="k-accent">[Rs]</span> <span class="k-sec">src/config.rs</span></span><span class="vv k-mut">now</span></div>
+              <div class="kv"><span class="kk"><span class="k-accent">[Rs]</span> <span class="k-sec">tests/config_tests.rs</span></span><span class="vv k-mut">1m</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- composer -->
+        <div class="composer">
+          <div class="cinput">
+            <span class="cprompt">›</span>
+            <span class="ctext">Add tests for load_config and summarize the diff<span class="cur"></span></span>
+            <span class="modepill" id="modePill" onclick="this.classList.toggle('open')">MODE Build ▾<span class="mode-pop">
+              <span class="mp-head">SELECT MODE <span class="x">esc</span></span>
+              <span class="mp-row on"><span class="ky">1</span><span class="mk">›</span><span class="nm">Build</span><span class="ds" data-zh="读写代码·跑工具·可委派 lane">read/write code · run tools · can delegate lanes</span></span>
+              <span class="mp-row"><span class="ky">2</span><span class="mk"> </span><span class="nm">Plan</span><span class="ds" data-zh="只谋划不改文件·输出方案">plan only, no file edits · outputs a proposal</span></span>
+              <span class="mp-row"><span class="ky">3</span><span class="mk"> </span><span class="nm">Chat</span><span class="ds" data-zh="纯对话·不调用工具">pure chat · no tool calls</span></span>
+              <span class="mp-row"><span class="ky">4</span><span class="mk"> </span><span class="nm">Auto</span><span class="ds" data-zh="自主推进·仅在闸门停下">autonomous · stops only at gates</span></span>
+              <span class="mp-foot" data-zh="<b>↑↓</b> 选择 · <b>1-4</b> 直达 · <b>Enter</b> 确认 · <b>esc</b> 关闭"><b>↑↓</b> select · <b>1-4</b> jump · <b>Enter</b> confirm · <b>esc</b> close</span>
+            </span></span>
+          </div>
+        </div>
+
+        <!-- merged + scrolling bottom status bar -->
+        <div class="c-statusbar">
+          <div class="sb-fixed"><span class="sb-gear" style="border-left:none;padding-left:2px;" title="Status items are optional · click to configure">⚙</span></div>
+          <div class="sb-ticker">
+            <div class="sb-track">
+              <span class="sb-group" style="display:inline-flex;">
+                <span class="sb-item"><span class="lbl">EVENTS</span> <span class="v">9</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">LANE</span> <b>L1 codex</b> <span class="k-prog">testing 64%</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">LATENCY</span> <span class="v">840ms</span> <span class="k-mut">avg 1.1s</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">TOKENS</span> <span class="v">42.1k↑ 8.9k↓</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">DIAG</span> <span class="k-success">0</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">GIT</span> <span class="v">main</span> <span class="k-success">✓ clean</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">ACTIONS</span> <b>^J</b> Send · <b>^K</b> Clr · <b>^R</b> Regen · <b>^N</b> New</span><span class="sb-sep">┆</span>
+              </span>
+              <span class="sb-group" aria-hidden="true" style="display:inline-flex;">
+                <span class="sb-item"><span class="lbl">EVENTS</span> <span class="v">9</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">LANE</span> <b>L1 codex</b> <span class="k-prog">testing 64%</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">LATENCY</span> <span class="v">840ms</span> <span class="k-mut">avg 1.1s</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">TOKENS</span> <span class="v">42.1k↑ 8.9k↓</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">DIAG</span> <span class="k-success">0</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">GIT</span> <span class="v">main</span> <span class="k-success">✓ clean</span></span><span class="sb-sep">┆</span>
+                <span class="sb-item"><span class="lbl">ACTIONS</span> <b>^J</b> Send · <b>^K</b> Clr · <b>^R</b> Regen · <b>^N</b> New</span><span class="sb-sep">┆</span>
+              </span>
+            </div>
+          </div>
+          <span class="sb-help">? help</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <b data-zh="状态条精简(本次调整):">Status bar streamlined (this revision):</b><span data-zh="原本输入区下方与最底部是两条状态条,且 MODE/PERM/SESSION/CONTEXT 与顶栏重复。现在合并为<b>一条</b>:左侧仅保留 <span class='mono'>⚙</span> 配置入口(状态项<b>可选显示</b>);其余信息进入<b>滚动 ticker</b>(EVENTS / LANE / LATENCY / TOKENS / DIAG / GIT / ACTIONS …),鼠标悬停暂停。MODE 作为快捷 chip 放在输入框右侧;PERM 只在顶栏出现一次,不再重复。省下的高度全部还给 Transcript。"> Originally there were two status bars (below the input and at the very bottom), with MODE/PERM/SESSION/CONTEXT duplicating the top bar. They are now merged into <b>one</b>: the left keeps only the <span class="mono">⚙</span> config entry (status items are <b>optional</b>); everything else moves into a <b>scrolling ticker</b> (EVENTS / LANE / LATENCY / TOKENS / DIAG / GIT / ACTIONS …), paused on hover. MODE sits as a shortcut chip to the right of the input; PERM appears once in the top bar, no longer repeated. The reclaimed height all goes back to the Transcript.</span>
+    </div>
+  </section>
+
+  <!-- ===== TOKENS ===== -->
+  <section id="tokens">
+    <div class="kicker" data-zh="配色 Token · hex + ANSI 256">Color tokens · hex + ANSI 256</div>
+    <h2 data-zh="主题配色系统">Theme color system</h2>
+    <p class="lead" data-zh="四组 token:背景层级、前景层级、强调色、语义色。每个给十六进制(truecolor 目标)+ ANSI 256 近似(降级)+ Light 变体值。下表随右上角主题切换高亮当前激活值。">Four token groups: background tiers, foreground tiers, accents, semantics. Each gives a hex (truecolor target) + ANSI 256 approximation (degraded) + Light-variant value. The tables below highlight the active value live with the top-right theme toggle.</p>
+
+    <div class="tok-group">
+      <h3 data-zh="① 背景层级 — Background">① Background tiers</h3>
+      <p class="gd" data-zh="拉开三档纵深是这次的核心改动:主背景最沉,面板抬一档,高亮行最亮。256 色下高亮退化为中性灰,靠青色左竖条保焦点。">Opening three depth tiers is the core change: main ground deepest, panel raised one step, highlight row brightest. At 256 colors the highlight degrades to neutral gray, keeping focus via the cyan left bar.</p>
+      <table class="toktable">
+        <thead><tr><th style="width:30%">Token</th><th>Dark hex</th><th>ANSI 256</th><th>Light hex</th><th data-zh="用途">Use</th></tr></thead>
+        <tbody id="tb-bg"></tbody>
+      </table>
+    </div>
+
+    <div class="tok-group">
+      <h3 data-zh="② 前景层级 — Foreground">② Foreground tiers</h3>
+      <p class="gd" data-zh="四档文本:主文承载内容,次文是标签/结构,弱文是元数据,极弱是「可看可不看」的提示。靠明度而非色相区分。">Four text tiers: main carries content, secondary is labels/structure, weak is metadata, faint is «optional to read» hints. Distinguished by lightness, not hue.</p>
+      <table class="toktable">
+        <thead><tr><th style="width:30%">Token</th><th>Dark hex</th><th>ANSI 256</th><th>Light hex</th><th data-zh="用途">Use</th></tr></thead>
+        <tbody id="tb-fg"></tbody>
+      </table>
+    </div>
+
+    <div class="tok-group">
+      <h3 data-zh="③ 强调色 — Accent(与 logo 同源)">③ Accent (same source as the logo)</h3>
+      <p class="gd" data-zh="青是品牌主色,也是唯一的「交互焦点」色:边框激活、标题、选中行、focus 都用它。金是次强调,专属 viden 字标与工作模式。">Cyan is the brand primary and the only «interaction focus» color: active border, title, selected row, focus all use it. Gold is the secondary accent, exclusive to the viden wordmark and work mode.</p>
+      <table class="toktable">
+        <thead><tr><th style="width:30%">Token</th><th>Dark hex</th><th>ANSI 256</th><th>Light hex</th><th data-zh="用途">Use</th></tr></thead>
+        <tbody id="tb-ac"></tbody>
+      </table>
+    </div>
+
+    <div class="tok-group">
+      <h3 data-zh="④ 语义色 — Semantic">④ Semantic</h3>
+      <p class="gd" data-zh="五种状态各占一个色相,互不混淆:成功绿、警告/待审批金黄、错误/拒绝红、进行中蓝(与品牌青刻意拉开,代表「机器在跑」)。">Five states each own a hue, never confused: success green, warning/pending gold-yellow, error/reject red, in-progress blue (deliberately split from brand cyan, meaning «the machine is running»).</p>
+      <table class="toktable">
+        <thead><tr><th style="width:30%">Token</th><th>Dark hex</th><th>ANSI 256</th><th>Light hex</th><th data-zh="用途">Use</th></tr></thead>
+        <tbody id="tb-se"></tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <b data-zh="ANSI 256 降级原则:">ANSI 256 degradation rule:</b><span data-zh="truecolor 不可用时,色相优先于明度还原。背景三档会压缩到 232/233/234/236 四个近似灰,因此<b>高亮行额外保留一条 ANSI 38 青色左竖条</b>——即使背景塌成灰,选择器焦点也不丢。语义色全部落在 6×6×6 色立方的纯色点上(38/179/214/71/167/39),终端间一致性最高。"> When truecolor is unavailable, hue is restored before lightness. The three background tiers compress to four approximate grays (232/233/234/236), so the <b>highlight row keeps an extra ANSI 38 cyan left bar</b> — even if the background collapses to gray, the selector focus is not lost. Semantic colors all land on pure points of the 6×6×6 color cube (38/179/214/71/167/39) for maximum cross-terminal consistency.</span>
+    </div>
+  </section>
+
+  <!-- ===== HIERARCHY ===== -->
+  <section id="hierarchy">
+    <div class="kicker" data-zh="视觉层级 · 注意力阶梯">Hierarchy · attention ladder</div>
+    <h2 data-zh="谁该亮,谁该退后">Who should be bright, who should recede</h2>
+    <p class="lead" data-zh="驾驶舱的本质是「监督」,所以视觉权重必须跟随「需要我决策的程度」。从最该抓眼到最该安静,六个区域排成五级阶梯。">The cockpit is fundamentally about «supervision», so visual weight must follow «how much it needs your decision». From most eye-grabbing to most quiet, six regions form a five-step ladder.</p>
+
+    <div class="ladder">
+      <div class="lrow">
+        <div class="lvl" style="color:var(--warning)">1</div>
+        <div>
+          <h4 style="color:var(--warning)" data-zh="审批提示 Approval">Approval prompt</h4>
+          <p data-zh="阻断性、需立即决策。唯一允许用金黄实底徽章 + 边框的元素;弹出时压暗其余全部。默认焦点落在 Approve。">Blocking, requires an immediate decision. The only element allowed a gold-yellow solid badge + border; dims everything else when shown. Default focus lands on Approve.</p>
+          <div class="tagrow"><span class="minitag" style="border-color:var(--warning);color:var(--warning)" data-zh="warning 实底">warning solid</span><span class="minitag" data-zh="scrim 压暗背景">scrim dims bg</span><span class="minitag" data-zh="diff 预览">diff preview</span></div>
+        </div>
+      </div>
+      <div class="lrow">
+        <div class="lvl" style="color:var(--accent)">2</div>
+        <div>
+          <h4 style="color:var(--accent)" data-zh="进行中 LIVE WORK / 委派 lane">In progress LIVE WORK / delegated lanes</h4>
+          <p data-zh="「现在在干什么」。青色边框轻底 + 进行中蓝脉冲点,常驻转录区尾部。lane 进度用蓝色进度条,是右栏唯一允许「亮」的区块。">«What’s happening now». Cyan border on a light ground + in-progress blue pulse dot, resident at the transcript tail. Lane progress uses a blue bar — the only block in the right rail allowed to be «bright».</p>
+          <div class="tagrow"><span class="minitag" style="border-color:var(--accent-dim);color:var(--accent)" data-zh="accent 边框">accent border</span><span class="minitag" style="border-color:var(--progress);color:var(--progress)" data-zh="progress 脉冲">progress pulse</span></div>
+        </div>
+      </div>
+      <div class="lrow">
+        <div class="lvl" style="color:var(--accent-bright)">3</div>
+        <div>
+          <h4 style="color:var(--accent-bright)" data-zh="选择器高亮行 Selected row">Selector highlight row</h4>
+          <p data-zh="selector-first 交互的锚点。高亮行用 <span class='mono'>bg-sel</span> + 青色左竖条 + 加亮文字,是任意列表里唯一「被点亮」的一行。这一条的对比度必须高于一切静态信息。">The anchor of selector-first interaction. The highlight row uses <span class="mono">bg-sel</span> + cyan left bar + brightened text — the only «lit» row in any list. Its contrast must exceed all static information.</p>
+          <div class="tagrow"><span class="minitag" data-zh="bg-sel 背景">bg-sel background</span><span class="minitag" style="border-color:var(--accent);color:var(--accent)" data-zh="青色左竖条">cyan left bar</span><span class="minitag" data-zh="文字提亮">brightened text</span></div>
+        </div>
+      </div>
+      <div class="lrow">
+        <div class="lvl" style="color:var(--fg-primary)">4</div>
+        <div>
+          <h4 data-zh="转录区最新内容 Transcript tail">Transcript tail (latest content)</h4>
+          <p data-zh="对话主体。最新一条用主文色,历史逐渐用次文色收敛。语义结果(failed/passed)就地着色,但不抢过 LIVE WORK。">The conversation body. The latest line uses main text color, history gradually converges to secondary. Semantic results (failed/passed) are colored in place, but never outshine LIVE WORK.</p>
+          <div class="tagrow"><span class="minitag" data-zh="fg-primary 主文">fg-primary main</span><span class="minitag" data-zh="历史降为 fg-secondary">history → fg-secondary</span></div>
+        </div>
+      </div>
+      <div class="lrow">
+        <div class="lvl" style="color:var(--fg-muted)">5</div>
+        <div>
+          <h4 style="color:var(--fg-muted)" data-zh="快照类 — 工作区 / 诊断 / Provider 健康 / 最近文件">Snapshots — workspace / diagnostics / provider health / recent files</h4>
+          <p data-zh="参考信息,默认安静。标题用青、键名用次文、值用主文,但整体退到右栏;只有出现 error/异常时,对应行才用语义色「点亮一格」。">Reference information, quiet by default. Title in cyan, key in secondary, value in main, but the whole recedes to the right rail; only on error/anomaly does the relevant row «light up one cell» in a semantic color.</p>
+          <div class="tagrow"><span class="minitag" data-zh="标题 accent · 内容 muted">title accent · body muted</span><span class="minitag" data-zh="异常时才点亮">lights up only on anomaly</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== APPROVAL ===== -->
+  <section id="approval">
+    <div class="kicker" data-zh="关键态 · 审批弹出">Key state · approval popup</div>
+    <h2 data-zh="审批是驾驶舱最高优先级">Approval is the cockpit’s top priority</h2>
+    <p class="lead" data-zh="权限请求出现时,背景压暗,金黄边框 + 实底徽章把它顶到最前。diff 预览用绿/红就地着色;默认焦点在 Approve,<span class='mono'>y / Enter</span> 即批。">When a permission request appears, the background dims, and a gold border + solid badge push it to the front. The diff preview is colored green/red in place; default focus is on Approve, <span class="mono">y / Enter</span> approves.</p>
+
+    <div class="tui win">
+      <div class="tui-chrome">
+        <div class="tlights"><i class="l1"></i><i class="l2"></i><i class="l3"></i></div>
+        <span class="tlabel">viden — approval gate</span>
+      </div>
+      <div class="tui-screen modal-stage">
+        <!-- faded backdrop hint -->
+        <div style="opacity:.4;filter:saturate(.6);pointer-events:none;">
+          <div class="c-topbar">
+            <span class="wm"><span class="k-accent">[</span><span class="k-bright">◉</span><span class="k-accent">]</span> <span class="k-gold">v</span><span class="k-accent">iden</span></span>
+            <span class="ver">v0.1.30</span>
+            <span class="chip"><span class="lbl">WORK</span> <b>Build</b></span>
+            <span class="chip"><span class="lbl">PERM</span> <b>Ask</b></span>
+            <span class="spacer"></span><span class="k-warn">● approval needed</span>
+          </div>
+          <div class="panel" style="height:120px;"><span class="ptitle">TRANSCRIPT</span></div>
+        </div>
+
+        <!-- modal -->
+        <div class="approval" style="margin-top:-86px;margin-left:8px;margin-right:8px;">
+          <div class="ap-head">
+            <span class="badge">APPROVAL</span>
+            <span class="title">write_file · src/config.rs</span>
+            <span class="perm">PERM Ask</span>
+          </div>
+          <div class="ap-body">
+            <div class="checkrow"><span class="box">[×]</span> apply to all files in this turn <span class="k-faint">(Space toggles)</span></div>
+            <div class="diffbox">
+              <div class="dl-hdr">@@ src/config.rs  lines 40–46 @@</div>
+              <div class="dl-ctx">  pub fn load_config(path: &amp;Path) -&gt; Result&lt;Config&gt; {</div>
+              <div class="dl-del">- &nbsp;&nbsp;let raw = fs::read_to_string(path).unwrap();</div>
+              <div class="dl-add">+ &nbsp;&nbsp;let raw = fs::read_to_string(path)?;</div>
+              <div class="dl-add">+ &nbsp;&nbsp;if raw.trim().is_empty() { return Err(ConfigError::Empty); }</div>
+              <div class="dl-ctx">  &nbsp;&nbsp;toml::from_str(&amp;raw).map_err(Into::into)</div>
+            </div>
+            <div class="ap-acts">
+              <div class="tact focus"><span class="ky">y</span> <span class="k-success">●</span> Approve</div>
+              <div class="tact deny"><span class="ky">n</span> Deny</div>
+              <div class="tact"><span class="ky">d</span> Diff</div>
+              <div class="tact"><span class="ky">a</span> Apply all</div>
+            </div>
+            <div class="ap-hint" data-zh="焦点行 = 反白高亮(同选择器)· <b>↑↓</b> 移动 · <b>y/n/d/a</b> 直达 · <b>Enter</b> 确认 · <b>Esc</b> 拒绝。这些都是纯字符绘制(box-drawing 边框 + 反白),键盘优先;鼠标点击也可用(crossterm 已捕获鼠标事件)。">Focus row = inverse highlight (same as selector) · <b>↑↓</b> move · <b>y/n/d/a</b> jump · <b>Enter</b> confirm · <b>Esc</b> reject. All pure-character drawing (box-drawing border + inverse), keyboard-first; mouse click also works (crossterm already captures mouse events).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:12px;">焦点环用绿色(approve 默认态);金黄只属于边框与徽章,避免与「按钮可点」混淆。拒绝/失败永远是红,且只在按钮描边出现,不大面积铺红。</p>
+  </section>
+
+  <!-- ===== WELCOME ===== -->
+  <section id="welcome">
+    <div class="kicker" data-zh="启动 · 欢迎 Composer">Launch · welcome Composer</div>
+    <h2 data-zh="第一屏就是驾驶舱,不是落地页">The first screen is the cockpit, not a landing page</h2>
+    <p class="lead" data-zh="启动界面把青色 ASCII 机器人(logo 同源)居中点亮,下方直接是命令选择器 —— 选择器优先,高亮行第一时间可用。机器人眼睛 <span class='mono k-bright'>[]</span> 用最亮的青强调「在看着你」。">The launch screen centers and lights up the cyan ASCII robot (same source as the logo), with the command selector directly below — selector-first, the highlight row usable immediately. The robot eyes <span class="mono k-bright">[]</span> use the brightest cyan to emphasize «watching you».</p>
+
+    <div class="tui win" id="welcomeMock">
+      <div class="tui-chrome">
+        <div class="tlights"><i class="l1"></i><i class="l2"></i><i class="l3"></i></div>
+        <span class="tlabel">viden — welcome</span>
+      </div>
+      <div class="tui-screen welcome">
+<div class="robot">╭───────────╮
+│  <span class="eye">◉</span>     <span class="eye">◉</span>  │
+│   <span class="base">─────</span>   │
+╰─┬───────┬─╯
+  <span class="base">╧       ╧</span></div>
+        <div class="wtag"><span class="mono"><span style="color:var(--accent)">[</span><span style="color:var(--accent-bright)">◉</span><span style="color:var(--accent)">]</span></span> <b><span class="r">v</span><span class="c">iden</span></b> v0.1.30 · <span data-zh="本地优先的编码代理驾驶舱">local-first coding-agent cockpit</span></div>
+
+        <div style="max-width:620px;margin:26px auto 0;text-align:left;">
+          <div style="margin-bottom:7px;font-size:13px;">
+            <span class="k-accent">›</span> <span class="k-pri">/</span><span class="cur"></span>
+          </div>
+          <div class="sel-list">
+            <div class="sel-row on"><span class="mk">›</span><span class="cmd">/help</span><span class="desc">Show commands</span></div>
+            <div class="sel-row"><span class="mk"> </span><span class="cmd">/connect</span><span class="desc">Connect or configure providers</span></div>
+            <div class="sel-row"><span class="mk"> </span><span class="cmd">/provider</span><span class="desc">List or switch providers</span></div>
+            <div class="sel-row"><span class="mk"> </span><span class="cmd">/permissions</span><span class="desc">Select permission level</span></div>
+            <div class="sel-row"><span class="mk"> </span><span class="cmd">/mode</span><span class="desc">Select work mode</span></div>
+            <div class="sel-row"><span class="mk"> </span><span class="cmd">/setup</span><span class="desc">First-run wizard</span></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px;color:var(--fg-muted);font-size:12px;">
+            <span><span class="k-mut">~/projects/viden</span><span class="k-accent">:main</span></span>
+            <span><span class="k-accent">◎</span> 1 lanes&nbsp;&nbsp;&nbsp;<span class="k-mut">1–6/32 ↑↓ tab enter esc</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== LANE MONITOR MODE ===== -->
+  <section id="lanemode">
+    <div class="kicker" data-zh="新增模式 · Lane 监控(subagent 监控)">New mode · Lane monitor (subagent monitoring)</div>
+    <h2 data-zh="subagent 一开始跑,就有地方看">When subagents start running, there’s a place to watch</h2>
+    <p class="lead" data-zh="专门的 <b style='color:var(--page-ink)'>LANE MONITOR 模式</b>:某条 lane fan-out 出 subagent 时,LIVE WORK 出现 <span class='mono' style='color:var(--gold)'>3 subagents ▸</span> 提示,按 <span class='mono' style='color:var(--gold)'>^L</span>(或 <span class='mono'>/lanes</span>)进入。左栏选 lane,右侧是 subagent 层级树 + 焦点节点实时输出,全部纯字符网格:树用 box-drawing,进度条用 <span class='mono'>█░</span>,选择器高亮一以贯之。Esc 回驾驶舱,不打断主对话。">A dedicated <b style="color:var(--page-ink)">LANE MONITOR mode</b>: when a lane fans out subagents, LIVE WORK shows a <span class="mono" style="color:var(--gold)">3 subagents ▸</span> hint; press <span class="mono" style="color:var(--gold)">^L</span> (or <span class="mono">/lanes</span>) to enter. Pick a lane on the left, the right shows the subagent hierarchy tree + the focused node’s live output, all on a pure character grid: tree uses box-drawing, progress bars use <span class="mono">█░</span>, the selector highlight is consistent throughout. Esc returns to the cockpit without interrupting the main conversation.</p>
+
+    <div class="tui win">
+      <div class="tui-chrome">
+        <div class="tlights"><i class="l1"></i><i class="l2"></i><i class="l3"></i></div>
+        <span class="tlabel">viden — lane monitor — 142×40</span>
+      </div>
+      <div class="tui-screen">
+        <div class="lm-banner">
+          <span class="mode">LANE MONITOR</span>
+          <span class="msub">supervising <span class="k-accent b">4</span> lanes · <span class="k-prog">2 run</span> · <span class="k-warn">1 wait</span> · <span class="k-success">1 done</span> · thread = lane</span>
+          <span class="esc"><b>tab</b> lanes · <b>esc</b> back</span>
+        </div>
+        <div class="lm-grid">
+          <div class="lm-left">
+            <div class="lm-htitle">LANES <span class="ct">↑↓ select</span></div>
+            <div class="lm-item on">
+              <div class="l1"><span class="mk">›</span><span class="lid">L1</span><span class="nm2">⛭ codex</span><span class="stt k-prog">◉ testing</span></div>
+              <div class="l2"><span class="br2">⎇ vd/config-loader</span><span>pty/01</span></div>
+              <div class="l2"><span class="tbar"><span class="fill">█████████</span><span class="rest">░░░░░</span></span><span class="k-prog">64%</span><span class="k-gold">⚠ 1 gate</span></div>
+            </div>
+            <div class="lm-item">
+              <div class="l1"><span class="mk"> </span><span class="lid">L2</span><span class="nm2">⛭ claude</span><span class="stt k-warn">◆ needs input</span></div>
+              <div class="l2"><span class="br2">⎇ vd/retry-policy</span><span>tmux/03</span></div>
+            </div>
+            <div class="lm-item">
+              <div class="l1"><span class="mk"> </span><span class="lid">L3</span><span class="nm2">$ shell</span><span class="stt k-success">● done</span></div>
+              <div class="l2"><span class="br2">⎇ vd/parser-fmt</span><span>+31 −9</span></div>
+            </div>
+            <div class="lm-item">
+              <div class="l1"><span class="mk"> </span><span class="lid">L4</span><span class="nm2">⛭ gemini</span><span class="stt k-prog">◉ 28%</span></div>
+              <div class="l2"><span class="br2">⎇ vd/lane-proto</span><span>template</span></div>
+            </div>
+          </div>
+          <div class="lm-right">
+            <div class="lm-htitle">SUBAGENTS · L1 codex <span class="ct">4 nodes · depth 2 · fan-out 3</span></div>
+            <div class="tr2"><span class="guide"></span><span class="k-gold">⛭</span><span class="nm">orchestrator</span><span class="act">coordinating 3 subagents</span><span class="tok">12.4k tok</span></div>
+            <div class="tr2"><span class="guide">├─</span><span class="k-success">●</span><span class="nm">planner</span><span class="act">done · plan accepted · 6 steps</span><span class="tok">2.1k</span></div>
+            <div class="tr2"><span class="guide">├─</span><span class="k-prog">◉</span><span class="nm">editor</span><span class="act">patching src/config.rs:42</span><span class="tok">5.8k</span></div>
+            <div class="tr2 on"><span class="guide">│  └─</span><span class="k-prog">⚙</span><span class="nm">test-runner</span><span class="act">cargo test · attempt 2/3</span><span class="tok">3.2k</span></div>
+            <div class="tr2"><span class="guide">└─</span><span class="k-faint">○</span><span class="nm" style="color:var(--fg-muted)">reviewer</span><span class="act">queued · waits for green tests</span><span class="tok">—</span></div>
+            <div class="lm-out">
+              <div class="lm-htitle">OUTPUT · test-runner <span class="ct">spawned by editor · 1m40s</span></div>
+              <div class="oline k-accent">$ cargo test -p viden-cli config_tests</div>
+              <div class="oline k-success">test config::loads_valid ... ok</div>
+              <div class="oline k-success">test config::guards_required ... ok</div>
+              <div class="oline k-error">test config::rejects_empty ... FAILED</div>
+              <div class="oline k-mut">assertion at config.rs:42 — expected Err(Empty), got Ok</div>
+              <div class="oline k-gold">↻ editor notified · patch queued (attempt 2/3)</div>
+            </div>
+            <div class="lm-keys"><span><b>a</b> attach</span><span><b>s</b> steer</span><span><b>r</b> retry</span><span><b>k</b> kill</span><span><b>↑↓</b> nodes</span><span class="gate">⚠ gate: write_file waiting · <b>y/n</b></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout"><b data-zh="进入与退出:">Enter and exit:</b><span data-zh="① fan-out 发生时 LIVE WORK 出现金色 <span class='mono'>3 subagents ▸</span> 提示 + 状态 ticker 插入 <span class='mono'>SUBAGENTS 3</span>;② <span class='mono'>^L</span> 或 <span class='mono'>/lanes</span> 进入模式;③ 审批闸门在此模式内也能弹出(右下角常驻 gate 提示,y/n 直接处理);④ Esc 回主驾驶舱,lane 状态变化会在转录区留事件。设计上三层递进与桌面版一致:<b>列表看全局 → 树看结构 → 输出看细节</b>,只是全部落在字符网格里。">① When fan-out happens LIVE WORK shows a gold <span class="mono">3 subagents ▸</span> hint + the status ticker inserts <span class="mono">SUBAGENTS 3</span>; ② <span class="mono">^L</span> or <span class="mono">/lanes</span> enters the mode; ③ approval gates can also pop in this mode (a resident gate hint bottom-right, y/n handles it directly); ④ Esc returns to the main cockpit, and lane state changes leave events in the transcript. By design the three-tier progression matches the desktop version: <b>list for the overview → tree for structure → output for detail</b>, only all on a character grid.</span></div>
+  </section>
+
+  <!-- ===== COMPONENTS ===== -->
+  <section id="components">
+    <div class="kicker" data-zh="组件状态 · 速查">Component states · quick reference</div>
+    <h2 data-zh="主题落到组件上">The theme applied to components</h2>
+    <div class="gallery">
+      <div class="gcard">
+        <div class="glabel" data-zh="选择器 · 三种行态">Selector · three row states</div>
+        <div class="demo">
+          <div class="sel-list" style="border:none;">
+            <div class="sel-row"><span class="mk"> </span><span class="cmd">/lane run codex</span><span class="desc">queue a delegate</span></div>
+            <div class="sel-row on"><span class="mk">›</span><span class="cmd">/lane inspect s1</span><span class="desc" data-zh="selected · 高亮锚点">selected · highlight anchor</span></div>
+            <div class="sel-row"><span class="mk"> </span><span class="cmd k-faint">/lane discard s2</span><span class="desc">disabled</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="gcard">
+        <div class="glabel" data-zh="语义徽章 · 五态">Semantic badges · five states</div>
+        <div class="demo" style="display:flex;gap:8px;flex-wrap:wrap;">
+          <span class="k-success">● passed</span>
+          <span class="k-warn">◆ waiting approval</span>
+          <span class="k-error">✕ failed</span>
+          <span class="k-prog">◉ running 64%</span>
+          <span class="k-mut">· idle</span>
+        </div>
+      </div>
+      <div class="gcard">
+        <div class="glabel" data-zh="模式 / 权限 chip">Mode / permission chip</div>
+        <div class="demo" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <span class="modepill" style="display:inline-block;">MODE Build ▾</span>
+          <span class="modepill" style="display:inline-block;color:var(--accent);border-color:var(--accent-dim);">MODE Plan ▾</span>
+          <span class="kpill">PERM <span class="br">[</span>Ask<span class="br">]</span></span>
+          <span class="kpill" style="color:var(--success)">PERM <span class="br" style="color:var(--fg-muted)">[</span>Allow<span class="br" style="color:var(--fg-muted)">]</span></span>
+          <span class="kpill" style="color:var(--error)">PERM <span class="br" style="color:var(--fg-muted)">[</span>Deny<span class="br" style="color:var(--fg-muted)">]</span></span>
+        </div>
+      </div>
+      <div class="gcard">
+        <div class="glabel" data-zh="委派 lane 行 · 监督态">Delegated lane row · supervised state</div>
+        <div class="demo">
+          <div class="rrow"><span class="k-accent">L1</span> <span class="k-gold">⛭ codex</span> <span class="k-mut">pty/01</span> <span class="k-prog">testing</span> <span class="task-pct">64%</span></div>
+          <div class="bar" style="max-width:200px;"><i style="width:64%"></i></div>
+          <div class="rrow" style="margin-top:7px;"><span class="k-accent">L2</span> <span class="k-gold">⛭ claude</span> <span class="k-mut">tmux/03</span> <span class="k-warn">needs input</span></div>
+          <div class="rrow" style="margin-top:5px;"><span class="k-accent">L3</span> <span class="k-sec">$ shell</span> <span class="k-mut">bg/07</span> <span class="k-success">done</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  viden · Aurora 驾驶舱主题 — 交付物 A / TUI 皮肤 &nbsp;·&nbsp; 结构依据 docs/previews/manual/0.1.30 · 仅换皮肤不动布局
+</footer>
+
+<script>
+/* ---- token data ---- */
+const TOK = {
+  bg:[
+    ['--bg-void','背景·最底','#05090f','232','#dde6ec','终端最底/外框之外,几乎纯黑'],
+    ['--bg-base','主背景','#0a1019','233','#f5f8fb','转录区与主屏底色'],
+    ['--bg-panel','面板背景','#0c1521','234','#ebf1f6','右栏面板 / composer,比主背景抬一档'],
+    ['--bg-elev','抬升/模态','#10202f','235','#ffffff','审批弹窗、聚焦 lane 模态'],
+    ['--bg-sel','高亮行','#143049','236 +38条','#d2e7f2','选择器选中行;256 色退化为灰+青左条'],
+  ],
+  fg:[
+    ['--fg-primary','主文','#d4e6f1','253','#14242f','正文 / 选中值 / 最新转录'],
+    ['--fg-secondary','次文','#8aa9bf','109','#41606f','标签 / 结构 / 键名 / 历史内容'],
+    ['--fg-muted','弱文','#5a7384','66','#6d8693','元数据 / 路径 / 时间戳'],
+    ['--fg-faint','极弱','#3a4d5e','240','#a3b5c0','「可看可不看」提示 / disabled'],
+  ],
+  ac:[
+    ['--accent','青·品牌主色','#34bdd9','38','#0c87a4','边框激活/标题/焦点,logo 同源'],
+    ['--accent-bright','亮青·焦点','#74e4f2','87','#0aa6c6','机器人眼睛 / 选中行文字 / 强焦点'],
+    ['--accent-dim','暗青·静边框','#1f5366','23','#9cc4d2','未聚焦面板边框 / 时间轴竖线'],
+    ['--gold','金·次强调','#e3ab44','179','#a9750f','viden 字标 / 工作模式 / 注意'],
+    ['--gold-bright','亮金','#f6cb63','221','#c08a18','字标高光 / 强调数字'],
+  ],
+  se:[
+    ['--success','成功·绿','#54c06a','71','#2c8c46','passed / configured / ok / done'],
+    ['--warning','警告/待审批·金黄','#e6b53f','214','#a87a12','审批待定 / gate waiting / needs input'],
+    ['--error','错误/拒绝·红','#e0564f','167','#c0403a','failed / denied / conflict'],
+    ['--progress','进行中·蓝','#3fa6e6','39','#1d7cbd','running / streaming / lane 进度,刻意区别于品牌青'],
+  ],
+};
+function chipColor(hex){return hex;}
+function renderTokens(){
+  for(const [key,rows] of Object.entries(TOK)){
+    const tb=document.getElementById('tb-'+key);
+    tb.innerHTML=rows.map(r=>`
+      <tr>
+        <td><div class="swatch">
+          <span class="chipbox" style="background:${r[2]}"></span>
+          <span><span class="nm">${r[1]}</span><br><span class="vr">${r[0]}</span></span>
+        </div></td>
+        <td><span class="hex" style="color:${r[2]}">${r[2]}</span></td>
+        <td class="ansi"><span class="nn">${r[3]}</span></td>
+        <td class="lighthex">${r[4]}</td>
+        <td class="use">${r[5]}</td>
+      </tr>`).join('');
+  }
+}
+renderTokens();
+
+/* ---- scheme + density controller (shared by nav button & Tweaks panel) ---- */
+const root=document.documentElement;
+const SCHEMES=[['dark','Aurora'],['amber','Amber'],['phosphor','Phosphor'],['ice','Ice'],['mono','Mono'],['light','Light']];
+const RC={
+  scheme(){return root.getAttribute('data-theme')||'dark';},
+  setScheme(v){root.setAttribute('data-theme',v);const f=(SCHEMES.find(s=>s[0]===v)||['dark','Aurora'])[1];const tl=document.getElementById('themeLabel');if(tl)tl.textContent=f;try{localStorage.setItem('rc-scheme',v);}catch(e){}window.dispatchEvent(new CustomEvent('rc-state',{detail:{scheme:v}}));},
+  density(){return root.getAttribute('data-density')||'compact';},
+  setDensity(v){root.setAttribute('data-density',v);try{localStorage.setItem('rc-density',v);}catch(e){}window.dispatchEvent(new CustomEvent('rc-state',{detail:{density:v}}));},
+  cycle(){const i=SCHEMES.findIndex(s=>s[0]===this.scheme());this.setScheme(SCHEMES[(i+1)%SCHEMES.length][0]);}
+};
+window.RC=RC;
+try{const s=localStorage.getItem('rc-scheme');if(s)RC.setScheme(s);const d=localStorage.getItem('rc-density');if(d)RC.setDensity(d);}catch(e){}
+const tg=document.getElementById('themeToggle');
+if(tg)tg.addEventListener('click',()=>RC.cycle());
+</script>
+
+<!-- Tweaks panel (React) -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<div id="tweaks-root"></div>
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "scheme": "phosphor",
+  "density": "compact",
+  "accent": "cyan"
+}/*EDITMODE-END*/;
+const SCHEME_OPTS=[['dark','Aurora 青'],['amber','Amber 琥珀'],['phosphor','Phosphor 绿'],['ice','Ice 冰蓝'],['mono','Mono 灰'],['light','Light 浅色']];
+const ACCENTS={cyan:['#34bdd9','#74e4f2','#1f5366'],amber:['#e09a3e','#ffc266','#6b4a1c'],green:['#41d97a','#74f2a0','#1c5630'],blue:['#5b8def','#86b0ff','#243f6b'],violet:['#a07ae0','#c3a6ff','#4a3470']};
+function applyAccent(key){
+  const r=document.documentElement;
+  if(key==='match'){r.style.removeProperty('--accent');r.style.removeProperty('--accent-bright');r.style.removeProperty('--accent-dim');r.style.removeProperty('--border-active');return;}
+  const a=ACCENTS[key];if(!a)return;
+  r.style.setProperty('--accent',a[0]);r.style.setProperty('--accent-bright',a[1]);r.style.setProperty('--accent-dim',a[2]);r.style.setProperty('--border-active',a[0]);
+}
+function TweaksApp(){
+  const [t,setTweak]=useTweaks(TWEAK_DEFAULTS);
+  React.useEffect(()=>{ if(window.RC){window.RC.setScheme(t.scheme);window.RC.setDensity(t.density);} applyAccent(t.accent); },[]);
+  // keep panel in sync if nav button cycles scheme
+  React.useEffect(()=>{
+    const h=(e)=>{ if(e.detail&&e.detail.scheme&&e.detail.scheme!==t.scheme){setTweak('scheme',e.detail.scheme);} };
+    window.addEventListener('rc-state',h); return ()=>window.removeEventListener('rc-state',h);
+  });
+  return (
+    <TweaksPanel>
+      <TweakSection label="配色方案 Color scheme" />
+      <TweakSelect label="Scheme" value={t.scheme} options={SCHEME_OPTS.map(s=>s[0])}
+        display={SCHEME_OPTS.reduce((m,s)=>{m[s[0]]=s[1];return m;},{})}
+        onChange={(v)=>{setTweak('scheme',v);window.RC&&window.RC.setScheme(v);}} />
+      <TweakColor label="强调色 Accent" value={t.accent}
+        options={['match','cyan','amber','green','blue','violet']}
+        swatches={{match:['#5a7384'],cyan:ACCENTS.cyan.slice(0,2),amber:ACCENTS.amber.slice(0,2),green:ACCENTS.green.slice(0,2),blue:ACCENTS.blue.slice(0,2),violet:ACCENTS.violet.slice(0,2)}}
+        onChange={(v)=>{setTweak('accent',v);applyAccent(v);}} />
+      <TweakSection label="框体密度 Frame density" />
+      <TweakRadio label="Density" value={t.density} options={['compact','regular','comfy']}
+        onChange={(v)=>{setTweak('density',v);window.RC&&window.RC.setDensity(v);}} />
+    </TweaksPanel>
+  );
+}
+ReactDOM.createRoot(document.getElementById('tweaks-root')).render(<TweaksApp/>);
+</script>
+<script>
+/* i18n: English is the default content; restore Chinese (from data-zh) when the 中 toggle is active */
+(function(){if(window.vLang==='zh'){document.querySelectorAll('[data-zh]').forEach(function(el){el.innerHTML=el.getAttribute('data-zh');});}})();
+</script>
+</body>
+</html>

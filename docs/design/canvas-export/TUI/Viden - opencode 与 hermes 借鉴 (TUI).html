@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · Borrowing from opencode & hermes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="i18n.js"></script>
+<script src="chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.doc{max-width:1080px;margin:0 auto;padding:30px 28px 120px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+h1{font-size:29px;margin:0 0 10px;letter-spacing:-.6px;} h1 .ac{color:var(--accent);}
+.lead{font-size:14px;color:var(--fg-secondary);margin:0 0 6px;max-width:920px;line-height:1.65;text-wrap:pretty;} .lead b{color:var(--fg-primary);font-weight:600;}
+.lead .note{font-family:var(--mono);font-size:11px;color:var(--fg-faint);margin-top:8px;}
+.sech{display:flex;align-items:baseline;gap:11px;margin:46px 0 10px;}
+.sech .no{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:700;} .sech h2{font-size:20px;margin:0;} .sech .en{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);letter-spacing:1px;text-transform:uppercase;} .sech .sp{flex:1;height:1px;background:var(--border-soft);align-self:center;}
+.subl{font-size:13px;color:var(--fg-muted);margin:6px 0 16px;line-height:1.6;max-width:900px;} .subl b{color:var(--fg-secondary);}
+kbd,code{font-family:var(--mono);font-size:12px;color:var(--accent-bright);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:4px;padding:0 5px;}
+
+/* source comparison cards */
+.srcwrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.scard{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:12px;padding:16px 18px;border-top:2px solid;}
+.scard.oc{border-top-color:var(--accent);} .scard.hm{border-top-color:var(--gold);}
+.scard .nm{font-family:var(--mono);font-size:15px;font-weight:800;display:flex;align-items:center;gap:9px;}
+.scard.oc .nm{color:var(--accent-bright);} .scard.hm .nm{color:var(--gold-bright);}
+.scard .nm .tag{font-family:var(--mono);font-size:9px;font-weight:700;border-radius:4px;padding:1px 7px;border:1px solid;color:var(--fg-muted);border-color:var(--border);}
+.scard .ds{font-size:12px;color:var(--fg-muted);line-height:1.55;margin:7px 0 11px;}
+.scard .row{display:flex;align-items:baseline;gap:9px;padding:6px 0;border-bottom:1px solid var(--border-soft);font-size:12.5px;}
+.scard .row:last-child{border-bottom:none;}
+.scard .row .k{flex:none;width:14px;text-align:center;color:var(--fg-faint);}
+.scard.oc .row .k{color:var(--accent);} .scard.hm .row .k{color:var(--gold);}
+.scard .row .nmm{color:var(--fg-primary);font-weight:600;} .scard .row .dd{color:var(--fg-muted);}
+
+/* adopt table */
+.tbl{width:100%;border-collapse:collapse;font-size:13.5px;}
+.tbl th{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--fg-muted);text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);}
+.tbl td{padding:10px 12px;border-bottom:1px solid var(--border-soft);color:var(--fg-secondary);vertical-align:top;line-height:1.5;}
+.tbl .src{font-family:var(--mono);font-size:12px;color:var(--accent-bright);white-space:nowrap;} .tbl .src .sub{display:block;color:var(--fg-faint);font-size:10px;margin-top:2px;}
+.tbl .src.h{color:var(--gold-bright);}
+.tbl .map b{color:var(--fg-primary);}
+.tier{font-family:var(--mono);font-size:9.5px;font-weight:700;border-radius:4px;padding:1px 7px;white-space:nowrap;border:1px solid;}
+.t-now{color:var(--success);border-color:color-mix(in srgb,var(--success) 40%,transparent);background:color-mix(in srgb,var(--success) 7%,transparent);}
+.t-adapt{color:var(--accent-bright);border-color:var(--accent-dim);background:color-mix(in srgb,var(--accent) 7%,transparent);}
+.t-late{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 40%,transparent);background:color-mix(in srgb,var(--gold) 6%,transparent);}
+.t-avoid{color:var(--error);border-color:color-mix(in srgb,var(--error) 35%,transparent);background:color-mix(in srgb,var(--error) 6%,transparent);}
+
+/* ── terminal mockup ── */
+.demo{margin:8px 0 4px;}
+.demo .cap{display:flex;align-items:baseline;gap:10px;margin:0 2px 8px;flex-wrap:wrap;}
+.demo .cap .t{font-size:13.5px;font-weight:700;color:var(--fg-primary);}
+.demo .cap .from{font-family:var(--mono);font-size:10px;color:var(--fg-faint);border:1px solid var(--border-soft);border-radius:4px;padding:1px 7px;}
+.demo .cap .from.oc{color:var(--accent);border-color:var(--accent-dim);}
+.demo .cap .from.hm{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 35%,transparent);}
+.demo .cap .why{font-size:11.5px;color:var(--fg-muted);}
+.demogrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;}
+.term{background:linear-gradient(180deg,var(--term-screen),var(--term-screen));border:1px solid var(--border);border-radius:10px;overflow:hidden;font-family:var(--mono);box-shadow:0 12px 34px rgba(0,0,0,.42);}
+.tbar{display:flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:var(--term-chrome);border-bottom:1px solid var(--border-soft);}
+.tbar .dot{width:9px;height:9px;border-radius:50%;background:var(--term-edge);}
+.tbar .ti{margin-left:6px;font-size:10px;color:var(--fg-faint);}
+.tbody{padding:16px 16px 14px;min-height:60px;}
+.statusbar{display:flex;align-items:center;height:24px;background:var(--term-bar);border-top:1px solid var(--border-soft);font-size:10.5px;white-space:nowrap;overflow:hidden;}
+.statusbar .seg{padding:0 9px;display:flex;align-items:center;gap:6px;height:100%;color:var(--fg-muted);}
+.statusbar .seg.proj{background:var(--accent);color:var(--bg-void);font-weight:800;}
+.statusbar .seg.lane{color:var(--fg-primary);} .statusbar .seg.be{color:var(--accent);font-weight:700;}
+.statusbar .sp{flex:1;}
+.statusbar .seg.r{color:var(--fg-muted);} .statusbar .seg.r.gold{color:var(--gold-bright);}
+.statusbar .led{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 7px var(--success);}
+.bbar{display:inline-flex;letter-spacing:-1px;}
+.bbar .f{color:var(--accent);} .bbar .e{color:var(--accent-dim);}
+
+/* empty state */
+.es{display:flex;flex-direction:column;align-items:center;text-align:center;padding:18px 8px 4px;}
+.es .mark{font-family:var(--mono);font-weight:800;font-size:34px;letter-spacing:5px;color:var(--fg-primary);text-shadow:0 0 26px color-mix(in srgb,var(--accent) 28%,transparent);}
+.es .mark .b{color:var(--accent);}
+.es .tagl{font-size:11px;color:var(--fg-muted);margin:6px 0 18px;}
+.composer{width:100%;text-align:left;background:var(--bg-base);border:1px solid var(--border);border-left:2px solid var(--accent);border-radius:8px;padding:11px 13px;}
+.composer .ph{font-size:12.5px;color:var(--fg-secondary);} .composer .ph .ex{color:var(--fg-faint);}
+.composer .mline{font-size:10.5px;color:var(--fg-muted);margin-top:8px;display:flex;align-items:center;gap:7px;}
+.composer .mline .ag{color:var(--accent-bright);font-weight:700;} .composer .mline .bk{color:var(--builtin);}
+.es .hints{font-size:10.5px;color:var(--fg-faint);margin-top:10px;display:flex;gap:16px;}
+.es .hints b{color:var(--fg-secondary);font-weight:700;}
+.es .tip{font-size:11px;color:var(--fg-muted);margin-top:14px;display:flex;align-items:center;gap:8px;}
+.es .tip .d{color:var(--gold);} .es .tip .cmd{color:var(--accent-bright);}
+.es .cat{font-size:10.5px;color:var(--fg-faint);margin-top:16px;border-top:1px solid var(--border-soft);padding-top:11px;width:100%;}
+.es .cat b{color:var(--fg-secondary);}
+
+/* streaming timeline */
+.tl{display:flex;flex-direction:column;}
+.tlr{display:flex;align-items:center;gap:10px;font-size:12px;padding:3px 0;position:relative;}
+.tlr .gut{flex:none;width:14px;text-align:center;color:var(--border);} 
+.tlr .ic{flex:none;width:15px;text-align:center;font-size:11px;}
+.tlr .lb{flex:none;width:74px;color:var(--fg-muted);}
+.tlr .ar{flex:1;color:var(--fg-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tlr .du{flex:none;color:var(--fg-faint);font-size:10.5px;}
+.tlr.prep .ic{color:var(--fg-muted);} .tlr.prep .ar{color:var(--fg-muted);}
+.tlr.ask .ic{color:var(--gold-bright);} .tlr.ask .lb{color:var(--gold);} .tlr.ask .ar{color:var(--gold-bright);}
+.tlr.done .ic{color:var(--accent-bright);} .tlr.done .lb{color:var(--accent);}
+.tlr.run .ic{color:var(--progress);} .tlr.run .lb{color:var(--progress);} .tlr.run .du{color:var(--progress);}
+.tlr.ok .ic{color:var(--success);} .tlr.ok .lb{color:var(--success);}
+.tlr.err .ic{color:var(--error);} .tlr.err .lb{color:var(--error);} .tlr.err .ar{color:var(--error);}
+
+/* approval gate */
+.gate{border:1px solid color-mix(in srgb,var(--gold) 38%,transparent);border-radius:8px;background:color-mix(in srgb,var(--gold) 4%,transparent);overflow:hidden;}
+.gate .gh{display:flex;align-items:center;gap:9px;padding:9px 13px;background:color-mix(in srgb,var(--gold) 8%,transparent);border-bottom:1px solid color-mix(in srgb,var(--gold) 22%,transparent);font-size:12px;font-weight:700;color:var(--gold-bright);}
+.gate .gh .tg{margin-left:auto;font-size:9.5px;color:var(--gold);border:1px solid color-mix(in srgb,var(--gold) 35%,transparent);border-radius:4px;padding:0 6px;font-weight:700;}
+.gate .gb{padding:11px 13px;}
+.gate .cmd{font-size:12.5px;color:var(--fg-primary);} .gate .cmd .pr{color:var(--accent);}
+.gate .csq{font-size:11px;color:var(--error);margin:6px 0 12px;display:flex;align-items:center;gap:7px;}
+.gate .opt{display:flex;align-items:center;gap:10px;font-size:12px;padding:5px 9px;border-radius:6px;color:var(--fg-secondary);}
+.gate .opt .n{color:var(--fg-faint);font-weight:700;width:12px;}
+.gate .opt.sel{background:var(--bg-sel);color:var(--accent-bright);} .gate .opt.sel .n{color:var(--accent);}
+.gate .opt.sel::before{content:"❯";color:var(--accent);margin-left:-9px;margin-right:-3px;}
+.gate .opt .sub{margin-left:auto;font-size:9.5px;color:var(--fg-faint);}
+.gate .opt.deny{color:var(--fg-muted);}
+.gate .foot{display:flex;align-items:center;gap:12px;font-size:10px;color:var(--fg-faint);margin-top:10px;border-top:1px solid var(--border-soft);padding-top:9px;}
+.gate .foot .cd{color:var(--gold-bright);} .gate .foot .cd .bar{display:inline-block;width:54px;height:4px;border-radius:2px;background:color-mix(in srgb,var(--gold) 14%,var(--term-screen));overflow:hidden;vertical-align:middle;margin-left:5px;}
+.gate .foot .cd .bar i{display:block;height:100%;width:62%;background:var(--gold);}
+
+/* denied fallback */
+.reply{border:1px solid color-mix(in srgb,var(--gold) 30%,transparent);border-radius:8px;margin-top:11px;}
+.reply .rh{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:var(--gold-bright);padding:8px 12px 0;}
+.reply .rb{font-size:12px;color:var(--fg-secondary);line-height:1.65;padding:6px 13px 11px;}
+.reply .rb .run{display:block;color:var(--accent-bright);background:var(--bg-base);border:1px solid var(--border-soft);border-radius:5px;padding:5px 9px;margin:7px 0;}
+
+/* command palette */
+.pal{display:flex;flex-direction:column;}
+.palr{display:flex;align-items:baseline;gap:13px;font-size:12.5px;padding:5px 9px;border-radius:5px;}
+.palr .c{flex:none;width:96px;color:var(--accent-bright);font-weight:600;}
+.palr .d{color:var(--fg-muted);}
+.palr.sel{background:color-mix(in srgb,var(--gold) 10%,transparent);} .palr.sel .c{color:var(--gold-bright);} .palr.sel .d{color:var(--fg-secondary);}
+.palq{font-size:12.5px;color:var(--fg-primary);margin-bottom:9px;} .palq .pr{color:var(--gold);}
+
+/* chips + toast row */
+.minirow{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:6px;}
+.chip{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:6px;padding:4px 10px;color:var(--fg-secondary);}
+.chip .ck{color:var(--success);} .chip .md{color:var(--accent-bright);} .chip .du{color:var(--fg-faint);}
+.toast{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;border:1px solid var(--accent-dim);border-radius:6px;padding:5px 11px;color:var(--accent-bright);background:color-mix(in srgb,var(--accent) 5%,transparent);}
+.toast .sp{width:9px;height:9px;border-radius:50%;border:1.6px solid var(--accent);border-top-color:transparent;}
+
+/* principles */
+.rules{display:flex;flex-direction:column;gap:9px;margin-top:6px;}
+.rule{display:flex;gap:12px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:10px;padding:11px 15px;}
+.rule .ic{font-family:var(--mono);font-size:13px;color:var(--accent);flex:none;width:18px;text-align:center;}
+.rule .tx{font-size:13px;color:var(--fg-secondary);line-height:1.55;} .rule .tx b{color:var(--fg-primary);}
+.divnote{font-size:13.5px;color:var(--fg-secondary);line-height:1.7;background:var(--bg-panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:14px 18px;margin-top:18px;text-wrap:pretty;} .divnote b{color:var(--fg-primary);} .divnote .c{color:var(--accent-bright);font-family:var(--mono);font-size:12.5px;}
+.miscap{font-family:var(--mono);font-size:10px;color:var(--fg-faint);margin:8px 2px 0;letter-spacing:.5px;}
+/* glyph legend */
+.glymap{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:13px 16px;margin:0 0 18px;}
+.glymap .gmh{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1px;color:var(--fg-muted);margin-bottom:11px;}
+.glymap .gmrow{display:flex;flex-wrap:wrap;gap:8px;}
+.glymap .gm{font-family:var(--mono);font-size:12px;color:var(--fg-secondary);background:var(--bg-base);border:1px solid var(--border-soft);border-radius:7px;padding:4px 11px;display:flex;align-items:center;gap:7px;white-space:nowrap;}
+.glymap .gm b{font-size:13px;}
+.glymap .gm.gold b{color:var(--gold-bright);} .glymap .gm.blue b{color:var(--progress);} .glymap .gm.green b{color:var(--success);} .glymap .gm.cyan b{color:var(--accent-bright);} .glymap .gm.violet b{color:var(--builtin);} .glymap .gm.grey b{color:var(--fg-muted);} .glymap .gm.red b{color:var(--error);}
+.glymap .gmn{font-family:var(--sans);font-size:11.5px;color:var(--fg-muted);line-height:1.55;margin-top:11px;}
+@media(max-width:840px){.srcwrap,.demogrid,.minirow{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="doc"><div id="root"></div></div>
+<script type="text/babel">
+const t = window.t || ((en,zh)=>en);
+
+/* ───────── source decode ───────── */
+const OC=[
+  ['◇',t('Centered empty state','居中空状态'),t('wordmark + “Ask anything” composer + rotating Tip','wordmark + “Ask anything” composer + 轮换 Tip')],
+  ['▤',t('Persistent context rail','常驻上下文栏'),t('Context: tokens / % used / $ spent · LSP status','Context:tokens / 已用% / 花费 · LSP 状态')],
+  ['▭',t('tmux-style bottom bar','tmux 式底栏'),t('model · provider | token% | version + connection LED','模型·provider | token% | 版本 + 连接 LED')],
+  ['⌕',t('Slash command palette','斜杠命令面板'),t('two columns: /cmd + description, fuzzy','两列:/命令 + 描述,模糊')],
+  ['☑',t('Completed-step chip','完成步骤 chip'),t('☑ Build · glm-5.1 · 7.1s — collapsible w/ duration','☑ Build · glm-5.1 · 7.1s —— 可折叠带耗时')],
+  ['◳',t('Top-right update toast','右上更新提示'),t('“Updating to v1.17.6…” — ambient, non-blocking','“Updating to v1.17.6…” —— 余光、不阻断')],
+];
+const HM=[
+  ['◆',t('Streaming tool/skill timeline','流式工具/技能时间线'),t('preparing→result rows: icon + arg + duration, tree pipes','preparing→结果行:图标 + 参数 + 耗时,树形管线')],
+  ['⚠',t('Dangerous-command approval','危险命令审批'),t('4 grant tiers: once / session / permanent / deny','4 档授权:本次 / 会话 / 永久 / 拒绝')],
+  ['◷',t('Countdown auto-deny','倒计时自动拒绝'),t('“Enter to confirm (55s)” → times out to Deny','“Enter 确认 (55s)” → 超时即拒')],
+  ['▣',t('Capability catalog','能力目录'),t('Available Tools / Skills, “19 tools · 137 skills”','可用工具 / 技能,“19 tools · 137 skills”')],
+  ['↩',t('Graceful denied fallback','拒绝后的优雅兜底'),t('“denied — here’s the command to run yourself”','“已拒 —— 这是你可自己跑的命令”')],
+  ['▰',t('Block-bar budget meter','块状预算计'),t('kimi-k2.6 | 23.3K/256K [▰▰▱] 9% | elapsed','kimi-k2.6 | 23.3K/256K [▰▰▱] 9% | 耗时')],
+];
+
+/* ───────── adopt table ───────── */
+const ADOPT=[
+  ['hermes','◆ '+t('tool/skill timeline','工具/技能时间线'),[t('Work-state stream','工作态流')],'T3 · T1',[t('strongest pattern. preparing→result rows w/ per-step duration. Swap emoji → Viden glyphs (▶/⏸/✓/✕), color = state (T4 §08).','最强模式。preparing→结果行带每步耗时。emoji 换 Viden 字形(▶/⏸/✓/✕),颜色即状态(T4 §08)。')],'now',t('NOW','现在')],
+  ['hermes','⚠ '+t('4-tier command gate','4 档命令闸'),[t('Approval / contract gate','审批 / 契约闸')],'T4 · D2',[t('once / session / permanent allowlist / deny — fold into our gate. Allowlist persists per-repo.','本次 / 会话 / 永久白名单 / 拒绝 —— 并入我们的闸。白名单按仓库持久化。')],'now',t('NOW','现在')],
+  ['hermes','◷ '+t('countdown auto-deny','倒计时自动拒'),[t('Unattended gates','无人值守闸')],'T4',[t('safe default when away. Auto-deny (never auto-allow). Visible bar + seconds.','离开时的安全默认。超时即拒(绝不自动放行)。可见进度条 + 秒数。')],'now',t('NOW','现在')],
+  ['opencode','⌕ '+t('slash palette + desc','斜杠面板 + 描述'),[t('Command palette','命令面板')],'T2',[t('two-column /cmd + description over our jump. Reuse fuzzy + grouped headers.','两列 /命令 + 描述,叠加到我们的跳转。复用模糊 + 分组 header。')],'now',t('NOW','现在')],
+  ['opencode','▭ '+t('bottom-bar token meter','底栏 token 计'),[t('Status bar','状态栏')],'T1d',[t('model · provider | ctx% | version + connection LED. We already own the bar — add the meter + LED.','模型·provider | ctx% | 版本 + 连接 LED。底栏已是我们的 —— 补计量 + LED。')],'now',t('NOW','现在')],
+  ['opencode','◇ '+t('empty-state composer','空状态 composer'),[t('First-run / new session','首启 / 新会话')],'T1 · D11',[t('wordmark + “Ask anything” + agent line + Tip. Merge hermes capability catalog beneath.','wordmark + “Ask anything” + agent 行 + Tip。下方并入 hermes 能力目录。')],'now',t('NOW','现在')],
+  ['opencode','☑ '+t('completed-step chip','完成步骤 chip'),[t('Transcript steps','转录步骤')],'T1 · T3',[t('collapse finished tool runs to one line w/ duration; expand on demand.','把完成的工具运行折成一行带耗时;按需展开。')],'now',t('NOW','现在')],
+  ['hermes','↩ '+t('denied fallback msg','拒绝兜底消息'),[t('After a deny','拒绝之后')],'T4',[t('agent explains + prints the exact command to run yourself. No silent dead-end.','agent 解释 + 打出可自行执行的确切命令。不留无声死胡同。')],'adapt',t('ADAPT','改造')],
+  ['opencode','▤ '+t('persistent context rail','常驻上下文栏'),[t('— vs our 2-line chrome','— vs 我们 2 行 chrome')],'T1b',[t('don’t keep a permanent rail. Fold ctx/cost into status bar; rail only as expand (HUD layer-2).','别留常驻侧栏。ctx/花费并入状态栏;侧栏仅作展开(HUD 第 2 层)。')],'adapt',t('ADAPT','改造')],
+  ['opencode','◳ '+t('update toast','更新提示'),[t('Ambient notices','余光通知')],'Pip · '+t('bar','状态栏'),[t('top-corner, non-blocking, auto-dismiss. Route through Pip HUD, not a modal.','顶角、不阻断、自动消失。走 Pip HUD,不弹模态。')],'late','M1+'],
+  ['hermes','▰ '+t('giant ASCII art / mascot','大 ASCII / 吉祥物'),[t('First-run only','仅首启')],'Logo · Pip',[t('hermes splashes ASCII every screen — keep ours to first-run + let Pip carry personality after.','hermes 每屏都喷 ASCII —— 我们只在首启,之后交给 Pip 承载个性。')],'avoid',t('TRIM','收敛')],
+  ['hermes','😀 '+t('emoji-per-row icons','每行 emoji 图标'),[t('— clashes w/ glyph set','— 与字形集冲突')],'T4',[t('emoji render differently per terminal/font. Use Viden geometric glyphs (◉▭▦◈▶⏸✓) instead.','emoji 各终端/字体渲染不一。改用 Viden 几何字形(◉▭▦◈▶⏸✓)。')],'avoid',t('AVOID','别采')],
+];
+const TIERCLS={now:'t-now',adapt:'t-adapt',late:'t-late',avoid:'t-avoid'};
+
+/* ───────── shared status bar ───────── */
+function Bar({budget}){
+  return (
+    <div className="statusbar">
+      <div className="seg proj">VIDEN</div>
+      <div className="seg lane">L1 · {t('design','策划')}</div>
+      <div className="seg be">ACP claude</div>
+      <div className="sp"></div>
+      {budget && <div className="seg r"><span className="bbar"><span className="f">▰▰▰▰</span><span className="e">▱▱▱▱▱▱</span></span> 41% · 23.3K/256K</div>}
+      <div className="seg r gold">⏸ 1</div>
+      <div className="seg r">⌃P</div>
+      <div className="seg r" style={{gap:'6px'}}><span className="led"></span>v0.4.1</div>
+    </div>
+  );
+}
+
+function App(){
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · TUI · borrow map</div>
+      <h1>{t('Borrowing from opencode & hermes','opencode 与 hermes 借鉴')} <span className="ac">→ Viden</span></h1>
+      <p className="lead">{t('Both are mature agent TUIs. ','两者都是成熟的 agent TUI。')}<b>opencode</b>{t(' is restrained & content-first; ',' 克制、内容优先;')}<b>hermes</b>{t(' is alive & capability-forward. This maps their best interactions onto Viden surfaces — what to adopt now, adapt, or trim — and reborns four of them in our chrome (Aurora theme, T4 color contracts). Toggle EN/中 top-right.',' 鲜活、能力优先。本图把它们最好的交互映射到 Viden 界面 —— 哪些现在采、改造、或收敛 —— 并用我们的 chrome(Aurora 主题、T4 颜色契约)重生其中四个。右上 EN/中 可切。')}</p>
+      <p className="lead note">{t('Sibling to “Charm 与 HUD 借鉴”. Source shots: opencode 1.14–1.17, hermes-agent v0.12. Glyphs are pinned to T4 §08 (legend in §03); live demos of the gate + timeline are wired into T1.','与“Charm 与 HUD 借鉴”并列。来源截图:opencode 1.14–1.17、hermes-agent v0.12。字形已锁定 T4 §08(图例见 §03);闸 + 时间线的可交互 demo 已接进 T1。')}</p>
+
+      {/* 01 source decode */}
+      <div className="sech"><span className="no">01</span><h2>{t('What each does well','各自做得好的')}</h2><span className="en">decode the two sources</span><span className="sp"></span></div>
+      <p className="subl">{t('Reading the screenshots: the patterns that are genuinely mature — not decoration.','读截图:真正成熟的模式 —— 而非装饰。')}</p>
+      <div className="srcwrap">
+        <div className="scard oc">
+          <div className="nm">opencode <span className="tag">{t('restrained · content-first','克制 · 内容优先')}</span></div>
+          <div className="ds">{t('Near-black, monospace, gray text, one blue + one orange accent. Chrome stays out of the way; content fills the frame.','近黑、等宽、灰字,一蓝一橙强调。chrome 退后;内容吃满画面。')}</div>
+          {OC.map((r,i)=>(<div key={i} className="row"><span className="k">{r[0]}</span><span><span className="nmm">{r[1]}</span> · <span className="dd">{r[2]}</span></span></div>))}
+        </div>
+        <div className="scard hm">
+          <div className="nm">hermes <span className="tag">{t('alive · capability-forward','鲜活 · 能力优先')}</span></div>
+          <div className="ds">{t('Terminal-green + gold, emoji icons, ASCII wordmark. Every action streams as a labelled, timed step — you feel the agent working.','终端绿 + 金、emoji 图标、ASCII wordmark。每个动作都流式成带标签、计时的步骤 —— 你能感到 agent 在干活。')}</div>
+          {HM.map((r,i)=>(<div key={i} className="row"><span className="k">{r[0]}</span><span><span className="nmm">{r[1]}</span> · <span className="dd">{r[2]}</span></span></div>))}
+        </div>
+      </div>
+
+      {/* 02 adopt table */}
+      <div className="sech"><span className="no">02</span><h2>{t('What to adopt','取舍清单')}</h2><span className="en">adopt now · adapt · later · avoid</span><span className="sp"></span></div>
+      <table className="tbl">
+        <thead><tr><th style={{width:'9%'}}>{t('Source','来源')}</th><th style={{width:'22%'}}>{t('Pattern','模式')}</th><th style={{width:'11%'}}>{t('Tier','档位')}</th><th style={{width:'16%'}}>{t('Maps to','映射到')}</th><th>{t('Why / how','理由 / 做法')}</th></tr></thead>
+        <tbody>
+          {ADOPT.map((r,i)=>(
+            <tr key={i}>
+              <td><span className={"src"+(r[0]==='hermes'?' h':'')}>{r[0]}</span></td>
+              <td className="map"><b>{r[1]}</b></td>
+              <td><span className={"tier "+TIERCLS[r[5]]}>{r[6]}</span></td>
+              <td><span style={{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--fg-secondary)'}}>{r[3]}</span><span style={{display:'block',color:'var(--fg-faint)',fontSize:'11px',marginTop:'2px'}}>{r[2][0]}</span></td>
+              <td>{r[4][0]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* 03 reborn interactions */}
+      <div className="sech"><span className="no">03</span><h2>{t('Four interactions, reborn in Viden chrome','四个交互,用 Viden chrome 重生')}</h2><span className="en">borrow the behavior, not the look</span><span className="sp"></span></div>
+      <p className="subl">{t('Each mockup takes one source behavior and rebuilds it in the Aurora theme with T4 color contracts — so you can judge the interaction, not the donor’s styling.','每个 mock 取一个来源行为,用 Aurora 主题 + T4 颜色契约重建 —— 让你评的是交互本身,而非来源的样式。')}</p>
+      <div className="glymap">
+        <div className="gmh">{t('GLYPHS PINNED TO T4 §08 · color = state, not decoration','字形锁定 T4 §08 · 颜色即状态,不是装饰')}</div>
+        <div className="gmrow">
+          <span className="gm gold"><b>◆</b> clarify / {t('your turn','待你')}</span>
+          <span className="gm blue"><b>▶</b> run / {t('streaming','流式')}</span>
+          <span className="gm green"><b>✓</b> read·edit / done</span>
+          <span className="gm cyan"><b>▣</b> skill / {t('catalog','目录')}</span>
+          <span className="gm grey"><b>◌</b> preparing / {t('wait','待命')}</span>
+          <span className="gm gold"><b>⏸</b> gate / {t('your decision','待你决策')}</span>
+          <span className="gm red"><b>✗</b> fail / deny</span>
+        </div>
+        <div className="gmn">{t('Donor emoji (hermes) and ASCII are replaced 1:1 by these geometric glyphs; the color carries the meaning so a 256-color terminal still reads correctly (T4 §09).','来源 emoji(hermes)与 ASCII 被这组几何字形 1:1 替换;含义由颜色承载,256 色终端也能读对(T4 §09)。')}</div>
+      </div>
+
+      {/* A: empty state */}
+      <div className="demo">
+        <div className="cap"><span className="t">{t('A · First-run / new session','A · 首启 / 新会话')}</span><span className="from oc">opencode {t('composer','composer')}</span><span className="from hm">hermes {t('catalog','目录')}</span><span className="why">{t('wordmark + “Ask anything” + agent line + Tip, with capability counts folded in','wordmark + “Ask anything” + agent 行 + Tip,并入能力计数')}</span></div>
+        <div className="term">
+          <div className="tbar"><span className="dot"></span><span className="dot"></span><span className="dot"></span><span className="ti">viden — ~/games/roboquest</span></div>
+          <div className="tbody">
+            <div className="es">
+              <div className="mark">VI<span className="b">D</span>EN</div>
+              <div className="tagl">{t('orchestrate agents across lanes','在多 lane 间编排 agent')}</div>
+              <div className="composer">
+                <div className="ph">{t('Ask anything…','问点什么…')} <span className="ex">{t('“Ship the contract gate for L1”','“把 L1 的契约闸做完”')}</span></div>
+                <div className="mline"><span className="ag">▸ claude-sonnet-4.6</span> · <span className="bk">ACP</span> · {t('Design lane','策划 lane')}</div>
+              </div>
+              <div className="hints"><span><b>tab</b> {t('lanes','切 lane')}</span><span><b>⌃P</b> {t('commands','命令')}</span><span><b>⌃G</b> {t('decision center','决策中心')}</span></div>
+              <div className="tip"><span className="d">◆ Tip</span> {t('Run','运行')} <span className="cmd">/connect</span> {t('to attach a backend','以接入后端')}</div>
+              <div className="cat"><b>6 {t('lanes','lane')}</b> · <b>19 {t('tools','工具')}</b> · <b>4 {t('backends','后端')}</b> · {t('type','输入')} <span style={{color:'var(--accent-bright)'}}>/help</span> {t('for commands','查命令')}</div>
+            </div>
+          </div>
+          <Bar/>
+        </div>
+        <div className="miscap">{t('TRIM: ASCII splash → first-run only; AVOID: emoji → geometric mark. Tip rotates; never blocks the composer.','收敛:ASCII 喷绘 → 仅首启;别采:emoji → 几何标记。Tip 轮换;绝不挡 composer。')}</div>
+      </div>
+
+      {/* B + C side by side */}
+      <div className="demogrid" style={{marginTop:'26px'}}>
+        {/* B: streaming timeline */}
+        <div className="demo">
+          <div className="cap"><span className="t">{t('B · Tool / skill stream','B · 工具 / 技能流')}</span><span className="from hm">hermes</span></div>
+          <div className="term">
+            <div className="tbar"><span className="dot"></span><span className="dot"></span><span className="dot"></span><span className="ti">L1 · {t('design','策划')}</span></div>
+            <div className="tbody">
+              <div className="tl">
+                <div className="tlr prep"><span className="gut">│</span><span className="ic">◌</span><span className="lb">{t('preparing','准备')}</span><span className="ar">clarify…</span><span className="du"></span></div>
+                <div className="tlr ask"><span className="gut">├</span><span className="ic">◆</span><span className="lb">clarify</span><span className="ar">{t('“Which milestone first?”','“先做哪个里程碑?”')}</span><span className="du">2.4s</span></div>
+                <div className="tlr done"><span className="gut">├</span><span className="ic">▣</span><span className="lb">skill</span><span className="ar">viden-agent</span><span className="du">0.0s</span></div>
+                <div className="tlr ok"><span className="gut">├</span><span className="ic">✓</span><span className="lb">read</span><span className="ar">contracts/L1.toml · +3 files</span><span className="du">0.3s</span></div>
+                <div className="tlr run"><span className="gut">╰</span><span className="ic">▶</span><span className="lb">run</span><span className="ar">cargo build --release</span><span className="du">{t('running','运行中')}</span></div>
+              </div>
+            </div>
+            <Bar budget/>
+          </div>
+          <div className="miscap">{t('icon=state · arg=what · duration right-aligned · ╰ closes the run','图标=状态 · 参数=做什么 · 耗时右对齐 · ╰ 收束本次运行')}</div>
+        </div>
+
+        {/* C: command palette */}
+        <div className="demo">
+          <div className="cap"><span className="t">{t('C · Command palette','C · 命令面板')}</span><span className="from oc">opencode</span></div>
+          <div className="term">
+            <div className="tbar"><span className="dot"></span><span className="dot"></span><span className="dot"></span><span className="ti">⌃P</span></div>
+            <div className="tbody">
+              <div className="palq"><span className="pr">/</span>{t('compa','compa')}<span style={{color:'var(--fg-faint)'}}>▏</span></div>
+              <div className="pal">
+                <div className="palr sel"><span className="c">/compact</span><span className="d">{t('Compact this session','压缩当前会话')}</span></div>
+                <div className="palr"><span className="c">/lanes</span><span className="d">{t('Switch lane','切换 lane')}</span></div>
+                <div className="palr"><span className="c">/gate</span><span className="d">{t('Open decision center','打开决策中心')}</span></div>
+                <div className="palr"><span className="c">/connect</span><span className="d">{t('Attach a backend','接入后端')}</span></div>
+                <div className="palr"><span className="c">/monitor</span><span className="d">{t('Toggle lane monitor','开关 lane 监视器')}</span></div>
+                <div className="palr"><span className="c">/export</span><span className="d">{t('Export transcript','导出转录')}</span></div>
+              </div>
+            </div>
+            <Bar/>
+          </div>
+          <div className="miscap">{t('two columns · fuzzy · gold selection = T4 “act” affordance','两列 · 模糊 · 金色选中 = T4 “动作”示能')}</div>
+        </div>
+      </div>
+
+      {/* D: approval gate */}
+      <div className="demo" style={{marginTop:'26px'}}>
+        <div className="cap"><span className="t">{t('D · Command gate — 4 tiers + auto-deny','D · 命令闸 —— 4 档 + 超时拒')}</span><span className="from hm">hermes {t('approval','审批')}</span><span className="why">{t('the safest, most mature interaction of the two — folds into our contract gate','两者中最安全、最成熟的交互 —— 并入我们的契约闸')}</span></div>
+        <div className="term">
+          <div className="tbar"><span className="dot"></span><span className="dot"></span><span className="dot"></span><span className="ti">L1 · {t('design','策划')} · {t('gate','闸')}</span></div>
+          <div className="tbody">
+            <div className="gate">
+              <div className="gh">⚠ {t('Command gate','命令闸')} <span className="tg">{t('ELEVATED','高危')}</span></div>
+              <div className="gb">
+                <div className="cmd"><span className="pr">$ </span>git push --force origin main</div>
+                <div className="csq">↳ {t('rewrites remote history on a protected branch','改写受保护分支的远端历史')}</div>
+                <div className="opt sel"><span className="n">1</span>{t('Allow once','本次允许')}</div>
+                <div className="opt"><span className="n">2</span>{t('Allow for this session','本会话允许')}</div>
+                <div className="opt"><span className="n">3</span>{t('Add to allowlist','加入白名单')}<span className="sub">{t('permanent · this repo','永久 · 本仓库')}</span></div>
+                <div className="opt deny"><span className="n">4</span>{t('Deny','拒绝')}</div>
+                <div className="foot"><span>↑↓ {t('select','选择')}</span><span>⏎ {t('confirm','确认')}</span><span className="cd">{t('auto-deny','超时拒')} 47s<span className="bar"><i></i></span></span></div>
+              </div>
+            </div>
+            <div className="reply">
+              <div className="rh">◆ {t('If it times out','若超时')}</div>
+              <div className="rb">{t('I won’t retry — the gate denied. You can run it yourself:','我不会重试 —— 闸已拒。你可以自己跑:')}<span className="run">git push --force origin main</span>{t('To let me run it, re-authorize via','要我来跑,请重新授权:')} <code>/gate allow</code>.</div>
+            </div>
+          </div>
+          <Bar/>
+        </div>
+        <div className="miscap">{t('auto-deny (never auto-allow) · allowlist persists per-repo · denied = explained, never a silent dead-end','超时即拒(绝不自动放行) · 白名单按仓库持久 · 拒绝必有解释,绝不无声死胡同')}</div>
+      </div>
+
+      {/* completed chip + toast */}
+      <div className="minirow" style={{marginTop:'22px'}}>
+        <div>
+          <div className="miscap" style={{marginTop:0,marginBottom:'7px'}}>{t('opencode · completed-step chip (collapsed run)','opencode · 完成步骤 chip(折叠运行)')}</div>
+          <span className="chip"><span className="ck">✓</span> Build <span className="md">· claude-sonnet-4.6</span> <span className="du">· 7.1s</span> <span style={{color:'var(--fg-faint)'}}>›</span></span>
+        </div>
+        <div>
+          <div className="miscap" style={{marginTop:0,marginBottom:'7px'}}>{t('opencode · ambient update toast → routed through Pip HUD','opencode · 余光更新提示 → 走 Pip HUD')}</div>
+          <span className="toast"><span className="sp"></span>{t('Updating Viden to v0.4.2…','Viden 更新至 v0.4.2…')}</span>
+        </div>
+      </div>
+
+      {/* 04 principles */}
+      <div className="sech"><span className="no">04</span><h2>{t('Interaction principles','交互原则')}</h2><span className="en">what carries over to every Viden surface</span><span className="sp"></span></div>
+      <div className="rules">
+        <div className="rule"><span className="ic">①</span><span className="tx"><b>{t('Every step is named, timed, and collapsible','每一步都有名、有时、可折叠')}</b>{t(' — hermes’ timeline + opencode’s chip. Running steps show live; finished ones fold to one line w/ duration; expand on demand.',' —— hermes 时间线 + opencode chip。运行中实时展开;完成折成一行带耗时;按需再展开。')}</span></div>
+        <div className="rule"><span className="ic">②</span><span className="tx"><b>{t('Destructive actions gate; gates fail safe','破坏性动作必经闸;闸默认安全')}</b>{t(' — 4 grant tiers (once / session / permanent / deny) and a visible countdown that auto-DENIES. Never auto-allow.',' —— 4 档授权(本次/会话/永久/拒绝)+ 可见倒计时,超时自动拒。绝不自动放行。')}</span></div>
+        <div className="rule"><span className="ic">③</span><span className="tx"><b>{t('A deny is never a dead-end','拒绝绝不是死胡同')}</b>{t(' — the agent explains and prints the exact command + the re-authorize path. Borrowed straight from hermes.',' —— agent 解释并打出确切命令 + 重新授权路径。直接借自 hermes。')}</span></div>
+        <div className="rule"><span className="ic">④</span><span className="tx"><b>{t('Chrome stays two lines','chrome 只占两行')}</b>{t(' — fold ctx / cost / version / connection into the status bar (opencode bottom-bar), not a permanent rail. The rail is an expand, not a fixture.',' —— ctx/花费/版本/连接 折进状态栏(opencode 底栏),不留常驻侧栏。侧栏是展开,不是固定件。')}</span></div>
+        <div className="rule"><span className="ic">⑤</span><span className="tx"><b>{t('Personality is ambient, not loud','个性是余光,不是喧哗')}</b>{t(' — keep the wordmark/ASCII to first-run; let Pip carry character afterward. Color = state (T4), not glitter.',' —— wordmark/ASCII 只留首启;之后交给 Pip。颜色即状态(T4),不是闪粉。')}</span></div>
+      </div>
+
+      <div className="divnote"><b>{t('Bottom line','一句话')}</b>{t(': from ','::从 ')}<span className="c">hermes</span>{t(' take the ',' 取其 ')}<span className="c">{t('streaming timeline','流式时间线')}</span>{t(' and the ',' 与 ')}<span className="c">{t('4-tier + auto-deny gate','4 档 + 超时拒之闸')}</span>{t(' (its real maturity); from ',' (它真正的成熟处);从 ')}<span className="c">opencode</span>{t(' take the ',' 取其 ')}<span className="c">{t('empty-state composer','空状态 composer')}</span>{t(', ',' 、')}<span className="c">{t('slash palette','斜杠面板')}</span>{t(' and ',' 与 ')}<span className="c">{t('bottom-bar meter','底栏计量')}</span>{t('. Trim hermes’ ASCII/emoji to Viden glyphs, and refuse opencode’s permanent context rail — our chrome stays two lines. Same color & list contracts as T4.','。把 hermes 的 ASCII/emoji 收敛为 Viden 字形,并拒绝 opencode 的常驻上下文栏 —— chrome 只占两行。颜色与列表契约沿用 T4。')}</div>
+
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

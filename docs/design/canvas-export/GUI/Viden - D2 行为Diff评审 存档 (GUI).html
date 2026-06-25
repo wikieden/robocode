@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D2 · Behavior Diff Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="i18n.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+
+.pwrap{max-width:1560px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:860px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+
+/* ===== app frame ===== */
+.frame{background:var(--bg-base);border:1px solid var(--border);border-radius:14px;overflow:hidden;height:880px;display:grid;grid-template-columns:264px 1fr;min-width:1180px;box-shadow:0 24px 70px rgba(0,0,0,.5);}
+
+/* queue rail */
+.queue{background:var(--bg-panel);border-right:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden;}
+.qhead{padding:13px 15px 10px;border-bottom:1px solid var(--border-soft);}
+.qhead h3{margin:0;font-size:13.5px;display:flex;align-items:baseline;gap:8px;}
+.qhead .ct{font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+.qhead .sub{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-top:4px;}
+.qitem{margin:6px 8px 0;padding:10px 11px;border-radius:9px;border:1px solid transparent;cursor:pointer;}
+.qitem:hover{background:var(--bg-base);}
+.qitem.on{background:var(--bg-sel);border-color:var(--accent-dim);}
+.qitem .r1{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--fg-primary);white-space:nowrap;overflow:hidden;}
+.qitem .r1 .st{width:7px;height:7px;border-radius:50%;flex:none;}
+.qitem .r2{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);margin-top:4px;}
+.qitem .r2 .lid{color:var(--accent);font-weight:700;}
+.qitem .dtag{font-size:8.5px;font-weight:700;letter-spacing:.5px;border:1px solid var(--border);border-radius:4px;padding:0 5px;color:var(--fg-secondary);}
+.qfoot{margin-top:auto;border-top:1px solid var(--border-soft);padding:10px 14px;font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.7;}
+.qfoot .a{color:var(--accent);}
+
+/* main */
+.main{display:flex;flex-direction:column;min-width:0;overflow:hidden;}
+.rhead{flex:none;padding:13px 18px 11px;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:11px;flex-wrap:wrap;background:var(--bg-base);}
+.rhead .t{font-size:15.5px;font-weight:700;}
+.chip{font-family:var(--mono);font-size:10px;font-weight:600;border-radius:5px;padding:2px 8px;white-space:nowrap;border:1px solid var(--border);color:var(--fg-secondary);display:inline-flex;align-items:center;gap:5px;}
+.chip .dot{width:6px;height:6px;border-radius:50%;}
+.chip.lane{color:var(--accent);border-color:var(--accent-dim);}
+.chip.ok{color:var(--success);border-color:color-mix(in srgb,var(--success) 45%,transparent);background:color-mix(in srgb,var(--success) 6%,transparent);}
+.chip.gate{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 50%,transparent);background:color-mix(in srgb,var(--gold) 7%,transparent);}
+.chip.lock{color:var(--fg-faint);}
+.rhead .sp{flex:1;}
+.rhead .meta{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+
+/* split */
+.split{flex:1;display:grid;min-height:0;}
+.pane{min-width:0;min-height:0;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.pane.code{border-right:1px solid var(--border-soft);background:var(--bg-base);}
+.pane.evid{background:var(--bg-panel);}
+.split.flip .pane.code{border-right:none;border-left:1px solid var(--border-soft);order:2;}
+.split.flip .pane.evid{order:1;}
+.ph{position:sticky;top:0;z-index:2;background:inherit;display:flex;align-items:center;gap:9px;padding:9px 16px;border-bottom:1px solid var(--border-soft);font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.ph b{color:var(--fg-primary);font-weight:600;font-size:11px;}
+.ph .pm{color:var(--success);}
+.ph .sp{flex:1;}
+
+/* diff */
+.filetabs{display:flex;gap:4px;padding:8px 14px 0;}
+.ftab{font-family:var(--mono);font-size:10px;padding:3px 9px;border-radius:6px 6px 0 0;color:var(--fg-muted);border:1px solid var(--border-soft);border-bottom:none;cursor:pointer;background:var(--bg-panel);}
+.ftab.on{color:var(--accent-bright);background:var(--bg-void);border-color:var(--border);}
+.diffbody{margin:0 14px 16px;background:var(--bg-void);border:1px solid var(--border);border-radius:0 8px 8px 8px;padding:10px 0;font-family:var(--mono);overflow-x:auto;}
+.dl{display:grid;grid-template-columns:42px 16px 1fr;gap:0 8px;padding:1px 12px 1px 0;line-height:1.75;white-space:pre;}
+.dl .ln{text-align:right;color:var(--fg-faint);font-size:10px;user-select:none;}
+.dl .sg{text-align:center;font-size:11px;}
+.dl .tx{color:var(--fg-secondary);}
+.dl.hk{background:color-mix(in srgb,var(--accent) 5%,transparent);}
+.dl.hk .tx{color:var(--accent);}
+.dl.add{background:color-mix(in srgb,var(--success) 7%,transparent);}
+.dl.add .sg{color:var(--success);} .dl.add .tx{color:#a9dcb4;}
+.dl.del{background:color-mix(in srgb,var(--error) 7%,transparent);}
+.dl.del .sg{color:var(--error);} .dl.del .tx{color:#e0a09b;text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--error) 40%,transparent);}
+.dl .cm{color:var(--fg-faint);}
+
+/* evidence */
+.esec{padding:14px 16px 4px;}
+.esec .eh{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);display:flex;align-items:center;gap:8px;margin-bottom:9px;}
+.esec .eh::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.esec .eh .src{font-weight:400;letter-spacing:0;text-transform:none;color:var(--fg-faint);}
+.concl{margin:14px 16px 0;background:var(--bg-elev);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 9px 9px 0;padding:11px 14px;font-size:13px;line-height:1.65;color:var(--fg-primary);text-wrap:pretty;}
+.concl .by{display:block;font-family:var(--mono);font-size:9px;color:var(--fg-faint);margin-top:7px;}
+.chart{background:var(--bg-void);border:1px solid var(--border);border-radius:9px;padding:10px 12px 6px;}
+.chart svg{display:block;width:100%;height:auto;}
+.legend{display:flex;gap:16px;padding:7px 2px 2px;font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);}
+.legend i{display:inline-block;width:16px;height:0;border-top:2px solid;margin-right:5px;vertical-align:middle;}
+.etable{width:100%;border-collapse:collapse;font-size:12px;background:var(--bg-void);border:1px solid var(--border);border-radius:9px;overflow:hidden;}
+.etable th{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-muted);text-align:left;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--bg-base);}
+.etable td{padding:6px 12px;border-bottom:1px solid var(--border-soft);color:var(--fg-secondary);font-family:var(--mono);font-size:11px;}
+.etable tr:last-child td{border-bottom:none;}
+.etable td b{color:var(--fg-primary);font-weight:600;}
+.up{color:var(--success);} .dn{color:var(--error);} .nt{color:var(--fg-faint);}
+.passrow{display:flex;align-items:center;gap:10px;background:var(--bg-void);border:1px solid var(--border);border-radius:9px;padding:9px 13px;font-family:var(--mono);font-size:11px;color:var(--fg-secondary);}
+.passrow .ok{color:var(--success);font-weight:700;}
+.passrow .bar{flex:1;height:5px;border-radius:3px;background:var(--bg-base);overflow:hidden;}
+.passrow .bar i{display:block;height:100%;background:var(--success);}
+.stagegate{display:flex;align-items:center;gap:0;background:var(--bg-void);border:1px solid var(--border);border-radius:9px;padding:11px 14px;font-family:var(--mono);font-size:10.5px;}
+.stg{display:flex;align-items:center;gap:7px;}
+.stg .ic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:10px;border:1.5px solid var(--border);color:var(--fg-muted);}
+.stg.done .ic{border-color:var(--success);color:var(--success);background:color-mix(in srgb,var(--success) 8%,transparent);}
+.stg.cur .ic{border-color:var(--gold);color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 8%,transparent);}
+.stg.lock .ic{border-style:dashed;}
+.stg .lb{color:var(--fg-secondary);} .stg.cur .lb{color:var(--gold-bright);font-weight:700;} .stg.done .lb{color:var(--fg-primary);}
+.stg .sub2{display:block;font-size:8.5px;color:var(--fg-faint);}
+.stgarr{flex:1;height:0;border-top:1.5px dashed var(--border);margin:0 10px;min-width:18px;}
+
+/* gate bar */
+.gatebar{flex:none;border-top:1px solid var(--border);background:var(--bg-void);padding:11px 18px;display:flex;align-items:center;gap:12px;}
+.gstat{display:flex;flex-direction:column;gap:2px;}
+.gstat .l1{font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.gstat .l2{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);}
+.gstat .l2 .a{color:var(--accent);}
+.gatebar .sp{flex:1;}
+.gbtn{font-size:12.5px;font-weight:600;border-radius:8px;padding:8px 18px;cursor:pointer;border:1px solid var(--border);color:var(--fg-secondary);background:transparent;font-family:var(--sans);}
+.gbtn:hover{color:var(--fg-primary);border-color:var(--fg-muted);}
+.gbtn.reject{color:var(--error);border-color:color-mix(in srgb,var(--error) 40%,transparent);}
+.gbtn.reject:hover{background:color-mix(in srgb,var(--error) 8%,transparent);}
+.gbtn.approve{color:#06222b;background:var(--accent);border-color:var(--accent);font-weight:700;}
+.gbtn.approve:hover{background:var(--accent-bright);border-color:var(--accent-bright);}
+.gbtn kbd{font-family:var(--mono);font-size:9px;opacity:.65;margin-left:6px;}
+.toast{position:absolute;left:50%;bottom:76px;transform:translateX(-50%);background:var(--bg-elev);border:1px solid var(--accent-dim);color:var(--fg-primary);font-size:12.5px;border-radius:9px;padding:9px 16px;box-shadow:0 10px 30px rgba(0,0,0,.45);display:flex;gap:8px;align-items:center;}
+.toast .mono{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+</style>
+</head>
+<body>
+<div class="pwrap">
+  <div id="root"></div>
+</div>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel">
+const {useState} = React;
+const t = window.t || ((en,zh)=>en);
+
+/* ───────── chart helpers ───────── */
+function pts(fn,n,x0,x1){const a=[];for(let i=0;i<=n;i++){const x=x0+(x1-x0)*i/n;a.push([x,fn(x)]);}return a;}
+function path(p,W,H,xr,yr){const sx=x=>(x-xr[0])/(xr[1]-xr[0])*W;const sy=y=>H-(y-yr[0])/(yr[1]-yr[0])*H;return p.map((q,i)=>(i?'L':'M')+sx(q[0]).toFixed(1)+' '+sy(q[1]).toFixed(1)).join(' ');}
+const Grid=({W,H})=>(<g stroke="#122936" strokeWidth="1">{[1,2,3].map(i=><line key={'h'+i} x1="0" x2={W} y1={H*i/4} y2={H*i/4}/>)}{[1,2,3,4,5].map(i=><line key={'v'+i} y1="0" y2={H} x1={W*i/6} x2={W*i/6}/>)}</g>);
+
+function ChartFrame({W=560,H=170,children,labels}){
+  return (
+    <div className="chart">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{height:H}}>
+        <Grid W={W} H={H}/>{children}
+      </svg>
+      <div className="legend">{labels.map((l,i)=><span key={i}><i style={{borderColor:l[1],borderTopStyle:l[2]||'solid'}}></i>{l[0]}</span>)}</div>
+    </div>
+  );
+}
+
+/* jump arcs: y = h - g(x-t)^2 style */
+function JumpChart(){
+  const W=560,H=170,xr=[0,1.2],yr=[0,130];
+  const before=pts(x=>Math.max(0,118-380*Math.pow(x-0.56,2)),60,0,1.15);
+  const after =pts(x=>Math.max(0,102-260*Math.pow(x-0.63,2)),60,0,1.25).filter(p=>p[0]<=1.2);
+  return (
+    <ChartFrame W={W} H={H} labels={[[t('before · peak 118px','改动前 · 峰值 118px'),'#5a7384','dashed'],[t('after · peak 102px · +40ms airtime','改动后 · 峰值 102px · 滞空 +40ms'),'#34bdd9']]}>
+      <path d={path(before,W,H,xr,yr)} fill="none" stroke="#5a7384" strokeWidth="1.6" strokeDasharray="5 4"/>
+      <path d={path(after ,W,H,xr,yr)} fill="none" stroke="#34bdd9" strokeWidth="2.2"/>
+    </ChartFrame>
+  );
+}
+function LossChart(){
+  const W=560,H=170,xr=[0,10],yr=[1.4,4.6];
+  const noise=x=>0.06*Math.sin(x*9.1)+0.045*Math.sin(x*23.7);
+  const before=pts(x=>1.9+2.4*Math.exp(-x*0.55)+(x<2?0.55*Math.exp(-Math.pow((x-0.9)/0.3,2)):0)+noise(x),120,0.05,10);
+  const after =pts(x=>1.78+2.5*Math.exp(-x*0.62)+noise(x+3),120,0.05,10);
+  return (
+    <ChartFrame W={W} H={H} labels={[[t('before · loss spike at 2k steps','改动前 · 2k 步处 loss 尖峰'),'#5a7384','dashed'],[t('after · smooth decay post-warmup','改动后 · warmup 后平滑下降'),'#34bdd9']]}>
+      <path d={path(before,W,H,xr,yr)} fill="none" stroke="#5a7384" strokeWidth="1.6" strokeDasharray="5 4"/>
+      <path d={path(after ,W,H,xr,yr)} fill="none" stroke="#34bdd9" strokeWidth="2.2"/>
+    </ChartFrame>
+  );
+}
+function StepChart(){
+  const W=560,H=170,xr=[0,2],yr=[0,1.5];
+  const before=pts(x=>x<0.1?0:1+Math.exp(-(x-0.1)*3.2)*Math.cos((x-0.1)*14)*-1*-0.42*Math.sign(1)* -1*-1,140,0,2)
+    .map(([x,y])=>[x, x<0.1?0: 1-Math.exp(-(x-0.1)*3.2)*Math.cos((x-0.1)*14)*1.0*0.42/0.42*0.42*2.38*0.42 ]);
+  const beforeFix=pts(x=>x<0.1?0:1-Math.exp(-(x-0.1)*3.0)*Math.cos((x-0.1)*13)*1.0,140,0,2);
+  const after=pts(x=>x<0.1?0:1-Math.exp(-(x-0.1)*7.5)*(Math.cos((x-0.1)*5)+0.45*Math.sin((x-0.1)*5)),140,0,2);
+  const step=[[0,0],[0.1,0],[0.1,1],[2,1]];
+  return (
+    <ChartFrame W={W} H={H} labels={[[t('target setpoint','目标 setpoint'),'#3a4d5e'],[t('before · overshoot 12.4%','改动前 · 超调 12.4%'),'#5a7384','dashed'],[t('after · overshoot 3.1% · settles 0.45s','改动后 · 超调 3.1% · 0.45s 稳定'),'#34bdd9']]}>
+      <path d={path(step,W,H,xr,yr)} fill="none" stroke="#3a4d5e" strokeWidth="1.4"/>
+      <path d={path(beforeFix,W,H,xr,yr)} fill="none" stroke="#5a7384" strokeWidth="1.6" strokeDasharray="5 4"/>
+      <path d={path(after,W,H,xr,yr)} fill="none" stroke="#34bdd9" strokeWidth="2.2"/>
+    </ChartFrame>
+  );
+}
+
+/* ───────── diff data ───────── */
+const D=(t,ln,sg,tx)=>({t,ln,sg,tx});
+const REVIEWS=[
+  {
+    id:'game', dtag:'GAME', lid:'L2', agent:'codex', st:'var(--gold)',
+    title:t('Jump feel: lower the peak, lengthen airtime','跳跃手感：降低峰值、加长滞空'), branch:'vd/jump-feel', delta:'+9 −4', model:'gpt-5-codex',
+    gateName:t('replay-regression gate','回放回归闸'), gateState:t('auto-validation passed · awaiting human approval','自动验证通过 · 等待人工批准'),
+    file:'player.gd', files:['player.gd','jump_test.gd'],
+    diff:[
+      D('hk','','',t('@@ player.gd · jump params & launch logic 24–41 @@','@@ player.gd · 跳跃参数与起跳逻辑 24–41 @@')),
+      D('','24','','const GRAVITY := 1850.0'),
+      D('del','25','−','const JUMP_VELOCITY := -620.0'),
+      D('add','25','+','const JUMP_VELOCITY := -540.0'),
+      D('add','26','+',t('const JUMP_CUT_MULT := 0.45   # cut rise on early key release','const JUMP_CUT_MULT := 0.45   # 提前松键截断上升')),
+      D('','27','','var jump_charge := 1.0'),
+      D('del','28','−','var coyote_time := 0.08'),
+      D('add','28','+',t('var coyote_time := 0.12       # coyote grace +40ms','var coyote_time := 0.12       # 离台宽限 +40ms')),
+      D('','29','',''),
+      D('','30','','func _try_jump() -> void:'),
+      D('','31','','    if not _grounded and _coyote_left <= 0.0:'),
+      D('','32','','        return'),
+      D('del','33','−','    velocity.y = JUMP_VELOCITY'),
+      D('add','33','+','    velocity.y = JUMP_VELOCITY * jump_charge'),
+      D('add','34','+','    if Input.is_action_just_released("jump"):'),
+      D('add','35','+','        velocity.y *= JUMP_CUT_MULT'),
+    ],
+    concl:t('Jump peak 118→102px (−13%), airtime +40ms, early release cuts the rise. All 12 deterministic replays pass, max end-state deviation 0.4px; numeric contract untouched.','跳跃峰值 118→102px（−13%），滞空 +40ms，提前松键可截断上升。12 条确定性回放全部通过，结局状态最大偏差 0.4px；数值契约未触碰。'),
+    valid:'Godot headless 4.3 · replay-suite v7 · 38s',
+    evidence:'docs/evidence/v0.6/jump-feel/',
+    approveLabel:t('Approve & merge','批准并合入'), extra:null,
+    body:(<React.Fragment>
+      <div className="esec"><div className="eh">{t('Behavior compare · jump trajectory','行为对比 · 跳跃轨迹')} <span className="src">{t('replay #07 · same input sequence re-run','replay #07 · 同一输入序列重演')}</span></div><JumpChart/></div>
+      <div className="esec"><div className="eh">{t('Replay regression','回放回归')} <span className="src">{t('deterministic input sequences × 12','确定性输入序列 × 12')}</span></div>
+        <div className="passrow"><span className="ok">✓ 12 / 12</span><span className="bar"><i style={{width:'100%'}}></i></span><span>{t('max end-state deviation 0.4px · clear time ±0.2s','结局状态最大偏差 0.4px · 通关时间 ±0.2s')}</span></div>
+      </div>
+      <div className="esec"><div className="eh">{t('Feel params Δ','手感参数 Δ')}</div>
+        <table className="etable"><thead><tr><th>{t('Param','参数')}</th><th>{t('Before','改动前')}</th><th>{t('After','改动后')}</th><th>Δ</th></tr></thead><tbody>
+          <tr><td><b>{t('Jump peak','跳跃峰值')}</b></td><td>118 px</td><td>102 px</td><td className="dn">−13.6%</td></tr>
+          <tr><td><b>{t('Airtime','滞空时间')}</b></td><td>0.62 s</td><td>0.66 s</td><td className="up">+40 ms</td></tr>
+          <tr><td><b>coyote time</b></td><td>80 ms</td><td>120 ms</td><td className="up">+40 ms</td></tr>
+          <tr><td><b>{t('Variable height','可变跳高')}</b></td><td className="nt">{t('none','无')}</td><td>{t('release ×0.45','松键 ×0.45')}</td><td className="up">{t('new','新增')}</td></tr>
+        </tbody></table>
+      </div>
+    </React.Fragment>)
+  },
+  {
+    id:'ml', dtag:'ML', lid:'L5', agent:'builtin', st:'var(--progress)',
+    title:t('Training: warmup schedule + grad clipping','训练：warmup 调度 + 梯度裁剪'), branch:'vd/lr-warmup', delta:'+6 −3', model:'deepseek-v4',
+    gateName:t('eval gate','eval 闸'), gateState:t('4/4 benchmarks no regression · awaiting human approval','4/4 基准不回退 · 等待人工批准'),
+    file:'train.py', files:['train.py','configs/run.yaml'],
+    diff:[
+      D('hk','','','@@ train.py · optimizer / scheduler 88–102 @@'),
+      D('','88','','optimizer = AdamW(model.parameters(),'),
+      D('del','89','−','                  lr=3e-4, betas=(0.9, 0.95))'),
+      D('add','89','+','                  lr=6e-4, betas=(0.9, 0.95))'),
+      D('del','90','−','scheduler = CosineLR(optimizer, T_max=cfg.steps)'),
+      D('add','90','+','scheduler = WarmupCosineLR(optimizer,'),
+      D('add','91','+','    warmup_steps=2000, T_max=cfg.steps)'),
+      D('','92','',''),
+      D('','93','','for step, batch in enumerate(loader):'),
+      D('','94','','    loss = model(batch).loss'),
+      D('','95','','    loss.backward()'),
+      D('add','96','+','    clip_grad_norm_(model.parameters(), 1.0)'),
+      D('','97','','    optimizer.step()'),
+    ],
+    concl:t('Warmup removed the loss spike in the first 2k steps; raising lr to 6e-4 converges faster without diverging. All 4 evals hold, avg +1.8; ckpt-12k archived as a candidate artifact.','warmup 消除了前 2k 步的 loss 尖峰，lr 提到 6e-4 后收敛更快且未发散。4 项 eval 全部不回退，平均 +1.8；ckpt-12k 已归档为候选产物。'),
+    valid:'eval-harness v3 · 4 benchmarks · A100×8 · 22min',
+    evidence:'docs/evidence/run-0612/lr-warmup/',
+    approveLabel:t('Approve & merge','批准并合入'), extra:null,
+    body:(<React.Fragment>
+      <div className="esec"><div className="eh">{t('Behavior compare · loss curve','行为对比 · loss 曲线')} <span className="src">{t('same data order · seed 42','同数据序 · seed 42')}</span></div><LossChart/></div>
+      <div className="esec"><div className="eh">{t('eval benchmarks','eval 基准')} <span className="src">{t('gate rule: block if any drops > 0.5','闸规则：任一项回退 > 0.5 即拦截')}</span></div>
+        <table className="etable"><thead><tr><th>benchmark</th><th>{t('baseline ckpt-10k','基线 ckpt-10k')}</th><th>{t('this run ckpt-12k','本次 ckpt-12k')}</th><th>Δ</th></tr></thead><tbody>
+          <tr><td><b>lm-eval · arc_c</b></td><td>61.2</td><td>63.8</td><td className="up">+2.6</td></tr>
+          <tr><td><b>gsm8k</b></td><td>54.7</td><td>58.1</td><td className="up">+3.4</td></tr>
+          <tr><td><b>mmlu</b></td><td>58.9</td><td>59.3</td><td className="up">+0.4</td></tr>
+          <tr><td><b>hellaswag</b></td><td>77.4</td><td>77.2</td><td className="nt">{t('−0.2 · within tolerance','−0.2 · 容差内')}</td></tr>
+        </tbody></table>
+      </div>
+      <div className="esec"><div className="eh">{t('Artifact','产物 artifact')}</div>
+        <div className="passrow"><span className="ok">✓</span><span style={{fontFamily:'var(--mono)'}}>ckpt-12k.safetensors · 13.4 GB · sha256 9f2a…c1</span><span className="bar"><i style={{width:'100%'}}></i></span><span>{t('pulled back from gpu-01','已从 gpu-01 回拉')}</span></div>
+      </div>
+    </React.Fragment>)
+  },
+  {
+    id:'robot', dtag:'ROBOT', lid:'L7', agent:'claude', st:'var(--warning)',
+    title:t('Joint control: PID re-tune + derivative filter','关节控制：PID 重整定 + 微分滤波'), branch:'vd/pid-retune', delta:'+7 −3', model:'claude-sonnet-4.6',
+    gateName:t('staged hardware gate','分级实机闸'), gateState:t('sim passed · requesting bench (locked-axis rig)','sim 通过 · 本次申请 bench（锁轴台架）'),
+    file:'pid.rs', files:['pid.rs','joint_cfg.toml'],
+    diff:[
+      D('hk','','',t('@@ pid.rs · elbow joint gains 31–44 @@','@@ pid.rs · elbow joint 增益 31–44 @@')),
+      D('','31','','impl JointPid {'),
+      D('','32','','    pub fn elbow() -> Self {'),
+      D('del','33','−','        Self { kp: 14.0, ki: 0.0, kd: 0.6,'),
+      D('add','33','+','        Self { kp: 9.5,  ki: 0.4, kd: 1.8,'),
+      D('add','34','+',t('               d_filter_hz: 40.0,  // derivative low-pass, noise suppress','               d_filter_hz: 40.0,  // 微分低通，抑噪')),
+      D('','35','','               i_clamp: 0.3 }'),
+      D('','36','','    }'),
+      D('','37','',''),
+      D('','38','','    pub fn output(&mut self, err: f32, dt: f32) -> f32 {'),
+      D('','39','','        let u = self.kp*err + self.ki*self.i + self.kd*self.d;'),
+      D('del','40','−','        u.clamp(-1.0, 1.0)'),
+      D('add','40','+',t('        u.clamp(-0.8, 0.8)  // keep 20% torque headroom','        u.clamp(-0.8, 0.8)  // 留 20% 扭矩余量')),
+      D('','41','','    }'),
+    ],
+    concl:t('Step-response overshoot 12.4%→3.1%, settle time 0.82s→0.45s, torque noise −18dB after the low-pass. All 6 sim scenes pass; requesting bench (locked-axis rig), field still locked.','阶跃响应超调 12.4%→3.1%，稳定时间 0.82s→0.45s，微分低通后扭矩噪声 −18dB。6 个仿真场景全部通过；申请进入 bench（锁轴台架），field 仍锁定。'),
+    valid:'MuJoCo 3.2 · scene-suite ×6 · target: robot-01 (SSH)',
+    evidence:'docs/evidence/v0.6/pid-retune/',
+    approveLabel:t('Approve → bench','批准进入 bench'),
+    extra:(<div className="esec"><div className="eh">{t('Staged hardware gate','分级实机闸')} <span className="src">{t('e-stop precheck confirmed · device lease arm-01 · 14:00–14:30','e-stop 前置已确认 · 设备租约 arm-01 · 14:00–14:30')}</span></div>
+      <div className="stagegate">
+        <span className="stg done"><span className="ic">✓</span><span className="lb">{t('sim','sim 仿真')}<span className="sub2">{t('6/6 scenes pass','6/6 场景通过')}</span></span></span>
+        <span className="stgarr"></span>
+        <span className="stg cur"><span className="ic">⏸</span><span className="lb">{t('bench','bench 台架')}<span className="sub2">{t('requested · locked-axis','本次申请 · 锁轴')}</span></span></span>
+        <span className="stgarr"></span>
+        <span className="stg lock"><span className="ic">🔒</span><span className="lb">{t('field','field 实机')}<span class="sub2">{t('needs 2 approvers','需 2 人批准')}</span></span></span>
+      </div>
+    </div>),
+    body:(<React.Fragment>
+      <div className="esec"><div className="eh">{t('Behavior compare · elbow step response','行为对比 · 肘关节阶跃响应')} <span className="src">{t('telemetry · 1kHz · pulled from robot-01','遥测 · 1kHz · 自 robot-01 回拉')}</span></div><StepChart/></div>
+      <div className="esec"><div className="eh">{t('Control metrics Δ','控制指标 Δ')}</div>
+        <table className="etable"><thead><tr><th>{t('Metric','指标')}</th><th>{t('Before','改动前')}</th><th>{t('After','改动后')}</th><th>Δ</th></tr></thead><tbody>
+          <tr><td><b>{t('Overshoot','超调量')}</b></td><td>12.4 %</td><td>3.1 %</td><td className="up">−9.3 pt</td></tr>
+          <tr><td><b>{t('Settle time (±2%)','稳定时间 (±2%)')}</b></td><td>0.82 s</td><td>0.45 s</td><td className="up">−45%</td></tr>
+          <tr><td><b>{t('Steady-state error','稳态误差')}</b></td><td>0.4°</td><td>0.2°</td><td className="up">−50%</td></tr>
+          <tr><td><b>{t('Torque noise','扭矩噪声')}</b></td><td>—</td><td>{t('low-pass 40Hz','低通 40Hz')}</td><td className="up">−18 dB</td></tr>
+        </tbody></table>
+      </div>
+    </React.Fragment>)
+  },
+];
+
+/* ───────── components ───────── */
+function Queue({cur,setCur}){
+  return (
+    <div className="queue">
+      <div className="qhead"><h3>{t('Reviews to approve','待批评审')} <span className="ct">3</span></h3><div className="sub">{t('gate inbox · routed to you by gate policy','gate inbox · 按闸策略路由给你')}</div></div>
+      {REVIEWS.map((r,i)=>(
+        <div key={r.id} className={"qitem "+(cur===i?'on':'')} onClick={()=>setCur(i)}>
+          <div className="r1"><span className="st" style={{background:r.st}}></span>{r.title}</div>
+          <div className="r2"><span className="lid">{r.lid}</span><span>{r.agent}</span><span className="dtag">{r.dtag}</span><span style={{marginLeft:'auto'}}>{r.delta}</span></div>
+        </div>
+      ))}
+      <div className="qfoot">{t('One review skeleton; the evidence panel is rendered by the ','同一套评审骨架，证据面板由')}<span className="a">{t('domain pack','领域包')}</span>{t('. Every decision is logged with its reason to the gate log (trainable format · Q6).','渲染。决策连同理由写入闸日志（可训练格式 · Q6）。')}</div>
+    </div>
+  );
+}
+
+function DiffPane({r,fontSize}){
+  return (
+    <div className="pane code">
+      <div className="ph"><b>{t('Code diff','代码 Diff')}</b><span>{r.file}</span><span className="pm">{r.delta}</span><span className="sp"></span><span>⎇ {r.branch}</span></div>
+      <div className="filetabs">{r.files.map((f,i)=><span key={f} className={"ftab "+(i===0?'on':'')}>{f}</span>)}</div>
+      <div className="diffbody" style={{fontSize}}>
+        {r.diff.map((d,i)=>(
+          <div key={i} className={"dl "+d.t}><span className="ln">{d.ln}</span><span className="sg">{d.sg}</span><span className="tx">{d.tx}</span></div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EvidencePane({r,showConcl}){
+  return (
+    <div className="pane evid" data-screen-label={"证据·"+r.dtag}>
+      <div className="ph"><b>{t('Behavior evidence','行为证据')}</b><span>{r.dtag} {t('domain-pack render','领域包渲染')}</span><span className="sp"></span><span>{r.evidence}</span></div>
+      {showConcl && <div className="concl">{r.concl}<span className="by">{t('behavior conclusion · generated by the routing small-model · all evidence is traceable','行为结论 · 由路由小模型生成 · 证据均可点开溯源')}</span></div>}
+      {r.body}
+      {r.extra}
+      <div style={{height:14}}></div>
+    </div>
+  );
+}
+
+function App(){
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "diffSide": "right",
+    "codeFontSize": 11,
+    "showConclusion": true
+  }/*EDITMODE-END*/);
+  const [cur,setCur]=useState(0);
+  const [toast,setToast]=useState(null);
+  const r=REVIEWS[cur];
+  const act=(label)=>{setToast(label);setTimeout(()=>setToast(null),2600);};
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · D2 concept · draft 01</div>
+      <h1 className="ph1">{t('Behavior diff review','行为 Diff 评审')} <span className="ac">Behavior Diff Review</span></h1>
+      <p className="plead">{t('Review = ','评审 = ')}<b>{t('code diff + behavior evidence side by side','代码 diff + 行为证据并排')}</b>{t('. One skeleton, the evidence panel rendered by the domain pack: game → replay compare, ML → eval curves & tables, robot → telemetry response curves + staged hardware gate. Click the three pending reviews in the left queue to switch.','。同一套骨架，证据面板由领域包渲染：游戏 → 回放对比，ML → eval 曲线与表，机器人 → 遥测响应曲线 + 分级实机闸。左侧队列点选三条待批评审切换查看。')}</p>
+    <div className="frame" data-screen-label="行为 Diff 评审">
+      <Queue cur={cur} setCur={setCur}/>
+      <div className="main" style={{position:'relative'}}>
+        <div className="rhead">
+          <span className="t">{r.title}</span>
+          <span className="chip lane">{r.lid} · {r.agent}</span>
+          <span className="chip">{r.model}</span>
+          <span className="chip ok"><span className="dot" style={{background:'var(--success)'}}></span>{t('auto-validation passed','自动验证通过')}</span>
+          <span className="chip gate">⏸ {r.gateName}</span>
+          <span className="sp"></span>
+          <span className="meta">{r.valid}</span>
+        </div>
+        <div className={"split "+(tw.diffSide==='right'?'flip':'')} style={{gridTemplateColumns:'1fr 1fr'}}>
+          <DiffPane r={r} fontSize={tw.codeFontSize}/>
+          <EvidencePane r={r} showConcl={tw.showConclusion}/>
+        </div>
+        <div className="gatebar">
+          <div className="gstat">
+            <span className="l1">⏸ {r.gateName}<span className="chip" style={{fontSize:9}}>{r.gateState}</span></span>
+            <span className="l2">{t('Decision & reason written to ','决策与理由写入 ')}<span className="a">{r.evidence}</span>{t(' + gate log · rules from ',' + 闸日志 · 规则来自 ')}<span className="a">viden.toml</span></span>
+          </div>
+          <span className="sp"></span>
+          <button className="gbtn" onClick={()=>act(t('Sent back to '+r.lid+' with review notes','已退回 '+r.lid+'，附评审意见'))}>{t('Send back','退回修改')}</button>
+          <button className="gbtn reject" onClick={()=>act(t('Rejected, reason logged to gate log','已驳回，理由已记录进闸日志'))}>{t('Reject','驳回')}</button>
+          <button className="gbtn approve" onClick={()=>act(t('Approved ✓ decision written to gate log (trainable format)','已批准 ✓ 决策写入闸日志（可训练格式）'))}>{r.approveLabel}<kbd>⌘⏎</kbd></button>
+        </div>
+        {toast && <div className="toast">✓ {toast}<span className="mono">{r.evidence}gate-log.jsonl</span></div>}
+      </div>
+
+      <TweaksPanel>
+        <TweakSection label={t('Layout','布局')} />
+        <TweakRadio label={t('Code diff position','代码 Diff 位置')} value={tw.diffSide} options={[{value:'left',label:t('left','左')},{value:'right',label:t('right','右')}]} onChange={v=>setTweak('diffSide',v)} />
+        <TweakSlider label={t('Code font size','代码字号')} value={tw.codeFontSize} min={10} max={14} step={0.5} unit="px" onChange={v=>setTweak('codeFontSize',v)} />
+        <TweakSection label={t('Evidence','证据')} />
+        <TweakToggle label={t('Show behavior conclusion summary','显示行为结论摘要')} value={tw.showConclusion} onChange={v=>setTweak('showConclusion',v)} />
+      </TweaksPanel>
+    </div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

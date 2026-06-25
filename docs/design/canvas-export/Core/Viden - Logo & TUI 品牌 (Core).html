@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · Logo 与 TUI 首屏</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="i18n.js"></script>
+<script src="chrome.js"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--page-ink);font-family:var(--sans);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px 110px;}
+section{padding-top:60px;}
+.kicker{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);margin:0 0 10px;display:flex;align-items:center;gap:10px;}
+.kicker::before{content:"";width:26px;height:2px;background:var(--accent);display:inline-block;}
+h1{font-size:42px;line-height:1.1;margin:0 0 16px;letter-spacing:-1px;font-weight:700;}
+h1 .ac{color:var(--accent);}
+h2{font-size:26px;margin:0 0 8px;letter-spacing:-.4px;font-weight:700;}
+.lead{font-size:16.5px;color:var(--page-ink-dim);max-width:780px;margin:0 0 24px;}
+.lead b{color:var(--page-ink);font-weight:600;}
+.mono{font-family:var(--mono);}
+
+.topnav{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:18px;padding:12px 28px;background:color-mix(in srgb,var(--page-bg) 86%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--page-line);}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-weight:800;font-size:15px;}
+.brand .glyph{color:var(--gold);}
+.brand .v{color:var(--gold);}
+.brand .iden{color:var(--accent);}
+.navlinks{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap;}
+.navlinks a{color:var(--page-ink-dim);text-decoration:none;font-size:12.5px;font-weight:500;padding:5px 11px;border-radius:6px;font-family:var(--mono);}
+.navlinks a:hover{color:var(--page-ink);background:var(--page-card);}
+
+/* name story */
+.story{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:6px;}
+.scard{background:var(--page-card);border:1px solid var(--page-line);border-radius:10px;padding:18px 20px;}
+.scard .w{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--accent-bright);margin-bottom:6px;}
+.scard .w small{color:var(--page-ink-dim);font-weight:500;font-size:11.5px;margin-left:7px;}
+.scard p{margin:0;font-size:13.5px;color:var(--page-ink-dim);line-height:1.65;}
+.scard p b{color:var(--page-ink);}
+
+/* lockup gallery */
+.gallery{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
+.gcard{background:var(--page-card);border:1px solid var(--page-line);border-radius:10px;padding:0;overflow:hidden;}
+.gcard .stage{display:flex;align-items:center;justify-content:center;min-height:190px;background:var(--bg-base);border-bottom:1px solid var(--page-line);padding:26px;}
+.gcard .cap{padding:12px 17px;}
+.gcard .cap h4{margin:0 0 3px;font-size:13.5px;font-family:var(--mono);color:var(--page-ink);}
+.gcard .cap p{margin:0;font-size:12.5px;color:var(--page-ink-dim);}
+.gcard.wide{grid-column:span 2;}
+.stage.lite{background:#eef3f7;/* 固定浅底:预览浅色场景下的图标/字标,刻意不随主题 */}
+
+/* primary lockup */
+.lockup{display:flex;align-items:center;gap:18px;}
+.wordmark{font-family:var(--mono);font-weight:800;font-size:54px;letter-spacing:-1px;line-height:1;display:flex;align-items:baseline;}
+.wordmark .v{color:var(--gold);}
+.wordmark .i-stem{color:var(--accent);position:relative;}
+.wordmark .i-stem .dot{position:absolute;top:-13px;left:50%;transform:translateX(-50%);width:13px;height:13px;border-radius:50%;border:3px solid var(--accent-bright);background:transparent;}
+.wordmark .i-stem .dot::after{content:"";position:absolute;inset:2.5px;border-radius:50%;background:var(--accent-bright);}
+.wordmark .rest{color:var(--accent);}
+/* onlight 字标 = 浅色场景下的固定渲染(light 皮肤同值),刻意不随当前主题 */
+.wordmark.onlight .v{color:#a9750f;}
+.wordmark.onlight .rest,.wordmark.onlight .i-stem{color:#0c87a4;}
+.wordmark.onlight .i-stem .dot{border-color:#0aa6c6;}
+.wordmark.onlight .i-stem .dot::after{background:#0aa6c6;}
+
+.tagline{font-family:var(--mono);font-size:13px;color:var(--page-ink-dim);letter-spacing:.4px;}
+
+/* CLI strip */
+.clistrip{background:var(--bg-base);border:1px solid var(--border);border-radius:8px;padding:14px 18px;font-family:var(--mono);font-size:13.5px;margin-top:16px;}
+.clistrip .ln{line-height:1.9;}
+.clistrip .p{color:var(--accent);}
+.clistrip .c{color:var(--fg-primary);}
+.clistrip .d{color:var(--fg-muted);}
+.clistrip .g{color:var(--gold);}
+
+/* big TUI mock */
+.tui{font-family:var(--mono);font-size:13px;line-height:1.5;background:var(--bg-base);color:var(--fg-primary);border:1px solid var(--border);border-radius:9px;overflow:hidden;box-shadow:var(--shadow-md);}
+.tui-chrome{display:flex;align-items:center;gap:8px;height:34px;padding:0 14px;background:var(--bg-void);border-bottom:1px solid var(--border);}
+.tlights{display:flex;gap:7px;}
+.tlights i{width:11px;height:11px;border-radius:50%;display:block;}
+.tlights .l1{background:var(--error);}.tlights .l2{background:var(--warning);}.tlights .l3{background:var(--success);}
+.tlabel{margin-left:6px;font-size:11.5px;color:var(--fg-muted);}
+.tui-screen{padding:10px 14px 12px;}
+.k-accent{color:var(--accent);}.k-bright{color:var(--accent-bright);}.k-gold{color:var(--gold);}
+.k-success{color:var(--success);}.k-mut{color:var(--fg-muted);}.k-faint{color:var(--fg-faint);}
+.k-sec{color:var(--fg-secondary);}.k-pri{color:var(--fg-primary);}
+.b{font-weight:700;}
+.welcome{background:radial-gradient(120% 90% at 50% 0%,color-mix(in srgb,var(--accent) 7%,var(--bg-base)),var(--bg-base) 62%);padding:38px 20px 20px;text-align:center;}
+.ascii{font-family:var(--mono);white-space:pre;display:inline-block;text-align:left;line-height:1.18;}
+.ascii .eye{color:var(--accent-bright);font-weight:700;}
+.ascii .frame{color:var(--accent);}
+.ascii .dim{color:var(--accent-dim);}
+.ascii .gold{color:var(--gold);}
+.glow{text-shadow:0 0 16px color-mix(in srgb,var(--accent) 45%,transparent);}
+.wtag{font-family:var(--mono);color:var(--fg-muted);margin-top:16px;font-size:13px;}
+.wtag .v{color:var(--gold);font-weight:700;}
+.wtag .iden{color:var(--accent);font-weight:700;}
+.cur{display:inline-block;width:8px;height:15px;background:var(--accent-bright);vertical-align:-3px;margin-left:1px;animation:blink 1.1s steps(1) infinite;}
+@keyframes blink{50%{opacity:0;}}
+.sel-list{border:1px solid var(--border);border-radius:3px;background:var(--bg-base);overflow:hidden;}
+.sel-row{display:flex;gap:10px;padding:3px 12px;color:var(--fg-secondary);white-space:nowrap;overflow:hidden;}
+.sel-row .cmd{flex:none;}
+.sel-row .desc{margin-left:auto;color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis;}
+.sel-row.on{background:var(--bg-sel);box-shadow:inset 3px 0 0 var(--accent);}
+.sel-row.on .cmd{color:var(--accent-bright);font-weight:700;}
+.sel-row.on .desc{color:var(--accent);}
+.sel-row .mk{color:transparent;width:8px;}
+.sel-row.on .mk{color:var(--accent-bright);}
+
+.note{font-size:13px;color:var(--page-ink-dim);margin-top:12px;}
+.callout{border-left:3px solid var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--page-card));padding:13px 17px;border-radius:0 9px 9px 0;margin:18px 0;font-size:13.5px;color:var(--page-ink-dim);}
+.callout b{color:var(--page-ink);}
+footer{border-top:1px solid var(--page-line);margin-top:80px;padding:26px;text-align:center;color:var(--page-ink-dim);font-size:12.5px;font-family:var(--mono);}
+@media(max-width:860px){.story{grid-template-columns:1fr;}.gallery{grid-template-columns:1fr;}.gcard.wide{grid-column:span 1;}}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="brand"><span class="glyph mono">[◉]</span><span class="v">v</span><span class="iden">iden</span></div>
+  <div class="navlinks">
+    <a href="#name">名字</a><a href="#logo">Logo</a><a href="#ascii">ASCII</a><a href="#tui">TUI 首屏</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <section id="name" style="padding-top:42px;">
+    <div class="kicker">交付物 C · 品牌 / 命名 + Logo + TUI 首屏</div>
+    <h1><span class="ac">viden</span> —— 看着一切的驾驶舱</h1>
+    <p class="lead">三层来历叠在一个词里:拉丁语 <b>vidēre(看,监督)</b>、丹麦语 <b>viden(知识)</b>、你的 GitHub 账号 <b>wikieden</b> 的连读缩合。产品本质——operator 看着多个 agent 干活——直接长在名字里。全小写、五个字母、等宽字体里干净利落。</p>
+    <div class="story">
+      <div class="scard"><div class="w">vidēre <small>拉丁语 · 看</small></div><p>supervise / video / evident 的共同词根。<b>监督</b>与<b>证据 (evidence)</b> 两大支柱,一个词根全占。</p></div>
+      <div class="scard"><div class="w">viden <small>丹麦语 · 知识</small></div><p>北欧工业设计的冷静气质,贴合「可靠工业感」;knowledge = 留痕、可恢复的会话记忆。</p></div>
+      <div class="scard"><div class="w">wi·ki·eden <small>→ viden</small></div><p>作者签名藏在名字里:<b>wikieden</b> 快读缩合。私人彩蛋,不影响外部叙事。</p></div>
+    </div>
+  </section>
+
+  <section id="logo">
+    <div class="kicker">Logo · 字标与符号</div>
+    <h2>眼睛长在 i 上</h2>
+    <p class="lead">符号系统只有两个元素:<b>选择器方括号 <span class="mono">[ ]</span></b>(TUI 的交互原语)和<b>瞳孔 ◉</b>(监督之眼 / 录制指示灯 = 证据)。组合成 glyph <span class="mono" style="color:var(--accent)">[◉]</span>;字标中 i 的点替换为同一只眼睛。配色沿用 Aurora:v = 金(操作员),iden = 青(机器)。</p>
+
+    <div class="gallery">
+      <div class="gcard wide">
+        <div class="stage">
+          <div class="lockup">
+            <svg width="92" height="92" viewBox="0 0 92 92" aria-label="viden glyph">
+              <path d="M22 18 H12 V74 H22" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="square"/>
+              <path d="M70 18 H80 V74 H70" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="square"/>
+              <circle cx="46" cy="46" r="17" fill="none" stroke="var(--accent-bright)" stroke-width="5.5"/>
+              <circle cx="46" cy="46" r="6.5" fill="var(--gold)"/>
+            </svg>
+            <div>
+              <div class="wordmark"><span class="v">v</span><span class="i-stem">ı<span class="dot"></span></span><span class="rest">den</span></div>
+              <div class="tagline" style="margin-top:10px;">supervise your coding agents · 本地优先的代理驾驶舱</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><h4>主 lockup · glyph + 字标</h4><p>glyph:方括号护住一只眼,金色瞳孔 = 操作员在环 (operator-in-the-loop)。字标 i 的点是同一只眼。</p></div>
+      </div>
+
+      <div class="gcard">
+        <div class="stage"><div class="mono" style="font-size:44px;font-weight:800;"><span style="color:var(--accent)">[</span><span style="color:var(--accent-bright)">◉</span><span style="color:var(--accent)">]</span></div></div>
+        <div class="cap"><h4>App 图标 / favicon 形态</h4><p>纯字符即可成立 —— 终端里、dock 里、README 徽章里通用。</p></div>
+      </div>
+
+      <div class="gcard">
+        <div class="stage lite"><div class="wordmark onlight" style="font-size:44px;"><span class="v">v</span><span class="i-stem">ı<span class="dot"></span></span><span class="rest">den</span></div></div>
+        <div class="cap"><h4>浅色场景变体</h4><p>同构换色:金 → 深琥珀,青 → 深青。文档/官网浅色页面用。</p></div>
+      </div>
+    </div>
+
+    <div class="clistrip">
+      <div class="ln"><span class="d"># CLI 手感 —— 五个字母,左手不离主键区</span></div>
+      <div class="ln"><span class="p">$</span> <span class="c">viden</span> <span class="d"># 进入驾驶舱</span></div>
+      <div class="ln"><span class="p">$</span> <span class="c">viden run codex <span class="g">--lane</span> rc/parser</span> <span class="d"># 委派一条 lane</span></div>
+      <div class="ln"><span class="p">$</span> <span class="c">viden resume 4f2b7e</span> <span class="d"># 凭证据恢复会话</span></div>
+    </div>
+  </section>
+
+  <section id="ascii">
+    <div class="kicker">ASCII · 终端形态</div>
+    <h2>同一只眼,三个尺寸</h2>
+    <p class="lead">大徽标用于首屏;单行徽标用于状态条与 README;吉祥物是「眼睛机器人」—— 之前机器人的演化版,双目换成监督之眼。全部纯 box-drawing + 基础字符,任何等宽终端可渲染。</p>
+    <div class="gallery">
+      <div class="gcard">
+        <div class="stage"><div class="ascii glow" style="font-size:15px;"><span class="frame">╭───────────╮
+│</span>  <span class="eye">◉</span>     <span class="eye">◉</span>  <span class="frame">│
+│</span>   <span class="dim">─────</span>   <span class="frame">│
+╰─┬───────┬─╯</span>
+  <span class="dim">╧       ╧</span></div></div>
+        <div class="cap"><h4>吉祥物 · watcher bot</h4><p>对称、无斜线、网格安全。眼睛 ◉ 用最亮青,永远「在看」。</p></div>
+      </div>
+      <div class="gcard">
+        <div class="stage">
+          <div class="ascii" style="font-size:17px;"><span class="frame">[</span><span class="eye">◉</span><span class="frame">]</span> <span class="gold">v</span><span style="color:var(--accent)">iden</span> <span class="dim">· supervising 3 lanes</span></div>
+        </div>
+        <div class="cap"><h4>单行徽标 · 状态条 / README</h4><p>glyph + 字标 + 实时状态,一行 24 列内排完。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tui">
+    <div class="kicker">TUI 首屏 · welcome composer</div>
+    <h2>启动即驾驶舱</h2>
+    <p class="lead">结构与 Aurora 主题的欢迎屏一致(selector-first,高亮行立即可用),品牌全部换为 viden:大眼徽标居中,字标两色,底部状态条用单行徽标。</p>
+
+    <div class="tui">
+      <div class="tui-chrome">
+        <div class="tlights"><i class="l1"></i><i class="l2"></i><i class="l3"></i></div>
+        <span class="tlabel">viden — fish — 142×40</span>
+      </div>
+      <div class="tui-screen welcome">
+<div class="ascii glow" style="font-size:14px;"><span class="frame">╭───────────╮
+│</span>  <span class="eye">◉</span>     <span class="eye">◉</span>  <span class="frame">│
+│</span>   <span class="dim">─────</span>   <span class="frame">│
+╰─┬───────┬─╯</span>
+  <span class="dim">╧       ╧</span></div>
+        <div class="wtag"><span class="mono"><span style="color:var(--accent)">[</span><span class="k-bright">◉</span><span style="color:var(--accent)">]</span></span> <span class="v">v</span><span class="iden">iden</span> v0.2.0 · supervise your coding agents · 本地优先 · 证据留痕</div>
+
+        <div style="max-width:620px;margin:24px auto 0;text-align:left;">
+          <div style="margin-bottom:7px;font-size:13px;">
+            <span class="k-accent">›</span> <span class="k-pri">/</span><span class="cur"></span>
+          </div>
+          <div class="sel-list">
+            <div class="sel-row on"><span class="mk">›</span><span class="cmd">/connect</span><span class="desc">Connect a provider — first run</span></div>
+            <div class="sel-row"><span class="mk"> </span><span class="cmd">/delegate</span><span class="desc">Send a task to codex · claude · shell</span></div>
+            <div class="sel-row"><span class="mk"> </span><span class="cmd">/lanes</span><span class="desc">Open the lane board</span></div>
+            <div class="sel-row"><span class="mk"> </span><span class="cmd">/permissions</span><span class="desc">Allow · Ask · Deny</span></div>
+            <div class="sel-row"><span class="mk"> </span><span class="cmd">/resume</span><span class="desc">Restore a session from evidence</span></div>
+            <div class="sel-row"><span class="mk"> </span><span class="cmd">/help</span><span class="desc">All commands</span></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px;color:var(--fg-muted);font-size:12px;">
+            <span><span class="k-mut">~/projects/viden</span><span class="k-accent">:main</span></span>
+            <span><span class="k-accent">[</span><span class="k-bright">◉</span><span class="k-accent">]</span> <span class="k-mut">0 lanes · ↑↓ tab enter esc</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout"><b>落地顺序建议:</b>名字确认后,我把交付物 A(Aurora 主题页)和 B(桌面概念稿)里的 RoboCode 字标全部替换为 viden lockup;crate / CLI 改名(<span class="mono">viden</span>)、GitHub 仓库名与 README 徽标可以同步走。glyph 的 SVG 已是矢量,可直接导出 app icon。</div>
+  </section>
+
+</div>
+
+<footer>viden · 交付物 C — 命名 + Logo + TUI 首屏 · 配色与 Aurora token 同源</footer>
+
+</body>
+</html>
