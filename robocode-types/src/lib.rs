@@ -4,10 +4,16 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod lsp;
+mod runtime;
 mod transcript;
 mod workflow;
 
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
+pub use runtime::{
+    ApprovalRequestView, CommandAction, EvidenceView, ProviderHealthView, RuntimeCommand,
+    RuntimeCommandReceipt, RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeViewState,
+    TokenCostView, ToolCallView,
+};
 pub use transcript::{CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptEntry};
 pub use workflow::{
     MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, ResumeContextSnapshot,
@@ -369,7 +375,8 @@ impl Message {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PermissionMode {
     #[default]
     Default,
@@ -379,7 +386,8 @@ pub enum PermissionMode {
     Plan,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WorkMode {
     Plan,
     #[default]
@@ -424,7 +432,8 @@ impl Display for WorkMode {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PermissionLevel {
     #[default]
     Ask,
@@ -669,7 +678,7 @@ pub struct SessionSummary {
     pub last_updated_at: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeSnapshot {
     pub cwd: PathBuf,
     pub provider_family: String,
@@ -689,7 +698,7 @@ pub struct PermissionPrompt {
     pub input_preview: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ApprovalResponse {
     pub approved: bool,
     pub feedback: Option<String>,

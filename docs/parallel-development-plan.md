@@ -25,6 +25,40 @@ Viden is moving toward a Runtime-first platform:
 - RoboCode remains a legacy compatibility name during migration; the active
   product, documentation, UI, and new architecture direction are Viden.
 
+## Current Core Contract Baseline
+
+The first Phase 0-1 contract slice is now intentionally core-only:
+
+- `robocode-types` owns the frontend-neutral schema:
+  - `RuntimeSnapshot`
+  - `RuntimeEvent` / `RuntimeEventKind`
+  - `RuntimeCommand`
+  - `CommandAction`
+  - `ApprovalRequestView`
+  - `EvidenceView`
+  - `ProviderHealthView`
+  - `TokenCostView`
+  - `RuntimeViewState`
+- `RuntimeViewState::apply_event` is the replay reducer used by contract tests.
+  TUI and GUI work must consume this style of replayable fact stream rather
+  than recreating private business state.
+- `robocode-core` exposes the first compatibility bridge:
+  - `SessionEngine::runtime_snapshot()`
+  - `SessionEngine::runtime_view_state()`
+  - `SessionEngine::runtime_events_for_engine_events(...)`
+  - `SessionEngine::handle_runtime_command(...)`
+- This bridge projects existing `EngineEvent` output plus provider health,
+  context, token/cost, and task facts into the shared runtime contract.
+- The command bus currently supports user-input submission, work-mode changes,
+  permission-level changes, and model selection for the active provider.
+  Approval prompts emitted during submitted input are captured as
+  `ApprovalRequested` / `ApprovalResolved` events. Follow-up queues,
+  cancellation, async approval responses, provider configuration, and
+  active-model editing are declared in the schema but still return
+  `CommandRejected` until their core runtime paths are implemented.
+- This phase does not implement new TUI or GUI surfaces. It creates the API
+  line that those surfaces must use later.
+
 ## Phase Plan
 
 ### Phase 0: Architecture Cut

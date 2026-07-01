@@ -102,6 +102,28 @@ This keeps every tool invocation on one shared path: validation, permission
 decision, execution, transcript logging, and model reinjection all happen in
 the same runtime flow.
 
+## Runtime Contract Boundary
+
+The refactor introduces a frontend-neutral runtime contract before any new TUI
+or GUI implementation work:
+
+- `robocode-types` defines shared runtime facts and commands:
+  `RuntimeSnapshot`, `RuntimeEvent`, `RuntimeCommand`, `CommandAction`,
+  `ApprovalRequestView`, `EvidenceView`, `ProviderHealthView`,
+  `TokenCostView`, and `RuntimeViewState`.
+- `RuntimeViewState::apply_event` is the replay reducer. A client can rebuild
+  its visible state from the initial snapshot plus ordered runtime events.
+- `robocode-core` exposes `SessionEngine::runtime_snapshot()`,
+  `SessionEngine::runtime_view_state()`, and
+  `SessionEngine::runtime_events_for_engine_events(...)` as the first bridge
+  from the current engine loop to the shared contract.
+- Future TUI and GUI code must consume this contract instead of directly owning
+  provider loops, tool execution, permission decisions, task state, or
+  provider telemetry.
+
+This boundary is intentionally data-first. It lets the existing engine continue
+to run while contract tests freeze the facts that multiple frontends will share.
+
 ## Terminal Presentation
 
 `robocode-core` owns plain-text terminal presentation helpers so slash-command

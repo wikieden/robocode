@@ -273,3 +273,134 @@ fn transcript_tool_result_preserves_exit_code() {
     assert!(line.contains("\"exit_code\":7"));
     assert_eq!(TranscriptEntry::from_json_line(&line).unwrap(), entry);
 }
+
+fn runtime_snapshot_for_contract() -> RuntimeSnapshot {
+    RuntimeSnapshot {
+        cwd: PathBuf::from("/tmp/robocode"),
+        provider_family: "deepseek".to_string(),
+        model_label: "deepseek-v4-flash".to_string(),
+        work_mode: WorkMode::Build,
+        permission_mode: PermissionMode::Default,
+        permission_level: PermissionLevel::Ask,
+        config_summary: "provider=deepseek model=deepseek-v4-flash".to_string(),
+        loaded_config_files: vec![PathBuf::from("/tmp/robocode/config.toml")],
+        startup_overrides: vec!["--provider=deepseek".to_string()],
+    }
+}
+
+#[test]
+fn runtime_commands_and_actions_roundtrip_json_without_ui_state() {
+    let action = CommandAction {
+        id: "mode.plan".to_string(),
+        label: "Plan".to_string(),
+        command: RuntimeCommand::SetWorkMode {
+            mode: WorkMode::Plan,
+        },
+        enabled: true,
+        disabled_reason: None,
+        shortcut: Some("ctrl+p".to_string()),
+        destructive: false,
+    };
+
+    let encoded = serde_json::to_value(&action).unwrap();
+    assert_eq!(encoded["command"]["type"], "set_work_mode");
+    assert_eq!(encoded["command"]["mode"], "plan");
+
+    let decoded: CommandAction = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded.command, action.command);
+    assert!(decoded.enabled);
+}
+
+#[test]
+fn runtime_events_replay_into_ui_independent_view_state() {
+    let snapshot = runtime_snapshot_for_contract();
+    let mut view = RuntimeViewState::new(RuntimeSnapshot {
+        provider_family: "fallback".to_string(),
+        model_label: "test-local".to_string(),
+        ..snapshot.clone()
+    });
+
+    let approval = ApprovalRequestView {
+        id: "approval_1".to_string(),
+        tool_name: "shell".to_string(),
+        title: "Run cargo test".to_string(),
+        message: "Shell command requires approval".to_string(),
+        input_preview: "cargo test -p robocode-types".to_string(),
+        is_mutating: false,
+        reason: Some("permission level is ask".to_string()),
+    };
+    let evidence = EvidenceView {
+        id: "evidence_1".to_string(),
+        kind: "test".to_string(),
+        summary: "robocode-types tests passed".to_string(),
+        path: Some("target/test.log".to_string()),
+        source: Some("cargo".to_string()),
+        timestamp: Some(42),
+    };
+    let task = AgentTaskRecord {
+        id: "task_1".to_string(),
+        parent_id: None,
+        agent: "planner".to_string(),
+        kind: "runtime".to_string(),
+        transport: "core".to_string(),
+        title: "Build runtime contract".to_string(),
+        status: AgentTaskStatus::Thinking.as_str().to_string(),
+        activity: "designing contract".to_string(),
+        summary: "phase 0 contract".to_string(),
+        progress: 15,
+        started_at: Some(1),
+        updated_at: Some(2),
+        workspace: Some("/tmp/robocode".to_string()),
+        evidence: vec![evidence.id.clone()],
+        permissions: Vec::new(),
+        decision: None,
+        result: None,
+        resume_handle: None,
+        pid: None,
+        next_action: None,
+    };
+
+    let events = vec![
+        RuntimeEvent::new(
+            1,
+            RuntimeEventKind::SnapshotUpdated {
+                snapshot: snapshot.clone(),
+            },
+        ),
+        RuntimeEvent::new(
+            2,
+            RuntimeEventKind::AssistantDelta {
+                message_id: "msg_1".to_string(),
+                task_id: Some(task.id.clone()),
+                content: "Working on the contract.".to_string(),
+            },
+        ),
+        RuntimeEvent::new(3, RuntimeEventKind::ApprovalRequested { approval }),
+        RuntimeEvent::new(4, RuntimeEventKind::EvidenceRecorded { evidence }),
+        RuntimeEvent::new(5, RuntimeEventKind::TaskUpdated { task }),
+        RuntimeEvent::new(
+            6,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: "approval_1".to_string(),
+                approved: true,
+            },
+        ),
+    ];
+
+    for event in &events {
+        view.apply_event(event);
+    }
+
+    assert_eq!(view.snapshot.provider_family, "deepseek");
+    assert_eq!(view.assistant_stream, "Working on the contract.");
+    assert!(view.pending_approvals.is_empty());
+    assert_eq!(
+        view.latest_evidence[0].summary,
+        "robocode-types tests passed"
+    );
+    assert_eq!(view.tasks[0].status_kind(), AgentTaskStatus::Thinking);
+
+    let encoded = serde_json::to_string(&events).unwrap();
+    let decoded: Vec<RuntimeEvent> = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, events);
+}

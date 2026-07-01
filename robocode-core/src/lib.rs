@@ -16,6 +16,7 @@ mod git_commands;
 mod lsp_tools;
 mod presentation;
 mod provider_commands;
+mod runtime_contract;
 mod runtime_loop;
 mod runtime_tasks;
 mod runtime_views;

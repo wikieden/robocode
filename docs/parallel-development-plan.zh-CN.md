@@ -23,6 +23,36 @@ Viden 正在迁移为 Runtime-first 平台：
 - 扩展通过声明式 plugin boundary 接入，不能绕过 runtime 的 permission/evidence 路径。
 - RoboCode 在迁移期保留为 legacy compatibility 名称；当前产品、文档、UI 和新架构方向统一为 Viden。
 
+## 当前 Core Contract 基线
+
+第一段 Phase 0-1 contract 切片只落在 core 层：
+
+- `robocode-types` 拥有前端无关 schema：
+  - `RuntimeSnapshot`
+  - `RuntimeEvent` / `RuntimeEventKind`
+  - `RuntimeCommand`
+  - `CommandAction`
+  - `ApprovalRequestView`
+  - `EvidenceView`
+  - `ProviderHealthView`
+  - `TokenCostView`
+  - `RuntimeViewState`
+- `RuntimeViewState::apply_event` 是 contract tests 使用的 replay reducer。
+  后续 TUI 和 GUI 必须消费这种可 replay 的事实流，而不是重新创建私有业务状态。
+- `robocode-core` 暴露第一版 compatibility bridge：
+  - `SessionEngine::runtime_snapshot()`
+  - `SessionEngine::runtime_view_state()`
+  - `SessionEngine::runtime_events_for_engine_events(...)`
+  - `SessionEngine::handle_runtime_command(...)`
+- 这个 bridge 会把现有 `EngineEvent` 输出，以及 provider health、context、
+  token/cost、task facts 投影到共享 runtime contract。
+- command bus 当前支持提交用户输入、切换 work mode、切换 permission level、以及在当前
+  provider 下选择 model。提交输入过程中触发的 approval prompt 会被捕获为
+  `ApprovalRequested` / `ApprovalResolved` 事件。follow-up queue、cancel、异步
+  approval response、provider configuration 和 active-model 编辑已经在 schema 中声明，
+  但在 core runtime 路径实现前会返回 `CommandRejected`。
+- 本阶段不实现新的 TUI 或 GUI 界面，只建立后续界面必须使用的 API 边界。
+
 ## 阶段计划
 
 ### Phase 0：架构切分

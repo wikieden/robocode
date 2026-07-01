@@ -10,6 +10,7 @@ mod live_deepseek_tests;
 mod lsp_command_tests;
 mod lsp_render_tests;
 mod runtime_command_tests;
+mod runtime_contract_tests;
 mod runtime_loop_tests;
 mod session_command_tests;
 mod workflow_command_tests;

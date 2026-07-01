@@ -93,6 +93,26 @@ flowchart TB
 
 这个流程保证所有工具调用都走同一条主路径：校验、权限决策、执行、transcript 记录、模型回注。
 
+## Runtime Contract 边界
+
+这次重构会先引入前端无关的 runtime contract，再开始任何新的 TUI 或 GUI 实现：
+
+- `robocode-types` 定义共享 runtime facts 和 commands：
+  `RuntimeSnapshot`、`RuntimeEvent`、`RuntimeCommand`、`CommandAction`、
+  `ApprovalRequestView`、`EvidenceView`、`ProviderHealthView`、
+  `TokenCostView` 和 `RuntimeViewState`。
+- `RuntimeViewState::apply_event` 是 replay reducer。客户端可以通过初始
+  snapshot 加有序 runtime events 重建可见状态。
+- `robocode-core` 暴露 `SessionEngine::runtime_snapshot()`、
+  `SessionEngine::runtime_view_state()` 和
+  `SessionEngine::runtime_events_for_engine_events(...)`，作为当前 engine loop
+  到共享 contract 的第一版 bridge。
+- 后续 TUI 和 GUI 代码必须消费这个 contract，而不是直接拥有 provider loop、
+  tool execution、permission decision、task state 或 provider telemetry。
+
+这个边界故意先采用 data-first 方式。它让现有引擎继续运行，同时用 contract tests
+冻结多个前端需要共享的事实。
+
 ## 终端展示
 
 `robocode-core` 负责 plain-text terminal presentation helpers，让 slash-command
