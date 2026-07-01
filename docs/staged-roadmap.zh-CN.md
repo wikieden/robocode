@@ -1,17 +1,17 @@
-# RoboCode 分阶段路线图
+# Viden 分阶段路线图
 
 英文版： [staged-roadmap.md](staged-roadmap.md)
 
 ## 目的
 
-这份路线图把完整的 RoboCode 产品需求翻译成可交付的阶段，而不是按当前仓库历史来倒推。
+这份路线图把完整的 Viden 产品需求翻译成可交付的阶段，而不是按当前仓库历史来倒推。
 
-更长期的产品战略见 [RoboCode 长期路线图](long-term-roadmap.zh-CN.md)。这份阶段路线图是
+更长期的产品战略见 [Viden 长期路线图](long-term-roadmap.zh-CN.md)。这份阶段路线图是
 交付地图；长期路线图是产品和市场地图。
 
 ## 长期定位
 
-RoboCode 的长期定位不是单一 TUI，也不是又一个 coding agent CLI，而是：
+Viden 的长期定位不是单一 TUI，也不是又一个 coding agent CLI，而是：
 
 > 开箱即用的多 Agent 编排运行时 + 极致 token 效能优化层。
 
@@ -146,7 +146,9 @@ CLI automation、API server、desktop、Web、IDE/ACP adapter 等其他入口。
 - V2 应优先把 TUI cockpit 的真实状态、输入体验和编程闭环打稳，而不是过早平台扩张
 - V3 应优先交付开箱即用的多 Agent 编排和 token 效能，而不是只增加更多面板
 - V4 必须复用 V1 / V2 / V3 的执行不变量，而不是引入新的 side-channel runtime
-- TUI 是长期主界面；其他形态必须复用同一 runtime，并在 TUI 主线稳定后再扩展
+- TUI 是第一阶段主界面；其他形态必须复用同一 runtime。共享 runtime/UI contract
+  冻结后，TUI 与 GUI 可以按 [Viden 并发开发计划](parallel-development-plan.zh-CN.md)
+  并行开发。
 - 远期平台能力必须服从核心工作流成熟度
 
 ### 交互可靠性闸门
@@ -204,11 +206,38 @@ Mainline landed：
 
 下一个计划版本：
 
-- 启动 0.2.x spec/context/evidence runtime 工作，同时把 0.1.30 zero-bug TUI gates
+- 启动 0.2.x 结构/context/evidence runtime 工作，同时把 0.1.30 zero-bug TUI gates
   保留为后续 release regression。
 - 每次 GitHub Release 继续必须绑定 Homebrew 同步和 postpublish validation。
 
 0.1.x final checkpoint 是 `0.1.30`：P0/P1 TUI backlog 已清零、截图证据齐全、
 quick/full release gates 已通过，GitHub Release 与 Homebrew validation 全绿。
+
+接下来的版本顺序必须先完成结构和 contract，再进入 GUI/TUI 并行实现：
+
+- `0.2.0`：架构切分与核心结构重构。建立 `viden-core` facade、依赖方向、runtime
+  supervisor、event stream、command bus 和 compatibility exports，然后再启动 GUI 实现。
+- `0.2.1`：Context、token/cost、evidence 和 runtime fact model。实现
+  `ContextBundle`、语义文件选择、日志压缩、tool result 去重、token budget、
+  provider health 和费用可见性。
+- `0.2.2`：受监督多 Agent 执行闭环。把 planner、coder、reviewer、tester、
+  doc-writer 做成可监督角色，每个角色都有任务、输入、输出、证据、失败分类和下一步动作。
+- `0.2.3`：Plugin runtime 和真实开发 gate。增加 process-plugin protocol、
+  manifest/capability registration、extension boundaries，并继续把 DeepSeek 真实开发
+  smoke、daily-loop、plan-mode、provider/model、lane operator、release gate、
+  token/cost summary 固化为每次发版前必跑。
+- `0.3.0`：多前端 contract freeze 与 Viden migration plan。冻结 UI/runtime
+  contract，定义 `viden` binary/config migration 和 `robocode` compatibility shim。
+- `0.3.1`：TUI 与 GUI 并行实现。Core/runtime、TUI client、Tauri/Web GUI client
+  拆到独立 branch/worktree，最多三个 active owner 同时开发。
+- `0.3.2`：集成候选版。先合 core，再合 TUI，最后合 GUI，并跑 TUI/GUI parity、
+  migration、plugin 和真实开发 gates。
+- `0.3.3`：可操作 GUI beta 与 compatibility hardening。
+- `0.3.4`：视觉保真和生产发版 gate。
+- GUI 功能设计已记录在
+  [GUI 版本功能设计](gui-version-functional-design.zh-CN.md)。它是 UI/runtime contract
+  freeze 后可进入实现的产品契约，不是提前复制业务逻辑的许可。
+- TUI/GUI 视觉源必须 review 后才可以成为产品契约。已废弃的设计导入和生成式视觉输出
+  不再是路线图依赖。
 
 这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

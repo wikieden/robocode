@@ -1,12 +1,12 @@
-# RoboCode Long-Term Roadmap
+# Viden Long-Term Roadmap
 
 Chinese version: [long-term-roadmap.zh-CN.md](long-term-roadmap.zh-CN.md)
 
-Last updated: 2026-05-29
+Last updated: 2026-06-26
 
 ## Strategic Thesis
 
-RoboCode should not compete by being another single-agent chat CLI. The durable
+Viden should not compete by being another single-agent chat CLI. The durable
 opportunity is to become the local-first operating layer for AI coding work:
 
 > A multi-agent coding cockpit that makes agent work observable, bounded,
@@ -17,6 +17,20 @@ right starting point because dense terminal state, approvals, logs, tests,
 diagnostics, and side-agent lanes are easiest to supervise in a cockpit. Once
 the runtime is reliable, the same orchestration model can power CLI automation,
 IDE/ACP adapters, desktop, web, and team workflows.
+
+GUI and desktop work should follow the runtime contract, not lead it. Viden
+must first land the core structure, shared event/command model, context and
+cost facts, supervised agent loop, and release gates. After the runtime/UI
+contract freeze, TUI and GUI can be developed in parallel under
+[Viden Parallel Development Plan](parallel-development-plan.md). The GUI
+product contract is tracked in
+[GUI Version Functional Design](gui-version-functional-design.md).
+
+The accepted TUI / GUI visual source is now
+`docs/viden-design/Viden/`, governed by
+[Viden Design Adoption](viden-design-adoption.md). RoboCode remains a legacy
+implementation and compatibility name until the rename migration is explicitly
+planned.
 
 ## Market Read
 
@@ -43,7 +57,7 @@ operator loop first.
 
 ## Product Identity
 
-RoboCode should become:
+Viden should become:
 
 - a local-first AI coding operator cockpit
 - a supervisor for other coding agents, not only a provider client
@@ -53,8 +67,10 @@ RoboCode should become:
   explains what was omitted
 - a safe extension runtime for providers, MCP servers, skills, hooks, ACP
   agents, shell jobs, and future integrations
+- a high-density operator product where TUI and GUI share runtime facts,
+  lane/session semantics, decision gates, and evidence/context presentation
 
-RoboCode should avoid becoming:
+Viden should avoid becoming:
 
 - a clone of Claude Code, Codex, Zed, Kiro, or Aider
 - a decorative TUI with side panels that do not control real work
@@ -169,7 +185,7 @@ Long-term lane isolation should model:
 
 ### 7. Extensibility Without Fragmentation
 
-RoboCode should support ecosystem growth while keeping one permission and
+Viden should support ecosystem growth while keeping one permission and
 evidence model.
 
 Extension layers should mature in this order:
@@ -361,8 +377,25 @@ After `0.1.24`, the likely sequence is:
 6. `0.1.30`: 0.1.x Final Zero-Bug Gate. Enter 0.2.x only after P0/P1 TUI
    backlog is zero, screenshot evidence is complete, quick/full release gates
    pass, and GitHub Release plus Homebrew are synchronized.
-7. `0.2.0`: Spec-driven, context-efficient, evidence-driven workflow runtime
-   baseline.
+7. `0.2.0`: Runtime Layering And Event Closure. Separate core, TUI, provider,
+   tool, lane, and evidence boundaries behind a unified `RuntimeSnapshot` /
+   event stream. The TUI subscribes to runtime state instead of owning business
+   logic.
+8. `0.2.1`: Context And Token/Cost Engine. Add `ContextBundle`, semantic file
+   selection, log compaction, tool-result deduplication, token budgets, and
+   cost panels to reduce context blowups, DeepSeek 413 failures, and invisible
+   spend.
+9. `0.2.2`: Agent Execution Loop. Make planner, coder, reviewer, tester, and
+   doc-writer supervised roles with task envelopes, inputs, outputs, evidence,
+   failure classification, and next actions.
+10. `0.2.3`: Real Development Scenario Gate. Require DeepSeek live development
+    smoke, daily-loop, plan-mode, provider/model, lane operator, release gate,
+    and token/cost summaries for every release.
+11. `0.3.0`: Multi-frontend Contract Freeze. Freeze the UI/runtime contract
+    and Viden migration plan before parallel frontend implementation.
+12. `0.3.1`: Parallel TUI and GUI Implementation. Run core/runtime, TUI, and
+    GUI branches concurrently, with at most three active owners and every
+    frontend consuming the same runtime.
 
 This sequence keeps RoboCode focused on the wedge: not maximum autonomy, but
 maximum operator trust.

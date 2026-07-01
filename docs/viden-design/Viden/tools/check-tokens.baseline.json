@@ -1,0 +1,872 @@
+{
+  "note": "已认证保留的 token 违规清单。新增违规需修代码或显式加到这里。",
+  "generatedAt": "2026-06-15",
+  "reason": "resync after Core/TUI/GUI de-hex pass (semantic tints→color-mix, i18n/tui-screens tokenized)",
+  "totalEntries": 170,
+  "files": {
+    "Core/i18n.js": [
+      {
+        "line": 12,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.4)"
+      }
+    ],
+    "Core/tweaks-panel.jsx": [
+      {
+        "line": 64,
+        "kind": "bare-hex",
+        "match": "#29261b"
+      },
+      {
+        "line": 64,
+        "kind": "bare-rgba",
+        "match": "rgba(250,249,247,.78)"
+      },
+      {
+        "line": 66,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.6)"
+      },
+      {
+        "line": 67,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.18)"
+      },
+      {
+        "line": 67,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.5)"
+      },
+      {
+        "line": 72,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.55)"
+      },
+      {
+        "line": 74,
+        "kind": "bare-hex",
+        "match": "#29261b"
+      },
+      {
+        "line": 74,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 77,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 80,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 82,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.25)"
+      },
+      {
+        "line": 87,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.72)"
+      },
+      {
+        "line": 89,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.5)"
+      },
+      {
+        "line": 92,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.45)"
+      },
+      {
+        "line": 96,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 97,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.6)"
+      },
+      {
+        "line": 98,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.25)"
+      },
+      {
+        "line": 98,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.85)"
+      },
+      {
+        "line": 104,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 106,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 107,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 107,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.2)"
+      },
+      {
+        "line": 109,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 109,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 109,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.2)"
+      },
+      {
+        "line": 112,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 114,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 114,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.9)"
+      },
+      {
+        "line": 123,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 124,
+        "kind": "bare-hex",
+        "match": "#34c759"
+      },
+      {
+        "line": 126,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 126,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.25)"
+      },
+      {
+        "line": 130,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 130,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.6)"
+      },
+      {
+        "line": 131,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.6)"
+      },
+      {
+        "line": 138,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.45)"
+      },
+      {
+        "line": 141,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 141,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.78)"
+      },
+      {
+        "line": 142,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.88)"
+      },
+      {
+        "line": 143,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 144,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 147,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 156,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 156,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 159,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 159,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.18)"
+      },
+      {
+        "line": 160,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.85)"
+      },
+      {
+        "line": 161,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 163,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 164,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 167,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.3)"
+      },
+      {
+        "line": 477,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 477,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.78)"
+      }
+    ],
+    "GUI/i18n.js": [
+      {
+        "line": 12,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.4)"
+      }
+    ],
+    "GUI/tweaks-panel.jsx": [
+      {
+        "line": 64,
+        "kind": "bare-hex",
+        "match": "#29261b"
+      },
+      {
+        "line": 64,
+        "kind": "bare-rgba",
+        "match": "rgba(250,249,247,.78)"
+      },
+      {
+        "line": 66,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.6)"
+      },
+      {
+        "line": 67,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.18)"
+      },
+      {
+        "line": 67,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.5)"
+      },
+      {
+        "line": 72,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.55)"
+      },
+      {
+        "line": 74,
+        "kind": "bare-hex",
+        "match": "#29261b"
+      },
+      {
+        "line": 74,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 77,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 80,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 82,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.25)"
+      },
+      {
+        "line": 87,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.72)"
+      },
+      {
+        "line": 89,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.5)"
+      },
+      {
+        "line": 92,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.45)"
+      },
+      {
+        "line": 96,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 97,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.6)"
+      },
+      {
+        "line": 98,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.25)"
+      },
+      {
+        "line": 98,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.85)"
+      },
+      {
+        "line": 104,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 106,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 107,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 107,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.2)"
+      },
+      {
+        "line": 109,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 109,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 109,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.2)"
+      },
+      {
+        "line": 112,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 114,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 114,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.9)"
+      },
+      {
+        "line": 123,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 124,
+        "kind": "bare-hex",
+        "match": "#34c759"
+      },
+      {
+        "line": 126,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 126,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.25)"
+      },
+      {
+        "line": 130,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 130,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.6)"
+      },
+      {
+        "line": 131,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.6)"
+      },
+      {
+        "line": 138,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.45)"
+      },
+      {
+        "line": 141,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 141,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.78)"
+      },
+      {
+        "line": 142,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.88)"
+      },
+      {
+        "line": 143,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 144,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 147,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 156,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 156,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 159,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 159,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.18)"
+      },
+      {
+        "line": 160,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.85)"
+      },
+      {
+        "line": 161,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 163,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 164,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 167,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.3)"
+      },
+      {
+        "line": 477,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 477,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.78)"
+      }
+    ],
+    "TUI/i18n.js": [
+      {
+        "line": 12,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.4)"
+      }
+    ],
+    "TUI/tui-screens.jsx": [
+      {
+        "line": 7,
+        "kind": "bare-hex",
+        "match": "#2c6856"
+      },
+      {
+        "line": 7,
+        "kind": "bare-hex",
+        "match": "#3e6a85"
+      },
+      {
+        "line": 7,
+        "kind": "bare-hex",
+        "match": "#4a3f78"
+      },
+      {
+        "line": 7,
+        "kind": "bare-hex",
+        "match": "#54c0a0"
+      },
+      {
+        "line": 7,
+        "kind": "bare-hex",
+        "match": "#74a8c9"
+      },
+      {
+        "line": 7,
+        "kind": "bare-hex",
+        "match": "#7a4424"
+      },
+      {
+        "line": 7,
+        "kind": "bare-hex",
+        "match": "#9b87d4"
+      },
+      {
+        "line": 7,
+        "kind": "bare-hex",
+        "match": "#e0884f"
+      }
+    ],
+    "TUI/tweaks-panel.jsx": [
+      {
+        "line": 64,
+        "kind": "bare-hex",
+        "match": "#29261b"
+      },
+      {
+        "line": 64,
+        "kind": "bare-rgba",
+        "match": "rgba(250,249,247,.78)"
+      },
+      {
+        "line": 66,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.6)"
+      },
+      {
+        "line": 67,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.18)"
+      },
+      {
+        "line": 67,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.5)"
+      },
+      {
+        "line": 72,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.55)"
+      },
+      {
+        "line": 74,
+        "kind": "bare-hex",
+        "match": "#29261b"
+      },
+      {
+        "line": 74,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 77,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 80,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 82,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.25)"
+      },
+      {
+        "line": 87,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.72)"
+      },
+      {
+        "line": 89,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.5)"
+      },
+      {
+        "line": 92,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.45)"
+      },
+      {
+        "line": 96,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 97,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.6)"
+      },
+      {
+        "line": 98,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.25)"
+      },
+      {
+        "line": 98,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.85)"
+      },
+      {
+        "line": 104,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 106,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 107,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 107,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.2)"
+      },
+      {
+        "line": 109,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 109,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 109,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.2)"
+      },
+      {
+        "line": 112,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 114,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 114,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.9)"
+      },
+      {
+        "line": 123,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 124,
+        "kind": "bare-hex",
+        "match": "#34c759"
+      },
+      {
+        "line": 126,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 126,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.25)"
+      },
+      {
+        "line": 130,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 130,
+        "kind": "bare-rgba",
+        "match": "rgba(255,255,255,.6)"
+      },
+      {
+        "line": 131,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.6)"
+      },
+      {
+        "line": 138,
+        "kind": "bare-rgba",
+        "match": "rgba(41,38,27,.45)"
+      },
+      {
+        "line": 141,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 141,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.78)"
+      },
+      {
+        "line": 142,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.88)"
+      },
+      {
+        "line": 143,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 144,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 147,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 156,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.06)"
+      },
+      {
+        "line": 156,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 159,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.12)"
+      },
+      {
+        "line": 159,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.18)"
+      },
+      {
+        "line": 160,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.85)"
+      },
+      {
+        "line": 161,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.15)"
+      },
+      {
+        "line": 163,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 164,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.1)"
+      },
+      {
+        "line": 167,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.3)"
+      },
+      {
+        "line": 477,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 477,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.78)"
+      }
+    ]
+  }
+}

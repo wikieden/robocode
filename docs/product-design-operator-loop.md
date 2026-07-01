@@ -1,25 +1,31 @@
-# RoboCode Product Design: Agent Coding Operator Loop
+# Viden Product Design: Agent Coding Operator Loop
 
 Chinese version: [product-design-operator-loop.zh-CN.md](product-design-operator-loop.zh-CN.md)
 
-Last updated: 2026-06-06
+Last updated: 2026-06-26
 
 ## Purpose
 
-This document resets RoboCode's product design around one durable idea:
+This document resets Viden's product design around one durable idea:
 
-> RoboCode is a local-first coding operator cockpit. It helps a developer run,
+> Viden is a local-first coding operator cockpit. It helps a developer run,
 > supervise, review, and reuse AI coding work across providers, terminal tools,
-> external agents, plugins, skills, MCP servers, and future ACP adapters.
+> external agents, plugins, skills, MCP servers, future ACP adapters, and
+> TUI / GUI operator surfaces.
 
-The TUI is the first product surface, not the final product boundary. The core
-product is the operator loop: a structured way to turn a coding intent into
-bounded agent work, evidence, decisions, and reusable context.
+The TUI is the first product surface, not the final product boundary. Future GUI
+surfaces must consume the same runtime. The core product is the operator loop:
+a structured way to turn a coding intent into bounded agent work, evidence,
+decisions, and reusable context.
 
 This document is not a single release plan. It is the product contract that
 future versions should implement in slices.
 
 Implementation companion: [production-coding-loop-architecture.md](production-coding-loop-architecture.md).
+
+Design source: `docs/viden-design/Viden/` is the accepted Viden source for
+TUI/GUI visual direction, tokens, and target screenshots. RoboCode remains a
+legacy implementation name until migration is planned.
 
 ## Source Basis
 
@@ -29,6 +35,7 @@ This design consolidates the current repository and prior design notes:
 - `docs/long-term-roadmap.md`
 - `docs/staged-roadmap.md`
 - `docs/tui-cockpit-design.md`
+- `docs/gui-version-functional-design.md`
 - `docs/mode-system-design.md`
 - `docs/tui-interaction-flow-design.md`
 - `docs/permission-mode-design.md`
@@ -38,6 +45,9 @@ This design consolidates the current repository and prior design notes:
 - `docs/provider-adapter-design.md`
 - `docs/ref-gap-matrix.md`
 - `docs/tui-interaction-audit-2026-05-29.md`
+- `docs/viden-design-adoption.md`
+- `docs/viden-design/Viden/docs/DESIGN-REF.md`
+- `docs/viden-design/Viden/tokens.css`
 - `robocode-core/src/runtime_loop.rs`
 - `robocode-cli/src/tui/app.rs`
 - `robocode-cli/src/tui/transcript.rs`
@@ -67,7 +77,16 @@ The main product gap is not one missing command. The gap is operator confidence:
   token efficiency must be a first-class user experience.
 
 The product should therefore move from "ask a model" to "operate a coding
-mission."
+mission." The TUI / GUI direction further sharpens that into:
+
+- lane is the primary user-facing unit of supervision and is semantically equal
+  to session;
+- workspace / project / lane / subagent is the shared navigation hierarchy
+  across TUI and GUI;
+- reviewed design tokens and selector-first interaction are the basis for UI
+  consistency once a visual source is accepted;
+- approval gates, context/cost, evidence, and environment facts must be visible
+  in the main surfaces instead of buried in logs.
 
 ## Current Implementation Map
 
@@ -80,30 +99,31 @@ mission."
 | Context | ContextBundle design exists and has been wired into lane envelope work. | Users need pin/omit/split controls, visible source ranking, provider prompt compaction, and automatic recovery from 413/argv-too-long failures. |
 | Evidence | Permissions, transcripts, diagnostics, file tools, tests, screenshots, and release smoke checks already exist in pieces. | Completion needs a unified evidence drawer and release rule: every visible feature gets real-use proof, not only static previews. |
 | Extensions | Provider plugin direction exists. MCP, skills, hooks, and ACP are planned. | All extensions need one descriptor/capability/doctor/evidence/permission contract before mutating runtime access expands. |
+| Visual design inputs | Future TUI/GUI design imports are useful only after review. | Product specs and release gates must not depend on discarded design imports; accepted design sources need screenshot baselines and explicit deviation records. |
 
 ## Competitive Interaction References
 
 Borrow the product lessons, not the whole implementation:
 
 - **Claude Code**: clear terminal loop, varied activity language, permissions,
-  hooks, MCP, and subagents. RoboCode should copy the clarity and automation
+  hooks, MCP, and subagents. Viden should copy the clarity and automation
   boundaries, not hide work in invisible agents.
 - **Codex**: strong diff/review expectations and delegated task completion.
-  RoboCode should make Codex a first-class supervised lane.
+  Viden should make Codex a first-class supervised lane.
 - **OpenCode / Kilo**: provider and model selection feel like direct
-  manipulation panels. RoboCode should match that interaction quality while
+  manipulation panels. Viden should match that interaction quality while
   keeping provider connection and model switching separate.
 - **Zed**: parallel agents, external agents, and editor context show where ACP
-  and lane isolation should go. RoboCode should provide the terminal operator
+  and lane isolation should go. Viden should provide the terminal operator
   version rather than trying to become an editor.
 - **Kiro**: specs, steering files, and hooks show why plan/spec/context must
   become product objects, not just text in a transcript.
 - **DeepSeek-TUI**: dense terminal-native provider visibility is valuable, but
-  RoboCode should only keep panels backed by real runtime facts.
+  Viden should only keep panels backed by real runtime facts.
 
 ## North Star
 
-RoboCode should let the user answer these questions at any moment:
+Viden should let the user answer these questions at any moment:
 
 - What is RoboCode doing right now?
 - Which agent or lane is responsible?
@@ -119,8 +139,8 @@ Every visible feature should help answer at least one of those questions.
 
 ## Product Principles
 
-- **RoboCode is the actor.** Providers are infrastructure. The UI should say
-  "RoboCode working", "Builder is editing", or "Tester is running tests", not
+- **Viden is the actor.** Providers are infrastructure. The UI should say
+  "Viden working", "Builder is editing", or "Tester is running tests", not
   default to "DeepSeek is thinking."
 - **Configuration is direct manipulation.** Provider, model, permission, and
   theme surfaces should be searchable panels where selection or editing applies
@@ -141,6 +161,15 @@ Every visible feature should help answer at least one of those questions.
 - **TUI first, runtime reusable.** The runtime should later support CLI
   automation, IDE/ACP, desktop, and web surfaces without replacing the core
   operator loop.
+- **Visual design is not a second product runtime.** GUI/TUI can share accepted
+  tokens, component language, and visual hierarchy, but task, approval,
+  context, cost, lane, and evidence state must come from runtime.
+- **Lane equals session.** The primary user-facing work unit is lane. A
+  workspace can contain projects, a project or workspace can own lanes, and a
+  lane can own subagents.
+- **Visual fidelity is a release condition only for accepted targets.** TUI
+  previews and GUI screenshot baselines must turn accepted visual targets into
+  testable contracts; differences need accepted-deviation records.
 
 ## Core Operator Loop
 
@@ -149,9 +178,9 @@ Every visible feature should help answer at least one of those questions.
 | 1. Intake | What do I want RoboCode to do? | `UserIntent` | Welcome composer or cockpit composer | Captured task |
 | 2. Shape | Is this chat, planning, edit, test, review, or delegation? | `TaskEnvelope` | Inline plan/status row | Mode and route |
 | 3. Context | What will the agent see and what was omitted? | `ContextBundle` | Context pressure row and side-2 detail | Bundle, budget, compaction notes |
-| 4. Dispatch | Who should do the work? | `AgentTask`, `AgentLane` | NOW WORKING row, side-1 lanes | Active work item |
+| 4. Dispatch | Who should do the work? | `AgentTask`, `AgentLane`, `LaneSession` | LIVE WORK, lane list, Agent Board | Active work item |
 | 5. Execute | What is happening live? | Runtime events | Streaming transcript and lane tail | Partial response, tool calls, logs |
-| 6. Gate | Is this action safe? | `PermissionRequest`, `Decision` | Approval overlay or inline gate | Approve, deny, inspect, retry |
+| 6. Gate | Is this action safe? | `PermissionRequest`, `Decision` | Decision center or four-level approval gate | Approve, deny, inspect, retry |
 | 7. Verify | What changed and did it pass? | `Evidence`, `Artifact` | Diff/test/evidence panels | Reviewable proof |
 | 8. Resolve | Should this be applied, discarded, retried, or remembered? | `NextAction`, `MemoryCandidate` | Action panel | Applied change, discarded lane, retry, memory/task update |
 
@@ -347,7 +376,7 @@ Recommended `AgentTask` state family:
 
 ### Small Change Flow
 
-For narrow edits, RoboCode should use a single-agent loop:
+For narrow edits, Viden should use a single-agent loop:
 
 1. Capture the user request.
 2. Build a compact ContextBundle from current files, diagnostics, and recent
@@ -359,7 +388,7 @@ For narrow edits, RoboCode should use a single-agent loop:
 
 ### Medium Change Flow
 
-For multi-file work, RoboCode should introduce a lightweight checkpoint:
+For multi-file work, Viden should introduce a lightweight checkpoint:
 
 1. Summarize intent and acceptance criteria.
 2. Show a short plan or ask one clarifying question when needed.
@@ -369,7 +398,7 @@ For multi-file work, RoboCode should introduce a lightweight checkpoint:
 
 ### Large Change Flow
 
-For broader implementation, RoboCode should use a spec-driven operator loop:
+For broader implementation, Viden should use a spec-driven operator loop:
 
 1. Create a task envelope with requirements, constraints, design decisions,
    test expectations, and known risks.
@@ -384,7 +413,7 @@ usable. It should not write files or lock the UI after the plan completes.
 
 ## Welcome And First-Run Experience
 
-RoboCode should default into TUI mode and show a calm welcome surface until a
+Viden should default into TUI mode and show a calm welcome surface until a
 real coding conversation starts.
 
 Welcome requirements:
@@ -425,7 +454,7 @@ After a real task begins, the cockpit should be organized around work:
 
 ## Live Status And Animation
 
-The old one-line "is thinking" pattern is too weak. RoboCode should render
+The old one-line "is thinking" pattern is too weak. Viden should render
 activity as a compact `LIVE WORK` strip with varied phase language, evidence
 signals, and next-action guidance.
 
@@ -445,7 +474,7 @@ Guidelines:
 
 Example phrases:
 
-- `RoboCode is mapping the request`
+- `Viden is mapping the request`
 - `Planner is shaping the task`
 - `Context Builder is trimming logs`
 - `Builder is editing src/render.rs`
@@ -453,7 +482,7 @@ Example phrases:
 - `Reviewer is checking diff evidence`
 - `Operator is waiting for approval`
 - `Lane Supervisor is watching codex lane`
-- `RoboCode is reducing context after a 413 response`
+- `Viden is reducing context after a 413 response`
 
 For long-running work, the transcript should show a live row under the latest
 conversation entry:
@@ -484,7 +513,7 @@ Requirements:
 
 ## Provider And Model Configuration
 
-RoboCode should borrow the interaction quality of OpenCode-style panels while
+Viden should borrow the interaction quality of OpenCode-style panels while
 keeping RoboCode's own provider semantics.
 
 ### `/connect`
@@ -705,4 +734,4 @@ The winning product is not the one that makes the most autonomous promise. It
 is the one that makes AI coding work observable, bounded, reviewable, reusable,
 and economically predictable.
 
-RoboCode should win by becoming the operator layer for that work.
+Viden should win by becoming the operator layer for that work.

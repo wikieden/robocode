@@ -1,4 +1,14 @@
-# RoboCode Engineering Plan
+# Viden Engineering Plan
+
+> Product direction update, 2026-06-26: **Viden is the active product
+> direction.** RoboCode is now a legacy implementation and release-artifact
+> name during the compatibility migration. Product, TUI, and
+> GUI planning should follow the accepted Viden design source under
+> `docs/viden-design/Viden/`; do not use the deleted
+> `docs/design/canvas-export` import.
+> The approved large-refactor development model is tracked in
+> `docs/parallel-development-plan.md` and
+> `docs/parallel-development-plan.zh-CN.md`.
 
 ## Current Planning Revision
 
@@ -45,7 +55,7 @@ Immediate P0:
   smoke, screenshots/previews, GitHub Release assets, and Homebrew sync.
 
 The final 0.1.x line is a TUI stability exit, not a feature-expansion sprint.
-RoboCode should not enter `0.2.x` until known P0/P1 display and interaction
+Viden should not enter `0.2.x` until known P0/P1 display and interaction
 bugs are cleared: input locks, Plan mode locks, approval/modal focus traps,
 resize corruption, scrollback loss, stale active-work state, provider/model
 setup confusion, and misleading side-panel status are release blockers. The
@@ -92,12 +102,49 @@ Current published release (`0.1.30`):
 - GitHub Release assets, Homebrew tap update, and post-publish smoke are part
   of the same release unit.
 
-Next release planning (`0.2.x`):
+Next release planning (`0.2.x` and `0.3.x`):
 
-- Move from TUI stabilization into spec/context/evidence runtime work only
-  after preserving the 0.1.30 release gates as regression checks.
+- `0.2.0`: Architecture cut and core structure refactor. Establish the
+  `viden-core` facade, dependency direction, runtime supervisor, event stream,
+  command bus, and compatibility exports before starting GUI implementation.
+- `0.2.1`: Context and token/cost engine. Build `ContextBundle`, semantic file
+  selection, log compaction, tool-result deduplication, token budgets, and cost
+  panels to address long-task context growth, DeepSeek 413 failures, and
+  invisible spend.
+- `0.2.2`: Agent execution loop. Promote planner, coder, reviewer, tester, and
+  doc-writer into supervised roles with tasks, inputs, outputs, evidence,
+  failure classification, and next actions instead of merely showing lanes.
+- `0.2.3`: Plugin runtime and real development gate. Add process-plugin
+  protocol, manifest/capability registration, extension boundaries, and keep
+  DeepSeek live development smoke, daily-loop, plan-mode, provider/model, lane
+  operator, release gate, and token/cost summaries mandatory before releases.
+- `0.3.0`: Multi-frontend contract freeze and Viden migration plan. Freeze the
+  UI/runtime contract before parallel UI work and define `viden` binary/config
+  migration plus the `robocode` compatibility shim.
+- `0.3.1`: Parallel TUI and GUI implementation. Split work into independent
+  worktrees/branches for core/runtime, TUI client, and Tauri/Web GUI client;
+  at most three owners work concurrently against the shared contract.
+- `0.3.2`: Integration release candidate. Merge core, then TUI, then GUI, and
+  run TUI/GUI parity, migration, plugin, and real development gates.
+- `0.3.3`: Operable GUI beta and compatibility hardening.
+- `0.3.4`: Visual fidelity and production release gate.
 - Keep Mode/Permission, provider/model, plan-mode, daily-loop, and live
   DeepSeek token/cost smoke in the release gate for future releases.
+- GUI implementation starts only after the contract freeze, but then runs in
+  parallel with the TUI client branch. GUI must consume the shared runtime; it
+  must not become a parallel execution path.
+- GUI functional design is tracked in
+  `docs/gui-version-functional-design.md` and
+  `docs/gui-version-functional-design.zh-CN.md`: Start Center, Workspace
+  Cockpit, Plan Studio, Agent Board, Evidence Center, provider/model setup,
+  permissions, context/cost, history/replay, and release/test center all depend
+  on the shared runtime contract.
+- New TUI/GUI visual sources must be re-imported through reviewed source
+  assets before they become product contracts. Discarded design imports and
+  generated visual output must not be referenced by roadmap or release gates.
+- The first 0.3.x frontend sequence follows
+  `docs/parallel-development-plan.md`: contract freeze, parallel TUI/GUI
+  branches, integration candidate, operable GUI beta, and visual fidelity gate.
 
 0.1.x final planning:
 

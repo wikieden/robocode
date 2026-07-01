@@ -1,18 +1,18 @@
-# RoboCode Staged Roadmap
+# Viden Staged Roadmap
 
 ## Purpose
 
-This roadmap translates the full RoboCode product requirements into delivery
+This roadmap translates the full Viden product requirements into delivery
 stages. It is intentionally derived from the target product, not from the
 history of the current repository.
 
 For the longer product strategy behind these delivery stages, see
-[RoboCode Long-Term Roadmap](long-term-roadmap.md). This staged roadmap is the
+[Viden Long-Term Roadmap](long-term-roadmap.md). This staged roadmap is the
 delivery map; the long-term roadmap is the product and market map.
 
 ## Long-Term Positioning
 
-RoboCode is not only a TUI and not only another coding-agent CLI. The long-term
+Viden is not only a TUI and not only another coding-agent CLI. The long-term
 positioning is:
 
 > An out-of-the-box multi-agent orchestration runtime plus a token-efficiency
@@ -177,8 +177,10 @@ Exit criteria:
   efficiency instead of simply adding more panels
 - V4 should reuse V1, V2, and V3 execution invariants instead of introducing
   new side-channel runtimes
-- the TUI remains the long-term primary interface; other surfaces must reuse the
-  same runtime and follow after the TUI-led product line is stable
+- the TUI is the first primary interface; other surfaces must reuse the same
+  runtime. After the shared runtime/UI contract is frozen, TUI and GUI can be
+  developed in parallel under the
+  [Viden Parallel Development Plan](parallel-development-plan.md)
 - long-term platform features should follow, not lead, core workflow maturity
 
 ### Interaction Reliability Gate
@@ -204,7 +206,7 @@ flowchart TD
 ### 0.1.x TUI Zero-Bug Gate
 
 The final 0.1.x line must be treated as a TUI stability exit, not a feature
-expansion sprint. RoboCode should not enter the 0.2.x line while known P0/P1
+expansion sprint. Viden should not enter the 0.2.x line while known P0/P1
 TUI display or interaction bugs remain.
 
 For the full gate, see
@@ -253,8 +255,37 @@ Current published release:
 
 Next planned:
 
-- Start 0.2.x spec/context/evidence runtime work while preserving the 0.1.30
-  zero-bug TUI gates as release regressions.
+- Start 0.2.x structure/context/evidence runtime work while preserving the
+  0.1.30 zero-bug TUI gates as release regressions.
+- `0.2.0`: Architecture cut and core structure refactor. Establish the
+  `viden-core` facade, dependency direction, runtime supervisor, event stream,
+  command bus, and compatibility exports before starting GUI implementation.
+- `0.2.1`: Context, token/cost, evidence, and runtime fact model for
+  `ContextBundle`, semantic file selection, log compaction,
+  tool-result deduplication, budgets, provider health, and cost visibility.
+- `0.2.2`: Supervised multi-agent execution loop for planner, coder, reviewer,
+  tester, and doc-writer roles with evidence and next actions.
+- `0.2.3`: Plugin runtime and real development gate for process plugins,
+  manifest/capability registration, extension boundaries, DeepSeek live
+  development smoke, daily-loop, plan-mode, provider/model, lane operator,
+  release gate, and token/cost summaries.
+- `0.3.0`: Multi-frontend contract freeze and Viden migration plan. Freeze the
+  UI/runtime contract and define `viden` binary/config migration plus the
+  `robocode` compatibility shim.
+- `0.3.1`: Parallel TUI and GUI implementation. Split core/runtime, TUI client,
+  and Tauri/Web GUI client into independent branches/worktrees, with at most
+  three active owners.
+- `0.3.2`: Integration release candidate. Merge core first, then TUI, then GUI,
+  and run TUI/GUI parity, migration, plugin, and real development gates.
+- `0.3.3`: Operable GUI beta and compatibility hardening.
+- `0.3.4`: Visual fidelity and production release gate.
+- GUI functional design is documented in
+  [GUI Version Functional Design](gui-version-functional-design.md). Treat it
+  as a product contract that can be implemented after the runtime/UI contract
+  freeze, not before.
+- TUI/GUI visual sources must be reviewed before they become product contracts.
+  Discarded design imports and generated visual output are not roadmap
+  dependencies.
 - Keep every GitHub Release coupled to Homebrew sync and postpublish validation.
 
 The final 0.1.x checkpoint is `0.1.30`: P0/P1 TUI backlog is zero, screenshot

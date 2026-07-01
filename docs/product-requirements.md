@@ -1,28 +1,45 @@
-# RoboCode Product Requirements
+# Viden Product Requirements
 
 ## Purpose
 
-This document defines the complete product target for RoboCode as a Rust-based,
-local-first agentic developer CLI derived from the behavioral model of
-`.ref/claude-code-main`.
+This document defines the complete product target for Viden as a Rust-based,
+local-first AI coding operator cockpit. It starts with the TUI, but the long-term
+product boundary is a shared runtime powering TUI, GUI, CLI automation,
+IDE/ACP adapters, and external agent supervision.
 
-RoboCode is not a file-by-file port. It aims for high behavioral similarity in
-the user-facing runtime model, command surface, and subsystem boundaries while
-allowing a Rust-native internal architecture.
+Viden supersedes the older RoboCode product framing. RoboCode remains a legacy
+implementation/release name until a separate migration plan renames binaries,
+crates, config paths, and artifacts safely.
+
+Viden is not a file-by-file port of `.ref/claude-code-main`. The reference
+project provides behavioral and interaction baselines. The TUI / GUI product
+direction is a high-density, supervised, approval-aware, evidence-driven coding
+cockpit backed by the shared runtime, not by a parallel UI-specific logic path.
 
 Current implementation note:
 
 - main has landed the V1 baseline plus V2-A session work, V2-C workflow continuity, V2-B semantic code intelligence, V2-D structured terminal-view slices for LSP/session/workflow/diff/permission outputs, and the provider-plugin runtime with DeepSeek v4
-- the next architecture work is provider-runtime hardening: real dynamic loading paths, registry refresh coverage, streaming, cancellation, and broader plugin compatibility
+- the next architecture work is `0.2.x` runtime layering: `RuntimeSnapshot` /
+  event stream, ContextBundle with token/cost, AgentTask execution loop, and
+  release-gate evidence. TUI/GUI can only consume these facts; they cannot own a
+  second business-logic path.
 
 ## Product Definition
 
 ### Positioning
 
-RoboCode is a local-first, extensible developer agent that runs in the
-terminal, understands a working directory, executes tools through a permission
-gate, persists sessions, and can later expand into integrations, remote
-operation, and coordinated multi-agent workflows.
+Viden is a local-first, extensible developer agent cockpit. It understands
+the current workspace, executes tools through a permission gate, persists
+sessions, and can later expand into integrations, remote operation,
+multi-agent coordination, and GUI supervision.
+
+Product naming boundary:
+
+- **Viden**: product, TUI/GUI design target, visual identity, and planning name.
+- **RoboCode**: legacy implementation and compatibility name until the rename
+  migration is explicitly planned.
+- **Accepted visual system**: `docs/viden-design/Viden/` is the accepted design
+  source for tokens, components, target screenshots, and UI direction.
 
 ### Primary Users
 
@@ -38,11 +55,19 @@ operation, and coordinated multi-agent workflows.
 - Resume prior sessions without losing tool or approval context
 - Work in analysis-only or approval-heavy modes when risk is higher
 - Grow into MCP, LSP, remote, and multi-agent usage without changing products
+- Supervise multiple parallel agents across workspace/project/lane/session/subagent hierarchy
+- See the same runtime facts, context, cost, approval, and evidence in TUI and future GUI
 
 ### Product Goals
 
-- Match the reference project on core runtime behavior and subsystem shape
+- Evolve from terminal chat-style AI assistant to AI coding operator cockpit
+- Absorb mature reference-project patterns in core runtime behavior and
+  subsystem shape
 - Preserve strong auditability around tools, approvals, and session history
+- Use reviewed design tokens and selector-first interaction to unify TUI / GUI
+  visual and operational models once a design source is accepted
+- Make lane/session/subagent, context, cost, approval, and evidence first-class
+  product objects
 - Support cross-platform local development from the first stable release
 - Keep the engine extensible enough to host integrations and advanced workflows
 
@@ -52,6 +77,9 @@ operation, and coordinated multi-agent workflows.
 - Copying every reference command verbatim
 - Shipping the entire platform in the first release
 - Reproducing product analytics and growth tooling before core workflows mature
+- Building independent GUI business logic before the `0.2.x` runtime is stable
+- Treating generated visual prototypes as production implementation or
+  bypassing the runtime contract
 
 ## Core Runtime Model
 
@@ -179,7 +207,7 @@ The session layer must provide:
 
 ### Slash Commands
 
-Slash commands are a first-class interface layer. RoboCode does not need to
+Slash commands are a first-class interface layer. Viden does not need to
 copy every reference command name, but it must define complete command families
 that cover the same behavioral categories over time.
 
@@ -618,7 +646,7 @@ parallel runtimes.
 
 ## Product Acceptance Criteria
 
-The complete RoboCode product target is acceptable only if:
+The complete Viden product target is acceptable only if:
 
 - all user prompts, slash commands, model events, tool calls, and workflow
   commands enter the shared runtime path
@@ -640,10 +668,10 @@ The complete RoboCode product target is acceptable only if:
 
 ## Requirements Document Acceptance Criteria
 
-The complete RoboCode requirements set is acceptable only if it answers:
+The complete Viden requirements set is acceptable only if it answers:
 
 - what the finished product is
 - which subsystems are in scope
 - which phase each subsystem belongs to
 - what "good enough" behavior means for each major subsystem
-- how RoboCode should stay similar to `.ref` without becoming a literal port
+- how Viden should stay similar to `.ref` without becoming a literal port

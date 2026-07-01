@@ -1,23 +1,26 @@
-# RoboCode 产品设计：Agent 编码操作闭环
+# Viden 产品设计：Agent 编码操作闭环
 
 English version: [product-design-operator-loop.md](product-design-operator-loop.md)
 
-最后更新：2026-06-06
+最后更新：2026-06-26
 
 ## 目的
 
-这份文档把 RoboCode 的产品设计重新收束到一个长期稳定的方向：
+这份文档把 Viden 的产品设计重新收束到一个长期稳定的方向：
 
-> RoboCode 是本地优先的 AI 编码操作 cockpit。它帮助开发者运行、监督、审查和复用
+> Viden 是本地优先的 AI 编码操作 cockpit。它帮助开发者运行、监督、审查和复用
 > AI 编码工作，并统一管理 providers、终端工具、外部 coding agents、plugins、skills、
-> MCP servers 和未来 ACP adapters。
+> MCP servers、未来 ACP adapters，以及 TUI / GUI 操作界面。
 
-TUI 是第一个产品形态，不是最终边界。真正的核心产品是 operator loop：把一个编码意图
-变成有边界的 agent 执行、证据、决策和可复用上下文。
+TUI 是第一个产品形态，不是最终边界。未来 GUI surface 必须消费同一套 runtime。真正的核心
+产品是 operator loop：把一个编码意图变成有边界的 agent 执行、证据、决策和可复用上下文。
 
 这不是单个版本计划，而是后续版本分阶段实现的产品契约。
 
 实现配套文档：[production-coding-loop-architecture.zh-CN.md](production-coding-loop-architecture.zh-CN.md)。
+
+设计源：`docs/viden-design/Viden/` 是 TUI/GUI 视觉方向、tokens 和目标截图的接受源。
+RoboCode 只作为 legacy implementation 名称保留，直到迁移计划明确。
 
 ## 依据
 
@@ -27,6 +30,7 @@ TUI 是第一个产品形态，不是最终边界。真正的核心产品是 ope
 - `docs/long-term-roadmap.md`
 - `docs/staged-roadmap.md`
 - `docs/tui-cockpit-design.md`
+- `docs/gui-version-functional-design.zh-CN.md`
 - `docs/mode-system-design.zh-CN.md`
 - `docs/tui-interaction-flow-design.zh-CN.md`
 - `docs/permission-mode-design.zh-CN.md`
@@ -36,6 +40,9 @@ TUI 是第一个产品形态，不是最终边界。真正的核心产品是 ope
 - `docs/provider-adapter-design.md`
 - `docs/ref-gap-matrix.md`
 - `docs/tui-interaction-audit-2026-05-29.md`
+- `docs/viden-design-adoption.zh-CN.md`
+- `docs/viden-design/Viden/docs/DESIGN-REF.md`
+- `docs/viden-design/Viden/tokens.css`
 - `robocode-core/src/runtime_loop.rs`
 - `robocode-cli/src/tui/app.rs`
 - `robocode-cli/src/tui/transcript.rs`
@@ -60,7 +67,12 @@ RoboCode 已经有不错的架构骨架：本地工具、权限前置的 mutatio
 - context pressure、HTTP 413、`Argument list too long` 都说明 token 效能必须是可见的
   产品能力。
 
-所以产品应从“问模型”转向“操作一个编码任务”。
+所以产品应从“问模型”转向“操作一个编码任务”。TUI / GUI 方向把这个方向进一步收束为：
+
+- lane 是用户监督工作的主单位，语义上等同 session；
+- workspace / project / lane / subagent 是跨 TUI 和 GUI 的统一导航层级；
+- 经过审核的 design tokens 和 selector-first 交互是 UI 一致性的基础；
+- approval gate、context/cost、evidence、environment facts 必须在主界面可见，而不是藏在日志里。
 
 ## 当前实现地图
 
@@ -73,6 +85,7 @@ RoboCode 已经有不错的架构骨架：本地工具、权限前置的 mutatio
 | Context | ContextBundle 设计已存在，并已经接入 lane envelope。 | 用户需要 pin/omit/split controls、可见 source ranking、provider prompt compaction，以及从 413/argv-too-long 自动恢复。 |
 | Evidence | Permissions、transcripts、diagnostics、file tools、tests、screenshots 和 release smoke checks 已分散存在。 | 完成态需要统一 evidence drawer 和发布规则：每个可见功能点都要真实使用证据，而不只是静态 preview。 |
 | Extensions | Provider plugin 方向已存在。MCP、skills、hooks、ACP 在规划中。 | 所有 extensions 在扩大 mutating runtime access 前，需要统一 descriptor/capability/doctor/evidence/permission contract。 |
+| 视觉设计输入 | 未来 TUI/GUI 设计导入只有通过 review 后才有约束力。 | 产品规格和 release gate 不能依赖已废弃的设计导入；被接受的设计源需要截图 baseline 和明确 deviation 记录。 |
 
 ## 竞品交互参考
 
@@ -109,7 +122,7 @@ RoboCode 应该让用户随时能回答：
 
 ## 产品原则
 
-- **RoboCode 是行动主体。** Provider 是基础设施。UI 应该说 `RoboCode working`、
+- **Viden 是行动主体。** Provider 是基础设施。UI 应该说 `Viden working`、
   `Builder is editing`、`Tester is running tests`，而不是默认说 `DeepSeek is thinking`。
 - **配置是直接操作。** Provider、model、permission、theme 都应该是可搜索、可编辑、
   选择即生效的面板，不应该让用户猜下一条命令怎么写。
@@ -126,17 +139,23 @@ RoboCode 应该让用户随时能回答：
   model context 或 lane envelope。
 - **TUI 优先，runtime 可复用。** Runtime 后续应该能支撑 CLI automation、IDE/ACP、
   desktop 和 web surface，而不是被 TUI 绑死。
+- **视觉设计不是第二套产品逻辑。** GUI/TUI 可以共享被接受的 tokens、组件语言和视觉层级，
+  但所有任务、审批、context、cost、lane 和 evidence 状态必须来自 runtime。
+- **Lane 等于 session。** 用户面对的主要工作单元是 lane；一个 workspace 可有多个 project，
+  一个 project 或 workspace 可拥有多个 lane，每个 lane 下可以有 subagents。
+- **视觉保真只针对被接受的目标成为发布条件。** TUI preview 和 GUI screenshot baseline 必须把
+  被接受的效果图变成可测试合同，差异需要记录为 accepted deviation。
 
 ## 核心 Operator Loop
 
 | 阶段 | 用户问题 | 系统对象 | 主要 UI | 输出 |
 | --- | --- | --- | --- | --- |
-| 1. Intake | 我想让 RoboCode 做什么？ | `UserIntent` | Welcome composer 或 cockpit composer | 捕获任务 |
+| 1. Intake | 我想让 RoboCode 做什么？ | `UserIntent` | welcome composer 或 cockpit composer | 捕获任务 |
 | 2. Shape | 这是聊天、规划、编辑、测试、审查还是 delegation？ | `TaskEnvelope` | inline plan/status row | 模式和路由 |
 | 3. Context | Agent 会看到什么？省略了什么？ | `ContextBundle` | context pressure row 和 side-2 detail | bundle、budget、compaction notes |
-| 4. Dispatch | 谁来做？ | `AgentTask`、`AgentLane` | NOW WORKING row、side-1 lanes | active work item |
+| 4. Dispatch | 谁来做？ | `AgentTask`、`AgentLane`、`LaneSession` | LIVE WORK、lane list、Agent Board | active work item |
 | 5. Execute | 现在具体发生什么？ | runtime events | streaming transcript 和 lane tail | partial response、tool calls、logs |
-| 6. Gate | 这个动作安全吗？ | `PermissionRequest`、`Decision` | approval overlay 或 inline gate | approve、deny、inspect、retry |
+| 6. Gate | 这个动作安全吗？ | `PermissionRequest`、`Decision` | decision center 或 4 档 approval gate | approve、deny、inspect、retry |
 | 7. Verify | 改了什么？是否通过？ | `Evidence`、`Artifact` | diff/test/evidence panels | 可审查证据 |
 | 8. Resolve | 应该 apply、discard、retry 还是记忆？ | `NextAction`、`MemoryCandidate` | action panel | applied change、discarded lane、retry、memory/task update |
 
@@ -398,7 +417,7 @@ strip，并使用更多阶段化表达、证据信号和下一步 guidance。
 
 规范：
 
-- 使用 RoboCode 内部角色名：`Operator`、`Planner`、`Context Builder`、`Builder`、
+- 使用 Viden 内部角色名：`Operator`、`Planner`、`Context Builder`、`Builder`、
   `Reviewer`、`Tester`、`Lane Supervisor`、`Release Captain`。
 - 除 provider health 或 provider-specific error，不默认展示 provider 名。
 - 不显示假进度百分比。只有真实进度才展示 percent。
@@ -407,7 +426,7 @@ strip，并使用更多阶段化表达、证据信号和下一步 guidance。
 
 示例表达：
 
-- `RoboCode is mapping the request`
+- `Viden is mapping the request`
 - `Planner is shaping the task`
 - `Context Builder is trimming logs`
 - `Builder is editing src/render.rs`
@@ -415,7 +434,7 @@ strip，并使用更多阶段化表达、证据信号和下一步 guidance。
 - `Reviewer is checking diff evidence`
 - `Operator is waiting for approval`
 - `Lane Supervisor is watching codex lane`
-- `RoboCode is reducing context after a 413 response`
+- `Viden is reducing context after a 413 response`
 
 长任务在最新对话内容下显示 live row：
 

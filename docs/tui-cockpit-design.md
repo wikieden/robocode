@@ -1,22 +1,48 @@
-# RoboCode TUI Cockpit Design
+# Viden TUI Cockpit Design
 
 This document records the current TUI target so implementation stays aligned
-with the generated reference visuals and the terminal-agent workflow.
+with accepted visual references and the terminal-agent workflow.
+
+Accepted design source: `docs/viden-design/Viden/`. The old RoboCode visual
+plan is legacy and should not drive new TUI decisions.
 
 Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-design.md).
 
 ## Visual Baseline
 
 - Primary visual state: **no modal open**. Dialogs must inherit the same
-  aurora-cyan cockpit theme instead of introducing a separate palette.
-- Main reference image:
-  `docs/previews/tui-concept-holodeck-v1.png`.
+  cockpit theme instead of introducing a separate palette.
+- Viden visual sources are binding after review through
+  [Viden Design Adoption](viden-design-adoption.md).
+- Primary target images are `docs/viden-design/Viden/screenshots/cockpit-final.png`,
+  `docs/viden-design/Viden/screenshots/welcome-watcher.png`, and
+  `docs/viden-design/Viden/screenshots/lane-monitor-wide.png`.
 - Layout target: dense terminal cockpit, not a landing page. The first screen
   should be useful immediately for coding, reviewing, approval, and agent lane
   supervision.
-- Color direction: dark blue-black surfaces, cyan borders, green success,
-  yellow attention/permission, red denial/error. Avoid large unrelated black
-  bands or default terminal background leaks.
+- Color direction: dark cockpit as the primary theme, cyan as the primary
+  interaction focus, gold for human decision or permission-needed states, green
+  for success, red for denial/error, and blue for progress. Avoid large
+  unrelated black bands or default terminal background leaks.
+- Visual tokens must come from an accepted in-repo token source before they
+  become implementation requirements; TUI implementation also needs truecolor
+  and ANSI 256 fallback mapping.
+
+## TUI Target
+
+- Use a canonical component vocabulary instead of each screen inventing its own
+  terminal frame, status bar, lane row, approval gate, and overlay.
+- Status bar uses a ticker: fixed workspace/lane/provider on the left, scrolling
+  status metrics in the center, and fixed help/decision entry on the right.
+- Right rail uses Project / Lane / More tabs, is collapsible, and can be hidden;
+  when hidden, transcript fills the available space.
+- Lane rows can expand to show subagents under the current lane.
+- Composer behaves like a multiline textarea: two rows by default, up to roughly
+  five rows, then internal scroll.
+- Welcome screen uses the Viden identity and command selector; configuration
+  actions return to welcome until real work starts.
+- Approval gate uses four decisions: deny, read-only, allow once, allow scope,
+  with timeout-deny support.
 
 ## Main Screen
 
@@ -26,15 +52,34 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
   visible at the bottom.
 - Live activity: a prominent `LIVE WORK` strip inside the transcript area,
   directly after the latest visible conversation entry, that answers what
-  RoboCode is doing right now with phase, signal, and next-action guidance.
-- Right rail: workspace, active tasks, diagnostics, provider health, recent
-  files.
+  Viden is doing right now with phase, signal, and next-action guidance.
+- Right rail: Project / Lane / More tabs, compacting workspace, active tasks,
+  context, MCP, LSP, Todo, diagnostics, provider health, recent files, usage,
+  and keybindings.
 - Composer: always visible at the bottom, with a taller three-row input well,
   native blinking bar cursor placed inside the input row, action hints, work
   mode chips, and permission level chips.
 - Bottom status: connection, session, event count, active lanes, context window,
   theme/help hints. Token, cost, and rate metrics should appear only after real
   provider telemetry is wired.
+
+## Lane / Session Hierarchy
+
+The new TUI must share the GUI hierarchy:
+
+```text
+Workspace -> Project -> Lane / Session -> Subagent
+```
+
+Requirements:
+
+- `/sessions`, `/lane`, side rail, history, and evidence use the same
+  lane/session identity.
+- A lane can belong to a project or live as a workspace-level global lane.
+- Expanded lanes show subagents, backend type, status, progress, evidence, and
+  gate count.
+- Main transcript displays the current lane; switching lanes must not lose
+  composer draft or pending input queue.
 
 ## Data Truth Contract
 
@@ -82,6 +127,9 @@ theme, current-provider doctor, fallback smoke, and saving defaults.
 `/lane` is the orchestration action selector. It lists lane launch commands and,
 when lanes are active, id-specific inspect, timeline, diff, and artifacts
 actions so users do not have to memorize lane ids.
+The first-level object is a durable lane/session, not a disposable background job.
+Existing lane rows must show project/global ownership, subagent count, pending
+gate count, latest evidence, and running state.
 
 Provider/model selectors have separate semantics:
 
@@ -168,7 +216,7 @@ route hints so the main agent can decide follow-up actions.
 The cockpit's next core experience is a host-delegate agent bridge, modeled
 after the Claude Code Codex plugin pattern:
 
-- RoboCode is the host. It receives the user's primary goal and keeps the
+- Viden is the host. It receives the user's primary goal and keeps the
   operation center, composer, approvals, and side screens coherent.
 - Codex is the first delegate. It runs as a tracked job/lane with a readiness
   doctor, launch path, job record, cancel/result commands, and evidence output.
@@ -237,7 +285,7 @@ model.
   blocking center card or a detached top strip. It derives status from pending
   approvals, the unified `AgentTask` view, the latest user turn, the latest
   tool call, or the latest transcript entry, so the main screen can show
-  `RoboCode working`, `Approval needed: ...`, `Supervising 2 agents: ...`,
+  `Viden working`, `Approval needed: ...`, `Supervising 2 agents: ...`,
   compact edit summaries, delegated-agent progress, next actions, and a
   human-readable signal without inventing runtime data or fake provider
   progress percentages.
@@ -452,7 +500,7 @@ model.
 - Provider token telemetry now comes from real provider `usage` payloads for
   OpenAI-compatible, Anthropic, and Ollama-style responses. Token rate is
   derived only when both usage and non-zero request timing are available. Cost
-  remains hidden unless a provider reports cost data; RoboCode does not invent
+  remains hidden unless a provider reports cost data; Viden does not invent
   prices in the TUI.
 - Diagnostics come from the shared LSP runtime through post-edit diagnostics,
   explicit `/lsp diagnostics <path>`, and a throttled live TUI background

@@ -1,19 +1,37 @@
-# RoboCode TUI Cockpit 设计
+# Viden TUI Cockpit 设计
 
-本文记录当前 TUI 目标，避免开发偏离前期生成的主视觉和终端 agent 工作流。
+本文记录当前 TUI 目标，避免开发偏离已接受的视觉参考和终端 agent 工作流。
+
+接受的设计源：`docs/viden-design/Viden/`。旧 RoboCode 视觉方案是 legacy，不再驱动新的
+TUI 决策。
 
 交互流程配套文档：[TUI 交互流程设计](tui-interaction-flow-design.zh-CN.md)。
 
 ## 视觉基线
 
-- 主视觉状态：**无弹窗态**。所有弹窗必须继承同一套 aurora-cyan cockpit
-  主题，不再出现另一套配色。
-- 主参考图：
-  `docs/previews/tui-concept-holodeck-v1.png`。
+- 主视觉状态：**无弹窗态**。所有弹窗必须继承同一套 cockpit 主题，不再出现另一套配色。
+- Viden 视觉源通过 [Viden 设计接入决策](viden-design-adoption.zh-CN.md) review 后生效。
+- 主要目标图是 `docs/viden-design/Viden/screenshots/cockpit-final.png`、
+  `docs/viden-design/Viden/screenshots/welcome-watcher.png` 和
+  `docs/viden-design/Viden/screenshots/lane-monitor-wide.png`。
 - 布局目标：高密度终端 cockpit，不是介绍页。首屏应立即服务于编码、审查、
   审批和子 agent lane 监控。
-- 配色方向：深蓝黑底、青色边框、绿色成功、黄色注意/权限、红色拒绝/错误。
-  避免大块异常黑带或终端默认背景泄漏。
+- 配色方向：dark cockpit 为主，青色为主交互焦点，金色表示需要人类决策或权限，绿色成功、
+  红色拒绝/错误、蓝色进行中。避免大块异常黑带或终端默认背景泄漏。
+- 视觉 token 必须来自被接受的仓库内 token 源后，才可以成为实现要求；TUI 实现需要维护
+  truecolor 和 ANSI 256 降级映射。
+
+## TUI 新目标
+
+- 使用 canonical component vocabulary，避免每个页面自造终端框、状态栏、lane 行、
+  approval gate 和 overlay。
+- 状态栏采用 ticker：左侧固定 workspace/lane/provider，中央滚动大量状态指标，右侧固定帮助和
+  decision entry。
+- 右栏采用 Project / Lane / More tabs，可折叠，可隐藏；隐藏后 transcript 铺满。
+- lane 行支持展开显示当前 lane 下的 subagents。
+- composer 是多行 textarea 语义：默认 2 行，最多约 5 行，溢出内部滚动。
+- welcome screen 使用 Viden 身份和命令选择器，配置动作结束后回到 welcome，不自动进入会话。
+- approval gate 使用 4 档决策：deny、read-only、allow once、allow scope，并支持倒计时自动拒绝。
 
 ## 主屏幕
 
@@ -22,12 +40,28 @@
 - Transcript：左侧主面板，时间线式消息，最近内容固定留在底部可见。
 - Live activity：transcript 区内部在最近可见对话内容后追加醒目的 `LIVE WORK` strip，
   用 phase、signal 和下一步 guidance 直接回答 RoboCode 正在干什么。
-- 右侧栏：workspace、active tasks、diagnostics、provider health、recent files。
+- 右侧栏：Project / Lane / More tabs，压缩展示 workspace、active tasks、context、MCP、LSP、
+  Todo、diagnostics、provider health、recent files、usage 和 keybindings。
 - Composer：始终在底部可见，输入区是更高的三行输入槽，输入光标位于输入行内
   并使用原生 blinking bar cursor，带 action hints、work mode chips 和 permission
   level chips。
 - 底部状态栏：连接状态、session、event 数量、active lanes、context window、
   theme/help 提示。token、cost、rate 指标只有接入真实 provider telemetry 后才能显示。
+
+## Lane / Session 层级
+
+新 TUI 必须与 GUI 共享层级：
+
+```text
+Workspace -> Project -> Lane / Session -> Subagent
+```
+
+要求：
+
+- `/sessions`、`/lane`、side rail、history 和 evidence 使用同一 lane/session 标识。
+- lane 可以挂在 project 下，也可以是 workspace 级全局 lane。
+- lane 展开后显示 subagents、backend 类型、状态、progress、evidence 和 gate 数。
+- 主 transcript 显示当前 lane；切 lane 不应丢失 composer draft 和 pending input queue。
 
 ## 数据真实性契约
 
@@ -80,6 +114,8 @@
 
 - `/lane` 是编排动作 selector。它会列出 lane 启动命令；已有 lane 时，还会列出带
   lane id 的 inspect、timeline、diff 和 artifacts 动作，避免用户记 lane id。
+- `/lane` 的一级对象是 durable lane/session，不再把 lane 当作一次性后台 job。已有 lane 行必须显示
+  所属 project/global、subagent 数、pending gate 数、最后 evidence 和运行状态。
 
 - provider 和 model selector 的语义必须分开：`/provider`/`/connect` 是供应商连接流程，
   一级列表只展示供应商，例如 `DeepSeek`、`OpenRouter`，不要在供应商行里混入
@@ -137,7 +173,7 @@ shell job、DeepSeek lane。副屏需要暴露任务状态、最新输出、产�
 cockpit 下一阶段的核心体验是 host-delegate agent bridge，参考 Claude Code
 Codex 插件的模式：
 
-- RoboCode 是 host。它接收用户主目标，并保持 operation center、composer、
+- Viden 是 host。它接收用户主目标，并保持 operation center、composer、
   approval 和 side screens 的一致性。
 - Codex 是第一个 delegate。它作为 tracked job/lane 运行，具备 readiness doctor、
   launch path、job record、cancel/result commands 和 evidence output。
@@ -195,7 +231,7 @@ normalized view，不能各自拼接一套状态。
 - 主 transcript 在 live tail 保留紧凑但醒目的 `LIVE WORK` strip，直接跟在最近对话内容
   后面，不再使用挡住内容的居中卡片，也不再放成脱离对话流的顶部状态条。它从
   pending approvals、统一 `AgentTask` view、最近 user turn、最近 tool call
-  或最近 transcript entry 推导状态，所以主屏可以展示 `RoboCode working`、
+  或最近 transcript entry 推导状态，所以主屏可以展示 `Viden working`、
   `Approval needed: ...`、`Supervising 2 agents: ...`、紧凑 edit 摘要、
   delegate-agent progress、next action 和可读 signal，同时不编造运行时数据或假
   provider progress 百分比。

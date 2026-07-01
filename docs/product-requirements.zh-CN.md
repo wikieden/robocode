@@ -1,23 +1,40 @@
-# RoboCode 产品需求规格
+# Viden 产品需求规格
 
 英文版： [product-requirements.md](product-requirements.md)
 
 ## 目的
 
-这份文档定义 RoboCode 的完整产品目标：一个基于 Rust、本地优先的 agentic developer CLI，其行为模型来源于 `.ref/claude-code-main`。
+这份文档定义 Viden 的完整产品目标：一个基于 Rust、本地优先的 AI coding operator
+cockpit。它从 TUI 起步，但长期产品边界是共享 runtime 之上的 TUI、GUI、CLI automation、
+IDE/ACP adapter 和外部 agent supervision。
 
-RoboCode 不是逐文件移植。它追求的是用户可感知运行模型、命令面和子系统边界上的高相似度，同时允许内部用 Rust 原生方式重构。
+Viden 取代旧的 RoboCode 产品框架。RoboCode 仅作为 legacy implementation / release 名称保留，
+直到单独的迁移计划安全地覆盖 binary、crate、config path 和 artifact 重命名。
+
+Viden 不是逐文件移植 `.ref/claude-code-main`。参考工程只提供行为和交互基线。TUI / GUI
+产品方向是高密度、可监督、可审批、可审查证据的编码操作台，必须由共享 runtime 支撑，而不是
+形成第二套 UI 专用业务逻辑。
 
 当前实现说明：
 
 - `main` 已落地 V1 基线、V2-A session work、V2-C workflow continuity、V2-B semantic code intelligence、覆盖 LSP/session/workflow/diff/permission outputs 的 V2-D structured terminal-view 切片，以及 provider-plugin runtime 与 DeepSeek v4
-- 下一条架构工作是 provider-runtime hardening：真实 dynamic loading 路径、registry refresh 覆盖、streaming、cancellation 与更广 plugin 兼容性
+- 下一条架构工作是 `0.2.x` runtime 分层：`RuntimeSnapshot` / event stream、ContextBundle
+  与 token/cost、AgentTask 执行闭环、release gate evidence。TUI/GUI 只能消费这些事实，
+  不能拥有第二套业务逻辑。
 
 ## 产品定义
 
 ### 定位
 
-RoboCode 是一个本地优先、可扩展的开发者 Agent，运行在终端中，理解当前工作目录，通过权限门控执行工具，持久化会话，并逐步扩展到集成、远程操作和多 Agent 协作。
+Viden 是一个本地优先、可扩展的开发者 Agent cockpit。它理解当前 workspace，通过权限门控
+执行工具，持久化会话，并逐步扩展到集成、远程操作、多 Agent 协作和 GUI 监督界面。
+
+产品命名边界：
+
+- **Viden**：产品、TUI/GUI 设计目标、视觉身份和规划名称。
+- **RoboCode**：legacy implementation 和 compatibility 名称，直到 rename migration 被明确规划。
+- **接受的视觉系统**：`docs/viden-design/Viden/` 是 tokens、components、target screenshots
+  和 UI 方向的接受设计源。
 
 ### 主要用户
 
@@ -33,11 +50,17 @@ RoboCode 是一个本地优先、可扩展的开发者 Agent，运行在终端�
 - 在不丢失工具与审批上下文的前提下恢复历史会话
 - 在高风险场景下使用只分析或高审批模式
 - 后续扩展到 MCP、LSP、remote、多 Agent，而不需要切换产品
+- 在 workspace/project/lane/session/subagent 层级中监督多个并行 agent
+- 在 TUI 和未来 GUI 中查看相同 runtime facts、context、cost、approval 和 evidence
 
 ### 产品目标
 
-- 在核心运行时行为和子系统形态上对齐参考工程
+- 从“终端聊天式 AI 助手”升级为“AI coding operator cockpit”
+- 在核心运行时行为和子系统形态上吸收参考工程的成熟模式
 - 保持工具、审批和会话历史的强审计能力
+- 在设计源被接受后，用经过审核的 design tokens 和 selector-first 交互统一 TUI / GUI
+  视觉与操作模型
+- 让 lane/session/subagent、context、cost、approval、evidence 成为一等产品对象
 - 从首个稳定版本起支持跨平台本地开发
 - 保持内核足够可扩展，以承载后续集成和高级工作流
 
@@ -47,6 +70,8 @@ RoboCode 是一个本地优先、可扩展的开发者 Agent，运行在终端�
 - 逐字逐条复制参考工程的所有命令
 - 在第一版里交付整个平台
 - 在核心工作流成熟前优先构建 analytics 和 growth tooling
+- 在 `0.2.x` runtime 稳定前实现独立 GUI 业务逻辑
+- 把生成式视觉原型直接当作生产实现或绕过 runtime contract
 
 ## 核心运行模型
 
@@ -595,7 +620,7 @@ MCP、remote、多 Agent 这些子系统必须能够插入现有 command、permi
 
 ## 产品验收标准
 
-完整 RoboCode 产品目标必须满足：
+完整 Viden 产品目标必须满足：
 
 - 所有 user prompts、slash commands、model events、tool calls、workflow
   commands 都进入共享 runtime path

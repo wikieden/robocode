@@ -1,12 +1,12 @@
-# RoboCode 长期路线图
+# Viden 长期路线图
 
 English version: [long-term-roadmap.md](long-term-roadmap.md)
 
-最后更新：2026-05-29
+最后更新：2026-06-26
 
 ## 战略判断
 
-RoboCode 不应该靠“又一个单 Agent 聊天 CLI”来竞争。真正长期机会是成为 AI 编程工作的
+Viden 不应该靠“又一个单 Agent 聊天 CLI”来竞争。真正长期机会是成为 AI 编程工作的
 本地优先操作层：
 
 > 一个多 Agent 编程 cockpit，让 Agent 工作可见、可控、可审查、可复用，并且极致优化
@@ -15,6 +15,16 @@ RoboCode 不应该靠“又一个单 Agent 聊天 CLI”来竞争。真正长期
 TUI 是第一个产品形态，不是最终产品边界。它适合作为起点，因为 approvals、logs、
 tests、diagnostics、副屏 lane 和多 Agent 状态都需要高密度监督。等 runtime 稳定后，
 同一套编排模型可以继续支撑 CLI 自动化、IDE/ACP adapter、桌面端、Web 和团队工作流。
+
+GUI / Desktop 工作必须跟随 runtime contract，而不是提前开始。Viden 需要先完成核心结构、
+共享 event/command model、context/cost facts、可监督 Agent 闭环和 release gate。
+runtime/UI contract freeze 后，TUI 与 GUI 可以按
+[Viden 并发开发计划](parallel-development-plan.zh-CN.md) 并行开发。GUI 产品契约记录在
+[GUI 版本功能设计](gui-version-functional-design.zh-CN.md)。
+
+接受的 TUI / GUI 视觉源现在是 `docs/viden-design/Viden/`，由
+[Viden 设计接入决策](viden-design-adoption.zh-CN.md) 约束。RoboCode 只作为 legacy
+implementation 和 compatibility 名称保留，直到 rename migration 被明确规划。
 
 ## 市场判断
 
@@ -41,8 +51,10 @@ RoboCode 应该成为：
 - 一个 token-efficiency engine，决定每个 Agent 需要什么 context，并解释省略了什么。
 - 一个安全 extension runtime，承载 providers、MCP servers、skills、hooks、ACP agents、
   shell jobs 和未来集成。
+- 一个高密度操作产品，让 TUI 和 GUI 使用同一套 runtime facts、lane/session 语义、
+  decision gate 和 evidence/context 表达。
 
-RoboCode 不应该成为：
+Viden 不应该成为：
 
 - Claude Code、Codex、Zed、Kiro 或 Aider 的复制品。
 - 只有漂亮 side panels、但不能控制真实工作的 TUI。
@@ -336,6 +348,18 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 5. `0.1.29`: 0.1.x RC Stabilization。停止扩大新 UI surface，只修 P0/P1 TUI bug。
 6. `0.1.30`: 0.1.x Final Zero-Bug Gate。P0/P1 TUI backlog 清零、截图证据齐全、
    quick/full release gates 通过、GitHub Release 与 Homebrew 同步后，才进入 0.2.x。
-7. `0.2.0`: spec-driven、context-efficient、evidence-driven 的 workflow runtime baseline。
+7. `0.2.0`: Runtime 分层和事件闭环。把 core / TUI / provider / tool / lane /
+   evidence 分清楚，通过统一 `RuntimeSnapshot` / event stream 传递 plan、build、
+   approval、tool、provider 和 lane 状态，TUI 只订阅状态，不直接绑定业务逻辑。
+8. `0.2.1`: Context 与 token/cost 引擎。实现 `ContextBundle`、语义文件选择、日志压缩、
+   tool result 去重、token budget 和费用面板，解决长任务上下文膨胀、DeepSeek 413 和成本不可见。
+9. `0.2.2`: Agent 执行闭环。把 planner、coder、reviewer、tester、doc-writer 做成可监督角色，
+   每个角色都有任务、输入、输出、证据、失败分类和下一步动作。
+10. `0.2.3`: 真实开发场景 gate。把 DeepSeek 真实开发 smoke、daily-loop、plan-mode、
+    provider/model、lane operator、release gate 固化为每次发布前必跑，并输出 token、费用、耗时和失败类型。
+11. `0.3.0`: 多前端 Contract Freeze。冻结 UI/runtime contract 和 Viden migration plan，
+    然后再进入并行 frontend 实现。
+12. `0.3.1`: TUI 与 GUI 并行实现。Core/runtime、TUI、GUI 分支可并行推进，最多三个
+    active owner，所有 frontend 都必须消费同一套 runtime。
 
 这条线保持 RoboCode 的核心 wedge：不是最大自治，而是最大 operator trust。

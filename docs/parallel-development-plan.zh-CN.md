@@ -1,0 +1,127 @@
+# Viden 并发开发计划
+
+英文版：[parallel-development-plan.md](parallel-development-plan.md)
+
+## 目的
+
+这份计划定义 Viden 如何进入大型 Runtime-first 重构，并支持未来最多三个人或 agent
+并发开发。
+
+核心规则：
+
+> 先做结构重构。只有 runtime contract 足够稳定、能避免 TUI/GUI 复制业务逻辑后，
+> 才开始并行开发 TUI 和 GUI。
+
+## 目标开发形态
+
+Viden 正在迁移为 Runtime-first 平台：
+
+- `viden-core` 是公开核心 facade，承载 runtime、编排、context、permissions、
+  evidence、cost、tasks、lanes 和 extension contracts。
+- TUI 和 GUI 是产品客户端。它们渲染状态并发送命令，不拥有 provider loop、tool
+  execution、permission decision 或 task state。
+- 扩展通过声明式 plugin boundary 接入，不能绕过 runtime 的 permission/evidence 路径。
+- RoboCode 在迁移期保留为 legacy compatibility 名称；当前产品、文档、UI 和新架构方向统一为 Viden。
+
+## 阶段计划
+
+### Phase 0：架构切分
+
+在大规模改动前，冻结目标 workspace 结构、依赖方向、公开 runtime contract、plugin
+protocol 形态和迁移策略。
+
+交付物：
+
+- `viden-core` facade 设计
+- UI model contract：`RuntimeSnapshot`、event stream、command actions、approval
+  requests、evidence views 和 UI contribution model
+- process-plugin protocol 草案
+- Viden rename 与 RoboCode compatibility 迁移计划
+- TUI/GUI contract-test fixture 计划
+
+### Phase 1：核心结构重构
+
+先做结构和边界。这个阶段避免大规模 TUI 视觉重写，也不启动 GUI 实现。
+
+交付物：
+
+- 引入 `viden-core` facade，或先通过 compatibility exports 分阶段落地
+- 从 TUI-owned state 中抽出 runtime supervisor 和 event stream
+- 为用户输入、mode 切换、approval、provider/model setup、cancel、queued
+  follow-up、tool/lane action 建立 command bus
+- mutation 前的 permission check 统一进入 core
+- task、lane、evidence、cost、context、provider health、transcript facts 全部由 core runtime 发出
+- TUI 逐步改为消费 runtime facts，而不是自己拥有业务状态
+
+### Phase 2：契约冻结
+
+在并发 UI 开发前，冻结第一版可用的跨前端 contract。
+
+必须满足：
+
+- runtime snapshots 和 events 的 core replay tests 通过
+- permission/mode contract tests 覆盖 plan/build/review 行为
+- provider/model setup、approval、lane、task、cost、evidence fixtures 存在
+- 薄 TUI client 可以只依赖共享 contract 运行，不直接调用业务内部
+- GUI 需要的 API 已文档化，并有 schema 或 fixture tests 覆盖
+
+### Phase 3：TUI 与 GUI 并发开发
+
+contract freeze 后，把工作拆到独立 branch/worktree。
+
+推荐分支归属：
+
+| Branch | Owner | Scope |
+| --- | --- | --- |
+| `codex/viden-core-runtime` | Core owner | Runtime contracts、plugin protocol、migration、bugfix |
+| `codex/viden-tui-client` | TUI owner | Terminal rendering、keyboard/input、panes、scrollback、status、errors |
+| `codex/viden-gui-tauri-client` | GUI owner | Tauri + Web cockpit、settings、agent board、evidence、approval、provider/model |
+
+规则：
+
+- TUI 和 GUI 分支不能直接调用 provider、tool、permission、transcript 或 workflow 内部 API。
+- 共享 contract 变化必须先在 core 分支加测试，再让 UI 分支 rebase 或 merge。
+- TUI 和 GUI 可以在布局和交互细节上不同，但同一 fixture 必须显示同一套 runtime facts。
+- UI plugin contribution 必须是声明式的。插件可以贡献 panels、settings、commands 和
+  cards，但不能修改 UI 内部状态。
+
+### Phase 4：集成与发版
+
+合并顺序：
+
+1. Core/runtime branch
+2. TUI client branch
+3. GUI client branch
+
+发版闸门：
+
+- full workspace tests
+- runtime replay 和 permission/mode tests
+- plugin manifest/capability tests
+- TUI/GUI parity fixture tests
+- deterministic TUI previews 和 GUI screenshots
+- 真实 DeepSeek development smoke，并记录 token、费用、耗时和失败分类
+- Viden binary/config migration tests
+- RoboCode compatibility shim tests
+- GitHub Release 与 Homebrew tap 作为一个发版单元验证
+
+## 并发规则
+
+- 使用 `.worktrees/<branch-name>` 下的独立 worktree。
+- 架构层最多三个 active owner：core、TUI、GUI。
+- 大文件拆分应在 Phase 1 完成，避免 UI 分支分叉后冲突放大。
+- 共享 contract 先改测试，再改实现。
+- UI 分支必须频繁 rebase 或 merge core 分支；长期 UI 分支不能为了推进而发明私有 runtime state。
+- 文档变更跟随行为 owner。面向用户的文档需要英文和中文一起更新。
+
+## 版本映射
+
+- `0.2.0`：架构切分与核心结构重构。
+- `0.2.1`：Context、token/cost、evidence 和 runtime fact model。
+- `0.2.2`：受监督多 Agent 执行闭环。
+- `0.2.3`：plugin runtime、process-plugin protocol 和真实开发 gate。
+- `0.3.0`：多前端 contract freeze 与 Viden migration plan。
+- `0.3.1`：TUI 与 GUI 并行实现分支。
+- `0.3.2`：TUI/GUI parity 集成候选版。
+- `0.3.3`：可操作 GUI beta 与 Viden compatibility migration hardening。
+- `0.3.4`：视觉保真和生产发版 gate。
