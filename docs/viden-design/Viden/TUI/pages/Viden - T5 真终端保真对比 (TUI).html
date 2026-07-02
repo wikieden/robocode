@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · TUI Fidelity Comparison</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../tui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1380px;margin:0 auto;padding:26px 24px 90px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:27px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:13.5px;color:var(--fg-secondary);margin:0 0 22px;max-width:940px;line-height:1.65;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+.plead .g{color:var(--gold-bright);font-family:var(--mono);font-size:12.5px;}
+.plead .c{color:var(--accent-bright);font-family:var(--mono);font-size:12.5px;}
+
+.sech{display:flex;align-items:baseline;gap:11px;margin:36px 0 14px;}
+.sech .no{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:700;}
+.sech h2{font-size:18px;margin:0;letter-spacing:-.3px;}
+.sech .en{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);letter-spacing:1px;text-transform:uppercase;}
+.sech .sp{flex:1;height:1px;background:var(--border-soft);align-self:center;}
+
+/* ───── A/B hero ───── */
+.ab{display:grid;grid-template-columns:1fr 64px 1fr;align-items:center;gap:0;margin:8px 0 4px;}
+.abside{}
+.abtag{font-family:var(--mono);font-size:10.5px;letter-spacing:1px;text-transform:uppercase;display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.abtag .dot{width:8px;height:8px;border-radius:2px;}
+.abtag.gui{color:var(--fg-muted);} .abtag.gui .dot{background:var(--fg-muted);border-radius:50%;}
+.abtag.tui{color:var(--accent-bright);} .abtag.tui .dot{background:var(--accent);}
+.abtag .note{font-family:var(--sans);letter-spacing:0;text-transform:none;color:var(--fg-faint);font-size:11px;margin-left:auto;}
+.abarrow{display:grid;place-items:center;color:var(--fg-faint);font-family:var(--mono);font-size:20px;}
+.abarrow span{transform:rotate(0deg);}
+
+/* GUI card (the "beautified" mock) */
+.guicard{background:var(--bg-panel);border:1px solid var(--border);border-radius:10px;padding:13px 15px;box-shadow:var(--shadow-md);position:relative;overflow:hidden;}
+.guicard .gbadge{position:absolute;top:0;right:0;background:var(--gold);color:var(--on-accent);font-size:9px;font-weight:800;padding:1px 8px;border-radius:0 0 0 8px;letter-spacing:.5px;}
+.guicard .r1{display:flex;align-items:center;gap:8px;}
+.guicard .lid{color:var(--accent);font-weight:700;font-family:var(--mono);}
+.guicard .role{font-weight:700;font-size:14px;}
+.guicard .role .en{color:var(--fg-faint);font-weight:400;font-size:10px;margin-left:5px;font-family:var(--mono);}
+.guicard .sp{flex:1;}
+.guicard .pill{font-family:var(--mono);font-size:10px;font-weight:700;border-radius:5px;padding:1px 8px;border:1px solid color-mix(in srgb,var(--gold) 45%,transparent);color:var(--gold-bright);background:color-mix(in srgb,var(--gold) 8%,transparent);display:inline-flex;align-items:center;gap:5px;}
+.guicard .pill .led{width:6px;height:6px;border-radius:50%;background:var(--warning);box-shadow:0 0 6px color-mix(in srgb,var(--warning) 70%,transparent);}
+.guicard .r2{font-family:var(--mono);font-size:11.5px;color:var(--fg-secondary);margin-top:9px;}
+.guicard .r2 .ag{color:var(--accent-bright);} .guicard .r2 .gd{color:var(--gold-bright);}
+.guicard .r3{font-family:var(--mono);font-size:11px;color:var(--fg-muted);margin-top:6px;}
+.guicard .spark{font-family:var(--mono);margin-top:8px;color:var(--progress);font-size:13px;letter-spacing:-1px;}
+.callxs{font-family:var(--mono);font-size:10px;color:var(--fg-faint);margin-top:9px;line-height:1.7;}
+.callxs .x{color:var(--error);} .callxs .ok{color:var(--success);}
+
+/* ───── terminal screen ───── */
+/* 外框改用 tui-kit .vterm（单一真源）；本页只留 box-drawing 渲染演示 + 256 色覆盖 */
+
+
+
+.vterm-chrome .sp{flex:1;}
+.vterm-chrome .dep{font-size:10px;color:var(--fg-faint);border:1px solid var(--win-edge);border-radius:4px;padding:0 7px;}
+.scr{padding:9px 11px;font-size:13px;line-height:1.32;}
+.scr.tight{line-height:1.18;}
+
+/* terminal text helpers */
+.t-acc{color:var(--accent);}.t-br{color:var(--accent-bright);}.t-gold{color:var(--gold-bright);}.t-gd{color:var(--gold);}
+.t-suc{color:var(--success);}.t-warn{color:var(--warning);}.t-err{color:var(--error);}.t-prog{color:var(--progress);}
+.t-mut{color:var(--fg-muted);}.t-fnt{color:var(--fg-faint);}.t-sec{color:var(--fg-secondary);}.t-pri{color:var(--fg-primary);}
+.t-line{color:var(--border);} /* box-drawing stroke */
+.bld{font-weight:700;}
+
+/* box-drawing frame built with flex so borders always meet, regardless of CJK width */
+.tl{display:flex;white-space:pre;}
+.bd{color:var(--border);flex:none;}
+.tc{flex:1;min-width:0;overflow:hidden;white-space:nowrap;padding:0 1ch;}
+.fillc{flex:1;min-width:0;overflow:hidden;white-space:nowrap;color:var(--border);}
+.ttl{flex:none;color:var(--fg-primary);font-weight:700;}
+.ttl .lid{color:var(--accent);}
+.ttag{flex:none;}
+/* focused box: accent stroke + reverse-video title */
+.tbox.foc .bd, .tbox.foc .fillc{color:var(--accent);}
+.tbox.foc .ttl{background:var(--accent);color:var(--on-accent);}
+.tbox.foc .ttl .lid{color:var(--on-accent);}
+/* alt focus style: bright border only (no reverse) */
+.tbox.foc.brdonly .ttl{background:transparent;color:var(--accent-bright);}
+.tbox.foc.brdonly .ttl .lid{color:var(--accent-bright);}
+.tbox.foc.brdonly .bd,.tbox.foc.brdonly .fillc{color:var(--accent-bright);}
+.tbox{margin:0;}
+
+/* board grid inside terminal */
+.tboard{display:grid;grid-template-columns:1fr 1fr;gap:2px 18px;}
+.tstat{display:flex;gap:10px;padding:1px 1ch 7px;white-space:nowrap;overflow:hidden;font-size:12.5px;}
+.tstat .sp{flex:1;}
+.tkeys{display:flex;gap:14px;padding:8px 1ch 1px;margin-top:5px;border-top:1px solid var(--border-soft);font-size:12px;color:var(--fg-muted);white-space:nowrap;overflow:hidden;flex-wrap:wrap;}
+.tkeys .sp{flex:1;}
+.tkeys b{color:var(--accent-bright);font-weight:600;}
+.rev{background:var(--accent);color:var(--on-accent);padding:0 2px;}
+.rev.g{background:var(--gold);} .rev.s{background:var(--success);} .rev.e{background:var(--error);}
+
+/* 256-color degraded palette */
+.depth256{
+  --bg-void:#080808; --bg-panel:#1c1c1c; --bg-base:#121212; --bg-sel:#005f5f;
+  --fg-primary:#d7d7d7; --fg-secondary:#afafaf; --fg-muted:#767676; --fg-faint:#585858;
+  --accent:#00afd7; --accent-bright:#5fd7ff; --accent-dim:#005f87;
+  --gold:#d7af5f; --gold-bright:#ffd75f; --success:#5fd787; --warning:#d7af00; --error:#d75f5f; --progress:#5fafd7;
+  --border:#444444; --border-soft:#303030;
+  --term-screen:#080808; --term-chrome:#080808; --term-edge:#303030;
+}
+
+/* ───── translation table ───── */
+.tbl{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0;}
+.tbl th{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-muted);text-align:left;padding:9px 13px;border-bottom:1px solid var(--border);}
+.tbl td{padding:11px 13px;border-bottom:1px solid var(--border-soft);color:var(--fg-secondary);vertical-align:top;line-height:1.55;}
+.tbl tr:hover td{background:var(--bg-base);}
+.tbl .gui{color:var(--fg-muted);font-family:var(--mono);font-size:12px;}
+.tbl .tui{color:var(--fg-primary);}
+.tbl .tui code,.inlc{font-family:var(--mono);font-size:12px;color:var(--accent-bright);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:4px;padding:0 5px;}
+.tbl .verdict{font-family:var(--mono);font-size:10px;font-weight:700;border-radius:4px;padding:1px 7px;white-space:nowrap;border:1px solid;}
+.v-keep{color:var(--success);border-color:color-mix(in srgb,var(--success) 40%,transparent);background:color-mix(in srgb,var(--success) 7%,transparent);}
+.v-swap{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 40%,transparent);background:color-mix(in srgb,var(--gold) 7%,transparent);}
+
+/* ───── degradation / tradeoff cards ───── */
+.cards2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:6px;}
+.dcard{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:15px 17px;}
+.dcard .dh{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+.dcard .dh .ic{font-family:var(--mono);color:var(--accent);}
+.dcard p{font-size:12.5px;color:var(--fg-secondary);line-height:1.6;margin:6px 0;text-wrap:pretty;}
+.dcard p b{color:var(--fg-primary);}
+.swrow{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:11px;padding:5px 0;border-bottom:1px solid var(--border-soft);}
+.swrow:last-child{border-bottom:none;}
+.swrow .nm{width:74px;flex:none;color:var(--fg-muted);}
+.sw{width:22px;height:14px;border-radius:3px;flex:none;border:1px solid color-mix(in srgb,var(--fg-primary) 10%,transparent);}
+.swrow .hx{color:var(--fg-faint);width:62px;flex:none;}
+.swrow .arr{color:var(--fg-faint);}
+.swrow .xt{color:var(--fg-muted);}
+.tradeoff{font-family:var(--mono);font-size:11.5px;line-height:1.75;color:var(--fg-secondary);background:var(--bg-void);border:1px solid var(--border);border-radius:8px;padding:11px 14px;margin-top:9px;}
+.tradeoff .h{color:var(--fg-muted);font-size:10px;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;}
+.tradeoff .ok{color:var(--success);}.tradeoff .x{color:var(--error);}.tradeoff .a{color:var(--accent-bright);}
+.verdict-line{font-size:13.5px;color:var(--fg-secondary);line-height:1.7;background:var(--bg-panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:14px 18px;margin-top:14px;text-wrap:pretty;}
+.verdict-line b{color:var(--fg-primary);} .verdict-line .c{color:var(--accent-bright);font-family:var(--mono);font-size:12.5px;}
+.legend{font-family:var(--mono);font-size:11px;color:var(--fg-faint);margin-top:10px;display:flex;gap:18px;flex-wrap:wrap;}
+.legend b{color:var(--fg-muted);font-weight:600;}
+</style>
+</head>
+<body>
+<div class="pwrap">
+  <div class="pkicker">viden · TUI fidelity · A/B</div>
+  <div id="root"></div>
+</div>
+
+<script type="text/babel" src="../../tweaks-panel.jsx"></script>
+<script type="text/babel">
+const {useState,useEffect} = React;
+const t = window.t || ((en,zh)=>en);
+
+const SPIN=['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+
+const LANES=[
+  {id:'L1',role:t('Design','策划'),en:'DESIGNER',agent:'claude',st:'gate',gtag:t('contract gate','契约闸'),sess:t('S1 · feel params v1.1','S1 · 手感参数 v1.1'),note:t('contracts/design-spec.md pending','contracts/design-spec.md 待批'),spark:'⡀⣄⣦⣶⣷⣿'},
+  {id:'L2',role:'Gameplay',en:'GAMEPLAY',agent:'codex',st:'gate',gtag:t('replay-regression gate','回放回归闸'),sess:t('S1 · hitstun 0.18→0.24s','S1 · 受击硬直 0.18→0.24s'),note:t('replay 240f · asserts 2✓1⚠','回放 240f · 断言 2✓1⚠'),spark:'⣀⣠⣤⣶⣶⣦'},
+  {id:'L3',role:'Gameplay',en:'GAMEPLAY',agent:'codex',st:'run',sess:t('S2 · dash-cancel window','S2 · 冲刺取消窗口'),note:t('editing dash.gd · 38s','编辑 dash.gd · 38s'),spark:'⣀⣦⣷⣿⣷⣦'},
+  {id:'L4',role:t('Content gen','内容生成'),en:'CONTENT',agent:t('built-in','内置'),st:'gate',gtag:t('gallery gate','画廊闸'),sess:t('S2 · level variants ×20','S2 · 关卡变体 ×20'),note:t('20 keep/kill to review','20 keep/kill 待评审'),spark:'⣿⣷⣦⣤⣄⣀'},
+  {id:'L6',role:t('Render','渲染'),en:'RENDER',agent:'kiro',st:'wait',sess:t('S1 · cavern volumetric fog','S1 · 溶洞体积雾'),note:t('QH offline · golden-frame gate backlog','QH 离线 · 金样闸积压'),spark:'⣄⣄⣠⣀⣀⣀'},
+  {id:'L0',role:t('Scribe','书记官'),en:'SCRIBE',agent:t('built-in','内置'),st:'done',sess:t('daily briefing generated','每日简报已生成'),note:t('09:00 distributed · read-only','09:00 已分发 · 只读'),spark:'⣶⣶⣶⣶⣶⣶'},
+];
+
+const STT={
+  gate:{mk:'⏸',lbl:'GATE',cls:'t-gold'},
+  run:{mk:null,lbl:'RUN',cls:'t-prog'},
+  wait:{mk:'·',lbl:'WAIT',cls:'t-mut'},
+  done:{mk:'✓',lbl:'DONE',cls:'t-suc'},
+};
+
+/* one box-drawing lane card */
+function TBox({l,foc,corners,brdOnly,spin}){
+  const [tl,tr,bl,br]=corners;
+  const s=STT[l.st];
+  return (
+    <div className={"tbox "+(foc?'foc ':'')+(brdOnly?'brdonly':'')}>
+      {/* top border with title + status tag */}
+      <div className="tl">
+        <span className="bd">{tl}─</span>
+        <span className="ttl">&nbsp;<span className="lid">{l.id}</span> · {l.role}&nbsp;</span>
+        <span className="fillc">────────────────────────────────────────</span>
+        <span className={"ttag "+s.cls}>&nbsp;{l.st==='run'?spin:s.mk} {s.lbl}&nbsp;</span>
+        <span className="bd">─{tr}</span>
+      </div>
+      <div className="tl"><span className="bd">│</span><span className="tc"><span className="t-fnt">agent</span> <span className="t-br">{l.agent}</span>{l.gtag&&<span className="t-gold"> · {l.gtag}</span>}</span><span className="bd">│</span></div>
+      <div className="tl"><span className="bd">│</span><span className="tc"><span className="t-sec">{l.sess}</span></span><span className="bd">│</span></div>
+      <div className="tl"><span className="bd">│</span><span className="tc"><span className={l.st==='run'?'t-prog':'t-fnt'}>{l.spark}</span>  <span className={l.st==='gate'?'t-gold':'t-mut'}>{l.note}</span></span><span className="bd">│</span></div>
+      <div className="tl"><span className="bd">{bl}</span><span className="fillc">──────────────────────────────────────────────────</span><span className="bd">{br}</span></div>
+    </div>
+  );
+}
+
+function Board(){
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "depth":"truecolor",
+    "corners":"圆角 ╭╮",
+    "focus":"反色 reverse-video"
+  }/*EDITMODE-END*/);
+  const [foc,setFoc]=useState(1);
+  const [spin,setSpin]=useState(0);
+
+  useEffect(()=>{const id=setInterval(()=>setSpin(s=>(s+1)%SPIN.length),90);return()=>clearInterval(id);},[]);
+  useEffect(()=>{
+    const h=(e)=>{
+      if(e.key==='ArrowRight'){setFoc(f=>Math.min(LANES.length-1,f+1));e.preventDefault();}
+      if(e.key==='ArrowLeft'){setFoc(f=>Math.max(0,f-1));e.preventDefault();}
+      if(e.key==='ArrowDown'){setFoc(f=>Math.min(LANES.length-1,f+2));e.preventDefault();}
+      if(e.key==='ArrowUp'){setFoc(f=>Math.max(0,f-2));e.preventDefault();}
+    };
+    window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);
+  },[]);
+
+  const corners=tw.corners.startsWith('圆角')?['╭','╮','╰','╯']:['┌','┐','└','┘'];
+  const brdOnly=tw.focus.startsWith('亮边框');
+  const is256=tw.depth==='256 色';
+
+  return (
+    <React.Fragment>
+      <h1 className="ph1">{t('Can the TUI interact like this?','TUI 界面可以这么交互吗')} <span className="ac">{t('mock vs real terminal','沟通稿 vs 真终端')}</span></h1>
+      <p className="plead">{t('Short answer: ','短答:')}<b>{t('all the “how it moves” holds','「怎么动」全部成立')}</b>{t(' — keyboard flow, ',' —— 键盘流、')}<span className="c">K/X</span>{t(' keep·kill, approve/reject/return, braille curves, inline minimap, ',' keep·kill、批驳退、braille 曲线、内联小地图、')}<span className="g">viden open</span>{t(' to a browser are all native to ratatui + crossterm — the same Rust stack as the Viden engine. ',' 弹浏览器,都是 ratatui + crossterm(与 Viden 引擎同 Rust 栈)的本分。')}<b>{t('The “what it looks like” — rounded corners / shadows / hover / mouse-first','「长什么样」里的圆角 / 投影 / hover / 鼠标为主')}</b>{t(' is beautified for clarity; a real terminal becomes box-drawing frames + reverse-video selection + keyboard-first. Below, the same UI is rendered both ways, annotated line by line. Use ','是为讲清楚而美化的,真终端换成 box-drawing 框 + 反色选中 + 键盘优先。下面把同一块界面两种渲染并排,逐条标清。用 ')}<b>↑↓←→</b>{t(' to move focus and try the reverse-video selection; top-right Tweaks toggles color depth / border / selection style (all real implementation choices).',' 移动焦点试试反色选中;右上 Tweaks 可切色深 / 边框 / 选中态(都对应真实实现选择)。')}</p>
+      {/* ───────── SECTION 1 — A/B hero ───────── */}
+      <div className="sech"><span className="no">01</span><h2>{t('One card, two renderers','同一张卡,两种渲染')}</h2><span className="en">same data · two renderers</span><span className="sp"></span></div>
+      <div className="ab">
+        <div className="abside">
+          <div className="abtag gui"><span className="dot"></span>{t('Mock (GUI-ified)','沟通稿（GUI 化）')}<span className="note">{t('rounded · shadow · hover · mouse click','圆角 · 投影 · hover · 鼠标点')}</span></div>
+          <div className="guicard">
+            <span className="gbadge">{t('to review','待批')}</span>
+            <div className="r1"><span className="lid">L2</span><span className="role">Gameplay<span className="en">GAMEPLAY</span></span><span className="sp"></span><span className="pill"><span className="led"></span>⏸ GATE</span></div>
+            <div className="r2"><span className="t-fnt" style={{color:'var(--fg-faint)'}}>agent</span> <span className="ag">codex</span> <span className="gd">{t('· replay-regression gate','· 回放回归闸')}</span></div>
+            <div className="r3">{t('S1 · hitstun 0.18→0.24s','S1 · 受击硬直 0.18→0.24s')}</div>
+            <div className="spark">⣀⣠⣤⣶⣶⣦ <span style={{color:'var(--fg-muted)'}}>{t('replay 240f · asserts 2✓1⚠','回放 240f · 断言 2✓1⚠')}</span></div>
+            <div className="callxs"><span className="x">✗ {t('rounded/shadow','圆角/投影')}</span> · <span className="x">✗ {t('hover highlight','hover 提亮')}</span> · <span className="x">✗ {t('pill rounded badge','pill 圆角徽标')}</span> · {t('none exist in a terminal','终端都没有')}</div>
+          </div>
+        </div>
+        <div className="abarrow"><span>→</span></div>
+        <div className="abside">
+          <div className="abtag tui"><span className="dot"></span>{t('Real terminal (box-drawing)','真终端（box-drawing）')}<span className="note">{t('focus = reverse · keyboard-first','焦点 = 反色 · 键盘优先')}</span></div>
+          <div className={"vterm "+(is256?'depth256':'')}>
+            <div className="vterm-chrome"><span className="vlights"><i className="a"></i><i className="b"></i><i className="c"></i></span><span className="vtitle">viden — 96×28</span><span className="sp"></span><span className="dep">{is256?'xterm-256':'truecolor'}</span></div>
+            <div className="scr tight">
+              <TBox l={LANES[1]} foc={true} corners={corners} brdOnly={brdOnly} spin={SPIN[spin]}/>
+              <div className="callxs" style={{paddingLeft:'1ch'}}><span className="ok">✓ {t('box-drawing frame','box-drawing 框')}</span> · <span className="ok">✓ {t('reverse-video focus title','焦点反色标题')}</span> · <span className="ok">✓ {t('monospace grid','等宽栅格')}</span> · <span className="ok">✓ {t('⏸/✓ text status','⏸/✓ 文本状态')}</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ───────── SECTION 2 — full board ───────── */}
+      <div className="sech"><span className="no">02</span><h2>Lane board · {t('real-terminal fidelity','真终端保真')}</h2><span className="en">box-drawing · reverse-video focus · monospace grid</span><span className="sp"></span></div>
+      <div className={"vterm "+(is256?'depth256':'')}>
+        <div className="vterm-chrome"><span className="vlights"><i className="a"></i><i className="b"></i><i className="c"></i></span><span className="vtitle">viden — fish — 142×40</span><span className="sp"></span><span className="dep">{is256?t('xterm-256 (SSH degraded)','xterm-256 (SSH 降级)'):'truecolor'}</span></div>
+        <div className="scr">
+          <div className="tstat">
+            <span><span className="t-acc">[</span><span className="t-br">◉</span><span className="t-acc">]</span> <span className="t-gold">v</span><span className="t-acc">iden</span> <span className="t-mut">~/projects/</span><span className="bld t-pri">boss-rush</span><span className="t-acc">:main</span></span>
+            <span className="sp"></span>
+            <span className="t-gold">{t('⏸ 3 to review','⏸ 3 待批')}</span> <span className="t-prog">{SPIN[spin]} L3 run</span> <span className="t-suc">● local · godot 4.3</span>
+          </div>
+          <div className="tboard">
+            {LANES.map((l,i)=>(
+              <TBox key={l.id} l={l} foc={foc===i} corners={corners} brdOnly={brdOnly} spin={SPIN[spin]}/>
+            ))}
+          </div>
+          <div className="tkeys">
+            <span><span className="t-fnt">[↑↓←→]</span> <b>{t('select lane','选 lane')}</b></span>
+            <span><span className="t-fnt">[↵]</span> <b>{t('open gate/follow','打开闸/跟车')}</b></span>
+            <span><span className="t-fnt">[n]</span> {t('new lane','新 lane')}</span>
+            <span><span className="t-fnt">[/]</span> {t('command','命令')}</span>
+            <span className="sp"></span>
+            <span className="t-fnt">{t('focus','焦点')} {LANES[foc].id} {t('· reverse = selected · daemon resident','· 反色 = 选中态 · daemon 常驻')}</span>
+          </div>
+        </div>
+      </div>
+      <div className="legend"><b>{t('Note','注')}</b><span>{t('frame = ╭─╮│╰─╯ box-drawing','框 = ╭─╮│╰─╯ box-drawing')}</span><span>{t('selected = reverse title + bright border (not hover)','选中 = 反色标题 + 亮边框(非 hover)')}</span><span>{t('run = ⠋ braille spinner redrawn per tick','run = ⠋ braille spinner 按 tick 重绘')}</span><span>activity = ⣀⣤⣶⣿ braille sparkline</span></div>
+
+      {/* ───────── SECTION 3 — translation table ───────── */}
+      <div className="sech"><span className="no">03</span><h2>{t('Line-by-line: mock → real terminal','逐条对照:沟通稿 → 真终端')}</h2><span className="en">what changes when it's a real TTY</span><span className="sp"></span></div>
+      <table className="tbl">
+        <thead><tr><th style={{width:'30%'}}>{t('How the mock looks','沟通稿里的样子')}</th><th style={{width:'46%'}}>{t('Real-terminal equivalent','真终端等价物')}</th><th style={{width:'24%'}}>{t('Verdict','判定')}</th></tr></thead>
+        <tbody>
+          <tr><td className="gui">{t('Rounded + shadow + hover-highlighted card','圆角 + 投影 + hover 提亮的卡片')}</td><td className="tui"><b>{t('box-drawing frame','box-drawing 框')}</b>{t(' (<code>╭─╮│╰─╯</code> arc corners / <code>┌┐└┘</code> right angles), no shadow or rounding; focus uses ','(<code>╭─╮│╰─╯</code> 圆弧角 / <code>┌┐└┘</code> 直角),无投影无圆角;聚焦态用')}<b>{t('reverse title + bright border','反色标题 + 亮边框')}</b>{t(', not hover',',不是 hover')}</td><td><span className="verdict v-swap">{t('◑ swap approach','◑ 换做法')}</span></td></tr>
+          <tr><td className="gui">{t('Mouse-click first (click card / tab / row)','鼠标点击为主(点卡片 / tab / 行)')}</td><td className="tui">{t('Mouse <b>works</b> (SGR 1006: click / wheel / drag), but it is <b>auxiliary</b>; <code>hover</code> (no-key move) needs mode 1003 full reporting, laggy over SSH → treat as nonexistent. <b>Keyboard is the main path</b>','鼠标<b>能</b>用(SGR 1006:点击 / 滚轮 / 拖拽),但是<b>辅助</b>;<code>hover</code>(无按键移动)需开 mode 1003 全量上报,SSH 下卡 → 当它不存在。<b>键盘是主路径</b>')}</td><td><span className="verdict v-swap">{t('◑ demoted to aux','◑ 降为辅助')}</span></td></tr>
+          <tr><td className="gui">{t('proportional font (chrome used Inter)','proportional 字体(chrome 用了 Inter)')}</td><td className="tui">{t('Monospace grid throughout, all frames align to integer character cells; CJK are double-wide chars, laid out as 2 cells','全程<b>等宽栅格</b>,所有框按整数字符格对齐;CJK 是双宽字符,要按 2 cell 排版')}</td><td><span className="verdict v-swap">{t('◑ swap approach','◑ 换做法')}</span></td></tr>
+          <tr><td className="gui">{t('Smooth transitions / pixel-level layout','平滑过渡 / 像素级布局')}</td><td className="tui">{t('Discrete-frame redraw; on resize, <b>reflow</b> by character cell (constraint layout, not pixel scaling)','离散帧重绘;resize 时按字符格 <b>reflow</b>(约束布局,不是像素缩放)')}</td><td><span className="verdict v-swap">{t('◑ swap approach','◑ 换做法')}</span></td></tr>
+          <tr><td className="gui">{t('pill rounded badge (status)','pill 圆角徽标(状态)')}</td><td className="tui"><b>{t('Text symbol + color','文本符号 + 颜色')}</b>{t(':',':')}<code className="inlc t-gold">⏸ GATE</code> <code className="inlc t-prog">⠹ RUN</code> <code className="inlc t-suc">✓ DONE</code>{t(', no border or rounding',',无边框无圆角')}</td><td><span className="verdict v-swap">{t('◑ swap approach','◑ 换做法')}</span></td></tr>
+          <tr><td className="gui">{t('keyboard flow (↑↓ K/X a/r/b 1/2/3 ↵ esc)','键盘流(↑↓ K/X a/r/b 1/2/3 ↵ esc)')}</td><td className="tui">{t('<b>Holds as-is</b> — crossterm native key events, the TUI main path','<b>原样成立</b> —— crossterm 原生键事件,是 TUI 主路径')}</td><td><span className="verdict v-keep">{t('✓ holds','✓ 成立')}</span></td></tr>
+          <tr><td className="gui">{t('braille curves / sparkline / spinner','braille 曲线 / sparkline / spinner')}</td><td className="tui"><b>{t('Holds as-is','原样成立')}</b>{t(' — ratatui ',' —— ratatui ')}<code>Sparkline</code> + <code>Canvas</code>{t(' (braille), spinner swaps frames per tick','(braille),spinner 按 tick 换帧')}</td><td><span className="verdict v-keep">{t('✓ holds','✓ 成立')}</span></td></tr>
+          <tr><td className="gui">{t('kitty/sixel inline minimap (gallery)','kitty/sixel 内联小地图(画廊)')}</td><td className="tui"><b>{t('Holds as-is','原样成立')}</b>{t(' (modern terminals) — old terminals / low bandwidth degrade to ASCII, see bandwidth trade-off below','(现代终端)—— 老终端 / 低带宽降级 ASCII,见下方带宽取舍')}</td><td><span className="verdict v-keep">{t('✓ holds ◑ degrades','✓ 成立 ◑ 降级')}</span></td></tr>
+          <tr><td className="gui"><code>viden open</code> {t('opens a browser to watch replay','弹浏览器看回放')}</td><td className="tui"><b>{t('Holds as-is','原样成立')}</b>{t(' — shell out to ',' —— shell 出去 ')}<code>open</code>/<code>xdg-open</code>{t(' a URL; complex review in the browser, decision writes back to the terminal queue',' 一个 URL;复杂评审在浏览器,决策回写终端队列')}</td><td><span className="verdict v-keep">{t('✓ holds','✓ 成立')}</span></td></tr>
+        </tbody>
+      </table>
+
+      {/* ───────── SECTION 4 — degradation & tradeoffs ───────── */}
+      <div className="sech"><span className="no">04</span><h2>{t('Two real constraints (write into the design)','两个真实约束(要写进设计)')}</h2><span className="en">color depth · mouse-vs-copy · bandwidth</span><span className="sp"></span></div>
+      <div className="cards2">
+        <div className="dcard">
+          <div className="dh"><span className="ic">◧</span>{t('Color depth degrade · truecolor → 256','色深降级 · truecolor → 256')}</div>
+          <p>{t('24-bit terminals reproduce Aurora exactly; pure SSH / old terminals fall back to ','24-bit 终端能精确还原 Aurora;纯 SSH / 老终端要降到 ')}<b>xterm-256</b>{t(', brand colors need a nearest-mapping set (coarser, darker). Toggle “256-color” in Tweaks (top-right) to preview the whole page.',',品牌色需备一套就近映射(更糙、更暗)。右上 Tweaks 切「256 色」可整页预览。')}</p>
+          {[['accent','#34bdd9','#00afd7','38'],['gold-bright','#f6cb63','#ffd75f','221'],['success','#54c06a','#5fd787','78'],['error','#e0564f','#d75f5f','167'],['progress','#3fa6e6','#5fafd7','74']].map((s,i)=>(
+            <div key={i} className="swrow"><span className="nm">{s[0]}</span><span className="sw" style={{background:s[1]}}></span><span className="hx">{s[1]}</span><span className="arr">→</span><span className="sw" style={{background:s[2]}}></span><span className="hx">{s[2]}</span><span className="xt">xterm {s[3]}</span></div>
+          ))}
+        </div>
+        <div className="dcard">
+          <div className="dh"><span className="ic">⊟</span>{t('Mouse vs copy · a real conflict','鼠标 vs 复制 · 一个真冲突')}</div>
+          <p>{t('Enabling mouse capture (to make click / wheel work) <b>steals the terminal native text selection/copy</b> — users must hold ','开鼠标捕获(让点击 / 滚轮可用)会<b>夺走终端原生选词复制</b> —— 用户得按住 ')}<span className="inlc">Shift</span>{t(' to select text. Most TUIs therefore go <b>keyboard-first, mouse optional</b>.',' 才能选文字。多数 TUI 因此<b>键盘优先、鼠标可选</b>。')}</p>
+          <div className="tradeoff">
+            <div className="h">{t('Trade-off','取舍')}</div>
+            <span className="a">{t('keyboard-first (default)','键盘优先(默认)')}</span> <span className="ok">{t('✓ selection/copy as usual','✓ 选词复制照常')}</span> <span className="x">{t('✗ click/wheel must be explicitly enabled','✗ 点击/滚轮要显式开')}</span><br/>
+            <span className="a">{t('mouse capture','鼠标捕获')}</span> <span className="ok">{t('✓ click/drag/wheel','✓ 点击/拖拽/滚轮')}</span> <span className="x">{t('✗ Shift to copy','✗ Shift 才能复制')}</span>
+          </div>
+          <p style={{marginTop:'11px'}}><b>{t('Bandwidth trade-off','带宽取舍')}</b>{t(': kitty/sixel transmit pixels, so a wall of minimaps over SSH is slower than plain text — the “graphics / ASCII degrade” switch isn’t just compatibility, it’s a ',':kitty/sixel 是在传像素,SSH 上一墙小地图比纯文本慢 —— 所以「图形 / ASCII 降级」开关不只是兼容,也是')}<b>{t('bandwidth policy','带宽策略')}</b>{t(' (remote boards default to ASCII).','(远程板子默认 ASCII)。')}</p>
+        </div>
+      </div>
+
+      <div className="verdict-line"><b>{t('Conclusion','结论')}</b>{t(': everything you see in “how it moves” holds — you can interact like this; the “what it looks like” rounded corners / shadows / hover / mouse-first is mock beautification, a real terminal is ','：你看到的「怎么动」全部成立,可以这么交互;「长什么样」里的圆角 / 投影 / hover / 鼠标为主是沟通稿的美化,真终端是 ')}<span className="c">{t('box-drawing frame + reverse selection + monospace grid + keyboard-first','box-drawing 框 + 反色选中 + 等宽栅格 + 键盘优先')}</span>{t('. This version is the “real-terminal fidelity” baseline — take it to engineering without being misled. Next, merge it with the earlier three-screen concept doc: ','。本稿这版即「真终端保真」基线 —— 拿去对工程实现不会被误导。下一步可把它和之前的三屏概念稿合成一套:')}<b>{t('the concept doc explains the product, this one nails the implementation boundary','概念稿讲清产品,本稿钉死实现边界')}</b>{t('.','。')}</div>
+
+      <TweaksPanel>
+        <TweakSection label={t('Real-implementation choices (toggle to see)','真实现选择(切了看效果)')} />
+        <TweakRadio label={t('Color depth','色深')} value={tw.depth} options={["truecolor",{value:"256 色",label:t('256-color','256 色')}]} onChange={v=>setTweak('depth',v)} />
+        <TweakRadio label={t('Border chars','边框字符')} value={tw.corners} options={[{value:"圆角 ╭╮",label:t('round ╭╮','圆角 ╭╮')},{value:"直角 ┌┐",label:t('square ┌┐','直角 ┌┐')}]} onChange={v=>setTweak('corners',v)} />
+        <TweakRadio label={t('Selection style','选中态')} value={tw.focus} options={[{value:"反色 reverse-video",label:t('reverse-video','反色 reverse-video')},{value:"亮边框 only",label:t('bright border only','亮边框 only')}]} onChange={v=>setTweak('focus',v)} />
+      </TweaksPanel>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Board/>);
+</script>
+</body>
+</html>

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora" data-density="compact">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · TUI 组件库</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="tui-kit.css">
+<script src="../i18n.js"></script>
+<script src="../chrome.js"></script>
+<style>
+/* 组件库陈列页 —— 把 tui-kit.css 的 .v* 逐件拆开陈列(活体 demo + 最小 HTML)。仅页面外壳样式;组件全部来自 tui-kit.css。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--font-sans);-webkit-font-smoothing:antialiased;}
+.doc{max-width:1180px;margin:0 auto;padding:30px 28px 110px;}
+.pkicker{font-family:var(--font-mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:11px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:30px;margin:0 0 10px;letter-spacing:-.6px;font-weight:700;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 6px;max-width:880px;line-height:1.65;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;} .plead code{font-family:var(--font-mono);font-size:12.5px;color:var(--accent-bright);}
+
+.sech{display:flex;align-items:baseline;gap:11px;margin:40px 0 14px;}
+.sech .no{font-family:var(--font-mono);font-size:13px;color:var(--accent);font-weight:700;}
+.sech h2{font-size:19px;margin:0;letter-spacing:-.3px;font-weight:700;}
+.sech .en{font-family:var(--font-mono);font-size:10px;color:var(--fg-faint);letter-spacing:1px;text-transform:uppercase;}
+.sech .sp{flex:1;height:1px;background:var(--page-line);align-self:center;}
+
+/* component card: label + live demo + code */
+.comp{border:1px solid var(--page-line);border-radius:var(--r-lg);background:var(--page-card);overflow:hidden;margin-bottom:16px;}
+.comp-hd{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--page-line);flex-wrap:wrap;}
+.comp-hd .cls{font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--accent-bright);}
+.comp-hd .desc{font-size:12.5px;color:var(--page-ink-dim);}
+.demo{padding:20px 18px;background:var(--bg-void);display:flex;flex-direction:column;gap:14px;}
+.demo.row{flex-direction:row;flex-wrap:wrap;align-items:center;gap:12px;}
+.code{margin:0;border-top:1px solid var(--page-line);background:var(--page-bg);padding:13px 16px;font-family:var(--font-mono);font-size:12px;line-height:1.6;color:var(--page-ink-dim);overflow-x:auto;white-space:pre;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.code .k{color:var(--accent);} .code .s{color:var(--success);} .code .a{color:var(--fg-faint);}
+.note{font-size:12px;color:var(--page-ink-dim);padding:0 2px;line-height:1.6;text-wrap:pretty;}
+.note b{color:var(--page-ink);} .note code{font-family:var(--font-mono);color:var(--accent-bright);font-size:11.5px;}
+
+/* small swatch list for tokens reminder */
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-family:var(--font-mono);font-size:11px;color:var(--page-ink-dim);}
+.legend span{display:inline-flex;align-items:center;gap:6px;}
+.legend i{width:9px;height:9px;border-radius:var(--r-full);}
+</style>
+</head>
+<body>
+<div class="doc">
+  <div class="pkicker">viden · TUI · component kit</div>
+  <h1 class="ph1" data-zh="TUI 组件库 · <span class='ac'>tui-kit.css 逐件陈列</span>">TUI component kit · <span class="ac">every .v* laid out</span></h1>
+  <p class="plead" data-zh="把 <code>tui-kit.css</code> 的每个 <code>.v*</code> 组件单独拆开:左看活体、右抄最小 HTML。这是<b>查阅 / 复制</b>用的库,<code>统一原型</code>是<b>拼成驾驶舱</b>的活体集成,<code>DESIGN-REF.md</code>是纯文字目录。三者同源 <code>tui-kit.css</code>,改库即改这里。右下角可切皮肤验证。">Every <code>.v*</code> component from <code>tui-kit.css</code>, pulled apart: live on the left, minimal HTML to copy on the right. This is the <b>browse / copy</b> reference; <code>统一原型</code> is the <b>integrated cockpit</b>; <code>DESIGN-REF.md</code> is the text-only catalog. All three consume <code>tui-kit.css</code>. Switch skins bottom-right.</p>
+
+  <!-- 1 · terminal frame -->
+  <div class="sech"><span class="no">01</span><h2 data-zh="终端窗口框">Terminal frame</h2><span class="en">.vterm · .vterm-chrome · .vlights · .vtitle</span><span class="sp"></span></div>
+  <div class="comp">
+    <div class="comp-hd"><span class="cls">.vterm</span><span class="desc" data-zh="终端外框 + chrome 条(红黄绿灯 + 标题)。固定深色「真终端」底,不随皮肤换肤。">Terminal shell + chrome bar (traffic lights + title). Fixed dark “real terminal” base.</span></div>
+    <div class="demo">
+      <div class="vterm" style="max-width:560px;">
+        <div class="vterm-chrome"><span class="vlights"><i class="a"></i><i class="b"></i><i class="c"></i></span><span class="vtitle">viden — fish — ~/dev/boss-rush:main — 142×40</span></div>
+        <div class="vterm-body" style="padding:14px 16px;font-family:var(--font-mono);font-size:13px;color:var(--fg-secondary);min-height:90px;">❯ <span class="vk-pri">build the cockpit</span><br/><span class="vk-gold">⡾ codex</span> · <span class="vk-mut">editing src/config.rs …</span></div>
+      </div>
+    </div>
+    <pre class="code">&lt;div class="<span class="k">vterm</span>"&gt;
+  &lt;div class="<span class="k">vterm-chrome</span>"&gt;
+    &lt;span class="<span class="k">vlights</span>"&gt;&lt;i class="a"&gt;&lt;/i&gt;&lt;i class="b"&gt;&lt;/i&gt;&lt;i class="c"&gt;&lt;/i&gt;&lt;/span&gt;
+    &lt;span class="<span class="k">vtitle</span>"&gt;viden — fish — …&lt;/span&gt;
+  &lt;/div&gt;
+  &lt;div class="<span class="k">vterm-body</span>"&gt;…&lt;/div&gt;
+&lt;/div&gt;</pre>
+  </div>
+
+  <!-- 2 · status bar + ticker -->
+  <div class="sech"><span class="no">02</span><h2 data-zh="状态栏 + 滚动 ticker">Status bar + ticker</h2><span class="en">.vstatus · .vseg · .vticker · .vtk-*</span><span class="sp"></span></div>
+  <div class="comp">
+    <div class="comp-hd"><span class="cls">.vstatus</span><span class="desc" data-zh="底部单行状态栏:左固定段(青底 .proj / 身份)+ 中段滚动 ticker(大量指标,悬停暂停)+ 右固定段 / .vgate-badge / .vhelp。">Bottom status bar: pinned segs + scrolling ticker (hover to pause) + gate badge / help.</span></div>
+    <div class="demo">
+      <div class="vterm" style="max-width:680px;">
+        <div class="vstatus">
+          <span class="vseg proj">◉ boss-rush</span>
+          <span class="vseg"><span class="vbe acp"><span class="k">ACP</span>:<span class="ag">codex</span></span></span>
+          <span class="vticker"><span class="vtk-track">
+            <span class="vtk-grp"><span class="vtk-item"><span class="lbl">LANE</span><span class="v"><b>L2</b> testing</span></span><span class="vtk-sep">┆</span><span class="vtk-item"><span class="lbl">TOKENS</span><span class="v">23.3K/256K</span></span><span class="vtk-sep">┆</span><span class="vtk-item"><span class="lbl">TESTS</span><span class="v"><span class="bad">1 failed</span></span></span><span class="vtk-sep">┆</span><span class="vtk-item"><span class="lbl">GIT</span><span class="v"><span class="ok">✓ clean</span></span></span></span>
+            <span class="vtk-grp" aria-hidden="true"><span class="vtk-item"><span class="lbl">LANE</span><span class="v"><b>L2</b> testing</span></span><span class="vtk-sep">┆</span><span class="vtk-item"><span class="lbl">TOKENS</span><span class="v">23.3K/256K</span></span><span class="vtk-sep">┆</span><span class="vtk-item"><span class="lbl">TESTS</span><span class="v"><span class="bad">1 failed</span></span></span><span class="vtk-sep">┆</span><span class="vtk-item"><span class="lbl">GIT</span><span class="v"><span class="ok">✓ clean</span></span></span></span>
+          </span></span>
+          <span class="vseg r"><span class="vgate-badge">⏸ 3</span></span>
+          <span class="vhelp">? help</span>
+        </div>
+      </div>
+    </div>
+    <pre class="code">&lt;div class="<span class="k">vstatus</span>"&gt;
+  &lt;span class="<span class="k">vseg proj</span>"&gt;◉ boss-rush&lt;/span&gt;
+  &lt;span class="vseg"&gt;&lt;span class="<span class="k">vbe acp</span>"&gt;&lt;span class="k"&gt;ACP&lt;/span&gt;:&lt;span class="ag"&gt;codex&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;
+  &lt;span class="<span class="k">vticker</span>"&gt;&lt;span class="<span class="k">vtk-track</span>"&gt;
+    &lt;span class="<span class="k">vtk-grp</span>"&gt; &lt;span class="<span class="k">vtk-item</span>"&gt;&lt;span class="lbl"&gt;LANE&lt;/span&gt;&lt;span class="v"&gt;…&lt;/span&gt;&lt;/span&gt; &lt;span class="<span class="k">vtk-sep</span>"&gt;┆&lt;/span&gt; … &lt;/span&gt;
+    &lt;span class="vtk-grp" aria-hidden="true"&gt; …复制一份无缝循环… &lt;/span&gt;
+  &lt;/span&gt;&lt;/span&gt;
+  &lt;span class="vseg r"&gt;&lt;span class="<span class="k">vgate-badge</span>"&gt;⏸ 3&lt;/span&gt;&lt;/span&gt;
+  &lt;span class="<span class="k">vhelp</span>"&gt;? help&lt;/span&gt;
+&lt;/div&gt;</pre>
+    <div class="note" style="padding:11px 16px;border-top:1px solid var(--page-line);"><b data-zh="ticker 值高亮类:">value classes:</b> <code>.lbl</code> · <code>.v</code> · <code>b</code> <code>.g</code> <code>.ok</code> <code>.bad</code> <code>.pr</code> · <span data-zh="两份 .vtk-grp 实现无缝循环,悬停 .vtk-track 暂停。">two .vtk-grp = seamless loop; hover .vtk-track to pause.</span></div>
+  </div>
+
+  <!-- 3 · backend chips -->
+  <div class="sech"><span class="no">03</span><h2 data-zh="后端 chip">Backend chips</h2><span class="en">.vbe · .vbe-pill</span><span class="sp"></span></div>
+  <div class="comp">
+    <div class="comp-hd"><span class="cls">.vbe</span><span class="desc" data-zh="铁律配色:ACP=青 · built-in=紫 · tmux=金。格式 类型:agent。">Iron rule: ACP=cyan · built-in=violet · tmux=gold. Format TYPE:agent.</span></div>
+    <div class="demo row">
+      <span class="vbe acp"><span class="k">ACP</span>:<span class="ag">codex</span></span>
+      <span class="vbe builtin"><span class="k">BUILT-IN</span>:<span class="ag">viden</span></span>
+      <span class="vbe tmux"><span class="k">TMUX</span>:<span class="ag">kiro</span></span>
+      <span style="width:18px;"></span>
+      <span class="vbe-pill acp">ACP codex</span>
+      <span class="vbe-pill builtin">built-in</span>
+      <span class="vbe-pill tmux">tmux kiro</span>
+    </div>
+    <pre class="code">&lt;span class="<span class="k">vbe acp</span>"&gt;&lt;span class="k"&gt;ACP&lt;/span&gt;:&lt;span class="ag"&gt;codex&lt;/span&gt;&lt;/span&gt;        <span class="a">// 文字型</span>
+&lt;span class="<span class="k">vbe-pill builtin</span>"&gt;built-in&lt;/span&gt;                  <span class="a">// 边框型(卡片/选择器里)</span></pre>
+  </div>
+
+  <!-- 4 · lane rows -->
+  <div class="sech"><span class="no">04</span><h2 data-zh="lane 行(载重组件)">Lane rows</h2><span class="en">.vlane.s-{gate|run|wait|done|block}</span><span class="sp"></span></div>
+  <div class="comp">
+    <div class="comp-hd"><span class="cls">.vlane</span><span class="desc" data-zh="状态左点:gate金 / run蓝 / wait灰 / done绿 / block红。.on=选中(青左竖条)。">Status dot: gate gold / run blue / wait grey / done green / block red. .on = selected.</span></div>
+    <div class="demo" style="background:var(--bg-panel);gap:2px;max-width:420px;">
+      <div class="vlane on s-gate"><span class="vled-st"></span><div class="vlane-tx"><div class="vlane-h"><span class="vlane-id">L1</span><span class="vlane-role">Design</span><span class="vlane-gate">⏸ gate</span></div><div class="vlane-meta"><span class="vbe acp"><span class="k">ACP</span>:<span class="ag">claude</span></span> · feel params v1.1</div></div></div>
+      <div class="vlane s-run"><span class="vled-st"></span><div class="vlane-tx"><div class="vlane-h"><span class="vlane-id">L2</span><span class="vlane-role">Gameplay</span></div><div class="vlane-meta"><span class="vbe acp"><span class="k">ACP</span>:<span class="ag">codex</span></span> · dash-cancel · 38s</div></div></div>
+      <div class="vlane s-done"><span class="vled-st"></span><div class="vlane-tx"><div class="vlane-h"><span class="vlane-id">L0</span><span class="vlane-role">Scribe</span></div><div class="vlane-meta"><span class="vbe builtin"><span class="k">BUILT-IN</span>:<span class="ag">viden</span></span> · briefing sent</div></div></div>
+      <div class="vlane s-block"><span class="vled-st"></span><div class="vlane-tx"><div class="vlane-h"><span class="vlane-id">L6</span><span class="vlane-role">Render</span></div><div class="vlane-meta"><span class="vbe tmux"><span class="k">TMUX</span>:<span class="ag">kiro</span></span> · denied</div></div></div>
+    </div>
+    <pre class="code">&lt;div class="<span class="k">vlane on s-gate</span>"&gt;
+  &lt;span class="<span class="k">vled-st</span>"&gt;&lt;/span&gt;
+  &lt;div class="<span class="k">vlane-tx</span>"&gt;
+    &lt;div class="<span class="k">vlane-h</span>"&gt;&lt;span class="vlane-id"&gt;L1&lt;/span&gt;&lt;span class="vlane-role"&gt;Design&lt;/span&gt;&lt;span class="<span class="k">vlane-gate</span>"&gt;⏸ gate&lt;/span&gt;&lt;/div&gt;
+    &lt;div class="<span class="k">vlane-meta</span>"&gt;&lt;span class="vbe acp"&gt;…&lt;/span&gt; · feel params&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;</pre>
+  </div>
+
+  <!-- 5 · command gate -->
+  <div class="sech"><span class="no">05</span><h2 data-zh="4 档命令闸 / 审批">Command gate</h2><span class="en">.vgate · .vgate-opt · .vgate-foot</span><span class="sp"></span></div>
+  <div class="comp">
+    <div class="comp-hd"><span class="cls">.vgate</span><span class="desc" data-zh="危险命令审批:金框 + 4 档 + 倒计时自动拒。键:1–4 直达 / ↑↓ / ⏎。">Dangerous-command approval: gold frame + 4 tiers + auto-deny countdown.</span></div>
+    <div class="demo" style="align-items:flex-start;">
+      <div class="vgate" style="width:min(440px,100%);">
+        <div class="vgate-head"><span class="badge">GATE</span>Dangerous command · approval<span class="risk">risk: write</span></div>
+        <div class="vgate-body">
+          <div class="vgate-cmd"><span class="vk-accent">$ </span>git push <span class="rm">--force origin main</span></div>
+          <div class="vgate-opts">
+            <div class="vgate-opt on"><span class="n">1</span><span>Allow once</span></div>
+            <div class="vgate-opt"><span class="n">2</span><span>Allow for this session</span></div>
+            <div class="vgate-opt"><span class="n">3</span><span>Add to allowlist</span><span class="sub">permanent · this repo</span></div>
+            <div class="vgate-opt deny"><span class="n">4</span><span>Deny</span></div>
+          </div>
+          <div class="vgate-foot"><span><b>↑↓</b> select</span><span><b>1–4</b> direct</span><span><b>⏎</b> confirm</span><span class="cd">auto-deny 47s<span class="bar"><i style="width:70%"></i></span></span></div>
+        </div>
+      </div>
+    </div>
+    <pre class="code">&lt;div class="<span class="k">vgate</span>"&gt;
+  &lt;div class="<span class="k">vgate-head</span>"&gt;&lt;span class="badge"&gt;GATE&lt;/span&gt;…&lt;span class="risk"&gt;risk: write&lt;/span&gt;&lt;/div&gt;
+  &lt;div class="<span class="k">vgate-body</span>"&gt;
+    &lt;div class="<span class="k">vgate-cmd</span>"&gt;$ git push &lt;span class="rm"&gt;--force&lt;/span&gt;&lt;/div&gt;
+    &lt;div class="<span class="k">vgate-opts</span>"&gt;
+      &lt;div class="<span class="k">vgate-opt on</span>"&gt;&lt;span class="n"&gt;1&lt;/span&gt;&lt;span&gt;Allow once&lt;/span&gt;&lt;/div&gt;
+      &lt;div class="<span class="k">vgate-opt deny</span>"&gt;&lt;span class="n"&gt;4&lt;/span&gt;&lt;span&gt;Deny&lt;/span&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class="<span class="k">vgate-foot</span>"&gt;…&lt;span class="cd"&gt;auto-deny 47s&lt;span class="bar"&gt;&lt;i&gt;&lt;/i&gt;&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;</pre>
+  </div>
+
+  <!-- 6 · overlay -->
+  <div class="sech"><span class="no">06</span><h2 data-zh="命令面板 / 切换器浮层">Overlay</h2><span class="en">.voverlay · .vorow · .vogrp · .voverlay-foot</span><span class="sp"></span></div>
+  <div class="comp">
+    <div class="comp-hd"><span class="cls">.voverlay</span><span class="desc" data-zh="命令面板 / 决策中心 / lane 切换通用浮层(下例去掉 .vscrim 遮罩单独陈列)。">Command palette / decision / lane switch (shown without the .vscrim backdrop).</span></div>
+    <div class="demo" style="align-items:flex-start;">
+      <div class="voverlay" style="position:relative;width:min(460px,100%);max-height:none;">
+        <div class="voverlay-in"><span class="pr">⌃P</span><span style="flex:1;color:var(--fg-faint);font-family:var(--font-mono);font-size:13px;">Jump to anything…</span><span class="esc">esc</span></div>
+        <div class="voverlay-list">
+          <div class="vogrp">Lanes</div>
+          <div class="vorow on"><span class="cmd">L2 · Gameplay</span><span class="desc">▶ run · current</span></div>
+          <div class="vorow"><span class="cmd">L1 · Design</span><span class="desc">⏸ contract gate</span></div>
+          <div class="vogrp">Commands</div>
+          <div class="vorow"><span class="cmd">/target</span><span class="desc">local / ssh</span></div>
+        </div>
+        <div class="voverlay-foot"><span><b>↑↓</b> move</span><span><b>⏎</b> open</span><span><b>esc</b> close</span></div>
+      </div>
+    </div>
+    <pre class="code">&lt;div class="<span class="k">vscrim</span>"&gt;                              <span class="a">// 遮罩(absolute inset:0)</span>
+  &lt;div class="<span class="k">voverlay</span>"&gt;
+    &lt;div class="<span class="k">voverlay-in</span>"&gt;&lt;span class="pr"&gt;⌃P&lt;/span&gt;&lt;input&gt;&lt;span class="esc"&gt;esc&lt;/span&gt;&lt;/div&gt;
+    &lt;div class="<span class="k">voverlay-list</span>"&gt;
+      &lt;div class="<span class="k">vogrp</span>"&gt;Lanes&lt;/div&gt;
+      &lt;div class="<span class="k">vorow on</span>"&gt;&lt;span class="cmd"&gt;L2&lt;/span&gt;&lt;span class="desc"&gt;run&lt;/span&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class="<span class="k">voverlay-foot</span>"&gt;…&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;</pre>
+  </div>
+
+  <!-- 7 · hints + text helpers -->
+  <div class="sech"><span class="no">07</span><h2 data-zh="快捷键提示 + 文字色助手">Hints + text helpers</h2><span class="en">.vhints · .vk-*</span><span class="sp"></span></div>
+  <div class="comp">
+    <div class="comp-hd"><span class="cls">.vhints · .vk-*</span><span class="desc" data-zh="快捷键提示条(键金色)+ 文字语义色(只编码状态,全局固定)。">Shortcut hints (gold keys) + semantic text colors (state-only, globally fixed).</span></div>
+    <div class="demo">
+      <div class="vhints"><span class="h"><b>⌃L</b> lane</span><span class="h"><b>⌃P</b> commands</span><span class="h"><b>⌃G</b> decisions</span><span class="sp"></span><span class="h"><b>⌃J</b> send</span></div>
+      <div class="legend" style="font-family:var(--font-mono);font-size:12px;">
+        <span class="vk-accent">.vk-accent</span><span class="vk-bright">.vk-bright</span><span class="vk-gold">.vk-gold</span><span class="vk-success">.vk-success</span><span class="vk-warn">.vk-warn</span><span class="vk-error">.vk-error</span><span class="vk-prog">.vk-prog</span><span class="vk-builtin">.vk-builtin</span><span class="vk-pri">.vk-pri</span><span class="vk-sec">.vk-sec</span><span class="vk-mut">.vk-mut</span><span class="vk-faint">.vk-faint</span>
+      </div>
+    </div>
+    <pre class="code">&lt;div class="<span class="k">vhints</span>"&gt;&lt;span class="h"&gt;&lt;b&gt;⌃L&lt;/b&gt; lane&lt;/span&gt; … &lt;span class="sp"&gt;&lt;/span&gt; &lt;span class="h"&gt;&lt;b&gt;⌃J&lt;/b&gt; send&lt;/span&gt;&lt;/div&gt;
+&lt;span class="<span class="k">vk-gold</span>"&gt;needs you&lt;/span&gt; · &lt;span class="<span class="k">vk-success</span>"&gt;done&lt;/span&gt; · &lt;span class="<span class="k">vk-error</span>"&gt;fail&lt;/span&gt;</pre>
+  </div>
+
+  <p class="note" style="margin-top:28px;">§ <span data-zh="完整词汇与铁律见 "><span>Full vocabulary &amp; rules in </span></span><code>docs/DESIGN-REF.md</code> · <span data-zh="活体集成见 "><span>integrated cockpit in </span></span><code>统一原型 (TUI)</code> · <span data-zh="数值真源 "><span>token source </span></span><code>tokens.css</code>.</p>
+</div>
+
+<script>
+(function(){ if(window.vLang==='zh'){ document.querySelectorAll('[data-zh]').forEach(function(el){ el.innerHTML=el.getAttribute('data-zh'); }); } })();
+</script>
+</body>
+</html>

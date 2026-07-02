@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D12 · Integration Conflict → Bounce</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../gui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1560px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:920px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+
+/* 窗口壳/标题栏/活动 rail/badge 走 gui-kit；此处仅页面专属覆盖 */
+.frame{height:880px;min-width:1180px;position:relative;}
+.cmdbar{flex:none;display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--bg-void);}
+.cmdbar .t{font-size:15px;font-weight:700;display:flex;align-items:center;gap:9px;}
+.cmdbar .t .gi{color:var(--gold-bright);}
+.cmdbar .sub{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.cmdbar .sub .a{color:var(--accent);}
+.cmdbar .sp{flex:1;}
+.cmdbar .meta{font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+
+/* conflict banner */
+.cbanner{flex:none;display:flex;align-items:center;gap:13px;padding:11px 18px;background:color-mix(in srgb,var(--error) 9%,var(--bg-void));border-bottom:1px solid color-mix(in srgb,var(--error) 30%,transparent);}
+.cbanner.resolved{background:color-mix(in srgb,var(--success) 9%,var(--bg-void));border-bottom-color:color-mix(in srgb,var(--success) 30%,transparent);}
+.cbanner .ic{font-size:17px;}
+.cbanner .tx{font-size:13.5px;font-weight:600;}
+.cbanner .tx b{color:var(--fg-primary);}
+.cbanner.err .tx{color:var(--error);} .cbanner.resolved .tx{color:var(--success);}
+.cbanner .tx .f{font-family:var(--mono);color:var(--gold-bright);}
+.cbanner .sp{flex:1;}
+.cbanner .strength{font-family:var(--mono);font-size:9.5px;font-weight:700;color:var(--gold-bright);border:1px solid color-mix(in srgb,var(--gold) 45%,transparent);background:color-mix(in srgb,var(--gold) 7%,transparent);border-radius:5px;padding:2px 9px;}
+
+.inner{flex:1;display:grid;grid-template-columns:var(--rail-act) 1fr 350px;min-height:0;}
+
+/* conflict main */
+.cmain{min-width:0;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;padding:18px 22px 24px;}
+.sec{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);display:flex;align-items:center;gap:8px;margin:18px 0 10px;}
+.sec:first-child{margin-top:0;}
+.sec::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.sec .hint{font-weight:400;letter-spacing:0;text-transform:none;color:var(--fg-faint);}
+
+/* lane chips */
+.lanes2{display:flex;gap:11px;}
+.lc{flex:1;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:10px;padding:11px 14px;}
+.lc.ours{border-left:3px solid var(--success);}
+.lc.theirs{border-left:3px solid var(--error);}
+.lc .r1{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;}
+.lc .r1 .lid{font-family:var(--mono);color:var(--accent);}
+.lc .r1 .badge{font-family:var(--mono);font-size:8.5px;font-weight:700;border-radius:4px;padding:1px 6px;border:1px solid;margin-left:auto;}
+.lc.ours .badge{color:var(--success);border-color:color-mix(in srgb,var(--success) 45%,transparent);}
+.lc.theirs .badge{color:var(--error);border-color:color-mix(in srgb,var(--error) 40%,transparent);}
+.lc .r2{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-top:6px;line-height:1.6;}
+.lc .r2 .a{color:var(--accent-bright);}
+
+/* conflict diff */
+.diff{background:var(--bg-void);border:1px solid var(--border);border-radius:9px;overflow:hidden;font-family:var(--mono);font-size:12px;}
+.diff .fn{padding:7px 13px;background:var(--bg-panel);color:var(--fg-secondary);border-bottom:1px solid var(--border-soft);font-size:11px;display:flex;align-items:center;gap:9px;}
+.diff .fn .a{color:var(--accent);} .diff .fn .sp{flex:1;} .diff .fn .cf{color:var(--error);}
+.diff .ln{padding:1px 13px;white-space:pre;display:flex;gap:11px;}
+.diff .ln .gut{color:var(--fg-faint);width:30px;flex:none;text-align:right;user-select:none;}
+.diff .ln.ctx{color:var(--fg-secondary);}
+.diff .mk{color:var(--fg-faint);padding:2px 13px;background:var(--bg-panel);}
+.diff .mk.ours{color:var(--success);} .diff .mk.theirs{color:var(--error);} .diff .mk.mid{color:var(--fg-muted);}
+.diff .ln.ours{background:color-mix(in srgb,var(--success) 9%,transparent);color:var(--success);}
+.diff .ln.theirs{background:color-mix(in srgb,var(--error) 9%,transparent);color:var(--error);}
+
+/* policy note */
+.pol{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:9px;padding:11px 15px;font-size:12.5px;color:var(--fg-secondary);line-height:1.6;}
+.pol b{color:var(--fg-primary);} .pol .a{color:var(--accent-bright);font-family:var(--mono);font-size:11.5px;}
+.pol .why{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);margin-top:7px;display:flex;gap:8px;align-items:baseline;}
+.pol .why .q{color:var(--gold-bright);}
+
+/* right rail: recovery timeline */
+.rail{background:var(--bg-panel);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.rail .hd{padding:14px 17px 9px;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);display:flex;align-items:center;gap:8px;}
+.rail .hd::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.rline{padding:4px 17px 12px;display:flex;flex-direction:column;}
+.ti{display:flex;gap:12px;position:relative;padding:9px 0;}
+.ti::before{content:"";position:absolute;left:9px;top:30px;bottom:-9px;width:1.5px;background:var(--border-soft);}
+.ti:last-child::before{display:none;}
+.ti .nn{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--border);background:var(--bg-base);display:grid;place-items:center;font-family:var(--mono);font-size:10px;flex:none;z-index:1;color:var(--fg-faint);}
+.ti.done .nn{border-color:var(--success);color:var(--success);}
+.ti.active .nn{border-color:var(--accent);color:var(--accent-bright);background:var(--bg-sel);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 10%,transparent);}
+.ti .tx{padding-top:1px;}
+.ti .t1{font-size:12.5px;font-weight:600;color:var(--fg-muted);}
+.ti.done .t1,.ti.active .t1{color:var(--fg-primary);}
+.ti .t2{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);margin-top:3px;line-height:1.55;}
+.ti .t2 .a{color:var(--accent-bright);} .ti .t2 .s{color:var(--success);} .ti .t2 .sp{color:var(--progress);}
+.ti.active .spin{color:var(--accent);}
+.rail .note{margin-top:auto;border-top:1px solid var(--border-soft);padding:12px 17px;font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.8;}
+.rail .note .a{color:var(--accent);}
+
+/* footer actions */
+.wfoot{flex:none;border-top:1px solid var(--border);background:var(--bg-void);padding:12px 18px;display:flex;align-items:center;gap:10px;}
+.wfoot .info{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+.wfoot .info b{color:var(--fg-primary);}
+.wfoot .sp{flex:1;}
+.gbtn{font-size:12.5px;font-weight:600;border-radius:8px;padding:8px 16px;cursor:pointer;border:1px solid var(--border);color:var(--fg-secondary);background:transparent;font-family:var(--sans);display:inline-flex;align-items:center;gap:7px;}
+.gbtn:hover{color:var(--fg-primary);border-color:var(--fg-muted);}
+.gbtn:disabled{opacity:.4;cursor:not-allowed;}
+.gbtn .kk{font-family:var(--mono);font-size:9px;opacity:.7;border:1px solid currentColor;border-radius:3px;padding:0 4px;}
+.gbtn.ret{color:var(--warning);border-color:color-mix(in srgb,var(--warning) 45%,transparent);}
+.gbtn.ret:hover{background:color-mix(in srgb,var(--warning) 10%,transparent);}
+.gbtn.merge{color:var(--accent-bright);border-color:var(--accent-dim);}
+.gbtn.danger{color:var(--error);border-color:color-mix(in srgb,var(--error) 35%,transparent);}
+.gbtn.primary{color:var(--on-accent);background:var(--success);border-color:var(--success);font-weight:700;}
+.toast{position:absolute;left:50%;bottom:74px;transform:translateX(-50%);background:var(--bg-elev);border:1px solid var(--accent-dim);color:var(--fg-primary);font-size:12.5px;border-radius:9px;padding:9px 16px;box-shadow:var(--shadow-toast);display:flex;gap:10px;align-items:center;white-space:nowrap;z-index:5;}
+.toast .mono{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+.reason{flex:1;max-width:340px;background:var(--bg-void);border:1px solid var(--border);border-radius:7px;padding:7px 12px;color:var(--fg-secondary);font-size:11.5px;font-family:var(--mono);}
+.reason .cur{display:inline-block;width:7px;height:13px;background:var(--accent-bright);vertical-align:-2px;animation:blink 1.1s steps(1) infinite;}
+@keyframes blink{50%{opacity:0;}}
+</style>
+</head>
+<body>
+<div class="pwrap">
+  <div id="root"></div>
+</div>
+
+<script type="text/babel" src="../../tweaks-panel.jsx"></script>
+<script type="text/babel" src="../gui-icons.jsx"></script>
+<script type="text/babel" src="../gui-statusbar.jsx"></script>
+<script type="text/babel" src="../gui-titlebar.jsx"></script>
+<script type="text/babel">
+const {useState,useEffect} = React;
+const t = window.t || ((en,zh)=>en);
+
+const RECOVERY=[
+  {t:t('Integration gate: conflict','集成闸:冲突'),d:<span><span className="a">L3</span> → main · src/player/dash.gd {t('conflict','冲突')} · <span className="sp">{t('replay baseline already has L2','回放基线已含 L2')}</span></span>},
+  {t:t('Bounce to origin lane L3','退回原 lane L3'),d:<span>{t('sent back with reason · L3 daemon received · ','附理由派回 · L3 daemon 收到 · ')}<span className="a">{t('no work lost','不丢工作')}</span></span>},
+  {t:t('Agent auto-rebase','agent 自动 rebase'),d:<span>{t('codex rebase onto main@new · resolve conflict (keep both intents)','codex rebase onto main@新 · 解冲突(保留两者意图)')}</span>},
+  {t:t('Re-run replay-regression gate','重跑回放回归闸'),d:<span>godot headless · 240f · <span className="s">{t('combos ✓ counter ✓','连段 ✓ 反击 ✓')}</span></span>},
+  {t:t('Re-submit integration gate','重新提交集成闸'),d:<span>{t('no conflict · clean diff · awaiting your final approve','无冲突 · diff 干净 · 等你最终批')}</span>},
+  {t:t('Merged to main ✓','合入 main ✓'),d:<span><span className="s">{t('vd/dash-cancel merged','vd/dash-cancel 已并入')}</span> · {t('replay baseline updated','回放基线更新')}</span>},
+];
+
+function VBar(){ return <GuiTitleBar/>; }
+function VRail({active,badges}){
+  const order=[['chat','Conversation'],['lanes','Lanes'],['worktree','Worktrees · Integration'],['review','Review'],['decide','Decision Center']];
+  return (
+    <div className="act">
+      {order.map(([k,lbl])=>(
+        <div key={k} className={"actbtn "+(active===k?'on':'')} title={lbl}>{ICONS[k]}{badges&&badges[k]&&<span className="badge" style={{background:'var(--gold)'}}>{badges[k]}</span>}</div>
+      ))}
+      <div className="actspacer"></div>
+      <div className="actbtn" title="Settings">{ICONS.settings}</div>
+    </div>
+  );
+}
+function App(){
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "showPolicy": true
+  }/*EDITMODE-END*/);
+  const [stage,setStage]=useState(0);   // 0 conflict · 1..5 recovery progressing · 6 merged
+  const [reverted,setReverted]=useState(false);   // #12 合入后回滚：revert 已提闸
+  const [spin,setSpin]=useState(0);
+  const [toast,setToast]=useState(null);
+
+  useEffect(()=>{const id=setInterval(()=>setSpin(s=>(s+1)%4),140);return()=>clearInterval(id);},[]);
+  useEffect(()=>{
+    if(stage>=1&&stage<6){ const id=setTimeout(()=>setStage(s=>s+1),1500); return()=>clearTimeout(id); }
+  },[stage]);
+
+  const SP=['⠋','⠙','⠹','⠸'][spin];
+  const bounce=()=>{ setStage(1); setToast(t('Bounced to L3 · with reason · agent starts rebase','已退回 L3 · 附理由 · agent 开始 rebase')); setTimeout(()=>setToast(null),3000); };
+  const resolved=stage>=6;
+  const activeTl=stage; // timeline index currently active
+
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · D12 concept · draft 01</div>
+      <h1 className="ph1">{t('Integration conflict → bounce','集成闸冲突退回')} <span className="ac">Integration Conflict → Bounce</span></h1>
+      <p className="plead">{t('The ','验收场景的')}<b>{t('failure path','失败路径')}</b>{t(' of the acceptance scenario: two lanes changed the same spot, merge to main conflicts. The integration gate ',':两条 lane 改了同一处,合入 main 冲突。集成闸')}<b>{t('does not let you manually merge here','不让你在这里手动 merge')}</b>{t(' — it ',' —— 把冲突')}<b>{t('bounces the conflict to the origin lane','退回原 lane')}</b>{t(', whose agent rebases + re-runs the replay-regression gate, then goes through the integration gate again. On the right is the ',',让它的 agent rebase + 重跑回放回归闸,再走一次集成闸。右侧是退回后的')}<b>{t('auto-recovery timeline','自动恢复时间线')}</b>{t('. Click “Bounce to origin lane” to watch it run. Once merged, the ','。点「退回原 lane」看它跑起来。合入后,')}<b>{t('post-merge rollback','合入后回滚')}</b>{t(' path (revert via the same gate chain) appears below the diff.','路径(经同一条闸链 revert)会出现在 diff 下方。')}</p>
+    <div className="frame" data-screen-label="D12 集成闸冲突">
+      <VBar/>
+      <div className="cmdbar">
+        <span className="t"><span className="gi">⎇</span> {t('Integration gate','集成闸')} · <span style={{color:'var(--accent)'}}>L3</span> → main</span>
+        <span className="sub">Boss Rush · {t('merge request','合并请求')} <span className="a">vd/dash-cancel</span> → main</span>
+        <span className="sp"></span>
+        <span className="meta">{t('policy merge:main = strong gate · conflicts bounce to origin lane (viden.toml [gates])','策略 merge:main = 强闸 · 冲突退回原 lane(viden.toml [gates])')}</span>
+      </div>
+
+      <div className={"cbanner "+(resolved?'resolved':'err')}>
+        <span className="ic">{resolved?'✓':'⚠'}</span>
+        {resolved
+          ? <span className="tx"><b>{t('Resolved','已解决')}</b>{t(' · L3 rebase + replay-regression passed · ',' · L3 rebase + 回放回归通过 · ')}<b>vd/dash-cancel</b>{t(' merged to main',' 已合入 main')}</span>
+          : <span className="tx">{t('Merge conflict · ','合并冲突 · ')}<span className="f">src/player/dash.gd</span>{t(' · L2 (in main) and L3 both changed the ',' · L2(已入 main)与 L3 都改了')}<b>{t('cancel window','取消窗口')}</b></span>}
+        <span className="sp"></span>
+        <span className="strength">{resolved?t('gate passed','闸已通过'):t('strong gate · cannot bypass','强闸 · 不可绕过')}</span>
+      </div>
+
+      <div className="inner">
+        <VRail active="worktree" badges={{decide:6,worktree:'!'}}/>
+        <div className="cmain" data-screen-label="冲突详情">
+          <div className="sec">{t('Both lanes’ changes','两条 lane 的改动')} <span className="hint">{t('· same cancel window','· 同一处取消窗口')}</span></div>
+          <div className="lanes2">
+            <div className="lc ours">
+              <div className="r1"><span className="lid">L2</span> Gameplay · codex<span className="badge">{t('in main','已入 main')}</span></div>
+              <div className="r2">{t('merged 17:05 · cancel window ','17:05 合并 · 取消窗口 ')}<span className="a">{t('8 frames','8 帧')}</span><br/>HITCANCEL := 8</div>
+            </div>
+            <div className="lc theirs">
+              <div className="r1"><span className="lid">L3</span> Gameplay · codex<span className="badge">{t('to merge · conflict','待合入 · 冲突')}</span></div>
+              <div className="r2">{t('baseline behind · cancel window ','基线落后 · 取消窗口 ')}<span className="a">{t('12 frames','12 帧')}</span>{t(' + buffer',' + 缓冲')}<br/>HITCANCEL := 12</div>
+            </div>
+          </div>
+
+          <div className="sec">{t('Conflict hunk','冲突 hunk')}</div>
+          <div className="diff">
+            <div className="fn"><span className="a">src/player/dash.gd</span> · 1 conflict<span className="sp"></span><span className="cf">{t('<<< cannot auto-merge','<<< 无法自动合并')}</span></div>
+            <div className="ln ctx"><span className="gut">14</span>{`func _cancel_window() -> int:`}</div>
+            <div className="mk ours">{t('<<<<<<< main (L2 merged)','<<<<<<< main (L2 已入)')}</div>
+            <div className="ln ours"><span className="gut">15</span>{t('    return 8   # compact cancel, combos more fragile','    return 8   # 紧凑取消,连段更脆')}</div>
+            <div className="mk mid">{`=======`}</div>
+            <div className="ln theirs"><span className="gut">15</span>{t('    return 12  # lenient window + input buffer','    return 12  # 宽容窗口 + 输入缓冲')}</div>
+            <div className="mk theirs">{`>>>>>>> vd/dash-cancel (L3)`}</div>
+            <div className="ln ctx"><span className="gut">16</span>{``}</div>
+          </div>
+
+          {tw.showPolicy && <React.Fragment>
+            <div className="sec">{t('Why bounce, instead of merging here','为什么退回,而不是在这里 merge')}</div>
+            <div className="pol">
+              {t('The integration gate ','集成闸')}<b>{t('only approves “clean, validated merges”','只批"干净的、已验证的合入"')}</b>{t('. Resolving conflicts manually in the gate = a piece of ','。手动在闸里解冲突 = 产生一段')}<b>{t('new code that never went through replay-regression','没走过回放回归的新代码')}</b>{t(' going straight into main — breaking the “all behavior is validated” guarantee.','直接进 main —— 破坏"行为都被验证过"的保证。')}
+              <div className="why"><span className="q">∴</span> {t('Bounce to origin lane: let ','退回原 lane:让 ')}<b>{t('L3’s agent','L3 的 agent')}</b>{t(' rebase then ',' rebase 后')}<b>{t('re-run the replay-regression gate','重跑回放回归闸')}</b>{t(', so what merges is agent-validated and you-approved. The conflict resolution also stays in the lane’s evidence.',',合的是 agent 验证过、你批过的结果。冲突的解决也留在 lane 的证据里。')}</div>
+            </div>
+          </React.Fragment>}
+
+          {resolved && <React.Fragment>
+            <div className="sec">{t('Merged but broken? · post-merge rollback','合入后发现坏了？· 合入后回滚')} <span className="hint">{t('· review board #12','· 审查看板 #12')}</span></div>
+            <div className="pol" data-screen-label="合入后回滚">
+              {t('Rollback is a ','回滚是一个')}<b>{t('forward action through the same gate chain','走同一条闸链的正向新动作')}</b>{t(' — never a history rewrite: ',' —— 绝不改历史：')}<span className="a">git revert -m 1</span>{t(' stages an inverse commit, the replay baseline rolls back with it, and the revert itself waits at a new integration gate. The origin lane ','生成反向 commit，回放基线随之回退，revert 本身停在新的集成闸上待审。原 lane ')}<b>{t('re-opens with the revert context','带着 revert 上下文重开')}</b>{t(' to fix forward; both the revert and the re-fix land in the audit timeline (D14).','继续向前修；revert 与返修都落审计时间线(D14)。')}
+              <div className="why"><span className="q">∴</span> {reverted
+                ? <span><b>{t('revert staged','revert 已提闸')}</b> · <span className="a">revert "vd/dash-cancel"</span> · {t('replay baseline → pre-merge · awaiting gate #g-022 · L3 re-opened','回放基线 → 合前 · 待审闸 #g-022 · L3 已重开')}</span>
+                : <span>{t('One click below stages the revert — main is never left broken while the lane investigates.','下方一键提闸 revert —— lane 排查期间 main 不带病运行。')}</span>}</div>
+            </div>
+          </React.Fragment>}
+        </div>
+
+        {/* recovery timeline */}
+        <div className="rail" data-screen-label="恢复时间线">
+          <div className="hd">{t('After bounce · auto-recovery','退回后 · 自动恢复')}</div>
+          <div className="rline">
+            {RECOVERY.map((r,i)=>{
+              const st = stage===0 ? (i===0?'active':'') : (i<activeTl?'done':i===activeTl?'active':'');
+              return (
+                <div key={i} className={"ti "+st}>
+                  <span className="nn">{st==='done'?'✓':st==='active'&&stage>0&&stage<6&&i===stage?<span className="spin">{SP}</span>:i+1}</span>
+                  <div className="tx"><div className="t1">{r.t}</div><div className="t2">{r.d}</div></div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="note">{t('Bouncing loses no work: L3’s worktree, session and approved evidence all remain. The conflict resolution goes into ','退回不丢工作:L3 的 worktree、会话、已批证据都在。冲突解决进 ')}<span className="a">docs/evidence/</span>{t(' + the timeline — you can replay who, when and how it was solved.',' + 时间线 —— 可复盘谁、何时、怎么解的。')}</div>
+        </div>
+      </div>
+
+      <div className="wfoot">
+        {stage===0
+          ? <React.Fragment>
+              <span className="info">{t('merge request ','合并请求 ')}<b>vd/dash-cancel</b>{t(' · 1 conflict · strong gate',' · 1 冲突 · 强闸')}</span>
+              <span className="reason">{t('Bounce reason: cancel window 12 frames (contract §4 leans lenient), keep buffer after rebase','退回理由:取消窗口取 12 帧(契约 §4 倾向宽容),rebase 后保留缓冲')}<span className="cur"></span></span>
+              <span className="sp"></span>
+              <button className="gbtn merge">{t('Open 3-way merge','打开三方合并')}</button>
+              <button className="gbtn danger">{t('Discard L3 changes','放弃 L3 改动')}</button>
+              <button className="gbtn ret" onClick={bounce}>{t('↩ Bounce to origin lane (with reason)','↩ 退回原 lane（附理由）')}<span className="kk">b</span></button>
+            </React.Fragment>
+          : !resolved
+          ? <React.Fragment>
+              <span className="info"><span style={{color:'var(--accent)'}}>{SP}</span> {t('L3 auto-recovering · step ','L3 自动恢复中 · 第 ')}{stage}{t('/5 · you can continue other lanes','/5 步 · 你可继续别的 lane')}</span>
+              <span className="sp"></span>
+              <button className="gbtn">{t('View in L3 session','在 L3 会话查看')}</button>
+              <button className="gbtn" disabled>{t('Waiting for re-submit…','等待重新提交…')}</button>
+            </React.Fragment>
+          : <React.Fragment>
+              <span className="info"><span style={{color:'var(--success)'}}>✓</span> {t('no conflict · replay-regression passed · awaiting your final approve','无冲突 · 回放回归通过 · 待你最终批')}</span>
+              <span className="sp"></span>
+              <button className="gbtn ret" disabled={reverted} onClick={()=>{setReverted(true);setToast(t('revert staged · replay baseline rolled back · awaiting gate #g-022','revert 已提闸 · 回放基线已回退 · 待审闸 #g-022'));setTimeout(()=>setToast(null),3200);}}>{reverted?t('↩ Revert staged · gate #g-022','↩ revert 已提闸 · 闸 #g-022'):t('↩ Revert this merge…','↩ 回滚此次合入…')}</button>
+              <button className="gbtn">{t('View final diff','看最终 diff')}</button>
+              <button className="gbtn primary" onClick={()=>{setToast(t('vd/dash-cancel merged to main · replay baseline updated','vd/dash-cancel 已合入 main · 回放基线更新'));setTimeout(()=>setToast(null),3000);}}>{t('Approve & merge to main','批准并合入 main')} <span className="kk">a</span></button>
+            </React.Fragment>}
+      </div>
+      {toast && <div className="toast">✓ {toast}<span className="mono">audit: gate-bounce</span></div>}
+
+      <GuiStatusBar right={"\u23f8 "+t('gate bounced','\u95f8\u9000\u56de')}/>
+      <TweaksPanel>
+        <TweakSection label={t('Content','内容')} />
+        <TweakToggle label={t('Show “why bounce” explainer','显示「为什么退回」说明')} value={tw.showPolicy} onChange={v=>setTweak('showPolicy',v)} />
+        <TweakSection label={t('Demo','演示')} />
+        <TweakButton label={t('Reset to conflict state','重置到冲突态')} onClick={()=>{setStage(0);setReverted(false);}} />
+      </TweaksPanel>
+    </div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D4 · New Lane</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../i18n.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+/* 弱视觉细滚动条（主题化 · 透明轨道 + 弱色拇指，悬停略增强）*/
+*{scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+*::-webkit-scrollbar{width:9px;height:9px;}
+*::-webkit-scrollbar-track{background:transparent;}
+*::-webkit-scrollbar-thumb{background:var(--border-soft);border-radius:6px;border:2px solid transparent;background-clip:padding-box;}
+*::-webkit-scrollbar-thumb:hover{background:var(--border);}
+*::-webkit-scrollbar-corner{background:transparent;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+
+.pwrap{max-width:1560px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:900px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+
+.frame{background:var(--bg-base);border:1px solid var(--win-edge);border-radius:var(--r-xl);overflow:hidden;height:880px;display:flex;flex-direction:column;min-width:1180px;box-shadow:var(--shadow-win);position:relative;}
+.vbar{height:46px;flex:none;display:flex;align-items:center;gap:13px;padding:0 14px;background:var(--bg-void);border-bottom:1px solid var(--border-soft);}
+.vbar .tl{display:flex;gap:8px;}
+.vbar .tl i{width:12px;height:12px;border-radius:50%;display:block;}
+.vbar .tl .a{background:var(--error);}.vbar .tl .b{background:var(--warning);}.vbar .tl .c{background:var(--success);}
+.vbar .wm{font-family:var(--mono);font-weight:700;font-size:13.5px;letter-spacing:.3px;}
+.vbar .wm .r{color:var(--gold);}.vbar .wm .c{color:var(--accent);}
+.vbar .projsel{font-family:var(--mono);font-size:11.5px;color:var(--fg-secondary);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:7px;padding:4px 10px;display:flex;align-items:center;gap:7px;cursor:pointer;}
+.vbar .projsel .br{color:var(--accent);}
+.vbar .sp{flex:1;}
+.vbar .vtools{display:flex;align-items:center;gap:4px;}
+.vbtn{width:30px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--fg-muted);cursor:pointer;border:1px solid transparent;}
+.vbtn:hover{color:var(--accent);background:var(--bg-panel);}
+
+/* cmdbar */
+.cmdbar{flex:none;display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--bg-void);}
+.cmdbar .t{font-size:15px;font-weight:700;display:flex;align-items:center;gap:9px;}
+.cmdbar .t .plus{width:18px;height:18px;border-radius:5px;background:var(--bg-sel);border:1px solid var(--accent-dim);color:var(--accent-bright);display:grid;place-items:center;font-size:12px;font-weight:700;}
+.cmdbar .sub{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.cmdbar .sub b{color:var(--gold-bright);font-weight:600;}
+.cmdbar .sp{flex:1;}
+.cmdbar .meta{font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+
+.inner{flex:1;display:grid;grid-template-columns:236px 1fr var(--rail-right);min-height:0;}
+
+/* steps rail */
+.steps{background:var(--bg-panel);border-right:1px solid var(--border-soft);padding:18px 0;display:flex;flex-direction:column;}
+.stp{display:flex;gap:12px;padding:11px 18px;cursor:pointer;position:relative;}
+.stp .nn{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--border);display:grid;place-items:center;font-family:var(--mono);font-size:11px;font-weight:700;color:var(--fg-muted);flex:none;background:var(--bg-base);z-index:1;}
+.stp::before{content:"";position:absolute;left:30.5px;top:38px;bottom:-12px;width:1.5px;background:var(--border-soft);}
+.stp:last-child::before{display:none;}
+.stp .tx .t1{font-size:13px;font-weight:600;color:var(--fg-muted);}
+.stp .tx .t2{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);margin-top:2px;line-height:1.5;}
+.stp.cur .nn{border-color:var(--accent);color:var(--accent-bright);background:var(--bg-sel);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 10%,transparent);}
+.stp.cur .tx .t1{color:var(--fg-primary);}
+.stp.done .nn{border-color:var(--success);color:var(--success);}
+.stp.done .tx .t1{color:var(--fg-secondary);}
+.stp.done .tx .t2{color:var(--fg-muted);}
+.steps .foot{margin-top:auto;padding:14px 18px 4px;border-top:1px solid var(--border-soft);font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.8;}
+.steps .foot .a{color:var(--accent);}
+
+/* main step content */
+.scont{min-width:0;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;background:var(--bg-base);}
+.shead{position:sticky;top:0;z-index:3;background:var(--bg-base);padding:16px 22px 12px;border-bottom:1px solid var(--border-soft);}
+.shead .t{font-size:16px;font-weight:700;display:flex;align-items:baseline;gap:10px;}
+.shead .t .en{font-family:var(--mono);font-size:10px;color:var(--fg-faint);font-weight:400;letter-spacing:1px;text-transform:uppercase;}
+.shead .d{font-size:12.5px;color:var(--fg-muted);margin-top:4px;text-wrap:pretty;}
+.sbody{padding:16px 22px 26px;}
+.sec{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);display:flex;align-items:center;gap:8px;margin:18px 0 10px;}
+.sec::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.sec:first-child{margin-top:2px;}
+.sec .hint{font-weight:400;letter-spacing:0;text-transform:none;color:var(--fg-faint);}
+
+/* role cards */
+.rolegrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+.rolec{display:flex;gap:11px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:13px 14px;cursor:pointer;}
+.rolec:hover{border-color:var(--fg-muted);}
+.rolec.sel{border-color:var(--accent);background:var(--bg-sel);box-shadow:0 0 0 1px var(--accent-dim);}
+.rolec .dot{width:10px;height:10px;border-radius:3px;flex:none;margin-top:4px;}
+.rolec .t1{font-size:13.5px;font-weight:700;color:var(--fg-primary);display:flex;align-items:center;gap:7px;}
+.rolec .t1 .en{font-family:var(--mono);font-size:9px;color:var(--fg-faint);font-weight:400;letter-spacing:.5px;}
+.rolec .t2{font-size:11.5px;color:var(--fg-muted);margin-top:3px;line-height:1.55;}
+.rolec .t3{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);margin-top:6px;}
+.rolec .t3 .a{color:var(--accent);}
+
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.field{display:flex;flex-direction:column;gap:5px;}
+.field label{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-muted);}
+.field input{background:var(--bg-void);border:1px solid var(--border);border-radius:8px;color:var(--fg-primary);font-family:var(--mono);font-size:12.5px;padding:9px 12px;outline:none;}
+.field input:focus{border-color:var(--accent-dim);}
+.field .ro{background:var(--bg-void);border:1px dashed var(--border);border-radius:8px;color:var(--fg-muted);font-family:var(--mono);font-size:11.5px;padding:9px 12px;display:flex;align-items:center;gap:8px;}
+.field .ro .au{margin-left:auto;font-size:8.5px;color:var(--fg-faint);letter-spacing:.5px;border:1px solid var(--border);border-radius:4px;padding:0 5px;}
+
+/* agent cards */
+.agrow{display:flex;flex-direction:column;gap:9px;}
+.agc{display:flex;align-items:center;gap:12px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:12px 15px;cursor:pointer;}
+.agc:hover{border-color:var(--fg-muted);}
+.agc.sel{border-color:var(--accent);background:var(--bg-sel);box-shadow:0 0 0 1px var(--accent-dim);}
+.agc .glyph{width:32px;height:32px;border-radius:8px;background:var(--bg-void);border:1px solid var(--border);display:grid;place-items:center;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);flex:none;}
+.agc .t1{font-size:13.5px;font-weight:700;color:var(--fg-primary);display:flex;align-items:center;gap:8px;}
+.agc .t2{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-top:3px;}
+.agc .sp{flex:1;}
+.agc .rec{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.5px;color:var(--success);border:1px solid color-mix(in srgb,var(--success) 45%,transparent);background:color-mix(in srgb,var(--success) 7%,transparent);border-radius:4px;padding:1px 6px;}
+.chip{font-family:var(--mono);font-size:9.5px;font-weight:600;border-radius:5px;padding:2px 8px;white-space:nowrap;border:1px solid var(--border);color:var(--fg-secondary);display:inline-flex;align-items:center;gap:5px;}
+.chip .led{width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 5px color-mix(in srgb,var(--success) 60%,transparent);}
+.chip.warn{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 50%,transparent);background:color-mix(in srgb,var(--gold) 6%,transparent);}
+.chip.warn .led{background:var(--warning);box-shadow:0 0 5px color-mix(in srgb,var(--warning) 60%,transparent);}
+.modelrow{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px;padding-left:44px;}
+.mchip{font-family:var(--mono);font-size:10px;border:1px solid var(--border);border-radius:14px;padding:3px 11px;color:var(--fg-muted);cursor:pointer;}
+.mchip:hover{color:var(--fg-secondary);}
+.mchip.on{color:var(--accent-bright);background:var(--bg-sel);border-color:var(--accent-dim);}
+
+/* skills */
+.packcard{background:var(--bg-panel);border:1px solid var(--border);border-radius:11px;padding:13px 16px;margin-bottom:12px;display:flex;align-items:center;gap:12px;}
+.packcard .dot{width:10px;height:10px;border-radius:3px;background:var(--accent);flex:none;}
+.packcard .t1{font-size:13.5px;font-weight:700;}
+.packcard .t2{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-top:3px;line-height:1.6;}
+.packcard .sp{flex:1;}
+.skrow{display:flex;align-items:center;gap:11px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:9px;padding:9px 13px;margin-bottom:7px;cursor:pointer;}
+.skrow:hover{border-color:var(--fg-muted);}
+.skrow .cb{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--border);display:grid;place-items:center;font-size:10px;color:transparent;flex:none;}
+.skrow.on .cb{border-color:var(--accent);background:var(--bg-sel);color:var(--accent-bright);}
+.skrow .t1{font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--fg-primary);}
+.skrow .t2{font-size:11px;color:var(--fg-muted);}
+.skrow .sp{flex:1;}
+.skrow .meta{font-family:var(--mono);font-size:9px;color:var(--fg-faint);}
+.fixedrow{display:flex;align-items:center;gap:11px;background:var(--bg-void);border:1px dashed var(--border);border-radius:9px;padding:9px 13px;margin-bottom:7px;}
+.fixedrow .ic{color:var(--fg-faint);font-size:11px;width:16px;text-align:center;flex:none;}
+.fixedrow .t1{font-family:var(--mono);font-size:11px;color:var(--fg-secondary);}
+.fixedrow .sp{flex:1;}
+.fixedrow .lk{font-family:var(--mono);font-size:8.5px;color:var(--fg-faint);letter-spacing:.5px;border:1px solid var(--border);border-radius:4px;padding:0 5px;}
+
+/* gates + target */
+.grule{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:var(--bg-void);border:1px solid var(--border);border-radius:9px;padding:9px 13px;margin-bottom:7px;font-family:var(--mono);font-size:11px;}
+.grule .pat{color:var(--accent-bright);}
+.grule .gt{color:var(--fg-secondary);}
+.grule .str{font-size:8.5px;font-weight:700;letter-spacing:.5px;border-radius:4px;padding:1px 6px;border:1px solid;}
+.grule .str.strong{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 50%,transparent);background:color-mix(in srgb,var(--gold) 7%,transparent);}
+.grule .str.norm{color:var(--fg-secondary);border-color:var(--border);}
+.srcnote{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);margin:4px 0 0;line-height:1.7;}
+.srcnote .a{color:var(--accent);}
+.tgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.tgc{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:12px 14px;cursor:pointer;}
+.tgc:hover{border-color:var(--fg-muted);}
+.tgc.sel{border-color:var(--accent);background:var(--bg-sel);box-shadow:0 0 0 1px var(--accent-dim);}
+.tgc .t1{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--fg-primary);display:flex;align-items:center;gap:8px;}
+.tgc .t1 .led{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 6px color-mix(in srgb,var(--success) 60%,transparent);flex:none;}
+.tgc .t2{font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);margin-top:6px;line-height:1.7;}
+.budrow{display:flex;align-items:center;gap:12px;background:var(--bg-void);border:1px solid var(--border);border-radius:9px;padding:10px 14px;font-family:var(--mono);font-size:11px;color:var(--fg-secondary);}
+.budrow b{color:var(--fg-primary);}
+.budrow .bar{flex:1;height:5px;border-radius:3px;background:var(--bg-base);overflow:hidden;min-width:80px;}
+.budrow .bar i{display:block;height:100%;width:0;background:var(--accent);}
+
+/* summary rail */
+.summ{background:var(--bg-panel);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.summ .hd{padding:15px 17px 9px;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);display:flex;align-items:center;gap:8px;}
+.summ .hd::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.lanecard{margin:4px 13px 12px;background:var(--bg-void);border:1px solid var(--border);border-radius:11px;padding:13px 15px;}
+.lanecard .r1{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;}
+.lanecard .r1 .lid{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700;}
+.lanecard .r1 .dot{width:9px;height:9px;border-radius:3px;flex:none;}
+.lanecard .r2{font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);margin-top:5px;}
+.kv{display:flex;gap:10px;padding:7px 17px;font-size:11.5px;border-bottom:1px solid var(--border-soft);}
+.kv:last-of-type{border-bottom:none;}
+.kv .k{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);width:74px;flex:none;padding-top:1px;letter-spacing:.5px;}
+.kv .v{color:var(--fg-secondary);font-family:var(--mono);font-size:10.5px;line-height:1.6;word-break:break-all;}
+.kv .v b{color:var(--fg-primary);font-weight:600;}
+.kv .v .a{color:var(--accent);}
+.kv .v .pend{color:var(--fg-faint);font-style:italic;}
+.summ .note{margin-top:auto;border-top:1px solid var(--border-soft);padding:12px 17px;font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.8;}
+.summ .note .a{color:var(--accent);}
+
+/* footer */
+.wfoot{flex:none;border-top:1px solid var(--border);background:var(--bg-void);padding:12px 18px;display:flex;align-items:center;gap:12px;}
+.wfoot .prog{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+.wfoot .prog b{color:var(--fg-primary);}
+.wfoot .sp{flex:1;}
+.gbtn{font-size:12.5px;font-weight:600;border-radius:8px;padding:8px 18px;cursor:pointer;border:1px solid var(--border);color:var(--fg-secondary);background:transparent;font-family:var(--sans);}
+.gbtn:hover{color:var(--fg-primary);border-color:var(--fg-muted);}
+.gbtn:disabled{opacity:.35;cursor:not-allowed;}
+.gbtn.primary{color:#06222b;background:var(--accent);border-color:var(--accent);font-weight:700;}
+.gbtn.primary:hover{background:var(--accent-bright);border-color:var(--accent-bright);}
+.gbtn kbd{font-family:var(--mono);font-size:9px;opacity:.65;margin-left:6px;}
+.toast{position:absolute;left:50%;bottom:74px;transform:translateX(-50%);background:var(--bg-elev);border:1px solid var(--accent-dim);color:var(--fg-primary);font-size:12.5px;border-radius:9px;padding:9px 16px;box-shadow:0 10px 30px rgba(0,0,0,.45);display:flex;gap:10px;align-items:center;white-space:nowrap;z-index:5;}
+.toast .mono{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+</style>
+</head>
+<body>
+<div class="pwrap">
+  <div id="root"></div>
+</div>
+
+<script type="text/babel" src="../tweaks-panel.jsx"></script>
+<script type="text/babel" src="gui-statusbar.jsx"></script>
+<script type="text/babel">
+const {useState} = React;
+const t = window.t || ((en,zh)=>en);
+
+const ROLES=[
+  {id:'designer', nm:t('Design','策划'), en:'DESIGNER', color:'var(--gold)', desc:t('GDD / balance / design-contract owner; output goes through the contract gate','GDD / 数值平衡 / 设计契约 owner，产出走契约闸'), rec:'claude-code', model:'claude-sonnet-4.6', lane:'designer', skills:['gdd','balance','gate']},
+  {id:'gameplay', nm:'Gameplay', en:'GAMEPLAY', color:'var(--accent)', desc:t('Gameplay & feel implementation; behavior changes go through the replay-regression gate','玩法与手感实现，行为改动走回放回归闸'), rec:'codex', model:'gpt-5-codex', lane:'gameplay', skills:['gd4','replay','feel']},
+  {id:'render', nm:t('Render / VFX','渲染 / VFX'), en:'RENDER', color:'var(--progress)', desc:t('Shaders, VFX & presentation; visuals go through golden-frame & frame-budget gates','着色器、特效与表现，画面走金样闸、帧预算闸'), rec:'kiro', model:'kiro-default', lane:'render', skills:['shader','golden','perf']},
+  {id:'content', nm:t('Content gen','内容生成'), en:'CONTENT', color:'var(--success)', desc:t('Batch level / asset generation; output enters gallery review','关卡 / 资产批量生成，产出进画廊评审'), rec:'builtin', model:'gemini-2.5-pro', lane:'content', skills:['level','brief','gallery']},
+];
+
+const AGENTS=[
+  {id:'codex', nm:'codex', kind:'ACP', status:t('connected','已连接'), warn:false, models:['gpt-5-codex'], g:'cx'},
+  {id:'claude-code', nm:'claude-code', kind:'ACP', status:t('connected','已连接'), warn:false, models:['claude-sonnet-4.6','claude-haiku-4.5'], g:'cc'},
+  {id:'kiro', nm:'kiro', kind:t('ACP bridge','ACP 桥接'), status:t('beta · to verify (Q4)','beta · 待验证（Q4）'), warn:true, models:['kiro-default'], g:'ki'},
+  {id:'builtin', nm:t('built-in agent','内置 agent'), kind:'BUILT-IN', status:t('swappable model · supports routing policy','模型可换 · 支持路由策略'), warn:false, models:['gemini-2.5-pro','deepseek-v4','qwen3-coder'], g:'vd'},
+];
+
+const SKILLS=[
+  {id:'gd4', nm:'gdscript-style', d:t('Godot 4 / GDScript conventions & API reference','Godot 4 / GDScript 规范与 API 对照'), meta:'musegw · 3 files'},
+  {id:'replay', nm:'replay-harness', d:t('Deterministic input replay: record / replay / assert','确定性输入回放：录制 / 重演 / 断言'), meta:'musegw · 5 files'},
+  {id:'feel', nm:'feel-tuning', d:t('Feel parameterization & tuning-session conventions','手感参数化与调参会话约定'), meta:'musegw · 2 files'},
+  {id:'gdd', nm:'gdd-writing', d:t('GDD / design-contract templates & writing discipline','GDD / 设计契约模板与写作纪律'), meta:'musegw · 4 files'},
+  {id:'balance', nm:'balance-sheet', d:t('Balance-sheet schema & validation','数值平衡表 schema 与校验'), meta:'musegw · 2 files'},
+  {id:'gate', nm:'review-gate', d:t('Review-gate templates: evidence dir + decision records','评审闸模板：证据目录 + 决策记录'), meta:'musegw · 3 files'},
+  {id:'level', nm:'level-layout', d:t('Level-layout generation & reachability checks','关卡布局生成与可达性检查'), meta:'musegw · 4 files'},
+  {id:'brief', nm:'asset-brief', d:t('Asset brief / provenance registration','资产 brief / provenance 登记'), meta:'musegw · 2 files'},
+  {id:'gallery', nm:'gallery-flow', d:t('Directory conventions for batch output going to gallery review','批量产出走画廊评审的目录约定'), meta:'musegw · 2 files'},
+  {id:'shader', nm:'shader-style', d:t('Shader organization & degradation-path conventions','着色器组织与降级路径约定'), meta:'musegw · 3 files'},
+  {id:'golden', nm:'golden-frame', d:t('Golden-frame capture & pixel-diff tolerance','金样画面采集与像素 diff 容差'), meta:'musegw · 3 files'},
+  {id:'perf', nm:'perf-budget', d:t('Frame-budget allocation table & sampling scripts','帧预算分配表与采样脚本'), meta:'musegw · 2 files'},
+];
+
+const TARGETS=[
+  {id:'local', nm:t('local · this machine','local · 本机'), sub:t('macOS · arm64\ndefault · runs directly in worktree','macOS · arm64\n默认 · worktree 直接执行'), led:true},
+  {id:'gpu-01', nm:'gpu-01 · SSH', sub:t('8×A100 · 192.168.1.21\nport forward 6006 · rsync sync','8×A100 · 192.168.1.21\n端口回传 6006 · rsync 同步'), led:true},
+  {id:'robot-01', nm:'robot-01 · SSH', sub:t('arm64 control board · 192.168.1.40\nreconnect-resume · e-stop precheck','arm64 主控板 · 192.168.1.40\n断线续会话 · e-stop 前置'), led:true},
+];
+
+const STEPS=[
+  {t:t('Role & workstation','角色与工位'), d:'role'},
+  {t:t('Choose agent','选择 agent'), d:'agent'},
+  {t:t('Skill pack','Skill 包'), d:'skills'},
+  {t:t('Gates & target','闸与执行目标'), d:'gates'},
+];
+
+function App(){
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "showAdvanced":true,
+    "laneId":"L5"
+  }/*EDITMODE-END*/);
+  const [step,setStep]=useState(0);
+  const [role,setRole]=useState('gameplay');
+  const [agent,setAgent]=useState('codex');
+  const [model,setModel]=useState('gpt-5-codex');
+  const [sk,setSk]=useState({gd4:true,replay:true,feel:true,gate:true});
+  const [target,setTarget]=useState('local');
+  const [toast,setToast]=useState(null);
+  const [created,setCreated]=useState(false);
+
+  const R=ROLES.find(r=>r.id===role);
+  const A=AGENTS.find(a=>a.id===agent);
+  const skCount=Object.values(sk).filter(Boolean).length;
+  const laneName=R.lane;
+  const maxStep={role:0,agent:1,skills:2,gates:3};
+
+  const pickRole=(r)=>{
+    setRole(r.id);
+    setAgent(r.rec); setModel(r.model);
+    const next={gate:true}; r.skills.forEach(s=>next[s]=true); setSk(next);
+  };
+  const pickAgent=(a)=>{setAgent(a.id);setModel(a.models[0]);};
+  const create=()=>{
+    setCreated(true);
+    setToast(t(`${tw.laneId} · ${laneName} created — worktree ready, session S1 standing by`,`${tw.laneId} · ${laneName} 已创建 — worktree 就绪，session S1 待命`));
+    setTimeout(()=>setToast(null),3200);
+  };
+
+  const stepDone=(i)=>i<step;
+
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · D4 concept · draft 01</div>
+      <h1 className="ph1">{t('New Lane flow','Lane 创建流程')} <span className="ac">New Lane</span></h1>
+      <p className="plead">{t('Four steps to open a workstation: ','四步开工位：')}<b>{t('role → agent → skill pack → gates & target','角色 → agent → skill 包 → 闸与执行目标')}</b>{t('. The role preset brings the recommended agent & skills; gate policy inherits the repo ','。角色预设带出推荐 agent 与 skills；闸策略默认继承仓库 ')}<b>viden.toml</b>{t(' by default (policy-as-code); worktree and branch are fully automatic. On creation it stays resident as a daemon — the cockpit is just a view.','（策略即代码），worktree 与分支全自动。创建即以 daemon 形态常驻 —— 驾驶舱只是视图。')}</p>
+    <div className="frame" data-screen-label="Lane 创建">
+      <div className="vbar">
+        <div className="tl"><i className="a"></i><i className="b"></i><i className="c"></i></div>
+        <span className="wm"><span style={{color:'var(--accent)'}}>[</span><span style={{color:'var(--accent-bright)'}}>◉</span><span style={{color:'var(--accent)'}}>]</span> <span className="r">v</span><span className="c">iden</span></span>
+        <span className="projsel">viden <span className="br">⎇ main</span> ▾</span>
+        <span className="sp"></span>
+        <div className="vtools"><div className="vbtn" title="Command palette ⌘K"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg></div></div>
+      </div>
+      <div className="cmdbar">
+        <span className="t"><span className="plus">+</span>{t('New Lane','新建 Lane')}</span>
+        <span className="sub">{t('Boss Rush «Counter Trial»','Boss Rush 《反击试炼》')} · {t('already ','已有 ')}<b>4</b>{t(' lanes (L1–L4) · this workstation will be ',' 条 lane（L1–L4）· 本工位将是 ')}<b>{tw.laneId}</b></span>
+        <span className="sp"></span>
+        <span className="meta">{t('gate policy & budget from viden.toml · role presets from the game domain pack','闸策略与预算来源 viden.toml · 角色预设来自游戏领域包')}</span>
+      </div>
+      <div className="inner">
+
+        {/* steps rail */}
+        <div className="steps">
+          {STEPS.map((s,i)=>(
+            <div key={i} className={"stp "+(i===step?'cur':'')+(stepDone(i)?' done':'')} onClick={()=>setStep(i)}>
+              <span className="nn">{stepDone(i)?'✓':i+1}</span>
+              <div className="tx">
+                <div className="t1">{s.t}</div>
+                <div className="t2">{i===0&&t('role preset · name · worktree','角色预设 · 名称 · worktree')}{i===1&&t('ACP / built-in · model','ACP / 内置 · 模型')}{i===2&&t('domain-pack mount · context injection','领域包挂载 · 上下文注入')}{i===3&&t('gate policy · target · budget','闸策略 · target · 预算')}</div>
+              </div>
+            </div>
+          ))}
+          <div className="foot">{t('A role is just a preset — every step is editable. After creation the lane stays resident as a ','角色只是预设 —— 任何一步都可改。lane 创建后以 ')}<span className="a">daemon</span>{t(', closing the cockpit does not affect it.',' 常驻，关掉驾驶舱不影响运行。')}</div>
+        </div>
+
+        {/* step content */}
+        <div className="scont">
+          {step===0 && <div data-screen-label="步骤1 角色">
+            <div className="shead"><div className="t">{t('Role & workstation','角色与工位')} <span className="en">ROLE</span></div><div className="d">{t('The role determines the recommended agent, skill pack and default gate routing — a workstation preset from the game domain pack.','角色决定推荐 agent、skill 包与默认闸路由 —— 来自游戏领域包的工位预设。')}</div></div>
+            <div className="sbody">
+              <div className="sec">{t('Role presets','角色预设')} <span className="hint">{t('· from the game domain pack','· 游戏领域包提供')}</span></div>
+              <div className="rolegrid">
+                {ROLES.map(r=>(
+                  <div key={r.id} className={"rolec "+(role===r.id?'sel':'')} onClick={()=>pickRole(r)}>
+                    <span className="dot" style={{background:r.color}}></span>
+                    <div>
+                      <div className="t1">{r.nm} <span className="en">{r.en}</span></div>
+                      <div className="t2">{r.desc}</div>
+                      <div className="t3">{t('rec','推荐')} <span className="a">{r.rec}</span> · skills ×{r.skills.length}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="sec">{t('Workstation identity','工位标识')}</div>
+              <div className="fields">
+                <div className="field"><label>{t('Lane name','Lane 名称')}</label><input defaultValue={laneName} key={laneName}/></div>
+                <div className="field"><label>{t('Branch prefix','分支前缀')}</label><input defaultValue="vd/" /></div>
+                {tw.showAdvanced && <div className="field"><label>Worktree</label><div className="ro">.viden/worktrees/{tw.laneId.toLowerCase()}-{laneName}<span className="au">AUTO</span></div></div>}
+                {tw.showAdvanced && <div className="field"><label>{t('Base branch','基线分支')}</label><div className="ro">main @ 9f3ac21<span className="au">AUTO</span></div></div>}
+              </div>
+            </div>
+          </div>}
+
+          {step===1 && <div data-screen-label="步骤2 agent">
+            <div className="shead"><div className="t">{t('Choose agent','选择 agent')} <span className="en">AGENT</span></div><div className="d">{t('Connect a full agent over ACP, or use the built-in agent (configurable model routing: small model for cleanup, strong model for implementation).','ACP 接入完整 agent，或用内置 agent（可配模型路由：整理用小模型、实现用强模型）。')}</div></div>
+            <div className="sbody">
+              <div className="sec">{t('Available agents','可用 agent')} <span className="hint">{t('· ACP / built-in dual track','· ACP / 内置双轨')}</span></div>
+              <div className="agrow">
+                {AGENTS.map(a=>(
+                  <div key={a.id}>
+                    <div className={"agc "+(agent===a.id?'sel':'')} onClick={()=>pickAgent(a)}>
+                      <span className="glyph">{a.g}</span>
+                      <div>
+                        <div className="t1">{a.nm} {R.rec===a.id && <span className="rec">{t('role pick','角色推荐')}</span>}</div>
+                        <div className="t2">{a.kind}</div>
+                      </div>
+                      <span className="sp"></span>
+                      <span className={"chip "+(a.warn?'warn':'')}><span className="led"></span>{a.status}</span>
+                    </div>
+                    {agent===a.id && a.models.length>1 && (
+                      <div className="modelrow">
+                        {a.models.map(m=>(
+                          <span key={m} className={"mchip "+(model===m?'on':'')} onClick={()=>setModel(m)}>{m}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {agent==='builtin' && <React.Fragment>
+                <div className="sec">{t('Model routing','模型路由')} <span className="hint">{t('· from team config viden.toml [models]','· 来自团队配置 viden.toml [models]')}</span></div>
+                <div className="fixedrow"><span className="ic">⇄</span><span className="t1">{t('cleanup / summary / routing → deepseek-v4 · implementation / refactor → ','整理 / 摘要 / 路由 → deepseek-v4 · 实现 / 重构 → ')}{model}</span><span className="sp"></span><span className="lk">POLICY</span></div>
+              </React.Fragment>}
+            </div>
+          </div>}
+
+          {step===2 && <div data-screen-label="步骤3 skills">
+            <div className="shead"><div className="t">{t('Skill pack','Skill 包')} <span className="en">SKILLS</span></div><div className="d">{t('The domain pack mounts with the project; check skills by role; context-injection items are kernel conventions and cannot be turned off.','领域包随项目挂载，按角色勾选 skills；上下文注入项为内核约定，不可关闭。')}</div></div>
+            <div className="sbody">
+              <div className="packcard">
+                <span className="dot"></span>
+                <div>
+                  <div className="t1">{t('Game domain pack · MuseGameWorkshop','游戏领域包 · MuseGameWorkshop')}</div>
+                  <div className="t2">{t('runner: Godot headless 4.3 · evidence: docs/evidence/ · contract schema: balance sheet · skills ×14 · templates ×27','runner: Godot headless 4.3 · 证据: docs/evidence/ · 契约 schema: 数值平衡表 · skills ×14 · 模板 ×27')}</div>
+                </div>
+                <span className="sp"></span>
+                <span className="chip"><span className="led"></span>{t('mounted','已挂载')}</span>
+              </div>
+              <div className="sec">{t('Skills for this workstation','本工位 skills')} <span className="hint">{t('· selected ','· 已选 ')}{skCount}</span></div>
+              {SKILLS.map(s=>(
+                <div key={s.id} className={"skrow "+(sk[s.id]?'on':'')} onClick={()=>setSk(p=>({...p,[s.id]:!p[s.id]}))}>
+                  <span className="cb">✓</span>
+                  <span className="t1">{s.nm}</span>
+                  <span className="t2">{s.d}</span>
+                  <span className="sp"></span>
+                  <span className="meta">{s.meta}</span>
+                </div>
+              ))}
+              <div className="sec">{t('Context injection','上下文注入')} <span className="hint">{t('· kernel convention · read at every session start','· 内核约定 · 每个 session 启动必读')}</span></div>
+              <div className="fixedrow"><span className="ic">¶</span><span className="t1">{t('AGENTS.md · engineering conventions','AGENTS.md · 工程约定')}</span><span className="sp"></span><span className="lk">{t('pinned','固定')}</span></div>
+              <div className="fixedrow"><span className="ic">§</span><span className="t1">{t('contracts/ · contract dir (design-spec.md v1.1 etc.)','contracts/ · 契约目录（design-spec.md v1.1 等）')}</span><span className="sp"></span><span className="lk">{t('pinned','固定')}</span></div>
+              <div className="fixedrow"><span className="ic">✉</span><span className="t1">{t('memos/ · change memos (ack required)','memos/ · 变更备忘（须 ack）')}</span><span className="sp"></span><span className="lk">{t('pinned','固定')}</span></div>
+            </div>
+          </div>}
+
+          {step===3 && <div data-screen-label="步骤4 闸与目标">
+            <div className="shead"><div className="t">{t('Gates & target','闸与执行目标')} <span className="en">GATES & TARGET</span></div><div className="d">{t('Gate policy is code: inherits the repo viden.toml by default, read-only preview here; the target decides where commands run.','闸策略即代码：默认继承仓库 viden.toml，本步只读预览；执行目标决定命令在哪跑。')}</div></div>
+            <div className="sbody">
+              <div className="sec">{t('Gate rules that will apply to this lane','将作用于本 lane 的闸规则')} <span className="hint">{t('· inherited from viden.toml','· 继承 viden.toml')}</span></div>
+              <div className="grule"><span className="pat">contracts/**</span><span className="gt">{t('contract gate · subscribers get a memo','契约闸 · 订阅方收 memo')}</span><span className="str strong">{t('strong gate','强闸')}</span></div>
+              <div className="grule"><span className="pat">{t('src/** · behavior change','src/** · 行为改动')}</span><span className="gt">{t('replay-regression gate · Godot headless','回放回归闸 · Godot headless')}</span><span className="str norm">{t('auto-validate + human approve','自动验证 + 人批')}</span></div>
+              <div className="grule"><span className="pat">levels/** · assets/**</span><span className="gt">{t('gallery review · keep / kill','画廊评审 · keep / kill')}</span><span className="str norm">{t('batch gate','批量闸')}</span></div>
+              <div className="grule"><span className="pat">merge → main</span><span className="gt">{t('integration gate · conflicts return to origin lane','集成闸 · 冲突退回原 lane')}</span><span className="str strong">{t('strong gate','强闸')}</span></div>
+              <p class="srcnote">{t('Rules come from ','规则来自 ')}<span className="a">viden.toml [gates]</span>{t(' · changing rules = editing files through the contract gate, not edited here. In V1 you are the only approver; from V1.5 they route to people by ownership.',' · 改规则 = 改文件走契约闸，不在此处编辑。V1 审批人均为你自己；V1.5 起按 ownership 路由到人。')}</p>
+              <div className="sec">{t('Execution target','执行目标')} <span className="hint">· target</span></div>
+              <div className="tgrid">
+                {TARGETS.map(g=>(
+                  <div key={g.id} className={"tgc "+(target===g.id?'sel':'')} onClick={()=>setTarget(g.id)}>
+                    <div className="t1"><span className="led"></span>{g.nm}</div>
+                    <div className="t2" style={{whiteSpace:'pre-line'}}>{g.sub}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="sec">{t('Budget','预算')} <span className="hint">· viden.toml [budget]</span></div>
+              <div className="budrow"><span>{t('token weekly quota','token 周配额')} <b>50k</b></span><span className="bar"><i></i></span><span>{t('warn_at 80% · pause & ask on overage (see Decision Center)','warn_at 80% · 超限暂停并问询（见决策中心）')}</span></div>
+            </div>
+          </div>}
+        </div>
+
+        {/* summary rail */}
+        <div className="summ" data-screen-label="工位预览">
+          <div className="hd">{t('Workstation preview','工位预览')}</div>
+          <div className="lanecard">
+            <div className="r1"><span className="dot" style={{background:R.color}}></span><span className="lid">{tw.laneId}</span>{laneName}</div>
+            <div className="r2">{R.nm} · {created?t('daemon running','daemon 运行中'):t('to be created','待创建')}</div>
+          </div>
+          <div className="kv"><span className="k">AGENT</span><span className="v"><b>{A.nm}</b> · {model}</span></div>
+          <div className="kv"><span className="k">WORKTREE</span><span className="v">.viden/worktrees/{tw.laneId.toLowerCase()}-{laneName}</span></div>
+          <div className="kv"><span className="k">{t('Branch','分支')}</span><span className="v">{t('vd/* · base main @ 9f3ac21','vd/* · 基线 main @ 9f3ac21')}</span></div>
+          <div className="kv"><span className="k">SKILLS</span><span className="v"><b>{skCount}</b>{t(' · MuseGameWorkshop',' 个 · MuseGameWorkshop')}</span></div>
+          <div className="kv"><span className="k">{t('Inject','注入')}</span><span className="v">AGENTS.md · contracts/ · memos/</span></div>
+          <div className="kv"><span className="k">{t('Gates','闸规则')}</span><span className="v">{step>=3?<b>{t('4 rules · inherits viden.toml','4 条 · 继承 viden.toml')}</b>:<span className="pend">{t('confirm in step 4','第 4 步确认')}</span>}</span></div>
+          <div className="kv"><span className="k">TARGET</span><span className="v">{step>=3?<b>{TARGETS.find(g=>g.id===target).nm}</b>:<span className="pend">{t('confirm in step 4','第 4 步确认')}</span>}</span></div>
+          <div className="kv"><span className="k">{t('Budget','预算')}</span><span className="v">{t('50k token / week · warn 80%','50k token / 周 · warn 80%')}</span></div>
+          <div className="note">{t('The create action is written to the audit trail: ','创建动作会写入审计流：')}<span className="a">{t('who, when, with what config','谁、何时、以何配置')}</span>{t(' opened this lane — same source as the gate log.',' 开了这条 lane —— 与闸日志同源。')}</div>
+        </div>
+      </div>
+
+      {/* footer */}
+      <div className="wfoot">
+        <span className="prog">{t('Step','步骤')} <b>{step+1}</b> / 4 · {STEPS[step].t}</span>
+        <span className="sp"></span>
+        <button className="gbtn">{t('Cancel','取消')}</button>
+        <button className="gbtn" disabled={step===0} onClick={()=>setStep(s=>Math.max(0,s-1))}>{t('Back','上一步')}</button>
+        {step<3
+          ? <button className="gbtn primary" onClick={()=>setStep(s=>s+1)}>{t('Next','下一步')}<kbd>⏎</kbd></button>
+          : <button className="gbtn primary" onClick={create}>{t('Create & start ','创建并启动 ')}{tw.laneId}<kbd>⌘⏎</kbd></button>}
+      </div>
+      {toast && <div className="toast">✓ {toast}<span className="mono">audit: lane-created</span></div>}
+
+      <GuiStatusBar right={t('new lane · draft','\u65b0 lane \u00b7 \u8349\u7a3f')}/>
+      <TweaksPanel>
+        <TweakSection label={t('Content','内容')} />
+        <TweakToggle label={t('Show advanced fields','显示高级字段')} value={tw.showAdvanced} onChange={v=>setTweak('showAdvanced',v)} />
+        <TweakText label={t('Lane ID','Lane 编号')} value={tw.laneId} onChange={v=>setTweak('laneId',v)} />
+      </TweaksPanel>
+    </div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

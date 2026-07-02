@@ -1,0 +1,50 @@
+{
+  "note": "已认证保留的 GUI 图标违规清单（仅组件库 showcase 的内联 .ic 陈列）。新增需修代码或显式加到这里。",
+  "generatedAt": "2026-06-30",
+  "reason": "seed after emoji cleanup",
+  "totalEntries": 8,
+  "files": {
+    "GUI/Viden - 组件库 (GUI).html": [
+      {
+        "line": 82,
+        "kind": "inline-ic",
+        "match": "<svg class=\"ic\""
+      },
+      {
+        "line": 83,
+        "kind": "inline-ic",
+        "match": "<svg class=\"ic\""
+      },
+      {
+        "line": 84,
+        "kind": "inline-ic",
+        "match": "<svg class=\"ic\""
+      },
+      {
+        "line": 98,
+        "kind": "inline-ic",
+        "match": "<svg class=\"ic\""
+      },
+      {
+        "line": 99,
+        "kind": "inline-ic",
+        "match": "<svg class=\"ic\""
+      },
+      {
+        "line": 100,
+        "kind": "inline-ic",
+        "match": "<svg class=\"ic\""
+      },
+      {
+        "line": 101,
+        "kind": "inline-ic",
+        "match": "<svg class=\"ic\""
+      },
+      {
+        "line": 103,
+        "kind": "inline-ic",
+        "match": "<svg class=\"ic\""
+      }
+    ]
+  }
+}

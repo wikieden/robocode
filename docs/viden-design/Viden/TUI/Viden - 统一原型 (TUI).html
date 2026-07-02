@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-density="compact">
+<html lang="en" data-mode="dark" data-skin="aurora" data-density="compact">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,30 +9,23 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../tokens.css">
 <link rel="stylesheet" href="tui-kit.css">
-<script src="i18n.js"></script>
-<script src="chrome.js"></script>
+<script src="../i18n.js"></script>
+<script src="../chrome.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <style>
 /* 仅页面外壳（doc chrome）—— 所有组件类来自 tui-kit.css */
 *{box-sizing:border-box;}
-body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
-.doc{max-width:1180px;margin:0 auto;padding:30px 28px 90px;}
-.pkicker{font-family:var(--font-mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:11px;}
-.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
-.ph1{font-size:30px;margin:0 0 10px;letter-spacing:-.6px;font-weight:700;}
-.ph1 .ac{color:var(--accent);}
-.plead{font-size:14.5px;color:var(--fg-secondary);margin:0 0 8px;max-width:920px;line-height:1.65;text-wrap:pretty;}
-.plead b{color:var(--fg-primary);font-weight:600;} .plead kbd{font-family:var(--font-mono);color:var(--gold);font-size:12.5px;}
-.try{display:flex;gap:9px;flex-wrap:wrap;margin:14px 0 18px;}
-.trybtn{font-family:var(--font-mono);font-size:11.5px;color:var(--accent-bright);border:1px solid var(--accent-dim);
-  background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:var(--r-md);padding:5px 12px;cursor:pointer;}
-.trybtn:hover{background:color-mix(in srgb,var(--accent) 12%,transparent);}
-.trybtn b{color:var(--gold);}
+body{margin:0;overflow:hidden;background:var(--bg-void);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+/* 全屏产品模式：驾驶舱铺满视口，打开即用（描述性文案已删 · SPEC D-COPY） */
+.doc{height:100vh;display:flex;align-items:center;justify-content:center;padding:0;}
+#app{display:flex;min-height:0;}
+.docslink{position:fixed;left:12px;bottom:12px;z-index:99999;font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);text-decoration:none;border:1px solid var(--border);background:color-mix(in srgb,var(--bg-elev) 85%,transparent);padding:5px 10px;border-radius:var(--r-sm);backdrop-filter:blur(5px);}
+.docslink:hover{color:var(--accent-bright);border-color:var(--accent-dim);}
 /* 驾驶舱布局（消费 tui-kit 的 .vterm 等）*/
 /* 驾驶舱终端底色随皮肤换肤：把固定 --term-* 别名到当前主题的背景 token（零裸色值，换 data-theme 即换终端底） */
-#cockpit{height:min(760px,calc(100vh - 40px));--term-screen:var(--bg-void);--term-chrome:var(--bg-topbar);--term-edge:var(--border-soft);}
+#cockpit{width:min(1040px,92vw);height:min(640px,86vh);min-width:600px;min-height:400px;overflow:hidden;border:1px solid var(--win-edge);border-radius:var(--r-lg);box-shadow:var(--shadow-win);--term-screen:var(--bg-void);--term-chrome:var(--bg-topbar);--term-edge:var(--border-soft);}
 .c-body{flex:1;display:grid;grid-template-columns:1fr 290px;min-height:0;transition:grid-template-columns .18s var(--ease,ease);}
 .c-body.rail-off{grid-template-columns:1fr 0;}
 .c-body.rail-off .c-rail{display:none;}
@@ -48,8 +41,8 @@ body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(
 .vchrome-tab b{color:var(--fg-faint);font-weight:700;transition:color .12s;}
 .vchrome-tab:hover{color:var(--fg-secondary);background:color-mix(in srgb,var(--accent) 7%,transparent);}
 .vchrome-tab:hover b{color:var(--fg-muted);}
-.vchrome-tab.on{color:var(--bg-void);background:var(--accent);border-color:var(--accent);}
-.vchrome-tab.on b{color:var(--bg-void);}
+.vchrome-tab.on{color:var(--on-accent);background:var(--accent);border-color:var(--accent);}
+.vchrome-tab.on b{color:var(--on-accent);}
 .vchrome-dot{width:6px;height:6px;border-radius:var(--r-full);background:var(--gold-bright);box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 30%,transparent);}
 .vchrome-tab.on .vchrome-dot{background:var(--bg-void);box-shadow:none;}
 .c-scroll{flex:1;min-height:0;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;padding:13px 16px;font-family:var(--font-mono);font-size:13px;display:flex;flex-direction:column;gap:10px;}
@@ -189,7 +182,7 @@ body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(
 .rseg{display:flex;border:1px solid var(--border-soft);border-radius:var(--r-sm);overflow:hidden;}
 .rseg button{flex:1;background:transparent;border:0;border-right:1px solid var(--border-soft);color:var(--fg-muted);font-family:var(--font-mono);font-size:10.5px;padding:5px 4px;cursor:pointer;transition:background .12s,color .12s;}
 .rseg button:last-child{border-right:0;} .rseg button:hover{color:var(--fg-secondary);}
-.rseg button.on{background:var(--accent);color:var(--bg-void);font-weight:700;}
+.rseg button.on{background:var(--accent);color:var(--on-accent);font-weight:700;}
 /* lane 行展开：在跑的后台 agent 子列表 */
 .vlane-ct{margin-left:auto;font-size:9.5px;color:var(--progress);font-family:var(--font-mono);font-weight:700;}
 .vlane-car{font-size:8px;color:var(--fg-muted);transition:transform .15s;display:inline-block;margin-left:6px;}
@@ -240,11 +233,9 @@ body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(
 </head>
 <body>
 <div class="doc">
-  <div class="pkicker" data-zh="统一原型 · 单一组件库">Unified prototype · one component kit</div>
-  <h1 class="ph1" data-zh="一个 TUI 驾驶舱,<span class='ac'>一套组件</span>">One TUI cockpit, <span class="ac">one component kit</span></h1>
-  <p class="plead" data-zh="把散在各页的终端框 / 状态栏 / 红绿灯 / lane 行 / 后端 chip / 权限闸 / 快捷键提示统一成 <b>tui-kit.css</b> 一套类名,在这个<b>可交互</b>驾驶舱里跑通。后端铁律 <b class='vk-accent'>ACP=青</b> · <b class='vk-builtin'>built-in=紫</b> · <b class='vk-gold'>tmux=金</b>;权限闸统一为 <b>4 档 + 超时自动拒</b>。试试 <kbd>⌃L</kbd> 切 lane · <kbd>⌃P</kbd> 命令面板 · <kbd>⌃G</kbd> 决策中心,或点右栏带 ⏸ 的 lane 触发审批闸。">The terminal frame / status bar / traffic lights / lane row / backend chip / permission gate / shortcut hints — scattered across pages — are unified into one class vocabulary in <b>tui-kit.css</b> and driven live in this <b>interactive</b> cockpit. Backend rule <b class="vk-accent">ACP=cyan</b> · <b class="vk-builtin">built-in=violet</b> · <b class="vk-gold">tmux=gold</b>; the gate is one <b>4-tier + auto-deny</b> model. Try <kbd>⌃L</kbd> switch lane · <kbd>⌃P</kbd> command palette · <kbd>⌃G</kbd> decision center, or click a ⏸ lane on the right to fire the approval gate.</p>
-  <div class="try" id="tryRow"></div>
+  <!-- 描述性文案不留在高保真原型(SPEC D-COPY) —— 本屏说明见 screens-status.js meta 与 TUI 设计稿索引 -->
   <div id="app"></div>
+  <a class="docslink" href="Viden - 设计稿索引 (TUI).html" data-zh="▤ 设计稿">▤ design docs</a>
 </div>
 
 <script type="text/babel">
@@ -348,19 +339,30 @@ function Hud(){
 }
 
 function Rail({lanes,activeId,setActiveId}){
-  const [tab,setTab] = useState('lane');
+  const [tab,setTab] = useState('project');
   const [col,setCol] = useState({});
-  const SKINS=[['dark','#0a1019','#34bdd9','#e3ab44'],['light','#f5f8fb','#0c87a4','#a9750f'],['amber','#14100a','#e09a3e','#e0b24a'],['phosphor','#04140a','#41d97a','#c9d94a'],['ice','#080d17','#5b8def','#9aa7c4'],['mono','#0d1013','#34bdd9','#c9b485']];
-  const [theme,setTheme] = useState(()=>document.documentElement.dataset.theme||'dark');
+  const SKINS=[['aurora','#0a1019','#34bdd9','#e3ab44'],['ice','#080d17','#5b8def','#9aa7c4'],['mono','#0d1013','#34bdd9','#c9b485'],['amber','#14100a','#e09a3e','#e0b24a'],['phosphor','#04140a','#41d97a','#c9d94a']];
+  const modesFor=id=>(id==='amber'||id==='phosphor')?['dark']:['dark','light'];
+  const LEGACY_TH={dark:['aurora','dark'],light:['aurora','light'],amber:['amber','dark'],phosphor:['phosphor','dark'],ice:['ice','dark'],mono:['mono','dark']};
+  const [skin,setSkin] = useState(()=>document.documentElement.dataset.skin||'aurora');
+  const [mode,setMode] = useState(()=>document.documentElement.dataset.mode||'dark');
   const [dens,setDens] = useState(()=>document.documentElement.dataset.density||'compact');
-  useEffect(()=>{ try{const s=localStorage.getItem('viden-theme'); const d=localStorage.getItem('viden-density'); if(s){document.documentElement.dataset.theme=s;setTheme(s);} if(d){document.documentElement.dataset.density=d;setDens(d);}}catch(e){} },[]);
-  const applyTheme=th=>{document.documentElement.dataset.theme=th;setTheme(th);try{localStorage.setItem('viden-theme',th);}catch(e){}};
+  useEffect(()=>{ try{
+    let sk=localStorage.getItem('viden-skin'), md=localStorage.getItem('viden-mode');
+    if(!sk){const lg=localStorage.getItem('viden-theme'); if(lg&&LEGACY_TH[lg]){sk=LEGACY_TH[lg][0];md=md||LEGACY_TH[lg][1];}}
+    const d=localStorage.getItem('viden-density');
+    if(sk){document.documentElement.dataset.skin=sk;setSkin(sk);}
+    if(md){document.documentElement.dataset.mode=md;setMode(md);}
+    if(d){document.documentElement.dataset.density=d;setDens(d);}
+  }catch(e){} },[]);
+  const applySkin=id=>{document.documentElement.dataset.skin=id;setSkin(id);if(modesFor(id).indexOf(mode)<0){document.documentElement.dataset.mode='dark';setMode('dark');try{localStorage.setItem('viden-mode','dark');}catch(e){}}try{localStorage.setItem('viden-skin',id);}catch(e){}};
+  const applyMode=m=>{if(modesFor(skin).indexOf(m)<0)return;document.documentElement.dataset.mode=m;setMode(m);try{localStorage.setItem('viden-mode',m);}catch(e){}};
   const applyDens=d=>{document.documentElement.dataset.density=d;setDens(d);try{localStorage.setItem('viden-density',d);}catch(e){}};
   const tog = k=>setCol(c=>({...c,[k]:!c[k]}));
   useEffect(()=>{
     const h=e=>{ if(!e.altKey) return;
-      if(e.code==='Digit1'){e.preventDefault();setTab('lane');}
-      else if(e.code==='Digit2'){e.preventDefault();setTab('project');}
+      if(e.code==='Digit1'){e.preventDefault();setTab('project');}
+      else if(e.code==='Digit2'){e.preventDefault();setTab('lane');}
       else if(e.code==='Digit3'){e.preventDefault();setTab('more');} };
     window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
   },[]);
@@ -378,8 +380,8 @@ function Rail({lanes,activeId,setActiveId}){
   return (
     <div className="c-rail">
       <div className="rail-tabs" role="tablist">
-        <button className={"rtab"+(tab==='lane'?' on':'')} onClick={()=>setTab('lane')}><span>Lane</span><span className="k">⌥1</span></button>
-        <button className={"rtab"+(tab==='project'?' on':'')} onClick={()=>setTab('project')}><span>{t('Project','项目')}</span><span className="k">⌥2</span></button>
+        <button className={"rtab"+(tab==='project'?' on':'')} onClick={()=>setTab('project')}><span>{t('Env','环境')}</span><span className="k">⌥1</span></button>
+        <button className={"rtab"+(tab==='lane'?' on':'')} onClick={()=>setTab('lane')}><span>Lane</span><span className="k">⌥2</span></button>
         <button className={"rtab"+(tab==='more'?' on':'')} onClick={()=>setTab('more')}><span>{t('More','更多')}</span><span className="k">⌥3</span></button>
       </div>
       <div className="rail-scroll">
@@ -430,13 +432,19 @@ function Rail({lanes,activeId,setActiveId}){
               <div className="rkv"><span className="k">⌃G</span><span className="v">{t('decisions','决策')}</span></div>
             </React.Fragment>,true)}
           {sec('skin',<React.Fragment><span className="n">SKIN</span> · {t('theme','主题')}</React.Fragment>,
+            <React.Fragment>
             <div className="rskin">
               {SKINS.map(([id,bg,ac,go])=>(
-                <div key={id} className={"rskin-sw"+(theme===id?' on':'')} onClick={()=>applyTheme(id)}>
+                <div key={id} className={"rskin-sw"+(skin===id?' on':'')} onClick={()=>applySkin(id)}>
                   <div className="prev" style={{background:bg}}><span className="dot" style={{background:ac}}></span><span className="dot" style={{background:go}}></span></div>
                   <span className="lbl">{id}</span>
                 </div>))}
-            </div>,true)}
+            </div>
+            <div className="rseg" style={{marginTop:'6px'}}>
+              {[['dark',t('Dark','深')],['light',t('Light','浅')]].map(([id,lb])=>{const ok=modesFor(skin).indexOf(id)>=0;return (
+                <button key={id} className={(mode===id?'on':'')} disabled={!ok} title={ok?'':t('Retro skin is dark-only','复古皮肤仅深色')} onClick={()=>applyMode(id)}>{lb}</button>);})}
+            </div>
+            </React.Fragment>,true)}
           {sec('dens',<React.Fragment><span className="n">DENSITY</span> · {t('density','密度')}</React.Fragment>,
             <div className="rseg">
               {[['compact',t('Compact','紧凑')],['regular',t('Regular','标准')],['comfy',t('Comfy','宽松')]].map(([id,lb])=>(
@@ -772,7 +780,7 @@ pub const COMBO_DECAY: f32 = 0.45;</div>}/>
                   : <span className="ok">✓ {resolved.label} · {t('merge unlocked','合入解锁')}</span>}</div>
               )}
 
-              <div className="oc-h done"><span className="ck">✅</span> <span data-zh="改完后续">Follow-ups</span></div>
+              <div className="oc-h done"><span className="ck">✓</span> <span data-zh="改完后续">Follow-ups</span></div>
               <div className="oc-todos">
                 <div className="td"><span className="bx">[ ]</span> <span data-zh="把 dash-cancel 窗口补回 1 帧">restore dash-cancel window by 1 frame</span></div>
                 <div className="td"><span className="bx">[ ]</span> <span data-zh="更新 combat 手感 changelog">update combat-feel changelog</span></div>
@@ -812,20 +820,48 @@ pub const COMBO_DECAY: f32 = 0.45;</div>}/>
   );
 }
 
-function TryRow(){
-  const fire=(combo)=>{ const e=new KeyboardEvent('keydown',{key:combo,ctrlKey:true,bubbles:true}); window.dispatchEvent(e); };
-  return (<>
-    <button className="trybtn" onClick={()=>fire('l')}><b>⌃L</b> {t('switch lane','切 lane')}</button>
-    <button className="trybtn" onClick={()=>fire('p')}><b>⌃P</b> {t('command palette','命令面板')}</button>
-    <button className="trybtn" onClick={()=>fire('g')}><b>⌃G</b> {t('decision center','决策中心')}</button>
-  </>);
-}
-
 ReactDOM.createRoot(document.getElementById('app')).render(<Cockpit/>);
-ReactDOM.createRoot(document.getElementById('tryRow')).render(<TryRow/>);
 </script>
 <script>
 (function(){if(window.vLang==='zh'){document.querySelectorAll('[data-zh]').forEach(function(el){el.innerHTML=el.getAttribute('data-zh');});}})();
+</script>
+<style>.winh{position:fixed;z-index:60;}</style>
+<script>
+/* 窗口管理器：四边四角拖拽改大小 + 拖标题栏移动 + 点绿灯/双击标题栏最大化（像 mac app）*/
+(function(){
+  function start(){
+    var win=document.getElementById('cockpit'), app=document.getElementById('app');
+    if(!win||!app){return setTimeout(start,90);}
+    app.style.cssText='position:fixed;inset:0;display:block;';
+    win.style.position='absolute';
+    var W=Math.min(1040,innerWidth*0.92), Hh=Math.min(640,innerHeight*0.86);
+    var st={x:Math.round((innerWidth-W)/2),y:Math.round((innerHeight-Hh)/2),w:W,h:Hh,max:false};
+    var MINW=560,MINH=380, H={};
+    ['n','s','e','w','ne','nw','se','sw'].forEach(function(d){var el=document.createElement('div');el.className='winh';app.appendChild(el);H[d]=el;el.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();resize(d,e);});});
+    function set(el,l,t,w,h,cur){el.style.left=l+'px';el.style.top=t+'px';el.style.width=w+'px';el.style.height=h+'px';el.style.cursor=cur;}
+    function apply(){
+      var r=st.max?{x:0,y:0,w:innerWidth,h:innerHeight}:st;
+      win.style.left=r.x+'px';win.style.top=r.y+'px';win.style.width=r.w+'px';win.style.height=r.h+'px';
+      win.style.borderRadius=st.max?'0':'var(--r-lg)';win.style.boxShadow=st.max?'none':'var(--shadow-win)';
+      var T=8,C=15,vis=st.max?'none':'block';for(var k in H)H[k].style.display=vis;
+      if(st.max)return;var x=r.x,y=r.y,w=r.w,h=r.h;
+      set(H.n,x+C,y-3,w-2*C,T,'ns-resize');set(H.s,x+C,y+h-T+3,w-2*C,T,'ns-resize');
+      set(H.w,x-3,y+C,T,h-2*C,'ew-resize');set(H.e,x+w-T+3,y+C,T,h-2*C,'ew-resize');
+      set(H.nw,x-3,y-3,C,C,'nwse-resize');set(H.se,x+w-C+3,y+h-C+3,C,C,'nwse-resize');
+      set(H.ne,x+w-C+3,y-3,C,C,'nesw-resize');set(H.sw,x-3,y+h-C+3,C,C,'nesw-resize');
+    }
+    function drag(mv){document.body.style.userSelect='none';function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);document.body.style.userSelect='';}document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);}
+    function resize(d,e){var sx=e.clientX,sy=e.clientY,o={x:st.x,y:st.y,w:st.w,h:st.h};drag(function(ev){var dx=ev.clientX-sx,dy=ev.clientY-sy,x=o.x,y=o.y,w=o.w,h=o.h;if(d.indexOf('e')>=0)w=Math.max(MINW,o.w+dx);if(d.indexOf('s')>=0)h=Math.max(MINH,o.h+dy);if(d.indexOf('w')>=0){w=Math.max(MINW,o.w-dx);x=o.x+o.w-w;}if(d.indexOf('n')>=0){h=Math.max(MINH,o.h-dy);y=o.y+o.h-h;}st.x=x;st.y=y;st.w=w;st.h=h;apply();});}
+    function toggleMax(){st.max=!st.max;apply();}
+    app.addEventListener('mousedown',function(e){if(st.max)return;if(e.target.closest('.vlights'))return;var chrome=e.target.closest('.vterm-chrome');if(!chrome)return;if(e.target.closest('button,.vchrome-tabs,.vhome'))return;e.preventDefault();var sx=e.clientX,sy=e.clientY,ox=st.x,oy=st.y;drag(function(ev){st.x=ox+(ev.clientX-sx);st.y=oy+(ev.clientY-sy);apply();});});
+    app.addEventListener('click',function(e){if(e.target.closest('.vlights i.c')){e.stopPropagation();toggleMax();}});
+    app.addEventListener('dblclick',function(e){if(e.target.closest('.vterm-chrome')&&!e.target.closest('button,.vchrome-tabs,.vhome,.vlights')){toggleMax();}});
+    var grn=win.querySelector('.vlights i.c');if(grn){grn.style.cursor='pointer';grn.title='maximize';}
+    window.addEventListener('resize',apply);
+    apply();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(start,140);});else setTimeout(start,140);
+})();
 </script>
 </body>
 </html>

@@ -1,0 +1,15 @@
+{
+  "note": "已认证保留的 TUI emoji 命中（借鉴页有意展示的反面样例：😀 emoji-per-row「与字形集冲突」）。新增 emoji 需修代码或显式加到这里。",
+  "generatedAt": "2026-06-30",
+  "reason": "first run (staged scan)",
+  "totalEntries": 1,
+  "files": {
+    "TUI/pages/Viden - opencode 与 hermes 借鉴 (TUI).html": [
+      {
+        "line": 208,
+        "kind": "emoji",
+        "match": "😀"
+      }
+    ]
+  }
+}

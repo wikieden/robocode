@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora" data-density="regular">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>viden · GUI 快捷入口</title>
+<link rel="icon" href="brand-assets/favicon-64.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<script src="i18n.js"></script>
+<style>
+*{box-sizing:border-box;}
+body{
+  margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:var(--page-bg);color:var(--page-ink);font-family:var(--font-sans);
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none;}
+.mono{font-family:var(--font-mono);}
+.card{
+  width:min(440px,90vw);border:1px solid var(--page-line);border-radius:var(--r-lg);
+  background:var(--page-card);box-shadow:var(--shadow-lg);overflow:hidden;
+}
+.bar{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--page-line);background:var(--page-bg);}
+.tl{display:flex;gap:6px;}
+.tl i{width:11px;height:11px;border-radius:50%;display:block;}
+.tl .r{background:var(--error);}.tl .y{background:var(--warning);}.tl .g{background:var(--success);}
+.bar .t{font-family:var(--font-mono);font-size:12px;color:var(--page-ink-dim);letter-spacing:.3px;}
+.body{padding:26px 24px 22px;}
+.kick{font-family:var(--font-mono);font-size:var(--fs-kicker);font-weight:700;letter-spacing:var(--ls-kicker);text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:9px;margin-bottom:14px;}
+.kick::before{content:"";width:22px;height:2px;background:var(--accent);}
+h1{font-size:23px;font-weight:700;letter-spacing:-.4px;margin:0 0 8px;}
+h1 .ac{color:var(--accent);}
+.sub{font-size:13.5px;color:var(--page-ink-dim);margin:0 0 22px;line-height:1.55;text-wrap:pretty;}
+.launch{
+  display:flex;align-items:center;gap:10px;width:100%;
+  font-family:var(--font-mono);font-size:13.5px;font-weight:700;letter-spacing:.3px;
+  color:var(--page-bg);background:var(--accent);border:none;border-radius:var(--r-md);
+  padding:13px 16px;cursor:pointer;transition:filter .15s;
+}
+.launch:hover{filter:brightness(1.08);}
+.launch .ar{margin-left:auto;}
+.alt{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
+.alt a{
+  flex:1;min-width:130px;display:flex;align-items:center;gap:8px;
+  font-family:var(--font-mono);font-size:12px;color:var(--page-ink-dim);
+  border:1px solid var(--page-line);border-radius:var(--r-sm);padding:10px 12px;
+  transition:border-color .15s,color .15s;
+}
+.alt a:hover{border-color:var(--border-active);color:var(--page-ink);}
+.alt .dot{width:7px;height:7px;border-radius:50%;background:var(--gold);flex:none;}
+.cd{font-family:var(--font-mono);font-size:11.5px;color:var(--page-ink-dim);margin-top:18px;}
+.cd b{color:var(--accent);font-weight:700;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="bar">
+    <div class="tl"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <span class="t">viden — GUI · Tauri desktop</span>
+  </div>
+  <div class="body">
+    <div class="kick">Shortcut · 快捷入口</div>
+    <h1 data-i18n="h1">桌面 <span class="ac">驾驶舱</span></h1>
+    <p class="sub" data-i18n="sub">Rust + Tauri 多栏窗口化驾驶舱。正在打开 D1 旗舰原型……</p>
+    <a class="launch" id="go" href="GUI/Viden - 桌面驾驶舱 (GUI).html">
+      <span data-i18n="btn">打开驾驶舱</span><span class="ar">→</span>
+    </a>
+    <div class="alt">
+      <a href="GUI/Viden - 设计稿索引 (GUI).html"><span class="dot"></span><span data-i18n="a1">设计稿索引</span></a>
+      <a href="GUI/Viden - 组件库 (GUI).html"><span class="dot"></span><span data-i18n="a2">组件库</span></a>
+    </div>
+    <div class="cd" data-i18n="cd">← 返回 <b><a href="index.html">原型总览 index.html</a></b></div>
+  </div>
+</div>
+<script>
+var copy={
+  h1:['Desktop <span class="ac">cockpit</span>','桌面 <span class="ac">驾驶舱</span>'],
+  sub:['Rust + Tauri windowed multi-pane cockpit. Launching the D1 flagship prototype…','Rust + Tauri 多栏窗口化驾驶舱。正在打开 D1 旗舰原型……'],
+  btn:['Open cockpit','打开驾驶舱'],
+  a1:['Design docs','设计稿索引'], a2:['Component kit','组件库'],
+  cd:['← Back to <b><a href="index.html">prototype index</a></b>','← 返回 <b><a href="index.html">原型总览 index.html</a></b>']
+};
+function L(a){return window.t?window.t(a[0],a[1]):a[1];}
+Object.keys(copy).forEach(function(k){var el=document.querySelector('[data-i18n="'+k+'"]');if(el)el.innerHTML=L(copy[k]);});
+var target=document.getElementById('go').getAttribute('href');
+setTimeout(function(){location.replace(encodeURI(target));},700);
+</script>
+</body>
+</html>

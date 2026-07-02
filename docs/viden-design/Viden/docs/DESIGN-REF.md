@@ -8,41 +8,75 @@
 ```
 项目根/
 ├── CLAUDE.md                 # 项目说明（根目录，自动加载）
+├── index.html                # ★ 原型总览入口：分组导航全部 Core/TUI/GUI 屏 + 单一真源面板
 ├── tokens.css                # 所有设计变量（唯一真源）← 页面 <link> 它
-├── i18n.js                   # data-zh 中英切换
-├── tweaks-panel.jsx          # 主题/密度切换面板
+├── i18n.js                   # ★ 共享：EN/中 切换 + window.t + window.tk（单一真源 · 子目录页用 ../i18n.js）
+├── i18n-dict.js              # ★ 共享：集中 i18n 词典 window.VIDEN_DICT（跨页复用文案唯一真源 · 在 i18n.js 之前引）
+├── chrome.js                 # ★ 共享：皮肤+密度切换 + window.RC（同上 · ../chrome.js）
+├── tweaks-panel.jsx          # ★ 共享：Tweaks 面板（同上 · ../tweaks-panel.jsx）
 ├── docs/
 │   ├── DESIGN-REF.md         # 本文件 · AI 速查
+│   ├── NAMING-MAP.md         # ★ 产品名映射唯一真源(Viden ⇄ RoboCode · 门控类型↔UI 标签 · SPEC D-NAME)
+│   ├── SPEC.md              # ★ 决策护栏机读真源（@DECISION / @OPEN · 动设计前读）
+│   ├── screens-status.js     # ★ 屏幕状态唯一真源（机读）：screens[] 门户卡+进度 · docs[] 两个设计稿索引页的 NAV 真源
+│   ├── CHECKLIST.md          # ★ 收尾自查清单（开工前 / 写码时 / done 前 DoD）
 │   └── CHANGELOG.md          # 更新日志
-├── tools/{check-tokens.js, check-changelog.js}
+├── tools/{check-tokens.js, check-changelog.js, check-status.js}
 ├── brand-assets/             # 图标 / favicon / OG（见下「品牌资产」）
 ├── Core/                     # 视觉真源：Aurora 主题、品牌、协作机制
-├── TUI/                      # 终端版高保真稿
-└── GUI/                      # 桌面(Tauri)版高保真稿
+│   └── tui-kit 无关的展示页
+├── TUI/                      # 终端版(规范基准)
+│   ├── Viden - 统一原型 (TUI).html    # ★ 原型入口(全屏驾驶舱,拖拽/最大化)
+│   ├── Viden - 组件库 (TUI).html      # 组件库陈列(.v* 逐件)
+│   ├── Viden - 设计稿索引 (TUI).html  # 设计稿索引(侧栏导航 pages/，从原型 ▤ 进)
+│   ├── tui-kit.css            # 规范:组件库样式(.v*)
+│   ├── pages/                # 各设计稿屏(T0–T5 / 会话页 / 借鉴…)
+│   │   └── assets/  tui-screens.jsx · tui-gate-timeline.jsx
+│   └── _archive/             # 冻结备份
+└── GUI/  + gui-kit.css · gui-icons.jsx · gui-statusbar.jsx · gui-titlebar.jsx · gui-inbox.jsx · gui-settings.jsx   # 桌面(Tauri)版
+    ├── Viden - 桌面驾驶舱 (GUI).html      # ★ 旗舰原型(全屏窗口化·打开即用·窗口管理器)
+    ├── Viden - 组件库 (GUI).html         # gui-kit `.act/.wslane/.envp/...` 逐件活体陈列
+    ├── Viden - 设计稿索引 (GUI).html     # 侧栏导航 pages/ + iframe 保活秒切
+    ├── pages/                            # D2–D13 各设计稿屏(D1 旗舰除外)
+    └── _archive/                         # 迁移前冻结快照
 ```
+> **共享运行时单一真源（防漂移）**：`i18n.js` / `chrome.js` / `tweaks-panel.jsx` 各**只在根目录留一份**;子目录页面一律 `../` 引用,**绝不再在子目录复制副本**(历史副本已清除)。改这一份 = 全站跟随。新页面照抄此引用方式。
 
 ## 接入方式
 页面 `<head>` 引 token 真源,根元素声明皮肤与密度:
 ```html
 <link rel="stylesheet" href="tokens.css">      <!-- 子目录用 ../tokens.css -->
-<html data-theme="dark" data-density="compact"> <!-- theme: dark|light|amber|phosphor|ice|mono -->
+<html data-mode="dark" data-skin="aurora" data-density="compact"> <!-- skin: aurora|ice|mono|amber|phosphor · mode: dark|light(amber/phosphor 仅 dark) -->
 ```
 
 ## 页面交互 chrome（每页统一）
-> 三个 drop-in 脚本给每页同一套通用交互。放在 app 脚本之前(子目录各放一份副本):
+> 两个 drop-in 脚本给每页同一套通用交互,放在 app 脚本之前。**单一真源在根目录,子目录页用 `../` 引用**(勿再复制副本):
 ```html
-<script src="i18n.js"></script>    <!-- 浮动 EN/中 切换 + window.t(en,zh);data-zh 或 t() 翻译 -->
-<script src="chrome.js"></script>  <!-- 浮动「皮肤+密度」切换器 + window.RC -->
+<script src="../i18n-dict.js"></script> <!-- 可选：集中词典 window.VIDEN_DICT（要用 tk() 则必须在 i18n.js 之前） -->
+<script src="../i18n.js"></script>    <!-- 浮动 EN/中 切换 + window.t(en,zh) + window.tk(key) -->
+<script src="../chrome.js"></script>  <!-- 浮动「皮肤+密度」切换器 + window.RC -->
+<!-- React 页另加：<script type="text/babel" src="../tweaks-panel.jsx"></script> -->
+<!-- 根目录页面（如 index.html）直接 bare 引用：src="i18n.js" -->
 ```
-- `chrome.js`:右下角浮动控件,SKIN(6 皮肤圆点,各显其 accent)+ DENS(紧/中/松)。写 `data-theme`/`data-density` 到 `<html>`,持久化到 `localStorage` 键 **`rc-scheme`/`rc-density`** → **全站任一页切换,其余页自动跟随**。
-- `window.RC`:`setScheme(v)`/`setDensity(v)`/`cycle()`;派发 `rc-state` 事件供页面联动(如 Aurora 的 nav 按钮 + Tweaks 面板)。复用已存在的 `window.RC` 不覆盖。
-- 例外:Aurora 页用自带 nav `#themeToggle` + Tweaks 面板(更丰富),不挂 chrome.js,但共用同一 localStorage 键。
+- `chrome.js`:右下角浮动控件,SKIN(5 皮肤圆点,各显其 accent)+ MODE(☾/☀,amber/phosphor 置灰)+ DENS(紧/中/松)。写 `data-skin`/`data-mode`/`data-density` 到 `<html>`,持久化到 `localStorage` 键 **`rc-skin`/`rc-mode`/`rc-density`**(旧 `rc-scheme` 一次性迁移)
+  - **皮肤注册表单一真源 = `window.RC.SCHEMES`**(chrome.js 内 `[id, en, zh, modes[]]` 四元组;modes 决定该皮肤支持哪些 mode)。加/删皮肤**只改 chrome.js 这一处**;索引页读 `window.RC.SCHEMES ‖ 回退列表`,勿再各抄。 → **全站任一页切换,其余页自动跟随**。
+
+### i18n 取词（两种，都随浮动 EN/中 切换）
+- **切换机制（i18n.js v2 · 热切换）**：`window.vSetLang(v)` 单一入口（悬浮 EN/中 + 设置屏 Language 同走）。页面 `<html data-i18n-live>` → 零刷新（hook React 根重渲 + 重绑 key + `v-lang` 事件）；未标页 reload。**live 页纪律：t() 只在组件 render 内调用，含 t() 的数据表写成函数**（模块级 const 会把语言冻在首载）。已开 live：D1 驾驶舱。
+- **品牌字符串**（产品名/字标拆字/配置路径/分支前缀）→ `window.VIDEN_BRAND`（i18n-dict.js 内定义 · 改名 = 改一处 · 映射详情 `docs/NAMING-MAP.md`）。
+- **页面独有长句** → `window.t('English','中文')` 内联对（向后兼容，不进词典）。
+- **跨页复用的 chrome / 通用术语** → 只在 `i18n-dict.js` 定义一次，取词两法：
+  - HTML：`<span data-i18n-key="open"></span>` —— i18n.js 挂载时自动填入（动态插内容后可 `window.vBindI18nKeys()` 重绑）。
+  - JS：`window.tk('open')` 返回当前语言字符串（缺词典/缺 key 安全回退到 key）。
+- **纪律**：同一个词在多页出现 → 进 `i18n-dict.js`（防「每页各翻一遍」）；页面独有文案不塞词典。`index.html` = 范式（状态枚举/载体/图例/动作词均走 `tk()`）。
+- `window.RC`:`setSkin(v)`/`setMode(v)`/`setDensity(v)`/`cycleSkin()`/`toggleMode()`/`supports(skin,mode)`;派发 `rc-state` 事件供页面联动。复用已存在的 `window.RC` 不覆盖。
+- 例外:Aurora 展示页 + 统一原型 用自带控制器(与 chrome.js 同两轴 API),不挂 chrome.js;Aurora 共用 rc-* 键,统一原型 用自己的 viden-skin/mode/density 键。
 
 ## Token 速查
 > 数值唯一真源在 `tokens.css`;下表只做语义索引。改了 tokens.css 必须同步本表。
-> 全部颜色 token 随 `data-theme` 重定义 —— 组件只用语义名,换 theme 即换肤。
+> 全部颜色 token 随 `[data-skin][data-mode]` 重定义 —— 组件只用语义名,换 skin/mode 即换肤。
 
-### 背景（6 档纵深 · 随 data-theme）
+### 背景（6 档纵深 · 随 skin×mode）
 | token | 语义 |
 |---|---|
 | `--bg-void` | 最沉底(终端 chrome / 窗口外圈 / 输入区底) |
@@ -57,13 +91,14 @@
 |---|---|
 | `--fg-primary` | 主文(承载内容) |
 | `--fg-secondary` | 次文(标签 / 结构) |
-| `--fg-muted` | 弱文(元数据) |
-| `--fg-faint` | 极弱(可看可不看的提示 / 引导线) |
+| `--fg-muted` | 弱文(元数据)· **正文级,≥4.5:1 vs bg-base/panel/elev** |
+| `--fg-faint` | 极弱(提示 / 引导线 / 占位)· **≥3:1,仅限大字·非正文·UI 描边,勿当正文** |
 
 ### 强调 & 语义
 | token | 语义 |
 |---|---|
 | `--accent` / `--accent-bright` / `--accent-dim` | 品牌青 = 唯一交互焦点:边框激活 / 标题 / 选中 / focus |
+| `--on-accent` | **反相墨色** = 填充强调/语义芯片上的文字/图标(accent/gold/语义四色/builtin 填充面通用)·随 mode 翻黑/白·**填充芯片的文字一律用它,勿再借 `--bg-void`** |
 | `--gold` / `--gold-bright` | 次强调金 = viden 字标 / 工作模式 / **「需要人」**(门控·待审批) |
 | `--success` / `--warning` / `--error` / `--progress` | 成功绿 / 警告金 / 失败红 / 进行中蓝(刻意与品牌青拉开) |
 | `--builtin` | 内置工具紫(GUI 第四类强调) |
@@ -77,8 +112,9 @@
 | 字阶 | `--fs-kicker` `--fs-xs` `--fs-sm` `--fs-base` `--fs-lead` `--fs-h3/h2/h1` | 行高 `--lh-tight/ui/body`;字距 `--ls-kicker/label` |
 | 间距 | `--sp-1`…`--sp-16` | 4px 基准 |
 | 圆角 | `--r-xs`(3 TUI) `--r-sm` `--r-md` `--r-lg` `--r-xl`(14 GUI) `--r-full` | TUI 方硬 → GUI 圆润 |
-| 阴影 | `--shadow-sm/md/lg` / `--shadow-pop`(TUI 硬投影) | |
-| 密度 | `--c-gap` `--panel-pad-x/y` `--rail-mb` `--topbar-mb` | 随 `data-density`=compact/regular/comfy |
+| 骨架列宽 | `--rail-act`(52 活动 rail) `--rail-left`(218 左 lanes) `--rail-right`(300 右 context rail) | **GUI 主窗口骨架单一真源**(D1 驾驶舱同源);各 GUI 横屏页对应列一律引用,勿写死 px |
+| 阴影 | `--shadow-sm/md/lg` / `--shadow-win`(GUI 桌面窗口浮空) / `--shadow-pop-gui`(GUI 下拉/菜单/弹层) / `--shadow-toast`(GUI toast) / `--shadow-pop`(TUI 硬投影) | |
+| 密度 | 骨架级 `--c-gap` `--panel-pad-x/y` `--rail-mb` `--topbar-mb` · 行/区块级 `--row-pad-y` `--row-pad-y-sm` `--card-pad-y` `--list-gap` `--sec-pad-y` `--input-pad-y` `--msg-mb` | 随 `data-density`=compact/regular/comfy;行/区块级由 gui-kit.css + D1 消费(regular = GUI 现值基线) |
 | 终端框 | `--term-screen` `--term-chrome` `--term-bar` `--term-edge` / `--win-edge` | 仿真实终端/桌面窗口外框 · **theme-independent 固定深色**,刻意区别于 Aurora 应用面 |
 | 动效 | `--motion-fast/base` `--ease` | |
 
@@ -105,14 +141,41 @@
 <p class="lead">Skin only, no layout change.</p>
 ```
 
-**`.rcard`(推理卡) · `.gcard`(状态画廊) · `.callout`(说明块) · `.toktable`(token 表) · `.ladder`/`.lrow`(层级阶梯)** — 展示页内容块,均 `var(--page-*)` 系。
+**`.rcard`(推理卡) · `.gcard`(状态画廊) · `.callout`(说明块) · `.toktable`(token 表) · `.ladder`/`.lrow`(层级阶梯)** — 展示页内容块,均 `var(--page-*)` 系。最小 HTML:
+```html
+<!-- 推理卡（放 .reasoning 网格内）-->
+<div class="rcard"><h3>My call</h3><p>把青色收敛为「品牌 + 交互焦点」一种角色…</p></div>
+
+<!-- 说明块（强调一句结论）-->
+<div class="callout"><b>ANSI 256 degradation rule:</b><span>色相优先于明度还原…</span></div>
+
+<!-- token 表（5 列:Token / Dark hex / ANSI 256 / Light hex / 用途，tbody 由脚本填充）-->
+<table class="toktable"><thead><tr><th style="width:30%">Token</th><th>Dark hex</th><th>ANSI 256</th><th>Light hex</th><th>Use</th></tr></thead><tbody id="tb-bg"></tbody></table>
+
+<!-- 视觉层级阶梯（.lvl 编号着语义色 + 右侧说明）-->
+<div class="ladder"><div class="lrow"><div class="lvl" style="color:var(--warning)">1</div><div><b>需要人</b> · 门控/待审批…</div></div></div>
+
+<!-- 状态画廊卡（放 .gallery 网格内，.glabel 标题 + .demo 放活体示例）-->
+<div class="gallery"><div class="gcard"><div class="glabel">Selector · three row states</div><div class="demo"><!-- 活体组件 --></div></div></div>
+```
 
 ### TUI canonical kit（`tui-kit.css` · 单一类名词汇 · 防漂移)
 > **新 TUI 屏一律用 `tui-kit.css` 的 `.v*` 类,别再各页自造终端框/状态栏/红绿灯/后端 chip/lane 行/闸。**
-> 规范源 = `T4 交互规则`。可交互整合参考 **`Viden - 统一原型 (TUI).html`**(切 lane ⌃L · 命令面板 ⌃P · 决策中心 ⌃G · 4 档审批闸)。
+> **TUI 对齐基准 = `Viden - 统一原型 (TUI).html`**(单一组件库的活体真源 · 已接 tui-kit;新屏与存量迁移一律对齐它的结构与交互)。规范源 = `T4 交互规则`。
+> 迁移现状(2026-06-29):**T0–T5 + T1b·c·d 全部产品屏已接 tui-kit `.v*`**(终端框/状态栏/后端 chip/命令面板/闸均改用 kit,各页内联 fork 已删);连同 **统一原型** + **会话页 opencode** 共 11 屏对齐。**仅 `Charm 与 HUD 借鉴` / `opencode 与 hermes 借鉴` 两个探索页有意保留内联**(借鉴稿,非产品屏)。原产品屏迁移前快照在 `TUI/_archive/`。
+>
+> **TUI 入口(单一·像软件)** = `Viden - TUI 原型 (TUI).html` —— app 外壳:左侧分组导航 + 右侧 iframe,从一个壳切换全部屏,记忆上次位置,皮肤切换同步到内嵌屏。新增 TUI 屏只需在该壳的 `NAV` 数组加一项。
+> **组件库陈列** = `Viden - 组件库 (TUI).html` —— 把 `.v*` 逐件拆开(活体 demo + 可抄最小 HTML),与 `统一原型`(集成)、本文件(文字目录)三者同源 `tui-kit.css`。
+>
+> **迁移速查(旧自造类 → tui-kit `.v*`)**:
+> - 终端框:`.term`/`.tui` → `.vterm`;`.term-chrome` → `.vterm-chrome`;`.tlt`/`.tlights` → `.vlights`(`i.a/.b/.c`);`.tnm`/`.tlabel` → `.vtitle`;屏体 → `.vterm-body`。
+> - 底部状态栏:`.statline`/`.c-statusbar` → `.vstatus`(`.vseg.proj/.lane/.r[.hl]` + 中段 `.vticker`>`.vtk-track`>`.vtk-grp`>`.vtk-item`(`.lbl`/`.v`/`b`/`.g/.ok/.bad/.pr`)+`.vtk-sep` + `.vgate-badge` + `.vled` + `.vgear`/`.vhelp`)。
+> - lane 行:→ `.vlane.s-{gate|run|wait|done|block}`(`.on` 选中)+ `.vled-st` + `.vlane-tx`。
+> - 后端 chip:→ `.vbe.acp/.builtin/.tmux`(`.k` 类型 + `.ag` agent)或边框型 `.vbe-pill.*`。
+> - 迁移法:页头加 `<link href="tui-kit.css">` → HTML 改类名 → 删被取代的内联 CSS → 保留页面专属(doc chrome / zone 标注等)→ 截图比对统一原型。
 > 接入:`<link href="../tokens.css"><link href="tui-kit.css">`。
 - **终端框**:`.vterm` + `.vterm-chrome`(`.vlights`>`i.a/.b/.c`=红/黄/绿 + `.vtitle`) + `.vterm-body`。
-- **状态栏**:`.vstatus` > 左固定 `.vseg`(`.proj` 青底 / `.lane` / 后端段)+ **`.vticker`(中段自动滚动跑大量指标 `.vtk-item`>`.lbl`+`.v`,`.vtk-sep` 分隔,悬停暂停;内容双份无缝循环)** + 右固定 `.vseg.r` · `.vgate-badge`(金 ⏸N 点跳决策) · `.vled`(连接) · `.vhelp`。
+- **状态栏**:`.vstatus` > 左固定 `.vseg`(`.proj` 青底 / `.lane` / 后端段)+ **`.vticker`(中段自动滚动跑大量指标 `.vtk-item`>`.lbl`+`.v`,`.vtk-sep` 分隔,悬停暂停;内容双份无缝循环)** + 右固定 `.vseg.r` · `.vgate-badge`(金 ⏸N 点跳决策) · `.vled`(连接) · `.vhelp`。**钉/滚契约见 SPEC `D-STATUSBAR`**:身份(左)+ 可操作(右 gate/error)恒钉、绝不进 ticker;中段 = 空 `.vsp` 或 ambient-only `.vticker`。
 - **后端 chip(铁律 ACP=`--accent` · built-in=`--builtin` · tmux=`--gold`)**:`.vbe.acp/.builtin/.tmux`,格式 `<类型>:<agent>`(如 `ACP:codex`);边框变体 `.vbe-pill.*`。
 ```html
 <span class="vbe acp"><span class="k">ACP</span>:<span class="ag">codex</span></span>
@@ -122,16 +185,35 @@
 - **快捷键提示**:`.vhints`>`.h b`(键金色)。**overlay**(命令面板/决策/lane 切换):`.vscrim`>`.voverlay`>`.voverlay-in`+`.voverlay-list`>`.vorow.on`+`.vogrp`+`.voverlay-foot`。
 - 文字色助手:`.vk-accent/-bright/-gold/-success/-warn/-error/-prog/-builtin/-pri/-sec/-mut/-faint` + `.vb`。
 
-### TUI（终端驾驶舱 · 旧展示页组件,逐步迁移到 tui-kit）
+### TUI 字形词表（单一真源 · 防漂移）
+> TUI 图标 = 等宽栅格内联 Unicode 几何字形,**不是 SVG**(终端真源:所见即所打 + 带 ANSI-256 降级)——不抽代码模块。
+> **状态字形真源 = T4 §08「颜色即状态」**(色=语义、全局固定);donor emoji / ASCII 一律 1:1 换成下表几何字形,颜色承载含义(256 色终端也读得对)。
+> **TUI 禁 emoji**(各终端/字体渲染不一、撑破等宽栅格)。新字形先登记此表再用;没登记 = 临时草稿。🤖 `check-tui-glyphs.js` 守。
 
-**`.tui` / `.tui.win` + `.tui-chrome` + `.tlights`** — 终端窗口框(红黄绿灯 + 标题)。
-```html
-<div class="tui win">
-  <div class="tui-chrome"><div class="tlights"><i class="l1"></i><i class="l2"></i><i class="l3"></i></div>
-    <span class="tlabel">viden — fish — 142×40</span></div>
-  <div class="tui-screen">…</div>
-</div>
-```
+**状态字形（色 = 状态 · 锚 T4 §08）**
+| 字形 | 颜色 | 语义 |
+|---|---|---|
+| `◆` | 金 gold | clarify / 待你 your turn |
+| `▶` | 蓝 blue | run / 流式 streaming |
+| `✓` | 绿 green | read·edit / 完成 done |
+| `▣` | 青 cyan | skill / 目录 catalog |
+| `◌` | 灰 grey | preparing / 待命 wait |
+| `⏸` | 金 gold | gate / 待你决策(`⏸ N` 状态栏徽标 = 待审批数) |
+| `✗` | 红 red | fail / deny / 错误 error |
+| `⚠` | 金 warning | 危险命令审批 / 不可逆动作 |
+
+**结构 / 装饰字形**
+- 品牌字标:`[◉]`(括号青 + `◉` 亮青瞳)。
+- 框线:box-drawing `╭─╮ │ ╰─╯ ├ ┆`;LIVE WORK `╭─ •`;树形管线 `│ ├`。
+- 指针 / 展开:`▸`(规则 / 跳转)·`▾`(折叠)·`›`(prompt / 选择器标记 / 光标)。
+- 状态点:`●` 实(活跃 / 占位)·`○` 空(空闲)·`◌` 待命;lane 行状态点走 `.vled-st`(CSS 色,gate金/run蓝/wait灰/done绿/block红)。
+- 旋转器:braille `⠋⠙⠹…`(spinner 帧)。`⌕` 搜索 · `↩` 拒绝兜底 · `⊟/⊞` 折叠 · `◧` 色深降级 · `§ ¶ ✉` 文档 / 契约 / 备忘。
+- **禁**:emoji(✅ ❌ ⚡ ⭐ 😀 📖 …)与 emoji-presentation 字符(⚡ U+26A1 等会被终端渲成彩色 → 用几何字形替;`✓ ✗ ⏸ ◆` 这类 BMP text-presentation 几何符 OK)。
+
+### TUI 旧类名（已废弃 · 全部迁到 tui-kit `.v*`)
+> 11 个 TUI 展示页的终端框/红绿灯/标题已全部迁到上面的 **TUI canonical kit**(`.vterm`/`.vterm-chrome`/`.vlights`/`.vtitle`)。
+> 以下旧类名 **已不再使用,勿新写**:`.term` `.emu` `.term-chrome` `.tbar` / `.tlt` `.lt` `.tnm` `.emunm` `.nm` `.ti` `.dot`。
+> 仍存留的页面局部类(非框架、不算 fork):`.tbody`(正文)、各页 `.statusbar`(单行状态条,待后续并入 `.vstatus`)、`.emu` 仅作降透明度修饰符(`.vterm-chrome emu{opacity:.55}`)。
 
 **`.c-topbar` + `.chip`** — 顶部状态条(单下边线,不成框)。`.wm` 字标 / `.ver` 版本金 / `.chip .lbl` 标签青。
 ```html
@@ -185,15 +267,66 @@
 
 ### GUI（桌面 / Tauri）
 
+> **GUI canonical kit（`gui-kit.css` · 对标 tui-kit.css · 防漂移)**
+> **新 GUI 桌面屏一律用 `gui-kit.css` 的类**(窗口壳/标题栏/活动 rail/lane 行/Environment/状态栏/输入区/边缘浮出),别再各页内联自造。视觉真源 = D1 驾驶舱;数值真源仍是 tokens.css(本套件只引用 `var(--*)`)。
+> 接入:`<link href="../tokens.css"><link href="gui-kit.css">`。
+> 存量页迁移状态(2026-06-29):**D1 旗舰 + D2决策 / D4 / D5 / D7 / D9 / D10 / D11 / D12 / D13 共 10 屏已接 gui-kit**(窗口壳/标题栏/活动 rail `.act`·`.actbtn`·`.badge`/winbar dots 用套件,各页内联 `.vbar`/`.vrail`/`.vbtn` fork 已删,裸色收 token);D2存档 UI 语义色已收(图表数据序列色基线保留);**召唤坞 D2横/D3竖 与 宠物 Pip 为独立浮层/装饰概念,有意保持自包含**(token-clean·不接套件,避免全局 `.composer`/`.side` 泄漏)。新页直接用套件。下列条目即套件登记内容。
+
+**图标目录（`gui-icons.jsx` · GUI 图标单一真源 · 防重绘）** — 所有 GUI 线性图标 + agent 品牌徽标一份收口,视觉母版 = D1 驾驶舱。**别再各页内联 `VRAIL_ICONS`/`I*` 自画**(同一 worktree/lanes/review 此前被各画各的,已统一)。接入:`<script type="text/babel" src="../gui-icons.jsx"></script>`(gui-titlebar / 主脚本**之前**;根目录页用 `gui-icons.jsx`)。导出 `window.ICONS`(元素表)/ `GuiIcon`(换 class/尺寸)/ `AgentLogo`。
+```jsx
+{ICONS.chat}                                  /* rail / 标题栏按钮内直接取元素 */
+<GuiIcon name="lock" className="ic sm"/>        /* 小号 15px */
+<GuiIcon name="lock" style={{width:13,height:13}}/>  /* 任意尺寸(URL 栏/徽标位) */
+<AgentLogo agent="codex"/>                      /* codex/claude/kiro/viden·品牌固定色不换肤 */
+```
+> **画法规范**:线性 · viewBox 24 · class `ic`(gui-kit `svg.ic` 给 stroke currentColor / 19px / 圆端)·`ic sm`=15px。颜色一律 `currentColor`;唯 `AgentLogo` 用品牌色(codex 绿/claude 橙/kiro 紫/viden 青+金)。
+> **key 目录**(语义):rail/视图 = `chat worktree lanes(swimlanes) review decide fleet evidence diagnostics inbox brief gallery remote rocket` · 标题栏工具 = `palette focus popout term panel slot pin settings` · 替 emoji = `lock(🔒) robot(🤖) game(🎮) ml(📈)`。
+> **铁律**:GUI 禁 emoji——要图标走这里的线性 SVG。新图标先在此加 key + 登记语义再页面引用;没登记 = 临时草稿。护栏见 SPEC `D-ICON`。
+
 **窗口标题栏 chrome（D1 同源 · 全 GUI 横屏页统一规范）** — 三套等价实现,**度量必须一致**:`.titlebar`(D1/召唤坞,含 `.tbtitle`)· `.vbar`(流程/内容页,共享壳)· `.winbar`(D10 监视墙,用 `.dots` 代 `.tl`)。规范:**栏高 46px · gap 13px · padding 0 14px · 交通灯点 12px(gap 8,红 `--error`/黄 `--warning`/绿 `--success`)· 字标 mono 700 13.5px**。字标 = `[◉]`(括号 `--accent` + `◉` `--accent-bright`)+ `v`(`.r`=`--gold`)+ `iden`(`.c`=`--accent`)。
 ```html
 <div class="titlebar"><div class="tl"><i class="a"></i><i class="b"></i><i class="c"></i></div>
   <span class="wm"><span style="color:var(--accent)">[</span><span style="color:var(--accent-bright)">◉</span><span style="color:var(--accent)">]</span> <span class="r">v</span><span class="c">iden</span></span></div>
 ```
 
-**`.frame`** — 桌面窗口框(`--r-xl` + `--shadow-lg`,固定高列布局)。
+**`<GuiTitleBar>`(`gui-titlebar.jsx` · GUI 标题栏 canonical · 单一真源)** — 把上面 chrome(灯+字标+`projsel`+`gitops` sync/worktrees+`tbtools` 工具组)抽成组件,视觉母版 = D1。**横屏 D 页一律用它,别再各页内联自造 `.vbar`。** 样式仍走 `gui-kit.css`(组件不注样式)。接入:`<script type="text/babel" src="../gui-titlebar.jsx"></script>`(主脚本前)。
 ```html
-<div class="frame"><div class="cmdbar">…</div><div class="body">…</div><div class="composer">…</div></div>
+<GuiTitleBar/>                                  <!-- viden/main · 默认工具组 -->
+<GuiTitleBar project="Robocode 工作区" branch="18 项目" git={false}/>
+<GuiTitleBar project="未接入项目" branch="" git={false} dim tools={['index','settings']}/>
+```
+> props 均可省:`project`/`branch`(projsel 文字)· `git`(显示 gitops·默认 true)· `sync`{up,down}/`worktrees`(数·null 隐)· `tools`(按钮 key 数组:palette focus popout term panel index settings `|`分隔)· `active`/`onTool` · `indexHref`(▤ 设计稿索引)· `dim`(projsel 半透,如无项目)。已接:D2决策/D4/D5/D7/D9/D11/D12/D13/D14。D1 旗舰保留其交互版 `.titlebar`(窗口管理器拖拽/最大化依赖之),作视觉真源不替换。
+
+**`<GuiPopoutBar>`(gui-titlebar.jsx 内 · popout 独立窗口顶栏 canonical · SPEC D-POPOUT)** — 监视墙/竖条等 popout 窗口的轻量顶栏：`.winbar`(度量同源 gui-kit) + dots + 字标 + `.tt` 题字 + 右侧插槽(`.winbar .pin`/`.pop` 已进 gui-kit)。**各页禁再手抄 dots/字标。**已接：D10 监视墙 + 竖条。
+```html
+<GuiPopoutBar title={<b>Lane Monitor</b>}>
+  <span className="pin on">… pin top</span><span className="pop">↗ pop out</span>
+</GuiPopoutBar>
+```
+
+**`.frame`(≡ `.win` / 配 `.winbar`)** — 桌面窗口外壳。**统一规范(D1 同源,全 GUI 横屏页一致)**:边 `1px solid var(--win-edge)` + 圆角 `var(--r-xl)` + 浮空投影 `var(--shadow-win)`;`height`/`min-width`/布局(flex|grid)按各屏自定。**禁** `--border` 边 / 裸 px 半径 / 裸 `rgba()` 投影。
+
+> **主窗口骨架列宽(D1 同源,单一真源)**:活动 rail `var(--rail-act)`=52 · 左 lanes `var(--rail-left)`=218 · 中央 `1fr` · 右 context rail `var(--rail-right)`=300。各页 `.inner`/`.vbody`/`.frame` 的对应列**一律引用 token,勿写死 px**。例外:D9 远程开发右栏 420px(内含 4 列 GPU 监视器,有意加宽);D4/D11 向导步骤栏 236px(非 lanes 栏,独立组件)。
+
+**`<GuiStatusBar>`(`gui-statusbar.jsx` · GUI 窗口级底栏 canonical · 单一真源)** — 所有 GUI 桌面窗口共用的 28px 等宽底栏(左 ⚙ + 中段滚动 ticker + 右状态段),视觉母版 = D1 `.statusbar`。**新 GUI 桌面屏一律用它,别再各页自造底栏。** 放在 `.frame`/`.win` 的**最后一个子节点**(frame 固定高 + overflow:hidden,自动贴底)。接入:`<script type="text/babel" src="gui-statusbar.jsx"></script>`(在主脚本之前,同 tweaks-panel 机制),class 前缀 `gui-sb`(与 D1 `.statusbar` 不冲突)。
+```html
+<div class="frame"> … <GuiStatusBar right="⏸ 1 gate waiting" /> </div>
+```
+> props 均可省:`items`(中段指标 `[label,value]` 数组,默认 Aurora 占位 provider/model/ctx/cost/mode/perm/branch)· `right`(右侧固定状态段,默认隐藏)。**钉/滚契约见 SPEC `D-STATUSBAR`**:`right`(`.sb-right`)钉可操作项(gate/error,绝不进 ticker),`.sb-tickwrap` 仅跑 ambient。D1 驾驶舱保留其更丰富的交互版 `.statusbar`(含配置弹层),不替换。已铺:D2决策/D2存档/D4/D5/D7/D9/D11/D12/D13。未铺(有意):D2横/D3 召唤坞 · D10 双独立窗口 showcase(监视墙+竖条,无单一 cockpit 窗) · Pip 装饰页。
+```html
+<div class="frame">…</div>  <!-- 或 .win，二者度量必须一致 -->
+```
+
+**`<InboxView>`(`gui-inbox.jsx` · 团队收件箱/简报/通告 canonical · 单一真源)** — 「团队 · 人+agent 通信频道」：闸收件箱(按 viden.toml ownership 路由) + 团队 roster + 移交/自动驾驶 + 团队简报 + 变更通告(通道 A 送到人 / 通道 B 送到 agent memo + ack 追踪)。视觉母版 = D7;**旗舰 D1 驾驶舱(活动 rail `IInbox` 按钮)与 D7 设计稿共用同一份**,改一处全改。样式自注入(`.gi-root` 作用域隔离,不污染宿主页)。接入:`<script type="text/babel" src="gui-inbox.jsx"></script>`(主脚本前) → `<InboxView/>`。
+```html
+<InboxView defaultTab="notice"/>   <!-- 自带 收件箱/简报/通告 三标签 + 团队 rail -->
+```
+> props 均可省:`defaultTab` `'inbox'|'briefing'|'notice'`(默认 inbox)· `onToast(msg)`(认领回调,内部也有浮层)。D1 用 `<InboxView/>`;D7 用 `<InboxView key={tw.defaultTab} defaultTab={tw.defaultTab}/>`(Tweak 切默认标签经 key 重挂)。
+
+**`<SettingsView>`(`gui-settings.jsx` · 设置/偏好 canonical · 单一真源 · SPEC D-SETTINGS)** — D1 驾驶舱第 8 视图(活动 rail 底部 ⚙ · `view==='settings'` · 不新开窗口)。7 节:Provider&Models(引擎 registry) / Permissions(permission_mode 5 档·规则预览) / Appearance(真接 window.RC) / Keyboard / Notifications(#13 离桌兜底·escalation/quiet hours) / Privacy&Telemetry / Workspace(配置链/分支前缀)。样式自注入 `.gset-` 作用域隔离。引擎对齐见 `docs/NAMING-MAP.md`。
+```html
+<script type="text/babel" src="gui-settings.jsx"></script>   <!-- 主脚本前 -->
+<SettingsView/>            <!-- 可选 defaultSection='provider|permission|appearance|keyboard|notify|privacy|workspace' -->
 ```
 
 **`.cmdbar` + `.lg`(logo) + `.path` + `.cbtn` + `.dentry`(决策入口带 `.bdg` 红角标)** — 顶部命令栏。
@@ -209,6 +342,52 @@
 **`.work` 内转录:`.umsg`(用户) · `.amsg`/`.ahdr`/`.atext`(助手) · `.tool`(`.add/.del/.ok/.wn`) · `.gatemsg`+`.gobtn`(门控提示)** — 桌面版转录消息族。
 **`.composer` + `.cline` + `.pm`(模式 pill)** — GUI 输入行(圆角框 + 真 input)。
 
+**`.gperm`(权限提示 · gui-kit · 对标 TUI `.perm` · 模型见 SPEC `D-PERM`)** — **执行前**拦截、**阻塞此会话**的权限提示(金=「需要人」);**permission ≠ gate**:permission 拦「能不能执行」(就地·阻塞),gate 拦「批不批合入」(决策中心·异步·diff 评审归它)。卡片与放置解耦,可内联会话底或包进 `.scrim` 居中弹。`.gperm-hd`(`⏸ ic`+标题+`.risk.hi/.md/.lo`=error/gold/success)· `.gperm-what`(`.cmd` mono 动作,`.tgt` 红远程前缀 · `.why` 理由)· `.gperm-opts`(**横向紧凑 chip 行** · GUI 停靠带高度有限;TUI `.vgate` 那边才纵向键盘列表)>`.gperm-opt`(`.k` 键码 chip · `.on` 安全项默认高亮(青=焦点)· `.deny` 红键;命中≥30px · 范围分级 Y·A·⇧A·E·N · `.sub` scope 注默认隐·横向省高)· `.gperm-foot`(permission/gate 区分注)。`.dock`(满幅停靠 composer 上沿·无浮投影·只留顶边 = D1 旗舰内联用法);卡片本身扁平无 shadow(读作会话内元素·非弹窗)。`.pulse` = 金边脉冲(reduced-motion 关·**仅后台 lane 用·前台已聚焦的提示不脉冲**)。Deny → 转向(D1 把 composer 占位切「Tell agent what to do instead」)。四类活体样本 + 页内 tweak 见「组件库 (GUI)」。
+```html
+<div class="gperm dock"><div class="gperm-hd"><span class="ic">⏸</span>Permission · shell command<span class="risk hi">HIGH</span></div>
+  <div class="gperm-what"><div class="cmd">rm -rf target/ &amp;&amp; cargo build --release</div><div class="why"><b>Reason:</b> recursive delete · out of allowlist</div></div>
+  <div class="gperm-opts"><div class="gperm-opt on"><span class="k">Y</span> Once</div><div class="gperm-opt"><span class="k">A</span> Session</div><div class="gperm-opt deny"><span class="k">N</span> Deny</div></div>
+  <div class="gperm-foot"><b>Permission</b> guards execution; the change is reviewed later at a <span class="c">gate</span>.</div></div>
+```
+
+#### Cockpit 交互件（D1 驾驶舱同源 · 横屏 cockpit 与竖屏 4K 共用）
+
+**`.act` + `.actbtn`(`.on`) + `.actspacer` + `.badge`** — 52px 活动 rail(视图切换 + 底部 pin/Settings)。`.actbtn` 38×38 圆角;`.on`=`--bg-sel`+`--accent-dim` 边+`--accent-bright`;`.badge` 角标(`--accent`/`--progress`/`--gold`/`--error`)。**底部 pin 键**=`.actbtn`,`leftMode==='pinned'?'on':''`,点击在 lanes 边栏 float↔pinned 间切换。
+```html
+<div class="act">
+  <div class="actbtn on" title="Conversation"><svg class="ic">…</svg></div>
+  <div class="actbtn" title="Worktrees"><svg class="ic">…</svg><span class="badge" style="background:var(--accent)">4</span></div>
+  <div class="actspacer"></div>
+  <div class="actbtn on" title="Lanes 边栏 · 常驻↔自动隐藏"><svg class="ic sm">…</svg></div>
+  <div class="actbtn" title="Settings"><svg class="ic">…</svg></div>
+</div>
+```
+
+**`.wslane.s-{work|done|need|stop}`(`.on`) + `.aico` + `.lbody`>`.r1`(`.lid`/`.nm`)+`.r2`(`.viab`/`.cli`/`.br`)** — lane 行(载重组件)。状态边框:`s-work`蓝/`s-done`绿/`s-need`金脉冲(需要人)/`s-stop`红;`.on`=`--bg-sel`+青 `inset 3px` 左竖条;`.aico`放 `AgentLogo`。容器:`.side`(栏)→`.wsghd`(分组头)/`.wslanes`(组)/`.wsseclabel`(分段标题)/`.lseg`+`.sg`(Lanes/Workspace 段切换)。
+> **`.viab` 后端 chip 铁律(D-BACKEND · 跨轨固定)**:色 = `VIA_COLOR[via]` —— `ACP`=`--accent` 青(桥接外部 CLI) · `built-in`=`--builtin` 紫(直调模型) · `tmux`=`--gold` 金(附着已有 tmux pane)。**勿把 built-in 映射成金**(金归 tmux)。
+```html
+<div class="wslane on s-need" title="…">
+  <span class="aico"><!-- AgentLogo --></span>
+  <div class="lbody">
+    <div class="r1"><span class="lid">L1</span><span class="nm">config loader refactor</span></div>
+    <div class="r2"><span class="viab">ACP</span><span class="cli">codex · gpt-5</span><span class="br">⎇ config-loader</span></div>
+  </div>
+</div>
+```
+
+**`AgentLogo`(agent: `codex`/`claude`/`kiro`/`viden`)** — agent 品牌徽标 SVG(17×17,填品牌色,**非主题 token**:codex `#10a37f` / claude 射线 `#d97757` / kiro `#8b5cf6` / viden 括号眼 `--accent`+`--gold`)。未命中的 agent 回落 viden 母版。
+
+**`.envp` > `.envsec` > `.envhd`(`.t`+`.caret`/`.gear`) + 行族** — Environment 复合面板(右 context rail 或竖屏浮层)。可折叠分段:Environment / Context / Subagents / Sources / MCP / LSP / Todo。行:`.envrow`(`.ei`/`.el`/`.cv`/`.stat .ad/.rm`)· `.envctx`(`.big` token + `.bar` + `.sub2` cache/cost)· `.todorow`(`.ck`,`.done`/`.active`)· `.mcprow` · `.lspnote` · `.envfoot`。
+```html
+<div class="envsec"><div class="envhd"><span class="t"><span class="caret">▾</span>Context</span></div>
+  <div class="envctx"><div class="big">42.1k <span>/128k</span></div><div class="bar"><i style="width:33%"></i></div>
+    <div class="sub2"><span>cache 18.4k</span><span>·</span><span>cost $0.78</span></div></div></div>
+```
+
+**`.edgewrap.l/.r` + `.edgehint` + `.floatpanel`** — 边栏自动隐藏 + 边缘悬停浮出(`leftMode==='float'`)。热区贴活动 rail 右缘(`left:52px`);`.edgehint` 青提示条;`.floatpanel` 锚定 rail 右侧,入场 `translateX(-14px)→0`+淡入(**勿用 -115% 大位移横扫**)。`cols` 按实际子元素数生成轨道:pinned 4 轨 / float 3 轨 / focus 2 轨(否则 centerwrap 落进 0 宽轨)。
+
+**竖屏 cockpit**:`Viden - 竖屏 4K 驾驶舱 (GUI).html` — 上述全部 chrome 的竖向编排(活动 rail + lanes 常驻 · 对话↑ → 监控+终端 dock↓ · Environment 浮层),固定 1080×1920 letterbox scale-to-fit,纯静态 HTML。新竖屏/异形屏从它 fork。
+
 ## 品牌资产（`brand-assets/`）
 - `app-icon-1024.png`(深色,Tauri 主图标)/ `app-icon-light-1024.png`(浅色变体)。
 - `favicon-{512,192,64,32}.png`(网站/PWA 多档)。
@@ -217,5 +396,6 @@
 - 字标:`[◉]` glyph + `v`(金)`iden`(青);吉祥物机器人头青色线稿。
 
 ## 图标与贡献约定
-- 图标:终端态用 box-drawing / Unicode 几何符(◉ ● ◆ ⚒ ♙ ▸ ╭─);避免 emoji。
-- 新增组件先在本目录登记(类名 + 最小 HTML),再写进 CHANGELOG。**没登记 = 临时草稿。**
+- **GUI 图标**:一律走 `GUI/gui-icons.jsx`(`window.ICONS` / `GuiIcon` / `AgentLogo`,见上「图标目录」);**GUI 禁 emoji**,要图标用线性 SVG。
+- **TUI 图标**:终端态用 box-drawing / Unicode 几何符(◉ ● ◆ ⚒ ♙ ▸ ╭─);避免 emoji。
+- 新增组件 / 图标先在本目录登记(类名或 key + 最小 HTML),再写进 CHANGELOG。**没登记 = 临时草稿。**

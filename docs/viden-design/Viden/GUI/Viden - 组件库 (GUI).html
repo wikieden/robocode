@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-mode="dark" data-skin="aurora" data-density="regular">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · GUI 组件库</title>
+<link rel="icon" href="../brand-assets/favicon-64.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="gui-kit.css">
+<script src="../i18n.js"></script>
+<script src="../chrome.js"></script>
+<style>
+/* 组件库陈列 scaffold(页面专属·非组件):活体 demo + 可抄最小 HTML。颜色全 var(--*)。
+   组件本体一律来自 gui-kit.css —— 改组件改那里,本页自动跟随(单一真源)。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--font-sans);-webkit-font-smoothing:antialiased;}
+.wrap{max-width:1080px;margin:0 auto;padding:34px 26px 100px;}
+.kick{font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+.kick::before{content:"";width:26px;height:2px;background:var(--accent);}
+h1{font-size:34px;line-height:1.12;margin:0 0 12px;letter-spacing:-.6px;font-weight:700;}
+h1 .ac{color:var(--accent);}
+.lead{font-size:15.5px;color:var(--fg-secondary);max-width:760px;line-height:1.62;margin:0 0 10px;text-wrap:pretty;}
+.lead b{color:var(--fg-primary);font-weight:600;}
+.lead code{font-family:var(--font-mono);font-size:13px;color:var(--accent-bright);}
+.src{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--r-sm);padding:7px 12px;display:inline-block;margin-top:6px;}
+.src b{color:var(--gold-bright);font-weight:600;}
+
+.sec{margin-top:40px;border-top:1px solid var(--page-line);padding-top:22px;}
+.sec h2{font-size:18px;margin:0 0 4px;font-weight:700;display:flex;align-items:baseline;gap:10px;}
+.sec h2 .en{font-family:var(--font-mono);font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--fg-faint);font-weight:400;}
+.sec .desc{font-size:13px;color:var(--fg-muted);line-height:1.6;margin:0 0 14px;max-width:740px;}
+.sec .desc code{font-family:var(--font-mono);font-size:12px;color:var(--accent-bright);}
+.demo{background:var(--bg-base);border:1px solid var(--win-edge);border-radius:var(--r-lg);padding:20px;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;box-shadow:var(--shadow-sm);}
+.demo.col{flex-direction:column;}
+.cap{font-family:var(--font-mono);font-size:10px;color:var(--fg-faint);letter-spacing:.4px;margin:9px 2px 0;}
+.cap b{color:var(--accent);font-weight:600;}
+
+/* demo helpers (page-only) */
+.framebox{width:100%;max-width:560px;border:1px solid var(--win-edge);border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--shadow-win);background:var(--bg-base);}
+.railbox{background:var(--bg-void);border:1px solid var(--border-soft);border-radius:var(--r-lg);}
+.sidebox{width:230px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--r-lg);overflow:hidden;}
+.envbox{width:300px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--r-lg);padding:6px 13px;}
+.swatch{display:flex;flex-direction:column;gap:6px;align-items:center;font-family:var(--font-mono);font-size:9.5px;color:var(--fg-muted);}
+.swatch i{width:74px;height:46px;border-radius:var(--r-md);display:block;}
+.svgs{display:flex;gap:8px;}
+.ic{width:19px;height:19px;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;color:var(--fg-secondary);}
+
+/* gperm 展示 + 页内 tweak 条（页面专属） */
+.gperm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(370px,1fr));gap:16px;width:100%;}
+.tweakbar{display:flex;flex-wrap:wrap;gap:20px;align-items:center;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--r-md);padding:10px 15px;margin-bottom:16px;}
+.tweakbar .grp{display:flex;align-items:center;gap:9px;}
+.tweakbar .gl{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--fg-muted);}
+.tweakseg{display:flex;border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden;}
+.tweakseg button{font-family:var(--font-mono);font-size:11px;padding:4px 12px;min-height:28px;background:var(--bg-base);color:var(--fg-muted);border:none;border-right:1px solid var(--border-soft);cursor:pointer;}
+.tweakseg button:last-child{border-right:none;}
+.tweakseg button.on{background:var(--bg-sel);color:var(--accent-bright);}
+.tweakbar .hint{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--fg-faint);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kick">viden · GUI canonical kit · gui-kit.css</div>
+  <h1>GUI <span class="ac">组件库</span> — single source, live</h1>
+  <p class="lead">每个组件本体都来自 <code>gui-kit.css</code>;本页只把它们<b>逐件活体陈列</b>(含可抄类名)。改组件 → 改 <code>gui-kit.css</code> 一处,本页与全部 GUI 屏自动跟随。数值真源在 <code>tokens.css</code>,视觉真源 = D1 驾驶舱。<b>没在 DESIGN-REF 登记的不算可复用。</b></p>
+  <div class="src">接入:<b>&lt;link href="../tokens.css"&gt;</b> + <b>&lt;link href="gui-kit.css"&gt;</b> · 右下角可切 6 皮肤 / 密度,组件零改动跟随换肤</div>
+
+  <!-- 标题栏 -->
+  <div class="sec">
+    <h2>窗口标题栏 <span class="en">.titlebar · .tl · .wm · .projsel · .tbtools/.tbtbtn</span></h2>
+    <p class="desc">D1 同源窗口栏:交通灯 <code>.tl</code>(红 error/黄 warning/绿 success)+ 字标 <code>.wm</code> + 项目选择 <code>.projsel</code> + 右侧工具 <code>.tbtools</code>&gt;<code>.tbtbtn</code>。栏高 46 · gap 13。</p>
+    <div class="demo col">
+      <div class="framebox">
+        <div class="titlebar">
+          <div class="tl"><i class="a"></i><i class="b"></i><i class="c"></i></div>
+          <span class="wm"><span style="color:var(--accent)">[</span><span style="color:var(--accent-bright)">◉</span><span style="color:var(--accent)">]</span> <span class="r">v</span><span class="c">iden</span></span>
+          <span class="projsel">viden <span class="br">⎇ main</span> ▾</span>
+          <span class="gitchip"><span class="up">↑2</span> <span class="down">↓0</span> sync</span>
+          <div class="tbtools">
+            <div class="tbtbtn" title="Command palette"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg></div>
+            <div class="tbtbtn on" title="Panel"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16"/></svg></div>
+            <div class="tbtbtn ghost" title="ghost"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>.titlebar</b> ≡ <b>.vbar</b>(内容页) ≡ <b>.winbar</b>(监视墙,用 .dots 代 .tl) · 三套度量必须一致</div>
+    </div>
+  </div>
+
+  <!-- 活动 rail -->
+  <div class="sec">
+    <h2>活动 rail <span class="en">.act · .actbtn(.on) · .badge · .actspacer</span></h2>
+    <p class="desc">52px 视图切换条。<code>.actbtn</code> 38×38;<code>.on</code> = bg-sel + 青边 + 左竖条;<code>.badge</code> 角标(青/蓝/金/红,深字 bg-void)。底部 <code>.actspacer</code> 推 Settings 到底。</p>
+    <div class="demo">
+      <div class="railbox act" style="height:300px">
+        <div class="actbtn on" title="Conversation"><svg class="ic" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg></div>
+        <div class="actbtn" title="Worktrees"><svg class="ic" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="9" r="2.4"/><path d="M6 8.4v7.2M18 11.4c0 3-3 3.6-5.4 3.6H8.4"/></svg><span class="badge" style="background:var(--accent)">4</span></div>
+        <div class="actbtn" title="Lanes"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5v14M12 5v14M20 5v14" stroke-dasharray="3 3"/><circle cx="4" cy="10" r="2.2"/><circle cx="12" cy="14" r="2.2"/><circle cx="20" cy="8" r="2.2"/></svg><span class="badge" style="background:var(--progress)">2</span></div>
+        <div class="actbtn" title="Decision"><svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span class="badge" style="background:var(--gold)">6</span></div>
+        <div class="actspacer"></div>
+        <div class="actbtn" title="Settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+      </div>
+      <div class="cap"><b>.actbtn.on</b> 选中态:青描边 + bg-sel + 左竖条(::before)</div>
+    </div>
+  </div>
+
+  <!-- lane 行 -->
+  <div class="sec">
+    <h2>Lane 行 <span class="en">.wslane.s-{work|done|need|stop}(.on)</span></h2>
+    <p class="desc">载重组件。状态边框:work 蓝 / done 绿 / <b>need 金脉冲(需要人)</b> / stop 红;<code>.on</code> = bg-sel + 青左竖条。<code>.aico</code> 放 agent 徽标,<code>.lbody</code>&gt;<code>.r1</code>(.lid/.nm)+<code>.r2</code>(.viab/.cli/.br)。</p>
+    <div class="demo">
+      <div class="sidebox">
+        <div class="wslanes">
+          <div class="wslane on s-work">
+            <span class="aico"><svg width="17" height="17" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#10a37f" stroke-width="2.4"/></svg></span>
+            <div class="lbody"><div class="r1"><span class="lid">L1</span><span class="nm">config loader refactor</span></div>
+              <div class="r2"><span class="viab" style="color:var(--accent);border-color:var(--accent-dim)">ACP</span><span class="cli">codex · gpt-5</span><span class="br">⎇ cfg</span></div></div>
+          </div>
+          <div class="wslane s-need">
+            <span class="aico"><svg width="17" height="17" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#d97757" stroke-width="2.4"/></svg></span>
+            <div class="lbody"><div class="r1"><span class="lid">L2</span><span class="nm">jump feel tuning</span></div>
+              <div class="r2"><span class="viab" style="color:var(--gold);border-color:color-mix(in srgb,var(--gold) 45%,transparent)">ACP</span><span class="cli">claude</span><span class="br">⎇ feel</span></div></div>
+          </div>
+          <div class="wslane s-done">
+            <span class="aico"><svg width="17" height="17" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#8b5cf6" stroke-width="2.4"/></svg></span>
+            <div class="lbody"><div class="r1"><span class="lid">L3</span><span class="nm">retry policy</span></div>
+              <div class="r2"><span class="viab" style="color:var(--builtin);border-color:color-mix(in srgb,var(--builtin) 45%,transparent)">BLT</span><span class="cli">kiro</span><span class="br">⎇ retry</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>s-need</b> = 金脉冲「需要人」 · <b>.on</b> = 当前选中</div>
+    </div>
+  </div>
+
+  <!-- Environment -->
+  <div class="sec">
+    <h2>Environment 面板 <span class="en">.envp · .envsec · .envhd · .envrow · .envctx · .todorow</span></h2>
+    <p class="desc">右 context rail 复合面板。可折叠分段 <code>.envsec</code>;行族:<code>.envrow</code>(图标/标签/值/+−)、<code>.envctx</code>(token 用量条)、<code>.todorow</code>(done/active 态)。</p>
+    <div class="demo">
+      <div class="envbox envp">
+        <div class="envsec"><div class="envhd"><span class="t"><span class="caret">▾</span>Context</span></div>
+          <div class="envctx"><div class="big">42.1k <span>/128k</span></div><div class="bar"><i style="width:33%"></i></div>
+            <div class="sub2"><span>cache 18.4k</span><span>·</span><span>cost $0.78</span></div></div>
+        </div>
+        <div class="envsec"><div class="envhd"><span class="t"><span class="caret">▾</span>Changes</span></div>
+          <div class="envrow"><span class="ei">▤</span><span class="el">src/config.rs</span><span class="stat"><span class="ad">+24</span><span class="rm">−6</span></span></div>
+          <div class="envrow"><span class="ei">▤</span><span class="el">tests/loader.rs</span><span class="stat"><span class="ad">+18</span></span></div>
+        </div>
+        <div class="envsec"><div class="envhd"><span class="t"><span class="caret">▾</span>Todo</span></div>
+          <div class="todorow done"><span class="ck">✓</span>read existing loader</div>
+          <div class="todorow active"><span class="ck">▸</span>write focused tests</div>
+          <div class="todorow"><span class="ck"></span>run suite + gate</div>
+        </div>
+      </div>
+      <div class="cap"><b>.todorow.active</b> 金 · <b>.done</b> 绿勾 · <b>.envctx .bar</b> 青用量条</div>
+    </div>
+  </div>
+
+  <!-- composer + statusbar -->
+  <div class="sec">
+    <h2>输入区 & 状态栏 <span class="en">.composer/.cbox · .statusbar/.sb-*</span></h2>
+    <p class="desc">底部输入 <code>.composer</code>&gt;<code>.cbox</code>(青 prompt + 真 input + 青发送)。窗口级底栏 <code>.statusbar</code>:左 ⚙ + 中段滚动 ticker(<code>.sb-it</code>)+ 右状态段(<code>.sb-right</code> 金)。</p>
+    <div class="demo col">
+      <div class="framebox">
+        <div class="composer"><div class="cbox"><span class="pr">›</span><span class="tx">Add tests for load_config and summarize the diff…</span><button class="snd">⏎</button></div></div>
+        <div class="statusbar">
+          <span class="sb-gear2">⚙</span>
+          <div class="sb-tickwrap"><div class="sb-track2">
+            <span class="sb-it"><span class="lbl">provider </span><b>anthropic</b></span><span class="sb-sep2">·</span>
+            <span class="sb-it"><span class="lbl">model </span><b>sonnet-4.6</b></span><span class="sb-sep2">·</span>
+            <span class="sb-it"><span class="lbl">ctx </span><b>42.1k</b></span><span class="sb-sep2">·</span>
+            <span class="sb-it"><span class="lbl">cost </span><b class="ac">$0.78</b></span>
+          </div></div>
+          <span class="sb-right">⏸ 1 gate waiting</span>
+        </div>
+      </div>
+      <div class="cap"><b>&lt;GuiStatusBar&gt;</b>(gui-statusbar.jsx)是其 React 交互版 · 本例为静态 <b>.statusbar</b> 形态</div>
+    </div>
+  </div>
+
+  <!-- gperm 权限提示 -->
+  <div class="sec" id="gperm-show">
+    <h2>权限提示 <span class="en">.gperm · .gperm-hd/.risk · .gperm-what/.cmd/.tgt · .gperm-opts/.gperm-opt · .gperm-foot</span></h2>
+    <p class="desc"><b>执行前</b>拦截、<b>阻塞此会话</b>的权限提示(金=「需要人」)。<b>permission ≠ gate</b>:permission 拦「能不能执行」(就地·阻塞),gate 拦「批不批合入」(决策中心·异步·diff 评审归它)。模型真源 = <code>SPEC D-PERM</code>。下面四类·风险三档 hi/md/lo = error/gold/success。</p>
+    <div class="tweakbar">
+      <div class="grp"><span class="gl">Pulse</span><div class="tweakseg" data-k="pulse"><button data-v="off">Off</button><button data-v="on">On</button></div></div>
+      <div class="grp"><span class="gl">Footnote</span><div class="tweakseg" data-k="foot"><button data-v="show">Show</button><button data-v="hide">Hide</button></div></div>
+      <div class="grp"><span class="gl">Scope tiers</span><div class="tweakseg" data-k="tiers"><button data-v="full">Full</button><button data-v="min">Minimal</button></div></div>
+      <span class="hint">页内 tweak · 仅此展示·不改组件</span>
+    </div>
+    <div class="gperm-grid">
+
+      <div class="gperm">
+        <div class="gperm-hd"><span class="ic">⏸</span>Permission · shell command<span class="risk hi">HIGH</span></div>
+        <div class="gperm-what">
+          <div class="cmd">rm -rf target/ &amp;&amp; cargo build --release</div>
+          <div class="why"><b>Reason:</b> recursive delete then rebuild — <b>target/ is outside this lane’s allowlist</b>, can’t pass silently.</div>
+        </div>
+        <div class="gperm-opts">
+          <div class="gperm-opt allow"><span class="k">Y</span> Allow once</div>
+          <div class="gperm-opt opt-extra"><span class="k">A</span> This session</div>
+          <div class="gperm-opt always opt-extra"><span class="k">⇧A</span> Always · write policy</div>
+          <div class="gperm-opt opt-extra"><span class="k">E</span> Edit</div>
+          <div class="gperm-opt deny"><span class="k">N</span> Deny · esc</div>
+        </div>
+        <div class="gperm-foot"><b>Permission</b> guards execution; the change is reviewed later at a <span class="c">gate</span>.</div>
+      </div>
+
+      <div class="gperm">
+        <div class="gperm-hd"><span class="ic">⏸</span>Permission · write managed path<span class="risk md">MID</span></div>
+        <div class="gperm-what">
+          <div class="cmd">write contracts/design-spec.md</div>
+          <div class="why"><b>Reason:</b> contract directory — editing it also triggers a <b>contract gate</b> for subscribers downstream.</div>
+        </div>
+        <div class="gperm-opts">
+          <div class="gperm-opt allow"><span class="k">Y</span> Allow once</div>
+          <div class="gperm-opt opt-extra"><span class="k">A</span> This session</div>
+          <div class="gperm-opt always opt-extra"><span class="k">⇧A</span> Always · write policy</div>
+          <div class="gperm-opt opt-extra"><span class="k">E</span> Edit</div>
+          <div class="gperm-opt deny"><span class="k">N</span> Deny · esc</div>
+        </div>
+        <div class="gperm-foot"><b>Permission</b> guards execution; the change is reviewed later at a <span class="c">gate</span>.</div>
+      </div>
+
+      <div class="gperm">
+        <div class="gperm-hd"><span class="ic">⏸</span>Permission · network / MCP tool<span class="risk md">MID</span></div>
+        <div class="gperm-what">
+          <div class="cmd">call mcp:figma.export · network</div>
+          <div class="why"><b>Reason:</b> third-party tool — the egress request is <b>audited</b> before it leaves the machine.</div>
+        </div>
+        <div class="gperm-opts">
+          <div class="gperm-opt allow"><span class="k">Y</span> Allow once</div>
+          <div class="gperm-opt opt-extra"><span class="k">A</span> This session</div>
+          <div class="gperm-opt always opt-extra"><span class="k">⇧A</span> Always · write policy</div>
+          <div class="gperm-opt opt-extra"><span class="k">E</span> Edit</div>
+          <div class="gperm-opt deny"><span class="k">N</span> Deny · esc</div>
+        </div>
+        <div class="gperm-foot"><b>Permission</b> guards execution; the change is reviewed later at a <span class="c">gate</span>.</div>
+      </div>
+
+      <div class="gperm">
+        <div class="gperm-hd"><span class="ic">⏸</span>Permission · remote target<span class="risk hi">HIGH</span></div>
+        <div class="gperm-what">
+          <div class="cmd"><span class="tgt">[robot-01]</span> motor.enable()</div>
+          <div class="why"><b>Reason:</b> real-hardware action · <b>e-stop prerequisite</b> · field-level strong-gate needs <b>two approvers</b>.</div>
+        </div>
+        <div class="gperm-opts">
+          <div class="gperm-opt allow"><span class="k">Y</span> Allow once</div>
+          <div class="gperm-opt opt-extra"><span class="k">E</span> Edit</div>
+          <div class="gperm-opt deny"><span class="k">N</span> Deny · esc</div>
+        </div>
+        <div class="gperm-foot">No <b>“always”</b> on hardware — field-level needs a <b>second approver (co-sign)</b>. Lands in the audit stream.</div>
+      </div>
+
+    </div>
+    <div class="cap" style="margin-top:12px"><b>.risk.hi/.md/.lo</b> = error/gold/success · <b>.tgt</b> 红远程前缀 · 范围分级 <b>y·a·⇧A·e·n</b>(远程禁 ⇧A·需双人) · 内联会话底或包 .scrim 弹</div>
+  </div>
+
+  <!-- tokens quick -->
+  <div class="sec">
+    <h2>语义色 & 阴影 <span class="en">tokens.css · 随 data-theme 换肤</span></h2>
+    <p class="desc">组件只引用语义名。强调:青 = 品牌/焦点,金 = 工作/「需要人」;语义四色 success/warning/error/progress;第四类 builtin 紫。</p>
+    <div class="demo">
+      <div class="swatch"><i style="background:var(--accent)"></i>--accent</div>
+      <div class="swatch"><i style="background:var(--gold)"></i>--gold</div>
+      <div class="swatch"><i style="background:var(--success)"></i>--success</div>
+      <div class="swatch"><i style="background:var(--warning)"></i>--warning</div>
+      <div class="swatch"><i style="background:var(--error)"></i>--error</div>
+      <div class="swatch"><i style="background:var(--progress)"></i>--progress</div>
+      <div class="swatch"><i style="background:var(--builtin)"></i>--builtin</div>
+      <div class="swatch"><i style="background:var(--bg-sel)"></i>--bg-sel</div>
+      <div class="swatch"><i style="box-shadow:var(--shadow-win);background:var(--bg-elev)"></i>--shadow-win</div>
+      <div class="swatch"><i style="box-shadow:var(--shadow-pop-gui);background:var(--bg-elev)"></i>--shadow-pop-gui</div>
+    </div>
+    <div class="src" style="margin-top:14px">完整目录见 <b>docs/DESIGN-REF.md</b> · 新组件先登记(类名 + 最小 HTML)再用</div>
+  </div>
+
+</div>
+<script>
+/* gperm 展示页内 tweak（vanilla·仅驱动本区展示，不改组件） */
+(function(){
+  var sec=document.getElementById('gperm-show');
+  if(!sec)return;
+  var cards=sec.querySelectorAll('.gperm');
+  function apply(name,val){
+    sec.querySelectorAll('.tweakseg[data-k="'+name+'"] button').forEach(function(b){b.classList.toggle('on',b.dataset.v===val);});
+    if(name==='pulse')cards.forEach(function(c){c.classList.toggle('pulse',val==='on');});
+    if(name==='foot')sec.querySelectorAll('.gperm-foot').forEach(function(f){f.style.display=val==='hide'?'none':'';});
+    if(name==='tiers')sec.querySelectorAll('.gperm-opt.opt-extra').forEach(function(o){o.style.display=val==='min'?'none':'';});
+  }
+  sec.querySelectorAll('.tweakseg button').forEach(function(b){
+    b.addEventListener('click',function(){apply(b.closest('.tweakseg').dataset.k,b.dataset.v);});
+  });
+  apply('pulse','off');apply('foot','show');apply('tiers','full');
+})();
+</script>
+</body>
+</html>

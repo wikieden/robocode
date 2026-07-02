@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora" data-density="regular">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>viden · 原型总览 Prototype Index</title>
+<link rel="icon" href="brand-assets/favicon-64.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<script src="i18n-dict.js"></script>
+<script src="i18n.js"></script>
+<script src="chrome.js"></script>
+<script src="docs/screens-status.js"></script>
+<style>
+/* 入口页 · 仅用 var(--*)（tokens.css 单一真源）。chrome.js 提供右下角皮肤/密度切换。 */
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0;background:var(--page-bg);color:var(--page-ink);
+  font-family:var(--font-sans);font-size:15px;line-height:var(--lh-body);
+  -webkit-font-smoothing:antialiased;
+  transition:background .25s,color .25s;
+}
+a{color:inherit;text-decoration:none;}
+.mono{font-family:var(--font-mono);}
+
+/* ---------- top bar ---------- */
+.topbar{
+  position:sticky;top:0;z-index:var(--z-nav);
+  display:flex;align-items:center;gap:var(--sp-4);
+  padding:13px 30px;
+  background:color-mix(in srgb,var(--page-bg) 86%,transparent);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--page-line);
+}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--font-mono);font-weight:800;font-size:16px;letter-spacing:.4px;}
+.brand .b1{color:var(--accent);}
+.brand .b2{color:var(--accent-bright);}
+.brand .r{color:var(--gold);}
+.brand .c{color:var(--accent);}
+.brand .sep{color:var(--page-ink-dim);font-weight:400;margin:0 2px;}
+.brand .tag{color:var(--page-ink-dim);font-weight:500;font-size:12.5px;font-family:var(--font-sans);}
+.verpill{
+  margin-left:auto;font-family:var(--font-mono);font-size:11.5px;font-weight:700;letter-spacing:.4px;
+  color:var(--gold-bright);border:1px solid var(--border);background:var(--page-card);
+  padding:4px 10px;border-radius:var(--r-full);
+}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1240px;margin:0 auto;padding:0 30px 120px;}
+.hero{padding:54px 0 8px;}
+.kicker{
+  font-family:var(--font-mono);font-size:var(--fs-kicker);font-weight:700;letter-spacing:var(--ls-kicker);
+  text-transform:uppercase;color:var(--accent);margin:0 0 12px;display:flex;align-items:center;gap:10px;
+}
+.kicker::before{content:"";width:26px;height:2px;background:var(--accent);display:inline-block;}
+h1{font-size:var(--fs-h1);line-height:var(--lh-tight);margin:0 0 16px;letter-spacing:-1px;font-weight:700;}
+h1 .ac{color:var(--accent);}
+.lead{font-size:var(--fs-lead);color:var(--page-ink-dim);max-width:780px;margin:0;text-wrap:pretty;}
+.lead b{color:var(--page-ink);font-weight:600;}
+.prog{margin-top:18px;font-family:var(--font-mono);font-size:12.5px;color:var(--page-ink-dim);letter-spacing:.3px;}
+.prog b{color:var(--accent);font-weight:700;}
+.prog .upd{color:var(--page-ink-dim);opacity:.7;}
+
+/* ---------- single-source panel ---------- */
+.sot{
+  margin-top:34px;border:1px solid var(--page-line);border-radius:var(--r-lg);
+  background:var(--page-card);padding:18px 20px 20px;
+}
+.sot-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
+.sot-hd .t{font-family:var(--font-mono);font-size:13px;font-weight:700;letter-spacing:.4px;color:var(--page-ink);}
+.sot-hd .s{font-size:12.5px;color:var(--page-ink-dim);}
+.sot-hd .s b{color:var(--accent);font-weight:600;}
+.chips{display:flex;flex-wrap:wrap;gap:8px;}
+.chip{
+  display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:12px;
+  border:1px solid var(--page-line);border-radius:var(--r-sm);padding:7px 11px;background:var(--page-bg);
+}
+.chip .nm{color:var(--page-ink);font-weight:600;}
+.chip .ds{color:var(--page-ink-dim);}
+.chip .dot{width:7px;height:7px;border-radius:50%;flex:none;}
+.chip.token .dot{background:var(--accent);}
+.chip.kit .dot{background:var(--gold);}
+.chip.script .dot{background:var(--builtin);}
+
+/* ---------- sections ---------- */
+section{padding-top:52px;}
+.sec-hd{display:flex;align-items:baseline;gap:12px;margin-bottom:18px;border-bottom:1px solid var(--page-line);padding-bottom:12px;flex-wrap:wrap;}
+.sec-hd .h{font-size:var(--fs-h2);font-weight:700;letter-spacing:-.4px;margin:0;}
+.sec-hd .h .n{color:var(--accent);font-family:var(--font-mono);font-size:18px;margin-right:6px;}
+.sec-hd .meta{font-family:var(--font-mono);font-size:12px;color:var(--page-ink-dim);margin-left:auto;}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:13px;}
+
+.card{
+  display:flex;flex-direction:column;gap:9px;
+  border:1px solid var(--page-line);border-radius:var(--r-lg);
+  background:var(--page-card);padding:15px 16px 14px;
+  transition:border-color .16s,transform .16s,box-shadow .16s;
+  position:relative;min-height:118px;
+}
+.card:hover{border-color:var(--border-active);transform:translateY(-2px);box-shadow:var(--shadow-sm);}
+.card .top{display:flex;align-items:center;gap:8px;}
+.code{
+  font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:.6px;
+  color:var(--accent-bright);background:var(--bg-sel);border:1px solid var(--accent-dim);
+  padding:3px 8px;border-radius:var(--r-sm);line-height:1;
+}
+.pill{
+  margin-left:auto;font-family:var(--font-mono);font-size:9.5px;font-weight:700;letter-spacing:.5px;
+  text-transform:uppercase;padding:3px 7px;border-radius:var(--r-full);line-height:1;border:1px solid transparent;
+}
+.pill.kit{color:var(--success);border-color:color-mix(in srgb,var(--success) 45%,transparent);background:color-mix(in srgb,var(--success) 12%,transparent);}
+.pill.inline{color:var(--page-ink-dim);border-color:var(--page-line);}
+.pill.doc{color:var(--accent);border-color:var(--accent-dim);}
+.pill.arch{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent);}
+/* state quanta — small monospace state tag */
+.stq{font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.5px;padding:3px 6px;border-radius:var(--r-sm);line-height:1;border:1px solid transparent;}
+.stq.built,.stq.reviewed{color:var(--success);border-color:color-mix(in srgb,var(--success) 40%,transparent);background:color-mix(in srgb,var(--success) 10%,transparent);}
+.stq.wip,.stq.planned{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 40%,transparent);background:color-mix(in srgb,var(--gold) 10%,transparent);}
+.stq.archived,.stq.dropped{color:var(--page-ink-dim);border-color:var(--page-line);}
+.card.nofile{cursor:default;}
+.card.nofile:hover{transform:none;border-color:var(--page-line);box-shadow:none;}
+.card .ti{font-size:15px;font-weight:600;color:var(--page-ink);letter-spacing:-.2px;line-height:1.3;}
+.card .ds{font-size:12.5px;color:var(--page-ink-dim);line-height:1.5;flex:1;text-wrap:pretty;}
+.card .go{font-family:var(--font-mono);font-size:11.5px;color:var(--accent);display:flex;align-items:center;gap:6px;opacity:.8;}
+.card:hover .go{opacity:1;}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-family:var(--font-mono);font-size:11.5px;color:var(--page-ink-dim);margin-top:10px;}
+.legend span{display:inline-flex;align-items:center;gap:6px;}
+.legend .d{width:8px;height:8px;border-radius:var(--r-full);}
+.legend .d.kit{background:var(--success);}
+.legend .d.inline{background:var(--page-line);}
+.legend .d.doc{background:var(--accent);}
+.legend .d.arch{background:var(--gold);}
+
+footer{margin-top:64px;padding-top:22px;border-top:1px solid var(--page-line);font-size:12.5px;color:var(--page-ink-dim);font-family:var(--font-mono);line-height:1.7;}
+footer b{color:var(--page-ink);font-weight:600;}
+footer a{color:var(--accent);}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="mono"><span class="b1">[</span><span class="b2">◉</span><span class="b1">]</span> <span class="r">v</span><span class="c">iden</span></span>
+    <span class="sep">·</span>
+    <span class="tag" data-i18n="tag">AI agent 编排开发工具</span>
+  </div>
+  <span class="verpill">PROTOTYPE INDEX</span>
+</div>
+
+<div class="wrap">
+  <div class="hero">
+    <div class="kicker">Prototype Index · 原型总览</div>
+    <h1 data-i18n="h1">所有高保真原型的 <span class="ac">统一入口</span></h1>
+    <p class="lead" data-i18n="lead"></p>
+    <div class="prog" id="progress"></div>
+  </div>
+
+  <div class="sot">
+    <div class="sot-hd">
+      <span class="t" data-i18n="sotT">SINGLE SOURCE · 单一真源</span>
+      <span class="s" data-i18n="sotS"></span>
+    </div>
+    <div class="chips" id="sotChips"></div>
+  </div>
+
+  <div id="sections"></div>
+
+  <footer>
+    <div data-i18n="ft1"></div>
+    <div data-i18n="ft2"></div>
+  </footer>
+</div>
+
+<script>
+/* ---------- 文案（中英双语，i18n.js 提供 window.t） ---------- */
+var copy = {
+  tag:  ['AI agent orchestration dev tool','AI agent 编排开发工具'],
+  h1:   ['One entry for every <span class="ac">hi-fi prototype</span>','所有高保真原型的 <span class="ac">统一入口</span>'],
+  lead: [
+    'Viden orchestrates multiple coding agents across lanes with tool-gating and human review. Below are all Core / TUI / GUI screens — <b>each links straight into the live prototype</b>. Visual truth lives in <b>tokens.css</b>; reusable components live in the kits. Change the source once, every screen follows.',
+    'Viden 用 lane 编排多个编码 agent 协作,带工具门控与人审。下面是全部 Core / TUI / GUI 屏 —— <b>每张卡直达活体原型</b>。视觉真源在 <b>tokens.css</b>,可复用组件在 kit 套件里。<b>改一处真源,全站跟随。</b>'
+  ],
+  sotT: ['SINGLE SOURCE · 单一真源','单一真源 · SINGLE SOURCE'],
+  sotS: ['Edit these once → every page follows. 改这里 = 全站跟随。','改这一层 → 全站跟随。Edit once, propagates everywhere.'],
+  ft1:  ['Discipline: grep DESIGN-REF before building · only var(--*) · register components before reuse · machine-checked by tools/.',
+         '纪律:造件前先 grep DESIGN-REF · 只用 var(--*) · 复用前先登记组件 · 由 tools/ guard 机检。'],
+  ft2:  ['See docs/DESIGN-REF.md (AI 速查) · docs/CHECKLIST.md (收尾自查) · docs/CHANGELOG.md (更新日志).',
+         '详见 docs/DESIGN-REF.md(AI 速查)· docs/CHECKLIST.md(收尾自查)· docs/CHANGELOG.md(更新日志)。']
+};
+
+/* ---------- 共享层（单一真源）芯片 ---------- */
+var sot = [
+  ['token','tokens.css','颜色/字号/间距/圆角/阴影','colors · type · spacing · radius'],
+  ['kit','TUI/tui-kit.css','终端组件词汇','terminal component kit'],
+  ['kit','GUI/gui-kit.css','桌面组件词汇','desktop component kit'],
+  ['script','i18n.js','中英切换','EN/中 switch'],
+  ['script','chrome.js','皮肤+密度切换','skin + density'],
+  ['script','tweaks-panel.jsx','Tweaks 面板','tweaks panel']
+];
+
+/* ---------- 屏目录：运行时读 docs/screens-status.js（机读真源） ---------- */
+var S = window.VIDEN_STATUS || { tracks:[], screens:[] };
+var DONE = { BUILT:1, REVIEWED:1 };          // 计入「已建」分子
+var OFFLEDGER = { ARCHIVED:1, DROPPED:1 };    // 不计入进度分母
+
+function L(arr){ return window.t ? window.t(arr[0], arr[1]) : arr[0]; }
+
+// 顶部文案
+Object.keys(copy).forEach(function(k){
+  var el = document.querySelector('[data-i18n="'+k+'"]');
+  if(el) el.innerHTML = L(copy[k]);
+});
+
+// 单一真源芯片
+document.getElementById('sotChips').innerHTML = sot.map(function(s){
+  return '<div class="chip '+s[0]+'"><span class="dot"></span><span class="nm">'+s[1]+'</span><span class="ds">'+L([s[3],s[2]])+'</span></div>';
+}).join('');
+
+// 全站进度（已建 / 在册）
+var ledger = S.screens.filter(function(s){ return !OFFLEDGER[s.state]; });
+var builtN = ledger.filter(function(s){ return DONE[s.state]; }).length;
+document.getElementById('progress').innerHTML =
+  '<b>'+builtN+'</b> '+window.tk('of')+' <b>'+ledger.length+'</b> '+window.tk('progress')
+  + ' · <span class="upd">updated '+(S.updated||'')+'</span>';
+
+// 分组卡片（按 tracks 顺序）
+document.getElementById('sections').innerHTML = S.tracks.map(function(tr){
+  var items = S.screens.filter(function(s){ return s.track===tr.id; });
+  var tBuilt = items.filter(function(s){ return DONE[s.state]; }).length;
+  var tLedger = items.filter(function(s){ return !OFFLEDGER[s.state]; }).length;
+
+  var cards = items.map(function(s){
+    var pill = s.kind ? '<span class="pill '+s.kind+'">'+window.tk('kind_'+s.kind)+'</span>' : '';
+    var stTag = '<span class="stq '+s.state.toLowerCase()+'">'+window.tk('st_'+s.state)+'</span>';
+    var clickable = !!s.file;
+    var tag = clickable ? 'a' : 'div';
+    var href = clickable ? ' href="'+encodeURI(s.file)+'"' : '';
+    return '<'+tag+' class="card'+(clickable?'':' nofile')+'"'+href+'>'
+      + '<div class="top"><span class="code">'+s.code+'</span>'+stTag+pill+'</div>'
+      + '<div class="ti">'+L([s.nmEn,s.nm])+'</div>'
+      + '<div class="ds">'+L([s.metaEn,s.meta])+'</div>'
+      + (clickable ? '<div class="go">'+window.tk('open')+'</div>' : '')
+      + '</'+tag+'>';
+  }).join('');
+
+  var legend = '<div class="legend">'
+    + '<span><i class="d kit"></i>'+window.tk('lg_kit')+'</span>'
+    + '<span><i class="d inline"></i>'+window.tk('lg_inline')+'</span>'
+    + '<span><i class="d doc"></i>'+window.tk('lg_doc')+'</span>'
+    + '<span><i class="d arch"></i>'+window.tk('lg_arch')+'</span></div>';
+
+  return '<section><div class="sec-hd"><div class="h"><span class="n">'+tr.id+'</span>'+L([tr.nmEn, tr.nm])
+    + '</div><span class="meta"><b>'+tBuilt+'</b>/'+tLedger+' '+window.tk('progress')+' · '+tr.meta+'</span></div>'
+    + '<div class="grid">'+cards+'</div>'+legend+'</section>';
+}).join('');
+</script>
+</body>
+</html>

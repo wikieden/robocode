@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-mode="dark" data-skin="aurora">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,8 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
-<script src="i18n.js"></script>
-<script src="chrome.js"></script>
+<script src="../i18n.js"></script>
+<script src="../chrome.js"></script>
 <link rel="stylesheet" href="../tokens.css">
 <style>
 /* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
@@ -103,7 +103,7 @@ tr:hover td{background:var(--bg-base);}
 <div class="kicker">viden · product plan · v2</div>
 <h1>Viden V1 产品方案 <span class="ac">Agent 团队驾驶舱</span></h1>
 <p class="sub">把"多个 agent 在同一工程协作"做成产品：lane 并行、闸控边界、证据评审。本方案收敛此前关于机器人、AI/ML、游戏三领域与团队协作的全部讨论，给出 V1 的范围切割与设计任务清单。</p>
-<div class="meta"><span>状态 · v2 评审中</span><span>日期 · 2026-06-13</span><span>基座 · RoboCode (Rust CLI) + Viden Desktop</span><span>关联 · MuseGameWorkshop</span></div>
+<div class="meta"><span>状态 · v2 评审中</span><span>日期 · 2026-06-13</span><span>基座 · Viden 引擎 (Rust CLI · 原 RoboCode，改名跟设计) + Viden Desktop</span><span>关联 · MuseGameWorkshop</span></div>
 
 <div class="vlog"><b>V2 变更</b> &nbsp;<span class="i">①</span> 新增 07 设计 review：D3 并入决策中心，D4 / D5 / D7 / D8 本轮补齐，D9 / D10 补登记；<span class="i">②</span> 信息架构定稿为「驾驶舱 · 决策中心 · 监视器」三件套（07-A）；<span class="i">③</span> 待决策 Q1 / Q2 / Q3 / Q5 定稿，新增 Q8；<span class="i">④</span> 新增 12 里程碑。</div>
 
@@ -228,11 +228,11 @@ tr:hover td{background:var(--bg-base);}
   </div>
   <div class="card" data-screen-label="机器人包">
     <div class="h"><span class="dot" style="background:var(--gold);"></span>机器人包 <span class="tag p1">V1.x</span><span class="en">ROBOTICS</span></div>
-    <p><b>典型 lane 团队</b>：感知 · 规划/控制 · 仿真验证；与 RoboCode CLI 同源生态</p>
+    <p><b>典型 lane 团队</b>：感知 · 规划/控制 · 仿真验证；与 Viden CLI 同源 Rust 生态</p>
     <ul>
       <li>分级实机闸：sim 自由 → bench 轻闸 → field 强闸 + e-stop 前置</li>
       <li>仿真 lane：lane 绑仿真实例，回放进证据</li>
-      <li>远程上板：SSH 连主控板开发，断线续会话；RoboCode（Rust）足够轻可直接上 ARM 板</li>
+      <li>远程上板：SSH 连主控板开发，断线续会话；Viden 核心（Rust）足够轻可直接上 ARM 板</li>
       <li>行为 diff：PID 改动旁边放阶跃响应曲线</li>
       <li>ROS 契约：.msg / URDF 变更自动告警依赖方</li>
       <li>设备占用锁：实机时间片 lease</li>
@@ -287,22 +287,22 @@ tr:hover td{background:var(--bg-base);}
 <table>
 <tr><th style="width:34px;">#</th><th>界面</th><th>说明</th><th style="width:170px;">状态</th></tr>
 <tr><td class="mono">D1</td><td><b>驾驶舱主视图</b></td><td>lane 边栏 + 会话 tab + 上下文 dock；修订方向见 R4</td><td><span class="tag todo">概念稿 · 待修订</span> <a class="flink" href="../GUI/Viden - D1 驾驶舱 (GUI).html">打开</a></td></tr>
-<tr><td class="mono">D2</td><td><b>决策中心</b>（行为 Diff 评审 v2）</td><td>闸审批 + lane 问询 + 契约确认同队列；一套骨架三种证据形态（回放 / eval 表 / 遥测）。<b>产品灵魂界面</b></td><td><span class="tag done">v2 定稿方向</span> <a class="flink" href="../GUI/Viden - D2 决策中心 (GUI).html">打开</a></td></tr>
+<tr><td class="mono">D2</td><td><b>决策中心</b>（行为 Diff 评审 v2）</td><td>闸审批 + lane 问询 + 契约确认同队列；一套骨架三种证据形态（回放 / eval 表 / 遥测）。<b>产品灵魂界面</b></td><td><span class="tag done">v2 定稿方向</span> <a class="flink" href="../GUI/pages/Viden - D2 决策中心 (GUI).html">打开</a></td></tr>
 <tr><td class="mono">D3</td><td><b>闸审批流</b></td><td>闸卡片、前置验证、分级闸递进确认</td><td><span class="tag merged">已并入 D2 v2</span></td></tr>
-<tr><td class="mono">D4</td><td><b>Lane 创建流程</b></td><td>角色 + agent + skill 包 + 闸与 target，四步开工位；角色预设由领域包注册</td><td><span class="tag done">概念稿 ✓ 本轮</span> <a class="flink" href="../GUI/Viden - D4 Lane创建流程 (GUI).html">打开</a></td></tr>
-<tr><td class="mono">D5</td><td><b>画廊评审</b></td><td>批量生成内容 keep / kill 网格 + 键盘流 + provenance；kill 归档可复活</td><td><span class="tag done">概念稿 ✓ 本轮</span> <a class="flink" href="../GUI/Viden - D5 画廊评审 (GUI).html">打开</a></td></tr>
+<tr><td class="mono">D4</td><td><b>Lane 创建流程</b></td><td>角色 + agent + skill 包 + 闸与 target，四步开工位；角色预设由领域包注册</td><td><span class="tag done">概念稿 ✓ 本轮</span> <a class="flink" href="../GUI/pages/Viden - D4 Lane创建流程 (GUI).html">打开</a></td></tr>
+<tr><td class="mono">D5</td><td><b>画廊评审</b></td><td>批量生成内容 keep / kill 网格 + 键盘流 + provenance；kill 归档可复活</td><td><span class="tag done">概念稿 ✓ 本轮</span> <a class="flink" href="../GUI/pages/Viden - D5 画廊评审 (GUI).html">打开</a></td></tr>
 <tr><td class="mono">D6</td><td><b>协作图</b></td><td>lane 间交接/评审/依赖：静态机制图已定稿；实时视图建议作为 D10 监视器的一个视图模式（降一档）</td><td><span class="tag done">机制图定稿</span> <a class="flink" href="Viden - Lane 协作机制图 (Core).html">打开</a></td></tr>
-<tr><td class="mono">D7</td><td><b>闸收件箱</b>（团队）</td><td>按 ownership 路由 + 认领 / 移交 / 多人凑签 / 夜间自动驾驶</td><td><span class="tag done">概念稿 ✓ 本轮</span> <a class="flink" href="../GUI/Viden - D7 团队收件箱与简报 (GUI).html">打开</a></td></tr>
-<tr><td class="mono">D8</td><td><b>团队简报 / 变更通告</b></td><td>scribe 简报 + 双通道通告 + agent memo ack 追踪（与 D7 同稿）</td><td><span class="tag done">概念稿 ✓ 本轮</span> <a class="flink" href="../GUI/Viden - D7 团队收件箱与简报 (GUI).html">打开</a></td></tr>
-<tr><td class="mono">D9</td><td><b>远程目标开发模式</b></td><td>lane 绑 SSH target：状态条、断线续会话、证据回拉（v1 漏登记，本版补）</td><td><span class="tag done">概念稿 ✓</span> <a class="flink" href="../GUI/Viden - D9 远程目标开发 (GUI).html">打开</a></td></tr>
-<tr><td class="mono">D10</td><td><b>Lane 监视器</b></td><td>独立小窗 · 全 lane 卡片墙 · 常驻角落（v1 漏登记，本版补）</td><td><span class="tag done">概念稿 ✓</span> <a class="flink" href="../GUI/Viden - D10 Lane监视器 (GUI).html">打开</a></td></tr>
+<tr><td class="mono">D7</td><td><b>闸收件箱</b>（团队）</td><td>按 ownership 路由 + 认领 / 移交 / 多人凑签 / 夜间自动驾驶</td><td><span class="tag done">概念稿 ✓ 本轮</span> <a class="flink" href="../GUI/pages/Viden - D7 团队收件箱与简报 (GUI).html">打开</a></td></tr>
+<tr><td class="mono">D8</td><td><b>团队简报 / 变更通告</b></td><td>scribe 简报 + 双通道通告 + agent memo ack 追踪（与 D7 同稿）</td><td><span class="tag done">概念稿 ✓ 本轮</span> <a class="flink" href="../GUI/pages/Viden - D7 团队收件箱与简报 (GUI).html">打开</a></td></tr>
+<tr><td class="mono">D9</td><td><b>远程目标开发模式</b></td><td>lane 绑 SSH target：状态条、断线续会话、证据回拉（v1 漏登记，本版补）</td><td><span class="tag done">概念稿 ✓</span> <a class="flink" href="../GUI/pages/Viden - D9 远程目标开发 (GUI).html">打开</a></td></tr>
+<tr><td class="mono">D10</td><td><b>Lane 监视器</b></td><td>独立小窗 · 全 lane 卡片墙 · 常驻角落（v1 漏登记，本版补）</td><td><span class="tag done">概念稿 ✓</span> <a class="flink" href="../GUI/pages/Viden - D10 Lane监视器 (GUI).html">打开</a></td></tr>
 <tr><td class="mono">D11</td><td><b>首启与项目接入</b></td><td>打开 repo → viden.toml → 领域包 → 第一条 lane；产品叙事起点</td><td><span class="tag todo">待设计 · 下一轮</span></td></tr>
 <tr><td class="mono">D12</td><td><b>集成闸冲突退回</b></td><td>合并冲突 → 退回原 lane → agent 重整 → 再走闸；含空态 / 错误态规范</td><td><span class="tag todo">待设计 · 下一轮</span></td></tr>
 </table>
 <p class="note">支撑稿：<a class="flink" href="Viden - Aurora 主题 (Core).html">Aurora 主题</a> · <a class="flink" href="Viden - Logo & TUI 品牌 (Core).html">Logo & TUI</a> · <a class="flink" href="Viden - 品牌资产 (Core).html">品牌资产</a>。设计顺序建议：D11 → D12 → D1 修订。</p>
 
 <h3>07-C · 终端轨（TUI） <span class="en" style="font-family:var(--mono);font-size:11px;color:var(--fg-faint);font-weight:400;">terminal track</span></h3>
-<p>TUI 不是 GUI 的删减版，而是 operator 主场：<b>agent 本就是 CLI、远程目标本就 SSH、RoboCode 轻到能跑进 ARM 板</b>。分工：<b>TUI 干活 + 拍板，GUI 看富证据</b>，两轨并行、共享同一份 <code>docs/evidence/</code> 与 <code>viden.toml</code>。</p>
+<p>TUI 不是 GUI 的删减版，而是 operator 主场：<b>agent 本就是 CLI、远程目标本就 SSH、Viden 核心轻到能跑进 ARM 板</b>。分工：<b>TUI 干活 + 拍板，GUI 看富证据</b>，两轨并行、共享同一份 <code>docs/evidence/</code> 与 <code>viden.toml</code>。</p>
 <table>
 <tr><th style="width:34px;">#</th><th>界面</th><th>说明</th><th style="width:170px;">状态</th></tr>
 <tr><td class="mono">T0</td><td><b>设计总览（三屏）</b></td><td>驾驶舱 cockpit：Lane board · 决策中心文本档 · 画廊评审；能力地图 + 分期</td><td><span class="tag done">概念稿 ✓ 本轮</span> <a class="flink" href="../TUI/Viden - T0 设计总览 (TUI).html">打开</a></td></tr>
@@ -351,7 +351,7 @@ tr:hover td{background:var(--bg-base);}
 <h2 id="s10"><span class="no">10</span>待决策问题 <span class="en">Open Questions</span></h2>
 <div class="hr"></div>
 <div class="qa">
-  <div class="q settled"><div class="t"><span class="n">Q1</span>闸策略文件的格式与位置 <span class="tag done">v2 定稿</span></div><p>定稿：仓库根 <code>viden.toml</code>（RoboCode 同源 Rust 生态）。声明闸类型、路由规则（ownership / watch）、领域包启用、预算策略。决策中心、D4、D7 三稿均已按此设计；改规则 = 改文件走契约闸。</p></div>
+  <div class="q settled"><div class="t"><span class="n">Q1</span>闸策略文件的格式与位置 <span class="tag done">v2 定稿</span></div><p>定稿：仓库根 <code>viden.toml</code>（与 Viden 引擎同源 Rust 生态）。声明闸类型、路由规则（ownership / watch）、领域包启用、预算策略。决策中心、D4、D7 三稿均已按此设计；改规则 = 改文件走契约闸。</p></div>
   <div class="q settled"><div class="t"><span class="n">Q2</span>契约的载体 <span class="tag done">v2 定稿</span></div><p>定稿：Markdown + frontmatter（人可读、git 可 diff、MuseGameWorkshop 模板直接复用），结构化校验由领域包 schema 做。契约闸的 diff 视图（D2 v2 第三卡）即按 Markdown diff 呈现。</p></div>
   <div class="q settled"><div class="t"><span class="n">Q3</span>回放证据的格式 <span class="tag done">v2 定稿</span></div><p>定稿双轨：闸用<b>确定性输入序列</b>（轻、git 友好、可断言），评审 UI 现场重演渲染；视频仅作为不支持确定性重演时的降级。要求 runner 声明确定性能力。</p></div>
   <div class="q"><div class="t"><span class="n">Q4</span>kiro 的 ACP 成熟度</div><p>仍开放。D4 已把 kiro 标为 "ACP 桥接 beta · 待验证"；不行则 V1 先 codex + claude-code，kiro 走终端适配。验证排进 M0。</p></div>

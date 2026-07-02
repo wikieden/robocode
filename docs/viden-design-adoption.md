@@ -2,7 +2,7 @@
 
 Chinese version: [viden-design-adoption.zh-CN.md](viden-design-adoption.zh-CN.md)
 
-Last updated: 2026-06-26
+Last updated: 2026-07-02
 
 ## Decision
 
@@ -21,6 +21,7 @@ The accepted design source is:
 
 - `docs/viden-design/Viden/CLAUDE.md`
 - `docs/viden-design/Viden/docs/DESIGN-REF.md`
+- `docs/viden-design/Viden/docs/NAMING-MAP.md`
 - `docs/viden-design/Viden/tokens.css`
 - `docs/viden-design/Viden/TUI/tui-kit.css`
 - `docs/viden-design/Viden/screenshots/`
@@ -30,6 +31,20 @@ The accepted design source is:
 
 The old `docs/design/canvas-export` import is deleted and must not be used as a
 design source.
+
+### Bundle Refresh Record
+
+- 2026-07-02: vendored bundle refreshed to the reviewed 2026-07-02 export,
+  after four closed code-side review rounds. The bundle's own guard scripts
+  pass inside the vendored copy (`node tools/run-checks.node.js`, exit 0).
+  Notable additions since the 2026-06-26 import: the Settings view
+  (`GUI/gui-settings.jsx`, D1's 8th view), `docs/NAMING-MAP.md` (product name
+  locked to Viden, engine names mapped to RoboCode v0.1.30), the D14 audit &
+  timeline screen, the D12 post-merge rollback flow, roadmap flags on D7/D8/D9
+  (BUILT does not mean engine-backed), density-axis tokens, and i18n v2
+  hot-swap. The five accepted target screenshots listed below are retained
+  from the original import vintage; the refreshed `screenshots/` directory
+  otherwise carries the design side's newer QA captures.
 
 ## Product Mapping
 

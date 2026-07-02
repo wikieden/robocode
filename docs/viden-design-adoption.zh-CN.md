@@ -2,7 +2,7 @@
 
 英文版： [viden-design-adoption.md](viden-design-adoption.md)
 
-最后更新：2026-06-26
+最后更新：2026-07-02
 
 ## 决策
 
@@ -18,6 +18,7 @@ transcript path 或兼容命令。这些名称属于实现迁移工作，需要�
 
 - `docs/viden-design/Viden/CLAUDE.md`
 - `docs/viden-design/Viden/docs/DESIGN-REF.md`
+- `docs/viden-design/Viden/docs/NAMING-MAP.md`
 - `docs/viden-design/Viden/tokens.css`
 - `docs/viden-design/Viden/TUI/tui-kit.css`
 - `docs/viden-design/Viden/screenshots/`
@@ -26,6 +27,17 @@ transcript path 或兼容命令。这些名称属于实现迁移工作，需要�
 - `docs/viden-design/Viden/GUI/`
 
 旧的 `docs/design/canvas-export` 导入已删除，不能继续作为设计源。
+
+### 设计包刷新记录
+
+- 2026-07-02：vendored 设计包刷新为经评审的 2026-07-02 导出版（编码侧四轮评审
+  已收口）。设计包自带的 guard 脚本在 vendored 副本内全部通过
+  （`node tools/run-checks.node.js`，exit 0）。相对 2026-06-26 首次导入的主要
+  新增：设置屏（`GUI/gui-settings.jsx`，D1 第 8 视图）、`docs/NAMING-MAP.md`
+  （产品名定档 Viden、引擎名映射到 RoboCode v0.1.30）、D14 审计与时间线屏、
+  D12 合入后回滚流、D7/D8/D9 的 roadmap 标记（BUILT ≠ 引擎已支撑）、密度轴
+  token、i18n v2 热切换。下方五张已采纳目标截图保留自首次导入版本；刷新后的
+  `screenshots/` 目录其余为设计侧较新的 QA 截图。
 
 ## 产品映射
 

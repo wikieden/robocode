@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark" data-density="regular">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>viden Desktop · 横屏召唤坞</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* Token 单一真源 → ../tokens.css。本页只用 var(--*)。 */
+*{box-sizing:border-box;}
+/* 弱视觉细滚动条（主题化 · 透明轨道 + 弱色拇指，悬停略增强）*/
+*{scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+*::-webkit-scrollbar{width:9px;height:9px;}
+*::-webkit-scrollbar-track{background:transparent;}
+*::-webkit-scrollbar-thumb{background:var(--border-soft);border-radius:6px;border:2px solid transparent;background-clip:padding-box;}
+*::-webkit-scrollbar-thumb:hover{background:var(--border);}
+*::-webkit-scrollbar-corner{background:transparent;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+kbd{font-family:var(--mono);font-size:9.5px;background:var(--bg-elev);border:1px solid var(--border-soft);border-radius:3px;padding:1px 4px;color:var(--fg-muted);}
+
+/* ---- page intro ---- */
+.pwrap{max-width:1560px;margin:0 auto;padding:28px 26px 70px;}
+.pkicker{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:11px;}
+.pkicker::before{content:"";width:26px;height:2px;background:var(--accent);}
+.ph1{font-size:34px;line-height:1.14;margin:0 0 12px;letter-spacing:-.8px;font-weight:700;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:15.5px;color:var(--fg-secondary);max-width:880px;margin:0 0 22px;line-height:1.6;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+.plead .g{color:var(--gold);font-weight:600;}
+
+/* ============ DESKTOP WINDOW ============ */
+.win{background:var(--bg-base);border:1px solid var(--win-edge);border-radius:var(--r-xl);overflow:hidden;
+  box-shadow:var(--shadow-win);
+  height:884px;display:flex;flex-direction:column;position:relative;user-select:none;}
+.titlebar{height:46px;flex:none;display:flex;align-items:center;gap:13px;padding:0 14px;background:var(--bg-void);border-bottom:1px solid var(--border-soft);}
+.tl{display:flex;gap:8px;}
+.tl i{width:12px;height:12px;border-radius:50%;display:block;}
+.tl .a{background:var(--error);}.tl .b{background:var(--warning);}.tl .c{background:var(--success);}
+.wm{font-family:var(--mono);font-weight:700;font-size:13.5px;letter-spacing:.3px;}
+.wm .r{color:var(--gold);}.wm .c{color:var(--accent);}
+.projsel{font-family:var(--mono);font-size:11.5px;color:var(--fg-secondary);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:7px;padding:4px 9px;display:flex;align-items:center;gap:6px;cursor:pointer;}
+.projsel .br{color:var(--gold);}
+.crumb{font-family:var(--mono);font-size:11.5px;color:var(--fg-muted);display:flex;align-items:center;gap:7px;}
+.crumb b{color:var(--fg-secondary);font-weight:600;}
+.crumb .dots{color:var(--fg-faint);cursor:pointer;letter-spacing:1px;}
+.tbspacer{flex:1;}
+.tbchrome{display:flex;align-items:center;gap:5px;}
+.segwrap{display:flex;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:8px;padding:2px;gap:1px;}
+.segbtn{width:30px;height:24px;display:grid;place-items:center;border-radius:6px;cursor:pointer;color:var(--fg-muted);}
+.segbtn:hover{color:var(--fg-secondary);}
+.segbtn.on{background:var(--bg-sel);color:var(--accent-bright);box-shadow:inset 0 0 0 1px var(--accent-dim);}
+.tbtbtn{width:30px;height:26px;display:grid;place-items:center;border-radius:7px;cursor:pointer;color:var(--fg-muted);}
+.tbtbtn:hover{color:var(--fg-secondary);background:var(--bg-panel);}
+.tbtbtn.on{background:var(--bg-sel);color:var(--accent-bright);box-shadow:inset 0 0 0 1px var(--accent-dim);}
+svg{display:block;}
+
+/* ============ BODY: work area + dock ============ */
+.winbody{flex:1;display:flex;flex-direction:column;min-height:0;}
+.winbody.right{flex-direction:row;}
+.work{flex:1;min-height:0;display:grid;grid-template-columns:var(--leftw,210px) 1fr;}
+
+/* ----- left lanes sidebar ----- */
+.side{background:var(--bg-panel);border-right:1px solid var(--border-soft);display:flex;flex-direction:column;min-height:0;}
+.sidesec{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--fg-faint);padding:13px 13px 6px;}
+.sidehead{display:flex;align-items:center;padding:11px 12px 7px;}
+.sidehead h3{font-size:12.5px;margin:0;font-weight:700;letter-spacing:.3px;display:flex;align-items:center;gap:7px;}
+.sidehead h3 .ct{color:var(--fg-faint);font-family:var(--mono);font-size:11px;font-weight:600;}
+.sidehead .new{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--accent);cursor:pointer;display:flex;gap:5px;align-items:center;}
+.lanes{padding:0 7px;overflow-y:auto;}
+.lane{padding:8px 8px;border-radius:8px;cursor:pointer;margin-bottom:2px;border:1px solid transparent;}
+.lane:hover{background:var(--bg-elev);}
+.lane.on{background:var(--bg-sel);border-color:var(--accent-dim);}
+.lane .l1{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:500;color:var(--fg-secondary);}
+.lane.on .l1{color:var(--fg-primary);}
+.lane .lid{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--accent);flex:none;}
+.lane .dot{width:7px;height:7px;border-radius:50%;flex:none;}
+.lane .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lane .l2{font-family:var(--mono);font-size:10px;color:var(--fg-faint);margin-top:3px;display:flex;align-items:center;gap:6px;padding-left:14px;}
+.lane .l2 .br{color:var(--gold);}
+.sidefoot{margin-top:auto;padding:9px 13px;border-top:1px solid var(--border-soft);font-family:var(--mono);font-size:10px;color:var(--fg-faint);line-height:1.6;}
+.sidefoot .ac{color:var(--accent);}
+
+/* ----- center chat ----- */
+.center{display:flex;flex-direction:column;min-height:0;background:var(--bg-base);}
+.coscroll{flex:1;overflow-y:auto;padding:20px 30px 14px;}
+.coinner{max-width:760px;margin:0 auto;}
+.msg{margin-bottom:18px;}
+.msg .who{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1px;color:var(--fg-muted);display:flex;align-items:center;gap:7px;margin-bottom:7px;}
+.msg .av{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:700;color:var(--bg-void);}
+.msg.user{display:flex;flex-direction:column;align-items:flex-end;}
+.msg.user .av{background:var(--accent);}
+.msg.bot .av{background:var(--gold);}
+.msg .body{font-size:14px;line-height:1.62;color:var(--fg-primary);}
+.msg.user .body{background:var(--bg-elev);border:1px solid var(--border-soft);border-radius:11px 11px 4px 11px;padding:10px 14px;max-width:78%;color:var(--fg-secondary);}
+.msg .body code{font-family:var(--mono);font-size:12.5px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:4px;padding:1px 5px;color:var(--accent-bright);}
+.msg .body ul{margin:9px 0 0;padding-left:6px;list-style:none;}
+.msg .body li{position:relative;padding-left:18px;margin-bottom:6px;font-size:13.5px;color:var(--fg-secondary);line-height:1.5;}
+.msg .body li::before{content:"·";position:absolute;left:5px;color:var(--accent);font-weight:700;}
+.msg .body li b{color:var(--fg-primary);font-weight:600;}
+.cmds{margin:9px 0 0;display:flex;flex-direction:column;gap:5px;}
+.cmdpill{font-family:var(--mono);font-size:12px;color:var(--fg-secondary);background:var(--bg-void);border:1px solid var(--border-soft);border-radius:6px;padding:4px 10px;width:fit-content;}
+.cmdpill .ok{color:var(--success);}
+
+/* "Edited N files" diff card — borrowed from Codex */
+.editcard{border:1px solid var(--border-soft);border-radius:12px;overflow:hidden;margin:14px 0 4px;background:var(--bg-panel);}
+.echead{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border-soft);}
+.echead .ic{width:30px;height:30px;border-radius:8px;background:var(--bg-elev);border:1px solid var(--border-soft);display:grid;place-items:center;color:var(--accent);flex:none;}
+.echead .tt{font-size:13.5px;font-weight:600;}
+.echead .st{font-family:var(--mono);font-size:11px;margin-top:2px;}
+.echead .st .p{color:var(--success);}.echead .st .m{color:var(--error);}
+.echead .acts{margin-left:auto;display:flex;gap:8px;}
+.ecbtn{font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--fg-secondary);background:var(--bg-elev);border:1px solid var(--border-soft);border-radius:7px;padding:5px 11px;cursor:pointer;display:flex;align-items:center;gap:5px;}
+.ecbtn:hover{border-color:var(--border);color:var(--fg-primary);}
+.ecbtn.go{color:var(--accent-bright);border-color:var(--accent-dim);background:var(--bg-sel);}
+.ecrow{display:flex;align-items:center;gap:10px;padding:9px 16px;font-family:var(--mono);font-size:12.5px;border-bottom:1px solid var(--border-soft);cursor:pointer;}
+.ecrow:last-child{border-bottom:none;}
+.ecrow:hover{background:var(--bg-elev);}
+.ecrow .fn{color:var(--fg-secondary);}
+.ecrow .fn b{color:var(--fg-primary);font-weight:600;}
+.ecrow .pm{margin-left:auto;display:flex;gap:9px;}
+.ecrow .pm .p{color:var(--success);}.ecrow .pm .m{color:var(--error);}
+
+.worked{font-family:var(--mono);font-size:11.5px;color:var(--fg-muted);display:flex;align-items:center;gap:7px;margin:4px 0 14px;cursor:pointer;}
+.worked::after{content:"›";color:var(--fg-faint);}
+
+/* composer */
+.composer{flex:none;padding:12px 30px 16px;}
+.cinner{max-width:760px;margin:0 auto;}
+.cbox{background:var(--bg-panel);border:1px solid var(--border);border-radius:13px;padding:11px 13px 9px;box-shadow:var(--shadow-sm);}
+.cbox:focus-within{border-color:var(--border-active);}
+.ctext{font-size:13.5px;color:var(--fg-muted);min-height:22px;padding:2px 2px 8px;}
+.crow{display:flex;align-items:center;gap:7px;}
+.cadd{width:28px;height:28px;border-radius:8px;border:1px solid var(--border-soft);background:var(--bg-elev);display:grid;place-items:center;color:var(--fg-secondary);cursor:pointer;font-size:16px;line-height:1;}
+.cadd:hover{color:var(--accent-bright);border-color:var(--accent-dim);}
+.cpill{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--fg-secondary);background:var(--bg-elev);border:1px solid var(--border-soft);border-radius:7px;padding:5px 9px;cursor:pointer;display:flex;align-items:center;gap:5px;}
+.cpill .lbl{color:var(--fg-faint);letter-spacing:.5px;}
+.cpill .perm{color:var(--warning);}
+.cpill .mode{color:var(--gold);}
+.cspace{flex:1;}
+.cmic{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--fg-muted);cursor:pointer;}
+.cmic:hover{color:var(--fg-secondary);}
+.csend{width:30px;height:30px;border-radius:9px;background:var(--accent);color:var(--bg-void);display:grid;place-items:center;cursor:pointer;}
+.csend:hover{background:var(--accent-bright);}
+
+/* ============ SUMMON DOCK ============ */
+.dock{flex:none;background:var(--term-chrome);border-top:1px solid var(--term-edge);display:flex;flex-direction:column;min-height:0;position:relative;}
+.winbody.right .dock{border-top:none;border-left:1px solid var(--term-edge);}
+.dockgrip{position:absolute;top:-3px;left:0;right:0;height:6px;cursor:ns-resize;z-index:5;}
+.winbody.right .dockgrip{top:0;bottom:0;left:-3px;right:auto;width:6px;height:auto;cursor:ew-resize;}
+.docktabs{height:38px;flex:none;display:flex;align-items:stretch;padding:0 8px;gap:3px;background:var(--term-bar);border-bottom:1px solid var(--term-edge);}
+.dt{display:flex;align-items:center;gap:7px;padding:0 11px;font-family:var(--mono);font-size:11.5px;color:var(--fg-muted);cursor:pointer;border-radius:7px 7px 0 0;position:relative;margin-bottom:-1px;border:1px solid transparent;border-bottom:none;align-self:flex-end;height:30px;}
+.dt:hover{color:var(--fg-secondary);background:color-mix(in srgb,var(--bg-elev) 50%,transparent);}
+.dt.on{background:var(--term-screen);color:var(--accent-bright);border-color:var(--term-edge);}
+.dt.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--accent);}
+.dt .tic{display:grid;place-items:center;opacity:.85;}
+.dt.host{color:var(--fg-secondary);cursor:default;}
+.dt.host .hdot{width:6px;height:6px;border-radius:50%;background:var(--success);}
+.dt .x{width:15px;height:15px;border-radius:4px;display:grid;place-items:center;font-size:11px;color:var(--fg-faint);margin-left:1px;}
+.dt .x:hover{background:var(--bg-elev);color:var(--error);}
+.dtaddwrap{align-self:center;position:relative;margin-left:2px;}
+.dtadd{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--fg-muted);cursor:pointer;font-size:15px;line-height:1;}
+.dtadd:hover,.dtadd.open{background:var(--bg-elev);color:var(--accent-bright);}
+.docktabs .right{margin-left:auto;display:flex;align-items:center;gap:4px;}
+.dockmini{align-self:center;width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--fg-muted);cursor:pointer;}
+.dockmini:hover{color:var(--fg-secondary);background:var(--bg-elev);}
+
+/* summon menu */
+.summon{position:absolute;z-index:40;top:calc(100% + 6px);left:0;background:var(--bg-elev);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-md);padding:5px;width:236px;}
+.summon::before{content:"";position:absolute;top:-5px;left:8px;width:9px;height:9px;background:var(--bg-elev);border-left:1px solid var(--border);border-top:1px solid var(--border);transform:rotate(45deg);}
+.summon .mh{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--fg-faint);padding:7px 9px 4px;}
+.smrow{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:7px;cursor:pointer;}
+.smrow:hover{background:var(--bg-sel);}
+.smrow .si{width:24px;height:24px;border-radius:6px;background:var(--bg-panel);border:1px solid var(--border-soft);display:grid;place-items:center;color:var(--accent);flex:none;}
+.smrow .sn{font-size:12.5px;font-weight:500;color:var(--fg-primary);}
+.smrow .sd{font-size:11px;color:var(--fg-muted);margin-top:1px;}
+.smrow .sk{margin-left:auto;}
+.smrow.dis{opacity:.4;cursor:default;}
+.smrow.dis:hover{background:none;}
+.veil{position:fixed;inset:0;z-index:30;}
+
+/* dock body */
+.dockbody{flex:1;min-height:0;background:var(--term-screen);overflow:hidden;display:flex;}
+.dockempty{flex:1;display:grid;place-items:center;color:var(--fg-faint);font-family:var(--mono);font-size:12px;}
+
+/* terminal tool */
+.term{flex:1;display:flex;flex-direction:column;min-height:0;font-family:var(--mono);}
+.termbody{flex:1;overflow-y:auto;padding:12px 16px;font-size:12.5px;line-height:1.65;}
+.termbody .p{color:var(--accent-bright);}
+.termbody .path{color:var(--gold);}
+.termbody .br{color:var(--builtin);}
+.termbody .dim{color:var(--fg-muted);}
+.termbody .ok{color:var(--success);}
+.termbody .err{color:var(--error);}
+.termbody .warn{color:var(--warning);}
+.curs{display:inline-block;width:7px;height:14px;background:var(--accent);vertical-align:-2px;animation:bl 1.1s step-end infinite;}
+@keyframes bl{50%{opacity:0;}}
+
+/* files tool */
+.filespane{flex:1;display:flex;min-height:0;}
+.fileview{flex:1;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--term-edge);}
+.fvtab{height:30px;flex:none;display:flex;align-items:center;gap:9px;padding:0 14px;border-bottom:1px solid var(--term-edge);font-family:var(--mono);font-size:11.5px;color:var(--fg-secondary);}
+.fvtab .pm{margin-left:auto;display:flex;gap:8px;}
+.fvtab .pm .p{color:var(--success);}.fvtab .pm .m{color:var(--error);}
+.fvbody{flex:1;overflow:auto;padding:10px 0;font-family:var(--mono);font-size:12px;line-height:1.62;}
+.cl{display:flex;padding:0 16px;white-space:pre;}
+.cl .ln{width:34px;flex:none;text-align:right;padding-right:14px;color:var(--fg-faint);user-select:none;}
+.cl.add{background:color-mix(in srgb,var(--success) 11%,transparent);}
+.cl.add .ln{color:var(--success);}
+.cl.del{background:color-mix(in srgb,var(--error) 11%,transparent);}
+.cl.del .ln{color:var(--error);}
+.cl .kw{color:var(--builtin);}.cl .fn2{color:var(--accent-bright);}.cl .str{color:var(--gold);}.cl .cm{color:var(--fg-faint);}
+.fvempty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--fg-faint);gap:6px;}
+.fvempty .t{font-size:13px;color:var(--fg-muted);}
+.fvempty .s{font-size:11.5px;font-family:var(--mono);}
+.ftree{width:262px;flex:none;display:flex;flex-direction:column;min-height:0;}
+.ftfilter{flex:none;padding:8px 10px;border-bottom:1px solid var(--term-edge);}
+.ftfilter .inp{display:flex;align-items:center;gap:7px;background:var(--bg-void);border:1px solid var(--border-soft);border-radius:7px;padding:5px 9px;font-family:var(--mono);font-size:11.5px;color:var(--fg-muted);}
+.ftbody{flex:1;overflow-y:auto;padding:5px 5px;font-family:var(--mono);font-size:12px;}
+.frow{display:flex;align-items:center;gap:7px;padding:4px 8px;border-radius:6px;cursor:pointer;color:var(--fg-secondary);}
+.frow:hover{background:var(--bg-elev);}
+.frow.on{background:var(--bg-sel);color:var(--accent-bright);}
+.frow .ar{color:var(--fg-faint);width:9px;font-size:9px;}
+.frow .fi{color:var(--fg-muted);}
+.frow.dir{color:var(--fg-primary);font-weight:600;}
+.frow .g{font-weight:700;width:11px;text-align:center;flex:none;}
+.frow .g.m{color:var(--gold);}.frow .g.a{color:var(--success);}
+.frow .pm{margin-left:auto;font-size:9.5px;color:var(--fg-faint);}
+
+/* review tool */
+.review{flex:1;display:flex;flex-direction:column;min-height:0;}
+.rvhead{height:32px;flex:none;display:flex;align-items:center;gap:11px;padding:0 16px;border-bottom:1px solid var(--term-edge);font-family:var(--mono);font-size:11.5px;color:var(--fg-secondary);}
+.rvhead .ct{color:var(--fg-faint);}
+.rvhead .acts{margin-left:auto;display:flex;gap:7px;}
+.rvbody{flex:1;overflow-y:auto;padding:0;}
+.rvfile{border-bottom:1px solid var(--term-edge);}
+.rvfh{display:flex;align-items:center;gap:9px;padding:8px 16px;font-family:var(--mono);font-size:12px;color:var(--fg-secondary);position:sticky;top:0;background:var(--term-bar);cursor:pointer;}
+.rvfh .g{font-weight:700;}.rvfh .g.m{color:var(--gold);}.rvfh .g.a{color:var(--success);}
+.rvfh .pm{margin-left:auto;display:flex;gap:8px;font-size:11px;}
+.rvfh .pm .p{color:var(--success);}.rvfh .pm .m{color:var(--error);}
+.rvhunk{font-family:var(--mono);font-size:12px;line-height:1.6;padding:6px 0;}
+.hl{display:flex;padding:0 16px;white-space:pre;}
+.hl .ln{width:30px;flex:none;text-align:right;padding-right:12px;color:var(--fg-faint);}
+.hl.h{color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent);}
+.hl.a{background:color-mix(in srgb,var(--success) 11%,transparent);color:var(--fg-primary);}
+.hl.d{background:color-mix(in srgb,var(--error) 11%,transparent);color:var(--fg-secondary);}
+
+/* browser tool */
+.browser{flex:1;display:flex;flex-direction:column;min-height:0;}
+.bnav{height:34px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--term-edge);}
+.bbtn{width:22px;height:22px;display:grid;place-items:center;color:var(--fg-muted);border-radius:5px;cursor:pointer;}
+.bbtn:hover{background:var(--bg-elev);color:var(--fg-secondary);}
+.burl{flex:1;display:flex;align-items:center;gap:8px;background:var(--bg-void);border:1px solid var(--border-soft);border-radius:7px;padding:5px 11px;font-family:var(--mono);font-size:11.5px;color:var(--fg-secondary);}
+.burl .lk{color:var(--success);}
+.burl .host{color:var(--fg-primary);}
+.bview{flex:1;min-height:0;background:var(--bg-void);display:grid;place-items:center;overflow:hidden;}
+.appshot{width:88%;max-width:620px;border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:var(--shadow-lg);background:var(--bg-base);}
+.appshot .ash{height:30px;display:flex;align-items:center;gap:8px;padding:0 11px;background:var(--bg-void);border-bottom:1px solid var(--border-soft);font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.appshot .asb{padding:18px;display:flex;gap:14px;}
+.appshot .canvas{flex:1;height:150px;border:1px solid var(--border-soft);border-radius:8px;background:repeating-linear-gradient(45deg,var(--bg-panel),var(--bg-panel) 9px,var(--bg-elev) 9px,var(--bg-elev) 18px);display:grid;place-items:center;color:var(--fg-muted);font-family:var(--mono);font-size:11px;}
+.appshot .insp{width:120px;display:flex;flex-direction:column;gap:7px;}
+.appshot .ib{height:22px;border-radius:5px;background:var(--bg-panel);border:1px solid var(--border-soft);}
+.appshot .ib.ac{border-color:var(--accent-dim);background:var(--bg-sel);}
+
+/* side chat tool */
+.sidechat{flex:1;display:flex;flex-direction:column;min-height:0;}
+.scbody{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:11px;}
+.scmsg{max-width:82%;font-size:12.5px;line-height:1.55;padding:8px 11px;border-radius:10px;}
+.scmsg.u{align-self:flex-end;background:var(--bg-sel);color:var(--fg-primary);border:1px solid var(--accent-dim);border-radius:10px 10px 3px 10px;}
+.scmsg.b{align-self:flex-start;background:var(--bg-panel);color:var(--fg-secondary);border:1px solid var(--border-soft);border-radius:10px 10px 10px 3px;}
+.scmsg .who{font-family:var(--mono);font-size:9px;letter-spacing:.8px;color:var(--fg-faint);margin-bottom:4px;}
+.scmsg code{font-family:var(--mono);font-size:11.5px;color:var(--accent-bright);}
+.scfoot{flex:none;padding:9px 12px;border-top:1px solid var(--term-edge);}
+.scinp{display:flex;align-items:center;gap:8px;background:var(--bg-void);border:1px solid var(--border-soft);border-radius:9px;padding:7px 11px;font-size:12px;color:var(--fg-muted);}
+.scinp .s{margin-left:auto;color:var(--accent);}
+.scnote{font-family:var(--mono);font-size:10px;color:var(--fg-faint);padding:6px 12px 0;display:flex;align-items:center;gap:6px;}
+.scnote .ac{color:var(--builtin);}
+
+/* collapsed dock state */
+.dock.collapsed .dockbody{display:none;}
+
+/* mode helper note under window */
+.note{font-family:var(--mono);font-size:11.5px;color:var(--fg-muted);margin-top:14px;line-height:1.6;display:flex;flex-wrap:wrap;gap:6px 18px;}
+.note b{color:var(--accent);}
+.note .k{color:var(--gold);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useRef} = React;
+
+/* ---------- inline icons ---------- */
+const I={
+  split:<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><line x1="8" y1="2.5" x2="8" y2="13.5"/></svg>,
+  rows:<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><line x1="1.5" y1="8" x2="14.5" y2="8"/></svg>,
+  full:<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M5.5 1.5H1.5V5.5M10.5 1.5h4v4M5.5 14.5h-4v-4M10.5 14.5h4v-4"/></svg>,
+  list:<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><line x1="5" y1="4" x2="14" y2="4"/><line x1="5" y1="8" x2="14" y2="8"/><line x1="5" y1="12" x2="14" y2="12"/><circle cx="2.2" cy="4" r="1"/><circle cx="2.2" cy="8" r="1"/><circle cx="2.2" cy="12" r="1"/></svg>,
+  panel:<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><line x1="10" y1="2.5" x2="10" y2="13.5"/></svg>,
+  term:<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M3 5l3 3-3 3M8 11h5"/></svg>,
+  files:<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2 4.5A1.5 1.5 0 013.5 3h3l1.5 1.5h4A1.5 1.5 0 0113.5 6v5.5A1.5 1.5 0 0112 13H3.5A1.5 1.5 0 012 11.5z"/></svg>,
+  review:<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M4 2.5h8v11H4zM6 6h4M6 9h4"/><path d="M2 4l1.2 1.2M2 8l1.2 1.2" strokeWidth="1.1"/></svg>,
+  browser:<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="8" cy="8" r="6.2"/><path d="M1.8 8h12.4M8 1.8c1.8 1.6 1.8 10.8 0 12.4M8 1.8c-1.8 1.6-1.8 10.8 0 12.4"/></svg>,
+  chat:<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 4A1.5 1.5 0 014 2.5h8A1.5 1.5 0 0113.5 4v5A1.5 1.5 0 0112 10.5H6l-3 2.5V10.5H4A1.5 1.5 0 012.5 9z"/></svg>,
+  chev:<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 6l4 4 4-4"/></svg>,
+  send:<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M8 13V3M4 7l4-4 4 4"/></svg>,
+  mic:<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><rect x="6" y="2" width="4" height="7" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 009 0M8 12v2"/></svg>,
+};
+
+const TOOLDEF={
+  terminal:{label:'Terminal', icon:I.term, desc:'PTY 会话 · 跟 agent 同一棵 worktree', kbd:'⌘J'},
+  files:{label:'Files', icon:I.files, desc:'工作区文件树 + 文件预览', kbd:'⌘P'},
+  review:{label:'Review', icon:I.review, desc:'本轮改动逐文件 diff 审阅', kbd:'⌘R'},
+  browser:{label:'Browser', icon:I.browser, desc:'内嵌预览 Tauri dev / 文档', kbd:'⌘B'},
+  sidechat:{label:'Side chat', icon:I.chat, desc:'旁路追问,不污染主转录', kbd:'⌘/'},
+};
+
+/* ---------- LANES ---------- */
+const LANES=[
+  {id:0,lid:'L1',dot:'var(--gold)',nm:'config loader refactor',via:'codex',br:'config-loader'},
+  {id:1,lid:'L2',dot:'var(--warning)',nm:'retry / backoff review',via:'claude',br:'retry-policy'},
+  {id:2,lid:'L3',dot:'var(--success)',nm:'parser fmt + clippy',via:'shell',br:'parser-fmt'},
+  {id:3,lid:'L4',dot:'var(--progress)',nm:'lane protocol draft',via:'gemini',br:'lane-proto'},
+];
+
+function Sidebar({active,setActive}){
+  return (
+    <div className="side">
+      <div className="sidehead">
+        <h3>Lanes <span className="ct">4</span></h3>
+        <span className="new">+ New <kbd>⌘L</kbd></span>
+      </div>
+      <div className="lanes">
+        {LANES.map(l=>(
+          <div key={l.id} className={"lane "+(active===l.id?'on':'')} onClick={()=>setActive(l.id)}>
+            <div className="l1"><span className="lid">{l.lid}</span><span className="dot" style={{background:l.dot}}></span><span className="nm">{l.nm}</span></div>
+            <div className="l2"><span style={{color:'var(--accent)'}}>{l.via}</span>·<span className="br">⎇ {l.br}</span></div>
+          </div>
+        ))}
+      </div>
+      <div className="sidefoot">每条 lane = 隔离 git worktree。<span className="ac">召唤坞</span>里的工具默认绑定当前选中 lane 的工作区。</div>
+    </div>
+  );
+}
+
+/* ---------- CENTER CHAT ---------- */
+function Chat(){
+  return (
+    <div className="center">
+      <div className="coscroll">
+        <div className="coinner">
+          <div className="msg user"><div className="who">YOU <span className="av">U</span></div>
+            <div className="body">把 config loader 重构一下,跑聚焦测试。改动收窄,应用前先给我看 diff。</div></div>
+          <div className="msg bot"><div className="who"><span className="av">V</span> VIDEN · L1 codex</div>
+            <div className="body">测试已就绪。发现一个 parser 边角情况 —— 我会在审批闸门后更新 <code>src/config.rs</code>,然后重跑套件。
+              <ul>
+                <li><b>raster.rs (line 508)</b>:后端面擦同理,会继续执行区域填充。</li>
+                <li><b>config.rs (line 42)</b>:补了"空文件即报错"的守卫,不再 panic。</li>
+              </ul>
+              <div className="cmds">
+                <div className="cmdpill">$ cargo test -p viden-core <span className="ok">— 3 passed</span></div>
+                <div className="cmdpill">$ git diff --check <span className="ok">— clean</span></div>
+              </div>
+            </div>
+            <div className="editcard">
+              <div className="echead">
+                <span className="ic">{I.review}</span>
+                <div><div className="tt">Edited 3 files</div><div className="st"><span className="p">+248</span> <span className="m">−32</span></div></div>
+                <div className="acts"><span className="ecbtn">Undo ↺</span><span className="ecbtn go" onClick={()=>window.__openTool&&window.__openTool('review')}>Review</span></div>
+              </div>
+              <div className="ecrow" onClick={()=>window.__openTool&&window.__openTool('review')}><span className="fn"><b>src/config.rs</b></span><span className="pm"><span className="p">+41</span><span className="m">−18</span></span></div>
+              <div className="ecrow" onClick={()=>window.__openTool&&window.__openTool('review')}><span className="fn">src/parser.rs</span><span className="pm"><span className="p">+203</span><span className="m">−14</span></span></div>
+              <div className="ecrow" onClick={()=>window.__openTool&&window.__openTool('review')}><span className="fn">tests/config_tests.rs</span><span className="pm"><span className="p">+4</span></span></div>
+            </div>
+          </div>
+          <div className="msg user"><div className="who">YOU <span className="av">U</span></div>
+            <div className="body">空文件守卫这块我没看明白,展开终端我自己跑一下。</div></div>
+          <div className="worked">Worked for 1m 41s</div>
+          <div className="msg bot"><div className="who"><span className="av">V</span> VIDEN · L1 codex</div>
+            <div className="body">守卫加在 <code>load_config</code> 最前面:读到空串直接 <code>Err(Empty)</code>,不进 toml 解析。你可以在右下的 <b>Terminal</b> 坞里直接 <code>cargo test config_tests</code> 复现;要看实时画布就召唤 <b>Browser</b> 坞连 dev server。</div></div>
+        </div>
+      </div>
+      <div className="composer">
+        <div className="cinner">
+          <div className="cbox">
+            <div className="ctext">追加后续改动…</div>
+            <div className="crow">
+              <span className="cadd" onClick={()=>window.__openSummon&&window.__openSummon('composer')}>+</span>
+              <span className="cpill"><span className="perm">◆</span> Ask <span style={{color:'var(--fg-faint)'}}>{I.chev}</span></span>
+              <span className="cpill"><span className="lbl">MODE</span> <span className="mode">Build</span> {I.chev}</span>
+              <span className="cspace"></span>
+              <span className="cpill"><span className="lbl">⚡</span> deepseek-v4 <span style={{color:'var(--fg-faint)'}}>Extra High</span> {I.chev}</span>
+              <span className="cmic">{I.mic}</span>
+              <span className="csend">{I.send}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- DOCK TOOLS ---------- */
+function TermTool(){
+  return (<div className="term"><div className="termbody">
+    <div><span className="p">→</span> <span className="path">viden</span> <span className="br">git:(main)</span> cargo test -p viden-core config_tests</div>
+    <div className="dim">   Compiling viden-core v0.1.30</div>
+    <div className="dim">   Compiling viden-cli v0.1.30</div>
+    <div><span className="ok">    Running</span> tests/config_tests.rs</div>
+    <div className="ok">   test config::loads_valid ........ ok</div>
+    <div className="ok">   test config::rejects_empty ...... ok</div>
+    <div className="ok">   test config::edge_whitespace .... ok</div>
+    <div className="dim">   test result: <span className="ok">ok</span>. 3 passed; 0 failed; 0 ignored</div>
+    <div style={{marginTop:6}}><span className="p">→</span> <span className="path">viden</span> <span className="br">git:(main)</span> git diff --check</div>
+    <div style={{marginTop:6}}><span className="p">→</span> <span className="path">viden</span> <span className="br">git:(main)</span> <span className="curs"></span></div>
+  </div></div>);
+}
+
+const TREE=[
+  {ic:'▸',dir:true,nm:'apps'},
+  {ic:'▸',dir:true,nm:'crates'},
+  {ic:'▾',dir:true,nm:'src',open:true},
+  {g:'M',gc:'m',nm:'config.rs',pm:'+41 −18',sel:true},
+  {nm:'parser.rs',g:'M',gc:'m',pm:'+203 −14'},
+  {g:'A',gc:'a',nm:'errors.rs',pm:'+12'},
+  {nm:'lib.rs'},
+  {ic:'▸',dir:true,nm:'tests'},
+  {nm:'Cargo.toml'},
+  {nm:'Cargo.lock'},
+  {nm:'README.md'},
+];
+function FilesTool(){
+  const [sel,setSel]=useState('config.rs');
+  return (<div className="filespane">
+    <div className="fileview">
+      <div className="fvtab">⎇ src/config.rs <span style={{color:'var(--gold)'}}>M</span><span className="pm"><span className="p">+41</span><span className="m">−18</span></span></div>
+      <div className="fvbody">
+        <div className="cl"><span className="ln">38</span><span className="cm">  // load + validate a config file</span></div>
+        <div className="cl"><span className="ln">39</span><span className="kw">pub fn</span> <span className="fn2">load_config</span>(path: &Path) {'-> Result<Config> {'}</div>
+        <div className="cl del"><span className="ln">40</span>{'  '}<span className="kw">let</span> raw = fs::read_to_string(path).unwrap();</div>
+        <div className="cl add"><span className="ln">40</span>{'  '}<span className="kw">let</span> raw = fs::read_to_string(path)?;</div>
+        <div className="cl add"><span className="ln">41</span>{'  '}<span className="kw">if</span> raw.trim().is_empty() {'{'}</div>
+        <div className="cl add"><span className="ln">42</span>{'    '}<span className="kw">return</span> Err(ConfigError::<span className="fn2">Empty</span>);</div>
+        <div className="cl add"><span className="ln">43</span>{'  }'}</div>
+        <div className="cl"><span className="ln">44</span>{'  '}toml::from_str(&raw).map_err(Into::into)</div>
+        <div className="cl"><span className="ln">45</span>{'}'}</div>
+      </div>
+    </div>
+    <div className="ftree">
+      <div className="ftfilter"><div className="inp">⌕ Filter files…</div></div>
+      <div className="ftbody">
+        {TREE.map((f,i)=>(
+          <div key={i} className={"frow "+(f.dir?'dir ':'')+(sel===f.nm?'on':'')} style={{paddingLeft:(f.dir?8:22)+'px'}} onClick={()=>!f.dir&&setSel(f.nm)}>
+            {f.dir?<span className="ar">{f.ic}</span>:f.g?<span className={"g "+f.gc}>{f.g}</span>:<span className="g" style={{color:'var(--fg-faint)'}}>·</span>}
+            <span className="fi">{f.nm}</span>
+            {f.pm&&<span className="pm">{f.pm}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>);
+}
+
+function ReviewTool(){
+  return (<div className="review">
+    <div className="rvhead">Edited 3 files <span className="ct">· +248 −32</span>
+      <div className="acts"><span className="ecbtn">Undo ↺</span><span className="ecbtn">Reject</span><span className="ecbtn go">Approve · apply</span></div>
+    </div>
+    <div className="rvbody">
+      <div className="rvfile">
+        <div className="rvfh"><span className="g m">M</span> src/config.rs <span className="pm"><span className="p">+41</span><span className="m">−18</span></span></div>
+        <div className="rvhunk">
+          <div className="hl h"><span className="ln"></span>@@ -40,4 +40,7 @@ load_config</div>
+          <div className="hl d"><span className="ln">40</span>{'  let raw = fs::read_to_string(path).unwrap();'}</div>
+          <div className="hl a"><span className="ln">40</span>{'  let raw = fs::read_to_string(path)?;'}</div>
+          <div className="hl a"><span className="ln">41</span>{'  if raw.trim().is_empty() {'}</div>
+          <div className="hl a"><span className="ln">42</span>{'    return Err(ConfigError::Empty);'}</div>
+          <div className="hl a"><span className="ln">43</span>{'  }'}</div>
+        </div>
+      </div>
+      <div className="rvfile">
+        <div className="rvfh"><span className="g m">M</span> src/parser.rs <span className="pm"><span className="p">+203</span><span className="m">−14</span></span></div>
+        <div className="rvhunk">
+          <div className="hl h"><span className="ln"></span>@@ -508,2 +508,5 @@ fill_region</div>
+          <div className="hl a"><span className="ln">508</span>{'  // 后端面擦同理,继续区域填充'}</div>
+          <div className="hl a"><span className="ln">509</span>{'  if hit.is_point() { continue; }'}</div>
+        </div>
+      </div>
+      <div className="rvfile">
+        <div className="rvfh"><span className="g a">A</span> tests/config_tests.rs <span className="pm"><span className="p">+4</span></span></div>
+      </div>
+    </div>
+  </div>);
+}
+
+function BrowserTool(){
+  return (<div className="browser">
+    <div className="bnav">
+      <span className="bbtn">‹</span><span className="bbtn">›</span><span className="bbtn">⟳</span>
+      <div className="burl"><span className="lk">🔒</span><span className="host">localhost:1420</span><span style={{color:'var(--fg-faint)'}}>/editor?lane=L1</span></div>
+      <span className="bbtn">⤢</span>
+    </div>
+    <div className="bview">
+      <div className="appshot">
+        <div className="ash"><span style={{color:'var(--accent)'}}>◉</span> viden dev · vite + tauri <span style={{marginLeft:'auto',color:'var(--success)'}}>● connected</span></div>
+        <div className="asb">
+          <div className="canvas">live preview · config-loader</div>
+          <div className="insp"><div className="ib ac"></div><div className="ib"></div><div className="ib"></div><div className="ib"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>);
+}
+
+function SideChatTool(){
+  return (<div className="sidechat">
+    <div className="scbody">
+      <div className="scmsg u"><div className="who">YOU · 旁路</div>这个 <code>ConfigError::Empty</code> 要不要带上文件路径?</div>
+      <div className="scmsg b"><div className="who">VIDEN · side</div>建议带。改成 <code>Empty(PathBuf)</code>,报错里能直接定位是哪个 config 空了 —— 不影响主线那轮 diff,你确认我再合进去。</div>
+      <div className="scmsg u"><div className="who">YOU · 旁路</div>先不动,记一下就行。</div>
+    </div>
+    <div className="scnote"><span className="ac">⌥</span> side chat 不写入主转录,只做即时追问 · 可一键 <span style={{color:'var(--accent)'}}>提升为主线</span></div>
+    <div className="scfoot"><div className="scinp">问点什么…<span className="s">{I.send}</span></div></div>
+  </div>);
+}
+
+const TOOLRENDER={terminal:TermTool,files:FilesTool,review:ReviewTool,browser:BrowserTool,sidechat:SideChatTool};
+
+/* ---------- SUMMON DOCK ---------- */
+function Dock({tabs,setTabs,active,setActive,menuOpen,setMenuOpen,collapsed,setCollapsed,height,onGrip}){
+  const order=['terminal','files','review','browser','sidechat'];
+  const openTool=(k)=>{
+    setMenuOpen(false);
+    if(!tabs.includes(k)) setTabs([...tabs,k]);
+    setActive(k); setCollapsed(false);
+  };
+  const closeTab=(e,k)=>{
+    e.stopPropagation();
+    const nt=tabs.filter(t=>t!==k);
+    setTabs(nt);
+    if(active===k) setActive(nt.length?nt[nt.length-1]:null);
+  };
+  React.useEffect(()=>{window.__openTool=openTool;window.__openSummon=()=>setMenuOpen(true);});
+  const Render = active?TOOLRENDER[active]:null;
+  return (
+    <div className={"dock"+(collapsed?' collapsed':'')} style={{height:collapsed?38:height}}>
+      <div className="dockgrip" onMouseDown={onGrip}></div>
+      <div className="docktabs">
+        <div className="dt host" title="主机终端会话 · 不可关闭"><span className="hdot"></span>wiki@viden</div>
+        {tabs.map(k=>(
+          <div key={k} className={"dt "+(active===k?'on':'')} onClick={()=>{setActive(k);setCollapsed(false);}}>
+            <span className="tic">{TOOLDEF[k].icon}</span>{TOOLDEF[k].label}
+            <span className="x" onClick={(e)=>closeTab(e,k)}>✕</span>
+          </div>
+        ))}
+        <div className="dtaddwrap">
+          <div className={"dtadd"+(menuOpen?' open':'')} onClick={(e)=>{e.stopPropagation();setMenuOpen(!menuOpen);}} title="召唤工具坞">+</div>
+          {menuOpen && <>
+          <div className="veil" onClick={()=>setMenuOpen(false)}></div>
+          <div className="summon" onClick={e=>e.stopPropagation()}>
+            <div className="mh">召唤工具坞</div>
+            {order.map(k=>{
+              const on=tabs.includes(k);
+              return (
+                <div key={k} className="smrow" onClick={()=>openTool(k)}>
+                  <span className="si">{TOOLDEF[k].icon}</span>
+                  <div><div className="sn">{TOOLDEF[k].label}{on&&<span style={{color:'var(--fg-faint)',fontSize:'10px',marginLeft:6}}>已开</span>}</div><div className="sd">{TOOLDEF[k].desc}</div></div>
+                  <kbd className="sk">{TOOLDEF[k].kbd}</kbd>
+                </div>
+              );
+            })}
+          </div>
+          </>}
+        </div>
+        <div className="right">
+          <span className="dockmini" title={collapsed?'展开坞':'收起坞'} onClick={()=>setCollapsed(!collapsed)}>{collapsed?'▴':'▾'}</span>
+        </div>
+      </div>
+      {!collapsed && <div className="dockbody">
+        {Render? <Render/> : <div className="dockempty">坞内无工具 · 点 <b style={{color:'var(--accent)',margin:'0 4px'}}>+</b> 召唤 Terminal / Files / Review / Browser / Side chat</div>}
+      </div>}
+    </div>
+  );
+}
+
+/* ---------- WINDOW ---------- */
+function Win(){
+  const [active,setActive]=useState(0);
+  const [tabs,setTabs]=useState(['terminal','files']);
+  const [aTool,setATool]=useState('terminal');
+  const [menuOpen,setMenuOpen]=useState(false);
+  const [collapsed,setCollapsed]=useState(false);
+  const [dockH,setDockH]=useState(320);
+  const [layout,setLayout]=useState('rows'); // rows | right
+  const grip=(e)=>{
+    e.preventDefault();
+    const sy=layout==='right'?e.clientX:e.clientY, sh=dockH, dir=layout==='right'?-1:-1;
+    const mv=(ev)=>{const d=(layout==='right'?ev.clientX:ev.clientY)-sy;setDockH(Math.max(120,Math.min(560,sh-d)));};
+    const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);};
+    document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
+  };
+  return (
+    <div className="win">
+      <div className="titlebar">
+        <div className="tl"><i className="a"></i><i className="b"></i><i className="c"></i></div>
+        <div className="wm"><span style={{color:'var(--accent)'}}>[</span><span style={{color:'var(--accent-bright)'}}>◉</span><span style={{color:'var(--accent)'}}>]</span> <span className="r">v</span><span className="c">iden</span></div>
+        <div className="projsel">viden <span className="br">⎇ main</span> ▾</div>
+        <div className="crumb"><b>L1 · config-loader</b><span className="dots">···</span></div>
+        <div className="tbspacer"></div>
+        <div className="tbchrome">
+          <div className="segwrap">
+            <div className={"segbtn "+(layout==='rows'?'on':'')} title="坞停靠在底部" onClick={()=>setLayout('rows')}>{I.rows}</div>
+            <div className={"segbtn "+(layout==='right'?'on':'')} title="坞停靠在右侧(分屏)" onClick={()=>setLayout('right')}>{I.split}</div>
+          </div>
+          <div className="tbtbtn" title="任务列表">{I.list}</div>
+          <div className={"tbtbtn "+(!collapsed?'on':'')} title="切换召唤坞" onClick={()=>setCollapsed(!collapsed)}>{I.panel}</div>
+          <div className="tbtbtn" title="全屏">{I.full}</div>
+        </div>
+      </div>
+      <div className={"winbody "+(layout==='right'?'right':'')}>
+        {layout==='right'
+          ? <>
+              <div className="work" style={{flex:1}}><Sidebar active={active} setActive={setActive}/><Chat/></div>
+              <div style={{width:collapsed?38:dockH,flex:'none',display:'flex'}}>
+                <Dock tabs={tabs} setTabs={setTabs} active={aTool} setActive={setATool} menuOpen={menuOpen} setMenuOpen={setMenuOpen} collapsed={collapsed} setCollapsed={setCollapsed} height={'100%'} onGrip={grip}/>
+              </div>
+            </>
+          : <>
+              <div className="work"><Sidebar active={active} setActive={setActive}/><Chat/></div>
+              <Dock tabs={tabs} setTabs={setTabs} active={aTool} setActive={setATool} menuOpen={menuOpen} setMenuOpen={setMenuOpen} collapsed={collapsed} setCollapsed={setCollapsed} height={dockH} onGrip={grip}/>
+            </>}
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  return (
+    <div className="pwrap">
+      <div className="pkicker">viden desktop · gui · D2</div>
+      <h1 className="ph1">横屏 <span className="ac">召唤坞</span> · summon dock</h1>
+      <p className="plead">对话流为主角,工具<b>按需召唤</b>:点击坞条上的 <b className="g">+</b> 拉出 Terminal / Files / Review / Browser / Side chat,每个工具进驻一个可关闭的标签,坞可<b>收起</b>、<b>拉高</b>或切到<b>右侧分屏</b>。主转录里的 <b>"Edited N files"</b> diff 卡点 Review 即直达坞内审阅。</p>
+      <Win/>
+      <div className="note">
+        <span>坞条 <b>+</b> = 召唤工具</span>
+        <span>标签 <b>✕</b> = 关闭工具</span>
+        <span>拖坞<span className="k">上缘</span> = 调高度</span>
+        <span>标题栏 <b>▣|▣</b> = 底部坞 / 右侧分屏</span>
+        <span>主转录 <b>Review</b> = 直达坞内 diff</span>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
