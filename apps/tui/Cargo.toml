@@ -1,0 +1,10 @@
+[package]
+name = "viden-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+viden-core = { path = "../../crates/core" }
+viden-types = { path = "../../crates/types" }

@@ -133,8 +133,8 @@ VERSION=0.1.30
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
-sudo install -m 755 "robocode-v${VERSION}-${TARGET}/robocode-cli" /usr/local/bin/robocode-cli
-robocode-cli --help
+sudo install -m 755 "robocode-v${VERSION}-${TARGET}/viden-cli" /usr/local/bin/viden-cli
+viden-cli --help
 ```
 
 Install on Windows PowerShell:
@@ -145,9 +145,9 @@ $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
 New-Item -ItemType Directory -Force "$env:USERPROFILE\bin"
-Copy-Item "robocode-v$Version-$Target\robocode-cli.exe" "$env:USERPROFILE\bin\robocode-cli.exe"
+Copy-Item "robocode-v$Version-$Target\viden-cli.exe" "$env:USERPROFILE\bin\viden-cli.exe"
 $env:PATH += ";$env:USERPROFILE\bin"
-robocode-cli.exe --help
+viden-cli.exe --help
 ```
 
 ## Quick Start
@@ -156,7 +156,7 @@ Run RoboCode. Clean installs use DeepSeek as the default online provider and
 open the cockpit TUI by default:
 
 ```bash
-robocode-cli
+viden-cli
 ```
 
 On a clean session the TUI starts on a focused welcome composer instead of
@@ -176,7 +176,7 @@ Set a DeepSeek key for live turns:
 
 ```bash
 export DEEPSEEK_API_KEY="sk-..."
-robocode-cli
+viden-cli
 ```
 
 If the selected model fails or is unavailable, RoboCode shows a switch-model
@@ -186,19 +186,19 @@ actions.
 Run an explicit offline smoke session when you do not want a live provider:
 
 ```bash
-robocode-cli --provider fallback --model test-local
+viden-cli --provider fallback --model test-local
 ```
 
 Use the legacy line REPL only when you explicitly need it:
 
 ```bash
-robocode-cli --no-tui --provider fallback --model test-local
+viden-cli --no-tui --provider fallback --model test-local
 ```
 
 Start from source during development:
 
 ```bash
-cargo run -p robocode-cli -- --provider fallback --model test-local
+cargo run -p viden-cli -- --provider fallback --model test-local
 ```
 
 ## Core Workflows
@@ -290,11 +290,11 @@ favorite_models = ["deepseek-v4-pro"]
 Useful startup flags:
 
 ```bash
-robocode-cli --config .robocode/config.toml
-robocode-cli --resume latest
-robocode-cli --permissions plan
-robocode-cli --tui-theme aurora-cyan
-robocode-cli --tui-screen side-1
+viden-cli --config .robocode/config.toml
+viden-cli --resume latest
+viden-cli --permissions plan
+viden-cli --tui-theme aurora-cyan
+viden-cli --tui-screen side-1
 ```
 
 ## What Is Experimental

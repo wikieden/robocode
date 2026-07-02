@@ -22,7 +22,7 @@ run_preview() {
     OPENAI_API_KEY="sk-preview000000demo" \
     OPENROUTER_API_KEY="sk-preview000000demo" \
     ANTHROPIC_API_KEY="sk-preview000000demo" \
-    cargo run -p robocode-cli -- "$@" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.txt"
+    cargo run -p viden-cli -- "$@" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.txt"
   case "$name" in
     main-command-palette | main-setup-wizard | main-provider-selector | main-provider-detail | main-model-selector | main-lane-selector | main-lane)
       perl -0pi -e 's/[ \t]+$//mg' "$OUT_DIR/$name.txt"
@@ -42,7 +42,7 @@ run_ansi_preview() {
     OPENAI_API_KEY="sk-preview000000demo" \
     OPENROUTER_API_KEY="sk-preview000000demo" \
     ANTHROPIC_API_KEY="sk-preview000000demo" \
-    cargo run -p robocode-cli -- "$@" --tui-theme "$THEME" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.ansi"
+    cargo run -p viden-cli -- "$@" --tui-theme "$THEME" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.ansi"
 }
 
 render_svg_preview() {
@@ -211,7 +211,7 @@ run_ansi_preview side-1 --tui-preview-side-ansi
 run_ansi_preview side-2 --tui-preview-side-2-ansi
 
 for theme_name in $THEMES; do
-  cargo run -p robocode-cli -- --tui-preview-ansi --tui-theme "$theme_name" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/main.$theme_name.ansi"
+  cargo run -p viden-cli -- --tui-preview-ansi --tui-theme "$theme_name" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/main.$theme_name.ansi"
 done
 
 render_svg_preview "$OUT_DIR/main.ansi" "$OUT_DIR/main.svg"

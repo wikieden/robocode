@@ -1,32 +1,39 @@
-# RoboCode Architecture
+# Viden Architecture
 
 ## Target Architecture
 
-RoboCode is organized as a local-first developer agent runtime. The CLI is the
-entrypoint; `robocode-core` owns the agent loop; durable state, tools,
-permissions, workflows, LSP, and model providers stay behind explicit subsystem
-boundaries.
+Viden is organized as a local-first developer agent runtime with app surfaces,
+reusable core crates, and first-party plugins. CLI/TUI/GUI code lives under
+`apps/`; runtime, state, tools, permissions, workflows, LSP, provider, and
+plugin contracts live under `crates/`; concrete provider/tool/agent/workflow
+plugins live under `plugins/`.
 
 ```mermaid
 flowchart TB
-    User["User / Developer"] --> CLI["robocode-cli<br/>REPL / Slash Commands / Terminal Views"]
+    User["User / Developer"] --> CLI["apps/cli<br/>Flags / Bootstrap / CLI"]
+    User --> TUI["apps/tui<br/>Terminal Frontend"]
+    User --> GUI["apps/gui<br/>Future Desktop Frontend"]
 
     CLI --> Facade["viden-core<br/>Runtime Facade / Contract Re-exports"]
-    Facade --> Core["robocode-core<br/>SessionEngine / RuntimeSupervisor / Agent Loop"]
+    TUI --> Facade
+    GUI --> Facade
+    Facade --> Core["viden-runtime<br/>SessionEngine / RuntimeSupervisor / Agent Loop"]
 
-    Core --> Config["robocode-config<br/>Layered Config / Provider-Scoped Config"]
-    Core --> Perm["robocode-permissions<br/>Permission Modes / Approval Gate"]
-    Core --> Session["robocode-session<br/>JSONL Transcript / SQLite Index / Resume"]
-    Core --> Workflows["robocode-workflows<br/>Tasks / Memory / Resume Context"]
-    Core --> Tools["robocode-tools<br/>File / Search / Shell / Web / Git / LSP Tools"]
-    Core --> Model["robocode-model<br/>ProviderHost / Registry / Protocol Adapters"]
+    Core --> Config["viden-config<br/>Layered Config / Provider-Scoped Config"]
+    Core --> Perm["viden-permissions<br/>Permission Modes / Approval Gate"]
+    Core --> Session["viden-session<br/>JSONL Transcript / SQLite Index / Resume"]
+    Core --> Workflows["viden-workflows<br/>Tasks / Memory / Resume Context"]
+    Core --> Tools["viden-tools<br/>File / Search / Shell / Web / Git / LSP Tools"]
+    Core --> Model["viden-provider<br/>ProviderHost / Registry / Protocol Adapters"]
 
-    Tools --> LSP["robocode-lsp<br/>Diagnostics / Symbols / References"]
+    Tools --> LSP["viden-lsp<br/>Diagnostics / Symbols / References"]
     Tools --> LocalOS["Local OS<br/>Filesystem / Shell / Git / Network"]
 
-    Model --> ProviderSDK["robocode-provider-sdk<br/>Plugin ABI / Descriptor Contract"]
+    Core --> PluginHost["viden-plugin-host<br/>Plugin Registry / Lifecycle Boundary"]
+    PluginHost --> ProviderSDK["viden-plugin-api<br/>Manifest / Capability / Permission Contracts"]
+    Model --> ProviderSDK
     Model --> Builtins["Built-in Providers<br/>Anthropic / OpenAI / Ollama / Fallback"]
-    Model --> DeepSeek["robocode-provider-deepseek<br/>DeepSeek Plugin"]
+    Model --> DeepSeek["plugins/providers/deepseek<br/>DeepSeek Plugin"]
 
     ProviderSDK --> DynamicPlugins["Dynamic Provider Plugins<br/>Native dylib / so / dll now<br/>WASM later"]
 
@@ -41,20 +48,25 @@ flowchart TB
 
 ## Workspace Layout
 
-- `viden-core`: stable runtime facade for clients; re-exports the core runtime
-  and shared contract types without TUI or GUI dependencies.
-- `robocode-cli`: user-facing REPL and slash commands.
-- `robocode-config`: config loading, merge precedence, and startup defaults.
-- `robocode-core`: session engine and turn orchestration.
-- `robocode-model`: provider host/runtime, HTTP adapters, dynamic provider registry, and tool-calling protocol translation.
-- `robocode-tools`: builtin local tools and execution adapters.
-- `robocode-permissions`: permission modes, rules, and approval decisions.
-- `robocode-session`: JSONL transcripts plus SQLite indexing.
-- `robocode-types`: shared domain types.
-- `robocode-workflows`: project task, memory, resume-context, and workflow-log state.
-- `robocode-lsp`: language-server configuration, protocol framing, semantic query execution, and result normalization.
+- `apps/cli`: executable entrypoint, flags, config bootstrap, and current CLI/TUI launcher.
+- `apps/tui`: terminal frontend app boundary. The full TUI render/input
+  loop should move here over follow-up slices.
+- `crates/core`: stable runtime facade for clients; re-exports the core
+  runtime and shared contract types without TUI or GUI dependencies.
+- `crates/config`: config loading, merge precedence, and startup defaults.
+- `crates/runtime`: session engine and turn orchestration.
+- `crates/provider`: provider host/runtime, HTTP adapters, provider registry, and tool-calling protocol translation.
+- `crates/plugin-api`: shared plugin manifests, capabilities, permissions, provider descriptors, and ABI symbols.
+- `crates/plugin-host`: plugin discovery, registry, validation, and lifecycle boundary.
+- `crates/tools`: builtin local tools and execution adapters.
+- `crates/permissions`: permission modes, rules, and approval decisions.
+- `crates/session`: JSONL transcripts plus SQLite indexing.
+- `crates/types`: shared domain types.
+- `crates/workflows`: project task, memory, resume-context, and workflow-log state.
+- `crates/lsp`: language-server configuration, protocol framing, semantic query execution, and result normalization.
+- `plugins/providers/deepseek`: first-party DeepSeek provider plugin.
 
-The root workspace keeps `robocode-session` JSONL transcripts as the durable
+The root workspace keeps `viden-session` JSONL transcripts as the durable
 source of truth. SQLite is a rebuildable index used for listing and resuming
 sessions quickly.
 
@@ -86,7 +98,7 @@ lookups after startup.
 ## Main Execution Flow
 
 1. CLI receives a line of user input.
-2. `robocode-core` decides whether the line is a slash command, a direct tool
+2. `viden-runtime` decides whether the line is a slash command, a direct tool
    request, or a normal model prompt.
 3. Normal prompts are appended to the transcript and handed to the model
    provider.
@@ -110,17 +122,17 @@ the same runtime flow.
 The refactor introduces a frontend-neutral runtime contract before any new TUI
 or GUI implementation work:
 
-- `robocode-types` defines shared runtime facts and commands:
+- `viden-types` defines shared runtime facts and commands:
   `RuntimeSnapshot`, `RuntimeEvent`, `RuntimeCommand`, `CommandAction`,
   `ApprovalRequestView`, `EvidenceView`, `ProviderHealthView`,
   `TokenCostView`, and `RuntimeViewState`.
 - `RuntimeViewState::apply_event` is the replay reducer. A client can rebuild
   its visible state from the initial snapshot plus ordered runtime events.
-- `robocode-core` exposes `SessionEngine::runtime_snapshot()`,
+- `viden-runtime` exposes `SessionEngine::runtime_snapshot()`,
   `SessionEngine::runtime_view_state()`, and
   `SessionEngine::runtime_events_for_engine_events(...)` as the first bridge
   from the current engine loop to the shared contract.
-- `robocode-core` also exposes `RuntimeSupervisor`, a non-UI worker boundary
+- `viden-runtime` also exposes `RuntimeSupervisor`, a non-UI worker boundary
   that owns `SessionEngine`, accepts `RuntimeCommand`, emits ordered
   `RuntimeEvent` values, cancels active provider turns through
   `ModelRequestControl`, and resolves approvals through pending approval
@@ -134,7 +146,7 @@ to run while contract tests freeze the facts that multiple frontends will share.
 
 ## Terminal Presentation
 
-`robocode-core` owns plain-text terminal presentation helpers so slash-command
+`viden-runtime` owns plain-text terminal presentation helpers so slash-command
 views stay consistent without requiring a full-screen TUI. Current structured
 views cover:
 
@@ -269,7 +281,7 @@ providers for each session or agent.
 
 ```mermaid
 flowchart TB
-    Core["robocode-core<br/>SessionEngine / Agent Runtime"] --> Host["robocode-model::ProviderHost"]
+    Core["viden-runtime<br/>SessionEngine / Agent Runtime"] --> Host["viden-provider::ProviderHost"]
 
     Host --> Registry["ProviderRegistry<br/>provider lookup / reload / collision checks"]
     Host --> Factory["Provider Factory<br/>per-session provider instances"]
@@ -355,7 +367,7 @@ The CLI currently exposes these tool surfaces through slash commands as well:
 
 Current workflow/LSP notes:
 
-- `robocode-workflows` keeps task and memory state outside the canonical transcript while remaining rebuildable from JSONL event logs.
+- `viden-workflows` keeps task and memory state outside the canonical transcript while remaining rebuildable from JSONL event logs.
 - `/test <command>` reuses the shell tool permission path and stores the latest
   test evidence in `SessionEngine` so `/status` can report the most recent
   verification command, exit code, likely failing-file count, and output tail
@@ -374,7 +386,7 @@ Current workflow/LSP notes:
 - Side screens reuse the same lane next-action language and artifact hints:
   side-1 emphasizes lane supervision plus persisted log tails, while side-2
   carries compact ops activity rows for the same command sequence.
-- `robocode-lsp` currently supports query-driven semantic code intelligence through language-server stdio sessions.
+- `viden-lsp` currently supports query-driven semantic code intelligence through language-server stdio sessions.
 - The current LSP runtime already covers real queries, session reuse, document synchronization, and normalized output, but it is still an early implementation rather than a fully mature long-lived LSP platform layer.
 
 ## Platform Notes

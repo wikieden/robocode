@@ -99,7 +99,7 @@ done
 cd "$ROOT"
 
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(cargo pkgid -p robocode-cli | sed 's/.*#//')"
+  VERSION="$(cargo pkgid -p viden-cli | sed 's/.*#//')"
 fi
 
 if [[ -z "$TARGET" ]]; then
@@ -174,7 +174,7 @@ fallback_cli_smoke() {
     git add README.md
     git commit -m initial >/dev/null
     printf '/test printf smoke-ok\ny\n/status\n/exit\n' |
-      cargo run -p robocode-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
+      cargo run -p viden-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
         --no-tui \
         --provider fallback \
         --model test-local
@@ -234,15 +234,15 @@ package_smoke() {
   tar -xzf "$archive" -C "$extract_dir"
 
   local package_dir="$extract_dir/robocode-v${VERSION}-${TARGET}"
-  local binary="$package_dir/robocode-cli"
+  local binary="$package_dir/viden-cli"
   if [[ "$TARGET" == *"windows"* ]]; then
-    binary="$package_dir/robocode-cli.exe"
+    binary="$package_dir/viden-cli.exe"
   fi
 
   [[ -x "$binary" || -f "$binary" ]]
   "$binary" --version >>"$package_log" 2>&1
   "$binary" --help >>"$package_log" 2>&1
-  grep -Fq "robocode-cli $VERSION" "$package_log"
+  grep -Fq "viden-cli $VERSION" "$package_log"
   cat "$package_log"
 }
 
@@ -389,9 +389,9 @@ run_step "final-zero-bug-contract-smoke" scripts/final-zero-bug-contract-smoke.s
 run_step "cargo-clippy" cargo clippy --workspace --all-targets -- -D warnings
 
 if [[ "$QUICK" == "1" ]]; then
-  run_bash_step "robocode-cli-terminal-tests" "cargo test -p robocode-cli tui::terminal::tests -- --nocapture"
+  run_bash_step "viden-cli-terminal-tests" "cargo test -p viden-cli tui::terminal::tests -- --nocapture"
 else
-  run_bash_step "robocode-cli-tests" "cargo test -p robocode-cli --quiet -- --test-threads=1"
+  run_bash_step "viden-cli-tests" "cargo test -p viden-cli --quiet -- --test-threads=1"
   run_bash_step "workspace-tests" "cargo test --workspace --quiet -- --test-threads=1"
 fi
 

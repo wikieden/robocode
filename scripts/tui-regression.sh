@@ -6,7 +6,7 @@ OUT_DIR="${1:-"$ROOT/docs/previews/generated"}"
 SCREENSHOT_DIR="$OUT_DIR/screenshots"
 VERSION="${ROBOCODE_TUI_SCREENSHOT_VERSION:-}"
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(cargo pkgid -p robocode-cli | sed 's/.*#//')"
+  VERSION="$(cargo pkgid -p viden-cli | sed 's/.*#//')"
 fi
 
 mkdir -p "$SCREENSHOT_DIR"

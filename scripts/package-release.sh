@@ -6,14 +6,14 @@ VERSION="${1:-}"
 TARGET="${2:-}"
 
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(cargo pkgid -p robocode-cli | sed 's/.*#//')"
+  VERSION="$(cargo pkgid -p viden-cli | sed 's/.*#//')"
 fi
 
 if [[ -z "$TARGET" ]]; then
   TARGET="$(rustc -Vv | awk '/host:/ { print $2 }')"
 fi
 
-BIN_NAME="robocode-cli"
+BIN_NAME="viden-cli"
 BIN_FILE="$BIN_NAME"
 if [[ "$TARGET" == *"windows"* ]]; then
   BIN_FILE="$BIN_NAME.exe"
@@ -26,7 +26,7 @@ if [[ -n "$TARGET" ]]; then
 fi
 
 cd "$ROOT"
-cargo build -p robocode-cli --release "${TARGET_ARGS[@]}"
+cargo build -p viden-cli --release "${TARGET_ARGS[@]}"
 
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"

@@ -29,7 +29,7 @@ Viden is moving toward a Runtime-first platform:
 
 The first Phase 0-1 contract slice is now intentionally core-only:
 
-- `robocode-types` owns the frontend-neutral schema:
+- `viden-types` owns the frontend-neutral schema:
   - `RuntimeSnapshot`
   - `RuntimeEvent` / `RuntimeEventKind`
   - `RuntimeCommand`
@@ -42,7 +42,7 @@ The first Phase 0-1 contract slice is now intentionally core-only:
 - `RuntimeViewState::apply_event` is the replay reducer used by contract tests.
   TUI and GUI work must consume this style of replayable fact stream rather
   than recreating private business state.
-- `robocode-core` exposes the first compatibility bridge:
+- `viden-runtime` exposes the first compatibility bridge:
   - `viden-core`
   - `SessionEngine::runtime_snapshot()`
   - `SessionEngine::runtime_view_state()`
@@ -56,7 +56,7 @@ The first Phase 0-1 contract slice is now intentionally core-only:
 - The first process-plugin protocol draft is
   [process-plugin-protocol.md](process-plugin-protocol.md). The first
   cross-frontend runtime fixture is
-  `robocode-types/tests/fixtures/runtime-contract-phase2.json`.
+  `crates/types/tests/fixtures/runtime-contract-phase2.json`.
 - The current core-only Phase 0-2 audit is
   [runtime-contract-freeze-status.md](runtime-contract-freeze-status.md).
 - The command bus currently supports user-input submission, queued follow-up

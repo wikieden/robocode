@@ -162,4 +162,4 @@ The protocol is not frozen until tests cover:
 - parity fixture replay for TUI and GUI clients.
 
 The Phase 2 runtime fixture currently lives at
-`robocode-types/tests/fixtures/runtime-contract-phase2.json`.
+`viden-types/tests/fixtures/runtime-contract-phase2.json`.

@@ -115,8 +115,8 @@ VERSION=0.1.30
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
-sudo install -m 755 "robocode-v${VERSION}-${TARGET}/robocode-cli" /usr/local/bin/robocode-cli
-robocode-cli --help
+sudo install -m 755 "robocode-v${VERSION}-${TARGET}/viden-cli" /usr/local/bin/viden-cli
+viden-cli --help
 ```
 
 Windows PowerShell 安装：
@@ -127,9 +127,9 @@ $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
 tar -xzf "robocode-v$Version-$Target.tar.gz"
 New-Item -ItemType Directory -Force "$env:USERPROFILE\bin"
-Copy-Item "robocode-v$Version-$Target\robocode-cli.exe" "$env:USERPROFILE\bin\robocode-cli.exe"
+Copy-Item "robocode-v$Version-$Target\viden-cli.exe" "$env:USERPROFILE\bin\viden-cli.exe"
 $env:PATH += ";$env:USERPROFILE\bin"
-robocode-cli.exe --help
+viden-cli.exe --help
 ```
 
 ## 快速开始
@@ -137,7 +137,7 @@ robocode-cli.exe --help
 直接启动 RoboCode。干净安装默认以 DeepSeek 作为在线 provider，并默认进入 cockpit TUI：
 
 ```bash
-robocode-cli
+viden-cli
 ```
 
 干净会话会先进入聚焦的 welcome 输入界面，不再自动弹出 setup。执行配置命令
@@ -155,7 +155,7 @@ robocode-cli
 
 ```bash
 export DEEPSEEK_API_KEY="sk-..."
-robocode-cli
+viden-cli
 ```
 
 如果当前模型不可用或调用失败，RoboCode 会显示换模型提示，给出具体的
@@ -164,19 +164,19 @@ robocode-cli
 不想使用 live provider 时，显式启动离线 smoke session：
 
 ```bash
-robocode-cli --provider fallback --model test-local
+viden-cli --provider fallback --model test-local
 ```
 
 只有明确需要旧版行式 REPL 时才使用：
 
 ```bash
-robocode-cli --no-tui --provider fallback --model test-local
+viden-cli --no-tui --provider fallback --model test-local
 ```
 
 开发时从源码启动：
 
 ```bash
-cargo run -p robocode-cli -- --provider fallback --model test-local
+cargo run -p viden-cli -- --provider fallback --model test-local
 ```
 
 ## 核心工作流
@@ -238,11 +238,11 @@ favorite_models = ["deepseek-v4-pro"]
 常用启动参数：
 
 ```bash
-robocode-cli --config .robocode/config.toml
-robocode-cli --resume latest
-robocode-cli --permissions plan
-robocode-cli --tui-theme aurora-cyan
-robocode-cli --tui-screen side-1
+viden-cli --config .robocode/config.toml
+viden-cli --resume latest
+viden-cli --permissions plan
+viden-cli --tui-theme aurora-cyan
+viden-cli --tui-screen side-1
 ```
 
 ## 当前实验边界

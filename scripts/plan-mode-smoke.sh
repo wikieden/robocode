@@ -17,7 +17,7 @@ mkdir -p "$WORK_DIR" "$SESSION_HOME"
   cd "$WORK_DIR"
   printf '/plan on\ntool write_file path=blocked.txt content=blocked\n/test printf plan-should-not-run\n/plan off\ntool write_file path=allowed.txt content=allowed\ny\n/status\n/exit\n' |
     ROBOCODE_SESSION_HOME="$SESSION_HOME" \
-      cargo run -p robocode-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
+      cargo run -p viden-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
         --no-tui \
         --provider fallback \
         --model test-local

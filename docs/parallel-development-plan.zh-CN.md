@@ -27,7 +27,7 @@ Viden 正在迁移为 Runtime-first 平台：
 
 第一段 Phase 0-1 contract 切片只落在 core 层：
 
-- `robocode-types` 拥有前端无关 schema：
+- `viden-types` 拥有前端无关 schema：
   - `RuntimeSnapshot`
   - `RuntimeEvent` / `RuntimeEventKind`
   - `RuntimeCommand`
@@ -39,7 +39,7 @@ Viden 正在迁移为 Runtime-first 平台：
   - `RuntimeViewState`
 - `RuntimeViewState::apply_event` 是 contract tests 使用的 replay reducer。
   后续 TUI 和 GUI 必须消费这种可 replay 的事实流，而不是重新创建私有业务状态。
-- `robocode-core` 暴露第一版 compatibility bridge：
+- `viden-runtime` 暴露第一版 compatibility bridge：
   - `viden-core`
   - `SessionEngine::runtime_snapshot()`
   - `SessionEngine::runtime_view_state()`
@@ -52,7 +52,7 @@ Viden 正在迁移为 Runtime-first 平台：
 - 第一版 process-plugin protocol 草案是
   [process-plugin-protocol.zh-CN.md](process-plugin-protocol.zh-CN.md)。第一版
   跨前端 runtime fixture 是
-  `robocode-types/tests/fixtures/runtime-contract-phase2.json`。
+  `crates/types/tests/fixtures/runtime-contract-phase2.json`。
 - 当前 core-only Phase 0-2 审计见
   [runtime-contract-freeze-status.zh-CN.md](runtime-contract-freeze-status.zh-CN.md)。
 - command bus 当前支持提交用户输入、排队 follow-up 输入、切换 work mode、切换

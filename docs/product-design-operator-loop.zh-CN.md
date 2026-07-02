@@ -43,10 +43,10 @@ RoboCode 只作为 legacy implementation 名称保留，直到迁移计划明确
 - `docs/viden-design-adoption.zh-CN.md`
 - `docs/viden-design/Viden/docs/DESIGN-REF.md`
 - `docs/viden-design/Viden/tokens.css`
-- `robocode-core/src/runtime_loop.rs`
-- `robocode-cli/src/tui/app.rs`
-- `robocode-cli/src/tui/transcript.rs`
-- `robocode-cli/src/tui/lane.rs`
+- `viden-runtime/src/runtime_loop.rs`
+- `viden-cli/src/tui/app.rs`
+- `viden-cli/src/tui/transcript.rs`
+- `viden-cli/src/tui/lane.rs`
 
 ## 产品诊断
 

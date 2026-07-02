@@ -123,7 +123,7 @@ mkdir -p "$WORK_DIR"
   git add README.md
   git commit -m initial >/dev/null
   printf '%s\n/exit\n' "$PROMPT" |
-    cargo run -p robocode-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
+    cargo run -p viden-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
       --no-tui \
       --provider "$PROVIDER" \
       --model "$MODEL"

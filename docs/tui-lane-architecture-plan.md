@@ -17,17 +17,17 @@ Design sources:
 
 ```mermaid
 flowchart TB
-    User["Developer"] --> TUI["robocode-cli TUI<br/>main screen / companion workspaces"]
+    User["Developer"] --> TUI["viden-cli TUI<br/>main screen / companion workspaces"]
 
     TUI --> TuiState["TUI State<br/>layout / focus / theme / screen registry"]
-    TUI --> Core["robocode-core<br/>SessionEngine / commands / approvals"]
+    TUI --> Core["viden-runtime<br/>SessionEngine / commands / approvals"]
     TUI --> LaneSvc["Lane Service<br/>task envelopes / terminal lanes / adapters"]
 
-    Core --> Transcript["robocode-session<br/>JSONL transcript"]
-    Core --> Workflows["robocode-workflows<br/>tasks / memory / resume context"]
-    Core --> Permissions["robocode-permissions<br/>approval gate / modes"]
-    Core --> Tools["robocode-tools<br/>file / shell / git / LSP"]
-    Core --> Providers["robocode-model<br/>model providers / plugins"]
+    Core --> Transcript["viden-session<br/>JSONL transcript"]
+    Core --> Workflows["viden-workflows<br/>tasks / memory / resume context"]
+    Core --> Permissions["viden-permissions<br/>approval gate / modes"]
+    Core --> Tools["viden-tools<br/>file / shell / git / LSP"]
+    Core --> Providers["viden-provider<br/>model providers / plugins"]
 
     LaneSvc --> LaneStore["Lane Store<br/>metadata / logs / envelopes / decisions"]
     LaneSvc --> Adapters["Tool Adapters<br/>codex / claude / generic command"]
@@ -44,7 +44,7 @@ flowchart TB
 
 ## Architectural Principles
 
-- `robocode-core` remains the owner of the main RoboCode session, permission decisions, and model/tool loop.
+- `viden-runtime` remains the owner of the main RoboCode session, permission decisions, and model/tool loop.
 - The TUI is a client over shared state, not a second agent runtime.
 - Terminal lanes are supervised work units. They can run external tools, but RoboCode owns the envelope, lifecycle, observation, and acceptance decision.
 - External coding tools are collaborators, not trusted authorities. Their output must be inspected through logs, diffs, exit codes, and verification commands.
@@ -54,10 +54,10 @@ flowchart TB
 
 ## Proposed Module Shape
 
-Start inside `robocode-cli` while the feature is still UI/runtime glue. Move durable lane primitives into `robocode-workflows` or a new crate only after the model stabilizes.
+Start inside `viden-cli` while the feature is still UI/runtime glue. Move durable lane primitives into `viden-workflows` or a new crate only after the model stabilizes.
 
 ```text
-robocode-cli/src/tui/
+viden-cli/src/tui/
   mod.rs              entrypoints and event loop
   app.rs              TuiApp state and high-level actions
   layout.rs           rect splitting and responsive layout
@@ -68,11 +68,11 @@ robocode-cli/src/tui/
   screens.rs          MAIN / AGENTS / OPS registry and views
   lanes.rs            CLI-facing lane orchestration facade
 
-robocode-core/
+viden-runtime/
   command dispatch remains the main slash-command path
   later: lane commands can be promoted into core if non-TUI REPL should use them
 
-robocode-workflows/
+viden-workflows/
   later: durable lane records and task-envelope records if they become reusable outside TUI
 ```
 
@@ -218,7 +218,7 @@ Template placeholders:
 
 ## Lifecycle
 
-1. User enters `/lane codex "fix failing config tests"` or `/lane run cargo test -p robocode-core`.
+1. User enters `/lane codex "fix failing config tests"` or `/lane run cargo test -p viden-runtime`.
 2. RoboCode creates a `TerminalLane`.
 3. RoboCode renders a task envelope and stores it durably.
 4. Lane service launches the command with the selected adapter.
@@ -468,8 +468,8 @@ for the seven TUI/lane phases is:
 
 - Lane commands are implemented in the TUI runtime first; promotion into the
   plain REPL remains a separate product decision.
-- Durable lane records currently live in `robocode-cli` as UI/runtime glue.
-  They should move into `robocode-workflows` only if non-TUI surfaces need to
+- Durable lane records currently live in `viden-cli` as UI/runtime glue.
+  They should move into `viden-workflows` only if non-TUI surfaces need to
   share the same lane model.
 - Codex and Claude start with prompt-file template adapters, then add tmux and
   PTY attachment paths for interactive follow-up.

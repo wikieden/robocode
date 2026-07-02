@@ -75,9 +75,9 @@ Mainline landed status:
 - session listing and resume selectors
 - file, search, shell, web, and Git tool families
 - V2-A runtime/session commands: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`
-- V2-C workflow continuity: `robocode-workflows`, project tasks, project/session memory, `/tasks`, `/task ...`, `/memory ...`, `/task resume-context`, workflow JSONL logs
-- V2-B LSP foundation: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document synchronization
-- V2-D structured view slices: grouped diagnostics, grouped symbols, compact references, structured sessions/tasks/memory, structured permission denials, structured `/git diff` and `/diff`, and shared `robocode-core` presentation helpers
+- V2-C workflow continuity: `viden-workflows`, project tasks, project/session memory, `/tasks`, `/task ...`, `/memory ...`, `/task resume-context`, workflow JSONL logs
+- V2-B LSP foundation: `viden-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document synchronization
+- V2-D structured view slices: grouped diagnostics, grouped symbols, compact references, structured sessions/tasks/memory, structured permission denials, structured `/git diff` and `/diff`, and shared `viden-runtime` presentation helpers
 - TUI cockpit and terminal-lane runtime: main cockpit layout, theme variants,
   companion screen registry, `/lane run` lifecycle, external Codex/Claude and
   generic lane adapters, per-lane worktree isolation, explicit accept/apply
@@ -200,7 +200,7 @@ Next release planning (`0.2.x` and `0.3.x`):
      behind one lane lifecycle and one evidence model.
    - Add more templates and docs for tools such as Gemini, Junie, Kiro, and
      local coding CLIs as real operator workflows demand them.
-   - Promote durable lane primitives out of `robocode-cli` only when non-TUI
+   - Promote durable lane primitives out of `viden-cli` only when non-TUI
      surfaces need the same model.
 
 5. Extension Foundation.

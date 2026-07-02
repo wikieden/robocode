@@ -44,13 +44,13 @@ RoboCode 应拆成四个概念层。
 
 归属：
 
-- `robocode-core`
-- `robocode-types`
-- `robocode-model`
-- `robocode-tools`
-- `robocode-permissions`
-- `robocode-session`
-- `robocode-workflows`
+- `viden-runtime`
+- `viden-types`
+- `viden-provider`
+- `viden-tools`
+- `viden-permissions`
+- `viden-session`
+- `viden-workflows`
 
 职责：
 
@@ -73,7 +73,7 @@ Runtime core 不能：
 
 ### 2. Product View Model
 
-这一层是 UI 无关的稳定契约。当前可以放在 `robocode-types`，等多个 UI surface 都需要后，
+这一层是 UI 无关的稳定契约。当前可以放在 `viden-types`，等多个 UI surface 都需要后，
 也可以拆成 `robocode-ui-model` 这类小 crate。
 
 职责：
@@ -90,13 +90,13 @@ Runtime core 不能：
   class。
 
 Product view model 必须 deterministic 且可序列化。未来 desktop、web、IDE 或 API surface
-应该能使用同一 snapshot，而不 import `robocode-cli/src/tui`。
+应该能使用同一 snapshot，而不 import `viden-cli/src/tui`。
 
 ### 3. UI Shell
 
 当前归属：
 
-- `robocode-cli/src/tui`
+- `viden-cli/src/tui`
 
 职责：
 
@@ -380,7 +380,7 @@ flowchart TD
 5. Approval 不再调用阻塞式 `prompt_for_tui_approval` 子循环，而是变成 `InteractionPanel::Approval`
    或 `PendingApproval` 状态，由主循环继续处理键盘/鼠标。
 6. queued follow-up 要进入 core-visible state，至少在 `RuntimeViewSnapshot` 里可见，后续可迁到
-   `robocode-core` 的 turn queue。
+   `viden-runtime` 的 turn queue。
 7. Plan mode 是 planner intent 加 read-only enforcement，不应该改变输入并发模型：
    - provider instruction 只产出需求、架构、实现方案、测试策略和任务计划，不写代码；
    - plan mode 下 mutating tools 被 permission layer 阻止，并且不通过 native tool schema 暴露；
@@ -436,7 +436,7 @@ sequenceDiagram
 
 代码层面的落点：
 
-1. 新增 `robocode-cli/src/tui/turn_controller.rs`。
+1. 新增 `viden-cli/src/tui/turn_controller.rs`。
    - 负责 `start_turn`、`queue_followup`、`cancel`、`resolve_approval`、`drain_events`。
    - 持有 active turn id、worker channel、queued follow-ups、pending approval sender、last error。
    - 对 TUI 暴露纯状态，不直接 draw terminal。
@@ -455,7 +455,7 @@ sequenceDiagram
    - 用户键盘/鼠标事件由主循环处理，最后调用 `TurnController::resolve_approval`。
 5. `PendingTurn.queued_inputs` 升级为 controller/runtime state。
    - TUI 可以继续通过 snapshot 显示 queued count；
-   - 后续迁到 `robocode-core` turn queue 时不用再改 UI 语义。
+   - 后续迁到 `viden-runtime` turn queue 时不用再改 UI 语义。
 6. streaming 只做 append delta，不触发布局子循环。
    - 主循环统一控制 render cadence；
    - transcript auto-follow 只在 scroll 位于底部时开启；

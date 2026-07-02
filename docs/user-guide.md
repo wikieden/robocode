@@ -31,11 +31,11 @@ robocode --help
 Run from a release archive:
 
 ```bash
-robocode-cli --version
-robocode-cli --provider fallback --model test-local
+viden-cli --version
+viden-cli --provider fallback --model test-local
 ```
 
-`robocode-cli` starts the main TUI by default. A clean session opens on the
+`viden-cli` starts the main TUI by default. A clean session opens on the
 focused welcome composer first; it does not auto-submit or auto-open setup. Use
 `Ctrl-P` for commands, or submit one of these entries when you want
 provider/model setup. Slash setup commands keep the welcome surface active; the
@@ -51,7 +51,7 @@ full cockpit appears after the first normal task prompt.
 Start the main cockpit with explicit startup overrides:
 
 ```bash
-robocode-cli --provider deepseek --model deepseek-v4-flash
+viden-cli --provider deepseek --model deepseek-v4-flash
 ```
 
 Use `--no-tui` when you need the legacy line REPL.
@@ -59,8 +59,8 @@ Use `--no-tui` when you need the legacy line REPL.
 Start a side screen directly:
 
 ```bash
-robocode-cli --tui-screen side-1 --provider deepseek --model deepseek-v4-flash
-robocode-cli --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
+viden-cli --tui-screen side-1 --provider deepseek --model deepseek-v4-flash
+viden-cli --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
 ```
 
 ## Startup Flags
@@ -516,7 +516,7 @@ Example fallback tool syntax:
 
 ```text
 tool read_file path=Cargo.toml
-tool grep pattern=SessionEngine path=robocode-core/src
+tool grep pattern=SessionEngine path=viden-runtime/src
 ```
 
 ## Modes And Permissions

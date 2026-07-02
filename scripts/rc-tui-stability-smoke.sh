@@ -49,7 +49,7 @@ run_step() {
 run_cargo_test() {
   local name="$1"
   shift
-  run_step "$name" cargo test -p robocode-cli "$@" -- --nocapture
+  run_step "$name" cargo test -p viden-cli "$@" -- --nocapture
 }
 
 record "# RoboCode RC TUI Stability Smoke"
@@ -58,7 +58,7 @@ record "- Evidence directory: \`$OUT_DIR\`"
 record ""
 record "## Guardrail Results"
 
-run_step "terminal-redraw-and-residue-tests" cargo test -p robocode-cli tui::terminal::tests -- --nocapture
+run_step "terminal-redraw-and-residue-tests" cargo test -p viden-cli tui::terminal::tests -- --nocapture
 run_cargo_test "fake-slow-provider-nonblocking" runtime_provider_turn_starts_without_blocking_ui_thread
 run_cargo_test "approval-nonblocking" active_approval_does_not_swallow_composer_typing
 run_cargo_test "streaming-scrollback" streaming_delta_does_not_steal_scrollback_when_user_scrolled_up

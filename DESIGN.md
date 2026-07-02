@@ -6,7 +6,7 @@
 - Last refreshed: 2026-05-23
 - Primary product surfaces: RoboCode CLI TUI, companion terminal workspaces, embedded/attached terminal panes, theme configuration, transcript/task/diagnostic panels.
 - Evidence reviewed:
-  - `robocode-cli/src/tui.rs`: current lightweight alternate-screen TUI.
+  - `apps/cli/src/tui.rs`: current lightweight alternate-screen TUI.
   - `PLAN.md`: V2-D richer TUI and structured views direction.
   - `docs/staged-roadmap.md`: V2 developer enhancement layer and V3 platform expansion.
   - `README.md` and `README.zh-CN.md`: current `--tui` user-facing entry point.
@@ -150,7 +150,7 @@
   - `SessionEngine` for all input processing.
   - `EngineEvent` for rendered session output.
   - `PermissionPrompt` and `ApprovalResponse` for approvals.
-  - Existing structured command views from `robocode-core`.
+  - Existing structured command views from `viden-runtime`.
   - JSONL transcript storage and workflow task state.
 - New/changed components:
   - TUI layout model: screen, panel, region, focus, scroll, and render buffer.

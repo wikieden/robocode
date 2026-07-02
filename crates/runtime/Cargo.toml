@@ -1,0 +1,16 @@
+[package]
+name = "viden-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+viden-config = { path = "../config" }
+viden-lsp = { path = "../lsp" }
+viden-provider = { path = "../provider" }
+viden-permissions = { path = "../permissions" }
+viden-session = { path = "../session" }
+viden-tools = { path = "../tools" }
+viden-types = { path = "../types" }
+viden-workflows = { path = "../workflows" }

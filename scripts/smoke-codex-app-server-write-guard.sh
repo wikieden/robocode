@@ -2,9 +2,9 @@
 set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-binary="$repo_root/target/debug/robocode-cli"
+binary="$repo_root/target/debug/viden-cli"
 
-cargo build -p robocode-cli >/dev/null
+cargo build -p viden-cli >/dev/null
 
 smoke_dir=$(mktemp -d /tmp/robocode-codex-app-server-write-guard.XXXXXX)
 cleanup() {

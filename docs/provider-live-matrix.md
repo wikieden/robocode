@@ -43,7 +43,7 @@ stays the same across providers.
 ROBOCODE_LIVE_PROVIDER=openrouter \
 ROBOCODE_LIVE_MODEL='<provider-model>' \
 ROBOCODE_LIVE_API_KEY="$OPENROUTER_API_KEY" \
-cargo test -p robocode-cli selected_live_provider_generates_python_hello_world_from_natural_language -- --ignored
+cargo test -p viden-cli selected_live_provider_generates_python_hello_world_from_natural_language -- --ignored
 ```
 
 For providers with a descriptor default model, `ROBOCODE_LIVE_MODEL` should

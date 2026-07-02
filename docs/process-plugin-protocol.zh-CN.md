@@ -157,4 +157,4 @@ core 以 accepted/rejected runtime event 回复：
 - TUI 和 GUI clients 使用同一 parity fixture replay。
 
 当前 Phase 2 runtime fixture 位于
-`robocode-types/tests/fixtures/runtime-contract-phase2.json`。
+`viden-types/tests/fixtures/runtime-contract-phase2.json`。

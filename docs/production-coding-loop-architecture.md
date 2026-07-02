@@ -47,13 +47,13 @@ RoboCode should be split into four conceptual layers.
 
 Owners:
 
-- `robocode-core`
-- `robocode-types`
-- `robocode-model`
-- `robocode-tools`
-- `robocode-permissions`
-- `robocode-session`
-- `robocode-workflows`
+- `viden-runtime`
+- `viden-types`
+- `viden-provider`
+- `viden-tools`
+- `viden-permissions`
+- `viden-session`
+- `viden-workflows`
 
 Responsibilities:
 
@@ -76,7 +76,7 @@ Runtime core must not:
 
 ### 2. Product View Model
 
-This layer is a stable UI-independent contract. It can live in `robocode-types`
+This layer is a stable UI-independent contract. It can live in `viden-types`
 or a future small crate such as `robocode-ui-model` once multiple UI surfaces
 need it.
 
@@ -96,13 +96,13 @@ Responsibilities:
 
 Product view model must be deterministic and serializable. A future desktop,
 web, IDE, or API surface should be able to use the same snapshot without
-importing `robocode-cli/src/tui`.
+importing `viden-cli/src/tui`.
 
 ### 3. UI Shell
 
 Current owner:
 
-- `robocode-cli/src/tui`
+- `viden-cli/src/tui`
 
 Responsibilities:
 
@@ -465,7 +465,7 @@ sequenceDiagram
 
 Code-level landing points:
 
-1. Add `robocode-cli/src/tui/turn_controller.rs`.
+1. Add `viden-cli/src/tui/turn_controller.rs`.
    - Own `start_turn`, `queue_followup`, `cancel`, `resolve_approval`, and
      `drain_events`.
    - Hold the active turn id, worker channels, queued follow-ups, pending
@@ -491,7 +491,7 @@ Code-level landing points:
      `TurnController::resolve_approval`.
 5. Promote `PendingTurn.queued_inputs` into controller/runtime state.
    - The TUI can still display queued count through the snapshot.
-   - Later migration into a `robocode-core` turn queue should not change UI
+   - Later migration into a `viden-runtime` turn queue should not change UI
      semantics.
 6. Treat streaming as append-only deltas.
    - The main loop owns render cadence.

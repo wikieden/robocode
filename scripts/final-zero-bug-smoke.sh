@@ -14,7 +14,7 @@ mkdir -p "$OUT_DIR"
 cd "$ROOT"
 
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(cargo pkgid -p robocode-cli | sed 's/.*#//')"
+  VERSION="$(cargo pkgid -p viden-cli | sed 's/.*#//')"
 fi
 
 SUMMARY="$OUT_DIR/summary.md"
