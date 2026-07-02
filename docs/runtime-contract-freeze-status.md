@@ -32,6 +32,7 @@ Out of scope for this branch:
 | Runtime replay reducer | `RuntimeViewState::apply_event` and `robocode-types` tests replay snapshot, approvals, tasks, queued input, lane, evidence, provider, and cost facts | Done |
 | Core bridge | `SessionEngine::runtime_snapshot`, `runtime_view_state`, `runtime_events_for_engine_events`, `handle_runtime_command`, and `process_runtime_input_with_approval` | Done |
 | Command bus | Tests cover user input, queued follow-up, mode switching, permission-level switching, provider config, model selection, active model activation/deactivation | Done |
+| Plan-mode mutation safety | Existing permission and workflow tests cover mutating tool denial and workflow task mutation denial while plan mode is active | Done |
 | Supervisor boundary | `RuntimeSupervisor` tests cover active provider cancellation and approval response delivery without TUI coupling | Done |
 | Permission/mode contract | `runtime_command_bus_covers_plan_build_review_permission_contract` covers plan/review/explore read-only behavior and build restoration to ask | Done |
 | Lane facts emitted by core | `runtime_view_state_emits_lane_facts_from_core_store` proves `.robocode/lanes.tsv` is projected into `LaneUpdated` runtime facts without TUI code | Done |

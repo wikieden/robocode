@@ -95,12 +95,12 @@ Deliverables:
 - `viden-core` facade introduced or staged behind compatibility exports
 - Runtime supervisor and event stream extracted from TUI-owned state
 - command bus for user input, mode switching, approvals, provider/model setup,
-  cancellation, queued follow-ups, and tool/lane actions
+  cancellation, queued follow-ups, and tool/lane facts
 - permission checks centralized before mutation
 - task, lane, evidence, cost, context, provider health, and transcript facts
   emitted by core runtime
-- TUI converted incrementally to consume runtime facts instead of owning
-  business state
+- no TUI or GUI implementation in the core-only Phase 0-2 branch; the later TUI
+  client branch must consume runtime facts instead of owning business state
 
 ### Phase 2: Contract Freeze
 

@@ -87,10 +87,11 @@ protocol 形态和迁移策略。
 - 引入 `viden-core` facade，或先通过 compatibility exports 分阶段落地
 - 从 TUI-owned state 中抽出 runtime supervisor 和 event stream
 - 为用户输入、mode 切换、approval、provider/model setup、cancel、queued
-  follow-up、tool/lane action 建立 command bus
+  follow-up、tool/lane facts 建立 command bus
 - mutation 前的 permission check 统一进入 core
 - task、lane、evidence、cost、context、provider health、transcript facts 全部由 core runtime 发出
-- TUI 逐步改为消费 runtime facts，而不是自己拥有业务状态
+- core-only Phase 0-2 分支不实现 TUI 或 GUI；后续 TUI client 分支必须消费 runtime
+  facts，而不是自己拥有业务状态
 
 ### Phase 2：契约冻结
 
