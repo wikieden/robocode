@@ -1,3 +1,5 @@
+use std::fs;
+
 use robocode_types::{
     ApprovalResponse, ModelEvent, PermissionLevel, RuntimeCommand, RuntimeEventKind,
     RuntimeViewState, ToolCall, ToolInput, WorkMode,
@@ -247,4 +249,127 @@ fn runtime_command_bus_emits_approval_events_for_gated_tools() {
             } if evidence.summary.contains("approved")
         )
     }));
+}
+
+#[test]
+fn runtime_command_bus_queues_follow_up_input() {
+    let cwd = temp_dir("runtime_command_queue_cwd");
+    let home = temp_dir("runtime_command_queue_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_queue",
+            RuntimeCommand::QueueFollowUp {
+                content: "continue with tests".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_strictly_increasing_sequences(&events);
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. } if command_id == "cmd_queue"
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::InputQueued { input }
+                if input.content_preview == "continue with tests"
+        )
+    }));
+
+    let view = engine.runtime_view_state();
+    assert_eq!(view.queued_inputs.len(), 1);
+    assert_eq!(view.queued_inputs[0].content_preview, "continue with tests");
+}
+
+#[test]
+fn runtime_command_bus_configures_provider_and_active_models() {
+    let cwd = temp_dir("runtime_command_provider_cwd");
+    let home = temp_dir("runtime_command_provider_home");
+    let config_path = cwd.join("user-config.toml");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_user_config_path_override(config_path.clone());
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let configured = engine
+        .handle_runtime_command(
+            "cmd_provider_config",
+            RuntimeCommand::ConfigureProvider {
+                provider_id: "deepseek".to_string(),
+                api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
+                endpoint: Some("https://api.deepseek.com".to_string()),
+                default_model: Some("deepseek-chat".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_strictly_increasing_sequences(&configured);
+    assert!(configured.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::EvidenceRecorded { evidence }
+                if evidence.kind == "provider_config"
+                    && evidence.summary.contains("deepseek")
+        )
+    }));
+
+    let activated = engine
+        .handle_runtime_command(
+            "cmd_activate_model",
+            RuntimeCommand::ActivateModel {
+                provider_id: "deepseek".to_string(),
+                model: "deepseek-reasoner".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert!(activated.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::EvidenceRecorded { evidence }
+                if evidence.kind == "provider_model"
+                    && evidence.summary.contains("deepseek-reasoner")
+        )
+    }));
+
+    let deactivated = engine
+        .handle_runtime_command(
+            "cmd_deactivate_model",
+            RuntimeCommand::DeactivateModel {
+                provider_id: "deepseek".to_string(),
+                model: "deepseek-chat".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert!(deactivated.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::EvidenceRecorded { evidence }
+                if evidence.kind == "provider_model"
+                    && evidence.summary.contains("removed")
+        )
+    }));
+
+    let contents = fs::read_to_string(config_path).unwrap();
+    assert!(contents.contains("[providers.deepseek]"));
+    assert!(contents.contains(r#"api_key_env = "DEEPSEEK_API_KEY""#));
+    assert!(contents.contains(r#"api_base = "https://api.deepseek.com""#));
+    assert!(contents.contains(r#"default_model = "deepseek-chat""#));
+    assert!(contents.contains(r#"models = ["deepseek-reasoner"]"#));
 }

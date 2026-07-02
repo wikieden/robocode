@@ -117,6 +117,13 @@ pub struct RuntimeCommandReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct QueuedInputView {
+    pub id: String,
+    pub content_preview: String,
+    pub created_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeEvent {
     pub sequence: u64,
     pub timestamp: Option<u64>,
@@ -179,6 +186,12 @@ pub enum RuntimeEventKind {
         command_id: String,
         reason: String,
     },
+    InputQueued {
+        input: QueuedInputView,
+    },
+    InputDequeued {
+        input_id: String,
+    },
     TaskUpdated {
         task: AgentTaskRecord,
     },
@@ -206,6 +219,7 @@ pub enum RuntimeEventKind {
 pub struct RuntimeViewState {
     pub snapshot: RuntimeSnapshot,
     pub pending_approvals: Vec<ApprovalRequestView>,
+    pub queued_inputs: Vec<QueuedInputView>,
     pub active_tool_calls: Vec<ToolCallView>,
     pub tasks: Vec<AgentTaskRecord>,
     pub lanes: Vec<AgentLaneRecord>,
@@ -223,6 +237,7 @@ impl RuntimeViewState {
         Self {
             snapshot,
             pending_approvals: Vec::new(),
+            queued_inputs: Vec::new(),
             active_tool_calls: Vec::new(),
             tasks: Vec::new(),
             lanes: Vec::new(),
@@ -293,6 +308,14 @@ impl RuntimeViewState {
                     recoverable: true,
                     hint: None,
                 });
+            }
+            RuntimeEventKind::InputQueued { input } => {
+                upsert_by_id(&mut self.queued_inputs, input.clone(), |existing| {
+                    existing.id == input.id
+                });
+            }
+            RuntimeEventKind::InputDequeued { input_id } => {
+                self.queued_inputs.retain(|input| input.id != *input_id);
             }
             RuntimeEventKind::TaskUpdated { task } => {
                 upsert_by_id(&mut self.tasks, task.clone(), |existing| {

@@ -173,6 +173,7 @@ pub struct SessionEngine {
     last_test: Option<TestEvidence>,
     runtime_snapshot: RuntimeSnapshot,
     runtime_tasks: Vec<AgentTaskRecord>,
+    queued_runtime_inputs: Vec<runtime_contract::QueuedRuntimeInput>,
     provider_telemetry: ProviderTelemetry,
     last_context_bundle: Option<ContextBundleRecord>,
 }
@@ -240,6 +241,7 @@ impl SessionEngine {
             last_test: None,
             runtime_snapshot,
             runtime_tasks: Vec::new(),
+            queued_runtime_inputs: Vec::new(),
             provider_telemetry: ProviderTelemetry::default(),
             last_context_bundle: None,
         };

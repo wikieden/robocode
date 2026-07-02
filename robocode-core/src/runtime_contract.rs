@@ -1,9 +1,36 @@
 use crate::{EngineEvent, ProviderTelemetry, SessionEngine};
+use robocode_config::ProviderConfigUpdate;
 use robocode_types::{
     ApprovalRequestView, ApprovalResponse, EvidenceView, PermissionLevel, PermissionMode,
-    PermissionPrompt, ProviderHealthView, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
-    RuntimeSnapshot, RuntimeViewState, TokenCostView, ToolCallId, truncate_for_preview,
+    PermissionPrompt, ProviderHealthView, QueuedInputView, RuntimeCommand, RuntimeEvent,
+    RuntimeEventKind, RuntimeSnapshot, RuntimeViewState, TokenCostView, ToolCallId, fresh_id,
+    now_timestamp, truncate_for_preview,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct QueuedRuntimeInput {
+    id: String,
+    content: String,
+    created_at: u64,
+}
+
+impl QueuedRuntimeInput {
+    fn new(content: String) -> Self {
+        Self {
+            id: fresh_id("queued"),
+            content,
+            created_at: now_timestamp(),
+        }
+    }
+
+    fn view(&self) -> QueuedInputView {
+        QueuedInputView {
+            id: self.id.clone(),
+            content_preview: truncate_for_preview(&self.content, 500),
+            created_at: Some(self.created_at),
+        }
+    }
+}
 
 impl SessionEngine {
     pub fn runtime_snapshot(&self) -> RuntimeSnapshot {
@@ -132,6 +159,15 @@ impl SessionEngine {
                     self.process_runtime_input_with_approval(&content, approver)?,
                 );
             }
+            RuntimeCommand::QueueFollowUp { content } => {
+                let queued = QueuedRuntimeInput::new(content);
+                let input = queued.view();
+                self.queued_runtime_inputs.push(queued);
+                events.push(RuntimeEvent::new(
+                    next_sequence(&events),
+                    RuntimeEventKind::InputQueued { input },
+                ));
+            }
             RuntimeCommand::SetWorkMode { mode } => {
                 self.set_work_mode(mode)?;
                 events.push(RuntimeEvent::new(
@@ -170,12 +206,37 @@ impl SessionEngine {
                     },
                 ));
             }
-            RuntimeCommand::QueueFollowUp { .. }
-            | RuntimeCommand::CancelActiveTurn
-            | RuntimeCommand::RespondToApproval { .. }
-            | RuntimeCommand::ConfigureProvider { .. }
-            | RuntimeCommand::ActivateModel { .. }
-            | RuntimeCommand::DeactivateModel { .. } => {
+            RuntimeCommand::ConfigureProvider {
+                provider_id,
+                api_key_env,
+                endpoint,
+                default_model,
+            } => match self.save_provider_config_update(
+                &provider_id,
+                ProviderConfigUpdate {
+                    api_base: endpoint.clone(),
+                    api_key_env: api_key_env.clone(),
+                    default_model: default_model.clone(),
+                    ..ProviderConfigUpdate::default()
+                },
+                provider_config_summary(&api_key_env, &endpoint, &default_model),
+            ) {
+                Ok(output) => push_evidence_event(&mut events, "provider_config", output),
+                Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+            },
+            RuntimeCommand::ActivateModel { provider_id, model } => {
+                match self.add_provider_model(&provider_id, &model) {
+                    Ok(output) => push_evidence_event(&mut events, "provider_model", output),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
+            RuntimeCommand::DeactivateModel { provider_id, model } => {
+                match self.remove_provider_model(&provider_id, &model) {
+                    Ok(output) => push_evidence_event(&mut events, "provider_model", output),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
+            RuntimeCommand::CancelActiveTurn | RuntimeCommand::RespondToApproval { .. } => {
                 return Ok(vec![command_rejected(
                     command_id,
                     "runtime command is declared but not implemented in core yet".to_string(),
@@ -251,6 +312,14 @@ impl SessionEngine {
                 RuntimeEventKind::TokenCostUpdated { cost },
             ));
         }
+        for input in &self.queued_runtime_inputs {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::InputQueued {
+                    input: input.view(),
+                },
+            ));
+        }
         for task in self.agent_task_snapshot() {
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -258,6 +327,49 @@ impl SessionEngine {
             ));
         }
         events
+    }
+}
+
+fn push_evidence_event(events: &mut Vec<RuntimeEvent>, kind: &str, summary: String) {
+    let sequence = next_sequence(events);
+    events.push(RuntimeEvent::new(
+        sequence,
+        RuntimeEventKind::EvidenceRecorded {
+            evidence: runtime_evidence(sequence, kind, summary),
+        },
+    ));
+}
+
+fn runtime_evidence(sequence: u64, kind: &str, summary: String) -> EvidenceView {
+    EvidenceView {
+        id: format!("{kind}-{sequence}"),
+        kind: kind.to_string(),
+        summary: truncate_for_preview(&summary, 500),
+        path: None,
+        source: Some("runtime_command".to_string()),
+        timestamp: None,
+    }
+}
+
+fn provider_config_summary(
+    api_key_env: &Option<String>,
+    endpoint: &Option<String>,
+    default_model: &Option<String>,
+) -> String {
+    let mut fields = Vec::new();
+    if let Some(api_key_env) = api_key_env {
+        fields.push(format!("key env {api_key_env}"));
+    }
+    if let Some(endpoint) = endpoint {
+        fields.push(format!("endpoint {endpoint}"));
+    }
+    if let Some(default_model) = default_model {
+        fields.push(format!("default model {default_model}"));
+    }
+    if fields.is_empty() {
+        "no fields".to_string()
+    } else {
+        fields.join(", ")
     }
 }
 

@@ -714,7 +714,7 @@ impl SessionEngine {
         ))
     }
 
-    fn save_provider_config_update(
+    pub(crate) fn save_provider_config_update(
         &self,
         provider_id: &str,
         update: ProviderConfigUpdate,
@@ -732,7 +732,11 @@ impl SessionEngine {
         ))
     }
 
-    fn add_provider_model(&self, provider_id: &str, model: &str) -> Result<String, String> {
+    pub(crate) fn add_provider_model(
+        &self,
+        provider_id: &str,
+        model: &str,
+    ) -> Result<String, String> {
         let path = if let Some(path) = &self.user_config_path_override {
             robocode_config::add_user_provider_model_at(path, provider_id, model)?;
             path.clone()
@@ -743,6 +747,25 @@ impl SessionEngine {
             "Enabled model for /models: {provider_id} / {model}\nUser config: {}\nNext: set default with `/settings provider {provider_id} default-model {model}` or choose it from `/models`.",
             path.display()
         ))
+    }
+
+    pub(crate) fn remove_provider_model(
+        &self,
+        provider_id: &str,
+        model: &str,
+    ) -> Result<String, String> {
+        let mut config = self.provider_ui_config_for(provider_id).unwrap_or_default();
+        config.models.retain(|item| item != model);
+        config.favorite_models.retain(|item| item != model);
+        self.save_provider_config_update(
+            provider_id,
+            ProviderConfigUpdate {
+                models: Some(config.models),
+                favorite_models: Some(config.favorite_models),
+                ..ProviderConfigUpdate::default()
+            },
+            format!("removed model {model}"),
+        )
     }
 
     fn add_provider_favorite_model(

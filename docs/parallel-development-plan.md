@@ -49,13 +49,13 @@ The first Phase 0-1 contract slice is now intentionally core-only:
   - `SessionEngine::handle_runtime_command(...)`
 - This bridge projects existing `EngineEvent` output plus provider health,
   context, token/cost, and task facts into the shared runtime contract.
-- The command bus currently supports user-input submission, work-mode changes,
-  permission-level changes, and model selection for the active provider.
-  Approval prompts emitted during submitted input are captured as
-  `ApprovalRequested` / `ApprovalResolved` events. Follow-up queues,
-  cancellation, async approval responses, provider configuration, and
-  active-model editing are declared in the schema but still return
-  `CommandRejected` until their core runtime paths are implemented.
+- The command bus currently supports user-input submission, queued follow-up
+  input, work-mode changes, permission-level changes, model selection for the
+  active provider, provider configuration, and active-model editing. Approval
+  prompts emitted during submitted input are captured as `ApprovalRequested` /
+  `ApprovalResolved` events. Cancellation and async approval responses are
+  declared in the schema but still return `CommandRejected` until the
+  RuntimeSupervisor owns active turn control and pending approval channels.
 - This phase does not implement new TUI or GUI surfaces. It creates the API
   line that those surfaces must use later.
 

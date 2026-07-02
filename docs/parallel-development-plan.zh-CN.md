@@ -46,11 +46,12 @@ Viden 正在迁移为 Runtime-first 平台：
   - `SessionEngine::handle_runtime_command(...)`
 - 这个 bridge 会把现有 `EngineEvent` 输出，以及 provider health、context、
   token/cost、task facts 投影到共享 runtime contract。
-- command bus 当前支持提交用户输入、切换 work mode、切换 permission level、以及在当前
-  provider 下选择 model。提交输入过程中触发的 approval prompt 会被捕获为
-  `ApprovalRequested` / `ApprovalResolved` 事件。follow-up queue、cancel、异步
-  approval response、provider configuration 和 active-model 编辑已经在 schema 中声明，
-  但在 core runtime 路径实现前会返回 `CommandRejected`。
+- command bus 当前支持提交用户输入、排队 follow-up 输入、切换 work mode、切换
+  permission level、在当前 provider 下选择 model、provider configuration，以及
+  active-model 编辑。提交输入过程中触发的 approval prompt 会被捕获为
+  `ApprovalRequested` / `ApprovalResolved` 事件。cancel 和异步 approval response
+  已经在 schema 中声明，但在 RuntimeSupervisor 拥有 active turn control 和 pending
+  approval channels 前会返回 `CommandRejected`。
 - 本阶段不实现新的 TUI 或 GUI 界面，只建立后续界面必须使用的 API 边界。
 
 ## 阶段计划

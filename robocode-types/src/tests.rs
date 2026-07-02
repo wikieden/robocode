@@ -359,6 +359,11 @@ fn runtime_events_replay_into_ui_independent_view_state() {
         pid: None,
         next_action: None,
     };
+    let queued = QueuedInputView {
+        id: "queued_1".to_string(),
+        content_preview: "follow-up question".to_string(),
+        created_at: Some(43),
+    };
 
     let events = vec![
         RuntimeEvent::new(
@@ -380,6 +385,18 @@ fn runtime_events_replay_into_ui_independent_view_state() {
         RuntimeEvent::new(5, RuntimeEventKind::TaskUpdated { task }),
         RuntimeEvent::new(
             6,
+            RuntimeEventKind::InputQueued {
+                input: queued.clone(),
+            },
+        ),
+        RuntimeEvent::new(
+            7,
+            RuntimeEventKind::InputDequeued {
+                input_id: queued.id.clone(),
+            },
+        ),
+        RuntimeEvent::new(
+            8,
             RuntimeEventKind::ApprovalResolved {
                 request_id: "approval_1".to_string(),
                 approved: true,
@@ -394,6 +411,7 @@ fn runtime_events_replay_into_ui_independent_view_state() {
     assert_eq!(view.snapshot.provider_family, "deepseek");
     assert_eq!(view.assistant_stream, "Working on the contract.");
     assert!(view.pending_approvals.is_empty());
+    assert!(view.queued_inputs.is_empty());
     assert_eq!(
         view.latest_evidence[0].summary,
         "robocode-types tests passed"
