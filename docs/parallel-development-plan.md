@@ -53,6 +53,12 @@ The first Phase 0-1 contract slice is now intentionally core-only:
   the runtime/control contract without adding UI dependencies. This bridge
   projects existing `EngineEvent` output plus provider health,
   context, token/cost, and task facts into the shared runtime contract.
+- The first process-plugin protocol draft is
+  [process-plugin-protocol.md](process-plugin-protocol.md). The first
+  cross-frontend runtime fixture is
+  `robocode-types/tests/fixtures/runtime-contract-phase2.json`.
+- The current core-only Phase 0-2 audit is
+  [runtime-contract-freeze-status.md](runtime-contract-freeze-status.md).
 - The command bus currently supports user-input submission, queued follow-up
   input, work-mode changes, permission-level changes, model selection for the
   active provider, provider configuration, and active-model editing. Approval
@@ -106,7 +112,8 @@ Required gate:
 - permission/mode contract tests cover plan/build/review behavior
 - provider/model setup, approval, lane, task, cost, and evidence fixtures exist
 - a thin TUI client can run from the shared contract without direct business
-  calls
+  calls; during the core-only Phase 0-2 branch, this is represented by
+  runtime fixture replay and is implemented in the later TUI client branch
 - GUI required APIs are documented and covered by schema or fixture tests
 
 ### Phase 3: Parallel TUI and GUI Development

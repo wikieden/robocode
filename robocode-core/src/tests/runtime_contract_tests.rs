@@ -195,6 +195,62 @@ fn runtime_command_bus_switches_mode_and_submits_input() {
 }
 
 #[test]
+fn runtime_command_bus_covers_plan_build_review_permission_contract() {
+    let cwd = temp_dir("runtime_command_mode_contract_cwd");
+    let home = temp_dir("runtime_command_mode_contract_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    for (command_id, mode) in [
+        ("cmd_plan", WorkMode::Plan),
+        ("cmd_review", WorkMode::Review),
+        ("cmd_explore", WorkMode::Explore),
+    ] {
+        let events = engine
+            .handle_runtime_command(
+                command_id,
+                RuntimeCommand::SetWorkMode { mode },
+                &mut approver,
+            )
+            .unwrap();
+
+        assert_strictly_increasing_sequences(&events);
+        assert!(events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::SnapshotUpdated { snapshot }
+                    if snapshot.work_mode == mode
+                        && snapshot.permission_level == PermissionLevel::ReadOnly
+            )
+        }));
+    }
+
+    let build_events = engine
+        .handle_runtime_command(
+            "cmd_build",
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Build,
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_strictly_increasing_sequences(&build_events);
+    assert!(build_events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::SnapshotUpdated { snapshot }
+                if snapshot.work_mode == WorkMode::Build
+                    && snapshot.permission_level == PermissionLevel::Ask
+        )
+    }));
+}
+
+#[test]
 fn runtime_command_bus_emits_approval_events_for_gated_tools() {
     let cwd = temp_dir("runtime_command_approval_cwd");
     let home = temp_dir("runtime_command_approval_home");

@@ -49,6 +49,12 @@ Viden 正在迁移为 Runtime-first 平台：
 - `viden-core` 是稳定的客户端导入边界，目前重导出 runtime/control contract，
   不增加 UI 依赖。这个 bridge 会把现有 `EngineEvent` 输出，以及 provider health、context、
   token/cost、task facts 投影到共享 runtime contract。
+- 第一版 process-plugin protocol 草案是
+  [process-plugin-protocol.zh-CN.md](process-plugin-protocol.zh-CN.md)。第一版
+  跨前端 runtime fixture 是
+  `robocode-types/tests/fixtures/runtime-contract-phase2.json`。
+- 当前 core-only Phase 0-2 审计见
+  [runtime-contract-freeze-status.zh-CN.md](runtime-contract-freeze-status.zh-CN.md)。
 - command bus 当前支持提交用户输入、排队 follow-up 输入、切换 work mode、切换
   permission level、在当前 provider 下选择 model、provider configuration，以及
   active-model 编辑。提交输入过程中触发的 approval prompt 会被捕获为
@@ -95,7 +101,9 @@ protocol 形态和迁移策略。
 - runtime snapshots 和 events 的 core replay tests 通过
 - permission/mode contract tests 覆盖 plan/build/review 行为
 - provider/model setup、approval、lane、task、cost、evidence fixtures 存在
-- 薄 TUI client 可以只依赖共享 contract 运行，不直接调用业务内部
+- 薄 TUI client 可以只依赖共享 contract 运行，不直接调用业务内部；在本次 core-only
+  Phase 0-2 分支里，这一点用 runtime fixture replay 表达，真正薄 TUI client 在后续
+  TUI client 分支实现
 - GUI 需要的 API 已文档化，并有 schema 或 fixture tests 覆盖
 
 ### Phase 3：TUI 与 GUI 并发开发

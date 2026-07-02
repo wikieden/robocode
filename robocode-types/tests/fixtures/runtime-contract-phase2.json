@@ -1,0 +1,224 @@
+[
+  {
+    "sequence": 1,
+    "timestamp": 1000,
+    "kind": {
+      "type": "snapshot_updated",
+      "payload": {
+        "snapshot": {
+          "cwd": "/tmp/viden-fixture",
+          "provider_family": "deepseek",
+          "model_label": "deepseek-reasoner",
+          "work_mode": "review",
+          "permission_mode": "default",
+          "permission_level": "ask",
+          "config_summary": "provider=deepseek model=deepseek-reasoner",
+          "loaded_config_files": ["/tmp/viden-fixture/config.toml"],
+          "startup_overrides": []
+        }
+      }
+    }
+  },
+  {
+    "sequence": 2,
+    "timestamp": 1001,
+    "kind": {
+      "type": "command_accepted",
+      "payload": {
+        "command_id": "cmd_select_model",
+        "command": {
+          "type": "select_model",
+          "provider_id": "deepseek",
+          "model": "deepseek-reasoner"
+        }
+      }
+    }
+  },
+  {
+    "sequence": 3,
+    "timestamp": 1002,
+    "kind": {
+      "type": "provider_health_updated",
+      "payload": {
+        "provider": {
+          "provider_id": "deepseek",
+          "model": "deepseek-reasoner",
+          "status": "healthy",
+          "request_count": 2,
+          "error_count": 0,
+          "last_latency_ms": 1200,
+          "average_latency_ms": 1180,
+          "tokens_per_second": 87
+        }
+      }
+    }
+  },
+  {
+    "sequence": 4,
+    "timestamp": 1003,
+    "kind": {
+      "type": "token_cost_updated",
+      "payload": {
+        "cost": {
+          "input_tokens": 2300,
+          "output_tokens": 1156,
+          "total_tokens": 3456,
+          "cost_micro_usd": 1234
+        }
+      }
+    }
+  },
+  {
+    "sequence": 5,
+    "timestamp": 1004,
+    "kind": {
+      "type": "context_updated",
+      "payload": {
+        "context": {
+          "bundle_id": "ctx_runtime_1",
+          "task_id": "task_runtime_1",
+          "policy": "review-focused",
+          "sources": [
+            {
+              "name": "robocode-core/src/runtime_contract.rs",
+              "kind": "source",
+              "priority": 100,
+              "estimated_tokens": 900,
+              "summary": "Runtime command bridge and event projection",
+              "include_reason": "selected by active runtime task"
+            }
+          ],
+          "omitted_sources": [
+            {
+              "name": "target/",
+              "kind": "build-artifact",
+              "estimated_tokens": 100000,
+              "reason": "excluded from context bundle"
+            }
+          ],
+          "estimated_tokens": 900,
+          "largest_sources": ["robocode-core/src/runtime_contract.rs"],
+          "compaction_notes": ["tool result tails are summarized"],
+          "soft_token_budget": 8000,
+          "hard_token_limit": 16000
+        }
+      }
+    }
+  },
+  {
+    "sequence": 6,
+    "timestamp": 1005,
+    "kind": {
+      "type": "approval_requested",
+      "payload": {
+        "approval": {
+          "id": "approval_runtime_1",
+          "tool_name": "shell",
+          "title": "Run cargo test",
+          "message": "Shell command requires approval",
+          "input_preview": "cargo test --workspace --quiet",
+          "is_mutating": false,
+          "reason": "permission level is ask"
+        }
+      }
+    }
+  },
+  {
+    "sequence": 7,
+    "timestamp": 1006,
+    "kind": {
+      "type": "tool_call_started",
+      "payload": {
+        "tool_call_id": "tool_runtime_1",
+        "name": "shell",
+        "input_preview": "cargo test --workspace --quiet"
+      }
+    }
+  },
+  {
+    "sequence": 8,
+    "timestamp": 1007,
+    "kind": {
+      "type": "approval_resolved",
+      "payload": {
+        "request_id": "approval_runtime_1",
+        "approved": true
+      }
+    }
+  },
+  {
+    "sequence": 9,
+    "timestamp": 1008,
+    "kind": {
+      "type": "tool_call_finished",
+      "payload": {
+        "tool_call_id": "tool_runtime_1",
+        "name": "shell",
+        "success": true,
+        "exit_code": 0,
+        "evidence": {
+          "id": "evidence_runtime_1",
+          "kind": "test",
+          "summary": "workspace tests passed",
+          "path": "target/test.log",
+          "source": "cargo",
+          "timestamp": 1008
+        }
+      }
+    }
+  },
+  {
+    "sequence": 10,
+    "timestamp": 1009,
+    "kind": {
+      "type": "task_updated",
+      "payload": {
+        "task": {
+          "id": "task_runtime_1",
+          "parent_id": null,
+          "agent": "reviewer",
+          "kind": "runtime",
+          "transport": "core",
+          "title": "Review runtime contract",
+          "status": "reviewing",
+          "activity": "checking cross-frontend fixture",
+          "summary": "phase 2 contract fixture",
+          "progress": 80,
+          "started_at": 1000,
+          "updated_at": 1009,
+          "workspace": "/tmp/viden-fixture",
+          "evidence": ["evidence_runtime_1"],
+          "permissions": ["ask"],
+          "decision": null,
+          "result": null,
+          "resume_handle": null,
+          "pid": null,
+          "next_action": {
+            "label": "Freeze contract",
+            "command": null,
+            "reason": "fixture replay passed"
+          }
+        }
+      }
+    }
+  },
+  {
+    "sequence": 11,
+    "timestamp": 1010,
+    "kind": {
+      "type": "lane_updated",
+      "payload": {
+        "lane": {
+          "id": "lane_runtime_1",
+          "task_id": "task_runtime_1",
+          "agent": "reviewer",
+          "screen": "contract",
+          "transport": "core",
+          "status": "reviewing",
+          "summary": "runtime contract fixture lane",
+          "evidence": ["evidence_runtime_1"]
+        }
+      }
+    }
+  }
+]

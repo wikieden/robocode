@@ -422,3 +422,33 @@ fn runtime_events_replay_into_ui_independent_view_state() {
     let decoded: Vec<RuntimeEvent> = serde_json::from_str(&encoded).unwrap();
     assert_eq!(decoded, events);
 }
+
+#[test]
+fn runtime_contract_fixture_replays_phase2_cross_frontend_facts() {
+    let fixture = include_str!("../tests/fixtures/runtime-contract-phase2.json");
+    let events: Vec<RuntimeEvent> = serde_json::from_str(fixture).unwrap();
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+
+    for event in &events {
+        view.apply_event(event);
+    }
+
+    assert_eq!(view.snapshot.provider_family, "deepseek");
+    assert_eq!(view.snapshot.model_label, "deepseek-reasoner");
+    assert_eq!(view.snapshot.work_mode, WorkMode::Review);
+    assert_eq!(view.provider.as_ref().unwrap().model, "deepseek-reasoner");
+    assert_eq!(view.token_cost.as_ref().unwrap().total_tokens, 3456);
+    assert_eq!(view.token_cost.as_ref().unwrap().cost_micro_usd, Some(1234));
+    assert!(view.pending_approvals.is_empty());
+    assert!(view.active_tool_calls.is_empty());
+    assert_eq!(view.tasks[0].id, "task_runtime_1");
+    assert_eq!(view.lanes[0].id, "lane_runtime_1");
+    assert!(view.latest_evidence.iter().any(|evidence| {
+        evidence.kind == "test" && evidence.summary.contains("workspace tests passed")
+    }));
+    assert!(matches!(
+        view.last_command.as_ref().map(|receipt| &receipt.command),
+        Some(RuntimeCommand::SelectModel { provider_id, model })
+            if provider_id == "deepseek" && model == "deepseek-reasoner"
+    ));
+}
