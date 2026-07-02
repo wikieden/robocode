@@ -247,7 +247,7 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 - 即便 Codex 或 Claude 是后端，RoboCode 仍然有自己的差异化价值。
 
 > 排期更新（2026-07）：Viden 采纳决议把 0.3.x 线分配给多前端契约冻结与 TUI/GUI
-> 并行实现（见 `docs/parallel-development-plan.md` 及下方「建议的下一步序列」
+> 并行实现（见 `docs/parallel-development-plan.md` 及下方「推荐后续顺序」
 > 第 11-12 条）。因此 Horizon 3-5 顺延一个小版本线；其版本标签是方向性的，
 > 不是发布承诺。
 
