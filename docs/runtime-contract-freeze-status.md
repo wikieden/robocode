@@ -34,6 +34,7 @@ Out of scope for this branch:
 | Command bus | Tests cover user input, queued follow-up, mode switching, permission-level switching, provider config, model selection, active model activation/deactivation | Done |
 | Supervisor boundary | `RuntimeSupervisor` tests cover active provider cancellation and approval response delivery without TUI coupling | Done |
 | Permission/mode contract | `runtime_command_bus_covers_plan_build_review_permission_contract` covers plan/review/explore read-only behavior and build restoration to ask | Done |
+| Lane facts emitted by core | `runtime_view_state_emits_lane_facts_from_core_store` proves `.robocode/lanes.tsv` is projected into `LaneUpdated` runtime facts without TUI code | Done |
 | Provider/model, approval, lane, task, cost, evidence fixture | `robocode-types/tests/fixtures/runtime-contract-phase2.json` plus fixture replay test | Done |
 | Process-plugin protocol draft | `docs/process-plugin-protocol.md` and Chinese counterpart | Done |
 | Thin TUI client proof | Deferred to TUI client branch by phase constraint; current branch proves the shared fixture and API boundary only | Deferred |
@@ -47,6 +48,7 @@ Latest local checks for this branch:
 cargo test -p viden-core
 cargo test -p robocode-types runtime_contract_fixture_replays_phase2_cross_frontend_facts -- --nocapture
 cargo test -p robocode-core runtime_command_bus_covers_plan_build_review_permission_contract -- --nocapture
+cargo test -p robocode-core runtime_view_state_emits_lane_facts_from_core_store -- --nocapture
 cargo fmt --check
 git diff --check
 RUST_TEST_THREADS=1 cargo test --workspace --quiet

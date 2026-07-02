@@ -33,6 +33,7 @@
 | Command bus | 测试覆盖 user input、queued follow-up、mode 切换、permission-level 切换、provider config、model selection、active model activate/deactivate | 已完成 |
 | Supervisor boundary | `RuntimeSupervisor` 测试覆盖 active provider cancellation 和不耦合 TUI 的 approval response delivery | 已完成 |
 | Permission/mode contract | `runtime_command_bus_covers_plan_build_review_permission_contract` 覆盖 plan/review/explore read-only，以及 build 恢复 ask | 已完成 |
+| Core 发出 lane facts | `runtime_view_state_emits_lane_facts_from_core_store` 证明 `.robocode/lanes.tsv` 会被投影成 `LaneUpdated` runtime facts，不需要改 TUI 代码 | 已完成 |
 | Provider/model、approval、lane、task、cost、evidence fixture | `robocode-types/tests/fixtures/runtime-contract-phase2.json` 和 fixture replay 测试 | 已完成 |
 | Process-plugin protocol 草案 | `docs/process-plugin-protocol.zh-CN.md` 和英文 counterpart | 已完成 |
 | Thin TUI client proof | 因本阶段约束延后到 TUI client 分支；当前分支只证明共享 fixture 和 API 边界 | 延后 |
@@ -46,6 +47,7 @@
 cargo test -p viden-core
 cargo test -p robocode-types runtime_contract_fixture_replays_phase2_cross_frontend_facts -- --nocapture
 cargo test -p robocode-core runtime_command_bus_covers_plan_build_review_permission_contract -- --nocapture
+cargo test -p robocode-core runtime_view_state_emits_lane_facts_from_core_store -- --nocapture
 cargo fmt --check
 git diff --check
 RUST_TEST_THREADS=1 cargo test --workspace --quiet

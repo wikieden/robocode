@@ -1,10 +1,12 @@
+use std::fs;
+
 use crate::{EngineEvent, ProviderTelemetry, SessionEngine};
 use robocode_config::ProviderConfigUpdate;
 use robocode_types::{
-    ApprovalRequestView, ApprovalResponse, EvidenceView, PermissionLevel, PermissionMode,
-    PermissionPrompt, ProviderHealthView, QueuedInputView, RuntimeCommand, RuntimeEvent,
-    RuntimeEventKind, RuntimeSnapshot, RuntimeViewState, TokenCostView, ToolCallId, fresh_id,
-    now_timestamp, truncate_for_preview,
+    AgentLaneRecord, ApprovalRequestView, ApprovalResponse, EvidenceView, PermissionLevel,
+    PermissionMode, PermissionPrompt, ProviderHealthView, QueuedInputView, RuntimeCommand,
+    RuntimeEvent, RuntimeEventKind, RuntimeSnapshot, RuntimeViewState, TokenCostView, ToolCallId,
+    fresh_id, now_timestamp, truncate_for_preview,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -320,6 +322,18 @@ impl SessionEngine {
                 },
             ));
         }
+        for lane in load_runtime_lanes(
+            &self
+                .runtime_snapshot
+                .cwd
+                .join(".robocode")
+                .join("lanes.tsv"),
+        ) {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::LaneUpdated { lane },
+            ));
+        }
         for task in self.agent_task_snapshot() {
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -483,4 +497,45 @@ fn parse_legacy_tool_call(text: &str) -> (String, String) {
 fn legacy_tool_result_success(text: &str) -> bool {
     let lower = text.to_lowercase();
     !lower.contains("failed") && !lower.contains("error") && !lower.contains("denied")
+}
+
+fn load_runtime_lanes(path: &std::path::Path) -> Vec<AgentLaneRecord> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    content.lines().filter_map(parse_runtime_lane).collect()
+}
+
+fn parse_runtime_lane(line: &str) -> Option<AgentLaneRecord> {
+    let fields = line
+        .split('\t')
+        .map(unescape_runtime_tsv)
+        .collect::<Vec<_>>();
+    if fields.len() != 5 && fields.len() != 7 && fields.len() != 8 {
+        return None;
+    }
+    let id = fields[0].clone();
+    let tool = fields[1].clone();
+    let title = fields[2].clone();
+    let status = fields[3].clone();
+    let target = fields[4].clone();
+    let summary = fields
+        .get(6)
+        .filter(|summary| !summary.trim().is_empty())
+        .cloned()
+        .unwrap_or(title);
+    Some(AgentLaneRecord {
+        id: id.clone(),
+        task_id: id,
+        agent: tool,
+        screen: "lane".to_string(),
+        transport: target,
+        status,
+        summary,
+        evidence: Vec::new(),
+    })
+}
+
+fn unescape_runtime_tsv(value: &str) -> String {
+    value.replace("\\t", "\t").replace("\\n", "\n")
 }

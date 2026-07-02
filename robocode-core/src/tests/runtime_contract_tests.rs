@@ -429,3 +429,26 @@ fn runtime_command_bus_configures_provider_and_active_models() {
     assert!(contents.contains(r#"default_model = "deepseek-chat""#));
     assert!(contents.contains(r#"models = ["deepseek-reasoner"]"#));
 }
+
+#[test]
+fn runtime_view_state_emits_lane_facts_from_core_store() {
+    let cwd = temp_dir("runtime_contract_lane_cwd");
+    let home = temp_dir("runtime_contract_lane_home");
+    let lane_dir = cwd.join(".robocode");
+    fs::create_dir_all(&lane_dir).unwrap();
+    fs::write(
+        lane_dir.join("lanes.tsv"),
+        "L1\tcodex\tfix tests\trunning\tmain\t64\tpatched tests\t\n",
+    )
+    .unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+
+    let view = engine.runtime_view_state();
+
+    assert_eq!(view.lanes.len(), 1);
+    assert_eq!(view.lanes[0].id, "L1");
+    assert_eq!(view.lanes[0].agent, "codex");
+    assert_eq!(view.lanes[0].status, "running");
+    assert_eq!(view.lanes[0].summary, "patched tests");
+}
