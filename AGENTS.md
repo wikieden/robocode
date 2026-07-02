@@ -10,12 +10,14 @@ extra platform machinery is not yet needed.
 
 ## Current Architecture
 
-- `robocode-cli`: binary entrypoint and lightweight REPL.
+- `robocode-cli`: binary entrypoint, cockpit TUI, and line REPL.
 - `robocode-core`: session engine, slash commands, provider/tool loop, workflow command routing.
 - `robocode-model`: provider abstraction for Anthropic, OpenAI, OpenAI-compatible, Ollama, and fallback flows.
+- `robocode-provider-sdk` / `robocode-provider-deepseek`: dynamic provider plugin ABI and the DeepSeek plugin.
 - `robocode-tools`: local shell, file, search, web, and Git tool implementations.
 - `robocode-permissions`: permission modes, path scope checks, and allow/ask/deny decisions.
 - `robocode-session`: JSONL transcript storage and rebuildable SQLite session index.
+- `robocode-lsp`: read-only semantic code intelligence (diagnostics, symbols, references).
 - `robocode-types`: shared domain types for messages, tools, permissions, sessions, runtime snapshots, tasks, and memory.
 - `robocode-config`: layered config resolution.
 - `robocode-workflows`: project tasks, project/session memory, resume context, and workflow event storage.
@@ -106,10 +108,13 @@ Do not copy:
 
 ## Current Branch Context
 
-At time of writing, active development is `V2-C Memory and Task Workflows` on
-`codex/v2-memory-task-workflows`. This branch adds `robocode-workflows`, task
-and memory shared types, project workflow event logs, task/memory reducers,
-resume context derivation, and initial `/task` / `/memory` command integration.
+At time of writing, `main` sits at the completed `0.1.30` final zero-bug TUI
+gate, and Viden is the adopted product direction (see
+`docs/viden-design-adoption.md`). Active development is the `0.2.0`
+architecture cut on `codex/viden-core-runtime`: the `viden-core` facade,
+runtime supervisor, runtime contract freeze fixtures, and the command/event
+bridge, following `docs/parallel-development-plan.md`.
 
-If this branch has already merged, treat `PLAN.md` and `docs/staged-roadmap.md`
-as the current roadmap source.
+If this branch has already merged, treat `PLAN.md`,
+`docs/parallel-development-plan.md`, and `docs/staged-roadmap.md` as the
+current roadmap source.

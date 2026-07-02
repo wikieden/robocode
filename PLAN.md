@@ -12,15 +12,28 @@
 
 ## Current Planning Revision
 
-As of the 0.1.24 planning line, the next release is upgraded from a
+The 0.1.x line is complete: `0.1.30` shipped as the final zero-bug TUI gate
+(`docs/release-0.1.30-status.md`), with the known P0/P1 TUI backlog at zero and
+the 0.1.30 gates retained as permanent release regressions.
+
+The controlling plan for the next lines is
+`docs/parallel-development-plan.md` (0.2.0 architecture cut through the 0.3.4
+production gate). Active engineering work is the `0.2.0` architecture cut on
+`codex/viden-core-runtime`: the `viden-core` facade, runtime supervisor,
+runtime contract freeze fixtures, and the command/event bridge. GUI
+implementation starts only after the 0.3.0 UI/runtime contract freeze.
+
+### Historical planning record: the 0.1.24 line
+
+As of the 0.1.24 planning line, the next release was upgraded from a
 provider-setup-only interaction patch to **Provider Setup + Non-blocking
 Operator Loop Gate**.
 
-`docs/spec-review-0.1.24.md` is the controlling spec review for this planning
-line. The release cannot be called complete while its P0 gaps remain open or
-undocumented in release status.
+`docs/spec-review-0.1.24.md` was the controlling spec review for that planning
+line. That release could not be called complete while its P0 gaps remained
+open or undocumented in release status.
 
-This changes the immediate engineering plan:
+This changed the immediate engineering plan:
 
 ```mermaid
 flowchart TD

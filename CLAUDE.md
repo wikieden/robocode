@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 RoboCode is a Rust-first, local-first coding-agent cockpit (TUI + CLI). It is inspired by `.ref/claude-code-main` — treat that directory as read-only behavioral reference, never edit it and never port it file-by-file. `AGENTS.md` is the canonical agent guide; this file summarizes and extends it.
 
+Product direction (2026-06-26): **Viden is the active product direction**; RoboCode is the legacy implementation and release-artifact name during the compatibility migration. The accepted design source is vendored at `docs/viden-design/Viden/` (see `docs/viden-design-adoption.md`), and the 0.2.x → 0.3.x development model (runtime refactor first, then parallel TUI + Tauri GUI) is governed by `docs/parallel-development-plan.md`.
+
 ## Commands
 
 ```bash
@@ -13,7 +15,7 @@ cargo build                                          # build workspace
 cargo test -p <crate>                                # focused tests while developing (e.g. -p robocode-core)
 cargo test -p robocode-core <test_name>              # single test
 cargo test --workspace --quiet                       # required before calling a branch complete
-cargo clippy                                         # lint
+cargo clippy --workspace --all-targets -- -D warnings   # lint (release-gate strictness)
 cargo fmt                                            # format edited Rust code before handoff
 ```
 
@@ -45,7 +47,7 @@ Cargo workspace; the CLI is the entrypoint, `robocode-core` owns the agent loop,
 
 Data ownership split that matters: `robocode-session` records *what happened in a session*; `robocode-workflows` records *durable project task/memory state*. They are related but separate.
 
-Deeper docs: `docs/architecture.md`, `docs/modules.md`, `docs/development-standards.md`, roadmap in `PLAN.md` / `docs/staged-roadmap.md`.
+Deeper docs: `docs/architecture.md`, `docs/modules.md`, `docs/development-standards.md`, roadmap in `PLAN.md` / `docs/staged-roadmap.md` / `docs/parallel-development-plan.md`.
 
 ## Non-Negotiable Invariants
 

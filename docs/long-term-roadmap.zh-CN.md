@@ -246,7 +246,12 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
   做长任务。
 - 即便 Codex 或 Claude 是后端，RoboCode 仍然有自己的差异化价值。
 
-### Horizon 3: 0.3.x - External Agent And ACP Interoperability
+> 排期更新（2026-07）：Viden 采纳决议把 0.3.x 线分配给多前端契约冻结与 TUI/GUI
+> 并行实现（见 `docs/parallel-development-plan.md` 及下方「建议的下一步序列」
+> 第 11-12 条）。因此 Horizon 3-5 顺延一个小版本线；其版本标签是方向性的，
+> 不是发布承诺。
+
+### Horizon 3: 0.4.x - External Agent And ACP Interoperability
 
 目标：
 让 RoboCode 成为异构 coding agents 的 supervisor。
@@ -265,7 +270,7 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 
 - RoboCode 可以为每个任务编排最合适的 Agent，而不是变成某一家 provider 的 wrapper。
 
-### Horizon 4: 0.4.x - Built-In Multi-Agent Workflows
+### Horizon 4: 0.5.x - Built-In Multi-Agent Workflows
 
 目标：
 交付开箱即用、无需大量手工 wiring 的编排能力。
@@ -285,7 +290,7 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 
 - RoboCode 成为真正的多 Agent 编程工作台，而不是手工启动任务的 cockpit。
 
-### Horizon 5: 0.5.x - Platform Surfaces
+### Horizon 5: 0.6.x - Platform Surfaces
 
 目标：
 把稳定 runtime 暴露到 TUI 之外。

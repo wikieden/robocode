@@ -1,8 +1,16 @@
 # Design
 
+> **Status update, 2026-07-02: this document is the historical 0.1.x TUI design
+> record.** Product and visual direction is now governed by the Viden adoption:
+> the accepted design source is `docs/viden-design/Viden/` (see
+> `docs/viden-design-adoption.md`), and the multi-frontend development model
+> (TUI + Tauri GUI on a shared runtime contract) is defined in
+> `docs/parallel-development-plan.md`. The "no GUI" non-goal below applied to
+> the first TUI pass only; a Tauri GUI is now planned on the 0.3.x line.
+
 ## Source of truth
 
-- Status: Draft
+- Status: Historical (0.1.x TUI line; superseded for product direction — see banner above)
 - Last refreshed: 2026-05-23
 - Primary product surfaces: RoboCode CLI TUI, companion terminal workspaces, embedded/attached terminal panes, theme configuration, transcript/task/diagnostic panels.
 - Evidence reviewed:

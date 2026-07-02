@@ -267,7 +267,13 @@ What this enables:
   evidence before applying changes
 - RoboCode becomes differentiated even when using Codex or Claude as backends
 
-### Horizon 3: 0.3.x - External Agent And ACP Interoperability
+> Sequencing update, 2026-07: the Viden adoption assigns the 0.3.x line to the
+> multi-frontend contract freeze and parallel TUI/GUI implementation (see
+> `docs/parallel-development-plan.md` and items 11-12 in the Recommended Next
+> Sequence below). Horizons 3-5 therefore shift one minor line later; their
+> version tags are directional, not release commitments.
+
+### Horizon 3: 0.4.x - External Agent And ACP Interoperability
 
 Goal:
 Make RoboCode a supervisor for heterogeneous coding agents.
@@ -287,7 +293,7 @@ What this enables:
 - RoboCode can orchestrate the best available agent for each task without
   turning into a provider-specific wrapper
 
-### Horizon 4: 0.4.x - Built-In Multi-Agent Workflows
+### Horizon 4: 0.5.x - Built-In Multi-Agent Workflows
 
 Goal:
 Ship out-of-the-box orchestration that feels useful without manual wiring.
@@ -309,7 +315,7 @@ What this enables:
 - RoboCode becomes a true multi-agent programming workbench rather than a
   cockpit around manually launched tasks
 
-### Horizon 5: 0.5.x - Platform Surfaces
+### Horizon 5: 0.6.x - Platform Surfaces
 
 Goal:
 Expose the stable runtime outside the TUI.
