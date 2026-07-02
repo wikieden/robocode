@@ -54,10 +54,9 @@ git diff --check
 RUST_TEST_THREADS=1 cargo test --workspace --quiet
 ```
 
-默认并发的 `cargo test --workspace --quiet` 目前暴露一个无关 TUI lane timing flake：
-`tui::lane::tests::lane_run_refreshes_failed_exit_code_and_inspect_tail`。
-该 focused test 可以通过，串行 workspace gate 可以通过。因为本分支不能做 UI 层开发，
-此处只记录该问题，不在当前 checkpoint 修复。
+默认并发的 `cargo test --workspace --quiet` 也已通过。此前的 TUI lane test timing
+flake 已通过测试 harness 修复：测试会等 failed lane 的 log tail 进入 summary 后再断言；
+没有改变 TUI 产品行为。
 
 ## 下一步交接
 

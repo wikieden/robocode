@@ -4478,7 +4478,10 @@ mod tests {
         for _ in 0..400 {
             lanes = load_lanes(&store);
             refresh_lane_runtime(&store, &mut lanes);
-            if lanes.first().is_some_and(|lane| lane.status == "failed") {
+            if lanes
+                .first()
+                .is_some_and(|lane| lane.status == "failed" && lane.summary.contains("fail-line"))
+            {
                 break;
             }
             thread::sleep(std::time::Duration::from_millis(25));

@@ -55,12 +55,9 @@ git diff --check
 RUST_TEST_THREADS=1 cargo test --workspace --quiet
 ```
 
-`cargo test --workspace --quiet` with default parallelism currently exposes an
-unrelated TUI lane timing flake:
-`tui::lane::tests::lane_run_refreshes_failed_exit_code_and_inspect_tail`.
-The focused test passes, and the serial workspace gate passes. Because this
-branch must not do UI-layer development, the flake is recorded here instead of
-being fixed in this checkpoint.
+The default parallel workspace gate also passes. A prior TUI lane test timing
+flake was fixed in the test harness by waiting for the failed-lane log tail
+before asserting the summary; no TUI product behavior changed.
 
 ## Next Handoff
 
