@@ -11,7 +11,8 @@ boundaries.
 flowchart TB
     User["User / Developer"] --> CLI["robocode-cli<br/>REPL / Slash Commands / Terminal Views"]
 
-    CLI --> Core["robocode-core<br/>SessionEngine / Command Router / Agent Loop"]
+    CLI --> Facade["viden-core<br/>Runtime Facade / Contract Re-exports"]
+    Facade --> Core["robocode-core<br/>SessionEngine / RuntimeSupervisor / Agent Loop"]
 
     Core --> Config["robocode-config<br/>Layered Config / Provider-Scoped Config"]
     Core --> Perm["robocode-permissions<br/>Permission Modes / Approval Gate"]
@@ -40,6 +41,8 @@ flowchart TB
 
 ## Workspace Layout
 
+- `viden-core`: stable runtime facade for clients; re-exports the core runtime
+  and shared contract types without TUI or GUI dependencies.
 - `robocode-cli`: user-facing REPL and slash commands.
 - `robocode-config`: config loading, merge precedence, and startup defaults.
 - `robocode-core`: session engine and turn orchestration.

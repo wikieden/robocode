@@ -40,12 +40,14 @@ Viden 正在迁移为 Runtime-first 平台：
 - `RuntimeViewState::apply_event` 是 contract tests 使用的 replay reducer。
   后续 TUI 和 GUI 必须消费这种可 replay 的事实流，而不是重新创建私有业务状态。
 - `robocode-core` 暴露第一版 compatibility bridge：
+  - `viden-core`
   - `SessionEngine::runtime_snapshot()`
   - `SessionEngine::runtime_view_state()`
   - `SessionEngine::runtime_events_for_engine_events(...)`
   - `SessionEngine::handle_runtime_command(...)`
   - `RuntimeSupervisor`
-- 这个 bridge 会把现有 `EngineEvent` 输出，以及 provider health、context、
+- `viden-core` 是稳定的客户端导入边界，目前重导出 runtime/control contract，
+  不增加 UI 依赖。这个 bridge 会把现有 `EngineEvent` 输出，以及 provider health、context、
   token/cost、task facts 投影到共享 runtime contract。
 - command bus 当前支持提交用户输入、排队 follow-up 输入、切换 work mode、切换
   permission level、在当前 provider 下选择 model、provider configuration，以及

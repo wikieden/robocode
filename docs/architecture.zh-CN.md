@@ -12,7 +12,8 @@ LSP 和模型 provider 都通过清晰的子系统边界接入。
 flowchart TB
     User["User / Developer"] --> CLI["robocode-cli<br/>REPL / Slash Commands / Terminal Views"]
 
-    CLI --> Core["robocode-core<br/>SessionEngine / Command Router / Agent Loop"]
+    CLI --> Facade["viden-core<br/>Runtime Facade / Contract Re-exports"]
+    Facade --> Core["robocode-core<br/>SessionEngine / RuntimeSupervisor / Agent Loop"]
 
     Core --> Config["robocode-config<br/>Layered Config / Provider-Scoped Config"]
     Core --> Perm["robocode-permissions<br/>Permission Modes / Approval Gate"]
@@ -41,6 +42,8 @@ flowchart TB
 
 ## Workspace 布局
 
+- `viden-core`：稳定 runtime facade，供客户端导入；重导出 core runtime 和共享
+  contract 类型，不引入 TUI 或 GUI 依赖
 - `robocode-cli`：面向用户的 REPL 和 slash commands
 - `robocode-config`：配置加载、优先级合并和启动默认值
 - `robocode-core`：会话引擎和 turn 编排

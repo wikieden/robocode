@@ -43,12 +43,15 @@ The first Phase 0-1 contract slice is now intentionally core-only:
   TUI and GUI work must consume this style of replayable fact stream rather
   than recreating private business state.
 - `robocode-core` exposes the first compatibility bridge:
+  - `viden-core`
   - `SessionEngine::runtime_snapshot()`
   - `SessionEngine::runtime_view_state()`
   - `SessionEngine::runtime_events_for_engine_events(...)`
   - `SessionEngine::handle_runtime_command(...)`
   - `RuntimeSupervisor`
-- This bridge projects existing `EngineEvent` output plus provider health,
+- `viden-core` is the stable client import boundary and currently re-exports
+  the runtime/control contract without adding UI dependencies. This bridge
+  projects existing `EngineEvent` output plus provider health,
   context, token/cost, and task facts into the shared runtime contract.
 - The command bus currently supports user-input submission, queued follow-up
   input, work-mode changes, permission-level changes, model selection for the
