@@ -107,6 +107,10 @@ flowchart TB
   `SessionEngine::runtime_view_state()` 和
   `SessionEngine::runtime_events_for_engine_events(...)`，作为当前 engine loop
   到共享 contract 的第一版 bridge。
+- `robocode-core` 还暴露 `RuntimeSupervisor`，这是一个非 UI 的 worker 边界：
+  它拥有 `SessionEngine`、接收 `RuntimeCommand`、发出有序 `RuntimeEvent`，
+  通过 `ModelRequestControl` 取消运行中的 provider turn，并通过 pending approval
+  channels 处理审批响应。
 - 后续 TUI 和 GUI 代码必须消费这个 contract，而不是直接拥有 provider loop、
   tool execution、permission decision、task state 或 provider telemetry。
 

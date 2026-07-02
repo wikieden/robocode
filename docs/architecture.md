@@ -117,6 +117,11 @@ or GUI implementation work:
   `SessionEngine::runtime_view_state()`, and
   `SessionEngine::runtime_events_for_engine_events(...)` as the first bridge
   from the current engine loop to the shared contract.
+- `robocode-core` also exposes `RuntimeSupervisor`, a non-UI worker boundary
+  that owns `SessionEngine`, accepts `RuntimeCommand`, emits ordered
+  `RuntimeEvent` values, cancels active provider turns through
+  `ModelRequestControl`, and resolves approvals through pending approval
+  channels.
 - Future TUI and GUI code must consume this contract instead of directly owning
   provider loops, tool execution, permission decisions, task state, or
   provider telemetry.

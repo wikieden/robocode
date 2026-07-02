@@ -12,6 +12,7 @@ mod lsp_render_tests;
 mod runtime_command_tests;
 mod runtime_contract_tests;
 mod runtime_loop_tests;
+mod runtime_supervisor_tests;
 mod session_command_tests;
 mod workflow_command_tests;
 

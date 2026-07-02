@@ -18,6 +18,7 @@ mod presentation;
 mod provider_commands;
 mod runtime_contract;
 mod runtime_loop;
+mod runtime_supervisor;
 mod runtime_tasks;
 mod runtime_views;
 mod session_lifecycle;
@@ -39,6 +40,7 @@ use robocode_types::{
     PermissionMode, RuntimeSnapshot, TaskRecord, WorkMode,
 };
 use robocode_workflows::stores::WorkflowStore;
+pub use runtime_supervisor::RuntimeSupervisor;
 
 const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
 
