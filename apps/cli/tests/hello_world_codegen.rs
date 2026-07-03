@@ -27,7 +27,7 @@ fn run_robocode(cwd: &Path, session_home: &Path, args: &[&str], input: &str) -> 
 fn run_robocode_args(cwd: &Path, session_home: &Path, args: Vec<String>, input: &str) -> String {
     let mut cli_args = vec!["--no-tui".to_string()];
     cli_args.extend(args);
-    let mut child = Command::new(env!("CARGO_BIN_EXE_viden-cli"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_viden"))
         .args(cli_args)
         .current_dir(cwd)
         .env("ROBOCODE_SESSION_HOME", session_home)
@@ -55,10 +55,10 @@ fn run_robocode_args(cwd: &Path, session_home: &Path, args: Vec<String>, input: 
 }
 
 #[test]
-fn startup_errors_use_viden_cli_prefix() {
+fn startup_errors_use_viden_prefix() {
     let cwd = temp_dir("invalid_startup_flag");
     let session_home = temp_dir("invalid_startup_flag_sessions");
-    let output = Command::new(env!("CARGO_BIN_EXE_viden-cli"))
+    let output = Command::new(env!("CARGO_BIN_EXE_viden"))
         .arg("--definitely-invalid")
         .current_dir(&cwd)
         .env("ROBOCODE_SESSION_HOME", &session_home)
@@ -68,7 +68,7 @@ fn startup_errors_use_viden_cli_prefix() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("viden-cli: Unknown startup flag `--definitely-invalid`"),
+        stderr.contains("viden: Unknown startup flag `--definitely-invalid`"),
         "stderr:\n{stderr}"
     );
     assert!(

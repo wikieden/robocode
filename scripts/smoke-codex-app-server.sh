@@ -2,7 +2,7 @@
 set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-binary="$repo_root/target/debug/viden-cli"
+binary="$repo_root/target/debug/viden"
 
 cargo build -p viden-cli >/dev/null
 

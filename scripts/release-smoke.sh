@@ -234,15 +234,15 @@ package_smoke() {
   tar -xzf "$archive" -C "$extract_dir"
 
   local package_dir="$extract_dir/viden-v${VERSION}-${TARGET}"
-  local binary="$package_dir/viden-cli"
+  local binary="$package_dir/viden"
   if [[ "$TARGET" == *"windows"* ]]; then
-    binary="$package_dir/viden-cli.exe"
+    binary="$package_dir/viden.exe"
   fi
 
   [[ -x "$binary" || -f "$binary" ]]
   "$binary" --version >>"$package_log" 2>&1
   "$binary" --help >>"$package_log" 2>&1
-  grep -Fq "viden-cli $VERSION" "$package_log"
+  grep -Fq "viden $VERSION" "$package_log"
   cat "$package_log"
 }
 
@@ -389,9 +389,9 @@ run_step "final-zero-bug-contract-smoke" scripts/final-zero-bug-contract-smoke.s
 run_step "cargo-clippy" cargo clippy --workspace --all-targets -- -D warnings
 
 if [[ "$QUICK" == "1" ]]; then
-  run_bash_step "viden-cli-terminal-tests" "cargo test -p viden-cli tui::terminal::tests -- --nocapture"
+  run_bash_step "viden-tui-terminal-tests" "cargo test -p viden-tui tui::terminal::tests -- --nocapture"
 else
-  run_bash_step "viden-cli-tests" "cargo test -p viden-cli --quiet -- --test-threads=1"
+  run_bash_step "viden-terminal-entry-tests" "cargo test -p viden-cli --quiet -- --test-threads=1"
   run_bash_step "workspace-tests" "cargo test --workspace --quiet -- --test-threads=1"
 fi
 

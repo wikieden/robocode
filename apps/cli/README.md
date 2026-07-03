@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`viden-cli` owns the binary entrypoint and lightweight REPL. It turns CLI flags, config resolution, terminal input, and approval prompts into calls into `viden-runtime`.
+`viden-cli` owns the terminal entrypoint package and lightweight REPL. The installed user-facing binary is `viden`. This package turns CLI flags, config resolution, terminal input, and approval prompts into calls into `viden-runtime`.
 
 ## Does Not Own
 

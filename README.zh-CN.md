@@ -93,7 +93,7 @@ brew install wikieden/tap/robocode
 验证安装：
 
 ```bash
-viden-cli --help
+viden --help
 ```
 
 ### Release 压缩包
@@ -115,8 +115,8 @@ VERSION=0.1.30
 TARGET=aarch64-apple-darwin
 curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/viden-v${VERSION}-${TARGET}.tar.gz"
 tar -xzf "viden-v${VERSION}-${TARGET}.tar.gz"
-sudo install -m 755 "viden-v${VERSION}-${TARGET}/viden-cli" /usr/local/bin/viden-cli
-viden-cli --help
+sudo install -m 755 "viden-v${VERSION}-${TARGET}/viden" /usr/local/bin/viden
+viden --help
 ```
 
 Windows PowerShell 安装：
@@ -127,17 +127,17 @@ $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/viden-v$Version-$Target.tar.gz" -OutFile "viden-v$Version-$Target.tar.gz"
 tar -xzf "viden-v$Version-$Target.tar.gz"
 New-Item -ItemType Directory -Force "$env:USERPROFILE\bin"
-Copy-Item "viden-v$Version-$Target\viden-cli.exe" "$env:USERPROFILE\bin\viden-cli.exe"
+Copy-Item "viden-v$Version-$Target\viden.exe" "$env:USERPROFILE\bin\viden.exe"
 $env:PATH += ";$env:USERPROFILE\bin"
-viden-cli.exe --help
+viden.exe --help
 ```
 
 ## 快速开始
 
-直接启动 RoboCode。干净安装默认以 DeepSeek 作为在线 provider，并默认进入 cockpit TUI：
+直接启动 Viden。干净安装默认以 DeepSeek 作为在线 provider，并默认进入 cockpit TUI：
 
 ```bash
-viden-cli
+viden
 ```
 
 干净会话会先进入聚焦的 welcome 输入界面，不再自动弹出 setup。执行配置命令
@@ -155,7 +155,7 @@ viden-cli
 
 ```bash
 export DEEPSEEK_API_KEY="sk-..."
-viden-cli
+viden
 ```
 
 如果当前模型不可用或调用失败，RoboCode 会显示换模型提示，给出具体的
@@ -164,13 +164,13 @@ viden-cli
 不想使用 live provider 时，显式启动离线 smoke session：
 
 ```bash
-viden-cli --provider fallback --model test-local
+viden --provider fallback --model test-local
 ```
 
 只有明确需要旧版行式 REPL 时才使用：
 
 ```bash
-viden-cli --no-tui --provider fallback --model test-local
+viden --no-tui --provider fallback --model test-local
 ```
 
 开发时从源码启动：
@@ -238,11 +238,11 @@ favorite_models = ["deepseek-v4-pro"]
 常用启动参数：
 
 ```bash
-viden-cli --config .robocode/config.toml
-viden-cli --resume latest
-viden-cli --permissions plan
-viden-cli --tui-theme aurora-cyan
-viden-cli --tui-screen side-1
+viden --config .robocode/config.toml
+viden --resume latest
+viden --permissions plan
+viden --tui-theme aurora-cyan
+viden --tui-screen side-1
 ```
 
 ## 当前实验边界

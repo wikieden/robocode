@@ -13,7 +13,7 @@ use viden_tui as tui;
 
 fn main() {
     if let Err(err) = run() {
-        eprintln!("viden-cli: {err}");
+        eprintln!("viden: {err}");
         std::process::exit(1);
     }
 }
@@ -22,7 +22,7 @@ fn run() -> Result<(), String> {
     let cwd = env::current_dir().map_err(|err| err.to_string())?;
     let args: Vec<String> = env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--version" || arg == "-V") {
-        println!("viden-cli {}", env!("CARGO_PKG_VERSION"));
+        println!("viden {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
@@ -927,8 +927,8 @@ fn required_flag_value(args: &[String], index: usize, flag: &str) -> Result<Stri
 }
 
 fn print_startup_help() {
-    println!("RoboCode startup flags:");
-    println!("  --version, -V       Print the Viden CLI version");
+    println!("Viden startup flags:");
+    println!("  --version, -V       Print the Viden terminal version");
     println!("  --provider <name>    Choose provider family");
     println!("  --model <name>       Override model name");
     println!("  --api-base <url>     Override provider base URL");

@@ -20,17 +20,17 @@ RoboCode 分三层：
 
 ```bash
 brew install wikieden/tap/robocode
-viden-cli --help
+viden --help
 ```
 
 从 release archive 运行：
 
 ```bash
-viden-cli --version
-viden-cli --provider fallback --model test-local
+viden --version
+viden --provider fallback --model test-local
 ```
 
-`viden-cli` 默认启动主 TUI。干净会话会先进入聚焦的 welcome 输入界面，
+`viden` 默认启动主 TUI。干净会话会先进入聚焦的 welcome 输入界面，
 不会自动提交命令或自动打开 setup。需要配置 provider/model 时，用 `Ctrl-P`
 打开命令，或直接提交下面这些入口。slash 设置命令执行后仍停留在 welcome；
 提交第一个普通任务 prompt 后才进入完整 cockpit。
@@ -45,7 +45,7 @@ viden-cli --provider fallback --model test-local
 带显式启动参数进入主 cockpit：
 
 ```bash
-viden-cli --provider deepseek --model deepseek-v4-flash
+viden --provider deepseek --model deepseek-v4-flash
 ```
 
 需要旧版行式 REPL 时使用 `--no-tui`。
@@ -53,8 +53,8 @@ viden-cli --provider deepseek --model deepseek-v4-flash
 直接启动副屏：
 
 ```bash
-viden-cli --tui-screen side-1 --provider deepseek --model deepseek-v4-flash
-viden-cli --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
+viden --tui-screen side-1 --provider deepseek --model deepseek-v4-flash
+viden --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
 ```
 
 ## 启动参数

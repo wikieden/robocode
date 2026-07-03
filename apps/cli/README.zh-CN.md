@@ -2,7 +2,7 @@
 
 ## 目的
 
-`viden-cli` 负责二进制入口和轻量 REPL。它把 CLI 参数、配置解析、终端输入、审批提示交给 `viden-runtime`。
+`viden-cli` 负责终端入口包和轻量 REPL。安装后的用户命令是 `viden`。它把 CLI 参数、配置解析、终端输入、审批提示交给 `viden-runtime`。
 
 ## 不负责
 

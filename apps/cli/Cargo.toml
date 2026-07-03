@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[[bin]]
+name = "viden"
+path = "src/main.rs"
+
 [dependencies]
 viden-config = { path = "../../crates/config" }
 viden-runtime = { path = "../../crates/runtime" }

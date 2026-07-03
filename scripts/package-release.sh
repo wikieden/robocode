@@ -13,7 +13,7 @@ if [[ -z "$TARGET" ]]; then
   TARGET="$(rustc -Vv | awk '/host:/ { print $2 }')"
 fi
 
-BIN_NAME="viden-cli"
+BIN_NAME="viden"
 BIN_FILE="$BIN_NAME"
 if [[ "$TARGET" == *"windows"* ]]; then
   BIN_FILE="$BIN_NAME.exe"

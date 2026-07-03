@@ -142,10 +142,48 @@ fn release_install_docs_use_viden_artifact_identity() {
 
     let package_script =
         fs::read_to_string(root.join("scripts/package-release.sh")).expect("read package script");
+    let cli_manifest =
+        fs::read_to_string(root.join("apps/cli/Cargo.toml")).expect("read cli manifest");
+    assert!(
+        cli_manifest.contains("[[bin]]") && cli_manifest.contains("name = \"viden\""),
+        "apps/cli should expose the installed terminal binary as `viden`"
+    );
     assert!(
         package_script.contains("ARCHIVE_NAME=\"viden-v${VERSION}-${TARGET}\""),
         "package-release.sh should create viden-v release archives"
     );
+    assert!(
+        package_script.contains("BIN_NAME=\"viden\""),
+        "package-release.sh should ship the user-facing `viden` terminal binary"
+    );
+
+    for file in [
+        "README.md",
+        "README.zh-CN.md",
+        "docs/user-guide.md",
+        "docs/user-guide.zh-CN.md",
+    ] {
+        let content = fs::read_to_string(root.join(file)).expect("read user-facing docs");
+        for bad_snippet in [
+            "\nviden-cli",
+            "\nviden-cli.exe",
+            "viden-cli --help",
+            "viden-cli.exe --help",
+        ] {
+            assert!(
+                !content.contains(bad_snippet),
+                "{file} should use the user-facing `viden` command in shell examples"
+            );
+        }
+        assert!(
+            !content.contains("/viden-cli"),
+            "{file} should not install a `viden-cli` binary"
+        );
+        assert!(
+            !content.contains("viden-v-/"),
+            "{file} should preserve VERSION and TARGET variables in release archive paths"
+        );
+    }
 }
 
 #[test]
@@ -167,4 +205,25 @@ fn tui_source_lives_in_tui_app_not_cli_app() {
         !root.join("apps/cli/src/tui").exists(),
         "apps/cli should not keep the TUI implementation directory"
     );
+}
+
+#[test]
+fn smoke_scripts_run_tui_tests_from_tui_package() {
+    let root = workspace_root();
+    for file in [
+        "scripts/release-smoke.sh",
+        "scripts/rc-tui-stability-smoke.sh",
+        "scripts/tui-turn-controller-smoke.sh",
+        "scripts/smoke-lane-operator-loop.sh",
+    ] {
+        let content = fs::read_to_string(root.join(file)).expect("read smoke script");
+        assert!(
+            !content.contains("cargo test -p viden-cli tui::"),
+            "{file} should not run migrated TUI tests from viden-cli"
+        );
+        assert!(
+            content.contains("cargo test -p viden-tui"),
+            "{file} should run migrated TUI tests from viden-tui"
+        );
+    }
 }
