@@ -20,7 +20,7 @@ RoboCode 分三层：
 
 ```bash
 brew install wikieden/tap/robocode
-robocode --help
+viden-cli --help
 ```
 
 从 release archive 运行：

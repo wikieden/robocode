@@ -25,7 +25,7 @@ Install with Homebrew:
 
 ```bash
 brew install wikieden/tap/robocode
-robocode --help
+viden-cli --help
 ```
 
 Run from a release archive:
@@ -609,7 +609,7 @@ asset names.
 
 Open a GitHub issue with:
 
-- RoboCode version and install method;
+- Viden version and install method;
 - OS and terminal app;
 - provider/model;
 - command and reproduction steps;

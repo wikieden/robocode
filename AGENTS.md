@@ -13,7 +13,7 @@ extra platform machinery is not yet needed.
 Workspace code is split by product surface and reusable core:
 
 - `apps/cli`: binary entrypoint, flags, and bootstrap.
-- `apps/tui`: terminal app boundary; current full TUI migration target.
+- `apps/tui`: terminal rendering, input orchestration, previews, and app-specific TUI state.
 - `crates/core`: stable runtime facade and shared contract re-exports.
 - `crates/runtime`: session engine, slash commands, provider/tool loop, workflow command routing.
 - `crates/provider`: provider abstraction, registry, and protocol adapters.

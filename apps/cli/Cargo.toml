@@ -11,4 +11,4 @@ viden-runtime = { path = "../../crates/runtime" }
 viden-provider = { path = "../../crates/provider" }
 viden-tools = { path = "../../crates/tools" }
 viden-types = { path = "../../crates/types" }
-crossterm = "0.28"
+viden-tui = { path = "../tui" }

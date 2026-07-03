@@ -117,3 +117,54 @@ fn workspace_uses_apps_crates_plugins_layout() {
         "workspace member directories should use product-neutral names: {product_named_dirs:?}"
     );
 }
+
+#[test]
+fn release_install_docs_use_viden_artifact_identity() {
+    let root = workspace_root();
+    let checked_files = [
+        "README.md",
+        "README.zh-CN.md",
+        "scripts/package-release.sh",
+        "scripts/release-smoke.sh",
+    ];
+
+    for file in checked_files {
+        let content = fs::read_to_string(root.join(file)).expect("read checked release file");
+        assert!(
+            !content.contains("robocode-v"),
+            "{file} should not reference legacy robocode-v release archives"
+        );
+        assert!(
+            !content.contains("RoboCode v"),
+            "{file} should not label release archives with the legacy RoboCode product name"
+        );
+    }
+
+    let package_script =
+        fs::read_to_string(root.join("scripts/package-release.sh")).expect("read package script");
+    assert!(
+        package_script.contains("ARCHIVE_NAME=\"viden-v${VERSION}-${TARGET}\""),
+        "package-release.sh should create viden-v release archives"
+    );
+}
+
+#[test]
+fn tui_source_lives_in_tui_app_not_cli_app() {
+    let root = workspace_root();
+    assert!(
+        root.join("apps/tui/src/tui.rs").is_file(),
+        "apps/tui should own the TUI module entrypoint"
+    );
+    assert!(
+        root.join("apps/tui/src/tui/app.rs").is_file(),
+        "apps/tui should own the TUI implementation files"
+    );
+    assert!(
+        !root.join("apps/cli/src/tui.rs").exists(),
+        "apps/cli should not keep the TUI module entrypoint"
+    );
+    assert!(
+        !root.join("apps/cli/src/tui").exists(),
+        "apps/cli should not keep the TUI implementation directory"
+    );
+}

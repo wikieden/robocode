@@ -18,7 +18,7 @@ BIN_FILE="$BIN_NAME"
 if [[ "$TARGET" == *"windows"* ]]; then
   BIN_FILE="$BIN_NAME.exe"
 fi
-ARCHIVE_NAME="robocode-v${VERSION}-${TARGET}"
+ARCHIVE_NAME="viden-v${VERSION}-${TARGET}"
 DIST_DIR="$ROOT/dist/$ARCHIVE_NAME"
 TARGET_ARGS=()
 if [[ -n "$TARGET" ]]; then
@@ -36,7 +36,7 @@ cp "$ROOT/README.zh-CN.md" "$DIST_DIR/README.zh-CN.md"
 
 if [[ "$TARGET" == *"windows"* ]]; then
   cat >"$DIST_DIR/INSTALL.md" <<EOF
-# RoboCode v${VERSION}
+# Viden v${VERSION}
 
 Install on Windows PowerShell:
 
@@ -61,7 +61,7 @@ ${BIN_FILE} --tui --provider fallback --model test-local
 EOF
 else
   cat >"$DIST_DIR/INSTALL.md" <<EOF
-# RoboCode v${VERSION}
+# Viden v${VERSION}
 
 Install on macOS/Linux:
 

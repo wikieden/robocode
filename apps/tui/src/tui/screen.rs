@@ -18,7 +18,7 @@ use super::terminal::TerminalGuard;
 
 const SCREEN_SHELL_SCRIPT_THRESHOLD: usize = 32 * 1024;
 
-pub(crate) fn run_side_tui_with_theme(
+pub fn run_side_tui_with_theme(
     engine: &SessionEngine,
     startup_summary: &str,
     screen: SideScreen,
@@ -108,13 +108,13 @@ pub(crate) fn run_side_tui_with_theme(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SideScreen {
+pub enum SideScreen {
     Lanes,
     Ops,
 }
 
 impl SideScreen {
-    pub(crate) fn parse(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value {
             "side" | "side-1" => Some(Self::Lanes),
             "side-2" | "ops" => Some(Self::Ops),

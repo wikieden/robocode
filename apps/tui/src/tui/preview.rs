@@ -9,62 +9,62 @@ use viden_types::{
     TaskStatus,
 };
 
-pub(crate) fn render_preview(provider: &str, model: &str) -> String {
+pub fn render_preview(provider: &str, model: &str) -> String {
     let state = preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
-pub(crate) fn render_idle_preview(provider: &str, model: &str) -> String {
+pub fn render_idle_preview(provider: &str, model: &str) -> String {
     let state = idle_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
-pub(crate) fn render_command_palette_preview(provider: &str, model: &str) -> String {
+pub fn render_command_palette_preview(provider: &str, model: &str) -> String {
     let state = command_palette_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
-pub(crate) fn render_setup_wizard_preview(provider: &str, model: &str) -> String {
+pub fn render_setup_wizard_preview(provider: &str, model: &str) -> String {
     let state = setup_wizard_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
-pub(crate) fn render_provider_selector_preview(provider: &str, model: &str) -> String {
+pub fn render_provider_selector_preview(provider: &str, model: &str) -> String {
     let state = provider_selector_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
-pub(crate) fn render_provider_detail_preview(provider: &str, model: &str) -> String {
+pub fn render_provider_detail_preview(provider: &str, model: &str) -> String {
     let state = provider_detail_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
-pub(crate) fn render_model_selector_preview(provider: &str, model: &str) -> String {
+pub fn render_model_selector_preview(provider: &str, model: &str) -> String {
     let state = model_selector_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
-pub(crate) fn render_lane_selector_preview(provider: &str, model: &str) -> String {
+pub fn render_lane_selector_preview(provider: &str, model: &str) -> String {
     let state = lane_selector_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
-pub(crate) fn render_live_turn_preview(provider: &str, model: &str) -> String {
+pub fn render_live_turn_preview(provider: &str, model: &str) -> String {
     let state = live_turn_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
-pub(crate) fn render_resize_preview(provider: &str, model: &str) -> String {
+pub fn render_resize_preview(provider: &str, model: &str) -> String {
     let state = resize_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 100, 30)
 }
 
-pub(crate) fn render_cjk_input_preview(provider: &str, model: &str) -> String {
+pub fn render_cjk_input_preview(provider: &str, model: &str) -> String {
     let state = cjk_input_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 100, 30)
 }
 
-pub(crate) fn render_ansi_preview_with_theme(
+pub fn render_ansi_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -77,7 +77,7 @@ pub(crate) fn render_ansi_preview_with_theme(
     )
 }
 
-pub(crate) fn render_ansi_command_palette_preview_with_theme(
+pub fn render_ansi_command_palette_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -90,7 +90,7 @@ pub(crate) fn render_ansi_command_palette_preview_with_theme(
     )
 }
 
-pub(crate) fn render_ansi_setup_wizard_preview_with_theme(
+pub fn render_ansi_setup_wizard_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -103,7 +103,7 @@ pub(crate) fn render_ansi_setup_wizard_preview_with_theme(
     )
 }
 
-pub(crate) fn render_ansi_provider_selector_preview_with_theme(
+pub fn render_ansi_provider_selector_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -116,7 +116,7 @@ pub(crate) fn render_ansi_provider_selector_preview_with_theme(
     )
 }
 
-pub(crate) fn render_ansi_provider_detail_preview_with_theme(
+pub fn render_ansi_provider_detail_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -129,7 +129,7 @@ pub(crate) fn render_ansi_provider_detail_preview_with_theme(
     )
 }
 
-pub(crate) fn render_ansi_model_selector_preview_with_theme(
+pub fn render_ansi_model_selector_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -142,7 +142,7 @@ pub(crate) fn render_ansi_model_selector_preview_with_theme(
     )
 }
 
-pub(crate) fn render_ansi_lane_selector_preview_with_theme(
+pub fn render_ansi_lane_selector_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -155,7 +155,7 @@ pub(crate) fn render_ansi_lane_selector_preview_with_theme(
     )
 }
 
-pub(crate) fn render_ansi_idle_preview_with_theme(
+pub fn render_ansi_idle_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -168,7 +168,7 @@ pub(crate) fn render_ansi_idle_preview_with_theme(
     )
 }
 
-pub(crate) fn render_ansi_live_turn_preview_with_theme(
+pub fn render_ansi_live_turn_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -181,7 +181,7 @@ pub(crate) fn render_ansi_live_turn_preview_with_theme(
     )
 }
 
-pub(crate) fn render_ansi_resize_preview_with_theme(
+pub fn render_ansi_resize_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -194,7 +194,7 @@ pub(crate) fn render_ansi_resize_preview_with_theme(
     )
 }
 
-pub(crate) fn render_ansi_cjk_input_preview_with_theme(
+pub fn render_ansi_cjk_input_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -207,12 +207,12 @@ pub(crate) fn render_ansi_cjk_input_preview_with_theme(
     )
 }
 
-pub(crate) fn render_lane_preview(provider: &str, model: &str) -> String {
+pub fn render_lane_preview(provider: &str, model: &str) -> String {
     let state = focused_lane_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
-pub(crate) fn render_ansi_lane_preview_with_theme(
+pub fn render_ansi_lane_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -225,12 +225,12 @@ pub(crate) fn render_ansi_lane_preview_with_theme(
     )
 }
 
-pub(crate) fn render_side_preview(provider: &str, model: &str) -> String {
+pub fn render_side_preview(provider: &str, model: &str) -> String {
     let state = preview_state(provider, model, "aurora-cyan");
     render::render_side_frame(&state, 80, 40)
 }
 
-pub(crate) fn render_ansi_side_preview_with_theme(
+pub fn render_ansi_side_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,
@@ -243,12 +243,12 @@ pub(crate) fn render_ansi_side_preview_with_theme(
     )
 }
 
-pub(crate) fn render_ops_preview(provider: &str, model: &str) -> String {
+pub fn render_ops_preview(provider: &str, model: &str) -> String {
     let state = preview_state(provider, model, "aurora-cyan");
     render::render_ops_frame(&state, 80, 40)
 }
 
-pub(crate) fn render_ansi_ops_preview_with_theme(
+pub fn render_ansi_ops_preview_with_theme(
     provider: &str,
     model: &str,
     theme_name: Option<&str>,

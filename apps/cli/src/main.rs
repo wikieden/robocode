@@ -9,11 +9,11 @@ use viden_provider::{
 use viden_runtime::{EngineEvent, SessionEngine};
 use viden_types::{ApprovalResponse, PermissionLevel, PermissionPrompt, RuntimeSnapshot, WorkMode};
 
-mod tui;
+use viden_tui as tui;
 
 fn main() {
     if let Err(err) = run() {
-        eprintln!("robocode: {err}");
+        eprintln!("viden-cli: {err}");
         std::process::exit(1);
     }
 }
@@ -928,7 +928,7 @@ fn required_flag_value(args: &[String], index: usize, flag: &str) -> Result<Stri
 
 fn print_startup_help() {
     println!("RoboCode startup flags:");
-    println!("  --version, -V       Print the RoboCode CLI version");
+    println!("  --version, -V       Print the Viden CLI version");
     println!("  --provider <name>    Choose provider family");
     println!("  --model <name>       Override model name");
     println!("  --api-base <url>     Override provider base URL");

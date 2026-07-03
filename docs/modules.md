@@ -3,7 +3,7 @@
 ## Workspace Dependency Map
 
 - `apps/cli` depends on config, runtime, provider, tools, and types to start the product runtime.
-- `apps/tui` depends on runtime contract types only; the full TUI should move here from `viden-cli` over follow-up slices.
+- `apps/tui` owns terminal rendering, input orchestration, previews, and app-specific TUI state.
 - `crates/core` is the stable facade that re-exports runtime and contract types for TUI, GUI, CLI, and future API surfaces.
 - `crates/runtime` depends on LSP, provider, permissions, session, tools, types, and workflows to orchestrate turns and commands.
 - `crates/plugin-api` defines shared plugin manifest, capability, permission, and provider descriptor contracts.

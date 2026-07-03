@@ -352,11 +352,11 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 name = "viden-cli"
 version = "0.1.30"
 dependencies = [
- "crossterm",
  "viden-config",
  "viden-provider",
  "viden-runtime",
  "viden-tools",
+ "viden-tui",
  "viden-types",
 ]
 
@@ -459,7 +459,10 @@ dependencies = [
 name = "viden-tui"
 version = "0.1.30"
 dependencies = [
- "viden-core",
+ "crossterm",
+ "viden-config",
+ "viden-provider",
+ "viden-runtime",
  "viden-types",
 ]
 

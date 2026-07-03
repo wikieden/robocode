@@ -111,13 +111,13 @@ brew install wikieden/tap/robocode
 Verify the install:
 
 ```bash
-robocode --help
+viden-cli --help
 ```
 
 ### Release Archive
 
 Download a release archive from
-[RoboCode v0.1.30](https://github.com/wikieden/robocode/releases/tag/v0.1.30).
+[Viden v0.1.30](https://github.com/wikieden/robocode/releases/tag/v0.1.30).
 
 Available release targets:
 
@@ -131,9 +131,9 @@ Install on macOS or Linux:
 ```bash
 VERSION=0.1.30
 TARGET=aarch64-apple-darwin
-curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
-tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
-sudo install -m 755 "robocode-v${VERSION}-${TARGET}/viden-cli" /usr/local/bin/viden-cli
+curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/viden-v${VERSION}-${TARGET}.tar.gz"
+tar -xzf "viden-v${VERSION}-${TARGET}.tar.gz"
+sudo install -m 755 "viden-v${VERSION}-${TARGET}/viden-cli" /usr/local/bin/viden-cli
 viden-cli --help
 ```
 
@@ -142,10 +142,10 @@ Install on Windows PowerShell:
 ```powershell
 $Version = "0.1.30"
 $Target = "x86_64-pc-windows-msvc"
-Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
-tar -xzf "robocode-v$Version-$Target.tar.gz"
+Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/viden-v$Version-$Target.tar.gz" -OutFile "viden-v$Version-$Target.tar.gz"
+tar -xzf "viden-v$Version-$Target.tar.gz"
 New-Item -ItemType Directory -Force "$env:USERPROFILE\bin"
-Copy-Item "robocode-v$Version-$Target\viden-cli.exe" "$env:USERPROFILE\bin\viden-cli.exe"
+Copy-Item "viden-v$Version-$Target\viden-cli.exe" "$env:USERPROFILE\bin\viden-cli.exe"
 $env:PATH += ";$env:USERPROFILE\bin"
 viden-cli.exe --help
 ```
@@ -392,7 +392,7 @@ Please report bugs and feature requests through
 
 Helpful issue details:
 
-- RoboCode version or release asset name.
+- Viden version or release asset name.
 - Operating system and terminal app.
 - Provider and model, for example `deepseek / deepseek-v4-flash`.
 - The command you ran and the smallest reproduction steps.

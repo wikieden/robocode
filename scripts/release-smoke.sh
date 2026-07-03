@@ -233,7 +233,7 @@ package_smoke() {
   mkdir -p "$extract_dir"
   tar -xzf "$archive" -C "$extract_dir"
 
-  local package_dir="$extract_dir/robocode-v${VERSION}-${TARGET}"
+  local package_dir="$extract_dir/viden-v${VERSION}-${TARGET}"
   local binary="$package_dir/viden-cli"
   if [[ "$TARGET" == *"windows"* ]]; then
     binary="$package_dir/viden-cli.exe"
@@ -283,7 +283,7 @@ names = {asset.get("name", "") for asset in assets}
 if release.get("isDraft") or release.get("isPrerelease"):
     raise SystemExit("release must not be draft or prerelease")
 expected_prefixes = [
-    "robocode-v",
+    "viden-v",
 ]
 if len(assets) < 2:
     raise SystemExit("expected release assets and sha256 files")

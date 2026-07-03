@@ -54,6 +54,29 @@ fn run_robocode_args(cwd: &Path, session_home: &Path, args: Vec<String>, input: 
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+#[test]
+fn startup_errors_use_viden_cli_prefix() {
+    let cwd = temp_dir("invalid_startup_flag");
+    let session_home = temp_dir("invalid_startup_flag_sessions");
+    let output = Command::new(env!("CARGO_BIN_EXE_viden-cli"))
+        .arg("--definitely-invalid")
+        .current_dir(&cwd)
+        .env("ROBOCODE_SESSION_HOME", &session_home)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("viden-cli: Unknown startup flag `--definitely-invalid`"),
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("robocode:"),
+        "stderr should not use legacy product prefix:\n{stderr}"
+    );
+}
+
 fn assert_python_hello_world(path: &Path) {
     let contents = fs::read_to_string(path).unwrap();
     assert!(

@@ -3,7 +3,7 @@
 ## Workspace 依赖图
 
 - `apps/cli` 依赖 config、runtime、provider、tools、types，用来启动产品运行时。
-- `apps/tui` 只依赖 runtime contract 类型；完整 TUI 后续应从 `viden-cli` 迁移到这里。
+- `apps/tui` 负责 terminal rendering、input orchestration、previews 和 app-specific TUI state。
 - `crates/core` 是稳定 facade，向 TUI、GUI、CLI 和未来 API surface 重导出 runtime 与 contract 类型。
 - `crates/runtime` 依赖 LSP、provider、permissions、session、tools、types、workflows，用来编排 turns 和 commands。
 - `crates/plugin-api` 定义共享 plugin manifest、capability、permission 和 provider descriptor 契约。

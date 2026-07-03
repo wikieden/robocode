@@ -21,8 +21,8 @@ mod theme;
 mod topbar;
 mod transcript;
 
-pub(crate) use app::run_tui_with_theme;
-pub(crate) use preview::{
+pub use app::run_tui_with_theme;
+pub use preview::{
     render_ansi_cjk_input_preview_with_theme, render_ansi_command_palette_preview_with_theme,
     render_ansi_idle_preview_with_theme, render_ansi_lane_preview_with_theme,
     render_ansi_lane_selector_preview_with_theme, render_ansi_live_turn_preview_with_theme,
@@ -36,12 +36,12 @@ pub(crate) use preview::{
     render_provider_detail_preview, render_provider_selector_preview, render_resize_preview,
     render_setup_wizard_preview, render_side_preview,
 };
-pub(crate) use screen::{SideScreen, run_side_tui_with_theme};
+pub use screen::{SideScreen, run_side_tui_with_theme};
 
-pub(crate) fn is_known_theme(name: &str) -> bool {
+pub fn is_known_theme(name: &str) -> bool {
     theme::TuiTheme::is_known(name)
 }
 
-pub(crate) fn theme_names() -> &'static [&'static str] {
+pub fn theme_names() -> &'static [&'static str] {
     theme::TuiTheme::names()
 }

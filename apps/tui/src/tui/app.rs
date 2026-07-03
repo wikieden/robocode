@@ -298,7 +298,7 @@ struct ActiveApproval {
     response: Sender<ApprovalResponse>,
 }
 
-pub(crate) fn run_tui_with_theme(
+pub fn run_tui_with_theme(
     engine: SessionEngine,
     startup_summary: &str,
     theme_name: Option<&str>,
