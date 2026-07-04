@@ -91,6 +91,7 @@ fn workspace_uses_apps_crates_plugins_layout() {
     for member in [
         "apps/cli",
         "apps/tui",
+        "apps/gui",
         "crates/core",
         "crates/runtime",
         "crates/plugin-api",
@@ -224,6 +225,46 @@ fn smoke_scripts_run_tui_tests_from_tui_package() {
         assert!(
             content.contains("cargo test -p viden-tui"),
             "{file} should run migrated TUI tests from viden-tui"
+        );
+    }
+}
+
+#[test]
+fn frontend_apps_depend_on_core_facade_not_runtime_internals() {
+    let root = workspace_root();
+    for manifest in ["apps/tui/Cargo.toml", "apps/gui/Cargo.toml"] {
+        let content = fs::read_to_string(root.join(manifest)).expect("read app manifest");
+        assert!(
+            content.contains("viden-core"),
+            "{manifest} should consume the shared viden-core facade"
+        );
+        for forbidden in [
+            "viden-runtime",
+            "viden-provider",
+            "viden-tools",
+            "viden-workflows",
+        ] {
+            assert!(
+                !content.contains(forbidden),
+                "{manifest} should not depend directly on {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn active_ui_strings_use_viden_product_name() {
+    let root = workspace_root();
+    for file in [
+        "README.md",
+        "README.zh-CN.md",
+        "apps/tui/src/tui/right_rail.rs",
+        "apps/cli/src/main.rs",
+    ] {
+        let content = fs::read_to_string(root.join(file)).expect("read active UI file");
+        assert!(
+            !content.contains("RoboCode"),
+            "{file} should use Viden for active user-facing UI/product strings"
         );
     }
 }

@@ -371,7 +371,7 @@ fn run() -> Result<(), String> {
     }
 
     println!(
-        "RoboCode session {}. Type /help for commands, Ctrl-D to exit.",
+        "Viden session {}. Type /help for commands, Ctrl-D to exit.",
         engine.session_id()
     );
     println!("Startup provider: {provider_summary}");

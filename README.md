@@ -1,16 +1,16 @@
-# RoboCode
+# Viden
 
-RoboCode is a local-first coding-agent cockpit for developers who want one
+Viden is a local-first coding-agent cockpit for developers who want one
 terminal surface to chat with a model, approve real workspace changes, supervise
 delegated agents, and keep enough evidence to resume work later.
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-![RoboCode TUI main cockpit](docs/previews/manual/0.1.30/readme/main.png)
+![Viden TUI main cockpit](docs/previews/manual/0.1.30/readme/main.png)
 
 ## Why It Exists
 
-Most coding agents are good at a single conversation. RoboCode is built around a
+Most coding agents are good at a single conversation. Viden is built around a
 slightly different job: coordinating programming work. It keeps the active
 conversation, tool effects, approvals, tests, tasks, memory, provider health,
 and external agent lanes visible in one operator cockpit.
@@ -39,7 +39,7 @@ and external agent lanes visible in one operator cockpit.
 
 ## Screenshots
 
-These are real macOS Terminal screenshots captured from RoboCode `0.1.30`
+These are real macOS Terminal screenshots captured from Viden `0.1.30`
 release-preview states with `deepseek / deepseek-v4-flash`. They cover the
 welcome composer, live-turn cockpit, resize/CJK redraw behavior,
 provider/model setup, delegated-lane operation, and side-screen evidence.
@@ -179,7 +179,7 @@ export DEEPSEEK_API_KEY="sk-..."
 viden
 ```
 
-If the selected model fails or is unavailable, RoboCode shows a switch-model
+If the selected model fails or is unavailable, Viden shows a switch-model
 prompt with concrete `/model ...`, `/provider ...`, and `/provider doctor ...`
 actions.
 
@@ -203,7 +203,7 @@ cargo run -p viden-cli -- --provider fallback --model test-local
 
 ## Core Workflows
 
-1. Ask RoboCode to change code, then approve or deny each mutating tool call.
+1. Ask Viden to change code, then approve or deny each mutating tool call.
 2. Run `/test <command>` to execute a test through the same permission path and
    keep failure evidence visible in `/status` and the TUI.
 3. Use `/git diff`, `/diff`, and `/git status` to review what changed before
@@ -241,7 +241,7 @@ cargo run -p viden-cli -- --provider fallback --model test-local
 
 ## Configuration
 
-RoboCode loads config from the platform config path and then from
+Viden loads config from the platform config path and then from
 `.robocode/config.toml`, with CLI flags taking precedence.
 
 Inside the TUI, `/connect`, `/provider`, `/setup provider`, and
@@ -255,7 +255,7 @@ evidence back into the transcript. `/models`, `/model`, `/setup model`, and
 configured providers. For configured providers, the picker includes active,
 favorite, default, and known models; selecting a row applies the provider/model
 switch immediately. API keys are masked in the panel and
-RoboCode saves the env var name, not the raw key. Direct commands such as
+Viden saves the env var name, not the raw key. Direct commands such as
 `/settings provider <provider> ...`, `/models <provider> <model>`, and
 `/model <model>` remain available for scripts and advanced users.
 
@@ -303,7 +303,7 @@ viden --tui-screen side-1
   MCP-backed tools are not yet wired into the mutation permission path.
 - ACP appears as an experimental agent adapter surface.
 - Codex app-server write-capable delegated turns are guarded because live trials
-  showed workspace writes can occur before RoboCode receives an approval event.
+  showed workspace writes can occur before Viden receives an approval event.
 
 ## Documentation
 
@@ -400,4 +400,4 @@ Helpful issue details:
 
 ## License
 
-RoboCode is released under the MIT License. See [LICENSE](LICENSE).
+Viden is released under the MIT License. See [LICENSE](LICENSE).

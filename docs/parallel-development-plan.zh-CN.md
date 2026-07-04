@@ -62,6 +62,15 @@ Viden 正在迁移为 Runtime-first 平台：
   core path，可以在不耦合 TUI 的情况下取消运行中的 provider turn，并投递 approval response。
 - 本阶段不实现新的 TUI 或 GUI 界面，只建立后续界面必须使用的 API 边界。
 
+client-contract prep 分支补上第一段强制约束：
+
+- `apps/tui` 在 manifest 边界上消费 `viden-core`，不再直接依赖 runtime/provider。
+- `apps/gui` 已作为最小 Rust workspace member 存在，用于 replay runtime contract
+  fixtures。后续 Tauri/Web shell 应叠在这个 contract consumer 之上，而不是替换它。
+- workspace identity tests 会在 frontend apps 直接依赖 `viden-runtime`、
+  `viden-provider`、`viden-tools` 或 `viden-workflows` 时失败。
+- TUI 和 GUI 分支分叉前，活跃 UI 字符串会先迁到 Viden 产品名。
+
 ## 阶段计划
 
 ### Phase 0：架构切分
@@ -122,6 +131,8 @@ contract freeze 后，把工作拆到独立 branch/worktree。
 规则：
 
 - TUI 和 GUI 分支不能直接调用 provider、tool、permission、transcript 或 workflow 内部 API。
+- TUI 和 GUI manifest 不能直接依赖 runtime/provider/tool/workflow crates。如果客户端
+  需要新的事实或动作，必须先在 `viden-core` contract 里加，并用 fixture 或 replay test 覆盖。
 - 共享 contract 变化必须先在 core 分支加测试，再让 UI 分支 rebase 或 merge。
 - TUI 和 GUI 可以在布局和交互细节上不同，但同一 fixture 必须显示同一套 runtime facts。
 - UI plugin contribution 必须是声明式的。插件可以贡献 panels、settings、commands 和

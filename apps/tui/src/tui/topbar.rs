@@ -133,7 +133,7 @@ fn top_bar_without_status(chips: &[String], width: usize) -> String {
 }
 
 fn product_label() -> String {
-    format!("RoboCode  v{}", env!("CARGO_PKG_VERSION"))
+    format!("Viden  v{}", env!("CARGO_PKG_VERSION"))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -239,7 +239,7 @@ fn display_provider(provider: &str) -> String {
 fn side_bar_content(label: &str, chips: &[String], width: usize) -> String {
     let mut chips = chips.to_vec();
     loop {
-        let left = format!("RoboCode  {label}  {}", chips.join(" "));
+        let left = format!("Viden  {label}  {}", chips.join(" "));
         if char_width(&left) <= width || chips.is_empty() {
             return truncate(&left, width);
         }
@@ -261,7 +261,7 @@ mod tests {
     use crate::tui::state::{
         PendingTurn, ProviderOption, ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot,
     };
-    use viden_runtime::ProviderTelemetry;
+    use viden_core::ProviderTelemetry;
     use viden_types::{PermissionLevel, WorkMode};
 
     fn state_with_status(provider_status: ProviderStatus) -> TuiState {

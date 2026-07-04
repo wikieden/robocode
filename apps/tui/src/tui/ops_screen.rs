@@ -664,7 +664,7 @@ mod tests {
         std::fs::write(
             artifact_dir.join("L1.apply-conflict.md"),
             [
-                "# RoboCode Lane Apply Conflict",
+                "# Viden Lane Apply Conflict",
                 "",
                 "Patch: /tmp/L1.apply.patch",
                 "",

@@ -1,14 +1,14 @@
-# RoboCode
+# Viden
 
-RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真实工具执行、审批、测试证据、任务、记忆、多 Agent lane 和副屏监控放进同一个终端操作台。
+Viden 是一个本地优先的编程 Agent cockpit。它把模型对话、真实工具执行、审批、测试证据、任务、记忆、多 Agent lane 和副屏监控放进同一个终端操作台。
 
 英文版： [README.md](README.md)
 
-![RoboCode TUI 主 cockpit](docs/previews/manual/0.1.30/readme/main.png)
+![Viden TUI 主 cockpit](docs/previews/manual/0.1.30/readme/main.png)
 
 ## 为什么做它
 
-很多 coding agent 擅长单次对话，但真实编程工作更像“调度现场”：你需要知道模型现在在想什么、改了什么、测试失败在哪、哪些子 Agent 在跑、哪些操作需要你批准。RoboCode 的目标就是做一个多 Agent 编程编排工具，而不是只做一个聊天窗口。
+很多 coding agent 擅长单次对话，但真实编程工作更像“调度现场”：你需要知道模型现在在想什么、改了什么、测试失败在哪、哪些子 Agent 在跑、哪些操作需要你批准。Viden 的目标就是做一个多 Agent 编程编排工具，而不是只做一个聊天窗口。
 
 ## 产品亮点
 
@@ -23,7 +23,7 @@ RoboCode 是一个本地优先的编程 Agent cockpit。它把模型对话、真
 
 ## 真机运行图
 
-下面这些图是真机 macOS Terminal 截图，来自 RoboCode `0.1.30` 的 release-preview
+下面这些图是真机 macOS Terminal 截图，来自 Viden `0.1.30` 的 release-preview
 状态，使用 `deepseek / deepseek-v4-flash`。它们覆盖 welcome 输入界面、live-turn
 cockpit、resize/中文输入重绘、provider/model 配置、delegated lane 操作和副屏证据。
 确定性 SVG 仍保留在 `docs/previews/generated/` 用于回归审查。
@@ -158,7 +158,7 @@ export DEEPSEEK_API_KEY="sk-..."
 viden
 ```
 
-如果当前模型不可用或调用失败，RoboCode 会显示换模型提示，给出具体的
+如果当前模型不可用或调用失败，Viden 会显示换模型提示，给出具体的
 `/model ...`、`/provider ...` 和 `/provider doctor ...` 动作。
 
 不想使用 live provider 时，显式启动离线 smoke session：
@@ -181,7 +181,7 @@ cargo run -p viden-cli -- --provider fallback --model test-local
 
 ## 核心工作流
 
-1. 让 RoboCode 修改代码，然后对每个 mutating tool call 通过或拒绝。
+1. 让 Viden 修改代码，然后对每个 mutating tool call 通过或拒绝。
 2. 用 `/test <command>` 运行测试；它会走同样的 shell 审批路径，并把失败证据写入 `/status` 和 TUI。
 3. 用 `/git diff`、`/diff`、`/git status` 在提交前审查实际改动。
 4. 用 `/brief <goal>` 或 `/spec <goal>` 创建轻量 active brief；需要项目约定进入 lane context 时，用 `/brief steering init`。
@@ -204,9 +204,9 @@ cargo run -p viden-cli -- --provider fallback --model test-local
 
 ## 配置
 
-RoboCode 会读取平台默认配置路径，然后读取 `.robocode/config.toml`，CLI flags 优先级最高。
+Viden 会读取平台默认配置路径，然后读取 `.robocode/config.toml`，CLI flags 优先级最高。
 
-在 TUI 中，`/connect`、`/provider`、`/setup provider`、`/settings provider` 会打开类似 opencode 的供应商选择面板：在面板里选供应商，缺 key 时进入 API key 输入面板，然后进入 provider config 动作页。这个动作页可以更换 key、清除当前 session 里的 key、运行 doctor，或继续选择该 provider 的默认模型。在 provider-scoped 模型面板里选中模型后，会保存 provider/model、自动运行 provider doctor，并把 readiness 证据写回 transcript。`/models`、`/model`、`/setup model`、`/settings model` 会打开按供应商分组的模型选择面板，只显示已经配置过的 provider；对已配置 provider，会显示 active、favorite、default 和 known models，选中一行后立即切换 provider/model。API key 在界面里脱敏展示，RoboCode 只保存环境变量名，不保存明文 key。`/settings provider <provider> ...`、`/models <provider> <model>`、`/model <model>` 这些直接命令仍保留给脚本和高级用户。
+在 TUI 中，`/connect`、`/provider`、`/setup provider`、`/settings provider` 会打开类似 opencode 的供应商选择面板：在面板里选供应商，缺 key 时进入 API key 输入面板，然后进入 provider config 动作页。这个动作页可以更换 key、清除当前 session 里的 key、运行 doctor，或继续选择该 provider 的默认模型。在 provider-scoped 模型面板里选中模型后，会保存 provider/model、自动运行 provider doctor，并把 readiness 证据写回 transcript。`/models`、`/model`、`/setup model`、`/settings model` 会打开按供应商分组的模型选择面板，只显示已经配置过的 provider；对已配置 provider，会显示 active、favorite、default 和 known models，选中一行后立即切换 provider/model。API key 在界面里脱敏展示，Viden 只保存环境变量名，不保存明文 key。`/settings provider <provider> ...`、`/models <provider> <model>`、`/model <model>` 这些直接命令仍保留给脚本和高级用户。
 
 不打开 TUI 也可以收集真实 provider smoke 证据：
 
@@ -249,7 +249,7 @@ viden --tui-screen side-1
 
 - `/mcp`、`/skills` 和 `/extensions` 已能展示 MCP / skill / extension 可见性，但 MCP-backed tools 还没有接入 mutating permission path。
 - ACP 目前是实验性 Agent adapter 入口。
-- Codex app-server write-capable delegated turn 仍有 guard，因为真实测试发现它可能在 RoboCode 收到 approval event 之前修改 workspace。
+- Codex app-server write-capable delegated turn 仍有 guard，因为真实测试发现它可能在 Viden 收到 approval event 之前修改 workspace。
 
 ## 文档
 
@@ -335,7 +335,7 @@ prepublish gate 里的 DeepSeek live smoke token/费用 summary。
 
 提交 issue 时建议包含：
 
-- RoboCode 版本号或 release asset 名称。
+- Viden 版本号或 release asset 名称。
 - 操作系统和终端应用。
 - provider 和 model，例如 `deepseek / deepseek-v4-flash`。
 - 执行的命令和最小复现步骤。
@@ -343,4 +343,4 @@ prepublish gate 里的 DeepSeek live smoke token/费用 summary。
 
 ## 授权
 
-RoboCode 使用 MIT License 发布。详见 [LICENSE](LICENSE)。
+Viden 使用 MIT License 发布。详见 [LICENSE](LICENSE)。

@@ -2,6 +2,7 @@
 members = [
     "apps/cli",
     "apps/tui",
+    "apps/gui",
     "crates/config",
     "crates/core",
     "crates/lsp",

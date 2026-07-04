@@ -6,7 +6,7 @@ use std::{
 };
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
-use viden_runtime::SessionEngine;
+use viden_core::SessionEngine;
 
 use super::input::should_exit;
 use super::state::{
@@ -49,7 +49,7 @@ pub fn run_side_tui_with_theme(
         transcript_scroll: 0,
         entries: vec![TuiEntry {
             label: "system".to_string(),
-            body: format!("RoboCode side monitor ready. Esc or Ctrl-C exits.\n{startup_summary}"),
+            body: format!("Viden side monitor ready. Esc or Ctrl-C exits.\n{startup_summary}"),
         }],
         workspace: WorkspaceSnapshot::load_current(),
         tasks: engine.active_task_snapshot().unwrap_or_default(),
@@ -218,7 +218,7 @@ fn launch_companion_screen(state: &mut TuiState, screen: SideScreen) {
     if state.screens.len() >= 2 {
         state.entries.push(TuiEntry {
             label: "system".to_string(),
-            body: "RoboCode supports at most two companion side screens: side-1 and side-2."
+            body: "Viden supports at most two companion side screens: side-1 and side-2."
                 .to_string(),
         });
         return;

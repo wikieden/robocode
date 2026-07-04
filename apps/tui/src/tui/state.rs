@@ -7,8 +7,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use viden_provider::{ProviderAuthMode, ProviderDescriptor};
-use viden_runtime::{EngineEvent, ProviderTelemetry};
+use viden_core::{EngineEvent, ProviderTelemetry};
+use viden_core::{ProviderAuthMode, ProviderDescriptor};
 use viden_types::{
     AgentLaneRecord, AgentNextAction, AgentTaskRecord, MemoryEntry, PermissionLevel, TaskRecord,
     WorkMode,
@@ -207,7 +207,7 @@ fn agent_task_from_pending_turn(turn: &PendingTurn) -> AgentTask {
         title: turn.prompt.clone(),
         status: "thinking".to_string(),
         activity: turn.phase.clone(),
-        summary: format!("RoboCode is processing the request{queued_suffix}"),
+        summary: format!("Viden is processing the request{queued_suffix}"),
         progress: 0,
         started_at: Some(turn.started_at),
         updated_at: Some(now_millis()),
@@ -662,7 +662,7 @@ fn provider_turn_failed_after(entries: &[TuiEntry], provider_index: usize) -> bo
         entry.label == "system"
             && entry
                 .body
-                .contains("Provider turn failed, but RoboCode kept the TUI open.")
+                .contains("Provider turn failed, but Viden kept the TUI open.")
     })
 }
 
@@ -2641,7 +2641,7 @@ fn json_number_field(value: &str, field: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use viden_runtime::EngineEvent;
+    use viden_core::EngineEvent;
 
     #[test]
     fn entry_from_event_preserves_command_output() {
@@ -3071,7 +3071,7 @@ mod tests {
         fs::write(
             artifact_dir.join("L1.apply.md"),
             [
-                "# RoboCode Lane Apply",
+                "# Viden Lane Apply",
                 "",
                 "Patch: /tmp/L1.apply.patch",
                 "",
@@ -3085,7 +3085,7 @@ mod tests {
         fs::write(
             artifact_dir.join("L2.apply-conflict.md"),
             [
-                "# RoboCode Lane Apply Conflict",
+                "# Viden Lane Apply Conflict",
                 "",
                 "Patch: /tmp/L2.apply.patch",
                 "",
@@ -3305,7 +3305,7 @@ mod tests {
         assert_eq!(tasks[0].transport, "deepseek");
         assert_eq!(
             tasks[0].summary,
-            "RoboCode is processing the request · 2 prompts queued"
+            "Viden is processing the request · 2 prompts queued"
         );
         assert!(
             tasks[0]
@@ -3343,7 +3343,7 @@ mod tests {
                 },
                 TuiEntry {
                     label: "system".to_string(),
-                    body: "Provider turn failed, but RoboCode kept the TUI open.\nerror: Argument list too long (os error 7)".to_string(),
+                    body: "Provider turn failed, but Viden kept the TUI open.\nerror: Argument list too long (os error 7)".to_string(),
                 },
             ],
             workspace: WorkspaceSnapshot::fixture(),

@@ -15,8 +15,8 @@
 
 ## Visual reference mapping
 
-- Primary concept: the user-provided single-screen RoboCode TUI mockup.
-  - Must carry forward: top global status rail with `RoboCode`, version, provider, model, session, context, Git branch, and permissions mode.
+- Primary concept: the user-provided single-screen Viden TUI mockup.
+  - Must carry forward: top global status rail with `Viden`, version, provider, model, session, context, Git branch, and permissions mode.
   - Must carry forward: large left transcript timeline with role icons, timestamps, tool-call/result grouping, and dense readable event history.
   - Must carry forward: right workspace rail with `WORKSPACE`, `ACTIVE TASKS`, `LSP DIAGNOSTICS`, `PROVIDER HEALTH`, and `RECENT FILES` panels.
   - Must carry forward: centered approval modal with file path, action, size, preview, apply-to-all checkbox, and Deny/Approve actions.
@@ -47,7 +47,7 @@
   - Support one main screen plus up to two dynamically opened companion terminal workspaces.
   - Make companion screens useful work surfaces, not decorative dashboards: they should host sub-agent lanes, terminal panes, and external coding CLIs such as `claude`, `codex`, or other configured tools.
   - Let the user launch, attach, detach, stop, and inspect companion work without leaving the main TUI.
-  - Match the approved visual direction: the user-provided single-screen RoboCode mockup is the primary target; multi-screen images extend it, not replace it.
+  - Match the approved visual direction: the user-provided single-screen Viden mockup is the primary target; multi-screen images extend it, not replace it.
   - Preserve all existing `SessionEngine`, permission, transcript, and provider invariants.
   - Let users switch among built-in and custom themes without recompiling.
 - Non-goals:
@@ -64,7 +64,7 @@
 ## Personas and jobs
 
 - Primary personas:
-  - Solo developer using RoboCode as a local coding agent.
+  - Solo developer using Viden as a local coding agent.
   - Power user running DeepSeek/OpenAI-compatible providers and checking provider/runtime behavior.
   - Future multi-agent user who wants visible child-task progress without losing the main thread.
 - User jobs:
@@ -93,13 +93,13 @@
   - A terminal lane represents one supervised process or shell session, such as `codex`, `claude`, `cargo test`, `rg`, or a project-specific command.
   - Each lane has an id, title, cwd/worktree, command, owner, status, started time, last activity, transcript/log path, and optional task link.
   - Lanes support `start`, `attach`, `detach`, `stop`, `restart`, and `archive`.
-  - Lanes are not allowed to silently mutate project state outside the same permission/worktree policy as RoboCode.
+  - Lanes are not allowed to silently mutate project state outside the same permission/worktree policy as Viden.
 - External tool orchestration model:
-  - RoboCode talks to external terminal coding tools through tool adapters, not through hidden assumptions about their internals.
-  - A tool adapter turns a RoboCode task envelope into the safest launch method for that tool: command arguments, stdin prompt, temporary prompt file, or interactive PTY input.
+  - Viden talks to external terminal coding tools through tool adapters, not through hidden assumptions about their internals.
+  - A tool adapter turns a Viden task envelope into the safest launch method for that tool: command arguments, stdin prompt, temporary prompt file, or interactive PTY input.
   - The lane runtime captures stdout, stderr, PTY transcript, exit code, file changes, and optional structured markers from the external tool.
-  - RoboCode decides next actions from observable evidence: process state, logs, changed files, test output, Git diff, and user approval.
-  - The external tool remains a supervised collaborator; RoboCode remains the session owner, audit owner, and approval gate.
+  - Viden decides next actions from observable evidence: process state, logs, changed files, test output, Git diff, and user approval.
+  - The external tool remains a supervised collaborator; Viden remains the session owner, audit owner, and approval gate.
 - Content hierarchy:
   - Highest priority: current conversation, composer, permission prompts.
   - Second priority: active work lanes, plan/task state, approvals, and tool execution.
@@ -112,7 +112,7 @@
 - Principle 3: progressive power. The first screen works alone; companion screens add visibility but are never required.
 - Principle 4: reversible control. Dynamic screen open/close and theme changes should be safe runtime actions.
 - Principle 5: side work must be real work. A companion screen earns its space by running or supervising useful tasks, not just mirroring status.
-- Principle 6: terminal panes are first-class task surfaces. External CLIs should feel attached to the RoboCode session through lane metadata, logs, and task links, even when the process is independent.
+- Principle 6: terminal panes are first-class task surfaces. External CLIs should feel attached to the Viden session through lane metadata, logs, and task links, even when the process is independent.
 - Tradeoffs:
   - Dense panels are preferred over empty cinematic space, but the composer and approvals must stay unmistakable.
   - First implementation may use external terminal windows or tmux-like process supervision; a richer embedded PTY manager can follow once state contracts are stable.
@@ -168,7 +168,7 @@
   - `/lane claude <task>` starts a configured `claude` lane for a bounded task.
   - `/lane ask <tool> <task>` starts any configured external coding tool lane.
   - `/lane attach <id>` attaches the focused TUI pane to a running lane.
-  - `/lane detach` returns from an attached lane to the RoboCode TUI.
+  - `/lane detach` returns from an attached lane to the Viden TUI.
   - `/lane inspect <id>` summarizes lane logs, changed files, tests, and next-action recommendation.
   - `/lane accept <id>` records that the lane result is accepted and can be integrated into the main task.
   - `/lane revise <id> <feedback>` sends follow-up instructions to a still-running or restarted lane when the adapter supports input.
@@ -176,7 +176,7 @@
 - Task envelope:
   - Every external coding tool lane receives a bounded task envelope rather than an unstructured chat fragment.
   - Required fields: lane id, objective, cwd/worktree, constraints, allowed mutation scope, expected output, verification command, and handoff format.
-  - Optional fields: linked RoboCode task id, related files, current plan excerpt, recent diagnostics, relevant transcript excerpt, branch/worktree name, timeout, and stop conditions.
+  - Optional fields: linked Viden task id, related files, current plan excerpt, recent diagnostics, relevant transcript excerpt, branch/worktree name, timeout, and stop conditions.
   - Default handoff format asks the tool to end with a concise summary, files changed, tests run, remaining risks, and suggested next step.
   - Task envelopes are written to durable lane files so the exact instruction sent to `codex`, `claude`, or another tool can be audited.
 - Tool adapter contract:
@@ -196,13 +196,13 @@
   - `needs-input`: adapter detected an interactive prompt or the user attached and paused automation.
   - `completed`: process exited successfully or the tool produced a complete handoff.
   - `failed`: process exited non-zero, timed out, or violated constraints.
-  - `reviewing`: RoboCode is summarizing logs, diff, and verification evidence.
-  - `accepted`: user or RoboCode accepted the lane result for the active plan.
+  - `reviewing`: Viden is summarizing logs, diff, and verification evidence.
+  - `accepted`: user or Viden accepted the lane result for the active plan.
   - `revising`: follow-up feedback has been sent to the same tool or a restarted lane.
   - `archived`: lane is closed but logs and metadata remain available.
 - Result policy:
   - A lane result is never trusted solely because the external tool says it is done.
-  - RoboCode should inspect Git diff and relevant logs before recommending acceptance.
+  - Viden should inspect Git diff and relevant logs before recommending acceptance.
   - For file-mutating lanes, verification commands should run inside the lane worktree when available.
   - Main-session integration should present a clear choice: accept, revise, inspect manually, or discard.
   - Discard should preserve logs and worktree state unless the user explicitly requests cleanup.

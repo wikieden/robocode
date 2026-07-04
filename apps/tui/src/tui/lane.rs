@@ -277,7 +277,7 @@ fn codex_review_lane_command(
         return Ok(None);
     }
     let prompt = format!(
-        "Review the current working tree for this RoboCode delegated lane task: {}. Use the lane envelope at {} for context. Do not modify files; report findings, evidence, and next action.",
+        "Review the current working tree for this Viden delegated lane task: {}. Use the lane envelope at {} for context. Do not modify files; report findings, evidence, and next action.",
         lane.title,
         envelope_path.display()
     );
@@ -472,7 +472,7 @@ fn render_lane_envelope(lane: &TerminalLane, state: &TuiState) -> String {
     let isolation_caches = list_or_none(&isolation.cache_dirs);
     let isolation_ports = list_or_none(&isolation.service_ports);
     format!(
-        "# RoboCode Lane Task\n\nLane: {}\nTool: {}\nWorkspace: {workspace}\nMutation scope: {mutation_scope}\nSession: {}\nProvider: {}\nModel: {}\n\n## Task\n{}\n\n## Isolation\nRisk: {}\nWritable scope: {}\nWorktree: {}\nDatabase/schema: {}\nSetup command: {}\nVerification command: {}\nCleanup command: {}\n\n### Env vars\n{}\n\n### Cache dirs\n{}\n\n### Service ports\n{}\n\n### Isolation warnings\n{}\n\n## ContextBundle v1\nBundle: {}\nPolicy: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\n\n### Sources\n{}\n\n### Omitted sources\n{}\n\n### Largest sources\n{}\n\n### Compaction notes\n{}\n\n## Handoff\n- summary\n- files changed\n- tests run\n- remaining risks\n- suggested next step\n\n## Constraints\n- Do not assume access to the full RoboCode transcript.\n- Use the ContextBundle sources above before asking for more context.\n- Keep changes scoped to the task.\n- Report commands run and verification evidence.\n",
+        "# Viden Lane Task\n\nLane: {}\nTool: {}\nWorkspace: {workspace}\nMutation scope: {mutation_scope}\nSession: {}\nProvider: {}\nModel: {}\n\n## Task\n{}\n\n## Isolation\nRisk: {}\nWritable scope: {}\nWorktree: {}\nDatabase/schema: {}\nSetup command: {}\nVerification command: {}\nCleanup command: {}\n\n### Env vars\n{}\n\n### Cache dirs\n{}\n\n### Service ports\n{}\n\n### Isolation warnings\n{}\n\n## ContextBundle v1\nBundle: {}\nPolicy: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\n\n### Sources\n{}\n\n### Omitted sources\n{}\n\n### Largest sources\n{}\n\n### Compaction notes\n{}\n\n## Handoff\n- summary\n- files changed\n- tests run\n- remaining risks\n- suggested next step\n\n## Constraints\n- Do not assume access to the full Viden transcript.\n- Use the ContextBundle sources above before asking for more context.\n- Keep changes scoped to the task.\n- Report commands run and verification evidence.\n",
         lane.id,
         lane.tool,
         state.session_id,
@@ -1621,7 +1621,7 @@ fn render_lane_decision(
         .and_then(|path| lane_runtime_evidence(path, &lane.id));
     let verification = verification_rows(evidence.as_ref());
     format!(
-        "# RoboCode Lane Decision\n\nLane: {}\nTool: {}\nDecision: {action}\nSummary: {summary}\n\n## Task\n{}\n\n## Changed files\n{changed_files}\n\n## Verification\n{verification}\n",
+        "# Viden Lane Decision\n\nLane: {}\nTool: {}\nDecision: {action}\nSummary: {summary}\n\n## Task\n{}\n\n## Changed files\n{changed_files}\n\n## Verification\n{verification}\n",
         lane.id, lane.tool, lane.title
     )
 }
@@ -1832,7 +1832,7 @@ fn tmux_lane(id: Option<&str>, state: &mut TuiState) {
             state.entries.push(TuiEntry {
                 label: "system".to_string(),
                 body: format!(
-                    "Started tmux lane `{}` as `{session}` via pid {pid}.\nAttach with `tmux attach -t {session}`; detach RoboCode tracking with `/lane detach {}`.",
+                    "Started tmux lane `{}` as `{session}` via pid {pid}.\nAttach with `tmux attach -t {session}`; detach Viden tracking with `/lane detach {}`.",
                     lane.id, lane.id
                 ),
             });
@@ -1935,7 +1935,7 @@ fn render_lane_tmux(
     runtime_log: &Path,
 ) -> String {
     format!(
-        "# RoboCode Lane Tmux\n\nLane: {}\nTool: {}\nStatus before tmux: {}\nSession: {session}\nWorkspace: {}\nRuntime log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Attach\nUse `tmux attach -t {session}` to enter the interactive lane. Pane output is piped into the standard lane runtime log when the default tmux template is used. Use `/lane detach {}` to return RoboCode tracking to detached state without killing the tmux session.\n",
+        "# Viden Lane Tmux\n\nLane: {}\nTool: {}\nStatus before tmux: {}\nSession: {session}\nWorkspace: {}\nRuntime log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Attach\nUse `tmux attach -t {session}` to enter the interactive lane. Pane output is piped into the standard lane runtime log when the default tmux template is used. Use `/lane detach {}` to return Viden tracking to detached state without killing the tmux session.\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -2182,7 +2182,7 @@ fn render_lane_pty(
     command: &str,
 ) -> String {
     format!(
-        "# RoboCode Embedded PTY\n\nLane: {}\nTool: {}\nStatus before PTY: {}\nWorkspace: {}\nInput FIFO: {}\nRuntime log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Interaction\nUse `/lane send {} <text>` to write a line to the embedded PTY input bridge. Use `/lane detach {}` to hide focus without killing the PTY process, or `/lane stop {}` to terminate RoboCode's recorded process group.\n",
+        "# Viden Embedded PTY\n\nLane: {}\nTool: {}\nStatus before PTY: {}\nWorkspace: {}\nInput FIFO: {}\nRuntime log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Interaction\nUse `/lane send {} <text>` to write a line to the embedded PTY input bridge. Use `/lane detach {}` to hide focus without killing the PTY process, or `/lane stop {}` to terminate Viden's recorded process group.\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -2224,10 +2224,7 @@ fn platform_lane_attach_command(
     let terminal_script = format!(
         "cd {} && printf '%s\\n' {} >> {} && exec {} -l",
         shell_quote_value(&cwd),
-        shell_quote_value(&format!(
-            "RoboCode attached lane {}: {}",
-            lane.id, lane.title
-        )),
+        shell_quote_value(&format!("Viden attached lane {}: {}", lane.id, lane.title)),
         shell_quote_path(attach_log),
         shell_quote_value(&shell)
     );
@@ -2264,7 +2261,7 @@ fn render_lane_attach(
     attach_log: &Path,
 ) -> String {
     format!(
-        "# RoboCode Lane Attach\n\nLane: {}\nTool: {}\nStatus before attach: {}\nWorkspace: {}\nAttach log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Detach\nUse `/lane detach {}` to return RoboCode tracking to detached state without killing the external terminal process.\n",
+        "# Viden Lane Attach\n\nLane: {}\nTool: {}\nStatus before attach: {}\nWorkspace: {}\nAttach log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Detach\nUse `/lane detach {}` to return Viden tracking to detached state without killing the external terminal process.\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -2596,7 +2593,7 @@ fn render_lane_apply(
     forced: bool,
 ) -> String {
     format!(
-        "# RoboCode Lane Apply\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Workspace changed files after apply\n{changed_files}\n\n## Follow-up\n- Review the main workspace diff.\n- Commit separately when satisfied.\n- Cleanup the isolated worktree with `/lane cleanup {}` after integration is no longer needed.\n",
+        "# Viden Lane Apply\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Workspace changed files after apply\n{changed_files}\n\n## Follow-up\n- Review the main workspace diff.\n- Commit separately when satisfied.\n- Cleanup the isolated worktree with `/lane cleanup {}` after integration is no longer needed.\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -2651,7 +2648,7 @@ struct LaneApplyConflictReport<'a> {
 
 fn render_lane_apply_conflict(report: LaneApplyConflictReport<'_>) -> String {
     format!(
-        "# RoboCode Lane Apply Conflict\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Direct apply check\n{}\n\n## Three-way apply check\n{}\n\n## Main workspace changed files\n{main_changed_files}\n\n## Lane worktree changed files\n{lane_changed_files}\n\n## Follow-up\n- Review the patch and the main workspace diff before retrying.\n- Resolve conflicting files in the main workspace or in the lane worktree.\n- Retry with `/lane resolve {}` after the patch applies cleanly.\n- Use `/lane cleanup {}` only after the lane evidence is no longer needed.\n",
+        "# Viden Lane Apply Conflict\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Direct apply check\n{}\n\n## Three-way apply check\n{}\n\n## Main workspace changed files\n{main_changed_files}\n\n## Lane worktree changed files\n{lane_changed_files}\n\n## Follow-up\n- Review the patch and the main workspace diff before retrying.\n- Resolve conflicting files in the main workspace or in the lane worktree.\n- Retry with `/lane resolve {}` after the patch applies cleanly.\n- Use `/lane cleanup {}` only after the lane evidence is no longer needed.\n",
         report.lane.id,
         report.lane.tool,
         report.lane.status,
@@ -2847,7 +2844,7 @@ fn render_lane_archive(lane: &TerminalLane, evidence: Option<&LaneRuntimeEvidenc
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "<none>".to_string());
     format!(
-        "# RoboCode Lane Archive\n\nLane: {}\nTool: {}\nStatus before archive: {}\nTarget: {}\nProgress: {}%\nWorktree: {worktree}\nExit code: {exit_code}\n\n## Task\n{}\n\n## Summary\n{}\n\n## Last log lines\n{log_tail}\n\n## Preservation\n- Runtime artifacts are preserved under `.robocode/lanes/`.\n- Isolated worktrees are not deleted by archive; use `/lane cleanup {}` separately when appropriate.\n",
+        "# Viden Lane Archive\n\nLane: {}\nTool: {}\nStatus before archive: {}\nTarget: {}\nProgress: {}%\nWorktree: {worktree}\nExit code: {exit_code}\n\n## Task\n{}\n\n## Summary\n{}\n\n## Last log lines\n{log_tail}\n\n## Preservation\n- Runtime artifacts are preserved under `.robocode/lanes/`.\n- Isolated worktrees are not deleted by archive; use `/lane cleanup {}` separately when appropriate.\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -2875,7 +2872,7 @@ fn render_lane_cleanup(
             .join("\n")
     };
     format!(
-        "# RoboCode Lane Cleanup\n\nLane: {}\nTool: {}\nStatus before cleanup: {}\nWorktree: {}\nForced: {force}\n\n## Changed files before cleanup\n{changed_files}\n",
+        "# Viden Lane Cleanup\n\nLane: {}\nTool: {}\nStatus before cleanup: {}\nWorktree: {}\nForced: {force}\n\n## Changed files before cleanup\n{changed_files}\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -3311,7 +3308,7 @@ mod tests {
 
         let envelope = root.join(".robocode").join("lanes").join("L1.envelope.md");
         let content = fs::read_to_string(&envelope).expect("lane envelope");
-        assert!(content.contains("# RoboCode Lane Task"));
+        assert!(content.contains("# Viden Lane Task"));
         assert!(content.contains("Lane: L1"));
         assert!(content.contains("Tool: codex"));
         assert!(content.contains("fix persistent state"));
@@ -3320,7 +3317,7 @@ mod tests {
         assert!(handle_tui_command("/lane inspect L1", &mut state));
         let inspect = state.entries.last().expect("inspect entry");
         assert!(inspect.body.contains("Envelope:"));
-        assert!(inspect.body.contains("# RoboCode Lane Task"));
+        assert!(inspect.body.contains("# Viden Lane Task"));
         assert!(inspect.body.contains("fix persistent state"));
 
         let _ = fs::remove_dir_all(root);
@@ -3599,7 +3596,7 @@ mod tests {
         assert!(state.lanes[0].summary.contains(".pty.in"));
         let artifact =
             fs::read_to_string(root.join(".robocode/lanes/L1.pty.md")).expect("pty artifact");
-        assert!(artifact.contains("RoboCode Embedded PTY"));
+        assert!(artifact.contains("Viden Embedded PTY"));
         assert!(artifact.contains("Input FIFO:"));
         assert!(artifact.contains("printf pty-start"));
 
@@ -3855,7 +3852,7 @@ mod tests {
         );
         let conflict = fs::read_to_string(root.join(".robocode/lanes/L1.apply-conflict.md"))
             .expect("apply conflict report");
-        assert!(conflict.contains("RoboCode Lane Apply Conflict"));
+        assert!(conflict.contains("Viden Lane Apply Conflict"));
         assert!(conflict.contains("Direct apply check"));
         assert!(conflict.contains("Three-way apply check"));
         assert!(conflict.contains("Main workspace changed files"));
@@ -4102,7 +4099,7 @@ mod tests {
         assert_eq!(state.focused_lane.as_deref(), Some("L1"));
         let attach =
             fs::read_to_string(root.join(".robocode/lanes/L1.attach.md")).expect("attach artifact");
-        assert!(attach.contains("RoboCode Lane Attach"));
+        assert!(attach.contains("Viden Lane Attach"));
         assert!(attach.contains("printf attached-L1"));
 
         assert!(handle_tui_command("/lane detach L1", &mut state));
@@ -4162,7 +4159,7 @@ mod tests {
         );
         let tmux =
             fs::read_to_string(root.join(".robocode/lanes/L1.tmux.md")).expect("tmux artifact");
-        assert!(tmux.contains("RoboCode Lane Tmux"));
+        assert!(tmux.contains("Viden Lane Tmux"));
         assert!(tmux.contains("Session: viden-session_123-l1"));
         assert!(tmux.contains("Runtime log:"));
         assert!(tmux.contains(".robocode/lanes/L1.log"));
@@ -4720,7 +4717,7 @@ mod tests {
         assert!(
             Command::new(test_git_binary())
                 .args(["-c", "user.email=robot@example.invalid"])
-                .args(["-c", "user.name=RoboCode Test"])
+                .args(["-c", "user.name=Viden Test"])
                 .args(["commit", "-m", "initial"])
                 .current_dir(root)
                 .status()

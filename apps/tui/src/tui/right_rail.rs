@@ -137,7 +137,7 @@ fn screen_hint(task: &AgentTask) -> String {
 
 fn active_agent_label(task: &AgentTask) -> String {
     if task.agent == "robocode" && task.kind == "provider" {
-        "RoboCode".to_string()
+        "Viden".to_string()
     } else {
         task.agent.clone()
     }

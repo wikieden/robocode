@@ -196,7 +196,7 @@ fn api_key_panel_rows(
     vec![
         format!("{display_name} needs an API key."),
         format!("It will be used for this session via {key_env}."),
-        "RoboCode will save the env var name, not the raw key.".to_string(),
+        "Viden will save the env var name, not the raw key.".to_string(),
         "".to_string(),
         format!(
             "API key {}",

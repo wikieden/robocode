@@ -49,8 +49,12 @@ flowchart TB
 ## Workspace Layout
 
 - `apps/cli`: executable entrypoint, flags, config bootstrap, and current CLI/TUI launcher.
-- `apps/tui`: terminal frontend app boundary. The full TUI render/input
-  loop should move here over follow-up slices.
+- `apps/tui`: terminal frontend app boundary. It consumes `viden-core` as its
+  runtime facade and owns terminal rendering, input, scrollback, panels, and
+  previews.
+- `apps/gui`: future desktop GUI boundary. It currently provides a
+  `RuntimeEvent` fixture-replay scaffold so GUI work starts from shared runtime
+  facts instead of a private state model.
 - `crates/core`: stable runtime facade for clients; re-exports the core
   runtime and shared contract types without TUI or GUI dependencies.
 - `crates/config`: config loading, merge precedence, and startup defaults.
@@ -143,6 +147,22 @@ or GUI implementation work:
 
 This boundary is intentionally data-first. It lets the existing engine continue
 to run while contract tests freeze the facts that multiple frontends will share.
+
+Current client-boundary status:
+
+- `apps/tui` now depends on `viden-core` instead of direct `viden-runtime` or
+  `viden-provider` dependencies. Some bridge-stage types are still re-exported
+  by `viden-core` for compatibility while the TUI migrates toward pure
+  `RuntimeCommand` / `RuntimeEvent` usage.
+- `apps/gui` is part of the workspace as a minimal contract consumer. Its first
+  test replays `crates/types/tests/fixtures/runtime-contract-phase2.json` into
+  `RuntimeViewState`.
+- `crates/core/tests/workspace_identity.rs` guards the app dependency boundary:
+  frontend apps must consume `viden-core` and must not directly depend on
+  provider, runtime, tools, or workflow internals.
+- Active user-facing TUI and README strings use the Viden product name. Legacy
+  RoboCode references are reserved for historical release docs and explicit
+  compatibility notes.
 
 ## Terminal Presentation
 
@@ -260,7 +280,7 @@ Current protocol support:
 - Ollama text-only chat flow
 - local `fallback` behavior for offline use and smoke testing
 
-If credentials are missing, RoboCode can still run against deterministic local
+If credentials are missing, Viden can still run against deterministic local
 fallback behavior instead of failing to start.
 
 Runtime provider loading target:
@@ -391,7 +411,7 @@ Current workflow/LSP notes:
 
 ## Platform Notes
 
-RoboCode keeps one shared engine across platforms and varies only the execution
+Viden keeps one shared engine across platforms and varies only the execution
 adapter where necessary:
 
 - POSIX shell adapter on macOS and Linux

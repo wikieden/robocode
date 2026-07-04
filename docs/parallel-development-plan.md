@@ -69,6 +69,18 @@ The first Phase 0-1 contract slice is now intentionally core-only:
 - This phase does not implement new TUI or GUI surfaces. It creates the API
   line that those surfaces must use later.
 
+The client-contract prep branch adds the first enforcement slice:
+
+- `apps/tui` consumes `viden-core` at the manifest boundary instead of direct
+  runtime/provider dependencies.
+- `apps/gui` exists as a minimal Rust workspace member that replays runtime
+  contract fixtures. The Tauri/Web shell should be layered on top of this
+  contract consumer rather than replacing it.
+- Workspace identity tests fail if frontend apps depend directly on
+  `viden-runtime`, `viden-provider`, `viden-tools`, or `viden-workflows`.
+- Active UI strings are moving to the Viden product name before TUI and GUI
+  branches diverge.
+
 ## Phase Plan
 
 ### Phase 0: Architecture Cut
@@ -132,6 +144,9 @@ Rules:
 
 - TUI and GUI branches may not call provider, tool, permission, transcript, or
   workflow internals directly.
+- TUI and GUI manifests may not depend directly on runtime/provider/tool/workflow
+  crates. If a client needs a fact or action, add it to the `viden-core`
+  contract first with a fixture or replay test.
 - Shared contract changes start in the core branch with tests, then UI branches
   rebase or merge them.
 - TUI and GUI can differ in layout and interaction details, but they must show

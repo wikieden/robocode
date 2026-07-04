@@ -373,8 +373,18 @@ dependencies = [
 name = "viden-core"
 version = "0.1.30"
 dependencies = [
+ "viden-config",
+ "viden-provider",
  "viden-runtime",
  "viden-types",
+]
+
+[[package]]
+name = "viden-gui"
+version = "0.1.30"
+dependencies = [
+ "serde_json",
+ "viden-core",
 ]
 
 [[package]]
@@ -460,9 +470,7 @@ name = "viden-tui"
 version = "0.1.30"
 dependencies = [
  "crossterm",
- "viden-config",
- "viden-provider",
- "viden-runtime",
+ "viden-core",
  "viden-types",
 ]
 

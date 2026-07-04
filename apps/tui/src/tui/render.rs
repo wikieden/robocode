@@ -198,8 +198,8 @@ fn live_work_strip_rows(status: &LiveActivityStatus, width: usize) -> Vec<String
 }
 
 fn live_work_headline(summary: &str) -> String {
-    if summary.starts_with("RoboCode is ") {
-        "RoboCode working".to_string()
+    if summary.starts_with("Viden is ") {
+        "Viden working".to_string()
     } else {
         summary.to_string()
     }
@@ -444,7 +444,7 @@ fn next_operator_action(task: &AgentTask) -> Option<&'static str> {
 
 fn operator_agent_label(task: &AgentTask) -> String {
     if task.agent == "robocode" && task.kind == "provider" {
-        "RoboCode".to_string()
+        "Viden".to_string()
     } else {
         task.agent.clone()
     }
@@ -603,7 +603,7 @@ mod tests {
         },
         text::char_width,
     };
-    use viden_runtime::ProviderTelemetry;
+    use viden_core::ProviderTelemetry;
     use viden_types::{TaskPriority, TaskRecord, TaskStatus};
 
     fn render_state() -> TuiState {
@@ -710,7 +710,7 @@ mod tests {
 
         let rendered = render_frame(&state, 48, 10);
 
-        assert!(rendered.contains("RoboCode"));
+        assert!(rendered.contains("Viden"));
         assert!(rendered.contains("TRANSCRIPT"));
         assert!(rendered.contains("ASSISTANT"));
         assert!(rendered.contains("hello"));
@@ -733,14 +733,14 @@ mod tests {
         let mut state = render_state();
         state.entries = vec![TuiEntry {
             label: "system".to_string(),
-            body: "RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
+            body: "Viden TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
         }];
         state.input = String::new();
 
         let rendered = render_frame(&state, 140, 40);
 
         assert!(rendered.contains("Ask anything... \"Fix broken tests\""));
-        assert!(rendered.contains("RoboCode - Operator"));
+        assert!(rendered.contains("Viden - Operator"));
         assert!(rendered.contains("ctrl+p commands"));
         assert!(rendered.contains("v"));
         assert!(!rendered.contains("TRANSCRIPT"));
@@ -754,7 +754,7 @@ mod tests {
         state.entries = vec![
             TuiEntry {
                 label: "system".to_string(),
-                body: "RoboCode TUI ready. Enter submits.".to_string(),
+                body: "Viden TUI ready. Enter submits.".to_string(),
             },
             TuiEntry {
                 label: "user".to_string(),
@@ -786,7 +786,7 @@ mod tests {
         state.entries = vec![
             TuiEntry {
                 label: "system".to_string(),
-                body: "RoboCode TUI ready. Enter submits.".to_string(),
+                body: "Viden TUI ready. Enter submits.".to_string(),
             },
             TuiEntry {
                 label: "user".to_string(),
@@ -801,7 +801,7 @@ mod tests {
         let rendered = render_frame(&state, 140, 40);
 
         assert!(rendered.contains("Ask anything"));
-        assert!(rendered.contains("RoboCode - Operator"));
+        assert!(rendered.contains("Viden - Operator"));
         assert!(!rendered.contains("TRANSCRIPT"));
         assert!(!rendered.contains("WORKSPACE"));
     }
@@ -811,7 +811,7 @@ mod tests {
         let mut state = render_state();
         state.entries = vec![TuiEntry {
             label: "system".to_string(),
-            body: "RoboCode TUI ready. Enter submits.".to_string(),
+            body: "Viden TUI ready. Enter submits.".to_string(),
         }];
         state.input = "/connect".to_string();
         state.interaction_panel = Some(InteractionPanel::ConnectProvider {
@@ -893,7 +893,7 @@ mod tests {
             .expect("recent files panel");
         let composer_index = lines
             .iter()
-            .position(|line| line.contains("RoboCode >_"))
+            .position(|line| line.contains("Viden >_"))
             .expect("composer panel");
         assert!(composer_index > recent_index);
         assert!(lines[composer_index - 1].contains('└'));
@@ -913,13 +913,13 @@ mod tests {
         let rendered = render_frame(&state, 140, 36);
 
         assert!(rendered.contains("LIVE WORK"));
-        assert!(rendered.contains("RoboCode working"));
+        assert!(rendered.contains("Viden working"));
         assert!(rendered.contains("phase planning"));
         assert!(rendered.contains("type next step anytime"));
-        assert!(!rendered.contains("RoboCode is planning"));
+        assert!(!rendered.contains("Viden is planning"));
         assert!(!rendered.contains("15%"));
         assert!(rendered.contains("reply-"));
-        assert!(!rendered.contains("RoboCode is thinking"));
+        assert!(!rendered.contains("Viden is thinking"));
         assert!(!rendered.contains("DeepSeek is thinking"));
         assert!(!rendered.contains("┌ NOW WORKING"));
 
@@ -953,7 +953,7 @@ mod tests {
 
         let rendered = render_frame(&state, 140, 36);
 
-        assert!(!rendered.contains("RoboCode is planning"));
+        assert!(!rendered.contains("Viden is planning"));
         assert!(!rendered.contains("latest user turn"));
         assert!(rendered.contains("TOOL RESULT"));
         assert!(rendered.contains("Command exited with exit status: 1"));
@@ -1108,14 +1108,14 @@ mod tests {
         let rendered = render_frame(&state, 140, 36);
 
         assert!(rendered.contains("LIVE WORK"));
-        assert!(rendered.contains("RoboCode working"));
+        assert!(rendered.contains("Viden working"));
         assert!(rendered.contains("phase planning"));
         assert!(rendered.contains("type next step anytime"));
         assert!(rendered.contains("live provider request"));
-        assert!(rendered.contains("RoboCode planning"));
+        assert!(rendered.contains("Viden planning"));
         assert!(!rendered.contains("15%"));
-        assert!(!rendered.contains("RoboCode is planning"));
-        assert!(!rendered.contains("RoboCode is thinking"));
+        assert!(!rendered.contains("Viden is planning"));
+        assert!(!rendered.contains("Viden is thinking"));
         assert!(!rendered.contains("DeepSeek is thinking"));
         assert!(!rendered.contains("┌ NOW WORKING"));
     }
@@ -1260,7 +1260,7 @@ mod tests {
         let mut state = render_state();
         state.entries = vec![TuiEntry {
             label: "assistant".to_string(),
-            body: "我是 **RoboCode**，一个运行在终端里的 AI 编程助手 🤖\n有什么需要帮忙的吗？"
+            body: "我是 **Viden**，一个运行在终端里的 AI 编程助手 🤖\n有什么需要帮忙的吗？"
                 .to_string(),
         }];
 

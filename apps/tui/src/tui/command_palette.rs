@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use viden_provider::ProviderAuthMode;
+use viden_core::ProviderAuthMode;
 use viden_types::MemoryStatus;
 
 use super::{
@@ -1133,11 +1133,11 @@ const COMMANDS: [CommandTemplate; 32] = [
     },
     CommandTemplate {
         command: "/exit",
-        summary: "Exit RoboCode",
+        summary: "Exit Viden",
     },
     CommandTemplate {
         command: "/quit",
-        summary: "Exit RoboCode",
+        summary: "Exit Viden",
     },
 ];
 
@@ -3392,7 +3392,7 @@ mod tests {
         CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot,
     };
     use crate::tui::text::char_width;
-    use viden_provider::ProviderAuthMode;
+    use viden_core::ProviderAuthMode;
     use viden_types::{
         MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskPriority, TaskRecord,
         TaskStatus,

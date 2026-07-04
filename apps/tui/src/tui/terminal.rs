@@ -1027,7 +1027,7 @@ fn color_for_line(line: &str, theme: &TuiTheme) -> Color {
         theme.title
     } else if is_frame_line(line) {
         theme.frame
-    } else if line.contains("RoboCode")
+    } else if line.contains("Viden")
         || line.contains("PROVIDER")
         || line.contains("MODEL")
         || line.contains("SIDE-1")
@@ -1157,7 +1157,7 @@ mod tests {
         let theme = TuiTheme::aurora_cyan();
 
         assert_eq!(
-            color_for_line("│ RoboCode  SIDE-1  [SESSION c4f2b7e] │", &theme),
+            color_for_line("│ Viden  SIDE-1  [SESSION c4f2b7e] │", &theme),
             theme.title
         );
         assert_eq!(

@@ -7,8 +7,7 @@ use std::{
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use viden_provider::ModelRequestControl;
-use viden_runtime::SessionEngine;
+use viden_core::{ModelRequestControl, SessionEngine};
 use viden_types::{ApprovalResponse, PermissionLevel, PermissionPrompt, WorkMode};
 
 use super::command_palette::{
@@ -88,7 +87,7 @@ impl TuiRuntimeSnapshot {
 }
 
 struct TuiRuntimeOutput {
-    events: Vec<viden_runtime::EngineEvent>,
+    events: Vec<viden_core::EngineEvent>,
     snapshot: TuiRuntimeSnapshot,
 }
 
@@ -705,7 +704,7 @@ fn initial_state(
     provider_status.permission_level = engine.permission_level();
     let entries = vec![TuiEntry {
         label: "system".to_string(),
-        body: format!("RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.\n{startup_summary}"),
+        body: format!("Viden TUI ready. Enter submits. Esc or Ctrl-C exits.\n{startup_summary}"),
     }];
     TuiState {
         session_id: engine.session_id().to_string(),
@@ -916,11 +915,11 @@ fn poll_turn_controller_events(
 fn render_provider_turn_error(err: &str) -> String {
     if err.contains("Tool `") || err.contains("tool failed") {
         return format!(
-            "Tool execution failed, but RoboCode kept the TUI open.\n  error: {err}\n  next: inspect the tool path/input, then retry or ask RoboCode to use another tool."
+            "Tool execution failed, but Viden kept the TUI open.\n  error: {err}\n  next: inspect the tool path/input, then retry or ask Viden to use another tool."
         );
     }
     format!(
-        "Provider turn failed, but RoboCode kept the TUI open.\n  error: {err}\n  next: try /status, /provider doctor, /models, or retry with a smaller prompt."
+        "Provider turn failed, but Viden kept the TUI open.\n  error: {err}\n  next: try /status, /provider doctor, /models, or retry with a smaller prompt."
     )
 }
 
@@ -1148,7 +1147,7 @@ fn apply_interaction_panel_selection(
                     .find(|provider| provider.provider_id == provider_id)
                     && let Some(key_env) = provider.api_key_env.as_deref()
                 {
-                    // Only clear the current process environment. RoboCode does
+                    // Only clear the current process environment. Viden does
                     // not persist raw API keys, so deleting the saved env-var
                     // name would make future setup less discoverable.
                     unsafe {
@@ -1157,7 +1156,7 @@ fn apply_interaction_panel_selection(
                     state.entries.push(TuiEntry {
                         label: "setup".to_string(),
                         body: format!(
-                            "Cleared `{key_env}` for this RoboCode process. The config still records the env var name; enter a new key from `/connect {}` or export `{key_env}` in your shell.",
+                            "Cleared `{key_env}` for this Viden process. The config still records the env var name; enter a new key from `/connect {}` or export `{key_env}` in your shell.",
                             provider.provider_id
                         ),
                     });
@@ -1619,7 +1618,7 @@ fn queue_active_turn_input(state: &mut TuiState) {
         state.entries.push(TuiEntry {
             label: "system".to_string(),
             body: format!(
-                "{} queued. RoboCode will run it after the current turn finishes.",
+                "{} queued. Viden will run it after the current turn finishes.",
                 queued_prompt_count_label(count)
             ),
         });
@@ -1661,7 +1660,7 @@ fn mark_pending_turn_waiting_for_provider(state: &mut TuiState) {
 }
 
 fn provider_catalog(engine: &SessionEngine) -> Vec<ProviderOption> {
-    let ui_config = viden_config::load_provider_ui_configs(engine.cwd()).unwrap_or_default();
+    let ui_config = viden_core::load_provider_ui_configs(engine.cwd()).unwrap_or_default();
     engine
         .provider_descriptors()
         .iter()
@@ -1805,8 +1804,7 @@ mod tests {
         thread,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
-    use viden_provider::{ModelProvider, ModelRequestControl, ProviderAuthMode};
-    use viden_runtime::SessionEngine;
+    use viden_core::{ModelProvider, ModelRequestControl, ProviderAuthMode, SessionEngine};
     use viden_types::{
         ModelEvent, ModelRequest, PermissionLevel, PermissionPrompt, ToolCall, ToolInput, WorkMode,
     };
@@ -1991,7 +1989,7 @@ mod tests {
         assert_eq!(pending.queued_inputs, vec!["write the follow-up tests"]);
         assert_eq!(state.input, "");
         assert!(state.entries.iter().any(|entry| entry.label == "system"
-            && entry.body.contains("1 prompt queued. RoboCode will run it")));
+            && entry.body.contains("1 prompt queued. Viden will run it")));
 
         state.input = "and summarize the risk".to_string();
         queue_active_turn_input(&mut state);
@@ -2068,7 +2066,7 @@ mod tests {
             output
                 .events
                 .iter()
-                .any(|event| matches!(event, viden_runtime::EngineEvent::Assistant(content) if content.contains("slow provider done")))
+                .any(|event| matches!(event, viden_core::EngineEvent::Assistant(content) if content.contains("slow provider done")))
         );
         assert!(!runtime.is_turn_active());
     }
@@ -2441,7 +2439,7 @@ mod tests {
             state
                 .entries
                 .iter()
-                .any(|entry| entry.label == "system" && entry.body.contains("RoboCode TUI ready"))
+                .any(|entry| entry.label == "system" && entry.body.contains("Viden TUI ready"))
         );
     }
 

@@ -50,7 +50,10 @@ flowchart TB
 ## Workspace 布局
 
 - `apps/cli`：可执行入口、flags、config bootstrap，以及当前 CLI/TUI launcher
-- `apps/tui`：终端 frontend app 边界；完整 TUI render/input loop 后续应迁移到这里
+- `apps/tui`：终端 frontend app 边界；通过 `viden-core` 消费 runtime facade，
+  自己只负责终端渲染、输入、scrollback、panels 和 previews
+- `apps/gui`：未来桌面 GUI 边界；当前先提供 `RuntimeEvent` fixture replay
+  脚手架，保证 GUI 工作从共享 runtime facts 开始，而不是创建私有状态模型
 - `crates/core`：稳定 runtime facade，供客户端导入；重导出 core runtime 和共享
   contract 类型，不引入 TUI 或 GUI 依赖
 - `crates/config`：配置加载、优先级合并和启动默认值
@@ -130,6 +133,20 @@ flowchart TB
 
 这个边界故意先采用 data-first 方式。它让现有引擎继续运行，同时用 contract tests
 冻结多个前端需要共享的事实。
+
+当前 client-boundary 状态：
+
+- `apps/tui` 现在依赖 `viden-core`，不再直接依赖 `viden-runtime` 或
+  `viden-provider`。在 TUI 迁移到纯 `RuntimeCommand` / `RuntimeEvent` 前，
+  `viden-core` 会暂时重导出部分 bridge-stage 类型。
+- `apps/gui` 已进入 workspace，作为最小 contract consumer。第一条测试会把
+  `crates/types/tests/fixtures/runtime-contract-phase2.json` replay 成
+  `RuntimeViewState`。
+- `crates/core/tests/workspace_identity.rs` 负责守住 app dependency boundary：
+  frontend apps 必须消费 `viden-core`，不能直接依赖 provider、runtime、tools 或
+  workflow internals。
+- 当前活跃的用户可见 TUI 和 README 字符串使用 Viden 产品名。RoboCode 只保留在历史
+  release docs 和明确的 compatibility notes 中。
 
 ## 终端展示
 
@@ -231,7 +248,7 @@ HTTP provider 使用系统 `curl`，因此 workspace 能保持依赖轻量且可
 - Ollama 的纯文本聊天流
 - 本地 `fallback` 行为，用于离线与 smoke test
 
-即使没有配置凭证，RoboCode 仍然可以通过 deterministic fallback 启动，而不是直接失败。
+即使没有配置凭证，Viden 仍然可以通过 deterministic fallback 启动，而不是直接失败。
 
 运行时 provider 加载目标：
 
@@ -354,7 +371,7 @@ CLI 当前也通过 slash commands 暴露这些工具面：
 
 ## 平台说明
 
-RoboCode 在不同平台上共用同一套 engine，只在必要处切换执行适配器：
+Viden 在不同平台上共用同一套 engine，只在必要处切换执行适配器：
 
 - macOS / Linux 使用 POSIX shell adapter
 - Windows 使用 PowerShell adapter

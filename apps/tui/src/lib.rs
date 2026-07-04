@@ -1,7 +1,7 @@
 //! Viden TUI app boundary.
 //!
 //! This crate owns terminal rendering and input orchestration. It consumes the
-//! runtime surface from `viden-runtime` and must not own provider, tool, or
+//! runtime surface from `viden-core` and must not own provider, tool, or
 //! workflow business logic.
 
 mod tui;

@@ -1,5 +1,5 @@
 [package]
-name = "viden-tui"
+name = "viden-gui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,5 +7,4 @@ authors.workspace = true
 
 [dependencies]
 viden-core = { path = "../../crates/core" }
-viden-types = { path = "../../crates/types" }
-crossterm = "0.28"
+serde_json = "1"

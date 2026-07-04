@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+viden-config = { path = "../config" }
+viden-provider = { path = "../provider" }
 viden-runtime = { path = "../runtime" }
 viden-types = { path = "../types" }
-

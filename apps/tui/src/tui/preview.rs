@@ -3,7 +3,7 @@ use super::state::{
     ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
 };
 use super::{render, terminal};
-use viden_provider::ProviderAuthMode;
+use viden_core::ProviderAuthMode;
 use viden_types::{
     MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskPriority, TaskRecord,
     TaskStatus,
@@ -505,7 +505,7 @@ fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState
     let mut state = preview_state(provider, model, theme_name);
     state.entries = vec![TuiEntry {
         label: "system".to_string(),
-        body: "RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
+        body: "Viden TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
     }];
     state.input = String::new();
     state
@@ -593,7 +593,7 @@ fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> Tui
     state.entries = vec![
         TuiEntry {
             label: "system".to_string(),
-            body: "RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
+            body: "Viden TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
         },
         TuiEntry {
             label: "user".to_string(),
@@ -660,7 +660,7 @@ mod tests {
         assert!(main.contains("~/projects/robocode"));
         assert!(idle.contains("~/projects/robocode"));
         assert!(live_turn.contains("LIVE WORK"));
-        assert!(live_turn.contains("RoboCode working"));
+        assert!(live_turn.contains("Viden working"));
         assert!(live_turn.contains("live provider request"));
         assert!(resize.contains("LIVE WORK"));
         assert!(resize.contains("Resize-safe redraw check"));
