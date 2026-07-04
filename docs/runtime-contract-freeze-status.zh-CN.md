@@ -30,14 +30,14 @@
 | Runtime schema | `viden-types/src/runtime.rs` 定义 `RuntimeCommand`、`RuntimeEventKind`、`RuntimeViewState`、approval、evidence、provider health、cost、tool call、task、lane | 已完成 |
 | Runtime replay reducer | `RuntimeViewState::apply_event` 和 `viden-types` 测试覆盖 snapshot、approval、task、queued input、lane、evidence、provider、cost facts | 已完成 |
 | Core bridge | `SessionEngine::runtime_snapshot`、`runtime_view_state`、`runtime_events_for_engine_events`、`handle_runtime_command`、`process_runtime_input_with_approval` | 已完成 |
-| Command bus | 测试覆盖 user input、queued follow-up、mode 切换、permission-level 切换、provider config、model selection、active model activate/deactivate | 已完成 |
+| Command bus | 测试覆盖 user input、queued follow-up、mode 切换、permission-level 切换、provider config、model selection、active model activate/deactivate，以及 LSP diagnostics refresh | 已完成 |
 | Plan mode mutation safety | 现有 permission 和 workflow 测试覆盖 plan mode 下 mutating tool denial 与 workflow task mutation denial | 已完成 |
 | Supervisor boundary | `RuntimeSupervisor` 测试覆盖 active provider cancellation 和不耦合 TUI 的 approval response delivery | 已完成 |
 | Permission/mode contract | `runtime_command_bus_covers_plan_build_review_permission_contract` 覆盖 plan/review/explore read-only，以及 build 恢复 ask | 已完成 |
 | Core 发出 lane facts | `runtime_view_state_emits_lane_facts_from_core_store` 证明 `.robocode/lanes.tsv` 会被投影成 `LaneUpdated` runtime facts，不需要改 TUI 代码 | 已完成 |
 | Provider/model、approval、lane、task、cost、evidence fixture | `crates/types/tests/fixtures/runtime-contract-phase2.json` 和 fixture replay 测试 | 已完成 |
 | Process-plugin protocol 草案 | `docs/process-plugin-protocol.zh-CN.md` 和英文 counterpart | 已完成 |
-| Thin TUI client proof | 因本阶段约束延后到 TUI client 分支；当前分支只证明共享 fixture 和 API 边界 | 延后 |
+| Thin TUI client proof | `apps/tui` 现在包装 `RuntimeSupervisor`，发送 `RuntimeCommand`、drain `RuntimeEvent`，并把 `RuntimeViewState` 投影成 TUI state；workspace guard 会拒绝私有 TUI runtime worker | 已完成 |
 | GUI API proof | 已通过 runtime schema、fixture、GUI functional design 和 process-plugin 草案文档化；可执行 GUI client tests 等 GUI 分支 | 延后 |
 
 ## 验证快照

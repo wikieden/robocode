@@ -1,14 +1,13 @@
-use std::{
-    sync::mpsc::{self, Receiver, Sender, TryRecvError},
-    thread::{self, JoinHandle},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use viden_core::{ModelRequestControl, SessionEngine};
-use viden_types::{ApprovalResponse, PermissionLevel, PermissionPrompt, WorkMode};
+use viden_core::{RuntimeSupervisor, SessionEngine};
+use viden_types::{
+    ApprovalRequestView, ApprovalResponse, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
+    RuntimeViewState,
+};
 
 use super::command_palette::{
     close_on_escape, command_suggestion_index_at, complete_selected, move_selection,
@@ -26,275 +25,92 @@ use super::modal::{
 use super::screen::handle_screen_command;
 use super::state::{
     InteractionPanel, PendingTurn, ProviderOption, ProviderStatus, TuiEntry, TuiState,
-    WorkspaceSnapshot, entry_from_event, lane_store_path, latest_lsp_diagnostics, load_lanes,
-    load_screens, save_diagnostics, screen_store_path,
+    WorkspaceSnapshot, lane_store_path, latest_lsp_diagnostics, load_lanes, load_screens,
+    save_diagnostics, screen_store_path,
 };
 use super::terminal::TerminalGuard;
 
 const BACKGROUND_DIAGNOSTICS_INTERVAL: Duration = Duration::from_secs(30);
 const BACKGROUND_DIAGNOSTICS_PATH_LIMIT: usize = 4;
-enum TurnControllerEvent {
-    Approval {
-        prompt: PermissionPrompt,
-        response: Sender<viden_types::ApprovalResponse>,
-    },
-    StreamDelta(String),
-    Finished(Box<TuiRuntimeResult>),
+
+struct RuntimeClient {
+    supervisor: RuntimeSupervisor,
+    view_state: RuntimeViewState,
+    next_command: u64,
+    active_turn_requested: bool,
 }
 
-type TuiRuntimeResult = Result<TuiRuntimeOutput, Box<TuiRuntimeFailure>>;
-
-struct TuiRuntimeSnapshot {
-    provider: String,
-    model: String,
-    work_mode: WorkMode,
-    permission_level: PermissionLevel,
-    provider_catalog: Vec<ProviderOption>,
-    provider_status: ProviderStatus,
-    tasks: Vec<viden_types::TaskRecord>,
-    runtime_tasks: Vec<viden_types::AgentTaskRecord>,
-    memory: Vec<viden_types::MemoryEntry>,
-}
-
-impl TuiRuntimeSnapshot {
-    fn from_engine(engine: &SessionEngine) -> Self {
+impl RuntimeClient {
+    fn start(engine: SessionEngine) -> Self {
+        let view_state = engine.runtime_view_state();
+        let supervisor = RuntimeSupervisor::start(engine);
         Self {
-            provider: engine.provider_name().to_string(),
-            model: engine.model_name().to_string(),
-            work_mode: engine.work_mode(),
-            permission_level: engine.permission_level(),
-            provider_catalog: provider_catalog(engine),
-            provider_status: ProviderStatus::from_telemetry(&engine.provider_telemetry()),
-            tasks: engine.active_task_snapshot().unwrap_or_default(),
-            runtime_tasks: engine.agent_task_snapshot(),
-            memory: engine.memory_snapshot().unwrap_or_default(),
+            supervisor,
+            view_state,
+            next_command: 1,
+            active_turn_requested: false,
         }
-    }
-
-    fn empty() -> Self {
-        Self {
-            provider: String::new(),
-            model: String::new(),
-            work_mode: WorkMode::Build,
-            permission_level: PermissionLevel::Ask,
-            provider_catalog: Vec::new(),
-            provider_status: ProviderStatus::configured(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-        }
-    }
-}
-
-struct TuiRuntimeOutput {
-    events: Vec<viden_core::EngineEvent>,
-    snapshot: TuiRuntimeSnapshot,
-}
-
-struct TuiRuntimeFailure {
-    error: String,
-    snapshot: TuiRuntimeSnapshot,
-}
-
-enum TuiRuntimeRequest {
-    ProcessCommand {
-        command: String,
-        response: Sender<TuiRuntimeResult>,
-    },
-    StartProviderTurn {
-        input: String,
-        control: ModelRequestControl,
-    },
-    SpawnDiagnostics {
-        paths: Vec<String>,
-        response: Sender<Option<Receiver<Option<String>>>>,
-    },
-    Shutdown,
-}
-
-struct TuiRuntime {
-    requests: Sender<TuiRuntimeRequest>,
-    event_sender: Sender<TurnControllerEvent>,
-    events: Receiver<TurnControllerEvent>,
-    active_control: Option<ModelRequestControl>,
-    worker: Option<JoinHandle<()>>,
-}
-
-impl TuiRuntime {
-    fn start(mut engine: SessionEngine) -> Self {
-        let (request_sender, request_receiver) = mpsc::channel::<TuiRuntimeRequest>();
-        let (event_sender, event_receiver) = mpsc::channel::<TurnControllerEvent>();
-        let worker_event_sender = event_sender.clone();
-        let worker = thread::spawn(move || {
-            while let Ok(request) = request_receiver.recv() {
-                match request {
-                    TuiRuntimeRequest::ProcessCommand { command, response } => {
-                        let output = process_runtime_command(&mut engine, &command);
-                        let _ = response.send(output);
-                    }
-                    TuiRuntimeRequest::StartProviderTurn { input, control } => {
-                        let event_sender = worker_event_sender.clone();
-                        let mut approver = |prompt: PermissionPrompt| {
-                            let (response_sender, response_receiver) = mpsc::channel();
-                            let event = TurnControllerEvent::Approval {
-                                prompt,
-                                response: response_sender,
-                            };
-                            if event_sender.send(event).is_err() {
-                                return ApprovalResponse {
-                                    approved: false,
-                                    feedback: Some("TUI approval channel closed".to_string()),
-                                };
-                            }
-                            response_receiver.recv().unwrap_or(ApprovalResponse {
-                                approved: false,
-                                feedback: Some("TUI approval response channel closed".to_string()),
-                            })
-                        };
-                        let result = engine
-                            .process_input_with_approval_and_control(
-                                &input,
-                                &mut approver,
-                                &control,
-                            )
-                            .map(|events| TuiRuntimeOutput {
-                                events,
-                                snapshot: TuiRuntimeSnapshot::from_engine(&engine),
-                            })
-                            .map_err(|error| {
-                                Box::new(TuiRuntimeFailure {
-                                    error,
-                                    snapshot: TuiRuntimeSnapshot::from_engine(&engine),
-                                })
-                            });
-                        let _ = event_sender.send(TurnControllerEvent::Finished(Box::new(result)));
-                    }
-                    TuiRuntimeRequest::SpawnDiagnostics { paths, response } => {
-                        let diagnostics = if paths.is_empty() {
-                            None
-                        } else {
-                            Some(engine.spawn_lsp_diagnostics_snapshot(paths))
-                        };
-                        let _ = response.send(diagnostics);
-                    }
-                    TuiRuntimeRequest::Shutdown => break,
-                }
-            }
-        });
-        Self {
-            requests: request_sender,
-            event_sender,
-            events: event_receiver,
-            active_control: None,
-            worker: Some(worker),
-        }
-    }
-
-    fn process_command(&self, command: &str) -> TuiRuntimeResult {
-        let (sender, receiver) = mpsc::channel();
-        self.requests
-            .send(TuiRuntimeRequest::ProcessCommand {
-                command: command.to_string(),
-                response: sender,
-            })
-            .map_err(|err| {
-                Box::new(TuiRuntimeFailure {
-                    error: format!("runtime worker stopped: {err}"),
-                    snapshot: TuiRuntimeSnapshot::empty(),
-                })
-            })?;
-        receiver.recv().unwrap_or_else(|err| {
-            Err(Box::new(TuiRuntimeFailure {
-                error: format!("runtime worker response failed: {err}"),
-                snapshot: TuiRuntimeSnapshot::empty(),
-            }))
-        })
     }
 
     fn start_provider_turn(&mut self, input: String) -> Result<(), String> {
-        if self.active_control.is_some() {
+        if self.is_turn_active() {
             return Err("provider turn is already active".to_string());
         }
-        let event_sender = self.event_sender.clone();
-        let control = ModelRequestControl::with_streaming_sink(true, move |delta| {
-            let _ = event_sender.send(TurnControllerEvent::StreamDelta(delta));
-        });
-        self.requests
-            .send(TuiRuntimeRequest::StartProviderTurn {
-                input,
-                control: control.clone(),
-            })
-            .map_err(|err| err.to_string())?;
-        self.active_control = Some(control);
+        self.send_text_input(input)?;
+        self.active_turn_requested = true;
         Ok(())
     }
 
-    fn cancel_active_turn(&self) {
-        if let Some(control) = &self.active_control {
-            control.cancel();
-        }
+    fn send_text_input(&mut self, input: String) -> Result<String, String> {
+        let command_id = self.next_command_id("input");
+        self.supervisor.send_command(
+            command_id.clone(),
+            RuntimeCommand::SubmitUserInput { content: input },
+        )?;
+        Ok(command_id)
+    }
+
+    fn send_command(&mut self, command: RuntimeCommand) -> Result<String, String> {
+        let command_id = self.next_command_id("cmd");
+        self.supervisor.send_command(command_id.clone(), command)?;
+        Ok(command_id)
+    }
+
+    fn cancel_active_turn(&mut self) {
+        let _ = self.send_command(RuntimeCommand::CancelActiveTurn);
+    }
+
+    fn respond_to_approval(&mut self, request_id: String, response: ApprovalResponse) {
+        let _ = self.send_command(RuntimeCommand::RespondToApproval {
+            request_id,
+            response,
+        });
     }
 
     fn is_turn_active(&self) -> bool {
-        self.active_control.is_some()
+        self.active_turn_requested || self.supervisor.is_turn_active()
     }
 
-    fn poll_event(&mut self) -> Option<TurnControllerEvent> {
-        match self.events.try_recv() {
-            Ok(TurnControllerEvent::Finished(result)) => {
-                self.active_control = None;
-                Some(TurnControllerEvent::Finished(result))
-            }
-            Ok(event) => Some(event),
-            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => None,
-        }
+    fn poll_event(&mut self) -> Option<RuntimeEvent> {
+        let event = self.supervisor.try_recv_event()?;
+        self.view_state.apply_event(&event);
+        Some(event)
     }
 
-    fn spawn_diagnostics(&self, paths: Vec<String>) -> Option<Receiver<Option<String>>> {
-        let (sender, receiver) = mpsc::channel();
-        self.requests
-            .send(TuiRuntimeRequest::SpawnDiagnostics {
-                paths,
-                response: sender,
-            })
-            .ok()?;
-        receiver.recv().ok().flatten()
+    fn note_turn_finished(&mut self) {
+        self.active_turn_requested = false;
+        self.view_state.assistant_stream.clear();
     }
-}
 
-impl Drop for TuiRuntime {
-    fn drop(&mut self) {
-        let _ = self.requests.send(TuiRuntimeRequest::Shutdown);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+    fn next_command_id(&mut self, prefix: &str) -> String {
+        let id = self.next_command;
+        self.next_command += 1;
+        format!("{prefix}-{id}")
     }
-}
-
-fn process_runtime_command(engine: &mut SessionEngine, command: &str) -> TuiRuntimeResult {
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
-    engine
-        .process_input_with_approval(command, &mut approver)
-        .map(|events| TuiRuntimeOutput {
-            events,
-            snapshot: TuiRuntimeSnapshot::from_engine(engine),
-        })
-        .map_err(|error| {
-            Box::new(TuiRuntimeFailure {
-                error,
-                snapshot: TuiRuntimeSnapshot::from_engine(engine),
-            })
-        })
 }
 
 struct ActiveApproval {
-    prompt: PermissionPrompt,
-    // Provider workers wait on this sender while the TUI main loop keeps
-    // processing resize, scroll, mouse, and approval key events.
-    response: Sender<ApprovalResponse>,
+    approval: ApprovalRequestView,
 }
 
 pub fn run_tui_with_theme(
@@ -314,9 +130,8 @@ pub fn run_tui_with_theme(
         lanes,
         terminal.theme_name(),
     );
-    let mut runtime = TuiRuntime::start(engine);
+    let mut runtime = RuntimeClient::start(engine);
     terminal.draw(&state)?;
-    let mut background_diagnostics = None::<Receiver<Option<String>>>;
     let mut last_background_diagnostics = None::<Instant>;
     let mut active_approval = None::<ActiveApproval>;
 
@@ -329,7 +144,6 @@ pub fn run_tui_with_theme(
         )? {
             break;
         }
-        poll_background_diagnostics(&mut state, &mut background_diagnostics);
         // Poll instead of blocking forever so background lane artifacts can
         // repaint completion, failure, and log-tail state without a keypress.
         if !event::poll(Duration::from_millis(750)).map_err(|err| err.to_string())? {
@@ -344,12 +158,10 @@ pub fn run_tui_with_theme(
             refresh_lanes(&mut state);
             state.workspace.refresh_agent_jobs();
             maybe_start_background_diagnostics(
-                &runtime,
+                &mut runtime,
                 &state,
-                &mut background_diagnostics,
                 &mut last_background_diagnostics,
             );
-            poll_background_diagnostics(&mut state, &mut background_diagnostics);
             terminal.draw(&state)?;
             continue;
         }
@@ -360,13 +172,14 @@ pub fn run_tui_with_theme(
                 if handle_active_approval_mouse(
                     mouse,
                     &mut active_approval,
+                    &mut runtime,
                     &mut state,
                     &mut terminal,
                 )? {
                     terminal.draw(&state)?;
                     continue;
                 }
-                if handle_interaction_panel_mouse(&runtime, mouse, &mut state)? {
+                if handle_interaction_panel_mouse(&mut runtime, mouse, &mut state)? {
                     terminal.draw(&state)?;
                     continue;
                 }
@@ -388,7 +201,7 @@ pub fn run_tui_with_theme(
         if handle_active_approval_key(
             key,
             &mut active_approval,
-            &runtime,
+            &mut runtime,
             &mut state,
             &mut terminal,
         )? {
@@ -396,7 +209,7 @@ pub fn run_tui_with_theme(
             continue;
         }
         if state.interaction_panel.is_some() {
-            handle_interaction_panel_key(&runtime, key, &mut state)?;
+            handle_interaction_panel_key(&mut runtime, key, &mut state)?;
             terminal.draw(&state)?;
             continue;
         }
@@ -443,7 +256,7 @@ pub fn run_tui_with_theme(
             }
             KeyCode::Char('f')
                 if key.modifiers.contains(KeyModifiers::CONTROL)
-                    && favorite_selected_model(&runtime, &mut state)? =>
+                    && favorite_selected_model(&mut runtime, &mut state)? =>
             {
                 terminal.draw(&state)?;
                 continue;
@@ -485,7 +298,10 @@ pub fn run_tui_with_theme(
     terminal.leave()
 }
 
-fn favorite_selected_model(runtime: &TuiRuntime, state: &mut TuiState) -> Result<bool, String> {
+fn favorite_selected_model(
+    runtime: &mut RuntimeClient,
+    state: &mut TuiState,
+) -> Result<bool, String> {
     if !state.input.trim_start().starts_with("/models") {
         return Ok(false);
     }
@@ -504,16 +320,13 @@ fn favorite_selected_model(runtime: &TuiRuntime, state: &mut TuiState) -> Result
         });
         return Ok(true);
     }
-    let output = runtime
-        .process_command(&command)
-        .map_err(|failure| failure.error)?;
+    run_settings_command(runtime, state, &command)?;
     state.entries.push(TuiEntry {
         label: "settings".to_string(),
         body: format!(
             "Favorited `{model}` for `{provider_id}`. It will appear first in `/models`."
         ),
     });
-    apply_runtime_output(state, output);
     state.command_selection = 0;
     Ok(true)
 }
@@ -562,7 +375,7 @@ fn scroll_transcript(state: &mut TuiState, delta: isize) {
 }
 
 fn handle_interaction_panel_mouse(
-    runtime: &TuiRuntime,
+    runtime: &mut RuntimeClient,
     mouse: MouseEvent,
     state: &mut TuiState,
 ) -> Result<bool, String> {
@@ -587,7 +400,7 @@ fn handle_interaction_panel_mouse(
 }
 
 fn handle_interaction_panel_key(
-    runtime: &TuiRuntime,
+    runtime: &mut RuntimeClient,
     key: KeyEvent,
     state: &mut TuiState,
 ) -> Result<(), String> {
@@ -735,7 +548,7 @@ fn initial_state(
 }
 
 fn handle_enter(
-    runtime: &mut TuiRuntime,
+    runtime: &mut RuntimeClient,
     state: &mut TuiState,
     terminal: &mut TerminalGuard,
 ) -> Result<bool, String> {
@@ -745,7 +558,7 @@ fn handle_enter(
 }
 
 fn handle_submitted_input(
-    runtime: &mut TuiRuntime,
+    runtime: &mut RuntimeClient,
     state: &mut TuiState,
     terminal: &mut TerminalGuard,
     input: String,
@@ -859,53 +672,70 @@ fn restore_first_queued_input(state: &mut TuiState, queued_inputs: Vec<String>) 
 }
 
 fn poll_turn_controller_events(
-    runtime: &mut TuiRuntime,
+    runtime: &mut RuntimeClient,
     state: &mut TuiState,
     active_approval: &mut Option<ActiveApproval>,
     terminal: &mut TerminalGuard,
 ) -> Result<bool, String> {
     let mut should_exit = false;
+    let mut saw_event = false;
+    let mut turn_error = None::<String>;
     while let Some(event) = runtime.poll_event() {
-        match event {
-            TurnControllerEvent::Approval { prompt, response } => {
+        saw_event = true;
+        if let RuntimeEventKind::Error { error } = &event.kind {
+            turn_error = Some(error.message.clone());
+        }
+        match &event.kind {
+            RuntimeEventKind::ApprovalRequested { approval } => {
                 if active_approval.is_some() {
-                    let _ = response.send(ApprovalResponse {
-                        approved: false,
-                        feedback: Some("another approval is already pending".to_string()),
-                    });
+                    runtime.respond_to_approval(
+                        approval.id.clone(),
+                        ApprovalResponse {
+                            approved: false,
+                            feedback: Some("another approval is already pending".to_string()),
+                        },
+                    );
                 } else {
-                    *active_approval = Some(begin_active_approval(prompt, response, state));
+                    *active_approval = Some(begin_active_approval(approval.clone(), state));
                 }
             }
-            TurnControllerEvent::StreamDelta(delta) => {
-                append_streaming_assistant_delta(state, &delta);
+            RuntimeEventKind::AssistantDelta {
+                message_id,
+                content,
+                ..
+            } if message_id.starts_with("stream-") => {
+                append_streaming_assistant_delta(state, content);
             }
-            TurnControllerEvent::Finished(result) => {
-                let queued_inputs = take_queued_inputs(state);
-                state.pending_turn = None;
-                state.streaming_assistant = None;
-                *active_approval = None;
-                match *result {
-                    Ok(output) => apply_runtime_output(state, output),
-                    Err(failure) => {
-                        apply_runtime_failure(state, *failure);
-                        restore_first_queued_input(state, queued_inputs);
-                        continue;
-                    }
+            _ => {}
+        }
+        apply_runtime_event_to_tui(state, &event, &runtime.view_state);
+    }
+    if saw_event && state.pending_turn.is_some() && !runtime.supervisor.is_turn_active() {
+        let queued_inputs = take_queued_inputs(state);
+        state.streaming_assistant = None;
+        state.pending_turn = None;
+        *active_approval = None;
+        runtime.note_turn_finished();
+        sync_state_from_runtime_view(state, &runtime.view_state);
+        if let Some(error) = turn_error {
+            state.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: render_provider_turn_error(&error),
+            });
+            restore_first_queued_input(state, queued_inputs);
+            return Ok(false);
+        }
+        let mut queued_inputs = queued_inputs.into_iter();
+        while let Some(queued_input) = queued_inputs.next() {
+            if handle_submitted_input(runtime, state, terminal, queued_input)? {
+                should_exit = true;
+                break;
+            }
+            if runtime.is_turn_active() {
+                if let Some(turn) = state.pending_turn.as_mut() {
+                    turn.queued_inputs.extend(queued_inputs);
                 }
-                let mut queued_inputs = queued_inputs.into_iter();
-                while let Some(queued_input) = queued_inputs.next() {
-                    if handle_submitted_input(runtime, state, terminal, queued_input)? {
-                        should_exit = true;
-                        break;
-                    }
-                    if runtime.is_turn_active() {
-                        if let Some(turn) = state.pending_turn.as_mut() {
-                            turn.queued_inputs.extend(queued_inputs);
-                        }
-                        break;
-                    }
-                }
+                break;
             }
         }
     }
@@ -924,7 +754,7 @@ fn render_provider_turn_error(err: &str) -> String {
 }
 
 fn handle_immediate_runtime_command(
-    runtime: &TuiRuntime,
+    runtime: &mut RuntimeClient,
     state: &mut TuiState,
     input: &str,
 ) -> Result<bool, String> {
@@ -985,33 +815,123 @@ fn is_slash_command(input: &str) -> bool {
     input.trim_start().starts_with('/')
 }
 
-fn sync_state_from_runtime_snapshot(state: &mut TuiState, snapshot: TuiRuntimeSnapshot) {
-    state.provider = snapshot.provider;
-    state.model = snapshot.model;
-    state.provider_catalog = snapshot.provider_catalog;
-    state.provider_status = snapshot.provider_status;
-    state.provider_status.work_mode = snapshot.work_mode;
-    state.provider_status.permission_level = snapshot.permission_level;
-    state.tasks = snapshot.tasks;
-    state.runtime_tasks = snapshot.runtime_tasks;
-    state.memory = snapshot.memory;
+fn sync_state_from_runtime_view(state: &mut TuiState, view: &RuntimeViewState) {
+    state.provider = view.snapshot.provider_family.clone();
+    state.model = view.snapshot.model_label.clone();
+    state.provider_status.work_mode = view.snapshot.work_mode;
+    state.provider_status.permission_level = view.snapshot.permission_level;
+    state.runtime_tasks = view.tasks.clone();
+    if let Some(provider) = &view.provider {
+        state.provider_status.connection = provider.status.clone();
+        state.provider_status.request_count = provider.request_count;
+        state.provider_status.failure_count = provider.error_count;
+        state.provider_status.success_count =
+            provider.request_count.saturating_sub(provider.error_count);
+        state.provider_status.last_latency_ms = provider.last_latency_ms.map(u128::from);
+        state.provider_status.average_latency_ms = provider.average_latency_ms.map(u128::from);
+        state.provider_status.last_tokens_per_second = provider.tokens_per_second;
+        state.provider_status.telemetry = format!(
+            "{} req / {} ok / {} err",
+            state.provider_status.request_count,
+            state.provider_status.success_count,
+            state.provider_status.failure_count
+        );
+    }
+    if let Some(cost) = &view.token_cost {
+        state.provider_status.last_input_tokens = Some(cost.input_tokens);
+        state.provider_status.last_output_tokens = Some(cost.output_tokens);
+        state.provider_status.last_total_tokens = Some(cost.total_tokens);
+        state.provider_status.total_tokens = cost.total_tokens;
+        state.provider_status.last_cost_micro_usd = cost.cost_micro_usd;
+        state.provider_status.total_cost_micro_usd = cost.cost_micro_usd;
+    }
+    if let Some(error) = view.errors.last() {
+        state.provider_status.last_error = Some(error.message.clone());
+    }
     state.workspace = WorkspaceSnapshot::load_current();
 }
 
-fn apply_runtime_output(state: &mut TuiState, output: TuiRuntimeOutput) {
-    state
-        .entries
-        .extend(output.events.into_iter().map(entry_from_event));
+fn apply_runtime_event_to_tui(state: &mut TuiState, event: &RuntimeEvent, view: &RuntimeViewState) {
+    let defer_streaming_entry = state.pending_turn.is_some()
+        && matches!(
+            &event.kind,
+            RuntimeEventKind::AssistantDelta { message_id, .. }
+                if message_id.starts_with("stream-")
+        );
+    if !defer_streaming_entry && let Some(entry) = entry_from_runtime_event(event) {
+        state.entries.push(entry);
+    }
     refresh_diagnostics_cache(state);
-    sync_state_from_runtime_snapshot(state, output.snapshot);
+    sync_state_from_runtime_view(state, view);
 }
 
-fn apply_runtime_failure(state: &mut TuiState, failure: TuiRuntimeFailure) {
-    state.entries.push(TuiEntry {
-        label: "system".to_string(),
-        body: render_provider_turn_error(&failure.error),
-    });
-    sync_state_from_runtime_snapshot(state, failure.snapshot);
+fn entry_from_runtime_event(event: &RuntimeEvent) -> Option<TuiEntry> {
+    match &event.kind {
+        RuntimeEventKind::AssistantDelta { content, .. } => Some(TuiEntry {
+            label: "assistant".to_string(),
+            body: content.clone(),
+        }),
+        RuntimeEventKind::ToolCallStarted {
+            name,
+            input_preview,
+            ..
+        } => Some(TuiEntry {
+            label: "tool-call".to_string(),
+            body: format!("{name} {input_preview}").trim().to_string(),
+        }),
+        RuntimeEventKind::ToolCallFinished {
+            name,
+            success,
+            exit_code,
+            evidence,
+            ..
+        } => Some(TuiEntry {
+            label: "tool-result".to_string(),
+            body: evidence
+                .as_ref()
+                .map(|evidence| evidence.summary.clone())
+                .unwrap_or_else(|| {
+                    format!(
+                        "{name} completed success={success}{}",
+                        exit_code
+                            .map(|code| format!(" exit_code={code}"))
+                            .unwrap_or_default()
+                    )
+                }),
+        }),
+        RuntimeEventKind::ApprovalResolved {
+            request_id,
+            approved,
+        } => Some(TuiEntry {
+            label: "approval".to_string(),
+            body: format!(
+                "{} `{request_id}`.",
+                if *approved { "Approved" } else { "Denied" }
+            ),
+        }),
+        RuntimeEventKind::CommandRejected { command_id, reason } => Some(TuiEntry {
+            label: "system".to_string(),
+            body: format!("Command `{command_id}` rejected: {reason}"),
+        }),
+        RuntimeEventKind::EvidenceRecorded { evidence } => Some(TuiEntry {
+            label: evidence.kind.clone(),
+            body: evidence.summary.clone(),
+        }),
+        RuntimeEventKind::Error { error } => Some(TuiEntry {
+            label: "system".to_string(),
+            body: error.message.clone(),
+        }),
+        RuntimeEventKind::SnapshotUpdated { .. }
+        | RuntimeEventKind::ApprovalRequested { .. }
+        | RuntimeEventKind::CommandAccepted { .. }
+        | RuntimeEventKind::InputQueued { .. }
+        | RuntimeEventKind::InputDequeued { .. }
+        | RuntimeEventKind::TaskUpdated { .. }
+        | RuntimeEventKind::LaneUpdated { .. }
+        | RuntimeEventKind::ContextUpdated { .. }
+        | RuntimeEventKind::ProviderHealthUpdated { .. }
+        | RuntimeEventKind::TokenCostUpdated { .. } => None,
+    }
 }
 
 fn handle_local_setting_command(
@@ -1109,7 +1029,7 @@ fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
 }
 
 fn apply_interaction_panel_selection(
-    runtime: &TuiRuntime,
+    runtime: &mut RuntimeClient,
     state: &mut TuiState,
 ) -> Result<(), String> {
     match state.interaction_panel.clone() {
@@ -1246,7 +1166,7 @@ fn apply_interaction_panel_selection(
 }
 
 fn run_settings_command(
-    runtime: &TuiRuntime,
+    runtime: &mut RuntimeClient,
     state: &mut TuiState,
     command: &str,
 ) -> Result<(), String> {
@@ -1257,11 +1177,58 @@ fn run_settings_command(
         });
         return Ok(());
     }
-    let output = runtime
-        .process_command(command)
-        .map_err(|failure| failure.error)?;
-    apply_runtime_output(state, output);
+    let command_id = runtime.send_text_input(command.to_string())?;
+    drain_runtime_events_for_command(runtime, state, &command_id);
     Ok(())
+}
+
+fn drain_runtime_events_for_command(
+    runtime: &mut RuntimeClient,
+    state: &mut TuiState,
+    command_id: &str,
+) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut saw_command_result = false;
+    while Instant::now() < deadline {
+        let Some(event) = runtime.poll_event() else {
+            if saw_command_result && !runtime.supervisor.is_turn_active() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandAccepted {
+                command_id: accepted,
+                ..
+            }
+            | RuntimeEventKind::CommandRejected {
+                command_id: accepted,
+                ..
+            } if accepted == command_id => {
+                saw_command_result = true;
+            }
+            RuntimeEventKind::ApprovalRequested { approval } => {
+                runtime.respond_to_approval(
+                    approval.id.clone(),
+                    ApprovalResponse {
+                        approved: false,
+                        feedback: Some("settings commands cannot prompt for approval".to_string()),
+                    },
+                );
+            }
+            _ => {}
+        }
+        apply_runtime_event_to_tui(state, &event, &runtime.view_state);
+    }
+    if !saw_command_result {
+        state.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: format!(
+                "`{command_id}` is still running; the TUI will update from runtime events."
+            ),
+        });
+    }
 }
 
 fn open_provider_model_panel(state: &mut TuiState, provider_id: String) {
@@ -1454,28 +1421,24 @@ fn apply_theme_command(
     Ok(())
 }
 
-fn begin_active_approval(
-    prompt: PermissionPrompt,
-    response: Sender<ApprovalResponse>,
-    state: &mut TuiState,
-) -> ActiveApproval {
+fn begin_active_approval(approval: ApprovalRequestView, state: &mut TuiState) -> ActiveApproval {
     state.approval_focus = DEFAULT_APPROVAL_FOCUS;
     state.approval_apply_all = false;
     state.entries.push(TuiEntry {
         label: "approval".to_string(),
         body: format!(
             "Permission request for `{}`\n{}\n{}\nPress y to allow, n/Esc to deny. Tab/arrows move, Enter activates, click buttons.",
-            prompt.tool_name, prompt.message, prompt.input_preview
+            approval.tool_name, approval.message, approval.input_preview
         ),
     });
-    mark_pending_turn_waiting_for_approval(state, &prompt);
-    ActiveApproval { prompt, response }
+    mark_pending_turn_waiting_for_approval(state, &approval);
+    ActiveApproval { approval }
 }
 
 fn handle_active_approval_key(
     key: KeyEvent,
     active_approval: &mut Option<ActiveApproval>,
-    runtime: &TuiRuntime,
+    runtime: &mut RuntimeClient,
     state: &mut TuiState,
     terminal: &mut TerminalGuard,
 ) -> Result<bool, String> {
@@ -1484,7 +1447,7 @@ fn handle_active_approval_key(
     }
     match apply_approval_key(key, state) {
         ApprovalKeyEffect::Resolve(approved) => {
-            resolve_active_approval(approved, active_approval, state);
+            resolve_active_approval(runtime, approved, active_approval, state);
             terminal.draw(state)?;
             Ok(true)
         }
@@ -1495,7 +1458,7 @@ fn handle_active_approval_key(
         ApprovalKeyEffect::None => match key.code {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 runtime.cancel_active_turn();
-                resolve_active_approval(false, active_approval, state);
+                resolve_active_approval(runtime, false, active_approval, state);
                 state.entries.push(TuiEntry {
                     label: "system".to_string(),
                     body: "Cancellation requested while approval was pending.".to_string(),
@@ -1538,6 +1501,7 @@ fn handle_active_approval_key(
 fn handle_active_approval_mouse(
     mouse: MouseEvent,
     active_approval: &mut Option<ActiveApproval>,
+    runtime: &mut RuntimeClient,
     state: &mut TuiState,
     terminal: &mut TerminalGuard,
 ) -> Result<bool, String> {
@@ -1570,7 +1534,7 @@ fn handle_active_approval_mouse(
     }
     match apply_approval_action(action, state) {
         ApprovalKeyEffect::Resolve(approved) => {
-            resolve_active_approval(approved, active_approval, state);
+            resolve_active_approval(runtime, approved, active_approval, state);
         }
         ApprovalKeyEffect::Redraw | ApprovalKeyEffect::None => {}
     }
@@ -1579,6 +1543,7 @@ fn handle_active_approval_mouse(
 }
 
 fn resolve_active_approval(
+    runtime: &mut RuntimeClient,
     approved: bool,
     active_approval: &mut Option<ActiveApproval>,
     state: &mut TuiState,
@@ -1594,15 +1559,18 @@ fn resolve_active_approval(
     };
     state.entries.push(TuiEntry {
         label: "approval".to_string(),
-        body: format!("{verb} `{}`.{apply_all}", active.prompt.tool_name),
+        body: format!("{verb} `{}`.{apply_all}", active.approval.tool_name),
     });
     state.approval_focus = DEFAULT_APPROVAL_FOCUS;
     state.approval_apply_all = false;
     mark_pending_turn_waiting_for_provider(state);
-    let _ = active.response.send(ApprovalResponse {
-        approved,
-        feedback: None,
-    });
+    runtime.respond_to_approval(
+        active.approval.id,
+        ApprovalResponse {
+            approved,
+            feedback: None,
+        },
+    );
 }
 
 fn queue_active_turn_input(state: &mut TuiState) {
@@ -1633,9 +1601,9 @@ fn queued_prompt_count_label(count: usize) -> String {
     }
 }
 
-fn mark_pending_turn_waiting_for_approval(state: &mut TuiState, prompt: &PermissionPrompt) {
+fn mark_pending_turn_waiting_for_approval(state: &mut TuiState, approval: &ApprovalRequestView) {
     if let Some(turn) = state.pending_turn.as_mut() {
-        turn.phase = format!("Waiting for approval: {}", prompt.tool_name);
+        turn.phase = format!("Waiting for approval: {}", approval.tool_name);
         turn.next_action = "approve / deny".to_string();
     }
 }
@@ -1696,12 +1664,11 @@ fn provider_catalog(engine: &SessionEngine) -> Vec<ProviderOption> {
 }
 
 fn maybe_start_background_diagnostics(
-    runtime: &TuiRuntime,
+    runtime: &mut RuntimeClient,
     state: &TuiState,
-    pending: &mut Option<Receiver<Option<String>>>,
     last_started: &mut Option<Instant>,
 ) {
-    if pending.is_some() || runtime.is_turn_active() {
+    if runtime.is_turn_active() {
         return;
     }
     let now = Instant::now();
@@ -1715,7 +1682,7 @@ fn maybe_start_background_diagnostics(
         return;
     }
     *last_started = Some(now);
-    *pending = runtime.spawn_diagnostics(paths);
+    let _ = runtime.send_command(RuntimeCommand::RefreshDiagnostics { paths });
 }
 
 fn background_diagnostic_paths(workspace: &WorkspaceSnapshot) -> Vec<String> {
@@ -1728,38 +1695,6 @@ fn background_diagnostic_paths(workspace: &WorkspaceSnapshot) -> Vec<String> {
         .collect()
 }
 
-fn poll_background_diagnostics(
-    state: &mut TuiState,
-    pending: &mut Option<Receiver<Option<String>>>,
-) {
-    let Some(receiver) = pending.take() else {
-        return;
-    };
-    match receiver.try_recv() {
-        Ok(Some(rendered)) => persist_rendered_diagnostics(state, &rendered),
-        Ok(None) | Err(TryRecvError::Disconnected) => {}
-        Err(TryRecvError::Empty) => *pending = Some(receiver),
-    }
-}
-
-fn persist_rendered_diagnostics(state: &mut TuiState, rendered: &str) {
-    let entry = TuiEntry {
-        label: "command".to_string(),
-        body: rendered.to_string(),
-    };
-    let Some(diagnostics) = latest_lsp_diagnostics(&[entry]) else {
-        return;
-    };
-    if let Err(err) = save_diagnostics(&state.workspace.root, &diagnostics) {
-        state.entries.push(TuiEntry {
-            label: "system".to_string(),
-            body: format!("Failed to persist background LSP diagnostics: {err}"),
-        });
-        return;
-    }
-    state.workspace = WorkspaceSnapshot::load(state.workspace.root.clone());
-}
-
 fn refresh_diagnostics_cache(state: &mut TuiState) {
     let Some(diagnostics) = latest_lsp_diagnostics(&state.entries) else {
         return;
@@ -1769,7 +1704,9 @@ fn refresh_diagnostics_cache(state: &mut TuiState) {
             label: "system".to_string(),
             body: format!("Failed to persist LSP diagnostics: {err}"),
         });
+        return;
     }
+    state.workspace = WorkspaceSnapshot::load(state.workspace.root.clone());
 }
 
 fn is_exit_command(input: &str) -> bool {
@@ -1786,9 +1723,9 @@ mod tests {
         apply_composer_shortcut, background_diagnostic_paths, begin_active_approval,
         event_requires_repaint, filtered_interaction_models, handle_immediate_runtime_command,
         initial_state, is_exit_command, is_immediate_runtime_command, is_send_key, last_user_input,
-        open_local_picker_command, persist_rendered_diagnostics, push_composer_char,
-        queue_active_turn_input, refresh_diagnostics_cache, render_provider_turn_error,
-        resolve_active_approval, restore_first_queued_input, scroll_transcript,
+        open_local_picker_command, push_composer_char, queue_active_turn_input,
+        refresh_diagnostics_cache, render_provider_turn_error, resolve_active_approval,
+        restore_first_queued_input, scroll_transcript,
     };
     use crate::tui::state::{
         InteractionPanel, ProviderOption, ProviderStatus, TerminalLane, WorkspaceSnapshot,
@@ -1797,16 +1734,14 @@ mod tests {
     use std::{
         collections::VecDeque,
         fs,
-        sync::{
-            atomic::{AtomicU64, Ordering},
-            mpsc,
-        },
+        sync::atomic::{AtomicU64, Ordering},
         thread,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
     use viden_core::{ModelProvider, ModelRequestControl, ProviderAuthMode, SessionEngine};
     use viden_types::{
-        ModelEvent, ModelRequest, PermissionLevel, PermissionPrompt, ToolCall, ToolInput, WorkMode,
+        ApprovalRequestView, EvidenceView, ModelEvent, ModelRequest, PermissionLevel, ToolCall,
+        ToolInput, WorkMode,
     };
 
     #[test]
@@ -1837,10 +1772,11 @@ mod tests {
             model: "test-local".to_string(),
         });
         let engine = SessionEngine::new_with_home(&root, provider, Some(home)).unwrap();
-        let runtime = super::TuiRuntime::start(engine);
+        let mut runtime = super::RuntimeClient::start(engine);
         let mut state = test_state("");
 
-        let handled = handle_immediate_runtime_command(&runtime, &mut state, "/plan on").unwrap();
+        let handled =
+            handle_immediate_runtime_command(&mut runtime, &mut state, "/plan on").unwrap();
 
         assert!(handled);
         assert_eq!(state.input, "");
@@ -1874,28 +1810,28 @@ mod tests {
             model: "test-local".to_string(),
         });
         let engine = SessionEngine::new_with_home(&root, provider, Some(home)).unwrap();
-        let runtime = super::TuiRuntime::start(engine);
+        let mut runtime = super::RuntimeClient::start(engine);
         let mut state = test_state("");
 
-        super::run_settings_command(&runtime, &mut state, "/mode plan").unwrap();
+        super::run_settings_command(&mut runtime, &mut state, "/mode plan").unwrap();
         assert_eq!(state.provider_status.work_mode, WorkMode::Plan);
         assert_eq!(
             state.provider_status.permission_level,
             PermissionLevel::ReadOnly
         );
 
-        super::run_settings_command(&runtime, &mut state, "/mode build").unwrap();
+        super::run_settings_command(&mut runtime, &mut state, "/mode build").unwrap();
         assert_eq!(state.provider_status.work_mode, WorkMode::Build);
         assert_eq!(state.provider_status.permission_level, PermissionLevel::Ask);
 
-        super::run_settings_command(&runtime, &mut state, "/permissions auto_edit").unwrap();
+        super::run_settings_command(&mut runtime, &mut state, "/permissions auto_edit").unwrap();
         assert_eq!(state.provider_status.work_mode, WorkMode::Build);
         assert_eq!(
             state.provider_status.permission_level,
             PermissionLevel::AutoEdit
         );
 
-        super::run_settings_command(&runtime, &mut state, "/permissions ask").unwrap();
+        super::run_settings_command(&mut runtime, &mut state, "/permissions ask").unwrap();
         assert_eq!(state.provider_status.work_mode, WorkMode::Build);
         assert_eq!(state.provider_status.permission_level, PermissionLevel::Ask);
     }
@@ -2035,7 +1971,7 @@ mod tests {
             delay: Duration::from_millis(180),
         });
         let engine = SessionEngine::new_with_home(&root, provider, Some(home)).unwrap();
-        let mut runtime = super::TuiRuntime::start(engine);
+        let mut runtime = super::RuntimeClient::start(engine);
 
         let started = Instant::now();
         runtime
@@ -2049,25 +1985,23 @@ mod tests {
         assert!(runtime.is_turn_active());
         assert!(runtime.poll_event().is_none());
 
-        let mut finished = None;
+        let mut saw_assistant = false;
         for _ in 0..20 {
-            if let Some(super::TurnControllerEvent::Finished(result)) = runtime.poll_event() {
-                finished = Some(result);
+            if let Some(event) = runtime.poll_event()
+                && matches!(
+                    event.kind,
+                    viden_types::RuntimeEventKind::AssistantDelta { ref content, .. }
+                        if content.contains("slow provider done")
+                )
+            {
+                saw_assistant = true;
                 break;
             }
             thread::sleep(Duration::from_millis(20));
         }
 
-        let output = match *finished.expect("provider turn should finish") {
-            Ok(output) => output,
-            Err(failure) => panic!("provider turn should succeed: {}", failure.error),
-        };
-        assert!(
-            output
-                .events
-                .iter()
-                .any(|event| matches!(event, viden_core::EngineEvent::Assistant(content) if content.contains("slow provider done")))
-        );
+        assert!(saw_assistant);
+        runtime.note_turn_finished();
         assert!(!runtime.is_turn_active());
     }
 
@@ -2077,7 +2011,7 @@ mod tests {
         let home = root.join("session-home");
         let provider = Box::new(CodingLoopProvider::new());
         let engine = SessionEngine::new_with_home(&root, provider, Some(home)).unwrap();
-        let mut runtime = super::TuiRuntime::start(engine);
+        let mut runtime = super::RuntimeClient::start(engine);
         let mut terminal = super::TerminalGuard::test();
         let mut state = test_state("");
         let mut active_approval = None;
@@ -2118,7 +2052,7 @@ mod tests {
             )
             .unwrap();
             if active_approval.is_some() {
-                resolve_active_approval(true, &mut active_approval, &mut state);
+                resolve_active_approval(&mut runtime, true, &mut active_approval, &mut state);
             }
             if !runtime.is_turn_active()
                 && state.pending_turn.is_none()
@@ -2213,18 +2147,18 @@ mod tests {
             "edit file",
             "/tmp/project",
         ));
-        let (sender, receiver) = mpsc::channel();
-        let prompt = PermissionPrompt {
-            tool_name: "write_file".to_string(),
-            message: "Allow write?".to_string(),
-            input_preview: "path=src/lib.rs".to_string(),
-        };
-        let mut active = Some(begin_active_approval(prompt, sender, &mut state));
+        let root = temp_app_root();
+        let home = root.join("session-home");
+        let provider = Box::new(TestProvider {
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+        });
+        let engine = SessionEngine::new_with_home(&root, provider, Some(home)).unwrap();
+        let mut runtime = super::RuntimeClient::start(engine);
+        let mut active = Some(begin_active_approval(test_approval_view(), &mut state));
 
-        resolve_active_approval(true, &mut active, &mut state);
+        resolve_active_approval(&mut runtime, true, &mut active, &mut state);
 
-        let response = receiver.try_recv().expect("approval response");
-        assert!(response.approved);
         assert!(active.is_none());
         assert!(
             state
@@ -2251,7 +2185,7 @@ mod tests {
             model: "test-local".to_string(),
         });
         let engine = SessionEngine::new_with_home(&root, provider, Some(home)).unwrap();
-        let runtime = super::TuiRuntime::start(engine);
+        let mut runtime = super::RuntimeClient::start(engine);
         let mut terminal = super::TerminalGuard::test();
         let mut state = test_state("");
         state.pending_turn = Some(super::PendingTurn::new(
@@ -2261,18 +2195,12 @@ mod tests {
             "edit file",
             "/tmp/project",
         ));
-        let (sender, _receiver) = mpsc::channel();
-        let prompt = PermissionPrompt {
-            tool_name: "write_file".to_string(),
-            message: "Allow write?".to_string(),
-            input_preview: "path=src/lib.rs".to_string(),
-        };
-        let mut active = Some(begin_active_approval(prompt, sender, &mut state));
+        let mut active = Some(begin_active_approval(test_approval_view(), &mut state));
 
         let handled = super::handle_active_approval_key(
             KeyEvent::new(KeyCode::Char('f'), KeyModifiers::empty()),
             &mut active,
-            &runtime,
+            &mut runtime,
             &mut state,
             &mut terminal,
         )
@@ -2612,7 +2540,7 @@ mod tests {
     }
 
     #[test]
-    fn persist_rendered_diagnostics_updates_workspace_cache() {
+    fn runtime_lsp_diagnostics_evidence_updates_workspace_cache() {
         let root = temp_app_root();
         let mut workspace = WorkspaceSnapshot::fixture();
         workspace.root = root.clone();
@@ -2643,10 +2571,23 @@ mod tests {
             interaction_panel: None,
         };
 
-        persist_rendered_diagnostics(
-            &mut state,
-            "LSP diagnostics:\nsrc/lib.rs:\n  3:1 warning [fake/W1] note",
+        let event = viden_types::RuntimeEvent::new(
+            1,
+            viden_types::RuntimeEventKind::EvidenceRecorded {
+                evidence: EvidenceView {
+                    id: "diagnostics-test".to_string(),
+                    kind: "lsp_diagnostics".to_string(),
+                    summary: "LSP diagnostics:\nsrc/lib.rs:\n  3:1 warning [fake/W1] note"
+                        .to_string(),
+                    path: None,
+                    source: Some("runtime".to_string()),
+                    timestamp: None,
+                },
+            },
         );
+        let entry = super::entry_from_runtime_event(&event).expect("diagnostics evidence entry");
+        state.entries.push(entry);
+        refresh_diagnostics_cache(&mut state);
 
         assert_eq!(
             state.workspace.diagnostics,
@@ -2693,6 +2634,18 @@ mod tests {
         let root = std::env::temp_dir().join(format!("robocode-tui-app-test-{nanos}-{suffix}"));
         fs::create_dir_all(&root).expect("temp root");
         root
+    }
+
+    fn test_approval_view() -> ApprovalRequestView {
+        ApprovalRequestView {
+            id: "approval-test".to_string(),
+            tool_name: "write_file".to_string(),
+            title: "Approve write_file".to_string(),
+            message: "Allow write?".to_string(),
+            input_preview: "path=src/lib.rs".to_string(),
+            is_mutating: true,
+            reason: Some("Allow write?".to_string()),
+        }
     }
 
     struct TestProvider {

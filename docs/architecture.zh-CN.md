@@ -128,6 +128,9 @@ flowchart TB
   它拥有 `SessionEngine`、接收 `RuntimeCommand`、发出有序 `RuntimeEvent`，
   通过 `ModelRequestControl` 取消运行中的 provider turn，并通过 pending approval
   channels 处理审批响应。
+- 节流 LSP diagnostics refresh 这类后台只读检查也必须通过 `RuntimeCommand`
+  进入 runtime，并以 `RuntimeEvent` evidence 返回。UI client 不能直接调用
+  `SessionEngine` diagnostics helper。
 - 后续 TUI 和 GUI 代码必须消费这个 contract，而不是直接拥有 provider loop、
   tool execution、permission decision、task state 或 provider telemetry。
 
@@ -137,8 +140,8 @@ flowchart TB
 当前 client-boundary 状态：
 
 - `apps/tui` 现在依赖 `viden-core`，不再直接依赖 `viden-runtime` 或
-  `viden-provider`。在 TUI 迁移到纯 `RuntimeCommand` / `RuntimeEvent` 前，
-  `viden-core` 会暂时重导出部分 bridge-stage 类型。
+  `viden-provider`。TUI runtime client 持有 `RuntimeSupervisor`，发送
+  `RuntimeCommand`，drain `RuntimeEvent`，并通过 `RuntimeViewState` 同步可见状态。
 - `apps/gui` 已进入 workspace，作为最小 contract consumer。第一条测试会把
   `crates/types/tests/fixtures/runtime-contract-phase2.json` replay 成
   `RuntimeViewState`。

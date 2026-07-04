@@ -31,14 +31,14 @@ Out of scope for this branch:
 | Runtime schema | `viden-types/src/runtime.rs` defines `RuntimeCommand`, `RuntimeEventKind`, `RuntimeViewState`, approvals, evidence, provider health, cost, tool calls, tasks, lanes | Done |
 | Runtime replay reducer | `RuntimeViewState::apply_event` and `viden-types` tests replay snapshot, approvals, tasks, queued input, lane, evidence, provider, and cost facts | Done |
 | Core bridge | `SessionEngine::runtime_snapshot`, `runtime_view_state`, `runtime_events_for_engine_events`, `handle_runtime_command`, and `process_runtime_input_with_approval` | Done |
-| Command bus | Tests cover user input, queued follow-up, mode switching, permission-level switching, provider config, model selection, active model activation/deactivation | Done |
+| Command bus | Tests cover user input, queued follow-up, mode switching, permission-level switching, provider config, model selection, active model activation/deactivation, and LSP diagnostics refresh | Done |
 | Plan-mode mutation safety | Existing permission and workflow tests cover mutating tool denial and workflow task mutation denial while plan mode is active | Done |
 | Supervisor boundary | `RuntimeSupervisor` tests cover active provider cancellation and approval response delivery without TUI coupling | Done |
 | Permission/mode contract | `runtime_command_bus_covers_plan_build_review_permission_contract` covers plan/review/explore read-only behavior and build restoration to ask | Done |
 | Lane facts emitted by core | `runtime_view_state_emits_lane_facts_from_core_store` proves `.robocode/lanes.tsv` is projected into `LaneUpdated` runtime facts without TUI code | Done |
 | Provider/model, approval, lane, task, cost, evidence fixture | `crates/types/tests/fixtures/runtime-contract-phase2.json` plus fixture replay test | Done |
 | Process-plugin protocol draft | `docs/process-plugin-protocol.md` and Chinese counterpart | Done |
-| Thin TUI client proof | Deferred to TUI client branch by phase constraint; current branch proves the shared fixture and API boundary only | Deferred |
+| Thin TUI client proof | `apps/tui` now wraps `RuntimeSupervisor`, sends `RuntimeCommand`, drains `RuntimeEvent`, and projects `RuntimeViewState` into TUI state; workspace guard rejects private TUI runtime workers | Done |
 | GUI API proof | Documented through runtime schema, fixture, GUI functional design, and process-plugin draft; executable GUI client tests wait for GUI branch | Deferred |
 
 ## Verification Snapshot

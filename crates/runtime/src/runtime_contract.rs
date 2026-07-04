@@ -238,6 +238,25 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
+            RuntimeCommand::RefreshDiagnostics { paths } => {
+                let receiver = self.spawn_lsp_diagnostics_snapshot(paths);
+                match receiver.recv() {
+                    Ok(Some(rendered)) => {
+                        push_evidence_event(&mut events, "lsp_diagnostics", rendered)
+                    }
+                    Ok(None) => push_evidence_event(
+                        &mut events,
+                        "lsp_diagnostics",
+                        "LSP diagnostics:\n  <unavailable>".to_string(),
+                    ),
+                    Err(err) => {
+                        return Ok(vec![command_rejected(
+                            command_id,
+                            format!("failed to read LSP diagnostics: {err}"),
+                        )]);
+                    }
+                }
+            }
             RuntimeCommand::CancelActiveTurn | RuntimeCommand::RespondToApproval { .. } => {
                 return Ok(vec![command_rejected(
                     command_id,

@@ -42,6 +42,9 @@ pub enum RuntimeCommand {
         provider_id: String,
         model: String,
     },
+    RefreshDiagnostics {
+        paths: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -151,6 +151,17 @@ impl RuntimeSupervisor {
     pub fn recv_event_timeout(&self, timeout: Duration) -> Option<RuntimeEvent> {
         self.events.recv_timeout(timeout).ok()
     }
+
+    pub fn try_recv_event(&self) -> Option<RuntimeEvent> {
+        self.events.try_recv().ok()
+    }
+
+    pub fn is_turn_active(&self) -> bool {
+        self.active_control
+            .lock()
+            .map(|slot| slot.is_some())
+            .unwrap_or(false)
+    }
 }
 
 impl Drop for RuntimeSupervisor {
@@ -223,7 +234,20 @@ fn run_supervised_input(
         },
     );
 
-    let control = ModelRequestControl::new();
+    let stream_message_id = fresh_id("stream");
+    let stream_sender = event_sender.clone();
+    let stream_sequence = Arc::clone(sequence);
+    let control = ModelRequestControl::with_streaming_sink(true, move |delta| {
+        emit_event(
+            &stream_sender,
+            &stream_sequence,
+            RuntimeEventKind::AssistantDelta {
+                message_id: stream_message_id.clone(),
+                task_id: None,
+                content: delta,
+            },
+        );
+    });
     if let Ok(mut slot) = active_control.lock() {
         *slot = Some(control.clone());
     }

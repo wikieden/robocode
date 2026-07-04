@@ -431,6 +431,40 @@ fn runtime_command_bus_configures_provider_and_active_models() {
 }
 
 #[test]
+fn runtime_command_bus_refreshes_lsp_diagnostics_as_evidence() {
+    let cwd = temp_dir("runtime_command_lsp_cwd");
+    let home = temp_dir("runtime_command_lsp_home");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    fs::write(cwd.join("src/lib.rs"), "pub fn demo() {}\n").unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_lsp",
+            RuntimeCommand::RefreshDiagnostics {
+                paths: vec!["src/lib.rs".to_string()],
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_strictly_increasing_sequences(&events);
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::EvidenceRecorded { evidence }
+                if evidence.kind == "lsp_diagnostics"
+                    && evidence.summary.contains("LSP diagnostics")
+        )
+    }));
+}
+
+#[test]
 fn runtime_view_state_emits_lane_facts_from_core_store() {
     let cwd = temp_dir("runtime_contract_lane_cwd");
     let home = temp_dir("runtime_contract_lane_home");

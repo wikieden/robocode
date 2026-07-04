@@ -141,6 +141,9 @@ or GUI implementation work:
   `RuntimeEvent` values, cancels active provider turns through
   `ModelRequestControl`, and resolves approvals through pending approval
   channels.
+- Background read-only checks, such as throttled LSP diagnostics refreshes,
+  also enter through `RuntimeCommand` and return as `RuntimeEvent` evidence.
+  UI clients must not call `SessionEngine` diagnostics helpers directly.
 - Future TUI and GUI code must consume this contract instead of directly owning
   provider loops, tool execution, permission decisions, task state, or
   provider telemetry.
@@ -151,9 +154,9 @@ to run while contract tests freeze the facts that multiple frontends will share.
 Current client-boundary status:
 
 - `apps/tui` now depends on `viden-core` instead of direct `viden-runtime` or
-  `viden-provider` dependencies. Some bridge-stage types are still re-exported
-  by `viden-core` for compatibility while the TUI migrates toward pure
-  `RuntimeCommand` / `RuntimeEvent` usage.
+  `viden-provider` dependencies. Its runtime client owns a `RuntimeSupervisor`,
+  sends `RuntimeCommand`, drains `RuntimeEvent`, and keeps the visible state in
+  sync through `RuntimeViewState`.
 - `apps/gui` is part of the workspace as a minimal contract consumer. Its first
   test replays `crates/types/tests/fixtures/runtime-contract-phase2.json` into
   `RuntimeViewState`.

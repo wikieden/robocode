@@ -7,8 +7,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use viden_core::{EngineEvent, ProviderTelemetry};
-use viden_core::{ProviderAuthMode, ProviderDescriptor};
+use viden_core::{ProviderAuthMode, ProviderDescriptor, ProviderTelemetry};
 use viden_types::{
     AgentLaneRecord, AgentNextAction, AgentTaskRecord, MemoryEntry, PermissionLevel, TaskRecord,
     WorkMode,
@@ -2133,31 +2132,6 @@ impl RecentFile {
     }
 }
 
-pub(super) fn entry_from_event(event: EngineEvent) -> TuiEntry {
-    match event {
-        EngineEvent::System(text) => TuiEntry {
-            label: "system".to_string(),
-            body: text,
-        },
-        EngineEvent::Assistant(text) => TuiEntry {
-            label: "assistant".to_string(),
-            body: text,
-        },
-        EngineEvent::ToolCall(text) => TuiEntry {
-            label: "tool-call".to_string(),
-            body: text,
-        },
-        EngineEvent::ToolResult(text) => TuiEntry {
-            label: "tool-result".to_string(),
-            body: text,
-        },
-        EngineEvent::Command(text) => TuiEntry {
-            label: "command".to_string(),
-            body: text,
-        },
-    }
-}
-
 pub(super) fn latest_lsp_diagnostics(entries: &[TuiEntry]) -> Option<Vec<String>> {
     entries
         .iter()
@@ -2641,15 +2615,6 @@ fn json_number_field(value: &str, field: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use viden_core::EngineEvent;
-
-    #[test]
-    fn entry_from_event_preserves_command_output() {
-        let entry = entry_from_event(EngineEvent::Command("Provider registry:".to_string()));
-
-        assert_eq!(entry.label, "command");
-        assert_eq!(entry.body, "Provider registry:");
-    }
 
     #[test]
     fn latest_lsp_diagnostics_extracts_real_rendered_diagnostics() {

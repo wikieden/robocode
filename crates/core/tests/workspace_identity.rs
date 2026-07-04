@@ -268,3 +268,40 @@ fn active_ui_strings_use_viden_product_name() {
         );
     }
 }
+
+#[test]
+fn tui_uses_runtime_supervisor_contract_instead_of_private_runtime_worker() {
+    let root = workspace_root();
+    let content =
+        fs::read_to_string(root.join("apps/tui/src/tui/app.rs")).expect("read TUI app source");
+
+    for required in [
+        "RuntimeSupervisor",
+        "RuntimeCommand",
+        "RuntimeEvent",
+        "RuntimeViewState",
+    ] {
+        assert!(
+            content.contains(required),
+            "apps/tui should handle the shared runtime contract type `{required}`"
+        );
+    }
+
+    for forbidden in [
+        "struct TuiRuntime",
+        "enum TuiRuntimeRequest",
+        "struct TuiRuntimeSnapshot",
+        "TuiRuntimeOutput",
+        "TuiRuntimeFailure",
+        "TurnControllerEvent",
+        "process_runtime_command",
+        "process_input_with_approval(",
+        "process_input_with_approval_and_control(",
+        "Vec<viden_core::EngineEvent>",
+    ] {
+        assert!(
+            !content.contains(forbidden),
+            "apps/tui should not keep private runtime worker code or direct engine loop calls: found `{forbidden}`"
+        );
+    }
+}
