@@ -1,0 +1,65 @@
+<svg width="680" viewBox="0 0 680 430" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>Loop 就绪阶梯与放行条件</title>
+<desc>L0 到 L3 四级就绪阶梯,晋级条件标注在箭头旁;右侧为七安全件(L3 准入前置)、降级/停用与 kill switch。</desc>
+<style>
+text{font-family:-apple-system,'Segoe UI','PingFang SC','Noto Sans SC',sans-serif}
+.t{font-size:14px;fill:#2C2C2A}.th{font-size:14px;font-weight:500;fill:#2C2C2A}.ts{font-size:12px;fill:#5F5E5A}
+.arr{stroke:#888780;stroke-width:1.5;fill:none}
+.c-gray>rect{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:1}
+.c-gray>.th,.c-gray>.t{fill:#2C2C2A}.c-gray>.ts{fill:#5F5E5A}
+.c-amber>rect{fill:#FAEEDA;stroke:#854F0B;stroke-width:1}
+.c-amber>.th,.c-amber>.t{fill:#633806}.c-amber>.ts{fill:#854F0B}
+.c-coral>rect{fill:#FAECE7;stroke:#993C1D;stroke-width:1}
+.c-coral>.th,.c-coral>.t{fill:#712B13}.c-coral>.ts{fill:#993C1D}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect width="680" height="430" fill="#FAF9F5"/>
+
+<g class="c-gray"><rect x="60" y="40" width="200" height="56" rx="4"/>
+<text class="th" x="160" y="62" text-anchor="middle">L0 draft</text>
+<text class="ts" x="160" y="80" text-anchor="middle">保存不触发</text></g>
+
+<line class="arr" x1="160" y1="96" x2="160" y2="126" marker-end="url(#arrow)"/>
+<text class="ts" x="180" y="116">用户确认 scope · trigger · budget</text>
+
+<g class="c-gray"><rect x="60" y="128" width="200" height="64" rx="4"/>
+<text class="th" x="160" y="150" text-anchor="middle">L1 report</text>
+<text class="ts" x="160" y="168" text-anchor="middle">只产 findings · 不 mutation</text>
+<text class="ts" x="160" y="184" text-anchor="middle">新 loop 强制从此档起步</text></g>
+
+<line class="arr" x1="160" y1="192" x2="160" y2="222" marker-end="url(#arrow)"/>
+<text class="ts" x="180" y="212">多次有用报告 · 零 unsafe 动作</text>
+
+<g class="c-amber"><rect x="60" y="224" width="200" height="64" rx="4"/>
+<text class="th" x="160" y="248" text-anchor="middle">L2 assisted</text>
+<text class="ts" x="160" y="268" text-anchor="middle">可备变更 · 必须人批</text></g>
+
+<line class="arr" x1="160" y1="288" x2="160" y2="318" marker-end="url(#arrow)"/>
+<text class="ts" x="180" y="308">七安全件 + 无事故</text>
+
+<g class="c-coral"><rect x="60" y="320" width="200" height="64" rx="4"/>
+<text class="th" x="160" y="344" text-anchor="middle">L3 unattended</text>
+<text class="ts" x="160" y="364" text-anchor="middle">硬限内 bounded mutation</text></g>
+
+<rect x="380" y="40" width="260" height="166" rx="8" fill="none" stroke="#D3D1C7" stroke-dasharray="4 4"/>
+<text class="ts" x="392" y="58">七安全件 — L3 准入前置(L2 磨出)</text>
+<text class="ts" x="392" y="80">① budget 硬停 · 下一请求前</text>
+<text class="ts" x="392" y="98">② kill switch · 恢复须显式清除</text>
+<text class="ts" x="392" y="116">③ maker/checker 分离</text>
+<text class="ts" x="392" y="134">④ denylist 路径策略</text>
+<text class="ts" x="392" y="152">⑤ evidence 完整性检查</text>
+<text class="ts" x="392" y="170">⑥ 三次失败熔断</text>
+<text class="ts" x="392" y="188">⑦ 回滚路径(演练过)</text>
+
+<g class="c-amber"><rect x="380" y="226" width="260" height="56" rx="4"/>
+<text class="th" x="510" y="248" text-anchor="middle">降级 / 停用</text>
+<text class="ts" x="510" y="266" text-anchor="middle">事故 · 误报率超阈 · 发布周</text></g>
+<path d="M260 256 L378 250" class="arr" marker-end="url(#arrow)"/>
+<path d="M260 352 L378 275" class="arr" marker-end="url(#arrow)"/>
+
+<g class="c-coral"><rect x="380" y="302" width="260" height="64" rx="4"/>
+<text class="th" x="510" y="326" text-anchor="middle">kill switch</text>
+<text class="ts" x="510" y="344" text-anchor="middle">暂停易 · 恢复须显式清除</text></g>
+
+<text class="ts" x="40" y="414">灰 = 观察档 · 琥珀 = 需人批 · 珊瑚 = 高风险档 · auto-merge 在 0.2.x 不出现在本图任何位置</text>
+</svg>
