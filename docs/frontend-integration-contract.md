@@ -31,7 +31,7 @@ owning provider loops, tool execution, permission decisions, or workflow state.
 | Tool execution | transcript tool cards, active tool strip, evidence list | `ToolCallStarted`, `ToolCallFinished`, structured `success` / `exit_code` | approval response only; tools run through core | landed |
 | Agent DAG and tasks | agent board, lane list, task detail, next-action dock | `AgentDagRecord`, `AgentTaskRecord`, `AgentNextAction` | `StartAgentDag`, `StartAgentTask`, `CancelAgentTask` | landed in `0.2.2` |
 | ContextBundle | context panel, token pressure meter, omitted-source list | `ContextBundleRecord`, `ContextSourceRecord`, token budgets | no direct mutation; future context-policy commands | partial |
-| Evidence and merge gate | evidence center, diff/test/review checklist, merge gate card | `EvidenceView`, `MergeGateRecord` | `AcceptMergeGate`, `RejectMergeGate`, `AcceptAgentArtifact`, `RejectAgentArtifact`, `MergeAgentPatch` | basic landed; reducers expand in `0.2.3` |
+| Evidence and merge gate | evidence center, diff/test/review checklist, merge gate card | `EvidenceView`, `MergeGateRecord` | `RecordAgentEvidence`, `AcceptMergeGate`, `RejectMergeGate`, `AcceptAgentArtifact`, `RejectAgentArtifact`, `MergeAgentPatch` | reducer first slice landed in `0.2.3` |
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, task/evidence events | future lane commands | partial |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
@@ -71,6 +71,7 @@ flowchart LR
 | Start supervised workflow | `StartAgentDag` then `StartAgentTask` | DAG validation, dependencies, workflow events |
 | Change mode/permissions | `SetWorkMode`, `SetPermissionLevel` | permission mode mapping and policy enforcement |
 | Approve or deny a tool | `RespondToApproval` | decision recording and gated execution |
+| Record evidence for a gate | `RecordAgentEvidence` | evidence validation, `EvidenceRecorded`, gate reducer, workflow event |
 | Review a merge gate | merge/artifact commands | gate state, workflow events, patch application |
 | Configure provider/model | provider/model commands | config persistence, registry validation, health |
 
@@ -120,9 +121,25 @@ Evidence is append-only from the frontend point of view.
 - `status` controls the action surface.
 - `decision` stores the latest operator or runtime decision.
 
-Current implementation supports basic gate transitions and unified-diff patch
-application. `0.2.3` should expand evidence collection reducers, richer patch
-formats, and test/review/release evidence gates.
+Current `0.2.3` reducer behavior:
+
+- Frontends record external evidence with `RecordAgentEvidence`.
+- Core emits `EvidenceRecorded`, then `MergeGateUpdated`, and persists a matching
+  `agent_evidence_recorded` workflow event.
+- `MergeGateRecord.status` is reduced from recorded evidence kinds, not from
+  frontend-local checklist state or evidence id suffixes.
+- Missing required evidence keeps the gate in `collecting_evidence`.
+- Complete required evidence moves the gate to `accepted`.
+- Rejected evidence moves the gate to `needs_changes` and removes that evidence
+  id from the gate/task evidence lists.
+- `AcceptAgentArtifact` only accepts an already recorded evidence id. Unknown
+  evidence ids are rejected and must not be used by frontends as implicit
+  evidence creation.
+
+The first supported required evidence kinds are `patch`, `test_result`,
+`review`, `doc_update`, and `release_artifact`. Clients may display other
+runtime-provided kinds, but should treat the known set as first-class checklist
+groups.
 
 ## Context And Token UI Contract
 

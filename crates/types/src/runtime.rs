@@ -61,6 +61,14 @@ pub enum RuntimeCommand {
         gate_id: MergeGateId,
         reason: String,
     },
+    RecordAgentEvidence {
+        gate_id: MergeGateId,
+        evidence_id: Option<EvidenceId>,
+        kind: String,
+        summary: String,
+        path: Option<String>,
+        source: Option<String>,
+    },
     AcceptAgentArtifact {
         gate_id: MergeGateId,
         evidence_id: EvidenceId,

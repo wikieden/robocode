@@ -394,6 +394,14 @@ fn agent_dag_runtime_command_roundtrips_json() {
             gate_id: "gate-task_planner".to_string(),
             reason: "missing test evidence".to_string(),
         },
+        RuntimeCommand::RecordAgentEvidence {
+            gate_id: "gate-task_planner".to_string(),
+            evidence_id: Some("manual-test_result".to_string()),
+            kind: "test_result".to_string(),
+            summary: "focused tests passed".to_string(),
+            path: Some("target/test.log".to_string()),
+            source: Some("tester".to_string()),
+        },
         RuntimeCommand::AcceptAgentArtifact {
             gate_id: "gate-task_planner".to_string(),
             evidence_id: "evidence-task_planner-plan".to_string(),
@@ -415,9 +423,11 @@ fn agent_dag_runtime_command_roundtrips_json() {
     assert_eq!(encoded[0]["tasks"][0]["role"], "planner");
     assert_eq!(encoded[1]["type"], "accept_merge_gate");
     assert_eq!(encoded[2]["type"], "reject_merge_gate");
-    assert_eq!(encoded[3]["type"], "accept_agent_artifact");
-    assert_eq!(encoded[4]["type"], "reject_agent_artifact");
-    assert_eq!(encoded[5]["type"], "merge_agent_patch");
+    assert_eq!(encoded[3]["type"], "record_agent_evidence");
+    assert_eq!(encoded[3]["kind"], "test_result");
+    assert_eq!(encoded[4]["type"], "accept_agent_artifact");
+    assert_eq!(encoded[5]["type"], "reject_agent_artifact");
+    assert_eq!(encoded[6]["type"], "merge_agent_patch");
 
     let decoded: Vec<RuntimeCommand> = serde_json::from_value(encoded).unwrap();
     assert_eq!(decoded, commands);

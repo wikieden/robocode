@@ -250,7 +250,9 @@ quick/full release gates 已通过，GitHub Release 与 Homebrew validation 全�
   Git mutation。live LSP references enrichment、release/publish Git rules、
   evidence reducers 和更完整 patch 格式仍是下一步实现切片。
 - `0.2.3`：Evidence 与 merge gate。覆盖更完整 agent patch 格式、test results、
-  reviews、docs、release artifacts 和 conflict handling。
+  reviews、docs、release artifacts 和 conflict handling。第一刀加入显式
+  `RecordAgentEvidence`、按 evidence kind 归约 merge gate，以及 recorded evidence 的
+  runtime/workflow event 一致性。
 - `0.2.4`：Plugin runtime boundary。增加 process-plugin protocol、
   manifest/capability registration、extension boundaries 和 least-privilege
   external agent scopes。

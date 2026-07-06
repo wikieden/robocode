@@ -304,7 +304,9 @@ Next planned:
   commands and artifact accept/reject/merge state transitions are already in
   the runtime contract.
 - `0.2.3`: Evidence and merge gate for richer agent patch formats, test
-  results, reviews, docs, release artifacts, and conflict handling.
+  results, reviews, docs, release artifacts, and conflict handling. First slice
+  adds explicit `RecordAgentEvidence`, kind-based merge-gate reduction, and
+  runtime/workflow event consistency for recorded evidence.
 - `0.2.4`: Plugin runtime boundary for process plugins, manifest/capability
   registration, extension boundaries, and least-privilege external agent scopes.
 - `0.2.5`: Real development gate for DeepSeek live development smoke,

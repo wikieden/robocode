@@ -29,7 +29,7 @@ clients。这是契约文档，不是 UI 布局规范。TUI 和 GUI 实现必须
 | Tool execution | transcript tool cards、active tool strip、evidence list | `ToolCallStarted`、`ToolCallFinished`、structured `success` / `exit_code` | 只发送 approval response；tools 由 core 执行 | 已落地 |
 | Agent DAG and tasks | agent board、lane list、task detail、next-action dock | `AgentDagRecord`、`AgentTaskRecord`、`AgentNextAction` | `StartAgentDag`、`StartAgentTask`、`CancelAgentTask` | `0.2.2` 已落地 |
 | ContextBundle | context panel、token pressure meter、omitted-source list | `ContextBundleRecord`、`ContextSourceRecord`、token budgets | 当前无直接 mutation；后续增加 context-policy commands | 部分落地 |
-| Evidence and merge gate | evidence center、diff/test/review checklist、merge gate card | `EvidenceView`、`MergeGateRecord` | `AcceptMergeGate`、`RejectMergeGate`、`AcceptAgentArtifact`、`RejectAgentArtifact`、`MergeAgentPatch` | 基础已落地；reducers 在 `0.2.3` 扩展 |
+| Evidence and merge gate | evidence center、diff/test/review checklist、merge gate card | `EvidenceView`、`MergeGateRecord` | `RecordAgentEvidence`、`AcceptMergeGate`、`RejectMergeGate`、`AcceptAgentArtifact`、`RejectAgentArtifact`、`MergeAgentPatch` | `0.2.3` reducer 第一刀已落地 |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、task/evidence events | 后续 lane commands | 部分落地 |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
@@ -69,6 +69,7 @@ flowchart LR
 | 启动受监督 workflow | `StartAgentDag` 然后 `StartAgentTask` | DAG validation、dependencies、workflow events |
 | 修改 mode/permissions | `SetWorkMode`、`SetPermissionLevel` | permission mode mapping 和 policy enforcement |
 | 批准或拒绝 tool | `RespondToApproval` | decision recording 和 gated execution |
+| 记录 gate evidence | `RecordAgentEvidence` | evidence validation、`EvidenceRecorded`、gate reducer、workflow event |
 | 审核 merge gate | merge/artifact commands | gate state、workflow events、patch application |
 | 配置 provider/model | provider/model commands | config persistence、registry validation、health |
 
@@ -114,9 +115,23 @@ flowchart LR
 - `status` 控制 action surface。
 - `decision` 存储最新 operator 或 runtime decision。
 
-当前实现支持基础 gate transitions 和 unified-diff patch application。`0.2.3`
-应继续扩展 evidence collection reducers、更完整 patch formats，以及
-test/review/release evidence gates。
+当前 `0.2.3` reducer 行为：
+
+- 前端用 `RecordAgentEvidence` 记录外部 evidence。
+- Core 发出 `EvidenceRecorded`，随后发出 `MergeGateUpdated`，并持久化对应的
+  `agent_evidence_recorded` workflow event。
+- `MergeGateRecord.status` 由已记录 evidence 的 kind 归约，不由前端本地 checklist
+  状态或 evidence id 后缀推断。
+- 缺少 required evidence 时 gate 保持 `collecting_evidence`。
+- required evidence 全部满足后 gate 自动进入 `accepted`。
+- evidence 被 reject 后 gate 进入 `needs_changes`，并从 gate/task evidence 列表移除该
+  evidence id。
+- `AcceptAgentArtifact` 只接受已记录的 evidence id。未知 evidence id 会被拒绝，前端不能
+  把该命令当成隐式创建 evidence 的入口。
+
+第一批一等 required evidence kind 是 `patch`、`test_result`、`review`、`doc_update`
+和 `release_artifact`。客户端可以显示其他 runtime kind，但 checklist 分组应优先覆盖这组
+核心类型。
 
 ## Context 和 Token UI 契约
 

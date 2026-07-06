@@ -148,9 +148,11 @@ Next release planning (`0.2.x` and `0.3.x`):
   unchanged on mismatch. Scoped role Git staging now allows in-scope `git_add`
   while denying unscoped staging and high-risk Git mutations. Live LSP
   references enrichment, richer patch formats, release/publish Git rules, and
-  evidence collection reducers remain later work.
+  the full evidence cockpit remain later work.
 - `0.2.3`: Evidence and merge gate. Require task, context, permission, test,
-  review, and release evidence before accepting generated changes.
+  review, and release evidence before accepting generated changes. First slice
+  adds `RecordAgentEvidence`, kind-based gate reduction, and matching
+  runtime/workflow events for recorded evidence.
 - `0.2.4`: Plugin runtime boundary. Add process-plugin protocol,
   manifest/capability registration, extension boundaries, and least-privilege
   external agent scopes.

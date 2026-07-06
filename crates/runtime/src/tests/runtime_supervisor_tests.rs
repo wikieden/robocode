@@ -1814,6 +1814,223 @@ fn runtime_supervisor_accepts_and_rejects_merge_gate_decisions() {
 }
 
 #[test]
+fn runtime_supervisor_rejects_unknown_agent_artifact_evidence() {
+    let cwd = temp_dir("runtime_supervisor_unknown_artifact_evidence_cwd");
+    let home = temp_dir("runtime_supervisor_unknown_artifact_evidence_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n".to_string(),
+        },
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command(
+            "cmd_agent_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Reject unknown evidence".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_unknown_evidence".to_string(),
+                    role: AgentRole::Coder,
+                    title: "Produce patch evidence".to_string(),
+                    objective: "Produce one patch artifact".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec!["src".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["patch".to_string(), "test_result".to_string()],
+                    permission_policy: "scoped_mutation".to_string(),
+                }],
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentDagUpdated { .. }))
+    });
+
+    supervisor
+        .send_command(
+            "cmd_start_unknown_evidence",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_unknown_evidence".to_string(),
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::MergeGateUpdated { gate }
+                    if gate.gate_id == "gate-task_unknown_evidence"
+                        && gate.status == MergeGateStatus::CollectingEvidence
+            )
+        })
+    });
+
+    supervisor
+        .send_command(
+            "cmd_accept_unknown_evidence",
+            RuntimeCommand::AcceptAgentArtifact {
+                gate_id: "gate-task_unknown_evidence".to_string(),
+                evidence_id: "manual-test_result".to_string(),
+                decision: Some("unknown evidence should not count".to_string()),
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, .. }
+                    if command_id == "cmd_accept_unknown_evidence"
+            )
+        })
+    });
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == "cmd_accept_unknown_evidence"
+                    && reason.contains("does not exist")
+        )
+    }));
+    assert!(!events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::MergeGateUpdated { gate }
+                if gate.gate_id == "gate-task_unknown_evidence"
+                    && gate.status == MergeGateStatus::Accepted
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_reduces_merge_gate_from_required_evidence_kinds() {
+    let cwd = temp_dir("runtime_supervisor_evidence_reducer_cwd");
+    let home = temp_dir("runtime_supervisor_evidence_reducer_home");
+    let provider = Box::new(SequenceProvider::new(Vec::new()));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command(
+            "cmd_agent_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Collect required evidence".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_release_gate".to_string(),
+                    role: AgentRole::ReleaseOperator,
+                    title: "Verify release gate".to_string(),
+                    objective: "Collect all merge evidence".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec![".".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec![
+                        "test_result".to_string(),
+                        "review".to_string(),
+                        "doc_update".to_string(),
+                        "release_artifact".to_string(),
+                    ],
+                    permission_policy: "read_only".to_string(),
+                }],
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentDagUpdated { .. }))
+    });
+
+    for (command_id, evidence_id, kind, summary) in [
+        (
+            "cmd_record_test_result",
+            "evidence-test",
+            "test_result",
+            "cargo test -p viden-runtime passed",
+        ),
+        (
+            "cmd_record_review",
+            "evidence-review",
+            "review",
+            "review found no blocking issues",
+        ),
+        (
+            "cmd_record_doc_update",
+            "evidence-doc",
+            "doc_update",
+            "frontend contract docs updated",
+        ),
+        (
+            "cmd_record_release_artifact",
+            "evidence-release",
+            "release_artifact",
+            "release checklist prepared",
+        ),
+    ] {
+        supervisor
+            .send_command(
+                command_id,
+                RuntimeCommand::RecordAgentEvidence {
+                    gate_id: "gate-task_release_gate".to_string(),
+                    evidence_id: Some(evidence_id.to_string()),
+                    kind: kind.to_string(),
+                    summary: summary.to_string(),
+                    path: None,
+                    source: Some("release-gate".to_string()),
+                },
+            )
+            .unwrap();
+    }
+
+    let accepted = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::MergeGateUpdated { gate }
+                    if gate.gate_id == "gate-task_release_gate"
+                        && gate.status == MergeGateStatus::Accepted
+                        && gate.evidence_ids
+                            == vec![
+                                "evidence-test".to_string(),
+                                "evidence-review".to_string(),
+                                "evidence-doc".to_string(),
+                                "evidence-release".to_string(),
+                            ]
+            )
+        })
+    });
+    assert!(accepted.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::EvidenceRecorded { evidence }
+                if evidence.id == "evidence-release"
+                    && evidence.kind == "release_artifact"
+                    && evidence.source.as_deref() == Some("release-gate")
+        )
+    }));
+
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    let agent_events = store.load_agent_events().unwrap();
+    for kind in ["test_result", "review", "doc_update", "release_artifact"] {
+        assert!(agent_events.iter().any(|event| {
+            event.event_type == "agent_evidence_recorded"
+                && event.task_id.as_deref() == Some("task_release_gate")
+                && event
+                    .payload
+                    .get("evidence_kind")
+                    .is_some_and(|recorded_kind| recorded_kind == kind)
+        }));
+    }
+}
+
+#[test]
 fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
     let cwd = temp_dir("runtime_supervisor_agent_artifact_gate_cwd");
     let home = temp_dir("runtime_supervisor_agent_artifact_gate_home");
@@ -1879,6 +2096,50 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
 
     supervisor
         .send_command(
+            "cmd_record_test_evidence",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_coder".to_string(),
+                evidence_id: Some("manual-test_result".to_string()),
+                kind: "test_result".to_string(),
+                summary: "focused tests passed".to_string(),
+                path: Some("target/focused-tests.log".to_string()),
+                source: Some("tester".to_string()),
+            },
+        )
+        .unwrap();
+    let recorded_test_evidence =
+        collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::MergeGateUpdated { gate }
+                        if gate.gate_id == "gate-task_coder"
+                            && gate.status == MergeGateStatus::Accepted
+                            && gate.evidence_ids
+                                == vec![
+                                    "evidence-task_coder-patch".to_string(),
+                                    "manual-test_result".to_string()
+                                ]
+                )
+            })
+        });
+    assert!(recorded_test_evidence.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_record_test_evidence"
+        )
+    }));
+    assert!(recorded_test_evidence.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::EvidenceRecorded { evidence }
+                if evidence.id == "manual-test_result" && evidence.kind == "test_result"
+        )
+    }));
+
+    supervisor
+        .send_command(
             "cmd_accept_test_artifact",
             RuntimeCommand::AcceptAgentArtifact {
                 gate_id: "gate-task_coder".to_string(),
@@ -1894,11 +2155,6 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_coder"
                         && gate.status == MergeGateStatus::Accepted
-                        && gate.evidence_ids
-                            == vec![
-                                "evidence-task_coder-patch".to_string(),
-                                "manual-test_result".to_string()
-                            ]
                         && gate.decision.as_deref() == Some("focused tests passed")
             )
         })
@@ -1944,11 +2200,14 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
 
     supervisor
         .send_command(
-            "cmd_accept_test_artifact_again",
-            RuntimeCommand::AcceptAgentArtifact {
+            "cmd_record_test_evidence_again",
+            RuntimeCommand::RecordAgentEvidence {
                 gate_id: "gate-task_coder".to_string(),
-                evidence_id: "manual-test_result".to_string(),
-                decision: Some("correct focused tests passed".to_string()),
+                evidence_id: Some("manual-test_result".to_string()),
+                kind: "test_result".to_string(),
+                summary: "correct focused tests passed".to_string(),
+                path: Some("target/focused-tests.log".to_string()),
+                source: Some("tester".to_string()),
             },
         )
         .unwrap();
@@ -1959,7 +2218,6 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_coder"
                         && gate.status == MergeGateStatus::Accepted
-                        && gate.decision.as_deref() == Some("correct focused tests passed")
             )
         })
     });
@@ -2099,10 +2357,13 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
     supervisor
         .send_command(
             "cmd_accept_tests",
-            RuntimeCommand::AcceptAgentArtifact {
+            RuntimeCommand::RecordAgentEvidence {
                 gate_id: "gate-task_coder_apply".to_string(),
-                evidence_id: "manual-test_result".to_string(),
-                decision: Some("focused tests passed".to_string()),
+                evidence_id: Some("manual-test_result".to_string()),
+                kind: "test_result".to_string(),
+                summary: "focused tests passed".to_string(),
+                path: Some("target/focused-tests.log".to_string()),
+                source: Some("tester".to_string()),
             },
         )
         .unwrap();
@@ -2230,10 +2491,13 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
     supervisor
         .send_command(
             "cmd_accept_tests",
-            RuntimeCommand::AcceptAgentArtifact {
+            RuntimeCommand::RecordAgentEvidence {
                 gate_id: "gate-task_coder_conflict".to_string(),
-                evidence_id: "manual-test_result".to_string(),
-                decision: Some("focused tests passed".to_string()),
+                evidence_id: Some("manual-test_result".to_string()),
+                kind: "test_result".to_string(),
+                summary: "focused tests passed".to_string(),
+                path: Some("target/focused-tests.log".to_string()),
+                source: Some("tester".to_string()),
             },
         )
         .unwrap();

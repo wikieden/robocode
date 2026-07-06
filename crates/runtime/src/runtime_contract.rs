@@ -295,6 +295,21 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id,
+                evidence_id,
+                kind,
+                summary,
+                path,
+                source,
+            } => {
+                let record_result =
+                    self.record_agent_evidence(&gate_id, evidence_id, kind, summary, path, source);
+                match record_result {
+                    Ok(evidence_events) => append_resequenced(&mut events, evidence_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
             RuntimeCommand::AcceptAgentArtifact {
                 gate_id,
                 evidence_id,
@@ -803,6 +818,7 @@ impl SessionEngine {
             RuntimeEventKind::TaskUpdated { task },
         ));
 
+        let runtime_evidence = self.runtime_evidence.clone();
         if let Some(gate) = self
             .runtime_merge_gates
             .iter_mut()
@@ -811,11 +827,7 @@ impl SessionEngine {
             if !gate.evidence_ids.contains(&evidence_id) {
                 gate.evidence_ids.push(evidence_id);
             }
-            gate.status = if merge_gate_has_required_evidence(gate) {
-                MergeGateStatus::Accepted
-            } else {
-                MergeGateStatus::CollectingEvidence
-            };
+            gate.status = reduce_merge_gate_status(gate, &runtime_evidence);
             gate.updated_at = Some(now_timestamp());
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -1071,6 +1083,96 @@ impl SessionEngine {
         Ok(events)
     }
 
+    fn record_agent_evidence(
+        &mut self,
+        gate_id: &str,
+        evidence_id: Option<String>,
+        kind: String,
+        summary: String,
+        path: Option<String>,
+        source: Option<String>,
+    ) -> Result<Vec<RuntimeEvent>, String> {
+        let kind = normalize_evidence_kind(&kind);
+        if kind.is_empty() {
+            return Err("agent evidence kind cannot be empty".to_string());
+        }
+        let summary = summary.trim().to_string();
+        if summary.is_empty() {
+            return Err("agent evidence summary cannot be empty".to_string());
+        }
+
+        let gate_index = self
+            .runtime_merge_gates
+            .iter()
+            .position(|gate| gate.gate_id == gate_id)
+            .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
+        let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
+        let dag_id = self.dag_id_for_task(&task_id)?;
+        let evidence_id = evidence_id
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| fresh_id(&format!("evidence-{task_id}-{kind}")));
+        let now = now_timestamp();
+        let evidence = EvidenceView {
+            id: evidence_id.clone(),
+            kind: kind.clone(),
+            summary: truncate_for_preview(&summary, 500),
+            path,
+            source,
+            timestamp: Some(now),
+        };
+        self.upsert_runtime_evidence(evidence.clone());
+
+        let runtime_evidence = self.runtime_evidence.clone();
+        let gate = &mut self.runtime_merge_gates[gate_index];
+        if !gate.evidence_ids.contains(&evidence_id) {
+            gate.evidence_ids.push(evidence_id.clone());
+        }
+        gate.status = reduce_merge_gate_status(gate, &runtime_evidence);
+        gate.updated_at = Some(now);
+        let gate = gate.clone();
+
+        let mut events = vec![
+            RuntimeEvent::new(
+                1,
+                RuntimeEventKind::EvidenceRecorded {
+                    evidence: evidence.clone(),
+                },
+            ),
+            RuntimeEvent::new(2, RuntimeEventKind::MergeGateUpdated { gate }),
+        ];
+        if let Some(mut task) = self
+            .runtime_tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .cloned()
+        {
+            if !task.evidence.contains(&evidence_id) {
+                task.evidence.push(evidence_id.clone());
+            }
+            task.activity = format!("evidence recorded: {kind}");
+            task.updated_at = Some(u128::from(now) * 1000);
+            self.upsert_agent_task(task.clone());
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::TaskUpdated { task },
+            ));
+        }
+
+        self.persist_agent_event(
+            &dag_id,
+            Some(&task_id),
+            "agent_evidence_recorded",
+            &[
+                ("gate_id", gate_id),
+                ("evidence_id", evidence_id.as_str()),
+                ("evidence_kind", kind.as_str()),
+                ("summary", summary.as_str()),
+            ],
+        )?;
+        Ok(events)
+    }
+
     fn accept_agent_artifact(
         &mut self,
         gate_id: &str,
@@ -1087,16 +1189,19 @@ impl SessionEngine {
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
         let dag_id = self.dag_id_for_task(&task_id)?;
+        let evidence = self
+            .runtime_evidence
+            .iter()
+            .find(|evidence| evidence.id == evidence_id)
+            .cloned()
+            .ok_or_else(|| format!("agent artifact evidence `{evidence_id}` does not exist"))?;
         let now = now_timestamp();
+        let runtime_evidence = self.runtime_evidence.clone();
         let gate = &mut self.runtime_merge_gates[gate_index];
         if !gate.evidence_ids.contains(&evidence_id) {
             gate.evidence_ids.push(evidence_id.clone());
         }
-        gate.status = if merge_gate_has_required_evidence(gate) {
-            MergeGateStatus::Accepted
-        } else {
-            MergeGateStatus::CollectingEvidence
-        };
+        gate.status = reduce_merge_gate_status(gate, &runtime_evidence);
         gate.decision = Some(decision.clone());
         gate.updated_at = Some(now);
         let gate = gate.clone();
@@ -1131,6 +1236,7 @@ impl SessionEngine {
             &[
                 ("gate_id", gate_id),
                 ("evidence_id", evidence_id.as_str()),
+                ("evidence_kind", evidence.kind.as_str()),
                 ("decision", decision.as_str()),
             ],
         )?;
@@ -1862,12 +1968,31 @@ fn role_file_score(role: AgentRole, file: &str) -> u8 {
     }
 }
 
-fn merge_gate_has_required_evidence(gate: &MergeGateRecord) -> bool {
-    gate.required_evidence.iter().all(|required| {
-        gate.evidence_ids
-            .iter()
-            .any(|evidence_id| evidence_id.ends_with(&format!("-{required}")))
-    })
+fn reduce_merge_gate_status(gate: &MergeGateRecord, evidence: &[EvidenceView]) -> MergeGateStatus {
+    // Merge gates are reduced from recorded evidence facts, not frontend-local
+    // checklist state or evidence id naming conventions.
+    if merge_gate_has_required_evidence(gate, evidence) {
+        MergeGateStatus::Accepted
+    } else {
+        MergeGateStatus::CollectingEvidence
+    }
+}
+
+fn merge_gate_has_required_evidence(gate: &MergeGateRecord, evidence: &[EvidenceView]) -> bool {
+    let collected_kinds = gate
+        .evidence_ids
+        .iter()
+        .filter_map(|evidence_id| evidence.iter().find(|item| item.id == *evidence_id))
+        .map(|item| normalize_evidence_kind(&item.kind))
+        .collect::<BTreeSet<_>>();
+    gate.required_evidence
+        .iter()
+        .map(|required| normalize_evidence_kind(required))
+        .all(|required| collected_kinds.contains(&required))
+}
+
+fn normalize_evidence_kind(kind: &str) -> String {
+    kind.trim().replace('-', "_").to_ascii_lowercase()
 }
 
 #[derive(Debug, Clone)]
