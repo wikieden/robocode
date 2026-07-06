@@ -432,6 +432,11 @@ flowchart TD
 
 The GUI can only integrate through stable runtime interfaces.
 
+Detailed module-to-frontend wiring is defined in
+[Frontend Integration Contract](frontend-integration-contract.md). When a core
+module is completed, that document must be updated before GUI implementation
+starts relying on the module.
+
 | Interface | Direction | Purpose |
 | --- | --- | --- |
 | `RuntimeSnapshot` | core -> GUI | Complete current read-only state |

@@ -29,6 +29,9 @@ pub type MemoryId = String;
 pub type LspServerId = String;
 pub type AgentTaskId = String;
 pub type AgentLaneId = String;
+pub type AgentDagId = String;
+pub type EvidenceId = String;
+pub type MergeGateId = String;
 
 pub fn now_timestamp() -> u64 {
     SystemTime::now()
@@ -170,6 +173,165 @@ pub struct AgentTaskEvidence {
     pub summary: String,
     pub path: Option<String>,
     pub timestamp: Option<u128>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentRole {
+    Planner,
+    Coder,
+    Reviewer,
+    Tester,
+    DocWriter,
+    ReleaseOperator,
+    External,
+}
+
+impl AgentRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Planner => "planner",
+            Self::Coder => "coder",
+            Self::Reviewer => "reviewer",
+            Self::Tester => "tester",
+            Self::DocWriter => "doc_writer",
+            Self::ReleaseOperator => "release_operator",
+            Self::External => "external",
+        }
+    }
+
+    pub fn parse(input: &str) -> Option<Self> {
+        match input.trim().replace('-', "_").as_str() {
+            "planner" => Some(Self::Planner),
+            "coder" => Some(Self::Coder),
+            "reviewer" => Some(Self::Reviewer),
+            "tester" => Some(Self::Tester),
+            "doc_writer" | "documenter" => Some(Self::DocWriter),
+            "release_operator" | "release" => Some(Self::ReleaseOperator),
+            "external" => Some(Self::External),
+            _ => None,
+        }
+    }
+}
+
+impl Display for AgentRole {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentDagStatus {
+    Draft,
+    Active,
+    Paused,
+    Blocked,
+    Completed,
+    Cancelled,
+}
+
+impl AgentDagStatus {
+    pub fn is_active(self) -> bool {
+        matches!(self, Self::Active | Self::Blocked)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentDagTaskSpec {
+    pub task_id: AgentTaskId,
+    pub role: AgentRole,
+    pub title: String,
+    pub objective: String,
+    pub dependencies: Vec<AgentTaskId>,
+    pub workspace: Option<String>,
+    pub file_scope: Vec<String>,
+    pub context_bundle_id: Option<String>,
+    pub required_evidence: Vec<String>,
+    pub permission_policy: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentDagRecord {
+    pub dag_id: AgentDagId,
+    pub goal: String,
+    pub status: AgentDagStatus,
+    pub tasks: Vec<AgentDagTaskSpec>,
+    pub created_at: Option<u64>,
+    pub updated_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceKind {
+    Patch,
+    ToolLog,
+    TestResult,
+    Diagnostic,
+    Review,
+    Plan,
+    DocUpdate,
+    Screenshot,
+    ReleaseArtifact,
+}
+
+impl EvidenceKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Patch => "patch",
+            Self::ToolLog => "tool_log",
+            Self::TestResult => "test_result",
+            Self::Diagnostic => "diagnostic",
+            Self::Review => "review",
+            Self::Plan => "plan",
+            Self::DocUpdate => "doc_update",
+            Self::Screenshot => "screenshot",
+            Self::ReleaseArtifact => "release_artifact",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EvidenceRecord {
+    pub evidence_id: EvidenceId,
+    pub task_id: AgentTaskId,
+    pub kind: EvidenceKind,
+    pub summary: String,
+    pub path: Option<String>,
+    pub source: Option<String>,
+    pub created_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeGateStatus {
+    Proposed,
+    CollectingEvidence,
+    Blocked,
+    NeedsChanges,
+    Accepted,
+    Merged,
+    Reverted,
+}
+
+impl MergeGateStatus {
+    pub fn is_open(self) -> bool {
+        matches!(
+            self,
+            Self::Proposed | Self::CollectingEvidence | Self::Blocked | Self::NeedsChanges
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MergeGateRecord {
+    pub gate_id: MergeGateId,
+    pub task_id: AgentTaskId,
+    pub status: MergeGateStatus,
+    pub required_evidence: Vec<String>,
+    pub evidence_ids: Vec<EvidenceId>,
+    pub decision: Option<String>,
+    pub updated_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

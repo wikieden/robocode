@@ -316,7 +316,11 @@ impl SessionEngine {
                 }
                 task.updated_at = Some(now_millis());
                 self.upsert_agent_task(task);
-                events.push(EngineEvent::ToolResult(result.output.clone()));
+                events.push(EngineEvent::ToolResult {
+                    output: result.output.clone(),
+                    success: result.success,
+                    exit_code: result.exit_code,
+                });
                 if let Some(message) = post_edit_diagnostics {
                     let system_message = Message::new(Role::System, message.clone());
                     self.messages.push(system_message.clone());
@@ -358,7 +362,11 @@ impl SessionEngine {
                     exit_code: None,
                 };
                 self.persist_tool_result(&result)?;
-                events.push(EngineEvent::ToolResult(result.output.clone()));
+                events.push(EngineEvent::ToolResult {
+                    output: result.output.clone(),
+                    success: result.success,
+                    exit_code: result.exit_code,
+                });
                 let system_message = Message::new(Role::System, rendered_denial.clone());
                 self.messages.push(system_message.clone());
                 self.store_entry(TranscriptEntry::Message {
@@ -426,8 +434,8 @@ impl SessionEngine {
             .filter_map(|event| match event {
                 EngineEvent::System(text)
                 | EngineEvent::Assistant(text)
-                | EngineEvent::ToolResult(text)
                 | EngineEvent::Command(text) => Some(text),
+                EngineEvent::ToolResult { output, .. } => Some(output),
                 EngineEvent::ToolCall(_) => None,
             })
             .collect::<Vec<_>>()

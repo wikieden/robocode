@@ -18,6 +18,7 @@ pub struct WorkflowPaths {
     pub project_dir: PathBuf,
     pub tasks_log: PathBuf,
     pub memory_log: PathBuf,
+    pub agent_log: PathBuf,
     pub index_db_path: PathBuf,
 }
 
@@ -46,6 +47,17 @@ pub struct WorkflowMemoryEvent {
     pub payload: BTreeMap<String, String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowAgentEvent {
+    pub event_id: String,
+    pub dag_id: String,
+    pub task_id: Option<String>,
+    pub event_type: String,
+    pub timestamp: u64,
+    pub origin_session_id: Option<String>,
+    pub payload: BTreeMap<String, String>,
+}
+
 impl WorkflowStore {
     pub fn new(home_dir: impl Into<PathBuf>, cwd: impl AsRef<Path>) -> Result<Self, String> {
         let home_dir = home_dir.into();
@@ -54,6 +66,7 @@ impl WorkflowStore {
         let paths = WorkflowPaths {
             tasks_log: project_dir.join("tasks.jsonl"),
             memory_log: project_dir.join("memory.jsonl"),
+            agent_log: project_dir.join("agents.jsonl"),
             index_db_path: project_dir.join("workflow.sqlite3"),
             home_dir,
             projects_dir,
@@ -75,12 +88,20 @@ impl WorkflowStore {
         append_json_line(&self.paths.memory_log, event)
     }
 
+    pub fn append_agent_event(&self, event: &WorkflowAgentEvent) -> Result<(), String> {
+        append_json_line(&self.paths.agent_log, event)
+    }
+
     pub fn load_task_events(&self) -> Result<Vec<WorkflowTaskEvent>, String> {
         load_json_lines(&self.paths.tasks_log)
     }
 
     pub fn load_memory_events(&self) -> Result<Vec<WorkflowMemoryEvent>, String> {
         load_json_lines(&self.paths.memory_log)
+    }
+
+    pub fn load_agent_events(&self) -> Result<Vec<WorkflowAgentEvent>, String> {
+        load_json_lines(&self.paths.agent_log)
     }
 
     pub fn append_task_domain_event(&self, event: &TaskEvent) -> Result<(), String> {
@@ -227,6 +248,7 @@ mod tests {
             store.paths().memory_log.file_name().unwrap(),
             "memory.jsonl"
         );
+        assert_eq!(store.paths().agent_log.file_name().unwrap(), "agents.jsonl");
         assert_eq!(
             store.paths().index_db_path.file_name().unwrap(),
             "workflow.sqlite3"
@@ -287,5 +309,29 @@ mod tests {
         store.rebuild_index().unwrap();
 
         assert!(store.paths().index_db_path.exists());
+    }
+
+    #[test]
+    fn agent_events_roundtrip_through_separate_jsonl() {
+        let home = temp_dir("agent_home");
+        let cwd = temp_dir("agent_cwd");
+        let store = WorkflowStore::new(&home, &cwd).unwrap();
+
+        let mut payload = BTreeMap::new();
+        payload.insert("role".to_string(), "planner".to_string());
+        let event = WorkflowAgentEvent {
+            event_id: "evt_agent_1".to_string(),
+            dag_id: "dag_1".to_string(),
+            task_id: Some("agent_task_1".to_string()),
+            event_type: "agent_task_queued".to_string(),
+            timestamp: 40,
+            origin_session_id: Some("session_1".to_string()),
+            payload,
+        };
+
+        store.append_agent_event(&event).unwrap();
+
+        assert_eq!(store.load_agent_events().unwrap(), vec![event]);
+        assert!(store.load_task_domain_events().unwrap().is_empty());
     }
 }

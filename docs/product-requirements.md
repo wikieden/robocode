@@ -465,6 +465,9 @@ Phase priority:
 Goal:
 Support delegated and coordinated work beyond a single conversation thread.
 
+Design source:
+- [Multi-Agent Core Orchestration](multi-agent-core-orchestration.md)
+
 Requirements:
 
 - agent spawning
@@ -472,9 +475,23 @@ Requirements:
 - team-level orchestration
 - transcript-aware coordination
 - permission and scope isolation between agents
+- Agent DAG with planner, coder, reviewer, tester, doc-writer, and release
+  operator roles
+- ContextBundle per agent task with token/cost budget, selected files,
+  diagnostics, tool evidence, and exclusions
+- evidence and merge gates before accepting agent-generated patches or release
+  artifacts
+- role-aware permission policy that keeps plan mode non-mutating and prevents
+  self-escalation
+- replayable runtime events so TUI, GUI, CLI automation, and external
+  supervisors observe the same state
+- [Frontend Integration Contract](frontend-integration-contract.md) coverage
+  for completed core modules, so TUI and GUI consume the same runtime facts
+  instead of inventing duplicate state models
 
 Phase priority:
-- V3
+- V2 for core DAG/event/evidence contracts
+- V3 for external agents and team collaboration
 
 ### Bridge / Remote / Server Mode
 
@@ -632,6 +649,29 @@ The public workspace model must support:
 MCP, remote, and multi-agent subsystems must be designed so they can plug into
 the same command, permission, tool, and transcript model instead of creating
 parallel runtimes.
+
+### Core Future TODO: Multi-Agent Orchestration
+
+The next core roadmap must carry the multi-agent orchestration work as a shared
+runtime requirement, not as a TUI or GUI feature. The canonical design is
+[Multi-Agent Core Orchestration](multi-agent-core-orchestration.md).
+
+Required future iteration items:
+
+- expand the shared `AgentTask`, `AgentDag`, `ContextBundle`, `Evidence`, and
+  `MergeGate` contracts without coupling them to TUI or GUI implementation;
+- continue persisting DAG, task, artifact, and evidence events in
+  `crates/workflows`;
+- keep extending `RuntimeSupervisor` so agent tasks run asynchronously and
+  never block composer input;
+- expand the landed role-aware permissions with release/publish Git rules
+  beyond scoped staging, high-risk Git denial, and the initial scoped coder,
+  release-operator, and external-agent matrix;
+- add ContextBundle token/cost accounting before provider requests;
+- require evidence, artifact decisions, and merge-gate state before generated
+  changes are accepted or merged;
+- make real development smoke, token/cost summary, and failure classification
+  part of release readiness.
 
 ## Non-Functional Requirements
 

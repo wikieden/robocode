@@ -346,7 +346,7 @@ fn failed_tool_execution_is_returned_to_provider_without_ending_turn() {
 
     assert!(events.iter().any(|event| matches!(
         event,
-        EngineEvent::ToolResult(text)
+        EngineEvent::ToolResult { output: text, .. }
             if text.contains("Tool `read_file` failed")
                 && text.contains("is a directory")
     )));
@@ -482,11 +482,9 @@ fn tool_loop_executes_and_reinjects_result() {
     let events = engine
         .process_input_with_approval("read it", &mut approver)
         .unwrap();
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, EngineEvent::ToolResult(text) if text.contains("hello")))
-    );
+    assert!(events.iter().any(
+        |event| matches!(event, EngineEvent::ToolResult { output, .. } if output.contains("hello"))
+    ));
     assert!(events.iter().any(
         |event| matches!(event, EngineEvent::Assistant(text) if text.contains("Tool finished"))
     ));
@@ -532,7 +530,7 @@ fn post_edit_lsp_diagnostics_are_reinjected_after_file_writes() {
         .unwrap();
 
     assert!(events.iter().any(
-        |event| matches!(event, EngineEvent::ToolResult(text) if text.contains("src/main.rs"))
+        |event| matches!(event, EngineEvent::ToolResult { output, .. } if output.contains("src/main.rs"))
     ));
     assert!(
         events
@@ -606,14 +604,12 @@ fn plan_mode_blocks_mutating_tools() {
                 && text.contains("reason: PlanMode")
                 && text.contains("message: write_file is blocked while plan mode is active")))
     );
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, EngineEvent::ToolResult(text)
-            if text.contains("Permission decision:")
-                && text.contains("decision=deny")
-                && text.contains("tool: write_file")))
-    );
+    assert!(events.iter().any(
+        |event| matches!(event, EngineEvent::ToolResult { output, .. }
+            if output.contains("Permission decision:")
+                && output.contains("decision=deny")
+                && output.contains("tool: write_file"))
+    ));
 }
 
 #[test]
@@ -677,7 +673,8 @@ fn plan_mode_denies_long_shell_commands_before_spawn() {
     let rendered = events
         .iter()
         .filter_map(|event| match event {
-            EngineEvent::System(text) | EngineEvent::ToolResult(text) => Some(text.as_str()),
+            EngineEvent::System(text) => Some(text.as_str()),
+            EngineEvent::ToolResult { output, .. } => Some(output.as_str()),
             _ => None,
         })
         .collect::<Vec<_>>()

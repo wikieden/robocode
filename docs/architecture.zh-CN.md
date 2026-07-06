@@ -117,6 +117,8 @@ flowchart TB
   `TokenCostView` 和 `RuntimeViewState`。
 - `RuntimeViewState::apply_event` 是 replay reducer。客户端可以通过初始
   snapshot 加有序 runtime events 重建可见状态。
+- tool-result runtime events 会携带结构化 `success` 和 `exit_code` facts；
+  客户端必须渲染这些字段，而不是从输出文本推断状态。
 - `viden-runtime` 暴露 `SessionEngine::runtime_snapshot()`、
   `SessionEngine::runtime_view_state()` 和
   `SessionEngine::runtime_events_for_engine_events(...)`，作为当前 engine loop
@@ -127,9 +129,34 @@ flowchart TB
   channels 处理审批响应。
 - 后续 TUI 和 GUI 代码必须消费这个 contract，而不是直接拥有 provider loop、
   tool execution、permission decision、task state 或 provider telemetry。
+- 已完成的核心模块还必须同步更新
+  [前端对接契约](frontend-integration-contract.zh-CN.md)，说明 runtime facts、
+  commands、events 和 view-state fields 如何对接 TUI/GUI。
 
 这个边界故意先采用 data-first 方式。它让现有引擎继续运行，同时用 contract tests
 冻结多个前端需要共享的事实。
+
+## 未来多 Agent 核心编排
+
+多 Agent 目标详见
+[多 Agent 核心编排](multi-agent-core-orchestration.zh-CN.md)。它在当前 runtime
+contract 之上扩展 agent DAG、ContextBundle、evidence 和 merge-gate 契约，同时保持同一套
+frontend-neutral event stream。
+
+架构 TODO：
+
+- 扩展已落地的 `AgentTask`、`AgentDag`、`ContextBundle`、`Evidence` 和
+  `MergeGate` contracts，同时避免绑定到某个 frontend；
+- 继续在 `viden-workflows` 中将 DAG、task、memory、artifact 和 evidence events
+  存为 durable project workflow state，并与 session transcript 分离；
+- 继续扩展 `RuntimeSupervisor`，让基于 role 的 agent tasks 发出可 replay 的
+  runtime events，不能阻塞 UI input；
+- 每个 agent tool call 在变更前都必须经过 `viden-permissions` 和 `viden-tools`，
+  并在已落地的 role-policy matrix 和 scoped Git staging 之上继续扩展
+  release/publish scopes；
+- provider-specific protocol behavior 只留在 `viden-provider` adapters，agent
+  orchestration 留在 `viden-runtime` / `viden-workflows`；
+- TUI 和 GUI 只渲染 `RuntimeViewState` 加有序 runtime events。
 
 ## 终端展示
 

@@ -388,6 +388,10 @@ flowchart TD
 
 GUI 只能通过稳定接口接入 runtime。
 
+模块到前端的详细接线方式见
+[前端对接契约](frontend-integration-contract.zh-CN.md)。每个核心模块完成后，
+必须先更新该文档，GUI 实现才能依赖该模块。
+
 | 接口 | 方向 | 用途 |
 | --- | --- | --- |
 | `RuntimeSnapshot` | core -> GUI | 当前完整只读状态 |

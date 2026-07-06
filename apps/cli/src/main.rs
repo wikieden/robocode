@@ -1050,7 +1050,7 @@ fn render_event(event: EngineEvent) {
         EngineEvent::System(text) => println!("[system] {text}"),
         EngineEvent::Assistant(text) => println!("[assistant]\n{text}"),
         EngineEvent::ToolCall(text) => println!("[tool-call] {text}"),
-        EngineEvent::ToolResult(text) => println!("[tool-result]\n{text}"),
+        EngineEvent::ToolResult { output, .. } => println!("[tool-result]\n{output}"),
         EngineEvent::Command(text) => println!("{text}"),
     }
 }

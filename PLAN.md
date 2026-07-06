@@ -104,6 +104,11 @@ Current published release (`0.1.30`):
 
 Next release planning (`0.2.x` and `0.3.x`):
 
+- Multi-agent core orchestration is tracked in
+  `docs/multi-agent-core-orchestration.md` and
+  `docs/multi-agent-core-orchestration.zh-CN.md`. The 0.2.x line owns the
+  shared Agent DAG, ContextBundle, evidence, permission, and merge-gate
+  contracts; broader external/team agents remain 0.3.x+ work.
 - `0.2.0`: Architecture cut and core structure refactor. Establish the
   `viden-core` facade, dependency direction, runtime supervisor, event stream,
   command bus, and compatibility exports before starting GUI implementation.
@@ -111,13 +116,47 @@ Next release planning (`0.2.x` and `0.3.x`):
   selection, log compaction, tool-result deduplication, token budgets, and cost
   panels to address long-task context growth, DeepSeek 413 failures, and
   invisible spend.
-- `0.2.2`: Agent execution loop. Promote planner, coder, reviewer, tester, and
-  doc-writer into supervised roles with tasks, inputs, outputs, evidence,
-  failure classification, and next actions instead of merely showing lanes.
-- `0.2.3`: Plugin runtime and real development gate. Add process-plugin
-  protocol, manifest/capability registration, extension boundaries, and keep
-  DeepSeek live development smoke, daily-loop, plan-mode, provider/model, lane
-  operator, release gate, and token/cost summaries mandatory before releases.
+- `0.2.2`: Agent DAG and role runtime - complete in the current working tree.
+  Completion evidence is recorded in `docs/release-0.2.2-status.md` and
+  `docs/release-0.2.2-status.zh-CN.md`. Promote planner, coder, reviewer,
+  tester, and doc-writer into supervised roles with tasks, inputs, outputs,
+  ContextBundle references, evidence, failure classification, and next actions.
+  The implementation has landed `StartAgentDag` plus provider-backed
+  `StartAgentTask` with dependency gating, AgentTask-bound ContextBundle
+  events, role evidence, durable start/blocker/completion workflow events, and
+  merge-gate updates; active role turns can be cancelled without leaving the
+  runtime worker stuck, and explicit `CancelAgentTask` commands now persist
+  `agent_task_cancelled` workflow events for queued or inactive tasks. Basic
+  merge gate accept/reject decisions are also runtime commands now. Role
+  `permission_policy` is applied to provider-requested tools during AgentTask
+  execution; the role-policy matrix now covers tester verification,
+  docs-only, reviewer read-only, scoped coder mutation, release-gate, and
+  least-privilege external-agent behavior before approval/execution.
+  Structured tool-result events now carry success and exit code through the
+  runtime contract so TUI/GUI clients do not infer status from output text.
+  Provider-backed role failures now persist `agent_task_failed` events with
+  `failure_class`, `recovery_suggestion`, and a retry next action.
+  Completed AgentTasks now store the provider output summary in `task.result`
+  and link the same output to role evidence.
+  AgentTask ContextBundles now include initial role-specific guidance,
+  file-scope, evidence-contract sources, and deterministic scoped file
+  candidates, lightweight symbol candidates, and live LSP diagnostics selected
+  per role. Agent artifact accept/reject plus
+  accepted-patch merge state transitions are now runtime commands with durable
+  workflow events; accepted patch evidence is now applied to the workspace
+  through a basic unified-diff reducer with conflict reporting that leaves files
+  unchanged on mismatch. Scoped role Git staging now allows in-scope `git_add`
+  while denying unscoped staging and high-risk Git mutations. Live LSP
+  references enrichment, richer patch formats, release/publish Git rules, and
+  evidence collection reducers remain later work.
+- `0.2.3`: Evidence and merge gate. Require task, context, permission, test,
+  review, and release evidence before accepting generated changes.
+- `0.2.4`: Plugin runtime boundary. Add process-plugin protocol,
+  manifest/capability registration, extension boundaries, and least-privilege
+  external agent scopes.
+- `0.2.5`: Real development gate. Keep DeepSeek live development smoke,
+  daily-loop, plan-mode, provider/model, lane operator, release gate, and
+  token/cost summaries mandatory before releases.
 - `0.3.0`: Multi-frontend contract freeze and Viden migration plan. Freeze the
   UI/runtime contract before parallel UI work and define `viden` binary/config
   migration plus the `robocode` compatibility shim.

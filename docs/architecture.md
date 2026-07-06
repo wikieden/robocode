@@ -128,6 +128,9 @@ or GUI implementation work:
   `TokenCostView`, and `RuntimeViewState`.
 - `RuntimeViewState::apply_event` is the replay reducer. A client can rebuild
   its visible state from the initial snapshot plus ordered runtime events.
+- Tool-result runtime events carry structured `success` and `exit_code` facts;
+  clients must render those fields instead of inferring status from output
+  text.
 - `viden-runtime` exposes `SessionEngine::runtime_snapshot()`,
   `SessionEngine::runtime_view_state()`, and
   `SessionEngine::runtime_events_for_engine_events(...)` as the first bridge
@@ -140,9 +143,36 @@ or GUI implementation work:
 - Future TUI and GUI code must consume this contract instead of directly owning
   provider loops, tool execution, permission decisions, task state, or
   provider telemetry.
+- Completed core modules must also update
+  [Frontend Integration Contract](frontend-integration-contract.md), which maps
+  runtime facts, commands, events, and view-state fields to TUI/GUI integration
+  surfaces.
 
 This boundary is intentionally data-first. It lets the existing engine continue
 to run while contract tests freeze the facts that multiple frontends will share.
+
+## Future Multi-Agent Core Orchestration
+
+The multi-agent target is specified in
+[Multi-Agent Core Orchestration](multi-agent-core-orchestration.md). It extends
+the current runtime contract with agent DAG, ContextBundle, evidence, and
+merge-gate contracts while preserving the same frontend-neutral event stream.
+
+Architecture TODO:
+
+- expand the landed `AgentTask`, `AgentDag`, `ContextBundle`, `Evidence`, and
+  `MergeGate` contracts in `viden-types` without binding them to a frontend;
+- continue storing DAG, task, memory, artifact, and evidence events in
+  `viden-workflows` as durable project workflow state, separate from session
+  transcripts;
+- keep extending `RuntimeSupervisor` so role-based agent tasks emit replayable
+  runtime events without blocking UI input;
+- route every agent tool call through `viden-permissions` and `viden-tools`
+  before mutation, and keep expanding the landed role-policy matrix beyond
+  scoped Git staging into release/publish scopes;
+- keep provider-specific protocol behavior inside `viden-provider` adapters and
+  keep agent orchestration inside `viden-runtime` / `viden-workflows`;
+- make TUI and GUI render only `RuntimeViewState` plus ordered runtime events.
 
 ## Terminal Presentation
 

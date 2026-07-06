@@ -232,6 +232,63 @@ fn agent_lane_trust_loop_records_roundtrip_json() {
 }
 
 #[test]
+fn agent_dag_context_evidence_and_merge_gate_roundtrip_json() {
+    let task = AgentDagTaskSpec {
+        task_id: "agent_task_1".to_string(),
+        role: AgentRole::Planner,
+        title: "Plan runtime split".to_string(),
+        objective: "Create architecture and implementation plan".to_string(),
+        dependencies: Vec::new(),
+        workspace: Some("/tmp/viden".to_string()),
+        file_scope: vec!["crates/runtime".to_string(), "crates/types".to_string()],
+        context_bundle_id: Some("ctx_agent_task_1".to_string()),
+        required_evidence: vec!["plan".to_string(), "architecture".to_string()],
+        permission_policy: "read_only".to_string(),
+    };
+    let dag = AgentDagRecord {
+        dag_id: "dag_1".to_string(),
+        goal: "Complete 0.2.2 agent role runtime".to_string(),
+        status: AgentDagStatus::Active,
+        tasks: vec![task.clone()],
+        created_at: Some(10),
+        updated_at: Some(11),
+    };
+    let evidence = EvidenceRecord {
+        evidence_id: "ev_1".to_string(),
+        task_id: task.task_id.clone(),
+        kind: EvidenceKind::Plan,
+        summary: "planner produced a scoped DAG".to_string(),
+        path: Some("docs/multi-agent-core-orchestration.md".to_string()),
+        source: Some("planner".to_string()),
+        created_at: Some(12),
+    };
+    let gate = MergeGateRecord {
+        gate_id: "gate_1".to_string(),
+        task_id: task.task_id.clone(),
+        status: MergeGateStatus::CollectingEvidence,
+        required_evidence: vec!["plan".to_string(), "review".to_string()],
+        evidence_ids: vec![evidence.evidence_id.clone()],
+        decision: None,
+        updated_at: Some(13),
+    };
+
+    assert_eq!(AgentRole::parse("doc-writer"), Some(AgentRole::DocWriter));
+    assert_eq!(AgentRole::ReleaseOperator.as_str(), "release_operator");
+    assert!(AgentDagStatus::Active.is_active());
+    assert!(!MergeGateStatus::Merged.is_open());
+
+    let encoded = serde_json::to_string(&(dag, evidence, gate)).unwrap();
+    let (decoded_dag, decoded_evidence, decoded_gate): (
+        AgentDagRecord,
+        EvidenceRecord,
+        MergeGateRecord,
+    ) = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded_dag.tasks[0].role, AgentRole::Planner);
+    assert_eq!(decoded_evidence.kind, EvidenceKind::Plan);
+    assert_eq!(decoded_gate.status, MergeGateStatus::CollectingEvidence);
+}
+
+#[test]
 fn lsp_diagnostic_roundtrips_json() {
     let diagnostic = LspDiagnostic {
         path: "src/lib.rs".to_string(),
@@ -309,6 +366,61 @@ fn runtime_commands_and_actions_roundtrip_json_without_ui_state() {
     let decoded: CommandAction = serde_json::from_value(encoded).unwrap();
     assert_eq!(decoded.command, action.command);
     assert!(decoded.enabled);
+}
+
+#[test]
+fn agent_dag_runtime_command_roundtrips_json() {
+    let commands = vec![
+        RuntimeCommand::StartAgentDag {
+            goal: "Complete role runtime".to_string(),
+            tasks: vec![AgentDagTaskSpec {
+                task_id: "task_planner".to_string(),
+                role: AgentRole::Planner,
+                title: "Plan implementation".to_string(),
+                objective: "Split work into safe tasks".to_string(),
+                dependencies: Vec::new(),
+                workspace: None,
+                file_scope: vec!["crates/runtime".to_string()],
+                context_bundle_id: Some("ctx_planner".to_string()),
+                required_evidence: vec!["plan".to_string()],
+                permission_policy: "read_only".to_string(),
+            }],
+        },
+        RuntimeCommand::AcceptMergeGate {
+            gate_id: "gate-task_planner".to_string(),
+            decision: Some("required evidence complete".to_string()),
+        },
+        RuntimeCommand::RejectMergeGate {
+            gate_id: "gate-task_planner".to_string(),
+            reason: "missing test evidence".to_string(),
+        },
+        RuntimeCommand::AcceptAgentArtifact {
+            gate_id: "gate-task_planner".to_string(),
+            evidence_id: "evidence-task_planner-plan".to_string(),
+            decision: Some("artifact evidence accepted".to_string()),
+        },
+        RuntimeCommand::RejectAgentArtifact {
+            gate_id: "gate-task_planner".to_string(),
+            evidence_id: "evidence-task_planner-plan".to_string(),
+            reason: "artifact is stale".to_string(),
+        },
+        RuntimeCommand::MergeAgentPatch {
+            gate_id: "gate-task_planner".to_string(),
+            decision: Some("merge accepted artifact".to_string()),
+        },
+    ];
+
+    let encoded = serde_json::to_value(&commands).unwrap();
+    assert_eq!(encoded[0]["type"], "start_agent_dag");
+    assert_eq!(encoded[0]["tasks"][0]["role"], "planner");
+    assert_eq!(encoded[1]["type"], "accept_merge_gate");
+    assert_eq!(encoded[2]["type"], "reject_merge_gate");
+    assert_eq!(encoded[3]["type"], "accept_agent_artifact");
+    assert_eq!(encoded[4]["type"], "reject_agent_artifact");
+    assert_eq!(encoded[5]["type"], "merge_agent_patch");
+
+    let decoded: Vec<RuntimeCommand> = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded, commands);
 }
 
 #[test]
@@ -418,6 +530,52 @@ fn runtime_events_replay_into_ui_independent_view_state() {
     let encoded = serde_json::to_string(&events).unwrap();
     let decoded: Vec<RuntimeEvent> = serde_json::from_str(&encoded).unwrap();
     assert_eq!(decoded, events);
+}
+
+#[test]
+fn runtime_view_state_replays_agent_dag_and_merge_gate_events() {
+    let snapshot = runtime_snapshot_for_contract();
+    let dag = AgentDagRecord {
+        dag_id: "dag_runtime".to_string(),
+        goal: "Coordinate implementation".to_string(),
+        status: AgentDagStatus::Active,
+        tasks: vec![AgentDagTaskSpec {
+            task_id: "task_runtime_planner".to_string(),
+            role: AgentRole::Planner,
+            title: "Plan work".to_string(),
+            objective: "Split implementation".to_string(),
+            dependencies: Vec::new(),
+            workspace: Some("/tmp/robocode".to_string()),
+            file_scope: vec!["crates/runtime".to_string()],
+            context_bundle_id: Some("ctx_runtime_planner".to_string()),
+            required_evidence: vec!["plan".to_string()],
+            permission_policy: "read_only".to_string(),
+        }],
+        created_at: Some(1),
+        updated_at: Some(1),
+    };
+    let gate = MergeGateRecord {
+        gate_id: "gate_runtime".to_string(),
+        task_id: "task_runtime_planner".to_string(),
+        status: MergeGateStatus::Proposed,
+        required_evidence: vec!["plan".to_string()],
+        evidence_ids: Vec::new(),
+        decision: None,
+        updated_at: Some(2),
+    };
+    let mut view = RuntimeViewState::new(snapshot);
+
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AgentDagUpdated { dag: dag.clone() },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::MergeGateUpdated { gate: gate.clone() },
+    ));
+
+    assert_eq!(view.agent_dags[0], dag);
+    assert_eq!(view.merge_gates[0], gate);
 }
 
 #[test]

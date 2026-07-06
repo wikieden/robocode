@@ -1,4 +1,4 @@
-use viden_types::{AgentNextAction, AgentTaskRecord, AgentTaskStatus, now_timestamp};
+use viden_types::{AgentNextAction, AgentTaskRecord, AgentTaskStatus, EvidenceView, now_timestamp};
 
 use crate::{SessionEngine, TestEvidence};
 
@@ -33,6 +33,18 @@ impl SessionEngine {
                     .map(|updated| updated >= now_millis().saturating_sub(15 * 60 * 1000))
                     .unwrap_or(true)
         });
+    }
+
+    pub(crate) fn upsert_runtime_evidence(&mut self, evidence: EvidenceView) {
+        if let Some(existing) = self
+            .runtime_evidence
+            .iter_mut()
+            .find(|item| item.id == evidence.id)
+        {
+            *existing = evidence;
+        } else {
+            self.runtime_evidence.push(evidence);
+        }
     }
 
     pub(crate) fn provider_task(

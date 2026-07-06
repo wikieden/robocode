@@ -37,8 +37,9 @@ use viden_provider::{ModelProvider, ProviderDescriptor, ProviderHost};
 use viden_session::SessionStore;
 use viden_tools::ToolRegistry;
 use viden_types::{
-    AgentTaskRecord, ContextBundleRecord, MemoryEntry, Message, ModelUsage, PermissionLevel,
-    PermissionMode, RuntimeSnapshot, TaskRecord, WorkMode,
+    AgentDagRecord, AgentTaskRecord, ContextBundleRecord, EvidenceView, MemoryEntry,
+    MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode, RuntimeSnapshot,
+    TaskRecord, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -49,7 +50,11 @@ pub enum EngineEvent {
     System(String),
     Assistant(String),
     ToolCall(String),
-    ToolResult(String),
+    ToolResult {
+        output: String,
+        success: bool,
+        exit_code: Option<i32>,
+    },
     Command(String),
 }
 
@@ -175,6 +180,9 @@ pub struct SessionEngine {
     last_test: Option<TestEvidence>,
     runtime_snapshot: RuntimeSnapshot,
     runtime_tasks: Vec<AgentTaskRecord>,
+    runtime_agent_dags: Vec<AgentDagRecord>,
+    runtime_merge_gates: Vec<MergeGateRecord>,
+    runtime_evidence: Vec<EvidenceView>,
     queued_runtime_inputs: Vec<runtime_contract::QueuedRuntimeInput>,
     provider_telemetry: ProviderTelemetry,
     last_context_bundle: Option<ContextBundleRecord>,
@@ -243,6 +251,9 @@ impl SessionEngine {
             last_test: None,
             runtime_snapshot,
             runtime_tasks: Vec::new(),
+            runtime_agent_dags: Vec::new(),
+            runtime_merge_gates: Vec::new(),
+            runtime_evidence: Vec::new(),
             queued_runtime_inputs: Vec::new(),
             provider_telemetry: ProviderTelemetry::default(),
             last_context_bundle: None,

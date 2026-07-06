@@ -2147,9 +2147,9 @@ pub(super) fn entry_from_event(event: EngineEvent) -> TuiEntry {
             label: "tool-call".to_string(),
             body: text,
         },
-        EngineEvent::ToolResult(text) => TuiEntry {
+        EngineEvent::ToolResult { output, .. } => TuiEntry {
             label: "tool-result".to_string(),
-            body: text,
+            body: output,
         },
         EngineEvent::Command(text) => TuiEntry {
             label: "command".to_string(),

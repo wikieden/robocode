@@ -45,6 +45,14 @@ impl PermissionEngine {
         self.context.mode
     }
 
+    pub fn context_snapshot(&self) -> PermissionContext {
+        self.context.clone()
+    }
+
+    pub fn restore_context(&mut self, context: PermissionContext) {
+        self.context = context;
+    }
+
     pub fn set_mode(&mut self, mode: PermissionMode) {
         self.context.mode = mode;
     }

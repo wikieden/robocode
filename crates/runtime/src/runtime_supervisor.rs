@@ -185,6 +185,17 @@ fn run_supervisor_worker(
                         &pending_approvals,
                     );
                 }
+                RuntimeCommand::StartAgentTask { task_id } => {
+                    run_supervised_agent_task(
+                        &mut engine,
+                        command_id,
+                        task_id,
+                        &event_sender,
+                        &sequence,
+                        &active_control,
+                        &pending_approvals,
+                    );
+                }
                 command => {
                     let mut approver = |_prompt: PermissionPrompt| ApprovalResponse {
                         approved: false,
@@ -200,6 +211,69 @@ fn run_supervisor_worker(
                 }
             },
         }
+    }
+}
+
+fn run_supervised_agent_task(
+    engine: &mut SessionEngine,
+    command_id: String,
+    task_id: String,
+    event_sender: &Sender<RuntimeEvent>,
+    sequence: &Arc<AtomicU64>,
+    active_control: &Arc<Mutex<Option<ModelRequestControl>>>,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, Sender<ApprovalResponse>>>>,
+) {
+    emit_event(
+        event_sender,
+        sequence,
+        RuntimeEventKind::CommandAccepted {
+            command_id,
+            command: RuntimeCommand::StartAgentTask {
+                task_id: task_id.clone(),
+            },
+        },
+    );
+
+    let control = ModelRequestControl::new();
+    if let Ok(mut slot) = active_control.lock() {
+        *slot = Some(control.clone());
+    }
+
+    let mut approver = |prompt: PermissionPrompt| {
+        let request_id = fresh_id("approval");
+        let (approval_sender, approval_receiver) = mpsc::channel();
+        if let Ok(mut approvals) = pending_approvals.lock() {
+            approvals.insert(request_id.clone(), approval_sender);
+        }
+        emit_event(
+            event_sender,
+            sequence,
+            RuntimeEventKind::ApprovalRequested {
+                approval: approval_request_view(&request_id, &prompt),
+            },
+        );
+        let response = approval_receiver.recv().unwrap_or(ApprovalResponse {
+            approved: false,
+            feedback: Some("approval response channel closed".to_string()),
+        });
+        emit_event(
+            event_sender,
+            sequence,
+            RuntimeEventKind::ApprovalResolved {
+                request_id,
+                approved: response.approved,
+            },
+        );
+        response
+    };
+
+    let result = engine.run_agent_task_with_control(&task_id, &mut approver, &control);
+    if let Ok(mut slot) = active_control.lock() {
+        *slot = None;
+    }
+    match result {
+        Ok(events) => emit_events(event_sender, sequence, events),
+        Err(err) => emit_error(event_sender, sequence, err),
     }
 }
 

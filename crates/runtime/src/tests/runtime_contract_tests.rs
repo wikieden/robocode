@@ -100,11 +100,9 @@ fn core_runtime_bridge_records_tool_calls_and_results() {
     let engine_events = engine
         .process_input_with_approval("run printf", &mut approver)
         .unwrap();
-    assert!(
-        engine_events
-            .iter()
-            .any(|event| matches!(event, EngineEvent::ToolResult(text) if text.contains("hello")))
-    );
+    assert!(engine_events.iter().any(
+        |event| matches!(event, EngineEvent::ToolResult { output, .. } if output.contains("hello"))
+    ));
 
     let runtime_events = engine.runtime_events_for_engine_events(&engine_events);
     assert_strictly_increasing_sequences(&runtime_events);
@@ -122,6 +120,46 @@ fn core_runtime_bridge_records_tool_calls_and_results() {
                 evidence: Some(evidence),
                 ..
             } if evidence.summary.contains("hello")
+        )
+    }));
+}
+
+#[test]
+fn core_runtime_bridge_does_not_fail_successful_tool_output_with_error_words() {
+    let cwd = temp_dir("runtime_contract_tool_error_word_cwd");
+    let home = temp_dir("runtime_contract_tool_error_word_home");
+    let mut input = ToolInput::new();
+    input.insert(
+        "command".to_string(),
+        "printf 'Error format documentation'".to_string(),
+    );
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_error_word".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let engine_events = engine
+        .process_input_with_approval("print help text", &mut approver)
+        .unwrap();
+    let runtime_events = engine.runtime_events_for_engine_events(&engine_events);
+
+    assert!(runtime_events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ToolCallFinished {
+                success: true,
+                evidence: Some(evidence),
+                ..
+            } if evidence.summary.contains("Error format documentation")
         )
     }));
 }

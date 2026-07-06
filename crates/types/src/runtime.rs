@@ -1,6 +1,7 @@
 use crate::{
-    AgentLaneRecord, AgentTaskId, AgentTaskRecord, ApprovalResponse, ContextBundleRecord,
-    MessageId, PermissionLevel, RuntimeSnapshot, ToolCallId, WorkMode, now_timestamp,
+    AgentDagRecord, AgentDagTaskSpec, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
+    ApprovalResponse, ContextBundleRecord, EvidenceId, MergeGateId, MergeGateRecord, MessageId,
+    PermissionLevel, RuntimeSnapshot, ToolCallId, WorkMode, now_timestamp,
 };
 
 /// UI-independent command contract sent from a client surface into the runtime.
@@ -41,6 +42,38 @@ pub enum RuntimeCommand {
     DeactivateModel {
         provider_id: String,
         model: String,
+    },
+    StartAgentDag {
+        goal: String,
+        tasks: Vec<AgentDagTaskSpec>,
+    },
+    StartAgentTask {
+        task_id: AgentTaskId,
+    },
+    CancelAgentTask {
+        task_id: AgentTaskId,
+    },
+    AcceptMergeGate {
+        gate_id: MergeGateId,
+        decision: Option<String>,
+    },
+    RejectMergeGate {
+        gate_id: MergeGateId,
+        reason: String,
+    },
+    AcceptAgentArtifact {
+        gate_id: MergeGateId,
+        evidence_id: EvidenceId,
+        decision: Option<String>,
+    },
+    RejectAgentArtifact {
+        gate_id: MergeGateId,
+        evidence_id: EvidenceId,
+        reason: String,
+    },
+    MergeAgentPatch {
+        gate_id: MergeGateId,
+        decision: Option<String>,
     },
 }
 
@@ -195,6 +228,9 @@ pub enum RuntimeEventKind {
     TaskUpdated {
         task: AgentTaskRecord,
     },
+    AgentDagUpdated {
+        dag: AgentDagRecord,
+    },
     LaneUpdated {
         lane: AgentLaneRecord,
     },
@@ -203,6 +239,9 @@ pub enum RuntimeEventKind {
     },
     ContextUpdated {
         context: ContextBundleRecord,
+    },
+    MergeGateUpdated {
+        gate: MergeGateRecord,
     },
     ProviderHealthUpdated {
         provider: ProviderHealthView,
@@ -222,12 +261,14 @@ pub struct RuntimeViewState {
     pub queued_inputs: Vec<QueuedInputView>,
     pub active_tool_calls: Vec<ToolCallView>,
     pub tasks: Vec<AgentTaskRecord>,
+    pub agent_dags: Vec<AgentDagRecord>,
     pub lanes: Vec<AgentLaneRecord>,
     pub latest_evidence: Vec<EvidenceView>,
     pub assistant_stream: String,
     pub context: Option<ContextBundleRecord>,
     pub provider: Option<ProviderHealthView>,
     pub token_cost: Option<TokenCostView>,
+    pub merge_gates: Vec<MergeGateRecord>,
     pub errors: Vec<RuntimeErrorView>,
     pub last_command: Option<RuntimeCommandReceipt>,
 }
@@ -240,12 +281,14 @@ impl RuntimeViewState {
             queued_inputs: Vec::new(),
             active_tool_calls: Vec::new(),
             tasks: Vec::new(),
+            agent_dags: Vec::new(),
             lanes: Vec::new(),
             latest_evidence: Vec::new(),
             assistant_stream: String::new(),
             context: None,
             provider: None,
             token_cost: None,
+            merge_gates: Vec::new(),
             errors: Vec::new(),
             last_command: None,
         }
@@ -322,6 +365,11 @@ impl RuntimeViewState {
                     existing.id == task.id
                 });
             }
+            RuntimeEventKind::AgentDagUpdated { dag } => {
+                upsert_by_id(&mut self.agent_dags, dag.clone(), |existing| {
+                    existing.dag_id == dag.dag_id
+                });
+            }
             RuntimeEventKind::LaneUpdated { lane } => {
                 upsert_by_id(&mut self.lanes, lane.clone(), |existing| {
                     existing.id == lane.id
@@ -332,6 +380,11 @@ impl RuntimeViewState {
             }
             RuntimeEventKind::ContextUpdated { context } => {
                 self.context = Some(context.clone());
+            }
+            RuntimeEventKind::MergeGateUpdated { gate } => {
+                upsert_by_id(&mut self.merge_gates, gate.clone(), |existing| {
+                    existing.gate_id == gate.gate_id
+                });
             }
             RuntimeEventKind::ProviderHealthUpdated { provider } => {
                 self.provider = Some(provider.clone());

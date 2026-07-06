@@ -4463,6 +4463,7 @@ mod tests {
 
     #[test]
     fn lane_run_refreshes_failed_exit_code_and_inspect_tail() {
+        let _env = ScopedEnv::lock();
         let root = temp_lane_root();
         let store = root.join(".robocode").join("lanes.tsv");
         let mut state = test_state();
@@ -4746,6 +4747,10 @@ mod tests {
     }
 
     impl ScopedEnv {
+        fn lock() -> Self {
+            Self::set_many(&[])
+        }
+
         fn set(key: &'static str, value: &str) -> Self {
             Self::set_many(&[(key, Some(value))])
         }
