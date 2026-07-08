@@ -1,4 +1,4 @@
-# RoboCode 0.1.12 计划
+# Viden 0.1.12 计划
 
 英文版： [release-0.1.12-plan.md](release-0.1.12-plan.md)
 
@@ -12,8 +12,8 @@
 投影、截图回归和 token/context 设计打成基础。`0.1.12` 的目标不是继续堆面板，
 而是把这些基础变成真实编程工作流：
 
-- 用户把一个开发任务交给 RoboCode。
-- RoboCode 能拆出可监督的 agent/lane 工作。
+- 用户把一个开发任务交给 Viden。
+- Viden 能拆出可监督的 agent/lane 工作。
 - 主屏能持续说明当前谁在工作、在做什么、证据在哪里、下一步需要谁决策。
 - side screen 能承担真正的观察、控制、review、apply 工作。
 - token/context 的输入输出开始被预算和压缩约束，而不是只做展示。
@@ -27,7 +27,7 @@
 
 `0.1.8` 把 `AgentTask` runtime view、operation center、side-2 evidence、
 Codex app-server fixture、lane operator loop smoke 都打进来了。这证明方向是对的：
-RoboCode 必须有统一事实层，不能每个面板各自拼状态。
+Viden 必须有统一事实层，不能每个面板各自拼状态。
 
 反思：
 
@@ -147,7 +147,7 @@ RoboCode 必须有统一事实层，不能每个面板各自拼状态。
 目标流程：
 
 1. 用户提交开发任务。
-2. RoboCode 生成或接受一个小 plan。
+2. Viden 生成或接受一个小 plan。
 3. 用户把子任务派发到一个 lane，例如 Codex、Claude、shell/template 或 DeepSeek。
 4. lane 运行过程被 `AgentTask` 观测并显示。
 5. 结果进入 review 状态，展示 touched files、diff、test/evidence。
@@ -264,7 +264,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
-scripts/release-smoke.sh --version 0.1.12 --deepseek --out-dir /tmp/robocode-0112-release-smoke-full
+scripts/release-smoke.sh --version 0.1.12 --deepseek --out-dir /tmp/viden-0112-release-smoke-full
 ```
 
 人工验证：

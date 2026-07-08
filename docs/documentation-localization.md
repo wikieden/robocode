@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines how RoboCode documentation should be maintained in both
+This document defines how Viden documentation should be maintained in both
 English and Simplified Chinese.
 
 ## Current Policy

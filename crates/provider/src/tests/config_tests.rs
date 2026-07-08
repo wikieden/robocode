@@ -2,17 +2,17 @@ use super::*;
 
 #[test]
 fn from_env_defaults_to_deepseek_flash() {
-    let provider = std::env::var("ROBOCODE_PROVIDER").ok();
-    let model = std::env::var("ROBOCODE_MODEL").ok();
+    let provider = std::env::var("VIDEN_PROVIDER").ok();
+    let model = std::env::var("VIDEN_MODEL").ok();
 
     unsafe {
-        std::env::remove_var("ROBOCODE_PROVIDER");
-        std::env::remove_var("ROBOCODE_MODEL");
+        std::env::remove_var("VIDEN_PROVIDER");
+        std::env::remove_var("VIDEN_MODEL");
     }
     let config = ProviderConfig::from_env();
     unsafe {
-        restore_env_var("ROBOCODE_PROVIDER", provider);
-        restore_env_var("ROBOCODE_MODEL", model);
+        restore_env_var("VIDEN_PROVIDER", provider);
+        restore_env_var("VIDEN_MODEL", model);
     }
 
     assert_eq!(config.kind, ProviderKind::DeepSeek);
@@ -63,19 +63,19 @@ fn from_settings_treats_blank_api_key_override_as_missing() {
 #[test]
 fn blank_builtin_api_key_env_is_treated_as_missing() {
     let openai_key = std::env::var("OPENAI_API_KEY").ok();
-    let robocode_openai_key = std::env::var("ROBOCODE_OPENAI_API_KEY").ok();
-    let robocode_key = std::env::var("ROBOCODE_API_KEY").ok();
+    let viden_openai_key = std::env::var("VIDEN_OPENAI_API_KEY").ok();
+    let viden_key = std::env::var("VIDEN_API_KEY").ok();
 
     unsafe {
         std::env::remove_var("OPENAI_API_KEY");
-        std::env::remove_var("ROBOCODE_OPENAI_API_KEY");
-        std::env::set_var("ROBOCODE_API_KEY", "   ");
+        std::env::remove_var("VIDEN_OPENAI_API_KEY");
+        std::env::set_var("VIDEN_API_KEY", "   ");
     }
     let config = ProviderConfig::from_settings("openai", Some("gpt-5.2"), None, None, 90, 1);
     unsafe {
         restore_env_var("OPENAI_API_KEY", openai_key);
-        restore_env_var("ROBOCODE_OPENAI_API_KEY", robocode_openai_key);
-        restore_env_var("ROBOCODE_API_KEY", robocode_key);
+        restore_env_var("VIDEN_OPENAI_API_KEY", viden_openai_key);
+        restore_env_var("VIDEN_API_KEY", viden_key);
     }
     let config = config.unwrap();
 

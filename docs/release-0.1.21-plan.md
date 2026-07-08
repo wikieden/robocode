@@ -1,4 +1,4 @@
-# RoboCode 0.1.21 Plan - Interaction System Completion
+# Viden 0.1.21 Plan - Interaction System Completion
 
 Chinese version: [release-0.1.21-plan.zh-CN.md](release-0.1.21-plan.zh-CN.md)
 
@@ -6,7 +6,7 @@ Chinese version: [release-0.1.21-plan.zh-CN.md](release-0.1.21-plan.zh-CN.md)
 
 `0.1.21` should turn the interaction work from `0.1.18` through `0.1.20`
 into one coherent product system. The release goal is not to add more panels or
-more agent types. The goal is that a new user can configure RoboCode, recover
+more agent types. The goal is that a new user can configure Viden, recover
 from provider errors, run a coding loop, use delegated lanes, and understand
 where focus and actions live without guessing hidden slash commands.
 
@@ -17,7 +17,7 @@ permission, and evidence contracts defined here.
 
 ## Product Goal
 
-By the end of `0.1.21`, RoboCode should feel like a dependable terminal product:
+By the end of `0.1.21`, Viden should feel like a dependable terminal product:
 
 - every settings/configuration entry opens an actionable picker or form;
 - provider configuration and model selection are visually and behaviorally
@@ -218,7 +218,7 @@ scripts/tui-previews.sh docs/previews/generated
 scripts/tui-regression.sh docs/previews/generated
 scripts/daily-loop-smoke.sh
 scripts/release-smoke.sh --version 0.1.21 --quick \
-  --out-dir /tmp/robocode-0121-release-smoke-local
+  --out-dir /tmp/viden-0121-release-smoke-local
 ```
 
 Manual:

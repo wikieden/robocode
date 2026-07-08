@@ -4,7 +4,7 @@
 
 ## 目的
 
-这份计划把已确认的 RoboCode TUI 设计落到可执行架构上。目标不只是做一个更好看的全屏终端界面，而是做一个本地优先的 coding-agent cockpit：主屏管理主会话、审批和上下文，副屏承载真实 side work，并能监督 `codex`、`claude`、`junie`、`gemini` 或用户自定义命令。
+这份计划把已确认的 Viden TUI 设计落到可执行架构上。目标不只是做一个更好看的全屏终端界面，而是做一个本地优先的 coding-agent cockpit：主屏管理主会话、审批和上下文，副屏承载真实 side work，并能监督 `codex`、`claude`、`junie`、`gemini` 或用户自定义命令。
 
 设计来源：
 
@@ -46,7 +46,7 @@ flowchart TB
 
 - `viden-runtime` 继续负责主会话、权限决策、模型/工具循环。
 - TUI 是共享状态上的客户端，不是第二套 agent runtime。
-- Terminal lane 是被监督的工作单元，可以运行外部工具，但 RoboCode 负责任务信封、生命周期、观测和验收。
+- Terminal lane 是被监督的工作单元，可以运行外部工具，但 Viden 负责任务信封、生命周期、观测和验收。
 - 外部 coding tool 是协作者，不是可信裁判。结果要看日志、diff、exit code 和验证命令。
 - template-launched、会改文件的 Codex 和 Claude lane 会跑在隔离 worktree；
   其他 lane 类型必须明确自己的 mutation scope。
@@ -109,11 +109,11 @@ enum ScreenKind {
   TUI 进程。
 - registry 最多跟踪两个副屏，并暴露 `/screen list` 和
   `/screen close <side-1|side-2>`。
-- registry 状态会持久化到 `.robocode/screens.tsv`，副屏进程轮询 lane
+- registry 状态会持久化到 `.viden/screens.tsv`，副屏进程轮询 lane
   artifacts 时也能重新读取 sibling screen 状态。
-- `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE` 和
-  `ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` 允许为每个副屏配置不同的桌面
-  wrapper，`ROBOCODE_SCREEN_LAUNCH_TEMPLATE` 作为共享 fallback。Template 可以
+- `VIDEN_SCREEN_SIDE_1_LAUNCH_TEMPLATE` 和
+  `VIDEN_SCREEN_SIDE_2_LAUNCH_TEMPLATE` 允许为每个副屏配置不同的桌面
+  wrapper，`VIDEN_SCREEN_LAUNCH_TEMPLATE` 作为共享 fallback。Template 可以
   打开新 terminal 窗口、接入 tmux，或调用显示器摆放脚本，而不把 OS 自动化写死
   到跨平台核心里。
 
@@ -210,21 +210,21 @@ Template 占位符：
 - `{task}` 和 `{task:q}` 展开为原始 task title 或 shell-quoted task title。
 - `{envelope}` 和 `{envelope:q}` 展开为原始 task envelope 文件路径或
   shell-quoted envelope 路径。
-- Codex 使用 `ROBOCODE_LANE_CODEX_TEMPLATE`；Claude 使用
-  `ROBOCODE_LANE_CLAUDE_TEMPLATE`。
+- Codex 使用 `VIDEN_LANE_CODEX_TEMPLATE`；Claude 使用
+  `VIDEN_LANE_CLAUDE_TEMPLATE`。
 - generic `/lane ask <tool> <task>` adapter 使用
-  `ROBOCODE_LANE_<TOOL>_TEMPLATE`，其中 `<TOOL>` 会转为大写，非字母数字字符
+  `VIDEN_LANE_<TOOL>_TEMPLATE`，其中 `<TOOL>` 会转为大写，非字母数字字符
   会归一化为 `_`。
 
 ## 生命周期
 
 1. 用户输入 `/lane codex "fix failing config tests"` 或 `/lane run cargo test -p viden-runtime`。
-2. RoboCode 创建 `TerminalLane`。
-3. RoboCode 渲染 task envelope 并持久化。
+2. Viden 创建 `TerminalLane`。
+3. Viden 渲染 task envelope 并持久化。
 4. Lane service 按 adapter 启动命令。
 5. TUI 在 `ACTIVE TASKS`、`AGENTS` 或 `OPS` 中展示 lane 状态。
 6. Lane runtime 捕获日志、exit code、文件变更。
-7. RoboCode 运行或记录验证命令。
+7. Viden 运行或记录验证命令。
 8. `/lane inspect <id>` 汇总日志、diff、测试和风险。
 9. 用户选择 `/lane accept`、`/lane revise`、`/lane attach`、`/lane stop` 或 `/lane archive`。
 
@@ -232,16 +232,16 @@ Template 占位符：
 
 - `/lane run <command>` 会启动非交互后台 shell lane。
 - Codex 和 Claude lane 始终会写 task envelope。它们可通过
-  `ROBOCODE_LANE_CODEX_TEMPLATE` 与 `ROBOCODE_LANE_CLAUDE_TEMPLATE` 启动；
+  `VIDEN_LANE_CODEX_TEMPLATE` 与 `VIDEN_LANE_CLAUDE_TEMPLATE` 启动；
   未配置时会排队并给出清晰 setup 提示，同时 envelope 仍可 inspect。
 - `/lane ask <tool> <task>` 会启动自定义外部工具 lane。配置
-  `ROBOCODE_LANE_<TOOL>_TEMPLATE` 后，它会复用 Codex/Claude lane 的 envelope、
+  `VIDEN_LANE_<TOOL>_TEMPLATE` 后，它会复用 Codex/Claude lane 的 envelope、
   隔离 worktree、日志、done-file 和 inspect 路径；未配置时会保留已渲染
   envelope 并给出 setup 提示。
-- template-launched Codex 和 Claude lane 会在 `.robocode/worktrees/` 下创建
+- template-launched Codex 和 Claude lane 会在 `.viden/worktrees/` 下创建
   隔离 Git worktree 并在其中运行，所以文件变更不会直接落进主 workspace。
-- Lane 状态存储在 `.robocode/lanes.tsv`。
-- Runtime artifacts 存在 `.robocode/lanes/`，文件为 `<lane-id>.log` 和
+- Lane 状态存储在 `.viden/lanes.tsv`。
+- Runtime artifacts 存在 `.viden/lanes/`，文件为 `<lane-id>.log` 和
   `<lane-id>.done`；外部工具 envelope 为 `<lane-id>.envelope.md`。
 - 主 TUI 和副屏 idle 时都会刷新 lane artifacts。
 - `/lane inspect <id>` 展示 status、progress、log path、done path、envelope
@@ -356,7 +356,7 @@ store，因此 `ACTIVE TASKS` 面板会把真实 `/task` 记录与审批、lane 
 template-launched prompt-file 风格 adapter。启动后它们会运行于 per-lane Git
 worktree，并收到写明 lane workspace 和 mutation scope 的 envelope。generic
 template 未配置时，lane 会排队并保留可审计 envelope，同时给出
-`ROBOCODE_LANE_<TOOL>_TEMPLATE` setup 提示。`/lane inspect <id>` 现在会展示相关
+`VIDEN_LANE_<TOOL>_TEMPLATE` setup 提示。`/lane inspect <id>` 现在会展示相关
 workspace 的 changed files、exit/log verification evidence 和已记录的 lane
 decision。`/lane accept`、`/lane revise` 和 `/lane discard` 会持久化显式决策
 artifact，但不声称自动 revert 变更。`/lane apply <id>` 现在提供 accepted 隔离
@@ -379,7 +379,7 @@ lane worktree 的显式集成步骤；`/lane archive <id>` 则把保留 lane 证
 - discard 不会默认删除日志或变更，除非用户明确清理。
 
 当前状态：Codex/Claude template lane 会使用本地分支
-`codex/lane-<session>-<lane>` 创建 `.robocode/worktrees/<session>-<lane>`。
+`codex/lane-<session>-<lane>` 创建 `.viden/worktrees/<session>-<lane>`。
 inspect 和 decision artifact 会在 lane worktree 存在时从该 worktree 读取
 changed files。`/lane cleanup <id>` 会移除干净的 worktree 并写 cleanup
 artifact；dirty worktree 必须显式 `--force`，所以 discard 只记录意图而不会删除
@@ -402,26 +402,26 @@ conflict report。完整的内联 conflict editor 仍是后续工作。
 验收标准：
 
 - `/lane attach <id>` 为 lane workspace 打开交互式 terminal；
-- `/lane detach <id>` 把 RoboCode tracking 恢复为 detached 状态，且不杀外部
+- `/lane detach <id>` 把 Viden tracking 恢复为 detached 状态，且不杀外部
   terminal 进程；
 - 完整日志继续捕获；
 - UI 清楚标记当前正在 attach。
 
-当前状态：`/lane attach <id>` 会通过 `ROBOCODE_LANE_ATTACH_TEMPLATE` 启动外部
+当前状态：`/lane attach <id>` 会通过 `VIDEN_LANE_ATTACH_TEMPLATE` 启动外部
 terminal；macOS 默认使用 Terminal.app，并写入 `<lane-id>.attach.md`。
 `/lane tmux <id>` 会为 lane workspace 启动或复用一个命名 tmux session，写入
 `<lane-id>.tmux.md`，并记录明确的操作者 attach 命令（`tmux attach -t ...`），
 tmux 进程本身仍交给 tmux 管理。默认 tmux template 会把 pane 输出 pipe 到标准
 `<lane-id>.log`，所以副屏和 `/lane inspect` 可以通过和非交互 lane 相同的证据
-路径观察实时 tmux 输出。`ROBOCODE_LANE_TMUX_TEMPLATE` 和
-`ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE` 可用于定制 terminal-tool 启动流程。
+路径观察实时 tmux 输出。`VIDEN_LANE_TMUX_TEMPLATE` 和
+`VIDEN_LANE_TMUX_COMMAND_TEMPLATE` 可用于定制 terminal-tool 启动流程。
 `/lane detach <id>` 会把 lane 标记为 detached，不会杀掉外部进程。side-1 的
 lane 行和聚焦 lane modal 会为 tmux-backed lane 显示明确的
 `tmux attach -t ...` 命令；对还没有监督终端的 lane，则显示 `/lane tmux <id>`
 作为下一步交互路由。`/lane pty <id>` 现在会使用 lane 输入 FIFO 和标准 lane
 log 路径启动 embedded PTY bridge，`/lane send <id> <text>` 可以从 TUI 内向该
 bridge 写入一行输入。PTY bridge 会写 `<lane-id>.pty.md`，支持
-`ROBOCODE_LANE_PTY_TEMPLATE`，并在 Unix 上默认使用系统 `script` 命令。
+`VIDEN_LANE_PTY_TEMPLATE`，并在 Unix 上默认使用系统 `script` 命令。
 `/lane inspect <id>` 会展示 attach、tmux、PTY 和 PTY-input artifact path，让
 interactive lane 在启动后仍可审计。side-1 的 `LIVE OUTPUT` 和聚焦 lane modal
 现在会回放最新持久化 `<lane-id>.log` 尾部，让 attached tmux、PTY 和后台 lane
@@ -438,10 +438,10 @@ emulator、cursor-addressed screen-state replay 仍是后续工作。
 2. 主题和布局 Token：内建主题通过共享 theme registry 渲染，preview 生成覆盖
    支持的主题变体。
 3. Screen Registry：`/screen side-1`、`/screen side-2`、`/screen list` 和
-   `/screen close` 使用持久化 `.robocode/screens.tsv` 状态，限制最多两个副屏，
+   `/screen close` 使用持久化 `.viden/screens.tsv` 状态，限制最多两个副屏，
    并渲染 lane/ops 各自优先级不同的 companion layout。
 4. Lane Runtime MVP：`/lane run`、`/lane inspect`、`/lane stop` 和
-   `/lane archive` 会在 `.robocode/lanes/` 下持久化 lane record、日志、退出证据
+   `/lane archive` 会在 `.viden/lanes/` 下持久化 lane record、日志、退出证据
    和生命周期状态。
 5. 外部工具 Adapter：`codex`、`claude` 和 generic `/lane ask` 共享
    template/envelope 路径，并有显式 accept/revise/discard/apply 决策，以及可

@@ -1,4 +1,4 @@
-# RoboCode 0.1.9 Status
+# Viden 0.1.9 Status
 
 Chinese version: [release-0.1.9-status.zh-CN.md](release-0.1.9-status.zh-CN.md)
 
@@ -56,7 +56,7 @@ docs/previews/generated/tui-regression-evidence.json
 Full local release smoke:
 
 ```bash
-scripts/release-smoke.sh --version 0.1.9 --deepseek --out-dir /tmp/robocode-019-release-smoke-full
+scripts/release-smoke.sh --version 0.1.9 --deepseek --out-dir /tmp/viden-019-release-smoke-full
 ```
 
 Result:
@@ -64,13 +64,13 @@ Result:
 - passed: 11
 - failed: 0
 - skipped: 3
-- evidence: `/tmp/robocode-019-release-smoke-full/release-evidence.json`
+- evidence: `/tmp/viden-019-release-smoke-full/release-evidence.json`
 
 Passed checks:
 
 - `cargo-fmt`
 - `cargo-clippy`
-- `robocode-cli-tests`
+- `viden-cli-tests`
 - `workspace-tests`
 - `tui-regression`
 - `fallback-cli-smoke`
@@ -83,13 +83,13 @@ Passed checks:
 Package smoke produced:
 
 ```text
-dist/robocode-v0.1.9-aarch64-apple-darwin.tar.gz
+dist/viden-v0.1.9-aarch64-apple-darwin.tar.gz
 ```
 
 The extracted binary reported:
 
 ```text
-robocode-cli 0.1.9
+viden-cli 0.1.9
 ```
 
 ## Publication Status
@@ -97,9 +97,9 @@ robocode-cli 0.1.9
 Published and verified.
 
 - GitHub release:
-  [v0.1.9](https://github.com/wikieden/robocode/releases/tag/v0.1.9)
+  [v0.1.9](https://github.com/wikieden/viden/releases/tag/v0.1.9)
 - Release workflow:
-  [run 26496859443](https://github.com/wikieden/robocode/actions/runs/26496859443)
+  [run 26496859443](https://github.com/wikieden/viden/actions/runs/26496859443)
 - Workflow status: `completed` / `success`
 - Release published at: `2026-05-27T07:19:05Z`
 - Main release commit: `99b3957`
@@ -107,19 +107,19 @@ Published and verified.
 
 Uploaded release assets:
 
-- `robocode-v0.1.9-aarch64-apple-darwin.tar.gz`
-- `robocode-v0.1.9-aarch64-apple-darwin.tar.gz.sha256`
-- `robocode-v0.1.9-x86_64-apple-darwin.tar.gz`
-- `robocode-v0.1.9-x86_64-apple-darwin.tar.gz.sha256`
-- `robocode-v0.1.9-x86_64-pc-windows-msvc.tar.gz`
-- `robocode-v0.1.9-x86_64-pc-windows-msvc.tar.gz.sha256`
-- `robocode-v0.1.9-x86_64-unknown-linux-gnu.tar.gz`
-- `robocode-v0.1.9-x86_64-unknown-linux-gnu.tar.gz.sha256`
+- `viden-v0.1.9-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.9-aarch64-apple-darwin.tar.gz.sha256`
+- `viden-v0.1.9-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.9-x86_64-apple-darwin.tar.gz.sha256`
+- `viden-v0.1.9-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.9-x86_64-pc-windows-msvc.tar.gz.sha256`
+- `viden-v0.1.9-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.9-x86_64-unknown-linux-gnu.tar.gz.sha256`
 
 Post-publication validation:
 
 ```bash
-scripts/release-smoke.sh --version 0.1.9 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-019-postpublish-check
+scripts/release-smoke.sh --version 0.1.9 --quick --github-release-assets --homebrew --out-dir /tmp/viden-019-postpublish-check
 ```
 
 Result:
@@ -127,8 +127,8 @@ Result:
 - passed: 10
 - failed: 0
 - skipped: 3
-- evidence: `/tmp/robocode-019-postpublish-check/release-evidence.json`
-- Homebrew formula: `wikieden/tap/robocode 0.1.9`
+- evidence: `/tmp/viden-019-postpublish-check/release-evidence.json`
+- Homebrew formula: `wikieden/tap/viden 0.1.9`
 
 ## Remaining Risks
 

@@ -31,13 +31,13 @@ fn git_init(cwd: &PathBuf) {
 
 fn git_config_identity(cwd: &PathBuf) {
     let email = Command::new("git")
-        .args(["config", "user.email", "robocode@example.com"])
+        .args(["config", "user.email", "viden@example.com"])
         .current_dir(cwd)
         .status()
         .unwrap();
     assert!(email.success());
     let name = Command::new("git")
-        .args(["config", "user.name", "RoboCode"])
+        .args(["config", "user.name", "Viden"])
         .current_dir(cwd)
         .status()
         .unwrap();

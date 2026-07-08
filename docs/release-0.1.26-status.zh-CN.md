@@ -1,4 +1,4 @@
-# RoboCode 0.1.26 状态 - TUI 回归包与模式稳定性
+# Viden 0.1.26 状态 - TUI 回归包与模式稳定性
 
 英文版： [release-0.1.26-status.md](release-0.1.26-status.md)
 
@@ -10,7 +10,7 @@ release gate。它也继续把真实 DeepSeek 开发 smoke 作为发布就绪的
 - Workspace version：`0.1.26`
 - Git tag：`v0.1.26`
 - GitHub Release：已发布到
-  <https://github.com/wikieden/robocode/releases/tag/v0.1.26>
+  <https://github.com/wikieden/viden/releases/tag/v0.1.26>
 - Homebrew tap：已同步到 `wikieden/homebrew-tap` commit `d604599`
 
 ## 已实现
@@ -28,16 +28,16 @@ release gate。它也继续把真实 DeepSeek 开发 smoke 作为发布就绪的
 
 - `cargo fmt --all --check`：通过
 - `cargo clippy --workspace --all-targets -- -D warnings`：通过
-- `cargo test -p robocode-cli --quiet`：通过，`283` 个测试
+- `cargo test -p viden-cli --quiet`：通过，`283` 个测试
 - `cargo test --workspace --quiet`：通过
 - `scripts/tdd-testing-contract-smoke.sh`：通过
 - `scripts/tui-turn-controller-smoke.sh`：通过
-- `scripts/plan-mode-smoke.sh /tmp/robocode-0126-plan-mode-smoke`：通过
-- `scripts/daily-loop-smoke.sh /tmp/robocode-0126-daily-loop-smoke`：通过
+- `scripts/plan-mode-smoke.sh /tmp/viden-0126-plan-mode-smoke`：通过
+- `scripts/daily-loop-smoke.sh /tmp/viden-0126-daily-loop-smoke`：通过
 - `scripts/tui-regression.sh docs/previews/generated`：通过
-- `scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash --out-dir /tmp/robocode-0126-deepseek-dev-smoke`：通过
-- `scripts/release-gate.sh --version 0.1.26 --phase prepublish --out-dir /tmp/robocode-0126-release-gate`：通过
-- `scripts/release-gate.sh --version 0.1.26 --phase postpublish --out-dir /tmp/robocode-0126-release-gate`：通过
+- `scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash --out-dir /tmp/viden-0126-deepseek-dev-smoke`：通过
+- `scripts/release-gate.sh --version 0.1.26 --phase prepublish --out-dir /tmp/viden-0126-release-gate`：通过
+- `scripts/release-gate.sh --version 0.1.26 --phase postpublish --out-dir /tmp/viden-0126-release-gate`：通过
 
 ## DeepSeek Smoke 证据
 
@@ -47,15 +47,15 @@ release gate。它也继续把真实 DeepSeek 开发 smoke 作为发布就绪的
 - Token：input `11382`，output `529`，total `11911`
 - 估算费用：`¥0.012440 CNY`
 - 计价依据：DeepSeek cache-miss estimate，input `¥1/1M`，output `¥2/1M`
-- 证据：`/tmp/robocode-0126-release-gate/prepublish/deepseek-dev-scenario/summary.md`
+- 证据：`/tmp/viden-0126-release-gate/prepublish/deepseek-dev-scenario/summary.md`
 
 ## 发布完成门禁
 
 `0.1.26` 只有在以下项目全部完成后才算完成：
 
 - `scripts/release-gate.sh --version 0.1.26 --phase prepublish` 通过；已完成，
-  证据在 `/tmp/robocode-0126-release-gate/prepublish`；
+  证据在 `/tmp/viden-0126-release-gate/prepublish`；
 - GitHub Release `v0.1.26` assets 发布；已完成，`8` 个资产；
 - `wikieden/homebrew-tap` 同步到 `0.1.26`；已完成，commit `d604599`；
 - `scripts/release-gate.sh --version 0.1.26 --phase postpublish` 通过；已完成，
-  证据在 `/tmp/robocode-0126-release-gate/postpublish`。
+  证据在 `/tmp/viden-0126-release-gate/postpublish`。

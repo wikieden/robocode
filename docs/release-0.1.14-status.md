@@ -1,4 +1,4 @@
-# RoboCode 0.1.14 Status
+# Viden 0.1.14 Status
 
 Chinese version: [release-0.1.14-status.zh-CN.md](release-0.1.14-status.zh-CN.md)
 
@@ -25,7 +25,7 @@ release assets, or Homebrew tap update has been created from this workspace yet.
   decision, and next action.
 - `/lane codex-review <task>` is the P0 read-only Codex review trust loop. It
   writes a lane envelope, runs `codex review --uncommitted` when Codex is
-  available, supports `ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE`, and records setup
+  available, supports `VIDEN_LANE_CODEX_REVIEW_TEMPLATE`, and records setup
   blockers as timeline evidence.
 - Claude/tmux trust-loop setup is safer. `/lane tmux <id>` now preflights the
   default tmux/Claude path before marking a lane attached, and missing `tmux` or
@@ -38,21 +38,21 @@ release assets, or Homebrew tap update has been created from this workspace yet.
 ## Evidence
 
 - `cargo fmt --check`
-- `cargo test -p robocode-types --quiet`
-- `cargo test -p robocode-core agent_ --quiet`
-- `cargo test -p robocode-cli tui::lane --quiet`
-- `cargo test -p robocode-cli tui::command_palette --quiet`
-- `cargo clippy -p robocode-cli -p robocode-core -p robocode-types --all-targets -- -D warnings`
+- `cargo test -p viden-types --quiet`
+- `cargo test -p viden-core agent_ --quiet`
+- `cargo test -p viden-cli tui::lane --quiet`
+- `cargo test -p viden-cli tui::command_palette --quiet`
+- `cargo clippy -p viden-cli -p viden-core -p viden-types --all-targets -- -D warnings`
 - `cargo test --workspace --quiet`
-- `ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.14 scripts/tui-regression.sh docs/previews/generated`
-- `scripts/release-smoke.sh --version 0.1.14 --quick --out-dir /tmp/robocode-0114-release-smoke-local`
+- `VIDEN_TUI_SCREENSHOT_VERSION=0.1.14 scripts/tui-regression.sh docs/previews/generated`
+- `scripts/release-smoke.sh --version 0.1.14 --quick --out-dir /tmp/viden-0114-release-smoke-local`
 - `git diff --check`
 
 Local quick release smoke results:
 
 - PASS `cargo-fmt`
 - PASS `cargo-clippy`
-- PASS `robocode-cli-terminal-tests`
+- PASS `viden-cli-terminal-tests`
 - PASS `tui-regression`
 - PASS `fallback-cli-smoke`
 - PASS `codex-app-server-protocol-fixture`
@@ -66,11 +66,11 @@ Local quick release smoke results:
 
 Deterministic screenshots:
 
-- [0.1.14 main](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.14-tui-main.svg)
-- [0.1.14 command palette](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.14-tui-command-palette.svg)
-- [0.1.14 lane detail](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.14-tui-lane-detail.svg)
-- [0.1.14 side-1 lanes](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.14-tui-side-1.svg)
-- [0.1.14 side-2 ops](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.14-tui-side-2.svg)
+- [0.1.14 main](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.14-tui-main.svg)
+- [0.1.14 command palette](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.14-tui-command-palette.svg)
+- [0.1.14 lane detail](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.14-tui-lane-detail.svg)
+- [0.1.14 side-1 lanes](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.14-tui-side-1.svg)
+- [0.1.14 side-2 ops](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.14-tui-side-2.svg)
 
 ## Remaining Risks
 

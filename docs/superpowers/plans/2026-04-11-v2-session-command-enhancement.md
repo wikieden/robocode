@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Expand RoboCode's local CLI with richer session metadata, new runtime inspection commands, and a more informative command surface while preserving the current shared engine and transcript model.
+**Goal:** Expand Viden's local CLI with richer session metadata, new runtime inspection commands, and a more informative command surface while preserving the current shared engine and transcript model.
 
 **Architecture:** This slice extends existing V1 crates instead of creating new platform subsystems. The implementation should propagate startup/config state into `SessionEngine`, enrich `SessionSummary` and SQLite-backed session indexing, and add `/status`, `/config`, and `/doctor` commands plus better `/sessions` output without bypassing the existing command/transcript path.
 
-**Tech Stack:** Rust, existing RoboCode workspace crates, SQLite fallback indexing, REPL command handling
+**Tech Stack:** Rust, existing Viden workspace crates, SQLite fallback indexing, REPL command handling
 
 ---
 
@@ -39,11 +39,11 @@ Out of scope:
 
 **Modify:**
 
-- `robocode-cli/src/main.rs`
-- `robocode-core/src/lib.rs`
-- `robocode-session/src/lib.rs`
-- `robocode-types/src/lib.rs`
-- `robocode-config/src/lib.rs`
+- `viden-cli/src/main.rs`
+- `viden-core/src/lib.rs`
+- `viden-session/src/lib.rs`
+- `viden-types/src/lib.rs`
+- `viden-config/src/lib.rs`
 - `README.md`
 
 **Create:**
@@ -53,12 +53,12 @@ Out of scope:
 ## Task 1: Add runtime startup snapshot types
 
 **Files:**
-- Modify: `robocode-types/src/lib.rs`
-- Modify: `robocode-config/src/lib.rs`
-- Modify: `robocode-cli/src/main.rs`
-- Modify: `robocode-core/src/lib.rs`
+- Modify: `viden-types/src/lib.rs`
+- Modify: `viden-config/src/lib.rs`
+- Modify: `viden-cli/src/main.rs`
+- Modify: `viden-core/src/lib.rs`
 
-- [ ] Add a shared runtime snapshot type in `robocode-types` for the fields `SessionEngine` needs to render `/status` and `/config`.
+- [ ] Add a shared runtime snapshot type in `viden-types` for the fields `SessionEngine` needs to render `/status` and `/config`.
 - [ ] Include at minimum:
   - cwd
   - provider family
@@ -67,15 +67,15 @@ Out of scope:
   - resolved config summary string
   - loaded config file list
   - session home override or effective home path
-- [ ] Thread this snapshot from CLI startup into `SessionEngine` construction instead of rebuilding those details ad hoc inside `robocode-core`.
+- [ ] Thread this snapshot from CLI startup into `SessionEngine` construction instead of rebuilding those details ad hoc inside `viden-core`.
 - [ ] Keep the existing startup banner behavior unchanged except for any new summary fields needed by tests.
 - [ ] Add unit coverage in existing test modules to verify `SessionEngine` can render the stored startup snapshot even when the provider later changes model labels.
 
 ## Task 2: Enrich session summary metadata
 
 **Files:**
-- Modify: `robocode-types/src/lib.rs`
-- Modify: `robocode-session/src/lib.rs`
+- Modify: `viden-types/src/lib.rs`
+- Modify: `viden-session/src/lib.rs`
 
 - [ ] Extend `SessionSummary` with additional derived metadata:
   - message count
@@ -96,8 +96,8 @@ Out of scope:
 ## Task 3: Improve `/sessions` and `/resume` ergonomics
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
-- Modify: `robocode-session/src/lib.rs`
+- Modify: `viden-core/src/lib.rs`
+- Modify: `viden-session/src/lib.rs`
 
 - [ ] Update session-list rendering to show richer summary rows without becoming noisy.
 - [ ] Keep support for:
@@ -114,9 +114,9 @@ Out of scope:
 ## Task 4: Add `/status` and `/config`
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
-- Modify: `robocode-cli/src/main.rs`
-- Modify: `robocode-types/src/lib.rs`
+- Modify: `viden-core/src/lib.rs`
+- Modify: `viden-cli/src/main.rs`
+- Modify: `viden-types/src/lib.rs`
 
 - [ ] Add `/status` as a read-only command rendered entirely from engine state.
 - [ ] Add `/config` as a read-only command rendered from the startup snapshot and resolved config summary.
@@ -137,8 +137,8 @@ Out of scope:
 ## Task 5: Add lightweight `/doctor`
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
-- Modify: `robocode-cli/src/main.rs`
+- Modify: `viden-core/src/lib.rs`
+- Modify: `viden-cli/src/main.rs`
 
 - [ ] Add a lightweight `/doctor` command that reports availability of:
   - `git`
@@ -153,7 +153,7 @@ Out of scope:
 ## Task 6: Refresh help and docs
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
+- Modify: `viden-core/src/lib.rs`
 - Modify: `README.md`
 
 - [ ] Update `/help` output to include `/status`, `/config`, and `/doctor`.
@@ -163,17 +163,17 @@ Out of scope:
 ## Task 7: Verification and finish
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
-- Modify: `robocode-session/src/lib.rs`
+- Modify: `viden-core/src/lib.rs`
+- Modify: `viden-session/src/lib.rs`
 - Modify: `README.md`
 
 - [ ] Run focused tests while implementing:
-  - `cargo test -p robocode-session`
-  - `cargo test -p robocode-core`
+  - `cargo test -p viden-session`
+  - `cargo test -p viden-core`
 - [ ] Run final full verification:
   - `cargo test --workspace`
 - [ ] Manual smoke-check in the CLI:
-  - `cargo run -p robocode-cli -- --provider fallback --model test-local`
+  - `cargo run -p viden-cli -- --provider fallback --model test-local`
   - `/status`
   - `/config`
   - `/doctor`

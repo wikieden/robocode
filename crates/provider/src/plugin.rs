@@ -163,7 +163,7 @@ pub fn dynamic_library_suffixes() -> &'static [&'static str] {
 }
 
 fn default_plugin_search_dirs() -> Vec<PathBuf> {
-    std::env::var_os("ROBOCODE_PROVIDER_PLUGIN_DIRS")
+    std::env::var_os("VIDEN_PROVIDER_PLUGIN_DIRS")
         .map(|raw| std::env::split_paths(&raw).collect())
         .unwrap_or_default()
 }
@@ -325,7 +325,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("robocode_plugin_{name}_{nanos}"));
+        let path = std::env::temp_dir().join(format!("viden_plugin_{name}_{nanos}"));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         path

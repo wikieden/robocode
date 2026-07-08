@@ -7,7 +7,7 @@ local-first AI coding operator cockpit. It starts with the TUI, but the long-ter
 product boundary is a shared runtime powering TUI, GUI, CLI automation,
 IDE/ACP adapters, and external agent supervision.
 
-Viden supersedes the older RoboCode product framing. RoboCode remains a legacy
+Viden supersedes the older Viden product framing. Viden remains a legacy
 implementation/release name until a separate migration plan renames binaries,
 crates, config paths, and artifacts safely.
 
@@ -28,15 +28,18 @@ Current implementation note:
 
 ### Positioning
 
-Viden is a local-first, extensible developer agent cockpit. It understands
-the current workspace, executes tools through a permission gate, persists
-sessions, and can later expand into integrations, remote operation,
-multi-agent coordination, and GUI supervision.
+Viden is a local-first Agent Orchestration workspace for software development.
+Its core product promise is not only "one AI agent edits code", but supervised
+composition of multiple agents, MCP capabilities, tools, roles, tasks, skills,
+and workflows into auditable automation loops. Viden understands the current
+workspace, executes tools through a permission gate, persists sessions and
+workflow state, and expands into integrations, remote operation, mixed-agent
+coordination, and GUI supervision.
 
 Product naming boundary:
 
 - **Viden**: product, TUI/GUI design target, visual identity, and planning name.
-- **RoboCode**: legacy implementation and compatibility name until the rename
+- **Viden**: legacy implementation and compatibility name until the rename
   migration is explicitly planned.
 - **Accepted visual system**: `docs/viden-design/Viden/` is the accepted design
   source for tokens, components, target screenshots, and UI direction.
@@ -56,11 +59,16 @@ Product naming boundary:
 - Work in analysis-only or approval-heavy modes when risk is higher
 - Grow into MCP, LSP, remote, and multi-agent usage without changing products
 - Supervise multiple parallel agents across workspace/project/lane/session/subagent hierarchy
+- Compose internal agents, ACP agents, MCP tools, local tools, and reusable
+  skills into role/task/workflow plans that can run sequentially or in parallel
 - See the same runtime facts, context, cost, approval, and evidence in TUI and future GUI
 
 ### Product Goals
 
-- Evolve from terminal chat-style AI assistant to AI coding operator cockpit
+- Evolve from terminal chat-style AI assistant to Agent Orchestration cockpit
+  for coding workflows
+- Make multi-agent orchestration, mixed-agent workflow composition, and
+  tool/MCP/skill assignment core product capabilities rather than add-ons
 - Absorb mature reference-project patterns in core runtime behavior and
   subsystem shape
 - Preserve strong auditability around tools, approvals, and session history
@@ -70,6 +78,8 @@ Product naming boundary:
   product objects
 - Support cross-platform local development from the first stable release
 - Keep the engine extensible enough to host integrations and advanced workflows
+- Let users turn repeatable engineering work into supervised workflows with
+  explicit roles, task dependencies, evidence requirements, and merge gates
 
 ### Product Non-Goals
 
@@ -85,7 +95,7 @@ Product naming boundary:
 
 ### Startup and Configuration
 
-RoboCode must start from a deterministic configuration merge model:
+Viden must start from a deterministic configuration merge model:
 
 1. CLI flags
 2. Environment variables
@@ -119,7 +129,7 @@ rebuildable from transcript files.
 
 ### Message and Tool Loop
 
-RoboCode must preserve the reference system's central behavior:
+Viden must preserve the reference system's central behavior:
 
 - user input enters a shared engine
 - slash commands are resolved through the same runtime domain, not a detached UI
@@ -138,7 +148,7 @@ Required invariants:
 
 ### Non-Blocking Interaction Runtime
 
-RoboCode must treat "UI and input never freeze because agent work is active" as
+Viden must treat "UI and input never freeze because agent work is active" as
 a core product requirement, not as a TUI polish item.
 
 Any flow that may wait on a provider, tool, shell, Git, LSP, MCP, plugin,
@@ -175,7 +185,7 @@ Required invariants:
 
 Permissions are a domain concept, not a purely interactive UI concept.
 
-RoboCode must support named permission modes equivalent in intent to the
+Viden must support named permission modes equivalent in intent to the
 reference project:
 
 - `default`
@@ -220,6 +230,114 @@ Required command families:
 - environment and diagnostics: config, doctor, context, usage/cost, status
 - integration management: MCP, plugins, skills, remote, auth
 - collaboration and workflow: tasks, agents, teams, memory
+
+### External Agent / ACP Integration
+
+Viden must support external coding agents through a core-owned plugin/extension
+path. This is not a TUI-only command feature. The implementation direction
+follows the Zed/ACP research in
+[Zed ACP Integration Research](zed-acp-integration-research.md).
+
+Required product behavior:
+
+- users can install or configure external agents from registry, custom, or local
+  command sources;
+- the first usable targets are Claude, Codex, and Kiro CLI;
+- external agents keep their own native auth, billing, provider, model, and
+  subscription boundaries unless their adapter explicitly declares otherwise;
+- Viden owns the runtime lifecycle, permissions, transcript, evidence,
+  cancellation, logs, and merge gates;
+- TUI and GUI clients render external-agent state through `RuntimeViewState`
+  only.
+
+ACP v1 support comes first. ACP v2 and proxy/conductor support must be isolated
+behind versioned adapter boundaries so future protocol changes do not force a
+TUI or GUI rewrite.
+
+Current implementation status:
+
+- agent plugin descriptors exist in `plugin-api`;
+- built-in ACP descriptors exist for `claude-acp`, `codex-acp`, and `kiro-cli`;
+- `VIDEN_AGENT_ACP_COMMAND` is exposed as a runnable `custom-acp` local
+  descriptor, so custom/plugin ACP agents can use the same list/doctor/probe/run
+  path as built-in agents;
+- `/agent list`, `/agent doctor <id>`, and `/agent probe acp <agent-id>` expose
+  descriptor-backed discovery and initialize probes;
+- `/agent run acp <agent-id> <task>` can run a minimal synchronous ACP session
+  through `session/new`, `session/prompt`, streamed `session/update`, and
+  TurnEnd collection;
+- `/agent run acp --load-session <session-id> --mode <mode-id> --model <model-id>
+  <agent-id> <task>` can resume an existing agent-owned session and apply
+  session-level mode/model configuration through ACP `session/load`,
+  `session/set_mode`, and `session/set_config_option` with a legacy
+  `session/set_model` fallback where required;
+- `/agent run acp --async <agent-id> <task>` starts a tracked background ACP
+  session job with JSONL/result/runtime-event artifacts, and `/agent cancel
+  <id>` can stop the tracked process;
+- ACP background cancellation requests protocol-level `session/cancel` when the
+  live ACP session is available, records that request in the wire log, and uses
+  bounded process termination as a fallback if the external agent does not stop
+  promptly;
+- ACP `session/request_permission` is converted into Viden approval prompts and
+  answered with selected allow/reject ACP options;
+- tracked ACP session jobs are projected into `RuntimeViewState` as `AgentTask`
+  records;
+- ACP `session/update` and `session/notification` payloads are projected into
+  reusable `RuntimeEvent` records for assistant deltas, tool call start/finish,
+  and turn-end evidence;
+- background ACP jobs append projected events to `runtime-events.jsonl` as
+  updates arrive, and `RuntimeViewState` replays those events for TUI/GUI
+  assistant output and evidence views;
+- ACP `fs/read_text_file` and `fs/write_text_file` client requests are bridged
+  through Viden permission checks;
+- ACP `terminal/create`, `terminal/input`, `terminal/write`,
+  `terminal/output`, `terminal/wait_for_exit`, `terminal/release`, and
+  `terminal/kill` are bridged through Viden permission checks.
+  `terminal/create` starts a tracked process without waiting for exit,
+  `terminal/input` / `terminal/write` write to process stdin,
+  `terminal/output` polls buffered stdout/stderr, and `terminal/wait_for_exit`
+  / `terminal/kill` update process status for long-running commands;
+  unsupported filesystem or terminal methods still receive explicit JSON-RPC
+  errors and wire-log evidence;
+- registry-backed ACP agents use longer handshake timeouts to account for
+  `npx` cold-start installation, and Kiro CLI doctor output now distinguishes
+  installed binaries from unknown agent-native auth state;
+- registry-backed ACP agents use a project-scoped npm cache, Claude/Codex
+  initialize probes pass locally, and Kiro probe failures preserve stderr auth
+  diagnostics instead of collapsing to a generic closed-stdout error;
+- Claude/Codex ACP session-level smoke passes locally, including real Codex
+  compatibility for `mcpServers: []`, `prompt: []`, snake-case `sessionUpdate`,
+  final `id:2` responses, and usage reporting;
+- Kiro-specific baseline compatibility is covered by fake server tests:
+  `session/prompt` uses `prompt`, `session/notification` updates are accepted,
+  `ToolCall` and `ToolCallUpdate` are captured, and `VIDEN_KIRO_AGENT` maps to
+  `kiro-cli acp --agent <name>`;
+- Kiro official ACP launch options are descriptor-backed and tested:
+  `VIDEN_KIRO_MODEL`, `VIDEN_KIRO_EFFORT`, `VIDEN_KIRO_TRUST_TOOLS`,
+  `VIDEN_KIRO_TRUST_ALL_TOOLS`, and `VIDEN_KIRO_AGENT_ENGINE` map to
+  `kiro-cli acp` flags;
+- `/agent auth acp kiro-cli` returns native-login instructions instead of
+  attempting ACP `authenticate`, because Kiro owns credentials outside Viden;
+- `/agent smoke acp [--live]` is available as a repeatable gate; unauthenticated
+  Kiro returns a non-zero blocked-auth result instead of a false pass;
+- authenticated Kiro live smoke passes in the current operator environment.
+  The installed Kiro CLI uses a `prompt` array for `session/prompt`; the
+  documentation-shaped `content` parameter is treated as incompatible until an
+  agent descriptor proves otherwise;
+- projected ACP runtime events are pushed through the live `RuntimeSupervisor`
+  event stream during async/background jobs;
+- ACP session output is mapped into merge-gate records: sessions propose a
+  merge gate, completed tool updates become `tool_log` evidence, `TurnEnd`
+  becomes `acp_turn_end` evidence, and the session gate becomes `Accepted` once
+  turn-end evidence is present;
+- ACP patch/diff updates carrying unified diffs are normalized into `patch`
+  evidence, and patch-producing session gates require both `patch` and
+  `acp_turn_end`. Patch evidence carries `acp.patch.v1` metadata with file
+  stats, changed paths, hunk count, source tool-call id, and the source unified
+  diff;
+- full production external-agent execution still needs PTY-level interactive
+  terminal sessions where required and provider-native doctor diagnostics in
+  the release gate.
 
 ### Provider Abstraction
 
@@ -463,16 +581,26 @@ Phase priority:
 ### Multi-Agent / Team / Coordinator
 
 Goal:
-Support delegated and coordinated work beyond a single conversation thread.
+Make Agent Orchestration the product-level coordination layer for delegated,
+parallel, and mixed-agent software work. Viden must be able to assign work to
+different internal roles, external ACP agents, MCP tools, local tools, and
+skills, then combine their outputs into a supervised workflow with explicit
+evidence and merge decisions.
 
 Design source:
 - [Multi-Agent Core Orchestration](multi-agent-core-orchestration.md)
+- [Agent Workflow Visibility](agent-workflow-visibility.md)
 
 Requirements:
 
-- agent spawning
-- inter-agent messaging
-- team-level orchestration
+- agent spawning and lifecycle supervision
+- inter-agent messaging, handoff, and dependency tracking
+- team-level orchestration across sequential, parallel, and hybrid workflows
+- mixed orchestration that can route subtasks to first-party roles, external
+  ACP agents, MCP tools, local tools, shell/Git actions, and reusable skills
+- cost-aware assignment that considers agent specialty, context locality,
+  latency, model/provider price, local-tool alternatives, and workflow budget
+- workflow templates that map user goals into role/task/tool/skill assignments
 - transcript-aware coordination
 - permission and scope isolation between agents
 - Agent DAG with planner, coder, reviewer, tester, doc-writer, and release
@@ -488,15 +616,22 @@ Requirements:
 - [Frontend Integration Contract](frontend-integration-contract.md) coverage
   for completed core modules, so TUI and GUI consume the same runtime facts
   instead of inventing duplicate state models
+- workflow-level observability: each agent/tool/skill step must expose status,
+  input context, output artifact, evidence, cost, blockers, and next action
+- workflow visibility must distinguish planned, running, done, accepted,
+  blocked, failed, and cancelled work without requiring users to read raw logs
+- workflow visibility must explain assignment rationale and cost impact for
+  each agent/tool/skill decision
 
 Phase priority:
 - V2 for core DAG/event/evidence contracts
-- V3 for external agents and team collaboration
+- V3 for hybrid external-agent/MCP/skill workflow orchestration and team
+  collaboration
 
 ### Bridge / Remote / Server Mode
 
 Goal:
-Allow IDE-connected, remote, and service-oriented RoboCode usage beyond a local
+Allow IDE-connected, remote, and service-oriented Viden usage beyond a local
 terminal session.
 
 Requirements:
@@ -583,7 +718,7 @@ Phase priority:
 
 ### Command Surface Requirements
 
-RoboCode must define stable command families rather than an ad hoc command pile.
+Viden must define stable command families rather than an ad hoc command pile.
 The complete product target must cover:
 
 - runtime control
@@ -646,9 +781,12 @@ The public workspace model must support:
 
 ### Future Integration Interfaces
 
-MCP, remote, and multi-agent subsystems must be designed so they can plug into
-the same command, permission, tool, and transcript model instead of creating
-parallel runtimes.
+MCP, remote, skill, plugin, and multi-agent subsystems must be designed so they
+plug into the same command, permission, tool, workflow, evidence, and transcript
+model instead of creating parallel runtimes. The product target is a workflow
+orchestrator where agents can call tools, tools can produce evidence, MCP can
+extend capability, skills can package repeatable procedures, and the runtime
+can schedule the right combination under user-visible supervision.
 
 ### Core Future TODO: Multi-Agent Orchestration
 
@@ -660,6 +798,10 @@ Required future iteration items:
 
 - expand the shared `AgentTask`, `AgentDag`, `ContextBundle`, `Evidence`, and
   `MergeGate` contracts without coupling them to TUI or GUI implementation;
+- add workflow-level orchestration templates that translate a user goal into
+  role, agent, MCP, tool, and skill assignments;
+- support mixed sequential/parallel execution, including dependency-aware
+  fan-out/fan-in across multiple agents and tools;
 - continue persisting DAG, task, artifact, and evidence events in
   `crates/workflows`;
 - keep extending `RuntimeSupervisor` so agent tasks run asynchronously and
@@ -702,9 +844,9 @@ The complete Viden product target is acceptable only if:
   transcript-visible results
 - project memory suggestions require explicit confirm/reject decisions before
   becoming active or retired
-- future MCP, LSP, plugin, multi-agent, bridge, and remote capabilities plug
-  into the same command, permission, tool, and transcript model rather than
-  creating parallel runtimes
+- future MCP, LSP, skill, plugin, multi-agent, bridge, and remote capabilities
+  plug into the same command, permission, tool, workflow, evidence, and
+  transcript model rather than creating parallel runtimes
 
 ## Requirements Document Acceptance Criteria
 

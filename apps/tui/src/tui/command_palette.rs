@@ -1133,11 +1133,11 @@ const COMMANDS: [CommandTemplate; 32] = [
     },
     CommandTemplate {
         command: "/exit",
-        summary: "Exit RoboCode",
+        summary: "Exit Viden",
     },
     CommandTemplate {
         command: "/quit",
-        summary: "Exit RoboCode",
+        summary: "Exit Viden",
     },
 ];
 
@@ -3465,7 +3465,7 @@ mod tests {
                 known_models: vec!["gpt-5.2".to_string(), "gpt-5.2-codex".to_string()],
                 enabled_models: vec!["gpt-5.2".to_string()],
                 favorite_models: Vec::new(),
-                api_key_env: Some("__ROBOCODE_TEST_MISSING_OPENAI_KEY__".to_string()),
+                api_key_env: Some("__VIDEN_TEST_MISSING_OPENAI_KEY__".to_string()),
                 api_base_env: None,
                 auth_modes: vec![ProviderAuthMode::WebLogin, ProviderAuthMode::ApiKey],
             },
@@ -4191,13 +4191,13 @@ mod tests {
 
     #[test]
     fn suggests_worktree_paths_for_remove() {
-        let state = state_with_input("/git worktree remove /tmp/robocode/.worktrees/");
+        let state = state_with_input("/git worktree remove /tmp/viden/.worktrees/");
 
         let suggestions = command_suggestions_for_state(&state);
 
         assert_eq!(
             suggestions[0].command,
-            "/git worktree remove /tmp/robocode/.worktrees/codex-tui-cockpit"
+            "/git worktree remove /tmp/viden/.worktrees/codex-tui-cockpit"
         );
         assert_eq!(suggestions[0].summary, "Branch codex/tui-cockpit");
     }

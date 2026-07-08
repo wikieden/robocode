@@ -143,7 +143,7 @@ const {useState} = React;
 
 /* ===== fleet model ===== */
 const FLEETS=[
-  {id:'rel', name:'v0.2 release push', goal:'cut 0.2 across robocode + web + infra', total:1284, active:312, awaiting:6},
+  {id:'rel', name:'v0.2 release push', goal:'cut 0.2 across viden + web + infra', total:1284, active:312, awaiting:6},
   {id:'migrate', name:'lane-protocol migration', goal:'roll 0.2 lane contract to all repos', total:418, active:96, awaiting:2},
   {id:'sweep', name:'repo-wide clippy sweep', goal:'fmt + clippy --fix, all crates', total:204, active:40, awaiting:0},
 ];
@@ -167,13 +167,13 @@ const PHASES=[
     {id:'plan-r', role:'planner', label:'planner', count:12, proj:'all projects', tok:'31.2k', mix:{run:3,done:9,gate:0,idle:0}, col:'var(--accent)'},
   ]},
   {key:'impl', name:'Implement', nameZh:'实现', ic:'⚙', groups:[
-    {id:'ed-rc', role:'editor', label:'editor', count:210, proj:'robocode', tok:'402k', mix:{run:74,done:120,gate:6,idle:10}, col:'var(--progress)'},
+    {id:'ed-rc', role:'editor', label:'editor', count:210, proj:'viden', tok:'402k', mix:{run:74,done:120,gate:6,idle:10}, col:'var(--progress)'},
     {id:'ed-web', role:'editor', label:'editor', count:164, proj:'viden-web', tok:'288k', mix:{run:51,done:104,gate:3,idle:6}, col:'var(--progress)'},
     {id:'ed-inf', role:'editor', label:'editor', count:112, proj:'infra', tok:'151k', mix:{run:30,done:74,gate:2,idle:6}, col:'var(--progress)'},
   ]},
   {key:'verify', name:'Verify', nameZh:'验证', ic:'⚗', groups:[
     {id:'test', role:'test', label:'test-runner', count:520, proj:'all projects', tok:'612k', mix:{run:188,done:300,gate:18,idle:14}, col:'var(--accent)'},
-    {id:'bench', role:'test', label:'bench-runner', count:36, proj:'robocode', tok:'77k', mix:{run:12,done:22,gate:0,idle:2}, col:'var(--accent)'},
+    {id:'bench', role:'test', label:'bench-runner', count:36, proj:'viden', tok:'77k', mix:{run:12,done:22,gate:0,idle:2}, col:'var(--accent)'},
   ]},
   {key:'review', name:'Review', nameZh:'评审', ic:'◈', groups:[
     {id:'rev', role:'review', label:'reviewer', count:168, proj:'all projects', tok:'209k', mix:{run:40,done:118,gate:8,idle:2}, col:'var(--builtin)'},
@@ -199,11 +199,11 @@ function sampleAgents(g){
 }
 
 const CHANNEL=[
-  {who:'orchestrator', cls:'orch', tm:'now', kind:'broadcast', body:<span><span className="at">@editors</span> implement 0.2 lane-contract across robocode·web·infra · fan-out 486 · deadline T-2h</span>},
-  {who:'test-runner#0412', cls:'agent', tm:'2s', body:<span><span className="mono">config_tests</span> ✓ green · reporting to editor·robocode</span>},
+  {who:'orchestrator', cls:'orch', tm:'now', kind:'broadcast', body:<span><span className="at">@editors</span> implement 0.2 lane-contract across viden·web·infra · fan-out 486 · deadline T-2h</span>},
+  {who:'test-runner#0412', cls:'agent', tm:'2s', body:<span><span className="mono">config_tests</span> ✓ green · reporting to editor·viden</span>},
   {who:'reviewer#0088', cls:'agent', tm:'9s', body:<span>diff <span className="mono">+142−31</span> approved · L7 viden-web</span>},
   {who:'integration gate', cls:'gate', tm:'14s', kind:'gate', body:<span>⚠ conflict on <span className="mono">main</span> · bounced to lane <span className="at">L3</span> · awaiting your call</span>},
-  {who:'orchestrator', cls:'orch', tm:'31s', body:<span>rebalanced 40 test-runners robocode→viden-web (queue depth)</span>},
+  {who:'orchestrator', cls:'orch', tm:'31s', body:<span>rebalanced 40 test-runners viden→viden-web (queue depth)</span>},
   {who:'editor#1207', cls:'agent', tm:'48s', body:<span>patched <span className="mono">src/config.rs:42</span> · spawned test-runner to verify</span>},
   {who:'planner#03', cls:'agent', tm:'1m', body:<span>plan accepted · 6 steps · handed to editor pool</span>},
   {who:'orchestrator', cls:'orch', tm:'1m', kind:'broadcast', body:<span><span className="at">@all</span> token budget 62% · throttling non-critical lanes to keep headroom</span>},
@@ -279,7 +279,7 @@ function App(){
         <div className="vbar">
           <div className="tl"><i className="a"></i><i className="b"></i><i className="c"></i></div>
           <span className="wm"><span style={{color:'var(--accent)'}}>[</span><span style={{color:'var(--accent-bright)'}}>◉</span><span style={{color:'var(--accent)'}}>]</span> <span className="r">v</span><span className="c">iden</span></span>
-          <span className="projsel">{t('Robocode workspace','Robocode 工作区')} <span className="br">⎇ 18 {t('projects','项目')}</span> ▾</span>
+          <span className="projsel">{t('Viden workspace','Viden 工作区')} <span className="br">⎇ 18 {t('projects','项目')}</span> ▾</span>
           <span className="sp"></span>
           <div className="vtools">
             <div className="vbtn" title="Command palette ⌘K"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg></div>

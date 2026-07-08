@@ -1,9 +1,9 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.30  [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]           │
+│ Viden  v0.1.30  [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]           │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────┐
 │   ·  ┊  SYSTEM                                                                              #001 │
-│      ┊  RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.                                  │
+│      ┊  Viden TUI ready. Enter submits. Esc or Ctrl-C exits.                                  │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
 │   ♙  ┊  USER                                                                                #002 │
 │      ┊  Refactor the config loader, then run focused tests.                                      │
@@ -13,15 +13,15 @@
 │      ┊  frame.                                                                                   │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
 │      ╭─ LIVE WORK ∙ ────────────────────────────────────────────────────────────────────────     │
-│      │ ◉ RoboCode working                                                                        │
-│      │ phase planning · signal live provider request · RoboCode planning · live provider request │
+│      │ ◉ Viden working                                                                        │
+│      │ phase planning · signal live provider request · Viden planning · live provider request │
 │      │ input open · type next step anytime; Enter queues follow-up                               │
 │      ╰─────────────────────────────────────────────────────────────────────────────────────────  │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────┐
+┌ Viden >_ ─────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                   │              │
 │ › Resize-safe redraw check                                                        │ MODE Build ▾ │
 │                                                                                   │              │

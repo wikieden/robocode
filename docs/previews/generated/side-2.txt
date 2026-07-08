@@ -1,8 +1,8 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  SIDE-2  [WORK ~/projec] [FILES 128] [DIAG 0] [LINK side-1]         │
+│ Viden  SIDE-2  [WORK ~/projec] [FILES 128] [DIAG 0] [LINK side-1]         │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ TESTS / LSP ───────────────────────────────────────────────────────── 0 diag ┐
-│ TEST    failed  42ms  cargo test -p robocode-cli config_tests                │
+│ TEST    failed  42ms  cargo test -p viden-cli config_tests                │
 │ LSP     0 diagnostic(s)                                                      │
 │         waiting for auto-checks or /lsp diagnostics                          │
 │                                                                              │
@@ -12,7 +12,7 @@
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ MCP / CONTEXT ──────────────────────────────────────────────────── workspace ┐
-│ ROOT    ~/projects/robocode                                                  │
+│ ROOT    ~/projects/viden                                                  │
 │ BRANCH  main                                                                 │
 │ SCALE   files 128   lines 24531                                              │
 │ CTX     128k   MCP configs 0                                                 │
@@ -29,11 +29,11 @@
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ RECENT EVIDENCE ─────────────────────────────────────────────────────── tail ┐
 │ codex-app codex done ▓▓▓▓▓ result ready                                      │
-│   evidence message ROBOCODE_APP_SERVER_SMOKE_OK                              │
+│   evidence message VIDEN_APP_SERVER_SMOKE_OK                              │
 │   evidence thread thread_app                                                 │
-│ test-9 shell failed ▓▓▓▓▓ testing cargo test -p robocode-cli config_tests    │
+│ test-9 shell failed ▓▓▓▓▓ testing cargo test -p viden-cli config_tests    │
 │   evidence failure assertion failed in config_tests                          │
-│   evidence command cargo test -p robocode-cli config_tests                   │
+│   evidence command cargo test -p viden-cli config_tests                   │
 │   evidence failing-file src/config.rs:42:15                                  │
 │   evidence tail thread 'config_tests' panicked at src/config.rs:42:15        │
 └──────────────────────────────────────────────────────────────────────────────┘

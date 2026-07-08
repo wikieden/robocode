@@ -1,4 +1,4 @@
-# RoboCode 0.1.11 Plan
+# Viden 0.1.11 Plan
 
 Chinese version: [release-0.1.11-plan.zh-CN.md](release-0.1.11-plan.zh-CN.md)
 
@@ -36,7 +36,7 @@ Fix and verify the interaction issues already seen during manual use:
 
 ### 2. Main-Screen Now Working State
 
-The center of the main screen must clearly show what RoboCode is doing right
+The center of the main screen must clearly show what Viden is doing right
 now instead of making the user guess whether a remote provider or external lane
 is still working.
 
@@ -141,7 +141,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
-scripts/release-smoke.sh --version 0.1.11 --deepseek --out-dir /tmp/robocode-0111-release-smoke-full
+scripts/release-smoke.sh --version 0.1.11 --deepseek --out-dir /tmp/viden-0111-release-smoke-full
 ```
 
 Manual verification:

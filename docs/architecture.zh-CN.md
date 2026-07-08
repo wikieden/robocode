@@ -74,7 +74,7 @@ flowchart TB
 
 1. CLI flags
 2. 环境变量
-3. 项目级 `.robocode/config.toml`
+3. 项目级 `.viden/config.toml`
 4. 全局配置文件
 5. 内置默认值
 
@@ -258,7 +258,7 @@ HTTP provider 使用系统 `curl`，因此 workspace 能保持依赖轻量且可
 - Ollama 的纯文本聊天流
 - 本地 `fallback` 行为，用于离线与 smoke test
 
-即使没有配置凭证，RoboCode 仍然可以通过 deterministic fallback 启动，而不是直接失败。
+即使没有配置凭证，Viden 仍然可以通过 deterministic fallback 启动，而不是直接失败。
 
 运行时 provider 加载目标：
 
@@ -367,12 +367,12 @@ CLI 当前也通过 slash commands 暴露这些工具面：
   包含一个小 parser，用于提取常见 Rust/cargo 和 pytest failure-summary / file
   模式。
 - `/status` 也是只读 cockpit 快照：它会采集 git dirty files、active workflow
-  tasks，以及 `.robocode/lanes.tsv` 中的 lane state；某个来源不可用时只降级该
+  tasks，以及 `.viden/lanes.tsv` 中的 lane state；某个来源不可用时只降级该
   collector，不让整个命令失败。
 - 成功的 `write_file` 和 `edit_file` result 会结构化为 `path`、`size` 和 `effect`
   行，让 transcript 和 TUI surface 不必解析自由文本也能总结文件变更。
 - Lane inspect / apply / recovery 命令会把可审计 artifacts 存到
-  `.robocode/lanes/`，并渲染 recommended next action，让操作者能从 evidence
+  `.viden/lanes/`，并渲染 recommended next action，让操作者能从 evidence
   review 直接推进到 accept / apply / resolve / cleanup，而不用猜命令顺序。
 - 副屏复用同一套 lane next-action 语言和 artifact hints：side-1 偏 lane 监督与
   persisted log tails，side-2 用更紧凑的 ops activity rows 承载同一命令序列。
@@ -381,7 +381,7 @@ CLI 当前也通过 slash commands 暴露这些工具面：
 
 ## 平台说明
 
-RoboCode 在不同平台上共用同一套 engine，只在必要处切换执行适配器：
+Viden 在不同平台上共用同一套 engine，只在必要处切换执行适配器：
 
 - macOS / Linux 使用 POSIX shell adapter
 - Windows 使用 PowerShell adapter

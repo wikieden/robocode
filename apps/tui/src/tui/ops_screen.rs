@@ -171,7 +171,7 @@ fn ops_context_rows(state: &TuiState) -> Vec<String> {
 }
 
 fn active_brief_label(root: &Path) -> Option<(String, String)> {
-    let content = fs::read_to_string(root.join(".robocode/briefs/active.md")).ok()?;
+    let content = fs::read_to_string(root.join(".viden/briefs/active.md")).ok()?;
     let id =
         markdown_front_matter_field(&content, "id").unwrap_or_else(|| "brief_unknown".to_string());
     let title = markdown_front_matter_field(&content, "title")
@@ -528,7 +528,7 @@ mod tests {
         let mut state = test_state();
         state.lanes.truncate(1);
         state.lanes[0].status = "accepted".to_string();
-        state.lanes[0].worktree = Some(std::path::PathBuf::from("/tmp/robocode-lane"));
+        state.lanes[0].worktree = Some(std::path::PathBuf::from("/tmp/viden-lane"));
 
         let rendered = ops_evidence_rows(&state).join("\n");
 
@@ -565,9 +565,9 @@ mod tests {
 
         let rendered = ops_evidence_rows(&state).join("\n");
 
-        assert!(rendered.contains("approval-1 robocode"));
+        assert!(rendered.contains("approval-1 viden"));
         assert!(rendered.contains("waiting_approval"));
-        assert!(rendered.contains("tool-2 robocode"));
+        assert!(rendered.contains("tool-2 viden"));
         assert!(rendered.contains("testing"));
         assert!(rendered.contains("L1 codex testing"));
         assert!(rendered.contains("codex-ops codex thinking"));
@@ -659,12 +659,12 @@ mod tests {
     fn ops_evidence_rows_surface_lane_conflict_artifacts() {
         let root = temp_root();
         let lane_store = lane_store_path(&root);
-        let artifact_dir = root.join(".robocode").join("lanes");
+        let artifact_dir = root.join(".viden").join("lanes");
         std::fs::create_dir_all(&artifact_dir).expect("artifact dir");
         std::fs::write(
             artifact_dir.join("L1.apply-conflict.md"),
             [
-                "# RoboCode Lane Apply Conflict",
+                "# Viden Lane Apply Conflict",
                 "",
                 "Patch: /tmp/L1.apply.patch",
                 "",
@@ -717,7 +717,7 @@ mod tests {
                 "turn turn_app".to_string(),
                 "turn status completed".to_string(),
                 "resume thread_app".to_string(),
-                "message ROBOCODE_APP_SERVER_SMOKE_OK".to_string(),
+                "message VIDEN_APP_SERVER_SMOKE_OK".to_string(),
             ],
             updated_at: 100,
         }];
@@ -726,9 +726,9 @@ mod tests {
 
         assert!(rendered.contains("codex-app codex done"));
         assert!(rendered.find("codex-app codex done") < rendered.find("L1 codex testing"));
-        assert!(rendered.contains("evidence message ROBOCODE_APP_SERVER_SMOKE_OK"));
+        assert!(rendered.contains("evidence message VIDEN_APP_SERVER_SMOKE_OK"));
         assert!(
-            rendered.find("evidence message ROBOCODE_APP_SERVER_SMOKE_OK")
+            rendered.find("evidence message VIDEN_APP_SERVER_SMOKE_OK")
                 < rendered.find("evidence thread thread_app")
         );
     }
@@ -798,9 +798,9 @@ mod tests {
     #[test]
     fn ops_context_rows_surface_active_brief() {
         let root = temp_root();
-        std::fs::create_dir_all(root.join(".robocode/briefs")).expect("create brief dir");
+        std::fs::create_dir_all(root.join(".viden/briefs")).expect("create brief dir");
         std::fs::write(
-            root.join(".robocode/briefs/active.md"),
+            root.join(".viden/briefs/active.md"),
             "---\nid: brief_ops\ntitle: Improve daily loop\n---\n\n## Goal\nImprove daily loop\n",
         )
         .expect("write active brief");
@@ -832,7 +832,7 @@ mod tests {
 
     fn temp_root() -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "robocode-ops-test-{}-{}",
+            "viden-ops-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::SystemTime::UNIX_EPOCH)

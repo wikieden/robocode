@@ -6,9 +6,9 @@ binary="$repo_root/target/debug/viden"
 
 cargo build -p viden-cli >/dev/null
 
-smoke_dir=$(mktemp -d /tmp/robocode-codex-app-server-write-guard.XXXXXX)
+smoke_dir=$(mktemp -d /tmp/viden-codex-app-server-write-guard.XXXXXX)
 cleanup() {
-  if [ "${ROBOCODE_KEEP_SMOKE_DIR:-}" != "1" ]; then
+  if [ "${VIDEN_KEEP_SMOKE_DIR:-}" != "1" ]; then
     rm -rf "$smoke_dir"
   else
     printf 'Keeping smoke workspace: %s\n' "$smoke_dir" >&2
@@ -16,12 +16,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-target_file="robocode_app_server_denied.txt"
+target_file="viden_app_server_denied.txt"
 
 cd "$smoke_dir"
 git init >/dev/null 2>&1 || true
-git config user.email robocode-smoke@example.local >/dev/null 2>&1 || true
-git config user.name "RoboCode Smoke" >/dev/null 2>&1 || true
+git config user.email viden-smoke@example.local >/dev/null 2>&1 || true
+git config user.name "Viden Smoke" >/dev/null 2>&1 || true
 printf 'hello\n' > README.md
 git add README.md >/dev/null 2>&1 || true
 git commit -m initial >/dev/null 2>&1 || true
@@ -30,7 +30,7 @@ output_file="$smoke_dir/output.txt"
 set +e
 {
   printf '%s\n%s\n' \
-    "/agent probe codex --turn-write Create ${target_file} with content ROBOCODE_WRITE_GUARD_SHOULD_NOT_LAND." \
+    "/agent probe codex --turn-write Create ${target_file} with content VIDEN_WRITE_GUARD_SHOULD_NOT_LAND." \
     '/quit' |
     "$binary" --no-tui --provider fallback --model test-local
 } >"$output_file" 2>&1
@@ -48,8 +48,8 @@ if [ -e "$smoke_dir/$target_file" ]; then
   exit 1
 fi
 
-if [ -d "$smoke_dir/.robocode/agents" ] \
-  && find "$smoke_dir/.robocode/agents" -name 'codex-app-server-*.jsonl' -print -quit | grep -q .; then
+if [ -d "$smoke_dir/.viden/agents" ] \
+  && find "$smoke_dir/.viden/agents" -name 'codex-app-server-*.jsonl' -print -quit | grep -q .; then
   printf 'write-guard smoke failed: app-server launched despite default guard\n' >&2
   exit 1
 fi

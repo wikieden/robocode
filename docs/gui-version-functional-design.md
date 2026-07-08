@@ -52,14 +52,14 @@ defined in [Viden Parallel Development Plan](parallel-development-plan.md).
 | `0.3.0` | Runtime/UI contract freeze and Viden migration plan | GUI receives stable API/event/command schemas and migration constraints |
 | `0.3.1` | Parallel TUI and GUI implementation | GUI is developed as a full operable Tauri/Web client on a separate branch |
 | `0.3.2` | Integration release candidate | GUI and TUI pass parity fixtures against the same runtime facts |
-| `0.3.3` | Operable GUI beta and compatibility hardening | Composer, approval, provider/model, context recovery, and Viden/RoboCode migration |
+| `0.3.3` | Operable GUI beta and compatibility hardening | Composer, approval, provider/model, context recovery, and Viden/Viden migration |
 | `0.3.4` | Visual fidelity gate | Storybook, Playwright, TUI previews, and accepted deviations for accepted targets |
 
 ## Non-goals
 
 - Reimplementing the provider loop, tool execution, permission checks, or
   context compaction in the GUI.
-- Turning RoboCode into a full IDE or code editor.
+- Turning Viden into a full IDE or code editor.
 - Bypassing the safety rules already established by the TUI, CLI, and release
   gate.
 - Letting the GUI store raw API keys, provider secrets, raw prompt payloads, or
@@ -118,7 +118,7 @@ GUI should stay here.
 
 Functional requirements:
 
-- Show RoboCode logo, current workspace, provider/model, mode, and permission.
+- Show Viden logo, current workspace, provider/model, mode, and permission.
 - Main composer supports natural-language tasks, slash commands, and quick
   actions.
 - `/connect`, `/models`, `/settings`, and `/permissions` open panels, then
@@ -164,7 +164,7 @@ Functional requirements:
 Acceptance criteria:
 
 - Provider work, tools, lanes, and approvals cannot lock the composer.
-- Live Work describes RoboCode or internal roles, not provider mind-reading such
+- Live Work describes Viden or internal roles, not provider mind-reading such
   as `DeepSeek is thinking`.
 - Long-running tasks, resize, and idle state do not corrupt layout, black out
   the screen, or lose scrollback.
@@ -478,7 +478,7 @@ The GUI must not:
 
 - TUI/GUI parity fixtures.
 - Runtime replay and evidence consistency.
-- Viden migration and RoboCode compatibility smoke.
+- Viden migration and Viden compatibility smoke.
 - Plugin UI contribution smoke.
 
 ### GUI-3: Production Operator

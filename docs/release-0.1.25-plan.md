@@ -1,4 +1,4 @@
-# RoboCode 0.1.25 Plan - TUI Display Cleanup And Idle Stability
+# Viden 0.1.25 Plan - TUI Display Cleanup And Idle Stability
 
 Chinese version: [release-0.1.25-plan.zh-CN.md](release-0.1.25-plan.zh-CN.md)
 
@@ -60,8 +60,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-turn-controller-smoke.sh
 scripts/tui-regression.sh docs/previews/generated
-scripts/plan-mode-smoke.sh /tmp/robocode-0125-plan-mode-smoke
-scripts/daily-loop-smoke.sh /tmp/robocode-0125-daily-loop-smoke
+scripts/plan-mode-smoke.sh /tmp/viden-0125-plan-mode-smoke
+scripts/daily-loop-smoke.sh /tmp/viden-0125-daily-loop-smoke
 scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
 scripts/release-gate.sh --version 0.1.25
 scripts/release-gate.sh --version 0.1.25 --phase postpublish

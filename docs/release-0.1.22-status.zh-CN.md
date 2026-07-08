@@ -1,4 +1,4 @@
-# RoboCode 0.1.22 状态 - Provider Detail 可用性补丁
+# Viden 0.1.22 状态 - Provider Detail 可用性补丁
 
 英文版： [release-0.1.22-status.md](release-0.1.22-status.md)
 
@@ -11,11 +11,11 @@ provider detail 页面，让它更像一个紧凑的设置表单。
 - Release commit：`d27b4e43209477ba93327148ca72c013ba8da945`
 - Git tag：`v0.1.22`
 - GitHub release：
-  `https://github.com/wikieden/robocode/releases/tag/v0.1.22`
+  `https://github.com/wikieden/viden/releases/tag/v0.1.22`
 - Release workflow：
-  `https://github.com/wikieden/robocode/actions/runs/26699720640`
+  `https://github.com/wikieden/viden/actions/runs/26699720640`
 - Homebrew tap commit：`wikieden/homebrew-tap@fece0ca`
-- 本地 package：`dist/robocode-v0.1.22-aarch64-apple-darwin.tar.gz`
+- 本地 package：`dist/viden-v0.1.22-aarch64-apple-darwin.tar.gz`
 - 本地 package sha256：
   `e4c093d141ac6e13957f84a5196ea2e76e14af3cdea2590284e35f088ee02b89`
 
@@ -34,18 +34,18 @@ Focused 检查：
 
 ```bash
 cargo fmt --check
-cargo check -p robocode-cli
-cargo test -p robocode-cli command_palette --quiet
-cargo test -p robocode-cli preview --quiet
+cargo check -p viden-cli
+cargo test -p viden-cli command_palette --quiet
+cargo test -p viden-cli preview --quiet
 git diff --check
 ```
 
 TUI 视觉证据：
 
 ```bash
-ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.22 \
-ROBOCODE_TUI_PREVIEW_PROVIDER=deepseek \
-ROBOCODE_TUI_PREVIEW_MODEL=deepseek-v4-flash \
+VIDEN_TUI_SCREENSHOT_VERSION=0.1.22 \
+VIDEN_TUI_PREVIEW_PROVIDER=deepseek \
+VIDEN_TUI_PREVIEW_MODEL=deepseek-v4-flash \
 scripts/tui-regression.sh docs/previews/generated
 ```
 
@@ -53,7 +53,7 @@ Release smoke：
 
 ```bash
 scripts/release-smoke.sh --version 0.1.22 \
-  --out-dir /tmp/robocode-0122-release-smoke-full-local
+  --out-dir /tmp/viden-0122-release-smoke-full-local
 ```
 
 结果：通过，包含本地 package smoke。仅跳过需要发布后外部状态的 live DeepSeek、
@@ -64,17 +64,17 @@ GitHub release assets、GitHub Actions 和 Homebrew 检查。
 ```bash
 scripts/release-smoke.sh --version 0.1.22 --quick \
   --github-release-assets --homebrew --skip-package \
-  --out-dir /tmp/robocode-0122-postpublish-check
+  --out-dir /tmp/viden-0122-postpublish-check
 ```
 
 结果：通过。该 smoke 已验证发布后的 GitHub release assets 和 Homebrew formula，
-证据目录为 `/tmp/robocode-0122-postpublish-check`。
+证据目录为 `/tmp/viden-0122-postpublish-check`。
 
 Homebrew tap 检查：
 
 ```bash
-HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/robocode
-HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/robocode
+HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/viden
+HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/viden
 ```
 
 结果：通过，并已推送 `wikieden/homebrew-tap@fece0ca`。
@@ -83,20 +83,20 @@ HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/robocode
 
 确定性的 0.1.22 TUI 截图：
 
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-main.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-main-idle.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-live-turn.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-main-resize.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-cjk-input.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-command-palette.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-setup-wizard.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-provider-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-provider-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-model-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-lane-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-lane-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-side-1.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-side-2.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-main.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-main-idle.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-live-turn.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-main-resize.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-cjk-input.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-command-palette.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-setup-wizard.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-provider-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-provider-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-model-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-lane-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-lane-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-side-1.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-side-2.svg`
 
 ## 剩余风险
 

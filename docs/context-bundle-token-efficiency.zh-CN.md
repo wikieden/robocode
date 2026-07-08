@@ -6,7 +6,7 @@
 
 ## 目标
 
-RoboCode 的多 Agent 编排不能依赖“把完整 transcript 发给每个 agent”。
+Viden 的多 Agent 编排不能依赖“把完整 transcript 发给每个 agent”。
 `ContextBundle` 是共享上下文模型：先作为设计落地，再于 `0.1.12` 首次接入 deterministic
 lane envelope。
 

@@ -1,4 +1,4 @@
-# RoboCode 0.1.23 Status - Provider And Model Setup Patch
+# Viden 0.1.23 Status - Provider And Model Setup Patch
 
 Chinese version: [release-0.1.23-status.zh-CN.md](release-0.1.23-status.zh-CN.md)
 
@@ -13,11 +13,11 @@ without treating every provider as API-key-only.
 - Release commit: `ec608e62d94bde511f2c25b6a1322baa873c7b76`
 - Git tag: `v0.1.23`
 - GitHub release:
-  `https://github.com/wikieden/robocode/releases/tag/v0.1.23`
+  `https://github.com/wikieden/viden/releases/tag/v0.1.23`
 - Release workflow:
-  `https://github.com/wikieden/robocode/actions/runs/26711635516`
+  `https://github.com/wikieden/viden/actions/runs/26711635516`
 - Homebrew tap commit: `wikieden/homebrew-tap@708cef1`
-- Local package: `dist/robocode-v0.1.23-aarch64-apple-darwin.tar.gz`
+- Local package: `dist/viden-v0.1.23-aarch64-apple-darwin.tar.gz`
 - Local package sha256:
   `5c20394e27a68187ebfe095d9a5afb6e80e562c9fa7f7d577aa125b41f77ed61`
 
@@ -54,7 +54,7 @@ git diff --check
 TUI visual evidence:
 
 ```bash
-ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.23 \
+VIDEN_TUI_SCREENSHOT_VERSION=0.1.23 \
 scripts/tui-regression.sh docs/previews/generated
 ```
 
@@ -62,7 +62,7 @@ Release smoke:
 
 ```bash
 scripts/release-smoke.sh --version 0.1.23 \
-  --out-dir /tmp/robocode-0123-release-smoke-full-local
+  --out-dir /tmp/viden-0123-release-smoke-full-local
 ```
 
 Result: passed with local package smoke. Skipped only opt-in live DeepSeek,
@@ -74,17 +74,17 @@ Post-publish verification:
 ```bash
 scripts/release-smoke.sh --version 0.1.23 --quick \
   --github-release-assets --homebrew --skip-package \
-  --out-dir /tmp/robocode-0123-postpublish-check
+  --out-dir /tmp/viden-0123-postpublish-check
 ```
 
 Result: passed. The smoke validated published GitHub release assets and the
-Homebrew formula at `/tmp/robocode-0123-postpublish-check`.
+Homebrew formula at `/tmp/viden-0123-postpublish-check`.
 
 Homebrew tap checks:
 
 ```bash
-HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/robocode
-HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/robocode
+HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/viden
+HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/viden
 ```
 
 Result: passed before pushing `wikieden/homebrew-tap@708cef1`.
@@ -93,20 +93,20 @@ Result: passed before pushing `wikieden/homebrew-tap@708cef1`.
 
 Deterministic 0.1.23 TUI screenshots:
 
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-main.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-main-idle.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-live-turn.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-main-resize.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-cjk-input.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-command-palette.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-setup-wizard.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-provider-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-provider-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-model-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-lane-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-lane-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-side-1.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.23-tui-side-2.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-main.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-main-idle.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-live-turn.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-main-resize.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-cjk-input.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-command-palette.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-setup-wizard.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-provider-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-provider-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-model-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-lane-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-lane-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-side-1.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.23-tui-side-2.svg`
 
 ## Remaining Risks
 

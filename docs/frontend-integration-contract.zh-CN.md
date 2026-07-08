@@ -28,6 +28,7 @@ clients。这是契约文档，不是 UI 布局规范。TUI 和 GUI 实现必须
 | Provider/model setup | provider panel、model picker、health strip | `RuntimeSnapshot.provider_id`、`ProviderHealthView`、active model config | `ConfigureProvider`、`SelectModel`、`ActivateModel`、`DeactivateModel` | 已落地 |
 | Tool execution | transcript tool cards、active tool strip、evidence list | `ToolCallStarted`、`ToolCallFinished`、structured `success` / `exit_code` | 只发送 approval response；tools 由 core 执行 | 已落地 |
 | Agent DAG and tasks | agent board、lane list、task detail、next-action dock | `AgentDagRecord`、`AgentTaskRecord`、`AgentNextAction` | `StartAgentDag`、`StartAgentTask`、`CancelAgentTask` | `0.2.2` 已落地 |
+| Agent workflow visibility | Mission Control board、workflow strip、plan/now/done/acceptance/blocked columns | `AgentDagRecord`、`AgentTaskRecord`、`EvidenceView`、`MergeGateRecord`、`RuntimeErrorView` | 现有 workflow/task/evidence/merge commands | 提案 |
 | ContextBundle | context panel、token pressure meter、omitted-source list | `ContextBundleRecord`、`ContextSourceRecord`、token budgets | 当前无直接 mutation；后续增加 context-policy commands | 部分落地 |
 | Evidence and merge gate | evidence center、diff/test/review checklist、merge gate card | `EvidenceView`、`MergeGateRecord` | `RecordAgentEvidence`、`AcceptMergeGate`、`RejectMergeGate`、`AcceptAgentArtifact`、`RejectAgentArtifact`、`MergeAgentPatch` | `0.2.3` reducer 第一刀已落地 |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
@@ -80,10 +81,15 @@ flowchart LR
 
 `AgentDagRecord` 是 workflow container。`AgentTaskRecord` 是前端可见的工作单元。
 
+首个 workflow surface 应回答 [Agent Workflow Visibility](agent-workflow-visibility.zh-CN.md)
+定义的 Mission Control 问题：assignment rationale、后续计划、正在工作、已完成输出、
+验收状态、blockers 和 cost impact。
+
 必须渲染的字段：
 
 - `id`、`parent_id`、`agent`、`kind`、`transport` 和 `title` 标识 task。
 - `status`、`activity` 和 `progress` 驱动可见状态和进度。
+- assignment reason 和 cost profile 解释为什么这个 agent/tool/skill 负责该任务。
 - `summary`、`result` 和 `next_action` 描述结果和下一步。
 - `workspace`、`evidence` 和 `permissions` 链接支撑事实。
 - `started_at` 和 `updated_at` 只用于显示时间；排序不能替代 runtime event sequence。

@@ -196,7 +196,7 @@ fn api_key_panel_rows(
     vec![
         format!("{display_name} needs an API key."),
         format!("It will be used for this session via {key_env}."),
-        "RoboCode will save the env var name, not the raw key.".to_string(),
+        "Viden will save the env var name, not the raw key.".to_string(),
         "".to_string(),
         format!(
             "API key {}",
@@ -1065,7 +1065,7 @@ mod tests {
     fn focused_lane_latest_output_prefers_persisted_log_tail() {
         let root = temp_root("lane-modal-tail");
         let lane_store = lane_store_path(&root);
-        let artifact_dir = root.join(".robocode").join("lanes");
+        let artifact_dir = root.join(".viden").join("lanes");
         fs::create_dir_all(&artifact_dir).expect("artifact dir");
         fs::write(
             artifact_dir.join("L1.log"),
@@ -1089,6 +1089,6 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system time")
             .as_nanos();
-        std::env::temp_dir().join(format!("robocode-modal-test-{nanos}-{suffix}"))
+        std::env::temp_dir().join(format!("viden-modal-test-{nanos}-{suffix}"))
     }
 }

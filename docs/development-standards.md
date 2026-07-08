@@ -4,7 +4,7 @@ Chinese version: [development-standards.zh-CN.md](development-standards.zh-CN.md
 
 ## Purpose
 
-This document captures the coding standard RoboCode maintainers and coding
+This document captures the coding standard Viden maintainers and coding
 agents should follow when changing the project.
 
 ## Core Rules

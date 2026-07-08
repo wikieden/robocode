@@ -6,21 +6,21 @@ English version: [mode-system-design.md](mode-system-design.md)
 
 ## 目的
 
-RoboCode 的 “mode” 不应该只是一组权限枚举。参考 Claude Code、Codex CLI 和 opencode 后，
+Viden 的 “mode” 不应该只是一组权限枚举。参考 Claude Code、Codex CLI 和 opencode 后，
 目标设计拆成两层：
 
-- **Work Mode**：用户现在要 RoboCode 做什么。
-- **Permission Level**：RoboCode 可以自动做多少事。
+- **Work Mode**：用户现在要 Viden 做什么。
+- **Permission Level**：Viden 可以自动做多少事。
 
 这样 Plan 就不会再被误解成“只是低权限 coding mode”。Plan 是规划产品需求、架构、实现方案、
 测试策略和开发计划的工作模式，不写代码。权限只是 Plan 的安全边界之一。
 
 ## 外部产品参考
 
-| 产品 | 值得参考的点 | RoboCode 取舍 |
+| 产品 | 值得参考的点 | Viden 取舍 |
 | --- | --- | --- |
 | Claude Code | mode indicator、`Shift+Tab` 循环、Ask/Edit/Plan/Auto/Bypass；Plan 会先研究并提出方案，审批后再进入执行。 | 借鉴“Plan 先审批再执行”，但把 Plan 明确建模为 Work Mode，不和一般权限枚举混在一起。 |
-| Codex CLI | `/permissions` 切换 Auto、Read-only、Full Access；Auto 默认允许工作区内读写和命令，越界/网络再问；TUI 持续展示 transcript。 | 借鉴简洁的信任等级和 transcript 可审计性，但 RoboCode 保留更细的 Auto Edit。 |
+| Codex CLI | `/permissions` 切换 Auto、Read-only、Full Access；Auto 默认允许工作区内读写和命令，越界/网络再问；TUI 持续展示 transcript。 | 借鉴简洁的信任等级和 transcript 可审计性，但 Viden 保留更细的 Auto Edit。 |
 | opencode | Build/Plan 是 primary agents，可用 Tab 切换；agent 可以配置 prompt、model、permission；provider/model 用 `/connect`、`/models` 直接面板操作。 | 借鉴 “Work Mode = primary agent” 和直接操作面板；provider/model 不归入 mode。 |
 
 参考链接：

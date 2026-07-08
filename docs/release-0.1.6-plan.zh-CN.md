@@ -1,10 +1,10 @@
-# RoboCode 0.1.6 计划
+# Viden 0.1.6 计划
 
 最后更新：2026-05-26
 
 ## 目标
 
-`0.1.6` 要把 RoboCode 从 terminal-first coding assistant 继续推进成
+`0.1.6` 要把 Viden 从 terminal-first coding assistant 继续推进成
 multi-agent orchestration cockpit。这个版本优先改善真实编程体验：主屏能看清
 后台到底在干什么，并为 ACP、plugin、skill、MCP 建好系统边界，避免后续变成一堆
 互不相干的功能。
@@ -13,12 +13,12 @@ multi-agent orchestration cockpit。这个版本优先改善真实编程体验�
 
 1. 用户提交输入后，主 TUI 必须立刻显示远程/model/lane 是否正在工作。
 2. Plugin、skill、MCP 需要统一系统设计，而不是各做各的。
-3. 现在通过 tmux 调用外部工具已经有价值，但 RoboCode 的目标应该继续向 Zed 的
+3. 现在通过 tmux 调用外部工具已经有价值，但 Viden 的目标应该继续向 Zed 的
    ACP 方向扩展，支持更多 coding agent。
 
 ## 开发目标
 
-下一个版本的目标是：**让 RoboCode 在真实编程过程中变得“活着”，并具备
+下一个版本的目标是：**让 Viden 在真实编程过程中变得“活着”，并具备
 operator-grade 的多 agent 调度感**。用户提交任务后，应该能在 cockpit 里直接看清
 主 agent 在做什么、副 agent 在做什么，以及下一步该怎么接管或推进，而不是离开
 TUI 到各个终端里猜状态。
@@ -76,17 +76,17 @@ TUI 到各个终端里猜状态。
   - 启动一个本地 ACP-compatible process；
   - 完成最小 handshake；
   - 把 ACP events 记录为 JSONL debug log；
-  - 验证 ACP 的 edit/tool/permission events 如何映射到 RoboCode lanes。
+  - 验证 ACP 的 edit/tool/permission events 如何映射到 Viden lanes。
 - ACP adapter 可见性：
   - `/agent list` 和 `/agent doctor acp` 会展示实验 ACP adapter 以及
-    `ROBOCODE_AGENT_ACP_COMMAND` setup 状态。**状态：readiness visibility 和
+    `VIDEN_AGENT_ACP_COMMAND` setup 状态。**状态：readiness visibility 和
     最小 JSON-RPC `initialize` handshake probe 已落地，完整 lane execution 仍是后续工作。**
 - `/lane acp <agent> <task>` 可以先保持 experimental，等 event model 清楚后再
   进入稳定命令面。
 
 ### 用户可感知成功标准
 
-- 按 Enter 后，用户不需要猜 RoboCode 是在 thinking、editing、waiting approval，
+- 按 Enter 后，用户不需要猜 Viden 是在 thinking、editing、waiting approval，
   还是 supervising another agent。
 - 主屏和副屏使用同一套 agent state 语言：`thinking`、`editing`、`testing`、
   `waiting approval`、`needs input`、`blocked`、`done`。
@@ -117,13 +117,13 @@ TUI 到各个终端里猜状态。
 
 ## 产品原则
 
-- 主屏永远要回答：“RoboCode 现在正在干什么？”
+- 主屏永远要回答：“Viden 现在正在干什么？”
 - 外部 agent 是 adapter 后面的协作者，不是可信权威。
 - ACP、tmux、PTY、CLI template lanes、plugins、skills、MCP 都应进入同一套
   lane/status/approval/evidence 模型。
 - 用户可见 panel 必须有证据来源。未知 runtime state 要显示 idle、unavailable
   或 setup required。
-- RoboCode 首先是本地 multi-agent cockpit，不是 cloud task runner，也不是完整
+- Viden 首先是本地 multi-agent cockpit，不是 cloud task runner，也不是完整
   editor 替代品。
 
 ## 工作流
@@ -160,7 +160,7 @@ TUI 到各个终端里猜状态。
 
 Adapter families：
 
-- `template`：当前 `ROBOCODE_LANE_<TOOL>_TEMPLATE`。
+- `template`：当前 `VIDEN_LANE_<TOOL>_TEMPLATE`。
 - `tmux`：当前 operator-controlled terminal session。
 - `pty`：当前 embedded PTY bridge。
 - `acp`：后续用于支持 Agent Client Protocol 的 JSON-RPC/ACP bridge。
@@ -201,7 +201,7 @@ Gemini，还是 ACP 的 Kiro。统一记录：
 
 阶段：
 
-1. `robocode-acp` spike：
+1. `viden-acp` spike：
    - 增加 ACP message types 和 process transport 的 crate/module 边界；
    - 如果官方 Rust ACP library 合适就直接用，否则先保持最小 JSON-RPC transport
      wrapper。
@@ -214,7 +214,7 @@ Gemini，还是 ACP 的 Kiro。统一记录：
    - 以 ACP session/request 发送任务；
    - 把 streamed text、tool/edit events、permission prompts 记录成 lane artifacts。
 4. Debug visibility：
-   - 写 `.robocode/agents/<lane-id>.acp.jsonl`；
+   - 写 `.viden/agents/<lane-id>.acp.jsonl`；
    - 增加 `/agent logs <id>` 或让 `/lane inspect <id>` 回放 ACP events。
 
 不要在 local custom-agent flow 跑通前先做 registry installation。
@@ -226,7 +226,7 @@ Gemini，还是 ACP 的 Kiro。统一记录：
 建议层次：
 
 ```text
-robocode extensions
+viden extensions
   providers: model provider plugins（已开始）
   agents: template/tmux/pty/acp agent adapters
   tools: local tool plugins 和 MCP-backed tools
@@ -236,9 +236,9 @@ robocode extensions
 
 规则：
 
-- Provider plugins 暂时继续归 `robocode-model`，直到 provider registry 足够稳定。
-- Agent adapters 先靠近 lane orchestration，稳定后再移动到 `robocode-agents`
-  或 `robocode-workflows`。
+- Provider plugins 暂时继续归 `viden-model`，直到 provider registry 足够稳定。
+- Agent adapters 先靠近 lane orchestration，稳定后再移动到 `viden-agents`
+  或 `viden-workflows`。
 - MCP tools 必须进入现有 permission/tool/transcript path，不能开一个平行 mutation
   runtime。
 - Skills 不是 tools。Skills 是可复用 task envelope、prompt 和 workflow recipe，
@@ -253,7 +253,7 @@ robocode extensions
 
 ### 5. Multi-Agent Cockpit UX
 
-目标：让 RoboCode 更像多个 agent 的 operator console。
+目标：让 Viden 更像多个 agent 的 operator console。
 
 Main screen：
 
@@ -297,7 +297,7 @@ Side-2：
    agents。**初版只读实现已落地。**
 4. 增加 `/agent doctor`，覆盖 Codex、Claude、custom templates、tmux、PTY。
    **初版只读实现已落地。**
-5. 用一个本地 ACP-compatible agent 做 `robocode-acp` spike。**最小
+5. 用一个本地 ACP-compatible agent 做 `viden-acp` spike。**最小
    `initialize` handshake probe 和 JSONL evidence 已落地；完整 lane execution
    仍是后续工作。**
 6. 增加实验命令 `/lane acp <agent> <task>`。
@@ -317,6 +317,6 @@ Side-2：
 - Main TUI 能明确显示 thinking/editing/lane work。
 - 至少一个现有 external-tool lane path 用和未来 ACP lanes 相同的 transport/status 形态展示。
 - Agent/plugin/skill/MCP 架构已文档化，并有命令 stub 或计划入口。
-- ACP spike 能证明 RoboCode 可以启动并和一个 ACP-compatible agent process 交换消息。
+- ACP spike 能证明 Viden 可以启动并和一个 ACP-compatible agent process 交换消息。
 - 0.1.6 release smoke matrix 带更新后的 live-cockpit、side-screen 和 ACP
   readiness expectations 跑通。

@@ -1,12 +1,12 @@
-# RoboCode Program Plan Index
+# Viden Program Plan Index
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Break the complete RoboCode product requirements into execution-sized implementation plans that can be worked in order without re-opening product scope decisions.
+**Goal:** Break the complete Viden product requirements into execution-sized implementation plans that can be worked in order without re-opening product scope decisions.
 
-**Architecture:** RoboCode is already at an early V1 baseline, so the next planning layer should preserve the existing core and expand by subsystem. This index acts as the dependency map for detailed implementation plans instead of treating the full product target as one giant execution plan.
+**Architecture:** Viden is already at an early V1 baseline, so the next planning layer should preserve the existing core and expand by subsystem. This index acts as the dependency map for detailed implementation plans instead of treating the full product target as one giant execution plan.
 
-**Tech Stack:** Rust workspace, existing RoboCode crates, Markdown planning docs
+**Tech Stack:** Rust workspace, existing Viden crates, Markdown planning docs
 
 ---
 
@@ -30,11 +30,11 @@ Purpose:
 - expose configuration and health information inside the CLI
 
 Primary files:
-- `robocode-cli/src/main.rs`
-- `robocode-core/src/lib.rs`
-- `robocode-session/src/lib.rs`
-- `robocode-types/src/lib.rs`
-- `robocode-config/src/lib.rs`
+- `viden-cli/src/main.rs`
+- `viden-core/src/lib.rs`
+- `viden-session/src/lib.rs`
+- `viden-types/src/lib.rs`
+- `viden-config/src/lib.rs`
 
 Output:
 - detailed plan saved as `docs/superpowers/plans/2026-04-11-v2-session-command-enhancement.md`
@@ -49,11 +49,11 @@ Purpose:
 - introduce semantic code intelligence without breaking the existing tool loop
 
 Expected files:
-- new `robocode-lsp` crate
+- new `viden-lsp` crate
 - `Cargo.toml`
-- `robocode-core/src/lib.rs`
-- `robocode-tools/src/lib.rs`
-- `robocode-types/src/lib.rs`
+- `viden-core/src/lib.rs`
+- `viden-tools/src/lib.rs`
+- `viden-types/src/lib.rs`
 
 Output:
 - detailed plan saved as `docs/superpowers/plans/2026-04-21-v2-lsp-foundation.md`
@@ -68,10 +68,10 @@ Purpose:
 - add long-lived memory and task state tied to sessions
 
 Expected files:
-- new `robocode-memory` or `robocode-workflows` crate
-- `robocode-core/src/lib.rs`
-- `robocode-session/src/lib.rs`
-- `robocode-types/src/lib.rs`
+- new `viden-memory` or `viden-workflows` crate
+- `viden-core/src/lib.rs`
+- `viden-session/src/lib.rs`
+- `viden-types/src/lib.rs`
 
 ### Plan 4: V2-D Rich TUI and Structured Views
 
@@ -83,10 +83,10 @@ Purpose:
 - improve session browsing, diff viewing, permission outcomes, and workflow comprehension
 
 Expected files:
-- `robocode-core/src/presentation.rs`
-- `robocode-core/src/runtime_views.rs`
-- `robocode-core/src/git_commands.rs`
-- `robocode-core/src/workflow_commands/*`
+- `viden-core/src/presentation.rs`
+- `viden-core/src/runtime_views.rs`
+- `viden-core/src/git_commands.rs`
+- `viden-core/src/workflow_commands/*`
 
 Output:
 - detailed plan saved as `docs/superpowers/plans/2026-04-23-v2-d-structured-views.md`
@@ -98,10 +98,10 @@ Purpose:
 - add external tool ecosystems and extension loading
 
 Expected files:
-- new `robocode-mcp` crate
-- new `robocode-plugins` crate
-- `robocode-core/src/lib.rs`
-- `robocode-tools/src/lib.rs`
+- new `viden-mcp` crate
+- new `viden-plugins` crate
+- `viden-core/src/lib.rs`
+- `viden-tools/src/lib.rs`
 
 ### Plan 6: V3-B Multi-Agent and Coordinator
 
@@ -110,20 +110,20 @@ Purpose:
 
 Expected files:
 - new coordinator/agent crates
-- `robocode-core/src/lib.rs`
-- `robocode-types/src/lib.rs`
-- `robocode-session/src/lib.rs`
+- `viden-core/src/lib.rs`
+- `viden-types/src/lib.rs`
+- `viden-session/src/lib.rs`
 
 ### Plan 7: V3-C Bridge, Remote, and Server Mode
 
 Purpose:
-- support IDE-connected and remote RoboCode sessions
+- support IDE-connected and remote Viden sessions
 
 Expected files:
 - new bridge/remote/server crates
-- `robocode-core/src/lib.rs`
-- `robocode-permissions/src/lib.rs`
-- `robocode-session/src/lib.rs`
+- `viden-core/src/lib.rs`
+- `viden-permissions/src/lib.rs`
+- `viden-session/src/lib.rs`
 
 ## Execution Order
 

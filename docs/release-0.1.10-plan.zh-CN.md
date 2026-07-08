@@ -1,4 +1,4 @@
-# RoboCode 0.1.10 计划
+# Viden 0.1.10 计划
 
 英文版： [release-0.1.10-plan.md](release-0.1.10-plan.md)
 
@@ -9,7 +9,7 @@
 `0.1.10` 是 Programming Cockpit Feedback 版本。重点不是继续堆面板，而是把用户输入、
 provider 正在工作、子 agent lane、视觉证据之间的反馈链路打通。
 
-这个版本要让操作者随时知道三件事：RoboCode 现在到底在做什么、这个状态来自哪条真实证据、
+这个版本要让操作者随时知道三件事：Viden 现在到底在做什么、这个状态来自哪条真实证据、
 下一步可以怎么操作。
 
 ## 范围
@@ -43,13 +43,13 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
-scripts/release-smoke.sh --version 0.1.10 --deepseek --out-dir /tmp/robocode-0110-release-smoke-full
+scripts/release-smoke.sh --version 0.1.10 --deepseek --out-dir /tmp/viden-0110-release-smoke-full
 ```
 
 发布后运行：
 
 ```bash
-scripts/release-smoke.sh --version 0.1.10 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0110-postpublish-check
+scripts/release-smoke.sh --version 0.1.10 --quick --github-release-assets --homebrew --out-dir /tmp/viden-0110-postpublish-check
 ```
 
 ## 延后

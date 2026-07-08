@@ -307,7 +307,7 @@ fn tool_input_to_json(input: &ToolInput) -> Value {
 
 fn provider_system_prompt(work_mode: WorkMode, permission_mode: PermissionMode) -> String {
     let mut lines = vec![
-        "You are RoboCode, a coding assistant running in a terminal.",
+        "You are Viden, a coding assistant running in a terminal.",
         "When native tool calling is available, prefer the provided tool interface.",
         "If native tool calling is unavailable, respond with exactly one line in this format:",
         "tool <tool_name> key=value key=value",

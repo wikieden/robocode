@@ -1,4 +1,4 @@
-# RoboCode 0.1.13 状态
+# Viden 0.1.13 状态
 
 English version: [release-0.1.13-status.md](release-0.1.13-status.md)
 
@@ -12,13 +12,13 @@ GitHub Releases 已包含多平台资产，`wikieden/homebrew-tap` formula 也�
 
 发布信息：
 
-- GitHub Release: [v0.1.13](https://github.com/wikieden/robocode/releases/tag/v0.1.13)
-- Release workflow: [26526332898](https://github.com/wikieden/robocode/actions/runs/26526332898)
+- GitHub Release: [v0.1.13](https://github.com/wikieden/viden/releases/tag/v0.1.13)
+- Release workflow: [26526332898](https://github.com/wikieden/viden/actions/runs/26526332898)
 - Homebrew tap commit: `b8f9c1d`
 
 ## 已落地
 
-- 默认 `robocode` 入口现在打开 TUI cockpit；`--no-tui` 保留给脚本和 smoke
+- 默认 `viden` 入口现在打开 TUI cockpit；`--no-tui` 保留给脚本和 smoke
   tests 使用的 legacy line REPL。
 - `/settings` 和 `/setup` 支持 provider/model 发现、API key 状态展示，以及显式
   保存 provider/model 默认值，不保存 secret。
@@ -40,17 +40,17 @@ GitHub Releases 已包含多平台资产，`wikieden/homebrew-tap` formula 也�
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace --quiet`
 - `scripts/smoke-lane-operator-loop.sh`
-- `ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.13 scripts/tui-regression.sh docs/previews/generated`
-- `scripts/release-smoke.sh --version 0.1.13 --out-dir /tmp/robocode-0113-release-smoke-full-local`
-- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --out-dir /tmp/robocode-0113-github-release-check`
-- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0113-postpublish-check`
-- `scripts/release-smoke.sh --version 0.1.13 --quick --deepseek --out-dir /tmp/robocode-0113-deepseek-live-check`
+- `VIDEN_TUI_SCREENSHOT_VERSION=0.1.13 scripts/tui-regression.sh docs/previews/generated`
+- `scripts/release-smoke.sh --version 0.1.13 --out-dir /tmp/viden-0113-release-smoke-full-local`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --out-dir /tmp/viden-0113-github-release-check`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --homebrew --out-dir /tmp/viden-0113-postpublish-check`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --deepseek --out-dir /tmp/viden-0113-deepseek-live-check`
 
 完整本地 release smoke 结果：
 
 - PASS `cargo-fmt`
 - PASS `cargo-clippy`
-- PASS `robocode-cli-tests`
+- PASS `viden-cli-tests`
 - PASS `workspace-tests`
 - PASS `tui-regression`
 - PASS `fallback-cli-smoke`
@@ -71,17 +71,17 @@ GitHub Releases 已包含多平台资产，`wikieden/homebrew-tap` formula 也�
 
 已发布资产：
 
-- `robocode-v0.1.13-aarch64-apple-darwin.tar.gz`
-- `robocode-v0.1.13-x86_64-apple-darwin.tar.gz`
-- `robocode-v0.1.13-x86_64-unknown-linux-gnu.tar.gz`
-- `robocode-v0.1.13-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.13-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.13-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.13-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.13-x86_64-pc-windows-msvc.tar.gz`
 - 四个平台 archive 对应的 `.sha256` 文件
 
 确定性截图：
 
-- [0.1.13 main](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-main.svg)
-- [0.1.13 command palette](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-command-palette.svg)
-- [0.1.13 side-2 ops](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-side-2.svg)
+- [0.1.13 main](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.13-tui-main.svg)
+- [0.1.13 command palette](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.13-tui-command-palette.svg)
+- [0.1.13 side-2 ops](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.13-tui-side-2.svg)
 
 ## 后续
 

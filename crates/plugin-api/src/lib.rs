@@ -115,6 +115,98 @@ pub struct PluginDescriptor {
     pub config_schema_version: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AgentTransport {
+    Acp,
+    AppServer,
+    Template,
+    Pty,
+    Tmux,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AgentSource {
+    Registry,
+    LocalCommand,
+    Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AgentAuthMode {
+    AgentNative,
+    ApiKey,
+    WebLogin,
+    Local,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AgentProtocolVersion {
+    AcpV1,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AgentPluginCapability {
+    SessionPrompt,
+    SessionLoad,
+    SessionCancel,
+    SessionSetMode,
+    SessionSetModel,
+    StreamingUpdates,
+    ToolCalls,
+    ImageInput,
+    SlashCommands,
+    McpEvents,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AgentPermissionProfile {
+    ReadOnlyProbe,
+    RuntimeGated,
+    AgentNative,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentEnvRef {
+    pub name: String,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentCommandSpec {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: Vec<AgentEnvRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentRegistryPackage {
+    pub package: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentPluginDescriptor {
+    pub agent_id: String,
+    pub display_name: String,
+    pub version: String,
+    pub transport: AgentTransport,
+    pub source: AgentSource,
+    pub command: AgentCommandSpec,
+    pub registry_package: Option<AgentRegistryPackage>,
+    #[serde(default)]
+    pub protocol_versions: Vec<AgentProtocolVersion>,
+    #[serde(default)]
+    pub auth_modes: Vec<AgentAuthMode>,
+    #[serde(default)]
+    pub capabilities: Vec<AgentPluginCapability>,
+    pub permission_profile: AgentPermissionProfile,
+    #[serde(default)]
+    pub experimental_methods: Vec<String>,
+    pub config_schema_version: u32,
+}
+
 const fn default_true() -> bool {
     true
 }
@@ -181,5 +273,46 @@ mod tests {
         let decoded: PluginManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.kind, PluginKind::Provider);
         assert_eq!(decoded.capabilities, vec![PluginCapability::Provider]);
+    }
+
+    #[test]
+    fn agent_plugin_descriptor_roundtrips_through_json() {
+        let descriptor = AgentPluginDescriptor {
+            agent_id: "kiro-cli".to_string(),
+            display_name: "Kiro CLI".to_string(),
+            version: "1".to_string(),
+            transport: AgentTransport::Acp,
+            source: AgentSource::LocalCommand,
+            command: AgentCommandSpec {
+                command: "kiro-cli".to_string(),
+                args: vec!["acp".to_string()],
+                env: vec![],
+            },
+            registry_package: None,
+            protocol_versions: vec![AgentProtocolVersion::AcpV1],
+            auth_modes: vec![AgentAuthMode::AgentNative],
+            capabilities: vec![
+                AgentPluginCapability::SessionPrompt,
+                AgentPluginCapability::SessionCancel,
+                AgentPluginCapability::SessionSetMode,
+                AgentPluginCapability::SessionSetModel,
+                AgentPluginCapability::StreamingUpdates,
+                AgentPluginCapability::ToolCalls,
+            ],
+            permission_profile: AgentPermissionProfile::RuntimeGated,
+            experimental_methods: vec!["_kiro.dev/commands/execute".to_string()],
+            config_schema_version: 1,
+        };
+
+        let json = serde_json::to_string(&descriptor).unwrap();
+        let decoded: AgentPluginDescriptor = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.agent_id, "kiro-cli");
+        assert_eq!(decoded.transport, AgentTransport::Acp);
+        assert_eq!(decoded.command.command, "kiro-cli");
+        assert!(
+            decoded
+                .capabilities
+                .contains(&AgentPluginCapability::ToolCalls)
+        );
     }
 }

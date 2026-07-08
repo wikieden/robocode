@@ -1,11 +1,11 @@
-# RoboCode 0.1.17 Plan - Daily Coding Loop Baseline
+# Viden 0.1.17 Plan - Daily Coding Loop Baseline
 
 Chinese version: [release-0.1.17-plan.zh-CN.md](release-0.1.17-plan.zh-CN.md)
 
 ## Summary
 
 `0.1.17` should shift the next release from "more surfaces" to "real daily
-usability." The goal is not to make RoboCode look more complete. The goal is to
+usability." The goal is not to make Viden look more complete. The goal is to
 make one normal programming loop dependable enough to use on a real project:
 
 > install -> configure provider -> ask for a scoped change -> approve edits ->
@@ -20,13 +20,13 @@ repeat.
 
 ## Product Goal
 
-By the end of `0.1.17`, a developer should be able to use RoboCode for a
+By the end of `0.1.17`, a developer should be able to use Viden for a
 single-repo coding task without constantly dropping to another terminal to
 understand what happened.
 
 ## 0.20 Usability North Star
 
-RoboCode should feel "truly usable" before `0.1.20` if these are true:
+Viden should feel "truly usable" before `0.1.20` if these are true:
 
 - First run is understandable: provider/model/API-key status is visible, and
   the user can fix setup from the TUI.
@@ -52,7 +52,7 @@ RoboCode should feel "truly usable" before `0.1.20` if these are true:
 
 ### 1. Daily Coding Loop Smoke
 
-Create a deterministic smoke scenario that proves RoboCode can complete the
+Create a deterministic smoke scenario that proves Viden can complete the
 normal coding loop:
 
 1. Start with the offline fallback/test provider for deterministic CI, and run
@@ -85,7 +85,7 @@ Implement the minimum useful spec/steering layer:
   - files likely involved
   - acceptance checks
   - risk notes
-- Project steering files live under `.robocode/steering/`:
+- Project steering files live under `.viden/steering/`:
   - `conventions.md`
   - `architecture.md`
   - `workflows.md`
@@ -118,7 +118,7 @@ The tool should help a new user become productive:
 - `/doctor` should include TUI, provider, git workspace, release version, and
   lane prerequisites.
 - Missing provider credentials should produce a fix command or env-var hint.
-- If the current model does not work, RoboCode should show an actionable switch
+- If the current model does not work, Viden should show an actionable switch
   prompt instead of a raw provider error. Covered cases include unknown model,
   unavailable model, auth/model permission errors, context-limit mismatch, and
   provider protocol incompatibility.
@@ -131,7 +131,7 @@ The tool should help a new user become productive:
 
 Acceptance:
 
-- `robocode-cli --provider fallback --model test-local` remains the offline
+- `viden-cli --provider fallback --model test-local` remains the offline
   escape hatch.
 - Launching with no saved provider enters the DeepSeek-first setup path.
 - DeepSeek setup path is documented and visible in TUI, `/setup`, `/settings`,
@@ -182,7 +182,7 @@ For every P0 feature, produce one deterministic artifact or real screenshot:
 - True provider cancellation for providers/runtime paths that can observe
   cancellation.
 - First streaming token renderer when a provider exposes streaming events.
-- A `robocode doctor --json` output mode for automation.
+- A `viden doctor --json` output mode for automation.
 - A `--daily-loop-smoke` preview fixture for release screenshots.
 - Provider/model favorites and last-known-good model history.
 
@@ -213,7 +213,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
-scripts/release-smoke.sh --version 0.1.17 --quick --out-dir /tmp/robocode-0117-release-smoke-local
+scripts/release-smoke.sh --version 0.1.17 --quick --out-dir /tmp/viden-0117-release-smoke-local
 ```
 
 Manual:

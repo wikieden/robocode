@@ -161,9 +161,9 @@ fn agent_task_from_codex_job(job: &AgentJob) -> AgentTask {
     AgentTask {
         id: job.id.clone(),
         parent_id: None,
-        agent: "codex".to_string(),
+        agent: agent_job_agent(job).to_string(),
         kind: "job".to_string(),
-        transport: "app-server".to_string(),
+        transport: agent_job_transport(job).to_string(),
         title: job.task.clone(),
         status: normalized_codex_job_status(&job.status),
         activity: codex_job_activity(job),
@@ -183,9 +183,25 @@ fn agent_task_from_codex_job(job: &AgentJob) -> AgentTask {
         pid: job.pid,
         next_action: Some(AgentNextAction {
             label: "inspect agent".to_string(),
-            command: Some(format!("/agent codex status {}", job.id)),
-            reason: Some("codex job state is available".to_string()),
+            command: Some(format!("/agent result {}", job.id)),
+            reason: Some("agent job state is available".to_string()),
         }),
+    }
+}
+
+fn agent_job_agent(job: &AgentJob) -> &'static str {
+    if job.kind == "acp-session" {
+        "acp"
+    } else {
+        "codex"
+    }
+}
+
+fn agent_job_transport(job: &AgentJob) -> &'static str {
+    if job.kind == "acp-session" {
+        "acp"
+    } else {
+        "app-server"
     }
 }
 
@@ -201,13 +217,13 @@ fn agent_task_from_pending_turn(turn: &PendingTurn) -> AgentTask {
     AgentTask {
         id: turn.id.clone(),
         parent_id: None,
-        agent: "robocode".to_string(),
+        agent: "viden".to_string(),
         kind: "provider".to_string(),
         transport: turn.provider.clone(),
         title: turn.prompt.clone(),
         status: "thinking".to_string(),
         activity: turn.phase.clone(),
-        summary: format!("RoboCode is processing the request{queued_suffix}"),
+        summary: format!("Viden is processing the request{queued_suffix}"),
         progress: 0,
         started_at: Some(turn.started_at),
         updated_at: Some(now_millis()),
@@ -249,7 +265,7 @@ fn agent_screen(task: &AgentTask) -> &'static str {
 }
 
 fn agent_lane_label(task: &AgentTask) -> String {
-    if task.agent == "robocode" && task.kind == "provider" {
+    if task.agent == "viden" && task.kind == "provider" {
         task.transport.clone()
     } else {
         task.agent.clone()
@@ -565,7 +581,9 @@ fn normalized_codex_job_status(status: &str) -> String {
 }
 
 fn codex_job_permissions(job: &AgentJob) -> Vec<String> {
-    if job.kind.contains("write") || job.kind.contains("rescue") {
+    if job.kind == "acp-session" {
+        vec!["agent permission gated".to_string()]
+    } else if job.kind.contains("write") || job.kind.contains("rescue") {
         vec!["workspace-write approval".to_string()]
     } else {
         vec!["read-only".to_string()]
@@ -662,7 +680,7 @@ fn provider_turn_failed_after(entries: &[TuiEntry], provider_index: usize) -> bo
         entry.label == "system"
             && entry
                 .body
-                .contains("Provider turn failed, but RoboCode kept the TUI open.")
+                .contains("Provider turn failed, but Viden kept the TUI open.")
     })
 }
 
@@ -672,7 +690,7 @@ fn agent_task_from_approval(index: usize, entry: &TuiEntry) -> AgentTask {
     AgentTask {
         id: format!("approval-{}", index + 1),
         parent_id: None,
-        agent: "robocode".to_string(),
+        agent: "viden".to_string(),
         kind: "approval".to_string(),
         transport: "permission".to_string(),
         title: format!("{tool} approval"),
@@ -702,7 +720,7 @@ fn agent_task_from_entry(index: usize, entry: &TuiEntry, state: &TuiState) -> Ag
         "user" => AgentTask {
             id: format!("reply-{}", index + 1),
             parent_id: None,
-            agent: "robocode".to_string(),
+            agent: "viden".to_string(),
             kind: "provider".to_string(),
             transport: state.provider.clone(),
             title: first_line(&entry.body),
@@ -730,7 +748,7 @@ fn agent_task_from_entry(index: usize, entry: &TuiEntry, state: &TuiState) -> Ag
         "assistant" => AgentTask {
             id: format!("reply-{}", index + 1),
             parent_id: None,
-            agent: "robocode".to_string(),
+            agent: "viden".to_string(),
             kind: "provider".to_string(),
             transport: state.provider.clone(),
             title: first_line(&entry.body),
@@ -754,7 +772,7 @@ fn agent_task_from_entry(index: usize, entry: &TuiEntry, state: &TuiState) -> Ag
         _ => AgentTask {
             id: format!("event-{}", index + 1),
             parent_id: None,
-            agent: "robocode".to_string(),
+            agent: "viden".to_string(),
             kind: "event".to_string(),
             transport: "transcript".to_string(),
             title: first_line(&entry.body),
@@ -844,7 +862,7 @@ fn tool_call_task(index: usize, entry: &TuiEntry) -> AgentTask {
     AgentTask {
         id: format!("tool-{}", index + 1),
         parent_id: None,
-        agent: "robocode".to_string(),
+        agent: "viden".to_string(),
         kind: "tool".to_string(),
         transport: "local-tool".to_string(),
         title,
@@ -873,7 +891,7 @@ fn tool_result_task(index: usize, entry: &TuiEntry) -> AgentTask {
     AgentTask {
         id: format!("tool-{}", index + 1),
         parent_id: None,
-        agent: "robocode".to_string(),
+        agent: "viden".to_string(),
         kind: "tool".to_string(),
         transport: "local-tool".to_string(),
         title: first_line(&entry.body),
@@ -1246,7 +1264,7 @@ impl ProviderOption {
                 enabled_models: vec!["claude-sonnet-4-5".to_string()],
                 favorite_models: Vec::new(),
                 api_key_env: Some("ANTHROPIC_API_KEY".to_string()),
-                api_base_env: Some("ROBOCODE_API_BASE".to_string()),
+                api_base_env: Some("VIDEN_API_BASE".to_string()),
                 auth_modes: vec![ProviderAuthMode::ApiKey],
             },
             Self {
@@ -1356,7 +1374,7 @@ impl ProviderOption {
                 enabled_models: vec!["gpt-5.2".to_string()],
                 favorite_models: Vec::new(),
                 api_key_env: Some("OPENAI_API_KEY".to_string()),
-                api_base_env: Some("ROBOCODE_API_BASE".to_string()),
+                api_base_env: Some("VIDEN_API_BASE".to_string()),
                 auth_modes: vec![ProviderAuthMode::WebLogin, ProviderAuthMode::ApiKey],
             },
         ]
@@ -1473,7 +1491,7 @@ impl TerminalLane {
                 tool: "claude".to_string(),
                 title: "review diff".to_string(),
                 status: "attached".to_string(),
-                target: "tmux robocode-c4f2b7e-l2".to_string(),
+                target: "tmux viden-c4f2b7e-l2".to_string(),
                 progress: 32,
                 summary: "tmux session ready; reviewing config architecture".to_string(),
                 worktree: None,
@@ -1543,15 +1561,15 @@ impl TerminalLane {
 }
 
 pub(super) fn lane_store_path(root: &Path) -> PathBuf {
-    root.join(".robocode").join("lanes.tsv")
+    root.join(".viden").join("lanes.tsv")
 }
 
 pub(super) fn screen_store_path(root: &Path) -> PathBuf {
-    root.join(".robocode").join("screens.tsv")
+    root.join(".viden").join("screens.tsv")
 }
 
 pub(super) fn diagnostics_store_path(root: &Path) -> PathBuf {
-    root.join(".robocode").join("diagnostics.txt")
+    root.join(".viden").join("diagnostics.txt")
 }
 
 pub(super) fn save_diagnostics(root: &Path, diagnostics: &[String]) -> Result<(), String> {
@@ -2048,8 +2066,8 @@ impl WorkspaceSnapshot {
 
     pub(super) fn fixture() -> Self {
         Self {
-            root: PathBuf::from("/tmp/robocode"),
-            display_root: "~/projects/robocode".to_string(),
+            root: PathBuf::from("/tmp/viden"),
+            display_root: "~/projects/viden".to_string(),
             git_branch: "main".to_string(),
             git_branches: vec![
                 "main".to_string(),
@@ -2083,11 +2101,11 @@ impl WorkspaceSnapshot {
             ],
             git_worktrees: vec![
                 GitWorktreeEntry {
-                    path: "/tmp/robocode".to_string(),
+                    path: "/tmp/viden".to_string(),
                     branch: Some("main".to_string()),
                 },
                 GitWorktreeEntry {
-                    path: "/tmp/robocode/.worktrees/codex-tui-cockpit".to_string(),
+                    path: "/tmp/viden/.worktrees/codex-tui-cockpit".to_string(),
                     branch: Some("codex/tui-cockpit".to_string()),
                 },
             ],
@@ -2472,10 +2490,7 @@ fn load_diagnostics(root: &Path) -> Vec<String> {
 }
 
 fn load_agent_jobs(root: &Path) -> Vec<AgentJob> {
-    let path = root
-        .join(".robocode")
-        .join("agents")
-        .join("codex-jobs.jsonl");
+    let path = root.join(".viden").join("agents").join("codex-jobs.jsonl");
     let Ok(content) = fs::read_to_string(path) else {
         return Vec::new();
     };
@@ -2641,7 +2656,10 @@ fn json_number_field(value: &str, field: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use viden_runtime::EngineEvent;
+
+    static TEMP_STATE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn entry_from_event_preserves_command_output() {
@@ -2731,12 +2749,12 @@ mod tests {
             .into_iter()
             .next()
             .expect("preview lane");
-        lane.worktree = Some(PathBuf::from("/tmp/robocode-lane"));
+        lane.worktree = Some(PathBuf::from("/tmp/viden-lane"));
         let loaded = TerminalLane::from_tsv(&lane.to_tsv()).expect("lane row should load");
 
         assert_eq!(loaded.progress, 64);
         assert_eq!(loaded.summary, "patched failing tests; rerunning cargo");
-        assert_eq!(loaded.worktree, Some(PathBuf::from("/tmp/robocode-lane")));
+        assert_eq!(loaded.worktree, Some(PathBuf::from("/tmp/viden-lane")));
     }
 
     #[test]
@@ -2763,7 +2781,7 @@ mod tests {
     fn refresh_lane_runtime_updates_attached_lane_from_log_tail() {
         let root = temp_state_root();
         let lane_store = lane_store_path(&root);
-        let artifact_dir = root.join(".robocode").join("lanes");
+        let artifact_dir = root.join(".viden").join("lanes");
         fs::create_dir_all(&artifact_dir).expect("artifact dir");
         fs::write(
             artifact_dir.join("L1.log"),
@@ -2794,7 +2812,7 @@ mod tests {
     fn refresh_lane_runtime_sanitizes_tmux_log_tail() {
         let root = temp_state_root();
         let lane_store = lane_store_path(&root);
-        let artifact_dir = root.join(".robocode").join("lanes");
+        let artifact_dir = root.join(".viden").join("lanes");
         fs::create_dir_all(&artifact_dir).expect("artifact dir");
         fs::write(
             artifact_dir.join("L1.log"),
@@ -2841,7 +2859,7 @@ mod tests {
     #[test]
     fn workspace_snapshot_loads_latest_codex_agent_jobs() {
         let root = temp_state_root();
-        let agents = root.join(".robocode").join("agents");
+        let agents = root.join(".viden").join("agents");
         fs::create_dir_all(&agents).expect("agent dir");
         let codex_2_log = agents.join("codex-2.jsonl");
         let codex_2_result = agents.join("codex-2.result.md");
@@ -2892,7 +2910,7 @@ mod tests {
     #[test]
     fn workspace_snapshot_loads_app_server_command_file_approval_and_resume_evidence() {
         let root = temp_state_root();
-        let agents = root.join(".robocode").join("agents");
+        let agents = root.join(".viden").join("agents");
         fs::create_dir_all(&agents).expect("agent dir");
         let log_path = agents.join("codex-app-server.jsonl");
         let result_path = agents.join("codex-app-server.result.md");
@@ -2904,7 +2922,7 @@ mod tests {
                 r#"{"direction":"server","payload":"{\"method\":\"item/commandExecution/outputDelta\",\"params\":{\"command\":\"cargo test\",\"delta\":\"running\"}}"}"#,
                 r#"{"direction":"server","payload":"{\"method\":\"item/fileChange/patchUpdated\",\"params\":{\"path\":\"src/config.rs\"}}"}"#,
                 r#"{"direction":"server","payload":"{\"id\":9,\"method\":\"item/commandExecution/requestApproval\",\"params\":{\"command\":\"cargo test\"}}"}"#,
-                r#"{"direction":"server","payload":"{\"method\":\"item/completed\",\"params\":{\"item\":{\"type\":\"agentMessage\",\"text\":\"ROBOCODE_APP_SERVER_SMOKE_OK\"}}}"}"#,
+                r#"{"direction":"server","payload":"{\"method\":\"item/completed\",\"params\":{\"item\":{\"type\":\"agentMessage\",\"text\":\"VIDEN_APP_SERVER_SMOKE_OK\"}}}"}"#,
                 r#"{"direction":"server","payload":"{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread_app\",\"turn\":{\"id\":\"turn_app\",\"status\":\"completed\"}}}"}"#,
             ]
             .join("\n"),
@@ -2912,7 +2930,7 @@ mod tests {
         .expect("codex app-server log");
         fs::write(
             &result_path,
-            "# Codex app-server turn\n\nthread: thread_app\nturn: turn_app\nstatus: completed\nresume: thread_app\nmessage: ROBOCODE_APP_SERVER_SMOKE_OK\napprovals: item/commandExecution/requestApproval\nsignals: command-output, file-patch\n",
+            "# Codex app-server turn\n\nthread: thread_app\nturn: turn_app\nstatus: completed\nresume: thread_app\nmessage: VIDEN_APP_SERVER_SMOKE_OK\napprovals: item/commandExecution/requestApproval\nsignals: command-output, file-patch\n",
         )
         .expect("codex app-server result");
         fs::write(
@@ -2943,7 +2961,7 @@ mod tests {
         );
         assert!(
             job.evidence
-                .contains(&"message ROBOCODE_APP_SERVER_SMOKE_OK".to_string())
+                .contains(&"message VIDEN_APP_SERVER_SMOKE_OK".to_string())
         );
         assert!(
             job.evidence
@@ -3035,7 +3053,7 @@ mod tests {
                 tool: "claude".to_string(),
                 title: "review config".to_string(),
                 status: "attached".to_string(),
-                target: "tmux robocode-l1".to_string(),
+                target: "tmux viden-l1".to_string(),
                 progress: 40,
                 summary: "reviewing config architecture".to_string(),
                 worktree: None,
@@ -3063,15 +3081,76 @@ mod tests {
     }
 
     #[test]
+    fn agent_tasks_project_acp_session_jobs_as_acp_agents() {
+        let mut workspace = WorkspaceSnapshot::fixture();
+        workspace.agent_jobs = vec![AgentJob {
+            id: "acp-1".to_string(),
+            kind: "acp-session".to_string(),
+            status: "running".to_string(),
+            task: "review architecture".to_string(),
+            pid: Some(5151),
+            log_path: None,
+            result_path: None,
+            evidence: vec!["session session_1".to_string()],
+            updated_at: 456,
+        }];
+        let state = TuiState {
+            session_id: "session_123".to_string(),
+            provider: "fallback".to_string(),
+            model: "test-local".to_string(),
+            provider_catalog: ProviderOption::fixture(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
+            entries: Vec::new(),
+            workspace,
+            tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+            interaction_panel: None,
+        };
+
+        let tasks = agent_tasks(&state);
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, "acp-1");
+        assert_eq!(tasks[0].agent, "acp");
+        assert_eq!(tasks[0].transport, "acp");
+        assert_eq!(tasks[0].status, "thinking");
+        assert_eq!(
+            tasks[0].permissions,
+            vec!["agent permission gated".to_string()]
+        );
+        assert_eq!(
+            tasks[0]
+                .next_action
+                .as_ref()
+                .and_then(|action| action.command.as_deref()),
+            Some("/agent result acp-1")
+        );
+    }
+
+    #[test]
     fn agent_tasks_project_lane_apply_and_conflict_artifacts() {
         let root = temp_state_root();
         let lane_store = lane_store_path(&root);
-        let artifact_dir = root.join(".robocode").join("lanes");
+        let artifact_dir = root.join(".viden").join("lanes");
         fs::create_dir_all(&artifact_dir).expect("artifact dir");
         fs::write(
             artifact_dir.join("L1.apply.md"),
             [
-                "# RoboCode Lane Apply",
+                "# Viden Lane Apply",
                 "",
                 "Patch: /tmp/L1.apply.patch",
                 "",
@@ -3085,7 +3164,7 @@ mod tests {
         fs::write(
             artifact_dir.join("L2.apply-conflict.md"),
             [
-                "# RoboCode Lane Apply Conflict",
+                "# Viden Lane Apply Conflict",
                 "",
                 "Patch: /tmp/L2.apply.patch",
                 "",
@@ -3305,7 +3384,7 @@ mod tests {
         assert_eq!(tasks[0].transport, "deepseek");
         assert_eq!(
             tasks[0].summary,
-            "RoboCode is processing the request · 2 prompts queued"
+            "Viden is processing the request · 2 prompts queued"
         );
         assert!(
             tasks[0]
@@ -3343,7 +3422,7 @@ mod tests {
                 },
                 TuiEntry {
                     label: "system".to_string(),
-                    body: "Provider turn failed, but RoboCode kept the TUI open.\nerror: Argument list too long (os error 7)".to_string(),
+                    body: "Provider turn failed, but Viden kept the TUI open.\nerror: Argument list too long (os error 7)".to_string(),
                 },
             ],
             workspace: WorkspaceSnapshot::fixture(),
@@ -3716,7 +3795,8 @@ mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("robocode-tui-state-test-{nanos}"));
+        let counter = TEMP_STATE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!("viden-tui-state-test-{nanos}-{counter}"));
         fs::create_dir_all(&root).expect("temp root");
         root
     }

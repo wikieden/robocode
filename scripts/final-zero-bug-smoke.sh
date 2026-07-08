@@ -3,11 +3,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${1:-}"
-VERSION="${ROBOCODE_FINAL_ZERO_BUG_VERSION:-}"
-MANUAL_DIR="${ROBOCODE_TUI_MANUAL_EVIDENCE_DIR:-}"
+VERSION="${VIDEN_FINAL_ZERO_BUG_VERSION:-}"
+MANUAL_DIR="${VIDEN_TUI_MANUAL_EVIDENCE_DIR:-}"
 
 if [[ -z "$OUT_DIR" ]]; then
-  OUT_DIR="$(mktemp -d "/tmp/robocode-final-zero-bug.XXXXXX")"
+  OUT_DIR="$(mktemp -d "/tmp/viden-final-zero-bug.XXXXXX")"
 fi
 mkdir -p "$OUT_DIR"
 
@@ -55,7 +55,7 @@ run_step() {
 
 validate_manual_evidence() {
   if [[ -z "$MANUAL_DIR" ]]; then
-    printf 'ROBOCODE_TUI_MANUAL_EVIDENCE_DIR is required for the final zero-bug gate\n' >&2
+    printf 'VIDEN_TUI_MANUAL_EVIDENCE_DIR is required for the final zero-bug gate\n' >&2
     return 2
   fi
   if [[ ! -d "$MANUAL_DIR" ]]; then
@@ -141,7 +141,7 @@ target_path.write_text(
 PY
 }
 
-record "# RoboCode Final Zero-Bug TUI Smoke"
+record "# Viden Final Zero-Bug TUI Smoke"
 record ""
 record "- Version: \`$VERSION\`"
 record "- Evidence directory: \`$OUT_DIR\`"
@@ -150,7 +150,7 @@ record ""
 record "## Results"
 
 run_step "manual-terminal-evidence" validate_manual_evidence
-run_step "tui-regression" env ROBOCODE_TUI_SCREENSHOT_VERSION="$VERSION" scripts/tui-regression.sh "$OUT_DIR/tui-regression"
+run_step "tui-regression" env VIDEN_TUI_SCREENSHOT_VERSION="$VERSION" scripts/tui-regression.sh "$OUT_DIR/tui-regression"
 run_step "core-tui-screenshot-evidence" validate_core_screenshots
 run_step "rc-tui-stability-smoke" scripts/rc-tui-stability-smoke.sh "$OUT_DIR/rc-tui-stability"
 run_step "plan-mode-smoke" scripts/plan-mode-smoke.sh "$OUT_DIR/plan-mode-smoke"

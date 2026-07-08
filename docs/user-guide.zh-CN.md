@@ -1,12 +1,12 @@
-# RoboCode 用户指南
+# Viden 用户指南
 
 英文版： [user-guide.md](user-guide.md)
 
-本文档说明当前 RoboCode development line 已经真实支持的用户功能。
+本文档说明当前 Viden development line 已经真实支持的用户功能。
 
 ## 心智模型
 
-RoboCode 分三层：
+Viden 分三层：
 
 - CLI runtime：加载配置、选择 provider、记录 transcript、运行工具、执行权限检查。
 - Cockpit TUI：展示对话、当前操作、审批弹窗、workspace 状态、任务、provider 健康度和副屏控制。
@@ -19,7 +19,7 @@ RoboCode 分三层：
 用 Homebrew 安装：
 
 ```bash
-brew install wikieden/tap/robocode
+brew install wikieden/tap/viden
 viden --help
 ```
 
@@ -95,10 +95,10 @@ viden --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
 
 ## 配置
 
-RoboCode 按顺序加载：
+Viden 按顺序加载：
 
 1. 平台默认配置路径；
-2. `.robocode/config.toml`；
+2. `.viden/config.toml`；
 3. 环境变量；
 4. CLI overrides。
 
@@ -119,7 +119,7 @@ models = ["deepseek-v4-flash", "deepseek-v4-pro"]
 favorite_models = ["deepseek-v4-pro"]
 ```
 
-TUI 设置路径在提交命令后进入独立面板：`/connect`、`/provider`、`/setup provider`、`/settings provider` 会打开供应商选择面板；`Enter` 选择供应商，缺 key 时进入 API key 输入面板，然后进入 provider config 动作页。这个动作页可以更换 API key、清除当前进程里的 key、运行 provider doctor，或打开该 provider 的模型选择面板。在 provider-scoped 模型面板里选中模型后，会保存 provider/model、自动运行 provider doctor，并把 readiness 结果写回 transcript。`/models`、`/model`、`/setup model`、`/settings model` 会打开按供应商分组的模型选择面板，只显示已经配置过的 provider；对已配置 provider，会显示 active、favorite、default 和 known models。选中模型后会立即切换 provider/model。API key 在界面里脱敏展示，RoboCode 只保存环境变量名，不保存明文 key。直接命令 `/settings provider <provider-id> ...`、`/models <provider-id> <model>`、`/model <model>` 仍保留给脚本和高级用户。Provider 失败会被分类为 missing key、auth、rate limit、timeout、context overflow、compatibility 或 model unavailable 等 recovery class，并给出打开 doctor、切换 model/provider、稍后重试或使用 fallback 的具体命令。当 provider 因请求过大拒绝执行时，RoboCode 会记录压缩说明，用更小的 provider request view 自动重试一次，同时保留完整本地 transcript 作为审计记录。
+TUI 设置路径在提交命令后进入独立面板：`/connect`、`/provider`、`/setup provider`、`/settings provider` 会打开供应商选择面板；`Enter` 选择供应商，缺 key 时进入 API key 输入面板，然后进入 provider config 动作页。这个动作页可以更换 API key、清除当前进程里的 key、运行 provider doctor，或打开该 provider 的模型选择面板。在 provider-scoped 模型面板里选中模型后，会保存 provider/model、自动运行 provider doctor，并把 readiness 结果写回 transcript。`/models`、`/model`、`/setup model`、`/settings model` 会打开按供应商分组的模型选择面板，只显示已经配置过的 provider；对已配置 provider，会显示 active、favorite、default 和 known models。选中模型后会立即切换 provider/model。API key 在界面里脱敏展示，Viden 只保存环境变量名，不保存明文 key。直接命令 `/settings provider <provider-id> ...`、`/models <provider-id> <model>`、`/model <model>` 仍保留给脚本和高级用户。Provider 失败会被分类为 missing key、auth、rate limit、timeout、context overflow、compatibility 或 model unavailable 等 recovery class，并给出打开 doctor、切换 model/provider、稍后重试或使用 fallback 的具体命令。当 provider 因请求过大拒绝执行时，Viden 会记录压缩说明，用更小的 provider request view 自动重试一次，同时保留完整本地 transcript 作为审计记录。
 
 ```text
 /settings
@@ -142,14 +142,14 @@ TUI 设置路径在提交命令后进入独立面板：`/connect`、`/provider`�
 
 常用环境变量：
 
-- `ROBOCODE_PROVIDER`、`ROBOCODE_MODEL`
-- `ROBOCODE_API_BASE`、`ROBOCODE_API_KEY`
-- `ROBOCODE_PROVIDER_PLUGIN_DIRS`
-- `ROBOCODE_PERMISSION_MODE`、`ROBOCODE_SESSION_HOME`
-- `ROBOCODE_REQUEST_TIMEOUT_SECS`、`ROBOCODE_MAX_RETRIES`
-- `ROBOCODE_CONFIG`
-- `ROBOCODE_SCREEN_LAUNCH_TEMPLATE`
-- `ROBOCODE_LANE_CODEX_TEMPLATE`、`ROBOCODE_LANE_CLAUDE_TEMPLATE`
+- `VIDEN_PROVIDER`、`VIDEN_MODEL`
+- `VIDEN_API_BASE`、`VIDEN_API_KEY`
+- `VIDEN_PROVIDER_PLUGIN_DIRS`
+- `VIDEN_PERMISSION_MODE`、`VIDEN_SESSION_HOME`
+- `VIDEN_REQUEST_TIMEOUT_SECS`、`VIDEN_MAX_RETRIES`
+- `VIDEN_CONFIG`
+- `VIDEN_SCREEN_LAUNCH_TEMPLATE`
+- `VIDEN_LANE_CODEX_TEMPLATE`、`VIDEN_LANE_CLAUDE_TEMPLATE`
 - `ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`DEEPSEEK_API_BASE`
 
 ## Providers
@@ -239,8 +239,8 @@ DeepSeek 开发场景 smoke 会产生真实费用，会写出 `usage.json` 和 `
 /screen close side-1
 ```
 
-可以通过 `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`、`ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE`
-或 `ROBOCODE_SCREEN_LAUNCH_TEMPLATE`，把副屏交给终端应用、tmux 或显示器摆放脚本启动。
+可以通过 `VIDEN_SCREEN_SIDE_1_LAUNCH_TEMPLATE`、`VIDEN_SCREEN_SIDE_2_LAUNCH_TEMPLATE`
+或 `VIDEN_SCREEN_LAUNCH_TEMPLATE`，把副屏交给终端应用、tmux 或显示器摆放脚本启动。
 
 ## TUI 操作
 
@@ -267,7 +267,7 @@ DeepSeek 开发场景 smoke 会产生真实费用，会写出 `usage.json` 和 `
   模型返回的 text delta 会先追加到临时 assistant transcript 行里；turn 完成后，
   再替换为正式持久化 transcript event。
 - provider turn 尚未结束时，输入区仍可编辑。按 `Enter` 会把当前草稿排成下一条
-  prompt，RoboCode 会立即清空输入区，并在当前 turn 结束后自动执行队列里的 prompt。
+  prompt，Viden 会立即清空输入区，并在当前 turn 结束后自动执行队列里的 prompt。
   如果当前 turn 失败，会把第一条已排队 prompt 放回输入区，方便你修改后重试。
 
 ## Slash Commands
@@ -408,13 +408,13 @@ lane 时，还会补充带 id 的 inspect、timeline、diff 和 artifacts 动作
 
 `/lane codex-review <task>` 是 P0 只读 Codex 信任闭环路径。它会写入
 envelope；当 Codex 可用时启动 `codex review --uncommitted`，也支持
-`ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE` 覆盖；最终结果进入和其他 lane 一样的
+`VIDEN_LANE_CODEX_REVIEW_TEMPLATE` 覆盖；最终结果进入和其他 lane 一样的
 log/timeline/evidence 模型。
 
 `/lane tmux <id>` 现在会在标记 attached 之前检查默认 tmux/Claude 路径。
 如果缺少 `tmux` 或 `claude`，会记录 setup-needed timeline 事件，而不是误报
-attached；自定义路径可以通过 `ROBOCODE_LANE_TMUX_TEMPLATE` 和
-`ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE` 配置。
+attached；自定义路径可以通过 `VIDEN_LANE_TMUX_TEMPLATE` 和
+`VIDEN_LANE_TMUX_COMMAND_TEMPLATE` 配置。
 
 `/lane inspect <id>` 会输出 lane 状态、命令、退出码、日志、产物、envelope、
 timeline、决策、下一步动作和变更文件。`/lane timeline <id>` 会打印有序事件流，
@@ -471,7 +471,7 @@ tool grep pattern=SessionEngine path=viden-runtime/src
 
 ## 模式和权限
 
-RoboCode 把工作意图和信任等级分开：
+Viden 把工作意图和信任等级分开：
 
 - Work Mode：`build` 用于实现，`plan` 用于产品需求、架构、实现方案、测试策略和开发计划。
 - Permission Level：`ask`、`auto_edit`、`read_only` 或 `full_access`。
@@ -493,16 +493,16 @@ Tasks 和 memory 以 workflow events 保存。assistant suggested project memory
 
 `/task resume-context` 会把 task 和 memory 状态组合成可恢复的项目上下文快照。
 
-`/brief <task goal>` 会在 `.robocode/briefs/active.md` 创建轻量 active task
+`/brief <task goal>` 会在 `.viden/briefs/active.md` 创建轻量 active task
 brief；`/spec` 是别名。有 active brief 时，provider ContextBundle、lane
 envelope 和 side-2 ops 都可以引用它。`/brief steering init` 会创建最小
-`.robocode/steering/` 模板，用于项目约定、架构和工作流。
+`.viden/steering/` 模板，用于项目约定、架构和工作流。
 
 `/context` 会显示最近一次 provider turn 使用的 ContextBundle，包括 v1 policy、source priority、token 估算、被省略的 sources 和 compaction notes。它用于回答“这次请求到底带了哪些上下文、哪些被预算策略裁掉了”。
 
 ## Agent Lanes
 
-Agent lanes 让 RoboCode 监督外部工具，而不是假装它们是原生模型调用。当前 adapters 包括：
+Agent lanes 让 Viden 监督外部工具，而不是假装它们是原生模型调用。当前 adapters 包括：
 
 - Codex CLI / app-server entrypoints。
 - Claude Code command template。
@@ -512,11 +512,11 @@ Agent lanes 让 RoboCode 监督外部工具，而不是假装它们是原生模�
 - Embedded PTY lane。
 - 实验性 ACP command surface。
 
-Lane artifacts 会写入 `.robocode/lanes/`，这样主 TUI 和副屏可以展示 next actions、output tails、decision、apply result 和 conflicts。
+Lane artifacts 会写入 `.viden/lanes/`，这样主 TUI 和副屏可以展示 next actions、output tails、decision、apply result 和 conflicts。
 
 ## Extension 边界
 
-RoboCode 现在能发现这些 extension surfaces：
+Viden 现在能发现这些 extension surfaces：
 
 - provider plugin directories；
 - agent adapters；
@@ -545,7 +545,7 @@ RoboCode 现在能发现这些 extension surfaces：
 
 提交 GitHub issue 时建议包含：
 
-- RoboCode 版本和安装方式；
+- Viden 版本和安装方式；
 - OS 和终端应用；
 - provider/model；
 - 命令和复现步骤；

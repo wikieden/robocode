@@ -42,26 +42,26 @@ pub struct ProviderConfig {
 
 impl ProviderConfig {
     pub fn from_env() -> Self {
-        let kind = env::var("ROBOCODE_PROVIDER")
+        let kind = env::var("VIDEN_PROVIDER")
             .ok()
             .and_then(|value| ProviderKind::parse(&value))
             .unwrap_or(ProviderKind::DeepSeek);
-        let model = env::var("ROBOCODE_MODEL")
+        let model = env::var("VIDEN_MODEL")
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| builtin_default_model(kind).to_string());
-        let api_base = env::var("ROBOCODE_API_BASE").ok();
+        let api_base = env::var("VIDEN_API_BASE").ok();
         let api_key = resolve_api_key(kind);
         Self {
             kind,
             model,
             api_base,
             api_key,
-            request_timeout_secs: env::var("ROBOCODE_REQUEST_TIMEOUT_SECS")
+            request_timeout_secs: env::var("VIDEN_REQUEST_TIMEOUT_SECS")
                 .ok()
                 .and_then(|value| value.parse::<u64>().ok())
                 .unwrap_or(90),
-            max_retries: env::var("ROBOCODE_MAX_RETRIES")
+            max_retries: env::var("VIDEN_MAX_RETRIES")
                 .ok()
                 .and_then(|value| value.parse::<u32>().ok())
                 .unwrap_or(1),
@@ -145,19 +145,19 @@ impl ProviderConfig {
 pub(crate) fn resolve_api_key(kind: ProviderKind) -> Option<String> {
     match kind {
         ProviderKind::Anthropic => read_non_blank_env("ANTHROPIC_API_KEY")
-            .or_else(|| read_non_blank_env("ROBOCODE_ANTHROPIC_API_KEY")),
+            .or_else(|| read_non_blank_env("VIDEN_ANTHROPIC_API_KEY")),
         ProviderKind::DeepSeek | ProviderKind::DeepSeekAnthropic => {
             read_non_blank_env("DEEPSEEK_API_KEY")
-                .or_else(|| read_non_blank_env("ROBOCODE_DEEPSEEK_API_KEY"))
-                .or_else(|| read_non_blank_env("ROBOCODE_API_KEY"))
+                .or_else(|| read_non_blank_env("VIDEN_DEEPSEEK_API_KEY"))
+                .or_else(|| read_non_blank_env("VIDEN_API_KEY"))
         }
         ProviderKind::OpenAi | ProviderKind::OpenAiCompatible => {
             read_non_blank_env("OPENAI_API_KEY")
-                .or_else(|| read_non_blank_env("ROBOCODE_OPENAI_API_KEY"))
+                .or_else(|| read_non_blank_env("VIDEN_OPENAI_API_KEY"))
         }
         ProviderKind::Ollama | ProviderKind::Fallback => None,
     }
-    .or_else(|| read_non_blank_env("ROBOCODE_API_KEY"))
+    .or_else(|| read_non_blank_env("VIDEN_API_KEY"))
 }
 
 fn read_non_blank_env(name: &str) -> Option<String> {

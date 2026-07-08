@@ -8,7 +8,7 @@
 cockpit。它从 TUI 起步，但长期产品边界是共享 runtime 之上的 TUI、GUI、CLI automation、
 IDE/ACP adapter 和外部 agent supervision。
 
-Viden 取代旧的 RoboCode 产品框架。RoboCode 仅作为 legacy implementation / release 名称保留，
+Viden 取代旧的 Viden 产品框架。Viden 仅作为 legacy implementation / release 名称保留，
 直到单独的迁移计划安全地覆盖 binary、crate、config path 和 artifact 重命名。
 
 Viden 不是逐文件移植 `.ref/claude-code-main`。参考工程只提供行为和交互基线。TUI / GUI
@@ -26,13 +26,16 @@ Viden 不是逐文件移植 `.ref/claude-code-main`。参考工程只提供行�
 
 ### 定位
 
-Viden 是一个本地优先、可扩展的开发者 Agent cockpit。它理解当前 workspace，通过权限门控
-执行工具，持久化会话，并逐步扩展到集成、远程操作、多 Agent 协作和 GUI 监督界面。
+Viden 是一个面向软件开发的本地优先 Agent Orchestration workspace。它的核心产品承诺
+不是“一个 AI agent 帮用户改代码”，而是把多个 agent、MCP 能力、工具、角色、任务、skill
+和 workflow 组合成可监督、可审计的自动化闭环。Viden 理解当前 workspace，通过权限门控
+执行工具，持久化 session 与 workflow state，并逐步扩展到集成、远程操作、混合 Agent
+编排和 GUI 监督界面。
 
 产品命名边界：
 
 - **Viden**：产品、TUI/GUI 设计目标、视觉身份和规划名称。
-- **RoboCode**：legacy implementation 和 compatibility 名称，直到 rename migration 被明确规划。
+- **Viden**：legacy implementation 和 compatibility 名称，直到 rename migration 被明确规划。
 - **接受的视觉系统**：`docs/viden-design/Viden/` 是 tokens、components、target screenshots
   和 UI 方向的接受设计源。
 
@@ -51,11 +54,15 @@ Viden 是一个本地优先、可扩展的开发者 Agent cockpit。它理解当
 - 在高风险场景下使用只分析或高审批模式
 - 后续扩展到 MCP、LSP、remote、多 Agent，而不需要切换产品
 - 在 workspace/project/lane/session/subagent 层级中监督多个并行 agent
+- 把内部 agent、ACP agent、MCP tools、本地工具和可复用 skills 组合成
+  role/task/workflow 计划，支持串行或并行执行
 - 在 TUI 和未来 GUI 中查看相同 runtime facts、context、cost、approval 和 evidence
 
 ### 产品目标
 
-- 从“终端聊天式 AI 助手”升级为“AI coding operator cockpit”
+- 从“终端聊天式 AI 助手”升级为“面向编码工作流的 Agent Orchestration cockpit”
+- 把多 Agent 编排、混合 Agent workflow composition、tool/MCP/skill assignment
+  作为核心产品能力，而不是附加功能
 - 在核心运行时行为和子系统形态上吸收参考工程的成熟模式
 - 保持工具、审批和会话历史的强审计能力
 - 在设计源被接受后，用经过审核的 design tokens 和 selector-first 交互统一 TUI / GUI
@@ -63,6 +70,7 @@ Viden 是一个本地优先、可扩展的开发者 Agent cockpit。它理解当
 - 让 lane/session/subagent、context、cost、approval、evidence 成为一等产品对象
 - 从首个稳定版本起支持跨平台本地开发
 - 保持内核足够可扩展，以承载后续集成和高级工作流
+- 让用户可以把重复工程工作转成可监督 workflow，并明确角色、任务依赖、证据要求和 merge gate
 
 ### 非目标
 
@@ -77,7 +85,7 @@ Viden 是一个本地优先、可扩展的开发者 Agent cockpit。它理解当
 
 ### 启动与配置
 
-RoboCode 必须具备确定性的配置优先级模型：
+Viden 必须具备确定性的配置优先级模型：
 
 1. CLI flags
 2. 环境变量
@@ -110,7 +118,7 @@ transcript 是持久化事实源；任何派生索引都必须可以从 transcri
 
 ### 消息与工具循环
 
-RoboCode 必须保留参考工程最核心的行为：
+Viden 必须保留参考工程最核心的行为：
 
 - 用户输入进入共享 engine
 - slash commands 通过同一运行时域解析，而不是 UI 旁路
@@ -129,7 +137,7 @@ RoboCode 必须保留参考工程最核心的行为：
 
 ### 非阻塞交互运行时
 
-RoboCode 必须把“UI 和输入不被 agent 工作卡住”作为核心产品需求，而不是 TUI 层的体验补丁。
+Viden 必须把“UI 和输入不被 agent 工作卡住”作为核心产品需求，而不是 TUI 层的体验补丁。
 
 任何可能等待 provider、tool、shell、Git、LSP、MCP、plugin、external agent、context
 compaction、doctor、release smoke 或用户审批的流程，都必须通过后台任务、事件、callback
@@ -162,7 +170,7 @@ flowchart TD
 
 权限是领域概念，而不是单纯的交互 UI 状态。
 
-RoboCode 必须支持与参考工程语义等价的命名模式：
+Viden 必须支持与参考工程语义等价的命名模式：
 
 - `default`
 - `acceptEdits`
@@ -192,7 +200,7 @@ session 层必须提供：
 
 ### Slash Commands
 
-slash commands 是一等接口层。RoboCode 不需要逐字复制所有参考命令，但必须覆盖相同的行为家族。
+slash commands 是一等接口层。Viden 不需要逐字复制所有参考命令，但必须覆盖相同的行为家族。
 
 必须覆盖的命令族：
 
@@ -202,6 +210,99 @@ slash commands 是一等接口层。RoboCode 不需要逐字复制所有参考�
 - environment 和 diagnostics：config、doctor、context、usage/cost、status
 - integration management：MCP、plugins、skills、remote、auth
 - collaboration 和 workflow：tasks、agents、teams、memory
+
+### External Agent / ACP 集成
+
+Viden 必须通过 core-owned plugin/extension 路径支持外部 coding agents。这不是一个
+TUI-only command feature。实现方向见
+[Zed ACP 接入研究](zed-acp-integration-research.zh-CN.md)。
+
+必要产品行为：
+
+- 用户可以从 registry、custom 或 local command sources 安装或配置 external agents；
+- 第一批可用目标是 Claude、Codex 和 Kiro CLI；
+- external agents 默认保留自己的 native auth、billing、provider、model 和 subscription
+  边界，除非 adapter 明确声明其他行为；
+- Viden 拥有 runtime lifecycle、permissions、transcript、evidence、cancellation、
+  logs 和 merge gates；
+- TUI 与 GUI 只能通过 `RuntimeViewState` 渲染 external-agent state。
+
+ACP v1 先落地。ACP v2 与 proxy/conductor 能力必须隔离在版本化 adapter 边界后面，避免未来协议变化迫使 TUI 或 GUI 重写。
+
+当前实现状态：
+
+- `plugin-api` 已有 agent plugin descriptor；
+- `plugin-host` 已内置 `claude-acp`、`codex-acp` 和 `kiro-cli` 三个 ACP descriptor；
+- `VIDEN_AGENT_ACP_COMMAND` 已作为可运行的 `custom-acp` local descriptor
+  暴露，所以 custom/plugin ACP agents 可以复用内置 agent 相同的
+  list/doctor/probe/run 路径；
+- `/agent list`、`/agent doctor <id>` 和 `/agent probe acp <agent-id>` 已提供基于
+  descriptor 的发现与 initialize probe；
+- `/agent run acp <agent-id> <task>` 可以运行最小同步 ACP session，覆盖
+  `session/new`、`session/prompt`、streamed `session/update` 和 TurnEnd collection；
+- `/agent run acp --load-session <session-id> --mode <mode-id> --model <model-id>
+  <agent-id> <task>` 可以恢复 agent 自己管理的既有 session，并通过 ACP
+  `session/load`、`session/set_mode` 和 `session/set_config_option` 应用
+  session-level mode/model 配置；必要时保留 legacy `session/set_model` fallback；
+- `/agent run acp --async <agent-id> <task>` 可以启动 tracked 后台 ACP session job，
+  写出 JSONL/result/runtime-event artifacts，并可通过 `/agent cancel <id>` 停止对应进程；
+- ACP 后台取消会在 live ACP session 可用时请求协议层 `session/cancel`，把请求写入
+  wire log；如果外部 agent 没有及时停止，再用有界 process termination 作为 fallback；
+- ACP `session/request_permission` 已转换为 Viden approval prompt，并按 allow/reject
+  结果回写选中的 ACP option；
+- tracked ACP session jobs 已作为 `AgentTask` records 投影到 `RuntimeViewState`；
+- ACP `session/update` 和 `session/notification` payloads 已投影成可复用
+  `RuntimeEvent` records，覆盖 assistant delta、tool call start/finish 和
+  turn-end evidence；
+- 后台 ACP jobs 会在 updates 到达时持续把投影事件追加到
+  `runtime-events.jsonl`，`RuntimeViewState` 会重放这些事件，供 TUI/GUI 的
+  assistant output 和 evidence views 消费；
+- ACP `fs/read_text_file` 和 `fs/write_text_file` client requests 已通过 Viden
+  permission checks 桥接；
+- ACP `terminal/create`、`terminal/input`、`terminal/write`、
+  `terminal/output`、`terminal/wait_for_exit`、`terminal/release` 和
+  `terminal/kill` 已通过 Viden permission checks 桥接。`terminal/create`
+  会启动 tracked process 而不是等待退出，`terminal/input` / `terminal/write`
+  会写入 process stdin，`terminal/output` 会轮询 buffered stdout/stderr，
+  `terminal/wait_for_exit` / `terminal/kill` 会更新 long-running command 的
+  process status；未支持的 filesystem 或 terminal methods 仍会收到明确
+  JSON-RPC error，并留下 wire-log evidence；
+- registry-backed ACP agents 使用更长 handshake timeout 来覆盖 `npx` cold-start
+  installation；Kiro CLI doctor 输出会区分 binary installed 与 agent-native auth unknown；
+- registry-backed ACP agents 使用项目级 npm cache；Claude/Codex initialize probes
+  已在本机跑通；Kiro probe failure 会保留 stderr auth diagnostics，而不是退化成
+  generic closed-stdout error；
+- Claude/Codex ACP session-level smoke 已在本机跑通，包括真实 Codex 对
+  `mcpServers: []`、`prompt: []`、snake-case `sessionUpdate`、最终 `id:2`
+  response 和 usage reporting 的兼容；
+- Kiro-specific baseline compatibility 已用 fake server tests 覆盖：
+  `session/prompt` 使用 `prompt`，接受 `session/notification` updates，
+  收集 `ToolCall` 和 `ToolCallUpdate`，并支持 `VIDEN_KIRO_AGENT` 映射到
+  `kiro-cli acp --agent <name>`；
+- Kiro 官方 ACP launch options 已进入 descriptor 并有测试覆盖：
+  `VIDEN_KIRO_MODEL`、`VIDEN_KIRO_EFFORT`、`VIDEN_KIRO_TRUST_TOOLS`、
+  `VIDEN_KIRO_TRUST_ALL_TOOLS` 和 `VIDEN_KIRO_AGENT_ENGINE` 会映射到
+  `kiro-cli acp` flags；
+- `/agent auth acp kiro-cli` 返回 native-login instructions，而不是尝试 ACP
+  `authenticate`，因为 Kiro credentials 由 Viden 外部的 Kiro 自己管理；
+- `/agent smoke acp [--live]` 已作为可重复 gate 可用；Kiro 未认证时返回非零
+  blocked-auth，而不是误判通过；
+- 当前 operator 环境中的 authenticated Kiro live smoke 已通过。当前安装的 Kiro
+  CLI 在 `session/prompt` 中使用 `prompt` array；文档形态的 `content` 参数在
+  agent descriptor 明确声明前视为不兼容；
+- projected ACP runtime events 已会在 async/background jobs 运行中直接推送进
+  live `RuntimeSupervisor` event stream；
+- ACP session output 已映射到 merge-gate records：session 会提出 merge gate，
+  completed tool updates 会成为 `tool_log` evidence，`TurnEnd` 会成为
+  `acp_turn_end` evidence，并在 turn-end evidence 存在后把 session gate 推到
+  `Accepted`；
+- 携带 unified diff 的 ACP patch/diff updates 已归一化为 `patch` evidence；产生
+  patch 的 session gate 会要求同时具备 `patch` 和 `acp_turn_end`。Patch
+  evidence 会携带 `acp.patch.v1` metadata，包含文件统计、变更路径、hunk 数、
+  来源 tool-call id 和原始 unified diff；
+- 完整 production external-agent execution 还需要在必要时支持 PTY 级
+  interactive terminal sessions，并把 provider-native doctor diagnostics 保持在
+  release gate 中。
 
 ### Provider 抽象
 
@@ -446,16 +547,24 @@ provider 目标还包括 plugin-extensible provider runtime：
 ### 多 Agent / Team / Coordinator
 
 目标：
-支持超越单线程对话的委派和协调工作流。
+把 Agent Orchestration 做成产品级协调层，支持委派、并行和混合 Agent 软件开发工作。
+Viden 必须能把工作分配给不同的一方角色、外部 ACP agents、MCP tools、本地工具和 skills，
+并把它们的输出组合成带明确 evidence 与 merge decision 的可监督 workflow。
 
 设计来源：
 - [多 Agent 核心编排](multi-agent-core-orchestration.zh-CN.md)
+- [Agent Workflow Visibility](agent-workflow-visibility.zh-CN.md)
 
 要求：
 
-- agent spawning
-- inter-agent messaging
-- team-level orchestration
+- agent spawning 和生命周期监督
+- inter-agent messaging、handoff 和 dependency tracking
+- 支持串行、并行和混合 workflow 的 team-level orchestration
+- mixed orchestration：能把子任务路由给一方 role、外部 ACP agents、MCP tools、
+  local tools、shell/Git actions 和 reusable skills
+- cost-aware assignment：分工时同时考虑 agent 专长、上下文局部性、延迟、
+  model/provider 价格、本地工具替代方案和 workflow budget
+- workflow templates：把用户目标映射为 role/task/tool/skill assignment
 - transcript-aware coordination
 - 权限和作用域隔离
 - 包含 planner、coder、reviewer、tester、doc-writer、release operator 的 Agent DAG
@@ -468,10 +577,16 @@ provider 目标还包括 plugin-extensible provider runtime：
 - 已完成核心模块必须覆盖
   [前端对接契约](frontend-integration-contract.zh-CN.md)，保证 TUI 和 GUI 消费同一套
   runtime facts，而不是发明第二套状态模型
+- workflow-level observability：每个 agent/tool/skill step 都必须暴露 status、
+  input context、output artifact、evidence、cost、blocker 和 next action
+- workflow visibility 必须区分 planned、running、done、accepted、blocked、
+  failed 和 cancelled，不要求用户阅读原始日志
+- workflow visibility 必须解释每个 agent/tool/skill 决策的 assignment rationale
+  和 cost impact
 
 阶段优先级：
 - V2：核心 DAG/event/evidence contracts
-- V3：external agents 和 team collaboration
+- V3：hybrid external-agent/MCP/skill workflow orchestration 和 team collaboration
 
 ### Bridge / Remote / Server Mode
 
@@ -558,7 +673,7 @@ provider 目标还包括 plugin-extensible provider runtime：
 
 ### 命令面
 
-RoboCode 必须定义稳定的命令家族，而不是临时堆出来的命令集合。完整目标至少覆盖：
+Viden 必须定义稳定的命令家族，而不是临时堆出来的命令集合。完整目标至少覆盖：
 
 - runtime control
 - session control
@@ -620,7 +735,10 @@ RoboCode 必须定义稳定的命令家族，而不是临时堆出来的命令�
 
 ### 未来集成接口
 
-MCP、remote、多 Agent 这些子系统必须能够插入现有 command、permission、tool、transcript 模型，而不是建立新的平行运行时。
+MCP、remote、skill、plugin 和多 Agent 子系统必须插入同一套 command、permission、
+tool、workflow、evidence 和 transcript 模型，而不是建立新的平行运行时。产品目标是一个
+workflow orchestrator：agent 可以调用工具，工具可以产出 evidence，MCP 可以扩展能力，
+skill 可以封装可复用流程，runtime 负责在用户可见监督下调度正确组合。
 
 ### 核心未来 TODO：多 Agent 编排
 
@@ -632,6 +750,9 @@ MCP、remote、多 Agent 这些子系统必须能够插入现有 command、permi
 
 - 扩展共享 `AgentTask`、`AgentDag`、`ContextBundle`、`Evidence` 和 `MergeGate`
   contracts，同时避免它们和 TUI/GUI 实现耦合；
+- 增加 workflow-level orchestration templates，把用户目标转换为 role、agent、
+  MCP、tool 和 skill assignments；
+- 支持混合串行/并行执行，包括多 agent 与多工具之间依赖感知的 fan-out/fan-in；
 - 继续在 `crates/workflows` 持久化 DAG、task、artifact 和 evidence events；
 - 继续扩展 `RuntimeSupervisor`，让 agent tasks 异步运行，不能阻塞 composer input；
 - 在已落地的 role-aware permissions、scoped staging 和高风险 Git denial 之上，
@@ -667,14 +788,14 @@ MCP、remote、多 Agent 这些子系统必须能够插入现有 command、permi
   形状
 - 内置本地工具必须有稳定契约、declared mutability，以及 transcript-visible results
 - project memory suggestions 必须经过显式 confirm/reject 才能成为 active 或被 retired
-- 未来 MCP、LSP、plugin、多 Agent、bridge、remote 能力必须插入同一套 command、
-  permission、tool、transcript 模型，而不是建立平行运行时
+- 未来 MCP、LSP、skill、plugin、多 Agent、bridge、remote 能力必须插入同一套
+  command、permission、tool、workflow、evidence 和 transcript 模型，而不是建立平行运行时
 
 ## 需求文档验收标准
 
 完整需求集必须能回答：
 
-- RoboCode 最终是什么
+- Viden 最终是什么
 - 哪些子系统在正式范围内
 - 每个子系统属于哪个阶段
 - 每个核心子系统“做到什么算够用”

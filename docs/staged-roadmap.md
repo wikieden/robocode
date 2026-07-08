@@ -102,7 +102,7 @@ Exit criteria:
 ### V3: Agent Orchestration And Token Efficiency Layer
 
 Goal:
-Upgrade RoboCode from a single-agent development assistant into a multi-agent
+Upgrade Viden from a single-agent development assistant into a multi-agent
 orchestration system, with token efficiency treated as a first-class product
 capability.
 
@@ -143,18 +143,117 @@ Required capabilities:
 - MCP integration
 - skills and plugins
 - multi-agent coordination
-- ACP / external-agent adapters
+- ACP / external-agent adapters, following the Zed-inspired registry/custom
+  agent-server model captured in
+  [Zed ACP Integration Research](zed-acp-integration-research.md)
 - bridge and remote session support
 - automation and cron-style workflows
 
 Exit criteria:
 
-- external tool ecosystems can plug into RoboCode through stable interfaces
+- external tool ecosystems can plug into Viden through stable interfaces
 - remote and integrated clients can reuse the same execution and permission
   model as local sessions
 - multi-agent workflows do not bypass transcript and permission guarantees
 - plugins, skills, MCP, and ACP all pass through the shared permissions, fact,
   token-budget, and evidence model
+
+### ACP / External-Agent Delivery Rule
+
+ACP support must be implemented as a core plugin/extension path, not as TUI
+command glue. The first usable targets are Claude, Codex, and Kiro CLI:
+
+- Claude and Codex should prefer ACP Registry metadata when available.
+- Kiro CLI should start as an official local-command ACP adapter using
+  `kiro-cli acp`; registry metadata can become an additional source later.
+- Every external-agent subprocess must connect through RuntimeSupervisor,
+  emit `RuntimeEvent`, update `RuntimeViewState`, and produce evidence/merge
+  facts through the same gates as built-in agents.
+- TUI and GUI clients may render external-agent state, logs, auth/config
+  prompts, and model/session config options, but they must not spawn or parse
+  ACP subprocesses directly.
+
+Current ACP foundation status:
+
+- Done: shared agent descriptor contract, built-in Claude/Codex/Kiro ACP
+  descriptors, runtime list/doctor discovery, and descriptor-backed
+  `initialize` probes with JSONL evidence.
+- Done: `VIDEN_AGENT_ACP_COMMAND` is promoted into a runnable `custom-acp`
+  local descriptor for custom/plugin ACP agents.
+- Done: minimal synchronous ACP session run through `session/new`,
+  `session/prompt`, streamed `session/update`, and TurnEnd collection.
+- Done: descriptor-backed ACP session restore/configuration through
+  `/agent run acp --load-session <session-id> --mode <mode-id> --model
+  <model-id> <agent-id> <task>`, mapping to `session/load`,
+  `session/set_mode`, and ACP `session/set_config_option` model config with a
+  legacy `session/set_model` fallback.
+- Done: tracked background ACP session jobs through
+  `/agent run acp --async <agent-id> <task>`, JSONL/result/runtime-event
+  artifacts, and process cancellation through `/agent cancel <id>`.
+- Done: ACP process cancellation is protocol-aware and auditable: cancelled ACP
+  jobs request `session/cancel` when the live ACP session is available, preserve
+  the request in the wire log, and use bounded process termination as fallback.
+- Done: ACP `session/request_permission` conversion into Viden approvals with
+  allow/reject option responses.
+- Done: tracked ACP session jobs project into `RuntimeViewState` as
+  `AgentTask` records. ACP `fs/read_text_file` and `fs/write_text_file` are
+  bridged through Viden permission checks.
+- Done: ACP `terminal/create`, `terminal/input`, `terminal/write`,
+  `terminal/output`, `terminal/wait_for_exit`, `terminal/release`, and
+  `terminal/kill` are bridged through Viden permission checks.
+  `terminal/create` now starts a tracked process without waiting for exit,
+  `terminal/input` / `terminal/write` write to process stdin,
+  `terminal/output` polls buffered stdout/stderr, and `terminal/wait_for_exit`
+  / `terminal/kill` update process status for long-running commands.
+  Unsupported filesystem or terminal methods still receive explicit JSON-RPC
+  errors.
+- Done: ACP `session/update` / `session/notification` payloads are projected
+  into reusable runtime events for assistant deltas, tool call start/finish, and
+  turn-end evidence.
+- Done: async/background ACP jobs append projected events to
+  `runtime-events.jsonl` as updates arrive, and `RuntimeViewState` replays
+  those events for assistant output and evidence views.
+- Done: async/background ACP jobs also push projected events through the live
+  `RuntimeSupervisor` event stream as updates arrive, so UI clients can render
+  assistant deltas before job completion.
+- Done: ACP session output is mapped into merge-gate records. Each ACP session
+  proposes a session merge gate, projects completed tool updates as `tool_log`
+  evidence, records `acp_turn_end` evidence, and moves the session gate to
+  `Accepted` once the turn-end evidence is present.
+- Done: ACP patch/diff updates are normalized into `patch` evidence when an
+  ACP update carries a unified diff through `diff`, `patch`, `unifiedDiff`, or
+  nested file-change payload fields. Session merge gates that collect patch
+  evidence require both `patch` and `acp_turn_end` before acceptance. Patch
+  evidence carries `acp.patch.v1` metadata with file stats, changed paths, hunk
+  count, source tool-call id, and the source unified diff.
+- Done: ACP registry agents use cold-start-aware handshake timeouts, and Kiro
+  doctor output distinguishes installed binaries from unknown native auth.
+- Done: registry-backed ACP agents use a project-scoped npm cache, Claude/Codex
+  initialize probes pass locally, and Kiro probe failures now preserve stderr
+  auth diagnostics.
+- Done: Claude/Codex ACP session-level smoke passes locally, including real
+  Codex compatibility for `mcpServers: []`, `prompt: []`, snake-case
+  `sessionUpdate`, final `id:2` responses, and usage reporting.
+- Done: Kiro-specific baseline compatibility is covered by fake server tests:
+  `session/prompt` uses `prompt`, `session/notification` updates are accepted,
+  `ToolCall` and `ToolCallUpdate` are captured, and `VIDEN_KIRO_AGENT` maps to
+  `kiro-cli acp --agent <name>`.
+- Done: Kiro official ACP launch options are descriptor-backed and covered by
+  tests: `VIDEN_KIRO_MODEL`, `VIDEN_KIRO_EFFORT`, `VIDEN_KIRO_TRUST_TOOLS`,
+  `VIDEN_KIRO_TRUST_ALL_TOOLS`, and `VIDEN_KIRO_AGENT_ENGINE` map to
+  `kiro-cli acp` flags.
+- Done: `/agent auth acp kiro-cli` is a deterministic native-login guide
+  (`kiro-cli login --use-device-flow`, `kiro-cli doctor`, then
+  `/agent smoke acp --live`) instead of an ACP authenticate attempt.
+- Done: `/agent smoke acp [--live]` is available as a repeatable gate; blocked
+  Kiro native auth produces a non-zero blocked-auth result instead of a false
+  pass.
+- Done: authenticated Kiro live smoke passes in the current operator
+  environment. The installed Kiro CLI uses a `prompt` array for
+  `session/prompt`; the documentation-shaped `content` parameter is treated as
+  incompatible until an agent descriptor says otherwise.
+- Next: expand terminal bridging toward PTY-level interactive sessions and keep
+  provider-native doctor diagnostics in the release gate.
 
 ### Long-Term Platform Features
 
@@ -314,7 +413,7 @@ Next planned:
   token/cost summaries.
 - `0.3.0`: Multi-frontend contract freeze and Viden migration plan. Freeze the
   UI/runtime contract and define `viden` binary/config migration plus the
-  `robocode` compatibility shim. The freeze includes
+  `viden` compatibility shim. The freeze includes
   [Frontend Integration Contract](frontend-integration-contract.md), which maps
   completed core modules to TUI/GUI consumption rules.
 - `0.3.1`: Parallel TUI and GUI implementation. Split core/runtime, TUI client,
@@ -337,6 +436,6 @@ The final 0.1.x checkpoint is `0.1.30`: P0/P1 TUI backlog is zero, screenshot
 evidence is complete, quick and full stability gates pass, and GitHub Release
 plus Homebrew validation are green.
 
-That does not change the roadmap ordering. It means RoboCode has moved beyond an
+That does not change the roadmap ordering. It means Viden has moved beyond an
 early V1-only repository state, but later phases should still be pulled
 forward only in sequence.

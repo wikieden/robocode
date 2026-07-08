@@ -1,14 +1,14 @@
-# RoboCode 计划索引
+# Viden 计划索引
 
-英文版： [2026-04-11-robocode-plan-index.md](2026-04-11-robocode-plan-index.md)
+英文版： [2026-04-11-viden-plan-index.md](2026-04-11-viden-plan-index.md)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把完整的 RoboCode 产品需求拆成一组可按顺序执行的实现计划，避免每次实现前重新讨论产品边界。
+**Goal:** 把完整的 Viden 产品需求拆成一组可按顺序执行的实现计划，避免每次实现前重新讨论产品边界。
 
-**Architecture:** RoboCode 已经有一个早期 V1 基线，因此下一层计划应该建立在现有核心之上按子系统扩展。这份索引是详细执行计划的依赖图，而不是把完整产品目标写成一个超大计划。
+**Architecture:** Viden 已经有一个早期 V1 基线，因此下一层计划应该建立在现有核心之上按子系统扩展。这份索引是详细执行计划的依赖图，而不是把完整产品目标写成一个超大计划。
 
-**Tech Stack:** Rust workspace、现有 RoboCode crates、Markdown 计划文档
+**Tech Stack:** Rust workspace、现有 Viden crates、Markdown 计划文档
 
 ---
 
@@ -35,11 +35,11 @@
 
 主要文件：
 
-- `robocode-cli/src/main.rs`
-- `robocode-core/src/lib.rs`
-- `robocode-session/src/lib.rs`
-- `robocode-types/src/lib.rs`
-- `robocode-config/src/lib.rs`
+- `viden-cli/src/main.rs`
+- `viden-core/src/lib.rs`
+- `viden-session/src/lib.rs`
+- `viden-types/src/lib.rs`
+- `viden-config/src/lib.rs`
 
 输出：
 
@@ -58,11 +58,11 @@
 
 预期文件：
 
-- 新建 `robocode-lsp` crate
+- 新建 `viden-lsp` crate
 - `Cargo.toml`
-- `robocode-core/src/lib.rs`
-- `robocode-tools/src/lib.rs`
-- `robocode-types/src/lib.rs`
+- `viden-core/src/lib.rs`
+- `viden-tools/src/lib.rs`
+- `viden-types/src/lib.rs`
 
 输出：
 
@@ -81,10 +81,10 @@
 
 预期文件：
 
-- 新建 `robocode-memory` 或 `robocode-workflows` crate
-- `robocode-core/src/lib.rs`
-- `robocode-session/src/lib.rs`
-- `robocode-types/src/lib.rs`
+- 新建 `viden-memory` 或 `viden-workflows` crate
+- `viden-core/src/lib.rs`
+- `viden-session/src/lib.rs`
+- `viden-types/src/lib.rs`
 
 ### Plan 4：V2-D 丰富 TUI 与结构化视图
 
@@ -99,10 +99,10 @@
 
 预期文件：
 
-- `robocode-core/src/presentation.rs`
-- `robocode-core/src/runtime_views.rs`
-- `robocode-core/src/git_commands.rs`
-- `robocode-core/src/workflow_commands/*`
+- `viden-core/src/presentation.rs`
+- `viden-core/src/runtime_views.rs`
+- `viden-core/src/git_commands.rs`
+- `viden-core/src/workflow_commands/*`
 
 输出：
 
@@ -117,10 +117,10 @@
 
 预期文件：
 
-- 新建 `robocode-mcp` crate
-- 新建 `robocode-plugins` crate
-- `robocode-core/src/lib.rs`
-- `robocode-tools/src/lib.rs`
+- 新建 `viden-mcp` crate
+- 新建 `viden-plugins` crate
+- `viden-core/src/lib.rs`
+- `viden-tools/src/lib.rs`
 
 ### Plan 6：V3-B 多 Agent 与 Coordinator
 
@@ -131,22 +131,22 @@
 预期文件：
 
 - 新建 coordinator / agent crates
-- `robocode-core/src/lib.rs`
-- `robocode-types/src/lib.rs`
-- `robocode-session/src/lib.rs`
+- `viden-core/src/lib.rs`
+- `viden-types/src/lib.rs`
+- `viden-session/src/lib.rs`
 
 ### Plan 7：V3-C Bridge、Remote 与 Server Mode
 
 目的：
 
-- 支持 IDE 连接和远程 RoboCode 会话
+- 支持 IDE 连接和远程 Viden 会话
 
 预期文件：
 
 - 新建 bridge / remote / server crates
-- `robocode-core/src/lib.rs`
-- `robocode-permissions/src/lib.rs`
-- `robocode-session/src/lib.rs`
+- `viden-core/src/lib.rs`
+- `viden-permissions/src/lib.rs`
+- `viden-session/src/lib.rs`
 
 ## 执行顺序
 

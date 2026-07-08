@@ -7,7 +7,7 @@ pub(crate) fn fallback_events(
 ) -> Vec<ModelEvent> {
     let Some(last_message) = last_message else {
         return vec![ModelEvent::AssistantText {
-            content: "RoboCode is ready.".to_string(),
+            content: "Viden is ready.".to_string(),
         }];
     };
 

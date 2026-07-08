@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MODEL="${ROBOCODE_DEEPSEEK_SMOKE_MODEL:-deepseek-v4-flash}"
+MODEL="${VIDEN_DEEPSEEK_SMOKE_MODEL:-deepseek-v4-flash}"
 OUT_DIR=""
 
 usage() {
@@ -16,9 +16,9 @@ Required:
   DEEPSEEK_API_KEY
 
 Optional:
-  DEEPSEEK_API_BASE or ROBOCODE_LIVE_DEEPSEEK_API_BASE
-  ROBOCODE_DEEPSEEK_INPUT_CNY_PER_MTOK
-  ROBOCODE_DEEPSEEK_OUTPUT_CNY_PER_MTOK
+  DEEPSEEK_API_BASE or VIDEN_LIVE_DEEPSEEK_API_BASE
+  VIDEN_DEEPSEEK_INPUT_CNY_PER_MTOK
+  VIDEN_DEEPSEEK_OUTPUT_CNY_PER_MTOK
 EOF
 }
 
@@ -55,7 +55,7 @@ if [[ -z "$MODEL" ]]; then
 fi
 
 if [[ -z "$OUT_DIR" ]]; then
-  OUT_DIR="$(mktemp -d "/tmp/robocode-deepseek-dev-scenario.XXXXXX")"
+  OUT_DIR="$(mktemp -d "/tmp/viden-deepseek-dev-scenario.XXXXXX")"
 fi
 mkdir -p "$OUT_DIR"
 
@@ -68,7 +68,7 @@ START_EPOCH="$(date +%s)"
 set +e
 (
   cd "$ROOT"
-  ROBOCODE_LIVE_DEEPSEEK_MODEL="$MODEL" \
+  VIDEN_LIVE_DEEPSEEK_MODEL="$MODEL" \
     cargo test -p viden-runtime \
       deepseek_live_development_scenario_creates_and_runs_program \
       -- --ignored --nocapture --test-threads=1
@@ -120,13 +120,13 @@ fi
 END_EPOCH="$(date +%s)"
 ELAPSED_SECONDS="$((END_EPOCH - START_EPOCH))"
 
-usage_line="$(grep -o 'ROBOCODE_LIVE_USAGE_JSON=.*' "$LOG" | tail -1 || true)"
+usage_line="$(grep -o 'VIDEN_LIVE_USAGE_JSON=.*' "$LOG" | tail -1 || true)"
 if [[ -z "$usage_line" ]]; then
   printf 'DeepSeek live smoke did not emit usage JSON. Log: %s\n' "$LOG" >&2
   tail -120 "$LOG" >&2 || true
   exit 1
 fi
-printf '%s\n' "${usage_line#ROBOCODE_LIVE_USAGE_JSON=}" >"$USAGE_JSON"
+printf '%s\n' "${usage_line#VIDEN_LIVE_USAGE_JSON=}" >"$USAGE_JSON"
 
 python3 - "$USAGE_JSON" "$SUMMARY" "$LOG" "$ELAPSED_SECONDS" <<'PY'
 import json

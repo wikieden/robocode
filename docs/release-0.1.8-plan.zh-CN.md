@@ -1,4 +1,4 @@
-# RoboCode 0.1.8 计划
+# Viden 0.1.8 计划
 
 英文版： [release-0.1.8-plan.md](release-0.1.8-plan.md)
 
@@ -16,7 +16,7 @@ center、extension/MCP diagnostics 和副屏基础能力。`0.1.8` 是在这些�
 0.1.8 = AgentTask + Live Multi-Agent Cockpit
 ```
 
-核心目标：让 RoboCode 从“能启动和观察 agent”推进到“能清楚编排多个 coding
+核心目标：让 Viden 从“能启动和观察 agent”推进到“能清楚编排多个 coding
 agent”。用户提交任务后，主屏中央必须持续显示当前到底在做什么；副屏不再只是补充信息，
 而是展示子 agent、测试、诊断、MCP、extension 和证据；Codex、Claude Code、
 DeepSeek、shell、tmux/PTY 和未来 ACP agent 都进入同一套 `AgentTask` 模型。
@@ -29,7 +29,7 @@ DeepSeek、shell、tmux/PTY 和未来 ACP agent 都进入同一套 `AgentTask` �
 
 交付：
 
-- 定义 `AgentTask` runtime view，覆盖 RoboCode 主回复、provider turn、tool call、
+- 定义 `AgentTask` runtime view，覆盖 Viden 主回复、provider turn、tool call、
   approval、test run、shell job、Codex job、Claude/DeepSeek lane、tmux/PTY bridge
   和未来 ACP session。
 - 最小字段：`id`、`parent_id`、`agent`、`kind`、`transport`、`status`、
@@ -133,7 +133,7 @@ DeepSeek、shell、tmux/PTY 和未来 ACP agent 都进入同一套 `AgentTask` �
 
 - 不做云端 agent registry。
 - 不做 marketplace。
-- 不把 RoboCode 变成完整 IDE。
+- 不把 Viden 变成完整 IDE。
 - 不让 plugin、skill、MCP、ACP 绕过权限、transcript 和 approval。
 - 不把自动任务拆分作为默认行为；planner 可以探索，但需要用户确认。
 

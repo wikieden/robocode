@@ -61,7 +61,7 @@ Deeper docs: `docs/architecture.md`, `docs/modules.md`, `docs/development-standa
 
 ## Working Rules
 
-- Use isolated git worktrees for feature work, preferred at `.worktrees/<branch-name>`. Never commit `.omx/`, `.robocode/`, `.worktrees/`, `.ref/`, or build artifacts.
+- Use isolated git worktrees for feature work, preferred at `.worktrees/<branch-name>`. Never commit `.omx/`, `.viden/`, `.worktrees/`, `.ref/`, or build artifacts.
 - TDD for behavior changes: failing test → verify it fails for the right reason → smallest passing change → rerun focused tests.
 - Docs and comments are part of the delivery, not cleanup: update affected docs in the same change set, and keep user-facing docs bilingual (update the matching `*.zh-CN.md` together, or call out the gap).
 - Document only implemented behavior — no placeholders or future plans presented as features.

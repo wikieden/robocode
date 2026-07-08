@@ -22,7 +22,7 @@ Provider plugin directories are now part of the same deterministic config
 pipeline as provider/model/API settings:
 
 - `provider_plugin_dirs = ["./plugins"]` in config files.
-- `ROBOCODE_PROVIDER_PLUGIN_DIRS` as a platform path-list environment variable.
+- `VIDEN_PROVIDER_PLUGIN_DIRS` as a platform path-list environment variable.
 - `--provider-plugin-dir <dir>` from the CLI, repeatable.
 
 The resolved value is carried in `ResolvedConfig::provider_plugin_dirs` so the

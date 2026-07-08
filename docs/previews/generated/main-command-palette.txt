@@ -18,7 +18,7 @@
                                                               /_/  |/__\|  \_\
                                                               |  []  /\  []  |
                                                               |_____/  \_____|
-                                                                 /_ROBOCODE_\
+                                                                 /_VIDEN_\
 
 
                       ▌ /
@@ -36,5 +36,5 @@
 
 
 
-~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.30
+~/projects/viden:main                                     ◎ 1 lanes  /status                                                    v0.1.30
 

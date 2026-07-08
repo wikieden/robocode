@@ -1,4 +1,4 @@
-# RoboCode 0.1.9 Plan
+# Viden 0.1.9 Plan
 
 Chinese version: [release-0.1.9-plan.zh-CN.md](release-0.1.9-plan.zh-CN.md)
 
@@ -113,7 +113,7 @@ Codex, Claude, or DeepSeek availability.
 
 Deliverables:
 
-- Add fixtures that normalize RoboCode primary turns, tool calls, approvals,
+- Add fixtures that normalize Viden primary turns, tool calls, approvals,
   `/test`, shell jobs, Codex jobs, Claude/DeepSeek lanes, tmux, PTY, and future
   ACP-style events into the same `AgentTask` view.
 - Add tests for lifecycle transitions: queued, thinking, streaming, editing,
@@ -213,7 +213,7 @@ docs/previews/generated/0.1.9-<feature>-side-2.svg
 Temporary release evidence may also live under:
 
 ```text
-/tmp/robocode-019-release-smoke-*/screenshots/
+/tmp/viden-019-release-smoke-*/screenshots/
 ```
 
 ## Suggested Build Order

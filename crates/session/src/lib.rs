@@ -27,7 +27,7 @@ pub struct SessionStore {
 impl SessionStore {
     pub fn new(cwd: impl Into<PathBuf>, session_id: Option<String>) -> Result<Self, String> {
         let cwd = cwd.into();
-        let local_home = cwd.join(".robocode");
+        let local_home = cwd.join(".viden");
         match Self::new_with_home(&local_home, &cwd, session_id.clone()) {
             Ok(store) => Ok(store),
             Err(_) => {
@@ -393,17 +393,17 @@ fn run_sql(database: &Path, sql: &str) -> Result<String, String> {
 }
 
 fn default_home_dir() -> Result<PathBuf, String> {
-    if let Ok(path) = std::env::var("ROBOCODE_HOME") {
+    if let Ok(path) = std::env::var("VIDEN_HOME") {
         return Ok(PathBuf::from(path));
     }
     if cfg!(windows)
         && let Ok(path) = std::env::var("APPDATA")
     {
-        return Ok(PathBuf::from(path).join("robocode"));
+        return Ok(PathBuf::from(path).join("viden"));
     }
     std::env::var("HOME")
-        .map(|home| PathBuf::from(home).join(".robocode"))
-        .map_err(|_| "Unable to determine RoboCode home directory".to_string())
+        .map(|home| PathBuf::from(home).join(".viden"))
+        .map_err(|_| "Unable to determine Viden home directory".to_string())
 }
 
 fn project_key(path: &Path) -> String {

@@ -1,4 +1,4 @@
-# RoboCode 0.1.5 发布状态
+# Viden 0.1.5 发布状态
 
 最后更新：2026-05-26
 
@@ -27,24 +27,24 @@ release artifacts。
   evidence 目录中收集 logs、生成的 TUI previews、fallback CLI smoke、lane smoke
   和 host package smoke。
 - 带 DeepSeek 真实 provider validation 的完整本地 release smoke 已通过：
-  `scripts/release-smoke.sh --version 0.1.5 --deepseek --out-dir /tmp/robocode-015-release-smoke-deepseek-local`。
+  `scripts/release-smoke.sh --version 0.1.5 --deepseek --out-dir /tmp/viden-015-release-smoke-deepseek-local`。
 - Evidence 目录：
-  `/tmp/robocode-015-release-smoke-deepseek-local`。
+  `/tmp/viden-015-release-smoke-deepseek-local`。
 - DeepSeek V4 Flash live smoke 已通过；transcript 中包含
-  `robocode-deepseek-smoke-ok`。
+  `viden-deepseek-smoke-ok`。
 - `aarch64-apple-darwin` host package smoke 已通过；解压后的二进制输出
-  `robocode-cli 0.1.5`。
+  `viden-cli 0.1.5`。
 - macOS arm64 archive SHA-256：
   `734fe4a266178946b871e10a847ec8ac1f50642e270f708d8446fe5a81315e78`。
 - GitHub Actions release artifact validation 已以 `upload_to_release=false`
   跑通全部配置目标：`aarch64-apple-darwin`、`x86_64-apple-darwin`、
   `x86_64-unknown-linux-gnu` 和 `x86_64-pc-windows-msvc`。
-  Run: https://github.com/wikieden/robocode/actions/runs/26430970204。
-- Homebrew tap `wikieden/homebrew-tap` 中的 RoboCode formula URL 和 SHA-256
+  Run: https://github.com/wikieden/viden/actions/runs/26430970204。
+- Homebrew tap `wikieden/homebrew-tap` 中的 Viden formula URL 和 SHA-256
   已指向 `v0.1.5`。
   Commit: https://github.com/wikieden/homebrew-tap/commit/8faa918。
 - 刷新本机 tap 后，Homebrew fetch smoke 已通过：
-  `brew fetch --force wikieden/tap/robocode` 输出 `Formula robocode (0.1.5)`。
+  `brew fetch --force wikieden/tap/viden` 输出 `Formula viden (0.1.5)`。
 
 ## 验证门禁
 
@@ -81,18 +81,18 @@ scripts/release-smoke.sh --version 0.1.5 --skip-package --deepseek --github-acti
 
 `v0.1.5` 已发布：
 
-- https://github.com/wikieden/robocode/releases/tag/v0.1.5
+- https://github.com/wikieden/viden/releases/tag/v0.1.5
 
 最终 release workflow 已以 `upload_to_release=true` 通过，并把全部配置 artifacts
 上传到 GitHub release。
-Run: https://github.com/wikieden/robocode/actions/runs/26431142668。
+Run: https://github.com/wikieden/viden/actions/runs/26431142668。
 
 release 包含：
 
-- `robocode-v0.1.5-aarch64-apple-darwin.tar.gz`
-- `robocode-v0.1.5-x86_64-apple-darwin.tar.gz`
-- `robocode-v0.1.5-x86_64-unknown-linux-gnu.tar.gz`
-- `robocode-v0.1.5-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.5-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.5-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.5-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.5-x86_64-pc-windows-msvc.tar.gz`
 - 每个 archive 对应的 `.sha256` 文件。
 
 GitHub 返回的 asset digests：
@@ -106,5 +106,5 @@ Homebrew 安装路径：
 
 ```bash
 brew tap wikieden/tap
-brew install robocode
+brew install viden
 ```

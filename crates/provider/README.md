@@ -32,7 +32,7 @@ The provider runtime has two layers:
   include Anthropic, OpenAI, OpenAI-compatible, Ollama, fallback, DeepSeek, and
   DeepSeek Anthropic-compatible entries.
 - Dynamic provider plugins are discovered from resolved plugin directories. The
-  CLI/config layer supports `provider_plugin_dirs`, `ROBOCODE_PROVIDER_PLUGIN_DIRS`,
+  CLI/config layer supports `provider_plugin_dirs`, `VIDEN_PROVIDER_PLUGIN_DIRS`,
   and repeatable `--provider-plugin-dir <dir>` inputs.
 
 Dynamic loading is descriptor-driven. A native plugin exposes the

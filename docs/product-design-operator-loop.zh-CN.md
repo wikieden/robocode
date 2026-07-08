@@ -20,7 +20,7 @@ TUI 是第一个产品形态，不是最终边界。未来 GUI surface 必须消
 实现配套文档：[production-coding-loop-architecture.zh-CN.md](production-coding-loop-architecture.zh-CN.md)。
 
 设计源：`docs/viden-design/Viden/` 是 TUI/GUI 视觉方向、tokens 和目标截图的接受源。
-RoboCode 只作为 legacy implementation 名称保留，直到迁移计划明确。
+Viden 只作为 legacy implementation 名称保留，直到迁移计划明确。
 
 ## 依据
 
@@ -50,13 +50,13 @@ RoboCode 只作为 legacy implementation 名称保留，直到迁移计划明确
 
 ## 产品诊断
 
-RoboCode 已经有不错的架构骨架：本地工具、权限前置的 mutation、transcript、provider
+Viden 已经有不错的架构骨架：本地工具、权限前置的 mutation、transcript、provider
 抽象、LSP、tasks、memory、TUI cockpit、provider/model setup 和 delegated lane
 基础能力。
 
 现在最大问题不是缺一个命令，而是用户的 operator confidence 还不够：
 
-- UI 有时还像 provider chat client，而不是 RoboCode 控制的编码任务。
+- UI 有时还像 provider chat client，而不是 Viden 控制的编码任务。
 - live status 会泄漏 provider 心智，并反复显示弱提示，比如 `is thinking`，没有说明当前
   具体阶段。
 - 配置流程已有改进，但 provider/model/settings 只要还像命令补全或静态状态页，交互心智就
@@ -92,23 +92,23 @@ RoboCode 已经有不错的架构骨架：本地工具、权限前置的 mutatio
 借鉴产品经验，不照搬实现：
 
 - **Claude Code**：清晰的 terminal loop、丰富 activity 文案、permissions、hooks、MCP、
-  subagents。RoboCode 应学习清晰度和自动化边界，不要把工作藏进不可见 agent。
-- **Codex**：强 diff/review 预期和 delegated task completion。RoboCode 应把 Codex 作为
+  subagents。Viden 应学习清晰度和自动化边界，不要把工作藏进不可见 agent。
+- **Codex**：强 diff/review 预期和 delegated task completion。Viden 应把 Codex 作为
   first-class supervised lane。
-- **OpenCode / Kilo**：provider 和 model selection 像直接操作面板。RoboCode 应达到这种
+- **OpenCode / Kilo**：provider 和 model selection 像直接操作面板。Viden 应达到这种
   交互质量，同时保持 provider connection 与 model switching 语义分离。
 - **Zed**：parallel agents、external agents、editor context 指向 ACP 和 lane isolation
-  的方向。RoboCode 应做 terminal operator 版本，而不是变成编辑器。
+  的方向。Viden 应做 terminal operator 版本，而不是变成编辑器。
 - **Kiro**：specs、steering files、hooks 说明 plan/spec/context 应该成为产品对象，而不只是
   transcript 里的文本。
-- **DeepSeek-TUI**：高密度 terminal-native provider visibility 有价值，但 RoboCode 只保留
+- **DeepSeek-TUI**：高密度 terminal-native provider visibility 有价值，但 Viden 只保留
   有真实 runtime facts 支撑的面板。
 
 ## 北极星
 
-RoboCode 应该让用户随时能回答：
+Viden 应该让用户随时能回答：
 
-- RoboCode 现在在做什么？
+- Viden 现在在做什么？
 - 哪个 agent 或 lane 负责？
 - 它用了哪些上下文？
 - 它改了什么？
@@ -150,7 +150,7 @@ RoboCode 应该让用户随时能回答：
 
 | 阶段 | 用户问题 | 系统对象 | 主要 UI | 输出 |
 | --- | --- | --- | --- | --- |
-| 1. Intake | 我想让 RoboCode 做什么？ | `UserIntent` | welcome composer 或 cockpit composer | 捕获任务 |
+| 1. Intake | 我想让 Viden 做什么？ | `UserIntent` | welcome composer 或 cockpit composer | 捕获任务 |
 | 2. Shape | 这是聊天、规划、编辑、测试、审查还是 delegation？ | `TaskEnvelope` | inline plan/status row | 模式和路由 |
 | 3. Context | Agent 会看到什么？省略了什么？ | `ContextBundle` | context pressure row 和 side-2 detail | bundle、budget、compaction notes |
 | 4. Dispatch | 谁来做？ | `AgentTask`、`AgentLane`、`LaneSession` | LIVE WORK、lane list、Agent Board | active work item |
@@ -190,7 +190,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["Launch RoboCode"] --> B{"Has real task started?"}
+    A["Launch Viden"] --> B{"Has real task started?"}
     B -->|no| C["Welcome Surface"]
     C --> D{"User action"}
     D -->|configure| E["/connect /models /settings panel"]
@@ -217,7 +217,7 @@ flowchart TD
     G --> J["Run Follow-up At Safe Boundary"]
 ```
 
-`/plan` 同时改变 planner work intent 和权限策略：RoboCode 只规划产品需求、架构、实现方案、
+`/plan` 同时改变 planner work intent 和权限策略：Viden 只规划产品需求、架构、实现方案、
 测试策略和开发计划，不写代码、不修改文件、不落盘计划。它不应该改变输入并发模型。Plan
 模式结束后，composer 必须继续可输入。
 
@@ -380,11 +380,11 @@ flowchart TD
 
 ## Welcome 与 First-Run Experience
 
-RoboCode 应默认进入 TUI，并在真正编码会话开始前保持一个安静的 welcome surface。
+Viden 应默认进入 TUI，并在真正编码会话开始前保持一个安静的 welcome surface。
 
 Welcome 要求：
 
-- 展示 RoboCode identity、当前目录、Git 分支、已配置 provider/model 和简洁 action hints。
+- 展示 Viden identity、当前目录、Git 分支、已配置 provider/model 和简洁 action hints。
 - 中央 composer 保持聚焦。
 - `/connect`、`/provider`、`/models`、`/setup`、`/permissions`、`/theme` overlay
   不应自动算作 session start。
@@ -412,7 +412,7 @@ Welcome 应该像一个等待任务的 operator console，而不是 splash scree
 
 ## Live Status 与动画
 
-旧的单行 `is thinking` 模式太弱。RoboCode 应把 activity 渲染成紧凑的 `LIVE WORK`
+旧的单行 `is thinking` 模式太弱。Viden 应把 activity 渲染成紧凑的 `LIVE WORK`
 strip，并使用更多阶段化表达、证据信号和下一步 guidance。
 
 规范：
@@ -459,7 +459,7 @@ Composer 是 operator loop 的一部分，不只是 prompt box。
 
 ## Provider 与 Model 配置
 
-RoboCode 应借鉴 OpenCode 风格面板的交互质量，但保留自己的 provider 语义。
+Viden 应借鉴 OpenCode 风格面板的交互质量，但保留自己的 provider 语义。
 
 ### `/connect`
 
@@ -487,7 +487,7 @@ RoboCode 应借鉴 OpenCode 风格面板的交互质量，但保留自己的 pro
 6. active models 选择。
 7. save、use now 或 cancel。
 
-Secrets 显示为前几位 + 中间星号 + 后几位。RoboCode 保存或引用 credential handles，不把
+Secrets 显示为前几位 + 中间星号 + 后几位。Viden 保存或引用 credential handles，不把
 明文 secret 写进 transcript 或 model context。
 
 ### `/models`
@@ -562,7 +562,7 @@ Evidence surface 应包含：
 
 ## Multi-Agent 与 Delegated Lanes
 
-RoboCode 的差异化不是“启动更多 agent”，而是监督它们。
+Viden 的差异化不是“启动更多 agent”，而是监督它们。
 
 Lane 要求：
 
@@ -579,7 +579,7 @@ Lane 要求：
 
 ## Plugin、Skill、MCP 与 ACP 设计
 
-RoboCode 需要一套 extension model，而不是多个旁路系统。
+Viden 需要一套 extension model，而不是多个旁路系统。
 
 Extension descriptor 应定义：
 
@@ -637,7 +637,7 @@ ContextBundle 应变得可见、可控制：
 
 ### 近期：交互可靠性
 
-- 用 RoboCode role-based activity text 替代 provider-leaking status copy。
+- 用 Viden role-based activity text 替代 provider-leaking status copy。
 - active turn 期间 composer 保持可输入。
 - 稳定 transcript streaming、scrollback、resize 和 history。
 - 完成 provider setup forms：key edit/delete、endpoint edit、doctor、save、cancel、
@@ -672,4 +672,4 @@ ContextBundle 应变得可见、可控制：
 最有价值的产品不是承诺最多自治的那个，而是让 AI 编码工作可见、可控、可审查、可复用、
 费用可预测的那个。
 
-RoboCode 应该成为这类工作的 operator layer。
+Viden 应该成为这类工作的 operator layer。

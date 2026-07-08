@@ -8,9 +8,12 @@ authors.workspace = true
 [dependencies]
 viden-config = { path = "../config" }
 viden-lsp = { path = "../lsp" }
+viden-plugin-api = { path = "../plugin-api" }
+viden-plugin-host = { path = "../plugin-host" }
 viden-provider = { path = "../provider" }
 viden-permissions = { path = "../permissions" }
 viden-session = { path = "../session" }
 viden-tools = { path = "../tools" }
 viden-types = { path = "../types" }
 viden-workflows = { path = "../workflows" }
+serde_json = "1"

@@ -1,6 +1,6 @@
 # Provider 适配层设计
 
-RoboCode 不能把所有模型供应商都当成“一个 OpenAI-compatible URL”。很多供应商的
+Viden 不能把所有模型供应商都当成“一个 OpenAI-compatible URL”。很多供应商的
 请求形状相似，但模型命名、工具调用回放、reasoning 字段、鉴权方式、请求体限制、
 流式事件格式都不同。因此 provider 应该由“能力描述 + 适配器”共同驱动。
 

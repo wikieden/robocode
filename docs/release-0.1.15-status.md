@@ -1,4 +1,4 @@
-# RoboCode 0.1.15 Status
+# Viden 0.1.15 Status
 
 Chinese version: [release-0.1.15-status.zh-CN.md](release-0.1.15-status.zh-CN.md)
 
@@ -33,22 +33,22 @@ release assets, or Homebrew tap update has been created from this workspace yet.
 ## Evidence
 
 - `cargo fmt --check`
-- `cargo test -p robocode-types --quiet`
-- `cargo test -p robocode-core context --quiet`
-- `cargo test -p robocode-cli tui::preview --quiet`
-- `cargo test -p robocode-cli tui::ops_screen --quiet`
-- `cargo test -p robocode-cli tui::command_palette --quiet`
-- `cargo test -p robocode-cli tui::lane::tests::lane_envelope_includes_context_bundle_sources_and_pressure --quiet`
-- `cargo clippy -p robocode-types -p robocode-core -p robocode-cli --all-targets -- -D warnings`
+- `cargo test -p viden-types --quiet`
+- `cargo test -p viden-core context --quiet`
+- `cargo test -p viden-cli tui::preview --quiet`
+- `cargo test -p viden-cli tui::ops_screen --quiet`
+- `cargo test -p viden-cli tui::command_palette --quiet`
+- `cargo test -p viden-cli tui::lane::tests::lane_envelope_includes_context_bundle_sources_and_pressure --quiet`
+- `cargo clippy -p viden-types -p viden-core -p viden-cli --all-targets -- -D warnings`
 - `cargo test --workspace --quiet`
-- `ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.15 scripts/tui-regression.sh docs/previews/generated`
-- `scripts/release-smoke.sh --version 0.1.15 --quick --out-dir /tmp/robocode-0115-release-smoke-local`
+- `VIDEN_TUI_SCREENSHOT_VERSION=0.1.15 scripts/tui-regression.sh docs/previews/generated`
+- `scripts/release-smoke.sh --version 0.1.15 --quick --out-dir /tmp/viden-0115-release-smoke-local`
 
 Local quick release smoke results:
 
 - PASS `cargo-fmt`
 - PASS `cargo-clippy`
-- PASS `robocode-cli-terminal-tests`
+- PASS `viden-cli-terminal-tests`
 - PASS `tui-regression`
 - PASS `fallback-cli-smoke`
 - PASS `codex-app-server-protocol-fixture`
@@ -62,11 +62,11 @@ Local quick release smoke results:
 
 Deterministic screenshots:
 
-- [0.1.15 main](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.15-tui-main.svg)
-- [0.1.15 command palette](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.15-tui-command-palette.svg)
-- [0.1.15 lane detail](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.15-tui-lane-detail.svg)
-- [0.1.15 side-1 lanes](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.15-tui-side-1.svg)
-- [0.1.15 side-2 ops](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.15-tui-side-2.svg)
+- [0.1.15 main](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.15-tui-main.svg)
+- [0.1.15 command palette](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.15-tui-command-palette.svg)
+- [0.1.15 lane detail](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.15-tui-lane-detail.svg)
+- [0.1.15 side-1 lanes](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.15-tui-side-1.svg)
+- [0.1.15 side-2 ops](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.15-tui-side-2.svg)
 
 ## Remaining Risks
 

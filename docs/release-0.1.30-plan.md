@@ -1,4 +1,4 @@
-# RoboCode 0.1.30 Plan - Final Zero-Bug TUI Gate
+# Viden 0.1.30 Plan - Final Zero-Bug TUI Gate
 
 Chinese version: [release-0.1.30-plan.zh-CN.md](release-0.1.30-plan.zh-CN.md)
 
@@ -25,10 +25,10 @@ TUI stability expectations into a hard prepublish requirement.
 Before publishing `0.1.30`, run:
 
 ```bash
-export ROBOCODE_TUI_MANUAL_EVIDENCE_DIR=docs/previews/manual/0.1.30
+export VIDEN_TUI_MANUAL_EVIDENCE_DIR=docs/previews/manual/0.1.30
 scripts/final-zero-bug-contract-smoke.sh
-scripts/final-zero-bug-smoke.sh /tmp/robocode-0130-final-zero-bug
-scripts/release-gate.sh --version 0.1.30 --phase prepublish --out-dir /tmp/robocode-0130-release-gate
+scripts/final-zero-bug-smoke.sh /tmp/viden-0130-final-zero-bug
+scripts/release-gate.sh --version 0.1.30 --phase prepublish --out-dir /tmp/viden-0130-release-gate
 ```
 
 The prepublish gate automatically runs `scripts/final-zero-bug-smoke.sh` for
@@ -38,7 +38,7 @@ screenshots are missing.
 After publishing GitHub assets and syncing Homebrew:
 
 ```bash
-scripts/release-gate.sh --version 0.1.30 --phase postpublish --out-dir /tmp/robocode-0130-release-gate
+scripts/release-gate.sh --version 0.1.30 --phase postpublish --out-dir /tmp/viden-0130-release-gate
 ```
 
 `0.1.30` is complete only when:

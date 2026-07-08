@@ -6,11 +6,11 @@ English version: [tui-interaction-flow-design.md](tui-interaction-flow-design.md
 
 ## 目的
 
-本文定义 RoboCode 0.1.x 稳定线的目标 TUI 交互流程。目标是做成一个 coding
+本文定义 Viden 0.1.x 稳定线的目标 TUI 交互流程。目标是做成一个 coding
 cockpit，让用户随时能回答：
 
 - 我现在在哪？
-- RoboCode 正在做什么？
+- Viden 正在做什么？
 - 我还能不能继续输入？
 - 什么事情被阻塞了？
 - 下一步应该做什么？
@@ -26,7 +26,7 @@ input loop，也不能编造 core runtime 无法解释的状态。
   `interaction_panel`、`streaming_assistant`、`queued_input` 或 `error_recovery`。
 - Active work 显示为最近可见 transcript 内容下面的 `LIVE WORK` strip，包含 phase、
   signal 和 next action。
-- Provider 名是基础设施细节。主状态应该说 `RoboCode`、内部角色或具体 operation。
+- Provider 名是基础设施细节。主状态应该说 `Viden`、内部角色或具体 operation。
 - Provider thinking 不显示假进度百分比。只有 lane/tool 真实进度才允许显示 percent。
 - Permission 控制统一遵循 [Permission Mode 设计](permission-mode-design.zh-CN.md)，
   不再把这个 surface 标为 `Approval Mode`。
@@ -133,7 +133,7 @@ Welcome 不是会话。配置 provider/model 后不应该跳到 cockpit，除非
 
 ```mermaid
 flowchart TD
-    A["Launch RoboCode"] --> B{"Has visible session content?"}
+    A["Launch Viden"] --> B{"Has visible session content?"}
     B -->|no| C["Welcome surface<br/>logo + composer + context row"]
     B -->|yes| D["Cockpit"]
 

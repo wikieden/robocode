@@ -124,7 +124,7 @@ fn fetch_url(url: &str, timeout_secs: u64) -> Result<String, String> {
         .arg("--max-time")
         .arg(timeout_secs.to_string())
         .arg("--user-agent")
-        .arg("RoboCode/0.1 (+https://github.com/wikieden/robocode)")
+        .arg("Viden/0.1 (+https://github.com/wikieden/viden)")
         .arg(url)
         .output()
         .map_err(|err| err.to_string())?;

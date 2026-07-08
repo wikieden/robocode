@@ -1,4 +1,4 @@
-# RoboCode 0.1.26 计划 - TUI 回归包与模式稳定性
+# Viden 0.1.26 计划 - TUI 回归包与模式稳定性
 
 英文版： [release-0.1.26-plan.md](release-0.1.26-plan.md)
 
@@ -80,7 +80,7 @@ flowchart TD
   events/callbacks 回到主 TUI loop，不能独占 input loop。
 - streaming 过程中操作者可以滚动历史；有新输出时给提示，但不能强行把 viewport 拉到底部。
 - active work 期间 cancel 和 retry 仍可触达。
-- Plan response 结束后，RoboCode 必须回到可输入状态，且不能悄悄开始实现。
+- Plan response 结束后，Viden 必须回到可输入状态，且不能悄悄开始实现。
 
 ## 实现检查点
 
@@ -120,8 +120,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-turn-controller-smoke.sh
 scripts/tui-regression.sh docs/previews/generated
-scripts/plan-mode-smoke.sh /tmp/robocode-0126-plan-mode-smoke
-scripts/daily-loop-smoke.sh /tmp/robocode-0126-daily-loop-smoke
+scripts/plan-mode-smoke.sh /tmp/viden-0126-plan-mode-smoke
+scripts/daily-loop-smoke.sh /tmp/viden-0126-daily-loop-smoke
 scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
 scripts/release-gate.sh --version 0.1.26
 scripts/release-gate.sh --version 0.1.26 --phase postpublish
@@ -134,7 +134,7 @@ Release status 必须汇总 DeepSeek smoke 的 token 使用和估算费用。如
 
 - 从 welcome screen 开始，执行 `/connect`、`/models`、`/mode plan`、`/mode build`、
   `/permissions ask`；UI 必须停留在正确 surface，chips 必须立即同步。
-- 运行一个 Plan prompt，在 RoboCode planning 时输入下一步，确认 draft/queue 在 turn
+- 运行一个 Plan prompt，在 Viden planning 时输入下一步，确认 draft/queue 在 turn
   完成前不会丢。
 - streaming 时向上滚动 transcript 历史；新输出不能强行把 viewport 拉到底部。
 - 让 live session idle 一段时间后回到终端并 resize；屏幕不能坍缩成局部行或黑块。

@@ -10,7 +10,7 @@ Sources reviewed include official GitHub repositories and product documentation 
 
 ## Executive Summary
 
-RoboCode should not compete by being "one more coding CLI". The stronger positioning is:
+Viden should not compete by being "one more coding CLI". The stronger positioning is:
 
 - local-first Rust agent runtime with provider/plugin openness;
 - strong permission, transcript, and workflow audit invariants;
@@ -26,19 +26,19 @@ The clear market pattern is that successful agents are becoming multi-surface an
 - Windsurf Cascade emphasizes checkpoints, queued messages, tool calling, terminal access, linter integration, and simultaneous Cascades.
 - OpenHands separates SDK, CLI, and local GUI, with a path toward many agents in cloud.
 
-RoboCode's differentiator should be not just "we can run code", but "we can supervise a small bench of coding agents/tools from one auditable terminal cockpit".
+Viden's differentiator should be not just "we can run code", but "we can supervise a small bench of coding agents/tools from one auditable terminal cockpit".
 
 ## Representative Project Snapshot
 
 GitHub metadata was checked with `gh repo view` on 2026-05-23.
 
-| Project | Surface | Language | Stars | License | Useful lessons for RoboCode |
+| Project | Surface | Language | Stars | License | Useful lessons for Viden |
 | --- | --- | ---: | ---: | --- | --- |
 | OpenAI Codex CLI | terminal, IDE, desktop/cloud ecosystem | Rust | 84.8k | Apache-2.0 | Rust terminal agent, local execution, strong brand expectation for CLI polish. |
 | Google Gemini CLI | terminal, automation, MCP | TypeScript | 104.5k | Apache-2.0 | Built-in tools, MCP, non-interactive script mode, large context expectations. |
 | Aider | terminal pair programming | Python | 45.2k | Apache-2.0 | Git-native editing, repo map, broad model support, simple durable UX. |
 | OpenHands | SDK, CLI, local GUI, cloud | Python | 74.6k | Mixed/core MIT | Agent platform mindset: SDK first, multiple clients, scalable agent runs. |
-| Goose | desktop, CLI, API | Rust | 45.7k | Apache-2.0 | Extensible local agent with desktop/CLI/API surfaces; close to RoboCode's Rust/local-first instincts. |
+| Goose | desktop, CLI, API | Rust | 45.7k | Apache-2.0 | Extensible local agent with desktop/CLI/API surfaces; close to Viden's Rust/local-first instincts. |
 | Cline | IDE, SDK, CLI assistant | TypeScript | 62.2k | Apache-2.0 | Explicit approvals, editor/browser/terminal tool use, SDK extraction trend. |
 | Continue | IDE, CLI, CI checks | TypeScript | 33.3k | Apache-2.0 | Config/rules as source-controlled assets; useful pattern for team policy. |
 | OpenCode | terminal TUI | Go | 12.7k | MIT | TUI, permission dialogs, logs page, sub-task agent tool, LSP integration. |
@@ -49,11 +49,11 @@ GitHub metadata was checked with `gh repo view` on 2026-05-23.
 
 ### OpenAI Codex
 
-Codex CLI is a local terminal coding agent, with IDE and desktop/cloud surfaces around it. The repo is Rust-heavy and Apache-licensed. For RoboCode, this validates Rust as a credible implementation choice and sets the bar for terminal ergonomics, install story, and local trust.
+Codex CLI is a local terminal coding agent, with IDE and desktop/cloud surfaces around it. The repo is Rust-heavy and Apache-licensed. For Viden, this validates Rust as a credible implementation choice and sets the bar for terminal ergonomics, install story, and local trust.
 
 Alignment:
 
-- keep RoboCode Rust-native;
+- keep Viden Rust-native;
 - treat terminal UX as product, not debugging output;
 - support external `codex` lanes as a first-class adapter instead of pretending to replace it immediately.
 
@@ -63,7 +63,7 @@ Claude Code is a terminal-first agent that reads code, edits files, runs command
 
 Alignment:
 
-- RoboCode should support `claude` as a terminal lane preset;
+- Viden should support `claude` as a terminal lane preset;
 - build `task envelope -> adapter -> lane -> inspect/accept/revise` before deep native multi-agent;
 - eventual native subagents should copy the lead/worker visibility pattern, not just hidden parallel calls.
 
@@ -73,7 +73,7 @@ Copilot is becoming a task delegation layer around repositories. It can start wo
 
 Alignment:
 
-- RoboCode needs a task intake model that is not only chat input;
+- Viden needs a task intake model that is not only chat input;
 - GitHub issue/PR/CI failure should eventually become task envelopes;
 - lane logs should be followable in real time, similar to cloud-agent session logs;
 - PR creation/review integration should be a later milestone after local lane acceptance works.
@@ -115,7 +115,7 @@ Sourcegraph's strength is context retrieval over large codebases. Cody's agentic
 
 Alignment:
 
-- RoboCode should make context gathering a visible phase in task envelopes;
+- Viden should make context gathering a visible phase in task envelopes;
 - LSP/search/git/doc context should be selected, not blindly dumping transcript;
 - for large repos, context quality is a bigger differentiator than model choice.
 
@@ -135,7 +135,7 @@ Alignment:
 
 Aider wins by being Git-native and simple. Its repo map idea is valuable because it turns codebase context into a compact, durable structure rather than repeatedly scanning everything.
 
-RoboCode alignment:
+Viden alignment:
 
 - add a compact project map panel/adapter later;
 - make diffs and changed files central to lane acceptance.
@@ -144,9 +144,9 @@ RoboCode alignment:
 
 OpenHands is a platform, not only a CLI. The SDK/CLI/GUI split is useful: core agent runtime should not be fused to one UI.
 
-RoboCode alignment:
+Viden alignment:
 
-- keep `robocode-core` as the agent/session engine;
+- keep `viden-core` as the agent/session engine;
 - keep TUI as one client over shared state;
 - future automation/GitHub mode should reuse the same task/lane records.
 
@@ -154,7 +154,7 @@ RoboCode alignment:
 
 OpenCode has a terminal TUI, permission dialogs, log pages, LSP integration, and an `agent` tool for subtasks.
 
-RoboCode alignment:
+Viden alignment:
 
 - implement permission modal and logs page early;
 - make `/lane inspect` feel like a first-class log/review page;
@@ -168,7 +168,7 @@ These validate extensibility and policy:
 - Cline: explicit approvals for file/browser/terminal actions, strong IDE workflow.
 - Continue: source-controlled checks/config and team policy.
 
-RoboCode alignment:
+Viden alignment:
 
 - external tool adapters should be config-driven;
 - project-local policy/rules should be first-class;
@@ -176,7 +176,7 @@ RoboCode alignment:
 
 ## Capability Matrix
 
-| Capability | Market baseline | RoboCode current | RoboCode target |
+| Capability | Market baseline | Viden current | Viden target |
 | --- | --- | --- | --- |
 | Terminal agent | Codex, Claude, Gemini, Aider, OpenCode, Goose, Junie | Lightweight TUI shell exists | Full approved main-screen TUI |
 | Permission UX | Claude/OpenCode/Cline/Windsurf all foreground approvals | Basic TUI approval prompt | Modal approval with apply-to-all and policy visibility |
@@ -189,7 +189,7 @@ RoboCode alignment:
 | MCP/plugins | Claude/Gemini/Windsurf/Sourcegraph/GitHub | Provider plugins only | V3 MCP/tool ecosystem |
 | CI/GitHub agent | Copilot, Junie, Devin, Codex cloud | Not yet | Later: issue/PR/CI task envelopes |
 
-## Strategic Gaps for RoboCode
+## Strategic Gaps for Viden
 
 1. Main TUI is still too thin.
    - The approved single-screen design must land before feature sprawl.
@@ -198,7 +198,7 @@ RoboCode alignment:
    - The core unit is a supervised lane, not a decorative panel.
 
 3. External agent interoperability should be a feature.
-   - RoboCode can become the cockpit that launches `codex`, `claude`, `junie`, `gemini`, or any configured CLI in bounded lanes.
+   - Viden can become the cockpit that launches `codex`, `claude`, `junie`, `gemini`, or any configured CLI in bounded lanes.
 
 4. Acceptance workflow is more important than raw generation.
    - "What changed? Did tests pass? Is it safe to integrate?" should be the primary lane review path.
@@ -209,7 +209,7 @@ RoboCode alignment:
 6. Context policy should be explicit.
    - Avoid full-transcript dumps; send task objective, selected files, diagnostics, plan excerpt, and constraints.
 
-## Recommended RoboCode Roadmap Alignment
+## Recommended Viden Roadmap Alignment
 
 ### R1: Main TUI Parity
 
@@ -221,7 +221,7 @@ Implement the approved main screen:
 - centered approval modal;
 - composer and bottom status bar.
 
-Reason: this gives RoboCode a recognizable product surface and fixes current TUI shallowness.
+Reason: this gives Viden a recognizable product surface and fixes current TUI shallowness.
 
 ### R2: Lane Runtime MVP
 
@@ -271,20 +271,20 @@ Reason: this is the safety line against uncontrolled external agent edits.
 
 Turn issues, PR comments, CI failures, and local diagnostics into task envelopes.
 
-Reason: aligns with Copilot/Junie/GitHub's delegation pattern without sacrificing RoboCode's local-first core.
+Reason: aligns with Copilot/Junie/GitHub's delegation pattern without sacrificing Viden's local-first core.
 
 ## Design Implications for the TUI
 
 - The right rail on the main screen should show "active work lanes" in addition to active tasks.
 - The bottom composer should accept lane commands naturally.
-- Approval modal must cover both RoboCode-native tools and lane actions.
+- Approval modal must cover both Viden-native tools and lane actions.
 - Companion screens should make it obvious whether a pane is only observing, running a process, or attached interactively.
 - A lane card should always show: id, tool, cwd/worktree, task, status, last output, changed files, tests, and next action.
 - The strongest UX is not "many agents"; it is "many agents with visible state, narrow scope, and clean handoff".
 
 ## Immediate Decision
 
-Build the next RoboCode TUI slice around this hierarchy:
+Build the next Viden TUI slice around this hierarchy:
 
 1. Main TUI visual parity.
 2. Lane data model and `/lane run`.

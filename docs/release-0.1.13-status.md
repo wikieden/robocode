@@ -1,4 +1,4 @@
-# RoboCode 0.1.13 Status
+# Viden 0.1.13 Status
 
 Chinese version: [release-0.1.13-status.zh-CN.md](release-0.1.13-status.zh-CN.md)
 
@@ -13,13 +13,13 @@ artifacts.
 
 Release:
 
-- GitHub Release: [v0.1.13](https://github.com/wikieden/robocode/releases/tag/v0.1.13)
-- Release workflow: [26526332898](https://github.com/wikieden/robocode/actions/runs/26526332898)
+- GitHub Release: [v0.1.13](https://github.com/wikieden/viden/releases/tag/v0.1.13)
+- Release workflow: [26526332898](https://github.com/wikieden/viden/actions/runs/26526332898)
 - Homebrew tap commit: `b8f9c1d`
 
 ## Landed
 
-- Default `robocode` entry now opens the TUI cockpit; `--no-tui` keeps the
+- Default `viden` entry now opens the TUI cockpit; `--no-tui` keeps the
   legacy line REPL for scripts and smoke tests.
 - `/settings` and `/setup` support provider/model discovery, key-status display,
   and explicit provider/model default persistence without storing secrets.
@@ -42,17 +42,17 @@ Release:
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace --quiet`
 - `scripts/smoke-lane-operator-loop.sh`
-- `ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.13 scripts/tui-regression.sh docs/previews/generated`
-- `scripts/release-smoke.sh --version 0.1.13 --out-dir /tmp/robocode-0113-release-smoke-full-local`
-- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --out-dir /tmp/robocode-0113-github-release-check`
-- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0113-postpublish-check`
-- `scripts/release-smoke.sh --version 0.1.13 --quick --deepseek --out-dir /tmp/robocode-0113-deepseek-live-check`
+- `VIDEN_TUI_SCREENSHOT_VERSION=0.1.13 scripts/tui-regression.sh docs/previews/generated`
+- `scripts/release-smoke.sh --version 0.1.13 --out-dir /tmp/viden-0113-release-smoke-full-local`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --out-dir /tmp/viden-0113-github-release-check`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --homebrew --out-dir /tmp/viden-0113-postpublish-check`
+- `scripts/release-smoke.sh --version 0.1.13 --quick --deepseek --out-dir /tmp/viden-0113-deepseek-live-check`
 
 Full local release smoke results:
 
 - PASS `cargo-fmt`
 - PASS `cargo-clippy`
-- PASS `robocode-cli-tests`
+- PASS `viden-cli-tests`
 - PASS `workspace-tests`
 - PASS `tui-regression`
 - PASS `fallback-cli-smoke`
@@ -73,17 +73,17 @@ Post-publish smoke results:
 
 Published assets:
 
-- `robocode-v0.1.13-aarch64-apple-darwin.tar.gz`
-- `robocode-v0.1.13-x86_64-apple-darwin.tar.gz`
-- `robocode-v0.1.13-x86_64-unknown-linux-gnu.tar.gz`
-- `robocode-v0.1.13-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.13-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.13-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.13-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.13-x86_64-pc-windows-msvc.tar.gz`
 - matching `.sha256` files for all four archives
 
 Deterministic screenshots:
 
-- [0.1.13 main](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-main.svg)
-- [0.1.13 command palette](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-command-palette.svg)
-- [0.1.13 side-2 ops](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.13-tui-side-2.svg)
+- [0.1.13 main](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.13-tui-main.svg)
+- [0.1.13 command palette](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.13-tui-command-palette.svg)
+- [0.1.13 side-2 ops](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.13-tui-side-2.svg)
 
 ## Remaining Follow-Up
 

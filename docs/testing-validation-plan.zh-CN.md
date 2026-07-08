@@ -6,7 +6,7 @@
 
 ## 目的
 
-RoboCode 应该按“用户会长时间真实使用的开发者工具”来验证，而不是只按库代码的单元测试来验证。
+Viden 应该按“用户会长时间真实使用的开发者工具”来验证，而不是只按库代码的单元测试来验证。
 验证体系必须同时证明行为、安全、发布状态和 TUI 可见质量。
 
 这份文档是 `0.1.10` 及后续版本的长期验证合同。
@@ -57,7 +57,7 @@ focused smoke 脚本。
 
 ```bash
 rg -n "event::read\\(" viden-cli/src/tui
-scripts/plan-mode-smoke.sh /tmp/robocode-spec-plan-smoke
+scripts/plan-mode-smoke.sh /tmp/viden-spec-plan-smoke
 scripts/tui-regression.sh docs/previews/generated
 scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
 ```
@@ -199,7 +199,7 @@ Remaining visual risk:
 
 ```text
 docs/previews/generated/
-/tmp/robocode-<version>-*/screenshots/
+/tmp/viden-<version>-*/screenshots/
 ```
 
 使用稳定命名：

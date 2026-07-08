@@ -4,26 +4,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 通过 Language Server 引入只读语义代码智能，同时不绕过 RoboCode 既有的 session、permission、transcript 和 tool runtime 不变量。
+**Goal:** 通过 Language Server 引入只读语义代码智能，同时不绕过 Viden 既有的 session、permission、transcript 和 tool runtime 不变量。
 
-**Architecture:** 新增 `robocode-lsp` crate，负责 LSP 配置、JSON-RPC framing、进程生命周期和语义查询归一化。`robocode-core` 暴露 LSP slash commands，并把可选 semantic provider 接入工具执行上下文。`robocode-tools` 通过现有 `ToolRegistry` 和 `ToolExecutionContext` 增加只读 `lsp_diagnostics`、`lsp_symbols`、`lsp_references` 工具。
+**Architecture:** 新增 `viden-lsp` crate，负责 LSP 配置、JSON-RPC framing、进程生命周期和语义查询归一化。`viden-core` 暴露 LSP slash commands，并把可选 semantic provider 接入工具执行上下文。`viden-tools` 通过现有 `ToolRegistry` 和 `ToolExecutionContext` 增加只读 `lsp_diagnostics`、`lsp_symbols`、`lsp_references` 工具。
 
-**Tech Stack:** Rust 2024 workspace、`serde`、`serde_json`、标准库 process/pipe、现有 RoboCode crates
+**Tech Stack:** Rust 2024 workspace、`serde`、`serde_json`、标准库 process/pipe、现有 Viden crates
 
 ---
 
 ## 当前基线
 
-V1 和 V2-A 已实现。V2-C memory/task workflows 正在 `codex/v2-memory-task-workflows` 上推进，开始本计划前应先发布或合并该分支。当前 workspace 已包含 `robocode-cli`、`robocode-config`、`robocode-core`、`robocode-model`、`robocode-permissions`、`robocode-session`、`robocode-tools`、`robocode-types`、`robocode-workflows`。
+V1 和 V2-A 已实现。V2-C memory/task workflows 正在 `codex/v2-memory-task-workflows` 上推进，开始本计划前应先发布或合并该分支。当前 workspace 已包含 `viden-cli`、`viden-config`、`viden-core`、`viden-model`、`viden-permissions`、`viden-session`、`viden-tools`、`viden-types`、`viden-workflows`。
 
 ## 范围
 
 包含：
 
-- 新建 `robocode-lsp` crate
+- 新建 `viden-lsp` crate
 - 只读 LSP server 配置和生命周期
 - JSON-RPC/LSP message framing 测试
-- `robocode-types` 中的语义结果类型
+- `viden-types` 中的语义结果类型
 - `/lsp`、`/lsp status`、`/lsp diagnostics`、`/lsp symbols`、`/lsp references`
 - 只读模型工具：`lsp_diagnostics`、`lsp_symbols`、`lsp_references`
 - transcript 可追踪的命令和工具结果
@@ -51,23 +51,23 @@ V1 和 V2-A 已实现。V2-C memory/task workflows 正在 `codex/v2-memory-task-
 
 新建：
 
-- `robocode-lsp/Cargo.toml`
-- `robocode-lsp/README.md`
-- `robocode-lsp/README.zh-CN.md`
-- `robocode-lsp/src/lib.rs`
-- `robocode-lsp/src/config.rs`
-- `robocode-lsp/src/framing.rs`
-- `robocode-lsp/src/protocol.rs`
-- `robocode-lsp/src/runtime.rs`
+- `viden-lsp/Cargo.toml`
+- `viden-lsp/README.md`
+- `viden-lsp/README.zh-CN.md`
+- `viden-lsp/src/lib.rs`
+- `viden-lsp/src/config.rs`
+- `viden-lsp/src/framing.rs`
+- `viden-lsp/src/protocol.rs`
+- `viden-lsp/src/runtime.rs`
 
 修改：
 
 - `Cargo.toml`
 - `Cargo.lock`
-- `robocode-types/src/lib.rs`
-- `robocode-tools/src/lib.rs`
-- `robocode-core/Cargo.toml`
-- `robocode-core/src/lib.rs`
+- `viden-types/src/lib.rs`
+- `viden-tools/src/lib.rs`
+- `viden-core/Cargo.toml`
+- `viden-core/src/lib.rs`
 - `docs/modules.md`
 - `docs/modules.zh-CN.md`
 - `PLAN.md`
@@ -119,37 +119,37 @@ git push -u origin codex/v2-memory-task-workflows
 文件：
 
 - 修改：`Cargo.toml`
-- 新建：`robocode-lsp/Cargo.toml`
-- 新建：`robocode-lsp/src/lib.rs`
-- 修改：`robocode-types/src/lib.rs`
+- 新建：`viden-lsp/Cargo.toml`
+- 新建：`viden-lsp/src/lib.rs`
+- 修改：`viden-types/src/lib.rs`
 
 - [ ] Step 1：把新 crate 加入 workspace。
 
 在 `Cargo.toml` members 中加入：
 
 ```toml
-    "robocode-lsp",
+    "viden-lsp",
 ```
 
-- [ ] Step 2：创建 `robocode-lsp/Cargo.toml`。
+- [ ] Step 2：创建 `viden-lsp/Cargo.toml`。
 
 使用：
 
 ```toml
 [package]
-name = "robocode-lsp"
+name = "viden-lsp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [dependencies]
-robocode-types = { path = "../robocode-types" }
+viden-types = { path = "../viden-types" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ```
 
-- [ ] Step 3：创建 `robocode-lsp/src/lib.rs`。
+- [ ] Step 3：创建 `viden-lsp/src/lib.rs`。
 
 使用：
 
@@ -163,7 +163,7 @@ pub use config::{LspServerConfig, LspServerRegistry};
 pub use runtime::{LspRuntime, LspRuntimeStatus, SemanticProvider};
 ```
 
-- [ ] Step 4：在 `robocode-types/src/lib.rs` 中增加语义共享类型。
+- [ ] Step 4：在 `viden-types/src/lib.rs` 中增加语义共享类型。
 
 定义：
 
@@ -211,7 +211,7 @@ pub struct LspSymbol {
 
 - [ ] Step 5：增加 serde roundtrip 测试。
 
-在 `robocode-types` 现有 tests 中添加 `lsp_diagnostic_roundtrips_json`：
+在 `viden-types` 现有 tests 中添加 `lsp_diagnostic_roundtrips_json`：
 
 ```rust
 #[test]
@@ -239,8 +239,8 @@ fn lsp_diagnostic_roundtrips_json() {
 运行：
 
 ```bash
-cargo test -p robocode-types
-cargo test -p robocode-lsp
+cargo test -p viden-types
+cargo test -p viden-lsp
 ```
 
 期望：两个命令都通过。
@@ -249,8 +249,8 @@ cargo test -p robocode-lsp
 
 文件：
 
-- 新建：`robocode-lsp/src/config.rs`
-- 修改：`robocode-lsp/src/lib.rs`
+- 新建：`viden-lsp/src/config.rs`
+- 修改：`viden-lsp/src/lib.rs`
 
 - [ ] Step 1：先写 extension-to-server 解析测试。
 
@@ -260,7 +260,7 @@ cargo test -p robocode-lsp
 #[test]
 fn registry_resolves_rust_files_to_rust_analyzer() {
     let registry = LspServerRegistry::default();
-    let config = registry.for_path(Path::new("robocode-core/src/lib.rs")).unwrap();
+    let config = registry.for_path(Path::new("viden-core/src/lib.rs")).unwrap();
     assert_eq!(config.id, "rust-analyzer");
     assert!(config.file_extensions.contains(&"rs".to_string()));
 }
@@ -332,7 +332,7 @@ impl LspServerRegistry {
 运行：
 
 ```bash
-cargo test -p robocode-lsp config
+cargo test -p viden-lsp config
 ```
 
 期望：测试通过。
@@ -341,8 +341,8 @@ cargo test -p robocode-lsp config
 
 文件：
 
-- 新建：`robocode-lsp/src/framing.rs`
-- 新建：`robocode-lsp/src/protocol.rs`
+- 新建：`viden-lsp/src/framing.rs`
+- 新建：`viden-lsp/src/protocol.rs`
 
 - [ ] Step 1：增加 framing 测试。
 
@@ -402,8 +402,8 @@ pub fn references_request(id: u64, path_uri: &str, line: u32, character: u32) ->
 运行：
 
 ```bash
-cargo test -p robocode-lsp framing
-cargo test -p robocode-lsp protocol
+cargo test -p viden-lsp framing
+cargo test -p viden-lsp protocol
 ```
 
 期望：测试通过。
@@ -412,8 +412,8 @@ cargo test -p robocode-lsp protocol
 
 文件：
 
-- 新建：`robocode-lsp/src/runtime.rs`
-- 修改：`robocode-lsp/src/lib.rs`
+- 新建：`viden-lsp/src/runtime.rs`
+- 修改：`viden-lsp/src/lib.rs`
 
 - [ ] Step 1：定义只读 provider trait。
 
@@ -422,7 +422,7 @@ cargo test -p robocode-lsp protocol
 ```rust
 use std::path::Path;
 
-use robocode_types::{LspDiagnostic, LspLocation, LspPosition, LspSymbol};
+use viden_types::{LspDiagnostic, LspLocation, LspPosition, LspSymbol};
 
 pub trait SemanticProvider: Send + Sync {
     fn diagnostics(&self, cwd: &Path, path: &Path) -> Result<Vec<LspDiagnostic>, String>;
@@ -481,7 +481,7 @@ Language server command not found: rust-analyzer
 运行：
 
 ```bash
-cargo test -p robocode-lsp runtime
+cargo test -p viden-lsp runtime
 ```
 
 期望：测试通过。
@@ -490,9 +490,9 @@ cargo test -p robocode-lsp runtime
 
 文件：
 
-- 修改：`robocode-tools/src/lib.rs`
-- 修改：`robocode-core/Cargo.toml`
-- 修改：`robocode-core/src/lib.rs`
+- 修改：`viden-tools/src/lib.rs`
+- 修改：`viden-core/Cargo.toml`
+- 修改：`viden-core/src/lib.rs`
 
 - [ ] Step 1：扩展 `ToolExecutionContext`，加入可选 semantic provider。
 
@@ -517,7 +517,7 @@ pub trait SemanticToolProvider: Send + Sync {
 搜索：
 
 ```bash
-rg -n "ToolExecutionContext" robocode-*
+rg -n "ToolExecutionContext" viden-*
 ```
 
 所有现有 context literal 都必须在新增 `semantic: None` 后编译。
@@ -562,7 +562,7 @@ LSP semantic provider is not available
 运行：
 
 ```bash
-cargo test -p robocode-tools lsp
+cargo test -p viden-tools lsp
 ```
 
 期望：测试通过。
@@ -571,15 +571,15 @@ cargo test -p robocode-tools lsp
 
 文件：
 
-- 修改：`robocode-core/Cargo.toml`
-- 修改：`robocode-core/src/lib.rs`
+- 修改：`viden-core/Cargo.toml`
+- 修改：`viden-core/src/lib.rs`
 
-- [ ] Step 1：为 `robocode-core` 增加 `robocode-lsp` 依赖。
+- [ ] Step 1：为 `viden-core` 增加 `viden-lsp` 依赖。
 
 使用：
 
 ```toml
-robocode-lsp = { path = "../robocode-lsp" }
+viden-lsp = { path = "../viden-lsp" }
 ```
 
 - [ ] Step 2：让 `SessionEngine` 持有 LSP runtime。
@@ -623,7 +623,7 @@ lsp_runtime: Option<Arc<LspRuntime>>,
 运行：
 
 ```bash
-cargo test -p robocode-core lsp
+cargo test -p viden-core lsp
 ```
 
 期望：测试通过。
@@ -632,8 +632,8 @@ cargo test -p robocode-core lsp
 
 文件：
 
-- 新建：`robocode-lsp/README.md`
-- 新建：`robocode-lsp/README.zh-CN.md`
+- 新建：`viden-lsp/README.md`
+- 新建：`viden-lsp/README.zh-CN.md`
 - 修改：`docs/modules.md`
 - 修改：`docs/modules.zh-CN.md`
 - 修改：`PLAN.md`
@@ -654,7 +654,7 @@ cargo test -p robocode-core lsp
 
 - [ ] Step 2：更新 module index。
 
-把 `robocode-lsp` 加入：
+把 `viden-lsp` 加入：
 
 - workspace dependency map
 - data ownership map
@@ -670,8 +670,8 @@ cargo test -p robocode-core lsp
 运行：
 
 ```bash
-rg -n "robocode-lsp|LSP|semantic|diagnostics|symbols|references" robocode-lsp docs/modules.md docs/modules.zh-CN.md PLAN.md
-rg -n "TB[D]|TO[D]O|fi[l]l in|place[h]older" robocode-lsp docs/modules.md docs/modules.zh-CN.md PLAN.md
+rg -n "viden-lsp|LSP|semantic|diagnostics|symbols|references" viden-lsp docs/modules.md docs/modules.zh-CN.md PLAN.md
+rg -n "TB[D]|TO[D]O|fi[l]l in|place[h]older" viden-lsp docs/modules.md docs/modules.zh-CN.md PLAN.md
 ```
 
 期望：
@@ -690,10 +690,10 @@ rg -n "TB[D]|TO[D]O|fi[l]l in|place[h]older" robocode-lsp docs/modules.md docs/m
 运行：
 
 ```bash
-cargo test -p robocode-types
-cargo test -p robocode-lsp
-cargo test -p robocode-tools
-cargo test -p robocode-core
+cargo test -p viden-types
+cargo test -p viden-lsp
+cargo test -p viden-tools
+cargo test -p viden-core
 ```
 
 期望：全部通过。
@@ -713,7 +713,7 @@ cargo test --workspace --quiet
 运行：
 
 ```bash
-cargo run -p robocode-cli -- --provider fallback --model test-local
+cargo run -p viden-cli -- --provider fallback --model test-local
 ```
 
 随后输入：
@@ -721,8 +721,8 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 ```text
 /lsp status
 /lsp diagnostics README.md
-/lsp symbols robocode-core/src/lib.rs
-/lsp references robocode-core/src/lib.rs 0 0
+/lsp symbols viden-core/src/lib.rs
+/lsp references viden-core/src/lib.rs 0 0
 ```
 
 期望：
@@ -734,10 +734,10 @@ cargo run -p robocode-cli -- --provider fallback --model test-local
 
 ## 验收标准
 
-- `robocode-lsp` 作为 workspace crate 存在，并具备已测试的 config、protocol、framing、runtime facade modules。
-- `robocode-types` 拥有可序列化 semantic result types。
-- `robocode-tools` 通过现有 registry 暴露只读 `lsp_diagnostics`、`lsp_symbols`、`lsp_references`。
-- `robocode-core` 暴露 transcript-visible `/lsp` 命令族。
+- `viden-lsp` 作为 workspace crate 存在，并具备已测试的 config、protocol、framing、runtime facade modules。
+- `viden-types` 拥有可序列化 semantic result types。
+- `viden-tools` 通过现有 registry 暴露只读 `lsp_diagnostics`、`lsp_symbols`、`lsp_references`。
+- `viden-core` 暴露 transcript-visible `/lsp` 命令族。
 - LSP 失败路径清晰、可执行、且不 panic。
 - V2-B 不绕过 permission、transcript 或 shared tool execution paths。
 

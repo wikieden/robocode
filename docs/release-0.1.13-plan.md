@@ -1,4 +1,4 @@
-# RoboCode 0.1.13 Plan
+# Viden 0.1.13 Plan
 
 Chinese version: [release-0.1.13-plan.zh-CN.md](release-0.1.13-plan.zh-CN.md)
 
@@ -17,7 +17,7 @@ loop reliable enough for daily programming and turn Codex/Claude from
 
 The release cutline is:
 
-> A developer can give RoboCode a small task, watch the main cockpit explain
+> A developer can give Viden a small task, watch the main cockpit explain
 > what is happening, delegate or inspect one lane, review evidence, and accept,
 > apply, retry, stop, or discard without losing context.
 
@@ -59,7 +59,7 @@ Goals:
 
 Work:
 
-- Change the default `robocode` launch behavior to enter TUI mode when no
+- Change the default `viden` launch behavior to enter TUI mode when no
   explicit non-interactive command is requested.
 - Preserve explicit escape hatches: `--no-tui`, existing preview flags,
   `--version`, `--help`, and future scripting commands must remain
@@ -76,8 +76,8 @@ Work:
 
 Acceptance:
 
-- Running `robocode` with no args opens the main TUI.
-- Running `robocode --help`, `robocode --version`, and preview/smoke commands
+- Running `viden` with no args opens the main TUI.
+- Running `viden --help`, `viden --version`, and preview/smoke commands
   remains non-interactive.
 - A first-time user can select provider/model, see whether the key is present,
   run a probe/doctor, and save the default.
@@ -234,9 +234,9 @@ Work:
 
 Acceptance:
 
-- On a machine with Codex configured, RoboCode can start a read-only Codex
+- On a machine with Codex configured, Viden can start a read-only Codex
   review and show result/evidence in TUI.
-- On a machine with Claude Code configured, RoboCode can run a template/tmux
+- On a machine with Claude Code configured, Viden can run a template/tmux
   lane and show tail/result/evidence in TUI.
 - Missing tools fail with actionable doctor output rather than silent empty
   panels.
@@ -336,7 +336,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
-scripts/release-smoke.sh --version 0.1.13 --deepseek --out-dir /tmp/robocode-0113-release-smoke-full
+scripts/release-smoke.sh --version 0.1.13 --deepseek --out-dir /tmp/viden-0113-release-smoke-full
 ```
 
 Manual acceptance:
@@ -350,14 +350,14 @@ Manual acceptance:
 Publish validation:
 
 ```bash
-scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0113-postpublish-check
+scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --homebrew --out-dir /tmp/viden-0113-postpublish-check
 ```
 
 ## Release Criteria
 
 - Workspace version is `0.1.13`.
 - All P0 items pass tests and have screenshot or manual evidence.
-- `robocode` defaults to the TUI, and first-run provider/model setup is
+- `viden` defaults to the TUI, and first-run provider/model setup is
   documented and verified.
 - README and user guide explain current real features and experimental
   adapter limits.

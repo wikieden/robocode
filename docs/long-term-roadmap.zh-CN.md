@@ -23,7 +23,7 @@ runtime/UI contract freeze 后，TUI 与 GUI 可以按
 [GUI 版本功能设计](gui-version-functional-design.zh-CN.md)。
 
 接受的 TUI / GUI 视觉源现在是 `docs/viden-design/Viden/`，由
-[Viden 设计接入决策](viden-design-adoption.zh-CN.md) 约束。RoboCode 只作为 legacy
+[Viden 设计接入决策](viden-design-adoption.zh-CN.md) 约束。Viden 只作为 legacy
 implementation 和 compatibility 名称保留，直到 rename migration 被明确规划。
 
 ## 市场判断
@@ -39,11 +39,11 @@ implementation 和 compatibility 名称保留，直到 rename migration 被明�
 - Hacker News 的用户反馈反复说明：Agent 成功不只取决于自治程度，更取决于 context
   控制、任务边界、证据、隔离、成本可见性和人工 review。
 
-对 RoboCode 的含义：不要同时追所有入口。先赢下 operator loop。
+对 Viden 的含义：不要同时追所有入口。先赢下 operator loop。
 
 ## 产品身份
 
-RoboCode 应该成为：
+Viden 应该成为：
 
 - 本地优先的 AI coding operator cockpit。
 - 其他 coding agents 的 supervisor，而不只是 provider client。
@@ -121,7 +121,7 @@ Token 效能是产品能力，不是内部实现细节。
 - 它改了什么？
 - 它运行了什么？
 - 哪里失败了？
-- RoboCode 为什么认为现在可以继续？
+- Viden 为什么认为现在可以继续？
 - 下一个安全动作是什么？
 
 这需要 event timelines、audit replay、changed-file evidence、test output、
@@ -168,7 +168,7 @@ Multi-agent 不是“生成更多 Agent”。它是有边界的并行工作、�
 
 ### 7. 可扩展，但不碎片化
 
-RoboCode 应该支持生态扩展，但必须保持同一套 permission 和 evidence model。
+Viden 应该支持生态扩展，但必须保持同一套 permission 和 evidence model。
 
 Extension layers 的成熟顺序：
 
@@ -226,7 +226,7 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 ### Horizon 2: 0.2.x - Spec, Context, And Evidence Runtime
 
 目标：
-让 RoboCode 从 cockpit 变成可重复的 coding workflow engine。
+让 Viden 从 cockpit 变成可重复的 coding workflow engine。
 
 关键结果：
 
@@ -244,12 +244,12 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 
 - 用户可以在 apply 之前看到 scope、context、budget 和 evidence，因此更敢让 Agent
   做长任务。
-- 即便 Codex 或 Claude 是后端，RoboCode 仍然有自己的差异化价值。
+- 即便 Codex 或 Claude 是后端，Viden 仍然有自己的差异化价值。
 
 ### Horizon 3: 0.3.x - External Agent And ACP Interoperability
 
 目标：
-让 RoboCode 成为异构 coding agents 的 supervisor。
+让 Viden 成为异构 coding agents 的 supervisor。
 
 关键结果：
 
@@ -263,7 +263,7 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 
 带来的结果：
 
-- RoboCode 可以为每个任务编排最合适的 Agent，而不是变成某一家 provider 的 wrapper。
+- Viden 可以为每个任务编排最合适的 Agent，而不是变成某一家 provider 的 wrapper。
 
 ### Horizon 4: 0.4.x - Built-In Multi-Agent Workflows
 
@@ -283,7 +283,7 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 
 带来的结果：
 
-- RoboCode 成为真正的多 Agent 编程工作台，而不是手工启动任务的 cockpit。
+- Viden 成为真正的多 Agent 编程工作台，而不是手工启动任务的 cockpit。
 
 ### Horizon 5: 0.5.x - Platform Surfaces
 
@@ -302,13 +302,13 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 
 带来的结果：
 
-- 团队和高级用户可以把 RoboCode 嵌入开发流程，而不绕过它的 permission、evidence
+- 团队和高级用户可以把 Viden 嵌入开发流程，而不绕过它的 permission、evidence
   和 budget model。
 
 ### Horizon 6: 1.0 - Reliable Local AI Coding Operating Layer
 
 目标：
-让 RoboCode 可靠到可以推荐给真实项目日常使用。
+让 Viden 可靠到可以推荐给真实项目日常使用。
 
 1.0 标准：
 
@@ -362,4 +362,4 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
 12. `0.3.1`: TUI 与 GUI 并行实现。Core/runtime、TUI、GUI 分支可并行推进，最多三个
     active owner，所有 frontend 都必须消费同一套 runtime。
 
-这条线保持 RoboCode 的核心 wedge：不是最大自治，而是最大 operator trust。
+这条线保持 Viden 的核心 wedge：不是最大自治，而是最大 operator trust。

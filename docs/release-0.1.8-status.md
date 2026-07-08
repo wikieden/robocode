@@ -1,4 +1,4 @@
-# RoboCode 0.1.8 Status
+# Viden 0.1.8 Status
 
 Chinese version: [release-0.1.8-status.zh-CN.md](release-0.1.8-status.zh-CN.md)
 
@@ -77,9 +77,9 @@ and side-2 `RECENT EVIDENCE` consume the same status model.
 - Side-2 failed/blocked tasks prioritize actionable command/failure/path
   evidence so generic `result failed` or `transcript ...` rows do not hide the
   useful signal.
-- Lane apply/conflict artifacts now feed `AgentTask.evidence`: RoboCode extracts
+- Lane apply/conflict artifacts now feed `AgentTask.evidence`: Viden extracts
   patch path, changed files, and direct-apply conflict summaries from
-  `.robocode/lanes/L*.apply.md` and `L*.apply-conflict.md`; blocked lanes expose
+  `.viden/lanes/L*.apply.md` and `L*.apply-conflict.md`; blocked lanes expose
   conflict / changed / patch evidence in side-2.
 - Codex app-server job artifacts now feed richer `AgentTask` evidence in the
   TUI: result files expose thread, turn, status, approval, and resume handles,
@@ -104,7 +104,7 @@ and side-2 `RECENT EVIDENCE` consume the same status model.
   answer before lower-signal protocol ids.
 - TUI preview fixtures now include a completed Codex app-server job, and
   `docs/previews/generated/side-2.txt` visibly shows
-  `evidence message ROBOCODE_APP_SERVER_SMOKE_OK` for screenshot review.
+  `evidence message VIDEN_APP_SERVER_SMOKE_OK` for screenshot review.
 - Added `scripts/smoke-codex-app-server.sh`, a repeatable live smoke that
   starts a real Codex app-server text turn in a temporary workspace and checks
   `thread`, `turn`, `resume`, tracked-job `finished`, and final-message
@@ -116,7 +116,7 @@ and side-2 `RECENT EVIDENCE` consume the same status model.
 - Added a guarded `/agent probe codex --turn-write <task>` protocol path for
   disposable-workspace experiments. It is disabled by default because a live
   safety trial showed Codex app-server workspace-write turns can mutate files
-  before RoboCode receives an approval request.
+  before Viden receives an approval request.
 - Added `scripts/smoke-codex-app-server-write-guard.sh` to prove the default
   guard blocks app-server write probes before launch and leaves the workspace
   untouched.
@@ -135,8 +135,8 @@ Passed:
 cargo fmt
 cargo fmt --check
 git diff --check
-cargo test -p robocode-cli --quiet
-cargo test -p robocode-core --quiet
+cargo test -p viden-cli --quiet
+cargo test -p viden-core --quiet
 cargo test --workspace --quiet
 scripts/tui-previews.sh docs/previews/generated
 scripts/smoke-codex-app-server.sh
@@ -144,15 +144,15 @@ scripts/smoke-codex-app-server-protocol-fixture.sh
 scripts/smoke-codex-app-server-write-guard.sh
 scripts/smoke-lane-operator-loop.sh
 scripts/release-smoke.sh --quick --skip-package
-scripts/release-smoke.sh --quick --skip-package --deepseek --out-dir /tmp/robocode-018-release-smoke-deepseek-latest
-scripts/release-smoke.sh --version 0.1.8 --deepseek --out-dir /tmp/robocode-018-release-smoke-full
-gh workflow run release.yml --repo wikieden/robocode -f tag=v0.1.8 -f upload_to_release=true
+scripts/release-smoke.sh --quick --skip-package --deepseek --out-dir /tmp/viden-018-release-smoke-deepseek-latest
+scripts/release-smoke.sh --version 0.1.8 --deepseek --out-dir /tmp/viden-018-release-smoke-full
+gh workflow run release.yml --repo wikieden/viden -f tag=v0.1.8 -f upload_to_release=true
 ```
 
 Result:
 
-- `robocode-cli` tests: 197 passed, binary tests 2 passed / 2 ignored.
-- `robocode-core` tests: 93 passed.
+- `viden-cli` tests: 197 passed, binary tests 2 passed / 2 ignored.
+- `viden-core` tests: 93 passed.
 - workspace tests: passed.
 - TUI previews: `scripts/tui-previews.sh docs/previews/generated` generated.
   `main.txt` now shows the operation-center next action for an active test
@@ -160,7 +160,7 @@ Result:
   `codex-app codex done` plus the app-server final message evidence row.
 - live Codex app-server text-turn smoke: passed with `codex-cli 0.133.0`
   through `Codex Desktop/0.133.0`, producing a completed thread/turn, tracked
-  job, resume handle, result `message: ROBOCODE_APP_SERVER_SMOKE_OK`, and
+  job, resume handle, result `message: VIDEN_APP_SERVER_SMOKE_OK`, and
   final-message evidence.
 - mock Codex app-server protocol-fixture smoke: passed. It produced
   `signals: command-output, file-change, file-patch, diff-updated, fs-changed,
@@ -172,12 +172,12 @@ Result:
   command approval signal was emitted.
 - live Codex app-server write trial in a disposable workspace: completed and
   created `live-write.txt` through an `mcpToolCall` without an approval request.
-  RoboCode now classifies that event as `mcp-tool-call`,
+  Viden now classifies that event as `mcp-tool-call`,
   `mcp-tool-completed`, and `mcp-fs-write`, and the write-capable probe remains
   disabled by default.
 - Codex app-server write-guard smoke: passed. `/agent probe codex --turn-write`
   is blocked by default unless
-  `ROBOCODE_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1` is set in a disposable
+  `VIDEN_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1` is set in a disposable
   workspace.
 - lane operator-loop smoke: passed. It exercises the local runtime/operator
   path from shell lanes through inspect, PTY send, tmux evidence, accept/apply,
@@ -186,17 +186,17 @@ Result:
   TUI previews, fallback CLI smoke, protocol fixture, write guard, and lane
   operator-loop smoke.
 - DeepSeek release smoke matrix: passed at
-  `/tmp/robocode-018-release-smoke-deepseek-latest`; `deepseek-v4-flash` returned
-  `robocode-deepseek-smoke-ok`.
+  `/tmp/viden-018-release-smoke-deepseek-latest`; `deepseek-v4-flash` returned
+  `viden-deepseek-smoke-ok`.
 - full 0.1.8 release smoke matrix: passed at
-  `/tmp/robocode-018-release-smoke-full`. It covered `robocode-cli` tests,
+  `/tmp/viden-018-release-smoke-full`. It covered `viden-cli` tests,
   workspace tests, previews, fallback CLI, app-server protocol fixture,
   write-guard, lane operator loop, package archive smoke, and DeepSeek smoke.
 - package smoke produced and verified
-  `dist/robocode-v0.1.8-aarch64-apple-darwin.tar.gz`; extracted binary reports
-  `robocode-cli 0.1.8`.
+  `dist/viden-v0.1.8-aarch64-apple-darwin.tar.gz`; extracted binary reports
+  `viden-cli 0.1.8`.
 - GitHub release workflow
-  [26494175931](https://github.com/wikieden/robocode/actions/runs/26494175931)
+  [26494175931](https://github.com/wikieden/viden/actions/runs/26494175931)
   passed and uploaded all four target archives plus SHA-256 files.
 - Homebrew tap `wikieden/homebrew-tap` was updated to `0.1.8` in commit
   `afd62e2`, using SHA-256 checksums downloaded from the GitHub release assets.
@@ -205,22 +205,22 @@ Result:
 
 `v0.1.8` is published at:
 
-- https://github.com/wikieden/robocode/releases/tag/v0.1.8
+- https://github.com/wikieden/viden/releases/tag/v0.1.8
 
 Release assets:
 
-- `robocode-v0.1.8-aarch64-apple-darwin.tar.gz`
-- `robocode-v0.1.8-aarch64-apple-darwin.tar.gz.sha256`
-- `robocode-v0.1.8-x86_64-apple-darwin.tar.gz`
-- `robocode-v0.1.8-x86_64-apple-darwin.tar.gz.sha256`
-- `robocode-v0.1.8-x86_64-pc-windows-msvc.tar.gz`
-- `robocode-v0.1.8-x86_64-pc-windows-msvc.tar.gz.sha256`
-- `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz`
-- `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz.sha256`
+- `viden-v0.1.8-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.8-aarch64-apple-darwin.tar.gz.sha256`
+- `viden-v0.1.8-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.8-x86_64-apple-darwin.tar.gz.sha256`
+- `viden-v0.1.8-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.8-x86_64-pc-windows-msvc.tar.gz.sha256`
+- `viden-v0.1.8-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.8-x86_64-unknown-linux-gnu.tar.gz.sha256`
 
 Homebrew:
 
-- `brew install wikieden/tap/robocode`
+- `brew install wikieden/tap/viden`
 
 ## Remaining P0
 
@@ -245,7 +245,7 @@ None for the `0.1.8` release.
   write-turn probes now pass, and deterministic protocol-fixture coverage
   exercises command/file/approval/MCP/error evidence. The live write probe
   confirmed workspace-write turns can mutate through MCP tool calls without a
-  RoboCode approval request, so write-capable app-server probes stay disabled by
+  Viden approval request, so write-capable app-server probes stay disabled by
   default and must remain disposable-workspace-only.
 
 ## Next Steps

@@ -1,21 +1,34 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     env, fs,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
-    sync::mpsc,
+    process::{Child, ChildStdin, Command, Stdio},
+    sync::{Arc, Mutex, mpsc},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use crate::{SessionEngine, presentation::render_permission_denial};
-use viden_permissions::PermissionEngine;
+use crate::{RuntimeEventSink, SessionEngine, presentation::render_permission_denial};
+use serde_json::{Value, json};
+use viden_permissions::{PermissionContext, PermissionEngine};
+use viden_plugin_api::{
+    AgentAuthMode, AgentCommandSpec, AgentPermissionProfile, AgentPluginCapability,
+    AgentPluginDescriptor, AgentProtocolVersion, AgentSource, AgentTransport,
+};
+use viden_plugin_host::builtin_agent_descriptors;
 use viden_types::{
-    AgentCapabilityRecord, ApprovalResponse, PermissionDecision, PermissionLogEntry, ToolInput,
-    ToolSpec, TranscriptEntry, now_timestamp,
+    AgentCapabilityRecord, AgentNextAction, AgentTaskRecord, AgentTaskStatus, ApprovalResponse,
+    EvidenceView, MergeGateRecord, MergeGateStatus, PermissionDecision, PermissionLogEntry,
+    RuntimeEvent, RuntimeEventKind, ToolInput, ToolSpec, TranscriptEntry, now_timestamp,
+    truncate_for_preview,
 };
 
 const SHELL_SCRIPT_THRESHOLD: usize = 32 * 1024;
+const DEFAULT_LOCAL_ACP_HANDSHAKE_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_REGISTRY_ACP_HANDSHAKE_TIMEOUT_SECS: u64 = 90;
+const DEFAULT_LOCAL_ACP_SESSION_TIMEOUT_SECS: u64 = 60;
+const DEFAULT_KIRO_ACP_SESSION_TIMEOUT_SECS: u64 = 120;
+const ACP_SESSION_CANCEL_REQUEST_ID: u64 = 90;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AgentAdapterDescriptor {
@@ -36,7 +49,7 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 6] = [
         transport: "app-server",
         entrypoint: "/agent review codex [prompt] | /lane codex-review <task> | /lane codex <task>",
         binary: Some("codex"),
-        config_env: Some("ROBOCODE_LANE_CODEX_TEMPLATE"),
+        config_env: Some("VIDEN_LANE_CODEX_TEMPLATE"),
         config_label: "template",
         config_required: false,
     },
@@ -46,7 +59,7 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 6] = [
         transport: "template",
         entrypoint: "/lane claude <task>",
         binary: Some("claude"),
-        config_env: Some("ROBOCODE_LANE_CLAUDE_TEMPLATE"),
+        config_env: Some("VIDEN_LANE_CLAUDE_TEMPLATE"),
         config_label: "template",
         config_required: true,
     },
@@ -56,7 +69,7 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 6] = [
         transport: "template",
         entrypoint: "/lane ask <tool> <task>",
         binary: None,
-        config_env: Some("ROBOCODE_LANE_<TOOL>_TEMPLATE"),
+        config_env: Some("VIDEN_LANE_<TOOL>_TEMPLATE"),
         config_label: "template",
         config_required: false,
     },
@@ -76,7 +89,7 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 6] = [
         transport: "pty",
         entrypoint: "/lane pty <lane-id>",
         binary: pty_binary(),
-        config_env: Some("ROBOCODE_LANE_PTY_TEMPLATE"),
+        config_env: Some("VIDEN_LANE_PTY_TEMPLATE"),
         config_label: "template",
         config_required: false,
     },
@@ -86,7 +99,7 @@ const AGENT_ADAPTERS: [AgentAdapterDescriptor; 6] = [
         transport: "acp",
         entrypoint: "/lane acp <agent> <task> (experimental)",
         binary: None,
-        config_env: Some("ROBOCODE_AGENT_ACP_COMMAND"),
+        config_env: Some("VIDEN_AGENT_ACP_COMMAND"),
         config_label: "command",
         config_required: true,
     },
@@ -109,8 +122,10 @@ impl SessionEngine {
             )),
             "review" => handle_codex_review_command(&self.cwd, &args[1..]),
             "challenge" => handle_codex_challenge_command(&self.cwd, &args[1..]),
-            "probe" => handle_codex_probe_command(&self.cwd, &args[1..]),
-            "run" => self.handle_codex_run_command(&args[1..], approver),
+            "probe" => handle_agent_probe_command(&self.cwd, &args[1..]),
+            "auth" => handle_agent_auth_command(&self.cwd, &args[1..]),
+            "smoke" => self.handle_agent_smoke_command(&args[1..], approver),
+            "run" => self.handle_agent_run_command(&args[1..], approver),
             "status" => render_codex_job_status(&self.cwd),
             "result" => render_codex_job_result(&self.cwd, args.get(1).map(String::as_str)),
             "cancel" => cancel_codex_job(&self.cwd, args.get(1).map(String::as_str)),
@@ -130,6 +145,10 @@ impl SessionEngine {
             "  /agent review codex [--base <ref>] [prompt]",
             "  /agent challenge codex [prompt]",
             "  /agent probe codex [--thread|--turn <task>|--turn-write <task>]",
+            "  /agent probe acp <agent-id>",
+            "  /agent auth acp <agent-id> [method-id]",
+            "  /agent smoke acp [--live]",
+            "  /agent run acp [--async] [--load-session <id>] [--mode <mode-id>] [--model <model-id>] <agent-id> <task>",
             "  /agent run codex [--write|--app-server] <task>",
             "  /agent status",
             "  /agent result <id>",
@@ -139,6 +158,46 @@ impl SessionEngine {
             "Agent commands start and inspect tracked external agent jobs. Use `/lane ...` for terminal lane orchestration.",
         ]
         .join("\n")
+    }
+
+    fn handle_agent_run_command<F>(
+        &mut self,
+        args: &[String],
+        approver: &mut F,
+    ) -> Result<String, String>
+    where
+        F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    {
+        match args.first().map(String::as_str) {
+            Some("acp") => {
+                let parsed = parse_acp_run_args(&args[1..])?;
+                handle_acp_agent_run_command(
+                    &self.cwd,
+                    parsed,
+                    approver,
+                    self.permissions.context_snapshot(),
+                    self.runtime_event_sink(),
+                )
+            }
+            _ => self.handle_codex_run_command(args, approver),
+        }
+    }
+
+    fn handle_agent_smoke_command<F>(
+        &mut self,
+        args: &[String],
+        approver: &mut F,
+    ) -> Result<String, String>
+    where
+        F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    {
+        match args.first().map(String::as_str) {
+            Some("acp") => {
+                let live = args.iter().any(|arg| arg == "--live");
+                run_acp_smoke_gate(&self.cwd, live, approver)
+            }
+            _ => Err("Usage: /agent smoke acp [--live]".to_string()),
+        }
     }
 
     fn handle_codex_run_command<F>(
@@ -242,6 +301,434 @@ impl SessionEngine {
     }
 }
 
+fn handle_agent_probe_command(cwd: &Path, args: &[String]) -> Result<String, String> {
+    match args.first().map(String::as_str) {
+        Some("codex") => handle_codex_probe_command(cwd, args),
+        Some("acp") => handle_acp_agent_probe_command(cwd, args.get(1).map(String::as_str)),
+            Some(id) if acp_agent_descriptors().iter().any(|agent| agent.agent_id == id) => {
+                handle_acp_agent_probe_command(cwd, Some(id))
+            }
+        Some(other) => Err(format!(
+            "Unsupported probe target `{other}`. Use `codex` or `acp <agent-id>`."
+        )),
+        None => Err(
+            "Usage: /agent probe codex [--thread|--turn <task>|--turn-write <task>] | /agent probe acp <agent-id>"
+                .to_string(),
+        ),
+    }
+}
+
+fn handle_agent_auth_command(cwd: &Path, args: &[String]) -> Result<String, String> {
+    match args.first().map(String::as_str) {
+        Some("acp") => {
+            let agent_id = args.get(1).map(String::as_str);
+            let method_id = args.get(2).map(String::as_str);
+            handle_acp_agent_auth_command(cwd, agent_id, method_id)
+        }
+        _ => Err("Usage: /agent auth acp <agent-id> [method-id]".to_string()),
+    }
+}
+
+fn handle_acp_agent_probe_command(cwd: &Path, target: Option<&str>) -> Result<String, String> {
+    let id = target.ok_or_else(|| "Usage: /agent probe acp <agent-id>".to_string())?;
+    let agents = acp_agent_descriptors();
+    let Some(agent) = agents.iter().find(|agent| agent.agent_id == id) else {
+        let known = agents
+            .iter()
+            .map(|agent| agent.agent_id.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "Unknown ACP agent `{id}`. Known ACP agents: {known}"
+        ));
+    };
+    if !matches!(agent.transport, AgentTransport::Acp) {
+        return Err(format!("Agent `{id}` does not use ACP transport."));
+    }
+    let evidence = run_acp_initialize_probe_for_agent(cwd, agent)?;
+    let auth = if evidence.auth_methods.is_empty() {
+        "none advertised".to_string()
+    } else {
+        evidence.auth_methods.join(", ")
+    };
+    let capabilities = if evidence.capabilities.is_empty() {
+        "none advertised".to_string()
+    } else {
+        evidence.capabilities.join(", ")
+    };
+    Ok(format!(
+        "ACP initialize probe ok.\n  agent: {} ({})\n  command: {}\n  protocol: {}\n  remote: {}\n  auth: {}\n  capabilities: {}\n  log: {}",
+        agent.agent_id,
+        agent.display_name,
+        agent_command_line(agent),
+        evidence.protocol_version,
+        evidence.agent_label,
+        auth,
+        capabilities,
+        evidence.log_path.display()
+    ))
+}
+
+fn handle_acp_agent_auth_command(
+    cwd: &Path,
+    target: Option<&str>,
+    method_id: Option<&str>,
+) -> Result<String, String> {
+    let id = target.ok_or_else(|| "Usage: /agent auth acp <agent-id> [method-id]".to_string())?;
+    let agents = acp_agent_descriptors();
+    let Some(agent) = agents.iter().find(|agent| agent.agent_id == id) else {
+        let known = agents
+            .iter()
+            .map(|agent| agent.agent_id.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "Unknown ACP agent `{id}`. Known ACP agents: {known}"
+        ));
+    };
+    if agent.agent_id == "kiro-cli" {
+        return Ok(render_kiro_native_auth_instructions(agent));
+    }
+    let evidence = run_acp_authenticate_for_agent(cwd, agent, method_id)?;
+    Ok(format!(
+        "ACP authenticate completed.\n  agent: {} ({})\n  method: {}\n  status: {}\n  log: {}",
+        agent.agent_id,
+        agent.display_name,
+        evidence.method_id,
+        evidence.status,
+        evidence.log_path.display()
+    ))
+}
+
+fn render_kiro_native_auth_instructions(agent: &AgentPluginDescriptor) -> String {
+    format!(
+        "Kiro CLI uses native authentication.\n  agent: {} ({})\n  command: {}\n  login: kiro-cli login --use-device-flow\n  verify: kiro-cli doctor\n  gate: /agent smoke acp --live\n  note: Viden does not store Kiro credentials; Kiro owns auth, billing, and agent configuration.",
+        agent.agent_id,
+        agent.display_name,
+        agent_command_line(agent),
+    )
+}
+
+fn acp_agent_descriptors() -> Vec<AgentPluginDescriptor> {
+    let mut agents = builtin_agent_descriptors();
+    if let Some(custom) = custom_acp_agent_descriptor_from_env() {
+        agents.push(custom);
+    }
+    agents
+}
+
+fn custom_acp_agent_descriptor_from_env() -> Option<AgentPluginDescriptor> {
+    let command = env::var("VIDEN_AGENT_ACP_COMMAND")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())?;
+    Some(custom_acp_agent_descriptor(&command))
+}
+
+fn custom_acp_agent_descriptor(command: &str) -> AgentPluginDescriptor {
+    let (program, args) = shell_descriptor_command(&command);
+    AgentPluginDescriptor {
+        agent_id: "custom-acp".to_string(),
+        display_name: "Custom ACP agent".to_string(),
+        version: "custom".to_string(),
+        transport: AgentTransport::Acp,
+        source: AgentSource::LocalCommand,
+        command: AgentCommandSpec {
+            command: program,
+            args,
+            env: Vec::new(),
+        },
+        registry_package: None,
+        protocol_versions: vec![AgentProtocolVersion::AcpV1],
+        auth_modes: vec![AgentAuthMode::AgentNative],
+        capabilities: vec![
+            AgentPluginCapability::SessionPrompt,
+            AgentPluginCapability::StreamingUpdates,
+            AgentPluginCapability::ToolCalls,
+            AgentPluginCapability::SessionCancel,
+        ],
+        permission_profile: AgentPermissionProfile::RuntimeGated,
+        experimental_methods: Vec::new(),
+        config_schema_version: 1,
+    }
+}
+
+fn shell_descriptor_command(command: &str) -> (String, Vec<String>) {
+    if cfg!(windows) {
+        (
+            "cmd".to_string(),
+            vec!["/C".to_string(), command.to_string()],
+        )
+    } else {
+        (
+            "sh".to_string(),
+            vec!["-lc".to_string(), command.to_string()],
+        )
+    }
+}
+
+fn run_acp_smoke_gate(
+    cwd: &Path,
+    live: bool,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+) -> Result<String, String> {
+    let agents = acp_agent_descriptors();
+    run_acp_smoke_gate_for_agents(cwd, &agents, live, approver)
+}
+
+fn run_acp_smoke_gate_for_agents(
+    cwd: &Path,
+    agents: &[AgentPluginDescriptor],
+    live: bool,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+) -> Result<String, String> {
+    let mut lines = vec![format!(
+        "ACP smoke gate ({})",
+        if live { "live session" } else { "initialize" }
+    )];
+    let mut failed = 0usize;
+    let mut blocked = 0usize;
+    for agent in agents {
+        if !matches!(agent.transport, AgentTransport::Acp) {
+            continue;
+        }
+        let result = if live {
+            run_acp_session_prompt_for_agent(
+                cwd,
+                agent,
+                "Reply with OK only.",
+                AcpSessionOptions::default(),
+                approver,
+            )
+            .map(|evidence| {
+                format!(
+                    "ok session={} status={} usage={}",
+                    evidence.session_id,
+                    evidence.final_status,
+                    evidence
+                        .usage_summary
+                        .unwrap_or_else(|| "unavailable".to_string())
+                )
+            })
+        } else {
+            run_acp_initialize_probe_for_agent(cwd, agent).map(|evidence| {
+                let auth = if evidence.auth_methods.is_empty() {
+                    "none advertised".to_string()
+                } else {
+                    evidence.auth_methods.join(", ")
+                };
+                format!(
+                    "ok protocol={} remote={} auth={}",
+                    evidence.protocol_version, evidence.agent_label, auth
+                )
+            })
+        };
+        match result {
+            Ok(summary) => lines.push(format!("  PASS {}: {}", agent.agent_id, summary)),
+            Err(error) => {
+                let classification = classify_acp_smoke_error(agent, &error);
+                if classification == "blocked-auth" {
+                    blocked += 1;
+                } else {
+                    failed += 1;
+                }
+                lines.push(format!(
+                    "  {} {}: {}",
+                    if classification == "blocked-auth" {
+                        "BLOCKED"
+                    } else {
+                        "FAIL"
+                    },
+                    agent.agent_id,
+                    smoke_error_summary(&error)
+                ));
+            }
+        }
+    }
+    lines.push(format!(
+        "summary: {} failed, {} blocked-auth",
+        failed, blocked
+    ));
+    if failed > 0 || blocked > 0 {
+        return Err(lines.join("\n"));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn classify_acp_smoke_error(_agent: &AgentPluginDescriptor, error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("not logged in")
+        || lower.contains("not authenticated")
+        || lower.contains("please log in")
+    {
+        "blocked-auth"
+    } else if lower.contains("timed out") {
+        "timeout"
+    } else {
+        "failed"
+    }
+}
+
+fn smoke_error_summary(error: &str) -> String {
+    let mut summary = truncate_for_line(error.lines().next().unwrap_or(error), 220);
+    if summary.contains("timed out") {
+        summary
+            .push_str(" (increase VIDEN_ACP_SESSION_TIMEOUT_SECS or run provider-native doctor)");
+    }
+    summary
+}
+
+fn handle_acp_agent_run_command(
+    cwd: &Path,
+    run: AcpRunArgs,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    permission_context: PermissionContext,
+    runtime_event_sink: Option<RuntimeEventSink>,
+) -> Result<String, String> {
+    let agents = acp_agent_descriptors();
+    handle_acp_agent_run_command_with_agents(
+        cwd,
+        &agents,
+        run,
+        approver,
+        permission_context,
+        runtime_event_sink,
+    )
+}
+
+fn handle_acp_agent_run_command_with_agents(
+    cwd: &Path,
+    agents: &[AgentPluginDescriptor],
+    run: AcpRunArgs,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    permission_context: PermissionContext,
+    runtime_event_sink: Option<RuntimeEventSink>,
+) -> Result<String, String> {
+    let Some(agent) = agents.iter().find(|agent| agent.agent_id == run.agent_id) else {
+        let known = agents
+            .iter()
+            .map(|agent| agent.agent_id.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "Unknown ACP agent `{}`. Known ACP agents: {known}",
+            run.agent_id
+        ));
+    };
+    if !matches!(agent.transport, AgentTransport::Acp) {
+        return Err(format!(
+            "Agent `{}` does not use ACP transport.",
+            run.agent_id
+        ));
+    }
+    if run.async_job {
+        return start_acp_session_job(cwd, agent, run.task, run.session, runtime_event_sink);
+    }
+    let evidence = run_acp_session_prompt_for_agent_with_permissions(
+        cwd,
+        agent,
+        &run.task,
+        run.session,
+        approver,
+        permission_context,
+        runtime_event_sink,
+    )?;
+    let tool_calls = if evidence.tool_calls.is_empty() {
+        "none".to_string()
+    } else {
+        evidence.tool_calls.join(", ")
+    };
+    let message = if evidence.message.trim().is_empty() {
+        "<empty>".to_string()
+    } else {
+        evidence.message
+    };
+    let usage = evidence
+        .usage_summary
+        .unwrap_or_else(|| "unavailable".to_string());
+    Ok(format!(
+        "ACP session completed.\n  agent: {} ({})\n  session: {}\n  status: {}\n  message: {}\n  tool_calls: {}\n  usage: {}\n  log: {}",
+        agent.agent_id,
+        agent.display_name,
+        evidence.session_id,
+        evidence.final_status,
+        message,
+        tool_calls,
+        usage,
+        evidence.log_path.display()
+    ))
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct AcpRunArgs {
+    async_job: bool,
+    agent_id: String,
+    task: String,
+    session: AcpSessionOptions,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct AcpSessionOptions {
+    load_session_id: Option<String>,
+    mode_id: Option<String>,
+    model_id: Option<String>,
+}
+
+fn parse_acp_run_args(args: &[String]) -> Result<AcpRunArgs, String> {
+    let usage = "Usage: /agent run acp [--async] [--load-session <id>] [--mode <mode-id>] [--model <model-id>] <agent-id> <task>";
+    let mut parsed = AcpRunArgs::default();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--async" => {
+                parsed.async_job = true;
+                i += 1;
+            }
+            "--load-session" => {
+                parsed.session.load_session_id = Some(
+                    args.get(i + 1)
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| usage.to_string())?
+                        .clone(),
+                );
+                i += 2;
+            }
+            "--mode" => {
+                parsed.session.mode_id = Some(
+                    args.get(i + 1)
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| usage.to_string())?
+                        .clone(),
+                );
+                i += 2;
+            }
+            "--model" => {
+                parsed.session.model_id = Some(
+                    args.get(i + 1)
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| usage.to_string())?
+                        .clone(),
+                );
+                i += 2;
+            }
+            value if value.starts_with("--") => {
+                return Err(format!("Unknown ACP run option `{value}`.\n{usage}"));
+            }
+            _ => break,
+        }
+    }
+    parsed.agent_id = args
+        .get(i)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| usage.to_string())?
+        .clone();
+    parsed.task = args.get(i + 1..).unwrap_or_default().join(" ");
+    if parsed.task.trim().is_empty() {
+        return Err(usage.to_string());
+    }
+    Ok(parsed)
+}
+
 fn codex_run_command_args(cwd: &Path, sandbox: &str, task: String) -> Vec<String> {
     vec![
         "exec".to_string(),
@@ -265,6 +752,15 @@ fn render_agent_list() -> String {
             capability.id, capability.transport, capability.readiness, capability.mutation_mode
         )
     }));
+    lines.extend(acp_agent_descriptors().into_iter().map(|agent| {
+        format!(
+            "  {:<16} {:<10} {:<14} {}",
+            agent.agent_id,
+            agent_transport_label(&agent),
+            agent_descriptor_readiness(&agent),
+            "agent-native; permission-gated by ACP events"
+        )
+    }));
     lines.push(String::new());
     lines.push(
         "Use `/agent doctor [id]` for binary, capability, evidence, and transport details."
@@ -274,16 +770,29 @@ fn render_agent_list() -> String {
 }
 
 fn render_agent_doctor(target: Option<&str>, cwd: &Path) -> String {
+    let agent_descriptors = acp_agent_descriptors();
     let adapters = if let Some(id) = target {
-        let Some(adapter) = AGENT_ADAPTERS.into_iter().find(|adapter| adapter.id == id) else {
-            return format!(
-                "Unknown agent adapter `{id}`. Use `/agent list` to see known adapters."
-            );
-        };
-        vec![adapter]
+        AGENT_ADAPTERS
+            .into_iter()
+            .find(|adapter| adapter.id == id)
+            .into_iter()
+            .collect::<Vec<_>>()
     } else {
         AGENT_ADAPTERS.to_vec()
     };
+    let agents = if let Some(id) = target {
+        agent_descriptors
+            .into_iter()
+            .find(|agent| agent.agent_id == id)
+            .into_iter()
+            .collect::<Vec<_>>()
+    } else {
+        agent_descriptors
+    };
+    if target.is_some() && adapters.is_empty() && agents.is_empty() {
+        let id = target.unwrap_or_default();
+        return format!("Unknown agent adapter `{id}`. Use `/agent list` to see known adapters.");
+    }
     let mut lines = vec!["Agent diagnostics:".to_string()];
     for adapter in adapters {
         let capability = adapter_capability(adapter);
@@ -312,7 +821,7 @@ fn render_agent_doctor(target: Option<&str>, cwd: &Path) -> String {
                 }
             )),
             None if adapter.id == "acp" => lines.push(
-                "    binary: resolved from ROBOCODE_AGENT_ACP_COMMAND when configured".to_string(),
+                "    binary: resolved from VIDEN_AGENT_ACP_COMMAND when configured".to_string(),
             ),
             None => {
                 lines.push("    binary: not required until a custom tool is selected".to_string())
@@ -344,13 +853,179 @@ fn render_agent_doctor(target: Option<&str>, cwd: &Path) -> String {
             lines.extend(render_codex_doctor(cwd));
         }
     }
+    for agent in agents {
+        lines.extend(render_agent_descriptor_doctor(&agent));
+    }
     lines.join("\n")
+}
+
+fn render_agent_descriptor_doctor(agent: &AgentPluginDescriptor) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(format!("  {} ({})", agent.agent_id, agent.display_name));
+    lines.push(format!("    transport: {}", agent_transport_label(agent)));
+    lines.push(format!("    source: {}", agent_source_label(agent)));
+    lines.push(format!(
+        "    permission: {}",
+        agent_permission_profile_label(agent)
+    ));
+    lines.push(format!(
+        "    readiness: {}",
+        agent_descriptor_readiness(agent)
+    ));
+    lines.push(format!("    auth: {}", agent_auth_hint(agent)));
+    lines.push(format!("    command: {}", agent_command_line(agent)));
+    if let Some(package) = &agent.registry_package {
+        lines.push(format!(
+            "    registry: {}@{}",
+            package.package, package.version
+        ));
+    }
+    if !agent.capabilities.is_empty() {
+        lines.push(format!(
+            "    capabilities: {}",
+            agent
+                .capabilities
+                .iter()
+                .map(agent_capability_label)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !agent.experimental_methods.is_empty() {
+        lines.push(format!(
+            "    experimental: {}",
+            agent.experimental_methods.join(", ")
+        ));
+    }
+    lines.push("    mutation: agent-native; Viden must gate local tool effects".to_string());
+    lines.push("    evidence: ACP stream, tool updates, turn end, session log".to_string());
+    lines
+}
+
+fn agent_transport_label(agent: &AgentPluginDescriptor) -> &'static str {
+    match agent.transport {
+        AgentTransport::Acp => "acp",
+        AgentTransport::AppServer => "app-server",
+        AgentTransport::Template => "template",
+        AgentTransport::Pty => "pty",
+        AgentTransport::Tmux => "tmux",
+    }
+}
+
+fn agent_source_label(agent: &AgentPluginDescriptor) -> &'static str {
+    match agent.source {
+        AgentSource::Registry => "registry",
+        AgentSource::LocalCommand => "local-command",
+        AgentSource::Custom => "custom",
+    }
+}
+
+fn agent_permission_profile_label(agent: &AgentPluginDescriptor) -> &'static str {
+    match agent.permission_profile {
+        AgentPermissionProfile::ReadOnlyProbe => "read-only-probe",
+        AgentPermissionProfile::RuntimeGated => "runtime-gated",
+        AgentPermissionProfile::AgentNative => "agent-native",
+    }
+}
+
+fn agent_descriptor_readiness(agent: &AgentPluginDescriptor) -> &'static str {
+    if command_exists(&agent.command.command) {
+        if agent.auth_modes.contains(&AgentAuthMode::AgentNative) {
+            "installed; auth unknown"
+        } else {
+            "ready"
+        }
+    } else if matches!(agent.source, AgentSource::Registry) {
+        "setup needed"
+    } else {
+        "missing"
+    }
+}
+
+fn agent_auth_hint(agent: &AgentPluginDescriptor) -> &'static str {
+    if agent.agent_id == "kiro-cli" {
+        "agent-native; run `kiro-cli login` and `kiro-cli doctor`"
+    } else if agent.auth_modes.contains(&AgentAuthMode::AgentNative) {
+        "agent-native; use the agent's own login/config"
+    } else {
+        "none declared"
+    }
+}
+
+fn agent_command_line(agent: &AgentPluginDescriptor) -> String {
+    let mut parts = vec![agent.command.command.clone()];
+    parts.extend(acp_agent_command_args(agent));
+    parts.join(" ")
+}
+
+fn acp_agent_command_args(agent: &AgentPluginDescriptor) -> Vec<String> {
+    let mut args = agent.command.args.clone();
+    if is_kiro_agent(agent) {
+        push_env_arg(&mut args, "--agent", "VIDEN_KIRO_AGENT");
+        push_env_arg(&mut args, "--model", "VIDEN_KIRO_MODEL");
+        push_env_arg(&mut args, "--effort", "VIDEN_KIRO_EFFORT");
+        if env_flag_enabled("VIDEN_KIRO_TRUST_ALL_TOOLS")
+            && !args.iter().any(|arg| arg == "--trust-all-tools")
+        {
+            args.push("--trust-all-tools".to_string());
+        } else {
+            push_env_arg(&mut args, "--trust-tools", "VIDEN_KIRO_TRUST_TOOLS");
+        }
+        push_env_arg(&mut args, "--agent-engine", "VIDEN_KIRO_AGENT_ENGINE");
+    }
+    args
+}
+
+fn is_kiro_agent(agent: &AgentPluginDescriptor) -> bool {
+    agent.agent_id == "kiro-cli" || agent.command.command == "kiro-cli"
+}
+
+fn push_env_arg(args: &mut Vec<String>, flag: &str, env_name: &str) {
+    if args.iter().any(|arg| arg == flag) {
+        return;
+    }
+    let Ok(value) = env::var(env_name) else {
+        return;
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return;
+    }
+    args.push(flag.to_string());
+    args.push(value.to_string());
+}
+
+fn env_flag_enabled(env_name: &str) -> bool {
+    env::var(env_name)
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn agent_capability_label(capability: &AgentPluginCapability) -> &'static str {
+    match capability {
+        AgentPluginCapability::SessionPrompt => "session/prompt",
+        AgentPluginCapability::SessionLoad => "session/load",
+        AgentPluginCapability::SessionCancel => "session/cancel",
+        AgentPluginCapability::SessionSetMode => "session/set_mode",
+        AgentPluginCapability::SessionSetModel => "session/set_model",
+        AgentPluginCapability::StreamingUpdates => "streaming",
+        AgentPluginCapability::ToolCalls => "tool_calls",
+        AgentPluginCapability::ImageInput => "image_input",
+        AgentPluginCapability::SlashCommands => "slash_commands",
+        AgentPluginCapability::McpEvents => "mcp_events",
+    }
 }
 
 fn adapter_capability(adapter: AgentAdapterDescriptor) -> AgentCapabilityRecord {
     let known_limits = match adapter.id {
         "codex" => vec![
-            "write-capable runs require RoboCode approval".to_string(),
+            "write-capable runs require Viden approval".to_string(),
             "app-server write probe is guarded by an experimental flag".to_string(),
         ],
         "claude" => vec![
@@ -370,8 +1045,8 @@ fn adapter_capability(adapter: AgentAdapterDescriptor) -> AgentCapabilityRecord 
             "review/apply still flows through lane evidence".to_string(),
         ],
         "acp" => vec![
-            "experimental descriptor/probe surface only".to_string(),
-            "mutating runtime is intentionally out of scope for this release".to_string(),
+            "descriptor probe, minimal session run, and tracked async session jobs".to_string(),
+            "ACP file/terminal mutation is still gated until runtime bridging lands".to_string(),
         ],
         _ => Vec::new(),
     };
@@ -393,7 +1068,7 @@ fn adapter_mutation_mode(adapter: AgentAdapterDescriptor) -> &'static str {
         "codex" => "read-only by default; workspace-write requires approval",
         "claude" | "custom-template" => "template-defined; isolate before apply",
         "tmux" | "pty" => "interactive; operator-controlled",
-        "acp" => "read-only probe only",
+        "acp" => "agent-native; mutating file/terminal requests require runtime bridge",
         _ => "unknown",
     }
 }
@@ -403,7 +1078,7 @@ fn adapter_evidence_mode(adapter: AgentAdapterDescriptor) -> &'static str {
         "codex" => "job result, protocol/app-server log, lane artifacts",
         "claude" | "custom-template" => "lane log, envelope, timeline, artifacts",
         "tmux" | "pty" => "terminal tail, lane log, timeline, artifacts",
-        "acp" => "doctor/probe output",
+        "acp" => "JSONL wire log, session result, permission decisions",
         _ => "unknown",
     }
 }
@@ -411,10 +1086,126 @@ fn adapter_evidence_mode(adapter: AgentAdapterDescriptor) -> &'static str {
 fn render_agent_logs_help() -> String {
     [
         "Agent logs:",
-        "  /agent result <id> shows tracked Codex job output.",
+        "  /agent result <id> shows tracked Codex or ACP agent job output.",
         "  Use `/lane inspect <id>` for lane logs, artifacts, decisions, and transport evidence.",
     ]
     .join("\n")
+}
+
+pub(crate) fn tracked_agent_job_tasks(cwd: &Path) -> Vec<AgentTaskRecord> {
+    latest_codex_jobs(cwd)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|job| agent_task_from_job_record(cwd, job))
+        .collect()
+}
+
+fn agent_task_from_job_record(cwd: &Path, mut job: CodexJobRecord) -> AgentTaskRecord {
+    job.status = observed_codex_status(&job);
+    let evidence = codex_job_evidence(cwd, &job);
+    let mut evidence_lines = Vec::new();
+    if let Some(session_id) = &evidence.session_id {
+        if job.kind == "acp-session" {
+            evidence_lines.push(format!("session {session_id}"));
+        } else {
+            evidence_lines.push(format!("resume {session_id}"));
+        }
+    }
+    evidence_lines.extend(
+        evidence
+            .files
+            .into_iter()
+            .take(8)
+            .map(|file| format!("file {file}")),
+    );
+    AgentTaskRecord {
+        id: job.id.clone(),
+        parent_id: None,
+        agent: agent_job_agent(&job).to_string(),
+        kind: "job".to_string(),
+        transport: agent_job_transport(&job).to_string(),
+        title: job.task.clone(),
+        status: agent_job_task_status(&job.status).to_string(),
+        activity: agent_job_activity(&job, &evidence_lines),
+        summary: job.task.clone(),
+        progress: agent_job_progress(&job.status),
+        started_at: None,
+        updated_at: Some(job.updated_at),
+        workspace: None,
+        evidence: evidence_lines,
+        permissions: agent_job_permissions(&job),
+        decision: None,
+        result: Some(job.result_path.display().to_string()),
+        resume_handle: evidence.session_id.filter(|_| job.kind != "acp-session"),
+        pid: job.pid,
+        next_action: Some(AgentNextAction {
+            label: "inspect agent".to_string(),
+            command: Some(format!("/agent result {}", job.id)),
+            reason: Some("tracked agent job state is available".to_string()),
+        }),
+    }
+}
+
+fn agent_job_agent(job: &CodexJobRecord) -> &'static str {
+    if job.kind == "acp-session" {
+        "acp"
+    } else {
+        "codex"
+    }
+}
+
+fn agent_job_transport(job: &CodexJobRecord) -> &'static str {
+    if job.kind == "acp-session" {
+        "acp"
+    } else {
+        "app-server"
+    }
+}
+
+fn agent_job_task_status(status: &str) -> &'static str {
+    match status {
+        "queued" => AgentTaskStatus::Queued.as_str(),
+        "running" => AgentTaskStatus::Thinking.as_str(),
+        "finished" | "observed" => AgentTaskStatus::Done.as_str(),
+        "failed" => AgentTaskStatus::Failed.as_str(),
+        "cancelled" | "canceled" => AgentTaskStatus::Cancelled.as_str(),
+        _ => AgentTaskStatus::Done.as_str(),
+    }
+}
+
+fn agent_job_progress(status: &str) -> u8 {
+    match status {
+        "queued" => 10,
+        "running" => 65,
+        "finished" | "observed" | "failed" | "cancelled" | "canceled" => 100,
+        _ => 0,
+    }
+}
+
+fn agent_job_activity(job: &CodexJobRecord, evidence: &[String]) -> String {
+    match job.status.as_str() {
+        "queued" => format!("queued: {}", job.task),
+        "running" => evidence
+            .first()
+            .cloned()
+            .unwrap_or_else(|| format!("running {}", job.kind)),
+        "finished" | "observed" => "result ready".to_string(),
+        "failed" => evidence
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "failed; inspect result".to_string()),
+        status => format!("{status}: {}", job.task),
+    }
+}
+
+fn agent_job_permissions(job: &CodexJobRecord) -> Vec<String> {
+    if job.kind == "acp-session" {
+        vec!["agent permission gated".to_string()]
+    } else if job.kind.contains("write") || job.kind.contains("rescue") {
+        vec!["workspace-write approval".to_string()]
+    } else {
+        vec!["read-only".to_string()]
+    }
 }
 
 fn handle_codex_review_command(cwd: &Path, args: &[String]) -> Result<String, String> {
@@ -468,10 +1259,10 @@ fn handle_codex_probe_command(cwd: &Path, args: &[String]) -> Result<String, Str
     ensure_codex_target(args.first().map(String::as_str))?;
     let mode = parse_codex_probe_args(&args[1..])?;
     if matches!(mode, CodexProbeMode::Turn { write: true, .. })
-        && !env_is_configured("ROBOCODE_EXPERIMENTAL_CODEX_APP_SERVER_WRITE")
+        && !env_is_configured("VIDEN_EXPERIMENTAL_CODEX_APP_SERVER_WRITE")
     {
         return Err(
-            "`/agent probe codex --turn-write` is disabled by default because Codex app-server workspace-write turns can mutate files before RoboCode receives an approval request. Set ROBOCODE_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1 only in a disposable workspace."
+            "`/agent probe codex --turn-write` is disabled by default because Codex app-server workspace-write turns can mutate files before Viden receives an approval request. Set VIDEN_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1 only in a disposable workspace."
                 .to_string(),
         );
     }
@@ -579,11 +1370,11 @@ fn adapter_readiness(adapter: AgentAdapterDescriptor) -> &'static str {
 
 fn render_acp_probe(cwd: &Path) -> Vec<String> {
     let mut lines = Vec::new();
-    let Some(command) = env::var("ROBOCODE_AGENT_ACP_COMMAND")
+    let Some(command) = env::var("VIDEN_AGENT_ACP_COMMAND")
         .ok()
         .filter(|value| !value.trim().is_empty())
     else {
-        lines.push("    handshake: skipped (set ROBOCODE_AGENT_ACP_COMMAND)".to_string());
+        lines.push("    handshake: skipped (set VIDEN_AGENT_ACP_COMMAND)".to_string());
         return lines;
     };
     match run_acp_initialize_probe(cwd, &command) {
@@ -620,7 +1411,7 @@ fn render_codex_doctor(cwd: &Path) -> Vec<String> {
             lines.push(format!("    version: unavailable ({reason})"));
             lines.push("    app-server: skipped".to_string());
             lines.push("    auth: skipped".to_string());
-            lines.push("    next: install Codex with `npm install -g @openai/codex` or set ROBOCODE_AGENT_CODEX_COMMAND".to_string());
+            lines.push("    next: install Codex with `npm install -g @openai/codex` or set VIDEN_AGENT_CODEX_COMMAND".to_string());
         }
     }
     lines
@@ -905,14 +1696,129 @@ fn start_codex_app_server_job(cwd: &Path, command: &str, task: String) -> Result
     ))
 }
 
+fn start_acp_session_job(
+    cwd: &Path,
+    agent: &AgentPluginDescriptor,
+    task: String,
+    session: AcpSessionOptions,
+    runtime_event_sink: Option<RuntimeEventSink>,
+) -> Result<String, String> {
+    let id = format!("acp-{}", timestamp_millis());
+    let log_path = codex_job_artifact_path(cwd, &id, "jsonl");
+    let result_path = codex_job_artifact_path(cwd, &id, "result.md");
+    let runtime_event_path = acp_job_runtime_events_path(cwd, &id);
+    let baseline_path = codex_job_artifact_path(cwd, &id, "baseline.status");
+    let cancel_path = acp_job_cancel_path(cwd, &id);
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    write_codex_status_baseline(cwd, &baseline_path)?;
+    let record = CodexJobRecord {
+        id: id.clone(),
+        kind: "acp-session".to_string(),
+        status: "running".to_string(),
+        pid: None,
+        command: agent_command_line(agent),
+        task: task.clone(),
+        log_path: log_path.clone(),
+        result_path: result_path.clone(),
+        baseline_path: baseline_path.clone(),
+        updated_at: timestamp_millis(),
+    };
+    append_codex_job_record(cwd, "started", &record)?;
+
+    let monitor_cwd = cwd.to_path_buf();
+    let monitor_agent = agent.clone();
+    let monitor_task = task.clone();
+    let monitor_session = session.clone();
+    let monitor_runtime_event_path = runtime_event_path.clone();
+    let mut monitor_record = record.clone();
+    let pid_slot = Arc::new(Mutex::new(None::<u32>));
+    let pid_slot_for_thread = Arc::clone(&pid_slot);
+    std::thread::spawn(move || {
+        let mut background_approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
+            approved: false,
+            feedback: Some(
+                "background ACP jobs reject permission requests until runtime approvals are wired"
+                    .to_string(),
+            ),
+        };
+        let result = run_acp_session_prompt_for_agent_with_log(
+            &monitor_cwd,
+            &monitor_agent,
+            &monitor_task,
+            monitor_session.clone(),
+            &mut background_approver,
+            log_path.clone(),
+            Some(cancel_path.clone()),
+            Some(monitor_runtime_event_path.clone()),
+            PermissionContext::default(),
+            runtime_event_sink,
+            |pid| {
+                if let Ok(mut slot) = pid_slot_for_thread.lock() {
+                    *slot = Some(pid);
+                }
+                let mut pid_record = monitor_record.clone();
+                pid_record.pid = Some(pid);
+                pid_record.updated_at = timestamp_millis();
+                let _ = append_codex_job_record(&monitor_cwd, "pid", &pid_record);
+            },
+        );
+        let was_cancelled = find_codex_job(&monitor_cwd, &monitor_record.id)
+            .ok()
+            .flatten()
+            .is_some_and(|job| job.status == "cancelled");
+        if was_cancelled && result.is_err() {
+            let _ = append_agent_job_log_event(
+                &log_path,
+                "system",
+                &format!(
+                    "observed cancellation for ACP session job `{}` after agent process stopped",
+                    monitor_record.id
+                ),
+            );
+            return;
+        }
+        monitor_record.pid = pid_slot.lock().ok().and_then(|slot| *slot);
+        match result {
+            Ok(evidence) => {
+                let _ =
+                    write_acp_runtime_events(&monitor_runtime_event_path, &evidence.runtime_events);
+                let _ = write_acp_session_result(&result_path, &evidence);
+                monitor_record.status = acp_session_job_status(&evidence);
+                if was_cancelled && monitor_record.status != "cancelled" {
+                    monitor_record.status = "cancelled".to_string();
+                }
+            }
+            Err(error) => {
+                let _ = fs::write(&result_path, format!("# ACP session failed\n\n{error}\n"));
+                monitor_record.status = "failed".to_string();
+            }
+        }
+        monitor_record.updated_at = timestamp_millis();
+        let _ = append_codex_job_record(&monitor_cwd, "completed", &monitor_record);
+    });
+
+    Ok(format!(
+        "Started ACP session job `{}`.\n  agent: {} ({})\n  log: {}\n  result: {}\n\nUse `/agent status` to watch it, `/agent result {}` to read output, and `/agent cancel {}` to stop it.",
+        id,
+        agent.agent_id,
+        agent.display_name,
+        record.log_path.display(),
+        record.result_path.display(),
+        id,
+        id
+    ))
+}
+
 fn render_codex_job_status(cwd: &Path) -> Result<String, String> {
     let jobs = latest_codex_jobs(cwd)?;
     if jobs.is_empty() {
-        return Ok("Codex jobs:\n  no tracked jobs".to_string());
+        return Ok("Agent jobs:\n  no tracked jobs".to_string());
     }
     let mut lines = vec![
-        "Codex jobs:".to_string(),
-        "  id                    kind       status       pid     updated     task".to_string(),
+        "Agent jobs:".to_string(),
+        "  id                    kind          status       pid     updated     task".to_string(),
     ];
     let mut observed = Vec::new();
     for mut job in jobs.into_iter().rev().take(8) {
@@ -923,7 +1829,7 @@ fn render_codex_job_status(cwd: &Path) -> Result<String, String> {
             observed.push(job.clone());
         }
         lines.push(format!(
-            "  {:<21} {:<10} {:<12} {:<7} {:<11} {}",
+            "  {:<21} {:<13} {:<12} {:<7} {:<11} {}",
             job.id,
             job.kind,
             job.status,
@@ -935,7 +1841,7 @@ fn render_codex_job_status(cwd: &Path) -> Result<String, String> {
         ));
         let evidence = codex_job_evidence(cwd, &job);
         if let Some(session_id) = evidence.session_id {
-            lines.push(format!("    resume: codex resume {session_id}"));
+            lines.push(agent_job_session_line(&job, &session_id));
         }
         if !evidence.files.is_empty() {
             lines.push(format!(
@@ -957,7 +1863,7 @@ fn render_codex_job_status(cwd: &Path) -> Result<String, String> {
 
 fn render_codex_job_result(cwd: &Path, id: Option<&str>) -> Result<String, String> {
     let id = id.ok_or_else(|| "Usage: /agent result <id>".to_string())?;
-    let job = find_codex_job(cwd, id)?.ok_or_else(|| format!("Unknown Codex job `{id}`"))?;
+    let job = find_codex_job(cwd, id)?.ok_or_else(|| format!("Unknown agent job `{id}`"))?;
     let status = observed_codex_status(&job);
     let result = fs::read_to_string(&job.result_path)
         .ok()
@@ -968,7 +1874,7 @@ fn render_codex_job_result(cwd: &Path, id: Option<&str>) -> Result<String, Strin
     let resume = evidence
         .session_id
         .as_ref()
-        .map(|session_id| format!("  resume: codex resume {session_id}\n"))
+        .map(|session_id| format!("{}\n", agent_job_session_line(&job, session_id)))
         .unwrap_or_default();
     let files = if evidence.files.is_empty() {
         String::new()
@@ -976,7 +1882,8 @@ fn render_codex_job_result(cwd: &Path, id: Option<&str>) -> Result<String, Strin
         format!("  files: {}\n", evidence.files.join(", "))
     };
     Ok(format!(
-        "Codex job `{}`\n  kind: {}\n  status: {}\n  pid: {}\n  command: {}\n  log: {}\n  result: {}\n{}{}\n{}",
+        "{} `{}`\n  kind: {}\n  status: {}\n  pid: {}\n  command: {}\n  log: {}\n  result: {}\n{}{}\n{}",
+        agent_job_label(&job),
         job.id,
         job.kind,
         status,
@@ -994,31 +1901,178 @@ fn render_codex_job_result(cwd: &Path, id: Option<&str>) -> Result<String, Strin
 
 fn cancel_codex_job(cwd: &Path, id: Option<&str>) -> Result<String, String> {
     let id = id.ok_or_else(|| "Usage: /agent cancel <id>".to_string())?;
-    let mut job = find_codex_job(cwd, id)?.ok_or_else(|| format!("Unknown Codex job `{id}`"))?;
+    let mut job = find_codex_job(cwd, id)?.ok_or_else(|| format!("Unknown agent job `{id}`"))?;
+    let label = agent_job_label(&job);
     if matches!(job.status.as_str(), "cancelled" | "finished") {
-        return Ok(format!("Codex job `{id}` is already {}.", job.status));
+        return Ok(format!("{label} `{id}` is already {}.", job.status));
     }
     let Some(pid) = job.pid else {
-        return Err(format!("Codex job `{id}` has no process id to cancel."));
+        return Err(format!("{label} `{id}` has no process id to cancel."));
     };
+    let cancel_path = if job.kind == "acp-session" {
+        Some(acp_job_cancel_path(cwd, &job.id))
+    } else {
+        None
+    };
+    if let Some(path) = &cancel_path {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+        }
+        fs::write(
+            path,
+            format!("cancel requested at {}\n", timestamp_millis()),
+        )
+        .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    }
     job.status = "cancelled".to_string();
     job.updated_at = timestamp_millis();
     append_codex_job_record(cwd, "cancelled", &job)?;
-    terminate_process(pid)?;
-    Ok(format!("Cancelled Codex job `{id}` (pid {pid})."))
+    write_agent_job_cancel_result(&job, pid)?;
+    if job.kind == "acp-session" {
+        let _ =
+            wait_for_agent_job_text(&job.log_path, "session/cancel", Duration::from_millis(1500));
+    }
+    if process_is_running(pid) {
+        terminate_process(pid)?;
+    }
+    Ok(format!("Cancelled {label} `{id}` (pid {pid})."))
+}
+
+fn write_agent_job_cancel_result(job: &CodexJobRecord, pid: u32) -> Result<(), String> {
+    let note = if job.kind == "acp-session" {
+        "Viden requested ACP session/cancel when the live session was available, then used process termination as a bounded fallback if the agent did not stop promptly."
+    } else {
+        "Agent job was stopped by terminating the process."
+    };
+    if let Some(parent) = job.result_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    fs::write(
+        &job.result_path,
+        format!(
+            "# {} cancelled\n\nstatus: cancelled\npid: {}\ncommand: {}\ntask: {}\nlog: {}\n\n{}\n",
+            agent_job_label(job),
+            pid,
+            job.command,
+            job.task,
+            job.log_path.display(),
+            note
+        ),
+    )
+    .map_err(|err| format!("failed to write {}: {err}", job.result_path.display()))?;
+    append_agent_job_log_event(
+        &job.log_path,
+        "system",
+        &format!(
+            "cancelled {} `{}` via pid {}",
+            agent_job_label(job),
+            job.id,
+            pid
+        ),
+    )
+}
+
+fn agent_job_label(job: &CodexJobRecord) -> &'static str {
+    if job.kind == "acp-session" {
+        "ACP session job"
+    } else {
+        "Codex job"
+    }
+}
+
+fn agent_job_session_line(job: &CodexJobRecord, session_id: &str) -> String {
+    if job.kind == "acp-session" {
+        format!("    session: {session_id}")
+    } else {
+        format!("    resume: codex resume {session_id}")
+    }
 }
 
 fn codex_command() -> String {
-    env::var("ROBOCODE_AGENT_CODEX_COMMAND")
+    env::var("VIDEN_AGENT_CODEX_COMMAND")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "codex".to_string())
 }
 
 fn codex_job_artifact_path(cwd: &Path, id: &str, ext: &str) -> PathBuf {
-    cwd.join(".robocode")
+    cwd.join(".viden")
         .join("agents")
         .join(format!("{id}.{ext}"))
+}
+
+fn acp_job_cancel_path(cwd: &Path, id: &str) -> PathBuf {
+    codex_job_artifact_path(cwd, id, "cancel")
+}
+
+fn acp_job_runtime_events_path(cwd: &Path, id: &str) -> PathBuf {
+    codex_job_artifact_path(cwd, id, "runtime-events.jsonl")
+}
+
+pub(crate) fn tracked_agent_job_runtime_events(cwd: &Path) -> Vec<RuntimeEvent> {
+    latest_codex_jobs(cwd)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|job| job.kind == "acp-session")
+        .flat_map(|job| read_acp_runtime_events(&acp_job_runtime_events_path(cwd, &job.id)))
+        .collect()
+}
+
+fn read_acp_runtime_events(path: &Path) -> Vec<RuntimeEvent> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| serde_json::from_str::<RuntimeEvent>(line).ok())
+        .collect()
+}
+
+fn write_acp_runtime_events(path: &Path, events: &[RuntimeEvent]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let mut content = String::new();
+    for event in events {
+        let line = serde_json::to_string(event)
+            .map_err(|err| format!("failed to encode ACP runtime event: {err}"))?;
+        content.push_str(&line);
+        content.push('\n');
+    }
+    fs::write(path, content).map_err(|err| format!("failed to write {}: {err}", path.display()))
+}
+
+fn append_acp_runtime_events(path: &Path, events: &[RuntimeEvent]) -> Result<(), String> {
+    if events.is_empty() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|err| format!("failed to open {}: {err}", path.display()))?;
+    for event in events {
+        let line = serde_json::to_string(event)
+            .map_err(|err| format!("failed to encode ACP runtime event: {err}"))?;
+        writeln!(file, "{line}")
+            .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn wait_for_agent_job_text(path: &Path, needle: &str, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if fs::read_to_string(path).is_ok_and(|text| text.contains(needle)) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    false
 }
 
 fn append_codex_job_record(cwd: &Path, event: &str, record: &CodexJobRecord) -> Result<(), String> {
@@ -1217,6 +2271,39 @@ fn codex_app_server_turn_job_status(evidence: &CodexAppServerProbeEvidence) -> S
     }
 }
 
+fn acp_session_job_status(evidence: &AcpSessionPromptEvidence) -> String {
+    match evidence.final_status.as_str() {
+        "completed" | "end_turn" => "finished".to_string(),
+        "cancelled" => "cancelled".to_string(),
+        "failed" | "interrupted" => "failed".to_string(),
+        _ => "observed".to_string(),
+    }
+}
+
+fn write_acp_session_result(
+    path: &Path,
+    evidence: &AcpSessionPromptEvidence,
+) -> Result<(), String> {
+    let tool_calls = if evidence.tool_calls.is_empty() {
+        "none".to_string()
+    } else {
+        evidence.tool_calls.join(", ")
+    };
+    fs::write(
+        path,
+        format!(
+            "# ACP session result\n\nsession: {}\nstatus: {}\ntool_calls: {}\nusage: {}\nlog: {}\n\n{}",
+            evidence.session_id,
+            evidence.final_status,
+            tool_calls,
+            evidence.usage_summary.as_deref().unwrap_or("unavailable"),
+            evidence.log_path.display(),
+            evidence.message.trim()
+        ),
+    )
+    .map_err(|err| format!("failed to write ACP session result: {err}"))
+}
+
 fn codex_job_evidence_from_text(cwd: &Path, job: &CodexJobRecord, text: &str) -> CodexJobEvidence {
     let mut files = changed_files_since_codex_start(cwd, job);
     files.extend(extract_file_mentions(text));
@@ -1272,7 +2359,7 @@ fn git_status_snapshot(cwd: &Path) -> Result<Vec<String>, String> {
 
 fn git_status_line(line: &str) -> Option<String> {
     let path = git_status_path(line)?;
-    if path.starts_with(".robocode/") {
+    if path.starts_with(".viden/") {
         return None;
     }
     Some(line.to_string())
@@ -1282,7 +2369,7 @@ fn git_status_path(line: &str) -> Option<String> {
     let path = line.get(3..)?.trim();
     let path = path.rsplit(" -> ").next().unwrap_or(path).trim();
     let path = path.trim_matches('"');
-    if path.is_empty() || path.starts_with(".robocode/") {
+    if path.is_empty() || path.starts_with(".viden/") {
         None
     } else {
         Some(path.to_string())
@@ -1352,7 +2439,7 @@ fn looks_like_repo_file(token: &str) -> bool {
     if token.is_empty()
         || token.starts_with("http://")
         || token.starts_with("https://")
-        || token.starts_with(".robocode/")
+        || token.starts_with(".viden/")
         || token.contains("://")
     {
         return false;
@@ -1388,6 +2475,7 @@ fn process_is_running(pid: u32) -> bool {
         Command::new("kill")
             .arg("-0")
             .arg(pid.to_string())
+            .stderr(Stdio::null())
             .status()
             .map(|status| status.success())
             .unwrap_or(false)
@@ -1556,7 +2644,7 @@ fn codex_protocol_probe(cwd: &Path, command: &str) -> Result<CodexProtocolProbeR
 }
 
 fn codex_protocol_schema_dir(cwd: &Path) -> PathBuf {
-    cwd.join(".robocode")
+    cwd.join(".viden")
         .join("tmp")
         .join(format!("codex-schema-{}", timestamp_millis()))
 }
@@ -1723,15 +2811,34 @@ fn codex_config_sources(cwd: &Path) -> String {
 }
 
 fn codex_job_store_path(cwd: &Path) -> PathBuf {
-    cwd.join(".robocode")
-        .join("agents")
-        .join("codex-jobs.jsonl")
+    cwd.join(".viden").join("agents").join("codex-jobs.jsonl")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AcpProbeEvidence {
     protocol_version: String,
     agent_label: String,
+    auth_methods: Vec<String>,
+    auth_method_ids: Vec<String>,
+    capabilities: Vec<String>,
+    log_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AcpAuthEvidence {
+    method_id: String,
+    status: String,
+    log_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AcpSessionPromptEvidence {
+    session_id: String,
+    final_status: String,
+    message: String,
+    tool_calls: Vec<String>,
+    usage_summary: Option<String>,
+    runtime_events: Vec<RuntimeEvent>,
     log_path: PathBuf,
 }
 
@@ -1971,12 +3078,2108 @@ fn run_acp_initialize_probe(cwd: &Path, command: &str) -> Result<AcpProbeEvidenc
             log_path.display()
         ));
     }
-    Ok(AcpProbeEvidence {
-        protocol_version: json_number_field(&response, "protocolVersion")
-            .unwrap_or_else(|| "unknown".to_string()),
-        agent_label: agent_label_from_response(&response),
+    Ok(acp_probe_evidence_from_response(&response, log_path))
+}
+
+fn run_acp_initialize_probe_for_agent(
+    cwd: &Path,
+    agent: &AgentPluginDescriptor,
+) -> Result<AcpProbeEvidence, String> {
+    let log_path = acp_probe_log_path(cwd);
+    let mut log_entries = Vec::new();
+    let request = acp_initialize_request();
+    log_entries.push(jsonl_event("client", &request));
+
+    let mut child = spawn_acp_agent_process(cwd, agent)?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "failed to open ACP stdin".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to open ACP stdout".to_string())?;
+    stdin
+        .write_all(request.as_bytes())
+        .and_then(|_| stdin.write_all(b"\n"))
+        .and_then(|_| stdin.flush())
+        .map_err(|err| format!("failed to write initialize: {err}"))?;
+
+    let response = match read_line_with_timeout(stdout, acp_agent_handshake_timeout(agent)) {
+        Ok(response) => response,
+        Err(error) => {
+            return Err(finish_failed_probe(
+                child,
+                log_path.clone(),
+                log_entries,
+                error,
+            ));
+        }
+    };
+    log_entries.push(jsonl_event("agent", &response));
+    let _ = child.kill();
+    let _ = child.wait();
+    write_probe_log(&log_path, &log_entries)?;
+
+    if !response.contains("\"jsonrpc\"") || !response.contains("\"result\"") {
+        return Err(format!(
+            "unexpected initialize response; log {}",
+            log_path.display()
+        ));
+    }
+    Ok(acp_probe_evidence_from_response(&response, log_path))
+}
+
+fn run_acp_authenticate_for_agent(
+    cwd: &Path,
+    agent: &AgentPluginDescriptor,
+    method_id: Option<&str>,
+) -> Result<AcpAuthEvidence, String> {
+    let log_path = acp_probe_log_path(cwd);
+    let mut log_entries = Vec::new();
+    let mut child = spawn_acp_agent_process(cwd, agent)?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "failed to open ACP stdin".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to open ACP stdout".to_string())?;
+    let receiver = read_lines_async(stdout);
+
+    let initialize = acp_initialize_request();
+    if let Err(error) = write_acp_request(&mut stdin, &initialize, &mut log_entries) {
+        return Err(finish_failed_probe(child, log_path, log_entries, error));
+    }
+    let initialize_response = match read_acp_response_line(
+        &receiver,
+        0,
+        &mut log_entries,
+        acp_agent_handshake_timeout(agent),
+    ) {
+        Ok(response) => response,
+        Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
+    };
+    let probe = acp_probe_evidence_from_response(&initialize_response, log_path.clone());
+    let method = match method_id {
+        Some(method) => method.to_string(),
+        None if probe.auth_method_ids.len() == 1 => probe.auth_method_ids[0].clone(),
+        None if probe.auth_method_ids.is_empty() => {
+            return Err(finish_expected_acp_stop(
+                child,
+                log_path,
+                log_entries,
+                "ACP agent did not advertise authentication methods".to_string(),
+            ));
+        }
+        None => {
+            let methods = probe.auth_methods.join(", ");
+            return Err(finish_expected_acp_stop(
+                child,
+                log_path,
+                log_entries,
+                format!("choose an auth method: {methods}"),
+            ));
+        }
+    };
+    if !probe.auth_method_ids.is_empty() && !probe.auth_method_ids.iter().any(|id| id == &method) {
+        let methods = probe.auth_methods.join(", ");
+        return Err(finish_expected_acp_stop(
+            child,
+            log_path,
+            log_entries,
+            format!("unknown ACP auth method `{method}`. Available methods: {methods}"),
+        ));
+    }
+
+    let authenticate = acp_authenticate_request(&method);
+    if let Err(error) = write_acp_request(&mut stdin, &authenticate, &mut log_entries) {
+        return Err(finish_failed_probe(child, log_path, log_entries, error));
+    }
+    let response = match read_acp_response_line(
+        &receiver,
+        1,
+        &mut log_entries,
+        acp_agent_handshake_timeout(agent),
+    ) {
+        Ok(response) => response,
+        Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    write_probe_log(&log_path, &log_entries)?;
+    if response.contains(r#""error""#) {
+        return Err(format!(
+            "ACP authenticate failed for method `{method}`; log {}",
+            log_path.display()
+        ));
+    }
+    Ok(AcpAuthEvidence {
+        method_id: method,
+        status: acp_auth_status_from_response(&response),
         log_path,
     })
+}
+
+fn run_acp_session_prompt_for_agent(
+    cwd: &Path,
+    agent: &AgentPluginDescriptor,
+    prompt: &str,
+    session: AcpSessionOptions,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+) -> Result<AcpSessionPromptEvidence, String> {
+    run_acp_session_prompt_for_agent_with_permissions(
+        cwd,
+        agent,
+        prompt,
+        session,
+        approver,
+        PermissionContext::default(),
+        None,
+    )
+}
+
+fn run_acp_session_prompt_for_agent_with_permissions(
+    cwd: &Path,
+    agent: &AgentPluginDescriptor,
+    prompt: &str,
+    session: AcpSessionOptions,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    permission_context: PermissionContext,
+    runtime_event_sink: Option<RuntimeEventSink>,
+) -> Result<AcpSessionPromptEvidence, String> {
+    let log_path = acp_session_log_path(cwd);
+    run_acp_session_prompt_for_agent_with_log(
+        cwd,
+        agent,
+        prompt,
+        session,
+        approver,
+        log_path,
+        None,
+        None,
+        permission_context,
+        runtime_event_sink,
+        |_| {},
+    )
+}
+
+fn run_acp_session_prompt_for_agent_with_log(
+    cwd: &Path,
+    agent: &AgentPluginDescriptor,
+    prompt: &str,
+    session: AcpSessionOptions,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    log_path: PathBuf,
+    cancel_path: Option<PathBuf>,
+    runtime_event_log_path: Option<PathBuf>,
+    permission_context: PermissionContext,
+    runtime_event_sink: Option<RuntimeEventSink>,
+    mut on_pid: impl FnMut(u32),
+) -> Result<AcpSessionPromptEvidence, String> {
+    let mut log_entries = Vec::new();
+    let mut permission_engine = PermissionEngine::new(cwd);
+    permission_engine.restore_context(permission_context);
+    let mut child = spawn_acp_agent_process(cwd, agent)?;
+    on_pid(child.id());
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "failed to open ACP stdin".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to open ACP stdout".to_string())?;
+    let receiver = read_lines_async(stdout);
+
+    let initialize = acp_initialize_request();
+    if let Err(error) = write_acp_request(&mut stdin, &initialize, &mut log_entries) {
+        return Err(finish_failed_probe(child, log_path, log_entries, error));
+    }
+    if let Err(error) = read_acp_response_line(
+        &receiver,
+        0,
+        &mut log_entries,
+        acp_agent_handshake_timeout(agent),
+    ) {
+        return Err(finish_failed_probe(child, log_path, log_entries, error));
+    }
+
+    let session_request = if let Some(session_id) = session.load_session_id.as_deref() {
+        acp_session_load_request(cwd, session_id)
+    } else {
+        acp_session_new_request(cwd)
+    };
+    if let Err(error) = write_acp_request(&mut stdin, &session_request, &mut log_entries) {
+        return Err(finish_failed_probe(child, log_path, log_entries, error));
+    }
+    let session_response = match read_acp_response_line(
+        &receiver,
+        1,
+        &mut log_entries,
+        acp_agent_handshake_timeout(agent),
+    ) {
+        Ok(response) => response,
+        Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
+    };
+    let Some(session_id) =
+        acp_session_id_from_response(&session_response).or_else(|| session.load_session_id.clone())
+    else {
+        return Err(finish_failed_probe(
+            child,
+            log_path.clone(),
+            log_entries.clone(),
+            "ACP session creation did not return a session id".to_string(),
+        ));
+    };
+
+    let mut next_request_id = 2;
+    if let Some(mode_id) = session.mode_id.as_deref() {
+        let set_mode = acp_session_set_mode_request(&session_id, mode_id, next_request_id);
+        if let Err(error) = write_acp_request(&mut stdin, &set_mode, &mut log_entries) {
+            return Err(finish_failed_probe(child, log_path, log_entries, error));
+        }
+        let response = match read_acp_response_line(
+            &receiver,
+            next_request_id,
+            &mut log_entries,
+            acp_agent_handshake_timeout(agent),
+        ) {
+            Ok(response) => response,
+            Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
+        };
+        if acp_response_has_error(&response) {
+            return Err(finish_failed_probe(
+                child,
+                log_path,
+                log_entries,
+                acp_response_error_message_for(
+                    "ACP session/set_mode failed",
+                    &serde_json::from_str(&response).unwrap_or(Value::Null),
+                ),
+            ));
+        }
+        next_request_id += 1;
+    }
+    if let Some(model_id) = session.model_id.as_deref() {
+        let set_model = acp_session_set_model_request(&session_id, model_id, next_request_id);
+        if let Err(error) = write_acp_request(&mut stdin, &set_model, &mut log_entries) {
+            return Err(finish_failed_probe(child, log_path, log_entries, error));
+        }
+        let response = match read_acp_response_line(
+            &receiver,
+            next_request_id,
+            &mut log_entries,
+            acp_agent_handshake_timeout(agent),
+        ) {
+            Ok(response) => response,
+            Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
+        };
+        next_request_id += 1;
+        if acp_response_is_method_not_found(&response) {
+            let legacy_set_model =
+                acp_legacy_session_set_model_request(&session_id, model_id, next_request_id);
+            if let Err(error) = write_acp_request(&mut stdin, &legacy_set_model, &mut log_entries) {
+                return Err(finish_failed_probe(child, log_path, log_entries, error));
+            }
+            let legacy_response = match read_acp_response_line(
+                &receiver,
+                next_request_id,
+                &mut log_entries,
+                acp_agent_handshake_timeout(agent),
+            ) {
+                Ok(response) => response,
+                Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
+            };
+            if acp_response_has_error(&legacy_response) {
+                return Err(finish_failed_probe(
+                    child,
+                    log_path,
+                    log_entries,
+                    acp_response_error_message_for(
+                        "ACP session/set_model failed",
+                        &serde_json::from_str(&legacy_response).unwrap_or(Value::Null),
+                    ),
+                ));
+            }
+            next_request_id += 1;
+        } else if acp_response_has_error(&response) {
+            return Err(finish_failed_probe(
+                child,
+                log_path,
+                log_entries,
+                acp_response_error_message_for(
+                    "ACP session/set_config_option failed",
+                    &serde_json::from_str(&response).unwrap_or(Value::Null),
+                ),
+            ));
+        }
+    }
+
+    let prompt_request_id = next_request_id;
+    let prompt_request = acp_session_prompt_request(agent, &session_id, prompt, prompt_request_id);
+    if let Err(error) = write_acp_request(&mut stdin, &prompt_request, &mut log_entries) {
+        return Err(finish_failed_probe(child, log_path, log_entries, error));
+    }
+    let mut message = String::new();
+    let mut tool_calls = Vec::new();
+    let mut runtime_events = Vec::new();
+    let mut runtime_sequence = 1;
+    let mut acp_gate_evidence_ids = Vec::new();
+    push_acp_runtime_event(
+        &mut runtime_events,
+        &mut runtime_sequence,
+        RuntimeEventKind::MergeGateUpdated {
+            gate: acp_session_merge_gate(
+                &session_id,
+                MergeGateStatus::Proposed,
+                &acp_gate_evidence_ids,
+            ),
+        },
+    );
+    if let Some(path) = runtime_event_log_path.as_deref()
+        && let Err(error) = append_acp_runtime_events(path, &runtime_events)
+    {
+        return Err(finish_failed_probe(child, log_path, log_entries, error));
+    }
+    if let Some(sink) = runtime_event_sink.as_ref() {
+        sink(runtime_events.clone());
+    }
+    let mut terminals = AcpTerminalStore::default();
+    let mut final_status = None;
+    let mut usage_summary = None;
+    let mut cancel_sent = false;
+    let mut cancel_deadline = None;
+    let session_timeout = acp_session_prompt_timeout(agent);
+    let deadline = Instant::now() + session_timeout;
+    while Instant::now() < deadline {
+        if !cancel_sent && cancel_path.as_ref().is_some_and(|path| path.exists()) {
+            let cancel_request = acp_session_cancel_request(&session_id);
+            if let Err(error) = write_acp_request(&mut stdin, &cancel_request, &mut log_entries) {
+                return Err(finish_failed_probe(child, log_path, log_entries, error));
+            }
+            cancel_sent = true;
+            cancel_deadline = Some(Instant::now() + Duration::from_secs(2));
+            continue;
+        }
+        if cancel_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            final_status = Some("cancelled".to_string());
+            break;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match receiver.recv_timeout(remaining.min(Duration::from_secs(1))) {
+            Ok(Ok(line)) => {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                log_entries.push(jsonl_event("agent", line));
+                let Ok(value) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                if value.get("id").and_then(Value::as_u64) == Some(prompt_request_id) {
+                    if value.get("error").is_some() {
+                        return Err(finish_failed_probe(
+                            child,
+                            log_path,
+                            log_entries,
+                            acp_response_error_message(&value),
+                        ));
+                    }
+                    final_status = Some(acp_prompt_response_status(&value));
+                    usage_summary = acp_usage_summary(&value);
+                    break;
+                }
+                if value.get("id").and_then(Value::as_u64) == Some(ACP_SESSION_CANCEL_REQUEST_ID) {
+                    final_status = Some(
+                        value
+                            .pointer("/result/status")
+                            .and_then(Value::as_str)
+                            .unwrap_or("cancelled")
+                            .to_string(),
+                    );
+                    break;
+                }
+                if value.get("method").and_then(Value::as_str) == Some("session/request_permission")
+                {
+                    let prompt = acp_permission_prompt(&value);
+                    let approval = approver(prompt);
+                    let response = acp_permission_response(&value, approval.approved);
+                    if let Err(error) = write_acp_request(&mut stdin, &response, &mut log_entries) {
+                        return Err(finish_failed_probe(child, log_path, log_entries, error));
+                    }
+                    continue;
+                }
+                if let Some(response) = acp_filesystem_client_request_response(
+                    cwd,
+                    &permission_engine,
+                    approver,
+                    &value,
+                ) {
+                    if let Err(error) = write_acp_request(&mut stdin, &response, &mut log_entries) {
+                        return Err(finish_failed_probe(child, log_path, log_entries, error));
+                    }
+                    continue;
+                }
+                if let Some(response) = acp_terminal_client_request_response(
+                    cwd,
+                    &permission_engine,
+                    approver,
+                    &mut terminals,
+                    &value,
+                ) {
+                    if let Err(error) = write_acp_request(&mut stdin, &response, &mut log_entries) {
+                        return Err(finish_failed_probe(child, log_path, log_entries, error));
+                    }
+                    continue;
+                }
+                if let Some(response) = acp_unsupported_client_request_response(&value) {
+                    if let Err(error) = write_acp_request(&mut stdin, &response, &mut log_entries) {
+                        return Err(finish_failed_probe(child, log_path, log_entries, error));
+                    }
+                    continue;
+                }
+                let method = value.get("method").and_then(Value::as_str);
+                if method != Some("session/update") && method != Some("session/notification") {
+                    continue;
+                }
+                let Some(update) = value.pointer("/params/update") else {
+                    continue;
+                };
+                let before_event_count = runtime_events.len();
+                append_acp_update_runtime_events(
+                    &mut runtime_events,
+                    &mut runtime_sequence,
+                    &session_id,
+                    &mut acp_gate_evidence_ids,
+                    update,
+                );
+                if let Some(path) = runtime_event_log_path.as_deref()
+                    && before_event_count < runtime_events.len()
+                    && let Err(error) =
+                        append_acp_runtime_events(path, &runtime_events[before_event_count..])
+                {
+                    return Err(finish_failed_probe(child, log_path, log_entries, error));
+                }
+                if before_event_count < runtime_events.len()
+                    && let Some(sink) = runtime_event_sink.as_ref()
+                {
+                    sink(runtime_events[before_event_count..].to_vec());
+                }
+                match acp_update_kind(update).as_deref() {
+                    Some("AgentMessageChunk") | Some("agent_message_chunk") => {
+                        if let Some(text) = acp_message_chunk_text(update) {
+                            message.push_str(&text);
+                        }
+                    }
+                    Some("ToolCall")
+                    | Some("tool_call")
+                    | Some("ToolCallUpdate")
+                    | Some("tool_call_update") => {
+                        tool_calls.push(acp_tool_call_summary(update));
+                    }
+                    Some("TurnEnd") | Some("turn_end") => {
+                        final_status = update
+                            .get("status")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                            .or_else(|| Some("completed".to_string()));
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Err(error)) => {
+                return Err(finish_failed_probe(
+                    child,
+                    log_path,
+                    log_entries,
+                    format!("failed to read ACP session update: {error}"),
+                ));
+            }
+            Err(_) => {}
+        }
+    }
+    let Some(final_status) = final_status else {
+        return Err(finish_failed_probe(
+            child,
+            log_path,
+            log_entries,
+            format!(
+                "ACP session/prompt timed out before TurnEnd or final response after {}s",
+                session_timeout.as_secs()
+            ),
+        ));
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    write_probe_log(&log_path, &log_entries)?;
+
+    Ok(AcpSessionPromptEvidence {
+        session_id,
+        final_status,
+        message,
+        tool_calls,
+        usage_summary,
+        runtime_events,
+        log_path,
+    })
+}
+
+fn write_acp_request(
+    stdin: &mut impl Write,
+    request: &str,
+    log_entries: &mut Vec<String>,
+) -> Result<(), String> {
+    log_entries.push(jsonl_event("client", request));
+    stdin
+        .write_all(request.as_bytes())
+        .and_then(|_| stdin.write_all(b"\n"))
+        .and_then(|_| stdin.flush())
+        .map_err(|err| format!("failed to write ACP request: {err}"))
+}
+
+fn read_acp_response_line(
+    receiver: &mpsc::Receiver<std::io::Result<String>>,
+    id: u64,
+    log_entries: &mut Vec<String>,
+    timeout: Duration,
+) -> Result<String, String> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match receiver.recv_timeout(remaining.min(Duration::from_secs(1))) {
+            Ok(Ok(line)) => {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                log_entries.push(jsonl_event("agent", line));
+                let Ok(value) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                if value.get("id").and_then(Value::as_u64) == Some(id) {
+                    return Ok(line.to_string());
+                }
+            }
+            Ok(Err(error)) => return Err(format!("failed to read ACP response: {error}")),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(format!("ACP command closed stdout before response id {id}"));
+            }
+        }
+    }
+    Err(format!("ACP response id {id} timed out"))
+}
+
+fn acp_agent_handshake_timeout(agent: &AgentPluginDescriptor) -> Duration {
+    if let Ok(raw) = env::var("VIDEN_ACP_HANDSHAKE_TIMEOUT_SECS")
+        && let Ok(seconds) = raw.parse::<u64>()
+        && seconds > 0
+    {
+        return Duration::from_secs(seconds);
+    }
+    if matches!(agent.source, AgentSource::Registry) {
+        Duration::from_secs(DEFAULT_REGISTRY_ACP_HANDSHAKE_TIMEOUT_SECS)
+    } else {
+        Duration::from_secs(DEFAULT_LOCAL_ACP_HANDSHAKE_TIMEOUT_SECS)
+    }
+}
+
+fn acp_session_prompt_timeout(agent: &AgentPluginDescriptor) -> Duration {
+    if let Ok(raw) = env::var("VIDEN_ACP_SESSION_TIMEOUT_SECS")
+        && let Ok(seconds) = raw.parse::<u64>()
+        && seconds > 0
+    {
+        return Duration::from_secs(seconds);
+    }
+    if is_kiro_agent(agent) {
+        Duration::from_secs(DEFAULT_KIRO_ACP_SESSION_TIMEOUT_SECS)
+    } else {
+        Duration::from_secs(DEFAULT_LOCAL_ACP_SESSION_TIMEOUT_SECS)
+    }
+}
+
+fn acp_update_kind(update: &Value) -> Option<String> {
+    update
+        .get("type")
+        .or_else(|| update.get("sessionUpdate"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn acp_message_chunk_text(update: &Value) -> Option<String> {
+    match update.get("content") {
+        Some(Value::String(content)) => Some(content.clone()),
+        Some(Value::Object(content)) => content
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        _ => update
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }
+}
+
+fn acp_patch_text(update: &Value) -> Option<String> {
+    [
+        "/diff",
+        "/patch",
+        "/unifiedDiff",
+        "/unified_diff",
+        "/content/diff",
+        "/content/patch",
+        "/content/unifiedDiff",
+        "/content/unified_diff",
+        "/fileChange/patch",
+        "/fileChange/diff",
+        "/file_change/patch",
+        "/file_change/diff",
+    ]
+    .iter()
+    .filter_map(|pointer| update.pointer(pointer).and_then(Value::as_str))
+    .find(|text| looks_like_unified_diff(text))
+    .map(str::to_string)
+}
+
+fn acp_patch_path(update: &Value) -> Option<String> {
+    [
+        "/path",
+        "/file",
+        "/filePath",
+        "/file_path",
+        "/content/path",
+        "/content/file",
+        "/content/filePath",
+        "/content/file_path",
+        "/fileChange/path",
+        "/fileChange/filePath",
+        "/file_change/path",
+        "/file_change/file_path",
+    ]
+    .iter()
+    .find_map(|pointer| update.pointer(pointer).and_then(Value::as_str))
+    .map(str::to_string)
+}
+
+fn acp_patch_summary(patch: &str, explicit_path: Option<&str>) -> String {
+    let metadata = acp_patch_metadata(patch, explicit_path, &Value::Null);
+    let file_count = metadata
+        .get("fileCount")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let additions = metadata
+        .get("additions")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let deletions = metadata
+        .get("deletions")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let path = explicit_path
+        .map(str::to_string)
+        .or_else(|| {
+            metadata
+                .pointer("/files/0/path")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "<unknown>".to_string());
+    format!("ACP patch: {file_count} file(s), +{additions}/-{deletions}, first {path}")
+}
+
+fn acp_patch_metadata(patch: &str, explicit_path: Option<&str>, update: &Value) -> Value {
+    let (files, additions, deletions, hunks) = acp_patch_files(patch, explicit_path);
+    json!({
+        "schema": "acp.patch.v1",
+        "format": "unified_diff",
+        "fileCount": files.len(),
+        "additions": additions,
+        "deletions": deletions,
+        "hunks": hunks,
+        "files": files,
+        "diff": patch,
+        "origin": {
+            "updateType": acp_update_kind(update),
+            "toolCallId": update
+                .get("toolCallId")
+                .or_else(|| update.get("tool_call_id"))
+                .and_then(Value::as_str),
+        }
+    })
+}
+
+fn acp_patch_files(patch: &str, explicit_path: Option<&str>) -> (Vec<Value>, u64, u64, u64) {
+    #[derive(Default)]
+    struct FileStats {
+        old_path: Option<String>,
+        new_path: Option<String>,
+        additions: u64,
+        deletions: u64,
+        hunks: u64,
+    }
+
+    fn push_file(files: &mut Vec<Value>, file: &mut Option<FileStats>) {
+        let Some(stats) = file.take() else {
+            return;
+        };
+        let path = stats
+            .new_path
+            .as_deref()
+            .filter(|path| *path != "/dev/null")
+            .or(stats
+                .old_path
+                .as_deref()
+                .filter(|path| *path != "/dev/null"))
+            .unwrap_or("<unknown>");
+        files.push(json!({
+            "path": path,
+            "oldPath": stats.old_path,
+            "newPath": stats.new_path,
+            "additions": stats.additions,
+            "deletions": stats.deletions,
+            "hunks": stats.hunks,
+        }));
+    }
+
+    let mut files = Vec::new();
+    let mut current: Option<FileStats> = None;
+    let mut total_additions = 0;
+    let mut total_deletions = 0;
+    let mut total_hunks = 0;
+
+    for line in patch.lines() {
+        if let Some((old_path, new_path)) = parse_diff_git_paths(line) {
+            push_file(&mut files, &mut current);
+            current = Some(FileStats {
+                old_path: Some(old_path),
+                new_path: Some(new_path),
+                ..FileStats::default()
+            });
+            continue;
+        }
+        if let Some(old_path) = line.strip_prefix("--- ") {
+            current.get_or_insert_with(FileStats::default).old_path =
+                Some(normalize_diff_path(old_path));
+            continue;
+        }
+        if let Some(new_path) = line.strip_prefix("+++ ") {
+            current.get_or_insert_with(FileStats::default).new_path =
+                Some(normalize_diff_path(new_path));
+            continue;
+        }
+        if line.starts_with("@@") {
+            let stats = current.get_or_insert_with(FileStats::default);
+            stats.hunks += 1;
+            total_hunks += 1;
+            continue;
+        }
+        if line.starts_with('+') && !line.starts_with("+++") {
+            let stats = current.get_or_insert_with(FileStats::default);
+            stats.additions += 1;
+            total_additions += 1;
+            continue;
+        }
+        if line.starts_with('-') && !line.starts_with("---") {
+            let stats = current.get_or_insert_with(FileStats::default);
+            stats.deletions += 1;
+            total_deletions += 1;
+        }
+    }
+    push_file(&mut files, &mut current);
+
+    if files.is_empty()
+        && let Some(path) = explicit_path
+    {
+        files.push(json!({
+            "path": path,
+            "oldPath": path,
+            "newPath": path,
+            "additions": total_additions,
+            "deletions": total_deletions,
+            "hunks": total_hunks,
+        }));
+    }
+
+    (files, total_additions, total_deletions, total_hunks)
+}
+
+fn parse_diff_git_paths(line: &str) -> Option<(String, String)> {
+    let rest = line.strip_prefix("diff --git ")?;
+    let mut parts = rest.split_whitespace();
+    let old_path = normalize_diff_path(parts.next()?);
+    let new_path = normalize_diff_path(parts.next()?);
+    Some((old_path, new_path))
+}
+
+fn normalize_diff_path(path: &str) -> String {
+    path.trim()
+        .trim_matches('"')
+        .strip_prefix("a/")
+        .or_else(|| path.trim().trim_matches('"').strip_prefix("b/"))
+        .unwrap_or_else(|| path.trim().trim_matches('"'))
+        .to_string()
+}
+
+fn looks_like_unified_diff(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    trimmed.starts_with("diff --git ") || (trimmed.contains("\n--- ") && trimmed.contains("\n+++ "))
+}
+
+fn acp_prompt_response_status(response: &Value) -> String {
+    response
+        .pointer("/result/stopReason")
+        .or_else(|| response.pointer("/result/status"))
+        .and_then(Value::as_str)
+        .unwrap_or("completed")
+        .to_string()
+}
+
+fn acp_usage_summary(response: &Value) -> Option<String> {
+    let usage = response.pointer("/result/usage")?;
+    let total = usage.get("totalTokens").and_then(Value::as_u64);
+    let input = usage.get("inputTokens").and_then(Value::as_u64);
+    let output = usage.get("outputTokens").and_then(Value::as_u64);
+    match (total, input, output) {
+        (Some(total), Some(input), Some(output)) => {
+            Some(format!("total={total} input={input} output={output}"))
+        }
+        (Some(total), _, _) => Some(format!("total={total}")),
+        _ => None,
+    }
+}
+
+fn append_acp_update_runtime_events(
+    events: &mut Vec<RuntimeEvent>,
+    sequence: &mut u64,
+    session_id: &str,
+    gate_evidence_ids: &mut Vec<String>,
+    update: &Value,
+) {
+    match acp_update_kind(update).as_deref() {
+        Some("AgentMessageChunk") | Some("agent_message_chunk") => {
+            if let Some(text) = acp_message_chunk_text(update) {
+                push_acp_runtime_event(
+                    events,
+                    sequence,
+                    RuntimeEventKind::AssistantDelta {
+                        message_id: format!("acp-message-{session_id}-{sequence}"),
+                        task_id: Some(format!("acp-session-{session_id}")),
+                        content: text,
+                    },
+                );
+            }
+        }
+        Some("ToolCall") | Some("tool_call") => {
+            let tool_call_id = acp_tool_call_id(update);
+            let title = acp_tool_call_title(update);
+            push_acp_runtime_event(
+                events,
+                sequence,
+                RuntimeEventKind::ToolCallStarted {
+                    tool_call_id,
+                    name: title,
+                    input_preview: truncate_for_preview(&update.to_string(), 500),
+                },
+            );
+        }
+        Some("ToolCallUpdate") | Some("tool_call_update") => {
+            let tool_call_id = acp_tool_call_id(update);
+            let title = acp_tool_call_title(update);
+            let status = update
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("completed");
+            let content = update
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or(status);
+            if let Some(patch) = acp_patch_text(update) {
+                let path = acp_patch_path(update);
+                let patch_evidence = EvidenceView {
+                    id: format!("acp-patch-{tool_call_id}-{sequence}"),
+                    kind: "patch".to_string(),
+                    summary: acp_patch_summary(&patch, path.as_deref()),
+                    path: path.clone(),
+                    source: Some("acp:patch.v1".to_string()),
+                    metadata: Some(acp_patch_metadata(&patch, path.as_deref(), update)),
+                    timestamp: None,
+                };
+                push_unique_evidence_id(gate_evidence_ids, &patch_evidence.id);
+                push_acp_runtime_event(
+                    events,
+                    sequence,
+                    RuntimeEventKind::EvidenceRecorded {
+                        evidence: patch_evidence,
+                    },
+                );
+            }
+            let evidence = EvidenceView {
+                id: format!("acp-tool-{tool_call_id}-{sequence}"),
+                kind: "tool_log".to_string(),
+                summary: truncate_for_preview(content, 500),
+                path: None,
+                source: Some("acp".to_string()),
+                metadata: None,
+                timestamp: None,
+            };
+            push_acp_runtime_event(
+                events,
+                sequence,
+                RuntimeEventKind::ToolCallFinished {
+                    tool_call_id: tool_call_id.clone(),
+                    name: title,
+                    success: !matches!(status, "failed" | "error" | "cancelled" | "canceled"),
+                    exit_code: None,
+                    evidence: Some(evidence.clone()),
+                },
+            );
+            push_unique_evidence_id(gate_evidence_ids, &evidence.id);
+            push_acp_runtime_event(
+                events,
+                sequence,
+                RuntimeEventKind::EvidenceRecorded { evidence },
+            );
+            push_acp_runtime_event(
+                events,
+                sequence,
+                RuntimeEventKind::MergeGateUpdated {
+                    gate: acp_session_merge_gate(
+                        session_id,
+                        MergeGateStatus::CollectingEvidence,
+                        gate_evidence_ids,
+                    ),
+                },
+            );
+        }
+        Some("Diff")
+        | Some("diff")
+        | Some("Patch")
+        | Some("patch")
+        | Some("FileChange")
+        | Some("file_change")
+        | Some("fileChange")
+        | Some("file_change_patch")
+        | Some("file-patch")
+        | Some("diff-updated") => {
+            if let Some(patch) = acp_patch_text(update) {
+                let path = acp_patch_path(update);
+                let evidence = EvidenceView {
+                    id: format!("acp-patch-{session_id}-{sequence}"),
+                    kind: "patch".to_string(),
+                    summary: acp_patch_summary(&patch, path.as_deref()),
+                    path: path.clone(),
+                    source: Some("acp:patch.v1".to_string()),
+                    metadata: Some(acp_patch_metadata(&patch, path.as_deref(), update)),
+                    timestamp: None,
+                };
+                push_unique_evidence_id(gate_evidence_ids, &evidence.id);
+                push_acp_runtime_event(
+                    events,
+                    sequence,
+                    RuntimeEventKind::EvidenceRecorded { evidence },
+                );
+                push_acp_runtime_event(
+                    events,
+                    sequence,
+                    RuntimeEventKind::MergeGateUpdated {
+                        gate: acp_session_merge_gate(
+                            session_id,
+                            MergeGateStatus::CollectingEvidence,
+                            gate_evidence_ids,
+                        ),
+                    },
+                );
+            }
+        }
+        Some("TurnEnd") | Some("turn_end") => {
+            let status = update
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("completed");
+            let evidence = EvidenceView {
+                id: format!("acp-turn-end-{session_id}-{sequence}"),
+                kind: "acp_turn_end".to_string(),
+                summary: format!("ACP session {session_id} ended with status {status}"),
+                path: None,
+                source: Some("acp".to_string()),
+                metadata: None,
+                timestamp: None,
+            };
+            push_unique_evidence_id(gate_evidence_ids, &evidence.id);
+            push_acp_runtime_event(
+                events,
+                sequence,
+                RuntimeEventKind::EvidenceRecorded { evidence },
+            );
+            push_acp_runtime_event(
+                events,
+                sequence,
+                RuntimeEventKind::MergeGateUpdated {
+                    gate: acp_session_merge_gate(
+                        session_id,
+                        MergeGateStatus::Accepted,
+                        gate_evidence_ids,
+                    ),
+                },
+            );
+        }
+        _ => {}
+    }
+}
+
+fn acp_session_merge_gate(
+    session_id: &str,
+    status: MergeGateStatus,
+    evidence_ids: &[String],
+) -> MergeGateRecord {
+    MergeGateRecord {
+        gate_id: format!("gate-acp-session-{session_id}"),
+        task_id: format!("acp-session-{session_id}"),
+        status,
+        required_evidence: acp_session_required_evidence(evidence_ids),
+        evidence_ids: evidence_ids.to_vec(),
+        decision: None,
+        updated_at: Some(now_timestamp()),
+    }
+}
+
+fn acp_session_required_evidence(evidence_ids: &[String]) -> Vec<String> {
+    let mut required = Vec::new();
+    if evidence_ids.iter().any(|id| id.starts_with("acp-patch-")) {
+        required.push("patch".to_string());
+    }
+    required.push("acp_turn_end".to_string());
+    required
+}
+
+fn push_unique_evidence_id(evidence_ids: &mut Vec<String>, evidence_id: &str) {
+    if !evidence_ids.iter().any(|id| id == evidence_id) {
+        evidence_ids.push(evidence_id.to_string());
+    }
+}
+
+fn push_acp_runtime_event(
+    events: &mut Vec<RuntimeEvent>,
+    sequence: &mut u64,
+    kind: RuntimeEventKind,
+) {
+    events.push(RuntimeEvent::new(*sequence, kind));
+    *sequence += 1;
+}
+
+fn acp_response_error_message(response: &Value) -> String {
+    acp_response_error_message_for("ACP session/prompt failed", response)
+}
+
+fn acp_response_error_message_for(context: &str, response: &Value) -> String {
+    response
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .map(|message| format!("{context}: {message}"))
+        .unwrap_or_else(|| context.to_string())
+}
+
+fn acp_response_has_error(response: &str) -> bool {
+    serde_json::from_str::<Value>(response)
+        .ok()
+        .is_some_and(|value| value.get("error").is_some())
+}
+
+fn acp_response_is_method_not_found(response: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<Value>(response) else {
+        return false;
+    };
+    value.pointer("/error/code").and_then(Value::as_i64) == Some(-32601)
+}
+
+fn acp_session_new_request(cwd: &Path) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "session/new",
+        "params": {
+            "cwd": cwd.display().to_string(),
+            "mcpServers": []
+        }
+    })
+    .to_string()
+}
+
+fn acp_session_load_request(cwd: &Path, session_id: &str) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "session/load",
+        "params": {
+            "cwd": cwd.display().to_string(),
+            "mcpServers": [],
+            "sessionId": session_id
+        }
+    })
+    .to_string()
+}
+
+fn acp_authenticate_request(method_id: &str) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "authenticate",
+        "params": {
+            "methodId": method_id
+        }
+    })
+    .to_string()
+}
+
+fn acp_auth_status_from_response(response: &str) -> String {
+    let Ok(value) = serde_json::from_str::<Value>(response) else {
+        return "unknown".to_string();
+    };
+    value
+        .pointer("/result/status")
+        .or_else(|| value.pointer("/result/outcome/status"))
+        .or_else(|| value.pointer("/result/outcome"))
+        .and_then(Value::as_str)
+        .unwrap_or("ok")
+        .to_string()
+}
+
+fn acp_session_prompt_request(
+    agent: &AgentPluginDescriptor,
+    session_id: &str,
+    prompt: &str,
+    id: u64,
+) -> String {
+    let text_blocks = json!([
+        {
+            "type": "text",
+            "text": prompt
+        }
+    ]);
+    let mut params = serde_json::Map::new();
+    params.insert(
+        "sessionId".to_string(),
+        Value::String(session_id.to_string()),
+    );
+    if acp_agent_uses_content_prompt(agent) {
+        params.insert("content".to_string(), text_blocks);
+    } else {
+        params.insert("prompt".to_string(), text_blocks);
+    }
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "session/prompt",
+        "params": Value::Object(params)
+    })
+    .to_string()
+}
+
+fn acp_session_set_mode_request(session_id: &str, mode_id: &str, id: u64) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "session/set_mode",
+        "params": {
+            "sessionId": session_id,
+            "modeId": mode_id
+        }
+    })
+    .to_string()
+}
+
+fn acp_session_set_model_request(session_id: &str, model_id: &str, id: u64) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "session/set_config_option",
+        "params": {
+            "sessionId": session_id,
+            "configId": "model",
+            "value": model_id
+        }
+    })
+    .to_string()
+}
+
+fn acp_legacy_session_set_model_request(session_id: &str, model_id: &str, id: u64) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "session/set_model",
+        "params": {
+            "sessionId": session_id,
+            "modelId": model_id
+        }
+    })
+    .to_string()
+}
+
+fn acp_session_cancel_request(session_id: &str) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "id": ACP_SESSION_CANCEL_REQUEST_ID,
+        "method": "session/cancel",
+        "params": {
+            "sessionId": session_id
+        }
+    })
+    .to_string()
+}
+
+fn acp_agent_uses_content_prompt(_agent: &AgentPluginDescriptor) -> bool {
+    false
+}
+
+fn acp_session_id_from_response(response: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(response).ok()?;
+    value
+        .pointer("/result/sessionId")
+        .or_else(|| value.pointer("/result/session/id"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn acp_permission_prompt(request: &Value) -> viden_types::PermissionPrompt {
+    let tool_call = request.pointer("/params/toolCall");
+    let tool_id = tool_call
+        .and_then(|tool_call| {
+            tool_call
+                .get("toolCallId")
+                .or_else(|| tool_call.get("id"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("permission");
+    let title = tool_call
+        .and_then(|tool_call| {
+            tool_call
+                .get("title")
+                .or_else(|| tool_call.get("name"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("ACP permission request");
+    let kind = tool_call
+        .and_then(|tool_call| tool_call.get("kind").and_then(Value::as_str))
+        .unwrap_or("external-agent");
+    viden_types::PermissionPrompt {
+        tool_name: format!("acp:{tool_id}"),
+        message: format!("{title} ({kind})"),
+        input_preview: request
+            .pointer("/params")
+            .map(Value::to_string)
+            .unwrap_or_else(|| "{}".to_string()),
+    }
+}
+
+fn acp_permission_response(request: &Value, approved: bool) -> String {
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    match acp_permission_option_id(request, approved) {
+        Some(option_id) => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "outcome": {
+                    "type": "selected",
+                    "optionId": option_id
+                }
+            }
+        })
+        .to_string(),
+        None => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "outcome": {
+                    "type": "cancelled"
+                }
+            }
+        })
+        .to_string(),
+    }
+}
+
+fn acp_filesystem_client_request_response(
+    cwd: &Path,
+    permission_engine: &PermissionEngine,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    request: &Value,
+) -> Option<String> {
+    let method = request.get("method").and_then(Value::as_str)?;
+    match method {
+        "fs/read_text_file" => Some(acp_read_text_file_response(cwd, permission_engine, request)),
+        "fs/write_text_file" => Some(acp_write_text_file_response(
+            cwd,
+            permission_engine,
+            approver,
+            request,
+        )),
+        _ => None,
+    }
+}
+
+fn acp_read_text_file_response(
+    cwd: &Path,
+    permission_engine: &PermissionEngine,
+    request: &Value,
+) -> String {
+    let id = acp_request_id(request);
+    let Some(path) = acp_request_path(request) else {
+        return acp_client_error_response(id, -32602, "fs/read_text_file requires params.path");
+    };
+    let input = acp_file_tool_input(&path, None);
+    let tool = acp_file_tool_spec("read_file", false);
+    match permission_engine.decide(&tool, &input) {
+        PermissionDecision::Allow(_) => match read_acp_text_file(cwd, &path, request) {
+            Ok(content) => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "content": content
+                }
+            })
+            .to_string(),
+            Err(error) => acp_client_error_response(id, -32002, &error),
+        },
+        PermissionDecision::Ask(ask) => acp_client_error_response(id, -32003, &ask.message),
+        PermissionDecision::Deny(deny) => acp_client_error_response(id, -32003, &deny.message),
+    }
+}
+
+fn acp_write_text_file_response(
+    cwd: &Path,
+    permission_engine: &PermissionEngine,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    request: &Value,
+) -> String {
+    let id = acp_request_id(request);
+    let Some(path) = acp_request_path(request) else {
+        return acp_client_error_response(id, -32602, "fs/write_text_file requires params.path");
+    };
+    let Some(content) = request.pointer("/params/content").and_then(Value::as_str) else {
+        return acp_client_error_response(id, -32602, "fs/write_text_file requires params.content");
+    };
+    let input = acp_file_tool_input(&path, Some(content));
+    let tool = acp_file_tool_spec("write_file", true);
+    let mut decision = permission_engine.decide(&tool, &input);
+    if let PermissionDecision::Ask(ask) = &decision {
+        let prompt = PermissionEngine::prompt_for("write_file", ask, &input);
+        let approval = approver(prompt);
+        decision = permission_engine.apply_approval(approval, ask);
+    }
+    match decision {
+        PermissionDecision::Allow(_) => match write_acp_text_file(cwd, &path, content) {
+            Ok(()) => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {}
+            })
+            .to_string(),
+            Err(error) => acp_client_error_response(id, -32002, &error),
+        },
+        PermissionDecision::Ask(_) => unreachable!("ask decisions should be resolved"),
+        PermissionDecision::Deny(deny) => acp_client_error_response(id, -32003, &deny.message),
+    }
+}
+
+fn acp_request_id(request: &Value) -> Value {
+    request.get("id").cloned().unwrap_or(Value::Null)
+}
+
+fn acp_request_path(request: &Value) -> Option<String> {
+    request
+        .pointer("/params/path")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn acp_file_tool_input(path: &str, content: Option<&str>) -> ToolInput {
+    let mut input = ToolInput::new();
+    input.insert("path".to_string(), path.to_string());
+    if let Some(content) = content {
+        input.insert("content".to_string(), content.to_string());
+    }
+    input
+}
+
+fn acp_file_tool_spec(name: &str, is_mutating: bool) -> ToolSpec {
+    ToolSpec {
+        name: name.to_string(),
+        description: format!("ACP {name} client request"),
+        is_mutating,
+        input_schema_hint: "path=absolute/or/relative content=optional".to_string(),
+    }
+}
+
+#[derive(Default)]
+struct AcpTerminalStore {
+    next_id: u64,
+    records: BTreeMap<String, AcpTerminalRecord>,
+}
+
+struct AcpTerminalRecord {
+    child: Option<Child>,
+    stdin: Option<ChildStdin>,
+    stdout: mpsc::Receiver<std::io::Result<Vec<u8>>>,
+    stderr: mpsc::Receiver<std::io::Result<Vec<u8>>>,
+    output: String,
+    output_byte_limit: Option<u64>,
+    truncated: bool,
+    exit_code: Option<i32>,
+    signal: Option<String>,
+    released: bool,
+    killed: bool,
+}
+
+fn acp_terminal_client_request_response(
+    cwd: &Path,
+    permission_engine: &PermissionEngine,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    terminals: &mut AcpTerminalStore,
+    request: &Value,
+) -> Option<String> {
+    let method = request.get("method").and_then(Value::as_str)?;
+    match method {
+        "terminal/create" => Some(acp_terminal_create_response(
+            cwd,
+            permission_engine,
+            approver,
+            terminals,
+            request,
+        )),
+        "terminal/input" | "terminal/write" => {
+            Some(acp_terminal_input_response(terminals, request))
+        }
+        "terminal/output" => Some(acp_terminal_output_response(terminals, request)),
+        "terminal/wait_for_exit" => Some(acp_terminal_wait_for_exit_response(terminals, request)),
+        "terminal/release" => Some(acp_terminal_release_response(terminals, request)),
+        "terminal/kill" => Some(acp_terminal_kill_response(terminals, request)),
+        _ => None,
+    }
+}
+
+fn acp_terminal_create_response(
+    cwd: &Path,
+    permission_engine: &PermissionEngine,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    terminals: &mut AcpTerminalStore,
+    request: &Value,
+) -> String {
+    let id = acp_request_id(request);
+    let Some(command) = request.pointer("/params/command").and_then(Value::as_str) else {
+        return acp_client_error_response(id, -32602, "terminal/create requires params.command");
+    };
+    let args = acp_terminal_args(request);
+    let exec_cwd = match acp_terminal_cwd(cwd, request) {
+        Ok(path) => path,
+        Err(error) => return acp_client_error_response(id, -32602, &error),
+    };
+    let command_preview = acp_terminal_command_preview(command, &args);
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), command_preview.clone());
+    input.insert("path".to_string(), exec_cwd.display().to_string());
+    let tool = ToolSpec {
+        name: "shell".to_string(),
+        description: "ACP terminal/create client request".to_string(),
+        is_mutating: true,
+        input_schema_hint: "command='cargo test' path=/workspace".to_string(),
+    };
+    let mut decision = permission_engine.decide(&tool, &input);
+    if let PermissionDecision::Ask(ask) = &decision {
+        let prompt = PermissionEngine::prompt_for("shell", ask, &input);
+        let approval = approver(prompt);
+        decision = permission_engine.apply_approval(approval, ask);
+    }
+    match decision {
+        PermissionDecision::Allow(_) => match spawn_acp_terminal_command(
+            command,
+            &args,
+            &exec_cwd,
+            acp_terminal_env(request),
+            request
+                .pointer("/params/outputByteLimit")
+                .and_then(Value::as_u64),
+        ) {
+            Ok(record) => {
+                terminals.next_id += 1;
+                let terminal_id = format!("acp-terminal-{}", terminals.next_id);
+                terminals.records.insert(terminal_id.clone(), record);
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "terminalId": terminal_id
+                    }
+                })
+                .to_string()
+            }
+            Err(error) => acp_client_error_response(id, -32002, &error),
+        },
+        PermissionDecision::Ask(_) => unreachable!("ask decisions should be resolved"),
+        PermissionDecision::Deny(deny) => acp_client_error_response(id, -32003, &deny.message),
+    }
+}
+
+fn acp_terminal_input_response(terminals: &mut AcpTerminalStore, request: &Value) -> String {
+    let id = acp_request_id(request);
+    let method = request
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or("terminal/input");
+    let Some(terminal_id) = acp_request_terminal_id(request) else {
+        return acp_client_error_response(
+            id,
+            -32602,
+            &format!("{method} requires params.terminalId"),
+        );
+    };
+    let Some(input) = acp_terminal_input_text(request) else {
+        return acp_client_error_response(
+            id,
+            -32602,
+            &format!("{method} requires params.input, params.text, params.content, or params.data"),
+        );
+    };
+    let Some(record) = terminals.records.get_mut(&terminal_id) else {
+        return acp_client_error_response(id, -32004, "unknown ACP terminal id");
+    };
+    acp_terminal_refresh(record);
+    if record.child.is_none() {
+        return acp_client_error_response(id, -32004, "ACP terminal is not running");
+    }
+    let Some(stdin) = record.stdin.as_mut() else {
+        return acp_client_error_response(id, -32004, "ACP terminal stdin is unavailable");
+    };
+    if let Err(error) = stdin
+        .write_all(input.as_bytes())
+        .and_then(|_| stdin.flush())
+    {
+        record.stdin = None;
+        return acp_client_error_response(
+            id,
+            -32002,
+            &format!("failed to write ACP terminal input: {error}"),
+        );
+    }
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "bytesWritten": input.len()
+        }
+    })
+    .to_string()
+}
+
+fn acp_terminal_output_response(terminals: &mut AcpTerminalStore, request: &Value) -> String {
+    let id = acp_request_id(request);
+    let Some(terminal_id) = acp_request_terminal_id(request) else {
+        return acp_client_error_response(id, -32602, "terminal/output requires params.terminalId");
+    };
+    let Some(record) = terminals.records.get_mut(&terminal_id) else {
+        return acp_client_error_response(id, -32004, "unknown ACP terminal id");
+    };
+    acp_terminal_refresh(record);
+    if record.output.is_empty() && record.child.is_some() {
+        acp_terminal_poll_output(record, Duration::from_millis(150));
+    }
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "output": record.output,
+            "truncated": record.truncated,
+            "exitStatus": acp_terminal_exit_status(record)
+        }
+    })
+    .to_string()
+}
+
+fn acp_terminal_wait_for_exit_response(
+    terminals: &mut AcpTerminalStore,
+    request: &Value,
+) -> String {
+    let id = acp_request_id(request);
+    let Some(terminal_id) = acp_request_terminal_id(request) else {
+        return acp_client_error_response(
+            id,
+            -32602,
+            "terminal/wait_for_exit requires params.terminalId",
+        );
+    };
+    let Some(record) = terminals.records.get_mut(&terminal_id) else {
+        return acp_client_error_response(id, -32004, "unknown ACP terminal id");
+    };
+    acp_terminal_wait_for_exit(record);
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "exitCode": record.exit_code,
+            "signal": record.signal
+        }
+    })
+    .to_string()
+}
+
+fn acp_terminal_release_response(terminals: &mut AcpTerminalStore, request: &Value) -> String {
+    let id = acp_request_id(request);
+    let Some(terminal_id) = acp_request_terminal_id(request) else {
+        return acp_client_error_response(
+            id,
+            -32602,
+            "terminal/release requires params.terminalId",
+        );
+    };
+    let Some(record) = terminals.records.get_mut(&terminal_id) else {
+        return acp_client_error_response(id, -32004, "unknown ACP terminal id");
+    };
+    acp_terminal_terminate(record, "released");
+    record.released = true;
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {}
+    })
+    .to_string()
+}
+
+fn acp_terminal_kill_response(terminals: &mut AcpTerminalStore, request: &Value) -> String {
+    let id = acp_request_id(request);
+    let Some(terminal_id) = acp_request_terminal_id(request) else {
+        return acp_client_error_response(id, -32602, "terminal/kill requires params.terminalId");
+    };
+    let Some(record) = terminals.records.get_mut(&terminal_id) else {
+        return acp_client_error_response(id, -32004, "unknown ACP terminal id");
+    };
+    acp_terminal_terminate(record, "killed");
+    record.killed = true;
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {}
+    })
+    .to_string()
+}
+
+fn spawn_acp_terminal_command(
+    command: &str,
+    args: &[String],
+    cwd: &Path,
+    envs: Vec<(String, String)>,
+    output_byte_limit: Option<u64>,
+) -> Result<AcpTerminalRecord, String> {
+    let mut process = Command::new(command);
+    process
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (name, value) in envs {
+        process.env(name, value);
+    }
+    let mut child = process
+        .spawn()
+        .map_err(|err| format!("failed to run ACP terminal command `{command}`: {err}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("failed to capture stdout for ACP terminal command `{command}`"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("failed to capture stderr for ACP terminal command `{command}`"))?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| format!("failed to capture stdin for ACP terminal command `{command}`"))?;
+    Ok(AcpTerminalRecord {
+        child: Some(child),
+        stdin: Some(stdin),
+        stdout: read_bytes_async(stdout),
+        stderr: read_bytes_async(stderr),
+        output: String::new(),
+        output_byte_limit,
+        truncated: false,
+        exit_code: None,
+        signal: None,
+        released: false,
+        killed: false,
+    })
+}
+
+fn acp_terminal_wait_timeout() -> Duration {
+    env::var("VIDEN_ACP_TERMINAL_TIMEOUT_SECS")
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(30))
+}
+
+fn acp_terminal_refresh(record: &mut AcpTerminalRecord) {
+    acp_terminal_drain_output(record);
+    if let Some(child) = record.child.as_mut() {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                record.exit_code = status.code();
+                record.stdin = None;
+                record.child = None;
+                acp_terminal_drain_output_after_exit(record);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                record.signal = Some(format!("wait_error:{error}"));
+                record.stdin = None;
+                record.child = None;
+            }
+        }
+    }
+    acp_terminal_drain_output(record);
+}
+
+fn acp_terminal_drain_output_after_exit(record: &mut AcpTerminalRecord) {
+    for _ in 0..10 {
+        acp_terminal_drain_output(record);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn acp_terminal_wait_for_exit(record: &mut AcpTerminalRecord) {
+    let deadline = Instant::now() + acp_terminal_wait_timeout();
+    loop {
+        acp_terminal_refresh(record);
+        if record.child.is_none() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            acp_terminal_terminate(record, "timeout");
+            acp_terminal_append_output(
+                record,
+                format!(
+                    "\nACP terminal command timed out after {}s",
+                    acp_terminal_wait_timeout().as_secs()
+                )
+                .as_bytes(),
+            );
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    for _ in 0..10 {
+        acp_terminal_drain_output(record);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    acp_terminal_drain_output(record);
+}
+
+fn acp_terminal_poll_output(record: &mut AcpTerminalRecord, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline && record.output.is_empty() && record.child.is_some() {
+        acp_terminal_refresh(record);
+        if !record.output.is_empty() || record.child.is_none() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    acp_terminal_refresh(record);
+}
+
+fn acp_terminal_terminate(record: &mut AcpTerminalRecord, signal: &str) {
+    record.stdin = None;
+    if let Some(child) = record.child.as_mut() {
+        let _ = child.kill();
+        let exited = wait_child_timeout(child, Duration::from_secs(1));
+        if exited && let Ok(Some(status)) = child.try_wait() {
+            record.exit_code = status.code();
+        }
+        record.signal = Some(signal.to_string());
+        record.child = None;
+    }
+    acp_terminal_drain_output(record);
+}
+
+fn acp_terminal_drain_output(record: &mut AcpTerminalRecord) {
+    while let Ok(chunk) = record.stdout.try_recv() {
+        match chunk {
+            Ok(bytes) => acp_terminal_append_output(record, &bytes),
+            Err(error) => {
+                acp_terminal_append_output(record, format!("\nstdout error: {error}").as_bytes())
+            }
+        }
+    }
+    while let Ok(chunk) = record.stderr.try_recv() {
+        match chunk {
+            Ok(bytes) => acp_terminal_append_output(record, &bytes),
+            Err(error) => {
+                acp_terminal_append_output(record, format!("\nstderr error: {error}").as_bytes())
+            }
+        }
+    }
+}
+
+fn acp_terminal_append_output(record: &mut AcpTerminalRecord, bytes: &[u8]) {
+    if bytes.is_empty() {
+        return;
+    }
+    record.output.push_str(&String::from_utf8_lossy(bytes));
+    let (output, truncated) =
+        truncate_terminal_output(record.output.clone(), record.output_byte_limit);
+    record.output = output;
+    record.truncated |= truncated;
+}
+
+fn acp_terminal_args(request: &Value) -> Vec<String> {
+    request
+        .pointer("/params/args")
+        .and_then(Value::as_array)
+        .map(|args| {
+            args.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn acp_terminal_input_text(request: &Value) -> Option<String> {
+    [
+        "/params/input",
+        "/params/text",
+        "/params/content",
+        "/params/data",
+    ]
+    .iter()
+    .find_map(|path| {
+        request
+            .pointer(path)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    })
+}
+
+fn acp_terminal_env(request: &Value) -> Vec<(String, String)> {
+    request
+        .pointer("/params/env")
+        .and_then(Value::as_array)
+        .map(|envs| {
+            envs.iter()
+                .filter_map(|entry| {
+                    let name = entry.get("name").and_then(Value::as_str)?;
+                    let value = entry.get("value").and_then(Value::as_str)?;
+                    Some((name.to_string(), value.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn acp_terminal_cwd(cwd: &Path, request: &Value) -> Result<PathBuf, String> {
+    let raw = request
+        .pointer("/params/cwd")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty());
+    let path = raw
+        .map(|raw| resolve_acp_path(cwd, raw))
+        .unwrap_or_else(|| cwd.to_path_buf());
+    if !path.exists() {
+        return Err(format!("terminal cwd does not exist: {}", path.display()));
+    }
+    if !path.is_dir() {
+        return Err(format!(
+            "terminal cwd is not a directory: {}",
+            path.display()
+        ));
+    }
+    Ok(path)
+}
+
+fn acp_terminal_command_preview(command: &str, args: &[String]) -> String {
+    std::iter::once(command.to_string())
+        .chain(args.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn acp_request_terminal_id(request: &Value) -> Option<String> {
+    request
+        .pointer("/params/terminalId")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn acp_terminal_exit_status(record: &AcpTerminalRecord) -> Value {
+    json!({
+        "exitCode": record.exit_code,
+        "signal": record.signal
+    })
+}
+
+fn truncate_terminal_output(output: String, limit: Option<u64>) -> (String, bool) {
+    let Some(limit) = limit.map(|value| value as usize) else {
+        return (output, false);
+    };
+    if output.len() <= limit {
+        return (output, false);
+    }
+    let mut start = output.len().saturating_sub(limit);
+    while start < output.len() && !output.is_char_boundary(start) {
+        start += 1;
+    }
+    (output[start..].to_string(), true)
+}
+
+fn read_acp_text_file(cwd: &Path, raw_path: &str, request: &Value) -> Result<String, String> {
+    let path = resolve_acp_path(cwd, raw_path);
+    if path.is_dir() {
+        return Err(format!("`{}` is a directory", path.display()));
+    }
+    let content = fs::read_to_string(&path)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    Ok(slice_acp_file_content(&content, request))
+}
+
+fn write_acp_text_file(cwd: &Path, raw_path: &str, content: &str) -> Result<(), String> {
+    let path = resolve_acp_path(cwd, raw_path);
+    if path.is_dir() {
+        return Err(format!("`{}` is a directory", path.display()));
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+    }
+    fs::write(&path, content).map_err(|err| format!("failed to write {}: {err}", path.display()))
+}
+
+fn resolve_acp_path(cwd: &Path, raw_path: &str) -> PathBuf {
+    let path = PathBuf::from(raw_path);
+    if path.is_absolute() {
+        path
+    } else {
+        cwd.join(path)
+    }
+}
+
+fn slice_acp_file_content(content: &str, request: &Value) -> String {
+    let start_line = request
+        .pointer("/params/startLine")
+        .or_else(|| request.pointer("/params/line"))
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        .saturating_sub(1) as usize;
+    let limit = request
+        .pointer("/params/limit")
+        .or_else(|| request.pointer("/params/lineCount"))
+        .and_then(Value::as_u64)
+        .map(|value| value as usize);
+    let lines = content.lines().skip(start_line);
+    match limit {
+        Some(limit) => lines.take(limit).collect::<Vec<_>>().join("\n"),
+        None => lines.collect::<Vec<_>>().join("\n"),
+    }
+}
+
+fn acp_client_error_response(id: Value, code: i64, message: &str) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": code,
+            "message": message
+        }
+    })
+    .to_string()
+}
+
+fn acp_unsupported_client_request_response(request: &Value) -> Option<String> {
+    let method = request.get("method").and_then(Value::as_str)?;
+    if !method.starts_with("fs/") && !method.starts_with("terminal/") {
+        return None;
+    }
+    let id = request.get("id")?.clone();
+    Some(
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": -32001,
+                "message": format!("ACP client method {method} is not available through the Viden ACP runtime bridge")
+            }
+        })
+        .to_string(),
+    )
+}
+
+fn acp_permission_option_id(request: &Value, approved: bool) -> Option<String> {
+    let options = request.pointer("/params/options")?.as_array()?;
+    let preferred = options.iter().find(|option| {
+        let kind = option
+            .get("kind")
+            .or_else(|| option.get("type"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let option_id = option
+            .get("optionId")
+            .or_else(|| option.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if approved {
+            kind.contains("allow") || kind.contains("approve") || option_id.contains("allow")
+        } else {
+            kind.contains("reject") || kind.contains("deny") || option_id.contains("deny")
+        }
+    });
+    preferred
+        .or_else(|| options.first())
+        .and_then(|option| {
+            option
+                .get("optionId")
+                .or_else(|| option.get("id"))
+                .and_then(Value::as_str)
+        })
+        .map(str::to_string)
+}
+
+fn acp_tool_call_summary(update: &Value) -> String {
+    let id = acp_tool_call_id(update);
+    let status = update
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("updated");
+    let content = update
+        .get("content")
+        .and_then(Value::as_str)
+        .or_else(|| update.get("title").and_then(Value::as_str))
+        .unwrap_or("");
+    if content.is_empty() {
+        format!("{id}:{status}")
+    } else {
+        format!("{id}:{status}:{content}")
+    }
+}
+
+fn acp_tool_call_id(update: &Value) -> String {
+    update
+        .get("toolCallId")
+        .or_else(|| update.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("tool")
+        .to_string()
+}
+
+fn acp_tool_call_title(update: &Value) -> String {
+    update
+        .get("title")
+        .or_else(|| update.get("name"))
+        .or_else(|| update.get("kind"))
+        .and_then(Value::as_str)
+        .unwrap_or("acp_tool")
+        .to_string()
 }
 
 fn finish_failed_probe(
@@ -1986,10 +5189,66 @@ fn finish_failed_probe(
     error: String,
 ) -> String {
     entries.push(jsonl_event("error", &error));
+    let _ = child.kill();
+    let exited = wait_child_timeout(&mut child, Duration::from_secs(2));
+    let stderr = exited.then(|| child_stderr_tail(&mut child)).flatten();
+    if let Some(stderr) = &stderr {
+        entries.push(jsonl_event("stderr", stderr));
+    }
+    if !exited {
+        entries.push(jsonl_event(
+            "error",
+            "ACP child did not exit within cleanup timeout after termination",
+        ));
+    }
+    let _ = write_probe_log(&log_path, &entries);
+    if let Some(stderr) = stderr {
+        return format!("{error}; stderr: {stderr}; log {}", log_path.display());
+    }
+    format!("{error}; log {}", log_path.display())
+}
+
+fn finish_expected_acp_stop(
+    mut child: Child,
+    log_path: PathBuf,
+    mut entries: Vec<String>,
+    message: String,
+) -> String {
+    entries.push(jsonl_event("error", &message));
     let _ = write_probe_log(&log_path, &entries);
     let _ = child.kill();
-    let _ = child.wait();
-    format!("{error}; log {}", log_path.display())
+    let _ = wait_child_timeout(&mut child, Duration::from_secs(1));
+    format!("{message}; log {}", log_path.display())
+}
+
+fn child_stderr_tail(child: &mut Child) -> Option<String> {
+    let mut stderr = child.stderr.take()?;
+    let mut text = String::new();
+    stderr.read_to_string(&mut text).ok()?;
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(tail_lines(text, 8))
+    }
+}
+
+fn wait_child_timeout(child: &mut Child, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(_)) => return true,
+            Ok(None) => std::thread::sleep(Duration::from_millis(25)),
+            Err(_) => return false,
+        }
+    }
+    false
+}
+
+fn tail_lines(text: &str, max_lines: usize) -> String {
+    let lines = text.lines().collect::<Vec<_>>();
+    let start = lines.len().saturating_sub(max_lines);
+    lines[start..].join("\n")
 }
 
 fn acp_initialize_request() -> String {
@@ -1997,7 +5256,7 @@ fn acp_initialize_request() -> String {
         r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"#,
         r#""protocolVersion":1,"#,
         r#""clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":true},"#,
-        r#""clientInfo":{"name":"robocode","version":"0.1.6"}}"#,
+        r#""clientInfo":{"name":"viden","version":"0.1.6"}}"#,
         r#"}"#,
     ]
     .join("")
@@ -2009,9 +5268,50 @@ fn spawn_acp_process(cwd: &Path, command: &str) -> Result<Child, String> {
         .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|err| format!("failed to launch ACP command: {err}"))
+}
+
+fn spawn_acp_agent_process(cwd: &Path, agent: &AgentPluginDescriptor) -> Result<Child, String> {
+    let mut command = Command::new(&agent.command.command);
+    command
+        .args(acp_agent_command_args(agent))
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    configure_acp_agent_process_env(cwd, agent, &mut command)?;
+    command.spawn().map_err(|err| {
+        format!(
+            "failed to launch ACP agent `{}` with `{}`: {err}",
+            agent.agent_id,
+            agent_command_line(agent)
+        )
+    })
+}
+
+fn configure_acp_agent_process_env(
+    cwd: &Path,
+    agent: &AgentPluginDescriptor,
+    command: &mut Command,
+) -> Result<(), String> {
+    if matches!(agent.source, AgentSource::Registry) {
+        let cache_dir = cwd.join(".viden").join("cache").join("npm");
+        fs::create_dir_all(&cache_dir).map_err(|err| {
+            format!(
+                "failed to create ACP registry npm cache {}: {err}",
+                cache_dir.display()
+            )
+        })?;
+        command
+            .env("npm_config_cache", &cache_dir)
+            .env("NPM_CONFIG_CACHE", &cache_dir)
+            .env("npm_config_audit", "false")
+            .env("npm_config_fund", "false")
+            .env("npm_config_update_notifier", "false");
+    }
+    Ok(())
 }
 
 fn spawn_codex_app_server(cwd: &Path, command: &str) -> Result<Child, String> {
@@ -2078,11 +5378,9 @@ fn shell_command(cwd: &Path, command: &str) -> Result<Command, String> {
 }
 
 fn acp_shell_script_path(cwd: &Path, extension: &str) -> PathBuf {
-    cwd.join(".robocode").join("tmp").join(format!(
-        "acp-command-{}.{}",
-        timestamp_millis(),
-        extension
-    ))
+    cwd.join(".viden")
+        .join("tmp")
+        .join(format!("acp-command-{}.{}", timestamp_millis(), extension))
 }
 
 fn read_lines_async(
@@ -2097,6 +5395,30 @@ fn read_lines_async(
                 Ok(0) => break,
                 Ok(_) => {
                     if sender.send(Ok(line)).is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    let _ = sender.send(Err(error));
+                    break;
+                }
+            }
+        }
+    });
+    receiver
+}
+
+fn read_bytes_async(
+    mut reader: impl std::io::Read + Send + 'static,
+) -> mpsc::Receiver<std::io::Result<Vec<u8>>> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buffer = [0_u8; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(size) => {
+                    if sender.send(Ok(buffer[..size].to_vec())).is_err() {
                         break;
                     }
                 }
@@ -2286,20 +5608,26 @@ fn read_line_with_timeout(
 }
 
 fn acp_probe_log_path(cwd: &Path) -> PathBuf {
-    cwd.join(".robocode")
+    cwd.join(".viden")
         .join("agents")
         .join(format!("acp-doctor-{}.jsonl", timestamp_millis()))
 }
 
+fn acp_session_log_path(cwd: &Path) -> PathBuf {
+    cwd.join(".viden")
+        .join("agents")
+        .join(format!("acp-session-{}.jsonl", timestamp_millis()))
+}
+
 fn codex_app_server_probe_log_path(cwd: &Path) -> PathBuf {
-    cwd.join(".robocode")
+    cwd.join(".viden")
         .join("agents")
         .join(format!("codex-app-server-{}.jsonl", timestamp_millis()))
 }
 
 fn codex_app_server_initialize_request() -> String {
     [
-        r#"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"robocode","version":""#,
+        r#"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"viden","version":""#,
         env!("CARGO_PKG_VERSION"),
         r#""},"capabilities":{"experimentalApi":true,"requestAttestation":false,"optOutNotificationMethods":[]}}}"#,
     ]
@@ -2315,7 +5643,7 @@ fn codex_app_server_thread_start_request(cwd: &Path, write: bool) -> String {
         "read-only"
     };
     format!(
-        r#"{{"id":2,"method":"thread/start","params":{{"model":null,"modelProvider":null,"cwd":"{cwd}","runtimeWorkspaceRoots":["{cwd}"],"approvalPolicy":"{approval_policy}","approvalsReviewer":"user","sandbox":"{sandbox}","permissions":null,"config":null,"serviceName":"robocode","baseInstructions":null,"developerInstructions":null,"personality":null,"ephemeral":true,"sessionStartSource":"startup","threadSource":"subagent","environments":[],"dynamicTools":null,"experimentalRawEvents":false,"persistExtendedHistory":false}}}}"#
+        r#"{{"id":2,"method":"thread/start","params":{{"model":null,"modelProvider":null,"cwd":"{cwd}","runtimeWorkspaceRoots":["{cwd}"],"approvalPolicy":"{approval_policy}","approvalsReviewer":"user","sandbox":"{sandbox}","permissions":null,"config":null,"serviceName":"viden","baseInstructions":null,"developerInstructions":null,"personality":null,"ephemeral":true,"sessionStartSource":"startup","threadSource":"subagent","environments":[],"dynamicTools":null,"experimentalRawEvents":false,"persistExtendedHistory":false}}}}"#
     )
 }
 
@@ -2353,6 +5681,19 @@ fn write_probe_log(path: &Path, entries: &[String]) -> Result<(), String> {
     fs::write(path, entries.join("\n") + "\n").map_err(|err| err.to_string())
 }
 
+fn append_agent_job_log_event(path: &Path, direction: &str, payload: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|err| format!("failed to open {}: {err}", path.display()))?;
+    writeln!(file, "{}", jsonl_event(direction, payload))
+        .map_err(|err| format!("failed to append {}: {err}", path.display()))
+}
+
 fn jsonl_event(direction: &str, payload: &str) -> String {
     format!(
         r#"{{"direction":"{}","payload":"{}"}}"#,
@@ -2382,6 +5723,96 @@ fn agent_label_from_response(response: &str) -> String {
         Some(version) => format!("{name} {version}"),
         None => name,
     }
+}
+
+fn acp_probe_evidence_from_response(response: &str, log_path: PathBuf) -> AcpProbeEvidence {
+    let Ok(value) = serde_json::from_str::<Value>(response) else {
+        return AcpProbeEvidence {
+            protocol_version: json_number_field(response, "protocolVersion")
+                .unwrap_or_else(|| "unknown".to_string()),
+            agent_label: agent_label_from_response(response),
+            auth_methods: Vec::new(),
+            auth_method_ids: Vec::new(),
+            capabilities: Vec::new(),
+            log_path,
+        };
+    };
+    let protocol_version = value
+        .pointer("/result/protocolVersion")
+        .and_then(Value::as_i64)
+        .map(|version| version.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let name = value
+        .pointer("/result/agentInfo/name")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let version = value
+        .pointer("/result/agentInfo/version")
+        .and_then(Value::as_str);
+    let agent_label = match version {
+        Some(version) => format!("{name} {version}"),
+        None => name.to_string(),
+    };
+    let (auth_methods, auth_method_ids) = acp_auth_methods_from_value(&value);
+    AcpProbeEvidence {
+        protocol_version,
+        agent_label,
+        auth_methods,
+        auth_method_ids,
+        capabilities: acp_capabilities_from_value(&value),
+        log_path,
+    }
+}
+
+fn acp_auth_methods_from_value(value: &Value) -> (Vec<String>, Vec<String>) {
+    let Some(methods) = value
+        .pointer("/result/authMethods")
+        .and_then(Value::as_array)
+    else {
+        return (Vec::new(), Vec::new());
+    };
+    let mut labels = Vec::new();
+    let mut ids = Vec::new();
+    for method in methods {
+        let Some(id) = method.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        ids.push(id.to_string());
+        let name = method
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(id)
+            .trim();
+        if name == id {
+            labels.push(id.to_string());
+        } else {
+            labels.push(format!("{id} ({name})"));
+        }
+    }
+    (labels, ids)
+}
+
+fn acp_capabilities_from_value(value: &Value) -> Vec<String> {
+    let mut capabilities = Vec::new();
+    if let Some(object) = value
+        .pointer("/result/agentCapabilities")
+        .and_then(Value::as_object)
+    {
+        for (key, item) in object {
+            match item {
+                Value::Bool(true) => capabilities.push(key.clone()),
+                Value::Object(nested) if nested.is_empty() => capabilities.push(key.clone()),
+                Value::Object(nested) => {
+                    for nested_key in nested.keys() {
+                        capabilities.push(format!("{key}.{nested_key}"));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    capabilities.sort();
+    capabilities
 }
 
 fn json_string_field(response: &str, field: &str) -> Option<String> {
@@ -2462,10 +5893,13 @@ const fn pty_binary() -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::{Cell, RefCell};
     use std::sync::{
         Mutex, MutexGuard, OnceLock,
         atomic::{AtomicU64, Ordering},
+        mpsc,
     };
+    use viden_plugin_api::{AgentAuthMode, AgentCommandSpec, AgentProtocolVersion};
 
     static TEMP_ROOT_COUNTER: AtomicU64 = AtomicU64::new(0);
     static SUBPROCESS_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -2525,7 +5959,7 @@ mod tests {
 
     #[test]
     fn codex_app_server_write_probe_requests_workspace_write_with_approval() {
-        let cwd = Path::new("/tmp/robocode-write-probe");
+        let cwd = Path::new("/tmp/viden-write-probe");
         let thread = codex_app_server_thread_start_request(cwd, true);
         let turn = codex_app_server_turn_start_request(cwd, "thread_1", "edit file", true);
 
@@ -2533,7 +5967,7 @@ mod tests {
         assert!(thread.contains(r#""sandbox":"workspace-write""#));
         assert!(turn.contains(r#""approvalPolicy":"on-request""#));
         assert!(turn.contains(r#""type":"workspaceWrite""#));
-        assert!(turn.contains(r#""writableRoots":["/tmp/robocode-write-probe"]"#));
+        assert!(turn.contains(r#""writableRoots":["/tmp/viden-write-probe"]"#));
         assert!(turn.contains(r#""networkAccess":false"#));
     }
 
@@ -2606,7 +6040,7 @@ mod tests {
 
         let _command = shell_command(&cwd, &long_command).expect("build shell command");
 
-        let tmp_dir = cwd.join(".robocode").join("tmp");
+        let tmp_dir = cwd.join(".viden").join("tmp");
         let scripts = fs::read_dir(&tmp_dir)
             .expect("read tmp dir")
             .map(|entry| entry.expect("script entry").path())
@@ -2629,7 +6063,7 @@ mod tests {
                 "#!/bin/sh",
                 "if [ \"$1\" != \"app-server\" ]; then exit 2; fi",
                 "read _line",
-                "printf '%s\\n' '{\"id\":1,\"result\":{\"userAgent\":\"Codex Desktop/mock (robocode; test)\",\"codexHome\":\"/tmp/codex-home\",\"platformFamily\":\"unix\",\"platformOs\":\"macos\"}}'",
+                "printf '%s\\n' '{\"id\":1,\"result\":{\"userAgent\":\"Codex Desktop/mock (viden; test)\",\"codexHome\":\"/tmp/codex-home\",\"platformFamily\":\"unix\",\"platformOs\":\"macos\"}}'",
                 "printf '%s\\n' '{\"method\":\"remoteControl/status/changed\",\"params\":{\"status\":\"disabled\"}}'",
                 "sleep 1",
             ]
@@ -2645,7 +6079,7 @@ mod tests {
         )
         .expect("probe succeeds");
 
-        assert_eq!(evidence.user_agent, "Codex Desktop/mock (robocode; test)");
+        assert_eq!(evidence.user_agent, "Codex Desktop/mock (viden; test)");
         assert_eq!(evidence.codex_home, "/tmp/codex-home");
         assert_eq!(evidence.platform, "macos");
         assert_eq!(evidence.thread_id, None);
@@ -2867,7 +6301,7 @@ mod tests {
             [
                 "#!/bin/sh",
                 "read _line",
-                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"loadSession\":true},\"agentInfo\":{\"name\":\"mock-acp\",\"version\":\"0.1.0\"}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"loadSession\":true,\"promptCapabilities\":{\"image\":true}},\"agentInfo\":{\"name\":\"mock-acp\",\"version\":\"0.1.0\"},\"authMethods\":[{\"id\":\"api-key\",\"name\":\"API Key\"},{\"id\":\"browser\",\"name\":\"Browser Login\"}]}}'",
             ]
             .join("\n"),
         )
@@ -2879,9 +6313,1933 @@ mod tests {
 
         assert_eq!(evidence.protocol_version, "1");
         assert_eq!(evidence.agent_label, "mock-acp 0.1.0");
+        assert_eq!(
+            evidence.auth_methods,
+            vec!["api-key (API Key)", "browser (Browser Login)"]
+        );
+        assert_eq!(evidence.auth_method_ids, vec!["api-key", "browser"]);
+        assert!(evidence.capabilities.contains(&"loadSession".to_string()));
+        assert!(
+            evidence
+                .capabilities
+                .contains(&"promptCapabilities.image".to_string())
+        );
         let log = fs::read_to_string(&evidence.log_path).expect("read jsonl log");
         assert!(log.contains(r#""method\":\"initialize"#));
         assert!(log.contains("mock-acp"));
+    }
+
+    #[test]
+    fn acp_auth_command_lists_methods_when_choice_required() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_auth_choose");
+        let script = root.join("mock-acp-auth-choose.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"auth\":{\"logout\":{}}},\"agentInfo\":{\"name\":\"mock-auth\",\"version\":\"0.1.0\"},\"authMethods\":[{\"id\":\"api-key\",\"name\":\"API Key\"},{\"id\":\"browser\",\"name\":\"Browser Login\"}]}}'",
+                "sleep 1",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp auth choose script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-auth-choose", &script);
+
+        let error = run_acp_authenticate_for_agent(&root, &descriptor, None)
+            .expect_err("multiple methods require explicit choice");
+
+        assert!(error.contains("choose an auth method"));
+        assert!(error.contains("api-key (API Key)"));
+        assert!(error.contains("browser (Browser Login)"));
+    }
+
+    #[test]
+    fn acp_auth_command_sends_authenticate_method() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_auth_method");
+        let script = root.join("mock-acp-auth-method.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"auth\":{\"logout\":{}}},\"agentInfo\":{\"name\":\"mock-auth\",\"version\":\"0.1.0\"},\"authMethods\":[{\"id\":\"browser\",\"name\":\"Browser Login\"}]}}'",
+                "read auth",
+                "case \"$auth\" in *'\"method\":\"authenticate\"'*'\"methodId\":\"browser\"'*) ;; *) echo \"$auth\" >&2; exit 5 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"status\":\"ok\"}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp auth method script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-auth-method", &script);
+
+        let evidence = run_acp_authenticate_for_agent(&root, &descriptor, Some("browser"))
+            .expect("auth succeeds");
+
+        assert_eq!(evidence.method_id, "browser");
+        assert_eq!(evidence.status, "ok");
+        let log = fs::read_to_string(&evidence.log_path).expect("read auth log");
+        assert!(log.contains("authenticate"));
+        assert!(log.contains("browser"));
+    }
+
+    #[test]
+    fn acp_session_new_uses_mcp_server_array() {
+        let request = acp_session_new_request(Path::new("/repo"));
+        let value: Value = serde_json::from_str(&request).expect("valid session/new json");
+
+        assert_eq!(
+            value.get("method").and_then(Value::as_str),
+            Some("session/new")
+        );
+        assert!(
+            value
+                .pointer("/params/mcpServers")
+                .is_some_and(Value::is_array)
+        );
+    }
+
+    #[test]
+    fn acp_run_args_parse_session_configuration() {
+        let args = vec![
+            "--async".to_string(),
+            "--load-session".to_string(),
+            "session_old".to_string(),
+            "--mode".to_string(),
+            "plan".to_string(),
+            "--model".to_string(),
+            "claude-sonnet".to_string(),
+            "kiro-cli".to_string(),
+            "continue".to_string(),
+            "work".to_string(),
+        ];
+
+        let parsed = parse_acp_run_args(&args).expect("parse acp run args");
+
+        assert!(parsed.async_job);
+        assert_eq!(parsed.agent_id, "kiro-cli");
+        assert_eq!(parsed.task, "continue work");
+        assert_eq!(
+            parsed.session.load_session_id.as_deref(),
+            Some("session_old")
+        );
+        assert_eq!(parsed.session.mode_id.as_deref(), Some("plan"));
+        assert_eq!(parsed.session.model_id.as_deref(), Some("claude-sonnet"));
+    }
+
+    #[test]
+    fn acp_session_load_uses_required_schema_fields() {
+        let request = acp_session_load_request(Path::new("/repo"), "session_old");
+        let value: Value = serde_json::from_str(&request).expect("valid session/load json");
+
+        assert_eq!(
+            value.get("method").and_then(Value::as_str),
+            Some("session/load")
+        );
+        assert_eq!(
+            value.pointer("/params/sessionId").and_then(Value::as_str),
+            Some("session_old")
+        );
+        assert!(
+            value
+                .pointer("/params/mcpServers")
+                .is_some_and(Value::is_array)
+        );
+    }
+
+    #[test]
+    fn acp_session_configuration_requests_use_schema_shapes() {
+        let set_mode = acp_session_set_mode_request("session_1", "plan", 2);
+        let set_model = acp_session_set_model_request("session_1", "claude-sonnet", 3);
+        let legacy_set_model =
+            acp_legacy_session_set_model_request("session_1", "claude-sonnet", 4);
+        let set_mode: Value = serde_json::from_str(&set_mode).expect("valid set_mode json");
+        let set_model: Value = serde_json::from_str(&set_model).expect("valid set_model json");
+        let legacy_set_model: Value =
+            serde_json::from_str(&legacy_set_model).expect("valid legacy set_model json");
+
+        assert_eq!(
+            set_mode.get("method").and_then(Value::as_str),
+            Some("session/set_mode")
+        );
+        assert_eq!(
+            set_mode.pointer("/params/modeId").and_then(Value::as_str),
+            Some("plan")
+        );
+        assert_eq!(
+            set_model.get("method").and_then(Value::as_str),
+            Some("session/set_config_option")
+        );
+        assert_eq!(
+            set_model
+                .pointer("/params/configId")
+                .and_then(Value::as_str),
+            Some("model")
+        );
+        assert_eq!(
+            set_model.pointer("/params/value").and_then(Value::as_str),
+            Some("claude-sonnet")
+        );
+        assert_eq!(
+            legacy_set_model.get("method").and_then(Value::as_str),
+            Some("session/set_model")
+        );
+        assert_eq!(
+            legacy_set_model
+                .pointer("/params/modelId")
+                .and_then(Value::as_str),
+            Some("claude-sonnet")
+        );
+    }
+
+    #[test]
+    fn acp_session_prompt_uses_prompt_array() {
+        let descriptor = mock_acp_descriptor("mock-codex-style", Path::new("mock"));
+        let request = acp_session_prompt_request(&descriptor, "session_1", "hello", 2);
+        let value: Value = serde_json::from_str(&request).expect("valid session/prompt json");
+
+        assert_eq!(
+            value.get("method").and_then(Value::as_str),
+            Some("session/prompt")
+        );
+        assert!(value.pointer("/params/prompt").is_some_and(Value::is_array));
+        assert!(value.pointer("/params/content").is_none());
+    }
+
+    #[test]
+    fn acp_response_reader_reports_closed_stdout_before_timeout() {
+        let (_sender, receiver) = mpsc::channel::<std::io::Result<String>>();
+        drop(_sender);
+        let mut log_entries = Vec::new();
+
+        let error =
+            read_acp_response_line(&receiver, 1, &mut log_entries, Duration::from_millis(50))
+                .expect_err("closed ACP stdout should not wait for timeout");
+
+        assert!(error.contains("closed stdout before response id 1"));
+    }
+
+    #[test]
+    fn acp_kiro_session_prompt_uses_prompt_array() {
+        let mut descriptor = mock_acp_descriptor("kiro-cli", Path::new("kiro-cli"));
+        descriptor.source = AgentSource::LocalCommand;
+        descriptor.command.command = "kiro-cli".to_string();
+        descriptor.command.args = vec!["acp".to_string()];
+
+        let request = acp_session_prompt_request(&descriptor, "session_1", "hello", 2);
+        let value: Value = serde_json::from_str(&request).expect("valid Kiro session/prompt json");
+
+        assert_eq!(
+            value.get("method").and_then(Value::as_str),
+            Some("session/prompt")
+        );
+        assert!(value.pointer("/params/prompt").is_some_and(Value::is_array));
+        assert!(value.pointer("/params/content").is_none());
+    }
+
+    #[test]
+    fn acp_kiro_agent_env_adds_agent_selector_arg() {
+        let _guard = subprocess_test_guard();
+        let mut descriptor = mock_acp_descriptor("kiro-cli", Path::new("kiro-cli"));
+        descriptor.source = AgentSource::LocalCommand;
+        descriptor.command.command = "kiro-cli".to_string();
+        descriptor.command.args = vec!["acp".to_string()];
+        unsafe {
+            env::set_var("VIDEN_KIRO_AGENT", "team-agent");
+        }
+
+        let args = acp_agent_command_args(&descriptor);
+
+        unsafe {
+            env::remove_var("VIDEN_KIRO_AGENT");
+        }
+        assert_eq!(args, vec!["acp", "--agent", "team-agent"]);
+    }
+
+    #[test]
+    fn acp_kiro_env_maps_official_acp_launch_options() {
+        let _guard = subprocess_test_guard();
+        let mut descriptor = mock_acp_descriptor("kiro-cli", Path::new("kiro-cli"));
+        descriptor.source = AgentSource::LocalCommand;
+        descriptor.command.command = "kiro-cli".to_string();
+        descriptor.command.args = vec!["acp".to_string()];
+        unsafe {
+            env::set_var("VIDEN_KIRO_MODEL", "claude-sonnet-4");
+            env::set_var("VIDEN_KIRO_EFFORT", "high");
+            env::set_var(
+                "VIDEN_KIRO_TRUST_TOOLS",
+                "fs/read_text_file,terminal/create",
+            );
+            env::set_var("VIDEN_KIRO_AGENT_ENGINE", "v3");
+        }
+
+        let args = acp_agent_command_args(&descriptor);
+
+        unsafe {
+            env::remove_var("VIDEN_KIRO_MODEL");
+            env::remove_var("VIDEN_KIRO_EFFORT");
+            env::remove_var("VIDEN_KIRO_TRUST_TOOLS");
+            env::remove_var("VIDEN_KIRO_AGENT_ENGINE");
+        }
+        assert_eq!(
+            args,
+            vec![
+                "acp",
+                "--model",
+                "claude-sonnet-4",
+                "--effort",
+                "high",
+                "--trust-tools",
+                "fs/read_text_file,terminal/create",
+                "--agent-engine",
+                "v3"
+            ]
+        );
+    }
+
+    #[test]
+    fn acp_kiro_trust_all_tools_overrides_trust_tools() {
+        let _guard = subprocess_test_guard();
+        let mut descriptor = mock_acp_descriptor("kiro-cli", Path::new("kiro-cli"));
+        descriptor.source = AgentSource::LocalCommand;
+        descriptor.command.command = "kiro-cli".to_string();
+        descriptor.command.args = vec!["acp".to_string()];
+        unsafe {
+            env::set_var("VIDEN_KIRO_TRUST_ALL_TOOLS", "true");
+            env::set_var("VIDEN_KIRO_TRUST_TOOLS", "fs/read_text_file");
+        }
+
+        let args = acp_agent_command_args(&descriptor);
+
+        unsafe {
+            env::remove_var("VIDEN_KIRO_TRUST_ALL_TOOLS");
+            env::remove_var("VIDEN_KIRO_TRUST_TOOLS");
+        }
+        assert_eq!(args, vec!["acp", "--trust-all-tools"]);
+    }
+
+    #[test]
+    fn acp_initialize_probe_uses_agent_descriptor_command_args() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_descriptor_probe_ok");
+        let script = root.join("mock-acp-agent.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "if [ \"$1\" != \"acp\" ]; then exit 2; fi",
+                "read _line",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"loadSession\":true,\"promptCapabilities\":{\"image\":true}},\"agentInfo\":{\"name\":\"mock-descriptor-acp\",\"version\":\"0.2.0\"}}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp agent script");
+        make_executable(&script);
+        let descriptor = AgentPluginDescriptor {
+            agent_id: "mock-acp".to_string(),
+            display_name: "Mock ACP".to_string(),
+            version: "0.2.0".to_string(),
+            transport: AgentTransport::Acp,
+            source: AgentSource::LocalCommand,
+            command: AgentCommandSpec {
+                command: script.display().to_string(),
+                args: vec!["acp".to_string()],
+                env: vec![],
+            },
+            registry_package: None,
+            protocol_versions: vec![AgentProtocolVersion::AcpV1],
+            auth_modes: vec![AgentAuthMode::AgentNative],
+            capabilities: vec![
+                AgentPluginCapability::SessionPrompt,
+                AgentPluginCapability::StreamingUpdates,
+            ],
+            permission_profile: AgentPermissionProfile::RuntimeGated,
+            experimental_methods: vec![],
+            config_schema_version: 1,
+        };
+
+        let evidence =
+            run_acp_initialize_probe_for_agent(&root, &descriptor).expect("probe succeeds");
+
+        assert_eq!(evidence.protocol_version, "1");
+        assert_eq!(evidence.agent_label, "mock-descriptor-acp 0.2.0");
+        let log = fs::read_to_string(&evidence.log_path).expect("read jsonl log");
+        assert!(log.contains("mock-descriptor-acp"));
+    }
+
+    #[test]
+    fn acp_session_prompt_collects_streamed_updates() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_session_prompt");
+        let script = root.join("mock-acp-session.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read init",
+                "case \"$init\" in *'\"method\":\"initialize\"'*) ;; *) exit 2 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"loadSession\":true},\"agentInfo\":{\"name\":\"mock-session-acp\",\"version\":\"0.3.0\"}}}'",
+                "read new_session",
+                "case \"$new_session\" in *'\"method\":\"session/new\"'*'\"cwd\"'*) ;; *) exit 3 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_123\"}}'",
+                "read prompt",
+                "case \"$prompt\" in *'\"method\":\"session/prompt\"'*'build a plan'*) ;; *) exit 4 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_123\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"Planning\"}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_123\",\"update\":{\"type\":\"ToolCall\",\"toolCallId\":\"tool_1\",\"title\":\"Read files\",\"status\":\"pending\"}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_123\",\"update\":{\"type\":\"ToolCallUpdate\",\"toolCallId\":\"tool_1\",\"status\":\"completed\",\"content\":\"README.md\"}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_123\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp session script");
+        make_executable(&script);
+        let descriptor = AgentPluginDescriptor {
+            agent_id: "mock-acp-session".to_string(),
+            display_name: "Mock ACP Session".to_string(),
+            version: "0.3.0".to_string(),
+            transport: AgentTransport::Acp,
+            source: AgentSource::LocalCommand,
+            command: AgentCommandSpec {
+                command: script.display().to_string(),
+                args: vec![],
+                env: vec![],
+            },
+            registry_package: None,
+            protocol_versions: vec![AgentProtocolVersion::AcpV1],
+            auth_modes: vec![AgentAuthMode::AgentNative],
+            capabilities: vec![
+                AgentPluginCapability::SessionPrompt,
+                AgentPluginCapability::StreamingUpdates,
+                AgentPluginCapability::ToolCalls,
+            ],
+            permission_profile: AgentPermissionProfile::RuntimeGated,
+            experimental_methods: vec![],
+            config_schema_version: 1,
+        };
+
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let evidence = run_acp_session_prompt_for_agent(
+            &root,
+            &descriptor,
+            "build a plan",
+            AcpSessionOptions::default(),
+            &mut approver,
+        )
+        .unwrap();
+
+        assert_eq!(evidence.session_id, "session_123");
+        assert_eq!(evidence.final_status, "completed");
+        assert_eq!(evidence.message, "Planning");
+        assert_eq!(
+            evidence.tool_calls,
+            vec!["tool_1:pending:Read files", "tool_1:completed:README.md"]
+        );
+        let log = fs::read_to_string(&evidence.log_path).expect("read acp session log");
+        assert!(log.contains("session/new"));
+        assert!(log.contains("session/prompt"));
+        assert!(log.contains("TurnEnd"));
+    }
+
+    #[test]
+    fn acp_session_prompt_can_load_and_configure_existing_session() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_session_load_configure");
+        let script = root.join("mock-acp-load-configure.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"loadSession\":true,\"sessionCapabilities\":{\"setMode\":true}},\"agentInfo\":{\"name\":\"mock-load-configure\",\"version\":\"0.7.0\"}}}'",
+                "read load",
+                "case \"$load\" in *'\"method\":\"session/load\"'*'\"sessionId\":\"session_existing\"'*) ;; *) echo \"$load\" >&2; exit 5 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_existing\"}}'",
+                "read mode",
+                "case \"$mode\" in *'\"method\":\"session/set_mode\"'*'\"modeId\":\"plan\"'*) ;; *) echo \"$mode\" >&2; exit 6 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}'",
+                "read model",
+                "case \"$model\" in *'\"method\":\"session/set_config_option\"'*'\"configId\":\"model\"'*'\"value\":\"claude-sonnet\"'*) ;; *) echo \"$model\" >&2; exit 7 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"configOptions\":[]}}'",
+                "read prompt",
+                "case \"$prompt\" in *'\"method\":\"session/prompt\"'*) ;; *) echo \"$prompt\" >&2; exit 8 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_existing\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"configured\"}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"stopReason\":\"end_turn\"}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp load configure script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-load-configure", &script);
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let session = AcpSessionOptions {
+            load_session_id: Some("session_existing".to_string()),
+            mode_id: Some("plan".to_string()),
+            model_id: Some("claude-sonnet".to_string()),
+        };
+
+        let evidence = run_acp_session_prompt_for_agent(
+            &root,
+            &descriptor,
+            "continue",
+            session,
+            &mut approver,
+        )
+        .expect("configured acp session succeeds");
+
+        assert_eq!(evidence.session_id, "session_existing");
+        assert_eq!(evidence.final_status, "end_turn");
+        assert_eq!(evidence.message, "configured");
+        let log = fs::read_to_string(&evidence.log_path).expect("read acp session log");
+        assert!(log.contains("session/load"));
+        assert!(log.contains("session/set_mode"));
+        assert!(log.contains("session/set_config_option"));
+        assert!(log.contains("session/prompt"));
+    }
+
+    #[test]
+    fn acp_session_prompt_fails_when_set_mode_is_rejected() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_session_set_mode_error");
+        let script = root.join("mock-acp-set-mode-error.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"sessionCapabilities\":{\"setMode\":true}},\"agentInfo\":{\"name\":\"mock-set-mode-error\",\"version\":\"0.7.0\"}}}'",
+                "read _new",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_123\"}}'",
+                "read mode",
+                "case \"$mode\" in *'\"method\":\"session/set_mode\"'*'\"modeId\":\"plan\"'*) ;; *) echo \"$mode\" >&2; exit 5 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32000,\"message\":\"mode unavailable\"}}'",
+                "read maybe_prompt || exit 0",
+                "echo \"unexpected prompt: $maybe_prompt\" >&2",
+                "exit 9",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp set-mode error script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-set-mode-error", &script);
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+
+        let err = run_acp_session_prompt_for_agent(
+            &root,
+            &descriptor,
+            "continue",
+            AcpSessionOptions {
+                load_session_id: None,
+                mode_id: Some("plan".to_string()),
+                model_id: None,
+            },
+            &mut approver,
+        )
+        .expect_err("set_mode errors should stop before prompting");
+
+        assert!(err.contains("mode unavailable"), "{err}");
+    }
+
+    #[test]
+    fn acp_run_can_use_custom_command_descriptor_from_env() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_custom_command_run");
+        let script = root.join("mock-custom-acp.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentInfo\":{\"name\":\"custom-acp\",\"version\":\"0.1.0\"}}}'",
+                "read _new",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_custom\"}}'",
+                "read prompt",
+                "case \"$prompt\" in *'\"method\":\"session/prompt\"'*'hello custom'*) ;; *) echo \"$prompt\" >&2; exit 5 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_custom\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"custom ok\"}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_custom\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock custom acp script");
+        make_executable(&script);
+        let descriptor = custom_acp_agent_descriptor(&script.display().to_string());
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+
+        let output = handle_acp_agent_run_command_with_agents(
+            &root,
+            &[descriptor],
+            AcpRunArgs {
+                async_job: false,
+                agent_id: "custom-acp".to_string(),
+                task: "hello custom".to_string(),
+                session: AcpSessionOptions::default(),
+            },
+            &mut approver,
+            PermissionContext::default(),
+            None,
+        )
+        .expect("custom ACP descriptor should run");
+
+        assert!(output.contains("agent: custom-acp"));
+        assert!(output.contains("message: custom ok"));
+    }
+
+    #[test]
+    fn acp_session_prompt_accepts_codex_style_final_response() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_session_prompt_codex_style");
+        let script = root.join("mock-acp-codex-style.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"loadSession\":true},\"agentInfo\":{\"name\":\"mock-codex-style\",\"version\":\"0.1.0\"}}}'",
+                "read new_session",
+                "case \"$new_session\" in *'\"mcpServers\":[]'*) ;; *) echo \"$new_session\" >&2; exit 3 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_codex\"}}'",
+                "read prompt",
+                "case \"$prompt\" in *'\"prompt\"'*'Reply'*) ;; *) echo \"$prompt\" >&2; exit 4 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_codex\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"OK\"}}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"stopReason\":\"end_turn\",\"usage\":{\"totalTokens\":9,\"inputTokens\":7,\"outputTokens\":2}}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock codex-style acp script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-codex-style", &script);
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+
+        let evidence = run_acp_session_prompt_for_agent(
+            &root,
+            &descriptor,
+            "Reply",
+            AcpSessionOptions::default(),
+            &mut approver,
+        )
+        .unwrap();
+
+        assert_eq!(evidence.session_id, "session_codex");
+        assert_eq!(evidence.final_status, "end_turn");
+        assert_eq!(evidence.message, "OK");
+        assert_eq!(
+            evidence.usage_summary.as_deref(),
+            Some("total=9 input=7 output=2")
+        );
+        assert_eq!(acp_session_job_status(&evidence), "finished");
+    }
+
+    #[test]
+    fn acp_session_prompt_accepts_kiro_notifications_and_tool_calls() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_session_prompt_kiro_style");
+        let script = root.join("mock-acp-kiro-style.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"loadSession\":true,\"promptCapabilities\":{\"image\":true}},\"agentInfo\":{\"name\":\"kiro-cli\",\"version\":\"1.5.0\"}}}'",
+                "read new_session",
+                "case \"$new_session\" in *'\"mcpServers\":[]'*) ;; *) echo \"$new_session\" >&2; exit 3 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_kiro\"}}'",
+                "read prompt",
+                "case \"$prompt\" in *'\"prompt\"'*'Explain'*) ;; *) echo \"$prompt\" >&2; exit 4 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/notification\",\"params\":{\"sessionId\":\"session_kiro\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"Working\"}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/notification\",\"params\":{\"sessionId\":\"session_kiro\",\"update\":{\"type\":\"ToolCall\",\"toolCallId\":\"tool_1\",\"title\":\"Inspect project\",\"status\":\"pending\"}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/notification\",\"params\":{\"sessionId\":\"session_kiro\",\"update\":{\"type\":\"ToolCallUpdate\",\"toolCallId\":\"tool_1\",\"status\":\"completed\",\"content\":\"Cargo.toml\"}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/notification\",\"params\":{\"sessionId\":\"session_kiro\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock kiro-style acp script");
+        make_executable(&script);
+        let mut descriptor = mock_acp_descriptor("kiro-cli", &script);
+        descriptor.source = AgentSource::LocalCommand;
+        descriptor.command.args = vec![];
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+
+        let evidence = run_acp_session_prompt_for_agent(
+            &root,
+            &descriptor,
+            "Explain",
+            AcpSessionOptions::default(),
+            &mut approver,
+        )
+        .unwrap();
+
+        assert_eq!(evidence.session_id, "session_kiro");
+        assert_eq!(evidence.final_status, "completed");
+        assert_eq!(evidence.message, "Working");
+        assert_eq!(
+            evidence.tool_calls,
+            vec![
+                "tool_1:pending:Inspect project",
+                "tool_1:completed:Cargo.toml"
+            ]
+        );
+        assert!(evidence.runtime_events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::AssistantDelta { content, .. } if content == "Working"
+        )));
+        assert!(evidence.runtime_events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::ToolCallStarted { tool_call_id, name, .. }
+                if tool_call_id == "tool_1" && name == "Inspect project"
+        )));
+        assert!(evidence.runtime_events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::ToolCallFinished { tool_call_id, success, evidence, .. }
+                if tool_call_id == "tool_1" && *success && evidence.is_some()
+        )));
+        assert!(evidence.runtime_events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::EvidenceRecorded { evidence }
+                if evidence.kind == "tool_log" && evidence.summary.contains("Cargo.toml")
+        )));
+        assert!(evidence.runtime_events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::EvidenceRecorded { evidence }
+                if evidence.kind == "acp_turn_end" && evidence.summary.contains("completed")
+        )));
+        assert!(evidence.runtime_events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::MergeGateUpdated { gate }
+                if gate.gate_id == "gate-acp-session-session_kiro"
+                    && gate.status == MergeGateStatus::Accepted
+                    && gate.required_evidence == vec!["acp_turn_end".to_string()]
+                    && gate.evidence_ids.iter().any(|id| id.starts_with("acp-tool-tool_1"))
+                    && gate.evidence_ids.iter().any(|id| id.starts_with("acp-turn-end-session_kiro"))
+        )));
+    }
+
+    #[test]
+    fn acp_session_prompt_maps_diff_updates_to_patch_evidence() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_session_prompt_patch_evidence");
+        let script = root.join("mock-acp-patch-evidence.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"loadSession\":true},\"agentInfo\":{\"name\":\"mock-acp-patch\",\"version\":\"0.1.0\"}}}'",
+                "read _new_session",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_patch\"}}'",
+                "read _prompt",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_patch\",\"update\":{\"type\":\"ToolCallUpdate\",\"toolCallId\":\"tool_patch\",\"status\":\"completed\",\"content\":\"generated patch\",\"diff\":\"diff --git a/src/lib.rs b/src/lib.rs\\n--- a/src/lib.rs\\n+++ b/src/lib.rs\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_patch\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp patch script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-patch", &script);
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+
+        let evidence = run_acp_session_prompt_for_agent(
+            &root,
+            &descriptor,
+            "Generate a patch",
+            AcpSessionOptions::default(),
+            &mut approver,
+        )
+        .unwrap();
+
+        let patch_id = evidence
+            .runtime_events
+            .iter()
+            .find_map(|event| match &event.kind {
+                RuntimeEventKind::EvidenceRecorded { evidence } if evidence.kind == "patch" => {
+                    let metadata = evidence.metadata.as_ref()?;
+                    assert_eq!(
+                        metadata.get("schema").and_then(Value::as_str),
+                        Some("acp.patch.v1")
+                    );
+                    assert_eq!(
+                        metadata.get("format").and_then(Value::as_str),
+                        Some("unified_diff")
+                    );
+                    assert_eq!(metadata.get("fileCount").and_then(Value::as_u64), Some(1));
+                    assert_eq!(metadata.get("additions").and_then(Value::as_u64), Some(1));
+                    assert_eq!(metadata.get("deletions").and_then(Value::as_u64), Some(1));
+                    assert_eq!(
+                        metadata.pointer("/files/0/path").and_then(Value::as_str),
+                        Some("src/lib.rs")
+                    );
+                    assert_eq!(
+                        metadata
+                            .pointer("/origin/toolCallId")
+                            .and_then(Value::as_str),
+                        Some("tool_patch")
+                    );
+                    assert!(
+                        metadata.get("diff").and_then(Value::as_str).is_some_and(
+                            |diff| diff.contains("diff --git a/src/lib.rs b/src/lib.rs")
+                        )
+                    );
+                    assert_eq!(evidence.source.as_deref(), Some("acp:patch.v1"));
+                    assert!(evidence.summary.contains("ACP patch: 1 file(s), +1/-1"));
+                    Some(evidence.id.clone())
+                }
+                _ => None,
+            });
+        let patch_id = patch_id.expect("ACP diff update should record patch evidence");
+        assert!(evidence.runtime_events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::MergeGateUpdated { gate }
+                if gate.gate_id == "gate-acp-session-session_patch"
+                    && gate.required_evidence == vec![
+                        "patch".to_string(),
+                        "acp_turn_end".to_string(),
+                    ]
+                    && gate.evidence_ids.iter().any(|id| id == &patch_id)
+                    && gate.status == MergeGateStatus::Accepted
+        )));
+    }
+
+    #[test]
+    fn acp_smoke_gate_reports_pass_and_blocked_auth() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_smoke_gate");
+        let ok = root.join("mock-acp-ok.sh");
+        fs::write(
+            &ok,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-ok\",\"version\":\"0.1.0\"},\"authMethods\":[]}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write ok smoke script");
+        make_executable(&ok);
+        let blocked = root.join("mock-acp-blocked.sh");
+        fs::write(
+            &blocked,
+            [
+                "#!/bin/sh",
+                "echo 'error: You are not logged in, please log in' >&2",
+                "exit 3",
+            ]
+            .join("\n"),
+        )
+        .expect("write blocked smoke script");
+        make_executable(&blocked);
+        let agents = vec![
+            mock_acp_descriptor("mock-ok", &ok),
+            mock_acp_descriptor("mock-blocked", &blocked),
+        ];
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+
+        let report =
+            run_acp_smoke_gate_for_agents(&root, &agents, false, &mut approver).unwrap_err();
+
+        assert!(report.contains("PASS mock-ok"));
+        assert!(report.contains("BLOCKED mock-blocked"));
+        assert!(report.contains("summary: 0 failed, 1 blocked-auth"));
+    }
+
+    #[test]
+    fn acp_smoke_gate_classifies_timeout_as_failure_not_auth_block() {
+        let descriptor = mock_acp_descriptor("kiro-cli", Path::new("kiro-cli"));
+
+        assert_eq!(
+            classify_acp_smoke_error(
+                &descriptor,
+                "ACP session/prompt timed out before TurnEnd or final response after 120s",
+            ),
+            "timeout"
+        );
+        assert_eq!(
+            classify_acp_smoke_error(&descriptor, "You are not logged in, please log in"),
+            "blocked-auth"
+        );
+    }
+
+    #[test]
+    fn acp_session_prompt_timeout_is_agent_aware_and_env_overridable() {
+        let _guard = subprocess_test_guard();
+        let mut kiro = mock_acp_descriptor("kiro-cli", Path::new("kiro-cli"));
+        kiro.command.command = "kiro-cli".to_string();
+        let codex = mock_acp_descriptor("codex-acp", Path::new("npx"));
+
+        unsafe {
+            env::remove_var("VIDEN_ACP_SESSION_TIMEOUT_SECS");
+        }
+        assert_eq!(
+            acp_session_prompt_timeout(&kiro),
+            Duration::from_secs(DEFAULT_KIRO_ACP_SESSION_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            acp_session_prompt_timeout(&codex),
+            Duration::from_secs(DEFAULT_LOCAL_ACP_SESSION_TIMEOUT_SECS)
+        );
+
+        unsafe {
+            env::set_var("VIDEN_ACP_SESSION_TIMEOUT_SECS", "7");
+        }
+        assert_eq!(acp_session_prompt_timeout(&kiro), Duration::from_secs(7));
+        unsafe {
+            env::remove_var("VIDEN_ACP_SESSION_TIMEOUT_SECS");
+        }
+    }
+
+    #[test]
+    fn acp_session_permission_request_routes_through_approver() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_session_permission");
+        let script = root.join("mock-acp-permission.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-permission-acp\",\"version\":\"0.4.0\"}}}'",
+                "read _new_session",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_perm\"}}'",
+                "read _prompt",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"session_perm\",\"toolCall\":{\"toolCallId\":\"tool_2\",\"title\":\"Edit file\",\"kind\":\"edit\"},\"options\":[{\"optionId\":\"deny\",\"kind\":\"reject_once\",\"name\":\"Deny\"},{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"}]}}'",
+                "read approval",
+                "case \"$approval\" in *'\"id\":9'*'\"optionId\":\"allow\"'*) ;; *) exit 5 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_perm\",\"update\":{\"type\":\"ToolCallUpdate\",\"toolCallId\":\"tool_2\",\"status\":\"completed\",\"content\":\"approved\"}}}'",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_perm\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp permission script");
+        make_executable(&script);
+        let descriptor = AgentPluginDescriptor {
+            agent_id: "mock-acp-permission".to_string(),
+            display_name: "Mock ACP Permission".to_string(),
+            version: "0.4.0".to_string(),
+            transport: AgentTransport::Acp,
+            source: AgentSource::LocalCommand,
+            command: AgentCommandSpec {
+                command: script.display().to_string(),
+                args: vec![],
+                env: vec![],
+            },
+            registry_package: None,
+            protocol_versions: vec![AgentProtocolVersion::AcpV1],
+            auth_modes: vec![AgentAuthMode::AgentNative],
+            capabilities: vec![
+                AgentPluginCapability::SessionPrompt,
+                AgentPluginCapability::StreamingUpdates,
+                AgentPluginCapability::ToolCalls,
+            ],
+            permission_profile: AgentPermissionProfile::RuntimeGated,
+            experimental_methods: vec![],
+            config_schema_version: 1,
+        };
+        let approvals = Cell::new(0usize);
+        let prompts = RefCell::new(Vec::new());
+        let mut approver = |prompt: viden_types::PermissionPrompt| {
+            approvals.set(approvals.get() + 1);
+            prompts.borrow_mut().push(prompt);
+            ApprovalResponse {
+                approved: true,
+                feedback: Some("ok".to_string()),
+            }
+        };
+
+        let evidence = run_acp_session_prompt_for_agent(
+            &root,
+            &descriptor,
+            "edit the file",
+            AcpSessionOptions::default(),
+            &mut approver,
+        )
+        .unwrap();
+
+        assert_eq!(approvals.get(), 1);
+        assert_eq!(prompts.borrow()[0].tool_name, "acp:tool_2");
+        assert!(prompts.borrow()[0].message.contains("Edit file"));
+        assert_eq!(evidence.tool_calls, vec!["tool_2:completed:approved"]);
+        let log = fs::read_to_string(&evidence.log_path).expect("read acp session log");
+        assert!(log.contains("session/request_permission"));
+        assert!(log.contains(r#"optionId\":\"allow"#));
+    }
+
+    #[test]
+    fn acp_session_permission_denial_selects_reject_option() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_session_permission_denied");
+        let script = root.join("mock-acp-permission-denied.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-deny-acp\",\"version\":\"0.4.0\"}}}'",
+                "read _new_session",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_deny\"}}'",
+                "read _prompt",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"session_deny\",\"toolCall\":{\"toolCallId\":\"tool_3\",\"title\":\"Run command\",\"kind\":\"terminal\"},\"options\":[{\"optionId\":\"approve\",\"kind\":\"allow_once\",\"name\":\"Allow\"},{\"optionId\":\"reject\",\"kind\":\"reject_once\",\"name\":\"Reject\"}]}}'",
+                "read approval",
+                "case \"$approval\" in *'\"id\":10'*'\"optionId\":\"reject\"'*) ;; *) exit 5 ;; esac",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_deny\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp permission denied script");
+        make_executable(&script);
+        let descriptor = AgentPluginDescriptor {
+            agent_id: "mock-acp-deny".to_string(),
+            display_name: "Mock ACP Deny".to_string(),
+            version: "0.4.0".to_string(),
+            transport: AgentTransport::Acp,
+            source: AgentSource::LocalCommand,
+            command: AgentCommandSpec {
+                command: script.display().to_string(),
+                args: vec![],
+                env: vec![],
+            },
+            registry_package: None,
+            protocol_versions: vec![AgentProtocolVersion::AcpV1],
+            auth_modes: vec![AgentAuthMode::AgentNative],
+            capabilities: vec![AgentPluginCapability::SessionPrompt],
+            permission_profile: AgentPermissionProfile::RuntimeGated,
+            experimental_methods: vec![],
+            config_schema_version: 1,
+        };
+        let mut approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
+            approved: false,
+            feedback: Some("no".to_string()),
+        };
+
+        let evidence = run_acp_session_prompt_for_agent(
+            &root,
+            &descriptor,
+            "run a command",
+            AcpSessionOptions::default(),
+            &mut approver,
+        )
+        .unwrap();
+
+        assert_eq!(evidence.final_status, "completed");
+        let log = fs::read_to_string(&evidence.log_path).expect("read acp session log");
+        assert!(log.contains(r#"optionId\":\"reject"#));
+    }
+
+    #[test]
+    fn acp_session_handles_permission_gated_file_read_requests() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_session_file_request_read");
+        let target = root.join("notes.txt");
+        fs::write(&target, "hello from acp\nsecond line\n").expect("write target file");
+        let script = root.join("mock-acp-file-request.sh");
+        fs::write(
+            &script,
+            vec![
+                "#!/bin/sh".to_string(),
+                "read _init".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-file-acp\",\"version\":\"0.5.0\"}}}'".to_string(),
+                "read _new_session".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_file\"}}'".to_string(),
+                "read _prompt".to_string(),
+                format!(
+                    "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":17,\"method\":\"fs/read_text_file\",\"params\":{{\"path\":\"{}\",\"startLine\":1,\"limit\":1}}}}'",
+                    target.display()
+                ),
+                "read file_response".to_string(),
+                "case \"$file_response\" in".to_string(),
+                "  *'\"content\":\"hello from acp\"'*) ;;".to_string(),
+                "  *) echo \"$file_response\" >&2; exit 3 ;;".to_string(),
+                "esac".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_file\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'".to_string(),
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp file request script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-file-request", &script);
+        let mut approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+
+        let evidence = run_acp_session_prompt_for_agent(
+            &root,
+            &descriptor,
+            "read a file",
+            AcpSessionOptions::default(),
+            &mut approver,
+        )
+        .expect("session should continue after file read request");
+
+        assert_eq!(evidence.final_status, "completed");
+        let log = fs::read_to_string(&evidence.log_path).expect("read acp session log");
+        assert!(log.contains("fs/read_text_file"));
+        assert!(log.contains("hello from acp"));
+    }
+
+    #[test]
+    fn acp_session_file_write_requests_require_approval() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_session_file_request_write");
+        let target = root.join("written.txt");
+        let script = root.join("mock-acp-file-write.sh");
+        fs::write(
+            &script,
+            vec![
+                "#!/bin/sh".to_string(),
+                "read _init".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-file-write-acp\",\"version\":\"0.5.0\"}}}'".to_string(),
+                "read _new_session".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_file_write\"}}'".to_string(),
+                "read _prompt".to_string(),
+                format!(
+                    "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":18,\"method\":\"fs/write_text_file\",\"params\":{{\"path\":\"{}\",\"content\":\"written by acp\"}}}}'",
+                    target.display()
+                ),
+                "read file_response".to_string(),
+                "case \"$file_response\" in".to_string(),
+                "  *'\"result\":{}'*) ;;".to_string(),
+                "  *) echo \"$file_response\" >&2; exit 3 ;;".to_string(),
+                "esac".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_file_write\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'".to_string(),
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp file write script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-file-write", &script);
+        let approvals = Cell::new(0usize);
+        let mut approver = |prompt: viden_types::PermissionPrompt| {
+            approvals.set(approvals.get() + 1);
+            assert_eq!(prompt.tool_name, "write_file");
+            assert!(prompt.input_preview.contains("written.txt"));
+            ApprovalResponse {
+                approved: true,
+                feedback: None,
+            }
+        };
+
+        let evidence = run_acp_session_prompt_for_agent(
+            &root,
+            &descriptor,
+            "write a file",
+            AcpSessionOptions::default(),
+            &mut approver,
+        )
+        .expect("session should continue after approved file write request");
+
+        assert_eq!(approvals.get(), 1);
+        assert_eq!(evidence.final_status, "completed");
+        assert_eq!(fs::read_to_string(&target).unwrap(), "written by acp");
+    }
+
+    #[test]
+    fn acp_filesystem_bridge_denies_out_of_scope_reads() {
+        let root = temp_root("acp_file_out_of_scope");
+        let engine = PermissionEngine::new(&root);
+        let response = acp_read_text_file_response(
+            &root,
+            &engine,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 19,
+                "method": "fs/read_text_file",
+                "params": {"path": "/tmp/outside-viden.txt"}
+            }),
+        );
+
+        assert!(response.contains(r#""id":19"#));
+        assert!(response.contains("Path is outside the allowed working directory scope"));
+    }
+
+    #[test]
+    fn acp_session_terminal_requests_run_through_permission_bridge() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_session_terminal_request");
+        let script = root.join("mock-acp-terminal.sh");
+        fs::write(
+            &script,
+            vec![
+                "#!/bin/sh".to_string(),
+                "read _init".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-terminal-acp\",\"version\":\"0.6.0\"}}}'".to_string(),
+                "read _new_session".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_terminal\"}}'".to_string(),
+                "read _prompt".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"terminal/create\",\"params\":{\"sessionId\":\"session_terminal\",\"command\":\"printf\",\"args\":[\"terminal-ok\"]}}'".to_string(),
+                "read create_response".to_string(),
+                "case \"$create_response\" in".to_string(),
+                "  *'\"terminalId\":\"acp-terminal-1\"'*) ;;".to_string(),
+                "  *) echo \"$create_response\" >&2; exit 3 ;;".to_string(),
+                "esac".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":43,\"method\":\"terminal/output\",\"params\":{\"sessionId\":\"session_terminal\",\"terminalId\":\"acp-terminal-1\"}}'".to_string(),
+                "read output_response".to_string(),
+                "case \"$output_response\" in".to_string(),
+                "  *'terminal-ok'*) ;;".to_string(),
+                "  *) echo \"$output_response\" >&2; exit 4 ;;".to_string(),
+                "esac".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":44,\"method\":\"terminal/wait_for_exit\",\"params\":{\"sessionId\":\"session_terminal\",\"terminalId\":\"acp-terminal-1\"}}'".to_string(),
+                "read wait_response".to_string(),
+                "case \"$wait_response\" in".to_string(),
+                "  *'\"exitCode\":0'*) ;;".to_string(),
+                "  *) echo \"$wait_response\" >&2; exit 5 ;;".to_string(),
+                "esac".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":45,\"method\":\"terminal/release\",\"params\":{\"sessionId\":\"session_terminal\",\"terminalId\":\"acp-terminal-1\"}}'".to_string(),
+                "read release_response".to_string(),
+                "case \"$release_response\" in".to_string(),
+                "  *'\"result\":{}'*) ;;".to_string(),
+                "  *) echo \"$release_response\" >&2; exit 6 ;;".to_string(),
+                "esac".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_terminal\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'".to_string(),
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp terminal script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-terminal", &script);
+        let approvals = Cell::new(0usize);
+        let mut approver = |prompt: viden_types::PermissionPrompt| {
+            approvals.set(approvals.get() + 1);
+            assert_eq!(prompt.tool_name, "shell");
+            assert!(prompt.input_preview.contains("printf terminal-ok"));
+            ApprovalResponse {
+                approved: true,
+                feedback: None,
+            }
+        };
+
+        let evidence = run_acp_session_prompt_for_agent(
+            &root,
+            &descriptor,
+            "run a terminal command",
+            AcpSessionOptions::default(),
+            &mut approver,
+        )
+        .expect("session should continue after terminal requests");
+
+        assert_eq!(approvals.get(), 1);
+        assert_eq!(evidence.final_status, "completed");
+        let log = fs::read_to_string(&evidence.log_path).expect("read acp session log");
+        assert!(log.contains("terminal/create"));
+        assert!(log.contains("terminal-ok"));
+    }
+
+    #[test]
+    fn acp_terminal_bridge_supports_long_running_output_polling() {
+        let root = temp_root("acp_terminal_long_running");
+        let engine = PermissionEngine::new(&root);
+        let mut terminals = AcpTerminalStore::default();
+        let mut approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+
+        let started = Instant::now();
+        let create = acp_terminal_create_response(
+            &root,
+            &engine,
+            &mut approver,
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 47,
+                "method": "terminal/create",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "command": "sh",
+                    "args": ["-c", "printf started; sleep 1; printf done"]
+                }
+            }),
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "terminal/create should return before the command exits"
+        );
+        assert!(create.contains(r#""terminalId":"acp-terminal-1""#));
+
+        std::thread::sleep(Duration::from_millis(100));
+        let output = acp_terminal_output_response(
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 48,
+                "method": "terminal/output",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "terminalId": "acp-terminal-1"
+                }
+            }),
+        );
+        assert!(output.contains("started"));
+        assert!(output.contains(r#""exitCode":null"#));
+
+        let wait = acp_terminal_wait_for_exit_response(
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 49,
+                "method": "terminal/wait_for_exit",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "terminalId": "acp-terminal-1"
+                }
+            }),
+        );
+        assert!(wait.contains(r#""exitCode":0"#));
+
+        let final_output = acp_terminal_output_response(
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 50,
+                "method": "terminal/output",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "terminalId": "acp-terminal-1"
+                }
+            }),
+        );
+        assert!(final_output.contains("started"));
+        assert!(final_output.contains("done"));
+    }
+
+    #[test]
+    fn acp_terminal_bridge_can_kill_long_running_processes() {
+        let root = temp_root("acp_terminal_kill_long_running");
+        let engine = PermissionEngine::new(&root);
+        let mut terminals = AcpTerminalStore::default();
+        let mut approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+
+        let create = acp_terminal_create_response(
+            &root,
+            &engine,
+            &mut approver,
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 51,
+                "method": "terminal/create",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "command": "sh",
+                    "args": ["-c", "printf started; sleep 5; printf never"]
+                }
+            }),
+        );
+        assert!(create.contains(r#""terminalId":"acp-terminal-1""#));
+
+        std::thread::sleep(Duration::from_millis(100));
+        let kill = acp_terminal_kill_response(
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 52,
+                "method": "terminal/kill",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "terminalId": "acp-terminal-1"
+                }
+            }),
+        );
+        assert!(kill.contains(r#""result":{}"#));
+
+        let wait = acp_terminal_wait_for_exit_response(
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 53,
+                "method": "terminal/wait_for_exit",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "terminalId": "acp-terminal-1"
+                }
+            }),
+        );
+        assert!(wait.contains(r#""signal":"killed""#));
+
+        let output = acp_terminal_output_response(
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 54,
+                "method": "terminal/output",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "terminalId": "acp-terminal-1"
+                }
+            }),
+        );
+        assert!(output.contains("started"));
+        assert!(!output.contains("never"));
+    }
+
+    #[test]
+    fn acp_terminal_bridge_supports_stdin_input() {
+        let root = temp_root("acp_terminal_stdin_input");
+        let engine = PermissionEngine::new(&root);
+        let mut terminals = AcpTerminalStore::default();
+        let mut approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+
+        let create = acp_terminal_create_response(
+            &root,
+            &engine,
+            &mut approver,
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 55,
+                "method": "terminal/create",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "command": "sh",
+                    "args": ["-c", "read line; printf 'got:%s' \"$line\""]
+                }
+            }),
+        );
+        assert!(create.contains(r#""terminalId":"acp-terminal-1""#));
+
+        let input = acp_terminal_input_response(
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 56,
+                "method": "terminal/input",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "terminalId": "acp-terminal-1",
+                    "input": "hello\n"
+                }
+            }),
+        );
+        assert!(input.contains(r#""bytesWritten":6"#));
+
+        let wait = acp_terminal_wait_for_exit_response(
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 57,
+                "method": "terminal/wait_for_exit",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "terminalId": "acp-terminal-1"
+                }
+            }),
+        );
+        assert!(wait.contains(r#""exitCode":0"#));
+
+        let output = acp_terminal_output_response(
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 58,
+                "method": "terminal/output",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "terminalId": "acp-terminal-1"
+                }
+            }),
+        );
+        assert!(output.contains("got:hello"));
+    }
+
+    #[test]
+    fn acp_terminal_bridge_respects_plan_mode() {
+        let root = temp_root("acp_terminal_plan_mode");
+        let mut engine = PermissionEngine::new(&root);
+        let mut context = PermissionContext::default();
+        context.mode = viden_types::PermissionMode::Plan;
+        engine.restore_context(context);
+        let mut terminals = AcpTerminalStore::default();
+        let approvals = Cell::new(0usize);
+        let mut approver = |_prompt: viden_types::PermissionPrompt| {
+            approvals.set(approvals.get() + 1);
+            ApprovalResponse {
+                approved: true,
+                feedback: None,
+            }
+        };
+
+        let response = acp_terminal_create_response(
+            &root,
+            &engine,
+            &mut approver,
+            &mut terminals,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 46,
+                "method": "terminal/create",
+                "params": {
+                    "sessionId": "session_terminal",
+                    "command": "printf",
+                    "args": ["blocked"]
+                }
+            }),
+        );
+
+        assert_eq!(approvals.get(), 0);
+        assert!(terminals.records.is_empty());
+        assert!(response.contains(r#""id":46"#));
+        assert!(response.contains("blocked while plan mode is active"));
+    }
+
+    #[test]
+    fn acp_agent_handshake_timeout_allows_registry_cold_start() {
+        let mut registry = mock_acp_descriptor("mock-registry-acp", Path::new("npx"));
+        registry.source = AgentSource::Registry;
+        let mut local = mock_acp_descriptor("mock-local-acp", Path::new("kiro-cli"));
+        local.source = AgentSource::LocalCommand;
+
+        assert_eq!(
+            acp_agent_handshake_timeout(&registry),
+            Duration::from_secs(DEFAULT_REGISTRY_ACP_HANDSHAKE_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            acp_agent_handshake_timeout(&local),
+            Duration::from_secs(DEFAULT_LOCAL_ACP_HANDSHAKE_TIMEOUT_SECS)
+        );
+    }
+
+    #[test]
+    fn acp_registry_agent_uses_project_scoped_npm_cache() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_registry_npm_cache");
+        let script = root.join("mock-registry-acp.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "case \"$npm_config_cache\" in",
+                "  */.viden/cache/npm) ;;",
+                "  *) echo \"unexpected npm_config_cache=$npm_config_cache\" >&2; exit 7 ;;",
+                "esac",
+                "test \"$NPM_CONFIG_CACHE\" = \"$npm_config_cache\" || exit 8",
+                "test \"$npm_config_audit\" = \"false\" || exit 9",
+                "test \"$npm_config_fund\" = \"false\" || exit 10",
+                "read _line",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-registry-cache\",\"version\":\"0.1.0\"}}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock registry acp script");
+        make_executable(&script);
+        let mut descriptor = mock_acp_descriptor("mock-registry-cache", &script);
+        descriptor.source = AgentSource::Registry;
+
+        let evidence = run_acp_initialize_probe_for_agent(&root, &descriptor)
+            .expect("registry probe succeeds");
+
+        assert_eq!(evidence.agent_label, "mock-registry-cache 0.1.0");
+        assert!(root.join(".viden/cache/npm").is_dir());
+    }
+
+    #[test]
+    fn acp_initialize_probe_records_stderr_on_agent_exit() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_probe_stderr");
+        let script = root.join("mock-acp-stderr.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "echo 'Auth: Not authenticated. Please run login' >&2",
+                "exit 3",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp stderr script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-stderr", &script);
+
+        let error = run_acp_initialize_probe_for_agent(&root, &descriptor)
+            .expect_err("probe should fail with stderr");
+
+        assert!(error.contains("ACP command closed stdout without response"));
+        assert!(error.contains("Auth: Not authenticated"));
+        let log_path = error
+            .split("log ")
+            .last()
+            .expect("log path in error")
+            .trim();
+        let log = fs::read_to_string(log_path).expect("read probe log");
+        assert!(log.contains(r#""direction":"stderr"#));
+        assert!(log.contains("Auth: Not authenticated"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn acp_child_cleanup_timeout_is_bounded() {
+        let _guard = subprocess_test_guard();
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("trap '' TERM; sleep 5")
+            .spawn()
+            .expect("spawn sleep child");
+
+        let exited = wait_child_timeout(&mut child, Duration::from_millis(100));
+
+        assert!(!exited);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn acp_async_job_records_status_and_result() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_async_job");
+        let script = root.join("mock-acp-async.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-async-acp\",\"version\":\"0.5.0\"}}}'",
+                "read _new_session",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_async\"}}'",
+                "read _prompt",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_async\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"async done\"}}}'",
+                "sleep 3",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_async\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp async script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-async", &script);
+
+        let started = start_acp_session_job(
+            &root,
+            &descriptor,
+            "finish quickly".to_string(),
+            AcpSessionOptions::default(),
+            None,
+        )
+        .expect("start acp job");
+        let id = started
+            .lines()
+            .find_map(|line| line.split('`').nth(1))
+            .expect("job id in output")
+            .to_string();
+        let runtime_events_path = acp_job_runtime_events_path(&root, &id);
+
+        let live_deadline = Instant::now() + Duration::from_secs(2);
+        let mut saw_live_event_while_running = false;
+        while Instant::now() < live_deadline {
+            let running = find_codex_job(&root, &id)
+                .ok()
+                .flatten()
+                .is_some_and(|job| job.status == "running");
+            let runtime_events = read_acp_runtime_events(&runtime_events_path);
+            let has_assistant_event = runtime_events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::AssistantDelta { content, .. } if content == "async done"
+                )
+            });
+            let has_turn_end_evidence = runtime_events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::EvidenceRecorded { evidence } if evidence.kind == "acp_turn_end"
+                )
+            });
+            if running && has_assistant_event {
+                assert!(!has_turn_end_evidence);
+                saw_live_event_while_running = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            saw_live_event_while_running,
+            "async ACP job should persist assistant runtime events while still running"
+        );
+        let live_runtime_events =
+            fs::read_to_string(&runtime_events_path).expect("read live ACP runtime events");
+        assert!(live_runtime_events.contains("async done"));
+        let parsed_live_runtime_events = read_acp_runtime_events(&runtime_events_path);
+        assert!(!parsed_live_runtime_events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::EvidenceRecorded { evidence } if evidence.kind == "acp_turn_end"
+        )));
+
+        wait_until(
+            || {
+                find_codex_job(&root, &id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|job| job.status == "finished")
+            },
+            Duration::from_secs(10),
+        );
+
+        let status = render_codex_job_status(&root).expect("render job status");
+        let result = render_codex_job_result(&root, Some(&id)).expect("render job result");
+        assert!(status.contains("acp-session"));
+        assert!(status.contains("finished"));
+        assert!(status.contains("session: session_async"));
+        assert!(!status.contains("codex resume session_async"));
+        assert!(result.contains("session_async"));
+        assert!(result.contains("session: session_async"));
+        assert!(!result.contains("codex resume session_async"));
+        assert!(result.contains("async done"));
+
+        let runtime_events_log =
+            fs::read_to_string(&runtime_events_path).expect("read ACP runtime events");
+        assert!(runtime_events_log.contains("assistant_delta"));
+        assert!(runtime_events_log.contains("acp_turn_end"));
+        let runtime_events = tracked_agent_job_runtime_events(&root);
+        assert!(runtime_events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::AssistantDelta { content, .. } if content == "async done"
+        )));
+        assert!(runtime_events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::EvidenceRecorded { evidence }
+                if evidence.kind == "acp_turn_end"
+                    && evidence.summary.contains("completed")
+        )));
+        assert!(runtime_events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::MergeGateUpdated { gate }
+                if gate.gate_id == "gate-acp-session-session_async"
+                    && gate.status == MergeGateStatus::Accepted
+                    && gate.evidence_ids.iter().any(|id| id.starts_with("acp-turn-end-session_async"))
+        )));
+    }
+
+    #[test]
+    fn acp_async_job_pushes_runtime_events_to_live_sink() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_async_live_sink");
+        let script = root.join("mock-acp-live-sink.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-live-acp\",\"version\":\"0.5.0\"}}}'",
+                "read _new_session",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_live\"}}'",
+                "read _prompt",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_live\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"live sink delta\"}}}'",
+                "sleep 2",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_live\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp live sink script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-live-sink", &script);
+        let (sender, receiver) = mpsc::channel();
+        let live_sink: RuntimeEventSink = Arc::new(move |events| {
+            for event in events {
+                let _ = sender.send(event);
+            }
+        });
+
+        let started = start_acp_session_job(
+            &root,
+            &descriptor,
+            "stream while running".to_string(),
+            AcpSessionOptions::default(),
+            Some(live_sink),
+        )
+        .expect("start acp job");
+        let id = started
+            .lines()
+            .find_map(|line| line.split('`').nth(1))
+            .expect("job id in output")
+            .to_string();
+
+        let live_events = wait_for_channel_events(&receiver, Duration::from_secs(1), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::AssistantDelta { content, .. } if content == "live sink delta"
+                )
+            })
+        });
+        assert!(live_events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::MergeGateUpdated { gate }
+                    if gate.gate_id == "gate-acp-session-session_live"
+                        && gate.status == MergeGateStatus::Proposed
+            )
+        }));
+        let job = find_codex_job(&root, &id)
+            .expect("find job")
+            .expect("job exists");
+        assert_eq!(job.status, "running");
+    }
+
+    #[test]
+    fn acp_async_job_can_be_cancelled_by_pid() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_async_cancel");
+        let script = root.join("mock-acp-cancel.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "trap 'exit 0' TERM",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-cancel-acp\",\"version\":\"0.5.0\"}}}'",
+                "read _new_session",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_cancel\"}}'",
+                "read _prompt",
+                "sleep 20",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp cancel script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-cancel", &script);
+
+        let started = start_acp_session_job(
+            &root,
+            &descriptor,
+            "wait".to_string(),
+            AcpSessionOptions::default(),
+            None,
+        )
+        .expect("start acp job");
+        let id = started
+            .lines()
+            .find_map(|line| line.split('`').nth(1))
+            .expect("job id in output")
+            .to_string();
+        wait_until(
+            || {
+                find_codex_job(&root, &id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|job| job.pid.is_some() && job.status == "running")
+            },
+            Duration::from_secs(10),
+        );
+
+        let cancelled = cancel_codex_job(&root, Some(&id)).expect("cancel acp job");
+
+        assert!(cancelled.contains("Cancelled"));
+        let job = find_codex_job(&root, &id)
+            .expect("find job")
+            .expect("job exists");
+        assert_eq!(job.status, "cancelled");
+        let result = fs::read_to_string(&job.result_path).expect("read cancellation result");
+        assert!(result.contains("# ACP session job cancelled"));
+        assert!(result.contains("status: cancelled"));
+        assert!(result.contains("Viden requested ACP session/cancel"));
+        wait_until(
+            || fs::read_to_string(&job.log_path).is_ok_and(|log| log.contains("session/cancel")),
+            Duration::from_secs(5),
+        );
+        let log = fs::read_to_string(&job.log_path).expect("read cancellation log");
+        assert!(log.contains("session/cancel"));
+    }
+
+    #[test]
+    fn acp_async_job_sends_session_cancel_when_agent_supports_it() {
+        let _guard = subprocess_test_guard();
+        let root = temp_root("acp_async_session_cancel");
+        let script = root.join("mock-acp-session-cancel.sh");
+        fs::write(
+            &script,
+            [
+                "#!/bin/sh",
+                "read _init",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"sessionCancel\":true},\"agentInfo\":{\"name\":\"mock-session-cancel-acp\",\"version\":\"0.6.0\"}}}'",
+                "read _new_session",
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_explicit_cancel\"}}'",
+                "read _prompt",
+                "while IFS= read -r line; do",
+                "  case \"$line\" in",
+                "    *'\"method\":\"session/cancel\"'*)",
+                "      printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"status\":\"cancelled\"}}'",
+                "      printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/notification\",\"params\":{\"sessionId\":\"session_explicit_cancel\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"cancelled\"}}}'",
+                "      exit 0",
+                "      ;;",
+                "  esac",
+                "done",
+            ]
+            .join("\n"),
+        )
+        .expect("write mock acp session cancel script");
+        make_executable(&script);
+        let descriptor = mock_acp_descriptor("mock-acp-session-cancel", &script);
+
+        let started = start_acp_session_job(
+            &root,
+            &descriptor,
+            "wait".to_string(),
+            AcpSessionOptions::default(),
+            None,
+        )
+        .expect("start acp job");
+        let id = started
+            .lines()
+            .find_map(|line| line.split('`').nth(1))
+            .expect("job id in output")
+            .to_string();
+        wait_until(
+            || {
+                find_codex_job(&root, &id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|job| job.pid.is_some() && job.status == "running")
+            },
+            Duration::from_secs(10),
+        );
+
+        let cancelled = cancel_codex_job(&root, Some(&id)).expect("cancel acp job");
+
+        assert!(cancelled.contains("Cancelled"));
+        wait_until(
+            || {
+                find_codex_job(&root, &id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|job| job.status == "cancelled")
+            },
+            Duration::from_secs(10),
+        );
+        let job = find_codex_job(&root, &id)
+            .expect("find job")
+            .expect("job exists");
+        let log = fs::read_to_string(&job.log_path).expect("read cancellation log");
+        assert!(log.contains("session/cancel"));
+        let result = fs::read_to_string(&job.result_path).expect("read cancellation result");
+        assert!(result.contains("status: cancelled"));
+        assert!(result.contains("session_explicit_cancel"));
     }
 
     #[test]
@@ -2896,7 +8254,7 @@ mod tests {
             .expect_err("probe should time out");
 
         assert!(error.contains("timed out"));
-        assert!(error.contains(".robocode/agents/acp-doctor-"));
+        assert!(error.contains(".viden/agents/acp-doctor-"));
     }
 
     #[cfg(unix)]
@@ -2932,18 +8290,14 @@ mod tests {
         assert_eq!(report.version, "codex-cli 9.9.9");
         assert_eq!(report.app_server, "ok (codex app-server)");
         assert_eq!(report.auth, "Logged in using ChatGPT");
-        assert!(
-            report
-                .job_store
-                .ends_with(".robocode/agents/codex-jobs.jsonl")
-        );
+        assert!(report.job_store.ends_with(".viden/agents/codex-jobs.jsonl"));
     }
 
     #[test]
     fn codex_diagnostics_reports_missing_command() {
         let root = temp_root("codex_doctor_missing");
 
-        let report = codex_diagnostics(&root, "robocode-definitely-missing-codex");
+        let report = codex_diagnostics(&root, "viden-definitely-missing-codex");
 
         let CodexDiagnosticReport::Unavailable(reason) = report else {
             panic!("expected unavailable Codex report");
@@ -3061,6 +8415,26 @@ mod tests {
         }
     }
 
+    fn wait_for_channel_events(
+        receiver: &mpsc::Receiver<RuntimeEvent>,
+        timeout: Duration,
+        predicate: impl Fn(&[RuntimeEvent]) -> bool,
+    ) -> Vec<RuntimeEvent> {
+        let start = SystemTime::now();
+        let mut events = Vec::new();
+        while start.elapsed().unwrap_or_default() < timeout {
+            if predicate(&events) {
+                return events;
+            }
+            match receiver.recv_timeout(Duration::from_millis(20)) {
+                Ok(event) => events.push(event),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        events
+    }
+
     fn subprocess_test_guard() -> MutexGuard<'static, ()> {
         // Mock app-server and Codex job tests exchange lines with subprocesses;
         // serialize them so default parallel test runs do not starve timeout paths.
@@ -3079,6 +8453,31 @@ mod tests {
         ));
         fs::create_dir_all(&root).expect("create temp root");
         root
+    }
+
+    fn mock_acp_descriptor(agent_id: &str, script: &Path) -> AgentPluginDescriptor {
+        AgentPluginDescriptor {
+            agent_id: agent_id.to_string(),
+            display_name: "Mock ACP".to_string(),
+            version: "test".to_string(),
+            transport: AgentTransport::Acp,
+            source: AgentSource::LocalCommand,
+            command: AgentCommandSpec {
+                command: script.display().to_string(),
+                args: vec![],
+                env: vec![],
+            },
+            registry_package: None,
+            protocol_versions: vec![AgentProtocolVersion::AcpV1],
+            auth_modes: vec![AgentAuthMode::AgentNative],
+            capabilities: vec![
+                AgentPluginCapability::SessionPrompt,
+                AgentPluginCapability::StreamingUpdates,
+            ],
+            permission_profile: AgentPermissionProfile::RuntimeGated,
+            experimental_methods: vec![],
+            config_schema_version: 1,
+        }
     }
 
     #[cfg(unix)]

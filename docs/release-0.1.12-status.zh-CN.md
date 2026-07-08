@@ -1,4 +1,4 @@
-# RoboCode 0.1.12 状态
+# Viden 0.1.12 状态
 
 英文版： [release-0.1.12-status.md](release-0.1.12-status.md)
 
@@ -14,7 +14,7 @@ workspace package version 已 bump 到 `0.1.12`。本地 release-candidate 验�
 
 ## 主要变化
 
-- 在 `robocode-types` 新增共享 `AgentTaskRecord`、`AgentTaskStatus`、
+- 在 `viden-types` 新增共享 `AgentTaskRecord`、`AgentTaskStatus`、
   `AgentTaskEvidence`、`AgentNextAction`、`AgentLaneRecord` 和 ContextBundle
   record。
 - 新增 `SessionEngine::agent_task_snapshot()`，并让 provider turn、tool call、
@@ -52,14 +52,14 @@ docs/previews/generated/tui-regression-evidence.json
 聚焦实现检查已通过：
 
 ```bash
-cargo test -p robocode-core -p robocode-cli -p robocode-types --quiet
+cargo test -p viden-core -p viden-cli -p viden-types --quiet
 ```
 
 结果：
 
-- `robocode-cli`: 203 passed, 0 failed
-- `robocode-core`: 93 passed, 0 failed
-- `robocode-types`: 6 passed, 0 failed
+- `viden-cli`: 203 passed, 0 failed
+- `viden-core`: 93 passed, 0 failed
+- `viden-types`: 6 passed, 0 failed
 
 截图回归已通过：
 
@@ -70,7 +70,7 @@ scripts/tui-regression.sh docs/previews/generated
 ## Release Candidate 证据
 
 ```bash
-scripts/release-smoke.sh --version 0.1.12 --deepseek --out-dir /tmp/robocode-0112-release-smoke-full
+scripts/release-smoke.sh --version 0.1.12 --deepseek --out-dir /tmp/viden-0112-release-smoke-full
 ```
 
 结果：
@@ -78,13 +78,13 @@ scripts/release-smoke.sh --version 0.1.12 --deepseek --out-dir /tmp/robocode-011
 - passed: 11
 - failed: 0
 - skipped: 3
-- evidence: `/tmp/robocode-0112-release-smoke-full/release-evidence.json`
+- evidence: `/tmp/viden-0112-release-smoke-full/release-evidence.json`
 
 通过的检查：
 
 - `cargo-fmt`
 - `cargo-clippy`
-- `robocode-cli-tests`
+- `viden-cli-tests`
 - `workspace-tests`
 - `tui-regression`
 - `fallback-cli-smoke`
@@ -97,13 +97,13 @@ scripts/release-smoke.sh --version 0.1.12 --deepseek --out-dir /tmp/robocode-011
 Package smoke 生成：
 
 ```text
-dist/robocode-v0.1.12-aarch64-apple-darwin.tar.gz
+dist/viden-v0.1.12-aarch64-apple-darwin.tar.gz
 ```
 
 发布后验证目标：
 
 ```bash
-scripts/release-smoke.sh --version 0.1.12 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0112-postpublish-check
+scripts/release-smoke.sh --version 0.1.12 --quick --github-release-assets --homebrew --out-dir /tmp/viden-0112-postpublish-check
 ```
 
 结果：
@@ -111,14 +111,14 @@ scripts/release-smoke.sh --version 0.1.12 --quick --github-release-assets --home
 - passed: 10
 - failed: 0
 - skipped: 3
-- evidence: `/tmp/robocode-0112-postpublish-check/release-evidence.json`
+- evidence: `/tmp/viden-0112-postpublish-check/release-evidence.json`
 
 ## 发布状态
 
 `v0.1.12` 已发布：
 
-- GitHub release: https://github.com/wikieden/robocode/releases/tag/v0.1.12
-- Release workflow: https://github.com/wikieden/robocode/actions/runs/26518796829
+- GitHub release: https://github.com/wikieden/viden/releases/tag/v0.1.12
+- Release workflow: https://github.com/wikieden/viden/actions/runs/26518796829
 - Release workflow conclusion: `success`
 - Release published at: `2026-05-27T14:49:11Z`
 - Release assets uploaded at: `2026-05-27T14:51:33Z` - `2026-05-27T14:51:35Z`
@@ -127,14 +127,14 @@ scripts/release-smoke.sh --version 0.1.12 --quick --github-release-assets --home
 发布资产：
 
 ```text
-robocode-v0.1.12-aarch64-apple-darwin.tar.gz
-robocode-v0.1.12-aarch64-apple-darwin.tar.gz.sha256
-robocode-v0.1.12-x86_64-apple-darwin.tar.gz
-robocode-v0.1.12-x86_64-apple-darwin.tar.gz.sha256
-robocode-v0.1.12-x86_64-pc-windows-msvc.tar.gz
-robocode-v0.1.12-x86_64-pc-windows-msvc.tar.gz.sha256
-robocode-v0.1.12-x86_64-unknown-linux-gnu.tar.gz
-robocode-v0.1.12-x86_64-unknown-linux-gnu.tar.gz.sha256
+viden-v0.1.12-aarch64-apple-darwin.tar.gz
+viden-v0.1.12-aarch64-apple-darwin.tar.gz.sha256
+viden-v0.1.12-x86_64-apple-darwin.tar.gz
+viden-v0.1.12-x86_64-apple-darwin.tar.gz.sha256
+viden-v0.1.12-x86_64-pc-windows-msvc.tar.gz
+viden-v0.1.12-x86_64-pc-windows-msvc.tar.gz.sha256
+viden-v0.1.12-x86_64-unknown-linux-gnu.tar.gz
+viden-v0.1.12-x86_64-unknown-linux-gnu.tar.gz.sha256
 ```
 
 ## 剩余风险

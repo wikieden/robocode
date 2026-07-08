@@ -38,12 +38,14 @@ use viden_session::SessionStore;
 use viden_tools::ToolRegistry;
 use viden_types::{
     AgentDagRecord, AgentTaskRecord, ContextBundleRecord, EvidenceView, MemoryEntry,
-    MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode, RuntimeSnapshot,
-    TaskRecord, WorkMode,
+    MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode, RuntimeEvent,
+    RuntimeSnapshot, TaskRecord, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
 const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
+
+pub(crate) type RuntimeEventSink = Arc<dyn Fn(Vec<RuntimeEvent>) + Send + Sync + 'static>;
 
 #[derive(Debug, Clone)]
 pub enum EngineEvent {
@@ -184,6 +186,7 @@ pub struct SessionEngine {
     runtime_merge_gates: Vec<MergeGateRecord>,
     runtime_evidence: Vec<EvidenceView>,
     queued_runtime_inputs: Vec<runtime_contract::QueuedRuntimeInput>,
+    runtime_event_sink: Option<RuntimeEventSink>,
     provider_telemetry: ProviderTelemetry,
     last_context_bundle: Option<ContextBundleRecord>,
 }
@@ -255,6 +258,7 @@ impl SessionEngine {
             runtime_merge_gates: Vec::new(),
             runtime_evidence: Vec::new(),
             queued_runtime_inputs: Vec::new(),
+            runtime_event_sink: None,
             provider_telemetry: ProviderTelemetry::default(),
             last_context_bundle: None,
         };
@@ -263,6 +267,14 @@ impl SessionEngine {
         let model = engine.provider.model().to_string();
         engine.persist_meta("model", &model)?;
         Ok(engine)
+    }
+
+    pub(crate) fn set_runtime_event_sink(&mut self, sink: Option<RuntimeEventSink>) {
+        self.runtime_event_sink = sink;
+    }
+
+    pub(crate) fn runtime_event_sink(&self) -> Option<RuntimeEventSink> {
+        self.runtime_event_sink.clone()
     }
 
     pub fn session_id(&self) -> &str {

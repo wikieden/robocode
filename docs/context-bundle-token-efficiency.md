@@ -6,7 +6,7 @@ Last updated: 2026-05-27
 
 ## Goal
 
-RoboCode's multi-agent orchestration should not depend on sending the full
+Viden's multi-agent orchestration should not depend on sending the full
 transcript to every agent. `ContextBundle` is the shared context model that
 started as design groundwork and is first wired into deterministic lane
 envelopes in `0.1.12`.

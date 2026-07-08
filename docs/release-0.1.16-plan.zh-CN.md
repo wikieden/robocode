@@ -1,4 +1,4 @@
-# RoboCode 0.1.16 计划 - TUI 交互可靠性
+# Viden 0.1.16 计划 - TUI 交互可靠性
 
 英文版： [release-0.1.16-plan.md](release-0.1.16-plan.md)
 
@@ -7,7 +7,7 @@
 `0.1.16` 插在轻量 spec/steering workflow 之前，因为当前 cockpit 还有一些会直接影响
 真实编程信心的交互债。这个版本的目标是：
 
-> 用户提交输入后，RoboCode 必须始终说明现在发生了什么，终端必须保持响应，并且所有
+> 用户提交输入后，Viden 必须始终说明现在发生了什么，终端必须保持响应，并且所有
 > 看得见的动作都必须真的能执行。
 
 这是 operator loop 可靠性版本，不是视觉重做。它沿用当前无弹窗态视觉主题，重点修真实
@@ -186,9 +186,9 @@ cockpit 信息密度高。边框错位、残留重绘、看不到光标、输入
 
 聚焦自动化检查：
 
-- `cargo test -p robocode-cli tui::app --quiet`
-- `cargo test -p robocode-cli tui::command_palette --quiet`
-- `cargo test -p robocode-cli tui::terminal --quiet`
+- `cargo test -p viden-cli tui::app --quiet`
+- `cargo test -p viden-cli tui::command_palette --quiet`
+- `cargo test -p viden-cli tui::terminal --quiet`
 - 新增 focus-router 测试，覆盖 key 和 mouse routing。
 - 新增 provider-worker 测试，覆盖 pending、approval、completion、failure events。
 - 新增 palette scroll-window 测试。
@@ -196,8 +196,8 @@ cockpit 信息密度高。边框错位、残留重绘、看不到光标、输入
 回归检查：
 
 - `cargo fmt --check`
-- `cargo clippy -p robocode-cli --all-targets -- -D warnings`
-- `cargo test -p robocode-cli --quiet -- --test-threads=1`
+- `cargo clippy -p viden-cli --all-targets -- -D warnings`
+- `cargo test -p viden-cli --quiet -- --test-threads=1`
 - `cargo test --workspace --quiet`
 - `scripts/tui-regression.sh docs/previews/generated`
 - 新增或扩展 interaction smoke，覆盖 rapid resize、pending turn repaint、modal action
@@ -240,5 +240,5 @@ cockpit 信息密度高。边框错位、残留重绘、看不到光标、输入
   仍必须保持同步语义。
 - 真实 cancellation 可能需要更深的 provider/tool runtime 改造；如果本版本做不到，就不要
   把它显示成可用动作。
-- IME 候选框位置部分依赖终端行为；RoboCode 可以改善 composer 几何和 caret 位置，但不能
+- IME 候选框位置部分依赖终端行为；Viden 可以改善 composer 几何和 caret 位置，但不能
   完全控制所有终端的原生输入法 UI。

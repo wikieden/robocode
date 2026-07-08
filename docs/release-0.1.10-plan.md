@@ -1,4 +1,4 @@
-# RoboCode 0.1.10 Plan
+# Viden 0.1.10 Plan
 
 Chinese version: [release-0.1.10-plan.zh-CN.md](release-0.1.10-plan.zh-CN.md)
 
@@ -9,7 +9,7 @@ Last updated: 2026-05-27
 `0.1.10` is the Programming Cockpit Feedback release. It tightens the loop
 between user input, provider work, delegated agent lanes, and visual evidence.
 
-The release should make one thing obvious at all times: what RoboCode is doing
+The release should make one thing obvious at all times: what Viden is doing
 right now, what produced that signal, and what the operator can do next.
 
 ## Scope
@@ -47,13 +47,13 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
-scripts/release-smoke.sh --version 0.1.10 --deepseek --out-dir /tmp/robocode-0110-release-smoke-full
+scripts/release-smoke.sh --version 0.1.10 --deepseek --out-dir /tmp/viden-0110-release-smoke-full
 ```
 
 After publishing:
 
 ```bash
-scripts/release-smoke.sh --version 0.1.10 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0110-postpublish-check
+scripts/release-smoke.sh --version 0.1.10 --quick --github-release-assets --homebrew --out-dir /tmp/viden-0110-postpublish-check
 ```
 
 ## Deferred

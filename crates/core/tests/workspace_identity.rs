@@ -50,29 +50,38 @@ fn workspace_members(root: &Path) -> Vec<String> {
     members
 }
 
+fn legacy_product_slug() -> String {
+    ["robo", "code"].concat()
+}
+
+fn legacy_product_name() -> String {
+    ["Robo", "Code"].concat()
+}
+
 #[test]
 fn workspace_crate_names_use_viden_identity() {
     let root = workspace_root();
     let members = workspace_members(root);
+    let legacy_slug = legacy_product_slug();
 
     let legacy_members: Vec<_> = members
         .iter()
-        .filter(|member| member.starts_with("robocode"))
+        .filter(|member| member.starts_with(&legacy_slug))
         .cloned()
         .collect();
     assert!(
         legacy_members.is_empty(),
-        "workspace member paths still use legacy RoboCode names: {legacy_members:?}"
+        "workspace member paths still use the legacy product slug: {legacy_members:?}"
     );
 
     let legacy_packages: Vec<_> = members
         .iter()
         .filter_map(|member| package_name(&root.join(member).join("Cargo.toml")))
-        .filter(|name| name.starts_with("robocode"))
+        .filter(|name| name.starts_with(&legacy_slug))
         .collect();
     assert!(
         legacy_packages.is_empty(),
-        "workspace package names still use legacy RoboCode names: {legacy_packages:?}"
+        "workspace package names still use the legacy product slug: {legacy_packages:?}"
     );
 }
 
@@ -108,7 +117,7 @@ fn workspace_uses_apps_crates_plugins_layout() {
         .filter(|member| {
             member
                 .split('/')
-                .any(|part| part.starts_with("viden") || part.starts_with("robocode"))
+                .any(|part| part.starts_with(&legacy_product_slug()) || part.starts_with("viden"))
         })
         .cloned()
         .collect();
@@ -127,16 +136,18 @@ fn release_install_docs_use_viden_artifact_identity() {
         "scripts/package-release.sh",
         "scripts/release-smoke.sh",
     ];
+    let legacy_archive_prefix = format!("{}-v", legacy_product_slug());
+    let legacy_release_label = format!("{} v", legacy_product_name());
 
     for file in checked_files {
         let content = fs::read_to_string(root.join(file)).expect("read checked release file");
         assert!(
-            !content.contains("robocode-v"),
-            "{file} should not reference legacy robocode-v release archives"
+            !content.contains(&legacy_archive_prefix),
+            "{file} should not reference legacy product release archives"
         );
         assert!(
-            !content.contains("RoboCode v"),
-            "{file} should not label release archives with the legacy RoboCode product name"
+            !content.contains(&legacy_release_label),
+            "{file} should not label release archives with the legacy product name"
         );
     }
 

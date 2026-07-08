@@ -69,7 +69,7 @@ Workspace code is split by product surface and reusable core:
   - do not report a release as complete while the Homebrew tap is stale or
     unverified.
 - Do not edit `.ref/`; it is reference material only.
-- Keep `.omx/`, `.robocode/`, `.worktrees/`, `.ref/`, and build artifacts out of tracked source.
+- Keep `.omx/`, `.viden/`, `.worktrees/`, `.ref/`, and build artifacts out of tracked source.
 
 ## Testing
 

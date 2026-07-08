@@ -503,7 +503,7 @@ fn builtin_openai_descriptor_matches_runtime_api_base_behavior() {
     );
     assert_eq!(
         descriptor.env_mappings.api_base_env.as_deref(),
-        Some("ROBOCODE_API_BASE")
+        Some("VIDEN_API_BASE")
     );
 }
 

@@ -36,5 +36,5 @@
 
 
 
-~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.30
+~/projects/viden:main                                     ◎ 1 lanes  /status                                                    v0.1.30
 

@@ -1,4 +1,4 @@
-# RoboCode 0.1.15 计划
+# Viden 0.1.15 计划
 
 English version: [release-0.1.15-plan.md](release-0.1.15-plan.md)
 
@@ -10,12 +10,12 @@ English version: [release-0.1.15-plan.md](release-0.1.15-plan.md)
 
 `0.1.14` 让 delegated lane 更可信：adapter capability doctor、timeline
 evidence、isolation declaration、Codex 只读 review、Claude/tmux setup 安全检查。
-下一步瓶颈是 context 控制。RoboCode 需要让操作者知道每个 provider 或 delegated
+下一步瓶颈是 context 控制。Viden 需要让操作者知道每个 provider 或 delegated
 lane 到底看到了什么、哪些内容被省略、为什么省略，以及当前任务造成了多少预算压力。
 
 本版本的产品问题是：
 
-> 每个 agent 正在使用什么上下文，RoboCode 省略了什么，以及这次任务的 token/budget
+> 每个 agent 正在使用什么上下文，Viden 省略了什么，以及这次任务的 token/budget
 > 压力有多大？
 
 ## 目标
@@ -92,4 +92,4 @@ lane 到底看到了什么、哪些内容被省略、为什么省略，以及当
 - `cargo test --workspace --quiet`
 - ContextBundle focused tests：JSON shape、provider message rendering、lane
   envelope rendering、side-2 rows。
-- `ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.15 scripts/tui-regression.sh docs/previews/generated`
+- `VIDEN_TUI_SCREENSHOT_VERSION=0.1.15 scripts/tui-regression.sh docs/previews/generated`

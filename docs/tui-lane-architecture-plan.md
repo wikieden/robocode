@@ -4,7 +4,7 @@ Last refreshed: 2026-05-25
 
 ## Purpose
 
-This plan turns the approved RoboCode TUI design into an implementation path. The goal is not only a better full-screen terminal UI; the goal is a local coding-agent cockpit that can supervise side work in companion screens and external terminal tools such as `codex`, `claude`, `junie`, `gemini`, or user-defined commands.
+This plan turns the approved Viden TUI design into an implementation path. The goal is not only a better full-screen terminal UI; the goal is a local coding-agent cockpit that can supervise side work in companion screens and external terminal tools such as `codex`, `claude`, `junie`, `gemini`, or user-defined commands.
 
 Design sources:
 
@@ -44,9 +44,9 @@ flowchart TB
 
 ## Architectural Principles
 
-- `viden-runtime` remains the owner of the main RoboCode session, permission decisions, and model/tool loop.
+- `viden-runtime` remains the owner of the main Viden session, permission decisions, and model/tool loop.
 - The TUI is a client over shared state, not a second agent runtime.
-- Terminal lanes are supervised work units. They can run external tools, but RoboCode owns the envelope, lifecycle, observation, and acceptance decision.
+- Terminal lanes are supervised work units. They can run external tools, but Viden owns the envelope, lifecycle, observation, and acceptance decision.
 - External coding tools are collaborators, not trusted authorities. Their output must be inspected through logs, diffs, exit codes, and verification commands.
 - Template-launched mutating Codex and Claude lanes run in isolated worktrees;
   other lane types must make their mutation scope explicit.
@@ -109,11 +109,11 @@ Current slice:
   processes through the current binary by default.
 - The registry tracks at most two companion screens and exposes `/screen list`
   plus `/screen close <side-1|side-2>`.
-- Registry state is persisted in `.robocode/screens.tsv`, allowing side-screen
+- Registry state is persisted in `.viden/screens.tsv`, allowing side-screen
   processes to reload sibling screen state while they poll lane artifacts.
-- `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE` and
-  `ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` allow per-screen desktop wrappers,
-  with `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` as the shared fallback. Templates can
+- `VIDEN_SCREEN_SIDE_1_LAUNCH_TEMPLATE` and
+  `VIDEN_SCREEN_SIDE_2_LAUNCH_TEMPLATE` allow per-screen desktop wrappers,
+  with `VIDEN_SCREEN_LAUNCH_TEMPLATE` as the shared fallback. Templates can
   open a new terminal window, route through tmux, or call a monitor-placement
   script without baking OS automation into the portable core.
 
@@ -210,21 +210,21 @@ Template placeholders:
 - `{task}` and `{task:q}` expand to the raw or shell-quoted task title.
 - `{envelope}` and `{envelope:q}` expand to the raw or shell-quoted task
   envelope file path.
-- Codex uses `ROBOCODE_LANE_CODEX_TEMPLATE`; Claude uses
-  `ROBOCODE_LANE_CLAUDE_TEMPLATE`.
+- Codex uses `VIDEN_LANE_CODEX_TEMPLATE`; Claude uses
+  `VIDEN_LANE_CLAUDE_TEMPLATE`.
 - Generic `/lane ask <tool> <task>` adapters use
-  `ROBOCODE_LANE_<TOOL>_TEMPLATE`, where `<TOOL>` is uppercased and
+  `VIDEN_LANE_<TOOL>_TEMPLATE`, where `<TOOL>` is uppercased and
   non-alphanumeric characters are normalized to `_`.
 
 ## Lifecycle
 
 1. User enters `/lane codex "fix failing config tests"` or `/lane run cargo test -p viden-runtime`.
-2. RoboCode creates a `TerminalLane`.
-3. RoboCode renders a task envelope and stores it durably.
+2. Viden creates a `TerminalLane`.
+3. Viden renders a task envelope and stores it durably.
 4. Lane service launches the command with the selected adapter.
 5. TUI shows lane state in `ACTIVE TASKS`, `AGENTS`, or `OPS`.
 6. Lane runtime captures logs, exit code, and file changes.
-7. RoboCode runs or records verification.
+7. Viden runs or records verification.
 8. `/lane inspect <id>` summarizes logs, diff, tests, and risks.
 9. User chooses `/lane accept`, `/lane revise`, `/lane attach`, `/lane stop`, or `/lane archive`.
 
@@ -232,18 +232,18 @@ Current implemented slice:
 
 - `/lane run <command>` launches a non-interactive background shell lane.
 - Codex and Claude lanes always write a task envelope. They can launch through
-  `ROBOCODE_LANE_CODEX_TEMPLATE` and `ROBOCODE_LANE_CLAUDE_TEMPLATE`; without
+  `VIDEN_LANE_CODEX_TEMPLATE` and `VIDEN_LANE_CLAUDE_TEMPLATE`; without
   those templates they queue with a clear setup hint while keeping the envelope
   available for inspection.
 - `/lane ask <tool> <task>` starts a custom external-tool lane. It uses the
   same envelope, isolated worktree, log, done-file, and inspect path as Codex
-  and Claude lanes when `ROBOCODE_LANE_<TOOL>_TEMPLATE` is configured; without
+  and Claude lanes when `VIDEN_LANE_<TOOL>_TEMPLATE` is configured; without
   a template, it queues with the rendered envelope and setup hint.
 - Template-launched Codex and Claude lanes create isolated Git worktrees under
-  `.robocode/worktrees/` and run there, so file mutations do not land directly
+  `.viden/worktrees/` and run there, so file mutations do not land directly
   in the main workspace.
-- Lane state is stored in `.robocode/lanes.tsv`.
-- Runtime artifacts live under `.robocode/lanes/` as `<lane-id>.log` and
+- Lane state is stored in `.viden/lanes.tsv`.
+- Runtime artifacts live under `.viden/lanes/` as `<lane-id>.log` and
   `<lane-id>.done`, with external-tool envelopes as `<lane-id>.envelope.md`.
 - The main TUI and companion screens refresh lane artifacts while idle.
 - `/lane inspect <id>` reports status, progress, log path, done path, envelope
@@ -360,7 +360,7 @@ Current status: `codex`, `claude`, and generic `/lane ask <tool> <task>` lanes
 use template-launched prompt-file style adapters. When launched, they run inside
 per-lane Git worktrees and receive envelopes that name the lane workspace and
 mutation scope. Missing generic templates queue the lane with an auditable
-envelope and a `ROBOCODE_LANE_<TOOL>_TEMPLATE` setup hint. `/lane inspect <id>`
+envelope and a `VIDEN_LANE_<TOOL>_TEMPLATE` setup hint. `/lane inspect <id>`
 now includes changed files from the relevant workspace, exit/log verification
 evidence, and recorded lane decisions. `/lane accept`, `/lane revise`, and
 `/lane discard` persist explicit decision artifacts without claiming to revert
@@ -383,7 +383,7 @@ Acceptance criteria:
 - lane diff is inspectable before integration;
 - discarded lanes do not delete logs or changes unless explicitly cleaned.
 
-Current status: Codex/Claude template lanes create `.robocode/worktrees/<session>-<lane>`
+Current status: Codex/Claude template lanes create `.viden/worktrees/<session>-<lane>`
 using local branches named `codex/lane-<session>-<lane>`. Inspect and decision
 artifacts read changed files from the lane worktree when present. `/lane cleanup
 <id>` removes clean worktrees and writes a cleanup artifact; dirty worktrees
@@ -408,21 +408,21 @@ Prototype and choose:
 Acceptance criteria:
 
 - `/lane attach <id>` opens an interactive terminal for the lane workspace;
-- `/lane detach <id>` returns RoboCode tracking to detached state without
+- `/lane detach <id>` returns Viden tracking to detached state without
   killing the external terminal process;
 - full logs remain captured;
 - terminal attachment is clearly marked in the UI.
 
 Current status: `/lane attach <id>` launches an external terminal through
-`ROBOCODE_LANE_ATTACH_TEMPLATE`, or Terminal.app on macOS by default, and writes
+`VIDEN_LANE_ATTACH_TEMPLATE`, or Terminal.app on macOS by default, and writes
 `<lane-id>.attach.md`. `/lane tmux <id>` starts or reuses a named tmux session
 for the lane workspace, writes `<lane-id>.tmux.md`, and records the exact
 operator attach command (`tmux attach -t ...`) while leaving the tmux process
 under tmux control. The default tmux template pipes pane output into the
 standard `<lane-id>.log`, so side screens and `/lane inspect` can observe live
 tmux output through the same lane evidence path as non-interactive lanes.
-`ROBOCODE_LANE_TMUX_TEMPLATE` and
-`ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE` allow custom terminal-tool launch flows.
+`VIDEN_LANE_TMUX_TEMPLATE` and
+`VIDEN_LANE_TMUX_COMMAND_TEMPLATE` allow custom terminal-tool launch flows.
 `/lane detach <id>` marks the lane detached without killing the external
 process. Side-1 lane rows and the focused lane modal show either the exact
 `tmux attach -t ...` command for tmux-backed lanes or `/lane tmux <id>` as the
@@ -430,7 +430,7 @@ next interactive route for lanes that still need a supervised terminal.
 `/lane pty <id>` now starts an embedded PTY bridge using a lane input FIFO and
 the standard lane log path, and `/lane send <id> <text>` writes a line into that
 bridge from inside the TUI. The PTY bridge writes `<lane-id>.pty.md`, supports
-`ROBOCODE_LANE_PTY_TEMPLATE`, and defaults to the system `script` command on
+`VIDEN_LANE_PTY_TEMPLATE`, and defaults to the system `script` command on
 Unix. `/lane inspect <id>` surfaces attach, tmux, PTY, and PTY-input artifact
 paths so interactive lanes are auditable after launch. Side-1 `LIVE OUTPUT`
 and the focused lane modal now replay the latest persisted `<lane-id>.log`
@@ -449,11 +449,11 @@ for the seven TUI/lane phases is:
 2. Theme and Layout Tokens: the built-in themes render through the shared theme
    registry and preview generation covers the supported theme variants.
 3. Screen Registry: `/screen side-1`, `/screen side-2`, `/screen list`, and
-   `/screen close` use persisted `.robocode/screens.tsv` state, enforce the
+   `/screen close` use persisted `.viden/screens.tsv` state, enforce the
    two-companion limit, and render lane/ops-specific companion layouts.
 4. Lane Runtime MVP: `/lane run`, `/lane inspect`, `/lane stop`, and
    `/lane archive` persist lane records, logs, exit evidence, and lifecycle
-   state under `.robocode/lanes/`.
+   state under `.viden/lanes/`.
 5. External Tool Adapters: `codex`, `claude`, and generic `/lane ask` share the
    template/envelope path, with explicit accept/revise/discard/apply decisions
    and inspectable changed-file plus verification evidence.

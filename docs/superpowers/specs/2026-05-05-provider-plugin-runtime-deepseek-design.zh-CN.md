@@ -2,11 +2,11 @@
 
 ## 目标
 
-本文档定义 RoboCode 在 provider 平台层的一次新设计切片。直接目标是支持 DeepSeek v4，但真正的设计目标更大：模型层需要从“小型内建 provider factory”升级为“支持插件扩展的 provider runtime”。
+本文档定义 Viden 在 provider 平台层的一次新设计切片。直接目标是支持 DeepSeek v4，但真正的设计目标更大：模型层需要从“小型内建 provider factory”升级为“支持插件扩展的 provider runtime”。
 
 这次确认的方向如下：
 
-- RoboCode 必须同时支持 Anthropic/Claude-style 与 OpenAI-style 两类协议族
+- Viden 必须同时支持 Anthropic/Claude-style 与 OpenAI-style 两类协议族
 - DeepSeek 必须作为独立 provider family 被支持，而不是仅作为 OpenAI-compatible endpoint alias
 - provider registry 必须支持动态加载
 - 首版交付可以先使用原生动态库
@@ -14,9 +14,9 @@
 
 ## 产品目标
 
-RoboCode 应当让“新增模型 provider”这件事长期保持低成本，而不是每次都去改 `SessionEngine`、tool/runtime flow 或其他 core product surface。
+Viden 应当让“新增模型 provider”这件事长期保持低成本，而不是每次都去改 `SessionEngine`、tool/runtime flow 或其他 core product surface。
 
-完成这一切片后，RoboCode 应该能清晰回答：
+完成这一切片后，Viden 应该能清晰回答：
 
 - 当前有哪些 provider family 可用
 - 哪些是内建的，哪些是动态加载的
@@ -30,7 +30,7 @@ DeepSeek v4 是首个实际验收目标，但正式需求是 provider plugin run
 
 范围内：
 
-- `robocode-model` 内的 provider plugin host/runtime
+- `viden-model` 内的 provider plugin host/runtime
 - 动态 provider registry
 - 内建 providers 作为 registry 的一种来源
 - 原生动态库 provider plugin 作为首个动态加载模式
@@ -64,7 +64,7 @@ provider 系统应拆成五层：
 
 ### ProviderHost
 
-`ProviderHost` 位于 `robocode-model` 中，负责：
+`ProviderHost` 位于 `viden-model` 中，负责：
 
 - 加载 built-in providers
 - 扫描 plugin 目录
@@ -125,7 +125,7 @@ registry 是正式的产品域对象，而不只是内部 map。
 
 - 编码 model requests
 - 解码流式或批式 responses
-- 将 tool-calling 行为归一化为 RoboCode 的 model events
+- 将 tool-calling 行为归一化为 Viden 的 model events
 - 归一化 usage reporting
 - 归一化 provider errors
 
@@ -223,12 +223,12 @@ provider 选择必须是 instance-scoped，而不是 process-global。
 - registry 是共享的 lookup state，但活动中的 provider binding 属于各自 session/agent instance
 - 系统不能依赖一个可变的全局 “current provider”
 
-这同时是 multi-agent correctness 与 runtime plugin loading 的要求。  
+这同时是 multi-agent correctness 与 runtime plugin loading 的要求。
 也就是说，registry reload 可以改变“未来新 session 能选什么”，但不能强制已有 session 立刻切换 provider。
 
 ## 协议族要求
 
-RoboCode 必须继续同时支持两类主要协议风格：
+Viden 必须继续同时支持两类主要协议风格：
 
 - Anthropic/Claude-style
 - OpenAI-style
@@ -255,7 +255,7 @@ DeepSeek 必须作为一等 provider family，至少包含：
 即使 DeepSeek 复用 OpenAI-style adapter，产品层也必须把它视为独立 provider，而不是 `openai` 的一个未文档化 endpoint 变体。
 
 DeepSeek 也提供官方 Anthropic-compatible API surface，endpoint 为
-`https://api.deepseek.com/anthropic`。RoboCode 应显式暴露
+`https://api.deepseek.com/anthropic`。Viden 应显式暴露
 `deepseek-anthropic`，而不是要求用户手动改写通用 `anthropic` provider endpoint。
 
 ### 配置解析
@@ -272,10 +272,10 @@ DeepSeek 配置优先级建议为：
 
 ### 兼容规则
 
-RoboCode 仍应允许用户显式把 generic OpenAI-compatible provider 指向 DeepSeek endpoint 并正常工作。  
+Viden 仍应允许用户显式把 generic OpenAI-compatible provider 指向 DeepSeek endpoint 并正常工作。
 但这种兼容路径不能替代或弱化 DeepSeek 作为独立 provider 的正式产品面。
 
-RoboCode 也应支持 DeepSeek Anthropic-compatible 路径，让需要 Claude-style request 与 tool-call 语义的用户能继续使用 DeepSeek 凭证。
+Viden 也应支持 DeepSeek Anthropic-compatible 路径，让需要 Claude-style request 与 tool-call 语义的用户能继续使用 DeepSeek 凭证。
 
 ## 配置模型
 
@@ -322,7 +322,7 @@ host 用这些声明来做配置校验和用户可读错误提示。
 
 这一需求完成后，应至少满足：
 
-1. RoboCode 能列出 built-in 与 dynamically loaded providers。
+1. Viden 能列出 built-in 与 dynamically loaded providers。
 2. DeepSeek 可以通过 `provider=deepseek` 被选择。
 3. DeepSeek v4 能通过 plugin system 正常构造 provider，而无需改 `SessionEngine`。
 4. 当前进程可以在运行中刷新 provider registry，且新加载的 provider 能被新的 provider instance 使用。

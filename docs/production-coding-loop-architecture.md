@@ -6,7 +6,7 @@ Last updated: 2026-06-07
 
 ## Goal
 
-RoboCode should become a production-usable coding tool, not only a terminal chat
+Viden should become a production-usable coding tool, not only a terminal chat
 surface. The product must solve the common pain points of current AI coding
 tools:
 
@@ -26,11 +26,11 @@ loop and the required layering between core runtime and UI systems.
 
 A normal user should be able to:
 
-1. Open RoboCode and stay on a calm welcome composer until they start real work.
+1. Open Viden and stay on a calm welcome composer until they start real work.
 2. Configure a provider/model through direct panels, then return to the welcome
    composer if no coding task has started.
 3. Ask for a coding task.
-4. See what RoboCode is doing in plain, varied activity language.
+4. See what Viden is doing in plain, varied activity language.
 5. Keep typing follow-ups while the current turn is running.
 6. Watch streamed output, tool requests, edits, test commands, and failures.
 7. Approve or deny risky operations with clear evidence.
@@ -41,7 +41,7 @@ A normal user should be able to:
 
 ## Layering Contract
 
-RoboCode should be split into four conceptual layers.
+Viden should be split into four conceptual layers.
 
 ### 1. Runtime Core
 
@@ -77,7 +77,7 @@ Runtime core must not:
 ### 2. Product View Model
 
 This layer is a stable UI-independent contract. It can live in `viden-types`
-or a future small crate such as `robocode-ui-model` once multiple UI surfaces
+or a future small crate such as `viden-ui-model` once multiple UI surfaces
 need it.
 
 Responsibilities:
@@ -171,7 +171,7 @@ buried in transcript prose.
 
 ### Context
 
-Before expensive or broad work, RoboCode builds a ContextBundle:
+Before expensive or broad work, Viden builds a ContextBundle:
 
 - current user task;
 - selected or inferred files;
@@ -232,7 +232,7 @@ Every task ends with an explicit next action:
 
 ### Activity Language
 
-Activity copy should describe RoboCode roles, not provider internals.
+Activity copy should describe Viden roles, not provider internals.
 
 Preferred role names:
 

@@ -114,6 +114,8 @@ pub struct EvidenceView {
     pub summary: String,
     pub path: Option<String>,
     pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
     pub timestamp: Option<u64>,
 }
 

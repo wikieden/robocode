@@ -1,4 +1,4 @@
-# RoboCode 0.1.29 Plan - RC TUI Stability
+# Viden 0.1.29 Plan - RC TUI Stability
 
 Chinese version: [release-0.1.29-plan.zh-CN.md](release-0.1.29-plan.zh-CN.md)
 
@@ -26,8 +26,8 @@ Before publishing `0.1.29`, run:
 
 ```bash
 scripts/rc-tui-stability-contract-smoke.sh
-scripts/rc-tui-stability-smoke.sh /tmp/robocode-0129-rc-tui-stability
-scripts/release-gate.sh --version 0.1.29 --phase prepublish --out-dir /tmp/robocode-0129-release-gate
+scripts/rc-tui-stability-smoke.sh /tmp/viden-0129-rc-tui-stability
+scripts/release-gate.sh --version 0.1.29 --phase prepublish --out-dir /tmp/viden-0129-release-gate
 ```
 
 The prepublish gate must include the live DeepSeek development scenario and
@@ -36,7 +36,7 @@ record token, elapsed-time, estimated-cost, and failure-class evidence.
 After publishing GitHub assets and syncing Homebrew:
 
 ```bash
-scripts/release-gate.sh --version 0.1.29 --phase postpublish --out-dir /tmp/robocode-0129-release-gate
+scripts/release-gate.sh --version 0.1.29 --phase postpublish --out-dir /tmp/viden-0129-release-gate
 ```
 
 `0.1.29` is complete only when:

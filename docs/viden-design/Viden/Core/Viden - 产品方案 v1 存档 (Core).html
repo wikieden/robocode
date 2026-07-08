@@ -87,7 +87,7 @@ tr:hover td{background:var(--bg-base);}
 <div class="kicker">viden · product plan · v1 draft</div>
 <h1>Viden V1 产品方案 <span class="ac">Agent 团队驾驶舱</span></h1>
 <p class="sub">把"多个 agent 在同一工程协作"做成产品：lane 并行、闸控边界、证据评审。本方案收敛此前关于机器人、AI/ML、游戏三领域与团队协作的全部讨论，给出 V1 的范围切割与设计任务清单。</p>
-<div class="meta"><span>状态 · 待评审</span><span>日期 · 2026-06-12</span><span>基座 · RoboCode (Rust CLI) + Viden Desktop</span><span>关联 · MuseGameWorkshop</span></div>
+<div class="meta"><span>状态 · 待评审</span><span>日期 · 2026-06-12</span><span>基座 · Viden (Rust CLI) + Viden Desktop</span><span>关联 · MuseGameWorkshop</span></div>
 
 <div class="toc" data-screen-label="目录">
   <a href="#s1"><span class="n">01</span>定位与核心论点</a>
@@ -205,11 +205,11 @@ tr:hover td{background:var(--bg-base);}
   </div>
   <div class="card" data-screen-label="机器人包">
     <div class="h"><span class="dot" style="background:var(--gold);"></span>机器人包 <span class="tag p1">V1.x</span><span class="en">ROBOTICS</span></div>
-    <p><b>典型 lane 团队</b>：感知 · 规划/控制 · 仿真验证；与 RoboCode CLI 同源生态</p>
+    <p><b>典型 lane 团队</b>：感知 · 规划/控制 · 仿真验证；与 Viden CLI 同源生态</p>
     <ul>
       <li>分级实机闸：sim 自由 → bench 轻闸 → field 强闸 + e-stop 前置</li>
       <li>仿真 lane：lane 绑仿真实例，回放进证据</li>
-      <li>远程上板：SSH 连主控板开发，断线续会话；RoboCode（Rust）足够轻可直接上 ARM 板</li>
+      <li>远程上板：SSH 连主控板开发，断线续会话；Viden（Rust）足够轻可直接上 ARM 板</li>
       <li>行为 diff：PID 改动旁边放阶跃响应曲线</li>
       <li>ROS 契约：.msg / URDF 变更自动告警依赖方</li>
       <li>设备占用锁：实机时间片 lease</li>
@@ -285,13 +285,13 @@ tr:hover td{background:var(--bg-base);}
 <h2 id="s10"><span class="no">10</span>待决策问题 <span class="en">Open Questions</span></h2>
 <div class="hr"></div>
 <div class="qa">
-  <div class="q"><div class="t"><span class="n">Q1</span>闸策略文件的格式与位置</div><p>建议仓库根 <code>viden.toml</code>（RoboCode 同源 Rust 生态，TOML 自然），声明闸类型、路由规则、领域包启用。备选：YAML / 沿用 AGENTS.md 章节。</p></div>
+  <div class="q"><div class="t"><span class="n">Q1</span>闸策略文件的格式与位置</div><p>建议仓库根 <code>viden.toml</code>（Viden 同源 Rust 生态，TOML 自然），声明闸类型、路由规则、领域包启用。备选：YAML / 沿用 AGENTS.md 章节。</p></div>
   <div class="q"><div class="t"><span class="n">Q2</span>契约的载体</div><p>建议 Markdown + frontmatter（人可读、git 可 diff、MuseGameWorkshop 模板可直接复用），结构化校验由领域包的 schema 做。备选：纯结构化（JSON/TOML）。</p></div>
   <div class="q"><div class="t"><span class="n">Q3</span>回放证据的格式</div><p>视频文件（直观但重、git 不友好）vs 确定性输入序列 + 实时重演（轻、可交互，但要求引擎确定性）。建议双轨：闸用输入序列，评审 UI 现场重演。</p></div>
   <div class="q"><div class="t"><span class="n">Q4</span>kiro 的 ACP 成熟度</div><p>三个首发 CLI 中 kiro 的 ACP 桥接需要验证；不行则 V1 先 codex + claude-code，kiro 走终端适配。</p></div>
   <div class="q"><div class="t"><span class="n">Q5</span>命名</div><p>Lane 保留英文已定；产品内"领域包"对外叫 Domain Pack 还是直接叫"游戏模式/机器人模式"？影响首页叙事，可后定。</p></div>
   <div class="q"><div class="t"><span class="n">Q6</span>闸决策日志的可训练格式</div><p>闸数据飞轮的前提：V1 起把每次闸决策（diff + 证据 + 批/驳 + 理由）按可训练格式落盘（opt-in），为评审者模型微调做准备。格式待定。</p></div>
-  <div class="q"><div class="t"><span class="n">Q7</span>远程 target 的代码同步策略</div><p>远程 worktree（git 在目标机上）vs rsync 推送（板子友好但失去 git 语义）vs agent 直接装在目标机（多卡主机可行，ARM 板看 RoboCode 体积）。可能需要按目标类型双轨。</p></div>
+  <div class="q"><div class="t"><span class="n">Q7</span>远程 target 的代码同步策略</div><p>远程 worktree（git 在目标机上）vs rsync 推送（板子友好但失去 git 语义）vs agent 直接装在目标机（多卡主机可行，ARM 板看 Viden 体积）。可能需要按目标类型双轨。</p></div>
 </div>
 
 <!-- ================================================================ -->

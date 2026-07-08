@@ -4,7 +4,7 @@
 
 ## 需求摘要
 
-RoboCode 的 TUI 要从当前 lightweight alternate-screen shell，演进成 coding-agent cockpit：
+Viden 的 TUI 要从当前 lightweight alternate-screen shell，演进成 coding-agent cockpit：
 
 - 实现 `DESIGN.md` 中已确认的主屏 TUI；
 - 保留现有 `SessionEngine` 路径，继续负责 prompt、审批、工具执行和 transcript；
@@ -14,26 +14,26 @@ RoboCode 的 TUI 要从当前 lightweight alternate-screen shell，演进成 cod
 
 当前代码适合增量推进：
 
-- `robocode-cli/src/main.rs:96` 在 `--tui` 时进入 `tui::run_tui`。
-- `robocode-cli/src/tui.rs:28` 是当前 TUI 事件循环。
-- `robocode-cli/src/tui.rs:67` 已经把权限提示接到 `prompt_for_tui_approval`。
-- `robocode-cli/src/tui.rs:70` 复用 `SessionEngine::process_input_with_approval`。
-- `robocode-cli/src/tui.rs:187` 目前把整个 UI 渲染为一个简单字符串 frame。
-- `robocode-core/src/lib.rs:31` 暴露 `EngineEvent`，足够支撑第一版 transcript timeline。
-- `robocode-types/src/transcript.rs:28` 定义了 durable transcript entry，后续副屏可跟随它。
+- `viden-cli/src/main.rs:96` 在 `--tui` 时进入 `tui::run_tui`。
+- `viden-cli/src/tui.rs:28` 是当前 TUI 事件循环。
+- `viden-cli/src/tui.rs:67` 已经把权限提示接到 `prompt_for_tui_approval`。
+- `viden-cli/src/tui.rs:70` 复用 `SessionEngine::process_input_with_approval`。
+- `viden-cli/src/tui.rs:187` 目前把整个 UI 渲染为一个简单字符串 frame。
+- `viden-core/src/lib.rs:31` 暴露 `EngineEvent`，足够支撑第一版 transcript timeline。
+- `viden-types/src/transcript.rs:28` 定义了 durable transcript entry，后续副屏可跟随它。
 
 ## 最新产品设计要求
 
 当前产品方向已经覆盖并替代了之前较泛的 “rich terminal view” 说法：
 
-1. 主产品界面是用户确认的单屏 RoboCode cockpit，不是生成的多屏概念图。
+1. 主产品界面是用户确认的单屏 Viden cockpit，不是生成的多屏概念图。
 2. 副屏是工作舱，不是 dashboard。核心价值是运行和监督 side work。
 3. Terminal lane 是 side work 的核心原语：
    - 运行本地命令；
    - 后续启动 `codex`、`claude` 等 coding CLI；
    - 捕获日志、状态、exit code、diff 和验证证据；
    - 必须经过 inspect/accept/revise/discard 的明确决策。
-4. 外部工具是 adapter 后面的协作者，不是 RoboCode 原生可信 agent。
+4. 外部工具是 adapter 后面的协作者，不是 Viden 原生可信 agent。
 5. provider live compatibility 仍然重要，但不阻塞 TUI/lane 产品切片；provider matrix 是并行质量线。
 
 ## 当前开发基线
@@ -141,7 +141,7 @@ RoboCode 的 TUI 要从当前 lightweight alternate-screen shell，演进成 cod
 
 - 缺失二进制给出清晰 lane error；
 - 每个外部任务都有可审计 envelope 文件；
-- RoboCode 只有在检查 logs/diff/verification evidence 后才建议 accept。
+- Viden 只有在检查 logs/diff/verification evidence 后才建议 accept。
 
 ### Milestone F: 隔离与 Attach
 
@@ -165,7 +165,7 @@ RoboCode 的 TUI 要从当前 lightweight alternate-screen shell，演进成 cod
 - 不替换 plain REPL。
 - 不在本阶段引入 GUI/web client。
 - lane metadata、日志和 inspect 稳定前，不做 embedded PTY/tmux attach。
-- 不把外部工具当成可信裁判；RoboCode 必须通过日志、exit code、diff 和验证证据来验收 lane 结果。
+- 不把外部工具当成可信裁判；Viden 必须通过日志、exit code、diff 和验证证据来验收 lane 结果。
 - 不复制 `.ref/` 实现。
 
 ## 架构决策
@@ -186,10 +186,10 @@ RoboCode 的 TUI 要从当前 lightweight alternate-screen shell，演进成 cod
 
 ## 建议模块形态
 
-先在 `robocode-cli/src/tui/` 内部拆分：
+先在 `viden-cli/src/tui/` 内部拆分：
 
 ```text
-robocode-cli/src/tui/
+viden-cli/src/tui/
   mod.rs
   app.rs
   layout.rs
@@ -201,13 +201,13 @@ robocode-cli/src/tui/
   lanes.rs
 ```
 
-初期保持为 `robocode-cli` 私有模块。只有当 lane 状态需要被 TUI 外复用时，再把 durable lane records 下沉到 `robocode-workflows`。
+初期保持为 `viden-cli` 私有模块。只有当 lane 状态需要被 TUI 外复用时，再把 durable lane records 下沉到 `viden-workflows`。
 
 ## 验收标准
 
 ### 主屏 TUI
 
-- `cargo run -p robocode-cli -- --tui --provider fallback --model test-local` 仍能启动可用 TUI。
+- `cargo run -p viden-cli -- --tui --provider fallback --model test-local` 仍能启动可用 TUI。
 - 主渲染包含：
   - 顶部状态栏；
   - transcript timeline；
@@ -251,22 +251,22 @@ robocode-cli/src/tui/
 4. 编辑前跑当前 TUI focused test：
 
 ```bash
-cargo test -p robocode-cli tui --quiet
+cargo test -p viden-cli tui --quiet
 ```
 
 预期：当前 TUI 测试通过；如果 Rust toolchain setup 有问题，记录清楚。
 
 ### Phase 1: TUI 模块拆分
 
-1. 把 `robocode-cli/src/tui.rs` 移到 `robocode-cli/src/tui/mod.rs`。
+1. 把 `viden-cli/src/tui.rs` 移到 `viden-cli/src/tui/mod.rs`。
 2. 把纯渲染 helper 拆到 `render.rs`、`layout.rs`、`panels.rs`。
-3. 保持 `run_tui` 为 `pub(crate)`，让 `robocode-cli/src/main.rs:97` 行为不变。
+3. 保持 `run_tui` 为 `pub(crate)`，让 `viden-cli/src/main.rs:97` 行为不变。
 4. 视觉扩展前先加 layout split 测试。
 
 验证：
 
 ```bash
-cargo test -p robocode-cli tui --quiet
+cargo test -p viden-cli tui --quiet
 ```
 
 ### Phase 2: 主屏渲染
@@ -295,8 +295,8 @@ cargo test -p robocode-cli tui --quiet
 验证：
 
 ```bash
-cargo test -p robocode-cli tui --quiet
-cargo run -p robocode-cli -- --help | rg -- '--tui'
+cargo test -p viden-cli tui --quiet
+cargo run -p viden-cli -- --help | rg -- '--tui'
 ```
 
 ### Phase 3: 审批 Modal
@@ -334,7 +334,7 @@ cargo run -p robocode-cli -- --help | rg -- '--tui'
 ```bash
 cargo fmt --all -- --check
 cargo test --workspace --quiet
-cargo run -p robocode-cli -- --provider fallback --model test-local --help
+cargo run -p viden-cli -- --provider fallback --model test-local --help
 ```
 
 2. 如果用户可见 flag 或行为变化，更新 README/README.zh-CN。
@@ -372,7 +372,7 @@ struct TerminalLane {
 }
 ```
 
-第一版可先把 lane records 放在 session home 下；如果别扭，再下沉到 `robocode-workflows`。
+第一版可先把 lane records 放在 session home 下；如果别扭，再下沉到 `viden-workflows`。
 
 ### Phase 7: `/lane run`
 
@@ -446,21 +446,21 @@ enum LaneInputMode {
 
 ```bash
 cargo fmt --all -- --check
-cargo test -p robocode-cli --quiet
+cargo test -p viden-cli --quiet
 cargo test --workspace --quiet
 ```
 
 Smoke checks：
 
 ```bash
-cargo run -p robocode-cli -- --help | rg -- '--tui'
-cargo run -p robocode-cli -- --provider fallback --model test-local
+cargo run -p viden-cli -- --help | rg -- '--tui'
+cargo run -p viden-cli -- --provider fallback --model test-local
 ```
 
 手动 TUI 检查：
 
 ```bash
-cargo run -p robocode-cli -- --tui --provider fallback --model test-local
+cargo run -p viden-cli -- --tui --provider fallback --model test-local
 ```
 
 Lane 分支额外检查：

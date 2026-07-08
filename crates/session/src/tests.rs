@@ -2,7 +2,7 @@ use super::*;
 use viden_types::{CommandLogEntry, Message, ToolCall, TranscriptEntry};
 
 fn temp_home(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("robocode_test_{name}_{}", fresh_id("tmp")));
+    let dir = std::env::temp_dir().join(format!("viden_test_{name}_{}", fresh_id("tmp")));
     fs::create_dir_all(&dir).unwrap();
     dir
 }

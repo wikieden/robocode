@@ -6,7 +6,7 @@ English version: [production-coding-loop-architecture.md](production-coding-loop
 
 ## 目标
 
-RoboCode 要成为生产可用的编程工具，而不只是终端聊天界面。产品必须解决当前 AI coding
+Viden 要成为生产可用的编程工具，而不只是终端聊天界面。产品必须解决当前 AI coding
 工具的共性痛点：
 
 - 用户不知道 agent 现在在做什么；
@@ -23,11 +23,11 @@ RoboCode 要成为生产可用的编程工具，而不只是终端聊天界面�
 
 普通用户应该可以：
 
-1. 打开 RoboCode 后停留在安静的 welcome composer，直到真正开始工作。
+1. 打开 Viden 后停留在安静的 welcome composer，直到真正开始工作。
 2. 通过直接操作面板配置 provider/model；如果还没开始编码任务，配置后回到 welcome
    composer。
 3. 发起一个编码任务。
-4. 用明确、丰富的活动文案看到 RoboCode 正在做什么。
+4. 用明确、丰富的活动文案看到 Viden 正在做什么。
 5. 当前 turn 运行时，仍能继续输入 follow-up。
 6. 看到流式输出、tool request、编辑、测试命令和失败。
 7. 基于清楚证据批准或拒绝高风险操作。
@@ -38,7 +38,7 @@ RoboCode 要成为生产可用的编程工具，而不只是终端聊天界面�
 
 ## 分层契约
 
-RoboCode 应拆成四个概念层。
+Viden 应拆成四个概念层。
 
 ### 1. Runtime Core
 
@@ -74,7 +74,7 @@ Runtime core 不能：
 ### 2. Product View Model
 
 这一层是 UI 无关的稳定契约。当前可以放在 `viden-types`，等多个 UI surface 都需要后，
-也可以拆成 `robocode-ui-model` 这类小 crate。
+也可以拆成 `viden-ui-model` 这类小 crate。
 
 职责：
 
@@ -161,7 +161,7 @@ Core 把每次输入分类为：
 
 ### Context
 
-昂贵或大范围工作前，RoboCode 构造 ContextBundle：
+昂贵或大范围工作前，Viden 构造 ContextBundle：
 
 - 当前用户任务；
 - 显式选择或推断的文件；
@@ -221,7 +221,7 @@ Mutating actions 经过 permission gates。Approval UI 应展示：
 
 ### Activity Language
 
-活动文案描述 RoboCode 角色，不描述 provider 内部状态。
+活动文案描述 Viden 角色，不描述 provider 内部状态。
 
 推荐角色名：
 

@@ -6,10 +6,10 @@ Last checked: 2026-05-26 with `codex-cli 0.133.0`.
 
 ## Why This Matters
 
-RoboCode 0.1.7 treats Codex as the first host-delegate agent backend. The
+Viden 0.1.7 treats Codex as the first host-delegate agent backend. The
 current implementation can launch Codex CLI jobs, track logs/results, show
 active work in the TUI, extract resume/file evidence, and gate write-capable
-delegation behind RoboCode permissions.
+delegation behind Viden permissions.
 
 The next maturity step is to replace heuristic log/result parsing with Codex
 app-server protocol events. The local Codex CLI already exposes protocol
@@ -23,7 +23,7 @@ codex app-server generate-ts --experimental --out <dir>
 
 ## Confirmed Protocol Surface
 
-The generated schema exposes the pieces RoboCode needs for a real adapter:
+The generated schema exposes the pieces Viden needs for a real adapter:
 
 - Client requests:
   `initialize`, `thread/start`, `thread/resume`, `thread/read`,
@@ -44,11 +44,11 @@ The generated schema exposes the pieces RoboCode needs for a real adapter:
   generated schemas include `threadId` and `conversationId` across approval,
   turn, and notification payloads.
 
-## RoboCode Mapping
+## Viden Mapping
 
-RoboCode should map app-server data into the existing host-delegate lifecycle:
+Viden should map app-server data into the existing host-delegate lifecycle:
 
-| Codex app-server signal | RoboCode artifact |
+| Codex app-server signal | Viden artifact |
 | --- | --- |
 | `thread/started`, `thread/resume` | `AgentJobRecord` thread/resume handle |
 | `thread/status/changed` | lane/job state |
@@ -56,7 +56,7 @@ RoboCode should map app-server data into the existing host-delegate lifecycle:
 | `item/agentMessage/delta` | transcript/lane output stream |
 | `item/commandExecution/outputDelta` | command/test evidence stream |
 | `item/fileChange/*`, `turn/diff/updated`, `fs/changed` | touched-file and diff evidence |
-| approval requests | RoboCode permission prompt, transcript permission log |
+| approval requests | Viden permission prompt, transcript permission log |
 | `error` | failed job/lane evidence |
 
 ## Implementation Sequence
@@ -66,13 +66,13 @@ RoboCode should map app-server data into the existing host-delegate lifecycle:
    notification, evidence, and approval protocol groups.
 2. Done: `/agent probe codex` starts `codex app-server --listen stdio://`,
    sends `initialize`, and records response/notification evidence in
-   `.robocode/agents/codex-app-server-*.jsonl`.
+   `.viden/agents/codex-app-server-*.jsonl`.
 3. Done: `/agent probe codex --thread` declares `experimentalApi`, starts an
    ephemeral read-only Codex thread, captures the structured `threadId`, and
    records `thread/started` evidence without running a model turn.
 4. Done: `/agent probe codex --turn <task>` starts a read-only turn, records
    `turn/started`, streamed item notifications, and `turn/completed` evidence in
-   `.robocode/agents/codex-app-server-*.jsonl`.
+   `.viden/agents/codex-app-server-*.jsonl`.
 5. Done: completed turn probes now map structured `threadId`, `turnId`, and
    completion status into tracked Codex job records and result summaries.
    Result summaries also persist final `agentMessage` text as `message:`.
@@ -83,13 +83,13 @@ RoboCode should map app-server data into the existing host-delegate lifecycle:
 7. Done: `/agent probe codex --turn-write <task>` exists only as an
    environment-gated disposable-workspace experiment. It is disabled by default
    because a live safety trial showed workspace-write turns can mutate files
-   before RoboCode receives an approval request.
+   before Viden receives an approval request.
 8. Done: `/agent run codex --app-server <task>` starts an asynchronous
    read-only app-server turn job and keeps default `/agent run codex` on the CLI
    fallback.
 9. Done: approval-like server requests are captured in the JSONL evidence and
    answered with decline/no-grant responses so app-server work cannot hang or
-   bypass RoboCode permission boundaries. This is not yet enough for
+   bypass Viden permission boundaries. This is not yet enough for
    write-capable turns because some workspace-write mutations can happen before
    a request is emitted.
 10. Done: TUI `AgentTask` projection now reads app-server result/log artifacts
@@ -108,8 +108,8 @@ remain the stable fallback. They must keep:
 
 - read-only default execution;
 - explicit `/agent run codex --write <task>` for mutation;
-- RoboCode permission approval before write-capable launch;
-- `.robocode/agents/` job records, logs, results, baseline status, and evidence
+- Viden permission approval before write-capable launch;
+- `.viden/agents/` job records, logs, results, baseline status, and evidence
   extraction.
 
 Repeatable local smoke:
@@ -128,13 +128,13 @@ deterministically cover command, file, approval, MCP tool-call / MCP file-write,
 and error event classes.
 
 Command, file, approval, MCP, and error live event smokes remain follow-up
-before making app-server the default path. The fixture proves RoboCode's
+before making app-server the default path. The fixture proves Viden's
 ingestion and display path, not the live model's willingness to emit each event
 in every turn. A disposable live write probe on 2026-05-27 showed that Codex
 Desktop can mutate a workspace through an `mcpToolCall` without first emitting a
-RoboCode approval request; RoboCode now records that as `mcp-tool-call`,
+Viden approval request; Viden now records that as `mcp-tool-call`,
 `mcp-tool-completed`, and `mcp-fs-write`, but the path must stay opt-in. The
 write-guard smoke verifies that write-capable app-server probes are blocked
 before launch unless
-`ROBOCODE_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1` is set in a disposable
+`VIDEN_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1` is set in a disposable
 workspace.

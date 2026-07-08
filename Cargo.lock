@@ -431,9 +431,12 @@ dependencies = [
 name = "viden-runtime"
 version = "0.1.30"
 dependencies = [
+ "serde_json",
  "viden-config",
  "viden-lsp",
  "viden-permissions",
+ "viden-plugin-api",
+ "viden-plugin-host",
  "viden-provider",
  "viden-session",
  "viden-tools",

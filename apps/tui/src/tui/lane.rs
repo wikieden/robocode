@@ -170,28 +170,22 @@ fn maybe_start_lane_adapter(mut lane: TerminalLane, state: &mut TuiState) -> Ter
             }
             Err(err) => return failed_lane(lane, err),
         },
-        "codex" => {
-            match templated_agent_command("ROBOCODE_LANE_CODEX_TEMPLATE", &mut lane, state) {
-                Ok(Some(command)) => command,
-                Ok(None) => {
-                    lane.summary =
-                        queued_adapter_summary(&lane, "ROBOCODE_LANE_CODEX_TEMPLATE", state);
-                    return lane;
-                }
-                Err(err) => return failed_lane(lane, err),
+        "codex" => match templated_agent_command("VIDEN_LANE_CODEX_TEMPLATE", &mut lane, state) {
+            Ok(Some(command)) => command,
+            Ok(None) => {
+                lane.summary = queued_adapter_summary(&lane, "VIDEN_LANE_CODEX_TEMPLATE", state);
+                return lane;
             }
-        }
-        "claude" => {
-            match templated_agent_command("ROBOCODE_LANE_CLAUDE_TEMPLATE", &mut lane, state) {
-                Ok(Some(command)) => command,
-                Ok(None) => {
-                    lane.summary =
-                        queued_adapter_summary(&lane, "ROBOCODE_LANE_CLAUDE_TEMPLATE", state);
-                    return lane;
-                }
-                Err(err) => return failed_lane(lane, err),
+            Err(err) => return failed_lane(lane, err),
+        },
+        "claude" => match templated_agent_command("VIDEN_LANE_CLAUDE_TEMPLATE", &mut lane, state) {
+            Ok(Some(command)) => command,
+            Ok(None) => {
+                lane.summary = queued_adapter_summary(&lane, "VIDEN_LANE_CLAUDE_TEMPLATE", state);
+                return lane;
             }
-        }
+            Err(err) => return failed_lane(lane, err),
+        },
         _ => {
             let env_key = generic_lane_template_env_key(&lane.tool);
             match templated_agent_command(&env_key, &mut lane, state) {
@@ -219,7 +213,7 @@ fn generic_lane_template_env_key(tool: &str) -> String {
             }
         })
         .collect::<String>();
-    format!("ROBOCODE_LANE_{suffix}_TEMPLATE")
+    format!("VIDEN_LANE_{suffix}_TEMPLATE")
 }
 
 fn templated_agent_command(
@@ -250,7 +244,7 @@ fn codex_review_lane_command(
 ) -> Result<Option<String>, String> {
     let envelope_path = write_lane_envelope(lane, state)
         .map_err(|err| format!("failed to write lane envelope: {err}"))?;
-    if let Ok(template) = std::env::var("ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE") {
+    if let Ok(template) = std::env::var("VIDEN_LANE_CODEX_REVIEW_TEMPLATE") {
         let command = expand_agent_template(
             &template,
             &lane.tool,
@@ -264,7 +258,7 @@ fn codex_review_lane_command(
     let command = codex_lane_command();
     if !command_exists(&command) {
         let summary = format!(
-            "Codex CLI `{command}` missing; install Codex, set ROBOCODE_AGENT_CODEX_COMMAND, or set ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE; envelope {}",
+            "Codex CLI `{command}` missing; install Codex, set VIDEN_AGENT_CODEX_COMMAND, or set VIDEN_LANE_CODEX_REVIEW_TEMPLATE; envelope {}",
             envelope_path.display()
         );
         record_lane_timeline(
@@ -277,7 +271,7 @@ fn codex_review_lane_command(
         return Ok(None);
     }
     let prompt = format!(
-        "Review the current working tree for this RoboCode delegated lane task: {}. Use the lane envelope at {} for context. Do not modify files; report findings, evidence, and next action.",
+        "Review the current working tree for this Viden delegated lane task: {}. Use the lane envelope at {} for context. Do not modify files; report findings, evidence, and next action.",
         lane.title,
         envelope_path.display()
     );
@@ -289,7 +283,7 @@ fn codex_review_lane_command(
 }
 
 fn codex_lane_command() -> String {
-    env::var("ROBOCODE_AGENT_CODEX_COMMAND")
+    env::var("VIDEN_AGENT_CODEX_COMMAND")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
@@ -301,7 +295,7 @@ fn queued_codex_review_summary(lane: &TerminalLane, state: &TuiState) -> String 
         .map(|path| path.display().to_string())
         .unwrap_or_else(|_| "<unavailable>".to_string());
     format!(
-        "queued; Codex CLI `{}` missing; install Codex, set ROBOCODE_AGENT_CODEX_COMMAND, or set ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE; envelope {envelope}",
+        "queued; Codex CLI `{}` missing; install Codex, set VIDEN_AGENT_CODEX_COMMAND, or set VIDEN_LANE_CODEX_REVIEW_TEMPLATE; envelope {envelope}",
         codex_lane_command()
     )
 }
@@ -472,7 +466,7 @@ fn render_lane_envelope(lane: &TerminalLane, state: &TuiState) -> String {
     let isolation_caches = list_or_none(&isolation.cache_dirs);
     let isolation_ports = list_or_none(&isolation.service_ports);
     format!(
-        "# RoboCode Lane Task\n\nLane: {}\nTool: {}\nWorkspace: {workspace}\nMutation scope: {mutation_scope}\nSession: {}\nProvider: {}\nModel: {}\n\n## Task\n{}\n\n## Isolation\nRisk: {}\nWritable scope: {}\nWorktree: {}\nDatabase/schema: {}\nSetup command: {}\nVerification command: {}\nCleanup command: {}\n\n### Env vars\n{}\n\n### Cache dirs\n{}\n\n### Service ports\n{}\n\n### Isolation warnings\n{}\n\n## ContextBundle v1\nBundle: {}\nPolicy: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\n\n### Sources\n{}\n\n### Omitted sources\n{}\n\n### Largest sources\n{}\n\n### Compaction notes\n{}\n\n## Handoff\n- summary\n- files changed\n- tests run\n- remaining risks\n- suggested next step\n\n## Constraints\n- Do not assume access to the full RoboCode transcript.\n- Use the ContextBundle sources above before asking for more context.\n- Keep changes scoped to the task.\n- Report commands run and verification evidence.\n",
+        "# Viden Lane Task\n\nLane: {}\nTool: {}\nWorkspace: {workspace}\nMutation scope: {mutation_scope}\nSession: {}\nProvider: {}\nModel: {}\n\n## Task\n{}\n\n## Isolation\nRisk: {}\nWritable scope: {}\nWorktree: {}\nDatabase/schema: {}\nSetup command: {}\nVerification command: {}\nCleanup command: {}\n\n### Env vars\n{}\n\n### Cache dirs\n{}\n\n### Service ports\n{}\n\n### Isolation warnings\n{}\n\n## ContextBundle v1\nBundle: {}\nPolicy: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\n\n### Sources\n{}\n\n### Omitted sources\n{}\n\n### Largest sources\n{}\n\n### Compaction notes\n{}\n\n## Handoff\n- summary\n- files changed\n- tests run\n- remaining risks\n- suggested next step\n\n## Constraints\n- Do not assume access to the full Viden transcript.\n- Use the ContextBundle sources above before asking for more context.\n- Keep changes scoped to the task.\n- Report commands run and verification evidence.\n",
         lane.id,
         lane.tool,
         state.session_id,
@@ -553,7 +547,7 @@ fn build_lane_isolation_record(lane: &TerminalLane, state: &TuiState) -> AgentLa
         worktree,
         writable_scope,
         env_vars: vec!["PATH".to_string(), "HOME".to_string()],
-        cache_dirs: vec!["target/".to_string(), ".robocode/".to_string()],
+        cache_dirs: vec!["target/".to_string(), ".viden/".to_string()],
         database_scope: None,
         service_ports: Vec::new(),
         setup_command: None,
@@ -823,7 +817,7 @@ fn estimate_tokens(text: &str) -> u64 {
 }
 
 fn read_active_brief_summary(root: &Path) -> Option<(String, String, String)> {
-    let content = fs::read_to_string(root.join(".robocode/briefs/active.md")).ok()?;
+    let content = fs::read_to_string(root.join(".viden/briefs/active.md")).ok()?;
     let id = front_matter_field(&content, "id").unwrap_or_else(|| "brief_unknown".to_string());
     let title =
         front_matter_field(&content, "title").unwrap_or_else(|| "Untitled brief".to_string());
@@ -835,7 +829,7 @@ fn read_steering_summaries(root: &Path) -> Vec<(String, String)> {
     ["conventions.md", "architecture.md", "workflows.md"]
         .into_iter()
         .filter_map(|file| {
-            let content = fs::read_to_string(root.join(".robocode/steering").join(file)).ok()?;
+            let content = fs::read_to_string(root.join(".viden/steering").join(file)).ok()?;
             let summary = content
                 .lines()
                 .map(str::trim)
@@ -1403,7 +1397,7 @@ pub(super) fn lane_next_action(lane: &TerminalLane) -> String {
             lane.id
         ),
         "archived" | "discarded" => {
-            "no active action; evidence remains under `.robocode/lanes/`".to_string()
+            "no active action; evidence remains under `.viden/lanes/`".to_string()
         }
         "revise" => format!(
             "send revision notes to a fresh lane or archive with `/lane archive {}`",
@@ -1621,7 +1615,7 @@ fn render_lane_decision(
         .and_then(|path| lane_runtime_evidence(path, &lane.id));
     let verification = verification_rows(evidence.as_ref());
     format!(
-        "# RoboCode Lane Decision\n\nLane: {}\nTool: {}\nDecision: {action}\nSummary: {summary}\n\n## Task\n{}\n\n## Changed files\n{changed_files}\n\n## Verification\n{verification}\n",
+        "# Viden Lane Decision\n\nLane: {}\nTool: {}\nDecision: {action}\nSummary: {summary}\n\n## Task\n{}\n\n## Changed files\n{changed_files}\n\n## Verification\n{verification}\n",
         lane.id, lane.tool, lane.title
     )
 }
@@ -1697,7 +1691,7 @@ fn attach_lane(id: Option<&str>, state: &mut TuiState) {
             state.entries.push(TuiEntry {
                 label: "system".to_string(),
                 body: format!(
-                    "Attached lane `{}` as pid {pid}.\nDetach with `/lane detach {}`; logs and lane artifacts remain in `.robocode/lanes/`.",
+                    "Attached lane `{}` as pid {pid}.\nDetach with `/lane detach {}`; logs and lane artifacts remain in `.viden/lanes/`.",
                     lane.id, lane.id
                 ),
             });
@@ -1832,7 +1826,7 @@ fn tmux_lane(id: Option<&str>, state: &mut TuiState) {
             state.entries.push(TuiEntry {
                 label: "system".to_string(),
                 body: format!(
-                    "Started tmux lane `{}` as `{session}` via pid {pid}.\nAttach with `tmux attach -t {session}`; detach RoboCode tracking with `/lane detach {}`.",
+                    "Started tmux lane `{}` as `{session}` via pid {pid}.\nAttach with `tmux attach -t {session}`; detach Viden tracking with `/lane detach {}`.",
                     lane.id, lane.id
                 ),
             });
@@ -1854,17 +1848,17 @@ fn tmux_lane(id: Option<&str>, state: &mut TuiState) {
 }
 
 fn tmux_lane_preflight(lane: &TerminalLane) -> Result<(), String> {
-    if env::var("ROBOCODE_LANE_TMUX_TEMPLATE").is_err() && !command_exists("tmux") {
+    if env::var("VIDEN_LANE_TMUX_TEMPLATE").is_err() && !command_exists("tmux") {
         return Err(
-            "tmux binary missing; install tmux or set ROBOCODE_LANE_TMUX_TEMPLATE".to_string(),
+            "tmux binary missing; install tmux or set VIDEN_LANE_TMUX_TEMPLATE".to_string(),
         );
     }
     if lane.tool == "claude"
-        && env::var("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE").is_err()
+        && env::var("VIDEN_LANE_TMUX_COMMAND_TEMPLATE").is_err()
         && !command_exists("claude")
     {
         return Err(
-            "Claude Code binary `claude` missing; install Claude Code or set ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE".to_string(),
+            "Claude Code binary `claude` missing; install Claude Code or set VIDEN_LANE_TMUX_COMMAND_TEMPLATE".to_string(),
         );
     }
     Ok(())
@@ -1876,14 +1870,14 @@ fn lane_tmux_command(
     session: &str,
     runtime_log: &Path,
 ) -> Result<String, String> {
-    let template = env::var("ROBOCODE_LANE_TMUX_TEMPLATE").unwrap_or_else(|_| {
+    let template = env::var("VIDEN_LANE_TMUX_TEMPLATE").unwrap_or_else(|_| {
         "tmux has-session -t {session:q} 2>/dev/null || tmux new-session -d -s {session:q} -c {cwd:q}; : > {log:q}; tmux pipe-pane -o -t {session:q} \"cat >> {log:q}\"; tmux send-keys -t {session:q} {command:q} C-m"
             .to_string()
     });
     let command = expand_tmux_template(&template, lane, state, session, runtime_log);
     (!command.trim().is_empty())
         .then_some(command)
-        .ok_or_else(|| "ROBOCODE_LANE_TMUX_TEMPLATE expanded to an empty command".to_string())
+        .ok_or_else(|| "VIDEN_LANE_TMUX_TEMPLATE expanded to an empty command".to_string())
 }
 
 fn expand_tmux_template(
@@ -1894,7 +1888,7 @@ fn expand_tmux_template(
     runtime_log: &Path,
 ) -> String {
     let cwd = lane_workspace(lane, state).to_string_lossy().to_string();
-    let command = env::var("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE")
+    let command = env::var("VIDEN_LANE_TMUX_COMMAND_TEMPLATE")
         .map(|template| {
             expand_agent_template(&template, &lane.tool, &lane.title, None, Path::new(&cwd))
         })
@@ -1935,7 +1929,7 @@ fn render_lane_tmux(
     runtime_log: &Path,
 ) -> String {
     format!(
-        "# RoboCode Lane Tmux\n\nLane: {}\nTool: {}\nStatus before tmux: {}\nSession: {session}\nWorkspace: {}\nRuntime log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Attach\nUse `tmux attach -t {session}` to enter the interactive lane. Pane output is piped into the standard lane runtime log when the default tmux template is used. Use `/lane detach {}` to return RoboCode tracking to detached state without killing the tmux session.\n",
+        "# Viden Lane Tmux\n\nLane: {}\nTool: {}\nStatus before tmux: {}\nSession: {session}\nWorkspace: {}\nRuntime log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Attach\nUse `tmux attach -t {session}` to enter the interactive lane. Pane output is piped into the standard lane runtime log when the default tmux template is used. Use `/lane detach {}` to return Viden tracking to detached state without killing the tmux session.\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -2118,12 +2112,11 @@ fn lane_pty_command(
     input_path: &Path,
     runtime_log: &Path,
 ) -> Result<String, String> {
-    let template =
-        env::var("ROBOCODE_LANE_PTY_TEMPLATE").or_else(|_| platform_lane_pty_template())?;
+    let template = env::var("VIDEN_LANE_PTY_TEMPLATE").or_else(|_| platform_lane_pty_template())?;
     let command = expand_pty_template(&template, lane, state, input_path, runtime_log);
     (!command.trim().is_empty())
         .then_some(command)
-        .ok_or_else(|| "ROBOCODE_LANE_PTY_TEMPLATE expanded to an empty command".to_string())
+        .ok_or_else(|| "VIDEN_LANE_PTY_TEMPLATE expanded to an empty command".to_string())
 }
 
 #[cfg(all(unix, target_os = "macos"))]
@@ -2138,7 +2131,7 @@ fn platform_lane_pty_template() -> Result<String, String> {
 
 #[cfg(not(unix))]
 fn platform_lane_pty_template() -> Result<String, String> {
-    Err("embedded PTY lanes require ROBOCODE_LANE_PTY_TEMPLATE on this platform".to_string())
+    Err("embedded PTY lanes require VIDEN_LANE_PTY_TEMPLATE on this platform".to_string())
 }
 
 fn expand_pty_template(
@@ -2182,7 +2175,7 @@ fn render_lane_pty(
     command: &str,
 ) -> String {
     format!(
-        "# RoboCode Embedded PTY\n\nLane: {}\nTool: {}\nStatus before PTY: {}\nWorkspace: {}\nInput FIFO: {}\nRuntime log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Interaction\nUse `/lane send {} <text>` to write a line to the embedded PTY input bridge. Use `/lane detach {}` to hide focus without killing the PTY process, or `/lane stop {}` to terminate RoboCode's recorded process group.\n",
+        "# Viden Embedded PTY\n\nLane: {}\nTool: {}\nStatus before PTY: {}\nWorkspace: {}\nInput FIFO: {}\nRuntime log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Interaction\nUse `/lane send {} <text>` to write a line to the embedded PTY input bridge. Use `/lane detach {}` to hide focus without killing the PTY process, or `/lane stop {}` to terminate Viden's recorded process group.\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -2202,13 +2195,11 @@ fn lane_attach_command(
     state: &TuiState,
     attach_log: &Path,
 ) -> Result<String, String> {
-    if let Ok(template) = env::var("ROBOCODE_LANE_ATTACH_TEMPLATE") {
+    if let Ok(template) = env::var("VIDEN_LANE_ATTACH_TEMPLATE") {
         let command = expand_attach_template(&template, lane, state, attach_log);
         return (!command.trim().is_empty())
             .then_some(command)
-            .ok_or_else(|| {
-                "ROBOCODE_LANE_ATTACH_TEMPLATE expanded to an empty command".to_string()
-            });
+            .ok_or_else(|| "VIDEN_LANE_ATTACH_TEMPLATE expanded to an empty command".to_string());
     }
     platform_lane_attach_command(lane, state, attach_log)
 }
@@ -2224,10 +2215,7 @@ fn platform_lane_attach_command(
     let terminal_script = format!(
         "cd {} && printf '%s\\n' {} >> {} && exec {} -l",
         shell_quote_value(&cwd),
-        shell_quote_value(&format!(
-            "RoboCode attached lane {}: {}",
-            lane.id, lane.title
-        )),
+        shell_quote_value(&format!("Viden attached lane {}: {}", lane.id, lane.title)),
         shell_quote_path(attach_log),
         shell_quote_value(&shell)
     );
@@ -2247,7 +2235,7 @@ fn platform_lane_attach_command(
     _attach_log: &Path,
 ) -> Result<String, String> {
     Err(
-        "set ROBOCODE_LANE_ATTACH_TEMPLATE to open a terminal for this platform, e.g. `tmux new-session -A -s robocode-{lane:q} -c {cwd:q}`"
+        "set VIDEN_LANE_ATTACH_TEMPLATE to open a terminal for this platform, e.g. `tmux new-session -A -s viden-{lane:q} -c {cwd:q}`"
             .to_string(),
     )
 }
@@ -2264,7 +2252,7 @@ fn render_lane_attach(
     attach_log: &Path,
 ) -> String {
     format!(
-        "# RoboCode Lane Attach\n\nLane: {}\nTool: {}\nStatus before attach: {}\nWorkspace: {}\nAttach log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Detach\nUse `/lane detach {}` to return RoboCode tracking to detached state without killing the external terminal process.\n",
+        "# Viden Lane Attach\n\nLane: {}\nTool: {}\nStatus before attach: {}\nWorkspace: {}\nAttach log: {}\n\n## Task\n{}\n\n## Command\n{}\n\n## Detach\nUse `/lane detach {}` to return Viden tracking to detached state without killing the external terminal process.\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -2596,7 +2584,7 @@ fn render_lane_apply(
     forced: bool,
 ) -> String {
     format!(
-        "# RoboCode Lane Apply\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Workspace changed files after apply\n{changed_files}\n\n## Follow-up\n- Review the main workspace diff.\n- Commit separately when satisfied.\n- Cleanup the isolated worktree with `/lane cleanup {}` after integration is no longer needed.\n",
+        "# Viden Lane Apply\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Workspace changed files after apply\n{changed_files}\n\n## Follow-up\n- Review the main workspace diff.\n- Commit separately when satisfied.\n- Cleanup the isolated worktree with `/lane cleanup {}` after integration is no longer needed.\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -2651,7 +2639,7 @@ struct LaneApplyConflictReport<'a> {
 
 fn render_lane_apply_conflict(report: LaneApplyConflictReport<'_>) -> String {
     format!(
-        "# RoboCode Lane Apply Conflict\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Direct apply check\n{}\n\n## Three-way apply check\n{}\n\n## Main workspace changed files\n{main_changed_files}\n\n## Lane worktree changed files\n{lane_changed_files}\n\n## Follow-up\n- Review the patch and the main workspace diff before retrying.\n- Resolve conflicting files in the main workspace or in the lane worktree.\n- Retry with `/lane resolve {}` after the patch applies cleanly.\n- Use `/lane cleanup {}` only after the lane evidence is no longer needed.\n",
+        "# Viden Lane Apply Conflict\n\nLane: {}\nTool: {}\nStatus before apply: {}\nWorktree: {}\nPatch: {}\nForced: {forced}\n\n## Task\n{}\n\n## Direct apply check\n{}\n\n## Three-way apply check\n{}\n\n## Main workspace changed files\n{main_changed_files}\n\n## Lane worktree changed files\n{lane_changed_files}\n\n## Follow-up\n- Review the patch and the main workspace diff before retrying.\n- Resolve conflicting files in the main workspace or in the lane worktree.\n- Retry with `/lane resolve {}` after the patch applies cleanly.\n- Use `/lane cleanup {}` only after the lane evidence is no longer needed.\n",
         report.lane.id,
         report.lane.tool,
         report.lane.status,
@@ -2847,7 +2835,7 @@ fn render_lane_archive(lane: &TerminalLane, evidence: Option<&LaneRuntimeEvidenc
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "<none>".to_string());
     format!(
-        "# RoboCode Lane Archive\n\nLane: {}\nTool: {}\nStatus before archive: {}\nTarget: {}\nProgress: {}%\nWorktree: {worktree}\nExit code: {exit_code}\n\n## Task\n{}\n\n## Summary\n{}\n\n## Last log lines\n{log_tail}\n\n## Preservation\n- Runtime artifacts are preserved under `.robocode/lanes/`.\n- Isolated worktrees are not deleted by archive; use `/lane cleanup {}` separately when appropriate.\n",
+        "# Viden Lane Archive\n\nLane: {}\nTool: {}\nStatus before archive: {}\nTarget: {}\nProgress: {}%\nWorktree: {worktree}\nExit code: {exit_code}\n\n## Task\n{}\n\n## Summary\n{}\n\n## Last log lines\n{log_tail}\n\n## Preservation\n- Runtime artifacts are preserved under `.viden/lanes/`.\n- Isolated worktrees are not deleted by archive; use `/lane cleanup {}` separately when appropriate.\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -2875,7 +2863,7 @@ fn render_lane_cleanup(
             .join("\n")
     };
     format!(
-        "# RoboCode Lane Cleanup\n\nLane: {}\nTool: {}\nStatus before cleanup: {}\nWorktree: {}\nForced: {force}\n\n## Changed files before cleanup\n{changed_files}\n",
+        "# Viden Lane Cleanup\n\nLane: {}\nTool: {}\nStatus before cleanup: {}\nWorktree: {}\nForced: {force}\n\n## Changed files before cleanup\n{changed_files}\n",
         lane.id,
         lane.tool,
         lane.status,
@@ -3223,7 +3211,7 @@ mod tests {
 
     #[test]
     fn lane_command_adds_visible_lane_without_model_roundtrip() {
-        let _env = ScopedEnv::unset("ROBOCODE_LANE_CODEX_TEMPLATE");
+        let _env = ScopedEnv::unset("VIDEN_LANE_CODEX_TEMPLATE");
         let mut state = test_state();
 
         assert!(handle_tui_command(
@@ -3235,17 +3223,13 @@ mod tests {
         assert_eq!(state.lanes[0].id, "L1");
         assert_eq!(state.lanes[0].tool, "codex");
         assert_eq!(state.lanes[0].status, "queued");
-        assert!(
-            state.lanes[0]
-                .summary
-                .contains("ROBOCODE_LANE_CODEX_TEMPLATE")
-        );
+        assert!(state.lanes[0].summary.contains("VIDEN_LANE_CODEX_TEMPLATE"));
         assert!(state.entries[0].body.contains("Queued terminal lane"));
     }
 
     #[test]
     fn lane_ask_adds_generic_external_tool_lane() {
-        let _env = ScopedEnv::unset("ROBOCODE_LANE_GEMINI_TEMPLATE");
+        let _env = ScopedEnv::unset("VIDEN_LANE_GEMINI_TEMPLATE");
         let mut state = test_state();
 
         assert!(handle_tui_command(
@@ -3260,7 +3244,7 @@ mod tests {
         assert!(
             state.lanes[0]
                 .summary
-                .contains("ROBOCODE_LANE_GEMINI_TEMPLATE")
+                .contains("VIDEN_LANE_GEMINI_TEMPLATE")
         );
     }
 
@@ -3297,9 +3281,9 @@ mod tests {
 
     #[test]
     fn codex_lane_writes_auditable_envelope_when_adapter_is_not_configured() {
-        let _env = ScopedEnv::unset("ROBOCODE_LANE_CODEX_TEMPLATE");
+        let _env = ScopedEnv::unset("VIDEN_LANE_CODEX_TEMPLATE");
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -3309,9 +3293,9 @@ mod tests {
             &mut state
         ));
 
-        let envelope = root.join(".robocode").join("lanes").join("L1.envelope.md");
+        let envelope = root.join(".viden").join("lanes").join("L1.envelope.md");
         let content = fs::read_to_string(&envelope).expect("lane envelope");
-        assert!(content.contains("# RoboCode Lane Task"));
+        assert!(content.contains("# Viden Lane Task"));
         assert!(content.contains("Lane: L1"));
         assert!(content.contains("Tool: codex"));
         assert!(content.contains("fix persistent state"));
@@ -3320,7 +3304,7 @@ mod tests {
         assert!(handle_tui_command("/lane inspect L1", &mut state));
         let inspect = state.entries.last().expect("inspect entry");
         assert!(inspect.body.contains("Envelope:"));
-        assert!(inspect.body.contains("# RoboCode Lane Task"));
+        assert!(inspect.body.contains("# Viden Lane Task"));
         assert!(inspect.body.contains("fix persistent state"));
 
         let _ = fs::remove_dir_all(root);
@@ -3328,9 +3312,9 @@ mod tests {
 
     #[test]
     fn generic_ask_lane_writes_envelope_when_adapter_is_not_configured() {
-        let _env = ScopedEnv::unset("ROBOCODE_LANE_JUNIE_TEMPLATE");
+        let _env = ScopedEnv::unset("VIDEN_LANE_JUNIE_TEMPLATE");
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.lane_store = Some(store);
 
@@ -3339,25 +3323,21 @@ mod tests {
             &mut state
         ));
 
-        let envelope = root.join(".robocode").join("lanes").join("L1.envelope.md");
+        let envelope = root.join(".viden").join("lanes").join("L1.envelope.md");
         let content = fs::read_to_string(&envelope).expect("lane envelope");
         assert!(content.contains("Tool: junie"));
         assert!(content.contains("inspect architecture risks"));
-        assert!(
-            state.lanes[0]
-                .summary
-                .contains("ROBOCODE_LANE_JUNIE_TEMPLATE")
-        );
+        assert!(state.lanes[0].summary.contains("VIDEN_LANE_JUNIE_TEMPLATE"));
 
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
     fn codex_template_receives_envelope_path_and_runs_against_it() {
-        let _env = ScopedEnv::set("ROBOCODE_LANE_CODEX_TEMPLATE", "cat {envelope:q}");
+        let _env = ScopedEnv::set("VIDEN_LANE_CODEX_TEMPLATE", "cat {envelope:q}");
         let root = temp_lane_root();
         init_git_repo(&root);
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -3383,7 +3363,7 @@ mod tests {
 
         assert_eq!(lanes[0].status, "completed");
         assert!(
-            fs::read_to_string(root.join(".robocode").join("lanes").join("L1.log"))
+            fs::read_to_string(root.join(".viden").join("lanes").join("L1.log"))
                 .expect("lane log")
                 .contains("summarize adapter")
         );
@@ -3401,10 +3381,10 @@ mod tests {
 
     #[test]
     fn codex_review_lane_runs_read_only_template_without_worktree() {
-        let _env = ScopedEnv::set("ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE", "cat {envelope:q}");
+        let _env = ScopedEnv::set("VIDEN_LANE_CODEX_REVIEW_TEMPLATE", "cat {envelope:q}");
         let root = temp_lane_root();
         init_git_repo(&root);
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -3430,8 +3410,8 @@ mod tests {
 
         assert_eq!(lanes[0].status, "completed");
         assert!(lanes[0].worktree.is_none());
-        let log = fs::read_to_string(root.join(".robocode").join("lanes").join("L1.log"))
-            .expect("lane log");
+        let log =
+            fs::read_to_string(root.join(".viden").join("lanes").join("L1.log")).expect("lane log");
         assert!(log.contains("Tool: codex-review"));
         assert!(log.contains("read-only current workspace review"));
 
@@ -3448,14 +3428,14 @@ mod tests {
     #[test]
     fn codex_review_lane_queues_with_actionable_setup_when_codex_missing() {
         let _env = ScopedEnv::set_many(&[
-            ("ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE", None),
+            ("VIDEN_LANE_CODEX_REVIEW_TEMPLATE", None),
             (
-                "ROBOCODE_AGENT_CODEX_COMMAND",
-                Some("/definitely/missing/robocode-codex"),
+                "VIDEN_AGENT_CODEX_COMMAND",
+                Some("/definitely/missing/viden-codex"),
             ),
         ]);
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store);
@@ -3471,11 +3451,10 @@ mod tests {
         assert!(
             state.lanes[0]
                 .summary
-                .contains("ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE")
+                .contains("VIDEN_LANE_CODEX_REVIEW_TEMPLATE")
         );
-        let timeline =
-            fs::read_to_string(root.join(".robocode").join("lanes").join("L1.timeline.md"))
-                .expect("lane timeline");
+        let timeline = fs::read_to_string(root.join(".viden").join("lanes").join("L1.timeline.md"))
+            .expect("lane timeline");
         assert!(timeline.contains("lane.setup_needed"));
 
         let _ = fs::remove_dir_all(root);
@@ -3484,12 +3463,12 @@ mod tests {
     #[test]
     fn codex_template_runs_inside_isolated_worktree() {
         let _env = ScopedEnv::set(
-            "ROBOCODE_LANE_CODEX_TEMPLATE",
+            "VIDEN_LANE_CODEX_TEMPLATE",
             "printf isolated > isolated.txt; printf '%s' {worktree:q}",
         );
         let root = temp_lane_root();
         init_git_repo(&root);
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -3527,12 +3506,12 @@ mod tests {
     #[test]
     fn generic_ask_template_runs_inside_isolated_worktree() {
         let _env = ScopedEnv::set(
-            "ROBOCODE_LANE_GEMINI_TEMPLATE",
+            "VIDEN_LANE_GEMINI_TEMPLATE",
             "printf generic > generic.txt; printf '%s' {tool:q}",
         );
         let root = temp_lane_root();
         init_git_repo(&root);
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -3562,7 +3541,7 @@ mod tests {
         assert!(worktree.join("generic.txt").exists());
         assert!(!root.join("generic.txt").exists());
         assert!(
-            fs::read_to_string(root.join(".robocode/lanes/L1.log"))
+            fs::read_to_string(root.join(".viden/lanes/L1.log"))
                 .expect("lane log")
                 .contains("gemini")
         );
@@ -3573,11 +3552,11 @@ mod tests {
     #[test]
     fn lane_pty_starts_embedded_bridge_and_records_artifact() {
         let _env = ScopedEnv::set(
-            "ROBOCODE_LANE_PTY_TEMPLATE",
+            "VIDEN_LANE_PTY_TEMPLATE",
             "printf pty-start > {log:q}; sleep 1",
         );
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store);
@@ -3598,8 +3577,8 @@ mod tests {
         assert!(state.lanes[0].target.starts_with("pty pid "));
         assert!(state.lanes[0].summary.contains(".pty.in"));
         let artifact =
-            fs::read_to_string(root.join(".robocode/lanes/L1.pty.md")).expect("pty artifact");
-        assert!(artifact.contains("RoboCode Embedded PTY"));
+            fs::read_to_string(root.join(".viden/lanes/L1.pty.md")).expect("pty artifact");
+        assert!(artifact.contains("Viden Embedded PTY"));
         assert!(artifact.contains("Input FIFO:"));
         assert!(artifact.contains("printf pty-start"));
 
@@ -3618,16 +3597,16 @@ mod tests {
     fn lane_inspect_surfaces_tmux_and_external_attach_artifacts() {
         let _env = ScopedEnv::set_many(&[
             (
-                "ROBOCODE_LANE_TMUX_TEMPLATE",
+                "VIDEN_LANE_TMUX_TEMPLATE",
                 Some("printf tmux-ready > {log:q}; sleep 1"),
             ),
             (
-                "ROBOCODE_LANE_ATTACH_TEMPLATE",
+                "VIDEN_LANE_ATTACH_TEMPLATE",
                 Some("printf attach-ready >> {log:q}; sleep 1"),
             ),
         ]);
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store);
@@ -3675,9 +3654,9 @@ mod tests {
 
     #[test]
     fn lane_send_writes_to_embedded_pty_input_fifo() {
-        let _env = ScopedEnv::set("ROBOCODE_LANE_PTY_TEMPLATE", "cat {input:q} > {log:q}");
+        let _env = ScopedEnv::set("VIDEN_LANE_PTY_TEMPLATE", "cat {input:q} > {log:q}");
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store);
@@ -3698,7 +3677,7 @@ mod tests {
             &mut state
         ));
 
-        let log = root.join(".robocode/lanes/L1.log");
+        let log = root.join(".viden/lanes/L1.log");
         for _ in 0..400 {
             if fs::read_to_string(&log)
                 .unwrap_or_default()
@@ -3721,12 +3700,12 @@ mod tests {
     #[test]
     fn lane_apply_requires_accept_and_applies_worktree_patch() {
         let _env = ScopedEnv::set(
-            "ROBOCODE_LANE_CODEX_TEMPLATE",
+            "VIDEN_LANE_CODEX_TEMPLATE",
             "printf lane > README.md; printf extra > generated.txt",
         );
         let root = temp_lane_root();
         init_git_repo(&root);
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -3788,12 +3767,12 @@ mod tests {
                 .is_some_and(|path| path.exists())
         );
         assert!(
-            fs::read_to_string(root.join(".robocode/lanes/L1.apply.patch"))
+            fs::read_to_string(root.join(".viden/lanes/L1.apply.patch"))
                 .expect("apply patch")
                 .contains("generated.txt")
         );
         assert!(
-            fs::read_to_string(root.join(".robocode/lanes/L1.apply.md"))
+            fs::read_to_string(root.join(".viden/lanes/L1.apply.md"))
                 .expect("apply record")
                 .contains("Cleanup the isolated worktree")
         );
@@ -3804,12 +3783,12 @@ mod tests {
     #[test]
     fn lane_apply_conflict_writes_review_artifact_without_mutating_workspace() {
         let _env = ScopedEnv::set(
-            "ROBOCODE_LANE_CODEX_TEMPLATE",
+            "VIDEN_LANE_CODEX_TEMPLATE",
             "printf lane-change > README.md",
         );
         let root = temp_lane_root();
         init_git_repo(&root);
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -3853,15 +3832,15 @@ mod tests {
                 .body
                 .contains("Next action: Review the conflict report")
         );
-        let conflict = fs::read_to_string(root.join(".robocode/lanes/L1.apply-conflict.md"))
+        let conflict = fs::read_to_string(root.join(".viden/lanes/L1.apply-conflict.md"))
             .expect("apply conflict report");
-        assert!(conflict.contains("RoboCode Lane Apply Conflict"));
+        assert!(conflict.contains("Viden Lane Apply Conflict"));
         assert!(conflict.contains("Direct apply check"));
         assert!(conflict.contains("Three-way apply check"));
         assert!(conflict.contains("Main workspace changed files"));
         assert!(conflict.contains("Lane worktree changed files"));
         assert!(
-            fs::read_to_string(root.join(".robocode/lanes/L1.apply.patch"))
+            fs::read_to_string(root.join(".viden/lanes/L1.apply.patch"))
                 .expect("apply patch")
                 .contains("lane-change")
         );
@@ -3872,12 +3851,12 @@ mod tests {
     #[test]
     fn lane_resolve_retries_apply_conflict_after_manual_workspace_fix() {
         let _env = ScopedEnv::set(
-            "ROBOCODE_LANE_CODEX_TEMPLATE",
+            "VIDEN_LANE_CODEX_TEMPLATE",
             "printf lane-change > README.md",
         );
         let root = temp_lane_root();
         init_git_repo(&root);
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -3909,7 +3888,7 @@ mod tests {
         );
         assert_eq!(state.lanes[0].status, "applied");
         assert!(
-            fs::read_to_string(root.join(".robocode/lanes/L1.apply.md"))
+            fs::read_to_string(root.join(".viden/lanes/L1.apply.md"))
                 .expect("apply record")
                 .contains("Status before apply: apply_conflict")
         );
@@ -3937,10 +3916,10 @@ mod tests {
 
     #[test]
     fn lane_cleanup_requires_force_for_dirty_worktree_and_preserves_artifacts() {
-        let _env = ScopedEnv::set("ROBOCODE_LANE_CODEX_TEMPLATE", "printf dirty > dirty.txt");
+        let _env = ScopedEnv::set("VIDEN_LANE_CODEX_TEMPLATE", "printf dirty > dirty.txt");
         let root = temp_lane_root();
         init_git_repo(&root);
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -3990,11 +3969,11 @@ mod tests {
 
         assert!(!worktree.exists());
         assert_eq!(state.lanes[0].status, "archived");
-        let cleanup = fs::read_to_string(root.join(".robocode/lanes/L1.cleanup.md"))
-            .expect("cleanup artifact");
+        let cleanup =
+            fs::read_to_string(root.join(".viden/lanes/L1.cleanup.md")).expect("cleanup artifact");
         assert!(cleanup.contains("Forced: true"));
         assert!(cleanup.contains("?? dirty.txt"));
-        assert!(root.join(".robocode/lanes/L1.decision.md").exists());
+        assert!(root.join(".viden/lanes/L1.decision.md").exists());
 
         let _ = fs::remove_dir_all(root);
     }
@@ -4002,12 +3981,12 @@ mod tests {
     #[test]
     fn lane_archive_preserves_evidence_without_deleting_worktree() {
         let root = temp_lane_root();
-        fs::create_dir_all(root.join(".robocode/lanes")).expect("lane artifacts");
-        let store = root.join(".robocode").join("lanes.tsv");
-        let worktree = root.join(".robocode/worktrees/session_123-l1");
+        fs::create_dir_all(root.join(".viden/lanes")).expect("lane artifacts");
+        let store = root.join(".viden").join("lanes.tsv");
+        let worktree = root.join(".viden/worktrees/session_123-l1");
         fs::create_dir_all(&worktree).expect("worktree");
-        fs::write(root.join(".robocode/lanes/L1.log"), "started\nfinished\n").expect("runtime log");
-        fs::write(root.join(".robocode/lanes/L1.done"), "0\n").expect("done");
+        fs::write(root.join(".viden/lanes/L1.log"), "started\nfinished\n").expect("runtime log");
+        fs::write(root.join(".viden/lanes/L1.done"), "0\n").expect("done");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -4031,8 +4010,8 @@ mod tests {
         );
         assert_eq!(state.lanes[0].status, "archived");
         assert_eq!(state.focused_lane, None);
-        let archive = fs::read_to_string(root.join(".robocode/lanes/L1.archive.md"))
-            .expect("archive artifact");
+        let archive =
+            fs::read_to_string(root.join(".viden/lanes/L1.archive.md")).expect("archive artifact");
         assert!(archive.contains("Status before archive: completed"));
         assert!(archive.contains("Exit code: 0"));
         assert!(archive.contains("finished"));
@@ -4075,12 +4054,12 @@ mod tests {
     #[test]
     fn lane_attach_uses_template_and_detach_preserves_process() {
         let _env = ScopedEnv::set(
-            "ROBOCODE_LANE_ATTACH_TEMPLATE",
+            "VIDEN_LANE_ATTACH_TEMPLATE",
             "printf attached-{lane} > {log:q}",
         );
         let root = temp_lane_root();
         fs::create_dir_all(&root).expect("temp root");
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store);
@@ -4101,8 +4080,8 @@ mod tests {
         assert!(state.lanes[0].target.starts_with("attach pid "));
         assert_eq!(state.focused_lane.as_deref(), Some("L1"));
         let attach =
-            fs::read_to_string(root.join(".robocode/lanes/L1.attach.md")).expect("attach artifact");
-        assert!(attach.contains("RoboCode Lane Attach"));
+            fs::read_to_string(root.join(".viden/lanes/L1.attach.md")).expect("attach artifact");
+        assert!(attach.contains("Viden Lane Attach"));
         assert!(attach.contains("printf attached-L1"));
 
         assert!(handle_tui_command("/lane detach L1", &mut state));
@@ -4125,14 +4104,14 @@ mod tests {
     fn lane_tmux_uses_template_and_records_attach_session() {
         let _env = ScopedEnv::set_many(&[
             (
-                "ROBOCODE_LANE_TMUX_TEMPLATE",
+                "VIDEN_LANE_TMUX_TEMPLATE",
                 Some("printf 'tmux {session} {command}' > {log:q}"),
             ),
-            ("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE", None),
+            ("VIDEN_LANE_TMUX_COMMAND_TEMPLATE", None),
         ]);
         let root = temp_lane_root();
         fs::create_dir_all(&root).expect("temp root");
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store);
@@ -4160,15 +4139,14 @@ mod tests {
                 .body
                 .contains("tmux attach -t")
         );
-        let tmux =
-            fs::read_to_string(root.join(".robocode/lanes/L1.tmux.md")).expect("tmux artifact");
-        assert!(tmux.contains("RoboCode Lane Tmux"));
+        let tmux = fs::read_to_string(root.join(".viden/lanes/L1.tmux.md")).expect("tmux artifact");
+        assert!(tmux.contains("Viden Lane Tmux"));
         assert!(tmux.contains("Session: viden-session_123-l1"));
         assert!(tmux.contains("Runtime log:"));
-        assert!(tmux.contains(".robocode/lanes/L1.log"));
+        assert!(tmux.contains(".viden/lanes/L1.log"));
         assert!(tmux.contains("codex exec inspect interactively"));
         let timeline =
-            fs::read_to_string(root.join(".robocode/lanes/L1.timeline.md")).expect("timeline");
+            fs::read_to_string(root.join(".viden/lanes/L1.timeline.md")).expect("timeline");
         assert!(timeline.contains("lane.tmux_attached"));
 
         let _ = fs::remove_dir_all(root);
@@ -4177,12 +4155,12 @@ mod tests {
     #[test]
     fn lane_tmux_reports_setup_needed_when_tmux_is_missing() {
         let _env = ScopedEnv::set_many(&[
-            ("ROBOCODE_LANE_TMUX_TEMPLATE", None),
-            ("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE", Some("printf noop")),
+            ("VIDEN_LANE_TMUX_TEMPLATE", None),
+            ("VIDEN_LANE_TMUX_COMMAND_TEMPLATE", Some("printf noop")),
             ("PATH", Some("")),
         ]);
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store);
@@ -4207,10 +4185,10 @@ mod tests {
                 .last()
                 .expect("tmux setup entry")
                 .body
-                .contains("ROBOCODE_LANE_TMUX_TEMPLATE")
+                .contains("VIDEN_LANE_TMUX_TEMPLATE")
         );
         let timeline =
-            fs::read_to_string(root.join(".robocode/lanes/L1.timeline.md")).expect("timeline");
+            fs::read_to_string(root.join(".viden/lanes/L1.timeline.md")).expect("timeline");
         assert!(timeline.contains("lane.tmux_setup_needed"));
 
         let _ = fs::remove_dir_all(root);
@@ -4219,12 +4197,12 @@ mod tests {
     #[test]
     fn claude_tmux_reports_setup_needed_when_claude_is_missing() {
         let _env = ScopedEnv::set_many(&[
-            ("ROBOCODE_LANE_TMUX_TEMPLATE", Some("printf noop")),
-            ("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE", None),
+            ("VIDEN_LANE_TMUX_TEMPLATE", Some("printf noop")),
+            ("VIDEN_LANE_TMUX_COMMAND_TEMPLATE", None),
             ("PATH", Some("")),
         ]);
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store);
@@ -4249,10 +4227,10 @@ mod tests {
                 .last()
                 .expect("claude setup entry")
                 .body
-                .contains("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE")
+                .contains("VIDEN_LANE_TMUX_COMMAND_TEMPLATE")
         );
         let timeline =
-            fs::read_to_string(root.join(".robocode/lanes/L1.timeline.md")).expect("timeline");
+            fs::read_to_string(root.join(".viden/lanes/L1.timeline.md")).expect("timeline");
         assert!(timeline.contains("lane.tmux_setup_needed"));
 
         let _ = fs::remove_dir_all(root);
@@ -4261,8 +4239,8 @@ mod tests {
     #[test]
     fn lane_tmux_default_template_pipes_pane_to_standard_log() {
         let _env = ScopedEnv::set_many(&[
-            ("ROBOCODE_LANE_TMUX_TEMPLATE", None),
-            ("ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE", None),
+            ("VIDEN_LANE_TMUX_TEMPLATE", None),
+            ("VIDEN_LANE_TMUX_COMMAND_TEMPLATE", None),
         ]);
         let root = temp_lane_root();
         let mut state = test_state();
@@ -4277,7 +4255,7 @@ mod tests {
             summary: "completed successfully".to_string(),
             worktree: None,
         };
-        let runtime_log = root.join(".robocode/lanes/L1.log");
+        let runtime_log = root.join(".viden/lanes/L1.log");
 
         let command = lane_tmux_command(&lane, &state, "viden-session_123-l1", &runtime_log)
             .expect("tmux command");
@@ -4285,7 +4263,7 @@ mod tests {
         assert!(command.contains("tmux pipe-pane -o -t"));
         assert!(command.contains("viden-session_123-l1"));
         assert!(command.contains("cat >>"));
-        assert!(command.contains(".robocode/lanes/L1.log"));
+        assert!(command.contains(".viden/lanes/L1.log"));
         assert!(command.contains("tmux send-keys -t"));
         assert!(command.contains("claude"));
         assert!(command.contains("review interactively"));
@@ -4357,9 +4335,9 @@ mod tests {
 
     #[test]
     fn lane_commands_persist_created_and_stopped_lanes() {
-        let _env = ScopedEnv::unset("ROBOCODE_LANE_CODEX_TEMPLATE");
+        let _env = ScopedEnv::unset("VIDEN_LANE_CODEX_TEMPLATE");
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -4383,8 +4361,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn lane_stop_terminates_running_process_group() {
+        let _env = ScopedEnv::lock();
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -4394,7 +4373,7 @@ mod tests {
             &mut state
         ));
         assert_eq!(state.lanes[0].status, "running");
-        let done_path = root.join(".robocode").join("lanes").join("L1.done");
+        let done_path = root.join(".viden").join("lanes").join("L1.done");
 
         assert!(handle_tui_command("/lane stop L1", &mut state));
         thread::sleep(std::time::Duration::from_millis(250));
@@ -4413,7 +4392,7 @@ mod tests {
     #[test]
     fn lane_run_starts_shell_command_and_refreshes_output() {
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -4438,7 +4417,7 @@ mod tests {
         assert_eq!(lanes[0].progress, 100);
         assert!(lanes[0].summary.contains("lane-ok"));
         let timeline =
-            fs::read_to_string(root.join(".robocode/lanes/L1.timeline.md")).expect("lane timeline");
+            fs::read_to_string(root.join(".viden/lanes/L1.timeline.md")).expect("lane timeline");
         assert!(timeline.contains("Kind: lane.created"));
         assert!(timeline.contains("Kind: lane.started"));
         assert!(timeline.contains("Kind: lane.completed"));
@@ -4465,7 +4444,7 @@ mod tests {
     fn lane_run_refreshes_failed_exit_code_and_inspect_tail() {
         let _env = ScopedEnv::lock();
         let root = temp_lane_root();
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store.clone());
@@ -4508,15 +4487,15 @@ mod tests {
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.workspace.diagnostics = vec!["src/lib.rs:1:1 warning unused".to_string()];
-        fs::create_dir_all(root.join(".robocode/briefs")).unwrap();
-        fs::create_dir_all(root.join(".robocode/steering")).unwrap();
+        fs::create_dir_all(root.join(".viden/briefs")).unwrap();
+        fs::create_dir_all(root.join(".viden/steering")).unwrap();
         fs::write(
-            root.join(".robocode/briefs/active.md"),
+            root.join(".viden/briefs/active.md"),
             "---\nid: brief_test\ntitle: Tighten setup loop\n---\n\n## Goal\nTighten setup loop\n",
         )
         .unwrap();
         fs::write(
-            root.join(".robocode/steering/conventions.md"),
+            root.join(".viden/steering/conventions.md"),
             "# Project conventions\n\nPrefer focused smoke tests.\n",
         )
         .unwrap();
@@ -4555,7 +4534,7 @@ mod tests {
 
     #[test]
     fn lane_retry_requeues_previous_lane_task() {
-        let _env = ScopedEnv::unset("ROBOCODE_LANE_CODEX_TEMPLATE");
+        let _env = ScopedEnv::unset("VIDEN_LANE_CODEX_TEMPLATE");
         let mut state = test_state();
         state.lanes.push(TerminalLane {
             id: "L1".to_string(),
@@ -4587,7 +4566,7 @@ mod tests {
             .status()
             .expect("git init");
         fs::write(root.join("changed.txt"), "changed\n").expect("changed file");
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store);
@@ -4604,7 +4583,7 @@ mod tests {
 
         assert!(handle_tui_command("/lane accept L1 looks good", &mut state));
 
-        let decision = fs::read_to_string(root.join(".robocode/lanes/L1.decision.md"))
+        let decision = fs::read_to_string(root.join(".viden/lanes/L1.decision.md"))
             .expect("decision artifact");
         assert!(decision.contains("Decision: accepted"));
         assert!(decision.contains("Summary: looks good"));
@@ -4625,7 +4604,7 @@ mod tests {
         let root = temp_lane_root();
         init_git_repo(&root);
         fs::write(root.join("README.md"), "fixture\nlane change\n").expect("dirty readme");
-        let store = root.join(".robocode").join("lanes.tsv");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store);
@@ -4647,7 +4626,7 @@ mod tests {
         assert!(entry.body.contains("+lane change"));
         assert_eq!(state.focused_lane.as_deref(), Some("L1"));
         assert!(
-            fs::read_to_string(root.join(".robocode/lanes/L1.diff.patch"))
+            fs::read_to_string(root.join(".viden/lanes/L1.diff.patch"))
                 .expect("diff artifact")
                 .contains("+lane change")
         );
@@ -4658,11 +4637,11 @@ mod tests {
     #[test]
     fn lane_artifacts_lists_persisted_lane_files() {
         let root = temp_lane_root();
-        fs::create_dir_all(root.join(".robocode/lanes")).expect("artifact dir");
-        fs::write(root.join(".robocode/lanes/L1.log"), "tail\n").expect("log");
-        fs::write(root.join(".robocode/lanes/L1.done"), "0\n").expect("done");
-        fs::write(root.join(".robocode/lanes/L2.log"), "other\n").expect("other lane");
-        let store = root.join(".robocode").join("lanes.tsv");
+        fs::create_dir_all(root.join(".viden/lanes")).expect("artifact dir");
+        fs::write(root.join(".viden/lanes/L1.log"), "tail\n").expect("log");
+        fs::write(root.join(".viden/lanes/L1.done"), "0\n").expect("done");
+        fs::write(root.join(".viden/lanes/L2.log"), "other\n").expect("other lane");
+        let store = root.join(".viden").join("lanes.tsv");
         let mut state = test_state();
         state.workspace.root = root.clone();
         state.lane_store = Some(store);
@@ -4695,7 +4674,7 @@ mod tests {
             .expect("system time after unix epoch")
             .as_nanos();
         let suffix = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("robocode-lane-test-{nanos}-{suffix}"))
+        std::env::temp_dir().join(format!("viden-lane-test-{nanos}-{suffix}"))
     }
 
     fn init_git_repo(root: &Path) {
@@ -4721,7 +4700,7 @@ mod tests {
         assert!(
             Command::new(test_git_binary())
                 .args(["-c", "user.email=robot@example.invalid"])
-                .args(["-c", "user.name=RoboCode Test"])
+                .args(["-c", "user.name=Viden Test"])
                 .args(["commit", "-m", "initial"])
                 .current_dir(root)
                 .status()

@@ -6,11 +6,11 @@ Last updated: 2026-06-09
 
 ## Purpose
 
-RoboCode's "mode" should not be a single permission enum. After reviewing
+Viden's "mode" should not be a single permission enum. After reviewing
 Claude Code, Codex CLI, and opencode, the target design has two layers:
 
-- **Work Mode**: what the user wants RoboCode to do now.
-- **Permission Level**: how much RoboCode may do automatically.
+- **Work Mode**: what the user wants Viden to do now.
+- **Permission Level**: how much Viden may do automatically.
 
 This prevents Plan from being misunderstood as a low-permission coding mode.
 Plan is a work mode for product requirements, architecture, implementation
@@ -19,10 +19,10 @@ Permissions are only one part of Plan's safety boundary.
 
 ## External References
 
-| Product | Useful pattern | RoboCode decision |
+| Product | Useful pattern | Viden decision |
 | --- | --- | --- |
 | Claude Code | Mode indicator, `Shift+Tab` cycling, Ask/Edit/Plan/Auto/Bypass; Plan researches and proposes a plan before execution. | Borrow "plan before approval", but model Plan as Work Mode instead of mixing it into permission levels. |
-| Codex CLI | `/permissions` switches Auto, Read-only, and Full Access; Auto allows in-workspace actions and asks for out-of-scope or network access; transcript stays auditable. | Borrow simple trust levels and transcript auditability; keep RoboCode's finer Auto Edit level. |
+| Codex CLI | `/permissions` switches Auto, Read-only, and Full Access; Auto allows in-workspace actions and asks for out-of-scope or network access; transcript stays auditable. | Borrow simple trust levels and transcript auditability; keep Viden's finer Auto Edit level. |
 | opencode | Build/Plan are primary agents; Tab switches agents; agents can configure prompts, models, and permissions; provider/model uses direct `/connect` and `/models` panels. | Borrow "Work Mode = primary agent" and direct manipulation panels; provider/model is not a mode. |
 
 Reference links:
@@ -160,7 +160,7 @@ Target migration:
 
 ## Acceptance Criteria
 
-- Users can tell whether RoboCode is in Plan or Build and what the permission
+- Users can tell whether Viden is in Plan or Build and what the permission
   boundary is.
 - Plan is no longer shown as a normal permission option; it is a Work Mode.
 - `/permissions` does not mix provider/model/work intent.

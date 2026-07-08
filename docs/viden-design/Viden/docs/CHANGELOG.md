@@ -27,7 +27,7 @@
 
 ## 2026-06-19
 - [Core][GUI] **Lane ≡ Session(1:1)定调**:lane 即一个会话,层级压成 `Workspace → Project → Lane(=会话) → Subagent`;并明确 lane 归属二选一(挂某 project / 跨项目全局 lane 直属 workspace)。① 产品方案 v2 层级图删 Session 子层、顶补 Workspace + 全局 Lane;② D1 驾驶舱去掉中间区会话 tab 栏改为单条 **lane 上下文头**(名字优先 flex);③ 左栏"＋新建 lane"弹窗改 `position:fixed` 逃出 `.side` overflow 裁剪。
-  - [GUI] D1 **Workspace 面板重构为 lane 归属视图**:顶部「全局 Lane(跨项目)」直列 + 每个 project 展开列其名下 lane(lane 数 badge,0 lane 显占位);THREADS 增 `proj` 字段(L1–L3→robocode,L4→全局),原文件树/Worktrees 小列表移除。`.wsglobal/.wsghd/.wslane/.wslanes(.glob)/.wsseclabel/.lct`。
+  - [GUI] D1 **Workspace 面板重构为 lane 归属视图**:顶部「全局 Lane(跨项目)」直列 + 每个 project 展开列其名下 lane(lane 数 badge,0 lane 显占位);THREADS 增 `proj` 字段(L1–L3→viden,L4→全局),原文件树/Worktrees 小列表移除。`.wsglobal/.wsghd/.wslane/.wslanes(.glob)/.wsseclabel/.lct`。
 - [GUI] 新增 **D13 Fleet 编排与 Workflow** 页:把产品逻辑(workspace→主 agent 规划 fleet→project/lane→subagent + 群会话通道)可视化成横向流水线 DAG(Orchestrate→Plan→Implement→Verify→Review→Integrate),节点按角色聚合(×数量 + run/done/gate/idle 状态段),点群组下钻个体样本(+N more);右侧群会话通道(广播/回报/闸事件流 + 分派 composer),顶部统计条体现 1,284 agent 规模。沿用统一窗口壳(vbar+vrail)。
 - [GUI] 7 个无壳流程/内容页统一包进 **D1 窗口壳**(交通灯 + `[◉] viden` 字标 + 项目选择器 + 工具按钮):D2决策中心/D5画廊/D7收件箱/D12集成闸 另加左侧 **ActivityRail**(对应视图图标高亮 + 角标);D11首启/D4 Lane创建/D9远程 因自带向导/lane 导航,仅加身份 titlebar。复用 `.vbar/.vbtn/.vrail/.vrailbtn` 与 `VBar`/`VRail` 组件。
 - [GUI] D10 Lane监视器 窗口栏对齐 D1 身份:灰点改 macOS 红/黄/绿交通灯 + 补 `[◉] viden` 字标(dash/strip 两个 winbar 同步);D2横/D3竖召唤坞经核已与 D1 同源(`.tl .a/.b/.c`+`.wm`)。
@@ -42,8 +42,8 @@
 ## 2026-06-18
 - [GUI] D1 驾驶舱 侧栏 lane 卡**双击展开**(或点 ▸ 三角)显示该 lane 的 subagent 列表(读 `LANE_SUBAGENTS[lid]`),新增 `.thsubs`/`.thsub`/`.twirl` 样式。
 - [GUI] D1 驾驶舱 ＋ 按钮点击弹出**已配置智能体选择菜单**(`AGENT_PRESETS`:ACP 外部 CLI + 内置智能体 + 模板),新增 `.addmenu` 样式。
-- [GUI] D1 驾驶舱 Workspace 支持**多项目文件夹**:新增 `WorkspacePanel` + `WS_PROJECTS`(robocode/viden-web/infra 各自可折叠树)+「添加项目」入口;Lanes/Workspace 切换移到侧栏顶部并右挂 ＋ 新建 lane,去掉旧 navtop/sidehead/页脚说明。
-- [GUI] D1 驾驶舱 左侧栏新增 **Lanes / Workspace** 分段切换:Workspace 态显示工程资源管理器(robocode 仓库头 + crates/tests 文件树 + 各 lane worktree 列表),新增 `.lseg` 分段控件 + `WS_TREE` 数据,复用 `.wsrow`/`.wtmini`/`.sidesection`。
+- [GUI] D1 驾驶舱 Workspace 支持**多项目文件夹**:新增 `WorkspacePanel` + `WS_PROJECTS`(viden/viden-web/infra 各自可折叠树)+「添加项目」入口;Lanes/Workspace 切换移到侧栏顶部并右挂 ＋ 新建 lane,去掉旧 navtop/sidehead/页脚说明。
+- [GUI] D1 驾驶舱 左侧栏新增 **Lanes / Workspace** 分段切换:Workspace 态显示工程资源管理器(viden 仓库头 + crates/tests 文件树 + 各 lane worktree 列表),新增 `.lseg` 分段控件 + `WS_TREE` 数据,复用 `.wsrow`/`.wtmini`/`.sidesection`。
 - [GUI] D1 驾驶舱 下边坞 ▾ 按钮改为直接关闭整个下边栏(连同 tab 行,不留折叠条),重开走顶栏 ⌘J。
 - [GUI] D1 驾驶舱 PROV(provider/model)与 PERM(权限)选择器从 titlebar 移到对话窗口下方 composer 的 cmeta 行,下拉改为向上弹出(`.tbmenu.up`);titlebar 右侧只留工具按钮。
 - [GUI] D1 驾驶舱 Lane 监控改为**按 lane 各自的 subagent 树**:新增 `LANE_SUBAGENTS` 映射(L1–L4 各自 orchestrator 派生多个子代理 + 每节点输出/证据/stats),点节点切换 inspector,切 lane 自动重置选中。

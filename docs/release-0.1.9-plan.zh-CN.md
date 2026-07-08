@@ -1,4 +1,4 @@
-# RoboCode 0.1.9 计划
+# Viden 0.1.9 计划
 
 英文版： [release-0.1.9-plan.md](release-0.1.9-plan.md)
 
@@ -89,7 +89,7 @@
 
 交付：
 
-- 增加 fixture，把 RoboCode 主回合、tool call、approval、`/test`、shell job、
+- 增加 fixture，把 Viden 主回合、tool call、approval、`/test`、shell job、
   Codex job、Claude/DeepSeek lane、tmux、PTY 和未来 ACP 风格事件归一化为同一套
   `AgentTask` view。
 - 增加生命周期测试：queued、thinking、streaming、editing、running tool、testing、
@@ -174,7 +174,7 @@ docs/previews/generated/0.1.9-<feature>-side-2.svg
 临时 release evidence 也可以放在：
 
 ```text
-/tmp/robocode-019-release-smoke-*/screenshots/
+/tmp/viden-019-release-smoke-*/screenshots/
 ```
 
 ## 开发顺序建议

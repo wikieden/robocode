@@ -1,16 +1,16 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.30  [PROVIDER ● OpenAI] [MODEL gpt-4o] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]   · working L0 │
+│ Viden  v0.1.30  [PROVIDER ● OpenAI] [MODEL gpt-4o] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]   · working L0 │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
-│   ·  ┊  SYSTEM                                                                               #001 │ │ robocode/    ~/projects/robocode   │
-│      ┊  RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.                                   │ │ ↳ src/          FILES    128       │
+│   ·  ┊  SYSTEM                                                                               #001 │ │ viden/    ~/projects/viden   │
+│      ┊  Viden TUI ready. Enter submits. Esc or Ctrl-C exits.                                   │ │ ↳ src/          FILES    128       │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ↳ tests/        LINES  24531       │
 │   ♙  ┊  USER                                                                               latest │ │ ▣ Cargo.toml    LANGUAGE Rust      │
 │      ┊  Refactor the config loader, then run focused tests.                                       │ │ ▣ README.md     EDITION   2024     │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ └────────────────────────────────────┘
 │      ╭─ LIVE WORK · ─────────────────────────────────────────────────────────────────────────     │ ┌ ACTIVE TASKS ─────────────────── 3 ┐
-│      │ ◉ RoboCode working                                                                         │ │ turn-c4f2b7e-live ● RoboCo main/ro │
-│      │ phase planning · signal live provider request · RoboCode planning · live provider request  │ │ ● task_lo/prog Implement load_con  │
+│      │ ◉ Viden working                                                                         │ │ turn-c4f2b7e-live ● RoboCo main/ro │
+│      │ phase planning · signal live provider request · Viden planning · live provider request  │ │ ● task_lo/prog Implement load_con  │
 │      │ input open · type next step anytime; Enter queues follow-up                                │ │ ◆ task_re/block Review config test │
 │      ╰──────────────────────────────────────────────────────────────────────────────────────────  │ │                                    │
 │                                                                                                   │ └────────────────────────────────────┘
@@ -31,7 +31,7 @@
 │                                                                                                   │ │ [Rs] src/config.rs         now     │
 │                                                                                                   │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
-┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+┌ Viden >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                                                           │              │
 │ › Add a note about the validation result                                                                                  │ MODE Build ▾ │
 │                                                                                                                           │              │

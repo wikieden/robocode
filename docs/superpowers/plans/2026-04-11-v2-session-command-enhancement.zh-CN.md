@@ -4,11 +4,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在保持当前 shared engine 和 transcript 模型不变的前提下，扩展 RoboCode 本地 CLI 的 session 元数据、运行时检查命令和更完整的命令面。
+**Goal:** 在保持当前 shared engine 和 transcript 模型不变的前提下，扩展 Viden 本地 CLI 的 session 元数据、运行时检查命令和更完整的命令面。
 
 **Architecture:** 这一阶段只增强现有 V1 crates，不新增平台级子系统。实现重点是：把 startup/config 状态传入 `SessionEngine`，增强 `SessionSummary` 和 SQLite-backed session indexing，并新增 `/status`、`/config`、`/doctor`，同时改进 `/sessions` 输出，但不能绕开现有 command / transcript 主路径。
 
-**Tech Stack:** Rust、现有 RoboCode workspace crates、SQLite fallback 索引、REPL 命令处理
+**Tech Stack:** Rust、现有 Viden workspace crates、SQLite fallback 索引、REPL 命令处理
 
 ---
 
@@ -41,11 +41,11 @@
 
 **修改：**
 
-- `robocode-cli/src/main.rs`
-- `robocode-core/src/lib.rs`
-- `robocode-session/src/lib.rs`
-- `robocode-types/src/lib.rs`
-- `robocode-config/src/lib.rs`
+- `viden-cli/src/main.rs`
+- `viden-core/src/lib.rs`
+- `viden-session/src/lib.rs`
+- `viden-types/src/lib.rs`
+- `viden-config/src/lib.rs`
 - `README.md`
 
 **创建：**
@@ -55,12 +55,12 @@
 ## Task 1：增加 runtime startup snapshot 类型
 
 **Files:**
-- Modify: `robocode-types/src/lib.rs`
-- Modify: `robocode-config/src/lib.rs`
-- Modify: `robocode-cli/src/main.rs`
-- Modify: `robocode-core/src/lib.rs`
+- Modify: `viden-types/src/lib.rs`
+- Modify: `viden-config/src/lib.rs`
+- Modify: `viden-cli/src/main.rs`
+- Modify: `viden-core/src/lib.rs`
 
-- [ ] 在 `robocode-types` 中增加一个共享 runtime snapshot 类型，供 `SessionEngine` 渲染 `/status` 和 `/config`。
+- [ ] 在 `viden-types` 中增加一个共享 runtime snapshot 类型，供 `SessionEngine` 渲染 `/status` 和 `/config`。
 - [ ] 至少包含：
   - cwd
   - provider family
@@ -69,15 +69,15 @@
   - resolved config summary string
   - loaded config file list
   - session home override 或 effective home path
-- [ ] 从 CLI startup 把这个 snapshot 传入 `SessionEngine`，不要在 `robocode-core` 里临时拼装。
+- [ ] 从 CLI startup 把这个 snapshot 传入 `SessionEngine`，不要在 `viden-core` 里临时拼装。
 - [ ] 除测试所需的最小补充外，保持现有 startup banner 行为不变。
 - [ ] 增加单元测试，验证即使 provider 后续切换 model label，`SessionEngine` 也能稳定渲染保存下来的 startup snapshot。
 
 ## Task 2：增强 session summary 元数据
 
 **Files:**
-- Modify: `robocode-types/src/lib.rs`
-- Modify: `robocode-session/src/lib.rs`
+- Modify: `viden-types/src/lib.rs`
+- Modify: `viden-session/src/lib.rs`
 
 - [ ] 扩展 `SessionSummary`，增加：
   - message count
@@ -98,8 +98,8 @@
 ## Task 3：改进 `/sessions` 与 `/resume` 体验
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
-- Modify: `robocode-session/src/lib.rs`
+- Modify: `viden-core/src/lib.rs`
+- Modify: `viden-session/src/lib.rs`
 
 - [ ] 更新 session-list 渲染，让摘要信息更丰富，但不显得杂乱。
 - [ ] 保持对以下 selector 的支持：
@@ -116,9 +116,9 @@
 ## Task 4：新增 `/status` 与 `/config`
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
-- Modify: `robocode-cli/src/main.rs`
-- Modify: `robocode-types/src/lib.rs`
+- Modify: `viden-core/src/lib.rs`
+- Modify: `viden-cli/src/main.rs`
+- Modify: `viden-types/src/lib.rs`
 
 - [ ] 新增只读命令 `/status`，完全由 engine state 渲染。
 - [ ] 新增只读命令 `/config`，基于 startup snapshot 和 resolved config summary 渲染。
@@ -139,8 +139,8 @@
 ## Task 5：新增轻量 `/doctor`
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
-- Modify: `robocode-cli/src/main.rs`
+- Modify: `viden-core/src/lib.rs`
+- Modify: `viden-cli/src/main.rs`
 
 - [ ] 新增轻量命令 `/doctor`，报告这些依赖的可用性：
   - `git`
@@ -155,7 +155,7 @@
 ## Task 6：刷新 help 和文档
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
+- Modify: `viden-core/src/lib.rs`
 - Modify: `README.md`
 
 - [ ] 更新 `/help` 输出，加入 `/status`、`/config`、`/doctor`。
@@ -165,17 +165,17 @@
 ## Task 7：验证与收尾
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
-- Modify: `robocode-session/src/lib.rs`
+- Modify: `viden-core/src/lib.rs`
+- Modify: `viden-session/src/lib.rs`
 - Modify: `README.md`
 
 - [ ] 实现过程中运行聚焦测试：
-  - `cargo test -p robocode-session`
-  - `cargo test -p robocode-core`
+  - `cargo test -p viden-session`
+  - `cargo test -p viden-core`
 - [ ] 最终运行全量验证：
   - `cargo test --workspace`
 - [ ] 在 CLI 中做 smoke-check：
-  - `cargo run -p robocode-cli -- --provider fallback --model test-local`
+  - `cargo run -p viden-cli -- --provider fallback --model test-local`
   - `/status`
   - `/config`
   - `/doctor`

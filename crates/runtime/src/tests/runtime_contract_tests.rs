@@ -1,8 +1,8 @@
 use std::fs;
 
 use viden_types::{
-    ApprovalResponse, ModelEvent, PermissionLevel, RuntimeCommand, RuntimeEventKind,
-    RuntimeViewState, ToolCall, ToolInput, WorkMode,
+    ApprovalResponse, EvidenceView, ModelEvent, PermissionLevel, RuntimeCommand, RuntimeEvent,
+    RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, WorkMode,
 };
 
 use crate::{EngineEvent, SessionEngine};
@@ -472,7 +472,7 @@ fn runtime_command_bus_configures_provider_and_active_models() {
 fn runtime_view_state_emits_lane_facts_from_core_store() {
     let cwd = temp_dir("runtime_contract_lane_cwd");
     let home = temp_dir("runtime_contract_lane_home");
-    let lane_dir = cwd.join(".robocode");
+    let lane_dir = cwd.join(".viden");
     fs::create_dir_all(&lane_dir).unwrap();
     fs::write(
         lane_dir.join("lanes.tsv"),
@@ -489,4 +489,89 @@ fn runtime_view_state_emits_lane_facts_from_core_store() {
     assert_eq!(view.lanes[0].agent, "codex");
     assert_eq!(view.lanes[0].status, "running");
     assert_eq!(view.lanes[0].summary, "patched tests");
+}
+
+#[test]
+fn runtime_view_state_emits_tracked_acp_session_jobs() {
+    let cwd = temp_dir("runtime_contract_acp_job_cwd");
+    let home = temp_dir("runtime_contract_acp_job_home");
+    let agent_dir = cwd.join(".viden").join("agents");
+    fs::create_dir_all(&agent_dir).unwrap();
+    let result_path = agent_dir.join("acp-1.result.md");
+    let log_path = agent_dir.join("acp-1.jsonl");
+    let baseline_path = agent_dir.join("acp-1.baseline.status");
+    fs::write(
+        &result_path,
+        "# ACP session result\n\nsession: session_1\nstatus: completed\n\nimplemented adapter",
+    )
+    .unwrap();
+    fs::write(&log_path, "{\"method\":\"session/update\"}\n").unwrap();
+    fs::write(&baseline_path, "").unwrap();
+    fs::write(
+        agent_dir.join("acp-1.runtime-events.jsonl"),
+        [
+            serde_json::to_string(&RuntimeEvent::new(
+                1,
+                RuntimeEventKind::AssistantDelta {
+                    message_id: "acp-session-session_1".to_string(),
+                    task_id: None,
+                    content: "implemented adapter".to_string(),
+                },
+            ))
+            .unwrap(),
+            serde_json::to_string(&RuntimeEvent::new(
+                2,
+                RuntimeEventKind::EvidenceRecorded {
+                    evidence: EvidenceView {
+                        id: "acp-turn-session_1".to_string(),
+                        kind: "acp_turn_end".to_string(),
+                        summary: "ACP turn completed".to_string(),
+                        path: Some(log_path.display().to_string()),
+                        source: Some("acp".to_string()),
+                        metadata: None,
+                        timestamp: None,
+                    },
+                },
+            ))
+            .unwrap(),
+        ]
+        .join("\n"),
+    )
+    .unwrap();
+    fs::write(
+        agent_dir.join("codex-jobs.jsonl"),
+        format!(
+            "{{\"ts\":1783330000000,\"event\":\"completed\",\"id\":\"acp-1\",\"kind\":\"acp-session\",\"status\":\"finished\",\"pid\":null,\"command\":\"kiro-cli acp\",\"task\":\"implement adapter\",\"log\":\"{}\",\"result\":\"{}\",\"baseline\":\"{}\"}}\n",
+            log_path.display(),
+            result_path.display(),
+            baseline_path.display()
+        ),
+    )
+    .unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+
+    let view = engine.runtime_view_state();
+
+    let task = view
+        .tasks
+        .iter()
+        .find(|task| task.id == "acp-1")
+        .expect("tracked ACP session job should become a runtime task");
+    assert_eq!(task.agent, "acp");
+    assert_eq!(task.kind, "job");
+    assert_eq!(task.transport, "acp");
+    assert_eq!(task.status, "done");
+    assert_eq!(task.result, Some(result_path.display().to_string()));
+    assert!(task.evidence.contains(&"session session_1".to_string()));
+    assert_eq!(
+        task.next_action
+            .as_ref()
+            .and_then(|action| action.command.as_deref()),
+        Some("/agent result acp-1")
+    );
+    assert!(view.assistant_stream.contains("implemented adapter"));
+    assert!(view.latest_evidence.iter().any(|evidence| {
+        evidence.kind == "acp_turn_end" && evidence.summary.contains("completed")
+    }));
 }

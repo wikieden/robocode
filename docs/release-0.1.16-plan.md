@@ -1,4 +1,4 @@
-# RoboCode 0.1.16 Plan - TUI Interaction Reliability
+# Viden 0.1.16 Plan - TUI Interaction Reliability
 
 Chinese version: [release-0.1.16-plan.zh-CN.md](release-0.1.16-plan.zh-CN.md)
 
@@ -8,7 +8,7 @@ Chinese version: [release-0.1.16-plan.zh-CN.md](release-0.1.16-plan.zh-CN.md)
 current cockpit still has interaction debt that directly affects programming
 confidence. The release goal is:
 
-> After the user submits input, RoboCode must always show what is happening,
+> After the user submits input, Viden must always show what is happening,
 > keep the terminal responsive, and make every visible action executable.
 
 This is an operator-loop reliability release, not a visual redesign. It keeps
@@ -210,9 +210,9 @@ Acceptance:
 
 Focused automated checks:
 
-- `cargo test -p robocode-cli tui::app --quiet`
-- `cargo test -p robocode-cli tui::command_palette --quiet`
-- `cargo test -p robocode-cli tui::terminal --quiet`
+- `cargo test -p viden-cli tui::app --quiet`
+- `cargo test -p viden-cli tui::command_palette --quiet`
+- `cargo test -p viden-cli tui::terminal --quiet`
 - new focus-router tests for key and mouse routing
 - new provider-worker tests for pending, approval, completion, and failure
   events
@@ -221,8 +221,8 @@ Focused automated checks:
 Regression checks:
 
 - `cargo fmt --check`
-- `cargo clippy -p robocode-cli --all-targets -- -D warnings`
-- `cargo test -p robocode-cli --quiet -- --test-threads=1`
+- `cargo clippy -p viden-cli --all-targets -- -D warnings`
+- `cargo test -p viden-cli --quiet -- --test-threads=1`
 - `cargo test --workspace --quiet`
 - `scripts/tui-regression.sh docs/previews/generated`
 - new or expanded interaction smoke for rapid resize, pending turn repaint,
@@ -266,6 +266,6 @@ Required screenshots or deterministic visual artifacts:
   approval decisions must remain synchronous from the tool loop's perspective.
 - True cancellation may require deeper provider/tool runtime changes and can be
   deferred if the UI does not advertise it as working.
-- IME candidate-window placement depends partly on terminal behavior; RoboCode
+- IME candidate-window placement depends partly on terminal behavior; Viden
   can improve composer geometry and caret placement, but cannot fully control
   every terminal's native IME UI.

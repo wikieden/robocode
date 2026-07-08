@@ -1,4 +1,4 @@
-# RoboCode 0.1.7 计划
+# Viden 0.1.7 计划
 
 英文版： [release-0.1.7-plan.md](release-0.1.7-plan.md)
 
@@ -28,16 +28,16 @@ lane、extension 可见性，推进成可日常使用的多 agent 编排工作�
 0.1.7 = Codex Adapter + Agent Orchestration Backbone
 ```
 
-核心判断：RoboCode 不是单纯做一个好看的 TUI，也不是只把 Codex、Claude Code、
+核心判断：Viden 不是单纯做一个好看的 TUI，也不是只把 Codex、Claude Code、
 DeepSeek 等工具拉起来。它要成为一个本地 multi-agent cockpit：用户在主屏输入目标，
-RoboCode 能拆分、派发、观察、审批、收敛结果，并让不同 coding agent 通过统一机制
+Viden 能拆分、派发、观察、审批、收敛结果，并让不同 coding agent 通过统一机制
 协作。
 
 这一版的一号参考实现是 OpenAI 的 Claude Code Codex 插件：
 [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc)。它证明了
 我们要的产品形态：一个主 coding agent 可以通过 plugin/command/subagent surface
 调用 Codex，让后台任务可观察，并在不切换工具的情况下查看结果或继续 Codex 工作。
-RoboCode 应该把这个模式内化成一等本地 agent adapter，而不是继续把 Codex 当成
+Viden 应该把这个模式内化成一等本地 agent adapter，而不是继续把 Codex 当成
 普通 terminal command。
 
 ## 下一迭代核心：Host-Delegate Agent Bridge
@@ -45,11 +45,11 @@ RoboCode 应该把这个模式内化成一等本地 agent adapter，而不是继
 下一轮实现要围绕一个产品闭环推进：
 
 ```text
-RoboCode host -> delegate agent -> observable job -> evidence -> operator decision
+Viden host -> delegate agent -> observable job -> evidence -> operator decision
 ```
 
-在这个闭环里，RoboCode 是 host cockpit，Codex 是第一个 delegate agent。Claude
-Code Codex 插件证明了这个形态，但 RoboCode 要把它抽象成可复用机制，后续 Claude
+在这个闭环里，Viden 是 host cockpit，Codex 是第一个 delegate agent。Claude
+Code Codex 插件证明了这个形态，但 Viden 要把它抽象成可复用机制，后续 Claude
 Code、DeepSeek TUI、tmux/PTY agents 和 ACP-compatible agents 都能接进来。
 
 核心设计规则：
@@ -65,7 +65,7 @@ Code、DeepSeek TUI、tmux/PTY agents 和 ACP-compatible agents 都能接进来�
   tests、final output、errors 和 thread/session IDs 都应该能通过
   `/agent status`、`/agent result`、`/lane inspect` 和 side-screen evidence panels
   查询。
-- write-capable delegate work 必须继续走 RoboCode permissions 和 approval。
+- write-capable delegate work 必须继续走 Viden permissions 和 approval。
   read-only review 可以轻量，但 mutation 不能绕过 shared tool/runtime/transcript
   path。
 
@@ -92,7 +92,7 @@ Code、DeepSeek TUI、tmux/PTY agents 和 ACP-compatible agents 都能接进来�
 - 当前最强的 adapter 目标就是 Codex 本身：Claude Code 的 Codex 插件暴露
   `/codex:review`、`/codex:rescue`、`/codex:status`、`/codex:result`、
   `/codex:cancel` 和 `/codex:setup`，背后有 companion runtime 和 Codex
-  app-server integration。RoboCode 应该原生支持同一套 operator loop。
+  app-server integration。Viden 应该原生支持同一套 operator loop。
 
 ## 版本定义
 
@@ -123,7 +123,7 @@ extension/MCP 为什么不可用。
 
 ## 参考模型：Codex Plugin for Claude Code
 
-RoboCode 要明确学习 `openai/codex-plugin-cc`，但不照搬它的 Node 实现。这个参考设计
+Viden 要明确学习 `openai/codex-plugin-cc`，但不照搬它的 Node 实现。这个参考设计
 有五个值得保留的部分：
 
 - Plugin/command surface：
@@ -141,7 +141,7 @@ RoboCode 要明确学习 `openai/codex-plugin-cc`，但不照搬它的 Node 实�
   review 默认 read-only，write-capable rescue 必须显式选择；可选 review gate 要
   可见，因为它可能形成循环并消耗 usage。
 
-RoboCode 对应翻译：
+Viden 对应翻译：
 
 - `/agent doctor codex` 替代 `/codex:setup`。
 - `/agent review codex [--base <ref>]` 替代 `/codex:review`。
@@ -149,7 +149,7 @@ RoboCode 对应翻译：
 - `/agent run codex [--write] <task>` 或 `/lane codex <task>` 替代
   `/codex:rescue`。
 - `/agent status`、`/agent result <id>` 和 `/agent cancel <id>` 管理后台 job。
-- Codex app-server events 转成 RoboCode lane events、evidence records 和
+- Codex app-server events 转成 Viden lane events、evidence records 和
   side-screen rows。
 
 ## 开发里程碑
@@ -184,18 +184,18 @@ RoboCode 对应翻译：
 
 ### M3：Codex Adapter Core
 
-重点：让 Codex 成为 RoboCode 第一个 protocol-backed external coding agent。
+重点：让 Codex 成为 Viden 第一个 protocol-backed external coding agent。
 
 - Codex availability/auth doctor。
 - Codex app-server process 或 broker 边界。
 - Review 和 adversarial-review flows。
 - Task/rescue flow，区分 read-only 和 write-capable modes。
 - 带 status/result/cancel/resume 的 background job records。
-- Codex thread/turn/events 到 RoboCode lane/evidence records 的映射。
+- Codex thread/turn/events 到 Viden lane/evidence records 的映射。
 
 退出标准：
 
-- 用户可以从 RoboCode 启动 Codex review、看到进度、获取结果，并在需要时 resume
+- 用户可以从 Viden 启动 Codex review、看到进度、获取结果，并在需要时 resume
   Codex session。
 - 用户可以把一个明确任务交给 Codex，在 TUI 中把它看作 agent lane，并看到 changed
   files、commands、tests 和 final output evidence。
@@ -247,7 +247,7 @@ RoboCode 对应翻译：
 
 ### 1. 主屏任务状态中心
 
-目标：主窗口永远能回答“现在 RoboCode 在干什么”。
+目标：主窗口永远能回答“现在 Viden 在干什么”。
 
 交付：
 
@@ -304,7 +304,7 @@ backend。
 - `/agent status`、`/agent result <id>`、`/agent cancel <id>` 和 resume/follow-up
   handling 对 Codex jobs 可用。
 - Codex app-server notifications、final output、touched files、command
-  executions、test evidence 和 thread IDs 都持久化为 RoboCode evidence。
+  executions、test evidence 和 thread IDs 都持久化为 Viden evidence。
 
 当前实现状态：
 
@@ -312,12 +312,12 @@ backend。
   `app-server` 可用性、auth status、config sources 和 job-store path。
 - 已落地：`/agent review codex`、`/agent challenge codex` 和
   `/agent run codex [--write] <task>` 会启动 tracked Codex CLI jobs，并在
-  `.robocode/agents/` 下记录每个 job 的 log 和 result artifacts。
+  `.viden/agents/` 下记录每个 job 的 log 和 result artifacts。
 - 已落地：`/agent run codex --write <task>` 是显式 write-capable delegate path。
-  它会先走 RoboCode mutating permission path，获得 approval 后才用 Codex
+  它会先走 Viden mutating permission path，获得 approval 后才用 Codex
   `workspace-write` sandbox 启动。
 - 已落地：`/agent status`、`/agent result <id>` 和 `/agent cancel <id>` 会读取并控制
-  `.robocode/agents/codex-jobs.jsonl` 中的 tracked job records。
+  `.viden/agents/codex-jobs.jsonl` 中的 tracked job records。
 - 已落地：Codex jobs 会记录启动时 Git status baseline，并从 job output 提取
   resume/session hints 和 touched-file evidence，所以 `/agent status` 与
   `/agent result <id>` 能在可用时显示 `codex resume ...` 和相关文件。
@@ -350,7 +350,7 @@ backend。
   app-server turn job，并复用 tracked job/status/result surfaces，同时默认路径仍保留
   CLI fallback。
 - 已落地：app-server approval-like server requests 会作为 evidence 捕获，并返回
-  decline/no-grant responses，避免实验性 app-server jobs 卡住或绕过 RoboCode
+  decline/no-grant responses，避免实验性 app-server jobs 卡住或绕过 Viden
   permission boundaries。
 - 剩余：在 live smoke coverage 证明普通 jobs 可以安全使用 protocol path 后，再通过
   config flag/default 推广 app-server path。
@@ -362,7 +362,7 @@ backend。
 - 可以启动 read-only Codex review，在 TUI 中观察并渲染结果。
 - background Codex task 可以通过 `/agent status` 查看，通过 `/agent result`
   取回结果。
-- write-capable Codex work 不能绕过 RoboCode permissions、transcript 和 approval。
+- write-capable Codex work 不能绕过 Viden permissions、transcript 和 approval。
 
 ### 4. Agent Lane 生命周期
 
@@ -382,7 +382,7 @@ backend。
 
 验收：
 
-- 用 tmux 或 PTY 启动 Codex/Claude/DeepSeek 类外部工具后，RoboCode 能持续观察
+- 用 tmux 或 PTY 启动 Codex/Claude/DeepSeek 类外部工具后，Viden 能持续观察
   latest output，并给出下一步操作提示。
 - lane 完成后能看到结果证据，并能选择 accept/revise/discard/apply。
 
@@ -419,7 +419,7 @@ backend。
 
 交付：
 
-- 新增 ACP adapter 设计文档或模块边界，说明如何映射到 RoboCode lane event。
+- 新增 ACP adapter 设计文档或模块边界，说明如何映射到 Viden lane event。
 - 完成最小 process transport spike：
   - launch agent server；
   - handshake；
@@ -459,7 +459,7 @@ backend。
 
 - 不做云端 agent registry。
 - 不做账号系统或远程任务托管。
-- 不把 RoboCode 变成完整 IDE。
+- 不把 Viden 变成完整 IDE。
 - 不在 extension system 稳定前引入复杂 marketplace。
 - 不让 plugin、skill、MCP 或 ACP 绕开权限、transcript 和 approval。
 
@@ -470,7 +470,7 @@ backend。
 - Codex、Claude Code、DeepSeek、shell job 和未来 ACP agent 在 TUI 里使用同一套
   lane/status/approval/evidence 语言。
 - Codex 具体要像原生能力：setup、review、rescue/task、background status、
-  result replay、cancel 和 resume 都能在 RoboCode 内完成，不需要打开另一个终端。
+  result replay、cancel 和 resume 都能在 Viden 内完成，不需要打开另一个终端。
 - plugin、skill、MCP 的问题能被诊断，而不是只表现为“命令没反应”。
 - 一次真实小功能开发能在 TUI 内完成：输入需求、审批修改、运行测试、查看结果、
   接受或修订 lane 输出。
@@ -479,7 +479,7 @@ backend。
 
 1. Codex adapter core：先把具体 external-agent workflow 做出来，以 Claude Code
    Codex 插件作为参考产品形态。
-2. 主屏任务状态中心：Codex 和 RoboCode 工作中时，主屏都要看得到。
+2. 主屏任务状态中心：Codex 和 Viden 工作中时，主屏都要看得到。
 3. side-2 evidence 面板：让测试、LSP、MCP、extension 和 Codex job evidence 有
    统一观察面。
 4. lane lifecycle 打磨：把 Codex、tmux、PTY/template 外部工具形成同一套操作闭环。

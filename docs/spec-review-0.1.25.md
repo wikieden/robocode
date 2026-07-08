@@ -1,4 +1,4 @@
-# RoboCode 0.1.25 Spec Review
+# Viden 0.1.25 Spec Review
 
 Chinese version: [spec-review-0.1.25.zh-CN.md](spec-review-0.1.25.zh-CN.md)
 
@@ -43,22 +43,22 @@ The TDD testing contract smoke for this release is
 
 | Priority | Gap | Code Area | Impact | Spec Target |
 | --- | --- | --- | --- | --- |
-| P0 | Manual long-idle terminal acceptance still needs real Terminal/iTerm2 evidence | `robocode-cli/src/tui/terminal.rs`, manual acceptance | Automated tests cover redraw policy, focus/paste repaint policy, and preview output, but real terminal sleep/focus behavior differs by emulator | Capture or record manual acceptance for macOS Terminal and iTerm2 before final 0.1.x zero-bug gate |
-| P0 | Active-turn queue ownership remains TUI-local | `robocode-cli/src/tui/state.rs`, `robocode-cli/src/tui/app.rs` | Queued prompts are visible and preserved, but no-TUI/core queue ownership is not yet formal | Keep UI behavior stable in 0.1.25; move durable runtime queue ownership in a later architecture slice |
+| P0 | Manual long-idle terminal acceptance still needs real Terminal/iTerm2 evidence | `viden-cli/src/tui/terminal.rs`, manual acceptance | Automated tests cover redraw policy, focus/paste repaint policy, and preview output, but real terminal sleep/focus behavior differs by emulator | Capture or record manual acceptance for macOS Terminal and iTerm2 before final 0.1.x zero-bug gate |
+| P0 | Active-turn queue ownership remains TUI-local | `viden-cli/src/tui/state.rs`, `viden-cli/src/tui/app.rs` | Queued prompts are visible and preserved, but no-TUI/core queue ownership is not yet formal | Keep UI behavior stable in 0.1.25; move durable runtime queue ownership in a later architecture slice |
 
 ## P1 Gaps
 
 | Priority | Gap | Code Area | Impact | Spec Target |
 | --- | --- | --- | --- | --- |
-| P1 | Provider doctor/probe still has synchronous command paths | `robocode-cli/src/tui/app.rs`, `robocode-core/src/provider_commands.rs` | A future real network doctor can still freeze if run synchronously | Convert doctor/probe to background jobs with status, tail, evidence, and cancel |
-| P1 | Provider capability differences still need a complete adapter matrix | `robocode-model/src/providers.rs`, `robocode-model/src/adapters.rs` | DeepSeek, DashScope, OpenRouter, Anthropic, and OpenAI-compatible differences can leak into UI and recovery behavior | Provider descriptors declare auth, endpoints, model catalogs, stream fields, tool semantics, context limits, retry policy, and error mapping |
-| P1 | Recent/favorite model management is still light | `robocode-cli/src/tui/app.rs` model picker | Global `/models` no longer shows unconfigured providers, but richer recent persistence and favorite editing are still thin | Persist recent model choices and expose direct favorite toggling without duplicates |
+| P1 | Provider doctor/probe still has synchronous command paths | `viden-cli/src/tui/app.rs`, `viden-core/src/provider_commands.rs` | A future real network doctor can still freeze if run synchronously | Convert doctor/probe to background jobs with status, tail, evidence, and cancel |
+| P1 | Provider capability differences still need a complete adapter matrix | `viden-model/src/providers.rs`, `viden-model/src/adapters.rs` | DeepSeek, DashScope, OpenRouter, Anthropic, and OpenAI-compatible differences can leak into UI and recovery behavior | Provider descriptors declare auth, endpoints, model catalogs, stream fields, tool semantics, context limits, retry policy, and error mapping |
+| P1 | Recent/favorite model management is still light | `viden-cli/src/tui/app.rs` model picker | Global `/models` no longer shows unconfigured providers, but richer recent persistence and favorite editing are still thin | Persist recent model choices and expose direct favorite toggling without duplicates |
 
 ## P2 Gaps
 
 - Historical docs and screenshots may still mention older `DeepSeek is
-  thinking` copy. New TUI copy should use RoboCode/internal-role wording such
-  as `RoboCode is planning`.
+  thinking` copy. New TUI copy should use Viden/internal-role wording such
+  as `Viden is planning`.
 - The release preview set is deterministic, but the final 0.1.x zero-bug gate
   should still add real terminal screenshot acceptance.
 
@@ -70,8 +70,8 @@ The TDD testing contract smoke for this release is
 - `cargo test --workspace --quiet`
 - `scripts/tui-turn-controller-smoke.sh`
 - `scripts/tui-regression.sh docs/previews/generated`
-- `scripts/plan-mode-smoke.sh /tmp/robocode-0125-plan-mode-smoke`
-- `scripts/daily-loop-smoke.sh /tmp/robocode-0125-daily-loop-smoke`
+- `scripts/plan-mode-smoke.sh /tmp/viden-0125-plan-mode-smoke`
+- `scripts/daily-loop-smoke.sh /tmp/viden-0125-daily-loop-smoke`
 - `scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash`
 - `scripts/release-gate.sh --version 0.1.25`
 - `scripts/release-gate.sh --version 0.1.25 --phase postpublish`

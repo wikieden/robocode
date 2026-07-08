@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${1:-}"
 
 if [[ -z "$OUT_DIR" ]]; then
-  OUT_DIR="$(mktemp -d "/tmp/robocode-rc-tui-stability.XXXXXX")"
+  OUT_DIR="$(mktemp -d "/tmp/viden-rc-tui-stability.XXXXXX")"
 fi
 
 mkdir -p "$OUT_DIR"
@@ -52,7 +52,7 @@ run_cargo_test() {
   run_step "$name" cargo test -p viden-tui "$@" -- --nocapture
 }
 
-record "# RoboCode RC TUI Stability Smoke"
+record "# Viden RC TUI Stability Smoke"
 record ""
 record "- Evidence directory: \`$OUT_DIR\`"
 record ""
@@ -82,9 +82,9 @@ record "## Manual Terminal Acceptance"
 record ""
 record "Manual macOS Terminal and iTerm2 screenshots remain human evidence. This"
 record "smoke records whether a release run supplied screenshot evidence through"
-record "\`ROBOCODE_TUI_MANUAL_EVIDENCE_DIR\`."
+record "\`VIDEN_TUI_MANUAL_EVIDENCE_DIR\`."
 
-manual_dir="${ROBOCODE_TUI_MANUAL_EVIDENCE_DIR:-}"
+manual_dir="${VIDEN_TUI_MANUAL_EVIDENCE_DIR:-}"
 if [[ -n "$manual_dir" ]]; then
   terminal_count="$(find "$manual_dir" -maxdepth 1 -type f -iname '*terminal*' | wc -l | tr -d ' ')"
   iterm_count="$(find "$manual_dir" -maxdepth 1 -type f \( -iname '*iterm*' -o -iname '*iterm2*' \) | wc -l | tr -d ' ')"

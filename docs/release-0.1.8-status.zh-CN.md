@@ -1,4 +1,4 @@
-# RoboCode 0.1.8 状态
+# Viden 0.1.8 状态
 
 英文版： [release-0.1.8-status.md](release-0.1.8-status.md)
 
@@ -69,7 +69,7 @@ operation center、右侧 `ACTIVE TASKS` 面板和 side-2 `RECENT EVIDENCE`
 - side-2 对 failed/blocked task 会优先展示 command/failure/path 这类可行动证据，
   避免被泛化的 `result failed` 或 `transcript ...` 挤掉。
 - lane apply/conflict artifact 已接入 `AgentTask.evidence`：从
-  `.robocode/lanes/L*.apply.md` 和 `L*.apply-conflict.md` 提取 patch path、
+  `.viden/lanes/L*.apply.md` 和 `L*.apply-conflict.md` 提取 patch path、
   changed files 和 direct apply conflict 摘要；blocked lane 在 side-2 会展示
   conflict / changed / patch 这类可恢复证据。
 - Codex app-server job artifacts 现在会向 TUI 提供更完整的 `AgentTask`
@@ -93,7 +93,7 @@ operation center、右侧 `ACTIVE TASKS` 面板和 side-2 `RECENT EVIDENCE`
   delegate answer，再展示低信号的协议 id。
 - TUI preview fixture 现在包含一个 completed Codex app-server job，并且
   `docs/previews/generated/side-2.txt` 可以直接看到
-  `evidence message ROBOCODE_APP_SERVER_SMOKE_OK`，方便截图验收。
+  `evidence message VIDEN_APP_SERVER_SMOKE_OK`，方便截图验收。
 - 新增 `scripts/smoke-codex-app-server.sh`，用于可重复 live smoke：它会在临时
   workspace 启动真实 Codex app-server text turn，并检查 `thread`、`turn`、
   `resume`、tracked job `finished` 和 final-message evidence。
@@ -103,7 +103,7 @@ operation center、右侧 `ACTIVE TASKS` 面板和 side-2 `RECENT EVIDENCE`
   MCP tool-call / MCP file-write、error signal。
 - 新增带保护的 `/agent probe codex --turn-write <task>` protocol path，仅用于
   disposable workspace 实验。它默认禁用，因为 live safety trial 证明 Codex
-  app-server workspace-write turn 可能在 RoboCode 收到 approval request 前直接修改文件。
+  app-server workspace-write turn 可能在 Viden 收到 approval request 前直接修改文件。
 - 新增 `scripts/smoke-codex-app-server-write-guard.sh`，验证默认 guard 会在启动
   app-server 前拦截 write probe，并保持 workspace 不被修改。
 - 新增 `scripts/smoke-lane-operator-loop.sh`，用于 focused operator-loop smoke：
@@ -120,8 +120,8 @@ operation center、右侧 `ACTIVE TASKS` 面板和 side-2 `RECENT EVIDENCE`
 cargo fmt
 cargo fmt --check
 git diff --check
-cargo test -p robocode-cli --quiet
-cargo test -p robocode-core --quiet
+cargo test -p viden-cli --quiet
+cargo test -p viden-core --quiet
 cargo test --workspace --quiet
 scripts/tui-previews.sh docs/previews/generated
 scripts/smoke-codex-app-server.sh
@@ -129,15 +129,15 @@ scripts/smoke-codex-app-server-protocol-fixture.sh
 scripts/smoke-codex-app-server-write-guard.sh
 scripts/smoke-lane-operator-loop.sh
 scripts/release-smoke.sh --quick --skip-package
-scripts/release-smoke.sh --quick --skip-package --deepseek --out-dir /tmp/robocode-018-release-smoke-deepseek-latest
-scripts/release-smoke.sh --version 0.1.8 --deepseek --out-dir /tmp/robocode-018-release-smoke-full
-gh workflow run release.yml --repo wikieden/robocode -f tag=v0.1.8 -f upload_to_release=true
+scripts/release-smoke.sh --quick --skip-package --deepseek --out-dir /tmp/viden-018-release-smoke-deepseek-latest
+scripts/release-smoke.sh --version 0.1.8 --deepseek --out-dir /tmp/viden-018-release-smoke-full
+gh workflow run release.yml --repo wikieden/viden -f tag=v0.1.8 -f upload_to_release=true
 ```
 
 结果：
 
-- `robocode-cli` tests：197 passed，binary tests 2 passed / 2 ignored。
-- `robocode-core` tests：93 passed。
+- `viden-cli` tests：197 passed，binary tests 2 passed / 2 ignored。
+- `viden-core` tests：93 passed。
 - workspace tests：通过。
 - TUI previews：`scripts/tui-previews.sh docs/previews/generated` 已生成。
   `main.txt` 现在展示 active test lane 的 operation-center next action，且不会被
@@ -145,7 +145,7 @@ gh workflow run release.yml --repo wikieden/robocode -f tag=v0.1.8 -f upload_to_
   app-server final message evidence 行。
 - live Codex app-server text-turn smoke：通过；本机 `codex-cli 0.133.0` /
   `Codex Desktop/0.133.0` 生成了 completed thread/turn、tracked job、resume
-  handle、result `message: ROBOCODE_APP_SERVER_SMOKE_OK` 和 final-message
+  handle、result `message: VIDEN_APP_SERVER_SMOKE_OK` 和 final-message
   evidence。
 - mock Codex app-server protocol-fixture smoke：通过；同一套 `/agent probe`
   -> tracked job -> `/agent result` surface 里出现了 `signals:
@@ -156,29 +156,29 @@ gh workflow run release.yml --repo wikieden/robocode -f tag=v0.1.8 -f upload_to_
   当前 app-server session 没有 shell tool，因此没有发出 live command approval
   signal。
 - live Codex app-server write trial：在 disposable workspace 中完成，并通过
-  `mcpToolCall` 创建了 `live-write.txt`，但没有 approval request。RoboCode 现在会把
+  `mcpToolCall` 创建了 `live-write.txt`，但没有 approval request。Viden 现在会把
   这类事件分类为 `mcp-tool-call`、`mcp-tool-completed` 和 `mcp-fs-write`；
   write-capable probe 继续默认禁用。
 - Codex app-server write-guard smoke：通过；`/agent probe codex --turn-write`
   默认被拦截，只有在 disposable workspace 显式设置
-  `ROBOCODE_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1` 时才允许实验。
+  `VIDEN_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1` 时才允许实验。
 - lane operator-loop smoke：通过；覆盖本地 runtime/operator 路径，从 shell lane
   到 inspect、PTY send、tmux evidence、accept/apply、conflict review/resolve、
   discard/cleanup 和 archive。
 - release smoke quick matrix：通过；覆盖 formatting、terminal tests、TUI previews、
   fallback CLI smoke、protocol fixture、write guard 和 lane operator-loop smoke。
 - DeepSeek release smoke matrix：通过，证据目录为
-  `/tmp/robocode-018-release-smoke-deepseek-latest`；`deepseek-v4-flash` 返回了
-  `robocode-deepseek-smoke-ok`。
+  `/tmp/viden-018-release-smoke-deepseek-latest`；`deepseek-v4-flash` 返回了
+  `viden-deepseek-smoke-ok`。
 - full 0.1.8 release smoke matrix：通过，证据目录为
-  `/tmp/robocode-018-release-smoke-full`。覆盖 `robocode-cli` tests、workspace
+  `/tmp/viden-018-release-smoke-full`。覆盖 `viden-cli` tests、workspace
   tests、previews、fallback CLI、app-server protocol fixture、write-guard、lane
   operator loop、package archive smoke 和 DeepSeek smoke。
 - package smoke 已生成并验证
-  `dist/robocode-v0.1.8-aarch64-apple-darwin.tar.gz`；解压后的 binary 输出
-  `robocode-cli 0.1.8`。
+  `dist/viden-v0.1.8-aarch64-apple-darwin.tar.gz`；解压后的 binary 输出
+  `viden-cli 0.1.8`。
 - GitHub release workflow
-  [26494175931](https://github.com/wikieden/robocode/actions/runs/26494175931)
+  [26494175931](https://github.com/wikieden/viden/actions/runs/26494175931)
   已通过，并上传了四个 target archive 和对应 SHA-256 文件。
 - Homebrew tap `wikieden/homebrew-tap` 已在 commit `afd62e2` 更新到 `0.1.8`，
   checksum 来自 GitHub release assets 的 SHA-256 文件。
@@ -187,22 +187,22 @@ gh workflow run release.yml --repo wikieden/robocode -f tag=v0.1.8 -f upload_to_
 
 `v0.1.8` 已发布：
 
-- https://github.com/wikieden/robocode/releases/tag/v0.1.8
+- https://github.com/wikieden/viden/releases/tag/v0.1.8
 
 Release assets：
 
-- `robocode-v0.1.8-aarch64-apple-darwin.tar.gz`
-- `robocode-v0.1.8-aarch64-apple-darwin.tar.gz.sha256`
-- `robocode-v0.1.8-x86_64-apple-darwin.tar.gz`
-- `robocode-v0.1.8-x86_64-apple-darwin.tar.gz.sha256`
-- `robocode-v0.1.8-x86_64-pc-windows-msvc.tar.gz`
-- `robocode-v0.1.8-x86_64-pc-windows-msvc.tar.gz.sha256`
-- `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz`
-- `robocode-v0.1.8-x86_64-unknown-linux-gnu.tar.gz.sha256`
+- `viden-v0.1.8-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.8-aarch64-apple-darwin.tar.gz.sha256`
+- `viden-v0.1.8-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.8-x86_64-apple-darwin.tar.gz.sha256`
+- `viden-v0.1.8-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.8-x86_64-pc-windows-msvc.tar.gz.sha256`
+- `viden-v0.1.8-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.8-x86_64-unknown-linux-gnu.tar.gz.sha256`
 
 Homebrew：
 
-- `brew install wikieden/tap/robocode`
+- `brew install wikieden/tap/viden`
 
 ## 剩余 P0
 
@@ -222,7 +222,7 @@ Homebrew：
 - Codex app-server path 仍保持 opt-in。live text-turn 和 disposable write-turn
   probe 已通过，确定性 protocol-fixture coverage 也已经覆盖 command/file/approval/MCP/error
   evidence。live write probe 确认 workspace-write turn 可以通过 MCP tool call
-  在没有 RoboCode approval request 的情况下修改文件，所以 write-capable app-server
+  在没有 Viden approval request 的情况下修改文件，所以 write-capable app-server
   probe 必须继续默认禁用，只允许 disposable workspace 实验。
 
 ## 下一步

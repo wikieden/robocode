@@ -1,4 +1,4 @@
-# RoboCode 0.1.14 状态
+# Viden 0.1.14 状态
 
 English version: [release-0.1.14-status.md](release-0.1.14-status.md)
 
@@ -22,7 +22,7 @@ release assets 或 Homebrew tap 更新。
   terminal artifacts、changed files、verification、decision 和 next action。
 - `/lane codex-review <task>` 是 P0 只读 Codex review 信任闭环。它会写入 lane
   envelope；Codex 可用时运行 `codex review --uncommitted`；支持
-  `ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE`；setup blocker 会写入 timeline evidence。
+  `VIDEN_LANE_CODEX_REVIEW_TEMPLATE`；setup blocker 会写入 timeline evidence。
 - Claude/tmux 信任闭环更安全。`/lane tmux <id>` 会在标记 attached 前检查默认
   tmux/Claude 路径；缺少 `tmux` 或 `claude` 时记录 setup-needed timeline 事件，
   不再误报 attached。
@@ -32,21 +32,21 @@ release assets 或 Homebrew tap 更新。
 ## 验证证据
 
 - `cargo fmt --check`
-- `cargo test -p robocode-types --quiet`
-- `cargo test -p robocode-core agent_ --quiet`
-- `cargo test -p robocode-cli tui::lane --quiet`
-- `cargo test -p robocode-cli tui::command_palette --quiet`
-- `cargo clippy -p robocode-cli -p robocode-core -p robocode-types --all-targets -- -D warnings`
+- `cargo test -p viden-types --quiet`
+- `cargo test -p viden-core agent_ --quiet`
+- `cargo test -p viden-cli tui::lane --quiet`
+- `cargo test -p viden-cli tui::command_palette --quiet`
+- `cargo clippy -p viden-cli -p viden-core -p viden-types --all-targets -- -D warnings`
 - `cargo test --workspace --quiet`
-- `ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.14 scripts/tui-regression.sh docs/previews/generated`
-- `scripts/release-smoke.sh --version 0.1.14 --quick --out-dir /tmp/robocode-0114-release-smoke-local`
+- `VIDEN_TUI_SCREENSHOT_VERSION=0.1.14 scripts/tui-regression.sh docs/previews/generated`
+- `scripts/release-smoke.sh --version 0.1.14 --quick --out-dir /tmp/viden-0114-release-smoke-local`
 - `git diff --check`
 
 本地 quick release smoke 结果：
 
 - PASS `cargo-fmt`
 - PASS `cargo-clippy`
-- PASS `robocode-cli-terminal-tests`
+- PASS `viden-cli-terminal-tests`
 - PASS `tui-regression`
 - PASS `fallback-cli-smoke`
 - PASS `codex-app-server-protocol-fixture`
@@ -60,11 +60,11 @@ release assets 或 Homebrew tap 更新。
 
 确定性截图：
 
-- [0.1.14 main](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.14-tui-main.svg)
-- [0.1.14 command palette](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.14-tui-command-palette.svg)
-- [0.1.14 lane detail](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.14-tui-lane-detail.svg)
-- [0.1.14 side-1 lanes](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.14-tui-side-1.svg)
-- [0.1.14 side-2 ops](/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.14-tui-side-2.svg)
+- [0.1.14 main](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.14-tui-main.svg)
+- [0.1.14 command palette](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.14-tui-command-palette.svg)
+- [0.1.14 lane detail](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.14-tui-lane-detail.svg)
+- [0.1.14 side-1 lanes](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.14-tui-side-1.svg)
+- [0.1.14 side-2 ops](/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.14-tui-side-2.svg)
 
 ## 剩余风险
 

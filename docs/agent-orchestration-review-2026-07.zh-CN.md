@@ -37,7 +37,7 @@ English version: 暂缺(本报告先以中文定稿,英文版待设计结论被�
 2. **0.3.x 版本语义三处分叉**:staged-roadmap 0.3.x = contract freeze + GUI 并行;long-term-roadmap Horizon 3 = ACP;agent-loop-research 0.3.x = Loop Product。建议:staged-roadmap 是唯一交付地图,其余两份改用 Horizon 措辞并显式声明「Horizon ≠ 版本号」;ACP 与 Loop 都挂在「0.3.x 期间、GUI 并行轨道之外的 runtime 轨道」下排期。
 3. **内置角色清单三套**:`coder` vs `builder`、`release-operator` vs `release verifier` vs `Release Captain`。建议以 `planner / coder / reviewer / tester / doc-writer / researcher / release-operator` 七个为准(staged-roadmap + research 的并集),`context builder` 与 `lane supervisor` 不是角色而是 runtime 组件,从角色清单移除。
 4. **快照命名三名并存**:`RuntimeViewSnapshot` / `RuntimeSnapshot` / `RuntimeViewState`(实际落地)。以代码为准统一为 `RuntimeViewState` + `runtime_snapshot` API,其余文档批量更名。
-5. crate 路径新旧混用、RoboCode/Viden 品牌混用、loop readiness 是否带 L-编号——低风险,随下一次文档轮清理。
+5. crate 路径新旧混用、Viden/Viden 品牌混用、loop readiness 是否带 L-编号——低风险,随下一次文档轮清理。
 
 另有一处**资产路径漂移**:gui-functional-design 引用的视觉目标图 `docs/viden-design/Viden/screenshots/d1v2.png` 实际已落库在 `docs/design/canvas-export/screenshots/d1v2.png`,需更新引用。
 

@@ -1,9 +1,9 @@
-# RoboCode 0.1.24 计划 - Provider 设置与日常编程可靠性
+# Viden 0.1.24 计划 - Provider 设置与日常编程可靠性
 
 English version: [release-0.1.24-plan.md](release-0.1.24-plan.md)
 
 0.1.24 是一个交互质量版本。目标是在继续扩展更多 agent surface 之前，先让
-RoboCode 更适合日常编程：provider 设置必须能看懂，model 切换必须可信，provider
+Viden 更适合日常编程：provider 设置必须能看懂，model 切换必须可信，provider
 失败必须给出具体恢复路径，并且任何 provider/plan/tool/lane 后台工作都不能卡住 TUI
 输入。
 
@@ -77,8 +77,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-turn-controller-smoke.sh
 scripts/tui-regression.sh docs/previews/generated
-scripts/plan-mode-smoke.sh /tmp/robocode-0124-plan-mode-smoke
-scripts/daily-loop-smoke.sh /tmp/robocode-0124-daily-loop-smoke
+scripts/plan-mode-smoke.sh /tmp/viden-0124-plan-mode-smoke
+scripts/daily-loop-smoke.sh /tmp/viden-0124-daily-loop-smoke
 scripts/provider-live-smoke.sh --provider deepseek --model deepseek-v4-flash
 scripts/provider-live-smoke.sh --provider dashscope-coding-plan --model qwen3.6-plus
 scripts/release-smoke.sh --quick --provider-smoke dashscope-coding-plan --provider-smoke-model qwen3.6-plus

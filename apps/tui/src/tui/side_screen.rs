@@ -399,7 +399,7 @@ mod tests {
                     tool: "claude".to_string(),
                     title: "running lane".to_string(),
                     status: "running".to_string(),
-                    target: "tmux robocode-l2".to_string(),
+                    target: "tmux viden-l2".to_string(),
                     progress: 45,
                     summary: "checking tests".to_string(),
                     worktree: None,
@@ -526,7 +526,7 @@ mod tests {
     fn side_lane_rows_surface_operator_artifacts() {
         let root = temp_root("side-lane-artifacts");
         let lane_store = lane_store_path(&root);
-        let artifact_dir = root.join(".robocode").join("lanes");
+        let artifact_dir = root.join(".viden").join("lanes");
         fs::create_dir_all(&artifact_dir).expect("artifact dir");
         fs::write(artifact_dir.join("L1.apply-conflict.md"), "conflict").expect("conflict");
         let mut state = TuiState {
@@ -632,7 +632,7 @@ mod tests {
     fn side_output_rows_replay_persisted_lane_log_tail() {
         let root = temp_root("side-output-tail");
         let lane_store = lane_store_path(&root);
-        let artifact_dir = root.join(".robocode").join("lanes");
+        let artifact_dir = root.join(".viden").join("lanes");
         fs::create_dir_all(&artifact_dir).expect("artifact dir");
         fs::write(
             artifact_dir.join("L1.log"),
@@ -680,6 +680,6 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system time")
             .as_nanos();
-        std::env::temp_dir().join(format!("robocode-side-screen-test-{nanos}-{suffix}"))
+        std::env::temp_dir().join(format!("viden-side-screen-test-{nanos}-{suffix}"))
     }
 }

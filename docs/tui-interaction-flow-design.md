@@ -6,11 +6,11 @@ Last updated: 2026-06-09
 
 ## Purpose
 
-This document defines the target TUI interaction flow for RoboCode's 0.1.x
+This document defines the target TUI interaction flow for Viden's 0.1.x
 stability line. The goal is a coding cockpit where users can always answer:
 
 - Where am I?
-- What is RoboCode doing?
+- What is Viden doing?
 - Can I still type?
 - What is blocked?
 - What should I do next?
@@ -29,7 +29,7 @@ runtime cannot explain.
 - Active work appears as a `LIVE WORK` strip under the latest visible
   transcript content. It shows phase, signal, and next action.
 - Provider names are infrastructure details. Main status should say
-  `RoboCode`, an internal role, or a concrete operation.
+  `Viden`, an internal role, or a concrete operation.
 - No fake progress percentages for provider thinking. Percent is allowed only
   when backed by real lane/tool progress.
 - Permission controls use the unified
@@ -141,7 +141,7 @@ the user starts real work or resumes history.
 
 ```mermaid
 flowchart TD
-    A["Launch RoboCode"] --> B{"Has visible session content?"}
+    A["Launch Viden"] --> B{"Has visible session content?"}
     B -->|no| C["Welcome surface<br/>logo + composer + context row"]
     B -->|yes| D["Cockpit"]
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the V2-C design for RoboCode's memory and task
+This document defines the V2-C design for Viden's memory and task
 workflows. The goal is to make project continuity explicit instead of
 incidental by introducing project-level tasks, two-tier memory, and a
 workflow-oriented resume surface without breaking the existing session,
@@ -19,7 +19,7 @@ The design follows the confirmed direction for this slice:
 
 ## Product Goal
 
-RoboCode should help a developer return to a project and answer:
+Viden should help a developer return to a project and answer:
 
 - what is currently in flight
 - what is blocked
@@ -55,9 +55,9 @@ Out of scope:
 
 Add a new crate:
 
-- `robocode-workflows`
+- `viden-workflows`
 
-The crate should expose a unified public API to `robocode-core`, but its
+The crate should expose a unified public API to `viden-core`, but its
 internal modules should be separated from day one:
 
 - `tasks`
@@ -71,12 +71,12 @@ clear subsystem boundaries for later V2 and V3 work.
 
 ### Responsibility Split
 
-- `robocode-core`
+- `viden-core`
   parses slash commands, routes workflow actions, applies permissions, records
   transcript command entries, and renders CLI output
-- `robocode-session`
+- `viden-session`
   remains the source of truth for session transcript history and session index
-- `robocode-workflows`
+- `viden-workflows`
   owns project-level task state, project/session memory state, resume-context
   derivation, and workflow-specific persistence
 
@@ -398,7 +398,7 @@ to do next. It is not a hidden workflow executor.
 
 ## CLI Rendering Expectations
 
-V2-C should preserve the lightweight CLI style already established in RoboCode.
+V2-C should preserve the lightweight CLI style already established in Viden.
 
 Rendering guidance:
 
@@ -417,7 +417,7 @@ Required test categories:
 - task event roundtrip tests
 - memory event roundtrip tests
 - derived workflow index rebuild tests
-- command routing tests in `robocode-core`
+- command routing tests in `viden-core`
 - permission integration tests for mutation commands
 - suggestion-confirmation flow tests for project memory
 - `/task resume-context` derivation tests
@@ -447,25 +447,25 @@ V2-C should not yet attempt:
 
 Expected new files and modules:
 
-- `robocode-workflows/Cargo.toml`
-- `robocode-workflows/src/lib.rs`
-- `robocode-workflows/src/tasks.rs`
-- `robocode-workflows/src/memory.rs`
-- `robocode-workflows/src/resume_context.rs`
-- `robocode-workflows/src/stores.rs`
+- `viden-workflows/Cargo.toml`
+- `viden-workflows/src/lib.rs`
+- `viden-workflows/src/tasks.rs`
+- `viden-workflows/src/memory.rs`
+- `viden-workflows/src/resume_context.rs`
+- `viden-workflows/src/stores.rs`
 
 Expected integration points:
 
 - `Cargo.toml`
-- `robocode-core/src/lib.rs`
-- `robocode-session/src/lib.rs`
-- `robocode-types/src/lib.rs`
+- `viden-core/src/lib.rs`
+- `viden-session/src/lib.rs`
+- `viden-types/src/lib.rs`
 - `README.md`
 - `README.zh-CN.md`
 
 ## Exit Criteria
 
-This design is satisfied when RoboCode can:
+This design is satisfied when Viden can:
 
 - track durable project tasks with lifecycle and dependency state
 - maintain project memory and session memory separately

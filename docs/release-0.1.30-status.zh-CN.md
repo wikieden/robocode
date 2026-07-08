@@ -1,4 +1,4 @@
-# RoboCode 0.1.30 状态 - 最终 Zero-Bug TUI Gate
+# Viden 0.1.30 状态 - 最终 Zero-Bug TUI Gate
 
 English version: [release-0.1.30-status.md](release-0.1.30-status.md)
 
@@ -10,7 +10,7 @@ English version: [release-0.1.30-status.md](release-0.1.30-status.md)
 - Workspace version：`0.1.30`
 - Git tag：`v0.1.30`
 - GitHub Release：已发布在
-  <https://github.com/wikieden/robocode/releases/tag/v0.1.30>
+  <https://github.com/wikieden/viden/releases/tag/v0.1.30>
 - Homebrew tap：已在 `wikieden/homebrew-tap` commit `0dbaa26` 同步
 
 ## 当前已实现
@@ -34,19 +34,19 @@ English version: [release-0.1.30-status.md](release-0.1.30-status.md)
 ## 验证
 
 - PASS `scripts/final-zero-bug-contract-smoke.sh`
-- PASS `ROBOCODE_TUI_MANUAL_EVIDENCE_DIR=docs/previews/manual/0.1.30 scripts/final-zero-bug-smoke.sh /tmp/robocode-0130-final-zero-bug`
-- PASS `ROBOCODE_TUI_MANUAL_EVIDENCE_DIR=docs/previews/manual/0.1.30 scripts/release-gate.sh --version 0.1.30 --phase prepublish --out-dir /tmp/robocode-0130-release-gate`
-- Prepublish evidence：`/tmp/robocode-0130-release-gate/prepublish/summary.md`
+- PASS `VIDEN_TUI_MANUAL_EVIDENCE_DIR=docs/previews/manual/0.1.30 scripts/final-zero-bug-smoke.sh /tmp/viden-0130-final-zero-bug`
+- PASS `VIDEN_TUI_MANUAL_EVIDENCE_DIR=docs/previews/manual/0.1.30 scripts/release-gate.sh --version 0.1.30 --phase prepublish --out-dir /tmp/viden-0130-release-gate`
+- Prepublish evidence：`/tmp/viden-0130-release-gate/prepublish/summary.md`
 - Structured prepublish evidence：
-  `/tmp/robocode-0130-release-gate/prepublish/release-evidence.json`
+  `/tmp/viden-0130-release-gate/prepublish/release-evidence.json`
 - Final zero-bug evidence：
-  `/tmp/robocode-0130-release-gate/prepublish/final-zero-bug/summary.md`
+  `/tmp/viden-0130-release-gate/prepublish/final-zero-bug/summary.md`
 - Deterministic screenshots：`docs/previews/generated/screenshots/`
 - Manual Terminal/iTerm2 screenshots：`docs/previews/manual/0.1.30/`
-- PASS `scripts/release-gate.sh --version 0.1.30 --phase postpublish --out-dir /tmp/robocode-0130-release-gate`
-- Postpublish evidence：`/tmp/robocode-0130-release-gate/postpublish/summary.md`
+- PASS `scripts/release-gate.sh --version 0.1.30 --phase postpublish --out-dir /tmp/viden-0130-release-gate`
+- Postpublish evidence：`/tmp/viden-0130-release-gate/postpublish/summary.md`
 - Structured postpublish evidence：
-  `/tmp/robocode-0130-release-gate/postpublish/release-evidence.json`
+  `/tmp/viden-0130-release-gate/postpublish/release-evidence.json`
 
 ## DeepSeek Smoke 证据
 
@@ -58,18 +58,18 @@ English version: [release-0.1.30-status.md](release-0.1.30-status.md)
 - Estimated cost：`¥0.011530 CNY`
 - Failure classification：无；smoke passed。
 - Evidence：
-  `/tmp/robocode-0130-release-gate/prepublish/deepseek-dev-scenario/summary.md`
+  `/tmp/viden-0130-release-gate/prepublish/deepseek-dev-scenario/summary.md`
 
 ## Release Gate
 
 `0.1.30` 已完成：
 
-- prepublish gate 通过，证据在 `/tmp/robocode-0130-release-gate/prepublish`；
+- prepublish gate 通过，证据在 `/tmp/viden-0130-release-gate/prepublish`；
 - final zero-bug gate 通过，证据在
-  `/tmp/robocode-0130-release-gate/prepublish/final-zero-bug`；
+  `/tmp/viden-0130-release-gate/prepublish/final-zero-bug`；
 - GitHub Release workflow run
-  [`27323510336`](https://github.com/wikieden/robocode/actions/runs/27323510336)
+  [`27323510336`](https://github.com/wikieden/viden/actions/runs/27323510336)
   通过，并上传 `8` 个 assets；
 - GitHub Release `v0.1.30` 已发布，包含 assets 和 checksums；
 - Homebrew tap 已同步到 `0.1.30`，commit `0dbaa26`；
-- postpublish gate 通过，证据在 `/tmp/robocode-0130-release-gate/postpublish`。
+- postpublish gate 通过，证据在 `/tmp/viden-0130-release-gate/postpublish`。

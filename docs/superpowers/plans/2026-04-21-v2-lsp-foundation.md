@@ -2,26 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add read-only semantic code intelligence through language-server integration without bypassing RoboCode's existing session, permission, transcript, and tool-runtime invariants.
+**Goal:** Add read-only semantic code intelligence through language-server integration without bypassing Viden's existing session, permission, transcript, and tool-runtime invariants.
 
-**Architecture:** Add a new `robocode-lsp` crate that owns LSP configuration, JSON-RPC framing, process lifecycle, and semantic query normalization. `robocode-core` exposes LSP slash commands and wires an optional semantic provider into tool execution. `robocode-tools` adds read-only `lsp_diagnostics`, `lsp_symbols`, and `lsp_references` tools through the same `ToolRegistry` and `ToolExecutionContext` path as all other tools.
+**Architecture:** Add a new `viden-lsp` crate that owns LSP configuration, JSON-RPC framing, process lifecycle, and semantic query normalization. `viden-core` exposes LSP slash commands and wires an optional semantic provider into tool execution. `viden-tools` adds read-only `lsp_diagnostics`, `lsp_symbols`, and `lsp_references` tools through the same `ToolRegistry` and `ToolExecutionContext` path as all other tools.
 
-**Tech Stack:** Rust 2024 workspace, `serde`, `serde_json`, standard-library process and pipe handling, existing RoboCode crates
+**Tech Stack:** Rust 2024 workspace, `serde`, `serde_json`, standard-library process and pipe handling, existing Viden crates
 
 ---
 
 ## Current Baseline
 
-V1 and V2-A are implemented. V2-C memory/task workflows are active on `codex/v2-memory-task-workflows` and should be published or merged before this plan starts. The root workspace already contains `robocode-cli`, `robocode-config`, `robocode-core`, `robocode-model`, `robocode-permissions`, `robocode-session`, `robocode-tools`, `robocode-types`, and `robocode-workflows`.
+V1 and V2-A are implemented. V2-C memory/task workflows are active on `codex/v2-memory-task-workflows` and should be published or merged before this plan starts. The root workspace already contains `viden-cli`, `viden-config`, `viden-core`, `viden-model`, `viden-permissions`, `viden-session`, `viden-tools`, `viden-types`, and `viden-workflows`.
 
 ## Scope
 
 In scope:
 
-- new `robocode-lsp` crate
+- new `viden-lsp` crate
 - read-only LSP server configuration and lifecycle
 - JSON-RPC/LSP message framing tests
-- normalized semantic result types in `robocode-types`
+- normalized semantic result types in `viden-types`
 - `/lsp`, `/lsp status`, `/lsp diagnostics`, `/lsp symbols`, and `/lsp references`
 - read-only model tools: `lsp_diagnostics`, `lsp_symbols`, `lsp_references`
 - transcript-visible command and tool results
@@ -49,23 +49,23 @@ Out of scope:
 
 Create:
 
-- `robocode-lsp/Cargo.toml`
-- `robocode-lsp/README.md`
-- `robocode-lsp/README.zh-CN.md`
-- `robocode-lsp/src/lib.rs`
-- `robocode-lsp/src/config.rs`
-- `robocode-lsp/src/framing.rs`
-- `robocode-lsp/src/protocol.rs`
-- `robocode-lsp/src/runtime.rs`
+- `viden-lsp/Cargo.toml`
+- `viden-lsp/README.md`
+- `viden-lsp/README.zh-CN.md`
+- `viden-lsp/src/lib.rs`
+- `viden-lsp/src/config.rs`
+- `viden-lsp/src/framing.rs`
+- `viden-lsp/src/protocol.rs`
+- `viden-lsp/src/runtime.rs`
 
 Modify:
 
 - `Cargo.toml`
 - `Cargo.lock`
-- `robocode-types/src/lib.rs`
-- `robocode-tools/src/lib.rs`
-- `robocode-core/Cargo.toml`
-- `robocode-core/src/lib.rs`
+- `viden-types/src/lib.rs`
+- `viden-tools/src/lib.rs`
+- `viden-core/Cargo.toml`
+- `viden-core/src/lib.rs`
 - `docs/modules.md`
 - `docs/modules.zh-CN.md`
 - `PLAN.md`
@@ -117,37 +117,37 @@ Expected: remote branch updated with commits through `ee6307c` or newer.
 Files:
 
 - Modify: `Cargo.toml`
-- Create: `robocode-lsp/Cargo.toml`
-- Create: `robocode-lsp/src/lib.rs`
-- Modify: `robocode-types/src/lib.rs`
+- Create: `viden-lsp/Cargo.toml`
+- Create: `viden-lsp/src/lib.rs`
+- Modify: `viden-types/src/lib.rs`
 
 - [ ] Step 1: Add the new crate to the workspace.
 
 Change `Cargo.toml` members to include:
 
 ```toml
-    "robocode-lsp",
+    "viden-lsp",
 ```
 
-- [ ] Step 2: Create `robocode-lsp/Cargo.toml`.
+- [ ] Step 2: Create `viden-lsp/Cargo.toml`.
 
 Use this crate manifest:
 
 ```toml
 [package]
-name = "robocode-lsp"
+name = "viden-lsp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [dependencies]
-robocode-types = { path = "../robocode-types" }
+viden-types = { path = "../viden-types" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ```
 
-- [ ] Step 3: Create `robocode-lsp/src/lib.rs`.
+- [ ] Step 3: Create `viden-lsp/src/lib.rs`.
 
 Use module exports:
 
@@ -161,7 +161,7 @@ pub use config::{LspServerConfig, LspServerRegistry};
 pub use runtime::{LspRuntime, LspRuntimeStatus, SemanticProvider};
 ```
 
-- [ ] Step 4: Add semantic shared types in `robocode-types/src/lib.rs`.
+- [ ] Step 4: Add semantic shared types in `viden-types/src/lib.rs`.
 
 Define:
 
@@ -209,7 +209,7 @@ pub struct LspSymbol {
 
 - [ ] Step 5: Add serde roundtrip tests for the new types.
 
-Add a test named `lsp_diagnostic_roundtrips_json` under the existing `robocode-types` tests:
+Add a test named `lsp_diagnostic_roundtrips_json` under the existing `viden-types` tests:
 
 ```rust
 #[test]
@@ -237,8 +237,8 @@ fn lsp_diagnostic_roundtrips_json() {
 Run:
 
 ```bash
-cargo test -p robocode-types
-cargo test -p robocode-lsp
+cargo test -p viden-types
+cargo test -p viden-lsp
 ```
 
 Expected: both commands pass.
@@ -247,8 +247,8 @@ Expected: both commands pass.
 
 Files:
 
-- Create: `robocode-lsp/src/config.rs`
-- Modify: `robocode-lsp/src/lib.rs`
+- Create: `viden-lsp/src/config.rs`
+- Modify: `viden-lsp/src/lib.rs`
 
 - [ ] Step 1: Write tests for extension-to-server resolution.
 
@@ -258,7 +258,7 @@ Add tests in `config.rs`:
 #[test]
 fn registry_resolves_rust_files_to_rust_analyzer() {
     let registry = LspServerRegistry::default();
-    let config = registry.for_path(Path::new("robocode-core/src/lib.rs")).unwrap();
+    let config = registry.for_path(Path::new("viden-core/src/lib.rs")).unwrap();
     assert_eq!(config.id, "rust-analyzer");
     assert!(config.file_extensions.contains(&"rs".to_string()));
 }
@@ -330,7 +330,7 @@ impl LspServerRegistry {
 Run:
 
 ```bash
-cargo test -p robocode-lsp config
+cargo test -p viden-lsp config
 ```
 
 Expected: tests pass.
@@ -339,8 +339,8 @@ Expected: tests pass.
 
 Files:
 
-- Create: `robocode-lsp/src/framing.rs`
-- Create: `robocode-lsp/src/protocol.rs`
+- Create: `viden-lsp/src/framing.rs`
+- Create: `viden-lsp/src/protocol.rs`
 
 - [ ] Step 1: Add framing tests.
 
@@ -400,8 +400,8 @@ pub fn references_request(id: u64, path_uri: &str, line: u32, character: u32) ->
 Run:
 
 ```bash
-cargo test -p robocode-lsp framing
-cargo test -p robocode-lsp protocol
+cargo test -p viden-lsp framing
+cargo test -p viden-lsp protocol
 ```
 
 Expected: tests pass.
@@ -410,8 +410,8 @@ Expected: tests pass.
 
 Files:
 
-- Create: `robocode-lsp/src/runtime.rs`
-- Modify: `robocode-lsp/src/lib.rs`
+- Create: `viden-lsp/src/runtime.rs`
+- Modify: `viden-lsp/src/lib.rs`
 
 - [ ] Step 1: Define a read-only provider trait.
 
@@ -420,7 +420,7 @@ Use:
 ```rust
 use std::path::Path;
 
-use robocode_types::{LspDiagnostic, LspLocation, LspPosition, LspSymbol};
+use viden_types::{LspDiagnostic, LspLocation, LspPosition, LspSymbol};
 
 pub trait SemanticProvider: Send + Sync {
     fn diagnostics(&self, cwd: &Path, path: &Path) -> Result<Vec<LspDiagnostic>, String>;
@@ -479,7 +479,7 @@ Test that a path with no configured server returns a non-panicking error and tha
 Run:
 
 ```bash
-cargo test -p robocode-lsp runtime
+cargo test -p viden-lsp runtime
 ```
 
 Expected: tests pass.
@@ -488,9 +488,9 @@ Expected: tests pass.
 
 Files:
 
-- Modify: `robocode-tools/src/lib.rs`
-- Modify: `robocode-core/Cargo.toml`
-- Modify: `robocode-core/src/lib.rs`
+- Modify: `viden-tools/src/lib.rs`
+- Modify: `viden-core/Cargo.toml`
+- Modify: `viden-core/src/lib.rs`
 
 - [ ] Step 1: Extend `ToolExecutionContext` with an optional semantic provider.
 
@@ -515,7 +515,7 @@ pub trait SemanticToolProvider: Send + Sync {
 Search:
 
 ```bash
-rg -n "ToolExecutionContext" robocode-*
+rg -n "ToolExecutionContext" viden-*
 ```
 
 Every existing context literal must compile after adding `semantic: None`.
@@ -560,7 +560,7 @@ Cover:
 Run:
 
 ```bash
-cargo test -p robocode-tools lsp
+cargo test -p viden-tools lsp
 ```
 
 Expected: tests pass.
@@ -569,15 +569,15 @@ Expected: tests pass.
 
 Files:
 
-- Modify: `robocode-core/Cargo.toml`
-- Modify: `robocode-core/src/lib.rs`
+- Modify: `viden-core/Cargo.toml`
+- Modify: `viden-core/src/lib.rs`
 
-- [ ] Step 1: Add `robocode-lsp` as a `robocode-core` dependency.
+- [ ] Step 1: Add `viden-lsp` as a `viden-core` dependency.
 
 Use:
 
 ```toml
-robocode-lsp = { path = "../robocode-lsp" }
+viden-lsp = { path = "../viden-lsp" }
 ```
 
 - [ ] Step 2: Add LSP runtime ownership to `SessionEngine`.
@@ -621,7 +621,7 @@ Cover:
 Run:
 
 ```bash
-cargo test -p robocode-core lsp
+cargo test -p viden-core lsp
 ```
 
 Expected: tests pass.
@@ -630,8 +630,8 @@ Expected: tests pass.
 
 Files:
 
-- Create: `robocode-lsp/README.md`
-- Create: `robocode-lsp/README.zh-CN.md`
+- Create: `viden-lsp/README.md`
+- Create: `viden-lsp/README.zh-CN.md`
 - Modify: `docs/modules.md`
 - Modify: `docs/modules.zh-CN.md`
 - Modify: `PLAN.md`
@@ -652,7 +652,7 @@ Chinese README must mirror the same sections.
 
 - [ ] Step 2: Update module index docs.
 
-Add `robocode-lsp` to:
+Add `viden-lsp` to:
 
 - workspace dependency map
 - data ownership map
@@ -668,8 +668,8 @@ Move V2-B from "next" to "active" after implementation starts, and keep V2-D as 
 Run:
 
 ```bash
-rg -n "robocode-lsp|LSP|semantic|diagnostics|symbols|references" robocode-lsp docs/modules.md docs/modules.zh-CN.md PLAN.md
-rg -n "TB[D]|TO[D]O|fi[l]l in|place[h]older" robocode-lsp docs/modules.md docs/modules.zh-CN.md PLAN.md
+rg -n "viden-lsp|LSP|semantic|diagnostics|symbols|references" viden-lsp docs/modules.md docs/modules.zh-CN.md PLAN.md
+rg -n "TB[D]|TO[D]O|fi[l]l in|place[h]older" viden-lsp docs/modules.md docs/modules.zh-CN.md PLAN.md
 ```
 
 Expected:
@@ -688,10 +688,10 @@ Files:
 Run:
 
 ```bash
-cargo test -p robocode-types
-cargo test -p robocode-lsp
-cargo test -p robocode-tools
-cargo test -p robocode-core
+cargo test -p viden-types
+cargo test -p viden-lsp
+cargo test -p viden-tools
+cargo test -p viden-core
 ```
 
 Expected: all pass.
@@ -711,7 +711,7 @@ Expected: exit code `0`.
 Run:
 
 ```bash
-cargo run -p robocode-cli -- --provider fallback --model test-local
+cargo run -p viden-cli -- --provider fallback --model test-local
 ```
 
 Then enter:
@@ -719,8 +719,8 @@ Then enter:
 ```text
 /lsp status
 /lsp diagnostics README.md
-/lsp symbols robocode-core/src/lib.rs
-/lsp references robocode-core/src/lib.rs 0 0
+/lsp symbols viden-core/src/lib.rs
+/lsp references viden-core/src/lib.rs 0 0
 ```
 
 Expected:
@@ -732,10 +732,10 @@ Expected:
 
 ## Acceptance Criteria
 
-- `robocode-lsp` exists as a workspace crate with tested config, protocol, framing, and runtime facade modules.
-- `robocode-types` owns serializable semantic result types.
-- `robocode-tools` exposes read-only `lsp_diagnostics`, `lsp_symbols`, and `lsp_references` through the existing registry.
-- `robocode-core` exposes transcript-visible `/lsp` commands.
+- `viden-lsp` exists as a workspace crate with tested config, protocol, framing, and runtime facade modules.
+- `viden-types` owns serializable semantic result types.
+- `viden-tools` exposes read-only `lsp_diagnostics`, `lsp_symbols`, and `lsp_references` through the existing registry.
+- `viden-core` exposes transcript-visible `/lsp` commands.
 - LSP failures are clean, actionable, and non-panicking.
 - No V2-B behavior bypasses permission, transcript, or shared tool execution paths.
 

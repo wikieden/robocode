@@ -143,10 +143,10 @@ fn provider_turn_uses_ephemeral_context_bundle_without_transcript_mutation() {
     let context = request
         .messages
         .iter()
-        .find(|message| message.content.contains("RoboCode ContextBundle"))
+        .find(|message| message.content.contains("Viden ContextBundle"))
         .expect("ephemeral context message");
     assert_eq!(context.role, viden_types::Role::System);
-    assert!(context.content.contains("RoboCode ContextBundle"));
+    assert!(context.content.contains("Viden ContextBundle"));
     assert!(context.content.contains("Policy: v1-priority-budget"));
     assert!(context.content.contains("Omitted sources:"));
     assert!(context.content.contains("Context pressure:"));
@@ -260,8 +260,8 @@ fn provider_turn_compacts_long_transcript_before_request() {
         "provider request should be compacted, got {} chars",
         combined.len()
     );
-    assert!(combined.contains("RoboCode ContextBundle"));
-    assert!(combined.contains("RoboCode compacted transcript summary"));
+    assert!(combined.contains("Viden ContextBundle"));
+    assert!(combined.contains("Viden compacted transcript summary"));
     assert!(
         !combined.contains("ancient-marker-0"),
         "oldest transcript details should not be replayed verbatim"
@@ -308,7 +308,7 @@ fn provider_turn_retries_request_too_large_with_smaller_context() {
     assert!(requests[1].messages.iter().any(|message| {
         message
             .content
-            .contains("RoboCode compacted provider request after a request-too-large error")
+            .contains("Viden compacted provider request after a request-too-large error")
     }));
     let telemetry = engine.provider_telemetry();
     assert_eq!(telemetry.failure_count, 1);

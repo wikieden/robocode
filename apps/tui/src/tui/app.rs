@@ -705,7 +705,7 @@ fn initial_state(
     provider_status.permission_level = engine.permission_level();
     let entries = vec![TuiEntry {
         label: "system".to_string(),
-        body: format!("RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.\n{startup_summary}"),
+        body: format!("Viden TUI ready. Enter submits. Esc or Ctrl-C exits.\n{startup_summary}"),
     }];
     TuiState {
         session_id: engine.session_id().to_string(),
@@ -916,11 +916,11 @@ fn poll_turn_controller_events(
 fn render_provider_turn_error(err: &str) -> String {
     if err.contains("Tool `") || err.contains("tool failed") {
         return format!(
-            "Tool execution failed, but RoboCode kept the TUI open.\n  error: {err}\n  next: inspect the tool path/input, then retry or ask RoboCode to use another tool."
+            "Tool execution failed, but Viden kept the TUI open.\n  error: {err}\n  next: inspect the tool path/input, then retry or ask Viden to use another tool."
         );
     }
     format!(
-        "Provider turn failed, but RoboCode kept the TUI open.\n  error: {err}\n  next: try /status, /provider doctor, /models, or retry with a smaller prompt."
+        "Provider turn failed, but Viden kept the TUI open.\n  error: {err}\n  next: try /status, /provider doctor, /models, or retry with a smaller prompt."
     )
 }
 
@@ -1148,7 +1148,7 @@ fn apply_interaction_panel_selection(
                     .find(|provider| provider.provider_id == provider_id)
                     && let Some(key_env) = provider.api_key_env.as_deref()
                 {
-                    // Only clear the current process environment. RoboCode does
+                    // Only clear the current process environment. Viden does
                     // not persist raw API keys, so deleting the saved env-var
                     // name would make future setup less discoverable.
                     unsafe {
@@ -1157,7 +1157,7 @@ fn apply_interaction_panel_selection(
                     state.entries.push(TuiEntry {
                         label: "setup".to_string(),
                         body: format!(
-                            "Cleared `{key_env}` for this RoboCode process. The config still records the env var name; enter a new key from `/connect {}` or export `{key_env}` in your shell.",
+                            "Cleared `{key_env}` for this Viden process. The config still records the env var name; enter a new key from `/connect {}` or export `{key_env}` in your shell.",
                             provider.provider_id
                         ),
                     });
@@ -1619,7 +1619,7 @@ fn queue_active_turn_input(state: &mut TuiState) {
         state.entries.push(TuiEntry {
             label: "system".to_string(),
             body: format!(
-                "{} queued. RoboCode will run it after the current turn finishes.",
+                "{} queued. Viden will run it after the current turn finishes.",
                 queued_prompt_count_label(count)
             ),
         });
@@ -1991,7 +1991,7 @@ mod tests {
         assert_eq!(pending.queued_inputs, vec!["write the follow-up tests"]);
         assert_eq!(state.input, "");
         assert!(state.entries.iter().any(|entry| entry.label == "system"
-            && entry.body.contains("1 prompt queued. RoboCode will run it")));
+            && entry.body.contains("1 prompt queued. Viden will run it")));
 
         state.input = "and summarize the risk".to_string();
         queue_active_turn_input(&mut state);
@@ -2367,7 +2367,7 @@ mod tests {
                 known_models: vec!["gpt-5.2".to_string(), "gpt-5.2-codex".to_string()],
                 enabled_models: Vec::new(),
                 favorite_models: Vec::new(),
-                api_key_env: Some("__ROBOCODE_TEST_MISSING_OPENAI_KEY__".to_string()),
+                api_key_env: Some("__VIDEN_TEST_MISSING_OPENAI_KEY__".to_string()),
                 api_base_env: None,
                 auth_modes: vec![ProviderAuthMode::ApiKey],
             },
@@ -2441,7 +2441,7 @@ mod tests {
             state
                 .entries
                 .iter()
-                .any(|entry| entry.label == "system" && entry.body.contains("RoboCode TUI ready"))
+                .any(|entry| entry.label == "system" && entry.body.contains("Viden TUI ready"))
         );
     }
 
@@ -2581,7 +2581,7 @@ mod tests {
         };
 
         refresh_diagnostics_cache(&mut state);
-        let persisted = fs::read_to_string(root.join(".robocode").join("diagnostics.txt"))
+        let persisted = fs::read_to_string(root.join(".viden").join("diagnostics.txt"))
             .expect("diagnostics cache");
 
         assert!(persisted.contains("src/main.rs:1:2 error [fake/E1] broken"));
@@ -2692,7 +2692,7 @@ mod tests {
             .expect("clock")
             .as_nanos();
         let suffix = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!("robocode-tui-app-test-{nanos}-{suffix}"));
+        let root = std::env::temp_dir().join(format!("viden-tui-app-test-{nanos}-{suffix}"));
         fs::create_dir_all(&root).expect("temp root");
         root
     }

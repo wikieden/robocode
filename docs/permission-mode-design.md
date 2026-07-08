@@ -10,12 +10,12 @@ Last updated: 2026-06-09
 
 ## Purpose
 
-RoboCode previously mixed work intent, approval behavior, and safety boundaries
+Viden previously mixed work intent, approval behavior, and safety boundaries
 under one "permission mode" concept. The target model separates them:
 
-- **Work Mode** says what RoboCode is doing: `build`, `plan`, later `review`
+- **Work Mode** says what Viden is doing: `build`, `plan`, later `review`
   and `explore`.
-- **Permission Level** says what RoboCode may do automatically.
+- **Permission Level** says what Viden may do automatically.
 
 Plan is no longer a normal permission option. Plan means
 `work_mode=plan` + `permission_level=read_only` + planner provider prompts.
@@ -25,7 +25,7 @@ Plan is no longer a normal permission option. Plan means
 | Permission Level | UI label | Intended use | Reads | File edits | Shell/Git mutation | Approval behavior |
 | --- | --- | --- | --- | --- | --- | --- |
 | `ask` | Ask | Default daily coding safety | Allow | Ask | Ask | Ask before mutations |
-| `auto_edit` | Auto Edit | Let RoboCode patch files while commands stay gated | Allow | Allow | Ask | Ask before shell/Git/other side effects |
+| `auto_edit` | Auto Edit | Let Viden patch files while commands stay gated | Allow | Allow | Ask | Ask before shell/Git/other side effects |
 | `auto` | Auto | Let routine in-workspace edits and commands proceed | Allow | Allow | Allow when classified safe/in scope | Ask or deny out-of-scope, network, destructive, or unknown actions |
 | `read_only` | Read Only | Audit, planning, review, and exploration | Allow | Deny | Deny | Deny mutations without asking |
 | `full_access` | Full Access | High-trust local automation | Allow | Allow | Allow in safety scope | No prompt for normal in-scope mutations |
@@ -181,7 +181,7 @@ Work mode commands stay separate:
 Confirmation examples:
 
 ```text
-Permission level set to Ask - RoboCode will ask before mutations.
+Permission level set to Ask - Viden will ask before mutations.
 Permission level set to Auto Edit - file edits can apply without approval.
 Permission level set to Auto - routine in-workspace actions can run when safe.
 Permission level set to Read Only - mutations are blocked.

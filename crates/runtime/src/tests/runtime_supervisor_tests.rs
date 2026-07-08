@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -17,6 +17,8 @@ use viden_workflows::stores::WorkflowStore;
 use crate::{RuntimeSupervisor, SessionEngine};
 
 use super::{SequenceProvider, temp_dir};
+
+static CUSTOM_ACP_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 struct BlockingProvider {
     entered: Arc<AtomicBool>,
@@ -293,6 +295,80 @@ fn runtime_supervisor_cancels_active_agent_task_and_keeps_worker_alive() {
             &event.kind,
             RuntimeEventKind::SnapshotUpdated { snapshot }
                 if snapshot.work_mode == WorkMode::Plan
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_streams_async_acp_runtime_events_live() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_acp_live_cwd");
+    let home = temp_dir("runtime_supervisor_acp_live_home");
+    let script = cwd.join("mock-acp-supervisor-live.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-supervisor-acp\",\"version\":\"0.5.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_supervisor_live\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_supervisor_live\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"supervisor live delta\"}}}'",
+            "sleep 2",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_supervisor_live\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+        ]
+        .join("\n"),
+    )
+    .expect("write supervisor ACP mock");
+    // The env lock serializes this process-wide override for the custom ACP descriptor.
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+
+    let provider = Box::new(SequenceProvider::new(Vec::new()));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "cmd_acp_async",
+            RuntimeCommand::SubmitUserInput {
+                content: "/agent run acp --async custom-acp stream live".to_string(),
+            },
+        )
+        .unwrap();
+
+    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AssistantDelta { content, .. }
+                    if content == "supervisor live delta"
+            )
+        })
+    });
+    // Restore the process environment while still holding the env lock.
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. } if command_id == "cmd_acp_async"
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::AssistantDelta { content, .. }
+                if content == "supervisor live delta"
         )
     }));
 }

@@ -3,7 +3,7 @@
 This document records the current TUI target so implementation stays aligned
 with accepted visual references and the terminal-agent workflow.
 
-Accepted design source: `docs/viden-design/Viden/`. The old RoboCode visual
+Accepted design source: `docs/viden-design/Viden/`. The old Viden visual
 plan is legacy and should not drive new TUI decisions.
 
 Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-design.md).
@@ -93,7 +93,7 @@ Requirements:
   - active tasks: pending approval plus the unified `AgentTask` view of running
     or queued terminal lanes and delegated Codex jobs.
   - diagnostics: `WorkspaceSnapshot.diagnostics`, populated from the persisted
-    `.robocode/diagnostics.txt` cache after background LSP checks, real
+    `.viden/diagnostics.txt` cache after background LSP checks, real
     `/lsp diagnostics <path>`, or post-edit LSP output; empty means
     unavailable/0.
   - provider health: `ProviderStatus` derived from `SessionEngine`
@@ -247,7 +247,7 @@ Codex job records, tmux/PTY logs, and future ACP events.
 Minimum fields:
 
 - `id` / `parent_id`: link the primary reply to child-agent and tool work.
-- `agent` / `kind` / `transport`: distinguish `robocode`, `codex`, `claude`,
+- `agent` / `kind` / `transport`: distinguish `viden`, `codex`, `claude`,
   `deepseek`, `shell`, `mcp`, `skill`, `acp`, plus `provider`, `tool`, `lane`,
   `job`, `test`, and `approval`.
 - `status`: use one set: `queued`, `thinking`, `streaming`, `editing`,
@@ -331,9 +331,9 @@ model.
   custom-template, Codex, and experimental ACP adapters. Codex readiness checks
   the local `codex` binary, app-server support, auth, config sources, and job
   store path. `/agent review codex`, `/agent challenge codex`, and
-  `/agent run codex [--write]` create tracked jobs under `.robocode/agents/`;
+  `/agent run codex [--write]` create tracked jobs under `.viden/agents/`;
   `/agent status`, `/agent result <id>`, and `/agent cancel <id>` inspect and
-  control those jobs. `--write` is explicit and runs through RoboCode's
+  control those jobs. `--write` is explicit and runs through Viden's
   mutating permission prompt before Codex starts in `workspace-write` sandbox.
   Codex jobs keep a start-time Git status baseline and extract
   resume/session hints plus touched-file evidence from result/log output, so
@@ -345,8 +345,8 @@ model.
   and `AgentTask` agree on the delegate answer. The main `NOW WORKING`
   band and right-rail `ACTIVE TASKS` panel read the same job records, so active
   Codex work is visible while the operator keeps typing. ACP readiness is configured through
-  `ROBOCODE_AGENT_ACP_COMMAND`; `/agent doctor acp` can run a minimal JSON-RPC
-  `initialize` handshake and writes `.robocode/agents/acp-doctor-*.jsonl`
+  `VIDEN_AGENT_ACP_COMMAND`; `/agent doctor acp` can run a minimal JSON-RPC
+  `initialize` handshake and writes `.viden/agents/acp-doctor-*.jsonl`
   evidence. Full `/lane acp` execution is still follow-up work.
 - `/test <command>` is a real runtime command, not a visual placeholder. It
   runs through shell approval, records the latest status, exit code, duration,
@@ -384,7 +384,7 @@ model.
   artifact paths, timeline rows, and envelope preview. `/lane timeline <id>`
   focuses the same persisted event chronology for operator review.
 - Template-launched Codex and Claude lanes run in isolated per-lane Git
-  worktrees under `.robocode/worktrees/` when a Git `HEAD` is available. The
+  worktrees under `.viden/worktrees/` when a Git `HEAD` is available. The
   task envelope records the lane workspace, mutation scope, isolation warnings,
   and cleanup/verification hints.
 - `/lane inspect <id>` also reports the relevant changed-file snapshot, using
@@ -392,31 +392,31 @@ model.
   non-isolated shell lanes. It includes lane verification evidence from
   exit/log artifacts and any explicit lane decision artifact.
 - `/lane accept <id>`, `/lane revise <id>`, and `/lane discard <id>` record
-  explicit operator decisions under `.robocode/lanes/<lane-id>.decision.md`.
+  explicit operator decisions under `.viden/lanes/<lane-id>.decision.md`.
 - `/lane apply <id>` applies an accepted isolated-lane worktree back to the
   current workspace through an auditable Git patch. It writes
-  `.robocode/lanes/<lane-id>.apply.patch` and
-  `.robocode/lanes/<lane-id>.apply.md`, refuses non-accepted lanes unless
+  `.viden/lanes/<lane-id>.apply.patch` and
+  `.viden/lanes/<lane-id>.apply.md`, refuses non-accepted lanes unless
   `--force` is provided, and does not commit or remove the lane worktree.
-  If the patch does not apply cleanly, RoboCode leaves the main workspace
+  If the patch does not apply cleanly, Viden leaves the main workspace
   untouched, marks the lane `apply_conflict`, and writes
-  `.robocode/lanes/<lane-id>.apply-conflict.md` with direct and three-way apply
+  `.viden/lanes/<lane-id>.apply-conflict.md` with direct and three-way apply
   check output plus changed-file context.
 - `/lane resolve <id>` retries an `apply_conflict` lane after the operator has
   adjusted the main workspace or lane worktree. It uses the same auditable
   patch path as `/lane apply`: the Git patch must pass `git apply --check`
-  before RoboCode mutates the main workspace. A clean retry writes the normal
+  before Viden mutates the main workspace. A clean retry writes the normal
   `.apply.md`; a still-conflicting retry refreshes `.apply-conflict.md`.
 - `/lane cleanup <id>` archives a lane by removing its isolated worktree only
   when the worktree is clean. Dirty worktrees require explicit
   `/lane cleanup <id> --force`, and every cleanup writes
-  `.robocode/lanes/<lane-id>.cleanup.md` before removal.
-- `/lane archive <id>` records `.robocode/lanes/<lane-id>.archive.md` and marks
+  `.viden/lanes/<lane-id>.cleanup.md` before removal.
+- `/lane archive <id>` records `.viden/lanes/<lane-id>.archive.md` and marks
   the lane archived without deleting logs, decisions, apply records, or an
   isolated worktree. Live queued/running/attached lanes must be stopped,
   completed, or detached first.
 - `/lane attach <id>` opens an interactive terminal for the lane workspace and
-  records `.robocode/lanes/<lane-id>.attach.md`. `/lane detach <id>` clears the
+  records `.viden/lanes/<lane-id>.attach.md`. `/lane detach <id>` clears the
   attached UI state without killing the external terminal process.
 - `/lane tmux <id>` creates or reuses a named tmux session for the lane
   workspace. The side-1 lane monitor and focused lane modal surface the exact
@@ -425,8 +425,8 @@ model.
   default tmux template, pane output is piped into the standard lane `.log`, so
   side screens and `/lane inspect` can observe live tmux output.
 - `/lane pty <id>` starts an embedded PTY bridge for the lane workspace. It
-  creates `.robocode/lanes/<lane-id>.pty.in` as the input FIFO, writes
-  `.robocode/lanes/<lane-id>.pty.md` as the audit record, and captures output
+  creates `.viden/lanes/<lane-id>.pty.in` as the input FIFO, writes
+  `.viden/lanes/<lane-id>.pty.md` as the audit record, and captures output
   in the standard lane `.log`. `/lane inspect <id>` surfaces those PTY artifact
   paths, and `/lane send <id> <text>` writes a line to that PTY bridge from
   inside the TUI.
@@ -447,36 +447,36 @@ model.
   stay in the normal text color, avoiding word-level color splits in the compact
   right rail.
 - LSP diagnostics from real core events are parsed by the TUI and persisted to
-  `.robocode/diagnostics.txt`, so the main screen and side screens can show the
+  `.viden/diagnostics.txt`, so the main screen and side screens can show the
   same evidence-backed diagnostics snapshot.
 - `/screen side-1` and `/screen side-2` launch real companion TUI processes
   with the current provider, model, theme, and workspace. The main screen tracks
   up to two side screens, `/screen list` reports them, and
   `/screen close <side-1|side-2>` stops tracking and sends a terminate request
   when a pid is known.
-- The screen registry is persisted in `.robocode/screens.tsv`, so main and
+- The screen registry is persisted in `.viden/screens.tsv`, so main and
   side-screen processes can observe the same companion-screen state.
-- `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE` and
-  `ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` can override the default
+- `VIDEN_SCREEN_SIDE_1_LAUNCH_TEMPLATE` and
+  `VIDEN_SCREEN_SIDE_2_LAUNCH_TEMPLATE` can override the default
   current-binary launcher for per-screen desktop workflows, with
-  `ROBOCODE_SCREEN_LAUNCH_TEMPLATE` as a shared fallback. Supported
+  `VIDEN_SCREEN_LAUNCH_TEMPLATE` as a shared fallback. Supported
   placeholders are `{screen}`, `{title}`, `{role}`, `{display}`,
   `{display_index}`, `{provider}`, `{model}`, `{theme}`, `{cwd}`, `{binary}`,
   `{args}` and their shell-quoted `{name:q}` forms. This lets an operator route
   side screens through Terminal.app, iTerm, tmux, or a display-placement script.
-- `ROBOCODE_LANE_CODEX_TEMPLATE` and `ROBOCODE_LANE_CLAUDE_TEMPLATE` support
+- `VIDEN_LANE_CODEX_TEMPLATE` and `VIDEN_LANE_CLAUDE_TEMPLATE` support
   `{tool}`, `{task}`, `{envelope}`, `{cwd}`, and `{worktree}` plus shell-quoted
   `{name:q}` forms. `{cwd}` and `{worktree}` both resolve to the actual lane
   workspace.
-- `/lane ask <tool> <task>` uses `ROBOCODE_LANE_<TOOL>_TEMPLATE` for custom
+- `/lane ask <tool> <task>` uses `VIDEN_LANE_<TOOL>_TEMPLATE` for custom
   supervised external tools such as Gemini, Junie, or local coding CLIs. Missing
   templates leave a queued lane with a rendered task envelope instead of losing
   the request.
-- `ROBOCODE_LANE_PTY_TEMPLATE` can override the embedded PTY bridge. It supports
+- `VIDEN_LANE_PTY_TEMPLATE` can override the embedded PTY bridge. It supports
   `{lane}`, `{task}`, `{tool}`, `{cwd}`, `{worktree}`, `{command}`, `{input}`,
   `{log}`, `{shell}` and shell-quoted `{name:q}` forms. The default Unix
   template uses the system `script` command plus the lane input FIFO.
-- `ROBOCODE_LANE_ATTACH_TEMPLATE` can override the default lane attach launcher.
+- `VIDEN_LANE_ATTACH_TEMPLATE` can override the default lane attach launcher.
   It supports `{lane}`, `{task}`, `{tool}`, `{cwd}`, `{worktree}`, `{log}` and
   shell-quoted `{name:q}` forms. macOS has a default Terminal.app launcher;
   other platforms should provide this template, for example a tmux or desktop
@@ -512,7 +512,7 @@ model.
   rail out of alignment.
 - Side-screen launch is real process management. Physical monitor placement is
   now an explicit launcher-template integration point via per-screen template
-  variables, but RoboCode still delegates OS-specific window movement to the
+  variables, but Viden still delegates OS-specific window movement to the
   configured terminal or display-placement script.
 - Command palette nested suggestions cover the main command families, including
   workspace file path suggestions for the common Git and LSP path-taking

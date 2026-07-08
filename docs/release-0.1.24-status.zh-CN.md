@@ -1,4 +1,4 @@
-# RoboCode 0.1.24 状态 - Provider 设置与非阻塞 Operator Loop
+# Viden 0.1.24 状态 - Provider 设置与非阻塞 Operator Loop
 
 英文版： [release-0.1.24-status.md](release-0.1.24-status.md)
 
@@ -13,15 +13,15 @@
 - Git tag：`v0.1.24`
 - Release commit：`60a3f42bd9da7232d1f7a62f1d3a688a542e20d5`
 - GitHub release：
-  `https://github.com/wikieden/robocode/releases/tag/v0.1.24`
+  `https://github.com/wikieden/viden/releases/tag/v0.1.24`
 - Release workflow：
-  `https://github.com/wikieden/robocode/actions/runs/27128819985` 已通过
+  `https://github.com/wikieden/viden/actions/runs/27128819985` 已通过
 - Homebrew tap commit：`23b1ad68e9783db408eb341e58185bc244445e4e`
-- Prepublish evidence：`/tmp/robocode-0124-release-gate/prepublish`
-- 本地 package：`dist/robocode-v0.1.24-aarch64-apple-darwin.tar.gz`
+- Prepublish evidence：`/tmp/viden-0124-release-gate/prepublish`
+- 本地 package：`dist/viden-v0.1.24-aarch64-apple-darwin.tar.gz`
 - 本地 package sha256：
   `5a9bd29040f071a0a4f623a9b9c9795ab8229025b13d04857461a2a9bd952a1b`
-- Post-publish evidence：`/tmp/robocode-0124-postpublish-gate/postpublish`
+- Post-publish evidence：`/tmp/viden-0124-postpublish-gate/postpublish`
 - 分发状态：GitHub Release assets 与 Homebrew tap validation 已通过
 
 ## 已包含改动
@@ -47,8 +47,8 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-turn-controller-smoke.sh
-scripts/plan-mode-smoke.sh /tmp/robocode-0124-plan-mode-smoke
-scripts/daily-loop-smoke.sh /tmp/robocode-0124-daily-loop-smoke
+scripts/plan-mode-smoke.sh /tmp/viden-0124-plan-mode-smoke
+scripts/daily-loop-smoke.sh /tmp/viden-0124-daily-loop-smoke
 scripts/tui-regression.sh docs/previews/generated
 ```
 
@@ -59,7 +59,7 @@ scripts/release-gate.sh --version 0.1.24
 ```
 
 结果：2026-06-08 prepublish 通过。证据目录：
-`/tmp/robocode-0124-release-gate`。
+`/tmp/viden-0124-release-gate`。
 
 Prepublish smoke 结果：
 
@@ -67,7 +67,7 @@ Prepublish smoke 结果：
 - `tdd-testing-contract-smoke`：通过
 - `tui-turn-controller-smoke`：通过
 - `cargo-clippy`：通过
-- `robocode-cli-tests`：通过
+- `viden-cli-tests`：通过
 - `workspace-tests`：通过
 - `tui-regression`：通过
 - `fallback-cli-smoke`：通过
@@ -86,7 +86,7 @@ DeepSeek 真实开发场景：
 - 请求：`3` 次成功，`0` 次错误
 - Token：input `11021`，output `427`，total `11448`
 - 估算费用：`¥0.011875 CNY`
-- 证据：`/tmp/robocode-0124-release-gate/prepublish/deepseek-dev-scenario`
+- 证据：`/tmp/viden-0124-release-gate/prepublish/deepseek-dev-scenario`
 
 发布后验证：
 
@@ -95,7 +95,7 @@ scripts/release-gate.sh --version 0.1.24 --phase postpublish
 ```
 
 结果：2026-06-08 postpublish 通过。证据目录：
-`/tmp/robocode-0124-postpublish-gate`。
+`/tmp/viden-0124-postpublish-gate`。
 
 Postpublish smoke 结果：
 
@@ -103,7 +103,7 @@ Postpublish smoke 结果：
 - `tdd-testing-contract-smoke`：通过
 - `tui-turn-controller-smoke`：通过
 - `cargo-clippy`：通过
-- `robocode-cli-terminal-tests`：通过
+- `viden-cli-terminal-tests`：通过
 - `tui-regression`：通过
 - `fallback-cli-smoke`：通过
 - `plan-mode-smoke`：通过
@@ -118,24 +118,24 @@ Postpublish smoke 结果：
 
 确定性的 0.1.24 TUI 截图：
 
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-main.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-main-idle.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-live-turn.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-main-resize.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-cjk-input.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-command-palette.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-setup-wizard.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-provider-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-provider-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-model-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-lane-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-lane-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-side-1.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.24-tui-side-2.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-main.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-main-idle.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-live-turn.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-main-resize.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-cjk-input.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-command-palette.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-setup-wizard.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-provider-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-provider-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-model-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-lane-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-lane-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-side-1.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.24-tui-side-2.svg`
 
 结构化 TUI 证据：
 
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/tui-regression-evidence.json`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/tui-regression-evidence.json`
 
 ## 剩余风险
 

@@ -371,13 +371,13 @@ fn run() -> Result<(), String> {
     }
 
     println!(
-        "RoboCode session {}. Type /help for commands, Ctrl-D to exit.",
+        "Viden session {}. Type /help for commands, Ctrl-D to exit.",
         engine.session_id()
     );
     println!("Startup provider: {provider_summary}");
 
     loop {
-        print!("robocode> ");
+        print!("viden> ");
         io::stdout().flush().map_err(|err| err.to_string())?;
         let Some(line) = read_lossy_line(&mut stdin).map_err(|err| err.to_string())? else {
             println!();
@@ -1007,12 +1007,12 @@ fn print_startup_help() {
     );
     println!();
     println!("Environment variables:");
-    println!("  ROBOCODE_PROVIDER, ROBOCODE_MODEL, ROBOCODE_API_BASE, ROBOCODE_API_KEY");
-    println!("  ROBOCODE_PROVIDER_PLUGIN_DIRS");
-    println!("  ROBOCODE_PERMISSION_MODE, ROBOCODE_SESSION_HOME");
-    println!("  ROBOCODE_REQUEST_TIMEOUT_SECS, ROBOCODE_MAX_RETRIES, ROBOCODE_CONFIG");
-    println!("  ROBOCODE_SCREEN_LAUNCH_TEMPLATE, ROBOCODE_LANE_ATTACH_TEMPLATE");
-    println!("  ROBOCODE_LANE_CODEX_TEMPLATE, ROBOCODE_LANE_CLAUDE_TEMPLATE");
+    println!("  VIDEN_PROVIDER, VIDEN_MODEL, VIDEN_API_BASE, VIDEN_API_KEY");
+    println!("  VIDEN_PROVIDER_PLUGIN_DIRS");
+    println!("  VIDEN_PERMISSION_MODE, VIDEN_SESSION_HOME");
+    println!("  VIDEN_REQUEST_TIMEOUT_SECS, VIDEN_MAX_RETRIES, VIDEN_CONFIG");
+    println!("  VIDEN_SCREEN_LAUNCH_TEMPLATE, VIDEN_LANE_ATTACH_TEMPLATE");
+    println!("  VIDEN_LANE_CODEX_TEMPLATE, VIDEN_LANE_CLAUDE_TEMPLATE");
     println!("  ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, DEEPSEEK_API_BASE");
 }
 

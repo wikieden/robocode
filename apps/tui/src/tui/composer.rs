@@ -58,7 +58,7 @@ pub(super) fn render_welcome(frame: &mut Frame, state: &TuiState) {
 
 pub(super) fn render_composer(frame: &mut Frame, state: &TuiState, bottom_bar_height: usize) {
     let top = frame.height - COMPOSER_HEIGHT - bottom_bar_height;
-    frame.write_line(top, &panel_top("RoboCode >_", frame.width, None));
+    frame.write_line(top, &panel_top("Viden >_", frame.width, None));
     frame.write_line(top + 1, &composer_input_spacer_row(frame.width));
     frame.write_line(top + 2, &composer_input_row(state, frame.width));
     frame.write_line(top + 3, &composer_input_spacer_row(frame.width));
@@ -77,7 +77,7 @@ fn composer_input_row(state: &TuiState, width: usize) -> String {
         state.input.clone()
     } else if let Some(turn) = &state.pending_turn {
         if turn.queued_inputs.is_empty() {
-            "Type next prompt while RoboCode works...".to_string()
+            "Type next prompt while Viden works...".to_string()
         } else {
             format!(
                 "{} queued; type another prompt...",
@@ -230,7 +230,7 @@ fn welcome_composer_top(width: usize, height: usize) -> usize {
 
 fn welcome_logo(width: usize) -> Vec<&'static str> {
     if width < 100 {
-        return vec!["RoboCode"];
+        return vec!["Viden"];
     }
     vec![
         "        /\\        ",
@@ -239,7 +239,7 @@ fn welcome_logo(width: usize) -> Vec<&'static str> {
         " /_/  |/__\\|  \\_\\ ",
         " |  []  /\\  []  | ",
         " |_____/  \\_____| ",
-        "    /_ROBOCODE_\\  ",
+        "    /_VIDEN_\\  ",
     ]
 }
 
@@ -275,7 +275,7 @@ fn welcome_spacer_row(box_width: usize) -> String {
 
 fn welcome_context_row(state: &TuiState, box_width: usize) -> String {
     let provider = provider_display_name(state);
-    let content = format!("▌ RoboCode - Operator · {} {}", state.model, provider);
+    let content = format!("▌ Viden - Operator · {} {}", state.model, provider);
     truncate(&pad(&content, box_width), box_width)
 }
 
@@ -396,7 +396,7 @@ mod tests {
         let lines = rendered.lines().collect::<Vec<_>>();
 
         assert_eq!(COMPOSER_HEIGHT, 6);
-        assert!(lines[33].contains("RoboCode >_"));
+        assert!(lines[33].contains("Viden >_"));
         assert!(lines[34].contains("│"));
         assert!(lines[35].contains("› hello"));
         assert!(lines[36].contains("│"));
@@ -435,7 +435,7 @@ mod tests {
         render_composer(&mut frame, &state, 1);
         let rendered = frame.to_string();
 
-        assert!(rendered.contains("Type next prompt while RoboCode works"));
+        assert!(rendered.contains("Type next prompt while Viden works"));
 
         state
             .pending_turn
@@ -483,7 +483,7 @@ mod tests {
         let mut state = state_with_input("hello");
         state.entries = vec![super::super::state::TuiEntry {
             label: "system".to_string(),
-            body: "RoboCode TUI ready. Enter submits.".to_string(),
+            body: "Viden TUI ready. Enter submits.".to_string(),
         }];
 
         let (column, row) = composer_cursor_position(&state, 140, 40, 1);
@@ -497,7 +497,7 @@ mod tests {
         let mut state = state_with_input("");
         state.entries = vec![super::super::state::TuiEntry {
             label: "system".to_string(),
-            body: "RoboCode TUI ready. Enter submits.".to_string(),
+            body: "Viden TUI ready. Enter submits.".to_string(),
         }];
         let mut frame = Frame::new(140, 40);
         render_welcome(&mut frame, &state);
@@ -514,13 +514,13 @@ mod tests {
         let mut state = state_with_input("");
         state.entries = vec![super::super::state::TuiEntry {
             label: "system".to_string(),
-            body: "RoboCode TUI ready. Enter submits.".to_string(),
+            body: "Viden TUI ready. Enter submits.".to_string(),
         }];
         let mut frame = Frame::new(140, 40);
         render_welcome(&mut frame, &state);
         let rendered = frame.to_string();
 
-        assert!(rendered.contains("/_ROBOCODE_\\"));
+        assert!(rendered.contains("/_VIDEN_\\"));
         assert!(rendered.contains("[]"));
     }
 
@@ -530,7 +530,7 @@ mod tests {
         state.entries = vec![
             super::super::state::TuiEntry {
                 label: "system".to_string(),
-                body: "RoboCode TUI ready. Enter submits.".to_string(),
+                body: "Viden TUI ready. Enter submits.".to_string(),
             },
             super::super::state::TuiEntry {
                 label: "user".to_string(),

@@ -9,7 +9,7 @@
                                        ┌ API key ──────────────────────────────────────────── esc ┐
                                        │ OpenAI needs an API key.                                 │
                                        │ It will be used for this session via OPENAI_API_KEY.     │
-                                       │ RoboCode will save the env var name, not the raw key.    │
+                                       │ Viden will save the env var name, not the raw key.    │
                                        │                                                          │
                                        │ API key _                                                │
                                        │                                                          │
@@ -36,5 +36,5 @@
 
 
 
-~/projects/robocode:main                                     ◎ 1 lanes  /status                                                    v0.1.30
+~/projects/viden:main                                     ◎ 1 lanes  /status                                                    v0.1.30
 

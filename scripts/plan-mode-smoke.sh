@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_DIR="${1:-"$(mktemp -d /tmp/robocode-plan-mode-smoke.XXXXXX)"}"
+OUT_DIR="${1:-"$(mktemp -d /tmp/viden-plan-mode-smoke.XXXXXX)"}"
 mkdir -p "$OUT_DIR"
 
 WORK_DIR="$OUT_DIR/workspace"
@@ -16,7 +16,7 @@ mkdir -p "$WORK_DIR" "$SESSION_HOME"
 (
   cd "$WORK_DIR"
   printf '/plan on\ntool write_file path=blocked.txt content=blocked\n/test printf plan-should-not-run\n/plan off\ntool write_file path=allowed.txt content=allowed\ny\n/status\n/exit\n' |
-    ROBOCODE_SESSION_HOME="$SESSION_HOME" \
+    VIDEN_SESSION_HOME="$SESSION_HOME" \
       cargo run -p viden-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
         --no-tui \
         --provider fallback \
@@ -45,7 +45,7 @@ if grep -Fxq "    plan-should-not-run" "$TRANSCRIPT"; then
 fi
 
 cat >"$SUMMARY" <<EOF
-# RoboCode Plan Mode Smoke
+# Viden Plan Mode Smoke
 
 - Workspace: \`$WORK_DIR\`
 - Session home: \`$SESSION_HOME\`

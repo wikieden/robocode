@@ -1,4 +1,4 @@
-# RoboCode 0.1.26 Status - TUI Regression Pack And Mode Stability
+# Viden 0.1.26 Status - TUI Regression Pack And Mode Stability
 
 Chinese version: [release-0.1.26-status.zh-CN.md](release-0.1.26-status.zh-CN.md)
 
@@ -11,7 +11,7 @@ development smoke as mandatory evidence for release readiness.
 - Workspace version: `0.1.26`
 - Git tag: `v0.1.26`
 - GitHub Release: published at
-  <https://github.com/wikieden/robocode/releases/tag/v0.1.26>
+  <https://github.com/wikieden/viden/releases/tag/v0.1.26>
 - Homebrew tap: synced in `wikieden/homebrew-tap` commit `d604599`
 
 ## Implemented
@@ -32,16 +32,16 @@ development smoke as mandatory evidence for release readiness.
 
 - `cargo fmt --all --check`: passed
 - `cargo clippy --workspace --all-targets -- -D warnings`: passed
-- `cargo test -p robocode-cli --quiet`: passed, `283` tests
+- `cargo test -p viden-cli --quiet`: passed, `283` tests
 - `cargo test --workspace --quiet`: passed
 - `scripts/tdd-testing-contract-smoke.sh`: passed
 - `scripts/tui-turn-controller-smoke.sh`: passed
-- `scripts/plan-mode-smoke.sh /tmp/robocode-0126-plan-mode-smoke`: passed
-- `scripts/daily-loop-smoke.sh /tmp/robocode-0126-daily-loop-smoke`: passed
+- `scripts/plan-mode-smoke.sh /tmp/viden-0126-plan-mode-smoke`: passed
+- `scripts/daily-loop-smoke.sh /tmp/viden-0126-daily-loop-smoke`: passed
 - `scripts/tui-regression.sh docs/previews/generated`: passed
-- `scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash --out-dir /tmp/robocode-0126-deepseek-dev-smoke`: passed
-- `scripts/release-gate.sh --version 0.1.26 --phase prepublish --out-dir /tmp/robocode-0126-release-gate`: passed
-- `scripts/release-gate.sh --version 0.1.26 --phase postpublish --out-dir /tmp/robocode-0126-release-gate`: passed
+- `scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash --out-dir /tmp/viden-0126-deepseek-dev-smoke`: passed
+- `scripts/release-gate.sh --version 0.1.26 --phase prepublish --out-dir /tmp/viden-0126-release-gate`: passed
+- `scripts/release-gate.sh --version 0.1.26 --phase postpublish --out-dir /tmp/viden-0126-release-gate`: passed
 
 ## DeepSeek Smoke Evidence
 
@@ -51,15 +51,15 @@ development smoke as mandatory evidence for release readiness.
 - Tokens: input `11382`, output `529`, total `11911`
 - Estimated cost: `¥0.012440 CNY`
 - Pricing basis: DeepSeek cache-miss estimate, input `¥1/1M`, output `¥2/1M`
-- Evidence: `/tmp/robocode-0126-release-gate/prepublish/deepseek-dev-scenario/summary.md`
+- Evidence: `/tmp/viden-0126-release-gate/prepublish/deepseek-dev-scenario/summary.md`
 
 ## Release Completion Gate
 
 `0.1.26` is complete only after:
 
 - `scripts/release-gate.sh --version 0.1.26 --phase prepublish` passes; done,
-  evidence at `/tmp/robocode-0126-release-gate/prepublish`;
+  evidence at `/tmp/viden-0126-release-gate/prepublish`;
 - GitHub Release `v0.1.26` assets are published; done, `8` assets;
 - `wikieden/homebrew-tap` is updated to `0.1.26`; done, commit `d604599`;
 - `scripts/release-gate.sh --version 0.1.26 --phase postpublish` passes; done,
-  evidence at `/tmp/robocode-0126-release-gate/postpublish`.
+  evidence at `/tmp/viden-0126-release-gate/postpublish`.

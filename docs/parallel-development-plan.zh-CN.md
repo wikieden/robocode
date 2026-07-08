@@ -21,7 +21,7 @@ Viden 正在迁移为 Runtime-first 平台：
 - TUI 和 GUI 是产品客户端。它们渲染状态并发送命令，不拥有 provider loop、tool
   execution、permission decision 或 task state。
 - 扩展通过声明式 plugin boundary 接入，不能绕过 runtime 的 permission/evidence 路径。
-- RoboCode 在迁移期保留为 legacy compatibility 名称；当前产品、文档、UI 和新架构方向统一为 Viden。
+- Viden 在迁移期保留为 legacy compatibility 名称；当前产品、文档、UI 和新架构方向统一为 Viden。
 
 ## 当前 Core Contract 基线
 
@@ -75,7 +75,7 @@ protocol 形态和迁移策略。
 - UI model contract：`RuntimeSnapshot`、event stream、command actions、approval
   requests、evidence views 和 UI contribution model
 - process-plugin protocol 草案
-- Viden rename 与 RoboCode compatibility 迁移计划
+- Viden rename 与 Viden compatibility 迁移计划
 - TUI/GUI contract-test fixture 计划
 
 ### Phase 1：核心结构重构
@@ -144,7 +144,7 @@ contract freeze 后，把工作拆到独立 branch/worktree。
 - deterministic TUI previews 和 GUI screenshots
 - 真实 DeepSeek development smoke，并记录 token、费用、耗时和失败分类
 - Viden binary/config migration tests
-- RoboCode compatibility shim tests
+- Viden compatibility shim tests
 - GitHub Release 与 Homebrew tap 作为一个发版单元验证
 
 ## 并发规则

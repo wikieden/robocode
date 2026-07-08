@@ -582,7 +582,7 @@ fn build_provider_request_messages_with_limits(
     if request_too_large_retry {
         request.push(Message::new(
             Role::System,
-            "RoboCode compacted provider request after a request-too-large error. The full transcript remains available in local audit storage.",
+            "Viden compacted provider request after a request-too-large error. The full transcript remains available in local audit storage.",
         ));
     }
     request.extend(recent_plain_history(history, limits));
@@ -642,7 +642,7 @@ fn compact_transcript_summary(
         .collect::<Vec<_>>()
         .join("\n");
     Some(format!(
-        "RoboCode compacted transcript summary\nOmitted durable messages: {omitted}\nRecent omitted facts:\n{lines}\n\nThe full transcript remains in RoboCode storage; this summary is only the provider request view."
+        "Viden compacted transcript summary\nOmitted durable messages: {omitted}\nRecent omitted facts:\n{lines}\n\nThe full transcript remains in Viden storage; this summary is only the provider request view."
     ))
 }
 
@@ -659,7 +659,7 @@ fn fit_provider_request_budget(
     while total_message_chars(&messages) > request_char_budget && messages.len() > 2 {
         let removable_recent_index = messages
             .iter()
-            .position(|message| message.content.contains("RoboCode ContextBundle"))
+            .position(|message| message.content.contains("Viden ContextBundle"))
             .filter(|context_index| *context_index > 1)
             .and_then(|context_index| {
                 (1..context_index).find(|index| !is_provider_request_protected(&messages[*index]))
@@ -682,11 +682,11 @@ fn fit_provider_request_budget(
 fn is_provider_request_protected(message: &Message) -> bool {
     message
         .content
-        .contains("RoboCode compacted transcript summary")
-        || message.content.contains("RoboCode ContextBundle")
+        .contains("Viden compacted transcript summary")
+        || message.content.contains("Viden ContextBundle")
         || message
             .content
-            .contains("RoboCode compacted provider request after a request-too-large error")
+            .contains("Viden compacted provider request after a request-too-large error")
 }
 
 fn total_message_chars(messages: &[Message]) -> usize {
@@ -713,7 +713,7 @@ fn compact_chars(input: &str, max_chars: usize) -> String {
         .rev()
         .collect::<String>();
     format!(
-        "{start}\n...[RoboCode compacted {} chars for provider request budget]...\n{end}",
+        "{start}\n...[Viden compacted {} chars for provider request budget]...\n{end}",
         input.chars().count().saturating_sub(keep)
     )
 }

@@ -10,7 +10,7 @@ use viden_types::SessionSummary;
 impl SessionEngine {
     pub(super) fn render_help(&self) -> String {
         [
-            "RoboCode commands:",
+            "Viden commands:",
             "",
             "Runtime:",
             "  /help                Show available commands",
@@ -373,7 +373,7 @@ struct StatusLane {
 }
 
 fn render_lane_status(cwd: &Path) -> Vec<String> {
-    let lanes = load_status_lanes(&cwd.join(".robocode").join("lanes.tsv"));
+    let lanes = load_status_lanes(&cwd.join(".viden").join("lanes.tsv"));
     let active = lanes
         .iter()
         .filter(|lane| matches!(lane.status.as_str(), "running" | "queued" | "attached"))

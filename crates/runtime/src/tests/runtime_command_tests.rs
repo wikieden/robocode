@@ -99,7 +99,7 @@ fn brief_command_creates_shows_and_status_reports_active_brief() {
     let output = engine
         .process_input_with_approval("/brief improve provider setup recovery", &mut approver)
         .unwrap();
-    assert!(cwd.join(".robocode/briefs/active.md").exists());
+    assert!(cwd.join(".viden/briefs/active.md").exists());
     assert!(output.iter().any(|event| matches!(
         event,
         EngineEvent::Command(text)
@@ -147,15 +147,15 @@ fn spec_alias_and_steering_init_create_context_files() {
         .process_input_with_approval("/brief steering init", &mut approver)
         .unwrap();
 
-    assert!(cwd.join(".robocode/briefs/active.md").exists());
-    assert!(cwd.join(".robocode/steering/conventions.md").exists());
-    assert!(cwd.join(".robocode/steering/architecture.md").exists());
-    assert!(cwd.join(".robocode/steering/workflows.md").exists());
+    assert!(cwd.join(".viden/briefs/active.md").exists());
+    assert!(cwd.join(".viden/steering/conventions.md").exists());
+    assert!(cwd.join(".viden/steering/architecture.md").exists());
+    assert!(cwd.join(".viden/steering/workflows.md").exists());
     assert!(output.iter().any(|event| matches!(
         event,
         EngineEvent::Command(text)
             if text.contains("Steering files ready")
-                && text.contains(".robocode/steering")
+                && text.contains(".viden/steering")
     )));
 }
 
@@ -165,9 +165,9 @@ fn status_command_reports_dirty_files_active_tasks_and_lanes() {
     let cwd = temp_dir("status_cockpit_cwd");
     init_git_repo(&cwd);
     std::fs::write(cwd.join("dirty.txt"), "changed\n").unwrap();
-    std::fs::create_dir_all(cwd.join(".robocode")).unwrap();
+    std::fs::create_dir_all(cwd.join(".viden")).unwrap();
     std::fs::write(
-        cwd.join(".robocode").join("lanes.tsv"),
+        cwd.join(".viden").join("lanes.tsv"),
         "L1\tcodex\tfix status cockpit\trunning\tmain\t42\tchecking status output\t\n",
     )
     .unwrap();
@@ -192,7 +192,7 @@ fn status_command_reports_dirty_files_active_tasks_and_lanes() {
             if text.contains("Workspace:")
                 && text.contains("Dirty files: 2")
                 && text.contains("dirty.txt")
-                && text.contains(".robocode/lanes.tsv")
+                && text.contains(".viden/lanes.tsv")
                 && text.contains("Workflows:")
                 && text.contains("Active tasks: 1")
                 && text.contains("Improve status cockpit")
@@ -222,6 +222,9 @@ fn agent_list_reports_builtin_agent_transports() {
         EngineEvent::Command(text)
             if text.contains("Agent adapters:")
                 && text.contains("codex")
+                && text.contains("codex-acp")
+                && text.contains("claude-acp")
+                && text.contains("kiro-cli")
                 && text.contains("template")
                 && text.contains("tmux")
                 && text.contains("pty")
@@ -273,7 +276,117 @@ fn agent_probe_codex_write_turn_is_guarded_by_default() {
         .expect_err("write probe should be guarded");
 
     assert!(err.contains("turn-write` is disabled by default"));
-    assert!(err.contains("ROBOCODE_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1"));
+    assert!(err.contains("VIDEN_EXPERIMENTAL_CODEX_APP_SERVER_WRITE=1"));
+}
+
+#[test]
+fn agent_probe_acp_reports_unknown_agent_before_launch() {
+    let home = temp_dir("agent_acp_probe_home");
+    let cwd = temp_dir("agent_acp_probe_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let err = engine
+        .process_input_with_approval("/agent probe acp unknown-agent", &mut approver)
+        .expect_err("unknown ACP agent should fail before process launch");
+
+    assert!(err.contains("Unknown ACP agent `unknown-agent`"));
+    assert!(err.contains("kiro-cli"));
+}
+
+#[test]
+fn agent_run_acp_reports_unknown_agent_before_launch() {
+    let home = temp_dir("agent_acp_run_home");
+    let cwd = temp_dir("agent_acp_run_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let err = engine
+        .process_input_with_approval("/agent run acp unknown-agent build a plan", &mut approver)
+        .expect_err("unknown ACP agent should fail before process launch");
+
+    assert!(err.contains("Unknown ACP agent `unknown-agent`"));
+    assert!(err.contains("kiro-cli"));
+}
+
+#[test]
+fn agent_run_acp_requires_task() {
+    let home = temp_dir("agent_acp_run_empty_home");
+    let cwd = temp_dir("agent_acp_run_empty_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let err = engine
+        .process_input_with_approval("/agent run acp kiro-cli", &mut approver)
+        .expect_err("ACP run requires a task");
+
+    assert!(err.contains("Usage: /agent run acp"));
+    assert!(err.contains("--load-session"));
+}
+
+#[test]
+fn agent_doctor_reports_kiro_acp_descriptor_without_global_command_env() {
+    let home = temp_dir("agent_kiro_doctor_home");
+    let cwd = temp_dir("agent_kiro_doctor_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/agent doctor kiro-cli", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Kiro CLI")
+                && text.contains("transport: acp")
+                && text.contains("source: local-command")
+                && text.contains("readiness: installed; auth unknown")
+                && text.contains("auth: agent-native; run `kiro-cli login`")
+                && text.contains("command: kiro-cli acp")
+                && text.contains("session/set_model")
+                && text.contains("_kiro.dev/commands/execute")
+    )));
+}
+
+#[test]
+fn agent_auth_kiro_reports_native_login_flow() {
+    let home = temp_dir("agent_kiro_auth_home");
+    let cwd = temp_dir("agent_kiro_auth_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let output = engine
+        .process_input_with_approval("/agent auth acp kiro-cli", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Kiro CLI uses native authentication")
+                && text.contains("kiro-cli login --use-device-flow")
+                && text.contains("/agent smoke acp --live")
+    )));
 }
 
 #[test]
@@ -296,10 +409,10 @@ fn agent_doctor_reports_experimental_acp_readiness() {
         EngineEvent::Command(text)
             if text.contains("ACP agent server")
                 && text.contains("transport: acp")
-                && text.contains("mutation: read-only probe only")
-                && text.contains("evidence: doctor/probe output")
-                && text.contains("experimental descriptor/probe surface only")
-                && text.contains("ROBOCODE_AGENT_ACP_COMMAND")
+                && text.contains("mutation: agent-native; mutating file/terminal requests require runtime bridge")
+                && text.contains("evidence: JSONL wire log, session result, permission decisions")
+                && text.contains("descriptor probe, minimal session run, and tracked async session jobs")
+                && text.contains("VIDEN_AGENT_ACP_COMMAND")
                 && text.contains("command: missing")
     )));
 }
@@ -338,7 +451,7 @@ fn agent_run_codex_write_requires_permission_before_launch() {
                 && text.contains("decision=deny")
     )));
     assert!(
-        !cwd.join(".robocode")
+        !cwd.join(".viden")
             .join("agents")
             .join("codex-jobs.jsonl")
             .exists()
@@ -441,7 +554,7 @@ fn test_command_records_last_test_evidence_in_status() {
     };
 
     let test_output = engine
-        .process_input_with_approval("/test echo robocode-test-ok", &mut approver)
+        .process_input_with_approval("/test echo viden-test-ok", &mut approver)
         .unwrap();
 
     assert_eq!(approvals.get(), 1);
@@ -450,8 +563,8 @@ fn test_command_records_last_test_evidence_in_status() {
         EngineEvent::Command(text)
             if text.contains("Test result:")
                 && text.contains("status: passed")
-                && text.contains("command: echo robocode-test-ok")
-                && text.contains("robocode-test-ok")
+                && text.contains("command: echo viden-test-ok")
+                && text.contains("viden-test-ok")
     )));
 
     let status_output = engine
@@ -462,7 +575,7 @@ fn test_command_records_last_test_evidence_in_status() {
         EngineEvent::Command(text)
             if text.contains("Last test:")
                 && text.contains("passed")
-                && text.contains("echo robocode-test-ok")
+                && text.contains("echo viden-test-ok")
     )));
     let snapshot = engine.agent_task_snapshot();
     assert!(snapshot.iter().any(|task| {
@@ -471,7 +584,7 @@ fn test_command_records_last_test_evidence_in_status() {
             && task
                 .evidence
                 .iter()
-                .any(|item| item == "command echo robocode-test-ok")
+                .any(|item| item == "command echo viden-test-ok")
     }));
 }
 

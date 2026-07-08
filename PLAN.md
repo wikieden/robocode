@@ -1,7 +1,7 @@
 # Viden Engineering Plan
 
 > Product direction update, 2026-06-26: **Viden is the active product
-> direction.** RoboCode is now a legacy implementation and release-artifact
+> direction.** Viden is now a legacy implementation and release-artifact
 > name during the compatibility migration. Product, TUI, and
 > GUI planning should follow the accepted Viden design source under
 > `docs/viden-design/Viden/`; do not use the deleted
@@ -83,7 +83,7 @@ Mainline landed status:
   generic lane adapters, per-lane worktree isolation, explicit accept/apply
   decisions, external terminal/tmux/PTY attach, `/lane send`, and lane log-tail
   replay while reusing the shared `SessionEngine`
-- 0.1.13 default cockpit entry: `robocode` opens the main TUI by default,
+- 0.1.13 default cockpit entry: `viden` opens the main TUI by default,
   `--no-tui` keeps the legacy line REPL available for scripts, and `/settings`
   / `/setup` provide first-run provider/model setup with saved defaults
 - provider runtime hardening checkpoints: descriptor validation, registry refresh coverage, blank-key handling, provider-scoped diagnostics, and offline/live smoke harnesses
@@ -161,7 +161,7 @@ Next release planning (`0.2.x` and `0.3.x`):
   token/cost summaries mandatory before releases.
 - `0.3.0`: Multi-frontend contract freeze and Viden migration plan. Freeze the
   UI/runtime contract before parallel UI work and define `viden` binary/config
-  migration plus the `robocode` compatibility shim.
+  migration plus the `viden` compatibility shim.
 - `0.3.1`: Parallel TUI and GUI implementation. Split work into independent
   worktrees/branches for core/runtime, TUI client, and Tauri/Web GUI client;
   at most three owners work concurrently against the shared contract.
@@ -230,7 +230,7 @@ Next release planning (`0.2.x` and `0.3.x`):
      external-agent adapter.
    - Prefer Codex app-server / protocol events over terminal scraping where
      available; persist thread IDs, touched files, command executions, final
-     output, and reasoning/evidence summaries into RoboCode lane evidence.
+     output, and reasoning/evidence summaries into Viden lane evidence.
    - Use read-only as the default review posture; require explicit permission
      boundaries for write-capable Codex work.
    - In `0.1.14`, make read-only Codex review and Claude template/tmux lanes
@@ -374,7 +374,7 @@ Primary planning docs:
 - `docs/release-0.1.14-plan.zh-CN.md`
 - `docs/superpowers/plans/2026-05-23-tui-cockpit-terminal-lanes.md`
 - `docs/superpowers/plans/2026-05-23-tui-cockpit-terminal-lanes.zh-CN.md`
-- `docs/superpowers/plans/2026-04-11-robocode-plan-index.md`
+- `docs/superpowers/plans/2026-04-11-viden-plan-index.md`
 
 Current V2-C docs, when present:
 

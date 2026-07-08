@@ -1,10 +1,10 @@
-# RoboCode 与 `.ref` 差距矩阵
+# Viden 与 `.ref` 差距矩阵
 
 英文版： [ref-gap-matrix.md](ref-gap-matrix.md)
 
-这份矩阵把 `.ref/claude-code-main`、当前 RoboCode 仓库，以及目标状态放在一起对比。
+这份矩阵把 `.ref/claude-code-main`、当前 Viden 仓库，以及目标状态放在一起对比。
 
-| 子系统 | `.ref` 能力摘要 | RoboCode 当前状态 | 目标状态 | 差距 | 阶段 | 备注 |
+| 子系统 | `.ref` 能力摘要 | Viden 当前状态 | 目标状态 | 差距 | 阶段 | 备注 |
 |---|---|---|---|---|---|---|
 | 核心会话引擎 | 共享 query loop，支持 tool-call continuation 和 transcript 驱动运行时 | 已实现共享 engine 和统一工具循环 | 在所有主要运行时路径上对齐参考行为 | 低 | V1 | 高相似度对标 |
 | 配置系统 | 启动编排和复杂环境/bootstrap 逻辑 | 已实现确定性配置合并；managed settings 缺失 | 稳定的本地/全局配置，并为 managed settings 预留空间 | 中 | V1 / 远期 | bootstrap 内部允许 Rust 化简化 |
@@ -31,7 +31,7 @@
 
 ## 总结
 
-RoboCode 已经覆盖了参考工程最重要的架构主梁：
+Viden 已经覆盖了参考工程最重要的架构主梁：
 
 - shared session engine
 - shared tool runtime

@@ -1,4 +1,4 @@
-# RoboCode 0.1.5 计划
+# Viden 0.1.5 计划
 
 最后更新：2026-05-25
 
@@ -10,7 +10,7 @@ provider 路径、shell lane、tmux lane 和 release artifacts 可以端到端�
 
 北极星目标：
 
-> 在真实 Rust、JavaScript 或 Python 项目里，用户可以留在 RoboCode TUI 内完成：
+> 在真实 Rust、JavaScript 或 Python 项目里，用户可以留在 Viden TUI 内完成：
 > 理解需求、修改代码、审查 diff、运行测试、修复失败、总结结果。
 
 聚焦对标：
@@ -64,7 +64,7 @@ provider 路径、shell lane、tmux lane 和 release artifacts 可以端到端�
 
 验收证据：
 
-- `cargo test -p robocode-cli`。
+- `cargo test -p viden-cli`。
 - TUI preview generation 通过，并覆盖 composer、command palette、modal、lane
   detail、side-1、side-2 和 multiscreen snapshots。
 - 手动或 tmux-driven fallback TUI smoke 覆盖输入、slash suggestions、approval、
@@ -100,7 +100,7 @@ provider 路径、shell lane、tmux lane 和 release artifacts 可以端到端�
   - `/status` 显示 provider、model、context、permissions、dirty files、active
     task、last test result 和 recent lane state。
   - 当前 checkpoint：`/status` 现在包含只读 cockpit sections，显示 dirty files、
-    active workflow tasks，以及来自 `.robocode/lanes.tsv` 的 active lane 数量，
+    active workflow tasks，以及来自 `.viden/lanes.tsv` 的 active lane 数量，
     同时保留最近 test evidence。
 
 验收证据：
@@ -164,7 +164,7 @@ Lane 有用的标准是减少上下文切换，而不是多一个看 log 的地�
 这个脚本会把日志和生成的 previews 写到 evidence 目录，并覆盖：
 
 - `cargo fmt --check`
-- `cargo test -p robocode-cli --quiet -- --test-threads=1`
+- `cargo test -p viden-cli --quiet -- --test-threads=1`
 - `cargo test --workspace --quiet -- --test-threads=1`
 - `scripts/tui-previews.sh <evidence>/tui-previews`
 - 通过 shell approval path 执行的 fallback CLI coding/test smoke
@@ -187,7 +187,7 @@ validation。
 
 ## 对标后的产品决策
 
-- RoboCode 继续定位为 local terminal cockpit，不做 cloud task runner，也不替代完整 editor。
+- Viden 继续定位为 local terminal cockpit，不做 cloud task runner，也不替代完整 editor。
 - 对齐 Codex 和 Zed 对集中 diff/review evidence 的体验预期。
 - 对齐 Claude Code 对顺滑 terminal action loop、permissions 和后续 hooks 的体验预期，
   但 `0.1.5` 先聚焦 approval 和 test loop。

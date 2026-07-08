@@ -1,4 +1,4 @@
-# RoboCode 0.1.4 Release Status
+# Viden 0.1.4 Release Status
 
 Last updated: 2026-05-25
 
@@ -21,22 +21,22 @@ and installable release artifacts.
 
 - Workspace tests passed with `cargo test --workspace --quiet`.
 - TUI previews regenerated for baseline verification with
-  `scripts/tui-previews.sh /tmp/robocode-014-baseline-preview`.
-- `robocode-cli --help` prints startup flags and provider list.
-- `robocode-cli --version` now prints `robocode-cli 0.1.4`.
+  `scripts/tui-previews.sh /tmp/viden-014-baseline-preview`.
+- `viden-cli --help` prints startup flags and provider list.
+- `viden-cli --version` now prints `viden-cli 0.1.4`.
 - Fallback REPL smoke passed with `/status` and `/exit`.
 - Release packaging smoke passed for `aarch64-apple-darwin` with:
   `scripts/package-release.sh 0.1.4 aarch64-apple-darwin`.
 - Packaged binary smoke passed after extracting
-  `dist/robocode-v0.1.4-aarch64-apple-darwin.tar.gz`.
+  `dist/viden-v0.1.4-aarch64-apple-darwin.tar.gz`.
 - macOS arm64 archive SHA-256:
   `747afc5cd066939f97d12180a1deaf6c608b088ccbadaf4f1e604f3d83c13fb3`.
-- Fallback TUI smoke passed in tmux with `/lane run printf robocode-lane-smoke`,
+- Fallback TUI smoke passed in tmux with `/lane run printf viden-lane-smoke`,
   `/lane inspect L1`, and `/exit`; lane evidence was written under an isolated
-  `/tmp/robocode-014-tui-smoke.*` workspace.
+  `/tmp/viden-014-tui-smoke.*` workspace.
 - Tmux lane smoke passed in tmux with `/lane tmux L1`; the lane wrote
   `L1.tmux.md` and a live `L1.log` under an isolated
-  `/tmp/robocode-014-tmux-smoke.*` workspace.
+  `/tmp/viden-014-tmux-smoke.*` workspace.
 - DeepSeek V4 Flash TUI live smoke passed with `DEEPSEEK_API_KEY` present:
   prompt `reply exactly ROBOSMOKE` produced assistant response `ROBOSMOKE` in
   both the TUI pane capture and JSONL transcript.
@@ -44,10 +44,10 @@ and installable release artifacts.
   `upload_to_release=false` for all configured targets:
   `aarch64-apple-darwin`, `x86_64-apple-darwin`,
   `x86_64-unknown-linux-gnu`, and `x86_64-pc-windows-msvc`.
-  Run: https://github.com/wikieden/robocode/actions/runs/26401318871.
+  Run: https://github.com/wikieden/viden/actions/runs/26401318871.
 - Final release workflow passed with `upload_to_release=true` and uploaded all
   configured artifacts to the GitHub release.
-  Run: https://github.com/wikieden/robocode/actions/runs/26401753477.
+  Run: https://github.com/wikieden/viden/actions/runs/26401753477.
 
 ## Changes Landed Toward 0.1.4
 
@@ -89,14 +89,14 @@ and installable release artifacts.
 
 `v0.1.4` is published at:
 
-- https://github.com/wikieden/robocode/releases/tag/v0.1.4
+- https://github.com/wikieden/viden/releases/tag/v0.1.4
 
 The release contains:
 
-- `robocode-v0.1.4-aarch64-apple-darwin.tar.gz`
-- `robocode-v0.1.4-x86_64-apple-darwin.tar.gz`
-- `robocode-v0.1.4-x86_64-unknown-linux-gnu.tar.gz`
-- `robocode-v0.1.4-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.4-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.4-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.4-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.4-x86_64-pc-windows-msvc.tar.gz`
 - matching `.sha256` files for each archive.
 
 ## Next Follow-Up

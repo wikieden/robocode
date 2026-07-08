@@ -3,10 +3,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${1:-"$ROOT/docs/previews/generated"}"
-THEME="${ROBOCODE_TUI_PREVIEW_THEME:-aurora-cyan}"
-THEMES="${ROBOCODE_TUI_PREVIEW_THEMES:-aurora-cyan ember-gold plasma-violet monochrome-ice}"
-PROVIDER="${ROBOCODE_TUI_PREVIEW_PROVIDER:-openai}"
-MODEL="${ROBOCODE_TUI_PREVIEW_MODEL:-gpt-4o}"
+THEME="${VIDEN_TUI_PREVIEW_THEME:-aurora-cyan}"
+THEMES="${VIDEN_TUI_PREVIEW_THEMES:-aurora-cyan ember-gold plasma-violet monochrome-ice}"
+PROVIDER="${VIDEN_TUI_PREVIEW_PROVIDER:-openai}"
+MODEL="${VIDEN_TUI_PREVIEW_MODEL:-gpt-4o}"
 
 mkdir -p "$OUT_DIR"
 

@@ -1,4 +1,4 @@
-# RoboCode 0.1.4 发布状态
+# Viden 0.1.4 发布状态
 
 最后更新：2026-05-25
 
@@ -19,32 +19,32 @@
 ## Baseline 证据
 
 - `cargo test --workspace --quiet` 通过。
-- `scripts/tui-previews.sh /tmp/robocode-014-baseline-preview` 已用于 baseline
+- `scripts/tui-previews.sh /tmp/viden-014-baseline-preview` 已用于 baseline
   verification 的 TUI preview 生成。
-- `robocode-cli --help` 能输出启动参数和 provider 列表。
-- `robocode-cli --version` 现在输出 `robocode-cli 0.1.4`。
+- `viden-cli --help` 能输出启动参数和 provider 列表。
+- `viden-cli --version` 现在输出 `viden-cli 0.1.4`。
 - fallback REPL smoke 通过，覆盖 `/status` 和 `/exit`。
 - `scripts/package-release.sh 0.1.4 aarch64-apple-darwin` 打包 smoke 通过。
-- 解压 `dist/robocode-v0.1.4-aarch64-apple-darwin.tar.gz` 后，包内二进制
+- 解压 `dist/viden-v0.1.4-aarch64-apple-darwin.tar.gz` 后，包内二进制
   smoke 通过。
 - macOS arm64 archive SHA-256：
   `747afc5cd066939f97d12180a1deaf6c608b088ccbadaf4f1e604f3d83c13fb3`。
 - fallback TUI smoke 已在 tmux 中通过，覆盖
-  `/lane run printf robocode-lane-smoke`、`/lane inspect L1` 和 `/exit`；
-  lane evidence 写入隔离的 `/tmp/robocode-014-tui-smoke.*` workspace。
+  `/lane run printf viden-lane-smoke`、`/lane inspect L1` 和 `/exit`；
+  lane evidence 写入隔离的 `/tmp/viden-014-tui-smoke.*` workspace。
 - tmux lane smoke 已在 tmux 中通过，覆盖 `/lane tmux L1`；lane 写入
   `L1.tmux.md` 和实时 `L1.log`，路径位于隔离的
-  `/tmp/robocode-014-tmux-smoke.*` workspace。
+  `/tmp/viden-014-tmux-smoke.*` workspace。
 - DeepSeek V4 Flash TUI live smoke 已通过：环境中存在 `DEEPSEEK_API_KEY`，
   prompt `reply exactly ROBOSMOKE` 在 TUI pane capture 和 JSONL transcript
   中都得到 assistant response `ROBOSMOKE`。
 - GitHub Actions release artifact validation 已以 `upload_to_release=false`
   跑通全部配置目标：`aarch64-apple-darwin`、`x86_64-apple-darwin`、
   `x86_64-unknown-linux-gnu` 和 `x86_64-pc-windows-msvc`。
-  Run: https://github.com/wikieden/robocode/actions/runs/26401318871。
+  Run: https://github.com/wikieden/viden/actions/runs/26401318871。
 - 最终 release workflow 已以 `upload_to_release=true` 通过，并把全部配置
   artifacts 上传到 GitHub release。
-  Run: https://github.com/wikieden/robocode/actions/runs/26401753477。
+  Run: https://github.com/wikieden/viden/actions/runs/26401753477。
 
 ## 已为 0.1.4 落地的变更
 
@@ -82,14 +82,14 @@
 
 `v0.1.4` 已发布：
 
-- https://github.com/wikieden/robocode/releases/tag/v0.1.4
+- https://github.com/wikieden/viden/releases/tag/v0.1.4
 
 release 包含：
 
-- `robocode-v0.1.4-aarch64-apple-darwin.tar.gz`
-- `robocode-v0.1.4-x86_64-apple-darwin.tar.gz`
-- `robocode-v0.1.4-x86_64-unknown-linux-gnu.tar.gz`
-- `robocode-v0.1.4-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.4-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.4-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.4-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.4-x86_64-pc-windows-msvc.tar.gz`
 - 每个 archive 对应的 `.sha256` 文件。
 
 ## 下一步 Follow-Up

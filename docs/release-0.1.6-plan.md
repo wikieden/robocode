@@ -1,10 +1,10 @@
-# RoboCode 0.1.6 Plan
+# Viden 0.1.6 Plan
 
 Last updated: 2026-05-26
 
 ## Goal
 
-`0.1.6` should move RoboCode from a terminal-first coding assistant toward a
+`0.1.6` should move Viden from a terminal-first coding assistant toward a
 multi-agent orchestration cockpit. The release should improve the live coding
 experience, make background work observable in the main screen, and lay the
 architecture for ACP, plugins, skills, and MCP without creating parallel
@@ -16,12 +16,12 @@ This plan follows three product findings from the 0.1.5 trial:
    visible immediately.
 2. Plugins, skills, and MCP need a coherent system design instead of isolated
    feature additions.
-3. Tmux-launched tools are useful, but RoboCode should evolve toward an
+3. Tmux-launched tools are useful, but Viden should evolve toward an
    ACP-compatible multi-agent adapter model inspired by Zed.
 
 ## Development Target
 
-The next version target is **make RoboCode feel alive and operator-grade during
+The next version target is **make Viden feel alive and operator-grade during
 real coding work**. The user should be able to submit a task, see what the main
 agent is doing, see what side agents are doing, and decide the next action
 without leaving the cockpit.
@@ -80,10 +80,10 @@ Version theme:
   - launch one local ACP-compatible process;
   - complete a minimal handshake;
   - record ACP events into a JSONL debug log;
-  - prove how ACP edit/tool/permission events map into RoboCode lanes.
+  - prove how ACP edit/tool/permission events map into Viden lanes.
 - ACP adapter visibility:
   - `/agent list` and `/agent doctor acp` expose the experimental ACP adapter
-    and its `ROBOCODE_AGENT_ACP_COMMAND` setup state. **Status: readiness
+    and its `VIDEN_AGENT_ACP_COMMAND` setup state. **Status: readiness
     visibility and a minimal JSON-RPC `initialize` handshake probe shipped;
     full lane execution remains follow-up.**
 - `/lane acp <agent> <task>` can remain experimental until the event model is
@@ -91,7 +91,7 @@ Version theme:
 
 ### User-Facing Success Criteria
 
-- After pressing Enter, the user never has to guess whether RoboCode is
+- After pressing Enter, the user never has to guess whether Viden is
   thinking, editing, waiting for approval, or supervising another agent.
 - The main screen and side screens use the same language for agent state:
   `thinking`, `editing`, `testing`, `waiting approval`, `needs input`,
@@ -116,7 +116,7 @@ Version theme:
   set of editor-owned settings such as model, mode, environment, MCP context
   servers, and project root, while external agents keep their own native
   configuration.
-- Zed agent-server packaging shows the distribution shape RoboCode should learn
+- Zed agent-server packaging shows the distribution shape Viden should learn
   from: per-platform targets, command/args, environment, archives, and SHA-256
   hashes.
 
@@ -126,13 +126,13 @@ Reference docs: [Zed ACP](https://zed.dev/acp),
 
 ## Product Principles
 
-- The main screen should always answer: "what is RoboCode doing right now?"
+- The main screen should always answer: "what is Viden doing right now?"
 - External agents are collaborators behind adapters, not trusted authorities.
 - ACP, tmux, PTY, CLI template lanes, plugins, skills, and MCP should all feed
   the same lane/status/approval/evidence model.
 - User-visible panels must stay evidence-backed. Unknown runtime state should
   render as idle, unavailable, or setup required.
-- RoboCode should be a local multi-agent cockpit first, not a cloud task runner
+- Viden should be a local multi-agent cockpit first, not a cloud task runner
   or full editor replacement.
 
 ## Workstreams
@@ -170,7 +170,7 @@ Goal: make external coding agents a first-class lane backend.
 
 Adapter families:
 
-- `template`: current `ROBOCODE_LANE_<TOOL>_TEMPLATE` flow.
+- `template`: current `VIDEN_LANE_<TOOL>_TEMPLATE` flow.
 - `tmux`: current operator-controlled terminal session flow.
 - `pty`: current embedded PTY bridge flow.
 - `acp`: future JSON-RPC/ACP bridge for agents that speak Agent Client Protocol.
@@ -211,7 +211,7 @@ Goal: add ACP support without breaking existing lane workflows.
 
 Phases:
 
-1. `robocode-acp` spike:
+1. `viden-acp` spike:
    - add a crate or module boundary for ACP message types and process transport;
    - use the official Rust ACP library if it fits, otherwise keep a minimal
      JSON-RPC transport wrapper until the protocol surface is clear.
@@ -225,7 +225,7 @@ Phases:
    - record streamed text, tool/edit events, and permission prompts as lane
      artifacts.
 4. Debug visibility:
-   - write `.robocode/agents/<lane-id>.acp.jsonl`;
+   - write `.viden/agents/<lane-id>.acp.jsonl`;
    - add `/agent logs <id>` or `/lane inspect <id>` ACP event replay.
 
 Do not implement registry installation before a local custom-agent flow works.
@@ -237,7 +237,7 @@ Goal: one extension model, multiple extension kinds.
 Proposed hierarchy:
 
 ```text
-robocode extensions
+viden extensions
   providers: model provider plugins (already started)
   agents: template/tmux/pty/acp agent adapters
   tools: local tool plugins and MCP-backed tools
@@ -247,10 +247,10 @@ robocode extensions
 
 Rules:
 
-- Provider plugins remain under `robocode-model` until the provider registry is
+- Provider plugins remain under `viden-model` until the provider registry is
   hardened.
 - Agent adapters should live near lane orchestration first, then move to
-  `robocode-agents` or `robocode-workflows` when stable.
+  `viden-agents` or `viden-workflows` when stable.
 - MCP tools must enter through the existing permission/tool/transcript path.
   Do not create a separate MCP mutation runtime.
 - Skills are not tools. They are reusable task envelopes, prompts, and workflow
@@ -265,7 +265,7 @@ Rules:
 
 ### 5. Multi-Agent Cockpit UX
 
-Goal: make RoboCode feel like an operator console for several agents.
+Goal: make Viden feel like an operator console for several agents.
 
 Main screen:
 
@@ -309,7 +309,7 @@ Commands:
    agents. **Initial read-only version shipped.**
 4. Add `/agent doctor` for Codex, Claude, custom templates, tmux, and PTY.
    **Initial read-only version shipped.**
-5. Spike `robocode-acp` against one local ACP-compatible agent. **Minimal
+5. Spike `viden-acp` against one local ACP-compatible agent. **Minimal
    `initialize` handshake probe and JSONL evidence shipped; full lane execution
    remains follow-up.**
 6. Add `/lane acp <agent> <task>` as an experimental command.
@@ -332,7 +332,7 @@ Commands:
   the same shape as future ACP lanes.
 - Agent/plugin/skill/MCP architecture is documented and has command stubs or
   planned surfaces.
-- ACP spike proves whether RoboCode can launch and exchange messages with one
+- ACP spike proves whether Viden can launch and exchange messages with one
   ACP-compatible agent process.
 - The 0.1.6 release smoke matrix passes with the updated live-cockpit,
   side-screen, and ACP readiness expectations.

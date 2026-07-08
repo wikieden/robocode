@@ -10,7 +10,7 @@ RUN_GITHUB_ACTIONS=0
 DRY_RUN=0
 
 final_zero_bug_required() {
-  [[ "${ROBOCODE_REQUIRE_FINAL_ZERO_BUG:-0}" == "1" || "$VERSION" == "0.1.30" ]]
+  [[ "${VIDEN_REQUIRE_FINAL_ZERO_BUG:-0}" == "1" || "$VERSION" == "0.1.30" ]]
 }
 
 usage() {
@@ -27,7 +27,7 @@ Phases:
 Options:
   --version <version>     Release version, for example 0.1.24.
   --target <triple>       Optional release target triple for package smoke.
-  --out-dir <dir>         Evidence root; defaults to /tmp/robocode-release-gate-...
+  --out-dir <dir>         Evidence root; defaults to /tmp/viden-release-gate-...
   --phase <phase>         prepublish, postpublish, or all. Default: prepublish.
   --github-actions        Also dispatch the release workflow in prepublish.
   --dry-run               Print commands without running them.
@@ -92,7 +92,7 @@ case "$PHASE" in
 esac
 
 if [[ -z "$OUT_DIR" ]]; then
-  OUT_DIR="$(mktemp -d "/tmp/robocode-release-gate-v${VERSION}.XXXXXX")"
+  OUT_DIR="$(mktemp -d "/tmp/viden-release-gate-v${VERSION}.XXXXXX")"
 fi
 mkdir -p "$OUT_DIR"
 
@@ -152,7 +152,7 @@ run_postpublish() {
   record "- postpublish: \`$phase_dir\`"
 }
 
-record "# RoboCode Release Gate"
+record "# Viden Release Gate"
 record ""
 record "- Version: \`$VERSION\`"
 record "- Phase: \`$PHASE\`"

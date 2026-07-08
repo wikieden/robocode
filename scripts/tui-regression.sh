@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${1:-"$ROOT/docs/previews/generated"}"
 SCREENSHOT_DIR="$OUT_DIR/screenshots"
-VERSION="${ROBOCODE_TUI_SCREENSHOT_VERSION:-}"
+VERSION="${VIDEN_TUI_SCREENSHOT_VERSION:-}"
 if [[ -z "$VERSION" ]]; then
   VERSION="$(cargo pkgid -p viden-cli | sed 's/.*#//')"
 fi
@@ -87,7 +87,7 @@ if len(main_lines) != 40:
     fail(f"main preview has {len(main_lines)} lines, expected 40")
 if not any("LIVE WORK" in line for line in main_lines):
     fail("main preview does not show live work activity")
-if not any("RoboCode >" in line for line in main_lines):
+if not any("Viden >" in line for line in main_lines):
     fail("main preview does not show composer title")
 if not any("› " in line for line in main_lines):
     fail("main preview does not show composer prompt")

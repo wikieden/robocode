@@ -76,7 +76,7 @@ Startup config is resolved through a fixed precedence chain:
 
 1. CLI flags
 2. Environment variables
-3. Project-local `.robocode/config.toml`
+3. Project-local `.viden/config.toml`
 4. Global config file
 5. Built-in defaults
 
@@ -290,7 +290,7 @@ Current protocol support:
 - Ollama text-only chat flow
 - local `fallback` behavior for offline use and smoke testing
 
-If credentials are missing, RoboCode can still run against deterministic local
+If credentials are missing, Viden can still run against deterministic local
 fallback behavior instead of failing to start.
 
 Runtime provider loading target:
@@ -404,13 +404,13 @@ Current workflow/LSP notes:
   without creating a second execution path. The command output also includes a
   small parser for common Rust/cargo and pytest failure-summary/file patterns.
 - `/status` also acts as a read-only cockpit snapshot: it collects git dirty
-  files, active workflow tasks, and lane state from `.robocode/lanes.tsv`, with
+  files, active workflow tasks, and lane state from `.viden/lanes.tsv`, with
   each collector degrading independently if that source is unavailable.
 - Successful `write_file` and `edit_file` results are structured as `path`,
   `size`, and `effect` lines so transcript and TUI surfaces can summarize file
   changes without parsing free-form prose.
 - Lane inspect/apply/recovery commands store auditable artifacts under
-  `.robocode/lanes/` and render a recommended next action so the operator can
+  `.viden/lanes/` and render a recommended next action so the operator can
   move from evidence review to accept/apply/resolve/cleanup without guessing
   the command sequence.
 - Side screens reuse the same lane next-action language and artifact hints:
@@ -421,7 +421,7 @@ Current workflow/LSP notes:
 
 ## Platform Notes
 
-RoboCode keeps one shared engine across platforms and varies only the execution
+Viden keeps one shared engine across platforms and varies only the execution
 adapter where necessary:
 
 - POSIX shell adapter on macOS and Linux

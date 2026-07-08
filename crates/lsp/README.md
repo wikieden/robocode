@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`viden-lsp` owns RoboCode's Language Server Protocol foundation: server configuration, JSON-RPC framing, protocol request construction, and the read-only semantic runtime facade used by core commands and tools.
+`viden-lsp` owns Viden's Language Server Protocol foundation: server configuration, JSON-RPC framing, protocol request construction, and the read-only semantic runtime facade used by core commands and tools.
 
 ## Does Not Own
 
@@ -39,4 +39,4 @@ cargo test -p viden-lsp
 
 ## `.ref` Alignment
 
-The reference project treats semantic code intelligence as an auxiliary developer capability, not a replacement for local file/search tools. RoboCode follows that behavior: LSP augments grep/read/edit workflows while preserving permission, transcript, and tool-loop boundaries.
+The reference project treats semantic code intelligence as an auxiliary developer capability, not a replacement for local file/search tools. Viden follows that behavior: LSP augments grep/read/edit workflows while preserving permission, transcript, and tool-loop boundaries.

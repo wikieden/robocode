@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the first V2-D slice for RoboCode's terminal
+This document defines the first V2-D slice for Viden's terminal
 presentation layer. The goal is to make existing command results easier to
 scan and reason about without changing command semantics, tool execution,
 permission behavior, or transcript storage.
@@ -11,13 +11,13 @@ The confirmed direction for this slice is:
 
 - start with LSP-facing output only
 - keep the existing REPL and command pipeline
-- add a presentation-focused module inside `robocode-core`
+- add a presentation-focused module inside `viden-core`
 - improve structure, not feature scope
 - defer full-screen TUI work until the text-rendering surface is stable
 
 ## Product Goal
 
-RoboCode should not only produce correct developer-facing information, it
+Viden should not only produce correct developer-facing information, it
 should present that information in a form that is easy to act on during
 everyday terminal use.
 
@@ -39,7 +39,7 @@ In scope:
   - `/lsp diagnostics`
   - `/lsp symbols`
   - `/lsp references`
-- a reusable presentation helper module in `robocode-core`
+- a reusable presentation helper module in `viden-core`
 - renderer-focused tests that lock output shape
 - preserving relative path rendering where possible
 
@@ -58,7 +58,7 @@ Out of scope:
 
 Add a presentation-focused internal module:
 
-- `robocode-core/src/presentation.rs`
+- `viden-core/src/presentation.rs`
 
 Responsibilities:
 
@@ -74,17 +74,17 @@ Non-responsibilities:
 - transcript writes
 - ANSI-heavy terminal behavior
 
-`robocode-core/src/lib.rs` remains the command routing surface. It continues to
+`viden-core/src/lib.rs` remains the command routing surface. It continues to
 own command dispatch and domain-specific rendering decisions, but delegates
 common formatting behavior to `presentation.rs`.
 
 ### Responsibility Split
 
-- `robocode-core`
+- `viden-core`
   owns command handling, domain-aware formatting, and final command output
 - `presentation.rs`
   owns reusable text layout helpers
-- `robocode-cli`
+- `viden-cli`
   remains a thin printing surface and should not gain command-specific view
   logic in this slice
 
@@ -162,10 +162,10 @@ Expected code-level impact:
 
 No changes are required to:
 
-- `robocode-tools`
-- `robocode-lsp`
-- `robocode-session`
-- `robocode-permissions`
+- `viden-tools`
+- `viden-lsp`
+- `viden-session`
+- `viden-permissions`
 
 ## Testing Strategy
 
@@ -183,14 +183,14 @@ Required coverage:
 Verification commands for this slice:
 
 ```bash
-cargo test -p robocode-core render_lsp_
-cargo test -p robocode-core presentation
+cargo test -p viden-core render_lsp_
+cargo test -p viden-core presentation
 ```
 
 Before completion, run:
 
 ```bash
-cargo test -p robocode-core
+cargo test -p viden-core
 cargo test --workspace --quiet
 ```
 
@@ -227,5 +227,5 @@ to:
 
 That later work should reuse the same boundary:
 
-- `robocode-core` owns structured text output
-- `robocode-cli` remains a thin terminal shell
+- `viden-core` owns structured text output
+- `viden-cli` remains a thin terminal shell

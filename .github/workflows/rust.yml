@@ -20,4 +20,4 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run quick release gate
-        run: scripts/release-smoke.sh --quick --out-dir /tmp/robocode-ci-release-smoke
+        run: scripts/release-smoke.sh --quick --out-dir /tmp/viden-ci-release-smoke

@@ -6,7 +6,7 @@ Last updated: 2026-06-26
 
 ## Decision
 
-Viden is the active product direction. The older RoboCode product framing is a
+Viden is the active product direction. The older Viden product framing is a
 legacy implementation plan and should no longer guide product, TUI, or GUI
 decisions.
 
@@ -35,10 +35,10 @@ design source.
 
 | Legacy term | Viden direction |
 | --- | --- |
-| RoboCode product | Viden product |
-| RoboCode cockpit | Viden cockpit |
-| RoboCode TUI / GUI | Viden TUI / GUI |
-| RoboCode visual identity | Viden Aurora identity |
+| Viden product | Viden product |
+| Viden cockpit | Viden cockpit |
+| Viden TUI / GUI | Viden TUI / GUI |
+| Viden visual identity | Viden Aurora identity |
 | Generated canvas export | Reviewed Viden design source |
 
 Implementation-specific names such as crates, binary names, config paths, and
@@ -74,16 +74,16 @@ screenshot, and runtime-state acceptance gates.
   wins for product direction; current implementation wins only for compatibility
   until the migration is explicitly planned.
 - The product name shown in user-facing design and planning docs should be
-  Viden. RoboCode should appear only when discussing legacy implementation
+  Viden. Viden should appear only when discussing legacy implementation
   names or migration compatibility.
 
 ## Open Migration Work
 
 1. Decide whether and when to rename the binary, crates, config directories,
    release artifacts, and Homebrew formula.
-2. Define compatibility policy for existing `robocode` commands and
-   `.robocode` user data.
-3. Convert active PRD, roadmap, TUI, and GUI documents from RoboCode framing to
+2. Define compatibility policy for existing `viden` commands and
+   `.viden` user data.
+3. Convert active PRD, roadmap, TUI, and GUI documents from Viden framing to
    Viden framing.
 4. Build screenshot baselines from the accepted Viden target images.
 5. Add a release gate that fails when UI screenshots drift from accepted Viden

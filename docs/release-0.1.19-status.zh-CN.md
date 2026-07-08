@@ -1,4 +1,4 @@
-# RoboCode 0.1.19 状态 - Delegated Lane Usefulness
+# Viden 0.1.19 状态 - Delegated Lane Usefulness
 
 英文版： [release-0.1.19-status.md](release-0.1.19-status.md)
 
@@ -12,10 +12,10 @@ operator-loop smoke 纳入常规门禁。
 - Workspace version：`0.1.19`
 - Git commit：`2319f26339c6403a6c280d4c1940179b55b79052`
 - Git tag：`v0.1.19`
-- GitHub release：https://github.com/wikieden/robocode/releases/tag/v0.1.19
-- Release workflow：https://github.com/wikieden/robocode/actions/runs/26677360247
+- GitHub release：https://github.com/wikieden/viden/releases/tag/v0.1.19
+- Release workflow：https://github.com/wikieden/viden/actions/runs/26677360247
 - Homebrew tap commit：`wikieden/homebrew-tap@d5fa2c143ae9967b9837104e163289ff3f924764`
-- 本地包：`dist/robocode-v0.1.19-aarch64-apple-darwin.tar.gz`
+- 本地包：`dist/viden-v0.1.19-aarch64-apple-darwin.tar.gz`
 - 本地包 sha256：
   `2124d8ab31f73fe98113a70f9816cf23aa4b204ac68fa44f9612ff986d041937`
 
@@ -40,9 +40,9 @@ operator-loop smoke 纳入常规门禁。
 ```bash
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test -p robocode-cli command_palette --quiet
-cargo test -p robocode-core provider --quiet
-cargo test -p robocode-cli --quiet
+cargo test -p viden-cli command_palette --quiet
+cargo test -p viden-core provider --quiet
+cargo test -p viden-cli --quiet
 cargo test --workspace --quiet
 ```
 
@@ -50,11 +50,11 @@ CLI 和视觉 smoke：
 
 ```bash
 printf '/provider\n/models\n/quit\n' | \
-  cargo run -p robocode-cli -- --no-tui --provider fallback --model test-local
+  cargo run -p viden-cli -- --no-tui --provider fallback --model test-local
 
-ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.19 \
-ROBOCODE_TUI_PREVIEW_PROVIDER=deepseek \
-ROBOCODE_TUI_PREVIEW_MODEL=deepseek-v4-flash \
+VIDEN_TUI_SCREENSHOT_VERSION=0.1.19 \
+VIDEN_TUI_PREVIEW_PROVIDER=deepseek \
+VIDEN_TUI_PREVIEW_MODEL=deepseek-v4-flash \
 scripts/tui-regression.sh docs/previews/generated
 ```
 
@@ -62,7 +62,7 @@ scripts/tui-regression.sh docs/previews/generated
 
 ```bash
 scripts/release-smoke.sh --version 0.1.19 --quick \
-  --out-dir /tmp/robocode-0119-release-smoke-local
+  --out-dir /tmp/viden-0119-release-smoke-local
 ```
 
 结果：9 个检查通过，5 个检查按设计跳过（`package-smoke`、可选
@@ -74,7 +74,7 @@ GitHub release asset 验证：
 ```bash
 scripts/release-smoke.sh --version 0.1.19 --quick \
   --github-release-assets --skip-package \
-  --out-dir /tmp/robocode-0119-github-release-check
+  --out-dir /tmp/viden-0119-github-release-check
 ```
 
 结果：GitHub release assets checksum validation 通过。
@@ -84,36 +84,36 @@ scripts/release-smoke.sh --version 0.1.19 --quick \
 ```bash
 scripts/release-smoke.sh --version 0.1.19 --quick \
   --github-release-assets --homebrew --skip-package \
-  --out-dir /tmp/robocode-0119-postpublish-check
+  --out-dir /tmp/viden-0119-postpublish-check
 ```
 
-结果：在 `/tmp/robocode-0119-postpublish-check` 通过，包含 GitHub release assets
+结果：在 `/tmp/viden-0119-postpublish-check` 通过，包含 GitHub release assets
 和 Homebrew validation。
 
 Homebrew formula 验证：
 
 ```bash
-brew fetch --formula wikieden/tap/robocode
-brew audit --formula wikieden/tap/robocode
+brew fetch --formula wikieden/tap/viden
+brew audit --formula wikieden/tap/viden
 ```
 
-结果：`brew fetch` 解析到 formula `robocode (0.1.19)`，audit 无错误输出。
+结果：`brew fetch` 解析到 formula `viden (0.1.19)`，audit 无错误输出。
 
 ## 截图证据
 
 确定性 0.1.19 TUI 截图：
 
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.19-tui-main.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.19-tui-main-idle.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.19-tui-live-turn.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.19-tui-main-resize.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.19-tui-cjk-input.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.19-tui-command-palette.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.19-tui-provider-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.19-tui-model-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.19-tui-lane-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.19-tui-side-1.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.19-tui-side-2.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.19-tui-main.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.19-tui-main-idle.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.19-tui-live-turn.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.19-tui-main-resize.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.19-tui-cjk-input.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.19-tui-command-palette.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.19-tui-provider-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.19-tui-model-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.19-tui-lane-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.19-tui-side-1.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.19-tui-side-2.svg`
 
 ## 剩余风险
 

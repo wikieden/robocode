@@ -10,12 +10,12 @@ English version: [permission-mode-design.md](permission-mode-design.md)
 
 ## 目的
 
-RoboCode 之前把 work intent、approval 行为和安全边界都混在一个 “permission mode”
+Viden 之前把 work intent、approval 行为和安全边界都混在一个 “permission mode”
 概念里。目标模型拆成两层：
 
-- **Work Mode** 表示 RoboCode 正在做什么：`build`、`plan`，后续可以扩展
+- **Work Mode** 表示 Viden 正在做什么：`build`、`plan`，后续可以扩展
   `review`、`explore`。
-- **Permission Level** 表示 RoboCode 可以自动做多少事。
+- **Permission Level** 表示 Viden 可以自动做多少事。
 
 Plan 不再是普通 permission option。Plan 表示
 `work_mode=plan` + `permission_level=read_only` + planner provider prompt。
@@ -25,7 +25,7 @@ Plan 不再是普通 permission option。Plan 表示
 | Permission Level | UI 标签 | 使用意图 | 读取 | 文件编辑 | Shell/Git mutation | Approval 行为 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `ask` | Ask | 默认日常编码安全档 | Allow | Ask | Ask | mutation 前询问 |
-| `auto_edit` | Auto Edit | 允许 RoboCode 自动 patch 文件，但命令仍受控 | Allow | Allow | Ask | shell/Git/其他副作用前询问 |
+| `auto_edit` | Auto Edit | 允许 Viden 自动 patch 文件，但命令仍受控 | Allow | Allow | Ask | shell/Git/其他副作用前询问 |
 | `auto` | Auto | 允许常规工作区内编辑和命令自动执行 | Allow | Allow | 安全/范围内 Allow | 越界、网络、危险或未知 action 询问或拒绝 |
 | `read_only` | Read Only | 审计、规划、评审、探索 | Allow | Deny | Deny | mutation 直接拒绝，不询问 |
 | `full_access` | Full Access | 高信任本地自动化 | Allow | Allow | 安全范围内 Allow | 常规范围内 mutation 不提示 |
@@ -175,7 +175,7 @@ Work mode commands 保持独立：
 确认文案示例：
 
 ```text
-Permission level set to Ask - RoboCode will ask before mutations.
+Permission level set to Ask - Viden will ask before mutations.
 Permission level set to Auto Edit - file edits can apply without approval.
 Permission level set to Auto - routine in-workspace actions can run when safe.
 Permission level set to Read Only - mutations are blocked.

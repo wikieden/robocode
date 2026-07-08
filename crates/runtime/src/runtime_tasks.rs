@@ -58,7 +58,7 @@ impl SessionEngine {
         AgentTaskRecord {
             id: format!("turn-{}-{now}", compact_session_id(self.session_id())),
             parent_id: None,
-            agent: "robocode".to_string(),
+            agent: "viden".to_string(),
             kind: "provider".to_string(),
             transport: self.provider_name().to_string(),
             title: first_line(input),
@@ -216,7 +216,7 @@ fn agent_for_tool(tool_name: &str) -> &str {
     match tool_name {
         "shell" => "shell",
         "git_diff" => "git",
-        _ => "robocode",
+        _ => "viden",
     }
 }
 

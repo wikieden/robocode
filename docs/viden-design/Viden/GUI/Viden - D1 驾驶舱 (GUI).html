@@ -1194,7 +1194,7 @@ const WS_TREE=[
   {d:0,t:'f',n:'README.md'},
 ];
 const WS_PROJECTS=[
-  {id:'robocode',nm:'robocode',tag:'cargo · 3 crates',open:true,tree:WS_TREE},
+  {id:'viden',nm:'viden',tag:'cargo · 3 crates',open:true,tree:WS_TREE},
   {id:'viden-web',nm:'viden-web',tag:'pnpm · next',open:false,tree:[
     {d:0,t:'dir',n:'app/',o:true},
     {d:1,t:'f',n:'page.tsx'},
@@ -1209,9 +1209,9 @@ const WS_PROJECTS=[
   ]},
 ];
 const THREADS=[
-  {id:0,lid:'L1',proj:'robocode',agent:'codex',tp:'pty/01',name:'config loader refactor',st:'var(--gold)',state:'run',sl:'testing',branch:'vd/config-loader',meta:'gate · 2m',pct:64,delta:'+24−6',model:'gpt-5-codex',via:'ACP',cli:'codex-cli',tail:['cp','› rerunning cargo test after patch (attempt 2)']},
-  {id:1,lid:'L2',proj:'robocode',agent:'claude',tp:'tmux/03',name:'provider retry/backoff',st:'var(--warning)',state:'wait',sl:'needs input',branch:'vd/retry-policy',meta:'needs input · 6m',pct:40,delta:'+8−2',model:'claude-sonnet-4.6',via:'ACP',cli:'claude-code',tail:['yp','? apply retry policy to all providers — waiting']},
-  {id:2,lid:'L3',proj:'robocode',agent:'kiro',tp:'bg/07',name:'parser clippy sweep',st:'var(--success)',state:'done',sl:'done',branch:'vd/parser-fmt',meta:'done · 11m',pct:100,delta:'+31−9',model:'kiro-spec',via:'ACP',cli:'kiro',tail:['gp','✓ clippy clean · ready to merge']},
+  {id:0,lid:'L1',proj:'viden',agent:'codex',tp:'pty/01',name:'config loader refactor',st:'var(--gold)',state:'run',sl:'testing',branch:'vd/config-loader',meta:'gate · 2m',pct:64,delta:'+24−6',model:'gpt-5-codex',via:'ACP',cli:'codex-cli',tail:['cp','› rerunning cargo test after patch (attempt 2)']},
+  {id:1,lid:'L2',proj:'viden',agent:'claude',tp:'tmux/03',name:'provider retry/backoff',st:'var(--warning)',state:'wait',sl:'needs input',branch:'vd/retry-policy',meta:'needs input · 6m',pct:40,delta:'+8−2',model:'claude-sonnet-4.6',via:'ACP',cli:'claude-code',tail:['yp','? apply retry policy to all providers — waiting']},
+  {id:2,lid:'L3',proj:'viden',agent:'kiro',tp:'bg/07',name:'parser clippy sweep',st:'var(--success)',state:'done',sl:'done',branch:'vd/parser-fmt',meta:'done · 11m',pct:100,delta:'+31−9',model:'kiro-spec',via:'ACP',cli:'kiro',tail:['gp','✓ clippy clean · ready to merge']},
   {id:3,lid:'L4',proj:null,agent:'viden',tp:'template',name:'0.2 lane protocol notes',st:'var(--progress)',state:'run',sl:'streaming',branch:'vd/lane-proto',meta:'streaming · now',pct:28,delta:'+2−0',model:'deepseek-v4',via:'built-in',cli:'viden',tail:['cp','› drafting section 2/5 — AgentTask schema']},
 ];
 const VIA_COLOR={'ACP':'var(--accent)','built-in':'var(--gold)'};
@@ -1657,7 +1657,7 @@ function ChatView({railOpen}){
           <span className="lid">L1</span>
           <span className="lnm">config loader</span>
           <span className="lbr">vd/config-loader</span>
-          <span className="lscope"><b>robocode</b> / viden-cli</span>
+          <span className="lscope"><b>viden</b> / viden-cli</span>
         </div>
         <div className="tabspacer"></div>
         <div className="tabmeta">128k · <span style={{color:'var(--gold)'}}>Build</span></div>

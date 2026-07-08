@@ -32,7 +32,7 @@ Provider runtime 分为两层：
   OpenAI-compatible、Ollama、fallback、DeepSeek，以及 DeepSeek
   Anthropic-compatible。
 - 动态 provider plugins 从解析后的 plugin 目录发现。CLI/config 层支持
-  `provider_plugin_dirs`、`ROBOCODE_PROVIDER_PLUGIN_DIRS`，以及可重复的
+  `provider_plugin_dirs`、`VIDEN_PROVIDER_PLUGIN_DIRS`，以及可重复的
   `--provider-plugin-dir <dir>`。
 
 动态加载是 descriptor-driven。原生 plugin 暴露

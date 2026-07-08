@@ -38,7 +38,8 @@
   scope 内 `git_add`，并拒绝越界 staging 和高风险 Git mutation。
 - 未完成：基于 live LSP references 的 role-specific ContextBundle enrichment、
   release/publish Git rules、evidence collection reducers、rename/delete/binary
-  等更完整 patch 格式、三方冲突处理，以及 external-agent plugin adapters。
+  等更完整 patch 格式、三方冲突处理，以及面向 Claude、Codex、Kiro CLI 的
+  Zed-inspired ACP external-agent plugin adapters。
 
 范围：用于监督式多 Agent 编程的共享 runtime、workflow、provider、tool、
 permission、context 和 evidence 契约。本文不定义 TUI 或 GUI 布局。TUI 和 GUI
@@ -125,8 +126,51 @@ flowchart TD
 - `doc-writer`：更新用户文档和架构文档；
 - `release-operator`：运行 release gates、验证 artifacts、准备发布证据。
 
-后续 external agents 只有在输出同样的 task、event、evidence 和 merge-gate records
-时才能接入。
+## 混合编排模型
+
+Viden 应把 agent orchestration 做成 workflow compiler 和 supervisor。用户目标可以被
+拆成 DAG，每个节点根据任务性质选择最合适的执行能力。选择时必须同时考虑专长和成本：
+最强 agent 不总是最合适的 agent；如果 local tool、MCP call、更便宜模型或 reusable
+skill 能以更低风险和成本产出同等 evidence，就应优先考虑。
+
+- 一方 runtime roles：规划、限定范围编码、review、测试、文档和 release evidence；
+- 外部 ACP agents：Claude、Codex、Kiro CLI 或未来安装的 agents，用于发挥各自原生能力；
+- MCP tools：第三方系统、托管服务、知识库、issue trackers、design systems 或远程自动化；
+- 本地 tools：file、shell、Git、LSP、web/search 和 diagnostics；
+- skills：封装后的 procedure、可复用 playbook 和领域特定 workflow step。
+
+scheduler 必须同时支持串行和并行组合：
+
+- 前序 evidence 被接受后才能继续的 sequential chains；
+- 互不依赖、scope 独立任务的 parallel fan-out；
+- reviewer/tester/release roles 在接受 patch、docs 或 release artifact 前做汇总的 fan-in gates；
+- 同一个 workflow 中混合 provider-backed role agents、ACP agents、MCP calls、local tools
+  和 skills，但全部走同一套 permission 与 evidence 模型。
+
+scheduler 应为每个 task 记录 assignment profile：
+
+- `owner`：role、agent id、MCP server/tool、local tool 或 skill；
+- `assignment_reason`：专长匹配、上下文局部性、文件归属、已有 evidence、成本、延迟、
+  风险或显式用户偏好；
+- `capability_fit`：为什么这个 owner 能满足 expected output contract；
+- `cost_profile`：预计 tokens/cost、预计 local tool time、provider class、budget cap
+  和 cost strategy；
+- `collaboration_pattern`：sequential handoff、parallel fan-out、fan-in review 或
+  manual approval gate。
+
+scheduler 应优先选择能产出 required evidence 的最低成本安全路径，但成本不能绕过权限、
+上下文或能力要求。
+
+每个编排步骤都必须能显示为 `AgentTask`、tool call、skill step、MCP invocation、
+evidence record 或 merge-gate decision。UI 客户端不能只靠 subprocess logs 推断
+workflow progress。
+
+External agents 正通过 ACP/plugin foundation 进入，但只有在输出同样的 task、event、
+evidence 和 merge-gate records 时，才能成为 production multi-agent participants。
+ACP 方向见 [Zed ACP 接入研究](zed-acp-integration-research.zh-CN.md)：
+Viden 应使用 plugin/extension descriptor 表达已安装 agent，但 subprocess lifecycle、
+prompt/cancel flow、permission bridge、evidence conversion 和 merge-gate updates
+必须由 RuntimeSupervisor 拥有。
 
 ## 事件协议
 
@@ -316,6 +360,23 @@ Merge 规则：
 - 允许 provider/tool/workflow plugins 声明 agent capabilities。
 - 增加 least-privilege external agent scopes。
 - 要求 external agents 输出同样的 runtime/workflow/evidence events。
+- 已落地 tracked ACP session job 到 RuntimeViewState 的投影。
+- 已把 ACP `fs/read_text_file` 和 `fs/write_text_file` 通过 Viden permission
+  checks 桥接；未支持的 filesystem methods 和 terminal client requests 在
+  terminal runtime bridge 落地前仍会被拒绝。
+- 已落地 baseline ACP `session/cancel`：后台 ACP job 取消会先请求协议层
+  cancel，再 fallback 到有界 process termination。
+- 已落地 ACP session restore/configuration：`session/load`、`session/set_mode`
+  和 `session/set_config_option` model config 已通过 `/agent run acp`
+  options 进入 runtime，并保留 legacy `session/set_model` fallback。
+- 已落地 custom/local ACP command support：`VIDEN_AGENT_ACP_COMMAND`
+  会作为可运行的 `custom-acp` descriptor 进入同一 runtime path。
+- 已落地 ACP update projection：assistant delta、tool call start/finish 和
+  turn-end evidence 会转换为可复用 runtime events。
+- 已落地 async/background ACP job 的 runtime-event 追加写入与
+  `RuntimeViewState` 回放，artifact 为 `runtime-events.jsonl`。
+- 已落地 async/background ACP job 通过 `RuntimeSupervisor` 的 live event push。
+- 下一步：补 permission-gated ACP terminal bridge，并完成 merge-gate conversion。
 
 ### 0.2.5 Real Development Gate
 

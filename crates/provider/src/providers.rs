@@ -404,7 +404,7 @@ impl ModelProvider for HttpProvider {
                     .map(|message| format!("API error: {message}"))
                     .unwrap_or_else(|| {
                         format!(
-                            "{} returned a response, but RoboCode could not parse assistant content.\n\nRaw response:\n{}",
+                            "{} returned a response, but Viden could not parse assistant content.\n\nRaw response:\n{}",
                             self.provider_name(),
                             response.body
                         )

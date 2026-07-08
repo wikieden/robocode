@@ -1,9 +1,9 @@
-# RoboCode vs `.ref` Gap Matrix
+# Viden vs `.ref` Gap Matrix
 
 This matrix compares the reference project in `.ref/claude-code-main` against
-the current RoboCode repository and the intended target state.
+the current Viden repository and the intended target state.
 
-| Subsystem | `.ref` capability summary | RoboCode current state | Target state | Gap | Phase | Notes |
+| Subsystem | `.ref` capability summary | Viden current state | Target state | Gap | Phase | Notes |
 |---|---|---|---|---|---|---|
 | Core session engine | Shared query loop with tool-call continuation and transcript-driven runtime | Implemented with shared engine and unified tool loop | Match reference behavior for all major runtime paths | Low | V1 | High similarity target |
 | Configuration | Startup orchestration plus complex environment/bootstrap logic | Deterministic config merge is implemented; advanced managed settings are absent | Stable local/global config plus room for managed settings | Medium | V1 / Long-term | Rust simplification is acceptable for bootstrap internals |
@@ -30,7 +30,7 @@ the current RoboCode repository and the intended target state.
 
 ## Summary
 
-RoboCode already covers the reference project's most important architectural
+Viden already covers the reference project's most important architectural
 spine:
 
 - shared session engine

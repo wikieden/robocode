@@ -1,13 +1,13 @@
-# RoboCode 0.1.20 Plan - Usability Beta Gate
+# Viden 0.1.20 Plan - Usability Beta Gate
 
 Chinese version: [release-0.1.20-plan.zh-CN.md](release-0.1.20-plan.zh-CN.md)
 
 ## Summary
 
-`0.1.20` is the usability beta gate. The release should make RoboCode feel
+`0.1.20` is the usability beta gate. The release should make Viden feel
 usable by someone who is not sitting next to the maintainer:
 
-> install RoboCode -> open the TUI -> configure provider/model -> run a daily
+> install Viden -> open the TUI -> configure provider/model -> run a daily
 > coding task -> understand what is happening -> approve/apply work -> run
 > tests -> delegate one review lane -> inspect evidence -> finish with
 > confidence.
@@ -20,7 +20,7 @@ that still require guessing command ids or reading implementation docs.
 
 By the end of `0.1.20`, a first-time or returning developer should be able to:
 
-- start RoboCode from a clean install and understand the next action;
+- start Viden from a clean install and understand the next action;
 - configure provider/model from inside the TUI without memorizing commands;
 - recover from missing keys, bad endpoints, model incompatibility, or provider
   failures through visible actions;
@@ -225,7 +225,7 @@ scripts/tui-previews.sh docs/previews/generated
 scripts/tui-regression.sh docs/previews/generated
 scripts/daily-loop-smoke.sh
 scripts/release-smoke.sh --version 0.1.20 --quick \
-  --out-dir /tmp/robocode-0120-release-smoke-local
+  --out-dir /tmp/viden-0120-release-smoke-local
 ```
 
 Manual:

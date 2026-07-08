@@ -23,7 +23,7 @@ pub fn build_shell_invocation(command: &str, windows: bool) -> (String, Vec<Stri
             ],
         )
     } else {
-        // Tool commands should inherit RoboCode's environment without sourcing
+        // Tool commands should inherit Viden's environment without sourcing
         // user startup files; stale profile hooks otherwise pollute tool output.
         (
             "sh".to_string(),

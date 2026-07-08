@@ -1,6 +1,6 @@
 # Provider Adapter Design
 
-RoboCode treats every model provider as a capability profile plus an adapter, not
+Viden treats every model provider as a capability profile plus an adapter, not
 as a plain OpenAI-compatible URL. Many providers accept a Chat Completions-shaped
 request, but they differ in model naming, tool-call replay, reasoning fields,
 authentication, request-size limits, and streaming event formats.

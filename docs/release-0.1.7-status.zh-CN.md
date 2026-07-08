@@ -1,4 +1,4 @@
-# RoboCode 0.1.7 发布状态
+# Viden 0.1.7 发布状态
 
 英文版： [release-0.1.7-status.md](release-0.1.7-status.md)
 
@@ -7,7 +7,7 @@
 ## 目标
 
 `0.1.7` 是 Codex Adapter 和 Agent Orchestration Backbone 版本。目标是让
-RoboCode 不再只是 terminal launcher，而是一个本地 host cockpit：Codex 成为第一
+Viden 不再只是 terminal launcher，而是一个本地 host cockpit：Codex 成为第一
 个 protocol-aware delegate agent，主 TUI 显示实时工作状态，副屏展示 lane、
 extension、MCP 和 evidence 状态。
 
@@ -31,7 +31,7 @@ extension、MCP 和 evidence 状态。
 - `/agent doctor codex` 会检查 command、version、app-server support、auth
   status、config sources 和 job-store path。
 - `/agent review codex`、`/agent challenge codex` 和
-  `/agent run codex [--write] <task>` 会在 `.robocode/agents/` 下创建 tracked
+  `/agent run codex [--write] <task>` 会在 `.viden/agents/` 下创建 tracked
   Codex job records 和 artifacts。
 - `/agent status`、`/agent result <id>` 和 `/agent cancel <id>` 会展示 tracked
   Codex job lifecycle。
@@ -44,32 +44,32 @@ extension、MCP 和 evidence 状态。
 - 稳定 subprocess-backed Codex、ACP 和 lane tests 后，默认
   `cargo test --workspace --quiet` 已通过。
 - 带 DeepSeek 真实 provider validation 的完整本地 release smoke 已通过：
-  `scripts/release-smoke.sh --version 0.1.7 --deepseek --out-dir /tmp/robocode-017-release-smoke-deepseek-local-2`。
+  `scripts/release-smoke.sh --version 0.1.7 --deepseek --out-dir /tmp/viden-017-release-smoke-deepseek-local-2`。
 - Evidence 目录：
-  `/tmp/robocode-017-release-smoke-deepseek-local-2`。
-- smoke matrix 已通过 `cargo-fmt`、`robocode-cli-tests`、
+  `/tmp/viden-017-release-smoke-deepseek-local-2`。
+- smoke matrix 已通过 `cargo-fmt`、`viden-cli-tests`、
   `workspace-tests`、`tui-previews`、`fallback-cli-smoke`、
   `shell-lane-smoke`、`tmux-lane-smoke`、`package-smoke` 和
   `deepseek-cli-smoke`。
 - DeepSeek V4 Flash live smoke 已通过；transcript 中包含
-  `robocode-deepseek-smoke-ok`。
+  `viden-deepseek-smoke-ok`。
 - `aarch64-apple-darwin` host package smoke 已通过；解压后的二进制输出
-  `robocode-cli 0.1.7`。
+  `viden-cli 0.1.7`。
 - macOS arm64 archive SHA-256：
   `c9a17d5d4d3d36824616505a3abde659a6db173fffa21c22b3f60b83d988d1a2`。
 - GitHub Actions release artifact validation 已以 `upload_to_release=false`
   跑通全部配置目标：`aarch64-apple-darwin`、`x86_64-apple-darwin`、
   `x86_64-unknown-linux-gnu` 和 `x86_64-pc-windows-msvc`。
-  Run: https://github.com/wikieden/robocode/actions/runs/26449257109。
+  Run: https://github.com/wikieden/viden/actions/runs/26449257109。
 - 最终 GitHub release workflow 已以 `upload_to_release=true` 通过，并上传全部
   配置 artifacts。
-  Run: https://github.com/wikieden/robocode/actions/runs/26449437778。
-- Homebrew tap `wikieden/homebrew-tap` 中的 RoboCode formula URL 和 SHA-256
+  Run: https://github.com/wikieden/viden/actions/runs/26449437778。
+- Homebrew tap `wikieden/homebrew-tap` 中的 Viden formula URL 和 SHA-256
   已指向 `v0.1.7`。
   Commit: https://github.com/wikieden/homebrew-tap/commit/8e84a89。
 - Homebrew fetch smoke 已通过：
-  `brew fetch --force wikieden/tap/robocode` 输出
-  `Formula robocode (0.1.7)`。
+  `brew fetch --force wikieden/tap/viden` 输出
+  `Formula viden (0.1.7)`。
 
 ## 验证门禁
 
@@ -106,14 +106,14 @@ extension、MCP 和 evidence 状态。
 
 `v0.1.7` 已发布：
 
-- https://github.com/wikieden/robocode/releases/tag/v0.1.7
+- https://github.com/wikieden/viden/releases/tag/v0.1.7
 
 release 包含：
 
-- `robocode-v0.1.7-aarch64-apple-darwin.tar.gz`
-- `robocode-v0.1.7-x86_64-apple-darwin.tar.gz`
-- `robocode-v0.1.7-x86_64-unknown-linux-gnu.tar.gz`
-- `robocode-v0.1.7-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.7-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.7-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.7-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.7-x86_64-pc-windows-msvc.tar.gz`
 - 每个 archive 对应的 `.sha256` 文件。
 
 GitHub 返回的 asset digests：
@@ -131,5 +131,5 @@ Homebrew 安装路径：
 
 ```bash
 brew tap wikieden/tap
-brew install robocode
+brew install viden
 ```

@@ -30,6 +30,7 @@ owning provider loops, tool execution, permission decisions, or workflow state.
 | Provider/model setup | provider panel, model picker, health strip | `RuntimeSnapshot.provider_id`, `ProviderHealthView`, active model config | `ConfigureProvider`, `SelectModel`, `ActivateModel`, `DeactivateModel` | landed |
 | Tool execution | transcript tool cards, active tool strip, evidence list | `ToolCallStarted`, `ToolCallFinished`, structured `success` / `exit_code` | approval response only; tools run through core | landed |
 | Agent DAG and tasks | agent board, lane list, task detail, next-action dock | `AgentDagRecord`, `AgentTaskRecord`, `AgentNextAction` | `StartAgentDag`, `StartAgentTask`, `CancelAgentTask` | landed in `0.2.2` |
+| Agent workflow visibility | Mission Control board, workflow strip, plan/now/done/acceptance/blocked columns | `AgentDagRecord`, `AgentTaskRecord`, `EvidenceView`, `MergeGateRecord`, `RuntimeErrorView` | existing workflow/task/evidence/merge commands | proposed |
 | ContextBundle | context panel, token pressure meter, omitted-source list | `ContextBundleRecord`, `ContextSourceRecord`, token budgets | no direct mutation; future context-policy commands | partial |
 | Evidence and merge gate | evidence center, diff/test/review checklist, merge gate card | `EvidenceView`, `MergeGateRecord` | `RecordAgentEvidence`, `AcceptMergeGate`, `RejectMergeGate`, `AcceptAgentArtifact`, `RejectAgentArtifact`, `MergeAgentPatch` | reducer first slice landed in `0.2.3` |
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
@@ -84,11 +85,18 @@ is rejected, render `CommandRejected.reason`.
 `AgentDagRecord` is the workflow container. `AgentTaskRecord` is the
 frontend-facing unit of work.
 
+The first workflow surface should answer the Mission Control questions defined
+in [Agent Workflow Visibility](agent-workflow-visibility.md): assignment
+rationale, planned next work, current work, completed output, acceptance state,
+blockers, and cost impact.
+
 Required rendering fields:
 
 - `id`, `parent_id`, `agent`, `kind`, `transport`, and `title` identify the
   task.
 - `status`, `activity`, and `progress` drive visible state and progress.
+- assignment reason and cost profile explain why this agent/tool/skill owns the
+  task.
 - `summary`, `result`, and `next_action` describe the outcome and next step.
 - `workspace`, `evidence`, and `permissions` link to supporting facts.
 - `started_at` and `updated_at` are display timestamps; they are not ordering

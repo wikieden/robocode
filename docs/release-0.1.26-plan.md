@@ -1,4 +1,4 @@
-# RoboCode 0.1.26 Plan - TUI Regression Pack And Mode Stability
+# Viden 0.1.26 Plan - TUI Regression Pack And Mode Stability
 
 Chinese version: [release-0.1.26-plan.zh-CN.md](release-0.1.26-plan.zh-CN.md)
 
@@ -93,7 +93,7 @@ flowchart TD
 - The operator can scroll history while streaming is active; new output is
   indicated without snapping the viewport away from history.
 - Cancel and retry remain reachable during active work.
-- At the end of a Plan response, RoboCode returns to a usable composer state and
+- At the end of a Plan response, Viden returns to a usable composer state and
   does not silently start implementation.
 
 ## Implementation Checkpoints
@@ -137,8 +137,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-turn-controller-smoke.sh
 scripts/tui-regression.sh docs/previews/generated
-scripts/plan-mode-smoke.sh /tmp/robocode-0126-plan-mode-smoke
-scripts/daily-loop-smoke.sh /tmp/robocode-0126-daily-loop-smoke
+scripts/plan-mode-smoke.sh /tmp/viden-0126-plan-mode-smoke
+scripts/daily-loop-smoke.sh /tmp/viden-0126-daily-loop-smoke
 scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
 scripts/release-gate.sh --version 0.1.26
 scripts/release-gate.sh --version 0.1.26 --phase postpublish
@@ -153,7 +153,7 @@ status must say that explicitly and include the fallback estimate method.
 - Start on the welcome screen, run `/connect`, `/models`, `/mode plan`,
   `/mode build`, and `/permissions ask`; the UI must stay on the correct
   surface and chips must update immediately.
-- Run a Plan prompt, type the next instruction while RoboCode is planning, then
+- Run a Plan prompt, type the next instruction while Viden is planning, then
   verify the draft/queue survives until the turn completes.
 - While streaming, scroll up through transcript history; new output must not
   force the viewport back to the bottom.

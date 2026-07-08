@@ -1,4 +1,4 @@
-# RoboCode 0.1.7 Release Status
+# Viden 0.1.7 Release Status
 
 Chinese version: [release-0.1.7-status.zh-CN.md](release-0.1.7-status.zh-CN.md)
 
@@ -7,7 +7,7 @@ Last updated: 2026-05-26
 ## Goal
 
 Version `0.1.7` is the Codex Adapter and Agent Orchestration Backbone
-release. Its purpose is to make RoboCode feel less like a terminal launcher and
+release. Its purpose is to make Viden feel less like a terminal launcher and
 more like a local host cockpit: Codex becomes the first protocol-aware delegate
 agent, the main TUI shows live work state, and side screens expose lane,
 extension, MCP, and evidence state.
@@ -35,7 +35,7 @@ extension, MCP, and evidence state.
   support, auth status, config sources, and job-store path.
 - `/agent review codex`, `/agent challenge codex`, and
   `/agent run codex [--write] <task>` create tracked Codex job records and
-  artifacts under `.robocode/agents/`.
+  artifacts under `.viden/agents/`.
 - `/agent status`, `/agent result <id>`, and `/agent cancel <id>` expose the
   tracked Codex job lifecycle.
 - The TUI `OPERATION CENTER` is fixed at the top of the transcript and labels
@@ -49,33 +49,33 @@ extension, MCP, and evidence state.
 - Default `cargo test --workspace --quiet` passes after stabilizing
   subprocess-backed Codex, ACP, and lane tests.
 - Full local release smoke with DeepSeek live provider validation passed:
-  `scripts/release-smoke.sh --version 0.1.7 --deepseek --out-dir /tmp/robocode-017-release-smoke-deepseek-local-2`.
+  `scripts/release-smoke.sh --version 0.1.7 --deepseek --out-dir /tmp/viden-017-release-smoke-deepseek-local-2`.
 - Evidence directory:
-  `/tmp/robocode-017-release-smoke-deepseek-local-2`.
-- The smoke matrix passed `cargo-fmt`, `robocode-cli-tests`,
+  `/tmp/viden-017-release-smoke-deepseek-local-2`.
+- The smoke matrix passed `cargo-fmt`, `viden-cli-tests`,
   `workspace-tests`, `tui-previews`, `fallback-cli-smoke`,
   `shell-lane-smoke`, `tmux-lane-smoke`, `package-smoke`, and
   `deepseek-cli-smoke`.
 - DeepSeek V4 Flash live smoke passed; the transcript contains
-  `robocode-deepseek-smoke-ok`.
+  `viden-deepseek-smoke-ok`.
 - Host package smoke passed for `aarch64-apple-darwin`; the extracted binary
-  prints `robocode-cli 0.1.7`.
+  prints `viden-cli 0.1.7`.
 - macOS arm64 archive SHA-256:
   `c9a17d5d4d3d36824616505a3abde659a6db173fffa21c22b3f60b83d988d1a2`.
 - GitHub Actions release artifact validation passed with
   `upload_to_release=false` for all configured targets:
   `aarch64-apple-darwin`, `x86_64-apple-darwin`,
   `x86_64-unknown-linux-gnu`, and `x86_64-pc-windows-msvc`.
-  Run: https://github.com/wikieden/robocode/actions/runs/26449257109.
+  Run: https://github.com/wikieden/viden/actions/runs/26449257109.
 - The final GitHub release workflow passed with `upload_to_release=true` and
   uploaded all configured artifacts.
-  Run: https://github.com/wikieden/robocode/actions/runs/26449437778.
-- Homebrew tap `wikieden/homebrew-tap` now points RoboCode formula URLs and
+  Run: https://github.com/wikieden/viden/actions/runs/26449437778.
+- Homebrew tap `wikieden/homebrew-tap` now points Viden formula URLs and
   SHA-256 values at `v0.1.7`.
   Commit: https://github.com/wikieden/homebrew-tap/commit/8e84a89.
 - Homebrew fetch smoke passed:
-  `brew fetch --force wikieden/tap/robocode` reported
-  `Formula robocode (0.1.7)`.
+  `brew fetch --force wikieden/tap/viden` reported
+  `Formula viden (0.1.7)`.
 
 ## Validation Gates
 
@@ -113,14 +113,14 @@ All planned `0.1.7` validation gates have passed:
 
 `v0.1.7` is published at:
 
-- https://github.com/wikieden/robocode/releases/tag/v0.1.7
+- https://github.com/wikieden/viden/releases/tag/v0.1.7
 
 The release contains:
 
-- `robocode-v0.1.7-aarch64-apple-darwin.tar.gz`
-- `robocode-v0.1.7-x86_64-apple-darwin.tar.gz`
-- `robocode-v0.1.7-x86_64-unknown-linux-gnu.tar.gz`
-- `robocode-v0.1.7-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.7-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.7-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.7-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.7-x86_64-pc-windows-msvc.tar.gz`
 - matching `.sha256` files for each archive.
 
 GitHub reported asset digests:
@@ -138,5 +138,5 @@ Homebrew install path:
 
 ```bash
 brew tap wikieden/tap
-brew install robocode
+brew install viden
 ```

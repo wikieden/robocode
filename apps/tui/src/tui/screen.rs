@@ -49,7 +49,7 @@ pub fn run_side_tui_with_theme(
         transcript_scroll: 0,
         entries: vec![TuiEntry {
             label: "system".to_string(),
-            body: format!("RoboCode side monitor ready. Esc or Ctrl-C exits.\n{startup_summary}"),
+            body: format!("Viden side monitor ready. Esc or Ctrl-C exits.\n{startup_summary}"),
         }],
         workspace: WorkspaceSnapshot::load_current(),
         tasks: engine.active_task_snapshot().unwrap_or_default(),
@@ -218,7 +218,7 @@ fn launch_companion_screen(state: &mut TuiState, screen: SideScreen) {
     if state.screens.len() >= 2 {
         state.entries.push(TuiEntry {
             label: "system".to_string(),
-            body: "RoboCode supports at most two companion side screens: side-1 and side-2."
+            body: "Viden supports at most two companion side screens: side-1 and side-2."
                 .to_string(),
         });
         return;
@@ -278,8 +278,8 @@ fn spawn_companion_screen(state: &TuiState, screen: &str) -> Result<u32, String>
 
 fn screen_launch_template(screen: &str) -> Option<(String, String)> {
     let specific_key = match screen {
-        "side-1" => Some("ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE"),
-        "side-2" => Some("ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE"),
+        "side-1" => Some("VIDEN_SCREEN_SIDE_1_LAUNCH_TEMPLATE"),
+        "side-2" => Some("VIDEN_SCREEN_SIDE_2_LAUNCH_TEMPLATE"),
         _ => None,
     };
     specific_key
@@ -289,9 +289,9 @@ fn screen_launch_template(screen: &str) -> Option<(String, String)> {
                 .map(|template| (key.to_string(), template))
         })
         .or_else(|| {
-            env::var("ROBOCODE_SCREEN_LAUNCH_TEMPLATE")
+            env::var("VIDEN_SCREEN_LAUNCH_TEMPLATE")
                 .ok()
-                .map(|template| ("ROBOCODE_SCREEN_LAUNCH_TEMPLATE".to_string(), template))
+                .map(|template| ("VIDEN_SCREEN_LAUNCH_TEMPLATE".to_string(), template))
         })
 }
 
@@ -374,7 +374,7 @@ fn screen_shell_script_path(extension: &str) -> std::path::PathBuf {
         .map(|duration| duration.as_millis())
         .unwrap_or_default();
     std::env::temp_dir()
-        .join("robocode-screen-shell")
+        .join("viden-screen-shell")
         .join(format!("screen-launch-{millis}.{extension}"))
 }
 
@@ -656,13 +656,13 @@ mod tests {
     #[test]
     fn side_screen_lanes_do_not_fall_back_to_preview_data() {
         let root = std::env::temp_dir().join(format!(
-            "robocode-side-lanes-test-{}",
+            "viden-side-lanes-test-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("clock")
                 .as_nanos()
         ));
-        let missing_store = root.join(".robocode").join("lanes.tsv");
+        let missing_store = root.join(".viden").join("lanes.tsv");
 
         let lanes = load_side_lanes(Some(&missing_store));
 
@@ -672,7 +672,7 @@ mod tests {
     #[test]
     fn side_screen_registry_merges_current_screen_with_persisted_siblings() {
         let root = std::env::temp_dir().join(format!(
-            "robocode-side-screen-test-{}",
+            "viden-side-screen-test-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("clock")
@@ -764,9 +764,9 @@ mod tests {
 
     fn screen_template_env(template: &'static str) -> ScopedEnv {
         ScopedEnv::set_many(&[
-            ("ROBOCODE_SCREEN_LAUNCH_TEMPLATE", Some(template)),
-            ("ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE", None),
-            ("ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE", None),
+            ("VIDEN_SCREEN_LAUNCH_TEMPLATE", Some(template)),
+            ("VIDEN_SCREEN_SIDE_1_LAUNCH_TEMPLATE", None),
+            ("VIDEN_SCREEN_SIDE_2_LAUNCH_TEMPLATE", None),
         ])
     }
 

@@ -8,7 +8,7 @@ pub(crate) fn temp_dir(name: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let path = std::env::temp_dir().join(format!("robocode_provider_host_{name}_{nanos}"));
+    let path = std::env::temp_dir().join(format!("viden_provider_host_{name}_{nanos}"));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
     path

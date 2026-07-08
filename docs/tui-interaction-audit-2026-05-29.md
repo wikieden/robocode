@@ -61,7 +61,7 @@ the "what is working right now" signal.
 - Mouse coverage should expand next to right-rail task selection, lane modal
   controls, side-screen scrolling, transcript links, and wheel events.
 - Cursor blink and IME placement still depend partly on terminal behavior.
-  RoboCode should add an app-owned high-contrast caret fallback if more
+  Viden should add an app-owned high-contrast caret fallback if more
   terminals fail to render the native blinking bar.
 
 ## Recommended Next Slice
@@ -85,4 +85,4 @@ instead of hiding them.
    removed text. Footer promises should be executable.
 
 Detailed release requirements live in
-[RoboCode 0.1.16 Plan](release-0.1.16-plan.md).
+[Viden 0.1.16 Plan](release-0.1.16-plan.md).

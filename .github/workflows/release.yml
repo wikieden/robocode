@@ -51,10 +51,10 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
-          name: robocode-${{ github.event.inputs.tag }}-${{ matrix.target }}
+          name: viden-${{ github.event.inputs.tag }}-${{ matrix.target }}
           path: |
-            dist/robocode-${{ github.event.inputs.tag }}-${{ matrix.target }}.tar.gz
-            dist/robocode-${{ github.event.inputs.tag }}-${{ matrix.target }}.tar.gz.sha256
+            dist/viden-${{ github.event.inputs.tag }}-${{ matrix.target }}.tar.gz
+            dist/viden-${{ github.event.inputs.tag }}-${{ matrix.target }}.tar.gz.sha256
           if-no-files-found: error
 
   upload-release:
@@ -75,4 +75,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag }}
-        run: gh release upload "$TAG" dist-upload/* --repo wikieden/robocode --clobber
+        run: gh release upload "$TAG" dist-upload/* --repo "$GITHUB_REPOSITORY" --clobber

@@ -1,4 +1,4 @@
-# RoboCode 0.1.9 状态
+# Viden 0.1.9 状态
 
 英文版： [release-0.1.9-status.md](release-0.1.9-status.md)
 
@@ -49,7 +49,7 @@ docs/previews/generated/tui-regression-evidence.json
 完整本地 release smoke：
 
 ```bash
-scripts/release-smoke.sh --version 0.1.9 --deepseek --out-dir /tmp/robocode-019-release-smoke-full
+scripts/release-smoke.sh --version 0.1.9 --deepseek --out-dir /tmp/viden-019-release-smoke-full
 ```
 
 结果：
@@ -57,13 +57,13 @@ scripts/release-smoke.sh --version 0.1.9 --deepseek --out-dir /tmp/robocode-019-
 - passed: 11
 - failed: 0
 - skipped: 3
-- evidence: `/tmp/robocode-019-release-smoke-full/release-evidence.json`
+- evidence: `/tmp/viden-019-release-smoke-full/release-evidence.json`
 
 通过的检查：
 
 - `cargo-fmt`
 - `cargo-clippy`
-- `robocode-cli-tests`
+- `viden-cli-tests`
 - `workspace-tests`
 - `tui-regression`
 - `fallback-cli-smoke`
@@ -76,13 +76,13 @@ scripts/release-smoke.sh --version 0.1.9 --deepseek --out-dir /tmp/robocode-019-
 Package smoke 生成：
 
 ```text
-dist/robocode-v0.1.9-aarch64-apple-darwin.tar.gz
+dist/viden-v0.1.9-aarch64-apple-darwin.tar.gz
 ```
 
 解压后的 binary 输出：
 
 ```text
-robocode-cli 0.1.9
+viden-cli 0.1.9
 ```
 
 ## 发布状态
@@ -90,9 +90,9 @@ robocode-cli 0.1.9
 已发布并验证。
 
 - GitHub release:
-  [v0.1.9](https://github.com/wikieden/robocode/releases/tag/v0.1.9)
+  [v0.1.9](https://github.com/wikieden/viden/releases/tag/v0.1.9)
 - Release workflow:
-  [run 26496859443](https://github.com/wikieden/robocode/actions/runs/26496859443)
+  [run 26496859443](https://github.com/wikieden/viden/actions/runs/26496859443)
 - Workflow status: `completed` / `success`
 - Release published at: `2026-05-27T07:19:05Z`
 - Main release commit: `99b3957`
@@ -100,19 +100,19 @@ robocode-cli 0.1.9
 
 已上传 release assets：
 
-- `robocode-v0.1.9-aarch64-apple-darwin.tar.gz`
-- `robocode-v0.1.9-aarch64-apple-darwin.tar.gz.sha256`
-- `robocode-v0.1.9-x86_64-apple-darwin.tar.gz`
-- `robocode-v0.1.9-x86_64-apple-darwin.tar.gz.sha256`
-- `robocode-v0.1.9-x86_64-pc-windows-msvc.tar.gz`
-- `robocode-v0.1.9-x86_64-pc-windows-msvc.tar.gz.sha256`
-- `robocode-v0.1.9-x86_64-unknown-linux-gnu.tar.gz`
-- `robocode-v0.1.9-x86_64-unknown-linux-gnu.tar.gz.sha256`
+- `viden-v0.1.9-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.9-aarch64-apple-darwin.tar.gz.sha256`
+- `viden-v0.1.9-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.9-x86_64-apple-darwin.tar.gz.sha256`
+- `viden-v0.1.9-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.9-x86_64-pc-windows-msvc.tar.gz.sha256`
+- `viden-v0.1.9-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.9-x86_64-unknown-linux-gnu.tar.gz.sha256`
 
 发布后验证：
 
 ```bash
-scripts/release-smoke.sh --version 0.1.9 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-019-postpublish-check
+scripts/release-smoke.sh --version 0.1.9 --quick --github-release-assets --homebrew --out-dir /tmp/viden-019-postpublish-check
 ```
 
 结果：
@@ -120,8 +120,8 @@ scripts/release-smoke.sh --version 0.1.9 --quick --github-release-assets --homeb
 - passed: 10
 - failed: 0
 - skipped: 3
-- evidence: `/tmp/robocode-019-postpublish-check/release-evidence.json`
-- Homebrew formula: `wikieden/tap/robocode 0.1.9`
+- evidence: `/tmp/viden-019-postpublish-check/release-evidence.json`
+- Homebrew formula: `wikieden/tap/viden 0.1.9`
 
 ## 剩余风险
 

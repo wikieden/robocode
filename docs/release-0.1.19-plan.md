@@ -1,4 +1,4 @@
-# RoboCode 0.1.19 Plan - Delegated Lane Usefulness
+# Viden 0.1.19 Plan - Delegated Lane Usefulness
 
 Chinese version: [release-0.1.19-plan.zh-CN.md](release-0.1.19-plan.zh-CN.md)
 
@@ -8,7 +8,7 @@ Chinese version: [release-0.1.19-plan.zh-CN.md](release-0.1.19-plan.zh-CN.md)
 The goal is not to add more agent names. The goal is to make one delegated
 review loop dependable:
 
-> ask RoboCode to delegate a focused review or shell/template task -> watch the
+> ask Viden to delegate a focused review or shell/template task -> watch the
 > lane work -> inspect evidence -> accept, apply, discard, retry, or clean up
 > without guessing what state the system is in.
 
@@ -18,7 +18,7 @@ over broader but ambiguous surfaces.
 
 ## Product Goal
 
-By the end of `0.1.19`, a developer should be able to use RoboCode as an
+By the end of `0.1.19`, a developer should be able to use Viden as an
 operator cockpit for at least one real delegated coding-assistant workflow:
 
 - start a delegated lane from the TUI
@@ -38,7 +38,7 @@ Already available on main:
   `/lane retry`, `/lane stop`, `/lane cleanup`
 - Codex external-agent commands such as `/agent review codex`,
   `/agent run codex`, `/agent status`, `/agent result`, and `/agent cancel`
-- side-1 and side-2 lane panels, lane artifacts under `.robocode/lanes/`, and
+- side-1 and side-2 lane panels, lane artifacts under `.viden/lanes/`, and
   ContextBundle/envelope records for delegated work
 - selector-first interaction standard for future decision surfaces
 
@@ -91,7 +91,7 @@ Acceptance:
 
 ### 3. Operator State Visibility
 
-When the user submits a task, RoboCode must say what is happening now.
+When the user submits a task, Viden must say what is happening now.
 
 Acceptance:
 
@@ -185,13 +185,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
 scripts/daily-loop-smoke.sh
-scripts/release-smoke.sh --version 0.1.19 --quick --out-dir /tmp/robocode-0119-release-smoke-local
+scripts/release-smoke.sh --version 0.1.19 --quick --out-dir /tmp/viden-0119-release-smoke-local
 ```
 
 New smoke:
 
 ```bash
-scripts/delegated-lane-smoke.sh --out-dir /tmp/robocode-0119-delegated-lane-smoke
+scripts/delegated-lane-smoke.sh --out-dir /tmp/viden-0119-delegated-lane-smoke
 ```
 
 Manual:

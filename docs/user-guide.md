@@ -1,13 +1,13 @@
-# RoboCode User Guide
+# Viden User Guide
 
 Chinese version: [user-guide.zh-CN.md](user-guide.zh-CN.md)
 
 This guide describes the user-facing features that are available in the current
-RoboCode development line.
+Viden development line.
 
 ## Mental Model
 
-RoboCode has three layers:
+Viden has three layers:
 
 - CLI runtime: loads config, selects a provider, records transcripts, runs tools,
   and applies permissions.
@@ -24,7 +24,7 @@ recorded and permission-checked.
 Install with Homebrew:
 
 ```bash
-brew install wikieden/tap/robocode
+brew install wikieden/tap/viden
 viden --help
 ```
 
@@ -103,10 +103,10 @@ Each preview also has an ANSI variant ending in `-ansi`.
 
 ## Configuration
 
-RoboCode loads:
+Viden loads:
 
 1. platform config path;
-2. `.robocode/config.toml`;
+2. `.viden/config.toml`;
 3. environment variables;
 4. CLI overrides.
 
@@ -139,7 +139,7 @@ result back into the transcript. `/models`, `/model`, `/setup model`, and
 that have been configured/activated in provider settings. For configured
 providers, the picker includes active, favorite, default, and known models.
 Choosing a model applies the provider/model switch immediately. API keys are
-masked in the TUI and RoboCode saves the env var name, not the raw key.
+masked in the TUI and Viden saves the env var name, not the raw key.
 
 Typed commands still use compact completion while you are editing, so a large
 selector does not steal the composer before you press Enter. Direct commands
@@ -149,7 +149,7 @@ failures are classified
 into recovery classes such as missing key, auth, rate limit, timeout, context
 overflow, compatibility, and model unavailable; the recovery prompt includes
 concrete commands to open doctor, switch model/provider, retry later, or use
-fallback. When a provider rejects a request as too large, RoboCode records a
+fallback. When a provider rejects a request as too large, Viden records a
 compaction note, retries once with a smaller provider request view, and keeps the
 full local transcript intact for audit.
 
@@ -174,14 +174,14 @@ full local transcript intact for audit.
 
 Useful environment variables:
 
-- `ROBOCODE_PROVIDER`, `ROBOCODE_MODEL`
-- `ROBOCODE_API_BASE`, `ROBOCODE_API_KEY`
-- `ROBOCODE_PROVIDER_PLUGIN_DIRS`
-- `ROBOCODE_PERMISSION_MODE`, `ROBOCODE_SESSION_HOME`
-- `ROBOCODE_REQUEST_TIMEOUT_SECS`, `ROBOCODE_MAX_RETRIES`
-- `ROBOCODE_CONFIG`
-- `ROBOCODE_SCREEN_LAUNCH_TEMPLATE`
-- `ROBOCODE_LANE_CODEX_TEMPLATE`, `ROBOCODE_LANE_CLAUDE_TEMPLATE`
+- `VIDEN_PROVIDER`, `VIDEN_MODEL`
+- `VIDEN_API_BASE`, `VIDEN_API_KEY`
+- `VIDEN_PROVIDER_PLUGIN_DIRS`
+- `VIDEN_PERMISSION_MODE`, `VIDEN_SESSION_HOME`
+- `VIDEN_REQUEST_TIMEOUT_SECS`, `VIDEN_MAX_RETRIES`
+- `VIDEN_CONFIG`
+- `VIDEN_SCREEN_LAUNCH_TEMPLATE`
+- `VIDEN_LANE_CODEX_TEMPLATE`, `VIDEN_LANE_CLAUDE_TEMPLATE`
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`,
   `DEEPSEEK_API_BASE`
 
@@ -278,8 +278,8 @@ Open side screens from the TUI:
 ```
 
 Route side screens through a terminal app, tmux, or monitor placement script by
-setting `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
-`ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE`, or `ROBOCODE_SCREEN_LAUNCH_TEMPLATE`.
+setting `VIDEN_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
+`VIDEN_SCREEN_SIDE_2_LAUNCH_TEMPLATE`, or `VIDEN_SCREEN_LAUNCH_TEMPLATE`.
 
 ## TUI Controls
 
@@ -303,7 +303,7 @@ setting `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
   they are available instead of a decorative placeholder.
 - Active provider turns keep the TUI event loop alive. The transcript live tail
   shows a prominent `LIVE WORK` strip directly below the latest conversation
-  content, with phase, signal, and next-action guidance while RoboCode works.
+  content, with phase, signal, and next-action guidance while Viden works.
   Provider thinking does not show fake progress percentages. The status bar,
   elapsed time, lane snapshots, and pending approval bridge can repaint while
   the provider worker runs. `Ctrl-C` requests cancellation; an already in-flight
@@ -313,7 +313,7 @@ setting `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
   the provider is still responding, then replaced by the canonical transcript
   event when the turn completes.
 - During an active provider turn, the composer stays editable. Press `Enter` to
-  queue the draft as the next prompt; RoboCode clears the composer immediately
+  queue the draft as the next prompt; Viden clears the composer immediately
   and runs queued prompts after the current turn finishes. If the active turn
   fails, the first queued prompt is restored to the composer.
 
@@ -458,13 +458,13 @@ active lanes, so you can operate lanes without memorizing their ids.
 
 `/lane codex-review <task>` is the P0 read-only Codex trust-loop path. It writes
 an envelope, launches `codex review --uncommitted` when Codex is available (or a
-`ROBOCODE_LANE_CODEX_REVIEW_TEMPLATE` override when configured), and stores the
+`VIDEN_LANE_CODEX_REVIEW_TEMPLATE` override when configured), and stores the
 result in the same log/timeline/evidence model as other lanes.
 
 `/lane tmux <id>` now preflights the default tmux/Claude path before marking a
 lane attached. Missing `tmux` or `claude` produces a setup-needed timeline event
 instead of a false attached state; custom templates can be supplied with
-`ROBOCODE_LANE_TMUX_TEMPLATE` and `ROBOCODE_LANE_TMUX_COMMAND_TEMPLATE`.
+`VIDEN_LANE_TMUX_TEMPLATE` and `VIDEN_LANE_TMUX_COMMAND_TEMPLATE`.
 
 `/lane inspect <id>` reports the lane status, command, exit code, log, artifacts,
 envelope, timeline, decision, next action, and changed files. `/lane timeline
@@ -521,7 +521,7 @@ tool grep pattern=SessionEngine path=viden-runtime/src
 
 ## Modes And Permissions
 
-RoboCode separates work intent from trust level:
+Viden separates work intent from trust level:
 
 - Work Mode: `build` for implementation, `plan` for requirements,
   architecture, implementation approach, test strategy, and development plans.
@@ -550,9 +550,9 @@ memory must be confirmed before it becomes active project memory.
 context snapshot.
 
 `/brief <task goal>` creates a lightweight active task brief under
-`.robocode/briefs/active.md`; `/spec` is an alias. When an active brief exists,
+`.viden/briefs/active.md`; `/spec` is an alias. When an active brief exists,
 provider ContextBundles, lane envelopes, and side-2 ops can reference it.
-`/brief steering init` creates minimal `.robocode/steering/` templates for
+`/brief steering init` creates minimal `.viden/steering/` templates for
 project conventions, architecture, and workflows.
 
 `/context` shows the latest provider ContextBundle, including the v1 policy,
@@ -561,7 +561,7 @@ read-only and does not expose raw secret values.
 
 ## Agent Lanes
 
-Agent lanes let RoboCode supervise external tools without pretending they are
+Agent lanes let Viden supervise external tools without pretending they are
 native model calls. Current adapters include:
 
 - Codex CLI / app-server entrypoints.
@@ -572,13 +572,13 @@ native model calls. Current adapters include:
 - Embedded PTY lane.
 - Experimental ACP command surface.
 
-Lane artifacts are written under `.robocode/lanes/` so the main TUI and side
+Lane artifacts are written under `.viden/lanes/` so the main TUI and side
 screens can show next actions, output tails, decisions, apply results, and
 conflicts.
 
 ## Extension Boundaries
 
-RoboCode can discover extension surfaces today:
+Viden can discover extension surfaces today:
 
 - provider plugin directories;
 - agent adapters;

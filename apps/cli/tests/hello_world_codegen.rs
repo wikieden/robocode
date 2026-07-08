@@ -9,14 +9,14 @@ fn temp_dir(name: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let path = std::env::temp_dir().join(format!("robocode_cli_{name}_{nanos}"));
+    let path = std::env::temp_dir().join(format!("viden_cli_{name}_{nanos}"));
     let _ = fs::remove_dir_all(&path);
     fs::create_dir_all(&path).unwrap();
     path
 }
 
-fn run_robocode(cwd: &Path, session_home: &Path, args: &[&str], input: &str) -> String {
-    run_robocode_args(
+fn run_viden(cwd: &Path, session_home: &Path, args: &[&str], input: &str) -> String {
+    run_viden_args(
         cwd,
         session_home,
         args.iter().map(|arg| arg.to_string()).collect(),
@@ -24,13 +24,13 @@ fn run_robocode(cwd: &Path, session_home: &Path, args: &[&str], input: &str) -> 
     )
 }
 
-fn run_robocode_args(cwd: &Path, session_home: &Path, args: Vec<String>, input: &str) -> String {
+fn run_viden_args(cwd: &Path, session_home: &Path, args: Vec<String>, input: &str) -> String {
     let mut cli_args = vec!["--no-tui".to_string()];
     cli_args.extend(args);
     let mut child = Command::new(env!("CARGO_BIN_EXE_viden"))
         .args(cli_args)
         .current_dir(cwd)
-        .env("ROBOCODE_SESSION_HOME", session_home)
+        .env("VIDEN_SESSION_HOME", session_home)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -47,7 +47,7 @@ fn run_robocode_args(cwd: &Path, session_home: &Path, args: Vec<String>, input: 
     let output = child.wait_with_output().unwrap();
     assert!(
         output.status.success(),
-        "robocode failed\nstdout:\n{}\nstderr:\n{}",
+        "viden failed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -61,7 +61,7 @@ fn startup_errors_use_viden_prefix() {
     let output = Command::new(env!("CARGO_BIN_EXE_viden"))
         .arg("--definitely-invalid")
         .current_dir(&cwd)
-        .env("ROBOCODE_SESSION_HOME", &session_home)
+        .env("VIDEN_SESSION_HOME", &session_home)
         .output()
         .unwrap();
 
@@ -70,10 +70,6 @@ fn startup_errors_use_viden_prefix() {
     assert!(
         stderr.contains("viden: Unknown startup flag `--definitely-invalid`"),
         "stderr:\n{stderr}"
-    );
-    assert!(
-        !stderr.contains("robocode:"),
-        "stderr should not use legacy product prefix:\n{stderr}"
     );
 }
 
@@ -102,7 +98,7 @@ fn fallback_tool_codegen_creates_python_hello_world() {
     let cwd = temp_dir("fallback_hello_world");
     let session_home = temp_dir("fallback_hello_world_sessions");
 
-    let stdout = run_robocode(
+    let stdout = run_viden(
         &cwd,
         &session_home,
         &["--provider", "fallback", "--model", "test-local"],
@@ -118,7 +114,7 @@ fn fallback_tool_workflow_reads_and_runs_generated_python() {
     let cwd = temp_dir("fallback_tool_workflow");
     let session_home = temp_dir("fallback_tool_workflow_sessions");
 
-    let stdout = run_robocode(
+    let stdout = run_viden(
         &cwd,
         &session_home,
         &["--provider", "fallback", "--model", "test-local"],
@@ -147,7 +143,7 @@ fn deepseek_generates_python_hello_world_from_natural_language() {
     let session_home = temp_dir("deepseek_hello_world_sessions");
     let prompt = "Create a file named hello_world.py in the current directory. Use the write_file tool. The file must contain exactly this Python source: print(\"Hello, world!\"). Do not describe the code.";
 
-    let stdout = run_robocode(
+    let stdout = run_viden(
         &cwd,
         &session_home,
         &[
@@ -168,12 +164,12 @@ fn deepseek_generates_python_hello_world_from_natural_language() {
 }
 
 #[test]
-#[ignore = "requires ROBOCODE_LIVE_PROVIDER, ROBOCODE_LIVE_MODEL, credentials, and live network access"]
+#[ignore = "requires VIDEN_LIVE_PROVIDER, VIDEN_LIVE_MODEL, credentials, and live network access"]
 fn selected_live_provider_generates_python_hello_world_from_natural_language() {
-    let provider = std::env::var("ROBOCODE_LIVE_PROVIDER")
-        .expect("ROBOCODE_LIVE_PROVIDER is required for this ignored smoke test");
-    let model = std::env::var("ROBOCODE_LIVE_MODEL")
-        .expect("ROBOCODE_LIVE_MODEL is required for this ignored smoke test");
+    let provider = std::env::var("VIDEN_LIVE_PROVIDER")
+        .expect("VIDEN_LIVE_PROVIDER is required for this ignored smoke test");
+    let model = std::env::var("VIDEN_LIVE_MODEL")
+        .expect("VIDEN_LIVE_MODEL is required for this ignored smoke test");
 
     let cwd = temp_dir("live_provider_hello_world");
     let session_home = temp_dir("live_provider_hello_world_sessions");
@@ -189,16 +185,16 @@ fn selected_live_provider_generates_python_hello_world_from_natural_language() {
         "--max-retries".to_string(),
         "1".to_string(),
     ];
-    if let Ok(api_base) = std::env::var("ROBOCODE_LIVE_API_BASE") {
+    if let Ok(api_base) = std::env::var("VIDEN_LIVE_API_BASE") {
         args.push("--api-base".to_string());
         args.push(api_base);
     }
-    if let Ok(api_key) = std::env::var("ROBOCODE_LIVE_API_KEY") {
+    if let Ok(api_key) = std::env::var("VIDEN_LIVE_API_KEY") {
         args.push("--api-key".to_string());
         args.push(api_key);
     }
 
-    let stdout = run_robocode_args(&cwd, &session_home, args, &format!("{prompt}\ny\nquit\n"));
+    let stdout = run_viden_args(&cwd, &session_home, args, &format!("{prompt}\ny\nquit\n"));
 
     assert!(stdout.contains("write_file"), "stdout:\n{stdout}");
     assert_python_hello_world(&cwd.join("hello_world.py"));

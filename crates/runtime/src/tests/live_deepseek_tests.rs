@@ -18,16 +18,16 @@ struct DeepSeekPriceCny {
 fn deepseek_live_development_scenario_creates_and_runs_program() {
     let api_key = std::env::var("DEEPSEEK_API_KEY")
         .expect("DEEPSEEK_API_KEY is required for this ignored live smoke test");
-    let model = std::env::var("ROBOCODE_LIVE_DEEPSEEK_MODEL")
+    let model = std::env::var("VIDEN_LIVE_DEEPSEEK_MODEL")
         .unwrap_or_else(|_| "deepseek-v4-flash".to_string());
-    let api_base = std::env::var("ROBOCODE_LIVE_DEEPSEEK_API_BASE")
+    let api_base = std::env::var("VIDEN_LIVE_DEEPSEEK_API_BASE")
         .or_else(|_| std::env::var("DEEPSEEK_API_BASE"))
         .ok();
     let cwd = temp_dir("deepseek_live_development_workspace");
     let home = temp_dir("deepseek_live_development_home");
     fs::write(
         cwd.join("README.md"),
-        "Disposable RoboCode live development smoke workspace.\n",
+        "Disposable Viden live development smoke workspace.\n",
     )
     .unwrap();
 
@@ -49,7 +49,7 @@ fn deepseek_live_development_scenario_creates_and_runs_program() {
     };
     let prompt = r#"Real development smoke test in this disposable workspace.
 Create `math_tools.py` with an `add(a, b)` function that returns `a + b`.
-Create `test_math_tools.py` that imports `add`, asserts `add(2, 3) == 5`, and prints `robocode-dev-scenario-ok`.
+Create `test_math_tools.py` that imports `add`, asserts `add(2, 3) == 5`, and prints `viden-dev-scenario-ok`.
 Use the available write_file tool for both files. Then run `python3 test_math_tools.py` with the shell tool."#;
 
     let events = engine
@@ -71,7 +71,7 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
         "unexpected math_tools.py:\n{math_source}"
     );
     assert!(
-        test_source.contains("add(2, 3)") && test_source.contains("robocode-dev-scenario-ok"),
+        test_source.contains("add(2, 3)") && test_source.contains("viden-dev-scenario-ok"),
         "unexpected test_math_tools.py:\n{test_source}"
     );
 
@@ -87,7 +87,7 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
         String::from_utf8_lossy(&test_output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&test_output.stdout).contains("robocode-dev-scenario-ok"),
+        String::from_utf8_lossy(&test_output.stdout).contains("viden-dev-scenario-ok"),
         "test output missing marker:\n{}",
         String::from_utf8_lossy(&test_output.stdout)
     );
@@ -118,9 +118,9 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
         estimated_cost_cny,
     );
 
-    println!("ROBOCODE_LIVE_USAGE_JSON={usage_json}");
+    println!("VIDEN_LIVE_USAGE_JSON={usage_json}");
     println!(
-        "ROBOCODE_LIVE_USAGE_SUMMARY provider=deepseek model={} input_tokens={} output_tokens={} total_tokens={} estimated_cost_cny={} pricing_basis=deepseek_cache_miss_estimate",
+        "VIDEN_LIVE_USAGE_SUMMARY provider=deepseek model={} input_tokens={} output_tokens={} total_tokens={} estimated_cost_cny={} pricing_basis=deepseek_cache_miss_estimate",
         model,
         input_tokens,
         output_tokens,
@@ -129,14 +129,14 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
             .map(|cost| format!("{cost:.6}"))
             .unwrap_or_else(|| "unknown".to_string()),
     );
-    println!("ROBOCODE_LIVE_WORKSPACE={}", cwd.display());
+    println!("VIDEN_LIVE_WORKSPACE={}", cwd.display());
 }
 
 fn deepseek_price_cny(model: &str) -> Option<DeepSeekPriceCny> {
-    let input_override = std::env::var("ROBOCODE_DEEPSEEK_INPUT_CNY_PER_MTOK")
+    let input_override = std::env::var("VIDEN_DEEPSEEK_INPUT_CNY_PER_MTOK")
         .ok()
         .and_then(|value| value.parse::<f64>().ok());
-    let output_override = std::env::var("ROBOCODE_DEEPSEEK_OUTPUT_CNY_PER_MTOK")
+    let output_override = std::env::var("VIDEN_DEEPSEEK_OUTPUT_CNY_PER_MTOK")
         .ok()
         .and_then(|value| value.parse::<f64>().ok());
     let default = if model == "deepseek-v4-pro" {

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This matrix tracks the OpenAI-compatible gateway providers that RoboCode can
+This matrix tracks the OpenAI-compatible gateway providers that Viden can
 create from built-in descriptors. It separates descriptor coverage from live API
 verification so the repository does not imply a provider was tested without
 credentials and network access.
@@ -36,17 +36,17 @@ DashScope OpenAI-compatible endpoint.
 ## Verification Commands
 
 Use the ignored CLI smoke test to verify one provider at a time. Prefer setting
-`ROBOCODE_LIVE_API_KEY` from the provider-specific key env so the command shape
+`VIDEN_LIVE_API_KEY` from the provider-specific key env so the command shape
 stays the same across providers.
 
 ```bash
-ROBOCODE_LIVE_PROVIDER=openrouter \
-ROBOCODE_LIVE_MODEL='<provider-model>' \
-ROBOCODE_LIVE_API_KEY="$OPENROUTER_API_KEY" \
+VIDEN_LIVE_PROVIDER=openrouter \
+VIDEN_LIVE_MODEL='<provider-model>' \
+VIDEN_LIVE_API_KEY="$OPENROUTER_API_KEY" \
 cargo test -p viden-cli selected_live_provider_generates_python_hello_world_from_natural_language -- --ignored
 ```
 
-For providers with a descriptor default model, `ROBOCODE_LIVE_MODEL` should
+For providers with a descriptor default model, `VIDEN_LIVE_MODEL` should
 still be set explicitly when recording live verification so the result names the
 exact model that was tested. For providers without a descriptor default model,
 the explicit model is required.
@@ -54,7 +54,7 @@ the explicit model is required.
 If the provider needs a non-default endpoint, add:
 
 ```bash
-ROBOCODE_LIVE_API_BASE='<provider-api-base>'
+VIDEN_LIVE_API_BASE='<provider-api-base>'
 ```
 
 ## Recording Results

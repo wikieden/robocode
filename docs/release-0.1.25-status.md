@@ -1,4 +1,4 @@
-# RoboCode 0.1.25 Status - TUI Display Cleanup And Idle Stability
+# Viden 0.1.25 Status - TUI Display Cleanup And Idle Stability
 
 Chinese version: [release-0.1.25-status.zh-CN.md](release-0.1.25-status.zh-CN.md)
 
@@ -12,15 +12,15 @@ focus/paste gaps, composer protocol residue, and welcome/modal clearing bugs.
 - Git tag: `v0.1.25`
 - Release commit: `dd96f01de9f250ac9e5cb0ed8d7fe89007462941`
 - GitHub release:
-  `https://github.com/wikieden/robocode/releases/tag/v0.1.25`
+  `https://github.com/wikieden/viden/releases/tag/v0.1.25`
 - Release workflow:
-  `https://github.com/wikieden/robocode/actions/runs/27182146015` passed
+  `https://github.com/wikieden/viden/actions/runs/27182146015` passed
 - Homebrew tap commit: `77dd0224a740a0a6583efc8ad10a663d5d302095`
-- Prepublish evidence: `/tmp/robocode-0125-release-gate/prepublish`
-- Local package: `dist/robocode-v0.1.25-aarch64-apple-darwin.tar.gz`
+- Prepublish evidence: `/tmp/viden-0125-release-gate/prepublish`
+- Local package: `dist/viden-v0.1.25-aarch64-apple-darwin.tar.gz`
 - Local package sha256:
   `19a7423158910cb9fbab8823bf45122613593057c2e4bb6628c416e94b23a5e6`
-- Post-publish evidence: `/tmp/robocode-0125-postpublish-gate/postpublish`
+- Post-publish evidence: `/tmp/viden-0125-postpublish-gate/postpublish`
 - Distribution state: GitHub Release assets and Homebrew tap validation passed
 
 ## Included Changes
@@ -46,12 +46,12 @@ Focused checks already used during implementation:
 
 ```bash
 cargo fmt --check
-cargo test -p robocode-cli tui::app::tests -- --nocapture
-cargo test -p robocode-cli tui::render::tests -- --nocapture
-cargo test -p robocode-cli tui::terminal::tests -- --nocapture
-cargo test -p robocode-cli --quiet
-cargo clippy -p robocode-cli --all-targets -- -D warnings
-scripts/tui-regression.sh /tmp/robocode-tui-regression-0125-idle-fix
+cargo test -p viden-cli tui::app::tests -- --nocapture
+cargo test -p viden-cli tui::render::tests -- --nocapture
+cargo test -p viden-cli tui::terminal::tests -- --nocapture
+cargo test -p viden-cli --quiet
+cargo clippy -p viden-cli --all-targets -- -D warnings
+scripts/tui-regression.sh /tmp/viden-tui-regression-0125-idle-fix
 ```
 
 Release gate:
@@ -61,7 +61,7 @@ scripts/release-gate.sh --version 0.1.25
 ```
 
 Result: passed prepublish on 2026-06-09. Evidence:
-`/tmp/robocode-0125-release-gate`.
+`/tmp/viden-0125-release-gate`.
 
 Prepublish smoke result:
 
@@ -69,7 +69,7 @@ Prepublish smoke result:
 - `tdd-testing-contract-smoke`: passed
 - `tui-turn-controller-smoke`: passed
 - `cargo-clippy`: passed
-- `robocode-cli-tests`: passed
+- `viden-cli-tests`: passed
 - `workspace-tests`: passed
 - `tui-regression`: passed
 - `fallback-cli-smoke`: passed
@@ -88,7 +88,7 @@ scripts/release-gate.sh --version 0.1.25 --phase postpublish
 ```
 
 Result: passed postpublish on 2026-06-09. Evidence:
-`/tmp/robocode-0125-postpublish-gate`.
+`/tmp/viden-0125-postpublish-gate`.
 
 Postpublish smoke result:
 
@@ -96,7 +96,7 @@ Postpublish smoke result:
 - `tdd-testing-contract-smoke`: passed
 - `tui-turn-controller-smoke`: passed
 - `cargo-clippy`: passed
-- `robocode-cli-terminal-tests`: passed
+- `viden-cli-terminal-tests`: passed
 - `tui-regression`: passed
 - `fallback-cli-smoke`: passed
 - `plan-mode-smoke`: passed
@@ -114,7 +114,7 @@ Postpublish smoke result:
 - Requests: `3` ok, `0` errors
 - Tokens: input `11269`, output `455`, total `11724`
 - Estimated cost: `¥0.012179 CNY`
-- Evidence: `/tmp/robocode-0125-release-gate/prepublish/deepseek-dev-scenario`
+- Evidence: `/tmp/viden-0125-release-gate/prepublish/deepseek-dev-scenario`
 
 ## Screenshot Evidence
 

@@ -4,6 +4,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use crate::agent_commands::{tracked_agent_job_runtime_events, tracked_agent_job_tasks};
 use crate::lsp_tools::render_lsp_diagnostics;
 use crate::{EngineEvent, ProviderTelemetry, SessionEngine};
 use viden_config::ProviderConfigUpdate;
@@ -84,6 +85,7 @@ impl SessionEngine {
                                 summary: truncate_for_preview(text, 500),
                                 path: None,
                                 source: Some("engine".to_string()),
+                                metadata: None,
                                 timestamp: None,
                             },
                         },
@@ -133,6 +135,7 @@ impl SessionEngine {
                                 summary: truncate_for_preview(output, 500),
                                 path: None,
                                 source: Some("engine".to_string()),
+                                metadata: None,
                                 timestamp: None,
                             }),
                         },
@@ -148,6 +151,7 @@ impl SessionEngine {
                                 summary: truncate_for_preview(text, 500),
                                 path: None,
                                 source: Some("engine".to_string()),
+                                metadata: None,
                                 timestamp: None,
                             },
                         },
@@ -448,16 +452,27 @@ impl SessionEngine {
                 RuntimeEventKind::AgentDagUpdated { dag: dag.clone() },
             ));
         }
-        for lane in load_runtime_lanes(
-            &self
-                .runtime_snapshot
-                .cwd
-                .join(".robocode")
-                .join("lanes.tsv"),
-        ) {
+        for lane in load_runtime_lanes(&self.runtime_snapshot.cwd.join(".viden").join("lanes.tsv"))
+        {
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
                 RuntimeEventKind::LaneUpdated { lane },
+            ));
+        }
+        for task in tracked_agent_job_tasks(&self.runtime_snapshot.cwd) {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::TaskUpdated { task },
+            ));
+        }
+        for event in tracked_agent_job_runtime_events(&self.runtime_snapshot.cwd) {
+            let RuntimeEvent {
+                timestamp, kind, ..
+            } = event;
+            events.push(RuntimeEvent::with_timestamp(
+                next_sequence(&events),
+                timestamp,
+                kind,
             ));
         }
         for task in self.agent_task_snapshot() {
@@ -790,6 +805,7 @@ impl SessionEngine {
             summary: summary.clone(),
             path: None,
             source: Some(spec.role.as_str().to_string()),
+            metadata: None,
             timestamp: Some(now_timestamp()),
         };
         self.upsert_runtime_evidence(evidence.clone());
@@ -1119,6 +1135,7 @@ impl SessionEngine {
             summary: truncate_for_preview(&summary, 500),
             path,
             source,
+            metadata: None,
             timestamp: Some(now),
         };
         self.upsert_runtime_evidence(evidence.clone());
@@ -1865,7 +1882,7 @@ fn should_skip_context_path(path: &Path) -> bool {
         matches!(
             name.as_ref(),
             ".git"
-                | ".robocode"
+                | ".viden"
                 | ".worktrees"
                 | ".ref"
                 | "target"
@@ -2718,6 +2735,7 @@ fn runtime_evidence(sequence: u64, kind: &str, summary: String) -> EvidenceView 
         summary: truncate_for_preview(&summary, 500),
         path: None,
         source: Some("runtime_command".to_string()),
+        metadata: None,
         timestamp: None,
     }
 }

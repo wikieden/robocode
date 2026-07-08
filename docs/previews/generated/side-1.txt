@@ -1,5 +1,5 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  SIDE-1  [SESSION c4f2b7e] [LANES 1/1] [FOCUS tail] [LINK main]     │
+│ Viden  SIDE-1  [SESSION c4f2b7e] [LANES 1/1] [FOCUS tail] [LINK main]     │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ AGENT LANES ───────────────────────────────────────────────────────── side-1 ┐
 │ ┌ ● L1 codex tty   [in_prog]  TRANSPORT template STATE testing               │
@@ -27,7 +27,7 @@
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ SIDE STATUS ───────────────────────────────────────────────────── Configured ┐
 │ PROVIDER  openai / gpt-4o                                                    │
-│ WORKSPACE ~/projects/robocode                                                │
+│ WORKSPACE ~/projects/viden                                                │
 │ SCREENS   main online   side-1 launched:4101   side-2 launched:4102   lanes  │
 │ LANES    active 1/1   review 0   blocked 0   done 0                          │
 │ ROUTE    side-1 side-1:L1 codex template testing                             │

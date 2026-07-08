@@ -2,7 +2,7 @@
 
 This focused refresh compares the current programming experience of Codex,
 Claude Code, DeepSeek-TUI / CodeWhale, and Zed. It narrows the broader
-`docs/code-agent-benchmark.md` into concrete lessons for RoboCode `0.1.5`.
+`docs/code-agent-benchmark.md` into concrete lessons for Viden `0.1.5`.
 
 Sources checked on 2026-05-25:
 
@@ -20,7 +20,7 @@ Sources checked on 2026-05-25:
 
 ## Positioning Read
 
-RoboCode should not try to beat each product on its home field:
+Viden should not try to beat each product on its home field:
 
 - Codex owns high-trust OpenAI-backed task execution across cloud, desktop, and
   terminal workflows.
@@ -33,7 +33,7 @@ RoboCode should not try to beat each product on its home field:
   code context, parallel threads, external agents, and worktree-oriented
   isolation.
 
-RoboCode's strongest lane is narrower and sharper:
+Viden's strongest lane is narrower and sharper:
 
 > A local-first terminal cockpit that lets one main agent supervise code edits,
 > approvals, tests, diagnostics, and external coding tools such as `codex`,
@@ -41,14 +41,14 @@ RoboCode's strongest lane is narrower and sharper:
 
 ## Experience Comparison
 
-| Product | Experience strength | What RoboCode should borrow | What RoboCode should avoid copying directly |
+| Product | Experience strength | What Viden should borrow | What Viden should avoid copying directly |
 | --- | --- | --- | --- |
-| Codex | Delegated task completion, isolated environments, central diff/review expectations, multi-surface continuity | Treat diff/test evidence as a first-class result; keep task runs isolated and reviewable; make install/release friction low | Do not make cloud delegation the center of `0.1.5`; RoboCode's immediate advantage is local TUI supervision |
+| Codex | Delegated task completion, isolated environments, central diff/review expectations, multi-surface continuity | Treat diff/test evidence as a first-class result; keep task runs isolated and reviewable; make install/release friction low | Do not make cloud delegation the center of `0.1.5`; Viden's immediate advantage is local TUI supervision |
 | Claude Code | Terminal-native action loop, conservative permissions, hooks, subagents, MCP, clear workflow automation | Build a smooth approve/test/fix loop; add light permission profiles and hooks after approval UX is stable; keep subagent state visible | Do not hide work in invisible subagents; do not expand MCP before the core coding loop is steady |
 | DeepSeek-TUI / CodeWhale | Dense terminal UI, DeepSeek V4 family focus, long-context/cost/provider awareness, fast TUI iteration | Keep DeepSeek V4 Flash a real smoke target; make provider health and context pressure visible; use compact side panels | Do not chase every visual flourish; avoid adding panels that are not backed by real state |
-| Zed | Editor-native agent panel, threads, parallel agents, external agents via ACP, inline context selection, worktree isolation | Make lanes feel like terminal threads; side screens should show agent lanes, tests, diagnostics, and next actions; keep external agents configurable | Do not try to recreate a full editor; RoboCode should integrate with editors, not replace them |
+| Zed | Editor-native agent panel, threads, parallel agents, external agents via ACP, inline context selection, worktree isolation | Make lanes feel like terminal threads; side screens should show agent lanes, tests, diagnostics, and next actions; keep external agents configurable | Do not try to recreate a full editor; Viden should integrate with editors, not replace them |
 
-## RoboCode 0.1.5 Product Delta
+## Viden 0.1.5 Product Delta
 
 The gap is not model capability first. The gap is operator confidence:
 
@@ -73,7 +73,7 @@ Ship this before adding larger workflows:
   targets, immediate dismissal after decision, and a visible focused action.
 
 Why: Codex, Claude Code, DeepSeek-TUI, and Zed all make the user feel the active
-interaction point. RoboCode still loses trust when the input cursor, modal, or
+interaction point. Viden still loses trust when the input cursor, modal, or
 panel alignment feels uncertain.
 
 ### 2. Make diff and test evidence the center of the loop
@@ -88,7 +88,7 @@ Add a compact coding evidence model:
 
 Why: Codex and Zed set the expectation that code changes are reviewed centrally.
 Claude Code sets the expectation that the tool can edit and verify in one loop.
-RoboCode should make "what changed and did it pass" impossible to miss.
+Viden should make "what changed and did it pass" impossible to miss.
 
 ### 3. Promote lanes from logs to supervised work threads
 
@@ -103,7 +103,7 @@ For each lane, render:
   cleanup.
 
 Why: Zed's parallel threads and external agents are the closest mental model.
-RoboCode can provide the terminal version: less editor-native, more operations
+Viden can provide the terminal version: less editor-native, more operations
 cockpit.
 
 ### 4. Add minimal permission automation, not full policy sprawl
@@ -117,7 +117,7 @@ For `0.1.5`, use a small profile layer:
 - record every permission decision in the transcript.
 
 Why: Claude Code's permissions and hooks are useful because they reduce
-interruptions without hiding risk. RoboCode should copy that principle, not the
+interruptions without hiding risk. Viden should copy that principle, not the
 full surface area yet.
 
 ### 5. Keep Zed-like context explicit but terminal-native
@@ -132,7 +132,7 @@ Add `/context` as a visible context bundle:
 - provider/model/context pressure;
 - explicit files that will be sent to the next model turn.
 
-Why: Zed lets users attach editor selections and thread context. RoboCode needs
+Why: Zed lets users attach editor selections and thread context. Viden needs
 the terminal equivalent so users can reason about what the agent is seeing.
 
 ## 0.1.5 Execution Order

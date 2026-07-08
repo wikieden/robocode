@@ -1,8 +1,8 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ RoboCode  v0.1.30  [PROVIDER ● OpenAI] [MODEL gpt-4o] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]   · idle L1    │
+│ Viden  v0.1.30  [PROVIDER ● OpenAI] [MODEL gpt-4o] [WORK Build] [SESSION c4f2b7e] [CONTEXT 128k] [GIT main] [PERM Ask]   · idle L1    │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ TRANSCRIPT ───────────────────────────────────────────────────────────────────────── live session ┐ ┌ WORKSPACE ─────────────────────────┐
-│      ┊  Tests are staged. I found one parser edge case and need to update `src/config.rs` before  │ │ robocode/    ~/projects/robocode   │
+│      ┊  Tests are staged. I found one parser edge case and need to update `src/config.rs` before  │ │ viden/    ~/projects/viden   │
 │      ┊  running the suite.                                                                        │ │ ↳ src/          FILES    128       │
 │      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │ ↳ tests/        LINES  24531       │
 │   ♙  ┊  USER                                                                                 #006 │ │ ▣ Cargo.toml    LANGUAGE Rust      │
@@ -16,7 +16,7 @@
 │      ┊  Test result:                                                                              │ └────────────────────────────────────┘
 │      ┊    status: failed                                                                          │ ┌ LSP DIAGNOSTICS ──────────────── 0 ┐
 │      ┊    exit code: 101                                                                          │ │ diagnostics unavailable            │
-│      ┊    command: cargo test -p robocode-cli config_tests                                        │ │ auto-checks or /lsp diagnostics    │
+│      ┊    command: cargo test -p viden-cli config_tests                                        │ │ auto-checks or /lsp diagnostics    │
 │      ┊    duration: 42ms                                                                          │ │                                    │
 │      ┊    failure summary:                                                                        │ └────────────────────────────────────┘
 │      ┊      - assertion failed in config_tests                                                    │ ┌ PROVIDER HEALTH ─────── Configured ┐
@@ -31,7 +31,7 @@
 │      │ next wait for test result · input open                                                     │ │ [Rs] src/config.rs         now     │
 │      ╰──────────────────────────────────────────────────────────────────────────────────────────  │ │ [Rs] tests/config_tests.rs 1m      │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────────────┘
-┌ RoboCode >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+┌ Viden >_ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                                                           │              │
 │ › Add tests for load_config and summarize the diff                                                                        │ MODE Build ▾ │
 │                                                                                                                           │              │

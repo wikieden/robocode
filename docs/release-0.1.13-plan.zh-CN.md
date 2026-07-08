@@ -1,4 +1,4 @@
-# RoboCode 0.1.13 计划
+# Viden 0.1.13 计划
 
 英文版： [release-0.1.13-plan.md](release-0.1.13-plan.md)
 
@@ -16,7 +16,7 @@ smoke、截图证据、GitHub release 和 Homebrew 发布。下一版不应急�
 
 版本切线：
 
-> 开发者可以给 RoboCode 一个小任务，主 cockpit 清楚说明当前在做什么，用户可
+> 开发者可以给 Viden 一个小任务，主 cockpit 清楚说明当前在做什么，用户可
 > delegate 或 inspect 一个 lane，查看 evidence，并完成 accept、apply、retry、
 > stop 或 discard，而不丢上下文。
 
@@ -55,7 +55,7 @@ smoke、截图证据、GitHub release 和 Homebrew 发布。下一版不应急�
 
 工作：
 
-- 当没有显式非交互命令时，`robocode` 默认进入 TUI。
+- 当没有显式非交互命令时，`viden` 默认进入 TUI。
 - 保留显式逃生口：`--no-tui`、现有 preview flags、`--version`、`--help` 和未来
   scripting commands 必须继续非交互。
 - 在 TUI 中增加 settings surface，用于选择 provider 和 model，并复用现有 layered
@@ -68,8 +68,8 @@ smoke、截图证据、GitHub release 和 Homebrew 发布。下一版不应急�
 
 验收：
 
-- 无参数运行 `robocode` 会打开主 TUI。
-- `robocode --help`、`robocode --version` 和 preview/smoke commands 仍保持非交互。
+- 无参数运行 `viden` 会打开主 TUI。
+- `viden --help`、`viden --version` 和 preview/smoke commands 仍保持非交互。
 - 新用户可以选择 provider/model、看到 key 是否存在、运行 probe/doctor，并保存默认值。
 - 现有 config 继续有效，CLI flags 仍在本次调用中覆盖保存的默认值。
 
@@ -198,8 +198,8 @@ smoke、截图证据、GitHub release 和 Homebrew 发布。下一版不应急�
 
 验收：
 
-- 配好 Codex 的机器上，RoboCode 能启动 read-only Codex review，并在 TUI 中展示 result/evidence。
-- 配好 Claude Code 的机器上，RoboCode 能运行 template/tmux lane，并在 TUI 展示 tail/result/evidence。
+- 配好 Codex 的机器上，Viden 能启动 read-only Codex review，并在 TUI 中展示 result/evidence。
+- 配好 Claude Code 的机器上，Viden 能运行 template/tmux lane，并在 TUI 展示 tail/result/evidence。
 - 缺工具时给出可行动 doctor output，而不是空面板。
 
 ### P1：真实 Terminal 验收 Harness
@@ -283,7 +283,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
-scripts/release-smoke.sh --version 0.1.13 --deepseek --out-dir /tmp/robocode-0113-release-smoke-full
+scripts/release-smoke.sh --version 0.1.13 --deepseek --out-dir /tmp/viden-0113-release-smoke-full
 ```
 
 人工验收：
@@ -297,14 +297,14 @@ scripts/release-smoke.sh --version 0.1.13 --deepseek --out-dir /tmp/robocode-011
 发布验证：
 
 ```bash
-scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0113-postpublish-check
+scripts/release-smoke.sh --version 0.1.13 --quick --github-release-assets --homebrew --out-dir /tmp/viden-0113-postpublish-check
 ```
 
 ## 发布标准
 
 - workspace version 为 `0.1.13`。
 - 所有 P0 都通过测试，并具备截图或人工 evidence。
-- `robocode` 默认进入 TUI，first-run provider/model setup 已文档化并验证。
+- `viden` 默认进入 TUI，first-run provider/model setup 已文档化并验证。
 - README 和 user guide 说明当前真实能力与实验 adapter 边界。
 - release status 记录验证、assets、Homebrew tap 和剩余风险。
 - GitHub release 与 Homebrew tap 发布完成，post-publish smoke 通过。

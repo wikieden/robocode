@@ -2,7 +2,7 @@
 
 ## 目的
 
-本文定义 RoboCode 的 V2-C 设计：memory 与 task workflows。目标是把项目连续性从“偶然存在”提升为“显式建模”，通过引入项目级任务、双层记忆，以及 workflow 导向的 resume 能力，同时不破坏现有 session、permission 与 transcript 模型。
+本文定义 Viden 的 V2-C 设计：memory 与 task workflows。目标是把项目连续性从“偶然存在”提升为“显式建模”，通过引入项目级任务、双层记忆，以及 workflow 导向的 resume 能力，同时不破坏现有 session、permission 与 transcript 模型。
 
 本设计遵循已确认方向：
 
@@ -14,7 +14,7 @@
 
 ## 产品目标
 
-RoboCode 应该帮助开发者回到一个项目时，快速回答：
+Viden 应该帮助开发者回到一个项目时，快速回答：
 
 - 当前有哪些事情正在推进
 - 哪些任务被阻塞
@@ -49,9 +49,9 @@ V2-C 必须在 CLI 内部直接给出这些答案，并继续复用现有的 sha
 
 新增：
 
-- `robocode-workflows`
+- `viden-workflows`
 
-这个 crate 对 `robocode-core` 暴露统一入口，但内部从第一天就拆成这些模块：
+这个 crate 对 `viden-core` 暴露统一入口，但内部从第一天就拆成这些模块：
 
 - `tasks`
 - `memory`
@@ -62,11 +62,11 @@ V2-C 必须在 CLI 内部直接给出这些答案，并继续复用现有的 sha
 
 ### 职责划分
 
-- `robocode-core`
+- `viden-core`
   负责解析 slash commands、路由 workflow 动作、执行权限检查、写 transcript command entries，并渲染 CLI 输出
-- `robocode-session`
+- `viden-session`
   继续作为 session transcript history 与 session index 的事实源
-- `robocode-workflows`
+- `viden-workflows`
   负责项目级 task 状态、project/session memory 状态、resume-context 派生逻辑，以及 workflow 专属持久化
 
 关键不变量：
@@ -375,7 +375,7 @@ workflow 命令不能绕开现有权限系统。
 
 ## CLI 渲染要求
 
-V2-C 继续保持 RoboCode 当前的轻量 CLI 风格。
+V2-C 继续保持 Viden 当前的轻量 CLI 风格。
 
 渲染建议：
 
@@ -393,7 +393,7 @@ V2-C 继续保持 RoboCode 当前的轻量 CLI 风格。
 - task event roundtrip tests
 - memory event roundtrip tests
 - workflow 派生索引重建测试
-- `robocode-core` 命令路由测试
+- `viden-core` 命令路由测试
 - workflow 写入命令的权限集成测试
 - project memory suggestion-confirmation 流程测试
 - `/task resume-context` 派生逻辑测试
@@ -423,25 +423,25 @@ V2-C 暂不尝试：
 
 预期新增文件与模块：
 
-- `robocode-workflows/Cargo.toml`
-- `robocode-workflows/src/lib.rs`
-- `robocode-workflows/src/tasks.rs`
-- `robocode-workflows/src/memory.rs`
-- `robocode-workflows/src/resume_context.rs`
-- `robocode-workflows/src/stores.rs`
+- `viden-workflows/Cargo.toml`
+- `viden-workflows/src/lib.rs`
+- `viden-workflows/src/tasks.rs`
+- `viden-workflows/src/memory.rs`
+- `viden-workflows/src/resume_context.rs`
+- `viden-workflows/src/stores.rs`
 
 预期集成点：
 
 - `Cargo.toml`
-- `robocode-core/src/lib.rs`
-- `robocode-session/src/lib.rs`
-- `robocode-types/src/lib.rs`
+- `viden-core/src/lib.rs`
+- `viden-session/src/lib.rs`
+- `viden-types/src/lib.rs`
 - `README.md`
 - `README.zh-CN.md`
 
 ## 退出标准
 
-当 RoboCode 能做到以下几点时，本设计算落地：
+当 Viden 能做到以下几点时，本设计算落地：
 
 - 跟踪具有生命周期与依赖状态的项目级 task
 - 分离维护 project memory 与 session memory

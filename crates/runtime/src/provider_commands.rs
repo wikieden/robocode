@@ -194,7 +194,7 @@ impl SessionEngine {
             return [
                 "Provider registry:",
                 "  Runtime registry: unavailable",
-                "  Start RoboCode through the CLI to enable provider plugin commands.",
+                "  Start Viden through the CLI to enable provider plugin commands.",
                 "",
                 &format!(
                     "Current provider: {} ({})",
@@ -296,7 +296,7 @@ impl SessionEngine {
             "  /settings theme       open TUI theme choices".to_string(),
             "  /settings provider deepseek deepseek-v4-flash".to_string(),
             "  /model deepseek-v4-flash  (current provider only)".to_string(),
-            "  Set DEEPSEEK_API_KEY or ROBOCODE_DEEPSEEK_API_KEY before the first live turn."
+            "  Set DEEPSEEK_API_KEY or VIDEN_DEEPSEEK_API_KEY before the first live turn."
                 .to_string(),
             "".to_string(),
             "Offline/test path:".to_string(),
@@ -364,9 +364,7 @@ impl SessionEngine {
                 ));
             }
         } else {
-            lines.push(
-                "  Runtime registry unavailable; start RoboCode through the CLI.".to_string(),
-            );
+            lines.push("  Runtime registry unavailable; start Viden through the CLI.".to_string());
         }
         lines.join("\n")
     }
@@ -403,7 +401,7 @@ impl SessionEngine {
             return [
                 "Connect provider:",
                 "  Runtime registry: unavailable",
-                "  Start RoboCode through the CLI to enable provider configuration.",
+                "  Start Viden through the CLI to enable provider configuration.",
             ]
             .join("\n");
         };
@@ -542,7 +540,7 @@ impl SessionEngine {
                 lines.push("".to_string());
             }
         } else {
-            lines.push("Runtime registry unavailable; start RoboCode through the CLI.".to_string());
+            lines.push("Runtime registry unavailable; start Viden through the CLI.".to_string());
         }
         if rendered == 0 {
             lines.push("No configured provider models yet.".to_string());
@@ -556,7 +554,7 @@ impl SessionEngine {
             return [
                 "Provider diagnostics:",
                 "  Runtime registry: unavailable",
-                "  Start RoboCode through the CLI to enable provider diagnostics.",
+                "  Start Viden through the CLI to enable provider diagnostics.",
                 "",
                 &format!(
                     "Current provider: {} ({})",
@@ -617,7 +615,7 @@ impl SessionEngine {
         let Some(host) = self.provider_host.as_mut() else {
             return Ok([
                 "Provider registry reload unavailable.",
-                "Start RoboCode through the CLI to enable provider plugin commands.",
+                "Start Viden through the CLI to enable provider plugin commands.",
             ]
             .join("\n"));
         };
@@ -655,7 +653,7 @@ impl SessionEngine {
         let Some(host) = self.provider_host.as_ref() else {
             return Ok([
                 "Provider switching unavailable.",
-                "Start RoboCode through the CLI to enable provider runtime commands.",
+                "Start Viden through the CLI to enable provider runtime commands.",
             ]
             .join("\n"));
         };
@@ -1141,7 +1139,7 @@ fn classify_provider_model_failure(error: &str) -> Option<ProviderFailureClass> 
     {
         ProviderFailureClass {
             class: "compatibility",
-            reason: "The model/provider response is incompatible with RoboCode tool calls.",
+            reason: "The model/provider response is incompatible with Viden tool calls.",
             next_action: "switch to a known-compatible model or inspect provider doctor",
         }
     } else if lower.contains("model")

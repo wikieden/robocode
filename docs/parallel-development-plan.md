@@ -22,7 +22,7 @@ Viden is moving toward a Runtime-first platform:
   not own provider loops, tool execution, permission decisions, or task state.
 - Extensions run through a declared plugin boundary and cannot bypass the
   runtime permission/evidence path.
-- RoboCode remains a legacy compatibility name during migration; the active
+- Viden remains a legacy compatibility name during migration; the active
   product, documentation, UI, and new architecture direction are Viden.
 
 ## Current Core Contract Baseline
@@ -82,7 +82,7 @@ Deliverables:
 - UI model contract: `RuntimeSnapshot`, event stream, command actions, approval
   requests, evidence views, and UI contribution model
 - process-plugin protocol draft
-- Viden rename and RoboCode compatibility migration plan
+- Viden rename and Viden compatibility migration plan
 - contract-test fixture plan for TUI and GUI
 
 ### Phase 1: Core Structure Refactor
@@ -156,7 +156,7 @@ Release gates:
 - deterministic TUI previews and GUI screenshots
 - real DeepSeek development smoke with token, cost, duration, and failure class
 - Viden binary/config migration tests
-- RoboCode compatibility shim tests
+- Viden compatibility shim tests
 - GitHub Release and Homebrew tap validation as one release unit
 
 ## Concurrency Rules

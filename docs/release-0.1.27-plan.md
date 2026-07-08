@@ -1,8 +1,8 @@
-# RoboCode 0.1.27 Plan - Daily Coding Loop Hardening
+# Viden 0.1.27 Plan - Daily Coding Loop Hardening
 
 Chinese version: [release-0.1.27-plan.zh-CN.md](release-0.1.27-plan.zh-CN.md)
 
-`0.1.27` finishes the interactive reliability work that still made RoboCode
+`0.1.27` finishes the interactive reliability work that still made Viden
 feel fragile during real coding. The scope is intentionally narrow: make the
 main coding loop truthful, responsive, and testable before adding larger agent
 features.

@@ -222,7 +222,7 @@ impl TuiTheme {
     }
 
     pub(super) fn from_env() -> Self {
-        std::env::var("ROBOCODE_TUI_THEME")
+        std::env::var("VIDEN_TUI_THEME")
             .ok()
             .map(|name| Self::named(&name))
             .unwrap_or_else(Self::aurora_cyan)

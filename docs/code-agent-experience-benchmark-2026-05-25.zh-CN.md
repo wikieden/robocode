@@ -1,7 +1,7 @@
 # Code Agent 编程体验对标 - 2026-05-25
 
 这份聚焦版对标比较 Codex、Claude Code、DeepSeek-TUI / CodeWhale 和 Zed
-当前的编程体验，并把更大的 `docs/code-agent-benchmark.md` 收敛成 RoboCode
+当前的编程体验，并把更大的 `docs/code-agent-benchmark.md` 收敛成 Viden
 `0.1.5` 可执行的改进方向。
 
 2026-05-25 检查的来源：
@@ -20,7 +20,7 @@
 
 ## 定位判断
 
-RoboCode 不应该试图在每个产品的主场击败对方：
+Viden 不应该试图在每个产品的主场击败对方：
 
 - Codex 的强项是 OpenAI 背书下跨 cloud、desktop、terminal 的高信任任务执行。
 - Claude Code 的强项是成熟的 terminal 编程闭环，以及 permissions、hooks、
@@ -30,21 +30,21 @@ RoboCode 不应该试图在每个产品的主场击败对方：
 - Zed 的强项是 editor-native agent 体验：agent panel、thread sidebar、
   inline code context、parallel threads、external agents 和 worktree isolation。
 
-RoboCode 最强的路线应该更窄、更锋利：
+Viden 最强的路线应该更窄、更锋利：
 
 > 一个 local-first terminal cockpit，让主 agent 监督代码修改、approval、测试、
 > diagnostics，以及 `codex`、`claude`、shell job、DeepSeek-backed lane 等外部编程工具。
 
 ## 体验对比
 
-| 产品 | 体验强项 | RoboCode 应该借鉴 | 不应直接照搬 |
+| 产品 | 体验强项 | Viden 应该借鉴 | 不应直接照搬 |
 | --- | --- | --- | --- |
-| Codex | 委派任务完成、隔离环境、集中 diff/review 预期、多端连续性 | 把 diff/test evidence 作为一等结果；任务运行保持隔离和可 review；降低安装/发布摩擦 | `0.1.5` 不以 cloud delegation 为中心；RoboCode 近期优势是本地 TUI 监督 |
+| Codex | 委派任务完成、隔离环境、集中 diff/review 预期、多端连续性 | 把 diff/test evidence 作为一等结果；任务运行保持隔离和可 review；降低安装/发布摩擦 | `0.1.5` 不以 cloud delegation 为中心；Viden 近期优势是本地 TUI 监督 |
 | Claude Code | terminal-native action loop、保守权限、hooks、subagents、MCP、清晰工作流自动化 | 打磨 approve/test/fix 闭环；approval 稳定后增加轻量 permission profiles 和 hooks；subagent 状态必须可见 | 不隐藏 invisible subagents；核心编程闭环稳定前不扩张 MCP |
 | DeepSeek-TUI / CodeWhale | 高密度 terminal UI、DeepSeek V4 family 聚焦、长上下文/成本/provider 感知、快速 TUI 迭代 | 保持 DeepSeek V4 Flash 作为真实 smoke 目标；provider health 和 context pressure 可见；使用紧凑 side panels | 不追逐所有视觉花活；不增加没有真实状态支撑的 panel |
-| Zed | editor-native agent panel、threads、parallel agents、ACP external agents、inline context selection、worktree isolation | 让 lanes 像 terminal threads；副屏展示 agent lanes、tests、diagnostics 和 next actions；external agents 可配置 | 不重做完整 editor；RoboCode 应该集成 editor，而不是替代 editor |
+| Zed | editor-native agent panel、threads、parallel agents、ACP external agents、inline context selection、worktree isolation | 让 lanes 像 terminal threads；副屏展示 agent lanes、tests、diagnostics 和 next actions；external agents 可配置 | 不重做完整 editor；Viden 应该集成 editor，而不是替代 editor |
 
-## RoboCode 0.1.5 产品差距
+## Viden 0.1.5 产品差距
 
 目前首要差距不是模型能力，而是操作者信心：
 
@@ -68,7 +68,7 @@ RoboCode 最强的路线应该更窄、更锋利：
   并显示当前 focus action。
 
 原因：Codex、Claude Code、DeepSeek-TUI 和 Zed 都会让用户明确感知当前交互点。
-RoboCode 只要输入光标、modal 或 panel 对齐不确定，用户信任就会掉。
+Viden 只要输入光标、modal 或 panel 对齐不确定，用户信任就会掉。
 
 ### 2. 把 diff 和 test evidence 放到闭环中心
 
@@ -80,7 +80,7 @@ RoboCode 只要输入光标、modal 或 panel 对齐不确定，用户信任就�
 - right rail 和 `/status` 都显示最新 diff/test state。
 
 原因：Codex 和 Zed 让用户预期代码改动可以集中 review；Claude Code 让用户预期工具能在
-一个闭环里修改并验证。RoboCode 应该让“改了什么、测过没有”无法被忽略。
+一个闭环里修改并验证。Viden 应该让“改了什么、测过没有”无法被忽略。
 
 ### 3. 把 lane 从日志升级成受监督的工作线程
 
@@ -93,7 +93,7 @@ RoboCode 只要输入光标、modal 或 panel 对齐不确定，用户信任就�
 - 推荐下一步：inspect、send、attach、test、accept、revise 或 cleanup。
 
 原因：Zed 的 parallel threads 和 external agents 是最接近的心智模型。
-RoboCode 可以提供 terminal 版本：少一点 editor-native，多一点 operations cockpit。
+Viden 可以提供 terminal 版本：少一点 editor-native，多一点 operations cockpit。
 
 ### 4. 做最小 permission automation，不做权限大爆炸
 
@@ -106,7 +106,7 @@ RoboCode 可以提供 terminal 版本：少一点 editor-native，多一点 oper
 - 每次 permission decision 都写入 transcript。
 
 原因：Claude Code 的 permissions 和 hooks 有价值，是因为它们减少打断但不隐藏风险。
-RoboCode 应该借鉴这个原则，而不是立刻复制完整表面积。
+Viden 应该借鉴这个原则，而不是立刻复制完整表面积。
 
 ### 5. 保持 Zed 式显式上下文，但做成 terminal-native
 
@@ -120,7 +120,7 @@ RoboCode 应该借鉴这个原则，而不是立刻复制完整表面积。
 - provider/model/context pressure；
 - 下一次 model turn 会发送的明确文件列表。
 
-原因：Zed 允许用户把 editor selection 和 thread context 加入 agent。RoboCode 需要
+原因：Zed 允许用户把 editor selection 和 thread context 加入 agent。Viden 需要
 terminal 等价物，让用户能判断 agent 到底看到了什么。
 
 ## 0.1.5 执行顺序

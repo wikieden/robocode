@@ -1,4 +1,4 @@
-# RoboCode 0.1.16 Status - TUI Interaction Reliability
+# Viden 0.1.16 Status - TUI Interaction Reliability
 
 Chinese version: [release-0.1.16-status.zh-CN.md](release-0.1.16-status.zh-CN.md)
 
@@ -10,8 +10,8 @@ so the cockpit stays trustworthy before more workflow surface is added.
 
 - Git tag: `v0.1.16`
 - Main commit: `a1a94f3`
-- GitHub Release: https://github.com/wikieden/robocode/releases/tag/v0.1.16
-- Release workflow: https://github.com/wikieden/robocode/actions/runs/26623120701
+- GitHub Release: https://github.com/wikieden/viden/releases/tag/v0.1.16
+- Release workflow: https://github.com/wikieden/viden/actions/runs/26623120701
 - Homebrew tap commit: `3c6f0f1`
 
 ## Landed Scope
@@ -39,17 +39,17 @@ Passed locally on 2026-05-29:
 ```bash
 cargo fmt --check
 git diff --check
-cargo clippy -p robocode-types -p robocode-core -p robocode-cli --all-targets -- -D warnings
-cargo test -p robocode-cli tui::render::tests::render_frame_overlays_approval_modal --quiet
+cargo clippy -p viden-types -p viden-core -p viden-cli --all-targets -- -D warnings
+cargo test -p viden-cli tui::render::tests::render_frame_overlays_approval_modal --quiet
 cargo test --workspace --quiet
-scripts/release-smoke.sh --version 0.1.16 --quick --out-dir /tmp/robocode-0116-release-smoke-local
+scripts/release-smoke.sh --version 0.1.16 --quick --out-dir /tmp/viden-0116-release-smoke-local
 ```
 
 The quick release smoke passed:
 
 - `cargo-fmt`
 - `cargo-clippy`
-- `robocode-cli-terminal-tests`
+- `viden-cli-terminal-tests`
 - `tui-regression`
 - `fallback-cli-smoke`
 - `codex-app-server-protocol-fixture`
@@ -59,62 +59,62 @@ The quick release smoke passed:
 Smoke evidence directory:
 
 ```text
-/tmp/robocode-0116-release-smoke-local
+/tmp/viden-0116-release-smoke-local
 ```
 
 Passed post-publish on 2026-05-29:
 
 ```bash
-scripts/release-smoke.sh --version 0.1.16 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0116-postpublish-check
+scripts/release-smoke.sh --version 0.1.16 --quick --github-release-assets --homebrew --out-dir /tmp/viden-0116-postpublish-check
 ```
 
 Post-publish evidence directory:
 
 ```text
-/tmp/robocode-0116-postpublish-check
+/tmp/viden-0116-postpublish-check
 ```
 
 Post-publish smoke passed `github-release-assets-validation` and
 `homebrew-validation`. Homebrew reported stable `0.1.16` for
-`wikieden/tap/robocode`.
+`wikieden/tap/viden`.
 
 ## Release Assets
 
 GitHub release assets:
 
-- `robocode-v0.1.16-aarch64-apple-darwin.tar.gz`
+- `viden-v0.1.16-aarch64-apple-darwin.tar.gz`
   - `sha256:df7591abfc8282897ff78a51e02bcee9c2db98a893fbce30adce9cf9947beab5`
-- `robocode-v0.1.16-x86_64-apple-darwin.tar.gz`
+- `viden-v0.1.16-x86_64-apple-darwin.tar.gz`
   - `sha256:be8b814e04771bae9ae03e08e177dd36b217639e629bd817b9e4cf07d602981e`
-- `robocode-v0.1.16-x86_64-unknown-linux-gnu.tar.gz`
+- `viden-v0.1.16-x86_64-unknown-linux-gnu.tar.gz`
   - `sha256:02cb651ded2e19fabfc6b681ba9596d5c94aa25555f5b216153e71bebcb53099`
-- `robocode-v0.1.16-x86_64-pc-windows-msvc.tar.gz`
+- `viden-v0.1.16-x86_64-pc-windows-msvc.tar.gz`
   - `sha256:592ac7b3d55d2fc282882346d7e7b7694ffbb95ab829fec7416290dc9db3c41c`
 
 Homebrew:
 
 ```bash
-brew install wikieden/tap/robocode
+brew install wikieden/tap/viden
 ```
 
 ## Visual Evidence
 
 Deterministic 0.1.16 TUI screenshots:
 
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.16-tui-main.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.16-tui-main-idle.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.16-tui-live-turn.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.16-tui-main-resize.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.16-tui-cjk-input.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.16-tui-command-palette.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.16-tui-lane-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.16-tui-side-1.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.16-tui-side-2.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.16-tui-main.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.16-tui-main-idle.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.16-tui-live-turn.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.16-tui-main-resize.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.16-tui-cjk-input.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.16-tui-command-palette.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.16-tui-lane-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.16-tui-side-1.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.16-tui-side-2.svg`
 
 Structured screenshot evidence:
 
 ```text
-/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/tui-regression-evidence.json
+/Users/wiki/Documents/GitHub/viden/docs/previews/generated/tui-regression-evidence.json
 ```
 
 ## Remaining Risks

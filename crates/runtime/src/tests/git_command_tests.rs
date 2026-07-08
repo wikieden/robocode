@@ -19,13 +19,13 @@ fn init_git_repo(cwd: &Path) {
 
 fn configure_git_identity(cwd: &Path) {
     let email = std::process::Command::new("git")
-        .args(["config", "user.email", "robocode@example.com"])
+        .args(["config", "user.email", "viden@example.com"])
         .current_dir(cwd)
         .status()
         .unwrap();
     assert!(email.success());
     let name = std::process::Command::new("git")
-        .args(["config", "user.name", "RoboCode"])
+        .args(["config", "user.name", "Viden"])
         .current_dir(cwd)
         .status()
         .unwrap();

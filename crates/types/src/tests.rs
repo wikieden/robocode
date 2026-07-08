@@ -191,7 +191,7 @@ fn agent_lane_trust_loop_records_roundtrip_json() {
         kind: "lane.started".to_string(),
         summary: "started shell lane".to_string(),
         detail: Some("printf ok".to_string()),
-        evidence_path: Some(".robocode/lanes/L1.log".to_string()),
+        evidence_path: Some(".viden/lanes/L1.log".to_string()),
     };
     let isolation = AgentLaneIsolationRecord {
         lane_id: "L1".to_string(),
@@ -333,14 +333,14 @@ fn transcript_tool_result_preserves_exit_code() {
 
 fn runtime_snapshot_for_contract() -> RuntimeSnapshot {
     RuntimeSnapshot {
-        cwd: PathBuf::from("/tmp/robocode"),
+        cwd: PathBuf::from("/tmp/viden"),
         provider_family: "deepseek".to_string(),
         model_label: "deepseek-v4-flash".to_string(),
         work_mode: WorkMode::Build,
         permission_mode: PermissionMode::Default,
         permission_level: PermissionLevel::Ask,
         config_summary: "provider=deepseek model=deepseek-v4-flash".to_string(),
-        loaded_config_files: vec![PathBuf::from("/tmp/robocode/config.toml")],
+        loaded_config_files: vec![PathBuf::from("/tmp/viden/config.toml")],
         startup_overrides: vec!["--provider=deepseek".to_string()],
     }
 }
@@ -457,6 +457,7 @@ fn runtime_events_replay_into_ui_independent_view_state() {
         summary: "viden-types tests passed".to_string(),
         path: Some("target/test.log".to_string()),
         source: Some("cargo".to_string()),
+        metadata: None,
         timestamp: Some(42),
     };
     let task = AgentTaskRecord {
@@ -472,7 +473,7 @@ fn runtime_events_replay_into_ui_independent_view_state() {
         progress: 15,
         started_at: Some(1),
         updated_at: Some(2),
-        workspace: Some("/tmp/robocode".to_string()),
+        workspace: Some("/tmp/viden".to_string()),
         evidence: vec![evidence.id.clone()],
         permissions: Vec::new(),
         decision: None,
@@ -555,7 +556,7 @@ fn runtime_view_state_replays_agent_dag_and_merge_gate_events() {
             title: "Plan work".to_string(),
             objective: "Split implementation".to_string(),
             dependencies: Vec::new(),
-            workspace: Some("/tmp/robocode".to_string()),
+            workspace: Some("/tmp/viden".to_string()),
             file_scope: vec!["crates/runtime".to_string()],
             context_bundle_id: Some("ctx_runtime_planner".to_string()),
             required_evidence: vec!["plan".to_string()],

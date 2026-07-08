@@ -1,8 +1,8 @@
-# RoboCode 0.1.24 Plan - Provider Setup And Daily Coding Reliability
+# Viden 0.1.24 Plan - Provider Setup And Daily Coding Reliability
 
 Chinese version: [release-0.1.24-plan.zh-CN.md](release-0.1.24-plan.zh-CN.md)
 
-0.1.24 is an interaction-quality release. The goal is to make RoboCode usable
+0.1.24 is an interaction-quality release. The goal is to make Viden usable
 as a daily coding tool before expanding more agent surfaces: provider setup must
 be understandable, model switching must be trustworthy, provider failures must
 show a concrete recovery path, and provider/plan/tool/lane background work must
@@ -89,8 +89,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-turn-controller-smoke.sh
 scripts/tui-regression.sh docs/previews/generated
-scripts/plan-mode-smoke.sh /tmp/robocode-0124-plan-mode-smoke
-scripts/daily-loop-smoke.sh /tmp/robocode-0124-daily-loop-smoke
+scripts/plan-mode-smoke.sh /tmp/viden-0124-plan-mode-smoke
+scripts/daily-loop-smoke.sh /tmp/viden-0124-daily-loop-smoke
 scripts/provider-live-smoke.sh --provider deepseek --model deepseek-v4-flash
 scripts/provider-live-smoke.sh --provider dashscope-coding-plan --model qwen3.6-plus
 scripts/release-smoke.sh --quick --provider-smoke dashscope-coding-plan --provider-smoke-model qwen3.6-plus

@@ -1,4 +1,4 @@
-# RoboCode 0.1.14 计划
+# Viden 0.1.14 计划
 
 English version: [release-0.1.14-plan.md](release-0.1.14-plan.md)
 
@@ -12,14 +12,14 @@ English version: [release-0.1.14-plan.md](release-0.1.14-plan.md)
 operator loop，把 ContextBundle 注入主 provider turn，并完成 GitHub/Homebrew 发布闭环。
 下一版要把多 agent 核心承诺继续做实：
 
-> RoboCode 可以把一个有边界的编程子任务委派给 Codex、Claude 或 shell/template
+> Viden 可以把一个有边界的编程子任务委派给 Codex、Claude 或 shell/template
 > lane，显示它正在做什么，捕获它看到了什么、改了什么，保留证据，并把操作者带回
 > 明确的 review/apply/discard/retry/stop 决策。
 
 这仍然是 `0.1.x` 版本。目标是可靠的 TUI 主导编排闭环，不提前宣称完整 `0.2.0`
 runtime。
 
-这个版本要回答的产品问题不是“RoboCode 能启动多少 Agent”，而是：
+这个版本要回答的产品问题不是“Viden 能启动多少 Agent”，而是：
 
 > 操作者为什么应该相信这个 delegated result？
 
@@ -27,7 +27,7 @@ runtime。
 
 已落地：
 
-- `robocode` 默认打开 TUI；`--no-tui` 保留脚本化 REPL 行为。
+- `viden` 默认打开 TUI；`--no-tui` 保留脚本化 REPL 行为。
 - `/settings` 和 `/setup` 支持 provider/model 设置和默认值保存。
 - approval、command palette、中文输入、resize、modal 可靠性有测试和确定性截图覆盖。
 - `/lane diff <id>` 和 `/lane artifacts <id>` 让 lane review evidence 更容易查看。
@@ -163,7 +163,7 @@ P0 要刻意收窄。这个版本只有当下面三条真实流程可演示时�
 
 ### P0: Claude Template/Tmux Lane
 
-- 加固 `ROBOCODE_LANE_CLAUDE_TEMPLATE` 和 tmux launch docs。
+- 加固 `VIDEN_LANE_CLAUDE_TEMPLATE` 和 tmux launch docs。
 - 检查 `claude`、template variables、cwd/worktree 和 log capture readiness。
 - 把 Claude status、tail、final output、touched files、artifacts 和 next action
   标准化进入 lane review。
@@ -319,7 +319,7 @@ Smoke/regression:
 - `scripts/smoke-lane-operator-loop.sh`
 - Codex read-only fixture smoke
 - Claude template/tmux smoke when available
-- `scripts/release-smoke.sh --version 0.1.14 --out-dir /tmp/robocode-0114-release-smoke-full-local`
+- `scripts/release-smoke.sh --version 0.1.14 --out-dir /tmp/viden-0114-release-smoke-full-local`
 
 Manual acceptance:
 

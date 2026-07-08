@@ -1,4 +1,4 @@
-# RoboCode 0.1.11 计划
+# Viden 0.1.11 计划
 
 英文版： [release-0.1.11-plan.md](release-0.1.11-plan.md)
 
@@ -31,7 +31,7 @@
 
 ### 2. 主屏 Now Working 状态
 
-主屏中央必须清楚显示 RoboCode 现在到底在做什么，而不是让用户猜远程是否还在工作。
+主屏中央必须清楚显示 Viden 现在到底在做什么，而不是让用户猜远程是否还在工作。
 
 状态来源统一进入 `AgentTask` 投影：
 
@@ -120,7 +120,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
-scripts/release-smoke.sh --version 0.1.11 --deepseek --out-dir /tmp/robocode-0111-release-smoke-full
+scripts/release-smoke.sh --version 0.1.11 --deepseek --out-dir /tmp/viden-0111-release-smoke-full
 ```
 
 人工验证：

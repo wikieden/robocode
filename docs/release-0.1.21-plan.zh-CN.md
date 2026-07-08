@@ -1,4 +1,4 @@
-# RoboCode 0.1.21 计划 - 交互系统收口
+# Viden 0.1.21 计划 - 交互系统收口
 
 英文版： [release-0.1.21-plan.md](release-0.1.21-plan.md)
 
@@ -10,7 +10,7 @@
 
 ## 产品目标
 
-到 `0.1.21` 结束，RoboCode 应该像一个可靠的终端产品：
+到 `0.1.21` 结束，Viden 应该像一个可靠的终端产品：
 
 - 所有设置/配置入口都打开可操作 picker 或 form；
 - provider 配置和 model 选择在视觉与行为上明确分离；
@@ -171,7 +171,7 @@ scripts/tui-previews.sh docs/previews/generated
 scripts/tui-regression.sh docs/previews/generated
 scripts/daily-loop-smoke.sh
 scripts/release-smoke.sh --version 0.1.21 --quick \
-  --out-dir /tmp/robocode-0121-release-smoke-local
+  --out-dir /tmp/viden-0121-release-smoke-local
 ```
 
 Manual：

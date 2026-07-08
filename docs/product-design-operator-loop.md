@@ -24,7 +24,7 @@ future versions should implement in slices.
 Implementation companion: [production-coding-loop-architecture.md](production-coding-loop-architecture.md).
 
 Design source: `docs/viden-design/Viden/` is the accepted Viden source for
-TUI/GUI visual direction, tokens, and target screenshots. RoboCode remains a
+TUI/GUI visual direction, tokens, and target screenshots. Viden remains a
 legacy implementation name until migration is planned.
 
 ## Source Basis
@@ -55,14 +55,14 @@ This design consolidates the current repository and prior design notes:
 
 ## Product Diagnosis
 
-RoboCode has a strong architectural spine: local tools, permission-aware
+Viden has a strong architectural spine: local tools, permission-aware
 mutation, transcripts, provider abstraction, LSP, tasks, memory, TUI cockpit
 work, provider/model setup, and delegated lane primitives.
 
 The main product gap is not one missing command. The gap is operator confidence:
 
 - The UI still sometimes feels like a provider chat client instead of a
-  RoboCode-controlled coding mission.
+  Viden-controlled coding mission.
 - Live status can leak provider names and repeat weak text such as
   "is thinking" instead of explaining the current work phase.
 - Config flows have improved, but any provider/model/settings page that behaves
@@ -125,7 +125,7 @@ Borrow the product lessons, not the whole implementation:
 
 Viden should let the user answer these questions at any moment:
 
-- What is RoboCode doing right now?
+- What is Viden doing right now?
 - Which agent or lane is responsible?
 - What context did it use?
 - What changed?
@@ -175,7 +175,7 @@ Every visible feature should help answer at least one of those questions.
 
 | Phase | User question | System object | Primary UI | Output |
 | --- | --- | --- | --- | --- |
-| 1. Intake | What do I want RoboCode to do? | `UserIntent` | Welcome composer or cockpit composer | Captured task |
+| 1. Intake | What do I want Viden to do? | `UserIntent` | Welcome composer or cockpit composer | Captured task |
 | 2. Shape | Is this chat, planning, edit, test, review, or delegation? | `TaskEnvelope` | Inline plan/status row | Mode and route |
 | 3. Context | What will the agent see and what was omitted? | `ContextBundle` | Context pressure row and side-2 detail | Bundle, budget, compaction notes |
 | 4. Dispatch | Who should do the work? | `AgentTask`, `AgentLane`, `LaneSession` | LIVE WORK, lane list, Agent Board | Active work item |
@@ -217,7 +217,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["Launch RoboCode"] --> B{"Has real task started?"}
+    A["Launch Viden"] --> B{"Has real task started?"}
     B -->|no| C["Welcome Surface"]
     C --> D{"User action"}
     D -->|configure| E["/connect /models /settings panel"]
@@ -245,7 +245,7 @@ flowchart TD
     G --> J["Run Follow-up At Safe Boundary"]
 ```
 
-`/plan` changes both planner work intent and permission policy: RoboCode plans
+`/plan` changes both planner work intent and permission policy: Viden plans
 product requirements, architecture, implementation approach, test strategy, and
 development steps, without writing code, modifying files, or persisting the
 plan. It must not change the input concurrency model. After a plan finishes, the
@@ -418,7 +418,7 @@ real coding conversation starts.
 
 Welcome requirements:
 
-- Show RoboCode identity, current working directory, Git branch, configured
+- Show Viden identity, current working directory, Git branch, configured
   provider/model, and concise action hints.
 - Keep the central composer focused.
 - `/connect`, `/provider`, `/models`, `/setup`, `/permissions`, and `/theme`
@@ -460,7 +460,7 @@ signals, and next-action guidance.
 
 Guidelines:
 
-- Use RoboCode role names: `Operator`, `Planner`, `Context Builder`,
+- Use Viden role names: `Operator`, `Planner`, `Context Builder`,
   `Builder`, `Reviewer`, `Tester`, `Lane Supervisor`, `Release Captain`.
 - Avoid provider names unless the user is looking at provider health or a
   provider-specific error.
@@ -514,7 +514,7 @@ Requirements:
 ## Provider And Model Configuration
 
 Viden should borrow the interaction quality of OpenCode-style panels while
-keeping RoboCode's own provider semantics.
+keeping Viden's own provider semantics.
 
 ### `/connect`
 
@@ -542,7 +542,7 @@ Selecting a provider enters a focused setup flow:
 6. Active models selection.
 7. Save, use now, or cancel.
 
-Secrets are displayed as short prefix + masked middle + suffix. RoboCode stores
+Secrets are displayed as short prefix + masked middle + suffix. Viden stores
 or references credential handles, not raw secret text in transcript or model
 context.
 
@@ -619,7 +619,7 @@ Every lane should end with one of:
 
 ## Multi-Agent And Delegated Lanes
 
-RoboCode's differentiation is not spawning agents. It is supervising them.
+Viden's differentiation is not spawning agents. It is supervising them.
 
 Lane requirements:
 
@@ -637,7 +637,7 @@ Lane requirements:
 
 ## Plugin, Skill, MCP, And ACP Design
 
-RoboCode needs one extension model, not separate side channels.
+Viden needs one extension model, not separate side channels.
 
 Extension descriptors should define:
 
@@ -697,7 +697,7 @@ No feature should be called complete if the visible control is not executable.
 
 ### Near-Term: Interaction Reliability
 
-- Replace provider-leaking status copy with RoboCode role-based activity text.
+- Replace provider-leaking status copy with Viden role-based activity text.
 - Keep composer input available during active turns.
 - Make transcript streaming, scrollback, resize, and history stable.
 - Finish provider setup forms: key edit/delete, endpoint edit, doctor, save,

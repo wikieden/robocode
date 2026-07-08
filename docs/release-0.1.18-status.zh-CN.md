@@ -1,4 +1,4 @@
-# RoboCode 0.1.18 状态 - 交互体验加固
+# Viden 0.1.18 状态 - 交互体验加固
 
 英文版： [release-0.1.18-status.md](release-0.1.18-status.md)
 
@@ -11,10 +11,10 @@ provider/model 设置体验。由于 `v0.1.17` 已经公开发布，本版本不
 - Workspace version：`0.1.18`
 - Git commit：`e0e40537094d6384e2dd08b8454d1d6c5be3a750`
 - Git tag：`v0.1.18`
-- GitHub release：https://github.com/wikieden/robocode/releases/tag/v0.1.18
-- Release workflow：https://github.com/wikieden/robocode/actions/runs/26651202650
+- GitHub release：https://github.com/wikieden/viden/releases/tag/v0.1.18
+- Release workflow：https://github.com/wikieden/viden/actions/runs/26651202650
 - Homebrew tap commit：`wikieden/homebrew-tap@651c7a7`
-- 本地 package：`dist/robocode-v0.1.18-aarch64-apple-darwin.tar.gz`
+- 本地 package：`dist/viden-v0.1.18-aarch64-apple-darwin.tar.gz`
 - 本地 package sha256：
   `8a3f199b716708ae84a7531928cbe2f4804afb30f63a81f767cdcd8b79e85bc0`
 
@@ -36,12 +36,12 @@ provider/model 设置体验。由于 `v0.1.17` 已经公开发布，本版本不
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
-ROBOCODE_TUI_PREVIEW_PROVIDER=deepseek \
-ROBOCODE_TUI_PREVIEW_MODEL=deepseek-v4-flash \
+VIDEN_TUI_PREVIEW_PROVIDER=deepseek \
+VIDEN_TUI_PREVIEW_MODEL=deepseek-v4-flash \
 scripts/tui-previews.sh docs/previews/generated
-ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.18 \
-ROBOCODE_TUI_PREVIEW_PROVIDER=deepseek \
-ROBOCODE_TUI_PREVIEW_MODEL=deepseek-v4-flash \
+VIDEN_TUI_SCREENSHOT_VERSION=0.1.18 \
+VIDEN_TUI_PREVIEW_PROVIDER=deepseek \
+VIDEN_TUI_PREVIEW_MODEL=deepseek-v4-flash \
 scripts/tui-regression.sh docs/previews/generated
 ```
 
@@ -50,7 +50,7 @@ scripts/tui-regression.sh docs/previews/generated
 ```bash
 scripts/release-smoke.sh --version 0.1.18 --quick \
   --github-release-assets --homebrew \
-  --out-dir /tmp/robocode-0118-postpublish-check
+  --out-dir /tmp/viden-0118-postpublish-check
 ```
 
 结果：`2026-05-29T17:19:43Z` 通过，11 项 pass，0 项 fail，3 项按预期跳过
@@ -61,7 +61,7 @@ DeepSeek live smoke：
 
 ```bash
 scripts/release-smoke.sh --version 0.1.18 --quick --deepseek \
-  --out-dir /tmp/robocode-0118-deepseek-smoke
+  --out-dir /tmp/viden-0118-deepseek-smoke
 ```
 
 结果：`2026-05-29T17:29:16Z` 通过，包含 `deepseek-cli-smoke`。
@@ -70,15 +70,15 @@ scripts/release-smoke.sh --version 0.1.18 --quick --deepseek \
 
 0.1.18 确定性 TUI 截图：
 
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-main.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-main-idle.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-live-turn.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-main-resize.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-cjk-input.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-command-palette.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-lane-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-side-1.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-side-2.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-main.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-main-idle.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-live-turn.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-main-resize.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-cjk-input.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-command-palette.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-lane-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-side-1.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-side-2.svg`
 
 ## 剩余风险
 

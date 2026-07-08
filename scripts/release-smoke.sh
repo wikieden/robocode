@@ -18,12 +18,12 @@ usage() {
   cat <<'EOF'
 Usage: scripts/release-smoke.sh [options]
 
-Runs the RoboCode release smoke matrix and stores logs in an evidence directory.
+Runs the Viden release smoke matrix and stores logs in an evidence directory.
 
 Options:
   --version <version>     Release version to package; defaults to Cargo package version.
   --target <triple>       Release target triple; defaults to the local rustc host.
-  --out-dir <dir>         Evidence directory; defaults to /tmp/robocode-release-smoke-...
+  --out-dir <dir>         Evidence directory; defaults to /tmp/viden-release-smoke-...
   --quick                 Run a faster local check set without full workspace tests or package smoke.
   --skip-package          Skip host package archive smoke.
   --deepseek              Run the opt-in DeepSeek development scenario smoke. Requires DEEPSEEK_API_KEY.
@@ -107,7 +107,7 @@ if [[ -z "$TARGET" ]]; then
 fi
 
 if [[ -z "$OUT_DIR" ]]; then
-  OUT_DIR="$(mktemp -d "/tmp/robocode-release-smoke-v${VERSION}.XXXXXX")"
+  OUT_DIR="$(mktemp -d "/tmp/viden-release-smoke-v${VERSION}.XXXXXX")"
 fi
 
 mkdir -p "$OUT_DIR"
@@ -169,7 +169,7 @@ fallback_cli_smoke() {
     cd "$work_dir"
     git init >/dev/null
     git config user.email smoke@example.com
-    git config user.name "RoboCode Smoke"
+    git config user.name "Viden Smoke"
     printf 'smoke\n' >README.md
     git add README.md
     git commit -m initial >/dev/null
@@ -249,7 +249,7 @@ package_smoke() {
 github_actions_validation() {
   command -v gh >/dev/null
   gh workflow run release.yml \
-    --repo wikieden/robocode \
+    --repo wikieden/viden \
     -f "tag=v${VERSION}" \
     -f "upload_to_release=false"
 }
@@ -260,7 +260,7 @@ github_release_asset_validation() {
   local attempt
   for attempt in 1 2 3; do
     if gh release view "v${VERSION}" \
-      --repo wikieden/robocode \
+      --repo wikieden/viden \
       --json tagName,url,isDraft,isPrerelease,publishedAt,assets \
       >"$release_json" \
       && [[ -s "$release_json" ]]; then
@@ -309,10 +309,10 @@ homebrew_validation() {
   local tap_repo
   tap_repo="$(brew --repository wikieden/tap)"
   git -C "$tap_repo" pull --ff-only origin main
-  HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/robocode
-  HOMEBREW_NO_AUTO_UPDATE=1 brew info wikieden/tap/robocode --json=v2 \
-    >"$OUT_DIR/homebrew-robocode.json"
-  python3 - "$OUT_DIR/homebrew-robocode.json" "$VERSION" <<'PY'
+  HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/viden
+  HOMEBREW_NO_AUTO_UPDATE=1 brew info wikieden/tap/viden --json=v2 \
+    >"$OUT_DIR/homebrew-viden.json"
+  python3 - "$OUT_DIR/homebrew-viden.json" "$VERSION" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -372,7 +372,7 @@ target_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
 PY
 }
 
-record "# RoboCode Release Smoke"
+record "# Viden Release Smoke"
 record ""
 record "- Version: \`$VERSION\`"
 record "- Target: \`$TARGET\`"

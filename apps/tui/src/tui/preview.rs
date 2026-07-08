@@ -356,7 +356,7 @@ fn preview_agent_jobs() -> Vec<AgentJob> {
             "turn turn_app".to_string(),
             "turn status completed".to_string(),
             "resume thread_app".to_string(),
-            "message ROBOCODE_APP_SERVER_SMOKE_OK".to_string(),
+            "message VIDEN_APP_SERVER_SMOKE_OK".to_string(),
         ],
         updated_at: 42,
     }]
@@ -376,7 +376,7 @@ fn preview_runtime_tasks() -> Vec<AgentTask> {
         progress: 100,
         started_at: Some(1),
         updated_at: Some(2),
-        workspace: Some("~/Documents/GitHub/robocode".to_string()),
+        workspace: Some("~/Documents/GitHub/viden".to_string()),
         evidence: vec![
             "context_pressure 18% (23040/128000)".to_string(),
             "context_sources 6".to_string(),
@@ -505,7 +505,7 @@ fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState
     let mut state = preview_state(provider, model, theme_name);
     state.entries = vec![TuiEntry {
         label: "system".to_string(),
-        body: "RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
+        body: "Viden TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
     }];
     state.input = String::new();
     state
@@ -593,7 +593,7 @@ fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> Tui
     state.entries = vec![
         TuiEntry {
             label: "system".to_string(),
-            body: "RoboCode TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
+            body: "Viden TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
         },
         TuiEntry {
             label: "user".to_string(),
@@ -657,10 +657,10 @@ mod tests {
         let side = render_side_preview("fallback", "test-local");
         let ops = render_ops_preview("fallback", "test-local");
 
-        assert!(main.contains("~/projects/robocode"));
-        assert!(idle.contains("~/projects/robocode"));
+        assert!(main.contains("~/projects/viden"));
+        assert!(idle.contains("~/projects/viden"));
         assert!(live_turn.contains("LIVE WORK"));
-        assert!(live_turn.contains("RoboCode working"));
+        assert!(live_turn.contains("Viden working"));
         assert!(live_turn.contains("live provider request"));
         assert!(resize.contains("LIVE WORK"));
         assert!(resize.contains("Resize-safe redraw check"));
@@ -697,10 +697,10 @@ mod tests {
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(!main.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));
-        assert!(side.contains("~/projects/robocode"));
+        assert!(side.contains("~/projects/viden"));
         assert!(ops.contains("files 128"));
         assert!(ops.contains("codex-app codex done"));
-        assert!(ops.contains("evidence message ROBOCODE_APP_SERVER_SMOKE_OK"));
+        assert!(ops.contains("evidence message VIDEN_APP_SERVER_SMOKE_OK"));
         assert!(!main.contains("docs/previews/generated"));
         assert!(!main.contains("scripts/tui-previews.sh"));
     }

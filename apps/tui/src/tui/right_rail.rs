@@ -123,7 +123,7 @@ fn active_task_rows(state: &TuiState) -> Vec<String> {
 }
 
 fn screen_hint(task: &AgentTask) -> String {
-    let screen = if task.agent == "robocode" && task.kind == "provider" {
+    let screen = if task.agent == "viden" && task.kind == "provider" {
         "main"
     } else {
         match task.agent.as_str() {
@@ -136,8 +136,8 @@ fn screen_hint(task: &AgentTask) -> String {
 }
 
 fn active_agent_label(task: &AgentTask) -> String {
-    if task.agent == "robocode" && task.kind == "provider" {
-        "RoboCode".to_string()
+    if task.agent == "viden" && task.kind == "provider" {
+        "Viden".to_string()
     } else {
         task.agent.clone()
     }
@@ -145,7 +145,7 @@ fn active_agent_label(task: &AgentTask) -> String {
 
 fn pty_label_for_agent(agent: &str) -> &'static str {
     match agent {
-        "robocode" => "robo",
+        "viden" => "robo",
         "codex" | "claude" | "shell" => pty_label(agent),
         _ => "pty/xx",
     }

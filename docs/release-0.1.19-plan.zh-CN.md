@@ -1,4 +1,4 @@
-# RoboCode 0.1.19 计划 - Delegated Lane Usefulness
+# Viden 0.1.19 计划 - Delegated Lane Usefulness
 
 英文版： [release-0.1.19-plan.md](release-0.1.19-plan.md)
 
@@ -7,7 +7,7 @@
 `0.1.19` 要把 delegated lane 做到真正有用。目标不是增加更多 agent 名字，
 而是让一条委派审查闭环可靠：
 
-> 让 RoboCode 委派一个聚焦的 review 或 shell/template 任务 -> 观察 lane
+> 让 Viden 委派一个聚焦的 review 或 shell/template 任务 -> 观察 lane
 > 工作 -> 查看证据 -> accept、apply、discard、retry 或 cleanup，全程不用猜系统
 > 到底处于什么状态。
 
@@ -16,7 +16,7 @@
 
 ## 产品目标
 
-到 `0.1.19` 结束，开发者应该可以把 RoboCode 当成一个 operator cockpit，
+到 `0.1.19` 结束，开发者应该可以把 Viden 当成一个 operator cockpit，
 真实使用至少一条 delegated coding-assistant workflow：
 
 - 从 TUI 启动 delegated lane
@@ -36,7 +36,7 @@ main 上已经具备：
   `/lane stop`、`/lane cleanup` 等 lane commands
 - `/agent review codex`、`/agent run codex`、`/agent status`、
   `/agent result`、`/agent cancel` 等 Codex external-agent commands
-- side-1 和 side-2 lane panels、`.robocode/lanes/` 产物、delegated work 的
+- side-1 和 side-2 lane panels、`.viden/lanes/` 产物、delegated work 的
   ContextBundle/envelope records
 - 0.1.18 之后锁定的 selector-first 交互标准
 
@@ -85,7 +85,7 @@ Lane/agent 操作必须遵守 0.1.18 后新增的交互规则：只要用户需�
 
 ### 3. Operator 状态可见
 
-用户提交任务后，RoboCode 必须说清楚现在正在做什么。
+用户提交任务后，Viden 必须说清楚现在正在做什么。
 
 验收：
 
@@ -174,13 +174,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
 scripts/daily-loop-smoke.sh
-scripts/release-smoke.sh --version 0.1.19 --quick --out-dir /tmp/robocode-0119-release-smoke-local
+scripts/release-smoke.sh --version 0.1.19 --quick --out-dir /tmp/viden-0119-release-smoke-local
 ```
 
 新增 smoke：
 
 ```bash
-scripts/delegated-lane-smoke.sh --out-dir /tmp/robocode-0119-delegated-lane-smoke
+scripts/delegated-lane-smoke.sh --out-dir /tmp/viden-0119-delegated-lane-smoke
 ```
 
 Manual：

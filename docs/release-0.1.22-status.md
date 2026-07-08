@@ -1,4 +1,4 @@
-# RoboCode 0.1.22 Status - Provider Detail Usability Patch
+# Viden 0.1.22 Status - Provider Detail Usability Patch
 
 Chinese version: [release-0.1.22-status.zh-CN.md](release-0.1.22-status.zh-CN.md)
 
@@ -12,11 +12,11 @@ so it behaves more like a compact settings form.
 - Release commit: `d27b4e43209477ba93327148ca72c013ba8da945`
 - Git tag: `v0.1.22`
 - GitHub release:
-  `https://github.com/wikieden/robocode/releases/tag/v0.1.22`
+  `https://github.com/wikieden/viden/releases/tag/v0.1.22`
 - Release workflow:
-  `https://github.com/wikieden/robocode/actions/runs/26699720640`
+  `https://github.com/wikieden/viden/actions/runs/26699720640`
 - Homebrew tap commit: `wikieden/homebrew-tap@fece0ca`
-- Local package: `dist/robocode-v0.1.22-aarch64-apple-darwin.tar.gz`
+- Local package: `dist/viden-v0.1.22-aarch64-apple-darwin.tar.gz`
 - Local package sha256:
   `e4c093d141ac6e13957f84a5196ea2e76e14af3cdea2590284e35f088ee02b89`
 
@@ -40,18 +40,18 @@ Focused checks:
 
 ```bash
 cargo fmt --check
-cargo check -p robocode-cli
-cargo test -p robocode-cli command_palette --quiet
-cargo test -p robocode-cli preview --quiet
+cargo check -p viden-cli
+cargo test -p viden-cli command_palette --quiet
+cargo test -p viden-cli preview --quiet
 git diff --check
 ```
 
 TUI visual evidence:
 
 ```bash
-ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.22 \
-ROBOCODE_TUI_PREVIEW_PROVIDER=deepseek \
-ROBOCODE_TUI_PREVIEW_MODEL=deepseek-v4-flash \
+VIDEN_TUI_SCREENSHOT_VERSION=0.1.22 \
+VIDEN_TUI_PREVIEW_PROVIDER=deepseek \
+VIDEN_TUI_PREVIEW_MODEL=deepseek-v4-flash \
 scripts/tui-regression.sh docs/previews/generated
 ```
 
@@ -59,7 +59,7 @@ Release smoke:
 
 ```bash
 scripts/release-smoke.sh --version 0.1.22 \
-  --out-dir /tmp/robocode-0122-release-smoke-full-local
+  --out-dir /tmp/viden-0122-release-smoke-full-local
 ```
 
 Result: passed with local package smoke. Skipped only opt-in live DeepSeek,
@@ -71,17 +71,17 @@ Post-publish verification:
 ```bash
 scripts/release-smoke.sh --version 0.1.22 --quick \
   --github-release-assets --homebrew --skip-package \
-  --out-dir /tmp/robocode-0122-postpublish-check
+  --out-dir /tmp/viden-0122-postpublish-check
 ```
 
 Result: passed. The smoke validated published GitHub release assets and the
-Homebrew formula at `/tmp/robocode-0122-postpublish-check`.
+Homebrew formula at `/tmp/viden-0122-postpublish-check`.
 
 Homebrew tap checks:
 
 ```bash
-HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/robocode
-HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/robocode
+HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula wikieden/tap/viden
+HOMEBREW_NO_AUTO_UPDATE=1 brew audit --formula wikieden/tap/viden
 ```
 
 Result: passed before pushing `wikieden/homebrew-tap@fece0ca`.
@@ -90,20 +90,20 @@ Result: passed before pushing `wikieden/homebrew-tap@fece0ca`.
 
 Deterministic 0.1.22 TUI screenshots:
 
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-main.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-main-idle.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-live-turn.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-main-resize.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-cjk-input.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-command-palette.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-setup-wizard.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-provider-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-provider-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-model-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-lane-selector.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-lane-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-side-1.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.22-tui-side-2.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-main.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-main-idle.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-live-turn.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-main-resize.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-cjk-input.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-command-palette.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-setup-wizard.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-provider-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-provider-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-model-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-lane-selector.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-lane-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-side-1.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.22-tui-side-2.svg`
 
 ## Remaining Risks
 

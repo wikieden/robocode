@@ -1,4 +1,4 @@
-# RoboCode 0.1.15 Plan
+# Viden 0.1.15 Plan
 
 Chinese version: [release-0.1.15-plan.zh-CN.md](release-0.1.15-plan.zh-CN.md)
 
@@ -10,13 +10,13 @@ Last updated: 2026-05-29
 
 `0.1.14` made delegated lanes more trustworthy: adapter capability doctor,
 timeline evidence, isolation declarations, Codex read-only review, and safer
-Claude/tmux setup. The next bottleneck is context control. RoboCode should help
+Claude/tmux setup. The next bottleneck is context control. Viden should help
 the operator understand and shape what each provider or delegated lane sees,
 what was omitted, and why.
 
 The product question for this release is:
 
-> What context is each agent using, what did RoboCode leave out, and how much
+> What context is each agent using, what did Viden leave out, and how much
 > budget pressure is this task creating?
 
 ## Goals
@@ -98,4 +98,4 @@ Acceptance:
 - `cargo test --workspace --quiet`
 - Focused ContextBundle tests for JSON shape, provider message rendering, lane
   envelope rendering, and side-2 rows.
-- `ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.15 scripts/tui-regression.sh docs/previews/generated`
+- `VIDEN_TUI_SCREENSHOT_VERSION=0.1.15 scripts/tui-regression.sh docs/previews/generated`

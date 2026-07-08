@@ -43,7 +43,7 @@ English version: [tui-interaction-audit-2026-05-29.md](tui-interaction-audit-202
 - 鼠标覆盖应继续扩到右栏任务选择、lane modal controls、副屏滚动、transcript links
   和 wheel events。
 - 光标闪烁和 IME 位置仍部分依赖终端行为。如果更多终端不渲染原生 blinking bar，
-  RoboCode 需要补一个 app-owned 高对比 caret fallback。
+  Viden 需要补一个 app-owned 高对比 caret fallback。
 
 ## 建议下一片
 
@@ -56,4 +56,4 @@ spec/steering 之前，因为更大的 workflow surface 会放大这些交互问
 4. 增加 terminal-interaction regression：快速 resize、鼠标选择、快捷键、pending-turn repaint cadence。
 5. 清理 footer action：显示出来的动作必须可执行；做不到就先去掉，不要像假功能。
 
-详细版本需求见 [RoboCode 0.1.16 计划](release-0.1.16-plan.zh-CN.md)。
+详细版本需求见 [Viden 0.1.16 计划](release-0.1.16-plan.zh-CN.md)。

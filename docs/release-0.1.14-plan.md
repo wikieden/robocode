@@ -1,4 +1,4 @@
-# RoboCode 0.1.14 Plan
+# Viden 0.1.14 Plan
 
 Chinese version: [release-0.1.14-plan.zh-CN.md](release-0.1.14-plan.zh-CN.md)
 
@@ -13,7 +13,7 @@ provider/model setup, hardened the operator loop, injected ContextBundle into
 main provider turns, and completed the GitHub/Homebrew release loop. The next
 release should make the multi-agent promise more concrete:
 
-> RoboCode can delegate a bounded programming subtask to Codex, Claude, or a
+> Viden can delegate a bounded programming subtask to Codex, Claude, or a
 > shell/template lane, show what that lane is doing, capture what it saw and
 > changed, preserve evidence, and return the operator to an explicit
 > review/apply/discard/retry/stop decision.
@@ -21,7 +21,7 @@ release should make the multi-agent promise more concrete:
 This remains a `0.1.x` release. The target is a reliable TUI-led orchestration
 loop, not a full `0.2.0` runtime claim.
 
-The product question for this release is not "how many agents can RoboCode
+The product question for this release is not "how many agents can Viden
 launch?" It is:
 
 > Why should the operator trust this delegated result?
@@ -30,7 +30,7 @@ launch?" It is:
 
 Landed:
 
-- `robocode` opens TUI by default; `--no-tui` keeps scriptable REPL behavior.
+- `viden` opens TUI by default; `--no-tui` keeps scriptable REPL behavior.
 - `/settings` and `/setup` support provider/model setup and saved defaults.
 - Approval, command palette, CJK input, resize, and modal reliability are
   covered by tests and deterministic screenshots.
@@ -180,7 +180,7 @@ Acceptance:
 
 ### P0: Claude Template/Tmux Lane
 
-- Harden `ROBOCODE_LANE_CLAUDE_TEMPLATE` and tmux launch docs.
+- Harden `VIDEN_LANE_CLAUDE_TEMPLATE` and tmux launch docs.
 - Check `claude`, template variables, cwd/worktree, and log capture readiness.
 - Normalize Claude status, tail, final output, touched files, artifacts, and
   next action into lane review.
@@ -350,7 +350,7 @@ Smoke/regression:
 - `scripts/smoke-lane-operator-loop.sh`
 - Codex read-only fixture smoke
 - Claude template/tmux smoke when available
-- `scripts/release-smoke.sh --version 0.1.14 --out-dir /tmp/robocode-0114-release-smoke-full-local`
+- `scripts/release-smoke.sh --version 0.1.14 --out-dir /tmp/viden-0114-release-smoke-full-local`
 
 Manual acceptance:
 

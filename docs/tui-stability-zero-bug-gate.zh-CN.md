@@ -6,7 +6,7 @@
 
 ## 目的
 
-0.1.x 的最后阶段必须把 TUI 稳定性作为最高优先级。RoboCode 不能带着已知显示错位、
+0.1.x 的最后阶段必须把 TUI 稳定性作为最高优先级。Viden 不能带着已知显示错位、
 输入卡死、弹窗残影、状态漂移或 scrollback 错误进入 0.2.x。
 
 这里的 “0 bug” 定义为：
@@ -53,7 +53,7 @@
 - `scripts/plan-mode-smoke.sh` 通过。
 - `scripts/daily-loop-smoke.sh` 通过。
 - `scripts/final-zero-bug-smoke.sh` 通过，并且
-  `ROBOCODE_TUI_MANUAL_EVIDENCE_DIR` 指向真实 macOS Terminal 和 iTerm2 截图。
+  `VIDEN_TUI_MANUAL_EVIDENCE_DIR` 指向真实 macOS Terminal 和 iTerm2 截图。
 - fake slow provider non-blocking TUI smoke 通过。
 - deterministic approval non-blocking smoke 通过。
 - streaming scrollback smoke 通过。

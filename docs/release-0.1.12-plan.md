@@ -1,4 +1,4 @@
-# RoboCode 0.1.12 Plan
+# Viden 0.1.12 Plan
 
 Chinese version: [release-0.1.12-plan.zh-CN.md](release-0.1.12-plan.zh-CN.md)
 
@@ -13,8 +13,8 @@ Last updated: 2026-05-27
 token/context design. `0.1.12` should turn that foundation into a real
 programming workflow:
 
-- the user gives RoboCode a development task;
-- RoboCode can dispatch supervised agent/lane work;
+- the user gives Viden a development task;
+- Viden can dispatch supervised agent/lane work;
 - the main screen explains who is working, what they are doing, where the
   evidence is, and what decision is needed next;
 - side screens become real observe/control/review/apply surfaces;
@@ -29,7 +29,7 @@ This remains a `0.1.x` release. The target is a usable operator loop, not a full
 
 `0.1.8` introduced the `AgentTask` runtime view, operation center, side-2
 evidence, Codex app-server fixtures, and lane operator-loop smoke. That proved
-the direction: RoboCode needs one fact layer instead of each panel inventing its
+the direction: Viden needs one fact layer instead of each panel inventing its
 own status.
 
 Lessons:
@@ -128,7 +128,7 @@ Every `AgentTask` should include at least:
 
 ### 2. Turn `NOW WORKING` Into The Operation Center
 
-After input submission, the main screen must immediately answer what RoboCode is
+After input submission, the main screen must immediately answer what Viden is
 doing now.
 
 Required behavior:
@@ -166,7 +166,7 @@ The area must be backed by real `AgentTask` state, not decorative copy.
 Target flow:
 
 1. The user submits a development task.
-2. RoboCode generates or accepts a small plan.
+2. Viden generates or accepts a small plan.
 3. The user dispatches a subtask to a lane such as Codex, Claude,
    shell/template, or DeepSeek.
 4. The lane is observed through `AgentTask`.
@@ -307,7 +307,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
-scripts/release-smoke.sh --version 0.1.12 --deepseek --out-dir /tmp/robocode-0112-release-smoke-full
+scripts/release-smoke.sh --version 0.1.12 --deepseek --out-dir /tmp/viden-0112-release-smoke-full
 ```
 
 Manual checks:

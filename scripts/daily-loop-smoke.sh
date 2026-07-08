@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_DIR="${1:-"$(mktemp -d /tmp/robocode-daily-loop-smoke.XXXXXX)"}"
+OUT_DIR="${1:-"$(mktemp -d /tmp/viden-daily-loop-smoke.XXXXXX)"}"
 mkdir -p "$OUT_DIR"
 
 WORK_DIR="$OUT_DIR/workspace"
@@ -18,7 +18,7 @@ mkdir -p "$WORK_DIR"
   cd "$WORK_DIR"
   git init >/dev/null
   git config user.email smoke@example.com
-  git config user.name "RoboCode Smoke"
+  git config user.name "Viden Smoke"
   printf '# daily loop fixture\n' >README.md
   git add README.md
   git commit -m initial >/dev/null
@@ -46,12 +46,12 @@ grep -Fq "daily-loop-ok" "$TRANSCRIPT"
 grep -Fq "Latest diff" "$TRANSCRIPT"
 grep -Fq "hello.py" "$TRANSCRIPT"
 grep -Fq 'print("daily-loop-ok")' "$DIFF_OUT"
-test -f "$WORK_DIR/.robocode/briefs/active.md"
-test -f "$WORK_DIR/.robocode/steering/conventions.md"
+test -f "$WORK_DIR/.viden/briefs/active.md"
+test -f "$WORK_DIR/.viden/steering/conventions.md"
 [[ -s "$PREVIEW_ANSI" ]]
 
 cat >"$SUMMARY" <<EOF
-# RoboCode Daily Loop Smoke
+# Viden Daily Loop Smoke
 
 - Workspace: \`$WORK_DIR\`
 - Transcript: \`$TRANSCRIPT\`

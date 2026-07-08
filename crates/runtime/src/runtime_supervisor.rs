@@ -34,12 +34,18 @@ pub struct RuntimeSupervisor {
 }
 
 impl RuntimeSupervisor {
-    pub fn start(engine: SessionEngine) -> Self {
+    pub fn start(mut engine: SessionEngine) -> Self {
         let (command_sender, command_receiver) = mpsc::channel();
         let (event_sender, event_receiver) = mpsc::channel();
         let sequence = Arc::new(AtomicU64::new(1));
         let active_control = Arc::new(Mutex::new(None));
         let pending_approvals = Arc::new(Mutex::new(BTreeMap::new()));
+
+        let sink_event_sender = event_sender.clone();
+        let sink_sequence = Arc::clone(&sequence);
+        engine.set_runtime_event_sink(Some(Arc::new(move |events| {
+            emit_events(&sink_event_sender, &sink_sequence, events);
+        })));
 
         let worker_event_sender = event_sender.clone();
         let worker_sequence = Arc::clone(&sequence);

@@ -1,4 +1,4 @@
-# RoboCode 0.1.8 Plan
+# Viden 0.1.8 Plan
 
 Chinese version: [release-0.1.8-plan.zh-CN.md](release-0.1.8-plan.zh-CN.md)
 
@@ -16,7 +16,7 @@ Version theme:
 0.1.8 = AgentTask + Live Multi-Agent Cockpit
 ```
 
-Goal: move RoboCode from "can launch and observe agents" to "can clearly
+Goal: move Viden from "can launch and observe agents" to "can clearly
 orchestrate multiple coding agents." After the user submits work, the main
 screen should continuously show what is happening. Side screens should show
 child agents, tests, diagnostics, MCP, extensions, and evidence. Codex, Claude
@@ -32,7 +32,7 @@ the main screen, side screens, and command surfaces.
 
 Deliverables:
 
-- Define an `AgentTask` runtime view covering the primary RoboCode reply,
+- Define an `AgentTask` runtime view covering the primary Viden reply,
   provider turns, tool calls, approvals, test runs, shell jobs, Codex jobs,
   Claude/DeepSeek lanes, tmux/PTY bridges, and future ACP sessions.
 - Minimum fields: `id`, `parent_id`, `agent`, `kind`, `transport`, `status`,
@@ -154,7 +154,7 @@ Acceptance checks:
 
 - No cloud agent registry.
 - No marketplace.
-- Do not turn RoboCode into a full IDE.
+- Do not turn Viden into a full IDE.
 - Do not let plugins, skills, MCP, or ACP bypass permissions, transcript, and
   approval.
 - Do not make automatic task splitting the default; planner exploration should

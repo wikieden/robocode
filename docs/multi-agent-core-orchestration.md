@@ -50,7 +50,8 @@ Implementation checkpoint:
 - Remaining: live LSP references enrichment for role-specific ContextBundle
   selection, release/publish Git rules, evidence collection reducers, richer
   patch formats such as rename/delete/binary and three-way conflict handling,
-  and external-agent plugin adapters.
+  and Zed-inspired ACP external-agent plugin adapters for Claude, Codex, and
+  Kiro CLI.
 
 Scope: shared runtime, workflow, provider, tool, permission, context, and
 evidence contracts for supervised multi-agent coding. This document does not
@@ -141,8 +142,63 @@ Agent roles start as first-party roles:
 - `release-operator`: runs release gates, validates artifacts, and prepares
   publish evidence.
 
-External agents can be added later only if they produce the same task, event,
-evidence, and merge-gate records as first-party agents.
+## Hybrid Orchestration Model
+
+Viden should treat agent orchestration as a workflow compiler and supervisor.
+A user goal can be decomposed into a DAG where each node chooses the best
+execution capability for that step. The choice must consider both specialty and
+cost: the most capable agent is not always the right agent when a local tool,
+MCP call, cheaper model, or reusable skill can produce the same evidence with
+lower risk and cost.
+
+- first-party runtime roles for planning, scoped coding, review, testing,
+  documentation, and release evidence;
+- external ACP agents such as Claude, Codex, Kiro CLI, or future installed
+  agents when their native strengths are useful;
+- MCP tools for third-party systems, hosted services, knowledge bases, issue
+  trackers, design systems, or remote automation;
+- local tools for file, shell, Git, LSP, web/search, and diagnostics;
+- skills for packaged procedures, repeatable playbooks, and domain-specific
+  workflow steps.
+
+The scheduler must support both sequential and parallel composition:
+
+- sequential chains when later work depends on accepted evidence from earlier
+  work;
+- parallel fan-out when independent scoped tasks can run concurrently;
+- fan-in gates where reviewer/tester/release roles reconcile outputs before
+  patches, docs, or release artifacts are accepted;
+- mixed execution where one workflow may combine provider-backed role agents,
+  ACP agents, MCP calls, local tools, and skills under the same permission and
+  evidence model.
+
+Scheduling decisions should record an assignment profile for every task:
+
+- `owner`: role, agent id, MCP server/tool, local tool, or skill;
+- `assignment_reason`: specialty match, context locality, file ownership,
+  previous evidence, cost, latency, risk, or explicit user preference;
+- `capability_fit`: why this owner can satisfy the expected output contract;
+- `cost_profile`: estimated tokens/cost, expected local tool time, provider
+  class, budget cap, and cost strategy;
+- `collaboration_pattern`: sequential handoff, parallel fan-out, fan-in review,
+  or manual approval gate.
+
+The scheduler should prefer the cheapest safe path that can produce required
+evidence, but cost must not bypass permission, context, or capability
+requirements.
+
+Every orchestration step must remain visible as an `AgentTask`, tool call,
+skill step, MCP invocation, evidence record, or merge-gate decision. UI clients
+must not infer workflow progress from subprocess logs alone.
+
+External agents are entering through the ACP/plugin foundation, but they become
+production multi-agent participants only when they produce the same task, event,
+evidence, and merge-gate records as first-party agents. The ACP implementation
+direction is documented in
+[Zed ACP Integration Research](zed-acp-integration-research.md): Viden should
+use plugin/extension descriptors for installed agents, but RuntimeSupervisor
+must own the subprocess lifecycle, prompt/cancel flow, permission bridge,
+evidence conversion, and merge-gate updates.
 
 ## Event Protocol
 
@@ -351,6 +407,22 @@ Merge rules:
 - Allow provider/tool/workflow plugins to declare agent capabilities.
 - Add least-privilege external agent scopes.
 - Require external agents to emit the same runtime/workflow/evidence events.
+- Land tracked ACP session job projection into RuntimeViewState.
+- Bridge ACP `fs/read_text_file` and `fs/write_text_file` through Viden
+  permission checks; reject unsupported filesystem methods and terminal client
+  requests until terminal runtime bridges are implemented.
+- Land ACP session restore/configuration through `/agent run acp` options:
+  `session/load`, `session/set_mode`, and `session/set_config_option` model
+  config with a legacy `session/set_model` fallback.
+- Land custom/local ACP command support through the runnable `custom-acp`
+  descriptor backed by `VIDEN_AGENT_ACP_COMMAND`.
+- Land ACP update projection into reusable runtime events for assistant deltas,
+  tool call start/finish, and turn-end evidence.
+- Land async/background ACP job runtime-event append plus `RuntimeViewState`
+  replay through `runtime-events.jsonl`.
+- Land async/background ACP job live event push through `RuntimeSupervisor`.
+- Next: add permission-gated ACP terminal bridge and complete merge-gate
+  conversion.
 
 ### 0.2.5 Real Development Gate
 

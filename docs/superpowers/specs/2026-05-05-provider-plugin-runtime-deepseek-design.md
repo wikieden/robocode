@@ -2,14 +2,14 @@
 
 ## Purpose
 
-This document defines a new provider-platform slice for RoboCode. The immediate
+This document defines a new provider-platform slice for Viden. The immediate
 goal is to support DeepSeek v4 as a first-class provider, but the actual design
 target is broader: the model layer must evolve from a small built-in provider
 factory into a plugin-extensible provider runtime.
 
 The confirmed direction for this slice is:
 
-- RoboCode must support both Anthropic/Claude-style and OpenAI-style protocol
+- Viden must support both Anthropic/Claude-style and OpenAI-style protocol
   families
 - DeepSeek must be supported as an independent provider family, not only as an
   OpenAI-compatible endpoint alias
@@ -20,10 +20,10 @@ The confirmed direction for this slice is:
 
 ## Product Goal
 
-RoboCode should make it cheap to add new model providers over time without
+Viden should make it cheap to add new model providers over time without
 changing `SessionEngine`, tool/runtime flow, or other core product surfaces.
 
-After this slice, RoboCode should be able to answer:
+After this slice, Viden should be able to answer:
 
 - which provider families are available right now
 - which ones are built in versus dynamically loaded
@@ -38,7 +38,7 @@ the provider plugin runtime itself.
 
 In scope:
 
-- provider plugin host/runtime in `robocode-model`
+- provider plugin host/runtime in `viden-model`
 - dynamic provider registry
 - built-in providers as one registry source
 - native dynamic-library provider plugins as the first dynamic loading mode
@@ -73,7 +73,7 @@ construction so new providers do not force changes into the core engine.
 
 ### ProviderHost
 
-`ProviderHost` lives in `robocode-model` and owns:
+`ProviderHost` lives in `viden-model` and owns:
 
 - loading built-in providers
 - scanning plugin directories
@@ -135,7 +135,7 @@ Responsibilities:
 
 - encode model requests
 - decode streamed or batched model responses
-- normalize tool-calling behavior into RoboCode model events
+- normalize tool-calling behavior into Viden model events
 - normalize usage reporting
 - normalize provider errors
 
@@ -255,7 +255,7 @@ forcing existing sessions to switch providers.
 
 ## Protocol Family Requirement
 
-RoboCode must continue to support both major protocol styles:
+Viden must continue to support both major protocol styles:
 
 - Anthropic/Claude-style
 - OpenAI-style
@@ -285,7 +285,7 @@ family. The user-facing product should treat it as a distinct provider, not as
 an undocumented endpoint variation of `openai`.
 
 DeepSeek also provides an official Anthropic-compatible API surface at
-`https://api.deepseek.com/anthropic`. RoboCode should expose that path
+`https://api.deepseek.com/anthropic`. Viden should expose that path
 explicitly as `deepseek-anthropic` rather than forcing users to override the
 generic `anthropic` provider endpoint.
 
@@ -304,12 +304,12 @@ as compatibility fallback.
 
 ### Compatibility Rule
 
-RoboCode should also continue to support pointing a generic OpenAI-compatible
+Viden should also continue to support pointing a generic OpenAI-compatible
 provider configuration at a DeepSeek endpoint when the user explicitly wants
 that path. But this must not replace or weaken the independent DeepSeek product
 surface.
 
-RoboCode should also support a DeepSeek Anthropic-compatible path for users who
+Viden should also support a DeepSeek Anthropic-compatible path for users who
 want Claude-style request and tool-call semantics with DeepSeek credentials.
 
 ## Configuration Model
@@ -357,7 +357,7 @@ The host uses this for config validation and user-facing error messages.
 
 The completed product behavior for this slice should satisfy:
 
-1. RoboCode can list both built-in and dynamically loaded providers.
+1. Viden can list both built-in and dynamically loaded providers.
 2. DeepSeek can be selected as `provider=deepseek`.
 3. DeepSeek v4 can be constructed through the plugin system without modifying
    `SessionEngine`.

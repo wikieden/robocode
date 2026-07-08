@@ -6,9 +6,9 @@ binary="$repo_root/target/debug/viden"
 
 cargo build -p viden-cli >/dev/null
 
-smoke_dir=$(mktemp -d /tmp/robocode-codex-app-server-protocol.XXXXXX)
+smoke_dir=$(mktemp -d /tmp/viden-codex-app-server-protocol.XXXXXX)
 cleanup() {
-  if [ "${ROBOCODE_KEEP_SMOKE_DIR:-}" != "1" ]; then
+  if [ "${VIDEN_KEEP_SMOKE_DIR:-}" != "1" ]; then
     rm -rf "$smoke_dir"
   else
     printf 'Keeping smoke workspace: %s\n' "$smoke_dir" >&2
@@ -58,13 +58,13 @@ chmod +x "$mock_codex"
 
 cd "$smoke_dir"
 git init >/dev/null 2>&1 || true
-git config user.email robocode-smoke@example.local >/dev/null 2>&1 || true
-git config user.name "RoboCode Smoke" >/dev/null 2>&1 || true
+git config user.email viden-smoke@example.local >/dev/null 2>&1 || true
+git config user.name "Viden Smoke" >/dev/null 2>&1 || true
 printf 'hello\n' > README.md
 git add README.md >/dev/null 2>&1 || true
 git commit -m initial >/dev/null 2>&1 || true
 
-export ROBOCODE_AGENT_CODEX_COMMAND="$mock_codex"
+export VIDEN_AGENT_CODEX_COMMAND="$mock_codex"
 output=$(
   printf '%s\n%s\n%s\n' \
     '/agent probe codex --turn Exercise command file approval and error protocol fixture.' \
@@ -81,7 +81,7 @@ printf '%s\n' "$output" | grep -q 'message: protocol fixture complete'
 printf '%s\n' "$output" | grep -q 'approvals: item/commandExecution/requestApproval'
 printf '%s\n' "$output" | grep -q 'signals: command-output, file-change, file-patch, diff-updated, fs-changed, mcp-tool-call, mcp-tool-completed, mcp-fs-write, app-server-error'
 
-result_file="$smoke_dir/.robocode/agents/codex-app-turn_fixture.result.md"
+result_file="$smoke_dir/.viden/agents/codex-app-turn_fixture.result.md"
 test -f "$result_file"
 grep -q '^thread: thread_fixture' "$result_file"
 grep -q '^turn: turn_fixture' "$result_file"
@@ -91,7 +91,7 @@ grep -q '^message: protocol fixture complete' "$result_file"
 grep -q '^approvals: item/commandExecution/requestApproval' "$result_file"
 grep -q '^signals: command-output, file-change, file-patch, diff-updated, fs-changed, mcp-tool-call, mcp-tool-completed, mcp-fs-write, app-server-error' "$result_file"
 
-log_file=$(find "$smoke_dir/.robocode/agents" -name 'codex-app-server-*.jsonl' -print -quit)
+log_file=$(find "$smoke_dir/.viden/agents" -name 'codex-app-server-*.jsonl' -print -quit)
 test -n "$log_file"
 grep -q 'item/commandExecution/outputDelta' "$log_file"
 grep -q 'item/fileChange/outputDelta' "$log_file"

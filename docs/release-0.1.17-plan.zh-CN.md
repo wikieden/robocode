@@ -1,11 +1,11 @@
-# RoboCode 0.1.17 计划 - 日常编码闭环基线
+# Viden 0.1.17 计划 - 日常编码闭环基线
 
 英文版： [release-0.1.17-plan.md](release-0.1.17-plan.md)
 
 ## Summary
 
 `0.1.17` 要把下个版本从“继续增加 surface”拉回到“真实日常可用”。目标不是让
-RoboCode 看起来更完整，而是让一个普通编程闭环足够可靠，可以在真实项目里使用：
+Viden 看起来更完整，而是让一个普通编程闭环足够可靠，可以在真实项目里使用：
 
 > 安装 -> 配置 provider -> 提一个小范围改动 -> 审批 edits -> 跑测试 ->
 > 看失败 -> 修复或委派 -> review diff -> 保存证据并支持之后恢复。
@@ -16,12 +16,12 @@ RoboCode 看起来更完整，而是让一个普通编程闭环足够可靠，�
 
 ## 产品目标
 
-到 `0.1.17` 结束时，开发者应该能用 RoboCode 在单仓库里完成一个小型编码任务，
+到 `0.1.17` 结束时，开发者应该能用 Viden 在单仓库里完成一个小型编码任务，
 而不需要频繁切到另一个终端才能搞清楚发生了什么。
 
 ## 0.20 真正可用 North Star
 
-`0.1.20` 前，如果下面这些都成立，RoboCode 才算开始“真正可用”：
+`0.1.20` 前，如果下面这些都成立，Viden 才算开始“真正可用”：
 
 - 首次使用可理解：provider/model/API-key 状态可见，用户能在 TUI 里修 setup。
 - DeepSeek 是默认在线路径。fallback/test-local 仍保留为显式离线/测试路径，而不是
@@ -40,7 +40,7 @@ RoboCode 看起来更完整，而是让一个普通编程闭环足够可靠，�
 
 ### 1. 日常编码闭环 Smoke
 
-增加一个确定性 smoke 场景，证明 RoboCode 能完成正常编码闭环：
+增加一个确定性 smoke 场景，证明 Viden 能完成正常编码闭环：
 
 1. CI 中使用离线 fallback/test provider 启动，并在人工验收中用 DeepSeek credentials
    跑同一条路径。
@@ -71,7 +71,7 @@ RoboCode 看起来更完整，而是让一个普通编程闭环足够可靠，�
   - 可能涉及的 files
   - acceptance checks
   - risk notes
-- Project steering files 放在 `.robocode/steering/`：
+- Project steering files 放在 `.viden/steering/`：
   - `conventions.md`
   - `architecture.md`
   - `workflows.md`
@@ -98,7 +98,7 @@ RoboCode 看起来更完整，而是让一个普通编程闭环足够可靠，�
   `/settings provider <id> [model]`、`/settings model <model>`、`/settings save`。
 - `/doctor` 覆盖 TUI、provider、git workspace、release version 和 lane prerequisites。
 - 缺少 provider credential 时，显示可执行的修复命令或 env-var 提示。
-- 当前 model 不可用时，RoboCode 要显示可行动的换模提示，而不是直接露出原始
+- 当前 model 不可用时，Viden 要显示可行动的换模提示，而不是直接露出原始
   provider error。覆盖 unknown model、unavailable model、auth/model permission error、
   context-limit mismatch 和 provider protocol incompatibility。
 - 模型恢复提示要建议：
@@ -110,7 +110,7 @@ RoboCode 看起来更完整，而是让一个普通编程闭环足够可靠，�
 
 验收：
 
-- `robocode-cli --provider fallback --model test-local` 仍是离线逃生路径。
+- `viden-cli --provider fallback --model test-local` 仍是离线逃生路径。
 - 没有保存 provider 时启动，会进入 DeepSeek-first setup path。
 - DeepSeek setup path 在文档、TUI、`/setup`、`/settings` 和 `/doctor` 中可见。
 - 交互式 provider/model 配置流程可以保存 provider/model 默认值，但不会保存 API key。
@@ -156,7 +156,7 @@ RoboCode 看起来更完整，而是让一个普通编程闭环足够可靠，�
 - 扩展鼠标覆盖到右栏、side panels 和 lane modal controls。
 - 对支持取消的 provider/runtime path 实现真正 cancellation。
 - provider 暴露 streaming event 时，实现第一版 streaming token renderer。
-- 增加 `robocode doctor --json`，服务自动化。
+- 增加 `viden doctor --json`，服务自动化。
 - 增加 `--daily-loop-smoke` preview fixture，用于 release screenshots。
 - provider/model favorites 和 last-known-good model history。
 
@@ -187,7 +187,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
 scripts/tui-regression.sh docs/previews/generated
-scripts/release-smoke.sh --version 0.1.17 --quick --out-dir /tmp/robocode-0117-release-smoke-local
+scripts/release-smoke.sh --version 0.1.17 --quick --out-dir /tmp/viden-0117-release-smoke-local
 ```
 
 Manual：

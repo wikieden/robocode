@@ -2,7 +2,7 @@
 
 ## 目的
 
-`viden-lsp` 负责 RoboCode 的 Language Server Protocol 基础能力：server 配置、JSON-RPC framing、协议 request 构造，以及供 core commands 和 tools 使用的只读语义 runtime facade。
+`viden-lsp` 负责 Viden 的 Language Server Protocol 基础能力：server 配置、JSON-RPC framing、协议 request 构造，以及供 core commands 和 tools 使用的只读语义 runtime facade。
 
 ## 不负责
 
@@ -39,4 +39,4 @@ cargo test -p viden-lsp
 
 ## `.ref` 对齐
 
-参考工程把语义代码智能视为开发辅助能力，而不是 file/search tools 的替代品。RoboCode 采用同样行为：LSP 增强 grep/read/edit 工作流，同时保留 permission、transcript 和 tool-loop 边界。
+参考工程把语义代码智能视为开发辅助能力，而不是 file/search tools 的替代品。Viden 采用同样行为：LSP 增强 grep/read/edit 工作流，同时保留 permission、transcript 和 tool-loop 边界。

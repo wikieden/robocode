@@ -1,4 +1,4 @@
-# RoboCode 0.1.28 计划 - Delegated Lane 可见性收口
+# Viden 0.1.28 计划 - Delegated Lane 可见性收口
 
 English version: [release-0.1.28-plan.md](release-0.1.28-plan.md)
 
@@ -32,12 +32,12 @@ English version: [release-0.1.28-plan.md](release-0.1.28-plan.md)
 发布 `0.1.28` 前必须运行：
 
 ```bash
-cargo test -p robocode-cli agent_tasks_separate_completed_accept_and_accepted_apply_lane_actions -- --nocapture
-cargo test -p robocode-cli side_status_rows_summarize_lane_background_counts -- --nocapture
-cargo test -p robocode-cli side_lane_rows_render_closed_operator_states_as_done -- --nocapture
+cargo test -p viden-cli agent_tasks_separate_completed_accept_and_accepted_apply_lane_actions -- --nocapture
+cargo test -p viden-cli side_status_rows_summarize_lane_background_counts -- --nocapture
+cargo test -p viden-cli side_lane_rows_render_closed_operator_states_as_done -- --nocapture
 scripts/smoke-lane-operator-loop.sh
 scripts/tui-turn-controller-smoke.sh
-scripts/release-gate.sh --version 0.1.28 --phase prepublish --out-dir /tmp/robocode-0128-release-gate
+scripts/release-gate.sh --version 0.1.28 --phase prepublish --out-dir /tmp/viden-0128-release-gate
 ```
 
 prepublish gate 必须包含 live DeepSeek 开发场景，并记录 token、耗时、预估费用
@@ -46,7 +46,7 @@ prepublish gate 必须包含 live DeepSeek 开发场景，并记录 token、耗�
 发布后必须运行：
 
 ```bash
-scripts/release-gate.sh --version 0.1.28 --phase postpublish --out-dir /tmp/robocode-0128-release-gate
+scripts/release-gate.sh --version 0.1.28 --phase postpublish --out-dir /tmp/viden-0128-release-gate
 ```
 
 `0.1.28` 只有在以下条件全部满足后才算完成：

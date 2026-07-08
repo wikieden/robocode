@@ -121,13 +121,13 @@ pub fn load_config(cwd: &Path, cli: &CliOverrides) -> Result<ResolvedConfig, Str
 
 pub fn default_user_config_path() -> Result<PathBuf, String> {
     default_config_path(&|key| std::env::var(key).ok()).ok_or_else(|| {
-        "Cannot determine RoboCode config path; set ROBOCODE_CONFIG or HOME/APPDATA/XDG_CONFIG_HOME"
+        "Cannot determine Viden config path; set VIDEN_CONFIG or HOME/APPDATA/XDG_CONFIG_HOME"
             .to_string()
     })
 }
 
 pub fn save_user_provider_model_defaults(provider: &str, model: &str) -> Result<PathBuf, String> {
-    let path = std::env::var("ROBOCODE_CONFIG")
+    let path = std::env::var("VIDEN_CONFIG")
         .ok()
         .map(PathBuf::from)
         .map(Ok)
@@ -165,7 +165,7 @@ pub fn save_user_provider_config(
     provider: &str,
     update: ProviderConfigUpdate,
 ) -> Result<PathBuf, String> {
-    let path = std::env::var("ROBOCODE_CONFIG")
+    let path = std::env::var("VIDEN_CONFIG")
         .ok()
         .map(PathBuf::from)
         .map(Ok)
@@ -247,7 +247,7 @@ pub fn save_user_provider_config_at(
 }
 
 pub fn add_user_provider_model(provider: &str, model: &str) -> Result<PathBuf, String> {
-    let path = std::env::var("ROBOCODE_CONFIG")
+    let path = std::env::var("VIDEN_CONFIG")
         .ok()
         .map(PathBuf::from)
         .map(Ok)
@@ -273,7 +273,7 @@ pub fn add_user_provider_model_at(path: &Path, provider: &str, model: &str) -> R
 }
 
 pub fn add_user_provider_favorite_model(provider: &str, model: &str) -> Result<PathBuf, String> {
-    let path = std::env::var("ROBOCODE_CONFIG")
+    let path = std::env::var("VIDEN_CONFIG")
         .ok()
         .map(PathBuf::from)
         .map(Ok)
@@ -438,7 +438,7 @@ where
     if let Some(path) = cli
         .config_path
         .clone()
-        .or_else(|| env_lookup("ROBOCODE_CONFIG").map(PathBuf::from))
+        .or_else(|| env_lookup("VIDEN_CONFIG").map(PathBuf::from))
     {
         return Ok(vec![path]);
     }
@@ -447,7 +447,7 @@ where
     if let Some(global) = default_config_path(env_lookup) {
         paths.push(global);
     }
-    paths.push(cwd.join(".robocode").join("config.toml"));
+    paths.push(cwd.join(".viden").join("config.toml"));
     Ok(paths)
 }
 
@@ -458,19 +458,19 @@ where
     if cfg!(windows) {
         env_lookup("APPDATA")
             .map(PathBuf::from)
-            .map(|base| base.join("robocode").join("config.toml"))
+            .map(|base| base.join("viden").join("config.toml"))
     } else if cfg!(target_os = "macos") {
         env_lookup("HOME").map(PathBuf::from).map(|base| {
             base.join("Library")
                 .join("Application Support")
-                .join("robocode")
+                .join("viden")
                 .join("config.toml")
         })
     } else {
         env_lookup("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|| env_lookup("HOME").map(|home| PathBuf::from(home).join(".config")))
-            .map(|base| base.join("robocode").join("config.toml"))
+            .map(|base| base.join("viden").join("config.toml"))
     }
 }
 
@@ -536,40 +536,40 @@ fn apply_env_config<F>(resolved: &mut ResolvedConfig, env_lookup: &F) -> Result<
 where
     F: Fn(&str) -> Option<String>,
 {
-    if let Some(provider) = env_lookup("ROBOCODE_PROVIDER") {
+    if let Some(provider) = env_lookup("VIDEN_PROVIDER") {
         resolved.provider = provider;
     }
-    if let Some(model) = env_lookup("ROBOCODE_MODEL")
+    if let Some(model) = env_lookup("VIDEN_MODEL")
         && !model.trim().is_empty()
     {
         resolved.model = Some(model);
     }
-    if let Some(api_base) = env_lookup("ROBOCODE_API_BASE") {
+    if let Some(api_base) = env_lookup("VIDEN_API_BASE") {
         resolved.api_base = Some(api_base);
     }
-    if let Some(api_key) = env_lookup("ROBOCODE_API_KEY") {
+    if let Some(api_key) = env_lookup("VIDEN_API_KEY") {
         resolved.api_key = Some(api_key);
     }
-    if let Some(plugin_dirs) = env_lookup("ROBOCODE_PROVIDER_PLUGIN_DIRS") {
+    if let Some(plugin_dirs) = env_lookup("VIDEN_PROVIDER_PLUGIN_DIRS") {
         resolved.provider_plugin_dirs = std::env::split_paths(&plugin_dirs).collect();
     }
-    if let Some(permission_mode) = env_lookup("ROBOCODE_PERMISSION_MODE") {
+    if let Some(permission_mode) = env_lookup("VIDEN_PERMISSION_MODE") {
         resolved.permission_mode = PermissionMode::parse_cli(&permission_mode)
             .ok_or_else(|| format!("Unknown permission mode `{permission_mode}` in environment"))?;
     }
-    if let Some(session_home) = env_lookup("ROBOCODE_SESSION_HOME") {
+    if let Some(session_home) = env_lookup("VIDEN_SESSION_HOME") {
         resolved.session_home = Some(PathBuf::from(session_home));
     }
-    if let Some(request_timeout_secs) = env_lookup("ROBOCODE_REQUEST_TIMEOUT_SECS") {
+    if let Some(request_timeout_secs) = env_lookup("VIDEN_REQUEST_TIMEOUT_SECS") {
         resolved.request_timeout_secs = request_timeout_secs
             .parse::<u64>()
-            .map_err(|_| "ROBOCODE_REQUEST_TIMEOUT_SECS must be an integer".to_string())?
+            .map_err(|_| "VIDEN_REQUEST_TIMEOUT_SECS must be an integer".to_string())?
             .max(1);
     }
-    if let Some(max_retries) = env_lookup("ROBOCODE_MAX_RETRIES") {
+    if let Some(max_retries) = env_lookup("VIDEN_MAX_RETRIES") {
         resolved.max_retries = max_retries
             .parse::<u32>()
-            .map_err(|_| "ROBOCODE_MAX_RETRIES must be an integer".to_string())?;
+            .map_err(|_| "VIDEN_MAX_RETRIES must be an integer".to_string())?;
     }
     Ok(())
 }
@@ -580,12 +580,12 @@ where
 {
     let env_prefix = provider_env_prefix(&resolved.provider);
     if let Some(api_key) = env_lookup(&format!("{env_prefix}_API_KEY"))
-        .or_else(|| env_lookup(&format!("ROBOCODE_{env_prefix}_API_KEY")))
+        .or_else(|| env_lookup(&format!("VIDEN_{env_prefix}_API_KEY")))
     {
         resolved.api_key = Some(api_key);
     }
     if let Some(api_base) = env_lookup(&format!("{env_prefix}_API_BASE"))
-        .or_else(|| env_lookup(&format!("ROBOCODE_{env_prefix}_API_BASE")))
+        .or_else(|| env_lookup(&format!("VIDEN_{env_prefix}_API_BASE")))
     {
         resolved.api_base = Some(api_base);
     }

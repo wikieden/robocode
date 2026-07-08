@@ -4,7 +4,7 @@ Date: 2026-05-23
 
 ## Requirements Summary
 
-RoboCode's TUI should evolve from the current lightweight alternate-screen shell into a coding-agent cockpit:
+Viden's TUI should evolve from the current lightweight alternate-screen shell into a coding-agent cockpit:
 
 - implement the approved main-screen TUI from `DESIGN.md`;
 - preserve the existing `SessionEngine` path for prompts, approvals, tool execution, and transcripts;
@@ -14,19 +14,19 @@ RoboCode's TUI should evolve from the current lightweight alternate-screen shell
 
 The current code shape supports an incremental path:
 
-- `robocode-cli/src/main.rs:96` enters `tui::run_tui` when `--tui` is set.
-- `robocode-cli/src/tui.rs:28` owns the current TUI event loop.
-- `robocode-cli/src/tui.rs:67` already routes permission prompts through `prompt_for_tui_approval`.
-- `robocode-cli/src/tui.rs:70` reuses `SessionEngine::process_input_with_approval`.
-- `robocode-cli/src/tui.rs:187` currently renders the whole UI as one simple string frame.
-- `robocode-core/src/lib.rs:31` exposes `EngineEvent`, which is enough for the first transcript timeline.
-- `robocode-types/src/transcript.rs:28` defines the durable transcript entry model that companion views can later follow.
+- `viden-cli/src/main.rs:96` enters `tui::run_tui` when `--tui` is set.
+- `viden-cli/src/tui.rs:28` owns the current TUI event loop.
+- `viden-cli/src/tui.rs:67` already routes permission prompts through `prompt_for_tui_approval`.
+- `viden-cli/src/tui.rs:70` reuses `SessionEngine::process_input_with_approval`.
+- `viden-cli/src/tui.rs:187` currently renders the whole UI as one simple string frame.
+- `viden-core/src/lib.rs:31` exposes `EngineEvent`, which is enough for the first transcript timeline.
+- `viden-types/src/transcript.rs:28` defines the durable transcript entry model that companion views can later follow.
 
 ## Latest Product Design Requirements
 
 The current product direction supersedes the older "rich terminal view" framing:
 
-1. The primary product surface is the user-approved single-screen RoboCode cockpit, not the generated multi-screen concept sheet.
+1. The primary product surface is the user-approved single-screen Viden cockpit, not the generated multi-screen concept sheet.
 2. Companion screens are workspaces, not dashboards. Their core value is running and supervising side work.
 3. Terminal lanes are the main primitive for side work:
    - run local commands;
@@ -141,7 +141,7 @@ Acceptance:
 
 - missing binaries produce clear lane errors;
 - every external task has an auditable envelope file;
-- RoboCode recommends acceptance only after inspecting logs/diff/verification evidence.
+- Viden recommends acceptance only after inspecting logs/diff/verification evidence.
 
 ### Milestone F: Isolation and Attach
 
@@ -165,7 +165,7 @@ Acceptance:
 - Do not replace the plain REPL.
 - Do not introduce a GUI/web client in this slice.
 - Do not build embedded PTY/tmux attach before the lane metadata, logging, and inspection model works.
-- Do not make external tools trusted authorities; RoboCode must inspect logs, exit codes, diffs, and verification evidence before accepting lane results.
+- Do not make external tools trusted authorities; Viden must inspect logs, exit codes, diffs, and verification evidence before accepting lane results.
 - Do not copy `.ref/` implementations.
 
 ## Architecture Decision
@@ -186,10 +186,10 @@ This splits product shape from side-work execution while keeping both branches s
 
 ## Proposed Module Shape
 
-Start within `robocode-cli/src/tui/`:
+Start within `viden-cli/src/tui/`:
 
 ```text
-robocode-cli/src/tui/
+viden-cli/src/tui/
   mod.rs
   app.rs
   layout.rs
@@ -201,13 +201,13 @@ robocode-cli/src/tui/
   lanes.rs
 ```
 
-Keep this module private to `robocode-cli` initially. Promote durable lane records into `robocode-workflows` only after the state model proves useful outside TUI.
+Keep this module private to `viden-cli` initially. Promote durable lane records into `viden-workflows` only after the state model proves useful outside TUI.
 
 ## Acceptance Criteria
 
 ### Main TUI
 
-- `cargo run -p robocode-cli -- --tui --provider fallback --model test-local` still starts a working TUI.
+- `cargo run -p viden-cli -- --tui --provider fallback --model test-local` still starts a working TUI.
 - The main render includes:
   - top status rail;
   - transcript timeline;
@@ -251,22 +251,22 @@ Keep this module private to `robocode-cli` initially. Promote durable lane recor
 4. Run the current focused TUI tests before editing:
 
 ```bash
-cargo test -p robocode-cli tui --quiet
+cargo test -p viden-cli tui --quiet
 ```
 
 Expected result: current TUI tests pass or any rust-toolchain setup issue is documented.
 
 ### Phase 1: TUI Module Split
 
-1. Move `robocode-cli/src/tui.rs` into `robocode-cli/src/tui/mod.rs`.
+1. Move `viden-cli/src/tui.rs` into `viden-cli/src/tui/mod.rs`.
 2. Extract pure rendering helpers into `render.rs`, `layout.rs`, and `panels.rs`.
-3. Keep `run_tui` public as `pub(crate)` so `robocode-cli/src/main.rs:97` does not change behavior.
+3. Keep `run_tui` public as `pub(crate)` so `viden-cli/src/main.rs:97` does not change behavior.
 4. Add tests for layout splits before visual expansion.
 
 Verification:
 
 ```bash
-cargo test -p robocode-cli tui --quiet
+cargo test -p viden-cli tui --quiet
 ```
 
 ### Phase 2: Main Screen Rendering
@@ -295,8 +295,8 @@ cargo test -p robocode-cli tui --quiet
 Verification:
 
 ```bash
-cargo test -p robocode-cli tui --quiet
-cargo run -p robocode-cli -- --help | rg -- '--tui'
+cargo test -p viden-cli tui --quiet
+cargo run -p viden-cli -- --help | rg -- '--tui'
 ```
 
 ### Phase 3: Approval Modal
@@ -334,7 +334,7 @@ Verification:
 ```bash
 cargo fmt --all -- --check
 cargo test --workspace --quiet
-cargo run -p robocode-cli -- --provider fallback --model test-local --help
+cargo run -p viden-cli -- --provider fallback --model test-local --help
 ```
 
 2. Update README/README.zh-CN only if user-facing flags or behavior changed.
@@ -372,7 +372,7 @@ struct TerminalLane {
 }
 ```
 
-First implementation can store lane records under the session home, but if this becomes awkward, move records into `robocode-workflows`.
+First implementation can store lane records under the session home, but if this becomes awkward, move records into `viden-workflows`.
 
 ### Phase 7: `/lane run`
 
@@ -446,21 +446,21 @@ Minimum per branch:
 
 ```bash
 cargo fmt --all -- --check
-cargo test -p robocode-cli --quiet
+cargo test -p viden-cli --quiet
 cargo test --workspace --quiet
 ```
 
 Smoke checks:
 
 ```bash
-cargo run -p robocode-cli -- --help | rg -- '--tui'
-cargo run -p robocode-cli -- --provider fallback --model test-local
+cargo run -p viden-cli -- --help | rg -- '--tui'
+cargo run -p viden-cli -- --provider fallback --model test-local
 ```
 
 Manual TUI check:
 
 ```bash
-cargo run -p robocode-cli -- --tui --provider fallback --model test-local
+cargo run -p viden-cli -- --tui --provider fallback --model test-local
 ```
 
 Lane branch additional checks:

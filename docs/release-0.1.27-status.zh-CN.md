@@ -1,4 +1,4 @@
-# RoboCode 0.1.27 状态 - 日常编程闭环加固
+# Viden 0.1.27 状态 - 日常编程闭环加固
 
 English version: [release-0.1.27-status.md](release-0.1.27-status.md)
 
@@ -10,7 +10,7 @@ English version: [release-0.1.27-status.md](release-0.1.27-status.md)
 - Workspace version：`0.1.27`
 - Git tag：`v0.1.27`
 - GitHub Release：已发布：
-  <https://github.com/wikieden/robocode/releases/tag/v0.1.27>
+  <https://github.com/wikieden/viden/releases/tag/v0.1.27>
 - Homebrew tap：已同步到 `wikieden/homebrew-tap` commit `eccca4c`
 
 ## 当前已实现
@@ -27,26 +27,26 @@ English version: [release-0.1.27-status.md](release-0.1.27-status.md)
 
 ## 验证
 
-- `cargo test -p robocode-cli provider_turn_streams_approves_tools_runs_queued_followup_and_releases_composer -- --nocapture`：通过
-- `cargo test -p robocode-cli active_approval_does_not_swallow_composer_typing -- --nocapture`：通过
-- `cargo test -p robocode-cli tui::statusbar::tests::bottom_bar_reflects_runtime_mode_and_permission_level -- --nocapture`：通过
-- `cargo test -p robocode-cli tui::topbar::tests::top_bar_status_reflects_active_turn_instead_of_static_auto_text -- --nocapture`：通过
+- `cargo test -p viden-cli provider_turn_streams_approves_tools_runs_queued_followup_and_releases_composer -- --nocapture`：通过
+- `cargo test -p viden-cli active_approval_does_not_swallow_composer_typing -- --nocapture`：通过
+- `cargo test -p viden-cli tui::statusbar::tests::bottom_bar_reflects_runtime_mode_and_permission_level -- --nocapture`：通过
+- `cargo test -p viden-cli tui::topbar::tests::top_bar_status_reflects_active_turn_instead_of_static_auto_text -- --nocapture`：通过
 - `scripts/tui-turn-controller-smoke.sh`：通过
 - `cargo fmt --check`：通过
 - `cargo clippy --workspace --all-targets -- -D warnings`：通过
 - `cargo test --workspace --quiet -- --test-threads=1`：提权后通过；sandbox
   内本地 HTTP test server 被 `Operation not permitted` 阻止。
-- `scripts/release-gate.sh --version 0.1.27 --phase prepublish --out-dir /tmp/robocode-0127-release-gate`：通过
-- `scripts/release-gate.sh --version 0.1.27 --phase postpublish --out-dir /tmp/robocode-0127-release-gate`：通过
+- `scripts/release-gate.sh --version 0.1.27 --phase prepublish --out-dir /tmp/viden-0127-release-gate`：通过
+- `scripts/release-gate.sh --version 0.1.27 --phase postpublish --out-dir /tmp/viden-0127-release-gate`：通过
 
 ## 发布 Gate
 
 `0.1.27` 已完成：
 
-- prepublish gate 已通过，证据在 `/tmp/robocode-0127-release-gate/prepublish`；
+- prepublish gate 已通过，证据在 `/tmp/viden-0127-release-gate/prepublish`；
 - GitHub Release `v0.1.27` 已发布，包含 `8` 个 assets；
 - Homebrew tap 已同步到 `0.1.27`，commit `eccca4c`；
-- postpublish gate 已通过，证据在 `/tmp/robocode-0127-release-gate/postpublish`。
+- postpublish gate 已通过，证据在 `/tmp/viden-0127-release-gate/postpublish`。
 
 ## DeepSeek Smoke 证据
 
@@ -58,4 +58,4 @@ English version: [release-0.1.27-status.md](release-0.1.27-status.md)
 - 预估费用：`¥0.012722 CNY`
 - 计费依据：DeepSeek cache-miss estimate，input `¥1/1M`，output `¥2/1M`
 - 失败分类：未观察到失败；live smoke 在本次 prepublish gate 首次通过。
-- 证据：`/tmp/robocode-0127-release-gate/prepublish/deepseek-dev-scenario/summary.md`
+- 证据：`/tmp/viden-0127-release-gate/prepublish/deepseek-dev-scenario/summary.md`

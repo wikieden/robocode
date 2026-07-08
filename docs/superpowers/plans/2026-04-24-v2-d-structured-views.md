@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add the first structured terminal presentation slice for RoboCode by improving LSP diagnostics, symbols, and references rendering without changing command semantics or runtime boundaries.
+**Goal:** Add the first structured terminal presentation slice for Viden by improving LSP diagnostics, symbols, and references rendering without changing command semantics or runtime boundaries.
 
-**Architecture:** Keep all behavior inside the existing `robocode-core` command path. Add a small `presentation.rs` helper module for text layout primitives, then update the existing LSP renderer functions in `robocode-core/src/lib.rs` to group output by file and render concise, stable lines. `robocode-cli` remains unchanged in this slice.
+**Architecture:** Keep all behavior inside the existing `viden-core` command path. Add a small `presentation.rs` helper module for text layout primitives, then update the existing LSP renderer functions in `viden-core/src/lib.rs` to group output by file and render concise, stable lines. `viden-cli` remains unchanged in this slice.
 
-**Tech Stack:** Rust 2024 workspace, `robocode-core`, existing unit tests, plain terminal text output
+**Tech Stack:** Rust 2024 workspace, `viden-core`, existing unit tests, plain terminal text output
 
 ---
 
@@ -14,30 +14,30 @@
 
 Create:
 
-- `robocode-core/src/presentation.rs`
+- `viden-core/src/presentation.rs`
 - `docs/superpowers/plans/2026-04-24-v2-d-structured-views.md`
 
 Modify:
 
-- `robocode-core/src/lib.rs`
+- `viden-core/src/lib.rs`
 
 No changes:
 
-- `robocode-cli/src/main.rs`
-- `robocode-lsp/*`
-- `robocode-tools/*`
-- `robocode-session/*`
-- `robocode-permissions/*`
+- `viden-cli/src/main.rs`
+- `viden-lsp/*`
+- `viden-tools/*`
+- `viden-session/*`
+- `viden-permissions/*`
 
 ## Task 1: Add Presentation Module Skeleton
 
 **Files:**
-- Create: `robocode-core/src/presentation.rs`
-- Modify: `robocode-core/src/lib.rs`
+- Create: `viden-core/src/presentation.rs`
+- Modify: `viden-core/src/lib.rs`
 
 - [ ] **Step 1: Write the failing presentation module test**
 
-Add to `robocode-core/src/presentation.rs`:
+Add to `viden-core/src/presentation.rs`:
 
 ```rust
 #[cfg(test)]
@@ -67,14 +67,14 @@ mod tests {
 Run:
 
 ```bash
-cargo test -p robocode-core render_section_title_adds_consistent_header_spacing
+cargo test -p viden-core render_section_title_adds_consistent_header_spacing
 ```
 
-Expected: FAIL because `presentation.rs` is not wired into `robocode-core` yet and the helpers do not exist.
+Expected: FAIL because `presentation.rs` is not wired into `viden-core` yet and the helpers do not exist.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `robocode-core/src/presentation.rs`:
+Create `viden-core/src/presentation.rs`:
 
 ```rust
 pub fn render_section_title(title: &str) -> String {
@@ -107,7 +107,7 @@ mod tests {
 }
 ```
 
-Expose the module near the top of `robocode-core/src/lib.rs`:
+Expose the module near the top of `viden-core/src/lib.rs`:
 
 ```rust
 mod presentation;
@@ -118,7 +118,7 @@ mod presentation;
 Run:
 
 ```bash
-cargo test -p robocode-core presentation
+cargo test -p viden-core presentation
 ```
 
 Expected: PASS with the two presentation helper tests succeeding.
@@ -126,19 +126,19 @@ Expected: PASS with the two presentation helper tests succeeding.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add robocode-core/src/lib.rs robocode-core/src/presentation.rs
+git add viden-core/src/lib.rs viden-core/src/presentation.rs
 git commit -m "Introduce a presentation helper module for structured views"
 ```
 
 ## Task 2: Group Diagnostics by File
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
-- Modify: `robocode-core/src/presentation.rs`
+- Modify: `viden-core/src/lib.rs`
+- Modify: `viden-core/src/presentation.rs`
 
 - [ ] **Step 1: Write the failing grouped diagnostics test**
 
-Add to the existing `#[cfg(test)]` module in `robocode-core/src/lib.rs`:
+Add to the existing `#[cfg(test)]` module in `viden-core/src/lib.rs`:
 
 ```rust
 #[test]
@@ -184,14 +184,14 @@ fn render_lsp_diagnostics_groups_entries_by_file() {
 Run:
 
 ```bash
-cargo test -p robocode-core render_lsp_diagnostics_groups_entries_by_file
+cargo test -p viden-core render_lsp_diagnostics_groups_entries_by_file
 ```
 
 Expected: FAIL because the current renderer prints each diagnostic as a flat line with the file path repeated inline.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add helpers to `robocode-core/src/presentation.rs`:
+Add helpers to `viden-core/src/presentation.rs`:
 
 ```rust
 pub fn render_subsection_title(title: &str) -> String {
@@ -199,7 +199,7 @@ pub fn render_subsection_title(title: &str) -> String {
 }
 ```
 
-Update `render_lsp_diagnostics` in `robocode-core/src/lib.rs` so it:
+Update `render_lsp_diagnostics` in `viden-core/src/lib.rs` so it:
 
 - starts with `render_section_title("LSP diagnostics").trim_end().to_string()`
 - groups diagnostics by `render_lsp_path(cwd, &diagnostic.path)`
@@ -239,7 +239,7 @@ Preserve the empty case:
 Run:
 
 ```bash
-cargo test -p robocode-core render_lsp_diagnostics
+cargo test -p viden-core render_lsp_diagnostics
 ```
 
 Expected: PASS for both the existing severity/source/code test and the new grouped-by-file test.
@@ -247,19 +247,19 @@ Expected: PASS for both the existing severity/source/code test and the new group
 - [ ] **Step 5: Commit**
 
 ```bash
-git add robocode-core/src/lib.rs robocode-core/src/presentation.rs
+git add viden-core/src/lib.rs viden-core/src/presentation.rs
 git commit -m "Group LSP diagnostics into structured file sections"
 ```
 
 ## Task 3: Make Symbols and References Scan Cleanly
 
 **Files:**
-- Modify: `robocode-core/src/lib.rs`
-- Modify: `robocode-core/src/presentation.rs`
+- Modify: `viden-core/src/lib.rs`
+- Modify: `viden-core/src/presentation.rs`
 
 - [ ] **Step 1: Write failing tests for grouped symbols and compact references**
 
-Add to the existing tests in `robocode-core/src/lib.rs`:
+Add to the existing tests in `viden-core/src/lib.rs`:
 
 ```rust
 #[test]
@@ -333,15 +333,15 @@ fn render_lsp_locations_keeps_relative_sorted_lines() {
 Run:
 
 ```bash
-cargo test -p robocode-core render_lsp_symbols_groups_entries_under_file_headers
-cargo test -p robocode-core render_lsp_locations_keeps_relative_sorted_lines
+cargo test -p viden-core render_lsp_symbols_groups_entries_under_file_headers
+cargo test -p viden-core render_lsp_locations_keeps_relative_sorted_lines
 ```
 
 Expected: FAIL because symbols currently render path inline per line and references do not use the target grouped shape.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Update `render_lsp_symbols` in `robocode-core/src/lib.rs` so it:
+Update `render_lsp_symbols` in `viden-core/src/lib.rs` so it:
 
 - groups symbols by relative file path
 - emits one file header per group
@@ -362,7 +362,7 @@ format!(
 )
 ```
 
-Update `render_lsp_locations` in `robocode-core/src/lib.rs` to render:
+Update `render_lsp_locations` in `viden-core/src/lib.rs` to render:
 
 ```rust
 format!(
@@ -380,8 +380,8 @@ using `presentation::join_lines` for the final assembly.
 Run:
 
 ```bash
-cargo test -p robocode-core render_lsp_
-cargo test -p robocode-core
+cargo test -p viden-core render_lsp_
+cargo test -p viden-core
 ```
 
 Expected: PASS, including existing LSP command tests and the new grouped rendering assertions.
@@ -399,7 +399,7 @@ Expected: PASS.
 Then commit:
 
 ```bash
-git add robocode-core/src/lib.rs robocode-core/src/presentation.rs
+git add viden-core/src/lib.rs viden-core/src/presentation.rs
 git commit -m "Render LSP results as structured terminal views"
 ```
 
@@ -419,4 +419,4 @@ Placeholder scan:
 Type consistency:
 
 - all helper names referenced in later tasks are defined in Task 1 or Task 2
-- all modified functions already exist in `robocode-core/src/lib.rs`
+- all modified functions already exist in `viden-core/src/lib.rs`

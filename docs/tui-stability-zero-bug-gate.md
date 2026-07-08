@@ -7,7 +7,7 @@ Last updated: 2026-06-09
 ## Purpose
 
 The final 0.1.x phase must treat TUI stability as the highest priority.
-RoboCode must not enter 0.2.x with known display drift, locked input, modal
+Viden must not enter 0.2.x with known display drift, locked input, modal
 residue, stale state, or scrollback bugs.
 
 "Zero bug" means:
@@ -66,7 +66,7 @@ Before the final 0.1.x release is declared complete:
 - `scripts/plan-mode-smoke.sh` passes.
 - `scripts/daily-loop-smoke.sh` passes.
 - `scripts/final-zero-bug-smoke.sh` passes with
-  `ROBOCODE_TUI_MANUAL_EVIDENCE_DIR` pointing at real macOS Terminal and iTerm2
+  `VIDEN_TUI_MANUAL_EVIDENCE_DIR` pointing at real macOS Terminal and iTerm2
   screenshots.
 - fake slow provider non-blocking TUI smoke passes.
 - deterministic approval non-blocking smoke passes.

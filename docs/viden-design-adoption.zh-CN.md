@@ -6,7 +6,7 @@
 
 ## 决策
 
-Viden 是当前有效的产品方向。旧的 RoboCode 产品框架视为 legacy implementation plan，
+Viden 是当前有效的产品方向。旧的 Viden 产品框架视为 legacy implementation plan，
 不再作为产品、TUI 或 GUI 决策依据。
 
 这是产品和设计决策，不等于立即重命名 Rust crates、binary、package artifacts、
@@ -31,10 +31,10 @@ transcript path 或兼容命令。这些名称属于实现迁移工作，需要�
 
 | 旧术语 | Viden 方向 |
 | --- | --- |
-| RoboCode product | Viden product |
-| RoboCode cockpit | Viden cockpit |
-| RoboCode TUI / GUI | Viden TUI / GUI |
-| RoboCode visual identity | Viden Aurora identity |
+| Viden product | Viden product |
+| Viden cockpit | Viden cockpit |
+| Viden TUI / GUI | Viden TUI / GUI |
+| Viden visual identity | Viden Aurora identity |
 | Generated canvas export | Reviewed Viden design source |
 
 crates、binary、config path、release artifacts 等实现名称可以先保持现状，直到迁移计划
@@ -65,14 +65,14 @@ migration。
 - 新 UI 工作必须优先使用 Viden token 源和组件词汇，再考虑新增样式。
 - 当设计源和当前实现冲突时，产品方向以 Viden 设计源为准；兼容性问题在迁移计划完成前以当前
   实现为准。
-- 用户可见设计和规划文档的产品名应使用 Viden。RoboCode 只应出现在 legacy implementation
+- 用户可见设计和规划文档的产品名应使用 Viden。Viden 只应出现在 legacy implementation
   name 或 migration compatibility 语境中。
 
 ## 待迁移工作
 
 1. 决定是否以及何时重命名 binary、crates、config directories、release artifacts 和
    Homebrew formula。
-2. 定义现有 `robocode` 命令和 `.robocode` 用户数据的兼容策略。
-3. 把活跃 PRD、roadmap、TUI 和 GUI 文档从 RoboCode 框架迁移到 Viden 框架。
+2. 定义现有 `viden` 命令和 `.viden` 用户数据的兼容策略。
+3. 把活跃 PRD、roadmap、TUI 和 GUI 文档从 Viden 框架迁移到 Viden 框架。
 4. 从已接受的 Viden 目标图建立 screenshot baselines。
 5. 增加 release gate：当 UI 截图偏离 Viden 目标且没有记录 deviation 时失败。

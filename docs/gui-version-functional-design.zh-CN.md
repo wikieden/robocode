@@ -47,7 +47,7 @@ TUI 按 [Viden 并发开发计划](parallel-development-plan.zh-CN.md) 拆到独
 | `0.3.0` | Runtime/UI contract freeze 与 Viden migration plan | GUI 获得稳定 API/event/command schema 和迁移约束 |
 | `0.3.1` | TUI 与 GUI 并行实现 | GUI 作为完整可操作 Tauri/Web client 在独立分支开发 |
 | `0.3.2` | 集成候选版 | GUI 和 TUI 基于同一 runtime facts 通过 parity fixtures |
-| `0.3.3` | 可操作 GUI beta 与 compatibility hardening | composer、approval、provider/model、context recovery、Viden/RoboCode migration |
+| `0.3.3` | 可操作 GUI beta 与 compatibility hardening | composer、approval、provider/model、context recovery、Viden/Viden migration |
 | `0.3.4` | Visual fidelity gate | Storybook、Playwright、TUI previews 和 accepted target deviations |
 
 ## 非目标
@@ -110,7 +110,7 @@ Workspace -> Project -> Lane / Session -> Subagent
 
 功能要求：
 
-- 显示 RoboCode logo、当前 workspace、provider/model、mode、permission。
+- 显示 Viden logo、当前 workspace、provider/model、mode、permission。
 - 主 composer 支持自然语言任务、slash commands 和快速入口。
 - `/connect`、`/models`、`/settings`、`/permissions` 打开面板后，保存或取消都回到
   Start Center，不自动进入工作会话。
@@ -144,7 +144,7 @@ Cockpit 是真实任务开始后的主工作区。首版视觉合同必须来自
 验收标准：
 
 - provider、tool、lane 和 approval 都不能锁住 composer。
-- Live Work 文案描述 RoboCode 或内部角色，不显示 `DeepSeek is thinking` 这类 provider
+- Live Work 文案描述 Viden 或内部角色，不显示 `DeepSeek is thinking` 这类 provider
   心智泄漏。
 - long-running task、resize、idle 后 UI 不错位、不黑屏、不丢 scrollback。
 - Cockpit token、窗口 chrome、lane row、Environment、Inspector 和 composer 在视觉目标被接受后
@@ -432,7 +432,7 @@ GUI 不允许：
 
 - TUI/GUI parity fixtures。
 - Runtime replay 与 evidence consistency。
-- Viden migration 与 RoboCode compatibility smoke。
+- Viden migration 与 Viden compatibility smoke。
 - Plugin UI contribution smoke。
 
 ### GUI-3：生产级 Operator
@@ -468,7 +468,7 @@ GUI 不允许：
 
 GUI 版本成功不是“有一个漂亮窗口”，而是：
 
-- 用户能看懂 RoboCode 正在做什么；
+- 用户能看懂 Viden 正在做什么；
 - 用户能在 task active 时继续输入；
 - 用户能明确批准或拒绝 mutation；
 - 用户能看到 context、token、cost 和 provider error；

@@ -7,8 +7,8 @@ use crate::presentation::{
 };
 use viden_types::{ApprovalResponse, now_timestamp};
 
-const ACTIVE_BRIEF_PATH: &str = ".robocode/briefs/active.md";
-const STEERING_DIR: &str = ".robocode/steering";
+const ACTIVE_BRIEF_PATH: &str = ".viden/briefs/active.md";
+const STEERING_DIR: &str = ".viden/steering";
 const STEERING_FILES: [(&str, &str, &str); 3] = [
     (
         "conventions.md",

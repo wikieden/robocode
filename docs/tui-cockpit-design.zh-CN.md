@@ -2,7 +2,7 @@
 
 本文记录当前 TUI 目标，避免开发偏离已接受的视觉参考和终端 agent 工作流。
 
-接受的设计源：`docs/viden-design/Viden/`。旧 RoboCode 视觉方案是 legacy，不再驱动新的
+接受的设计源：`docs/viden-design/Viden/`。旧 Viden 视觉方案是 legacy，不再驱动新的
 TUI 决策。
 
 交互流程配套文档：[TUI 交互流程设计](tui-interaction-flow-design.zh-CN.md)。
@@ -39,7 +39,7 @@ TUI 决策。
   permission level、active-lane 数量和 telemetry 可用性。
 - Transcript：左侧主面板，时间线式消息，最近内容固定留在底部可见。
 - Live activity：transcript 区内部在最近可见对话内容后追加醒目的 `LIVE WORK` strip，
-  用 phase、signal 和下一步 guidance 直接回答 RoboCode 正在干什么。
+  用 phase、signal 和下一步 guidance 直接回答 Viden 正在干什么。
 - 右侧栏：Project / Lane / More tabs，压缩展示 workspace、active tasks、context、MCP、LSP、
   Todo、diagnostics、provider health、recent files、usage 和 keybindings。
 - Composer：始终在底部可见，输入区是更高的三行输入槽，输入光标位于输入行内
@@ -75,7 +75,7 @@ Workspace -> Project -> Lane / Session -> Subagent
     terminal lanes 和 delegated Codex jobs。
   - diagnostics：`WorkspaceSnapshot.diagnostics`；后台 LSP 检查、真实
     `/lsp diagnostics <path>` 或 post-edit LSP 输出后会写入
-    `.robocode/diagnostics.txt` cache；为空表示 unavailable/0。
+    `.viden/diagnostics.txt` cache；为空表示 unavailable/0。
   - provider health：`ProviderStatus` 来源于 `SessionEngine` 的
     `ProviderTelemetry`；request 数量、成功/失败数量、last/average latency、
     last event count 和 last error 都是真实值。rate、token、cost 在有真实运行时
@@ -201,7 +201,7 @@ logs 和未来 ACP events 归一化出来的运行时视图。
 最小字段：
 
 - `id` / `parent_id`：支持主回复和子 agent / tool work 关联。
-- `agent` / `kind` / `transport`：区分 `robocode`、`codex`、`claude`、
+- `agent` / `kind` / `transport`：区分 `viden`、`codex`、`claude`、
   `deepseek`、`shell`、`mcp`、`skill`、`acp`，以及 `provider`、`tool`、
   `lane`、`job`、`test`、`approval`。
 - `status`：统一使用 `queued`、`thinking`、`streaming`、`editing`、
@@ -269,9 +269,9 @@ normalized view，不能各自拼接一套状态。
   custom-template、Codex 和实验 ACP adapters。Codex readiness 会检查本地
   `codex` binary、app-server support、auth、config sources 和 job store path。
   `/agent review codex`、`/agent challenge codex` 和 `/agent run codex [--write]` 会在
-  `.robocode/agents/` 下创建 tracked jobs；`/agent status`、
+  `.viden/agents/` 下创建 tracked jobs；`/agent status`、
   `/agent result <id>` 和 `/agent cancel <id>` 用于查看和控制这些 jobs。
-  `--write` 必须显式传入，并且会先经过 RoboCode mutating permission prompt，
+  `--write` 必须显式传入，并且会先经过 Viden mutating permission prompt，
   approval 后才让 Codex 以 `workspace-write` sandbox 启动。Codex jobs 会保存启动时 Git status baseline，并从 result/log output 中提取
   resume/session hints 和 touched-file evidence，所以 status/result 视图能在可用时显示
   `codex resume ...` 和相关文件。TUI 也会读取 app-server result/log artifacts，
@@ -280,9 +280,9 @@ normalized view，不能各自拼接一套状态。
   summary 会把最终 `agentMessage` text 持久化为 `message:`，所以 `/agent
   result`、side-2 和 `AgentTask` 对 delegate answer 的展示保持一致。主窗口 `NOW WORKING` 区域和右栏
   `ACTIVE TASKS` panel 会读取同一份 job records，所以 operator 继续输入时也能看到
-  Codex 是否仍在工作。ACP readiness 通过 `ROBOCODE_AGENT_ACP_COMMAND` 配置；`/agent doctor acp`
+  Codex 是否仍在工作。ACP readiness 通过 `VIDEN_AGENT_ACP_COMMAND` 配置；`/agent doctor acp`
   可以运行最小 JSON-RPC `initialize` handshake，并写入
-  `.robocode/agents/acp-doctor-*.jsonl` evidence。完整 `/lane acp` 执行仍是后续工作。
+  `.viden/agents/acp-doctor-*.jsonl` evidence。完整 `/lane acp` 执行仍是后续工作。
 - `/test <command>` 是真实 runtime command，不是视觉占位符。它会走 shell
   approval，记录最近一次测试的 status、exit code、duration、command、failure
   summary、可能失败文件和 output tail，并通过 `/status` 展示紧凑状态。失败测试输出
@@ -315,34 +315,34 @@ normalized view，不能各自拼接一套状态。
   artifact path、timeline rows 和 envelope preview。`/lane timeline <id>` 会聚焦同一份
   持久化 event chronology，方便 operator review。
 - template-launched Codex 和 Claude lane 会在 Git `HEAD` 可用时运行于
-  `.robocode/worktrees/` 下的 per-lane 隔离 worktree。task envelope 会记录
+  `.viden/worktrees/` 下的 per-lane 隔离 worktree。task envelope 会记录
   lane workspace、mutation scope、isolation warnings 以及 cleanup/verification hints。
 - `/lane inspect <id>` 还会展示相关 changed-file snapshot：隔离的外部 lane
   使用 lane worktree，非隔离 shell lane 使用当前 workspace。它也会展示来自
   exit/log artifact 的 verification evidence，以及显式 lane decision artifact。
 - `/lane accept <id>`、`/lane revise <id>` 和 `/lane discard <id>` 会把操作者的
-  明确决策记录到 `.robocode/lanes/<lane-id>.decision.md`。
+  明确决策记录到 `.viden/lanes/<lane-id>.decision.md`。
 - `/lane apply <id>` 会把已 accepted 的隔离 lane worktree 通过可审计 Git
   patch 应用回当前 workspace。它会写入
-  `.robocode/lanes/<lane-id>.apply.patch` 和
-  `.robocode/lanes/<lane-id>.apply.md`；除非显式传入 `--force`，否则会拒绝
+  `.viden/lanes/<lane-id>.apply.patch` 和
+  `.viden/lanes/<lane-id>.apply.md`；除非显式传入 `--force`，否则会拒绝
   未 accepted 的 lane；它不会自动 commit，也不会删除 lane worktree。
-  如果 patch 无法干净应用，RoboCode 会保持主 workspace 不变，把 lane 标为
-  `apply_conflict`，并写入 `.robocode/lanes/<lane-id>.apply-conflict.md`，
+  如果 patch 无法干净应用，Viden 会保持主 workspace 不变，把 lane 标为
+  `apply_conflict`，并写入 `.viden/lanes/<lane-id>.apply-conflict.md`，
   记录直接 apply check、three-way apply check 和 changed-file 上下文。
 - `/lane resolve <id>` 会在操作者已经调整主 workspace 或 lane worktree 后，
   重试一个 `apply_conflict` lane。它复用 `/lane apply` 的可审计 patch 路径：
-  Git patch 必须先通过 `git apply --check`，RoboCode 才会修改主 workspace。
+  Git patch 必须先通过 `git apply --check`，Viden 才会修改主 workspace。
   干净重试会写入正常的 `.apply.md`；仍有冲突时会刷新 `.apply-conflict.md`。
 - `/lane cleanup <id>` 会通过移除隔离 worktree 来归档 lane，但只有 worktree
   干净时才会执行。有未提交变更时必须显式使用
   `/lane cleanup <id> --force`，并且每次 cleanup 都会先写入
-  `.robocode/lanes/<lane-id>.cleanup.md`。
-- `/lane archive <id>` 会记录 `.robocode/lanes/<lane-id>.archive.md` 并把
+  `.viden/lanes/<lane-id>.cleanup.md`。
+- `/lane archive <id>` 会记录 `.viden/lanes/<lane-id>.archive.md` 并把
   lane 标记为 archived，但不会删除日志、决策、apply 记录或隔离 worktree。
   仍处于 queued/running/attached 的 live lane 必须先 stop、完成或 detach。
 - `/lane attach <id>` 会为 lane workspace 打开交互式终端，并记录
-  `.robocode/lanes/<lane-id>.attach.md`。`/lane detach <id>` 只清除 attached UI
+  `.viden/lanes/<lane-id>.attach.md`。`/lane detach <id>` 只清除 attached UI
   状态，不会杀掉外部 terminal 进程。
 - `/lane tmux <id>` 会为 lane workspace 创建或复用命名 tmux session。side-1
   lane monitor 和聚焦 lane modal 会对已 attached 的 tmux lane 直接显示
@@ -350,8 +350,8 @@ normalized view，不能各自拼接一套状态。
   作为下一步交互入口。使用默认 tmux template 时，pane 输出会 pipe 到标准 lane
   `.log`，所以副屏和 `/lane inspect` 可以观察实时 tmux 输出。
 - `/lane pty <id>` 会为 lane workspace 启动 embedded PTY bridge。它创建
-  `.robocode/lanes/<lane-id>.pty.in` 作为输入 FIFO，写入
-  `.robocode/lanes/<lane-id>.pty.md` 作为审计记录，并把输出捕获到标准 lane
+  `.viden/lanes/<lane-id>.pty.in` 作为输入 FIFO，写入
+  `.viden/lanes/<lane-id>.pty.md` 作为审计记录，并把输出捕获到标准 lane
   `.log`。`/lane inspect <id>` 会展示这些 PTY artifact path，`/lane send <id>
   <text>` 可以从 TUI 内向该 PTY bridge 写入一行输入。
 - side-1 的 `LIVE OUTPUT` 和聚焦 lane modal 会在可用时回放最新持久化 lane
@@ -369,32 +369,32 @@ normalized view，不能各自拼接一套状态。
   `Configured`、`0 ok / 0 err` 等值保持正文色，避免紧凑右侧栏里出现单词内部或
   同一指标值被切碎染色的效果。
 - TUI 会解析来自 core 真实事件的 LSP diagnostics，并持久化到
-  `.robocode/diagnostics.txt`，所以主屏和副屏可以展示同一份有证据来源的
+  `.viden/diagnostics.txt`，所以主屏和副屏可以展示同一份有证据来源的
   diagnostics snapshot。
 - `/screen side-1` 和 `/screen side-2` 现在会用当前 provider、model、theme
   和 workspace 启动真实副屏 TUI 进程。主屏最多跟踪两个副屏，`/screen list`
   显示状态，`/screen close <side-1|side-2>` 会停止跟踪，并在已知 pid 时发送
   终止请求。
-- screen registry 会持久化到 `.robocode/screens.tsv`，所以主屏和副屏进程可以
+- screen registry 会持久化到 `.viden/screens.tsv`，所以主屏和副屏进程可以
   观察同一份 companion-screen 状态。
-- `ROBOCODE_SCREEN_SIDE_1_LAUNCH_TEMPLATE` 和
-  `ROBOCODE_SCREEN_SIDE_2_LAUNCH_TEMPLATE` 可以为每个副屏覆盖默认的当前二进制
-  启动方式，`ROBOCODE_SCREEN_LAUNCH_TEMPLATE` 作为共享 fallback。支持
+- `VIDEN_SCREEN_SIDE_1_LAUNCH_TEMPLATE` 和
+  `VIDEN_SCREEN_SIDE_2_LAUNCH_TEMPLATE` 可以为每个副屏覆盖默认的当前二进制
+  启动方式，`VIDEN_SCREEN_LAUNCH_TEMPLATE` 作为共享 fallback。支持
   `{screen}`、`{title}`、`{role}`、`{display}`、`{display_index}`、
   `{provider}`、`{model}`、`{theme}`、`{cwd}`、`{binary}`、`{args}` 以及
   shell-quoted 的 `{name:q}` 占位符。这样操作者可以把副屏交给 Terminal.app、
   iTerm、tmux 或显示器摆放脚本启动。
-- `ROBOCODE_LANE_CODEX_TEMPLATE` 和 `ROBOCODE_LANE_CLAUDE_TEMPLATE` 支持
+- `VIDEN_LANE_CODEX_TEMPLATE` 和 `VIDEN_LANE_CLAUDE_TEMPLATE` 支持
   `{tool}`、`{task}`、`{envelope}`、`{cwd}`、`{worktree}` 以及 shell-quoted 的
   `{name:q}` 形式。`{cwd}` 和 `{worktree}` 都会解析为真实 lane workspace。
-- `/lane ask <tool> <task>` 使用 `ROBOCODE_LANE_<TOOL>_TEMPLATE` 接入自定义受控
+- `/lane ask <tool> <task>` 使用 `VIDEN_LANE_<TOOL>_TEMPLATE` 接入自定义受控
   外部工具，例如 Gemini、Junie 或本地 coding CLI。template 未配置时会保留已渲染
   task envelope，并让 lane 停在 queued 状态，而不是丢掉请求。
-- `ROBOCODE_LANE_PTY_TEMPLATE` 可以覆盖 embedded PTY bridge。它支持
+- `VIDEN_LANE_PTY_TEMPLATE` 可以覆盖 embedded PTY bridge。它支持
   `{lane}`、`{task}`、`{tool}`、`{cwd}`、`{worktree}`、`{command}`、`{input}`、
   `{log}`、`{shell}` 以及 shell-quoted 的 `{name:q}` 形式。默认 Unix template
   使用系统 `script` 命令和 lane 输入 FIFO。
-- `ROBOCODE_LANE_ATTACH_TEMPLATE` 可以覆盖默认 lane attach launcher。它支持
+- `VIDEN_LANE_ATTACH_TEMPLATE` 可以覆盖默认 lane attach launcher。它支持
   `{lane}`、`{task}`、`{tool}`、`{cwd}`、`{worktree}`、`{log}` 以及
   shell-quoted 的 `{name:q}` 形式。macOS 有默认 Terminal.app launcher；其他
   平台应提供该 template，例如 tmux 或桌面 terminal 命令。
@@ -413,7 +413,7 @@ normalized view，不能各自拼接一套状态。
   执行。
 - Provider token telemetry 现在来自 OpenAI-compatible、Anthropic 和
   Ollama-style 响应中的真实 `usage` payload。token rate 只有在同时有 usage 和
-  非零请求耗时时才会计算。cost 仍只在 provider 返回 cost 数据时显示；RoboCode
+  非零请求耗时时才会计算。cost 仍只在 provider 返回 cost 数据时显示；Viden
   不会在 TUI 里编造价格。
 - Diagnostics 来源于共享 LSP runtime：post-edit diagnostics、显式
   `/lsp diagnostics <path>`，以及 live TUI 对 workspace Rust 文件的节流后台检查。

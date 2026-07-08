@@ -5,15 +5,15 @@ fn default_config_path_for_test(root: &Path) -> PathBuf {
     if cfg!(windows) {
         root.join("AppData")
             .join("Roaming")
-            .join("robocode")
+            .join("viden")
             .join("config.toml")
     } else if cfg!(target_os = "macos") {
         root.join("Library")
             .join("Application Support")
-            .join("robocode")
+            .join("viden")
             .join("config.toml")
     } else {
-        root.join(".config").join("robocode").join("config.toml")
+        root.join(".config").join("viden").join("config.toml")
     }
 }
 
@@ -26,8 +26,7 @@ fn map_env(values: &[(&str, &str)]) -> BTreeMap<String, String> {
 
 #[test]
 fn default_config_uses_deepseek_as_online_provider() {
-    let cwd =
-        std::env::temp_dir().join(format!("robocode_default_deepseek_{}", std::process::id()));
+    let cwd = std::env::temp_dir().join(format!("viden_default_deepseek_{}", std::process::id()));
     let _ = fs::remove_dir_all(&cwd);
     fs::create_dir_all(&cwd).unwrap();
 
@@ -43,20 +42,20 @@ fn project_file_overrides_global_file_and_env_overrides_files() {
     let global_config_path = default_config_path_for_test(&root);
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
-    fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
+    fs::create_dir_all(root.join("project").join(".viden")).unwrap();
     fs::write(
         global_config_path,
         "provider = 'anthropic'\nmodel = 'global-model'\npermission_mode = 'default'\n",
     )
     .unwrap();
     fs::write(
-        root.join("project").join(".robocode").join("config.toml"),
+        root.join("project").join(".viden").join("config.toml"),
         "model = 'project-model'\npermission_mode = 'plan'\nrequest_timeout_secs = 45\n",
     )
     .unwrap();
     let env_map = map_env(&[
         ("HOME", root.to_string_lossy().as_ref()),
-        ("ROBOCODE_MODEL", "env-model"),
+        ("VIDEN_MODEL", "env-model"),
     ]);
     let cli = CliOverrides::default();
     let config = load_config_with_env(&root.join("project"), &cli, &|key| {
@@ -95,14 +94,11 @@ fn cli_overrides_win() {
 
 #[test]
 fn provider_plugin_dirs_resolve_from_file_env_and_cli_precedence() {
-    let cwd = std::env::temp_dir().join(format!(
-        "robocode_plugin_dirs_config_{}",
-        std::process::id()
-    ));
+    let cwd = std::env::temp_dir().join(format!("viden_plugin_dirs_config_{}", std::process::id()));
     let _ = fs::remove_dir_all(&cwd);
-    fs::create_dir_all(cwd.join(".robocode")).unwrap();
+    fs::create_dir_all(cwd.join(".viden")).unwrap();
     fs::write(
-        cwd.join(".robocode").join("config.toml"),
+        cwd.join(".viden").join("config.toml"),
         r#"
 provider_plugin_dirs = ["relative-plugins", "/absolute-plugins"]
 "#,
@@ -120,7 +116,7 @@ provider_plugin_dirs = ["relative-plugins", "/absolute-plugins"]
 
     let env_dirs = std::env::join_paths([cwd.join("env-a"), cwd.join("env-b")]).unwrap();
     let env_dirs = env_dirs.to_string_lossy().to_string();
-    let env_map = map_env(&[("ROBOCODE_PROVIDER_PLUGIN_DIRS", env_dirs.as_str())]);
+    let env_map = map_env(&[("VIDEN_PROVIDER_PLUGIN_DIRS", env_dirs.as_str())]);
     let env_config = load_config_with_env(&cwd, &CliOverrides::default(), &|key| {
         env_map.get(key).cloned()
     })
@@ -141,11 +137,11 @@ provider_plugin_dirs = ["relative-plugins", "/absolute-plugins"]
 
 #[test]
 fn deepseek_provider_specific_env_overrides_generic_api_fields() {
-    let cwd = std::env::temp_dir().join("robocode_deepseek_config_test");
+    let cwd = std::env::temp_dir().join("viden_deepseek_config_test");
     let _ = fs::remove_dir_all(&cwd);
-    fs::create_dir_all(cwd.join(".robocode")).unwrap();
+    fs::create_dir_all(cwd.join(".viden")).unwrap();
     fs::write(
-        cwd.join(".robocode").join("config.toml"),
+        cwd.join(".viden").join("config.toml"),
         r#"
 provider = "deepseek"
 api_key = "generic-key"
@@ -170,10 +166,8 @@ api_base = "https://provider.example"
 
 #[test]
 fn save_user_provider_model_defaults_updates_existing_config_without_secrets() {
-    let root = std::env::temp_dir().join(format!(
-        "robocode_save_provider_model_{}",
-        std::process::id()
-    ));
+    let root =
+        std::env::temp_dir().join(format!("viden_save_provider_model_{}", std::process::id()));
     let path = root.join("config.toml");
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
@@ -213,10 +207,8 @@ api_base = "https://api.deepseek.example"
 
 #[test]
 fn save_user_provider_config_updates_scoped_provider_fields() {
-    let root = std::env::temp_dir().join(format!(
-        "robocode_save_provider_config_{}",
-        std::process::id()
-    ));
+    let root =
+        std::env::temp_dir().join(format!("viden_save_provider_config_{}", std::process::id()));
     let path = root.join("config.toml");
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
@@ -271,7 +263,7 @@ api_base = "https://old.example"
 #[test]
 fn save_user_provider_config_rejects_empty_updates() {
     let root = std::env::temp_dir().join(format!(
-        "robocode_save_provider_config_empty_{}",
+        "viden_save_provider_config_empty_{}",
         std::process::id()
     ));
     let path = root.join("config.toml");
@@ -293,7 +285,7 @@ fn save_user_provider_config_rejects_empty_updates() {
 #[test]
 fn add_user_provider_favorite_model_moves_unique_model_to_front() {
     let root = std::env::temp_dir().join(format!(
-        "robocode_favorite_provider_model_{}",
+        "viden_favorite_provider_model_{}",
         std::process::id()
     ));
     let path = root.join("config.toml");
@@ -331,12 +323,11 @@ favorite_models = ["deepseek-v4-flash"]
 
 #[test]
 fn deepseek_provider_scoped_config_from_global_applies_after_project_provider_selection() {
-    let root =
-        std::env::temp_dir().join(format!("robocode_deepseek_global_{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("viden_deepseek_global_{}", std::process::id()));
     let global_config_path = default_config_path_for_test(&root);
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
-    fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
+    fs::create_dir_all(root.join("project").join(".viden")).unwrap();
     fs::write(
         &global_config_path,
         r#"
@@ -346,7 +337,7 @@ api_base = "https://global-provider.example"
     )
     .unwrap();
     fs::write(
-        root.join("project").join(".robocode").join("config.toml"),
+        root.join("project").join(".viden").join("config.toml"),
         r#"
 provider = "deepseek"
 api_base = "https://generic-project.example"
@@ -369,11 +360,11 @@ api_base = "https://generic-project.example"
 
 #[test]
 fn deepseek_provider_scoped_config_applies_when_provider_is_selected_by_cli() {
-    let root = std::env::temp_dir().join(format!("robocode_deepseek_cli_{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("viden_deepseek_cli_{}", std::process::id()));
     let global_config_path = default_config_path_for_test(&root);
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
-    fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
+    fs::create_dir_all(root.join("project").join(".viden")).unwrap();
     fs::write(
         &global_config_path,
         r#"
@@ -402,14 +393,12 @@ api_base = "https://global-provider.example"
 
 #[test]
 fn deepseek_anthropic_uses_deepseek_scoped_config() {
-    let root = std::env::temp_dir().join(format!(
-        "robocode_deepseek_anthropic_{}",
-        std::process::id()
-    ));
+    let root =
+        std::env::temp_dir().join(format!("viden_deepseek_anthropic_{}", std::process::id()));
     let global_config_path = default_config_path_for_test(&root);
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
-    fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
+    fs::create_dir_all(root.join("project").join(".viden")).unwrap();
     fs::write(
         &global_config_path,
         r#"
@@ -443,12 +432,11 @@ api_key_env = "DEEPSEEK_API_KEY"
 
 #[test]
 fn arbitrary_provider_scoped_config_applies_to_selected_provider() {
-    let root =
-        std::env::temp_dir().join(format!("robocode_openrouter_scoped_{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("viden_openrouter_scoped_{}", std::process::id()));
     let global_config_path = default_config_path_for_test(&root);
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
-    fs::create_dir_all(root.join("project").join(".robocode")).unwrap();
+    fs::create_dir_all(root.join("project").join(".viden")).unwrap();
     fs::write(
         &global_config_path,
         r#"
@@ -484,11 +472,11 @@ default_model = "openai/gpt-5.2"
 
 #[test]
 fn provider_specific_env_uses_normalized_provider_name() {
-    let cwd = std::env::temp_dir().join(format!("robocode_openrouter_env_{}", std::process::id()));
+    let cwd = std::env::temp_dir().join(format!("viden_openrouter_env_{}", std::process::id()));
     let _ = fs::remove_dir_all(&cwd);
-    fs::create_dir_all(cwd.join(".robocode")).unwrap();
+    fs::create_dir_all(cwd.join(".viden")).unwrap();
     fs::write(
-        cwd.join(".robocode").join("config.toml"),
+        cwd.join(".viden").join("config.toml"),
         r#"
 provider = "openrouter"
 api_key = "generic-key"
@@ -514,13 +502,13 @@ api_base = "https://generic.example"
 #[test]
 fn provider_specific_env_uses_shared_family_aliases() {
     let cwd = std::env::temp_dir().join(format!(
-        "robocode_deepseek_anthropic_env_{}",
+        "viden_deepseek_anthropic_env_{}",
         std::process::id()
     ));
     let _ = fs::remove_dir_all(&cwd);
-    fs::create_dir_all(cwd.join(".robocode")).unwrap();
+    fs::create_dir_all(cwd.join(".viden")).unwrap();
     fs::write(
-        cwd.join(".robocode").join("config.toml"),
+        cwd.join(".viden").join("config.toml"),
         r#"
 provider = "deepseek-anthropic"
 "#,

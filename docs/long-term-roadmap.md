@@ -28,7 +28,7 @@ product contract is tracked in
 
 The accepted TUI / GUI visual source is now
 `docs/viden-design/Viden/`, governed by
-[Viden Design Adoption](viden-design-adoption.md). RoboCode remains a legacy
+[Viden Design Adoption](viden-design-adoption.md). Viden remains a legacy
 implementation and compatibility name until the rename migration is explicitly
 planned.
 
@@ -52,7 +52,7 @@ Current AI coding tools are converging around several patterns:
   autonomy and more on context control, scoped tasks, evidence, isolation, cost
   visibility, and human review.
 
-The implication for RoboCode: do not chase every surface at once. Win the
+The implication for Viden: do not chase every surface at once. Win the
 operator loop first.
 
 ## Product Identity
@@ -137,7 +137,7 @@ The user should always be able to answer:
 - What did it change?
 - What did it run?
 - What failed?
-- Why does RoboCode think this is ready?
+- Why does Viden think this is ready?
 - What is the next safe action?
 
 This requires event timelines, audit replay, changed-file evidence, test output,
@@ -247,7 +247,7 @@ What not to do yet:
 ### Horizon 2: 0.2.x - Spec, Context, And Evidence Runtime
 
 Goal:
-Turn RoboCode from a cockpit into a repeatable coding workflow engine.
+Turn Viden from a cockpit into a repeatable coding workflow engine.
 
 Key outcomes:
 
@@ -265,12 +265,12 @@ What this enables:
 
 - users trust longer tasks because they can see scope, context, budget, and
   evidence before applying changes
-- RoboCode becomes differentiated even when using Codex or Claude as backends
+- Viden becomes differentiated even when using Codex or Claude as backends
 
 ### Horizon 3: 0.3.x - External Agent And ACP Interoperability
 
 Goal:
-Make RoboCode a supervisor for heterogeneous coding agents.
+Make Viden a supervisor for heterogeneous coding agents.
 
 Key outcomes:
 
@@ -284,7 +284,7 @@ Key outcomes:
 
 What this enables:
 
-- RoboCode can orchestrate the best available agent for each task without
+- Viden can orchestrate the best available agent for each task without
   turning into a provider-specific wrapper
 
 ### Horizon 4: 0.4.x - Built-In Multi-Agent Workflows
@@ -306,7 +306,7 @@ Key outcomes:
 
 What this enables:
 
-- RoboCode becomes a true multi-agent programming workbench rather than a
+- Viden becomes a true multi-agent programming workbench rather than a
   cockpit around manually launched tasks
 
 ### Horizon 5: 0.5.x - Platform Surfaces
@@ -326,13 +326,13 @@ Key outcomes:
 
 What this enables:
 
-- teams and advanced users can embed RoboCode into their development workflows
+- teams and advanced users can embed Viden into their development workflows
   without bypassing its permission, evidence, and budget model
 
 ### Horizon 6: 1.0 - Reliable Local AI Coding Operating Layer
 
 Goal:
-Make RoboCode dependable enough to recommend for real project work.
+Make Viden dependable enough to recommend for real project work.
 
 1.0 criteria:
 
@@ -397,5 +397,5 @@ After `0.1.24`, the likely sequence is:
     GUI branches concurrently, with at most three active owners and every
     frontend consuming the same runtime.
 
-This sequence keeps RoboCode focused on the wedge: not maximum autonomy, but
+This sequence keeps Viden focused on the wedge: not maximum autonomy, but
 maximum operator trust.

@@ -1,4 +1,4 @@
-# RoboCode 0.1.7 Plan
+# Viden 0.1.7 Plan
 
 Chinese version: [release-0.1.7-plan.zh-CN.md](release-0.1.7-plan.zh-CN.md)
 
@@ -30,9 +30,9 @@ Version theme:
 0.1.7 = Codex Adapter + Agent Orchestration Backbone
 ```
 
-RoboCode should not be just a polished TUI, and it should not simply launch
+Viden should not be just a polished TUI, and it should not simply launch
 Codex, Claude Code, DeepSeek, or other tools in terminals. It should become a
-local multi-agent cockpit: the user gives the primary goal, RoboCode can split,
+local multi-agent cockpit: the user gives the primary goal, Viden can split,
 dispatch, observe, approve, and converge work while different coding agents
 collaborate through one shared mechanism.
 
@@ -40,7 +40,7 @@ The core reference for this iteration is OpenAI's Codex plugin for Claude Code:
 [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc). That
 plugin proves the product pattern we want: a host coding agent can call Codex
 through a plugin/command/subagent surface, keep background jobs observable, and
-resume or inspect Codex work without forcing the user to switch tools. RoboCode
+resume or inspect Codex work without forcing the user to switch tools. Viden
 should turn that pattern into a first-class local agent adapter instead of
 treating Codex as just another terminal command.
 
@@ -49,11 +49,11 @@ treating Codex as just another terminal command.
 The next implementation pass should center on one product loop:
 
 ```text
-RoboCode host -> delegate agent -> observable job -> evidence -> operator decision
+Viden host -> delegate agent -> observable job -> evidence -> operator decision
 ```
 
-In this loop, RoboCode is the host cockpit and Codex is the first delegate
-agent. The Claude Code Codex plugin shows the shape, but RoboCode should make
+In this loop, Viden is the host cockpit and Codex is the first delegate
+agent. The Claude Code Codex plugin shows the shape, but Viden should make
 the pattern generic enough for Claude Code, DeepSeek TUI, tmux/PTY agents, and
 future ACP-compatible agents.
 
@@ -71,7 +71,7 @@ Core design rules:
   commands, tests, final output, errors, and thread/session IDs should be
   queryable through `/agent status`, `/agent result`, `/lane inspect`, and the
   side-screen evidence panels.
-- Write-capable delegate work stays behind RoboCode permissions and approval.
+- Write-capable delegate work stays behind Viden permissions and approval.
   Read-only review can be lightweight, but mutation must not bypass the shared
   tool/runtime/transcript path.
 
@@ -92,24 +92,24 @@ Implementation priority for this core:
 The next trial-focused issues fall into three groups:
 
 - Runtime state is not strong enough: after the user submits input, the center
-  of the main screen should continuously say whether RoboCode is thinking,
+  of the main screen should continuously say whether Viden is thinking,
   editing, testing, waiting for approval, or supervising lanes.
 - The extension system is still mostly read-only: plugins, skills, and MCP now
   have visibility, but they do not yet form a developer-experience-oriented
   loading, diagnostics, invocation, and permission model.
 - Multi-agent work is still terminal-integration-first: tmux, PTY, and template
-  adapters can launch external tools, but RoboCode should move toward the Zed
+  adapters can launch external tools, but Viden should move toward the Zed
   ACP direction and make different coding agents first-class lane backends
   behind a unified adapter boundary.
 - The strongest immediate adapter target is Codex itself: Claude Code's Codex
   plugin exposes `/codex:review`, `/codex:rescue`, `/codex:status`,
   `/codex:result`, `/codex:cancel`, and `/codex:setup`, backed by a companion
-  runtime and Codex app-server integration. RoboCode should support the same
+  runtime and Codex app-server integration. Viden should support the same
   operator loop natively.
 
 ## Release Definition
 
-`0.1.7` is successful when RoboCode feels useful during the live programming
+`0.1.7` is successful when Viden feels useful during the live programming
 loop, not only after a run finishes. The user should be able to submit a task,
 see what the primary agent is doing, watch side-agent lanes progress, approve
 or reject changes, run tests, and understand extension/MCP failures without
@@ -140,7 +140,7 @@ Cut line:
 
 ## Reference Model: Codex Plugin for Claude Code
 
-RoboCode should explicitly learn from `openai/codex-plugin-cc`, not copy its
+Viden should explicitly learn from `openai/codex-plugin-cc`, not copy its
 Node implementation. The reference design has five pieces worth preserving:
 
 - Plugin/command surface:
@@ -159,7 +159,7 @@ Node implementation. The reference design has five pieces worth preserving:
   review defaults to read-only, write-capable rescue is explicit, and optional
   review gates are visible because they can create loops and consume usage.
 
-RoboCode translation:
+Viden translation:
 
 - `/agent doctor codex` replaces `/codex:setup`.
 - `/agent review codex [--base <ref>]` replaces `/codex:review`.
@@ -168,7 +168,7 @@ RoboCode translation:
   `/codex:rescue`.
 - `/agent status`, `/agent result <id>`, and `/agent cancel <id>` cover
   background job management.
-- Codex app-server events become RoboCode lane events, evidence records, and
+- Codex app-server events become Viden lane events, evidence records, and
   side-screen rows.
 
 ## Milestones
@@ -207,21 +207,21 @@ Exit criteria:
 
 ### M3: Codex Adapter Core
 
-Focus: make Codex the first protocol-backed external coding agent in RoboCode.
+Focus: make Codex the first protocol-backed external coding agent in Viden.
 
 - Codex availability/auth doctor.
 - Codex app-server process or broker boundary.
 - Review and adversarial-review flows.
 - Task/rescue flow with read-only and write-capable modes.
 - Background job records with status/result/cancel/resume.
-- Mapping from Codex thread/turn/events to RoboCode lane/evidence records.
+- Mapping from Codex thread/turn/events to Viden lane/evidence records.
 
 Exit criteria:
 
-- A user can run a Codex review from RoboCode, see progress, fetch the result,
+- A user can run a Codex review from Viden, see progress, fetch the result,
   and resume the Codex session if needed.
 - A user can hand a bounded task to Codex, observe it as an agent lane, and see
-  changed files, commands, tests, and final output as RoboCode evidence.
+  changed files, commands, tests, and final output as Viden evidence.
 
 ### M4: Agent Lane Operator Loop
 
@@ -272,7 +272,7 @@ Exit criteria:
 
 ### 1. Main-Screen Operation Center
 
-Goal: the main screen should always answer "what is RoboCode doing right now?"
+Goal: the main screen should always answer "what is Viden doing right now?"
 
 Deliverables:
 
@@ -336,7 +336,7 @@ Deliverables:
 - `/agent status`, `/agent result <id>`, `/agent cancel <id>`, and
   resume/follow-up handling work for Codex jobs.
 - Codex app-server notifications, final output, touched files, command
-  executions, test evidence, and thread IDs are persisted as RoboCode evidence.
+  executions, test evidence, and thread IDs are persisted as Viden evidence.
 
 Current implementation status:
 
@@ -344,12 +344,12 @@ Current implementation status:
   `app-server` availability, auth status, config sources, and job-store path.
 - Landed: `/agent review codex`, `/agent challenge codex`, and
   `/agent run codex [--write] <task>` start tracked Codex CLI jobs with per-job
-  log and result artifacts under `.robocode/agents/`.
+  log and result artifacts under `.viden/agents/`.
 - Landed: `/agent run codex --write <task>` is the explicit write-capable
-  delegate path. It asks through RoboCode's mutating permission path before
+  delegate path. It asks through Viden's mutating permission path before
   launch and uses Codex `workspace-write` sandbox only after approval.
 - Landed: `/agent status`, `/agent result <id>`, and `/agent cancel <id>` read
-  and control the tracked job records in `.robocode/agents/codex-jobs.jsonl`.
+  and control the tracked job records in `.viden/agents/codex-jobs.jsonl`.
 - Landed: Codex jobs now keep a start-time Git status baseline and extract
   resume/session hints plus touched-file evidence from job output, so
   `/agent status` and `/agent result <id>` can show `codex resume ...` and
@@ -384,7 +384,7 @@ Current implementation status:
   surfaces while keeping the default CLI fallback.
 - Landed: app-server approval-like server requests are captured as evidence and
   answered with decline/no-grant responses, so experimental app-server jobs do
-  not hang or bypass RoboCode permission boundaries.
+  not hang or bypass Viden permission boundaries.
 - Remaining: promote the app-server path behind a config flag/default after
   live smoke coverage proves normal jobs can use the protocol path safely.
 - App-server protocol findings are captured in
@@ -395,7 +395,7 @@ Acceptance checks:
 - A read-only Codex review can be started, monitored, and rendered in the TUI.
 - A background Codex task can be checked through `/agent status` and fetched
   through `/agent result`.
-- Write-capable Codex work never bypasses RoboCode permissions, transcript, or
+- Write-capable Codex work never bypasses Viden permissions, transcript, or
   approval.
 
 ### 4. Agent Lane Lifecycle
@@ -418,7 +418,7 @@ Deliverables:
 Acceptance checks:
 
 - After starting a Codex/Claude/DeepSeek-like external tool through tmux or PTY,
-  RoboCode can keep observing latest output and suggest the next operator
+  Viden can keep observing latest output and suggest the next operator
   action.
 - When a lane completes, the result evidence is visible and the user can accept,
   revise, discard, or apply it.
@@ -463,7 +463,7 @@ Goal: establish the protocol boundary for supporting more coding agents.
 Deliverables:
 
 - Add an ACP adapter design document or module boundary that explains how ACP
-  maps into RoboCode lane events.
+  maps into Viden lane events.
 - Complete a minimal process transport spike:
   - launch an agent server;
   - perform handshake;
@@ -512,7 +512,7 @@ Acceptance checks:
 
 - No cloud agent registry.
 - No account system or remote task hosting.
-- Do not turn RoboCode into a full IDE.
+- Do not turn Viden into a full IDE.
 - Do not add a marketplace before the extension system is stable.
 - Do not let plugins, skills, MCP, or ACP bypass permissions, transcript, and
   approval.
@@ -537,7 +537,7 @@ Acceptance checks:
 
 1. Codex adapter core: implement the concrete external-agent workflow first,
    using the Claude Code Codex plugin as the reference product shape.
-2. Main-screen operation center: make Codex and RoboCode activity visible while
+2. Main-screen operation center: make Codex and Viden activity visible while
    work is running.
 3. Side-2 evidence panel: give tests, LSP, MCP, extensions, and Codex job
    evidence one observation surface.

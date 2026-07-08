@@ -128,7 +128,7 @@ fn provider_host_uses_dynamic_provider_api_base_env_mapping() {
         known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
             api_key_env: None,
-            api_base_env: Some("ROBOCODE_TEST_ENV_OPENAI_API_BASE".to_string()),
+            api_base_env: Some("VIDEN_TEST_ENV_OPENAI_API_BASE".to_string()),
         },
         capabilities: ProviderCapabilities {
             supports_streaming: true,
@@ -146,14 +146,11 @@ fn provider_host_uses_dynamic_provider_api_base_env_mapping() {
     let host = ProviderHost::with_registry(registry);
 
     unsafe {
-        std::env::set_var(
-            "ROBOCODE_TEST_ENV_OPENAI_API_BASE",
-            "https://env.example.com",
-        );
+        std::env::set_var("VIDEN_TEST_ENV_OPENAI_API_BASE", "https://env.example.com");
     }
     let provider = host.create_registered("env-openai", None, None, None, 90, 1);
     unsafe {
-        std::env::remove_var("ROBOCODE_TEST_ENV_OPENAI_API_BASE");
+        std::env::remove_var("VIDEN_TEST_ENV_OPENAI_API_BASE");
     }
     let provider = provider.unwrap();
 
@@ -172,7 +169,7 @@ fn provider_host_treats_blank_dynamic_provider_api_key_env_as_missing() {
         default_model: Some("blank-key-model".to_string()),
         known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
-            api_key_env: Some("ROBOCODE_TEST_BLANK_OPENAI_API_KEY".to_string()),
+            api_key_env: Some("VIDEN_TEST_BLANK_OPENAI_API_KEY".to_string()),
             api_base_env: None,
         },
         capabilities: ProviderCapabilities {
@@ -191,7 +188,7 @@ fn provider_host_treats_blank_dynamic_provider_api_key_env_as_missing() {
     let host = ProviderHost::with_registry(registry);
 
     unsafe {
-        std::env::set_var("ROBOCODE_TEST_BLANK_OPENAI_API_KEY", "   ");
+        std::env::set_var("VIDEN_TEST_BLANK_OPENAI_API_KEY", "   ");
     }
     let mut provider = host
         .create_registered("blank-key-openai", None, None, None, 1, 0)
@@ -206,7 +203,7 @@ fn provider_host_treats_blank_dynamic_provider_api_key_env_as_missing() {
         permission_level: PermissionLevel::Ask,
     });
     unsafe {
-        std::env::remove_var("ROBOCODE_TEST_BLANK_OPENAI_API_KEY");
+        std::env::remove_var("VIDEN_TEST_BLANK_OPENAI_API_KEY");
     }
     let events = events.unwrap();
 
@@ -223,7 +220,7 @@ fn deepseek_v4_accepts_replayed_tool_call_reasoning_content() {
     let api_key = std::env::var("DEEPSEEK_API_KEY")
         .expect("DEEPSEEK_API_KEY is required for this ignored smoke test");
     let model =
-        std::env::var("ROBOCODE_LIVE_MODEL").unwrap_or_else(|_| "deepseek-v4-flash".to_string());
+        std::env::var("VIDEN_LIVE_MODEL").unwrap_or_else(|_| "deepseek-v4-flash".to_string());
     let mut provider = create_provider(ProviderConfig {
         kind: ProviderKind::DeepSeek,
         model: model.clone(),
@@ -291,7 +288,7 @@ fn provider_host_prefers_explicit_api_base_over_dynamic_provider_env_mapping() {
         known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
             api_key_env: None,
-            api_base_env: Some("ROBOCODE_TEST_EXPLICIT_OPENAI_API_BASE".to_string()),
+            api_base_env: Some("VIDEN_TEST_EXPLICIT_OPENAI_API_BASE".to_string()),
         },
         capabilities: ProviderCapabilities {
             supports_streaming: true,
@@ -309,7 +306,7 @@ fn provider_host_prefers_explicit_api_base_over_dynamic_provider_env_mapping() {
     let host = ProviderHost::with_registry(registry);
 
     unsafe {
-        std::env::set_var("ROBOCODE_TEST_EXPLICIT_OPENAI_API_BASE", "not-a-valid-url");
+        std::env::set_var("VIDEN_TEST_EXPLICIT_OPENAI_API_BASE", "not-a-valid-url");
     }
     let provider = host.create_registered(
         "explicit-openai",
@@ -320,7 +317,7 @@ fn provider_host_prefers_explicit_api_base_over_dynamic_provider_env_mapping() {
         1,
     );
     unsafe {
-        std::env::remove_var("ROBOCODE_TEST_EXPLICIT_OPENAI_API_BASE");
+        std::env::remove_var("VIDEN_TEST_EXPLICIT_OPENAI_API_BASE");
     }
     let provider = provider.unwrap();
 
@@ -340,7 +337,7 @@ fn provider_host_rejects_invalid_dynamic_provider_api_base_env_mapping() {
         known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
             api_key_env: None,
-            api_base_env: Some("ROBOCODE_TEST_INVALID_OPENAI_API_BASE".to_string()),
+            api_base_env: Some("VIDEN_TEST_INVALID_OPENAI_API_BASE".to_string()),
         },
         capabilities: ProviderCapabilities {
             supports_streaming: true,
@@ -357,7 +354,7 @@ fn provider_host_rejects_invalid_dynamic_provider_api_base_env_mapping() {
     .unwrap();
     let host = ProviderHost::with_registry(registry);
     unsafe {
-        std::env::set_var("ROBOCODE_TEST_INVALID_OPENAI_API_BASE", "not-a-valid-url");
+        std::env::set_var("VIDEN_TEST_INVALID_OPENAI_API_BASE", "not-a-valid-url");
     }
     let error = host
         .create_registered("invalid-env-openai", None, None, None, 90, 1)
@@ -365,10 +362,10 @@ fn provider_host_rejects_invalid_dynamic_provider_api_base_env_mapping() {
         .unwrap()
         .to_string();
     unsafe {
-        std::env::remove_var("ROBOCODE_TEST_INVALID_OPENAI_API_BASE");
+        std::env::remove_var("VIDEN_TEST_INVALID_OPENAI_API_BASE");
     }
 
-    assert!(error.contains("ROBOCODE_TEST_INVALID_OPENAI_API_BASE"));
+    assert!(error.contains("VIDEN_TEST_INVALID_OPENAI_API_BASE"));
     assert!(error.contains("must start with http:// or https://"));
 }
 
@@ -384,7 +381,7 @@ fn provider_host_reports_missing_dynamic_provider_api_base_after_env_lookup() {
         known_models: Vec::new(),
         env_mappings: ProviderEnvMappings {
             api_key_env: None,
-            api_base_env: Some("ROBOCODE_TEST_MISSING_OPENAI_API_BASE".to_string()),
+            api_base_env: Some("VIDEN_TEST_MISSING_OPENAI_API_BASE".to_string()),
         },
         capabilities: ProviderCapabilities {
             supports_streaming: true,
@@ -401,7 +398,7 @@ fn provider_host_reports_missing_dynamic_provider_api_base_after_env_lookup() {
     .unwrap();
     let host = ProviderHost::with_registry(registry);
     unsafe {
-        std::env::remove_var("ROBOCODE_TEST_MISSING_OPENAI_API_BASE");
+        std::env::remove_var("VIDEN_TEST_MISSING_OPENAI_API_BASE");
     }
 
     let error = host

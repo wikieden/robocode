@@ -4,9 +4,9 @@
 
 **Goal:** Replace the current hardcoded provider factory with a plugin-extensible provider runtime that supports dynamic provider discovery, provider-scoped config resolution, per-agent provider binding, and DeepSeek v4 as the first plugin-backed provider.
 
-**Architecture:** Split `robocode-model` into a host/registry/adapter/plugin shape. Keep `SessionEngine` and the core tool loop untouched: they continue to consume `Box<dyn ModelProvider>`. Phase 1 uses native dynamic libraries for plugin loading, but the ABI is kept serialized and host-mediated so it can later migrate to WASM without redesigning the provider contract.
+**Architecture:** Split `viden-model` into a host/registry/adapter/plugin shape. Keep `SessionEngine` and the core tool loop untouched: they continue to consume `Box<dyn ModelProvider>`. Phase 1 uses native dynamic libraries for plugin loading, but the ABI is kept serialized and host-mediated so it can later migrate to WASM without redesigning the provider contract.
 
-**Tech Stack:** Rust 2024 workspace, existing `robocode-model` / `robocode-config` / `robocode-cli`, native dynamic library loading via `libloading`, serializable descriptor/payload structs in a new SDK crate, existing `curl`-based HTTP provider path
+**Tech Stack:** Rust 2024 workspace, existing `viden-model` / `viden-config` / `viden-cli`, native dynamic library loading via `libloading`, serializable descriptor/payload structs in a new SDK crate, existing `curl`-based HTTP provider path
 
 ---
 
@@ -14,27 +14,27 @@
 
 Create:
 
-- `robocode-provider-sdk/Cargo.toml`
-- `robocode-provider-sdk/src/lib.rs`
-- `robocode-provider-deepseek/Cargo.toml`
-- `robocode-provider-deepseek/src/lib.rs`
-- `robocode-model/src/adapters.rs`
-- `robocode-model/src/config.rs`
-- `robocode-model/src/descriptor.rs`
-- `robocode-model/src/host.rs`
-- `robocode-model/src/http.rs`
-- `robocode-model/src/plugin.rs`
-- `robocode-model/src/registry.rs`
+- `viden-provider-sdk/Cargo.toml`
+- `viden-provider-sdk/src/lib.rs`
+- `viden-provider-deepseek/Cargo.toml`
+- `viden-provider-deepseek/src/lib.rs`
+- `viden-model/src/adapters.rs`
+- `viden-model/src/config.rs`
+- `viden-model/src/descriptor.rs`
+- `viden-model/src/host.rs`
+- `viden-model/src/http.rs`
+- `viden-model/src/plugin.rs`
+- `viden-model/src/registry.rs`
 - `docs/superpowers/plans/2026-05-05-provider-plugin-runtime-deepseek.md`
 
 Modify:
 
 - `Cargo.toml`
 - `Cargo.lock`
-- `robocode-model/Cargo.toml`
-- `robocode-model/src/lib.rs`
-- `robocode-config/src/lib.rs`
-- `robocode-cli/src/main.rs`
+- `viden-model/Cargo.toml`
+- `viden-model/src/lib.rs`
+- `viden-config/src/lib.rs`
+- `viden-cli/src/main.rs`
 - `README.md`
 - `README.zh-CN.md`
 - `docs/architecture.md`
@@ -45,27 +45,27 @@ Modify:
 
 No changes:
 
-- `robocode-core`
-- `robocode-tools`
-- `robocode-session`
-- `robocode-permissions`
-- `robocode-workflows`
+- `viden-core`
+- `viden-tools`
+- `viden-session`
+- `viden-permissions`
+- `viden-workflows`
 
-## Task 1: Split `robocode-model` Into Host/Registry/Adapter Modules
+## Task 1: Split `viden-model` Into Host/Registry/Adapter Modules
 
 **Files:**
-- Modify: `robocode-model/Cargo.toml`
-- Modify: `robocode-model/src/lib.rs`
-- Create: `robocode-model/src/adapters.rs`
-- Create: `robocode-model/src/config.rs`
-- Create: `robocode-model/src/descriptor.rs`
-- Create: `robocode-model/src/http.rs`
-- Create: `robocode-model/src/plugin.rs`
-- Create: `robocode-model/src/registry.rs`
+- Modify: `viden-model/Cargo.toml`
+- Modify: `viden-model/src/lib.rs`
+- Create: `viden-model/src/adapters.rs`
+- Create: `viden-model/src/config.rs`
+- Create: `viden-model/src/descriptor.rs`
+- Create: `viden-model/src/http.rs`
+- Create: `viden-model/src/plugin.rs`
+- Create: `viden-model/src/registry.rs`
 
 - [ ] **Step 1: Write the failing registry and descriptor tests**
 
-Add to `robocode-model/src/lib.rs` test module:
+Add to `viden-model/src/lib.rs` test module:
 
 ```rust
 #[test]
@@ -101,14 +101,14 @@ fn descriptor_keeps_provider_identity_separate_from_protocol_family() {
 Run:
 
 ```bash
-cargo test -p robocode-model registry_lists_builtin_provider_ids
+cargo test -p viden-model registry_lists_builtin_provider_ids
 ```
 
 Expected: FAIL because the registry/descriptor modules do not exist yet.
 
 - [ ] **Step 3: Create the module skeleton**
 
-Create `robocode-model/src/descriptor.rs`:
+Create `viden-model/src/descriptor.rs`:
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -145,7 +145,7 @@ pub struct ProviderDescriptor {
 }
 ```
 
-Create `robocode-model/src/registry.rs`:
+Create `viden-model/src/registry.rs`:
 
 ```rust
 use crate::descriptor::{ProtocolFamily, ProviderCapabilities, ProviderDescriptor, ProviderEnvMappings};
@@ -217,7 +217,7 @@ impl ProviderRegistry {
 }
 ```
 
-Replace the top of `robocode-model/src/lib.rs` with:
+Replace the top of `viden-model/src/lib.rs` with:
 
 ```rust
 mod adapters;
@@ -239,8 +239,8 @@ Leave the current concrete provider logic in place temporarily, but move helper 
 Run:
 
 ```bash
-cargo test -p robocode-model registry_lists_builtin_provider_ids
-cargo test -p robocode-model descriptor_keeps_provider_identity_separate_from_protocol_family
+cargo test -p viden-model registry_lists_builtin_provider_ids
+cargo test -p viden-model descriptor_keeps_provider_identity_separate_from_protocol_family
 ```
 
 Expected: PASS.
@@ -248,23 +248,23 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add robocode-model/Cargo.toml robocode-model/src/lib.rs robocode-model/src/adapters.rs robocode-model/src/config.rs robocode-model/src/descriptor.rs robocode-model/src/http.rs robocode-model/src/plugin.rs robocode-model/src/registry.rs
-git commit -m "Split robocode-model into provider runtime modules"
+git add viden-model/Cargo.toml viden-model/src/lib.rs viden-model/src/adapters.rs viden-model/src/config.rs viden-model/src/descriptor.rs viden-model/src/http.rs viden-model/src/plugin.rs viden-model/src/registry.rs
+git commit -m "Split viden-model into provider runtime modules"
 ```
 
 ## Task 2: Add Provider SDK and Dynamic Plugin ABI
 
 **Files:**
-- Create: `robocode-provider-sdk/Cargo.toml`
-- Create: `robocode-provider-sdk/src/lib.rs`
+- Create: `viden-provider-sdk/Cargo.toml`
+- Create: `viden-provider-sdk/src/lib.rs`
 - Modify: `Cargo.toml`
 - Modify: `Cargo.lock`
-- Modify: `robocode-model/Cargo.toml`
-- Modify: `robocode-model/src/plugin.rs`
+- Modify: `viden-model/Cargo.toml`
+- Modify: `viden-model/src/plugin.rs`
 
 - [ ] **Step 1: Write the failing plugin manifest roundtrip test**
 
-Create `robocode-provider-sdk/src/lib.rs` with a failing test first:
+Create `viden-provider-sdk/src/lib.rs` with a failing test first:
 
 ```rust
 #[cfg(test)]
@@ -297,18 +297,18 @@ mod tests {
 Run:
 
 ```bash
-cargo test -p robocode-provider-sdk plugin_descriptor_roundtrips_through_json
+cargo test -p viden-provider-sdk plugin_descriptor_roundtrips_through_json
 ```
 
 Expected: FAIL because `PluginDescriptor` does not exist yet in the new file.
 
 - [ ] **Step 3: Add the SDK crate and plugin ABI types**
 
-Create `robocode-provider-sdk/Cargo.toml`:
+Create `viden-provider-sdk/Cargo.toml`:
 
 ```toml
 [package]
-name = "robocode-provider-sdk"
+name = "viden-provider-sdk"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -319,7 +319,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ```
 
-Create `robocode-provider-sdk/src/lib.rs`:
+Create `viden-provider-sdk/src/lib.rs`:
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -336,38 +336,38 @@ pub struct PluginDescriptor {
     pub api_base_env: Option<String>,
 }
 
-pub const ROBOCODE_PLUGIN_DESCRIPTOR_SYMBOL: &str = "robocode_provider_descriptor_json";
+pub const VIDEN_PLUGIN_DESCRIPTOR_SYMBOL: &str = "viden_provider_descriptor_json";
 ```
 
 Add to the workspace `Cargo.toml`:
 
 ```toml
 members = [
-  "robocode-cli",
-  "robocode-config",
-  "robocode-core",
-  "robocode-lsp",
-  "robocode-model",
-  "robocode-permissions",
-  "robocode-provider-sdk",
-  "robocode-session",
-  "robocode-tools",
-  "robocode-types",
-  "robocode-workflows",
+  "viden-cli",
+  "viden-config",
+  "viden-core",
+  "viden-lsp",
+  "viden-model",
+  "viden-permissions",
+  "viden-provider-sdk",
+  "viden-session",
+  "viden-tools",
+  "viden-types",
+  "viden-workflows",
 ]
 ```
 
-Add dependency in `robocode-model/Cargo.toml`:
+Add dependency in `viden-model/Cargo.toml`:
 
 ```toml
-robocode-provider-sdk = { path = "../robocode-provider-sdk" }
+viden-provider-sdk = { path = "../viden-provider-sdk" }
 libloading = "0.8"
 ```
 
-Create the plugin loader skeleton in `robocode-model/src/plugin.rs`:
+Create the plugin loader skeleton in `viden-model/src/plugin.rs`:
 
 ```rust
-use robocode_provider_sdk::{PluginDescriptor, ROBOCODE_PLUGIN_DESCRIPTOR_SYMBOL};
+use viden_provider_sdk::{PluginDescriptor, VIDEN_PLUGIN_DESCRIPTOR_SYMBOL};
 
 #[derive(Debug)]
 pub struct LoadedPluginDescriptor {
@@ -390,39 +390,39 @@ pub fn dynamic_library_suffixes() -> &'static [&'static str] {
 Run:
 
 ```bash
-cargo test -p robocode-provider-sdk plugin_descriptor_roundtrips_through_json
-cargo check -p robocode-model
+cargo test -p viden-provider-sdk plugin_descriptor_roundtrips_through_json
+cargo check -p viden-model
 ```
 
-Expected: PASS. The SDK test passes, and `robocode-model` still compiles with the new plugin skeleton and dependencies.
+Expected: PASS. The SDK test passes, and `viden-model` still compiles with the new plugin skeleton and dependencies.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Cargo.toml Cargo.lock robocode-model/Cargo.toml robocode-model/src/plugin.rs robocode-provider-sdk/Cargo.toml robocode-provider-sdk/src/lib.rs
+git add Cargo.toml Cargo.lock viden-model/Cargo.toml viden-model/src/plugin.rs viden-provider-sdk/Cargo.toml viden-provider-sdk/src/lib.rs
 git commit -m "Add provider plugin SDK and dynamic ABI skeleton"
 ```
 
 ## Task 3: Make Config Provider-Scoped With Generic Fallback
 
 **Files:**
-- Modify: `robocode-config/src/lib.rs`
-- Modify: `robocode-model/src/config.rs`
+- Modify: `viden-config/src/lib.rs`
+- Modify: `viden-model/src/config.rs`
 - Modify: `README.md`
 - Modify: `README.zh-CN.md`
 
 - [ ] **Step 1: Write the failing DeepSeek config precedence test**
 
-Add to `robocode-config/src/lib.rs` tests:
+Add to `viden-config/src/lib.rs` tests:
 
 ```rust
 #[test]
 fn deepseek_provider_specific_env_overrides_generic_api_fields() {
-    let cwd = std::env::temp_dir().join("robocode_deepseek_config_test");
+    let cwd = std::env::temp_dir().join("viden_deepseek_config_test");
     let _ = fs::remove_dir_all(&cwd);
-    fs::create_dir_all(cwd.join(".robocode")).unwrap();
+    fs::create_dir_all(cwd.join(".viden")).unwrap();
     fs::write(
-        cwd.join(".robocode").join("config.toml"),
+        cwd.join(".viden").join("config.toml"),
         r#"
 provider = "deepseek"
 api_key = "generic-key"
@@ -453,14 +453,14 @@ api_base = "https://provider.example"
 Run:
 
 ```bash
-cargo test -p robocode-config deepseek_provider_specific_env_overrides_generic_api_fields
+cargo test -p viden-config deepseek_provider_specific_env_overrides_generic_api_fields
 ```
 
 Expected: FAIL because provider-scoped config and DeepSeek-specific env precedence do not exist yet.
 
 - [ ] **Step 3: Extend config parsing**
 
-Change `FileConfig` in `robocode-config/src/lib.rs`:
+Change `FileConfig` in `viden-config/src/lib.rs`:
 
 ```rust
 #[derive(Debug, Default, Deserialize)]
@@ -545,8 +545,8 @@ Document the new config shape in both READMEs.
 Run:
 
 ```bash
-cargo test -p robocode-config deepseek_provider_specific_env_overrides_generic_api_fields
-cargo test -p robocode-config --lib
+cargo test -p viden-config deepseek_provider_specific_env_overrides_generic_api_fields
+cargo test -p viden-config --lib
 ```
 
 Expected: PASS.
@@ -554,21 +554,21 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add robocode-config/src/lib.rs README.md README.zh-CN.md
+git add viden-config/src/lib.rs README.md README.zh-CN.md
 git commit -m "Add provider-scoped config with DeepSeek precedence"
 ```
 
 ## Task 4: Replace Hardcoded Factory With Provider Host + Per-Agent Binding
 
 **Files:**
-- Modify: `robocode-model/src/lib.rs`
-- Modify: `robocode-model/src/config.rs`
-- Create: `robocode-model/src/host.rs`
-- Modify: `robocode-cli/src/main.rs`
+- Modify: `viden-model/src/lib.rs`
+- Modify: `viden-model/src/config.rs`
+- Create: `viden-model/src/host.rs`
+- Modify: `viden-cli/src/main.rs`
 
 - [ ] **Step 1: Write the failing registry-refresh and per-instance binding tests**
 
-Add to `robocode-model/src/lib.rs` tests:
+Add to `viden-model/src/lib.rs` tests:
 
 ```rust
 #[test]
@@ -600,14 +600,14 @@ fn different_provider_configs_create_independent_provider_instances() {
 Run:
 
 ```bash
-cargo test -p robocode-model provider_host_can_refresh_registry_without_replacing_existing_provider_instance
+cargo test -p viden-model provider_host_can_refresh_registry_without_replacing_existing_provider_instance
 ```
 
 Expected: FAIL because `ProviderHost` does not exist yet.
 
 - [ ] **Step 3: Add ProviderHost and switch CLI construction**
 
-Create `robocode-model/src/host.rs`:
+Create `viden-model/src/host.rs`:
 
 ```rust
 use crate::{ProviderConfig, ProviderRegistry, load_builtin_provider};
@@ -638,7 +638,7 @@ impl ProviderHost {
 }
 ```
 
-In `robocode-model/src/lib.rs`, replace `create_provider` with:
+In `viden-model/src/lib.rs`, replace `create_provider` with:
 
 ```rust
 pub fn create_provider(config: ProviderConfig) -> Box<dyn ModelProvider> {
@@ -648,10 +648,10 @@ pub fn create_provider(config: ProviderConfig) -> Box<dyn ModelProvider> {
 }
 ```
 
-Then switch `robocode-cli/src/main.rs` startup path from direct factory use to:
+Then switch `viden-cli/src/main.rs` startup path from direct factory use to:
 
 ```rust
-use robocode_model::{ProviderConfig, ProviderHost};
+use viden_model::{ProviderConfig, ProviderHost};
 
 let provider_host = ProviderHost::with_builtins();
 let provider = provider_host.create(provider_config)?;
@@ -665,8 +665,8 @@ instances local to each engine.
 Run:
 
 ```bash
-cargo test -p robocode-model provider_host_
-cargo test -p robocode-cli -- --help
+cargo test -p viden-model provider_host_
+cargo test -p viden-cli -- --help
 ```
 
 Expected: PASS.
@@ -674,24 +674,24 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add robocode-model/src/lib.rs robocode-model/src/config.rs robocode-model/src/host.rs robocode-cli/src/main.rs
+git add viden-model/src/lib.rs viden-model/src/config.rs viden-model/src/host.rs viden-cli/src/main.rs
 git commit -m "Introduce provider host and instance-scoped provider creation"
 ```
 
 ## Task 5: Add DeepSeek Plugin and Dynamic Discovery
 
 **Files:**
-- Create: `robocode-provider-deepseek/Cargo.toml`
-- Create: `robocode-provider-deepseek/src/lib.rs`
+- Create: `viden-provider-deepseek/Cargo.toml`
+- Create: `viden-provider-deepseek/src/lib.rs`
 - Modify: `Cargo.toml`
 - Modify: `Cargo.lock`
-- Modify: `robocode-model/src/plugin.rs`
-- Modify: `robocode-model/src/registry.rs`
-- Modify: `robocode-model/src/lib.rs`
+- Modify: `viden-model/src/plugin.rs`
+- Modify: `viden-model/src/registry.rs`
+- Modify: `viden-model/src/lib.rs`
 
 - [ ] **Step 1: Write the failing DeepSeek plugin tests**
 
-Add to `robocode-model/src/lib.rs` tests:
+Add to `viden-model/src/lib.rs` tests:
 
 ```rust
 #[test]
@@ -714,18 +714,18 @@ fn deepseek_provider_uses_openai_protocol_family() {
 Run:
 
 ```bash
-cargo test -p robocode-model registry_exposes_deepseek_as_independent_provider_id
+cargo test -p viden-model registry_exposes_deepseek_as_independent_provider_id
 ```
 
 Expected: FAIL because DeepSeek is not in the builtin or plugin registry yet.
 
 - [ ] **Step 3: Add the DeepSeek provider plugin**
 
-Create `robocode-provider-deepseek/Cargo.toml`:
+Create `viden-provider-deepseek/Cargo.toml`:
 
 ```toml
 [package]
-name = "robocode-provider-deepseek"
+name = "viden-provider-deepseek"
 version = "0.1.0"
 edition = "2024"
 
@@ -733,14 +733,14 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-robocode-provider-sdk = { path = "../robocode-provider-sdk" }
+viden-provider-sdk = { path = "../viden-provider-sdk" }
 serde_json = "1"
 ```
 
-Create `robocode-provider-deepseek/src/lib.rs`:
+Create `viden-provider-deepseek/src/lib.rs`:
 
 ```rust
-use robocode_provider_sdk::PluginDescriptor;
+use viden_provider_sdk::PluginDescriptor;
 use std::ffi::c_char;
 
 static DESCRIPTOR_JSON: &str = r#"{
@@ -755,7 +755,7 @@ static DESCRIPTOR_JSON: &str = r#"{
 }"#;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn robocode_provider_descriptor_json() -> *const c_char {
+pub extern "C" fn viden_provider_descriptor_json() -> *const c_char {
     concat!(
         "{",
         "\"provider_id\":\"deepseek\",",
@@ -777,7 +777,7 @@ pub fn descriptor() -> PluginDescriptor {
 }
 ```
 
-In `robocode-model/src/registry.rs`, add builtin DeepSeek descriptor:
+In `viden-model/src/registry.rs`, add builtin DeepSeek descriptor:
 
 ```rust
 ProviderDescriptor {
@@ -806,9 +806,9 @@ Also add a `descriptor(&self, provider_id: &str) -> Option<&ProviderDescriptor>`
 Run:
 
 ```bash
-cargo test -p robocode-model registry_exposes_deepseek_as_independent_provider_id
-cargo test -p robocode-model deepseek_provider_uses_openai_protocol_family
-cargo test -p robocode-model
+cargo test -p viden-model registry_exposes_deepseek_as_independent_provider_id
+cargo test -p viden-model deepseek_provider_uses_openai_protocol_family
+cargo test -p viden-model
 ```
 
 Expected: PASS.
@@ -816,7 +816,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Cargo.toml Cargo.lock robocode-model/src/plugin.rs robocode-model/src/registry.rs robocode-model/src/lib.rs robocode-provider-deepseek/Cargo.toml robocode-provider-deepseek/src/lib.rs
+git add Cargo.toml Cargo.lock viden-model/src/plugin.rs viden-model/src/registry.rs viden-model/src/lib.rs viden-provider-deepseek/Cargo.toml viden-provider-deepseek/src/lib.rs
 git commit -m "Add DeepSeek as first plugin-backed provider"
 ```
 
@@ -855,7 +855,7 @@ Add matching Chinese wording to `README.zh-CN.md`.
 
 Update `docs/architecture.md` and `docs/architecture.zh-CN.md` to state:
 
-- `robocode-model` is now a provider host/runtime
+- `viden-model` is now a provider host/runtime
 - registry can refresh at runtime
 - new sessions can see newly loaded providers
 - active sessions keep their own provider instances
@@ -881,8 +881,8 @@ Expected: PASS with matches in all intended files.
 Run:
 
 ```bash
-cargo test -p robocode-model
-cargo test -p robocode-config --lib
+cargo test -p viden-model
+cargo test -p viden-config --lib
 cargo test --workspace --quiet
 ```
 
@@ -913,4 +913,4 @@ Placeholder scan:
 Type consistency:
 
 - `ProviderDescriptor`, `ProtocolFamily`, `ProviderRegistry`, `ProviderHost`, and `PluginDescriptor` are introduced before later tasks depend on them
-- `robocode-config` changes stay on the config side; `SessionEngine` remains untouched throughout the plan
+- `viden-config` changes stay on the config side; `SessionEngine` remains untouched throughout the plan

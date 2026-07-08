@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROVIDER=""
 MODEL=""
 OUT_DIR=""
-PROMPT="Reply with exactly: robocode-live-smoke-ok"
+PROMPT="Reply with exactly: viden-live-smoke-ok"
 
 usage() {
   cat <<'EOF'
@@ -98,7 +98,7 @@ if [[ -z "$MODEL" ]]; then
 fi
 
 if [[ -z "$OUT_DIR" ]]; then
-  OUT_DIR="$(mktemp -d "/tmp/robocode-provider-live-smoke-${PROVIDER}.XXXXXX")"
+  OUT_DIR="$(mktemp -d "/tmp/viden-provider-live-smoke-${PROVIDER}.XXXXXX")"
 fi
 mkdir -p "$OUT_DIR"
 
@@ -118,7 +118,7 @@ mkdir -p "$WORK_DIR"
   cd "$WORK_DIR"
   git init >/dev/null
   git config user.email smoke@example.com
-  git config user.name "RoboCode Smoke"
+  git config user.name "Viden Smoke"
   printf 'provider live smoke\n' >README.md
   git add README.md
   git commit -m initial >/dev/null
@@ -129,10 +129,10 @@ mkdir -p "$WORK_DIR"
       --model "$MODEL"
 ) >"$TRANSCRIPT" 2>&1
 
-grep -Fq "robocode-live-smoke-ok" "$TRANSCRIPT"
+grep -Fq "viden-live-smoke-ok" "$TRANSCRIPT"
 
 cat >"$SUMMARY" <<EOF
-# RoboCode Provider Live Smoke
+# Viden Provider Live Smoke
 
 - Provider: \`$PROVIDER\`
 - Model: \`$MODEL\`

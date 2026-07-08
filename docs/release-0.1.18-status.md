@@ -1,4 +1,4 @@
-# RoboCode 0.1.18 Status - Interaction Hardening
+# Viden 0.1.18 Status - Interaction Hardening
 
 Chinese version: [release-0.1.18-status.zh-CN.md](release-0.1.18-status.zh-CN.md)
 
@@ -12,10 +12,10 @@ fresh release.
 - Workspace version: `0.1.18`
 - Git commit: `e0e40537094d6384e2dd08b8454d1d6c5be3a750`
 - Git tag: `v0.1.18`
-- GitHub release: https://github.com/wikieden/robocode/releases/tag/v0.1.18
-- Release workflow: https://github.com/wikieden/robocode/actions/runs/26651202650
+- GitHub release: https://github.com/wikieden/viden/releases/tag/v0.1.18
+- Release workflow: https://github.com/wikieden/viden/actions/runs/26651202650
 - Homebrew tap commit: `wikieden/homebrew-tap@651c7a7`
-- Local package: `dist/robocode-v0.1.18-aarch64-apple-darwin.tar.gz`
+- Local package: `dist/viden-v0.1.18-aarch64-apple-darwin.tar.gz`
 - Local package sha256:
   `8a3f199b716708ae84a7531928cbe2f4804afb30f63a81f767cdcd8b79e85bc0`
 
@@ -41,12 +41,12 @@ fresh release.
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
-ROBOCODE_TUI_PREVIEW_PROVIDER=deepseek \
-ROBOCODE_TUI_PREVIEW_MODEL=deepseek-v4-flash \
+VIDEN_TUI_PREVIEW_PROVIDER=deepseek \
+VIDEN_TUI_PREVIEW_MODEL=deepseek-v4-flash \
 scripts/tui-previews.sh docs/previews/generated
-ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.18 \
-ROBOCODE_TUI_PREVIEW_PROVIDER=deepseek \
-ROBOCODE_TUI_PREVIEW_MODEL=deepseek-v4-flash \
+VIDEN_TUI_SCREENSHOT_VERSION=0.1.18 \
+VIDEN_TUI_PREVIEW_PROVIDER=deepseek \
+VIDEN_TUI_PREVIEW_MODEL=deepseek-v4-flash \
 scripts/tui-regression.sh docs/previews/generated
 ```
 
@@ -55,7 +55,7 @@ Post-publish verification:
 ```bash
 scripts/release-smoke.sh --version 0.1.18 --quick \
   --github-release-assets --homebrew \
-  --out-dir /tmp/robocode-0118-postpublish-check
+  --out-dir /tmp/viden-0118-postpublish-check
 ```
 
 Result: passed at `2026-05-29T17:19:43Z` with 11 passed checks, 0 failed, and
@@ -66,7 +66,7 @@ Live DeepSeek smoke:
 
 ```bash
 scripts/release-smoke.sh --version 0.1.18 --quick --deepseek \
-  --out-dir /tmp/robocode-0118-deepseek-smoke
+  --out-dir /tmp/viden-0118-deepseek-smoke
 ```
 
 Result: passed at `2026-05-29T17:29:16Z`, including `deepseek-cli-smoke`.
@@ -75,15 +75,15 @@ Result: passed at `2026-05-29T17:29:16Z`, including `deepseek-cli-smoke`.
 
 Deterministic 0.1.18 TUI screenshots:
 
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-main.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-main-idle.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-live-turn.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-main-resize.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-cjk-input.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-command-palette.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-lane-detail.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-side-1.svg`
-- `/Users/wiki/Documents/GitHub/robocode/docs/previews/generated/screenshots/0.1.18-tui-side-2.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-main.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-main-idle.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-live-turn.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-main-resize.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-cjk-input.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-command-palette.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-lane-detail.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-side-1.svg`
+- `/Users/wiki/Documents/GitHub/viden/docs/previews/generated/screenshots/0.1.18-tui-side-2.svg`
 
 ## Remaining Risks
 

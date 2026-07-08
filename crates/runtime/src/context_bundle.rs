@@ -280,7 +280,7 @@ pub(crate) fn render_provider_context_message(bundle: &ContextBundleRecord) -> S
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "RoboCode ContextBundle\nBundle: {}\nPolicy: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\nSources:\n{}\nOmitted sources:\n{}\nCompaction notes:\n{}",
+        "Viden ContextBundle\nBundle: {}\nPolicy: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\nSources:\n{}\nOmitted sources:\n{}\nCompaction notes:\n{}",
         bundle.bundle_id,
         bundle.policy,
         bundle.estimated_tokens,

@@ -2,7 +2,7 @@
 
 ## 目的
 
-这个矩阵跟踪 RoboCode 可通过内置 descriptor 创建的 OpenAI-compatible gateway
+这个矩阵跟踪 Viden 可通过内置 descriptor 创建的 OpenAI-compatible gateway
 providers。它把 descriptor 覆盖和真实 API 验证分开记录，避免在没有凭据和网络验证时误称某个 provider 已经通过真实兼容性测试。
 
 ## 当前状态
@@ -30,23 +30,23 @@ Descriptor 覆盖已经实现，并由离线测试覆盖。真实 API 验证需�
 ## 验证命令
 
 使用 ignored CLI smoke test 逐个验证 provider。建议把 provider-specific key env
-传给 `ROBOCODE_LIVE_API_KEY`，这样不同 provider 的命令形态保持一致。
+传给 `VIDEN_LIVE_API_KEY`，这样不同 provider 的命令形态保持一致。
 
 ```bash
-ROBOCODE_LIVE_PROVIDER=openrouter \
-ROBOCODE_LIVE_MODEL='<provider-model>' \
-ROBOCODE_LIVE_API_KEY="$OPENROUTER_API_KEY" \
+VIDEN_LIVE_PROVIDER=openrouter \
+VIDEN_LIVE_MODEL='<provider-model>' \
+VIDEN_LIVE_API_KEY="$OPENROUTER_API_KEY" \
 cargo test -p viden-cli selected_live_provider_generates_python_hello_world_from_natural_language -- --ignored
 ```
 
 即使 provider 有 descriptor default model，记录真实验证时也应该显式设置
-`ROBOCODE_LIVE_MODEL`，这样结果会明确写出实际测试的模型。没有 descriptor default
+`VIDEN_LIVE_MODEL`，这样结果会明确写出实际测试的模型。没有 descriptor default
 model 的 provider 必须显式传 model。
 
 如果 provider 需要非默认 endpoint，额外加入：
 
 ```bash
-ROBOCODE_LIVE_API_BASE='<provider-api-base>'
+VIDEN_LIVE_API_BASE='<provider-api-base>'
 ```
 
 ## 记录结果

@@ -21,7 +21,7 @@
 Provider plugin 目录现在进入与 provider/model/API 设置相同的确定性配置链路：
 
 - 配置文件中使用 `provider_plugin_dirs = ["./plugins"]`。
-- 环境变量使用 `ROBOCODE_PROVIDER_PLUGIN_DIRS`，格式为平台 path-list。
+- 环境变量使用 `VIDEN_PROVIDER_PLUGIN_DIRS`，格式为平台 path-list。
 - CLI 使用可重复的 `--provider-plugin-dir <dir>`。
 
 解析后的值保存在 `ResolvedConfig::provider_plugin_dirs`，CLI 会用它构造当前

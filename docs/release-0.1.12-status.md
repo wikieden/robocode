@@ -1,4 +1,4 @@
-# RoboCode 0.1.12 Status
+# Viden 0.1.12 Status
 
 Chinese version: [release-0.1.12-status.zh-CN.md](release-0.1.12-status.zh-CN.md)
 
@@ -17,7 +17,7 @@ deterministic lane operator loop smoke.
 
 - Added shared `AgentTaskRecord`, `AgentTaskStatus`, `AgentTaskEvidence`,
   `AgentNextAction`, `AgentLaneRecord`, and ContextBundle record types in
-  `robocode-types`.
+  `viden-types`.
 - Added `SessionEngine::agent_task_snapshot()` and runtime writes for provider
   turns, tool calls, permission approval waits, tool results, and `/test`
   commands.
@@ -57,14 +57,14 @@ docs/previews/generated/tui-regression-evidence.json
 Focused implementation checks passed:
 
 ```bash
-cargo test -p robocode-core -p robocode-cli -p robocode-types --quiet
+cargo test -p viden-core -p viden-cli -p viden-types --quiet
 ```
 
 Result:
 
-- `robocode-cli`: 203 passed, 0 failed
-- `robocode-core`: 93 passed, 0 failed
-- `robocode-types`: 6 passed, 0 failed
+- `viden-cli`: 203 passed, 0 failed
+- `viden-core`: 93 passed, 0 failed
+- `viden-types`: 6 passed, 0 failed
 
 Screenshot regression passed:
 
@@ -75,7 +75,7 @@ scripts/tui-regression.sh docs/previews/generated
 ## Release Candidate Evidence
 
 ```bash
-scripts/release-smoke.sh --version 0.1.12 --deepseek --out-dir /tmp/robocode-0112-release-smoke-full
+scripts/release-smoke.sh --version 0.1.12 --deepseek --out-dir /tmp/viden-0112-release-smoke-full
 ```
 
 Result:
@@ -83,13 +83,13 @@ Result:
 - passed: 11
 - failed: 0
 - skipped: 3
-- evidence: `/tmp/robocode-0112-release-smoke-full/release-evidence.json`
+- evidence: `/tmp/viden-0112-release-smoke-full/release-evidence.json`
 
 Passing checks:
 
 - `cargo-fmt`
 - `cargo-clippy`
-- `robocode-cli-tests`
+- `viden-cli-tests`
 - `workspace-tests`
 - `tui-regression`
 - `fallback-cli-smoke`
@@ -102,13 +102,13 @@ Passing checks:
 Package smoke generated:
 
 ```text
-dist/robocode-v0.1.12-aarch64-apple-darwin.tar.gz
+dist/viden-v0.1.12-aarch64-apple-darwin.tar.gz
 ```
 
 Post-publish validation target:
 
 ```bash
-scripts/release-smoke.sh --version 0.1.12 --quick --github-release-assets --homebrew --out-dir /tmp/robocode-0112-postpublish-check
+scripts/release-smoke.sh --version 0.1.12 --quick --github-release-assets --homebrew --out-dir /tmp/viden-0112-postpublish-check
 ```
 
 Result:
@@ -116,14 +116,14 @@ Result:
 - passed: 10
 - failed: 0
 - skipped: 3
-- evidence: `/tmp/robocode-0112-postpublish-check/release-evidence.json`
+- evidence: `/tmp/viden-0112-postpublish-check/release-evidence.json`
 
 ## Publish State
 
 `v0.1.12` is published:
 
-- GitHub release: https://github.com/wikieden/robocode/releases/tag/v0.1.12
-- Release workflow: https://github.com/wikieden/robocode/actions/runs/26518796829
+- GitHub release: https://github.com/wikieden/viden/releases/tag/v0.1.12
+- Release workflow: https://github.com/wikieden/viden/actions/runs/26518796829
 - Release workflow conclusion: `success`
 - Release published at: `2026-05-27T14:49:11Z`
 - Release assets uploaded at: `2026-05-27T14:51:33Z` - `2026-05-27T14:51:35Z`
@@ -132,14 +132,14 @@ Result:
 Published assets:
 
 ```text
-robocode-v0.1.12-aarch64-apple-darwin.tar.gz
-robocode-v0.1.12-aarch64-apple-darwin.tar.gz.sha256
-robocode-v0.1.12-x86_64-apple-darwin.tar.gz
-robocode-v0.1.12-x86_64-apple-darwin.tar.gz.sha256
-robocode-v0.1.12-x86_64-pc-windows-msvc.tar.gz
-robocode-v0.1.12-x86_64-pc-windows-msvc.tar.gz.sha256
-robocode-v0.1.12-x86_64-unknown-linux-gnu.tar.gz
-robocode-v0.1.12-x86_64-unknown-linux-gnu.tar.gz.sha256
+viden-v0.1.12-aarch64-apple-darwin.tar.gz
+viden-v0.1.12-aarch64-apple-darwin.tar.gz.sha256
+viden-v0.1.12-x86_64-apple-darwin.tar.gz
+viden-v0.1.12-x86_64-apple-darwin.tar.gz.sha256
+viden-v0.1.12-x86_64-pc-windows-msvc.tar.gz
+viden-v0.1.12-x86_64-pc-windows-msvc.tar.gz.sha256
+viden-v0.1.12-x86_64-unknown-linux-gnu.tar.gz
+viden-v0.1.12-x86_64-unknown-linux-gnu.tar.gz.sha256
 ```
 
 ## Remaining Risks

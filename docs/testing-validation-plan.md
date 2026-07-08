@@ -6,7 +6,7 @@ Last updated: 2026-06-07
 
 ## Purpose
 
-RoboCode should be validated like a developer tool that people will use in
+Viden should be validated like a developer tool that people will use in
 long terminal sessions, not like a library that only needs unit tests. The
 validation system must prove behavior, safety, release readiness, and visible
 TUI quality.
@@ -65,7 +65,7 @@ Suggested focused gates:
 
 ```bash
 rg -n "event::read\\(" viden-cli/src/tui
-scripts/plan-mode-smoke.sh /tmp/robocode-spec-plan-smoke
+scripts/plan-mode-smoke.sh /tmp/viden-spec-plan-smoke
 scripts/tui-regression.sh docs/previews/generated
 scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
 ```
@@ -226,7 +226,7 @@ Preferred artifact locations:
 
 ```text
 docs/previews/generated/
-/tmp/robocode-<version>-*/screenshots/
+/tmp/viden-<version>-*/screenshots/
 ```
 
 Use stable names:

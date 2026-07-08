@@ -1,4 +1,4 @@
-# RoboCode 0.1.28 Plan - Delegated Lane Visibility Cleanup
+# Viden 0.1.28 Plan - Delegated Lane Visibility Cleanup
 
 Chinese version: [release-0.1.28-plan.zh-CN.md](release-0.1.28-plan.zh-CN.md)
 
@@ -36,12 +36,12 @@ operator use.
 Before publishing `0.1.28`, run:
 
 ```bash
-cargo test -p robocode-cli agent_tasks_separate_completed_accept_and_accepted_apply_lane_actions -- --nocapture
-cargo test -p robocode-cli side_status_rows_summarize_lane_background_counts -- --nocapture
-cargo test -p robocode-cli side_lane_rows_render_closed_operator_states_as_done -- --nocapture
+cargo test -p viden-cli agent_tasks_separate_completed_accept_and_accepted_apply_lane_actions -- --nocapture
+cargo test -p viden-cli side_status_rows_summarize_lane_background_counts -- --nocapture
+cargo test -p viden-cli side_lane_rows_render_closed_operator_states_as_done -- --nocapture
 scripts/smoke-lane-operator-loop.sh
 scripts/tui-turn-controller-smoke.sh
-scripts/release-gate.sh --version 0.1.28 --phase prepublish --out-dir /tmp/robocode-0128-release-gate
+scripts/release-gate.sh --version 0.1.28 --phase prepublish --out-dir /tmp/viden-0128-release-gate
 ```
 
 The prepublish gate must include the live DeepSeek development scenario and
@@ -50,7 +50,7 @@ record token, elapsed-time, estimated-cost, and failure-class evidence.
 After publishing:
 
 ```bash
-scripts/release-gate.sh --version 0.1.28 --phase postpublish --out-dir /tmp/robocode-0128-release-gate
+scripts/release-gate.sh --version 0.1.28 --phase postpublish --out-dir /tmp/viden-0128-release-gate
 ```
 
 `0.1.28` is complete only when:

@@ -87,7 +87,7 @@ CLI automation、API server、desktop、Web、IDE/ACP adapter 等其他入口。
 ### V3：Agent 编排与 Token 效能层
 
 目标：
-把 RoboCode 从单 agent 开发助手升级为多 Agent 编排系统，并把 token 使用效率作为一等产品能力。
+把 Viden 从单 agent 开发助手升级为多 Agent 编排系统，并把 token 使用效率作为一等产品能力。
 
 必须具备：
 
@@ -118,16 +118,107 @@ CLI automation、API server、desktop、Web、IDE/ACP adapter 等其他入口。
 - MCP 集成
 - skills 与 plugins
 - 多 Agent 协调
-- ACP / external agent adapter
+- ACP / external agent adapter，按
+  [Zed ACP 接入研究](zed-acp-integration-research.zh-CN.md) 中的
+  registry/custom agent-server 模型推进
 - bridge 与 remote session 支持
 - automation 和 cron 风格工作流
 
 退出标准：
 
-- 外部工具生态可以通过稳定接口接入 RoboCode
+- 外部工具生态可以通过稳定接口接入 Viden
 - remote 与集成客户端能复用与本地 session 相同的执行和权限模型
 - 多 Agent 工作流不会绕开 transcript 和权限保证
 - plugin、skill、MCP 和 ACP 都通过统一权限、事实层、token budget 和 evidence 约束
+
+### ACP / External-Agent 交付规则
+
+ACP 支持必须作为 core plugin/extension 路径实现，而不是 TUI 命令胶水。第一批可用目标是
+Claude、Codex 和 Kiro CLI：
+
+- Claude 和 Codex 优先使用 ACP Registry metadata。
+- Kiro CLI 先作为 official local-command ACP adapter，使用 `kiro-cli acp`；
+  registry metadata 后续可以作为额外 source 接入。
+- 每个 external-agent 子进程都必须通过 RuntimeSupervisor 连接，发出 `RuntimeEvent`，
+  更新 `RuntimeViewState`，并通过与内置 agent 相同的 evidence/merge gates 产生事实。
+- TUI 和 GUI 可以渲染 external-agent state、logs、auth/config prompts 和
+  model/session config options，但不能直接 spawn 或解析 ACP 子进程。
+
+当前 ACP foundation 状态：
+
+- 已完成：共享 agent descriptor contract，内置 Claude/Codex/Kiro ACP descriptor，
+  runtime list/doctor discovery，以及基于 descriptor 的 `initialize` probe 和 JSONL evidence。
+- 已完成：`VIDEN_AGENT_ACP_COMMAND` 已提升为可运行的 `custom-acp` local
+  descriptor，用于 custom/plugin ACP agents。
+- 已完成：最小同步 ACP session run，覆盖 `session/new`、`session/prompt`、
+  streamed `session/update` 和 TurnEnd collection。
+- 已完成：基于 descriptor 的 ACP session restore/configuration，命令为
+  `/agent run acp --load-session <session-id> --mode <mode-id> --model
+  <model-id> <agent-id> <task>`，会映射到 `session/load`、`session/set_mode`
+  和 ACP `session/set_config_option` model config，并保留 legacy
+  `session/set_model` fallback。
+- 已完成：通过 `/agent run acp --async <agent-id> <task>` 启动 tracked 后台
+  ACP session job，写出 JSONL/result/runtime-event artifacts，并通过
+  `/agent cancel <id>` 执行进程取消。
+- 已完成：ACP process cancellation 已具备协议级请求与审计；被取消的 ACP job
+  会在 live ACP session 可用时请求 `session/cancel`，把请求保留在 wire log 中，
+  并用有界 process termination 作为 fallback。
+- 已完成：ACP `session/request_permission` 转换为 Viden approval，并回写
+  allow/reject option response。
+- 已完成：tracked ACP session jobs 作为 `AgentTask` records 投影到
+  `RuntimeViewState`。ACP `fs/read_text_file` 和 `fs/write_text_file` 已通过
+  Viden permission checks 桥接。
+- 已完成：ACP `terminal/create`、`terminal/input`、`terminal/write`、
+  `terminal/output`、`terminal/wait_for_exit`、`terminal/release` 和
+  `terminal/kill` 已通过 Viden permission checks 桥接。`terminal/create`
+  现在会启动 tracked process 而不是等待退出，`terminal/input` /
+  `terminal/write` 会写入 process stdin，`terminal/output` 会轮询 buffered
+  stdout/stderr，`terminal/wait_for_exit` / `terminal/kill` 会更新
+  long-running command 的 process status；未支持的 filesystem 或 terminal
+  methods 仍会被明确 JSON-RPC error 拒绝。
+- 已完成：ACP `session/update` / `session/notification` payloads 已投影成可复用
+  runtime events，覆盖 assistant delta、tool call start/finish 和 turn-end evidence。
+- 已完成：async/background ACP jobs 会在 updates 到达时持续把投影事件追加到
+  `runtime-events.jsonl`，`RuntimeViewState` 会重放这些事件供 assistant output
+  和 evidence views 消费。
+- 已完成：async/background ACP jobs 也会在 updates 到达时把投影事件直接推送进
+  live `RuntimeSupervisor` event stream，因此 UI client 可以在 job 完成前渲染
+  assistant delta。
+- 已完成：ACP session output 已映射到 merge-gate records。每个 ACP session
+  会提出 session merge gate，completed tool updates 会成为 `tool_log` evidence，
+  `TurnEnd` 会成为 `acp_turn_end` evidence，并在 turn-end evidence 存在后把
+  session gate 推到 `Accepted`。
+- 已完成：ACP patch/diff updates 已归一化为 `patch` evidence；当 ACP update
+  通过 `diff`、`patch`、`unifiedDiff` 或嵌套 file-change payload 字段携带
+  unified diff 时，session merge gate 会要求同时具备 `patch` 和
+  `acp_turn_end` 后才进入 accepted。Patch evidence 会携带 `acp.patch.v1`
+  metadata，包含文件统计、变更路径、hunk 数、来源 tool-call id 和原始
+  unified diff。
+- 已完成：ACP registry agents 使用 cold-start-aware handshake timeout；Kiro doctor
+  输出会区分 binary installed 和 agent-native auth unknown。
+- 已完成：registry-backed ACP agents 使用项目级 npm cache；Claude/Codex initialize
+  probes 已在本机跑通；Kiro probe failure 会保留 stderr auth diagnostics。
+- 已完成：Claude/Codex ACP session-level smoke 已在本机跑通，包括真实 Codex 对
+  `mcpServers: []`、`prompt: []`、snake-case `sessionUpdate`、最终 `id:2`
+  response 和 usage reporting 的兼容。
+- 已完成：Kiro-specific baseline compatibility 已用 fake server tests 覆盖：
+  `session/prompt` 使用 `prompt`，接受 `session/notification` updates，
+  收集 `ToolCall` 和 `ToolCallUpdate`，并支持 `VIDEN_KIRO_AGENT` 映射到
+  `kiro-cli acp --agent <name>`。
+- 已完成：Kiro 官方 ACP launch options 已进入 descriptor 并有测试覆盖：
+  `VIDEN_KIRO_MODEL`、`VIDEN_KIRO_EFFORT`、`VIDEN_KIRO_TRUST_TOOLS`、
+  `VIDEN_KIRO_TRUST_ALL_TOOLS` 和 `VIDEN_KIRO_AGENT_ENGINE` 会映射到
+  `kiro-cli acp` flags。
+- 已完成：`/agent auth acp kiro-cli` 是确定性的 native-login guide
+  （`kiro-cli login --use-device-flow`、`kiro-cli doctor`，然后
+  `/agent smoke acp --live`），而不是尝试 ACP authenticate。
+- 已完成：`/agent smoke acp [--live]` 已作为可重复 gate 可用；Kiro native auth
+  blocked 会返回非零 blocked-auth，而不是误判通过。
+- 已完成：当前 operator 环境中的 authenticated Kiro live smoke 已通过。当前安装的
+  Kiro CLI 在 `session/prompt` 中使用 `prompt` array；文档形态的 `content`
+  参数在 agent descriptor 明确声明前视为不兼容。
+- 下一步：按需要把 terminal bridge 扩展到 PTY 级 interactive sessions，并把
+  provider-native doctor diagnostics 保持在 release gate 中。
 
 ### 远期平台能力
 
@@ -259,7 +350,7 @@ quick/full release gates 已通过，GitHub Release 与 Homebrew validation 全�
 - `0.2.5`：真实开发 gate。继续把 DeepSeek 真实开发 smoke、daily-loop、plan-mode、
   provider/model、lane operator、release gate、token/cost summary 固化为每次发版前必跑。
 - `0.3.0`：多前端 contract freeze 与 Viden migration plan。冻结 UI/runtime
-  contract，定义 `viden` binary/config migration 和 `robocode` compatibility shim。
+  contract，定义 `viden` binary/config migration 和 `viden` compatibility shim。
   freeze 范围包含 [前端对接契约](frontend-integration-contract.zh-CN.md)，用于把已完成
   core modules 映射到 TUI/GUI 消费规则。
 - `0.3.1`：TUI 与 GUI 并行实现。Core/runtime、TUI client、Tauri/Web GUI client
@@ -274,4 +365,4 @@ quick/full release gates 已通过，GitHub Release 与 Homebrew validation 全�
 - TUI/GUI 视觉源必须 review 后才可以成为产品契约。已废弃的设计导入和生成式视觉输出
   不再是路线图依赖。
 
-这并不改变路线图顺序。它说明 RoboCode 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。
+这并不改变路线图顺序。它说明 Viden 已不再只是早期 V1 状态，但后续阶段仍应按顺序推进，而不是因为分支存在就提前拉动。

@@ -1,4 +1,4 @@
-# RoboCode 0.1.5 Plan
+# Viden 0.1.5 Plan
 
 Last updated: 2026-05-25
 
@@ -11,7 +11,7 @@ pieces feel good enough for daily coding.
 
 The north star:
 
-> In a real Rust, JavaScript, or Python project, a user can stay inside RoboCode
+> In a real Rust, JavaScript, or Python project, a user can stay inside Viden
 > TUI for the loop: understand the request, edit code, review the diff, run
 > tests, fix failures, and summarize the result.
 
@@ -74,7 +74,7 @@ These are release blockers because they affect every coding session.
 
 Acceptance evidence:
 
-- `cargo test -p robocode-cli`.
+- `cargo test -p viden-cli`.
 - TUI preview generation passes and includes composer, command palette, modal,
   lane detail, side-1, side-2, and multiscreen snapshots.
 - Manual or tmux-driven fallback TUI smoke covers typing, slash suggestions,
@@ -113,7 +113,7 @@ This is the core value of the release.
     files, active task, last test result, and recent lane state.
   - Current checkpoint: `/status` now includes read-only cockpit sections for
     dirty files, active workflow tasks, and active lane counts from
-    `.robocode/lanes.tsv`, while keeping the last test evidence visible.
+    `.viden/lanes.tsv`, while keeping the last test evidence visible.
 
 Acceptance evidence:
 
@@ -182,7 +182,7 @@ The script records logs and generated previews under its evidence directory and
 covers:
 
 - `cargo fmt --check`
-- `cargo test -p robocode-cli --quiet -- --test-threads=1`
+- `cargo test -p viden-cli --quiet -- --test-threads=1`
 - `cargo test --workspace --quiet -- --test-threads=1`
 - `scripts/tui-previews.sh <evidence>/tui-previews`
 - fallback CLI coding/test smoke through the shell approval path
@@ -205,7 +205,7 @@ release artifact validation with `upload_to_release=false`.
 
 ## Benchmark-Aligned Product Decisions
 
-- Keep RoboCode positioned as a local terminal cockpit, not a cloud task runner
+- Keep Viden positioned as a local terminal cockpit, not a cloud task runner
   or full editor replacement.
 - Match Codex and Zed expectations around central diff/review evidence.
 - Match Claude Code expectations around a smooth terminal action loop,

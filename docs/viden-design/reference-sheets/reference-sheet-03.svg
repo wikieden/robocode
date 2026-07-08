@@ -2,75 +2,75 @@
 <rect width="100%" height="100%" fill="#080e14"/>
 <text x="18" y="28" fill="#96dcff" font-family="Menlo, monospace" font-size="18">Viden reference screenshots 3 / 4</text>
 <rect x="18" y="44" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/cockpit-pinned.png" x="18" y="44" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/cockpit-pinned.png" x="18" y="44" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="22" y="225" fill="#cddceb" font-family="Menlo, monospace" font-size="13">cockpit-pinned.png</text>
 <rect x="316" y="44" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/d1v2.png" x="316" y="44" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/d1v2.png" x="316" y="44" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="320" y="225" fill="#cddceb" font-family="Menlo, monospace" font-size="13">d1v2.png</text>
 <rect x="614" y="44" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/d7-check.png" x="614" y="44" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/d7-check.png" x="614" y="44" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="618" y="225" fill="#cddceb" font-family="Menlo, monospace" font-size="13">d7-check.png</text>
 <rect x="18" y="272" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/evidence.png" x="18" y="272" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/evidence.png" x="18" y="272" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="22" y="453" fill="#cddceb" font-family="Menlo, monospace" font-size="13">evidence.png</text>
 <rect x="316" y="272" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/k4.png" x="316" y="272" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/k4.png" x="316" y="272" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="320" y="453" fill="#cddceb" font-family="Menlo, monospace" font-size="13">k4.png</text>
 <rect x="614" y="272" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/lane-borders.png" x="614" y="272" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/lane-borders.png" x="614" y="272" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="618" y="453" fill="#cddceb" font-family="Menlo, monospace" font-size="13">lane-borders.png</text>
 <rect x="18" y="500" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/lane-icons.png" x="18" y="500" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/lane-icons.png" x="18" y="500" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="22" y="681" fill="#cddceb" font-family="Menlo, monospace" font-size="13">lane-icons.png</text>
 <rect x="316" y="500" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/lane-monitor-wide.png" x="316" y="500" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/lane-monitor-wide.png" x="316" y="500" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="320" y="681" fill="#cddceb" font-family="Menlo, monospace" font-size="13">lane-monitor-wide.png</text>
 <rect x="614" y="500" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/lane-monitor.png" x="614" y="500" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/lane-monitor.png" x="614" y="500" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="618" y="681" fill="#cddceb" font-family="Menlo, monospace" font-size="13">lane-monitor.png</text>
 <rect x="18" y="728" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/lane-states.png" x="18" y="728" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/lane-states.png" x="18" y="728" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="22" y="909" fill="#cddceb" font-family="Menlo, monospace" font-size="13">lane-states.png</text>
 <rect x="316" y="728" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/lane-states2.png" x="316" y="728" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/lane-states2.png" x="316" y="728" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="320" y="909" fill="#cddceb" font-family="Menlo, monospace" font-size="13">lane-states2.png</text>
 <rect x="614" y="728" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/lane-unified.png" x="614" y="728" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/lane-unified.png" x="614" y="728" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="618" y="909" fill="#cddceb" font-family="Menlo, monospace" font-size="13">lane-unified.png</text>
 <rect x="18" y="956" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/lanebar-fix.png" x="18" y="956" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/lanebar-fix.png" x="18" y="956" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="22" y="1137" fill="#cddceb" font-family="Menlo, monospace" font-size="13">lanebar-fix.png</text>
 <rect x="316" y="956" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/lanes-fixed.png" x="316" y="956" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/lanes-fixed.png" x="316" y="956" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="320" y="1137" fill="#cddceb" font-family="Menlo, monospace" font-size="13">lanes-fixed.png</text>
 <rect x="614" y="956" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/main-cockpit-ref.png" x="614" y="956" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/main-cockpit-ref.png" x="614" y="956" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="618" y="1137" fill="#cddceb" font-family="Menlo, monospace" font-size="13">main-cockpit-ref.png</text>
 <rect x="18" y="1184" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/mode-popup.png" x="18" y="1184" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/mode-popup.png" x="18" y="1184" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="22" y="1365" fill="#cddceb" font-family="Menlo, monospace" font-size="13">mode-popup.png</text>
 <rect x="316" y="1184" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/newlane.png" x="316" y="1184" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/newlane.png" x="316" y="1184" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="320" y="1365" fill="#cddceb" font-family="Menlo, monospace" font-size="13">newlane.png</text>
 <rect x="614" y="1184" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/newlane2.png" x="614" y="1184" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/newlane2.png" x="614" y="1184" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="618" y="1365" fill="#cddceb" font-family="Menlo, monospace" font-size="13">newlane2.png</text>
 <rect x="18" y="1412" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/newlane3.png" x="18" y="1412" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/newlane3.png" x="18" y="1412" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="22" y="1593" fill="#cddceb" font-family="Menlo, monospace" font-size="13">newlane3.png</text>
 <rect x="316" y="1412" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/newlane4.png" x="316" y="1412" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/newlane4.png" x="316" y="1412" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="320" y="1593" fill="#cddceb" font-family="Menlo, monospace" font-size="13">newlane4.png</text>
 <rect x="614" y="1412" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/plan-tc.png" x="614" y="1412" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/plan-tc.png" x="614" y="1412" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="618" y="1593" fill="#cddceb" font-family="Menlo, monospace" font-size="13">plan-tc.png</text>
 <rect x="18" y="1640" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/portrait-desktop.png" x="18" y="1640" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/portrait-desktop.png" x="18" y="1640" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="22" y="1821" fill="#cddceb" font-family="Menlo, monospace" font-size="13">portrait-desktop.png</text>
 <rect x="316" y="1640" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/projpick-v.png" x="316" y="1640" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/projpick-v.png" x="316" y="1640" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="320" y="1821" fill="#cddceb" font-family="Menlo, monospace" font-size="13">projpick-v.png</text>
 <rect x="614" y="1640" width="280" height="164" fill="#0d1720" stroke="#0096d2" stroke-width="1"/>
-<image href="/Users/wiki/Documents/GitHub/robocode/docs/viden-design/Viden/screenshots/projpick.png" x="614" y="1640" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
+<image href="/Users/wiki/Documents/GitHub/viden/docs/viden-design/Viden/screenshots/projpick.png" x="614" y="1640" width="280" height="164" preserveAspectRatio="xMidYMid meet"/>
 <text x="618" y="1821" fill="#cddceb" font-family="Menlo, monospace" font-size="13">projpick.png</text>
 </svg>

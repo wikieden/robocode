@@ -1,4 +1,4 @@
-# RoboCode 0.1.29 Status - RC TUI Stability
+# Viden 0.1.29 Status - RC TUI Stability
 
 Chinese version: [release-0.1.29-status.zh-CN.md](release-0.1.29-status.zh-CN.md)
 
@@ -10,7 +10,7 @@ remaining P0/P1 TUI guardrails into a release-visible RC smoke gate.
 - Workspace version: `0.1.29`
 - Git tag: `v0.1.29`
 - GitHub Release: published at
-  <https://github.com/wikieden/robocode/releases/tag/v0.1.29>
+  <https://github.com/wikieden/viden/releases/tag/v0.1.29>
 - Homebrew tap: synced in `wikieden/homebrew-tap` commit `0681269`
 
 ## Implemented So Far
@@ -34,13 +34,13 @@ remaining P0/P1 TUI guardrails into a release-visible RC smoke gate.
 ## Verification
 
 - PASS `scripts/rc-tui-stability-contract-smoke.sh`
-- PASS `bash scripts/rc-tui-stability-smoke.sh /tmp/robocode-0129-rc-tui-stability`
-- RC evidence summary: `/tmp/robocode-0129-rc-tui-stability/summary.md`
-- PASS `ROBOCODE_TUI_SCREENSHOT_VERSION=0.1.29 scripts/tui-regression.sh docs/previews/generated`
-- PASS `scripts/release-gate.sh --version 0.1.29 --phase prepublish --out-dir /tmp/robocode-0129-release-gate`
-- Prepublish evidence: `/tmp/robocode-0129-release-gate/prepublish/summary.md`
+- PASS `bash scripts/rc-tui-stability-smoke.sh /tmp/viden-0129-rc-tui-stability`
+- RC evidence summary: `/tmp/viden-0129-rc-tui-stability/summary.md`
+- PASS `VIDEN_TUI_SCREENSHOT_VERSION=0.1.29 scripts/tui-regression.sh docs/previews/generated`
+- PASS `scripts/release-gate.sh --version 0.1.29 --phase prepublish --out-dir /tmp/viden-0129-release-gate`
+- Prepublish evidence: `/tmp/viden-0129-release-gate/prepublish/summary.md`
 - Structured prepublish evidence:
-  `/tmp/robocode-0129-release-gate/prepublish/release-evidence.json`
+  `/tmp/viden-0129-release-gate/prepublish/release-evidence.json`
 - Deterministic screenshots: `docs/previews/generated/screenshots/`
 
 ## Remaining Gate
@@ -52,14 +52,14 @@ No remaining release gate for `0.1.29`.
 `0.1.29` is complete:
 
 - prepublish gate passed, evidence at
-  `/tmp/robocode-0129-release-gate/prepublish`;
+  `/tmp/viden-0129-release-gate/prepublish`;
 - GitHub Release workflow run
-  [`27318839422`](https://github.com/wikieden/robocode/actions/runs/27318839422)
+  [`27318839422`](https://github.com/wikieden/viden/actions/runs/27318839422)
   passed and uploaded `8` assets;
 - GitHub Release `v0.1.29` is published with assets and checksums;
 - Homebrew tap is synced to `0.1.29`, commit `0681269`;
 - postpublish gate passed, evidence at
-  `/tmp/robocode-0129-release-gate/postpublish`.
+  `/tmp/viden-0129-release-gate/postpublish`.
 
 ## DeepSeek Smoke Evidence
 
@@ -71,4 +71,4 @@ No remaining release gate for `0.1.29`.
 - Estimated cost: `¥0.011574 CNY`
 - Failure classification: none; smoke passed.
 - Evidence:
-  `/tmp/robocode-0129-release-gate/prepublish/deepseek-dev-scenario/summary.md`
+  `/tmp/viden-0129-release-gate/prepublish/deepseek-dev-scenario/summary.md`
