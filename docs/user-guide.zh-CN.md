@@ -20,17 +20,17 @@ RoboCode 分三层：
 
 ```bash
 brew install wikieden/tap/robocode
-robocode --help
+viden --help
 ```
 
 从 release archive 运行：
 
 ```bash
-robocode-cli --version
-robocode-cli --provider fallback --model test-local
+viden --version
+viden --provider fallback --model test-local
 ```
 
-`robocode-cli` 默认启动主 TUI。干净会话会先进入聚焦的 welcome 输入界面，
+`viden` 默认启动主 TUI。干净会话会先进入聚焦的 welcome 输入界面，
 不会自动提交命令或自动打开 setup。需要配置 provider/model 时，用 `Ctrl-P`
 打开命令，或直接提交下面这些入口。slash 设置命令执行后仍停留在 welcome；
 提交第一个普通任务 prompt 后才进入完整 cockpit。
@@ -45,7 +45,7 @@ robocode-cli --provider fallback --model test-local
 带显式启动参数进入主 cockpit：
 
 ```bash
-robocode-cli --provider deepseek --model deepseek-v4-flash
+viden --provider deepseek --model deepseek-v4-flash
 ```
 
 需要旧版行式 REPL 时使用 `--no-tui`。
@@ -53,8 +53,8 @@ robocode-cli --provider deepseek --model deepseek-v4-flash
 直接启动副屏：
 
 ```bash
-robocode-cli --tui-screen side-1 --provider deepseek --model deepseek-v4-flash
-robocode-cli --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
+viden --tui-screen side-1 --provider deepseek --model deepseek-v4-flash
+viden --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
 ```
 
 ## 启动参数
@@ -466,7 +466,7 @@ Fallback tool syntax 示例：
 
 ```text
 tool read_file path=Cargo.toml
-tool grep pattern=SessionEngine path=robocode-core/src
+tool grep pattern=SessionEngine path=viden-runtime/src
 ```
 
 ## 模式和权限

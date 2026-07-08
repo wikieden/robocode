@@ -64,7 +64,7 @@ from that review remain open.
 Suggested focused gates:
 
 ```bash
-rg -n "event::read\\(" robocode-cli/src/tui
+rg -n "event::read\\(" viden-cli/src/tui
 scripts/plan-mode-smoke.sh /tmp/robocode-spec-plan-smoke
 scripts/tui-regression.sh docs/previews/generated
 scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash

@@ -448,6 +448,9 @@ provider 目标还包括 plugin-extensible provider runtime：
 目标：
 支持超越单线程对话的委派和协调工作流。
 
+设计来源：
+- [多 Agent 核心编排](multi-agent-core-orchestration.zh-CN.md)
+
 要求：
 
 - agent spawning
@@ -455,9 +458,20 @@ provider 目标还包括 plugin-extensible provider runtime：
 - team-level orchestration
 - transcript-aware coordination
 - 权限和作用域隔离
+- 包含 planner、coder、reviewer、tester、doc-writer、release operator 的 Agent DAG
+- 每个 agent task 都有 ContextBundle，包含 token/cost budget、selected files、
+  diagnostics、tool evidence 和 exclusions
+- agent 生成 patch 或 release artifact 前必须经过 evidence gate 和 merge gate
+- role-aware permission policy 必须保持 plan mode 非变更，并阻止自我提权
+- replayable runtime events，保证 TUI、GUI、CLI automation 和 external supervisors
+  观察同一份状态
+- 已完成核心模块必须覆盖
+  [前端对接契约](frontend-integration-contract.zh-CN.md)，保证 TUI 和 GUI 消费同一套
+  runtime facts，而不是发明第二套状态模型
 
 阶段优先级：
-- V3
+- V2：核心 DAG/event/evidence contracts
+- V3：external agents 和 team collaboration
 
 ### Bridge / Remote / Server Mode
 
@@ -607,6 +621,26 @@ RoboCode 必须定义稳定的命令家族，而不是临时堆出来的命令�
 ### 未来集成接口
 
 MCP、remote、多 Agent 这些子系统必须能够插入现有 command、permission、tool、transcript 模型，而不是建立新的平行运行时。
+
+### 核心未来 TODO：多 Agent 编排
+
+后续核心路线图必须把多 Agent 编排作为 shared runtime requirement，而不是 TUI
+或 GUI 特性。canonical 设计文档是
+[多 Agent 核心编排](multi-agent-core-orchestration.zh-CN.md)。
+
+必须进入未来迭代的内容：
+
+- 扩展共享 `AgentTask`、`AgentDag`、`ContextBundle`、`Evidence` 和 `MergeGate`
+  contracts，同时避免它们和 TUI/GUI 实现耦合；
+- 继续在 `crates/workflows` 持久化 DAG、task、artifact 和 evidence events；
+- 继续扩展 `RuntimeSupervisor`，让 agent tasks 异步运行，不能阻塞 composer input；
+- 在已落地的 role-aware permissions、scoped staging 和高风险 Git denial 之上，
+  继续扩展 release/publish Git rules；
+- provider requests 前增加 ContextBundle token/cost accounting；
+- generated changes 被接受或 merged 前必须有 evidence、artifact decisions 和
+  merge-gate state；
+- real development smoke、token/cost summary 和 failure classification 必须成为
+  release readiness 的一部分。
 
 ## 非功能需求
 

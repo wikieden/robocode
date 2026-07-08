@@ -17,17 +17,17 @@
 
 ```mermaid
 flowchart TB
-    User["开发者"] --> TUI["robocode-cli TUI<br/>主屏 / 副屏工作舱"]
+    User["开发者"] --> TUI["viden-cli TUI<br/>主屏 / 副屏工作舱"]
 
     TUI --> TuiState["TUI State<br/>布局 / 焦点 / 主题 / screen registry"]
-    TUI --> Core["robocode-core<br/>SessionEngine / 命令 / 审批"]
+    TUI --> Core["viden-runtime<br/>SessionEngine / 命令 / 审批"]
     TUI --> LaneSvc["Lane Service<br/>任务信封 / terminal lanes / adapters"]
 
-    Core --> Transcript["robocode-session<br/>JSONL transcript"]
-    Core --> Workflows["robocode-workflows<br/>任务 / 记忆 / resume context"]
-    Core --> Permissions["robocode-permissions<br/>审批门禁 / 模式"]
-    Core --> Tools["robocode-tools<br/>文件 / shell / git / LSP"]
-    Core --> Providers["robocode-model<br/>模型 provider / plugins"]
+    Core --> Transcript["viden-session<br/>JSONL transcript"]
+    Core --> Workflows["viden-workflows<br/>任务 / 记忆 / resume context"]
+    Core --> Permissions["viden-permissions<br/>审批门禁 / 模式"]
+    Core --> Tools["viden-tools<br/>文件 / shell / git / LSP"]
+    Core --> Providers["viden-provider<br/>模型 provider / plugins"]
 
     LaneSvc --> LaneStore["Lane Store<br/>元数据 / 日志 / envelope / 决策"]
     LaneSvc --> Adapters["Tool Adapters<br/>codex / claude / generic command"]
@@ -44,7 +44,7 @@ flowchart TB
 
 ## 架构原则
 
-- `robocode-core` 继续负责主会话、权限决策、模型/工具循环。
+- `viden-runtime` 继续负责主会话、权限决策、模型/工具循环。
 - TUI 是共享状态上的客户端，不是第二套 agent runtime。
 - Terminal lane 是被监督的工作单元，可以运行外部工具，但 RoboCode 负责任务信封、生命周期、观测和验收。
 - 外部 coding tool 是协作者，不是可信裁判。结果要看日志、diff、exit code 和验证命令。
@@ -54,10 +54,10 @@ flowchart TB
 
 ## 建议模块形态
 
-早期先放在 `robocode-cli`，因为这部分还是 UI/runtime glue。等 lane 模型稳定后，再把持久化记录下沉到 `robocode-workflows` 或新 crate。
+早期先放在 `viden-cli`，因为这部分还是 UI/runtime glue。等 lane 模型稳定后，再把持久化记录下沉到 `viden-workflows` 或新 crate。
 
 ```text
-robocode-cli/src/tui/
+viden-cli/src/tui/
   mod.rs              入口与事件循环
   app.rs              TuiApp 状态和高层动作
   layout.rs           响应式区域切分
@@ -68,11 +68,11 @@ robocode-cli/src/tui/
   screens.rs          MAIN / AGENTS / OPS registry 与视图
   lanes.rs            CLI 层 lane 编排 facade
 
-robocode-core/
+viden-runtime/
   命令分发仍保留主 slash-command 路径
   后续：如果普通 REPL 也要用 lane 命令，再提升到 core
 
-robocode-workflows/
+viden-workflows/
   后续：当 lane/task-envelope 需要被 TUI 外复用时，承载持久化记录
 ```
 
@@ -218,7 +218,7 @@ Template 占位符：
 
 ## 生命周期
 
-1. 用户输入 `/lane codex "fix failing config tests"` 或 `/lane run cargo test -p robocode-core`。
+1. 用户输入 `/lane codex "fix failing config tests"` 或 `/lane run cargo test -p viden-runtime`。
 2. RoboCode 创建 `TerminalLane`。
 3. RoboCode 渲染 task envelope 并持久化。
 4. Lane service 按 adapter 启动命令。
@@ -455,8 +455,8 @@ emulator、cursor-addressed screen-state replay 仍是后续工作。
 ## 已定决策
 
 - lane 命令第一版实现于 TUI runtime；是否提升到普通 REPL 是单独的产品决策。
-- durable lane record 当前先放在 `robocode-cli`，作为 UI/runtime glue。只有非
-  TUI surface 也需要共享同一 lane 模型时，才下沉到 `robocode-workflows`。
+- durable lane record 当前先放在 `viden-cli`，作为 UI/runtime glue。只有非
+  TUI surface 也需要共享同一 lane 模型时，才下沉到 `viden-workflows`。
 - Codex 和 Claude 第一版使用 prompt-file template adapter，再通过 tmux 和
   PTY attachment path 支持交互式 follow-up。
 - Codex/Claude 的 mutating template launch 在 Git 状态支持时使用 per-lane

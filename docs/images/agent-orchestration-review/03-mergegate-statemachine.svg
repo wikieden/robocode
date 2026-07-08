@@ -1,0 +1,65 @@
+<svg width="680" viewBox="0 0 680 416" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>MergeGate 统一状态机</title>
+<desc>七态持久状态机(proposed 到 merged/reverted),orchestration-design 的五态降级为 collecting_evidence 内的派生 verdict 枚举。</desc>
+<style>
+text{font-family:-apple-system,'Segoe UI','PingFang SC','Noto Sans SC',sans-serif}
+.t{font-size:14px;fill:#2C2C2A}.th{font-size:14px;font-weight:500;fill:#2C2C2A}.ts{font-size:12px;fill:#5F5E5A}
+.arr{stroke:#888780;stroke-width:1.5;fill:none}
+.leader{stroke:#B4B2A9;stroke-width:.75;stroke-dasharray:3 3;fill:none}
+.c-gray>rect{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:1}
+.c-gray>.th,.c-gray>.t{fill:#2C2C2A}.c-gray>.ts{fill:#5F5E5A}
+.c-green>rect{fill:#EAF3DE;stroke:#3B6D11;stroke-width:1}
+.c-green>.th,.c-green>.t{fill:#27500A}.c-green>.ts{fill:#3B6D11}
+.c-amber>rect{fill:#FAEEDA;stroke:#854F0B;stroke-width:1}
+.c-amber>.th,.c-amber>.t{fill:#633806}.c-amber>.ts{fill:#854F0B}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect width="680" height="416" fill="#FAF9F5"/>
+
+<g class="c-gray"><rect x="40" y="150" width="110" height="48" rx="8"/>
+<text class="th" x="95" y="170" text-anchor="middle">proposed</text>
+<text class="ts" x="95" y="188" text-anchor="middle">变更产出</text></g>
+
+<g class="c-gray"><rect x="195" y="140" width="175" height="68" rx="8"/>
+<text class="th" x="282" y="166" text-anchor="middle">collecting_evidence</text>
+<text class="ts" x="282" y="186" text-anchor="middle">verdict:派生五值</text></g>
+
+<g class="c-green"><rect x="430" y="40" width="115" height="48" rx="8"/>
+<text class="th" x="487" y="60" text-anchor="middle">accepted</text>
+<text class="ts" x="487" y="78" text-anchor="middle">verifier + 人批</text></g>
+
+<g class="c-amber"><rect x="430" y="150" width="135" height="48" rx="8"/>
+<text class="th" x="497" y="170" text-anchor="middle">needs_changes</text>
+<text class="ts" x="497" y="188" text-anchor="middle">revise 后重收集</text></g>
+
+<g class="c-amber"><rect x="430" y="262" width="115" height="48" rx="8"/>
+<text class="th" x="487" y="282" text-anchor="middle">blocked</text>
+<text class="ts" x="487" y="300" text-anchor="middle">人审解除</text></g>
+
+<g class="c-green"><rect x="565" y="40" width="72" height="48" rx="8"/>
+<text class="th" x="601" y="60" text-anchor="middle">merged</text>
+<text class="ts" x="601" y="78" text-anchor="middle">已应用</text></g>
+
+<g class="c-gray"><rect x="562" y="118" width="75" height="40" rx="8"/>
+<text class="t" x="599" y="142" text-anchor="middle">reverted</text></g>
+
+<line class="arr" x1="150" y1="174" x2="193" y2="174" marker-end="url(#arrow)"/>
+<path d="M370 155 L428 68" class="arr" marker-end="url(#arrow)"/>
+<line class="arr" x1="370" y1="168" x2="428" y2="168" marker-end="url(#arrow)"/>
+<line class="arr" x1="430" y1="186" x2="372" y2="186" marker-end="url(#arrow)"/>
+<path d="M370 192 L428 280" class="arr" marker-end="url(#arrow)"/>
+<path d="M430 292 L300 292 L300 210" class="arr" marker-end="url(#arrow)"/>
+<line class="arr" x1="545" y1="64" x2="563" y2="64" marker-end="url(#arrow)"/>
+<line class="arr" x1="601" y1="88" x2="601" y2="116" marker-end="url(#arrow)"/>
+
+<rect x="40" y="330" width="310" height="66" rx="8" fill="none" stroke="#D3D1C7" stroke-dasharray="4 4"/>
+<text class="ts" x="52" y="350">verdict 为派生字段(非持久态):</text>
+<text class="ts" x="52" y="368">ready · unverified · needs_revision</text>
+<text class="ts" x="52" y="386">conflict · blocked(设计文档五态归此)</text>
+<line class="leader" x1="200" y1="330" x2="258" y2="210"/>
+
+<rect x="380" y="330" width="260" height="66" rx="8" fill="none" stroke="#D3D1C7" stroke-dasharray="4 4"/>
+<text class="ts" x="392" y="350">accepted 准入硬条件:</text>
+<text class="ts" x="392" y="368">evidence 完整 + verifier approve</text>
+<text class="ts" x="392" y="386">+ permission snapshot 在案</text>
+</svg>

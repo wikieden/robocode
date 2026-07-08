@@ -1,23 +1,30 @@
-# RoboCode Module Index
+# Viden Module Index
 
 ## Workspace Dependency Map
 
-- `robocode-cli` depends on config, core, model, tools, and types to create the terminal runtime.
-- `robocode-core` depends on LSP, model, permissions, session, tools, types, and workflows to orchestrate turns and commands.
-- `robocode-lsp` depends on types and JSON serialization to provide read-only semantic code intelligence.
-- `robocode-model`, `robocode-tools`, `robocode-permissions`, `robocode-session`, and `robocode-workflows` use `robocode-types` for shared contracts.
-- `robocode-workflows` also uses `robocode-session` for shared project identity.
+- `apps/cli` depends on config, runtime, provider, tools, and types to start the product runtime.
+- `apps/tui` owns terminal rendering, input orchestration, previews, and app-specific TUI state.
+- `crates/core` is the stable facade that re-exports runtime and contract types for TUI, GUI, CLI, and future API surfaces.
+- `crates/runtime` depends on LSP, provider, permissions, session, tools, types, and workflows to orchestrate turns and commands.
+- `crates/plugin-api` defines shared plugin manifest, capability, permission, and provider descriptor contracts.
+- `crates/plugin-host` owns shared plugin discovery/registry boundaries.
+- `plugins/providers/deepseek` is the first first-party provider plugin using the plugin API.
+- `viden-lsp` depends on types and JSON serialization to provide read-only semantic code intelligence.
+- `viden-provider`, `viden-tools`, `viden-permissions`, `viden-session`, and `viden-workflows` use `viden-types` for shared contracts.
+- `viden-workflows` also uses `viden-session` for shared project identity.
 
 ## Data Ownership Map
 
-- Transcript/session facts: `robocode-session`.
-- Project workflow state: `robocode-workflows`.
-- Shared contracts: `robocode-types`.
-- Permission policy: `robocode-permissions`.
-- Tool implementation: `robocode-tools`.
-- Provider host/runtime, protocol adaptation, and dynamic registry: `robocode-model`.
-- Semantic code intelligence: `robocode-lsp`.
-- CLI presentation: `robocode-cli`.
+- Transcript/session facts: `viden-session`.
+- Project workflow state: `viden-workflows`.
+- Shared contracts: `viden-types`.
+- Permission policy: `viden-permissions`.
+- Tool implementation: `viden-tools`.
+- Provider host/runtime, protocol adaptation, and dynamic registry: `viden-provider`.
+- Plugin manifest and capability contracts: `viden-plugin-api`.
+- Plugin registry/lifecycle boundary: `viden-plugin-host`.
+- Semantic code intelligence: `viden-lsp`.
+- App surfaces: `apps/cli`, `apps/tui`, and future `apps/gui`.
 
 ## Current Implementation Status
 
@@ -25,9 +32,9 @@ Mainline landed:
 
 - V1 local CLI baseline is implemented: REPL, config, providers, permissions, transcripts, resume, file/search/shell/web/Git tools.
 - V2-A session and command enhancement is implemented: `/status`, `/config`, `/doctor`, richer `/sessions`, grouped `/help`.
-- V2-C workflow continuity is implemented: `robocode-workflows`, `/tasks`, `/task ...`, `/memory ...`, workflow JSONL logs, and resume context.
-- V2-B LSP foundation is implemented: `robocode-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document sync.
-- V2-D structured terminal view slices are implemented: grouped diagnostics, grouped symbols, compact references, structured sessions/tasks/memory, structured permission denials, structured `/git diff` and `/diff`, and shared `robocode-core` presentation helpers.
+- V2-C workflow continuity is implemented: `viden-workflows`, `/tasks`, `/task ...`, `/memory ...`, workflow JSONL logs, and resume context.
+- V2-B LSP foundation is implemented: `viden-lsp`, `lsp_*` tools, `/lsp ...` commands, real semantic queries, session reuse, and document sync.
+- V2-D structured terminal view slices are implemented: grouped diagnostics, grouped symbols, compact references, structured sessions/tasks/memory, structured permission denials, structured `/git diff` and `/diff`, and shared `viden-runtime` presentation helpers.
 - Provider-plugin runtime and DeepSeek V4 are implemented on main. Mainline uses official DeepSeek model names: `deepseek-v4-flash` by default and `deepseek-v4-pro` when selected explicitly.
 - The provider descriptor matrix includes additional OpenAI-compatible gateway providers: `openrouter`, `groq`, `mistral`, `together`, `kimi`, `qwen`, `dashscope-coding-plan`, `dashscope-coding-plan-anthropic`, `dashscope-tokenplan`, `dashscope-tokenplan-anthropic`, `zhipu`, and `volcengine`.
 
@@ -59,16 +66,16 @@ Missing: MCP, general skills/plugins beyond provider plugins, multi-agent/team c
 
 ## Module Docs
 
-- `robocode-cli/README.md`
-- `robocode-config/README.md`
-- `robocode-core/README.md`
-- `robocode-lsp/README.md`
-- `robocode-model/README.md`
-- `robocode-tools/README.md`
-- `robocode-permissions/README.md`
-- `robocode-session/README.md`
-- `robocode-types/README.md`
-- `robocode-workflows/README.md`
+- `apps/cli/README.md`
+- `crates/config/README.md`
+- `crates/runtime/README.md`
+- `crates/lsp/README.md`
+- `crates/provider/README.md`
+- `crates/tools/README.md`
+- `crates/permissions/README.md`
+- `crates/session/README.md`
+- `crates/types/README.md`
+- `crates/workflows/README.md`
 - `docs/provider-live-matrix.md`
 - `docs/provider-adapter-design.md`
 - `docs/product-design-operator-loop.md`

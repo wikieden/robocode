@@ -1,23 +1,30 @@
-# RoboCode 模块索引
+# Viden 模块索引
 
 ## Workspace 依赖图
 
-- `robocode-cli` 依赖 config、core、model、tools、types，用来创建终端运行时。
-- `robocode-core` 依赖 LSP、model、permissions、session、tools、types、workflows，用来编排 turns 和 commands。
-- `robocode-lsp` 依赖 types 和 JSON serialization，提供只读语义代码智能。
-- `robocode-model`、`robocode-tools`、`robocode-permissions`、`robocode-session`、`robocode-workflows` 使用 `robocode-types` 作为共享契约。
-- `robocode-workflows` 也使用 `robocode-session` 的 project identity helper。
+- `apps/cli` 依赖 config、runtime、provider、tools、types，用来启动产品运行时。
+- `apps/tui` 负责 terminal rendering、input orchestration、previews 和 app-specific TUI state。
+- `crates/core` 是稳定 facade，向 TUI、GUI、CLI 和未来 API surface 重导出 runtime 与 contract 类型。
+- `crates/runtime` 依赖 LSP、provider、permissions、session、tools、types、workflows，用来编排 turns 和 commands。
+- `crates/plugin-api` 定义共享 plugin manifest、capability、permission 和 provider descriptor 契约。
+- `crates/plugin-host` 承载共享 plugin discovery / registry 边界。
+- `plugins/providers/deepseek` 是第一批使用 plugin API 的 first-party provider plugin。
+- `viden-lsp` 依赖 types 和 JSON serialization，提供只读语义代码智能。
+- `viden-provider`、`viden-tools`、`viden-permissions`、`viden-session`、`viden-workflows` 使用 `viden-types` 作为共享契约。
+- `viden-workflows` 也使用 `viden-session` 的 project identity helper。
 
 ## 数据归属图
 
-- Transcript/session facts：`robocode-session`。
-- 项目 workflow state：`robocode-workflows`。
-- 共享契约：`robocode-types`。
-- Permission policy：`robocode-permissions`。
-- 工具实现：`robocode-tools`。
-- Provider host/runtime、协议适配与动态 registry：`robocode-model`。
-- 语义代码智能：`robocode-lsp`。
-- CLI 展示：`robocode-cli`。
+- Transcript/session facts：`viden-session`。
+- 项目 workflow state：`viden-workflows`。
+- 共享契约：`viden-types`。
+- Permission policy：`viden-permissions`。
+- 工具实现：`viden-tools`。
+- Provider host/runtime、协议适配与动态 registry：`viden-provider`。
+- Plugin manifest 与 capability 契约：`viden-plugin-api`。
+- Plugin registry / lifecycle 边界：`viden-plugin-host`。
+- 语义代码智能：`viden-lsp`。
+- App surfaces：`apps/cli`、`apps/tui`，以及未来的 `apps/gui`。
 
 ## 当前实现状态
 
@@ -25,9 +32,9 @@ Mainline landed：
 
 - V1 本地 CLI 基线已实现：REPL、config、providers、permissions、transcripts、resume、file/search/shell/web/Git tools。
 - V2-A session 和 command enhancement 已实现：`/status`、`/config`、`/doctor`、更丰富的 `/sessions`、分组 `/help`。
-- V2-C workflow continuity 已实现：`robocode-workflows`、`/tasks`、`/task ...`、`/memory ...`、workflow JSONL logs、resume context。
-- V2-B LSP foundation 已实现：`robocode-lsp`、`lsp_*` tools、`/lsp ...` commands、真实 semantic queries、session reuse、document sync。
-- V2-D structured terminal view 切片已实现：分组 diagnostics、分组 symbols、紧凑 references、结构化 sessions/tasks/memory、结构化 permission denials、结构化 `/git diff` 和 `/diff`，以及共享 `robocode-core` presentation helpers。
+- V2-C workflow continuity 已实现：`viden-workflows`、`/tasks`、`/task ...`、`/memory ...`、workflow JSONL logs、resume context。
+- V2-B LSP foundation 已实现：`viden-lsp`、`lsp_*` tools、`/lsp ...` commands、真实 semantic queries、session reuse、document sync。
+- V2-D structured terminal view 切片已实现：分组 diagnostics、分组 symbols、紧凑 references、结构化 sessions/tasks/memory、结构化 permission denials、结构化 `/git diff` 和 `/diff`，以及共享 `viden-runtime` presentation helpers。
 - provider-plugin runtime 与 DeepSeek V4 已在 main 落地。mainline 使用官方 DeepSeek 模型名：默认 `deepseek-v4-flash`，可显式选择 `deepseek-v4-pro`。
 - provider descriptor 矩阵已加入更多 OpenAI-compatible gateway providers：`openrouter`、`groq`、`mistral`、`together`、`kimi`、`qwen`、`dashscope-coding-plan`、`dashscope-coding-plan-anthropic`、`dashscope-tokenplan`、`dashscope-tokenplan-anthropic`、`zhipu`、`volcengine`。
 
@@ -55,16 +62,16 @@ Mainline landed：
 
 ## 模块文档
 
-- `robocode-cli/README.zh-CN.md`
-- `robocode-config/README.zh-CN.md`
-- `robocode-core/README.zh-CN.md`
-- `robocode-lsp/README.zh-CN.md`
-- `robocode-model/README.zh-CN.md`
-- `robocode-tools/README.zh-CN.md`
-- `robocode-permissions/README.zh-CN.md`
-- `robocode-session/README.zh-CN.md`
-- `robocode-types/README.zh-CN.md`
-- `robocode-workflows/README.zh-CN.md`
+- `apps/cli/README.zh-CN.md`
+- `crates/config/README.zh-CN.md`
+- `crates/runtime/README.zh-CN.md`
+- `crates/lsp/README.zh-CN.md`
+- `crates/provider/README.zh-CN.md`
+- `crates/tools/README.zh-CN.md`
+- `crates/permissions/README.zh-CN.md`
+- `crates/session/README.zh-CN.md`
+- `crates/types/README.zh-CN.md`
+- `crates/workflows/README.zh-CN.md`
 - `docs/provider-live-matrix.zh-CN.md`
 - `docs/provider-adapter-design.zh-CN.md`
 - `docs/product-design-operator-loop.zh-CN.md`

@@ -99,7 +99,7 @@ done
 cd "$ROOT"
 
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(cargo pkgid -p robocode-cli | sed 's/.*#//')"
+  VERSION="$(cargo pkgid -p viden-cli | sed 's/.*#//')"
 fi
 
 if [[ -z "$TARGET" ]]; then
@@ -174,7 +174,7 @@ fallback_cli_smoke() {
     git add README.md
     git commit -m initial >/dev/null
     printf '/test printf smoke-ok\ny\n/status\n/exit\n' |
-      cargo run -p robocode-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
+      cargo run -p viden-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
         --no-tui \
         --provider fallback \
         --model test-local
@@ -233,16 +233,16 @@ package_smoke() {
   mkdir -p "$extract_dir"
   tar -xzf "$archive" -C "$extract_dir"
 
-  local package_dir="$extract_dir/robocode-v${VERSION}-${TARGET}"
-  local binary="$package_dir/robocode-cli"
+  local package_dir="$extract_dir/viden-v${VERSION}-${TARGET}"
+  local binary="$package_dir/viden"
   if [[ "$TARGET" == *"windows"* ]]; then
-    binary="$package_dir/robocode-cli.exe"
+    binary="$package_dir/viden.exe"
   fi
 
   [[ -x "$binary" || -f "$binary" ]]
   "$binary" --version >>"$package_log" 2>&1
   "$binary" --help >>"$package_log" 2>&1
-  grep -Fq "robocode-cli $VERSION" "$package_log"
+  grep -Fq "viden $VERSION" "$package_log"
   cat "$package_log"
 }
 
@@ -283,7 +283,7 @@ names = {asset.get("name", "") for asset in assets}
 if release.get("isDraft") or release.get("isPrerelease"):
     raise SystemExit("release must not be draft or prerelease")
 expected_prefixes = [
-    "robocode-v",
+    "viden-v",
 ]
 if len(assets) < 2:
     raise SystemExit("expected release assets and sha256 files")
@@ -389,9 +389,9 @@ run_step "final-zero-bug-contract-smoke" scripts/final-zero-bug-contract-smoke.s
 run_step "cargo-clippy" cargo clippy --workspace --all-targets -- -D warnings
 
 if [[ "$QUICK" == "1" ]]; then
-  run_bash_step "robocode-cli-terminal-tests" "cargo test -p robocode-cli tui::terminal::tests -- --nocapture"
+  run_bash_step "viden-tui-terminal-tests" "cargo test -p viden-tui tui::terminal::tests -- --nocapture"
 else
-  run_bash_step "robocode-cli-tests" "cargo test -p robocode-cli --quiet -- --test-threads=1"
+  run_bash_step "viden-terminal-entry-tests" "cargo test -p viden-cli --quiet -- --test-threads=1"
   run_bash_step "workspace-tests" "cargo test --workspace --quiet -- --test-threads=1"
 fi
 

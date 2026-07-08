@@ -111,13 +111,13 @@ brew install wikieden/tap/robocode
 Verify the install:
 
 ```bash
-robocode --help
+viden --help
 ```
 
 ### Release Archive
 
 Download a release archive from
-[RoboCode v0.1.30](https://github.com/wikieden/robocode/releases/tag/v0.1.30).
+[Viden v0.1.30](https://github.com/wikieden/robocode/releases/tag/v0.1.30).
 
 Available release targets:
 
@@ -131,10 +131,10 @@ Install on macOS or Linux:
 ```bash
 VERSION=0.1.30
 TARGET=aarch64-apple-darwin
-curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/robocode-v${VERSION}-${TARGET}.tar.gz"
-tar -xzf "robocode-v${VERSION}-${TARGET}.tar.gz"
-sudo install -m 755 "robocode-v${VERSION}-${TARGET}/robocode-cli" /usr/local/bin/robocode-cli
-robocode-cli --help
+curl -L -O "https://github.com/wikieden/robocode/releases/download/v${VERSION}/viden-v${VERSION}-${TARGET}.tar.gz"
+tar -xzf "viden-v${VERSION}-${TARGET}.tar.gz"
+sudo install -m 755 "viden-v${VERSION}-${TARGET}/viden" /usr/local/bin/viden
+viden --help
 ```
 
 Install on Windows PowerShell:
@@ -142,21 +142,21 @@ Install on Windows PowerShell:
 ```powershell
 $Version = "0.1.30"
 $Target = "x86_64-pc-windows-msvc"
-Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/robocode-v$Version-$Target.tar.gz" -OutFile "robocode-v$Version-$Target.tar.gz"
-tar -xzf "robocode-v$Version-$Target.tar.gz"
+Invoke-WebRequest "https://github.com/wikieden/robocode/releases/download/v$Version/viden-v$Version-$Target.tar.gz" -OutFile "viden-v$Version-$Target.tar.gz"
+tar -xzf "viden-v$Version-$Target.tar.gz"
 New-Item -ItemType Directory -Force "$env:USERPROFILE\bin"
-Copy-Item "robocode-v$Version-$Target\robocode-cli.exe" "$env:USERPROFILE\bin\robocode-cli.exe"
+Copy-Item "viden-v$Version-$Target\viden.exe" "$env:USERPROFILE\bin\viden.exe"
 $env:PATH += ";$env:USERPROFILE\bin"
-robocode-cli.exe --help
+viden.exe --help
 ```
 
 ## Quick Start
 
-Run RoboCode. Clean installs use DeepSeek as the default online provider and
+Run Viden. Clean installs use DeepSeek as the default online provider and
 open the cockpit TUI by default:
 
 ```bash
-robocode-cli
+viden
 ```
 
 On a clean session the TUI starts on a focused welcome composer instead of
@@ -176,7 +176,7 @@ Set a DeepSeek key for live turns:
 
 ```bash
 export DEEPSEEK_API_KEY="sk-..."
-robocode-cli
+viden
 ```
 
 If the selected model fails or is unavailable, RoboCode shows a switch-model
@@ -186,19 +186,19 @@ actions.
 Run an explicit offline smoke session when you do not want a live provider:
 
 ```bash
-robocode-cli --provider fallback --model test-local
+viden --provider fallback --model test-local
 ```
 
 Use the legacy line REPL only when you explicitly need it:
 
 ```bash
-robocode-cli --no-tui --provider fallback --model test-local
+viden --no-tui --provider fallback --model test-local
 ```
 
 Start from source during development:
 
 ```bash
-cargo run -p robocode-cli -- --provider fallback --model test-local
+cargo run -p viden-cli -- --provider fallback --model test-local
 ```
 
 ## Core Workflows
@@ -290,11 +290,11 @@ favorite_models = ["deepseek-v4-pro"]
 Useful startup flags:
 
 ```bash
-robocode-cli --config .robocode/config.toml
-robocode-cli --resume latest
-robocode-cli --permissions plan
-robocode-cli --tui-theme aurora-cyan
-robocode-cli --tui-screen side-1
+viden --config .robocode/config.toml
+viden --resume latest
+viden --permissions plan
+viden --tui-theme aurora-cyan
+viden --tui-screen side-1
 ```
 
 ## What Is Experimental
@@ -392,7 +392,7 @@ Please report bugs and feature requests through
 
 Helpful issue details:
 
-- RoboCode version or release asset name.
+- Viden version or release asset name.
 - Operating system and terminal app.
 - Provider and model, for example `deepseek / deepseek-v4-flash`.
 - The command you ran and the smallest reproduction steps.

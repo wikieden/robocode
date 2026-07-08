@@ -69,7 +69,7 @@ set +e
 (
   cd "$ROOT"
   ROBOCODE_LIVE_DEEPSEEK_MODEL="$MODEL" \
-    cargo test -p robocode-core \
+    cargo test -p viden-runtime \
       deepseek_live_development_scenario_creates_and_runs_program \
       -- --ignored --nocapture --test-threads=1
 ) >"$LOG" 2>&1

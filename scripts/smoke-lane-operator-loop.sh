@@ -5,7 +5,7 @@ run() {
   name="$1"
   pattern="$2"
   printf '==> %s\n' "$name"
-  cargo test -p robocode-cli "$pattern" --quiet -- --test-threads=1
+  cargo test -p viden-tui "$pattern" --quiet -- --test-threads=1
 }
 
 run "lane shell runtime" "lane_run_"

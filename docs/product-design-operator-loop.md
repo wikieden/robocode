@@ -48,10 +48,10 @@ This design consolidates the current repository and prior design notes:
 - `docs/viden-design-adoption.md`
 - `docs/viden-design/Viden/docs/DESIGN-REF.md`
 - `docs/viden-design/Viden/tokens.css`
-- `robocode-core/src/runtime_loop.rs`
-- `robocode-cli/src/tui/app.rs`
-- `robocode-cli/src/tui/transcript.rs`
-- `robocode-cli/src/tui/lane.rs`
+- `viden-runtime/src/runtime_loop.rs`
+- `viden-cli/src/tui/app.rs`
+- `viden-cli/src/tui/transcript.rs`
+- `viden-cli/src/tui/lane.rs`
 
 ## Product Diagnosis
 

@@ -36,7 +36,7 @@ Descriptor 覆盖已经实现，并由离线测试覆盖。真实 API 验证需�
 ROBOCODE_LIVE_PROVIDER=openrouter \
 ROBOCODE_LIVE_MODEL='<provider-model>' \
 ROBOCODE_LIVE_API_KEY="$OPENROUTER_API_KEY" \
-cargo test -p robocode-cli selected_live_provider_generates_python_hello_world_from_natural_language -- --ignored
+cargo test -p viden-cli selected_live_provider_generates_python_hello_world_from_natural_language -- --ignored
 ```
 
 即使 provider 有 descriptor default model，记录真实验证时也应该显式设置

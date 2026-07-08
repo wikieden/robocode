@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-RoboCode is a Rust-first, local-first coding-agent cockpit (TUI + CLI). It is inspired by `.ref/claude-code-main` — treat that directory as read-only behavioral reference, never edit it and never port it file-by-file. `AGENTS.md` is the canonical agent guide; this file summarizes and extends it.
+Viden is a Rust-first, local-first AI coding agent orchestration workspace with CLI, TUI, and future GUI app surfaces. It is inspired by `.ref/claude-code-main` — treat that directory as read-only behavioral reference, never edit it and never port it file-by-file. `AGENTS.md` is the canonical agent guide; this file summarizes and extends it.
 
 Product direction (2026-06-26): **Viden is the active product direction**; RoboCode is the legacy implementation and release-artifact name during the compatibility migration. The accepted design source is vendored at `docs/viden-design/Viden/` (see `docs/viden-design-adoption.md`), and the 0.2.x → 0.3.x development model (runtime refactor first, then parallel TUI + Tauri GUI) is governed by `docs/parallel-development-plan.md`.
 
@@ -12,8 +12,8 @@ Product direction (2026-06-26): **Viden is the active product direction**; RoboC
 
 ```bash
 cargo build                                          # build workspace
-cargo test -p <crate>                                # focused tests while developing (e.g. -p robocode-core)
-cargo test -p robocode-core <test_name>              # single test
+cargo test -p <crate>                                # focused tests while developing (e.g. -p viden-runtime)
+cargo test -p viden-runtime <test_name>              # single test
 cargo test --workspace --quiet                       # required before calling a branch complete
 cargo clippy --workspace --all-targets -- -D warnings   # lint (release-gate strictness)
 cargo fmt                                            # format edited Rust code before handoff
@@ -22,30 +22,34 @@ cargo fmt                                            # format edited Rust code b
 Run from source:
 
 ```bash
-cargo run -p robocode-cli                            # cockpit TUI (DeepSeek default; needs DEEPSEEK_API_KEY for live turns)
-cargo run -p robocode-cli -- --provider fallback --model test-local    # offline smoke session
-cargo run -p robocode-cli -- --no-tui --provider fallback --model test-local   # legacy line REPL
+cargo run -p viden-cli                            # cockpit TUI (DeepSeek default; needs DEEPSEEK_API_KEY for live turns)
+cargo run -p viden-cli -- --provider fallback --model test-local    # offline smoke session
+cargo run -p viden-cli -- --no-tui --provider fallback --model test-local   # legacy line REPL
 ```
 
 Smoke / release scripts (under `scripts/`): `tui-regression.sh`, `tui-previews.sh` (deterministic TUI screenshots), `release-gate.sh`, `release-smoke.sh`, `provider-live-smoke.sh`, plus focused contract smokes (`plan-mode-smoke.sh`, `tdd-testing-contract-smoke.sh`, etc.).
 
 ## Architecture
 
-Cargo workspace; the CLI is the entrypoint, `robocode-core` owns the agent loop, everything else sits behind explicit subsystem boundaries:
+Cargo workspace; app surfaces live under `apps/`, reusable core crates live under `crates/`, and first-party plugin implementations live under `plugins/`:
 
-- `robocode-cli` — binary entrypoint, cockpit TUI, REPL, terminal views.
-- `robocode-core` — session engine, turn orchestration, slash-command routing, provider/tool loop, shared presentation helpers.
-- `robocode-model` — provider host/registry and protocol adapters (Anthropic `tool_use` vs OpenAI `tool_calls` translation), built-in providers (Anthropic, OpenAI, OpenAI-compatible, Ollama, fallback).
-- `robocode-provider-sdk` / `robocode-provider-deepseek` — dynamic provider plugin ABI and the DeepSeek plugin.
-- `robocode-tools` — local file/search/shell/web/Git/LSP/test tool implementations.
-- `robocode-permissions` — permission modes, path scope checks, allow/ask/deny decisions.
-- `robocode-session` — JSONL transcripts (canonical, append-only) + SQLite index (derived, rebuildable), resume.
-- `robocode-workflows` — durable project tasks, project/session memory, resume context, workflow event logs.
-- `robocode-lsp` — read-only semantic code intelligence (diagnostics, symbols, references).
-- `robocode-types` — shared domain contracts used by everything.
-- `robocode-config` — layered config resolution.
+- `apps/cli` — binary entrypoint, flags, bootstrap, current CLI/TUI launcher.
+- `apps/tui` — terminal app boundary; future home for the full TUI render/input loop.
+- `crates/core` — stable runtime facade and contract re-exports for all frontends.
+- `crates/runtime` — session engine, turn orchestration, slash-command routing, provider/tool loop, shared presentation helpers.
+- `crates/provider` — provider host/registry and protocol adapters (Anthropic `tool_use` vs OpenAI `tool_calls` translation), built-in providers (Anthropic, OpenAI, OpenAI-compatible, Ollama, fallback).
+- `crates/plugin-api` — plugin manifest, capability, permission, provider descriptor, and ABI contracts.
+- `crates/plugin-host` — shared static plugin registry boundary for providers, tools, agents, context sources, and workflows.
+- `plugins/providers/deepseek` — DeepSeek provider plugin.
+- `crates/tools` — local file/search/shell/web/Git/LSP/test tool implementations.
+- `crates/permissions` — permission modes, path scope checks, allow/ask/deny decisions.
+- `crates/session` — JSONL transcripts (canonical, append-only) + SQLite index (derived, rebuildable), resume.
+- `crates/workflows` — durable project tasks, project/session memory, resume context, workflow event logs.
+- `crates/lsp` — read-only semantic code intelligence (diagnostics, symbols, references).
+- `crates/types` — shared domain contracts used by everything.
+- `crates/config` — layered config resolution.
 
-Data ownership split that matters: `robocode-session` records *what happened in a session*; `robocode-workflows` records *durable project task/memory state*. They are related but separate.
+Data ownership split that matters: `viden-session` records *what happened in a session*; `viden-workflows` records *durable project task/memory state*. They are related but separate.
 
 Deeper docs: `docs/architecture.md`, `docs/modules.md`, `docs/development-standards.md`, roadmap in `PLAN.md` / `docs/staged-roadmap.md` / `docs/parallel-development-plan.md`.
 

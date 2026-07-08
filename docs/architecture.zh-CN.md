@@ -1,33 +1,40 @@
-# RoboCode 架构
+# Viden 架构
 
 英文版： [architecture.md](architecture.md)
 
 ## 目标架构
 
-RoboCode 是 local-first developer agent runtime。CLI 是入口；
-`robocode-core` 负责 agent loop；持久化状态、工具、权限、workflow、
-LSP 和模型 provider 都通过清晰的子系统边界接入。
+Viden 是 local-first developer agent runtime，按 app surface、可复用 core
+crate、first-party plugin 三层组织。CLI/TUI/GUI 代码放在 `apps/`；runtime、
+状态、工具、权限、workflow、LSP、provider 和 plugin contract 放在 `crates/`；
+具体 provider/tool/agent/workflow plugin 放在 `plugins/`。
 
 ```mermaid
 flowchart TB
-    User["User / Developer"] --> CLI["robocode-cli<br/>REPL / Slash Commands / Terminal Views"]
+    User["User / Developer"] --> CLI["apps/cli<br/>Flags / Bootstrap / CLI"]
+    User --> TUI["apps/tui<br/>Terminal Frontend"]
+    User --> GUI["apps/gui<br/>Future Desktop Frontend"]
 
     CLI --> Facade["viden-core<br/>Runtime Facade / Contract Re-exports"]
-    Facade --> Core["robocode-core<br/>SessionEngine / RuntimeSupervisor / Agent Loop"]
+    TUI --> Facade
+    GUI --> Facade
+    Facade --> Core["viden-runtime<br/>SessionEngine / RuntimeSupervisor / Agent Loop"]
 
-    Core --> Config["robocode-config<br/>Layered Config / Provider-Scoped Config"]
-    Core --> Perm["robocode-permissions<br/>Permission Modes / Approval Gate"]
-    Core --> Session["robocode-session<br/>JSONL Transcript / SQLite Index / Resume"]
-    Core --> Workflows["robocode-workflows<br/>Tasks / Memory / Resume Context"]
-    Core --> Tools["robocode-tools<br/>File / Search / Shell / Web / Git / LSP Tools"]
-    Core --> Model["robocode-model<br/>ProviderHost / Registry / Protocol Adapters"]
+    Core --> Config["viden-config<br/>Layered Config / Provider-Scoped Config"]
+    Core --> Perm["viden-permissions<br/>Permission Modes / Approval Gate"]
+    Core --> Session["viden-session<br/>JSONL Transcript / SQLite Index / Resume"]
+    Core --> Workflows["viden-workflows<br/>Tasks / Memory / Resume Context"]
+    Core --> Tools["viden-tools<br/>File / Search / Shell / Web / Git / LSP Tools"]
+    Core --> Model["viden-provider<br/>ProviderHost / Registry / Protocol Adapters"]
 
-    Tools --> LSP["robocode-lsp<br/>Diagnostics / Symbols / References"]
+    Tools --> LSP["viden-lsp<br/>Diagnostics / Symbols / References"]
     Tools --> LocalOS["Local OS<br/>Filesystem / Shell / Git / Network"]
 
-    Model --> ProviderSDK["robocode-provider-sdk<br/>Plugin ABI / Descriptor Contract"]
+    Core --> PluginHost["viden-plugin-host<br/>Plugin Registry / Lifecycle Boundary"]
+    PluginHost --> ProviderSDK["viden-plugin-api<br/>Manifest / Capability / Permission Contracts"]
+    Model --> ProviderSDK
     Model --> Builtins["Built-in Providers<br/>Anthropic / OpenAI / Ollama / Fallback"]
-    Model --> DeepSeek["robocode-provider-deepseek<br/>DeepSeek Plugin"]
+    Model --> DeepSeek["plugins/providers/deepseek<br/>DeepSeek Plugin"]
 
     ProviderSDK --> DynamicPlugins["Dynamic Provider Plugins<br/>Native dylib / so / dll now<br/>WASM later"]
 
@@ -42,20 +49,24 @@ flowchart TB
 
 ## Workspace 布局
 
-- `viden-core`：稳定 runtime facade，供客户端导入；重导出 core runtime 和共享
+- `apps/cli`：可执行入口、flags、config bootstrap，以及当前 CLI/TUI launcher
+- `apps/tui`：终端 frontend app 边界；完整 TUI render/input loop 后续应迁移到这里
+- `crates/core`：稳定 runtime facade，供客户端导入；重导出 core runtime 和共享
   contract 类型，不引入 TUI 或 GUI 依赖
-- `robocode-cli`：面向用户的 REPL 和 slash commands
-- `robocode-config`：配置加载、优先级合并和启动默认值
-- `robocode-core`：会话引擎和 turn 编排
-- `robocode-model`：provider host/runtime、HTTP 适配、动态 provider registry，以及 tool-calling 协议转换
-- `robocode-tools`：内置本地工具和执行适配器
-- `robocode-permissions`：权限模式、规则和审批决策
-- `robocode-session`：JSONL transcript 和 SQLite 索引
-- `robocode-types`：共享领域类型
-- `robocode-workflows`：项目级 task、memory、resume-context 与 workflow log 状态
-- `robocode-lsp`：language server 配置、协议 framing、语义查询执行和结果归一化
+- `crates/config`：配置加载、优先级合并和启动默认值
+- `crates/runtime`：会话引擎和 turn 编排
+- `crates/provider`：provider host/runtime、HTTP 适配、provider registry，以及 tool-calling 协议转换
+- `crates/plugin-api`：共享 plugin manifest、capability、permission、provider descriptor 和 ABI symbol
+- `crates/plugin-host`：plugin discovery、registry、validation 和 lifecycle 边界
+- `crates/tools`：内置本地工具和执行适配器
+- `crates/permissions`：权限模式、规则和审批决策
+- `crates/session`：JSONL transcript 和 SQLite 索引
+- `crates/types`：共享领域类型
+- `crates/workflows`：项目级 task、memory、resume-context 与 workflow log 状态
+- `crates/lsp`：language server 配置、协议 framing、语义查询执行和结果归一化
+- `plugins/providers/deepseek`：first-party DeepSeek provider plugin
 
-整个 workspace 中，`robocode-session` 的 JSONL transcript 是持久化事实源；SQLite 只是可重建的索引，用来更快地列会话和恢复会话。
+整个 workspace 中，`viden-session` 的 JSONL transcript 是持久化事实源；SQLite 只是可重建的索引，用来更快地列会话和恢复会话。
 
 ## 配置模型
 
@@ -84,7 +95,7 @@ flowchart TB
 ## 主执行流程
 
 1. CLI 接收一行用户输入
-2. `robocode-core` 判断它是 slash command、直接工具请求，还是普通模型 prompt
+2. `viden-runtime` 判断它是 slash command、直接工具请求，还是普通模型 prompt
 3. 普通 prompt 会写入 transcript 并交给 model provider
 4. provider 返回 assistant 文本和/或 tool calls
 5. assistant 的 tool call 会先写入内存中的会话状态
@@ -100,29 +111,56 @@ flowchart TB
 
 这次重构会先引入前端无关的 runtime contract，再开始任何新的 TUI 或 GUI 实现：
 
-- `robocode-types` 定义共享 runtime facts 和 commands：
+- `viden-types` 定义共享 runtime facts 和 commands：
   `RuntimeSnapshot`、`RuntimeEvent`、`RuntimeCommand`、`CommandAction`、
   `ApprovalRequestView`、`EvidenceView`、`ProviderHealthView`、
   `TokenCostView` 和 `RuntimeViewState`。
 - `RuntimeViewState::apply_event` 是 replay reducer。客户端可以通过初始
   snapshot 加有序 runtime events 重建可见状态。
-- `robocode-core` 暴露 `SessionEngine::runtime_snapshot()`、
+- tool-result runtime events 会携带结构化 `success` 和 `exit_code` facts；
+  客户端必须渲染这些字段，而不是从输出文本推断状态。
+- `viden-runtime` 暴露 `SessionEngine::runtime_snapshot()`、
   `SessionEngine::runtime_view_state()` 和
   `SessionEngine::runtime_events_for_engine_events(...)`，作为当前 engine loop
   到共享 contract 的第一版 bridge。
-- `robocode-core` 还暴露 `RuntimeSupervisor`，这是一个非 UI 的 worker 边界：
+- `viden-runtime` 还暴露 `RuntimeSupervisor`，这是一个非 UI 的 worker 边界：
   它拥有 `SessionEngine`、接收 `RuntimeCommand`、发出有序 `RuntimeEvent`，
   通过 `ModelRequestControl` 取消运行中的 provider turn，并通过 pending approval
   channels 处理审批响应。
 - 后续 TUI 和 GUI 代码必须消费这个 contract，而不是直接拥有 provider loop、
   tool execution、permission decision、task state 或 provider telemetry。
+- 已完成的核心模块还必须同步更新
+  [前端对接契约](frontend-integration-contract.zh-CN.md)，说明 runtime facts、
+  commands、events 和 view-state fields 如何对接 TUI/GUI。
 
 这个边界故意先采用 data-first 方式。它让现有引擎继续运行，同时用 contract tests
 冻结多个前端需要共享的事实。
 
+## 未来多 Agent 核心编排
+
+多 Agent 目标详见
+[多 Agent 核心编排](multi-agent-core-orchestration.zh-CN.md)。它在当前 runtime
+contract 之上扩展 agent DAG、ContextBundle、evidence 和 merge-gate 契约，同时保持同一套
+frontend-neutral event stream。
+
+架构 TODO：
+
+- 扩展已落地的 `AgentTask`、`AgentDag`、`ContextBundle`、`Evidence` 和
+  `MergeGate` contracts，同时避免绑定到某个 frontend；
+- 继续在 `viden-workflows` 中将 DAG、task、memory、artifact 和 evidence events
+  存为 durable project workflow state，并与 session transcript 分离；
+- 继续扩展 `RuntimeSupervisor`，让基于 role 的 agent tasks 发出可 replay 的
+  runtime events，不能阻塞 UI input；
+- 每个 agent tool call 在变更前都必须经过 `viden-permissions` 和 `viden-tools`，
+  并在已落地的 role-policy matrix 和 scoped Git staging 之上继续扩展
+  release/publish scopes；
+- provider-specific protocol behavior 只留在 `viden-provider` adapters，agent
+  orchestration 留在 `viden-runtime` / `viden-workflows`；
+- TUI 和 GUI 只渲染 `RuntimeViewState` 加有序 runtime events。
+
 ## 终端展示
 
-`robocode-core` 负责 plain-text terminal presentation helpers，让 slash-command
+`viden-runtime` 负责 plain-text terminal presentation helpers，让 slash-command
 views 保持一致，而不要求立即引入 full-screen TUI。当前 structured views 覆盖：
 
 - LSP diagnostics、symbols、references
@@ -237,7 +275,7 @@ instance-scoped provider。
 
 ```mermaid
 flowchart TB
-    Core["robocode-core<br/>SessionEngine / Agent Runtime"] --> Host["robocode-model::ProviderHost"]
+    Core["viden-runtime<br/>SessionEngine / Agent Runtime"] --> Host["viden-provider::ProviderHost"]
 
     Host --> Registry["ProviderRegistry<br/>provider lookup / reload / collision checks"]
     Host --> Factory["Provider Factory<br/>per-session provider instances"]
@@ -322,7 +360,7 @@ CLI 当前也通过 slash commands 暴露这些工具面：
 
 当前 workflow / LSP 说明：
 
-- `robocode-workflows` 把 task / memory state 放在 canonical transcript 之外，但仍保持 JSONL event logs 可重建。
+- `viden-workflows` 把 task / memory state 放在 canonical transcript 之外，但仍保持 JSONL event logs 可重建。
 - `/test <command>` 复用 shell tool 的权限路径，并把最近一次 test evidence
   存在 `SessionEngine` 中，让 `/status` 能报告最新 verification command、
   exit code、可能失败文件数量和 output tail，而不引入第二条执行通道。命令输出还
@@ -338,7 +376,7 @@ CLI 当前也通过 slash commands 暴露这些工具面：
   review 直接推进到 accept / apply / resolve / cleanup，而不用猜命令顺序。
 - 副屏复用同一套 lane next-action 语言和 artifact hints：side-1 偏 lane 监督与
   persisted log tails，side-2 用更紧凑的 ops activity rows 承载同一命令序列。
-- `robocode-lsp` 当前通过 language-server stdio sessions 提供 query-driven 的 semantic code intelligence。
+- `viden-lsp` 当前通过 language-server stdio sessions 提供 query-driven 的 semantic code intelligence。
 - 当前 LSP runtime 已覆盖 real queries、session reuse、document synchronization 和 normalized output，但仍属于 early implementation，而不是完整成熟的长期 LSP 平台层。
 
 ## 平台说明

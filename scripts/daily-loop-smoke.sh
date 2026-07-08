@@ -24,7 +24,7 @@ mkdir -p "$WORK_DIR"
   git commit -m initial >/dev/null
 
   printf '/brief create hello.py and verify the daily loop\ny\n/brief steering init\ny\n/brief show\ntool write_file path=hello.py content=print("daily-loop-ok")\ny\n/test python3 hello.py\ny\n/diff\n/status\n/exit\n' |
-    cargo run -p robocode-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
+    cargo run -p viden-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
       --no-tui \
       --provider fallback \
       --model test-local
@@ -32,7 +32,7 @@ mkdir -p "$WORK_DIR"
 
 git -C "$WORK_DIR" add -N hello.py
 git -C "$WORK_DIR" diff -- hello.py >"$DIFF_OUT"
-cargo run -p robocode-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
+cargo run -p viden-cli --manifest-path "$ROOT/Cargo.toml" --quiet -- \
   --provider fallback \
   --model test-local \
   --tui-preview-ansi >"$PREVIEW_ANSI" 2>&1

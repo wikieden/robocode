@@ -1,0 +1,13 @@
+[package]
+name = "viden-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+viden-config = { path = "../../crates/config" }
+viden-provider = { path = "../../crates/provider" }
+viden-runtime = { path = "../../crates/runtime" }
+viden-types = { path = "../../crates/types" }
+crossterm = "0.28"

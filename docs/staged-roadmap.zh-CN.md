@@ -23,6 +23,9 @@ CLI automation、API server、desktop、Web、IDE/ACP adapter 等其他入口。
 
 - 多 Agent 编排：内置 planner、coder、reviewer、tester、researcher、doc writer
   等角色，并支持 Codex、Claude Code、DeepSeek、shell、MCP tools 和未来 ACP agents。
+- 核心编排契约见 [多 Agent 核心编排](multi-agent-core-orchestration.zh-CN.md)。
+  V2 负责 Agent DAG、event、ContextBundle、evidence、permission 和 merge-gate
+  contracts；V3/V4 在这个 contract 之上增加 external/team agents。
 - Token 效能引擎：按任务动态构造 context bundle，自动压缩 transcript、裁剪长日志、
   去重 tool results、控制每个 agent 的 token budget 和成本上限。
 - 共享事实层：所有 agent 读写统一的 facts、events、artifacts、diff、diagnostics、
@@ -89,6 +92,9 @@ CLI automation、API server、desktop、Web、IDE/ACP adapter 等其他入口。
 必须具备：
 
 - 统一 `AgentTask`、`AgentLane`、`Artifact`、`Evidence` 和 `ContextBundle` 模型
+- [多 Agent 核心编排](multi-agent-core-orchestration.zh-CN.md) 定义的共享
+  Agent DAG、runtime event、permission matrix、ContextBundle、evidence 和
+  merge-gate contracts
 - planner -> worker -> reviewer -> tester 的默认工作流模板
 - 外部 terminal coding tools 的受监督 lane runtime，例如 Codex、Claude Code、DeepSeek-TUI 和 shell job
 - context bundle builder、semantic file selection、diff-aware context、tool output compaction
@@ -220,14 +226,42 @@ quick/full release gates 已通过，GitHub Release 与 Homebrew validation 全�
 - `0.2.1`：Context、token/cost、evidence 和 runtime fact model。实现
   `ContextBundle`、语义文件选择、日志压缩、tool result 去重、token budget、
   provider health 和费用可见性。
-- `0.2.2`：受监督多 Agent 执行闭环。把 planner、coder、reviewer、tester、
-  doc-writer 做成可监督角色，每个角色都有任务、输入、输出、证据、失败分类和下一步动作。
-- `0.2.3`：Plugin runtime 和真实开发 gate。增加 process-plugin protocol、
-  manifest/capability registration、extension boundaries，并继续把 DeepSeek 真实开发
-  smoke、daily-loop、plan-mode、provider/model、lane operator、release gate、
-  token/cost summary 固化为每次发版前必跑。
+- `0.2.2`：Agent DAG 与 role runtime，当前 working tree 已完成。完成证据记录在
+  [0.2.2 状态](release-0.2.2-status.zh-CN.md)。它把 planner、coder、reviewer、
+  tester、doc-writer 做成可监督角色，每个角色都有 ContextBundle 引用、证据、失败分类和下一步动作。
+  已完成的 contract work 包括：`StartAgentDag`、可 replay 的 Agent DAG / MergeGate
+  events、queued role tasks、独立 workflow agent events，以及 provider-backed
+  `StartAgentTask` execution。`StartAgentTask` 会先做 dependency gating，发出
+  AgentTask-bound ContextBundle events，记录 durable blocker/completion workflow
+  events 以及 durable start workflow event 和 role evidence，更新 merge gates，保持 active role turn 可取消，并把第一版
+  role-policy matrix 应用到 provider 请求的 tools：覆盖 tester verification、
+  docs-only、reviewer read-only、scoped coder mutation、release-gate 和
+  least-privilege external-agent，并且在 approval/execution 前生效。structured
+  tool-result events 现在会通过 runtime contract 携带 success 和 exit code，不再依赖输出文本启发式判断。显式 `CancelAgentTask`
+  命令也会为 queued 或 inactive task 持久化 `agent_task_cancelled` workflow event。
+  provider-backed role failure 现在会持久化 `failure_class`、`recovery_suggestion`
+  和 retry next action。完成的 AgentTask 现在会把 provider output summary 写入
+  `task.result`，并把同一输出链接到 role evidence。AgentTask ContextBundle 现在会包含初始 role-specific guidance、
+  file-scope、evidence-contract sources，以及按 role 从声明 file_scope 中确定性选择的文件候选、轻量 symbol 候选和 live LSP diagnostics。
+  基础 merge gate accept/reject decision commands 以及 artifact accept/reject/merge
+  状态流转已进入 runtime contract；accepted patch evidence 现在会通过基础 unified-diff
+  reducer 应用到 workspace，context mismatch 会把 merge gate 退回 needs-changes 且不修改文件。
+  scoped role Git staging 现在允许 scope 内 `git_add`，并拒绝越界 staging 和高风险
+  Git mutation。live LSP references enrichment、release/publish Git rules、
+  evidence reducers 和更完整 patch 格式仍是下一步实现切片。
+- `0.2.3`：Evidence 与 merge gate。覆盖更完整 agent patch 格式、test results、
+  reviews、docs、release artifacts 和 conflict handling。第一刀加入显式
+  `RecordAgentEvidence`、按 evidence kind 归约 merge gate，以及 recorded evidence 的
+  runtime/workflow event 一致性。
+- `0.2.4`：Plugin runtime boundary。增加 process-plugin protocol、
+  manifest/capability registration、extension boundaries 和 least-privilege
+  external agent scopes。
+- `0.2.5`：真实开发 gate。继续把 DeepSeek 真实开发 smoke、daily-loop、plan-mode、
+  provider/model、lane operator、release gate、token/cost summary 固化为每次发版前必跑。
 - `0.3.0`：多前端 contract freeze 与 Viden migration plan。冻结 UI/runtime
   contract，定义 `viden` binary/config migration 和 `robocode` compatibility shim。
+  freeze 范围包含 [前端对接契约](frontend-integration-contract.zh-CN.md)，用于把已完成
+  core modules 映射到 TUI/GUI 消费规则。
 - `0.3.1`：TUI 与 GUI 并行实现。Core/runtime、TUI client、Tauri/Web GUI client
   拆到独立 branch/worktree，最多三个 active owner 同时开发。
 - `0.3.2`：集成候选版。先合 core，再合 TUI，最后合 GUI，并跑 TUI/GUI parity、

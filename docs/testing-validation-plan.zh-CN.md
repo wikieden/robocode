@@ -56,7 +56,7 @@ focused smoke 脚本。
 建议增加或运行的 focused gate：
 
 ```bash
-rg -n "event::read\\(" robocode-cli/src/tui
+rg -n "event::read\\(" viden-cli/src/tui
 scripts/plan-mode-smoke.sh /tmp/robocode-spec-plan-smoke
 scripts/tui-regression.sh docs/previews/generated
 scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash

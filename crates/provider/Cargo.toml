@@ -1,0 +1,13 @@
+[package]
+name = "viden-provider"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+libloading = "0.8"
+viden-plugin-api = { path = "../plugin-api" }
+viden-types = { path = "../types" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

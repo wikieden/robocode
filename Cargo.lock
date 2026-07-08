@@ -183,116 +183,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "robocode-cli"
-version = "0.1.30"
-dependencies = [
- "crossterm",
- "robocode-config",
- "robocode-core",
- "robocode-model",
- "robocode-tools",
- "robocode-types",
-]
-
-[[package]]
-name = "robocode-config"
-version = "0.1.30"
-dependencies = [
- "robocode-types",
- "serde",
- "toml",
-]
-
-[[package]]
-name = "robocode-core"
-version = "0.1.30"
-dependencies = [
- "robocode-config",
- "robocode-lsp",
- "robocode-model",
- "robocode-permissions",
- "robocode-session",
- "robocode-tools",
- "robocode-types",
- "robocode-workflows",
-]
-
-[[package]]
-name = "robocode-lsp"
-version = "0.1.30"
-dependencies = [
- "robocode-types",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "robocode-model"
-version = "0.1.30"
-dependencies = [
- "libloading",
- "robocode-provider-sdk",
- "robocode-types",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "robocode-permissions"
-version = "0.1.30"
-dependencies = [
- "robocode-types",
-]
-
-[[package]]
-name = "robocode-provider-deepseek"
-version = "0.1.30"
-dependencies = [
- "robocode-provider-sdk",
- "serde_json",
-]
-
-[[package]]
-name = "robocode-provider-sdk"
-version = "0.1.30"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "robocode-session"
-version = "0.1.30"
-dependencies = [
- "robocode-types",
-]
-
-[[package]]
-name = "robocode-tools"
-version = "0.1.30"
-dependencies = [
- "robocode-types",
-]
-
-[[package]]
-name = "robocode-types"
-version = "0.1.30"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "robocode-workflows"
-version = "0.1.30"
-dependencies = [
- "robocode-session",
- "robocode-types",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "rustix"
 version = "0.38.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -459,11 +349,139 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
+name = "viden-cli"
+version = "0.1.30"
+dependencies = [
+ "viden-config",
+ "viden-provider",
+ "viden-runtime",
+ "viden-tools",
+ "viden-tui",
+ "viden-types",
+]
+
+[[package]]
+name = "viden-config"
+version = "0.1.30"
+dependencies = [
+ "serde",
+ "toml",
+ "viden-types",
+]
+
+[[package]]
 name = "viden-core"
 version = "0.1.30"
 dependencies = [
- "robocode-core",
- "robocode-types",
+ "viden-runtime",
+ "viden-types",
+]
+
+[[package]]
+name = "viden-lsp"
+version = "0.1.30"
+dependencies = [
+ "serde",
+ "serde_json",
+ "viden-types",
+]
+
+[[package]]
+name = "viden-permissions"
+version = "0.1.30"
+dependencies = [
+ "viden-types",
+]
+
+[[package]]
+name = "viden-plugin-api"
+version = "0.1.30"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "viden-plugin-host"
+version = "0.1.30"
+dependencies = [
+ "viden-plugin-api",
+]
+
+[[package]]
+name = "viden-provider"
+version = "0.1.30"
+dependencies = [
+ "libloading",
+ "serde",
+ "serde_json",
+ "viden-plugin-api",
+ "viden-types",
+]
+
+[[package]]
+name = "viden-provider-deepseek"
+version = "0.1.30"
+dependencies = [
+ "serde_json",
+ "viden-plugin-api",
+]
+
+[[package]]
+name = "viden-runtime"
+version = "0.1.30"
+dependencies = [
+ "viden-config",
+ "viden-lsp",
+ "viden-permissions",
+ "viden-provider",
+ "viden-session",
+ "viden-tools",
+ "viden-types",
+ "viden-workflows",
+]
+
+[[package]]
+name = "viden-session"
+version = "0.1.30"
+dependencies = [
+ "viden-types",
+]
+
+[[package]]
+name = "viden-tools"
+version = "0.1.30"
+dependencies = [
+ "viden-types",
+]
+
+[[package]]
+name = "viden-tui"
+version = "0.1.30"
+dependencies = [
+ "crossterm",
+ "viden-config",
+ "viden-provider",
+ "viden-runtime",
+ "viden-types",
+]
+
+[[package]]
+name = "viden-types"
+version = "0.1.30"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "viden-workflows"
+version = "0.1.30"
+dependencies = [
+ "serde",
+ "serde_json",
+ "viden-session",
+ "viden-types",
 ]
 
 [[package]]
