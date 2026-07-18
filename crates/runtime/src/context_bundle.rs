@@ -390,8 +390,16 @@ pub(crate) fn render_provider_context_message(bundle: &ContextBundleRecord) -> S
         .iter()
         .map(|source| {
             format!(
-                "- {} [{}] ~{} tok: {}",
-                source.name, source.kind, source.estimated_tokens, source.summary
+                "- {} [{}] ~{} tok handle={} item={} view={} raw_hash={} view_hash={} quality={}",
+                source.name,
+                source.kind,
+                source.estimated_tokens,
+                source.handle_id.as_deref().unwrap_or("<pending>"),
+                source.item_id.as_deref().unwrap_or("<pending>"),
+                source.view_id.as_deref().unwrap_or("<pending>"),
+                source.content_sha256.as_deref().unwrap_or("<pending>"),
+                source.view_sha256.as_deref().unwrap_or("<pending>"),
+                source.quality_id.as_deref().unwrap_or("<pending>")
             )
         })
         .collect::<Vec<_>>()
@@ -456,6 +464,12 @@ fn context_source(
         estimated_tokens: estimate_tokens(summary).max(minimum_tokens),
         summary: redact_for_event(summary),
         include_reason: format!("priority {priority}; selected by v1-priority-budget policy"),
+        handle_id: None,
+        item_id: None,
+        view_id: None,
+        content_sha256: None,
+        view_sha256: None,
+        quality_id: None,
     };
     ContextSourceDraft {
         record,
@@ -531,7 +545,13 @@ impl SessionEngine {
         handle.preferred_view_id = Some(view_id);
         let mut record = source.record.clone();
         record.estimated_tokens = reduced.reduced.token_count;
-        record.summary = redact_for_event(&reduced.content);
+        record.summary = self.redact_context_summary(&source.record.summary);
+        record.handle_id = Some(handle.handle_id.clone());
+        record.item_id = Some(handle.item_id.clone());
+        record.view_id = handle.preferred_view_id.clone();
+        record.content_sha256 = Some(handle.content_sha256.clone());
+        record.view_sha256 = Some(view.content_sha256.clone());
+        record.quality_id = view.quality_id.clone();
         if !reduced.omissions.is_empty() {
             let reasons = reduced
                 .omissions
@@ -555,14 +575,15 @@ impl SessionEngine {
         Ok((record, events, vec![handle.handle_id]))
     }
 
-    pub(crate) fn context_events_for_existing_bundle(
+    pub(crate) fn materialize_existing_context_bundle(
         &self,
         bundle: &ContextBundleRecord,
         mode: ContextBuildMode,
-    ) -> Vec<RuntimeEvent> {
+    ) -> BuiltContextBundle {
         let scope = ContextScope::Task(bundle.task_id.clone());
         let mut events = Vec::new();
         let mut handle_ids = Vec::new();
+        let mut materialized_sources = Vec::new();
         let mut context_engine = ContextEngine::open(&self.context_engine_root)
             .map_err(|err| format!("context engine open failed: {err}"));
         for source in &bundle.sources {
@@ -576,7 +597,8 @@ impl SessionEngine {
                 Err(err) => Err(err.clone()),
             };
             match source_result {
-                Ok((_record, source_events, source_handle_ids)) => {
+                Ok((record, source_events, source_handle_ids)) => {
+                    materialized_sources.push(record);
                     events.extend(source_events);
                     handle_ids.extend(source_handle_ids);
                 }
@@ -596,27 +618,62 @@ impl SessionEngine {
                 )),
             }
         }
+        let mut final_bundle = bundle.clone();
+        final_bundle.sources = materialized_sources;
+        let mut omitted_sources = omit_sources_over_soft_budget(
+            &mut final_bundle.sources,
+            final_bundle.soft_token_budget,
+            final_bundle.hard_token_limit,
+        );
+        omitted_sources.extend(omit_sources_over_hard_limit(
+            &mut final_bundle.sources,
+            final_bundle.hard_token_limit,
+        ));
+        final_bundle.omitted_sources.extend(omitted_sources);
+        final_bundle.estimated_tokens = final_bundle.sources.iter().fold(0_u64, |sum, source| {
+            sum.saturating_add(source.estimated_tokens)
+        });
+        final_bundle.largest_sources = largest_sources(&final_bundle.sources);
+        if final_bundle.estimated_tokens > final_bundle.hard_token_limit {
+            final_bundle
+                .compaction_notes
+                .push("hard limit exceeded; provider input rejected before transport".to_string());
+        }
         events.push(RuntimeEvent::new(
             1,
             RuntimeEventKind::ContextBundleBuilt {
-                bundle_id: bundle.bundle_id.clone(),
+                bundle_id: final_bundle.bundle_id.clone(),
                 scope: scope.clone(),
                 handle_ids,
-                estimated_tokens: bundle.estimated_tokens,
+                estimated_tokens: final_bundle.estimated_tokens,
             },
         ));
-        if bundle.estimated_tokens > bundle.soft_token_budget
-            || bundle.estimated_tokens > bundle.hard_token_limit
-        {
+        let budget = context_budget_record(&final_bundle, scope);
+        let hard_exceeded = budget.exceeded;
+        if final_bundle.estimated_tokens > final_bundle.soft_token_budget || hard_exceeded {
             events.push(RuntimeEvent::new(
                 1,
-                RuntimeEventKind::ContextBudgetExceeded {
-                    budget: context_budget_record(bundle, scope),
-                },
+                RuntimeEventKind::ContextBudgetExceeded { budget },
             ));
         }
-        events
+        BuiltContextBundle {
+            bundle: final_bundle,
+            events,
+            hard_exceeded,
+        }
     }
+
+    fn redact_context_summary(&self, input: &str) -> String {
+        redact_context_summary_for_event(&self.cwd, input)
+    }
+}
+
+pub(crate) fn redact_context_summary_for_event(cwd: &std::path::Path, input: &str) -> String {
+    let project_relative = preserve_project_relative_paths(input);
+    let cwd = cwd.to_string_lossy();
+    let cwd_with_separator = format!("{cwd}/");
+    let project_relative = project_relative.replace(cwd_with_separator.as_str(), "");
+    redact_for_event(&project_relative)
 }
 
 fn content_kind_for_source(kind: &str) -> ContextContentKind {
@@ -711,11 +768,31 @@ fn redact_for_event(input: &str) -> String {
                 || lower.contains("secret")
                 || lower.contains("token=")
                 || lower.contains("api_key")
+                || word.starts_with('/')
+                || word.contains("/Users/")
+                || word.contains("/tmp/")
+                || word.contains("/var/")
             {
                 "[REDACTED]"
             } else {
                 word
             }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn preserve_project_relative_paths(input: &str) -> String {
+    input
+        .split_whitespace()
+        .map(|word| {
+            ["/crates/", "/apps/", "/plugins/", "/docs/"]
+                .iter()
+                .find_map(|marker| {
+                    word.find(marker)
+                        .map(|index| word[index.saturating_add(1)..].to_string())
+                })
+                .unwrap_or_else(|| word.to_string())
         })
         .collect::<Vec<_>>()
         .join(" ")

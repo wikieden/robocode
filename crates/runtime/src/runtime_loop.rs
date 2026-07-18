@@ -48,6 +48,37 @@ impl SessionEngine {
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
+        self.process_input_with_optional_context_bundle(input, approver, control, None)
+    }
+
+    pub(crate) fn process_input_with_built_context_bundle_and_control<F>(
+        &mut self,
+        input: &str,
+        approver: &mut F,
+        control: &ModelRequestControl,
+        built_context_bundle: crate::context_bundle::BuiltContextBundle,
+    ) -> Result<Vec<EngineEvent>, String>
+    where
+        F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    {
+        self.process_input_with_optional_context_bundle(
+            input,
+            approver,
+            control,
+            Some(built_context_bundle),
+        )
+    }
+
+    fn process_input_with_optional_context_bundle<F>(
+        &mut self,
+        input: &str,
+        approver: &mut F,
+        control: &ModelRequestControl,
+        built_context_bundle: Option<crate::context_bundle::BuiltContextBundle>,
+    ) -> Result<Vec<EngineEvent>, String>
+    where
+        F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    {
         let trimmed = input.trim();
         if trimmed.is_empty() {
             return Ok(Vec::new());
@@ -62,8 +93,9 @@ impl SessionEngine {
         self.store_entry(TranscriptEntry::Message {
             message: user_message,
         })?;
-        let built_context_bundle =
-            self.build_main_context_bundle_with_mode(trimmed, ContextBuildMode::Normal);
+        let built_context_bundle = built_context_bundle.unwrap_or_else(|| {
+            self.build_main_context_bundle_with_mode(trimmed, ContextBuildMode::Normal)
+        });
         let mut context_bundle = built_context_bundle.bundle;
         self.last_context_runtime_events = built_context_bundle.events;
         self.last_context_bundle = Some(context_bundle.clone());

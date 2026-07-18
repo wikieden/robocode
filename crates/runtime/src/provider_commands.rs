@@ -1162,7 +1162,7 @@ fn classify_provider_model_failure(error: &str) -> Option<ProviderFailureClass> 
 
 pub(crate) fn is_request_too_large_provider_failure(error: &str) -> bool {
     classify_provider_model_failure(error)
-        .is_some_and(|failure| failure.class == "request_too_large")
+        .is_some_and(|failure| matches!(failure.class, "request_too_large" | "context_overflow"))
 }
 
 fn compatible_model_candidates(

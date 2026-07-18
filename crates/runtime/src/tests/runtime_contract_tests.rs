@@ -6,8 +6,9 @@ use std::sync::{
 
 use viden_provider::ModelProvider;
 use viden_types::{
-    ApprovalResponse, EvidenceView, ModelEvent, ModelRequest, PermissionLevel, RuntimeCommand,
-    RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, WorkMode,
+    AgentDagTaskSpec, AgentRole, ApprovalResponse, EvidenceView, ModelEvent, ModelRequest,
+    PermissionLevel, RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall,
+    ToolInput, WorkMode,
 };
 
 use crate::{EngineEvent, SessionEngine};
@@ -550,6 +551,61 @@ fn context_engine_events_replay_without_raw_secret_or_paths() {
     assert!(!view.context_items.is_empty());
     assert_eq!(view.context_items.len(), view.context_handles.len());
     assert_eq!(view.context_views.len(), view.context_handles.len());
+}
+
+#[test]
+fn command_accepted_redacts_start_agent_dag_secrets_and_paths() {
+    let cwd = temp_dir("runtime_contract_dag_redaction_cwd");
+    let home = temp_dir("runtime_contract_dag_redaction_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let secret = "sk-agent-dag-secret-123";
+    let raw_scope = cwd.join("secret/file.rs").to_string_lossy().to_string();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_redacted_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: format!("Plan {secret}"),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_redacted".to_string(),
+                    role: AgentRole::Planner,
+                    title: format!("Title {secret}"),
+                    objective: format!("Objective {secret}"),
+                    dependencies: Vec::new(),
+                    workspace: Some(cwd.to_string_lossy().to_string()),
+                    file_scope: vec![raw_scope.clone()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["plan".to_string()],
+                    permission_policy: "read_only".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let accepted = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::CommandAccepted { command, .. } => Some(command),
+            _ => None,
+        })
+        .expect("command accepted");
+    let json = serde_json::to_string(accepted).unwrap();
+    assert!(!json.contains(secret));
+    assert!(!json.contains(cwd.to_string_lossy().as_ref()));
+    assert!(!json.contains(&raw_scope));
+    let RuntimeCommand::StartAgentDag { goal, tasks } = accepted else {
+        panic!("expected StartAgentDag");
+    };
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].file_scope.len(), 1);
+    assert_eq!(goal, "Plan [REDACTED]");
+    assert_eq!(tasks[0].workspace.as_deref(), Some("[REDACTED]"));
 }
 
 #[test]

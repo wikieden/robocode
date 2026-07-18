@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::agent_commands::{tracked_agent_job_runtime_events, tracked_agent_job_tasks};
-use crate::context_bundle::ContextBuildMode;
+use crate::context_bundle::{ContextBuildMode, redact_context_summary_for_event};
 use crate::lsp_tools::render_lsp_diagnostics;
 use crate::{EngineEvent, ProviderTelemetry, SessionEngine};
 use viden_config::ProviderConfigUpdate;
@@ -421,6 +421,47 @@ impl SessionEngine {
         Ok(merge_approval_events(runtime_events, approval_events))
     }
 
+    pub(crate) fn process_runtime_input_with_built_context_bundle_and_control<F>(
+        &mut self,
+        input: &str,
+        approver: &mut F,
+        control: &ModelRequestControl,
+        built_context_bundle: crate::context_bundle::BuiltContextBundle,
+    ) -> Result<Vec<RuntimeEvent>, String>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+    {
+        let mut approval_events = Vec::new();
+        let mut approval_counter = 0_u64;
+        let mut capturing_approver = |prompt: PermissionPrompt| {
+            approval_counter += 1;
+            let request_id = format!("approval-{approval_counter}");
+            approval_events.push(RuntimeEvent::new(
+                approval_counter,
+                RuntimeEventKind::ApprovalRequested {
+                    approval: approval_request_view(&request_id, &prompt),
+                },
+            ));
+            let response = approver(prompt);
+            approval_events.push(RuntimeEvent::new(
+                approval_counter + 1,
+                RuntimeEventKind::ApprovalResolved {
+                    request_id,
+                    approved: response.approved,
+                },
+            ));
+            response
+        };
+        let engine_events = self.process_input_with_built_context_bundle_and_control(
+            input,
+            &mut capturing_approver,
+            control,
+            built_context_bundle,
+        )?;
+        let runtime_events = self.runtime_events_for_engine_events(&engine_events);
+        Ok(merge_approval_events(runtime_events, approval_events))
+    }
+
     fn runtime_state_events(&self) -> Vec<RuntimeEvent> {
         let mut events = vec![RuntimeEvent::new(
             1,
@@ -726,9 +767,44 @@ impl SessionEngine {
             ],
         )?;
         let prompt = agent_task_prompt(&spec);
+        let seeded_context = self.agent_context_bundle(&spec, &prompt);
+        let built_context =
+            self.materialize_existing_context_bundle(&seeded_context, ContextBuildMode::Normal);
+        let context = built_context.bundle.clone();
+        self.last_context_bundle = Some(context.clone());
+        self.last_context_runtime_events = built_context.events.clone();
+        if built_context.hard_exceeded {
+            append_resequenced(&mut events, built_context.events);
+            append_resequenced(
+                &mut events,
+                self.update_agent_task_failure(
+                    task_id,
+                    "context hard limit exceeded before provider request",
+                    "context_hard_limit",
+                    "reduce input, narrow file scope, or split the task",
+                )?,
+            );
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::Error {
+                    error: RuntimeErrorView {
+                        message: format!(
+                            "context hard limit exceeded for agent task `{task_id}` before provider request"
+                        ),
+                        recoverable: true,
+                        hint: Some("reduce input, narrow file scope, or split the task".to_string()),
+                    },
+                },
+            ));
+            return Ok(events);
+        }
         let previous_permissions = self.apply_agent_permission_policy(&spec);
-        let provider_result =
-            self.process_runtime_input_with_approval_and_control(&prompt, approver, control);
+        let provider_result = self.process_runtime_input_with_built_context_bundle_and_control(
+            &prompt,
+            approver,
+            control,
+            built_context,
+        );
         self.restore_agent_permission_policy(previous_permissions);
         let provider_events = match provider_result {
             Ok(events) => events,
@@ -799,10 +875,6 @@ impl SessionEngine {
                 return Ok(events);
             }
         };
-        let context = self.agent_context_bundle(&spec, &prompt);
-        self.last_context_bundle = Some(context.clone());
-        self.last_context_runtime_events =
-            self.context_events_for_existing_bundle(&context, ContextBuildMode::Normal);
         let assistant_output = assistant_output_from_events(&provider_events);
         append_resequenced(&mut events, provider_events);
         events.push(RuntimeEvent::new(
@@ -938,6 +1010,12 @@ impl SessionEngine {
             estimated_tokens: 160,
             summary: format!("{}: {}", spec.role.as_str(), spec.objective),
             include_reason: "role objective pins the ContextBundle to the AgentTask".to_string(),
+            handle_id: None,
+            item_id: None,
+            view_id: None,
+            content_sha256: None,
+            view_sha256: None,
+            quality_id: None,
         }];
         agent_sources.push(role_guidance_context_source(spec.role));
         if !spec.file_scope.is_empty() {
@@ -999,11 +1077,20 @@ impl SessionEngine {
             kind: "lsp-diagnostics".to_string(),
             priority: 93,
             estimated_tokens: diagnostics.len().saturating_mul(64).min(960) as u64,
-            summary: truncate_for_preview(&rendered, 1_500),
+            summary: truncate_for_preview(
+                &redact_context_summary_for_event(&self.cwd, &rendered),
+                1_500,
+            ),
             include_reason: format!(
                 "{} role receives live diagnostics from selected scoped files",
                 spec.role.as_str()
             ),
+            handle_id: None,
+            item_id: None,
+            view_id: None,
+            content_sha256: None,
+            view_sha256: None,
+            quality_id: None,
         })
     }
 
@@ -1621,6 +1708,12 @@ fn role_guidance_context_source(role: AgentRole) -> ContextSourceRecord {
             "{} role requires specialized context selection",
             role.as_str()
         ),
+        handle_id: None,
+        item_id: None,
+        view_id: None,
+        content_sha256: None,
+        view_sha256: None,
+        quality_id: None,
     }
 }
 
@@ -1633,6 +1726,12 @@ fn agent_file_scope_context_source(spec: &AgentDagTaskSpec) -> ContextSourceReco
         summary: spec.file_scope.join(", "),
         include_reason: "AgentTask file_scope limits which project areas this role should inspect"
             .to_string(),
+        handle_id: None,
+        item_id: None,
+        view_id: None,
+        content_sha256: None,
+        view_sha256: None,
+        quality_id: None,
     }
 }
 
@@ -1645,6 +1744,12 @@ fn agent_evidence_contract_context_source(spec: &AgentDagTaskSpec) -> ContextSou
         summary: spec.required_evidence.join(", "),
         include_reason: "required_evidence defines the output contract for the merge gate"
             .to_string(),
+        handle_id: None,
+        item_id: None,
+        view_id: None,
+        content_sha256: None,
+        view_sha256: None,
+        quality_id: None,
     }
 }
 
@@ -1667,6 +1772,12 @@ fn agent_selected_files_context_source(
             "{} role gets deterministic file candidates from AgentTask file_scope",
             spec.role.as_str()
         ),
+        handle_id: None,
+        item_id: None,
+        view_id: None,
+        content_sha256: None,
+        view_sha256: None,
+        quality_id: None,
     })
 }
 
@@ -1689,6 +1800,12 @@ fn agent_selected_symbols_context_source(
             "{} role gets bounded symbol candidates from selected source files",
             spec.role.as_str()
         ),
+        handle_id: None,
+        item_id: None,
+        view_id: None,
+        content_sha256: None,
+        view_sha256: None,
+        quality_id: None,
     })
 }
 
@@ -2816,6 +2933,28 @@ fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> RuntimeComman
         RuntimeCommand::QueueFollowUp { content } => RuntimeCommand::QueueFollowUp {
             content: redact_command_text(content),
         },
+        RuntimeCommand::StartAgentDag { goal, tasks } => RuntimeCommand::StartAgentDag {
+            goal: redact_command_text(goal),
+            tasks: tasks
+                .iter()
+                .map(|task| AgentDagTaskSpec {
+                    task_id: task.task_id.clone(),
+                    role: task.role,
+                    title: redact_command_text(&task.title),
+                    objective: redact_command_text(&task.objective),
+                    dependencies: task.dependencies.clone(),
+                    workspace: task.workspace.as_ref().map(|_| "[REDACTED]".to_string()),
+                    file_scope: task
+                        .file_scope
+                        .iter()
+                        .map(|_| "[REDACTED]".to_string())
+                        .collect(),
+                    context_bundle_id: task.context_bundle_id.clone(),
+                    required_evidence: task.required_evidence.clone(),
+                    permission_policy: task.permission_policy.clone(),
+                })
+                .collect(),
+        },
         other => other.clone(),
     }
 }
@@ -2829,6 +2968,10 @@ fn redact_command_text(input: &str) -> String {
                 || lower.contains("secret")
                 || lower.contains("token=")
                 || lower.contains("api_key")
+                || word.starts_with('/')
+                || word.contains("/Users/")
+                || word.contains("/tmp/")
+                || word.contains("/var/")
             {
                 "[REDACTED]"
             } else {

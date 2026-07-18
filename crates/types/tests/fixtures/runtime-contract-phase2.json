@@ -85,7 +85,13 @@
               "priority": 100,
               "estimated_tokens": 900,
               "summary": "Runtime command bridge and event projection",
-              "include_reason": "selected by active runtime task"
+              "include_reason": "selected by active runtime task",
+              "handle_id": "ctxh_runtime_1",
+              "item_id": "ctxi_runtime_1",
+              "view_id": "ctxv_runtime_1",
+              "content_sha256": "abababababababababababababababababababababababababababababababab",
+              "view_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+              "quality_id": "ctxq_runtime_1"
             }
           ],
           "omitted_sources": [

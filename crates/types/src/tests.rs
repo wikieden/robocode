@@ -165,6 +165,12 @@ fn agent_task_and_context_records_roundtrip_json() {
             estimated_tokens: 200,
             summary: "tail compacted".to_string(),
             include_reason: "priority 85; selected by v1-priority-budget policy".to_string(),
+            handle_id: Some("ctxh-test".to_string()),
+            item_id: Some("ctxi-test".to_string()),
+            view_id: Some("ctxv-test".to_string()),
+            content_sha256: Some("ab".repeat(32)),
+            view_sha256: Some("cd".repeat(32)),
+            quality_id: Some("ctxq-test".to_string()),
         }],
         omitted_sources: vec![],
         estimated_tokens: 200,
@@ -180,6 +186,21 @@ fn agent_task_and_context_records_roundtrip_json() {
         serde_json::from_str(&encoded).unwrap();
     assert_eq!(decoded_task.agent, "shell");
     assert_eq!(decoded_bundle.sources[0].kind, "test");
+    assert_eq!(
+        decoded_bundle.sources[0].handle_id.as_deref(),
+        Some("ctxh-test")
+    );
+    let legacy_json = serde_json::json!({
+        "name": "legacy",
+        "kind": "text",
+        "priority": 1,
+        "estimated_tokens": 2,
+        "summary": "legacy summary",
+        "include_reason": "legacy reason"
+    });
+    let legacy_source: ContextSourceRecord = serde_json::from_value(legacy_json).unwrap();
+    assert!(legacy_source.handle_id.is_none());
+    assert!(legacy_source.view_id.is_none());
 }
 
 #[test]

@@ -749,6 +749,12 @@ fn context_source(
         estimated_tokens: estimate_tokens(summary).max(minimum_tokens),
         summary: summary.to_string(),
         include_reason: format!("priority {priority}; selected by v1-priority-budget policy"),
+        handle_id: None,
+        item_id: None,
+        view_id: None,
+        content_sha256: None,
+        view_sha256: None,
+        quality_id: None,
     }
 }
 

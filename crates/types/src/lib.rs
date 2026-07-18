@@ -455,6 +455,18 @@ pub struct ContextSourceRecord {
     pub estimated_tokens: u64,
     pub summary: String,
     pub include_reason: String,
+    #[serde(default)]
+    pub handle_id: Option<String>,
+    #[serde(default)]
+    pub item_id: Option<String>,
+    #[serde(default)]
+    pub view_id: Option<String>,
+    #[serde(default)]
+    pub content_sha256: Option<String>,
+    #[serde(default)]
+    pub view_sha256: Option<String>,
+    #[serde(default)]
+    pub quality_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

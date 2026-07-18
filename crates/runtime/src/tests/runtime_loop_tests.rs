@@ -316,6 +316,78 @@ fn provider_turn_retries_request_too_large_with_smaller_context() {
 }
 
 #[test]
+fn provider_turn_retries_context_overflow_once() {
+    let home = temp_dir("retry_context_overflow_home");
+    let cwd = temp_dir("retry_context_overflow_cwd");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RequestTooLargeOnceProvider::with_error(
+        Arc::clone(&requests),
+        "maximum context length exceeded".to_string(),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .process_input_with_approval("trigger context overflow retry", &mut approver)
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EngineEvent::Assistant(text) if text.contains("retried successfully")
+    )));
+    assert_eq!(requests.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn provider_turn_second_context_size_failure_does_not_loop() {
+    let home = temp_dir("retry_second_context_failure_home");
+    let cwd = temp_dir("retry_second_context_failure_cwd");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(AlwaysFailingRecordingProvider {
+        error: "context_length exceeded".to_string(),
+        requests: Arc::clone(&requests),
+    });
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let err = engine
+        .process_input_with_approval("trigger repeated context overflow", &mut approver)
+        .unwrap_err();
+
+    assert!(err.contains("context_length exceeded"));
+    assert_eq!(requests.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn provider_turn_does_not_retry_unrelated_failure() {
+    let home = temp_dir("retry_unrelated_failure_home");
+    let cwd = temp_dir("retry_unrelated_failure_cwd");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(AlwaysFailingRecordingProvider {
+        error: "provider down".to_string(),
+        requests: Arc::clone(&requests),
+    });
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let err = engine
+        .process_input_with_approval("trigger unrelated failure", &mut approver)
+        .unwrap_err();
+
+    assert!(err.contains("provider down"));
+    assert_eq!(requests.lock().unwrap().len(), 1);
+}
+
+#[test]
 fn failed_tool_execution_is_returned_to_provider_without_ending_turn() {
     let home = temp_dir("failed_tool_result_home");
     let cwd = temp_dir("failed_tool_result_cwd");
@@ -801,13 +873,22 @@ impl ModelProvider for FailingProvider {
 struct RequestTooLargeOnceProvider {
     failed_once: bool,
     requests: Arc<Mutex<Vec<ModelRequest>>>,
+    error: String,
 }
 
 impl RequestTooLargeOnceProvider {
     fn new(requests: Arc<Mutex<Vec<ModelRequest>>>) -> Self {
+        Self::with_error(
+            requests,
+            "API error (413): deepseek returned HTTP 413".to_string(),
+        )
+    }
+
+    fn with_error(requests: Arc<Mutex<Vec<ModelRequest>>>, error: String) -> Self {
         Self {
             failed_once: false,
             requests,
+            error,
         }
     }
 }
@@ -827,11 +908,33 @@ impl ModelProvider for RequestTooLargeOnceProvider {
         self.requests.lock().unwrap().push(request.clone());
         if !self.failed_once {
             self.failed_once = true;
-            return Err("API error (413): deepseek returned HTTP 413".to_string());
+            return Err(self.error.clone());
         }
         Ok(vec![ModelEvent::AssistantText {
             content: "retried successfully".to_string(),
         }])
+    }
+}
+
+struct AlwaysFailingRecordingProvider {
+    error: String,
+    requests: Arc<Mutex<Vec<ModelRequest>>>,
+}
+
+impl ModelProvider for AlwaysFailingRecordingProvider {
+    fn provider_name(&self) -> &str {
+        "deepseek"
+    }
+
+    fn model(&self) -> &str {
+        "deepseek-v4-flash"
+    }
+
+    fn set_model(&mut self, _model: String) {}
+
+    fn next_events(&mut self, request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+        self.requests.lock().unwrap().push(request.clone());
+        Err(self.error.clone())
     }
 }
 

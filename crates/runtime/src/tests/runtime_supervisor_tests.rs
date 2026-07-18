@@ -106,6 +106,42 @@ impl ModelProvider for FailingProvider {
     }
 }
 
+struct RecordingProvider {
+    requests: Arc<Mutex<Vec<ModelRequest>>>,
+    errors: Vec<String>,
+}
+
+impl RecordingProvider {
+    fn success(requests: Arc<Mutex<Vec<ModelRequest>>>) -> Self {
+        Self {
+            requests,
+            errors: Vec::new(),
+        }
+    }
+}
+
+impl ModelProvider for RecordingProvider {
+    fn provider_name(&self) -> &str {
+        "recording"
+    }
+
+    fn model(&self) -> &str {
+        "recording-model"
+    }
+
+    fn set_model(&mut self, _model: String) {}
+
+    fn next_events(&mut self, request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+        self.requests.lock().unwrap().push(request.clone());
+        if !self.errors.is_empty() {
+            return Err(self.errors.remove(0));
+        }
+        Ok(vec![ModelEvent::AssistantText {
+            content: "recorded".to_string(),
+        }])
+    }
+}
+
 #[test]
 fn runtime_supervisor_cancels_active_provider_turn_and_keeps_worker_alive() {
     let cwd = temp_dir("runtime_supervisor_cancel_cwd");
@@ -778,6 +814,149 @@ fn runtime_supervisor_builds_role_specific_context_bundle_sources() {
 }
 
 #[test]
+fn agent_task_provider_request_uses_final_role_context_bundle() {
+    let cwd = temp_dir("runtime_supervisor_provider_role_bundle_cwd");
+    let home = temp_dir("runtime_supervisor_provider_role_bundle_home");
+    write_test_file(
+        &cwd.join("crates/runtime/src/runtime_contract.rs"),
+        "pub struct RuntimeContractRoleBundle {}\n",
+    );
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingProvider::success(Arc::clone(&requests)));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_context_budget_for_test(1_000, 8_000);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let _ = engine
+        .handle_runtime_command(
+            "cmd_agent_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Build role bundle".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_plan_provider_bundle".to_string(),
+                    role: AgentRole::Planner,
+                    title: "Plan provider bundle".to_string(),
+                    objective: "Plan with role guidance".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec!["crates/runtime".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["plan".to_string()],
+                    permission_policy: "read_only".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_start_agent",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_plan_provider_bundle".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let provider_manifest = requests[0]
+        .messages
+        .iter()
+        .find(|message| message.content.contains("Viden ContextBundle"))
+        .expect("provider context manifest")
+        .content
+        .clone();
+    assert!(provider_manifest.contains("Bundle: ctx-agent-task_plan_provider_bundle"));
+    assert!(provider_manifest.contains("role-planning-context"));
+    assert!(provider_manifest.contains("handle="));
+    assert!(provider_manifest.contains("view="));
+    assert!(provider_manifest.contains("quality="));
+    assert!(!provider_manifest.contains("Focus on requirements"));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ContextUpdated { context }
+                if context.bundle_id == "ctx-agent-task_plan_provider_bundle"
+                    && context.sources.iter().any(|source| {
+                        source.name == "role-planning-context"
+                            && source.handle_id.is_some()
+                            && source.view_id.is_some()
+                            && source.content_sha256.is_some()
+                            && source.quality_id.is_some()
+                    })
+        )
+    }));
+}
+
+#[test]
+fn agent_task_hard_context_limit_rejects_before_provider_request() {
+    let cwd = temp_dir("runtime_supervisor_agent_hard_budget_cwd");
+    let home = temp_dir("runtime_supervisor_agent_hard_budget_home");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingProvider::success(Arc::clone(&requests)));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_context_budget_for_test(10, 20);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let _ = engine
+        .handle_runtime_command(
+            "cmd_agent_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Reject huge role bundle".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_hard_budget_agent".to_string(),
+                    role: AgentRole::Coder,
+                    title: "Huge role context".to_string(),
+                    objective: "x ".repeat(500),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: Vec::new(),
+                    context_bundle_id: None,
+                    required_evidence: vec!["patch".to_string()],
+                    permission_policy: "ask".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_start_hard_budget_agent",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_hard_budget_agent".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(requests.lock().unwrap().is_empty());
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ContextBudgetExceeded { budget }
+                if budget.exceeded && budget.hard_token_limit == 20
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::Error { error }
+                if error.message.contains("context hard limit")
+                    && error.message.contains("task_hard_budget_agent")
+        )
+    }));
+}
+
+#[test]
 fn runtime_supervisor_selects_role_specific_files_for_agent_context() {
     let cwd = temp_dir("runtime_supervisor_role_file_context_cwd");
     let home = temp_dir("runtime_supervisor_role_file_context_home");
@@ -995,7 +1174,10 @@ fn runtime_supervisor_adds_lsp_diagnostics_to_agent_context_bundle() {
     let context = start_agent_task_and_capture_context(&supervisor, "task_lsp_context");
     let diagnostics = context_source_summary(&context, "role-lsp-diagnostics", "lsp-diagnostics");
     assert!(diagnostics.contains("LSP diagnostics:"));
-    assert!(diagnostics.contains("crates/runtime/src/lib.rs"));
+    assert!(
+        diagnostics.contains("crates/runtime/src/lib.rs"),
+        "diagnostics summary should keep project-relative path, got: {diagnostics}"
+    );
     assert!(diagnostics.contains("fake-lsp/E100"));
     assert!(diagnostics.contains("fake diagnostic"));
 }
