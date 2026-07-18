@@ -10,6 +10,12 @@ const MAX_REFERENCED_SYMBOLS: usize = 64;
 const MAX_REFERENCED_SYMBOL_BYTES: usize = 128;
 const MAX_REFERENCE_SITES_PER_SYMBOL: usize = 4;
 const SYMBOL_CONTEXT_RADIUS: usize = 1;
+const MAX_SELECTED_JSON_PATHS: usize = 64;
+const MAX_SELECTED_JSON_PATH_BYTES: usize = 256;
+const MAX_JSON_PATH_SEGMENTS: usize = 32;
+const MAX_JSON_PRIORITY_CANDIDATES: usize = 256;
+const MAX_COMPACT_JSON_VALUES: usize = 16;
+const MAX_DIFF_HUNK_LINES_LIMIT: usize = 4_096;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineRange {
@@ -24,6 +30,12 @@ pub struct ReductionPolicy {
     pub max_input_bytes: usize,
     pub max_json_depth: usize,
     pub max_json_values: usize,
+    /// Maximum changed/context lines retained independently for each diff hunk.
+    #[serde(default = "default_max_diff_hunk_lines")]
+    pub max_diff_hunk_lines: usize,
+    /// Explicit JSON Pointer (`/a/b`) or dot-path (`a.b`) values to prioritize.
+    #[serde(default)]
+    pub selected_json_paths: Vec<String>,
     /// Required markers are semantic retained marker ids, such as `key:errors`.
     /// Use `literal:<text>` only when the policy intentionally requires exact
     /// output text. Empty markers are invalid policy.
@@ -45,12 +57,18 @@ impl Default for ReductionPolicy {
             max_input_bytes: 2 * 1024 * 1024,
             max_json_depth: 64,
             max_json_values: 20_000,
+            max_diff_hunk_lines: default_max_diff_hunk_lines(),
+            selected_json_paths: Vec::new(),
             required_markers: Vec::new(),
             selected_line_ranges: Vec::new(),
             referenced_symbols: Vec::new(),
             recent_turns: 8,
         }
     }
+}
+
+const fn default_max_diff_hunk_lines() -> usize {
+    64
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,7 +173,17 @@ fn reduce_json(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
             }
             redact_json_value(&mut value, &mut omissions);
             let content = bounded_json_content(&value, policy, &mut omissions);
-            let retained_markers = collect_json_markers_from_content(&content);
+            let mut retained_markers = collect_json_markers_from_content(&content);
+            retained_markers.extend(selected_json_path_markers(&content, policy));
+            let omitted_paths = policy.selected_json_paths.len().saturating_sub(
+                retained_markers
+                    .iter()
+                    .filter(|marker| marker.starts_with("path:"))
+                    .count(),
+            );
+            if omitted_paths > 0 {
+                omissions.push(omission("selected_json_paths_omitted", omitted_paths));
+            }
             let mut view = result(content, retained_markers, false);
             view.omissions = omissions;
             view
@@ -178,7 +206,7 @@ fn bounded_json_content(
     omissions.push(omission("json_values_pruned", count_json_values(value)));
     omissions.push(omission("size_bound", content.len().saturating_sub(limit)));
 
-    if let Some(candidate_content) = pruned_json_content(value, limit) {
+    if let Some(candidate_content) = pruned_json_content(value, policy, limit, omissions) {
         return candidate_content;
     }
 
@@ -190,41 +218,250 @@ fn bounded_json_content(
     "null".to_string()
 }
 
-fn pruned_json_content(value: &serde_json::Value, limit: usize) -> Option<String> {
+fn pruned_json_content(
+    value: &serde_json::Value,
+    policy: &ReductionPolicy,
+    limit: usize,
+    omissions: &mut Vec<ReductionOmission>,
+) -> Option<String> {
+    let mut candidates = json_priority_candidates(value, policy);
+    candidates.sort_by(|left, right| {
+        left.priority
+            .cmp(&right.priority)
+            .then_with(|| left.sort_key.cmp(&right.sort_key))
+    });
+
+    let mut output = match value {
+        serde_json::Value::Object(_) => serde_json::Value::Object(serde_json::Map::new()),
+        serde_json::Value::Array(_) => serde_json::Value::Array(Vec::new()),
+        _ => compact_json_value(value),
+    };
+    let mut retained = 0;
+    let mut skipped = 0;
+    for candidate in candidates {
+        let mut next = output.clone();
+        if !insert_json_path(&mut next, &candidate.path, candidate.value) {
+            skipped += 1;
+            continue;
+        }
+        let serialized = serde_json::to_string(&next).expect("serializing pruned JSON");
+        if serialized.len() <= limit {
+            output = next;
+            retained += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+    if skipped > 0 {
+        omissions.push(omission("json_priority_values_omitted", skipped));
+    }
+    if retained == 0 {
+        return None;
+    }
+    Some(serde_json::to_string(&output).expect("serializing pruned JSON"))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum JsonPathSegment {
+    Key(String),
+    Index(usize),
+}
+
+struct JsonCandidate {
+    priority: u8,
+    sort_key: String,
+    path: Vec<JsonPathSegment>,
+    value: serde_json::Value,
+}
+
+fn json_priority_candidates(
+    value: &serde_json::Value,
+    policy: &ReductionPolicy,
+) -> Vec<JsonCandidate> {
+    let mut candidates = Vec::new();
+    for path in &policy.selected_json_paths {
+        let segments = parse_json_path(path).expect("validated selected JSON path");
+        if let Some(selected) = json_value_at_segments(value, &segments) {
+            candidates.push(JsonCandidate {
+                priority: 0,
+                sort_key: path.clone(),
+                path: segments,
+                value: compact_json_value(selected),
+            });
+        }
+    }
+    collect_semantic_json_candidates(value, &mut Vec::new(), &mut candidates);
+    candidates.truncate(MAX_JSON_PRIORITY_CANDIDATES);
+    candidates
+}
+
+fn collect_semantic_json_candidates(
+    value: &serde_json::Value,
+    path: &mut Vec<JsonPathSegment>,
+    candidates: &mut Vec<JsonCandidate>,
+) {
+    if candidates.len() >= MAX_JSON_PRIORITY_CANDIDATES {
+        return;
+    }
     match value {
         serde_json::Value::Object(map) => {
-            if "{}".len() > limit {
-                return None;
-            }
-            let mut lines = Vec::new();
-            for (key, _) in map {
-                if is_secret_label(key) {
-                    continue;
+            for (key, child) in map {
+                path.push(JsonPathSegment::Key(key.clone()));
+                if let Some(priority) = json_semantic_priority(key) {
+                    candidates.push(JsonCandidate {
+                        priority,
+                        sort_key: json_path_sort_key(path),
+                        path: path.clone(),
+                        value: compact_json_value(child),
+                    });
                 }
-                let encoded_key = serde_json::to_string(key).expect("serializing JSON key");
-                let next_line = format!("  {encoded_key}: null");
-                let mut candidate_lines = lines.clone();
-                candidate_lines.push(next_line);
-                let candidate = format!("{{\n{}\n}}", candidate_lines.join(",\n"));
-                if candidate.len() <= limit {
-                    lines = candidate_lines;
+                collect_semantic_json_candidates(child, path, candidates);
+                path.pop();
+                if candidates.len() >= MAX_JSON_PRIORITY_CANDIDATES {
+                    break;
                 }
-            }
-            if lines.is_empty() {
-                None
-            } else {
-                Some(format!("{{\n{}\n}}", lines.join(",\n")))
             }
         }
         serde_json::Value::Array(values) => {
-            if values.is_empty() || "[\n  null\n]".len() > limit {
-                ("[]".len() <= limit).then(|| "[]".to_string())
-            } else {
-                Some("[\n  null\n]".to_string())
+            for (index, child) in values.iter().enumerate() {
+                path.push(JsonPathSegment::Index(index));
+                collect_semantic_json_candidates(child, path, candidates);
+                path.pop();
+                if candidates.len() >= MAX_JSON_PRIORITY_CANDIDATES {
+                    break;
+                }
             }
         }
-        _ => ("0".len() <= limit).then(|| "0".to_string()),
+        _ => {}
     }
+}
+
+fn json_semantic_priority(key: &str) -> Option<u8> {
+    let lower = key.to_ascii_lowercase();
+    if lower == "error"
+        || lower == "errors"
+        || lower.ends_with("_error")
+        || lower.ends_with("_errors")
+    {
+        Some(1)
+    } else if lower == "id" || lower == "identifier" || lower.ends_with("_id") {
+        Some(2)
+    } else if matches!(lower.as_str(), "count" | "total" | "size")
+        || lower.ends_with("_count")
+        || lower.ends_with("_total")
+        || lower.ends_with("_size")
+    {
+        Some(3)
+    } else {
+        None
+    }
+}
+
+fn compact_json_value(value: &serde_json::Value) -> serde_json::Value {
+    let mut remaining = MAX_COMPACT_JSON_VALUES;
+    compact_json_value_with_budget(value, &mut remaining)
+}
+
+fn compact_json_value_with_budget(
+    value: &serde_json::Value,
+    remaining: &mut usize,
+) -> serde_json::Value {
+    if *remaining == 0 {
+        return match value {
+            serde_json::Value::Array(_) => serde_json::Value::Array(Vec::new()),
+            serde_json::Value::Object(_) => serde_json::Value::Object(serde_json::Map::new()),
+            _ => value.clone(),
+        };
+    }
+    *remaining -= 1;
+    match value {
+        serde_json::Value::Array(values) => {
+            let mut compact = Vec::new();
+            for child in values {
+                if *remaining == 0 {
+                    break;
+                }
+                compact.push(compact_json_value_with_budget(child, remaining));
+            }
+            serde_json::Value::Array(compact)
+        }
+        serde_json::Value::Object(map) => {
+            let mut compact = serde_json::Map::new();
+            for (key, child) in map {
+                if *remaining == 0 {
+                    break;
+                }
+                compact.insert(
+                    key.clone(),
+                    compact_json_value_with_budget(child, remaining),
+                );
+            }
+            serde_json::Value::Object(compact)
+        }
+        _ => value.clone(),
+    }
+}
+
+fn insert_json_path(
+    current: &mut serde_json::Value,
+    path: &[JsonPathSegment],
+    value: serde_json::Value,
+) -> bool {
+    let Some((segment, rest)) = path.split_first() else {
+        *current = value;
+        return true;
+    };
+    match segment {
+        JsonPathSegment::Key(key) => {
+            let serde_json::Value::Object(map) = current else {
+                return false;
+            };
+            if rest.is_empty() {
+                map.insert(key.clone(), value);
+                return true;
+            }
+            let child = map
+                .entry(key.clone())
+                .or_insert_with(|| empty_json_container(&rest[0]));
+            insert_json_path(child, rest, value)
+        }
+        JsonPathSegment::Index(index) => {
+            let serde_json::Value::Array(values) = current else {
+                return false;
+            };
+            while values.len() <= *index {
+                values.push(json_omission_sentinel());
+            }
+            if rest.is_empty() {
+                values[*index] = value;
+                return true;
+            }
+            if values[*index].get("$omitted").is_some() {
+                values[*index] = empty_json_container(&rest[0]);
+            }
+            insert_json_path(&mut values[*index], rest, value)
+        }
+    }
+}
+
+fn empty_json_container(segment: &JsonPathSegment) -> serde_json::Value {
+    match segment {
+        JsonPathSegment::Key(_) => serde_json::Value::Object(serde_json::Map::new()),
+        JsonPathSegment::Index(_) => serde_json::Value::Array(Vec::new()),
+    }
+}
+
+fn json_omission_sentinel() -> serde_json::Value {
+    serde_json::json!({"$omitted": true})
+}
+
+fn json_path_sort_key(path: &[JsonPathSegment]) -> String {
+    path.iter()
+        .map(|segment| match segment {
+            JsonPathSegment::Key(key) => format!("/{key}"),
+            JsonPathSegment::Index(index) => format!("/{index:020}"),
+        })
+        .collect()
 }
 
 fn count_json_values(value: &serde_json::Value) -> usize {
@@ -261,6 +498,78 @@ fn collect_json_markers_from_content(content: &str) -> Vec<String> {
         }
         Err(_) => Vec::new(),
     }
+}
+
+fn selected_json_path_markers(content: &str, policy: &ReductionPolicy) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(content) else {
+        return Vec::new();
+    };
+    policy
+        .selected_json_paths
+        .iter()
+        .filter(|path| {
+            parse_json_path(path)
+                .as_ref()
+                .is_some_and(|segments| json_value_at_segments(&value, segments).is_some())
+        })
+        .map(|path| format!("path:{path}"))
+        .collect()
+}
+
+fn parse_json_path(path: &str) -> Option<Vec<JsonPathSegment>> {
+    if path.starts_with('/') {
+        let mut segments = Vec::new();
+        for encoded in path.split('/').skip(1) {
+            let mut decoded = String::new();
+            let mut characters = encoded.chars();
+            while let Some(character) = characters.next() {
+                if character == '~' {
+                    match characters.next()? {
+                        '0' => decoded.push('~'),
+                        '1' => decoded.push('/'),
+                        _ => return None,
+                    }
+                } else {
+                    decoded.push(character);
+                }
+            }
+            segments.push(json_path_segment(decoded));
+        }
+        Some(segments)
+    } else {
+        path.split('.')
+            .map(|segment| {
+                if segment.is_empty()
+                    || !segment.chars().all(|character| {
+                        character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+                    })
+                {
+                    None
+                } else {
+                    Some(json_path_segment(segment.to_string()))
+                }
+            })
+            .collect()
+    }
+}
+
+fn json_path_segment(segment: String) -> JsonPathSegment {
+    segment
+        .parse::<usize>()
+        .map_or(JsonPathSegment::Key(segment), JsonPathSegment::Index)
+}
+
+fn json_value_at_segments<'a>(
+    mut value: &'a serde_json::Value,
+    segments: &[JsonPathSegment],
+) -> Option<&'a serde_json::Value> {
+    for segment in segments {
+        value = match segment {
+            JsonPathSegment::Key(key) => value.get(key)?,
+            JsonPathSegment::Index(index) => value.get(*index)?,
+        };
+    }
+    Some(value)
 }
 
 fn json_limit_reason(value: &serde_json::Value, policy: &ReductionPolicy) -> Option<&'static str> {
@@ -617,34 +926,47 @@ fn next_declaration_marker(lines: &[&str], start: usize) -> Option<String> {
     None
 }
 
-fn reduce_diff(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
+fn reduce_diff(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
     let text = String::from_utf8_lossy(input);
     let mut lines = Vec::new();
     let mut omitted = 0;
+    let mut omitted_hunk_lines = 0;
     let mut retained_markers = Vec::new();
+    let mut in_hunk = false;
+    let mut retained_hunk_lines = 0;
 
     for line in text.lines() {
         if line.starts_with("diff --git ") {
             lines.push(line.to_string());
             retained_markers.push("diff_file".to_string());
+            in_hunk = false;
         } else if let Some(marker) = diff_metadata_marker(line) {
             lines.push(line.to_string());
             retained_markers.push(marker.to_string());
-        } else if line.starts_with("index ")
-            || line.starts_with("--- ")
-            || line.starts_with("+++ ")
-            || line.starts_with("@@ ")
+        } else if line.starts_with("index ") || line.starts_with("--- ") || line.starts_with("+++ ")
         {
             lines.push(line.to_string());
-            if line.starts_with("@@ ") {
-                retained_markers.push("diff_hunk".to_string());
-            }
-        } else if is_changed_diff_line(line) {
+        } else if line.starts_with("@@ ") {
             lines.push(line.to_string());
-            retained_markers.push("changed_line".to_string());
-            if line.contains("unsafe") || line.contains("TODO") {
-                retained_markers.push("risky_change".to_string());
+            retained_markers.push("diff_hunk".to_string());
+            in_hunk = true;
+            retained_hunk_lines = 0;
+        } else if in_hunk && is_diff_hunk_body_line(line) {
+            if retained_hunk_lines < policy.max_diff_hunk_lines {
+                lines.push(line.to_string());
+                if is_changed_diff_line(line) {
+                    retained_markers.push("changed_line".to_string());
+                    if line.contains("unsafe") || line.contains("TODO") {
+                        retained_markers.push("risky_change".to_string());
+                    }
+                    if let Some(symbol) = changed_diff_symbol(line) {
+                        retained_markers.push(format!("symbol:{symbol}"));
+                    }
+                }
+            } else {
+                omitted_hunk_lines += 1;
             }
+            retained_hunk_lines += 1;
         } else if !line.trim().is_empty() {
             omitted += 1;
         }
@@ -654,6 +976,10 @@ fn reduce_diff(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
     if omitted > 0 {
         view.omissions
             .push(omission("diff_context_omitted", omitted));
+    }
+    if omitted_hunk_lines > 0 {
+        view.omissions
+            .push(omission("diff_hunk_lines_omitted", omitted_hunk_lines));
     }
     view
 }
@@ -680,6 +1006,37 @@ fn diff_metadata_marker(line: &str) -> Option<&'static str> {
 fn is_changed_diff_line(line: &str) -> bool {
     (line.starts_with('+') && !line.starts_with("+++ "))
         || (line.starts_with('-') && !line.starts_with("--- "))
+}
+
+fn is_diff_hunk_body_line(line: &str) -> bool {
+    line.starts_with(' ')
+        || is_changed_diff_line(line)
+        || line.starts_with("\\ No newline at end of file")
+}
+
+fn changed_diff_symbol(line: &str) -> Option<&str> {
+    if !is_changed_diff_line(line) {
+        return None;
+    }
+    let source = line[1..].trim_start();
+    let identifiers = source
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .filter(|identifier| !identifier.is_empty())
+        .collect::<Vec<_>>();
+    for (index, identifier) in identifiers.iter().enumerate() {
+        if matches!(
+            *identifier,
+            "fn" | "def" | "function" | "class" | "struct" | "enum" | "trait"
+        ) {
+            return identifiers.get(index + 1).copied();
+        }
+        if matches!(*identifier, "const" | "let" | "var")
+            && (source.contains("=>") || source.contains("function"))
+        {
+            return identifiers.get(index + 1).copied();
+        }
+    }
+    None
 }
 
 fn reduce_log(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
@@ -729,8 +1086,10 @@ fn reduce_log(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
     for (index, line) in all_lines.iter().enumerate().skip(tail_start) {
         if !kept_values.contains(line) {
             kept_indices.insert(index);
-            retained_markers.push("tail".to_string());
         }
+    }
+    if let Some(last_line) = all_lines.last() {
+        retained_markers.push(evidence_line_marker("tail", last_line));
     }
 
     let lines = all_lines
@@ -855,7 +1214,12 @@ fn reduce_text(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
         .skip(all_lines.len().saturating_sub(recent_count))
     {
         push_unique(&mut lines, &mut seen, (*line).to_string());
-        retained_markers.push("recent_turn".to_string());
+    }
+    if recent_count > 0 {
+        retained_markers.push(evidence_line_marker(
+            "recent_turn",
+            all_lines[all_lines.len() - 1],
+        ));
     }
 
     let mut view = result(lines.join("\n"), retained_markers, false);
@@ -971,6 +1335,25 @@ fn validate_policy(policy: &ReductionPolicy) -> Result<(), crate::ContextError> 
             reason: "must be at least 1",
         });
     }
+    if policy.max_diff_hunk_lines == 0 || policy.max_diff_hunk_lines > MAX_DIFF_HUNK_LINES_LIMIT {
+        return Err(crate::ContextError::InvalidReductionPolicy {
+            field: "max_diff_hunk_lines",
+            reason: "must be between 1 and 4096",
+        });
+    }
+    if policy.selected_json_paths.len() > MAX_SELECTED_JSON_PATHS
+        || policy.selected_json_paths.iter().any(|path| {
+            path.is_empty()
+                || path.len() > MAX_SELECTED_JSON_PATH_BYTES
+                || parse_json_path(path)
+                    .is_none_or(|segments| segments.len() > MAX_JSON_PATH_SEGMENTS)
+        })
+    {
+        return Err(crate::ContextError::InvalidReductionPolicy {
+            field: "selected_json_paths",
+            reason: "entries must be bounded JSON pointers or dot paths",
+        });
+    }
     if policy
         .required_markers
         .iter()
@@ -1047,15 +1430,46 @@ fn final_retained_markers(kind: ContextContentKind, view: &ReductionResult) -> V
     if view.fallback_raw {
         return Vec::new();
     }
-    match kind {
-        ContextContentKind::Json => collect_json_markers_from_content(&view.content),
+    let mut markers = match kind {
+        ContextContentKind::Json => {
+            let mut markers = collect_json_markers_from_content(&view.content);
+            markers.extend(
+                view.retained_markers
+                    .iter()
+                    .filter(|marker| marker.starts_with("path:"))
+                    .filter(|marker| {
+                        marker.strip_prefix("path:").is_some_and(|path| {
+                            let Ok(value) =
+                                serde_json::from_str::<serde_json::Value>(&view.content)
+                            else {
+                                return false;
+                            };
+                            parse_json_path(path).as_ref().is_some_and(|segments| {
+                                json_value_at_segments(&value, segments).is_some()
+                            })
+                        })
+                    })
+                    .cloned(),
+            );
+            markers
+        }
         _ => view
             .retained_markers
             .iter()
             .filter(|marker| final_marker_supported(marker, &view.content))
             .cloned()
-            .collect(),
+            .collect::<Vec<_>>(),
+    };
+    if markers.iter().any(|marker| marker.starts_with("tail:")) {
+        markers.push("tail".to_string());
     }
+    if markers
+        .iter()
+        .any(|marker| marker.starts_with("recent_turn:"))
+    {
+        markers.push("recent_turn".to_string());
+    }
+    markers
 }
 
 fn final_marker_supported(marker: &str, content: &str) -> bool {
@@ -1064,7 +1478,7 @@ fn final_marker_supported(marker: &str, content: &str) -> bool {
         "command" => content.lines().any(is_log_command_line),
         "exit_status" => content.lines().any(is_log_exit_status),
         "failing_location" => content.lines().any(has_failing_location),
-        "tail" => !content.is_empty(),
+        marker if marker.starts_with("tail:") => evidence_line_marker_supported(marker, content),
         "constraint" => {
             content.to_ascii_lowercase().contains("constraint")
                 || content.to_ascii_lowercase().contains("must ")
@@ -1079,7 +1493,9 @@ fn final_marker_supported(marker: &str, content: &str) -> bool {
                 || content.to_ascii_lowercase().contains("question")
                 || content.contains('?')
         }
-        "recent_turn" => !content.is_empty(),
+        marker if marker.starts_with("recent_turn:") => {
+            evidence_line_marker_supported(marker, content)
+        }
         "import_or_module" => content.lines().any(|line| {
             let trimmed = line.trim_start();
             trimmed.starts_with("use ")
@@ -1106,6 +1522,22 @@ fn final_marker_supported(marker: &str, content: &str) -> bool {
     }
 }
 
+fn evidence_line_marker(prefix: &str, line: &str) -> String {
+    let normalized = redact_line(line).trim().to_string();
+    let mut hasher = Sha256::new();
+    hasher.update(normalized.as_bytes());
+    format!("{prefix}:{}", hex_prefix(&hasher.finalize(), 16))
+}
+
+fn evidence_line_marker_supported(marker: &str, content: &str) -> bool {
+    let Some((prefix, _)) = marker.split_once(':') else {
+        return false;
+    };
+    content
+        .lines()
+        .any(|line| evidence_line_marker(prefix, line) == marker)
+}
+
 fn final_symbol_supported(content: &str, symbol: &str) -> bool {
     content.lines().any(|line| {
         let trimmed = line.trim_start();
@@ -1117,7 +1549,9 @@ fn final_symbol_supported(content: &str, symbol: &str) -> bool {
                     && number.chars().all(|character| character.is_ascii_digit())
                     && contains_identifier(source, symbol)
             });
-        labeled_reference || declaration_header_declares_symbol(trimmed, symbol)
+        labeled_reference
+            || declaration_header_declares_symbol(trimmed, symbol)
+            || changed_diff_symbol(trimmed).is_some_and(|retained| retained == symbol)
     })
 }
 
@@ -1262,6 +1696,8 @@ mod tests {
             max_input_bytes: 2 * 1024 * 1024,
             max_json_depth: 64,
             max_json_values: 20_000,
+            max_diff_hunk_lines: default_max_diff_hunk_lines(),
+            selected_json_paths: Vec::new(),
             required_markers: Vec::new(),
             selected_line_ranges: Vec::new(),
             referenced_symbols: Vec::new(),
@@ -1279,7 +1715,10 @@ mod tests {
         assert_eq!(view.content, again.content);
         assert_eq!(view.reducer_id, "viden-context-native");
         assert_eq!(view.reducer_version, "native-v1");
-        assert!(view.content.starts_with("{\n  \"a\":"));
+        let parsed = serde_json::from_str::<serde_json::Value>(&view.content).unwrap();
+        assert_eq!(parsed["errors"][0]["message"], "boom");
+        assert_eq!(parsed["id"], "ctx-1");
+        assert!(parsed.get("a").is_none());
         assert!(view.content.len() <= 96);
         assert!(
             view.omissions
@@ -1293,6 +1732,132 @@ mod tests {
         );
         assert!(view.quality.passed);
         assert!(!view.fallback_raw);
+    }
+
+    #[test]
+    fn json_reducer_preserves_semantic_and_selected_values_before_noise() {
+        let input = br#"{
+            "noise":{"blob":"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz","items":[1,2,3,4,5]},
+            "errors":[{"code":"E1","message":"boom"}],
+            "request_id":"req-7",
+            "count":3,
+            "total":9,
+            "size":42,
+            "profile":{"name":"Ada","password":"raw-secret","bio":"long unneeded biography"},
+            "settings":{"mode":"strict","retries":2},
+            "meta":{"trace":"trace-9","noise":"discard me"}
+        }"#;
+        let policy = ReductionPolicy {
+            max_output_bytes: 280,
+            selected_json_paths: vec![
+                "/profile/name".to_string(),
+                "settings".to_string(),
+                "meta.trace".to_string(),
+            ],
+            ..ReductionPolicy::default()
+        };
+
+        let view = reduce(ContextContentKind::Json, input, &policy).unwrap();
+        let again = reduce(ContextContentKind::Json, input, &policy).unwrap();
+        let parsed = serde_json::from_str::<serde_json::Value>(&view.content).unwrap();
+
+        assert_eq!(
+            view.content,
+            r#"{"count":3,"errors":[{"code":"E1","message":"boom"}],"meta":{"trace":"trace-9"},"profile":{"name":"Ada"},"request_id":"req-7","settings":{"mode":"strict","retries":2},"size":42,"total":9}"#
+        );
+        assert_eq!(parsed["errors"][0]["message"], "boom");
+        assert_eq!(parsed["request_id"], "req-7");
+        assert_eq!(parsed["count"], 3);
+        assert_eq!(parsed["total"], 9);
+        assert_eq!(parsed["size"], 42);
+        assert_eq!(parsed["profile"]["name"], "Ada");
+        assert_eq!(parsed["settings"]["mode"], "strict");
+        assert_eq!(parsed["settings"]["retries"], 2);
+        assert_eq!(parsed["meta"]["trace"], "trace-9");
+        assert!(parsed.get("noise").is_none());
+        assert!(parsed["profile"].get("bio").is_none());
+        assert!(view.content.len() <= 280);
+        assert_eq!(
+            view.retained_markers,
+            vec![
+                "key:code",
+                "key:count",
+                "key:errors",
+                "key:message",
+                "key:meta",
+                "key:mode",
+                "key:name",
+                "key:profile",
+                "key:request_id",
+                "key:retries",
+                "key:settings",
+                "key:size",
+                "key:total",
+                "key:trace",
+                "path:/profile/name",
+                "path:meta.trace",
+                "path:settings",
+            ]
+        );
+        let serialized = serde_json::to_string(&view).unwrap();
+        assert_eq!(serialized, serde_json::to_string(&again).unwrap());
+        assert!(!serialized.contains("raw-secret"));
+    }
+
+    #[test]
+    fn selected_json_credentials_are_redacted_and_required_paths_use_final_output() {
+        let input = br#"{"profile":{"api_key":"raw-secret","name":"Ada"},"noise":"abcdefghijklmnopqrstuvwxyz"}"#;
+        let policy = ReductionPolicy {
+            max_output_bytes: 96,
+            selected_json_paths: vec!["/profile/api_key".to_string()],
+            ..ReductionPolicy::default()
+        };
+        let view = reduce(ContextContentKind::Json, input, &policy).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&view.content).unwrap()["profile"]["api_key"],
+            "[REDACTED]"
+        );
+        assert!(
+            view.retained_markers
+                .iter()
+                .any(|marker| marker == "path:/profile/api_key")
+        );
+
+        let tight = ReductionPolicy {
+            max_output_bytes: 8,
+            selected_json_paths: vec!["/profile/name".to_string()],
+            required_markers: vec!["path:/profile/name".to_string()],
+            ..ReductionPolicy::default()
+        };
+        assert!(matches!(
+            reduce(ContextContentKind::Json, input, &tight),
+            Err(crate::ContextError::QualityFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn selected_json_paths_are_bounded_and_validated() {
+        let invalid_paths = [
+            vec![String::new()],
+            vec!["/bad/~2escape".to_string()],
+            vec!["bad..path".to_string()],
+            vec!["x".repeat(257)],
+            vec!["field".to_string(); 65],
+        ];
+
+        for selected_json_paths in invalid_paths {
+            let policy = ReductionPolicy {
+                selected_json_paths,
+                ..ReductionPolicy::default()
+            };
+            assert!(matches!(
+                reduce(ContextContentKind::Json, br#"{"field":1}"#, &policy),
+                Err(crate::ContextError::InvalidReductionPolicy {
+                    field: "selected_json_paths",
+                    ..
+                })
+            ));
+        }
     }
 
     #[test]
@@ -1397,6 +1962,74 @@ mod tests {
             serde_json::to_string(&view).unwrap(),
             serde_json::to_string(&again).unwrap()
         );
+    }
+
+    #[test]
+    fn diff_reducer_bounds_each_hunk_and_marks_changed_symbols() {
+        let input = b"diff --git a/src/lib.rs b/src/lib.rs\nnew file mode 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,4 +1,4 @@\n-pub fn old() {}\n+pub fn new() {}\n+// TODO unsafe migration\n context omitted\n@@ -10,4 +10,4 @@\n class Context {}\n-class Old {}\n+class New {}\n context omitted\n";
+        let policy = ReductionPolicy {
+            max_diff_hunk_lines: 3,
+            ..ReductionPolicy::default()
+        };
+
+        let view = reduce(ContextContentKind::Diff, input, &policy).unwrap();
+        let again = reduce(ContextContentKind::Diff, input, &policy).unwrap();
+
+        assert_eq!(
+            view.content,
+            "diff --git a/src/lib.rs b/src/lib.rs\n\
+             new file mode 100644\n\
+             --- a/src/lib.rs\n\
+             +++ b/src/lib.rs\n\
+             @@ -1,4 +1,4 @@\n\
+             -pub fn old() {}\n\
+             +pub fn new() {}\n\
+             +// TODO unsafe migration\n\
+             @@ -10,4 +10,4 @@\n\
+             \x20class Context {}\n\
+             -class Old {}\n\
+             +class New {}"
+        );
+        assert_eq!(
+            view.retained_markers,
+            vec![
+                "changed_line",
+                "diff:new_file_mode",
+                "diff_file",
+                "diff_hunk",
+                "risky_change",
+                "symbol:New",
+                "symbol:Old",
+                "symbol:new",
+                "symbol:old",
+            ]
+        );
+        assert_eq!(view.omissions, vec![omission("diff_hunk_lines_omitted", 2)]);
+        assert_eq!(
+            serde_json::to_string(&view).unwrap(),
+            serde_json::to_string(&again).unwrap()
+        );
+    }
+
+    #[test]
+    fn diff_hunk_limit_is_validated() {
+        for max_diff_hunk_lines in [0, 4_097] {
+            let policy = ReductionPolicy {
+                max_diff_hunk_lines,
+                ..ReductionPolicy::default()
+            };
+            assert!(matches!(
+                reduce(
+                    ContextContentKind::Diff,
+                    b"@@ -1 +1 @@\n-old\n+new",
+                    &policy
+                ),
+                Err(crate::ContextError::InvalidReductionPolicy {
+                    field: "max_diff_hunk_lines",
+                    ..
+                })
+            ));
+        }
     }
 
     #[test]
@@ -1742,31 +2375,31 @@ mod tests {
                 ContextContentKind::Diff,
                 b"diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n unchanged\n",
                 ReductionPolicy::default(),
-                r#"{"content":"diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new","original":{"byte_count":98,"token_count":25},"reduced":{"byte_count":86,"token_count":22},"omissions":[{"reason":"diff_context_omitted","omitted_count":1}],"retained_markers":["changed_line","diff_file","diff_hunk"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_d36fa53297fb7676","target_id":"viden-context-native:native-v1:Diff","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n unchanged","original":{"byte_count":98,"token_count":25},"reduced":{"byte_count":97,"token_count":25},"omissions":[],"retained_markers":["changed_line","diff_file","diff_hunk"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_c30ff7bf279ca5ec","target_id":"viden-context-native:native-v1:Diff","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
                 ContextContentKind::Log,
                 b"running tests\nERROR src/a.rs:1 boom\nERROR src/a.rs:1 boom\nwarning\nfinal tail\n",
                 ReductionPolicy::default(),
-                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["failing_location","first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_a242b2a84535c876","target_id":"viden-context-native:native-v1:Log","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["failing_location","first_failure","tail","tail:35cf3d46823685e9"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_a242b2a84535c876","target_id":"viden-context-native:native-v1:Log","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
                 ContextContentKind::Diagnostic,
                 b"running tests\nERROR src/a.rs:1 boom\nERROR src/a.rs:1 boom\nwarning\nfinal tail\n",
                 ReductionPolicy::default(),
-                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["failing_location","first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_78dfd578c8672422","target_id":"viden-context-native:native-v1:Diagnostic","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["failing_location","first_failure","tail","tail:35cf3d46823685e9"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_78dfd578c8672422","target_id":"viden-context-native:native-v1:Diagnostic","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
                 ContextContentKind::Transcript,
                 b"User: constraint: keep scope\nAssistant: old\nUser: decision: native\nUser: unresolved question: retry?\nAssistant: recent\n",
                 ReductionPolicy::default(),
-                r#"{"content":"User: constraint: keep scope\nUser: decision: native\nUser: unresolved question: retry?\nAssistant: old\nAssistant: recent","original":{"byte_count":119,"token_count":30},"reduced":{"byte_count":118,"token_count":30},"omissions":[],"retained_markers":["constraint","decision","question","recent_turn"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_1931e50bf52c15ee","target_id":"viden-context-native:native-v1:Transcript","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"User: constraint: keep scope\nUser: decision: native\nUser: unresolved question: retry?\nAssistant: old\nAssistant: recent","original":{"byte_count":119,"token_count":30},"reduced":{"byte_count":118,"token_count":30},"omissions":[],"retained_markers":["constraint","decision","question","recent_turn","recent_turn:6fee5befdca71649"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_1931e50bf52c15ee","target_id":"viden-context-native:native-v1:Transcript","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
                 ContextContentKind::Text,
                 b"constraint: keep scope\ndecision: native\nunresolved question: retry?\nplain old\nplain recent\n",
                 ReductionPolicy::default(),
-                r#"{"content":"constraint: keep scope\ndecision: native\nunresolved question: retry?\nplain old\nplain recent","original":{"byte_count":91,"token_count":23},"reduced":{"byte_count":90,"token_count":23},"omissions":[],"retained_markers":["constraint","decision","question","recent_turn"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_6664ad4544b62071","target_id":"viden-context-native:native-v1:Text","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"constraint: keep scope\ndecision: native\nunresolved question: retry?\nplain old\nplain recent","original":{"byte_count":91,"token_count":23},"reduced":{"byte_count":90,"token_count":23},"omissions":[],"retained_markers":["constraint","decision","question","recent_turn","recent_turn:01ab832cb9769a9b"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_6664ad4544b62071","target_id":"viden-context-native:native-v1:Text","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
         ];
 
@@ -2073,6 +2706,7 @@ mod tests {
                     "failing_location",
                     "first_failure",
                     "tail",
+                    "tail:1a8c37b26b0d1f12",
                     "unique_error",
                 ]
             );
@@ -2107,7 +2741,7 @@ mod tests {
         );
         assert_eq!(
             view.retained_markers,
-            vec!["command", "exit_status", "tail"]
+            vec!["command", "exit_status", "tail", "tail:3547cb112ac4489a"]
         );
         assert_eq!(
             view.omissions,
@@ -2122,7 +2756,7 @@ mod tests {
 
         assert_eq!(
             view.retained_markers,
-            vec!["command", "first_failure", "tail"]
+            vec!["command", "first_failure", "tail", "tail:361e48d0308f20e3"]
         );
 
         let tight = ReductionPolicy {
@@ -2132,6 +2766,93 @@ mod tests {
         };
         assert!(matches!(
             reduce(ContextContentKind::Log, input, &tight),
+            Err(crate::ContextError::QualityFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn tail_marker_tracks_the_intended_final_log_line_after_bounding() {
+        let input = b"ERROR first failure that remains\nmiddle\nACTUAL FINAL LINE\n";
+        let full = reduce(ContextContentKind::Log, input, &ReductionPolicy::default()).unwrap();
+        assert!(full.retained_markers.iter().any(|marker| marker == "tail"));
+        assert!(
+            full.retained_markers
+                .iter()
+                .any(|marker| marker.starts_with("tail:"))
+        );
+
+        let bounded_policy = ReductionPolicy {
+            max_output_bytes: 24,
+            ..ReductionPolicy::default()
+        };
+        let bounded = reduce(ContextContentKind::Log, input, &bounded_policy).unwrap();
+        assert!(
+            !bounded
+                .retained_markers
+                .iter()
+                .any(|marker| marker == "tail")
+        );
+        assert!(
+            !bounded
+                .retained_markers
+                .iter()
+                .any(|marker| marker.starts_with("tail:"))
+        );
+
+        let required_policy = ReductionPolicy {
+            required_markers: vec!["tail".to_string()],
+            ..bounded_policy
+        };
+        assert!(matches!(
+            reduce(ContextContentKind::Log, input, &required_policy),
+            Err(crate::ContextError::QualityFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn recent_turn_marker_tracks_the_intended_final_turn_after_bounding() {
+        let input = b"constraint: preserve scope\nAssistant: older\nUser: ACTUAL RECENT TURN\n";
+        let full = reduce(
+            ContextContentKind::Transcript,
+            input,
+            &ReductionPolicy::default(),
+        )
+        .unwrap();
+        assert!(
+            full.retained_markers
+                .iter()
+                .any(|marker| marker == "recent_turn")
+        );
+        assert!(
+            full.retained_markers
+                .iter()
+                .any(|marker| marker.starts_with("recent_turn:"))
+        );
+
+        let bounded_policy = ReductionPolicy {
+            max_output_bytes: 28,
+            ..ReductionPolicy::default()
+        };
+        let bounded = reduce(ContextContentKind::Transcript, input, &bounded_policy).unwrap();
+        assert!(
+            !bounded
+                .retained_markers
+                .iter()
+                .any(|marker| marker == "recent_turn")
+        );
+        assert!(
+            !bounded
+                .retained_markers
+                .iter()
+                .any(|marker| marker.starts_with("recent_turn:"))
+        );
+
+        let required_policy = ReductionPolicy {
+            required_markers: vec!["recent_turn".to_string()],
+            ..bounded_policy
+        };
+        assert!(matches!(
+            reduce(ContextContentKind::Transcript, input, &required_policy),
             Err(crate::ContextError::QualityFailed { .. })
         ));
     }
