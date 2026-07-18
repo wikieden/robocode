@@ -773,6 +773,16 @@ fn retrieve_context_returns_safe_bytes_and_event_metadata() {
                     && !retrieval.reason.contains("sk-test-secret")
         )
     }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CostUsageRecorded { cost }
+                if cost.provider_id == "context"
+                    && cost.model == "retrieval"
+                    && cost.tokens.retrieval_tokens.is_some()
+                    && cost.tokens.total_tokens == cost.tokens.retrieval_tokens
+        )
+    }));
     assert!(
         !serde_json::to_string(&events)
             .unwrap()

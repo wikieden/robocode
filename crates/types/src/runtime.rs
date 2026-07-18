@@ -7,6 +7,7 @@ use crate::{
     PermissionLevel, ProviderCacheObservationRecord, RuntimeSnapshot, ToolCallId, WorkMode,
     now_timestamp,
 };
+use std::collections::BTreeSet;
 
 const RUNTIME_VIEW_COLLECTION_LIMIT: usize = 50;
 
@@ -343,6 +344,8 @@ pub struct RuntimeViewState {
     pub cost_usage: Vec<CostUsageRecord>,
     #[serde(default)]
     pub cost_ledger: CostLedgerTotals,
+    #[serde(default, skip)]
+    seen_cost_usage_ids: BTreeSet<String>,
     #[serde(default)]
     pub provider_cache_observations: Vec<ProviderCacheObservationRecord>,
     #[serde(default)]
@@ -376,6 +379,7 @@ impl RuntimeViewState {
             context_quality: Vec::new(),
             cost_usage: Vec::new(),
             cost_ledger: CostLedgerTotals::default(),
+            seen_cost_usage_ids: BTreeSet::new(),
             provider_cache_observations: Vec::new(),
             canonical_evidence: Vec::new(),
             provider: None,
@@ -524,8 +528,18 @@ impl RuntimeViewState {
                 cap_vec(&mut self.context_quality);
             }
             RuntimeEventKind::CostUsageRecorded { cost } => {
-                self.cost_ledger.record(cost);
-                self.cost_usage.push(cost.clone());
+                if self.seen_cost_usage_ids.insert(cost.usage_id.clone()) {
+                    self.cost_ledger.record(cost);
+                    self.cost_usage.push(cost.clone());
+                    if self
+                        .cost_usage
+                        .iter()
+                        .any(|record| record.actual_cost.is_none())
+                    {
+                        self.cost_ledger.actual_cost = None;
+                        self.cost_ledger.total_actual_cost_micro_usd = None;
+                    }
+                }
                 cap_vec(&mut self.cost_usage);
             }
             RuntimeEventKind::ProviderCacheObserved {

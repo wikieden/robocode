@@ -18,6 +18,76 @@ fn openai_response_parser_extracts_content() {
 }
 
 #[test]
+fn openai_response_parser_extracts_cached_input_tokens_and_explicit_cost() {
+    let response = r#"{
+        "choices":[{"message":{"role":"assistant","content":"cached"}}],
+        "usage":{
+            "prompt_tokens":100,
+            "completion_tokens":40,
+            "total_tokens":140,
+            "prompt_tokens_details":{"cached_tokens":75},
+            "cost_micro_usd":1234
+        }
+    }"#;
+    let events = parse_openai_events(response).unwrap();
+
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens == Some(100)
+                && usage.output_tokens == Some(40)
+                && usage.total_tokens == Some(140)
+                && usage.cached_input_tokens == Some(75)
+                && usage.actual_cost_micro_usd == Some(1234)
+                && usage.cost_micro_usd.is_none()
+    ));
+}
+
+#[test]
+fn openai_response_parser_extracts_cached_token_provider_variants_without_pricing() {
+    let response = r#"{
+        "choices":[{"message":{"role":"assistant","content":"variant"}}],
+        "usage":{
+            "input_tokens":55,
+            "output_tokens":11,
+            "input_token_details":{"cache_read":22},
+            "provider_cost":{"currency":"USD","micro_units":999}
+        }
+    }"#;
+    let events = parse_openai_events(response).unwrap();
+
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens == Some(55)
+                && usage.output_tokens == Some(11)
+                && usage.total_tokens == Some(66)
+                && usage.cached_input_tokens == Some(22)
+                && usage.actual_cost_micro_usd == Some(999)
+                && usage.cost_micro_usd.is_none()
+    ));
+}
+
+#[test]
+fn openai_response_parser_leaves_absent_usage_parts_unknown() {
+    let response = r#"{
+        "choices":[{"message":{"role":"assistant","content":"partial"}}],
+        "usage":{"completion_tokens":9}
+    }"#;
+    let events = parse_openai_events(response).unwrap();
+
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens.is_none()
+                && usage.output_tokens == Some(9)
+                && usage.total_tokens.is_none()
+                && usage.cached_input_tokens.is_none()
+                && usage.actual_cost_micro_usd.is_none()
+    ));
+}
+
+#[test]
 fn openai_response_parser_extracts_tool_calls() {
     let response = r#"{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_123","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"Cargo.toml\",\"max_bytes\":\"1024\"}"}}]}}]}"#;
     let events = parse_openai_events(response).unwrap();

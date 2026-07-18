@@ -6,6 +6,58 @@ pub enum ContextScope {
     Workflow(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "id", rename_all = "snake_case")]
+pub enum CostScope {
+    Request(String),
+    AgentTask(String),
+    Dag(String),
+    Workflow(String),
+    SmokeRun(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TokenUsage {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cached_input_tokens: Option<u64>,
+    pub retrieval_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CostAmount {
+    pub currency: String,
+    pub micro_units: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CostEstimate {
+    pub amount: CostAmount,
+    pub provider_id: String,
+    pub model: String,
+    pub price_table_version: String,
+    pub estimated: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CostUsageOutcome {
+    Success,
+    Failure,
+    Cancelled,
+}
+
+impl CostUsageOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Failure => "failure",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextContentKind {
@@ -120,13 +172,12 @@ pub struct CostUsageRecord {
     pub usage_id: String,
     pub provider_id: String,
     pub model: String,
-    pub scope: ContextScope,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub cached_input_tokens: u64,
-    pub total_tokens: u64,
-    pub estimated_cost_micro_usd: u64,
-    pub actual_cost_micro_usd: Option<u64>,
+    pub scopes: Vec<CostScope>,
+    pub tokens: TokenUsage,
+    pub estimate: Option<CostEstimate>,
+    pub actual_cost: Option<CostAmount>,
+    pub attempt_index: u32,
+    pub outcome: CostUsageOutcome,
     pub recorded_at: Option<u64>,
 }
 
@@ -158,28 +209,65 @@ pub struct CostLedgerTotals {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cached_input_tokens: u64,
+    pub retrieval_tokens: u64,
     pub total_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_cost: Option<CostAmount>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_cost: Option<CostAmount>,
     pub total_estimated_cost_micro_usd: u64,
     pub total_actual_cost_micro_usd: Option<u64>,
 }
 
 impl CostLedgerTotals {
     pub fn record(&mut self, cost: &CostUsageRecord) {
-        self.input_tokens = self.input_tokens.saturating_add(cost.input_tokens);
-        self.output_tokens = self.output_tokens.saturating_add(cost.output_tokens);
+        self.input_tokens = self
+            .input_tokens
+            .saturating_add(cost.tokens.input_tokens.unwrap_or(0));
+        self.output_tokens = self
+            .output_tokens
+            .saturating_add(cost.tokens.output_tokens.unwrap_or(0));
         self.cached_input_tokens = self
             .cached_input_tokens
-            .saturating_add(cost.cached_input_tokens);
-        self.total_tokens = self.total_tokens.saturating_add(cost.total_tokens);
-        self.total_estimated_cost_micro_usd = self
-            .total_estimated_cost_micro_usd
-            .saturating_add(cost.estimated_cost_micro_usd);
-        if let Some(actual_cost) = cost.actual_cost_micro_usd {
-            self.total_actual_cost_micro_usd = Some(
-                self.total_actual_cost_micro_usd
+            .saturating_add(cost.tokens.cached_input_tokens.unwrap_or(0));
+        self.retrieval_tokens = self
+            .retrieval_tokens
+            .saturating_add(cost.tokens.retrieval_tokens.unwrap_or(0));
+        self.total_tokens = self
+            .total_tokens
+            .saturating_add(cost.tokens.total_tokens.unwrap_or(0));
+        if let Some(estimate) = &cost.estimate {
+            self.total_estimated_cost_micro_usd = self
+                .total_estimated_cost_micro_usd
+                .saturating_add(estimate.amount.micro_units);
+            self.estimated_cost = Some(CostAmount {
+                currency: estimate.amount.currency.clone(),
+                micro_units: self
+                    .estimated_cost
+                    .as_ref()
+                    .map(|amount| amount.micro_units)
                     .unwrap_or(0)
-                    .saturating_add(actual_cost),
-            );
+                    .saturating_add(estimate.amount.micro_units),
+            });
+        }
+        match (&self.actual_cost, &cost.actual_cost) {
+            (_, None) => {
+                self.actual_cost = None;
+                self.total_actual_cost_micro_usd = None;
+            }
+            (None, Some(actual)) if self.total_tokens == cost.tokens.total_tokens.unwrap_or(0) => {
+                self.actual_cost = Some(actual.clone());
+                self.total_actual_cost_micro_usd = Some(actual.micro_units);
+            }
+            (Some(current), Some(actual)) => {
+                let micro_units = current.micro_units.saturating_add(actual.micro_units);
+                self.actual_cost = Some(CostAmount {
+                    currency: current.currency.clone(),
+                    micro_units,
+                });
+                self.total_actual_cost_micro_usd = Some(micro_units);
+            }
+            (None, Some(_)) => {}
         }
     }
 }

@@ -7,8 +7,8 @@ use crate::{EngineEvent, SessionEngine};
 use viden_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
-    AgentTaskStatus, ApprovalResponse, ModelEvent, ModelRequest, ModelUsage, PermissionMode,
-    ToolCall, ToolInput, WorkMode,
+    AgentTaskStatus, ApprovalResponse, CostScope, ModelEvent, ModelRequest, ModelUsage,
+    PermissionMode, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, WorkMode,
 };
 
 use super::{SequenceProvider, temp_dir};
@@ -83,8 +83,11 @@ fn provider_telemetry_records_model_usage_when_provider_reports_it() {
         ModelEvent::Usage(ModelUsage {
             input_tokens: Some(13),
             output_tokens: Some(7),
+            cached_input_tokens: Some(5),
+            retrieval_tokens: None,
             total_tokens: Some(20),
             cost_micro_usd: None,
+            actual_cost_micro_usd: Some(42),
         }),
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
@@ -101,10 +104,74 @@ fn provider_telemetry_records_model_usage_when_provider_reports_it() {
     assert_eq!(telemetry.last_input_tokens, Some(13));
     assert_eq!(telemetry.last_output_tokens, Some(7));
     assert_eq!(telemetry.last_total_tokens, Some(20));
+    assert_eq!(telemetry.last_cached_input_tokens, Some(5));
     assert_eq!(telemetry.total_input_tokens, 13);
     assert_eq!(telemetry.total_output_tokens, 7);
+    assert_eq!(telemetry.total_cached_input_tokens, 5);
     assert_eq!(telemetry.total_tokens, 20);
-    assert_eq!(telemetry.last_cost_micro_usd, None);
+    assert_eq!(telemetry.last_cost_micro_usd, Some(42));
+}
+
+#[test]
+fn provider_attempts_emit_cost_usage_and_cache_events_for_replay() {
+    let home = temp_dir("runtime_cost_usage_home");
+    let cwd = temp_dir("runtime_cost_usage_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "usage response".to_string(),
+        },
+        ModelEvent::Usage(ModelUsage {
+            input_tokens: Some(20),
+            output_tokens: Some(8),
+            cached_input_tokens: Some(12),
+            retrieval_tokens: None,
+            total_tokens: Some(28),
+            cost_micro_usd: None,
+            actual_cost_micro_usd: None,
+        }),
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let engine_events = engine
+        .process_input_with_approval("measure runtime cost", &mut approver)
+        .unwrap();
+    let runtime_events = engine.runtime_events_for_engine_events(&engine_events);
+    let mut view = RuntimeViewState::new(engine.runtime_snapshot());
+    for event in &runtime_events {
+        view.apply_event(event);
+    }
+
+    let cost = runtime_events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::CostUsageRecorded { cost } => Some(cost),
+            _ => None,
+        })
+        .expect("provider cost usage event");
+    assert_eq!(cost.attempt_index, 0);
+    assert_eq!(cost.outcome.as_str(), "success");
+    assert_eq!(cost.tokens.input_tokens, Some(20));
+    assert_eq!(cost.tokens.cached_input_tokens, Some(12));
+    assert!(
+        cost.scopes
+            .contains(&CostScope::Request(cost.usage_id.clone()))
+    );
+    assert!(cost.estimate.is_some());
+    assert_eq!(cost.actual_cost, None);
+    assert!(runtime_events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::ProviderCacheObserved {
+            cached_input_tokens: 12,
+            ..
+        }
+    )));
+    assert_eq!(view.cost_ledger.total_tokens, 28);
+    assert_eq!(view.cost_ledger.cached_input_tokens, 12);
+    assert_eq!(view.cost_ledger.total_actual_cost_micro_usd, None);
 }
 
 #[test]
@@ -313,6 +380,20 @@ fn provider_turn_retries_request_too_large_with_smaller_context() {
     let telemetry = engine.provider_telemetry();
     assert_eq!(telemetry.failure_count, 1);
     assert_eq!(telemetry.success_count, 1);
+    let runtime_events = engine.runtime_events_for_engine_events(&events);
+    let costs = runtime_events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::CostUsageRecorded { cost } => Some(cost),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(costs.len(), 2);
+    assert_eq!(costs[0].attempt_index, 0);
+    assert_eq!(costs[0].outcome.as_str(), "failure");
+    assert_eq!(costs[0].tokens.total_tokens, None);
+    assert_eq!(costs[1].attempt_index, 1);
+    assert_eq!(costs[1].outcome.as_str(), "success");
 }
 
 #[test]

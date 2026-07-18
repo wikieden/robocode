@@ -95,6 +95,7 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
     let telemetry = engine.provider_telemetry();
     let input_tokens = telemetry.total_input_tokens;
     let output_tokens = telemetry.total_output_tokens;
+    let cached_input_tokens = telemetry.total_cached_input_tokens;
     let total_tokens = telemetry.total_tokens;
     assert!(
         input_tokens > 0 && output_tokens > 0 && total_tokens > 0,
@@ -120,10 +121,11 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
 
     println!("VIDEN_LIVE_USAGE_JSON={usage_json}");
     println!(
-        "VIDEN_LIVE_USAGE_SUMMARY provider=deepseek model={} input_tokens={} output_tokens={} total_tokens={} estimated_cost_cny={} pricing_basis=deepseek_cache_miss_estimate",
+        "VIDEN_LIVE_USAGE_SUMMARY provider=deepseek model={} input_tokens={} output_tokens={} cached_input_tokens={} total_tokens={} estimated_cost_cny={} pricing_basis=deepseek_cache_miss_estimate",
         model,
         input_tokens,
         output_tokens,
+        cached_input_tokens,
         total_tokens,
         estimated_cost_cny
             .map(|cost| format!("{cost:.6}"))
@@ -190,7 +192,7 @@ fn render_usage_json(
         .map(|price| price.output_per_million.to_string())
         .unwrap_or_else(|| "null".to_string());
     format!(
-        "{{\"provider\":\"deepseek\",\"model\":\"{}\",\"workspace\":\"{}\",\"scenario\":\"python_add_module_with_test\",\"request_count\":{},\"success_count\":{},\"failure_count\":{},\"input_tokens\":{},\"output_tokens\":{},\"total_tokens\":{},\"estimated_cost_cny\":{},\"input_cny_per_million_cache_miss\":{},\"output_cny_per_million\":{},\"pricing_basis\":\"deepseek_cache_miss_estimate\"}}",
+        "{{\"provider\":\"deepseek\",\"model\":\"{}\",\"workspace\":\"{}\",\"scenario\":\"python_add_module_with_test\",\"request_count\":{},\"success_count\":{},\"failure_count\":{},\"input_tokens\":{},\"output_tokens\":{},\"cached_input_tokens\":{},\"total_tokens\":{},\"estimated_cost_cny\":{},\"input_cny_per_million_cache_miss\":{},\"output_cny_per_million\":{},\"pricing_basis\":\"deepseek_cache_miss_estimate\"}}",
         json_escape(model),
         json_escape(workspace),
         telemetry.request_count,
@@ -198,6 +200,7 @@ fn render_usage_json(
         telemetry.failure_count,
         telemetry.total_input_tokens,
         telemetry.total_output_tokens,
+        telemetry.total_cached_input_tokens,
         telemetry.total_tokens,
         estimated_cost,
         input_price,

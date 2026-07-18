@@ -12,9 +12,10 @@ use viden_permissions::PermissionEngine;
 use viden_provider::ModelRequestControl;
 use viden_tools::ToolExecutionContext;
 use viden_types::{
-    AgentTaskStatus, ApprovalResponse, ContextBundleRecord, Message, ModelEvent, ModelRequest,
-    PermissionDecision, PermissionLogEntry, Role, ToolCall, ToolResult, TranscriptEntry, fresh_id,
-    now_timestamp,
+    AgentTaskStatus, ApprovalResponse, ContextBundleRecord, CostAmount, CostEstimate, CostScope,
+    CostUsageOutcome, CostUsageRecord, Message, ModelEvent, ModelRequest, ModelUsage,
+    PermissionDecision, PermissionLogEntry, Role, TokenUsage, ToolCall, ToolResult,
+    TranscriptEntry, fresh_id, now_timestamp,
 };
 
 const PROVIDER_REQUEST_CHAR_BUDGET: usize = 48_000;
@@ -117,7 +118,7 @@ impl SessionEngine {
         self.upsert_agent_task(provider_task.clone());
 
         let mut retried_request_too_large = false;
-        for _ in 0..8 {
+        for attempt_index in 0..8 {
             provider_task.status = AgentTaskStatus::Thinking.as_str().to_string();
             provider_task.activity = "waiting for provider response".to_string();
             provider_task.progress = provider_task.progress.max(20);
@@ -141,6 +142,14 @@ impl SessionEngine {
             let model_events = match self.provider.next_events_with_control(&request, control) {
                 Ok(events) => {
                     let usage = aggregate_model_usage(&events);
+                    self.provider_cost_usage.push(provider_attempt_cost_record(
+                        &provider_task.id,
+                        self.provider_name(),
+                        self.model_name(),
+                        attempt_index,
+                        usage.as_ref(),
+                        CostUsageOutcome::Success,
+                    ));
                     self.provider_telemetry.record_success(
                         request_started.elapsed(),
                         events.len(),
@@ -149,6 +158,14 @@ impl SessionEngine {
                     events
                 }
                 Err(err) => {
+                    self.provider_cost_usage.push(provider_attempt_cost_record(
+                        &provider_task.id,
+                        self.provider_name(),
+                        self.model_name(),
+                        attempt_index,
+                        None,
+                        CostUsageOutcome::Failure,
+                    ));
                     self.provider_telemetry
                         .record_failure(request_started.elapsed(), &err);
                     if crate::provider_commands::is_request_too_large_provider_failure(&err)
@@ -533,11 +550,142 @@ fn aggregate_model_usage(events: &[ModelEvent]) -> Option<viden_types::ModelUsag
                 Some(current) => viden_types::ModelUsage {
                     input_tokens: add_optional(current.input_tokens, usage.input_tokens),
                     output_tokens: add_optional(current.output_tokens, usage.output_tokens),
+                    cached_input_tokens: add_optional(
+                        current.cached_input_tokens,
+                        usage.cached_input_tokens,
+                    ),
+                    retrieval_tokens: add_optional(
+                        current.retrieval_tokens,
+                        usage.retrieval_tokens,
+                    ),
                     total_tokens: add_optional(current.total_tokens, usage.total_tokens),
                     cost_micro_usd: add_optional(current.cost_micro_usd, usage.cost_micro_usd),
+                    actual_cost_micro_usd: add_optional(
+                        current.actual_cost_micro_usd,
+                        usage.actual_cost_micro_usd,
+                    ),
                 },
             })
         })
+}
+
+fn provider_attempt_cost_record(
+    task_id: &str,
+    provider_id: &str,
+    model: &str,
+    attempt_index: u32,
+    usage: Option<&ModelUsage>,
+    outcome: CostUsageOutcome,
+) -> CostUsageRecord {
+    let usage_id = format!("{task_id}-provider-attempt-{attempt_index}");
+    let tokens = usage
+        .map(|usage| TokenUsage {
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cached_input_tokens: usage.cached_input_tokens,
+            retrieval_tokens: usage.retrieval_tokens,
+            total_tokens: usage.total_tokens,
+        })
+        .unwrap_or(TokenUsage {
+            input_tokens: None,
+            output_tokens: None,
+            cached_input_tokens: None,
+            retrieval_tokens: None,
+            total_tokens: None,
+        });
+    CostUsageRecord {
+        usage_id: usage_id.clone(),
+        provider_id: provider_id.to_string(),
+        model: model.to_string(),
+        scopes: vec![
+            CostScope::Request(usage_id),
+            CostScope::AgentTask(task_id.to_string()),
+            CostScope::Workflow("interactive".to_string()),
+        ],
+        estimate: usage.and_then(|usage| estimate_provider_cost(provider_id, model, usage)),
+        actual_cost: usage
+            .and_then(|usage| usage.actual_cost_micro_usd)
+            .map(|micro_units| CostAmount {
+                currency: "USD".to_string(),
+                micro_units,
+            }),
+        tokens,
+        attempt_index,
+        outcome,
+        recorded_at: Some(now_timestamp()),
+    }
+}
+
+fn estimate_provider_cost(
+    provider_id: &str,
+    model: &str,
+    usage: &ModelUsage,
+) -> Option<CostEstimate> {
+    let price = price_table(provider_id, model)?;
+    let billable_input = usage
+        .input_tokens
+        .unwrap_or(0)
+        .saturating_sub(usage.cached_input_tokens.unwrap_or(0));
+    let cached = usage.cached_input_tokens.unwrap_or(0);
+    let output = usage.output_tokens.unwrap_or(0);
+    let micro_units = multiply_per_million(billable_input, price.input_micro_usd_per_million)
+        .saturating_add(multiply_per_million(
+            cached,
+            price
+                .cached_input_micro_usd_per_million
+                .unwrap_or(price.input_micro_usd_per_million),
+        ))
+        .saturating_add(multiply_per_million(
+            output,
+            price.output_micro_usd_per_million,
+        ));
+    Some(CostEstimate {
+        amount: CostAmount {
+            currency: "USD".to_string(),
+            micro_units,
+        },
+        provider_id: provider_id.to_string(),
+        model: model.to_string(),
+        price_table_version: price.version.to_string(),
+        estimated: true,
+    })
+}
+
+fn multiply_per_million(tokens: u64, micro_usd_per_million: u64) -> u64 {
+    let amount = u128::from(tokens).saturating_mul(u128::from(micro_usd_per_million)) / 1_000_000;
+    amount.min(u128::from(u64::MAX)) as u64
+}
+
+#[derive(Clone, Copy)]
+struct PriceRow {
+    version: &'static str,
+    input_micro_usd_per_million: u64,
+    cached_input_micro_usd_per_million: Option<u64>,
+    output_micro_usd_per_million: u64,
+}
+
+fn price_table(provider_id: &str, model: &str) -> Option<PriceRow> {
+    match (provider_id, model) {
+        ("sequence", "test-model") => Some(PriceRow {
+            version: "test-2026-07-18",
+            input_micro_usd_per_million: 1_000_000,
+            cached_input_micro_usd_per_million: Some(100_000),
+            output_micro_usd_per_million: 2_000_000,
+        }),
+        ("deepseek", "deepseek-v4-flash" | "deepseek-chat") => Some(PriceRow {
+            version: "deepseek-2026-07-18",
+            input_micro_usd_per_million: 140_000,
+            cached_input_micro_usd_per_million: Some(14_000),
+            output_micro_usd_per_million: 280_000,
+        }),
+        ("deepseek", "deepseek-v4-pro" | "deepseek-reasoner") => Some(PriceRow {
+            version: "deepseek-2026-07-18",
+            input_micro_usd_per_million: 550_000,
+            cached_input_micro_usd_per_million: Some(55_000),
+            output_micro_usd_per_million: 2_190_000,
+        }),
+        _ => None,
+    }
 }
 
 fn add_optional(left: Option<u64>, right: Option<u64>) -> Option<u64> {

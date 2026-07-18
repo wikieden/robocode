@@ -364,16 +364,40 @@
           "usage_id": "cost_runtime_1",
           "provider_id": "deepseek",
           "model": "deepseek-reasoner",
-          "scope": {
-            "type": "task",
-            "id": "task_runtime_1"
+          "scopes": [
+            {
+              "type": "request",
+              "id": "cost_runtime_1"
+            },
+            {
+              "type": "agent_task",
+              "id": "task_runtime_1"
+            },
+            {
+              "type": "workflow",
+              "id": "workflow_runtime_1"
+            }
+          ],
+          "tokens": {
+            "input_tokens": 2300,
+            "output_tokens": 1156,
+            "cached_input_tokens": 600,
+            "retrieval_tokens": 0,
+            "total_tokens": 3456
           },
-          "input_tokens": 2300,
-          "output_tokens": 1156,
-          "cached_input_tokens": 600,
-          "total_tokens": 3456,
-          "estimated_cost_micro_usd": 1234,
-          "actual_cost_micro_usd": null,
+          "estimate": {
+            "amount": {
+              "currency": "USD",
+              "micro_units": 1234
+            },
+            "provider_id": "deepseek",
+            "model": "deepseek-reasoner",
+            "price_table_version": "fixture-2026-07-18",
+            "estimated": true
+          },
+          "actual_cost": null,
+          "attempt_index": 0,
+          "outcome": "success",
           "recorded_at": 1018
         }
       }

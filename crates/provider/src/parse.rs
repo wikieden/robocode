@@ -262,8 +262,11 @@ fn merge_usage(current: Option<ModelUsage>, next: Option<ModelUsage>) -> Option<
         (Some(current), Some(next)) => Some(ModelUsage {
             input_tokens: next.input_tokens.or(current.input_tokens),
             output_tokens: next.output_tokens.or(current.output_tokens),
+            cached_input_tokens: next.cached_input_tokens.or(current.cached_input_tokens),
+            retrieval_tokens: next.retrieval_tokens.or(current.retrieval_tokens),
             total_tokens: next.total_tokens.or(current.total_tokens),
             cost_micro_usd: next.cost_micro_usd.or(current.cost_micro_usd),
+            actual_cost_micro_usd: next.actual_cost_micro_usd.or(current.actual_cost_micro_usd),
         }),
     }
 }
@@ -286,7 +289,27 @@ fn parse_openai_usage(value: &Value) -> Option<ModelUsage> {
                 .zip(output_tokens)
                 .map(|(input, output)| input + output)
         });
-    usage_from_parts(input_tokens, output_tokens, total_tokens)
+    let cached_input_tokens = usage
+        .pointer("/prompt_tokens_details/cached_tokens")
+        .or_else(|| usage.pointer("/input_tokens_details/cached_tokens"))
+        .or_else(|| usage.pointer("/input_token_details/cached_tokens"))
+        .or_else(|| usage.pointer("/input_token_details/cache_read"))
+        .or_else(|| usage.pointer("/input_tokens_details/cache_read"))
+        .and_then(Value::as_u64);
+    let actual_cost_micro_usd = usage
+        .get("actual_cost_micro_usd")
+        .or_else(|| usage.get("provider_actual_cost_micro_usd"))
+        .or_else(|| usage.get("cost_micro_usd"))
+        .or_else(|| usage.pointer("/provider_cost/micro_units"))
+        .and_then(Value::as_u64);
+    usage_from_parts(
+        input_tokens,
+        output_tokens,
+        cached_input_tokens,
+        None,
+        total_tokens,
+        actual_cost_micro_usd,
+    )
 }
 
 fn parse_anthropic_usage(value: &Value) -> Option<ModelUsage> {
@@ -296,7 +319,18 @@ fn parse_anthropic_usage(value: &Value) -> Option<ModelUsage> {
     let total_tokens = input_tokens
         .zip(output_tokens)
         .map(|(input, output)| input + output);
-    usage_from_parts(input_tokens, output_tokens, total_tokens)
+    let cached_input_tokens = usage
+        .pointer("/cache_creation_input_tokens")
+        .or_else(|| usage.pointer("/cache_read_input_tokens"))
+        .and_then(Value::as_u64);
+    usage_from_parts(
+        input_tokens,
+        output_tokens,
+        cached_input_tokens,
+        None,
+        total_tokens,
+        None,
+    )
 }
 
 fn parse_ollama_usage(value: &Value) -> Option<ModelUsage> {
@@ -305,22 +339,32 @@ fn parse_ollama_usage(value: &Value) -> Option<ModelUsage> {
     let total_tokens = input_tokens
         .zip(output_tokens)
         .map(|(input, output)| input + output);
-    usage_from_parts(input_tokens, output_tokens, total_tokens)
+    usage_from_parts(input_tokens, output_tokens, None, None, total_tokens, None)
 }
 
 fn usage_from_parts(
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
+    cached_input_tokens: Option<u64>,
+    retrieval_tokens: Option<u64>,
     total_tokens: Option<u64>,
+    actual_cost_micro_usd: Option<u64>,
 ) -> Option<ModelUsage> {
-    (input_tokens.is_some() || output_tokens.is_some() || total_tokens.is_some()).then_some(
-        ModelUsage {
-            input_tokens,
-            output_tokens,
-            total_tokens,
-            cost_micro_usd: None,
-        },
-    )
+    (input_tokens.is_some()
+        || output_tokens.is_some()
+        || cached_input_tokens.is_some()
+        || retrieval_tokens.is_some()
+        || total_tokens.is_some()
+        || actual_cost_micro_usd.is_some())
+    .then_some(ModelUsage {
+        input_tokens,
+        output_tokens,
+        cached_input_tokens,
+        retrieval_tokens,
+        total_tokens,
+        cost_micro_usd: None,
+        actual_cost_micro_usd,
+    })
 }
 
 #[derive(Default)]

@@ -12,8 +12,8 @@ mod workflow;
 pub use context::{
     ContextBudgetRecord, ContextBundleSummaryRecord, ContextContentKind, ContextHandleRecord,
     ContextItemRecord, ContextQualityRecord, ContextRetrievalRecord, ContextScope,
-    ContextViewRecord, CostLedgerTotals, CostUsageRecord, EvidenceCanonicalizationRecord,
-    ProviderCacheObservationRecord,
+    ContextViewRecord, CostAmount, CostEstimate, CostLedgerTotals, CostScope, CostUsageOutcome,
+    CostUsageRecord, EvidenceCanonicalizationRecord, ProviderCacheObservationRecord, TokenUsage,
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use runtime::{
@@ -820,8 +820,12 @@ pub struct ToolProgress {
 pub struct ModelUsage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
+    pub cached_input_tokens: Option<u64>,
+    pub retrieval_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
+    /// Legacy estimated/derived cost surface. Protocol parsers must not fill this.
     pub cost_micro_usd: Option<u64>,
+    pub actual_cost_micro_usd: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

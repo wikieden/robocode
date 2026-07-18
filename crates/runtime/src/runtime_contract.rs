@@ -20,12 +20,13 @@ use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
     AgentTaskRecord, AgentTaskStatus, ApprovalRequestView, ApprovalResponse, ContextContentKind,
     ContextHandleRecord, ContextItemRecord, ContextRetrievalRecord, ContextScope,
-    ContextSourceRecord, EvidenceView, MergeGateRecord, MergeGateStatus, PermissionBehavior,
-    PermissionDecision, PermissionDecisionReason, PermissionLevel, PermissionMode,
-    PermissionPrompt, PermissionRule, PermissionRuleSource, PermissionRuleValue,
-    ProviderHealthView, QueuedInputView, RuntimeCommand, RuntimeErrorView, RuntimeEvent,
-    RuntimeEventKind, RuntimeSnapshot, RuntimeViewState, TokenCostView, ToolCallId, ToolInput,
-    WorkMode, fresh_id, now_timestamp, truncate_for_preview,
+    ContextSourceRecord, CostScope, CostUsageOutcome, CostUsageRecord, EvidenceView,
+    MergeGateRecord, MergeGateStatus, PermissionBehavior, PermissionDecision,
+    PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
+    PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeSnapshot, RuntimeViewState,
+    TokenCostView, TokenUsage, ToolCallId, ToolInput, WorkMode, fresh_id, now_timestamp,
+    truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
@@ -772,6 +773,25 @@ impl SessionEngine {
                 next_sequence(&events),
                 RuntimeEventKind::TokenCostUpdated { cost },
             ));
+        }
+        for cost in &self.provider_cost_usage {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::CostUsageRecorded { cost: cost.clone() },
+            ));
+            if let Some(cached_input_tokens) = cost.tokens.cached_input_tokens
+                && cached_input_tokens > 0
+            {
+                events.push(RuntimeEvent::new(
+                    next_sequence(&events),
+                    RuntimeEventKind::ProviderCacheObserved {
+                        provider_id: cost.provider_id.clone(),
+                        model: cost.model.clone(),
+                        cached_input_tokens,
+                        cache_hit_microunits: 0,
+                    },
+                ));
+            }
         }
         for input in &self.queued_runtime_inputs {
             events.push(RuntimeEvent::new(
@@ -3240,6 +3260,9 @@ pub(crate) fn execute_context_retrieval_job(
     control.check_cancelled()?;
     let byte_count = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     let token_count = output.chars().count().div_ceil(4).max(1) as u64;
+    let retrieval_id = fresh_id("ctxr");
+    let usage_id = format!("{retrieval_id}-cost");
+    let scope = job.scope.clone();
     events.push(RuntimeEvent::new(
         next_sequence(&events),
         RuntimeEventKind::ToolCallFinished {
@@ -3262,11 +3285,11 @@ pub(crate) fn execute_context_retrieval_job(
         next_sequence(&events),
         RuntimeEventKind::ContextRetrieved {
             retrieval: ContextRetrievalRecord {
-                retrieval_id: fresh_id("ctxr"),
+                retrieval_id,
                 handle_id: job.handle.handle_id,
                 item_id: job.handle.item_id,
                 view_id: job.handle.preferred_view_id,
-                scope: job.scope,
+                scope: scope.clone(),
                 byte_count,
                 token_count,
                 reason_category: job.reason_category,
@@ -3278,7 +3301,41 @@ pub(crate) fn execute_context_retrieval_job(
             },
         },
     ));
+    events.push(RuntimeEvent::new(
+        next_sequence(&events),
+        RuntimeEventKind::CostUsageRecorded {
+            cost: CostUsageRecord {
+                usage_id: usage_id.clone(),
+                provider_id: "context".to_string(),
+                model: "retrieval".to_string(),
+                scopes: vec![
+                    CostScope::Request(usage_id),
+                    cost_scope_from_context_scope(&scope),
+                ],
+                tokens: TokenUsage {
+                    input_tokens: None,
+                    output_tokens: None,
+                    cached_input_tokens: None,
+                    retrieval_tokens: Some(token_count),
+                    total_tokens: Some(token_count),
+                },
+                estimate: None,
+                actual_cost: None,
+                attempt_index: 0,
+                outcome: CostUsageOutcome::Success,
+                recorded_at: Some(now_timestamp()),
+            },
+        },
+    ));
     Ok(events)
+}
+
+fn cost_scope_from_context_scope(scope: &ContextScope) -> CostScope {
+    match scope {
+        ContextScope::Task(id) => CostScope::AgentTask(id.clone()),
+        ContextScope::Dag(id) => CostScope::Dag(id.clone()),
+        ContextScope::Workflow(id) => CostScope::Workflow(id.clone()),
+    }
 }
 
 fn validate_context_retrieval_scope_and_expiry(

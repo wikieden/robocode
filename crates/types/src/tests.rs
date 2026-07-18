@@ -523,13 +523,27 @@ fn context_contracts_round_trip_without_exposing_storage_paths() {
         usage_id: "cost-1".into(),
         provider_id: "deepseek".into(),
         model: "deepseek-reasoner".into(),
-        scope: ContextScope::Task("task-1".into()),
-        input_tokens: 1_000,
-        output_tokens: 250,
-        cached_input_tokens: 500,
-        total_tokens: 1_250,
-        estimated_cost_micro_usd: 1_234,
-        actual_cost_micro_usd: None,
+        scopes: vec![CostScope::AgentTask("task-1".into())],
+        tokens: TokenUsage {
+            input_tokens: Some(1_000),
+            output_tokens: Some(250),
+            cached_input_tokens: Some(500),
+            retrieval_tokens: Some(0),
+            total_tokens: Some(1_250),
+        },
+        estimate: Some(CostEstimate {
+            amount: CostAmount {
+                currency: "USD".into(),
+                micro_units: 1_234,
+            },
+            provider_id: "deepseek".into(),
+            model: "deepseek-reasoner".into(),
+            price_table_version: "test".into(),
+            estimated: true,
+        }),
+        actual_cost: None,
+        attempt_index: 0,
+        outcome: CostUsageOutcome::Success,
         recorded_at: Some(105),
     };
 
@@ -559,10 +573,7 @@ fn context_contracts_round_trip_without_exposing_storage_paths() {
     assert_eq!(records["retrieval"]["reason_rule_category"], "safe_read");
     assert_eq!(records["quality"]["score_microunits"], 920_000);
     assert_eq!(records["budget"]["scope"]["type"], "workflow");
-    assert_eq!(
-        records["cost"]["actual_cost_micro_usd"],
-        serde_json::Value::Null
-    );
+    assert_eq!(records["cost"]["actual_cost"], serde_json::Value::Null);
     assert!(
         !serde_json::to_string(&records)
             .unwrap()
@@ -639,13 +650,30 @@ fn context_and_cost_runtime_events_project_bounded_summaries() {
         usage_id: "cost-1".into(),
         provider_id: "deepseek".into(),
         model: "deepseek-reasoner".into(),
-        scope: ContextScope::Task("task-1".into()),
-        input_tokens: 700,
-        output_tokens: 300,
-        cached_input_tokens: 200,
-        total_tokens: 1_000,
-        estimated_cost_micro_usd: 900,
-        actual_cost_micro_usd: Some(950),
+        scopes: vec![CostScope::AgentTask("task-1".into())],
+        tokens: TokenUsage {
+            input_tokens: Some(700),
+            output_tokens: Some(300),
+            cached_input_tokens: Some(200),
+            retrieval_tokens: Some(0),
+            total_tokens: Some(1_000),
+        },
+        estimate: Some(CostEstimate {
+            amount: CostAmount {
+                currency: "USD".into(),
+                micro_units: 900,
+            },
+            provider_id: "deepseek".into(),
+            model: "deepseek-reasoner".into(),
+            price_table_version: "test".into(),
+            estimated: true,
+        }),
+        actual_cost: Some(CostAmount {
+            currency: "USD".into(),
+            micro_units: 950,
+        }),
+        attempt_index: 0,
+        outcome: CostUsageOutcome::Success,
         recorded_at: Some(205),
     };
     let events = vec![
@@ -756,6 +784,50 @@ fn context_and_cost_runtime_events_project_bounded_summaries() {
         + &serde_json::to_string(&view.canonical_evidence).unwrap();
     assert!(!public_json.contains("storage_path"));
     assert!(!public_json.contains("/tmp/viden"));
+}
+
+#[test]
+fn runtime_view_state_does_not_double_count_duplicate_cost_usage_id() {
+    let cost = CostUsageRecord {
+        usage_id: "provider-attempt-1".into(),
+        provider_id: "deepseek".into(),
+        model: "deepseek-v4-flash".into(),
+        scopes: vec![
+            CostScope::Request("provider-attempt-1".into()),
+            CostScope::AgentTask("task-1".into()),
+            CostScope::Workflow("wf-1".into()),
+        ],
+        tokens: TokenUsage {
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+            cached_input_tokens: Some(3),
+            retrieval_tokens: Some(0),
+            total_tokens: Some(15),
+        },
+        estimate: None,
+        actual_cost: None,
+        attempt_index: 0,
+        outcome: CostUsageOutcome::Success,
+        recorded_at: Some(500),
+    };
+    let events = vec![
+        RuntimeEvent::new(
+            1,
+            RuntimeEventKind::CostUsageRecorded { cost: cost.clone() },
+        ),
+        RuntimeEvent::new(2, RuntimeEventKind::CostUsageRecorded { cost }),
+    ];
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+
+    for event in &events {
+        view.apply_event(event);
+    }
+
+    assert_eq!(view.cost_usage.len(), 1);
+    assert_eq!(view.cost_ledger.input_tokens, 10);
+    assert_eq!(view.cost_ledger.output_tokens, 5);
+    assert_eq!(view.cost_ledger.cached_input_tokens, 3);
+    assert_eq!(view.cost_ledger.total_tokens, 15);
 }
 
 #[test]

@@ -39,9 +39,9 @@ use viden_tools::ToolRegistry;
 #[cfg(test)]
 use viden_types::PermissionRule;
 use viden_types::{
-    AgentDagRecord, AgentTaskRecord, ContextBundleRecord, EvidenceView, MemoryEntry,
-    MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode, RuntimeEvent,
-    RuntimeSnapshot, TaskRecord, WorkMode,
+    AgentDagRecord, AgentTaskRecord, ContextBundleRecord, CostUsageRecord, EvidenceView,
+    MemoryEntry, MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode,
+    RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -73,9 +73,11 @@ pub struct ProviderTelemetry {
     pub last_error: Option<String>,
     pub last_input_tokens: Option<u64>,
     pub last_output_tokens: Option<u64>,
+    pub last_cached_input_tokens: Option<u64>,
     pub last_total_tokens: Option<u64>,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
+    pub total_cached_input_tokens: u64,
     pub total_tokens: u64,
     pub last_tokens_per_second: Option<u64>,
     pub last_cost_micro_usd: Option<u64>,
@@ -127,6 +129,7 @@ impl ProviderTelemetry {
         let Some(usage) = usage else {
             self.last_input_tokens = None;
             self.last_output_tokens = None;
+            self.last_cached_input_tokens = None;
             self.last_total_tokens = None;
             self.last_tokens_per_second = None;
             self.last_cost_micro_usd = None;
@@ -134,6 +137,7 @@ impl ProviderTelemetry {
         };
         self.last_input_tokens = usage.input_tokens;
         self.last_output_tokens = usage.output_tokens;
+        self.last_cached_input_tokens = usage.cached_input_tokens;
         self.last_total_tokens = usage.total_tokens;
         if let Some(input_tokens) = usage.input_tokens {
             self.total_input_tokens = self.total_input_tokens.saturating_add(input_tokens);
@@ -141,14 +145,19 @@ impl ProviderTelemetry {
         if let Some(output_tokens) = usage.output_tokens {
             self.total_output_tokens = self.total_output_tokens.saturating_add(output_tokens);
         }
+        if let Some(cached_input_tokens) = usage.cached_input_tokens {
+            self.total_cached_input_tokens = self
+                .total_cached_input_tokens
+                .saturating_add(cached_input_tokens);
+        }
         if let Some(total_tokens) = usage.total_tokens {
             self.total_tokens = self.total_tokens.saturating_add(total_tokens);
             self.last_tokens_per_second = tokens_per_second(total_tokens, latency);
         } else {
             self.last_tokens_per_second = None;
         }
-        self.last_cost_micro_usd = usage.cost_micro_usd;
-        if let Some(cost) = usage.cost_micro_usd {
+        self.last_cost_micro_usd = usage.actual_cost_micro_usd.or(usage.cost_micro_usd);
+        if let Some(cost) = usage.actual_cost_micro_usd.or(usage.cost_micro_usd) {
             self.total_cost_micro_usd =
                 Some(self.total_cost_micro_usd.unwrap_or(0).saturating_add(cost));
         }
@@ -190,6 +199,7 @@ pub struct SessionEngine {
     queued_runtime_inputs: Vec<runtime_contract::QueuedRuntimeInput>,
     runtime_event_sink: Option<RuntimeEventSink>,
     provider_telemetry: ProviderTelemetry,
+    provider_cost_usage: Vec<CostUsageRecord>,
     last_context_bundle: Option<ContextBundleRecord>,
     last_context_runtime_events: Vec<RuntimeEvent>,
     context_engine_root: PathBuf,
@@ -266,6 +276,7 @@ impl SessionEngine {
             queued_runtime_inputs: Vec::new(),
             runtime_event_sink: None,
             provider_telemetry: ProviderTelemetry::default(),
+            provider_cost_usage: Vec::new(),
             last_context_bundle: None,
             last_context_runtime_events: Vec::new(),
             context_engine_root,
