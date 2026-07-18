@@ -3,11 +3,18 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod context;
 mod lsp;
 mod runtime;
 mod transcript;
 mod workflow;
 
+pub use context::{
+    ContextBudgetRecord, ContextBundleSummaryRecord, ContextContentKind, ContextHandleRecord,
+    ContextItemRecord, ContextQualityRecord, ContextRetrievalRecord, ContextScope,
+    ContextViewRecord, CostLedgerTotals, CostUsageRecord, EvidenceCanonicalizationRecord,
+    ProviderCacheObservationRecord,
+};
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use runtime::{
     ApprovalRequestView, CommandAction, EvidenceView, ProviderHealthView, QueuedInputView,

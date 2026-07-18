@@ -1,8 +1,14 @@
 use crate::{
     AgentDagRecord, AgentDagTaskSpec, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
-    ApprovalResponse, ContextBundleRecord, EvidenceId, MergeGateId, MergeGateRecord, MessageId,
-    PermissionLevel, RuntimeSnapshot, ToolCallId, WorkMode, now_timestamp,
+    ApprovalResponse, ContextBudgetRecord, ContextBundleRecord, ContextBundleSummaryRecord,
+    ContextHandleRecord, ContextItemRecord, ContextQualityRecord, ContextRetrievalRecord,
+    ContextScope, ContextViewRecord, CostLedgerTotals, CostUsageRecord,
+    EvidenceCanonicalizationRecord, EvidenceId, MergeGateId, MergeGateRecord, MessageId,
+    PermissionLevel, ProviderCacheObservationRecord, RuntimeSnapshot, ToolCallId, WorkMode,
+    now_timestamp,
 };
+
+const RUNTIME_VIEW_COLLECTION_LIMIT: usize = 50;
 
 /// UI-independent command contract sent from a client surface into the runtime.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -82,6 +88,10 @@ pub enum RuntimeCommand {
     MergeAgentPatch {
         gate_id: MergeGateId,
         decision: Option<String>,
+    },
+    RetrieveContext {
+        handle_id: String,
+        reason: String,
     },
 }
 
@@ -250,6 +260,42 @@ pub enum RuntimeEventKind {
     ContextUpdated {
         context: ContextBundleRecord,
     },
+    ContextBundleBuilt {
+        bundle_id: String,
+        scope: ContextScope,
+        handle_ids: Vec<String>,
+        estimated_tokens: u64,
+    },
+    ContextItemStored {
+        item: ContextItemRecord,
+    },
+    ContextViewDerived {
+        view: ContextViewRecord,
+        handle: ContextHandleRecord,
+    },
+    ContextRetrieved {
+        retrieval: ContextRetrievalRecord,
+    },
+    ContextBudgetExceeded {
+        budget: ContextBudgetRecord,
+    },
+    ContextQualityFailed {
+        quality: ContextQualityRecord,
+    },
+    CostUsageRecorded {
+        cost: CostUsageRecord,
+    },
+    ProviderCacheObserved {
+        provider_id: String,
+        model: String,
+        cached_input_tokens: u64,
+        cache_hit_microunits: u64,
+    },
+    EvidenceCanonicalized {
+        evidence_id: EvidenceId,
+        item_id: String,
+        content_sha256: String,
+    },
     MergeGateUpdated {
         gate: MergeGateRecord,
     },
@@ -276,6 +322,28 @@ pub struct RuntimeViewState {
     pub latest_evidence: Vec<EvidenceView>,
     pub assistant_stream: String,
     pub context: Option<ContextBundleRecord>,
+    #[serde(default)]
+    pub context_bundles: Vec<ContextBundleSummaryRecord>,
+    #[serde(default)]
+    pub context_handles: Vec<ContextHandleRecord>,
+    #[serde(default)]
+    pub context_items: Vec<ContextItemRecord>,
+    #[serde(default)]
+    pub context_views: Vec<ContextViewRecord>,
+    #[serde(default)]
+    pub context_retrievals: Vec<ContextRetrievalRecord>,
+    #[serde(default)]
+    pub context_budgets: Vec<ContextBudgetRecord>,
+    #[serde(default)]
+    pub context_quality: Vec<ContextQualityRecord>,
+    #[serde(default)]
+    pub cost_usage: Vec<CostUsageRecord>,
+    #[serde(default)]
+    pub cost_ledger: CostLedgerTotals,
+    #[serde(default)]
+    pub provider_cache_observations: Vec<ProviderCacheObservationRecord>,
+    #[serde(default)]
+    pub canonical_evidence: Vec<EvidenceCanonicalizationRecord>,
     pub provider: Option<ProviderHealthView>,
     pub token_cost: Option<TokenCostView>,
     pub merge_gates: Vec<MergeGateRecord>,
@@ -296,6 +364,17 @@ impl RuntimeViewState {
             latest_evidence: Vec::new(),
             assistant_stream: String::new(),
             context: None,
+            context_bundles: Vec::new(),
+            context_handles: Vec::new(),
+            context_items: Vec::new(),
+            context_views: Vec::new(),
+            context_retrievals: Vec::new(),
+            context_budgets: Vec::new(),
+            context_quality: Vec::new(),
+            cost_usage: Vec::new(),
+            cost_ledger: CostLedgerTotals::default(),
+            provider_cache_observations: Vec::new(),
+            canonical_evidence: Vec::new(),
             provider: None,
             token_cost: None,
             merge_gates: Vec::new(),
@@ -391,6 +470,92 @@ impl RuntimeViewState {
             RuntimeEventKind::ContextUpdated { context } => {
                 self.context = Some(context.clone());
             }
+            RuntimeEventKind::ContextBundleBuilt {
+                bundle_id,
+                scope,
+                handle_ids,
+                estimated_tokens,
+            } => {
+                upsert_by_id(
+                    &mut self.context_bundles,
+                    ContextBundleSummaryRecord {
+                        bundle_id: bundle_id.clone(),
+                        scope: scope.clone(),
+                        handle_ids: handle_ids.clone(),
+                        estimated_tokens: *estimated_tokens,
+                    },
+                    |existing| existing.bundle_id == *bundle_id,
+                );
+                cap_vec(&mut self.context_bundles);
+            }
+            RuntimeEventKind::ContextItemStored { item } => {
+                upsert_by_id(&mut self.context_items, item.clone(), |existing| {
+                    existing.item_id == item.item_id
+                });
+                cap_vec(&mut self.context_items);
+            }
+            RuntimeEventKind::ContextViewDerived { view, handle } => {
+                upsert_by_id(&mut self.context_views, view.clone(), |existing| {
+                    existing.view_id == view.view_id
+                });
+                upsert_by_id(&mut self.context_handles, handle.clone(), |existing| {
+                    existing.handle_id == handle.handle_id
+                });
+                cap_vec(&mut self.context_views);
+                cap_vec(&mut self.context_handles);
+            }
+            RuntimeEventKind::ContextRetrieved { retrieval } => {
+                self.context_retrievals.push(retrieval.clone());
+                cap_vec(&mut self.context_retrievals);
+            }
+            RuntimeEventKind::ContextBudgetExceeded { budget } => {
+                upsert_by_id(&mut self.context_budgets, budget.clone(), |existing| {
+                    existing.budget_id == budget.budget_id
+                });
+                cap_vec(&mut self.context_budgets);
+            }
+            RuntimeEventKind::ContextQualityFailed { quality } => {
+                upsert_by_id(&mut self.context_quality, quality.clone(), |existing| {
+                    existing.quality_id == quality.quality_id
+                });
+                cap_vec(&mut self.context_quality);
+            }
+            RuntimeEventKind::CostUsageRecorded { cost } => {
+                self.cost_ledger.record(cost);
+                self.cost_usage.push(cost.clone());
+                cap_vec(&mut self.cost_usage);
+            }
+            RuntimeEventKind::ProviderCacheObserved {
+                provider_id,
+                model,
+                cached_input_tokens,
+                cache_hit_microunits,
+            } => {
+                self.provider_cache_observations
+                    .push(ProviderCacheObservationRecord {
+                        provider_id: provider_id.clone(),
+                        model: model.clone(),
+                        cached_input_tokens: *cached_input_tokens,
+                        cache_hit_microunits: *cache_hit_microunits,
+                    });
+                cap_vec(&mut self.provider_cache_observations);
+            }
+            RuntimeEventKind::EvidenceCanonicalized {
+                evidence_id,
+                item_id,
+                content_sha256,
+            } => {
+                upsert_by_id(
+                    &mut self.canonical_evidence,
+                    EvidenceCanonicalizationRecord {
+                        evidence_id: evidence_id.clone(),
+                        item_id: item_id.clone(),
+                        content_sha256: content_sha256.clone(),
+                    },
+                    |existing| existing.evidence_id == *evidence_id,
+                );
+                cap_vec(&mut self.canonical_evidence);
+            }
             RuntimeEventKind::MergeGateUpdated { gate } => {
                 upsert_by_id(&mut self.merge_gates, gate.clone(), |existing| {
                     existing.gate_id == gate.gate_id
@@ -406,6 +571,13 @@ impl RuntimeViewState {
                 self.errors.push(error.clone());
             }
         }
+    }
+}
+
+fn cap_vec<T>(items: &mut Vec<T>) {
+    let excess = items.len().saturating_sub(RUNTIME_VIEW_COLLECTION_LIMIT);
+    if excess > 0 {
+        items.drain(0..excess);
     }
 }
 

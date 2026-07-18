@@ -434,6 +434,287 @@ fn agent_dag_runtime_command_roundtrips_json() {
 }
 
 #[test]
+fn context_contracts_round_trip_without_exposing_storage_paths() {
+    let handle = ContextHandleRecord {
+        handle_id: "ctxh-1".into(),
+        item_id: "ctxi-1".into(),
+        preferred_view_id: Some("ctxv-1".into()),
+        content_sha256: "ab".repeat(32),
+        scope: ContextScope::Task("task-1".into()),
+        expires_at: None,
+    };
+    let item = ContextItemRecord {
+        item_id: "ctxi-1".into(),
+        scope: ContextScope::Dag("dag-1".into()),
+        kind: ContextContentKind::Diff,
+        content_sha256: "cd".repeat(32),
+        title: "runtime contract patch".into(),
+        summary: "Diff summary only".into(),
+        token_count: 120,
+        evidence_id: Some("evidence-1".into()),
+        created_at: Some(100),
+    };
+    let view_record = ContextViewRecord {
+        view_id: "ctxv-1".into(),
+        item_id: "ctxi-1".into(),
+        kind: ContextContentKind::Text,
+        derivation: "summary".into(),
+        content_sha256: "ef".repeat(32),
+        token_count: 24,
+        quality_id: Some("ctxq-1".into()),
+        created_at: Some(101),
+    };
+    let retrieval = ContextRetrievalRecord {
+        retrieval_id: "ctxr-1".into(),
+        handle_id: "ctxh-1".into(),
+        item_id: "ctxi-1".into(),
+        view_id: Some("ctxv-1".into()),
+        reason: "answer follow-up".into(),
+        requester: "runtime".into(),
+        retrieved_at: Some(102),
+    };
+    let quality = ContextQualityRecord {
+        quality_id: "ctxq-1".into(),
+        target_id: "ctxv-1".into(),
+        passed: true,
+        score_microunits: Some(920_000),
+        checks: vec!["sha256_match".into(), "evidence_present".into()],
+        failure_reason: None,
+        checked_at: Some(103),
+    };
+    let budget = ContextBudgetRecord {
+        budget_id: "ctxb-1".into(),
+        scope: ContextScope::Workflow("wf-1".into()),
+        soft_token_limit: 8_000,
+        hard_token_limit: 16_000,
+        used_tokens: 1_200,
+        remaining_tokens: 6_800,
+        exceeded: false,
+        updated_at: Some(104),
+    };
+    let cost = CostUsageRecord {
+        usage_id: "cost-1".into(),
+        provider_id: "deepseek".into(),
+        model: "deepseek-reasoner".into(),
+        scope: ContextScope::Task("task-1".into()),
+        input_tokens: 1_000,
+        output_tokens: 250,
+        cached_input_tokens: 500,
+        total_tokens: 1_250,
+        estimated_cost_micro_usd: 1_234,
+        actual_cost_micro_usd: None,
+        recorded_at: Some(105),
+    };
+
+    let handle_json = serde_json::to_value(&handle).unwrap();
+    assert_eq!(handle_json["scope"]["type"], "task");
+    assert!(handle_json.get("storage_path").is_none());
+    assert_eq!(
+        serde_json::from_value::<ContextHandleRecord>(handle_json).unwrap(),
+        handle
+    );
+
+    let records = serde_json::json!({
+        "item": item,
+        "view": view_record,
+        "retrieval": retrieval,
+        "quality": quality,
+        "budget": budget,
+        "cost": cost,
+    });
+    assert_eq!(records["item"]["kind"], "diff");
+    assert_eq!(records["view"]["kind"], "text");
+    assert_eq!(records["retrieval"]["reason"], "answer follow-up");
+    assert_eq!(records["quality"]["score_microunits"], 920_000);
+    assert_eq!(records["budget"]["scope"]["type"], "workflow");
+    assert_eq!(
+        records["cost"]["actual_cost_micro_usd"],
+        serde_json::Value::Null
+    );
+    assert!(
+        !serde_json::to_string(&records)
+            .unwrap()
+            .contains("storage_path")
+    );
+}
+
+#[test]
+fn context_and_cost_runtime_events_project_bounded_summaries() {
+    let handle = ContextHandleRecord {
+        handle_id: "ctxh-1".into(),
+        item_id: "ctxi-1".into(),
+        preferred_view_id: Some("ctxv-1".into()),
+        content_sha256: "ab".repeat(32),
+        scope: ContextScope::Task("task-1".into()),
+        expires_at: None,
+    };
+    let item = ContextItemRecord {
+        item_id: "ctxi-1".into(),
+        scope: ContextScope::Task("task-1".into()),
+        kind: ContextContentKind::Code,
+        content_sha256: "cd".repeat(32),
+        title: "runtime.rs".into(),
+        summary: "Runtime contract definitions".into(),
+        token_count: 320,
+        evidence_id: None,
+        created_at: Some(200),
+    };
+    let view_record = ContextViewRecord {
+        view_id: "ctxv-1".into(),
+        item_id: "ctxi-1".into(),
+        kind: ContextContentKind::Text,
+        derivation: "bounded_summary".into(),
+        content_sha256: "ef".repeat(32),
+        token_count: 80,
+        quality_id: Some("ctxq-1".into()),
+        created_at: Some(201),
+    };
+    let retrieval = ContextRetrievalRecord {
+        retrieval_id: "ctxr-1".into(),
+        handle_id: "ctxh-1".into(),
+        item_id: "ctxi-1".into(),
+        view_id: Some("ctxv-1".into()),
+        reason: "hydrate evidence".into(),
+        requester: "runtime".into(),
+        retrieved_at: Some(202),
+    };
+    let budget = ContextBudgetRecord {
+        budget_id: "ctxb-1".into(),
+        scope: ContextScope::Task("task-1".into()),
+        soft_token_limit: 1_000,
+        hard_token_limit: 1_200,
+        used_tokens: 1_300,
+        remaining_tokens: 0,
+        exceeded: true,
+        updated_at: Some(203),
+    };
+    let quality = ContextQualityRecord {
+        quality_id: "ctxq-1".into(),
+        target_id: "ctxv-1".into(),
+        passed: false,
+        score_microunits: Some(400_000),
+        checks: vec!["missing_canonical_evidence".into()],
+        failure_reason: Some("canonical evidence was not attached".into()),
+        checked_at: Some(204),
+    };
+    let cost = CostUsageRecord {
+        usage_id: "cost-1".into(),
+        provider_id: "deepseek".into(),
+        model: "deepseek-reasoner".into(),
+        scope: ContextScope::Task("task-1".into()),
+        input_tokens: 700,
+        output_tokens: 300,
+        cached_input_tokens: 200,
+        total_tokens: 1_000,
+        estimated_cost_micro_usd: 900,
+        actual_cost_micro_usd: Some(950),
+        recorded_at: Some(205),
+    };
+    let events = vec![
+        RuntimeEvent::new(
+            1,
+            RuntimeEventKind::ContextBundleBuilt {
+                bundle_id: "bundle-1".into(),
+                scope: ContextScope::Task("task-1".into()),
+                handle_ids: vec![handle.handle_id.clone()],
+                estimated_tokens: 400,
+            },
+        ),
+        RuntimeEvent::new(2, RuntimeEventKind::ContextItemStored { item }),
+        RuntimeEvent::new(
+            3,
+            RuntimeEventKind::ContextViewDerived {
+                view: view_record,
+                handle: handle.clone(),
+            },
+        ),
+        RuntimeEvent::new(4, RuntimeEventKind::ContextRetrieved { retrieval }),
+        RuntimeEvent::new(5, RuntimeEventKind::ContextBudgetExceeded { budget }),
+        RuntimeEvent::new(6, RuntimeEventKind::ContextQualityFailed { quality }),
+        RuntimeEvent::new(7, RuntimeEventKind::CostUsageRecorded { cost }),
+        RuntimeEvent::new(
+            8,
+            RuntimeEventKind::ProviderCacheObserved {
+                provider_id: "deepseek".into(),
+                model: "deepseek-reasoner".into(),
+                cached_input_tokens: 200,
+                cache_hit_microunits: 160_000,
+            },
+        ),
+        RuntimeEvent::new(
+            9,
+            RuntimeEventKind::EvidenceCanonicalized {
+                evidence_id: "evidence-1".into(),
+                item_id: "ctxi-1".into(),
+                content_sha256: "cd".repeat(32),
+            },
+        ),
+    ];
+
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    for event in &events {
+        view.apply_event(event);
+    }
+
+    assert_eq!(
+        serde_json::to_value(&events[0]).unwrap()["kind"]["type"],
+        "context_bundle_built"
+    );
+    assert_eq!(
+        serde_json::to_value(RuntimeCommand::RetrieveContext {
+            handle_id: handle.handle_id.clone(),
+            reason: "answer follow-up".into(),
+        })
+        .unwrap()["type"],
+        "retrieve_context"
+    );
+    assert_eq!(view.context_handles[0], handle);
+    assert_eq!(view.context_items[0].item_id, "ctxi-1");
+    assert_eq!(view.context_views[0].view_id, "ctxv-1");
+    assert_eq!(view.context_retrievals[0].handle_id, "ctxh-1");
+    assert_eq!(view.context_budgets[0].used_tokens, 1_300);
+    assert_eq!(view.context_quality[0].passed, false);
+    assert_eq!(view.cost_ledger.total_tokens, 1_000);
+    assert_eq!(view.cost_ledger.total_estimated_cost_micro_usd, 900);
+    assert_eq!(view.cost_ledger.total_actual_cost_micro_usd, Some(950));
+    assert_eq!(view.provider_cache_observations[0].cached_input_tokens, 200);
+    assert_eq!(view.canonical_evidence[0].evidence_id, "evidence-1");
+
+    for index in 0..55 {
+        view.apply_event(&RuntimeEvent::new(
+            100 + index,
+            RuntimeEventKind::ContextRetrieved {
+                retrieval: ContextRetrievalRecord {
+                    retrieval_id: format!("ctxr-extra-{index}"),
+                    handle_id: "ctxh-1".into(),
+                    item_id: "ctxi-1".into(),
+                    view_id: Some("ctxv-1".into()),
+                    reason: "bounded replay".into(),
+                    requester: "runtime".into(),
+                    retrieved_at: Some(300 + index),
+                },
+            },
+        ));
+    }
+    assert_eq!(view.context_retrievals.len(), 50);
+    assert_eq!(view.context_retrievals[0].retrieval_id, "ctxr-extra-5");
+
+    let public_json = serde_json::to_string(&events).unwrap()
+        + &serde_json::to_string(&view.context_bundles).unwrap()
+        + &serde_json::to_string(&view.context_handles).unwrap()
+        + &serde_json::to_string(&view.context_items).unwrap()
+        + &serde_json::to_string(&view.context_views).unwrap()
+        + &serde_json::to_string(&view.context_retrievals).unwrap()
+        + &serde_json::to_string(&view.context_budgets).unwrap()
+        + &serde_json::to_string(&view.context_quality).unwrap()
+        + &serde_json::to_string(&view.cost_usage).unwrap()
+        + &serde_json::to_string(&view.provider_cache_observations).unwrap()
+        + &serde_json::to_string(&view.canonical_evidence).unwrap();
+    assert!(!public_json.contains("storage_path"));
+    assert!(!public_json.contains("/tmp/viden"));
+}
+
+#[test]
 fn runtime_events_replay_into_ui_independent_view_state() {
     let snapshot = runtime_snapshot_for_contract();
     let mut view = RuntimeViewState::new(RuntimeSnapshot {
@@ -605,6 +886,17 @@ fn runtime_contract_fixture_replays_phase2_cross_frontend_facts() {
     assert_eq!(view.provider.as_ref().unwrap().model, "deepseek-reasoner");
     assert_eq!(view.token_cost.as_ref().unwrap().total_tokens, 3456);
     assert_eq!(view.token_cost.as_ref().unwrap().cost_micro_usd, Some(1234));
+    assert_eq!(view.context_handles[0].handle_id, "ctxh_runtime_1");
+    assert_eq!(view.context_items[0].kind, ContextContentKind::Code);
+    assert_eq!(view.context_views[0].derivation, "bounded_summary");
+    assert_eq!(view.context_bundles[0].bundle_id, "ctx_bundle_runtime_2");
+    assert_eq!(view.context_retrievals[0].retrieval_id, "ctxr_runtime_1");
+    assert!(view.context_budgets[0].exceeded);
+    assert!(!view.context_quality[0].passed);
+    assert_eq!(view.cost_ledger.total_tokens, 3456);
+    assert_eq!(view.provider_cache_observations[0].cached_input_tokens, 600);
+    assert_eq!(view.canonical_evidence[0].item_id, "ctxi_runtime_1");
+    assert!(!fixture.contains("storage_path"));
     assert!(view.pending_approvals.is_empty());
     assert!(view.active_tool_calls.is_empty());
     assert_eq!(view.tasks[0].id, "task_runtime_1");

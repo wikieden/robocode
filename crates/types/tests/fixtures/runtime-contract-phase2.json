@@ -220,5 +220,182 @@
         }
       }
     }
+  },
+  {
+    "sequence": 13,
+    "timestamp": 1012,
+    "kind": {
+      "type": "context_item_stored",
+      "payload": {
+        "item": {
+          "item_id": "ctxi_runtime_1",
+          "scope": {
+            "type": "task",
+            "id": "task_runtime_1"
+          },
+          "kind": "code",
+          "content_sha256": "abababababababababababababababababababababababababababababababab",
+          "title": "Runtime contract source",
+          "summary": "Runtime contract definitions for review",
+          "token_count": 640,
+          "evidence_id": "evidence_runtime_1",
+          "created_at": 1012
+        }
+      }
+    }
+  },
+  {
+    "sequence": 14,
+    "timestamp": 1013,
+    "kind": {
+      "type": "context_view_derived",
+      "payload": {
+        "view": {
+          "view_id": "ctxv_runtime_1",
+          "item_id": "ctxi_runtime_1",
+          "kind": "text",
+          "derivation": "bounded_summary",
+          "content_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "token_count": 120,
+          "quality_id": "ctxq_runtime_1",
+          "created_at": 1013
+        },
+        "handle": {
+          "handle_id": "ctxh_runtime_1",
+          "item_id": "ctxi_runtime_1",
+          "preferred_view_id": "ctxv_runtime_1",
+          "content_sha256": "abababababababababababababababababababababababababababababababab",
+          "scope": {
+            "type": "task",
+            "id": "task_runtime_1"
+          },
+          "expires_at": null
+        }
+      }
+    }
+  },
+  {
+    "sequence": 15,
+    "timestamp": 1014,
+    "kind": {
+      "type": "context_bundle_built",
+      "payload": {
+        "bundle_id": "ctx_bundle_runtime_2",
+        "scope": {
+          "type": "workflow",
+          "id": "workflow_runtime_1"
+        },
+        "handle_ids": ["ctxh_runtime_1"],
+        "estimated_tokens": 120
+      }
+    }
+  },
+  {
+    "sequence": 16,
+    "timestamp": 1015,
+    "kind": {
+      "type": "context_retrieved",
+      "payload": {
+        "retrieval": {
+          "retrieval_id": "ctxr_runtime_1",
+          "handle_id": "ctxh_runtime_1",
+          "item_id": "ctxi_runtime_1",
+          "view_id": "ctxv_runtime_1",
+          "reason": "hydrate canonical evidence for review",
+          "requester": "runtime",
+          "retrieved_at": 1015
+        }
+      }
+    }
+  },
+  {
+    "sequence": 17,
+    "timestamp": 1016,
+    "kind": {
+      "type": "context_budget_exceeded",
+      "payload": {
+        "budget": {
+          "budget_id": "ctxb_runtime_1",
+          "scope": {
+            "type": "task",
+            "id": "task_runtime_1"
+          },
+          "soft_token_limit": 100,
+          "hard_token_limit": 120,
+          "used_tokens": 140,
+          "remaining_tokens": 0,
+          "exceeded": true,
+          "updated_at": 1016
+        }
+      }
+    }
+  },
+  {
+    "sequence": 18,
+    "timestamp": 1017,
+    "kind": {
+      "type": "context_quality_failed",
+      "payload": {
+        "quality": {
+          "quality_id": "ctxq_runtime_1",
+          "target_id": "ctxv_runtime_1",
+          "passed": false,
+          "score_microunits": 500000,
+          "checks": ["canonical_evidence_present"],
+          "failure_reason": "canonical evidence was incomplete",
+          "checked_at": 1017
+        }
+      }
+    }
+  },
+  {
+    "sequence": 19,
+    "timestamp": 1018,
+    "kind": {
+      "type": "cost_usage_recorded",
+      "payload": {
+        "cost": {
+          "usage_id": "cost_runtime_1",
+          "provider_id": "deepseek",
+          "model": "deepseek-reasoner",
+          "scope": {
+            "type": "task",
+            "id": "task_runtime_1"
+          },
+          "input_tokens": 2300,
+          "output_tokens": 1156,
+          "cached_input_tokens": 600,
+          "total_tokens": 3456,
+          "estimated_cost_micro_usd": 1234,
+          "actual_cost_micro_usd": null,
+          "recorded_at": 1018
+        }
+      }
+    }
+  },
+  {
+    "sequence": 20,
+    "timestamp": 1019,
+    "kind": {
+      "type": "provider_cache_observed",
+      "payload": {
+        "provider_id": "deepseek",
+        "model": "deepseek-reasoner",
+        "cached_input_tokens": 600,
+        "cache_hit_microunits": 260000
+      }
+    }
+  },
+  {
+    "sequence": 21,
+    "timestamp": 1020,
+    "kind": {
+      "type": "evidence_canonicalized",
+      "payload": {
+        "evidence_id": "evidence_runtime_1",
+        "item_id": "ctxi_runtime_1",
+        "content_sha256": "abababababababababababababababababababababababababababababababab"
+      }
+    }
   }
 ]
