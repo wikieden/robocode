@@ -53,6 +53,8 @@ adapter 可以优化 provider input，但不能修改 canonical context、绕过
 
 host 会在 spawn 前拒绝 PATH-relative executable、symlink escape、trusted root 外的 cwd、不安全 reducer id/version，以及缺失或不匹配的 process authorization。host 不调用 shell，会先清空 environment 再应用 allowlist，通过有界 pipe 传输 request/response JSON，并执行 host wall-clock deadline。timeout 时，process transport 会 kill 并 wait/reap direct child，然后再返回 native fallback。由于跨平台 process-group kill 不可用时只能保证 direct child，adapter contract 禁止 shell wrapping 和自行 spawn child。
 
+process stdout bound 取 runtime limits、descriptor limits、request policy 和 hard global cap 的最小值。reader 最多保留超过 bound 的一个 sentinel byte；触发 sentinel overflow 时会 kill 并 wait/reap direct child，然后 native fallback。stderr 使用独立 hard cap，只会以 redacted bounded health 形式出现。
+
 in-process closure executor 只用于可信测试和 cooperative local harness。它会在命名 worker thread 中运行 owned request value，并使用 `catch_unwind` 与 host wall-clock `recv_timeout`，但 timeout 后不能取消任意用户代码，因此不是生产 adapter boundary。runtime 只有在存在已注册 process descriptor 时才使用外部 adapter，否则不使用 adapter。host 不信任 response 自报 latency 来做 timeout 决策。
 
 只有 request id、canonical hash、permission snapshot reference、scope、content kind、已协商 reducer id/version、schema version、size、encoding、quality/evidence thresholds 全部通过时，外部结果才会被接受。

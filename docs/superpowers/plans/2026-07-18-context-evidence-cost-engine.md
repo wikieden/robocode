@@ -551,6 +551,9 @@ is a trusted test harness and is not a cancellable production boundary. Runtime
 `ContextReductionRecord` events persist bounded adapter id/version,
 status/reason, measured latency, and fallback provenance without request
 content, storage paths, raw credentials, raw stderr, or raw adapter output.
+Process stdout uses the minimum of config, descriptor, request policy, and a
+hard global cap with one sentinel byte; sentinel overflow kills and reaps the
+direct child before fallback. Stderr is separately hard-capped and redacted.
 
 - [ ] **Step 5: Verify no mandatory Headroom dependency**
 

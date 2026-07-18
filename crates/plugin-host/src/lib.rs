@@ -13,6 +13,9 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+const CONTEXT_REDUCER_PROCESS_STDOUT_HARD_CAP_BYTES: usize = 1024 * 1024;
+const CONTEXT_REDUCER_PROCESS_STDERR_HARD_CAP_BYTES: usize = 4 * 1024;
+
 use viden_plugin_api::{
     AgentAuthMode, AgentCommandSpec, AgentEnvRef, AgentPermissionProfile, AgentPluginCapability,
     AgentPluginDescriptor, AgentProtocolVersion, AgentRegistryPackage, AgentSource, AgentTransport,
@@ -623,8 +626,9 @@ fn execute_adapter(
         ContextReducerExecutor::Process(process) => {
             let max_stdout_bytes = config
                 .max_output_bytes
-                .max(descriptor.limits.max_output_bytes)
-                .max(request.policy.max_output_bytes);
+                .min(descriptor.limits.max_output_bytes)
+                .min(request.policy.max_output_bytes)
+                .min(CONTEXT_REDUCER_PROCESS_STDOUT_HARD_CAP_BYTES);
             let started = Instant::now();
             let response = execute_process_adapter(
                 &descriptor.reducer_id,
@@ -695,62 +699,117 @@ fn execute_process_adapter(
         .stderr
         .take()
         .ok_or(ContextReducerHostError::AdapterCrash)?;
-    let stdout_reader = thread::spawn(move || read_bounded(stdout, max_stdout_bytes));
-    let stderr_limit = config.max_stderr_bytes;
+    let (stdout_sender, stdout_receiver) = mpsc::sync_channel(1);
+    let stdout_reader = thread::spawn(move || {
+        let _ = stdout_sender.send(read_bounded(stdout, max_stdout_bytes));
+    });
+    let stderr_limit = config
+        .max_stderr_bytes
+        .min(CONTEXT_REDUCER_PROCESS_STDERR_HARD_CAP_BYTES);
     let stderr_reader = thread::spawn(move || read_bounded(stderr, stderr_limit));
     let deadline = started + Duration::from_millis(timeout_ms);
+    let mut completed_stdout = None;
     let status = loop {
+        match stdout_receiver.try_recv() {
+            Ok(Ok(stdout)) if stdout.exceeded => {
+                kill_wait_join(&mut child, stdout_reader, stderr_reader);
+                return Err(ContextReducerHostError::OversizeResponse);
+            }
+            Ok(Err(_)) => {
+                kill_wait_join(&mut child, stdout_reader, stderr_reader);
+                return Err(ContextReducerHostError::AdapterCrash);
+            }
+            Ok(Ok(stdout)) => {
+                completed_stdout = Some(stdout);
+                break child
+                    .wait()
+                    .map_err(|_| ContextReducerHostError::AdapterCrash)?;
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                kill_wait_join(&mut child, stdout_reader, stderr_reader);
+                return Err(ContextReducerHostError::AdapterCrash);
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+        }
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if Instant::now() >= deadline => {
                 // Production isolation is the direct child process: kill and
                 // reap it before returning so late stdout/stderr cannot mutate
                 // host state after native fallback has been selected.
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
+                kill_wait_join(&mut child, stdout_reader, stderr_reader);
                 return Err(ContextReducerHostError::Timeout);
             }
             Ok(None) => thread::sleep(Duration::from_millis(5)),
             Err(_) => return Err(ContextReducerHostError::AdapterCrash),
         }
     };
-    let stdout = stdout_reader
-        .join()
-        .map_err(|_| ContextReducerHostError::AdapterCrash)?
-        .map_err(|_| ContextReducerHostError::AdapterCrash)?;
+    let stdout = match completed_stdout {
+        Some(stdout) => stdout,
+        None => match stdout_receiver.recv() {
+            Ok(Ok(stdout)) => stdout,
+            Ok(Err(_)) | Err(_) => return Err(ContextReducerHostError::AdapterCrash),
+        },
+    };
+    let _ = stdout_reader.join();
     let stderr = stderr_reader
         .join()
         .map_err(|_| ContextReducerHostError::AdapterCrash)?
         .map_err(|_| ContextReducerHostError::AdapterCrash)?;
     if !status.success() {
-        let stderr = bounded_redacted_stderr(&stderr);
+        let stderr = bounded_redacted_stderr(&stderr.bytes);
         return Err(ContextReducerHostError::ProcessCrash(format!(
             "context reducer process exited nonzero: {stderr}"
         )));
     }
-    if stdout.len() > max_stdout_bytes {
+    if stdout.exceeded {
         return Err(ContextReducerHostError::OversizeResponse);
     }
-    serde_json::from_slice::<ContextReducerResponse>(&stdout)
+    serde_json::from_slice::<ContextReducerResponse>(&stdout.bytes)
         .map_err(|_| ContextReducerHostError::MalformedResponse)
 }
 
-fn read_bounded<R: Read>(mut reader: R, max_bytes: usize) -> Result<Vec<u8>, std::io::Error> {
+fn kill_wait_join(
+    child: &mut std::process::Child,
+    stdout_reader: thread::JoinHandle<()>,
+    stderr_reader: thread::JoinHandle<Result<BoundedRead, std::io::Error>>,
+) {
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = stdout_reader.join();
+    let _ = stderr_reader.join();
+}
+
+struct BoundedRead {
+    bytes: Vec<u8>,
+    exceeded: bool,
+}
+
+fn read_bounded<R: Read>(mut reader: R, max_bytes: usize) -> Result<BoundedRead, std::io::Error> {
     let mut output = Vec::new();
     let mut chunk = [0_u8; 4096];
+    let sentinel_bytes = max_bytes.saturating_add(1);
     loop {
         let read = reader.read(&mut chunk)?;
         if read == 0 {
             break;
         }
-        if output.len() <= max_bytes {
-            let remaining = max_bytes.saturating_add(1).saturating_sub(output.len());
+        if output.len() < sentinel_bytes {
+            let remaining = sentinel_bytes.saturating_sub(output.len());
             output.extend_from_slice(&chunk[..read.min(remaining)]);
+            if output.len() > max_bytes {
+                return Ok(BoundedRead {
+                    bytes: output,
+                    exceeded: true,
+                });
+            }
         }
     }
-    Ok(output)
+    let exceeded = output.len() > max_bytes;
+    Ok(BoundedRead {
+        bytes: output,
+        exceeded,
+    })
 }
 
 fn bounded_redacted_stderr(stderr: &[u8]) -> String {
@@ -1308,6 +1367,19 @@ fn main() {
         }
         "malformed" => print!("not-json"),
         "oversize" => print!("{}", "x".repeat(20_000)),
+        "stream_oversize" => {
+            let marker = env::args().nth(2).expect("marker path");
+            if let Some(pid_path) = env::args().nth(3) {
+                fs::write(pid_path, std::process::id().to_string()).unwrap();
+            }
+            print!("{}", "x".repeat(2_000_000));
+            thread::sleep(Duration::from_millis(5000));
+            fs::write(marker, "late mutation").unwrap();
+        }
+        "stderr_large_nonzero" => {
+            eprintln!("{}", "failed /Users/wiki/private sk-test-secret ".repeat(1000));
+            std::process::exit(9);
+        }
         _ => std::process::exit(2),
     }
 }
@@ -1347,6 +1419,12 @@ fn main() {
                 permission_snapshot_ref: "plugin-install:adapter:approved".to_string(),
             }),
         }
+    }
+
+    fn process_request_with_limit(max_output_bytes: usize) -> ContextReducerRequest {
+        let mut request = context_reducer_request();
+        request.policy.max_output_bytes = max_output_bytes;
+        request
     }
 
     #[test]
@@ -1779,7 +1857,7 @@ fn main() {
         let outcome = execute_context_reducer(
             &config,
             &descriptor,
-            context_reducer_request(),
+            process_request_with_limit(4096),
             Some(ContextReducerExecutor::process(process)),
             native_response,
         );
@@ -1819,7 +1897,7 @@ fn main() {
         let outcome = execute_context_reducer(
             &config,
             selected,
-            context_reducer_request(),
+            process_request_with_limit(4096),
             Some(ContextReducerExecutor::process(process)),
             native_response,
         );
@@ -1960,7 +2038,7 @@ fn main() {
             let outcome = execute_context_reducer(
                 &config,
                 &descriptor,
-                context_reducer_request(),
+                process_request_with_limit(4096),
                 Some(ContextReducerExecutor::process(process)),
                 native_response,
             );
@@ -1975,6 +2053,107 @@ fn main() {
             assert!(!message.contains("sk-test-secret"), "{name}");
             assert!(message.len() <= 200, "{name}");
         }
+    }
+
+    #[test]
+    fn context_reducer_process_stdout_limit_uses_smallest_request_policy_bound() {
+        let helper = compile_context_reducer_helper();
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            timeout_ms: 10_000,
+            max_output_bytes: 4096,
+            ..ContextReducerAdapterConfig::default()
+        };
+
+        let outcome = execute_context_reducer(
+            &config,
+            &context_reducer_descriptor("adapter"),
+            process_request_with_limit(64),
+            Some(ContextReducerExecutor::process(process_descriptor(
+                &helper, "success",
+            ))),
+            native_response,
+        );
+
+        assert!(outcome.used_native_fallback);
+        assert_eq!(outcome.health.status, ContextReducerHealthStatus::Oversize);
+        assert_eq!(
+            outcome.health.message.as_deref(),
+            Some("context reducer response exceeds byte limit")
+        );
+    }
+
+    #[test]
+    fn context_reducer_process_stdout_global_cap_kills_and_reaps_child_on_sentinel() {
+        let helper = compile_context_reducer_helper();
+        let marker = helper.with_file_name("oversize-marker");
+        let pid_file = helper.with_file_name("oversize-pid");
+        let mut descriptor = context_reducer_descriptor("adapter");
+        descriptor.limits.max_output_bytes = usize::MAX;
+        let mut process = process_descriptor(&helper, "stream_oversize");
+        process.args.push(marker.display().to_string());
+        process.args.push(pid_file.display().to_string());
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            timeout_ms: 10_000,
+            max_output_bytes: usize::MAX,
+            ..ContextReducerAdapterConfig::default()
+        };
+        let started = std::time::Instant::now();
+
+        let outcome = execute_context_reducer(
+            &config,
+            &descriptor,
+            process_request_with_limit(usize::MAX),
+            Some(ContextReducerExecutor::process(process)),
+            native_response,
+        );
+
+        assert!(started.elapsed() < std::time::Duration::from_millis(3_000));
+        assert!(outcome.used_native_fallback);
+        assert_eq!(outcome.health.status, ContextReducerHealthStatus::Oversize);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(
+            !marker.exists(),
+            "oversize child must be killed before late mutation"
+        );
+        let pid = std::fs::read_to_string(&pid_file).expect("helper writes pid before stream");
+        let ps = std::process::Command::new("ps")
+            .arg("-p")
+            .arg(pid.trim())
+            .output()
+            .expect("ps is available on unix-like test host");
+        assert!(
+            !String::from_utf8_lossy(&ps.stdout).contains(pid.trim()),
+            "oversize direct child must be reaped before host returns"
+        );
+    }
+
+    #[test]
+    fn context_reducer_process_stderr_health_is_separately_hard_capped() {
+        let helper = compile_context_reducer_helper();
+        let mut process = process_descriptor(&helper, "stderr_large_nonzero");
+        process.max_stderr_bytes = 32;
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            timeout_ms: 10_000,
+            ..ContextReducerAdapterConfig::default()
+        };
+
+        let outcome = execute_context_reducer(
+            &config,
+            &context_reducer_descriptor("adapter"),
+            process_request_with_limit(4096),
+            Some(ContextReducerExecutor::process(process)),
+            native_response,
+        );
+
+        assert!(outcome.used_native_fallback);
+        assert_eq!(outcome.health.status, ContextReducerHealthStatus::Crash);
+        let message = outcome.health.message.unwrap_or_default();
+        assert!(message.len() <= 96, "{message}");
+        assert!(!message.contains("/Users/"));
+        assert!(!message.contains("sk-test-secret"));
     }
 
     #[test]

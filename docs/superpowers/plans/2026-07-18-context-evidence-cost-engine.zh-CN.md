@@ -142,10 +142,18 @@
 
 **文件：** plugin-api、plugin-host 及双语 plugin architecture docs。
 
-- [ ] 编写 capability registration、version negotiation、timeout、malformed response、process absence 和 native fallback tests。
-- [ ] 增加 `context_reducer` capability envelope；内容包括 kind、canonical hash、policy、reduced content、omissions、reducer id/version 和 quality facts。
-- [ ] External reducer 默认关闭，必须显式配置，不能读取 credential/storage path。
-- [ ] Timeout/crash/hash mismatch/quality failure 生成 health evidence 并回退 native reducer。
+- [ ] 编写 capability registration、version negotiation、timeout、malformed response、process absence、process timeout/kill、bounded runtime health evidence 和 native fallback tests。
+- [ ] 增加 `context_reducer` capability envelope；内容包括 kind、canonical hash、policy、reduced content、omissions、reducer id/version 和 deterministic quality facts。
+- [ ] Request envelope 只能包含 schema version、request id、content kind、canonical item/hash/reference、reduction policy/budget、role/task scope、permission snapshot reference 和必要的 native baseline quality facts；不得包含 credential、storage path、API key 或 canonical store mutable handle。
+- [ ] Response 必须回绑相同 schema version、request id、canonical hash、permission snapshot reference、scope、content kind、已协商 reducer id/version；reduced UTF-8 content、omissions、quality/evidence recall 和 health metadata 都必须在 byte/item/depth limit 内。
+- [ ] External reducer 默认关闭，runtime config 只能 enable/select 已注册 reducer id，不能直接提供 executable/cwd，也不能伪造 trusted root 或 permission snapshot。
+- [ ] Production adapter 只能通过已注册 `ContextReducerProcessDescriptor` 执行：canonical absolute executable 必须位于 canonical trusted plugin root 下，args 为字面值，不使用 shell interpolation，cwd 如存在也必须在 trusted root 下，environment 先清空再按 allowlist 注入，stderr 单独 hard cap。
+- [ ] Process descriptor 必须带 `ContextReducerProcessAuthorization`，把 adapter id/version、executable identity 和 permission snapshot reference 绑定；缺失或不匹配时 native fallback + bounded health evidence，且不得 spawn。
+- [ ] Host 必须拒绝 PATH-relative executable、symlink escape、trusted root 外 cwd、不安全 reducer id/version、缺失 authorization、malformed response、错误 version/hash/scope、oversize output 和 quality failure。
+- [ ] Process stdout reader 的 effective bound 必须取 config、descriptor、request policy 和 hard global cap 的最小值，并使用 checked/saturating 的 sentinel byte；stdout 超过 sentinel 时必须停止读取、kill + wait/reap direct child，然后 native fallback。stderr 使用独立 hard cap，只进入 redacted bounded health。
+- [ ] Timeout/crash/hash mismatch/quality failure/circuit-open 生成 bounded health evidence 并回退 native reducer；health evidence 只记录 adapter id/version、status/reason、host-measured latency、fallback flag 和 item/view binding，不包含 request content、storage path、credential、raw stderr 或 raw adapter output。
+- [ ] In-process executor 只允许作为 trusted test harness/cooperative local harness，不是可取消的 production boundary。Production integration 必须使用 process transport 或不使用 adapter。
+- [ ] Startup/provider request 在 native reducer 健康时不得被 adapter failure 阻塞；circuit breaker 使用 monotonic backoff/open_until，deadline 后 half-open probe，成功 reset，失败 reopen。
 - [ ] 运行 `cargo tree | rg -i 'headroom|pyo3|python'`，production dependency 应无输出。
 - [ ] 运行 `cargo test -p viden-plugin-api -p viden-plugin-host`。
 - [ ] 提交：`feat: add optional context reducer capability`。

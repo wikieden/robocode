@@ -82,6 +82,12 @@ contract disallows shell wrapping and child spawning when cross-platform
 process-group cancellation is unavailable, so the direct-child kill guarantee is
 the production cancellation boundary.
 
+Process stdout is bounded by the minimum of runtime limits, descriptor limits,
+request policy, and a hard global cap. The reader keeps at most one sentinel
+byte beyond that bound; crossing the sentinel kills and reaps the direct child
+before native fallback. Stderr is captured with an independent hard cap and only
+appears in redacted bounded health.
+
 In-process closure executors exist only for trusted tests and cooperative local
 harnesses. They run on a named worker thread with an owned request value,
 `catch_unwind`, and a host wall-clock `recv_timeout`, but they cannot cancel
