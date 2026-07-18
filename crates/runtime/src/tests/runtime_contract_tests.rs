@@ -1,8 +1,8 @@
-use std::fs;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU64, Ordering},
 };
+use std::{collections::BTreeMap, fs};
 
 use viden_context::{ContextEngine, ContextPutRequest};
 use viden_provider::ModelProvider;
@@ -16,7 +16,7 @@ use viden_types::{
     RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, TranscriptEntry,
     WorkMode,
 };
-use viden_workflows::stores::WorkflowStore;
+use viden_workflows::stores::{WorkflowAgentEvent, WorkflowStore};
 
 use crate::{EngineEvent, SessionEngine, context_bundle::ContextBuildMode};
 
@@ -125,6 +125,13 @@ fn transcript_runtime_events(
             _ => None,
         })
         .collect()
+}
+
+fn workflow_agent_events(cwd: &std::path::Path, home: &std::path::Path) -> Vec<WorkflowAgentEvent> {
+    WorkflowStore::new(home, cwd)
+        .unwrap()
+        .load_agent_events()
+        .unwrap()
 }
 
 #[test]
@@ -2062,6 +2069,7 @@ fn record_agent_evidence_rolls_back_when_workflow_append_fails() {
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_workflow_append_fail");
     let before = engine.runtime_view_state();
+    let workflow_before = workflow_agent_events(&cwd, &home);
     let (item, canonical) = stored_canonical_context(
         &cwd,
         "task_workflow_append_fail",
@@ -2104,6 +2112,11 @@ fn record_agent_evidence_rolls_back_when_workflow_append_fails() {
         engine.runtime_view_state().latest_evidence,
         before.latest_evidence,
         "workflow append failure must not leak evidence"
+    );
+    assert_eq!(
+        workflow_agent_events(&cwd, &home),
+        workflow_before,
+        "failed command must not append a canonical projection batch"
     );
     assert_resumed_runtime_matches(&cwd, &home, &session_id, &engine.runtime_view_state());
 }
@@ -2164,18 +2177,129 @@ fn record_agent_evidence_does_not_dual_write_or_roll_back_on_transcript_failure(
         )),
         "project agent facts must not be dual-written to the session transcript"
     );
-    let workflow_events = WorkflowStore::new(&home, &cwd)
-        .unwrap()
-        .load_agent_events()
-        .unwrap();
-    assert!(workflow_events.iter().any(|event| {
-        event.event_type == "runtime_projection"
-            && event
-                .payload
-                .get("runtime_event_kind")
-                .is_some_and(|kind| kind == "evidence_recorded")
+    let workflow_events = workflow_agent_events(&cwd, &home);
+    let projection_batches = workflow_events
+        .iter()
+        .filter(|event| event.event_type == "runtime_projection_batch")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        projection_batches.len(),
+        2,
+        "start + evidence projection batches"
+    );
+    assert!(projection_batches.iter().any(|event| {
+        event
+            .payload
+            .get("command_id")
+            .is_some_and(|id| id == "cmd_no_dual_write_evidence")
+            && event.payload.contains_key("runtime_events_json")
+            && !event.payload.contains_key("runtime_event_json")
     }));
+    assert!(
+        !workflow_events
+            .iter()
+            .any(|event| event.event_type == "runtime_projection"),
+        "new commands must not write one projection event per runtime event"
+    );
     assert_resumed_runtime_matches(&cwd, &home, &session_id, &engine.runtime_view_state());
+}
+
+#[test]
+fn record_agent_evidence_projection_redacts_summary_source_and_unsafe_paths() {
+    let cwd = temp_dir("runtime_contract_projection_redaction_cwd");
+    let home = temp_dir("runtime_contract_projection_redaction_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    start_single_patch_gate(&mut engine, &mut approver, "task_redact_projection");
+    let (item, canonical) = stored_canonical_context(
+        &cwd,
+        "task_redact_projection",
+        "evidence-redact-projection",
+        "bundle-redact-projection",
+        ContextContentKind::Diff,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    );
+    engine.set_merge_gate_context_facts_for_test("bundle-redact-projection", item);
+    let secret_summary = format!(
+        "patch proof sk-secret-token {} /Users/wiki/private.txt",
+        "x".repeat(700)
+    );
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_redact_projection",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_redact_projection".to_string(),
+                evidence_id: Some("evidence-redact-projection".to_string()),
+                kind: "patch".to_string(),
+                summary: secret_summary.clone(),
+                path: Some("/Users/wiki/private.txt".to_string()),
+                source: Some("source-sk-secret-token".to_string()),
+                canonical: Some(canonical),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_redact_projection" && reason.contains("invalid evidence path")
+    )));
+    let serialized_events = serde_json::to_string(&events).unwrap();
+    assert!(!serialized_events.contains("sk-secret-token"));
+    assert!(!serialized_events.contains("/Users/wiki/private.txt"));
+    let workflow_json = fs::read_to_string(
+        WorkflowStore::new(&home, &cwd)
+            .unwrap()
+            .paths()
+            .agent_log
+            .clone(),
+    )
+    .unwrap();
+    assert!(!workflow_json.contains("sk-secret-token"));
+    assert!(!workflow_json.contains("/Users/wiki/private.txt"));
+}
+
+#[test]
+fn record_agent_evidence_rejects_traversal_and_control_character_paths() {
+    for (case, path) in [
+        ("traversal", "../secret.txt"),
+        ("control", "target/\u{0007}secret.log"),
+    ] {
+        let cwd = temp_dir(&format!("runtime_contract_invalid_path_{case}_cwd"));
+        let home = temp_dir(&format!("runtime_contract_invalid_path_{case}_home"));
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        start_single_patch_gate(&mut engine, &mut approver, "task_invalid_path");
+        let events = engine
+            .handle_runtime_command(
+                format!("cmd_invalid_path_{case}"),
+                RuntimeCommand::RecordAgentEvidence {
+                    gate_id: "gate-task_invalid_path".to_string(),
+                    evidence_id: Some(format!("evidence-invalid-path-{case}")),
+                    kind: "patch".to_string(),
+                    summary: "summary".to_string(),
+                    path: Some(path.to_string()),
+                    source: Some("executor".to_string()),
+                    canonical: None,
+                },
+                &mut approver,
+            )
+            .unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { reason, .. } if reason.contains("invalid evidence path")
+        )));
+    }
 }
 
 #[test]
@@ -2237,14 +2361,73 @@ fn start_agent_task_projects_state_to_workflow_not_transcript() {
         .load_agent_events()
         .unwrap();
     assert!(workflow_events.iter().any(|event| {
-        event.event_type == "runtime_projection"
-            && event.task_id.as_deref() == Some("task_start_projection")
+        event.event_type == "runtime_projection_batch"
             && event
                 .payload
-                .get("runtime_event_kind")
-                .is_some_and(|kind| kind == "evidence_recorded")
+                .get("command_id")
+                .is_some_and(|id| id == "cmd_start_projection")
+            && event
+                .payload
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| {
+                    kinds.contains("evidence_recorded") && kinds.contains("merge_gate_updated")
+                })
     }));
     assert_resumed_runtime_matches(&cwd, &home, &session_id, &live);
+}
+
+#[test]
+fn start_agent_dag_rejects_projection_batches_over_event_cap_without_live_leak() {
+    let cwd = temp_dir("runtime_contract_projection_event_cap_cwd");
+    let home = temp_dir("runtime_contract_projection_event_cap_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let tasks = (0..260)
+        .map(|index| AgentDagTaskSpec {
+            task_id: format!("task_projection_cap_{index}"),
+            role: AgentRole::Coder,
+            title: "Cap".to_string(),
+            objective: "Exceed projection event cap".to_string(),
+            dependencies: Vec::new(),
+            workspace: None,
+            file_scope: vec!["src".to_string()],
+            context_bundle_id: None,
+            required_evidence: vec!["patch".to_string()],
+            permission_policy: "scoped_mutation".to_string(),
+        })
+        .collect::<Vec<_>>();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_projection_cap",
+            RuntimeCommand::StartAgentDag {
+                goal: "oversized projection batch".to_string(),
+                tasks,
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_projection_cap"
+                && reason.contains("workflow projection batch exceeds event cap")
+    )));
+    let live = engine.runtime_view_state();
+    assert!(live.agent_dags.is_empty());
+    assert!(live.tasks.is_empty());
+    assert!(live.merge_gates.is_empty());
+    assert!(
+        workflow_agent_events(&cwd, &home)
+            .iter()
+            .all(|event| event.event_type != "runtime_projection_batch")
+    );
+    assert_resumed_runtime_matches(&cwd, &home, engine.session_id(), &live);
 }
 
 #[test]
@@ -2296,6 +2479,90 @@ fn start_agent_task_rolls_back_when_workflow_append_fails() {
         "context bundle leaked"
     );
     assert_resumed_runtime_matches(&cwd, &home, &session_id, &live);
+}
+
+#[test]
+fn start_agent_dag_rolls_back_when_late_workflow_append_fails() {
+    let cwd = temp_dir("runtime_contract_start_dag_late_workflow_fail_cwd");
+    let home = temp_dir("runtime_contract_start_dag_late_workflow_fail_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let before = engine.runtime_view_state();
+    engine.fail_after_workflow_appends_for_test(1);
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_start_dag_late_fail",
+            RuntimeCommand::StartAgentDag {
+                goal: "late append fail".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_start_dag_late_fail".to_string(),
+                    role: AgentRole::Coder,
+                    title: "Patch safely".to_string(),
+                    objective: "Should not leak live DAG state".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec!["src".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["patch".to_string()],
+                    permission_policy: "scoped_mutation".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_start_dag_late_fail"
+                && reason.contains("injected workflow append failure")
+    )));
+    let live = engine.runtime_view_state();
+    assert_eq!(live.agent_dags, before.agent_dags);
+    assert_eq!(live.tasks, before.tasks);
+    assert_eq!(live.merge_gates, before.merge_gates);
+    assert_eq!(live.latest_evidence, before.latest_evidence);
+}
+
+#[test]
+fn cancel_agent_task_rolls_back_when_workflow_append_fails() {
+    let cwd = temp_dir("runtime_contract_cancel_task_workflow_fail_cwd");
+    let home = temp_dir("runtime_contract_cancel_task_workflow_fail_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    start_single_patch_gate(&mut engine, &mut approver, "task_cancel_workflow_fail");
+    let before = engine.runtime_view_state();
+    engine.fail_next_workflow_append_for_test();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_cancel_workflow_fail",
+            RuntimeCommand::CancelAgentTask {
+                task_id: "task_cancel_workflow_fail".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_cancel_workflow_fail"
+                && reason.contains("injected workflow append failure")
+    )));
+    let live = engine.runtime_view_state();
+    assert_eq!(live.tasks, before.tasks, "cancel task update leaked");
+    assert_eq!(live.agent_dags, before.agent_dags);
+    assert_eq!(live.merge_gates, before.merge_gates);
 }
 
 #[test]
@@ -2983,21 +3250,147 @@ fn merge_gate_canonical_state_survives_real_session_resume() {
                 .is_some_and(|kind| kind == "patch")
     }));
     assert!(workflow_events.iter().any(|event| {
-        event.event_type == "runtime_projection"
-            && event.task_id.as_deref() == Some("task_resume_gate")
+        event.event_type == "runtime_projection_batch"
             && event
                 .payload
-                .get("runtime_event_kind")
-                .is_some_and(|kind| kind == "evidence_recorded")
+                .get("command_id")
+                .is_some_and(|id| id == "cmd_start_resume_gate")
+            && event
+                .payload
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| kinds.contains("evidence_recorded"))
     }));
     assert!(workflow_events.iter().any(|event| {
-        event.event_type == "runtime_projection"
-            && event.task_id.as_deref() == Some("task_resume_gate")
+        event.event_type == "runtime_projection_batch"
             && event
                 .payload
-                .get("runtime_event_kind")
-                .is_some_and(|kind| kind == "merge_gate_updated")
+                .get("command_id")
+                .is_some_and(|id| id == "cmd_start_resume_gate")
+            && event
+                .payload
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| kinds.contains("merge_gate_updated"))
     }));
+}
+
+#[test]
+fn workflow_replay_keeps_legacy_single_runtime_projection_compatible() {
+    let cwd = temp_dir("runtime_contract_legacy_single_projection_cwd");
+    let home = temp_dir("runtime_contract_legacy_single_projection_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    start_single_patch_gate(&mut engine, &mut approver, "task_legacy_projection");
+    let live = engine.runtime_view_state();
+    let dag_id = live.agent_dags[0].dag_id.clone();
+    let mut gate = live
+        .merge_gates
+        .iter()
+        .find(|gate| gate.gate_id == "gate-task_legacy_projection")
+        .unwrap()
+        .clone();
+    gate.status = MergeGateStatus::NeedsChanges;
+    gate.decision = Some("legacy projection replay".to_string());
+    let runtime_event = RuntimeEvent::new(1, RuntimeEventKind::MergeGateUpdated { gate });
+    let mut payload = BTreeMap::new();
+    payload.insert(
+        "runtime_event_kind".to_string(),
+        "merge_gate_updated".to_string(),
+    );
+    payload.insert(
+        "runtime_event_json".to_string(),
+        serde_json::to_string(&runtime_event).unwrap(),
+    );
+    WorkflowStore::new(&home, &cwd)
+        .unwrap()
+        .append_agent_event(&WorkflowAgentEvent {
+            event_id: "legacy-single-projection".to_string(),
+            dag_id,
+            task_id: Some("task_legacy_projection".to_string()),
+            event_type: "runtime_projection".to_string(),
+            timestamp: 1,
+            origin_session_id: Some(session_id.clone()),
+            payload,
+        })
+        .unwrap();
+
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut resumed = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let _ = resumed
+        .process_input_with_approval(&format!("/resume {session_id}"), &mut approver)
+        .unwrap();
+    let resumed_gate = resumed
+        .runtime_view_state()
+        .merge_gates
+        .into_iter()
+        .find(|gate| gate.gate_id == "gate-task_legacy_projection")
+        .unwrap();
+    assert_eq!(resumed_gate.status, MergeGateStatus::NeedsChanges);
+    assert_eq!(
+        resumed_gate.decision.as_deref(),
+        Some("legacy projection replay")
+    );
+}
+
+#[test]
+fn workflow_replay_dedupes_duplicate_runtime_projection_batch_id() {
+    let cwd = temp_dir("runtime_contract_duplicate_projection_batch_cwd");
+    let home = temp_dir("runtime_contract_duplicate_projection_batch_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    start_single_patch_gate(&mut engine, &mut approver, "task_duplicate_batch");
+    let (item, canonical) = stored_canonical_context(
+        &cwd,
+        "task_duplicate_batch",
+        "evidence-duplicate-batch",
+        "bundle-duplicate-batch",
+        ContextContentKind::Diff,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    );
+    engine.set_merge_gate_context_facts_for_test("bundle-duplicate-batch", item);
+    engine
+        .handle_runtime_command(
+            "cmd_duplicate_batch_evidence",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_duplicate_batch".to_string(),
+                evidence_id: Some("evidence-duplicate-batch".to_string()),
+                kind: "patch".to_string(),
+                summary: "canonical duplicate batch evidence".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(canonical),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let live = engine.runtime_view_state();
+    let batch = workflow_agent_events(&cwd, &home)
+        .into_iter()
+        .find(|event| {
+            event.event_type == "runtime_projection_batch"
+                && event
+                    .payload
+                    .get("command_id")
+                    .is_some_and(|id| id == "cmd_duplicate_batch_evidence")
+        })
+        .unwrap();
+    let mut duplicate = batch.clone();
+    duplicate.event_id = "duplicate-runtime-projection-batch".to_string();
+    WorkflowStore::new(&home, &cwd)
+        .unwrap()
+        .append_agent_event(&duplicate)
+        .unwrap();
+
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &live);
 }
 
 #[test]

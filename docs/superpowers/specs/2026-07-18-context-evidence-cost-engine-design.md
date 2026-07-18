@@ -86,7 +86,10 @@ Project agent facts are single-owned by `viden-workflows`. Runtime startup and
 resume first replay legacy session transcript entries for compatibility, then
 apply workflow projections so workflow facts win deterministically. New runtime
 commands must not dual-write the same DAG/task/evidence/gate semantic fact as a
-session `runtime_event`.
+session `runtime_event`. Each new command writes one command-scoped workflow
+projection batch with schema version, batch id, event count, and an ordered
+bounded vector of sanitized project runtime events; legacy single-event
+projections remain readable.
 
 ## Core Contracts
 

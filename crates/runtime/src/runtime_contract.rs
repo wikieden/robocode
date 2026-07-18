@@ -395,7 +395,16 @@ impl SessionEngine {
                 }
             }
             RuntimeCommand::StartAgentDag { goal, tasks } => {
-                append_resequenced(&mut events, self.start_agent_dag(goal, tasks)?);
+                match self.start_agent_dag(goal, tasks) {
+                    Ok(dag_events) => append_resequenced(&mut events, dag_events),
+                    Err(err) => {
+                        return self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        );
+                    }
+                }
             }
             RuntimeCommand::StartAgentTask { task_id } => {
                 match self.run_agent_task(&task_id, approver) {
@@ -409,9 +418,16 @@ impl SessionEngine {
                     }
                 }
             }
-            RuntimeCommand::CancelAgentTask { task_id } => {
-                append_resequenced(&mut events, self.cancel_agent_task(&task_id)?);
-            }
+            RuntimeCommand::CancelAgentTask { task_id } => match self.cancel_agent_task(&task_id) {
+                Ok(cancel_events) => append_resequenced(&mut events, cancel_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
             RuntimeCommand::AcceptMergeGate { gate_id, decision } => {
                 match self.decide_merge_gate(
                     &gate_id,
@@ -538,7 +554,7 @@ impl SessionEngine {
         if persist_after_match && let Err(err) = self.persist_runtime_domain_events(&events) {
             self.restore_transaction_snapshot(&transaction_snapshot)
                 .map_err(|rollback| format!("{err}; rollback failed: {rollback}"))?;
-            return Err(err);
+            return Ok(vec![command_rejected(command_id, err)]);
         }
         self.commit_transaction_snapshot(&transaction_snapshot);
         Ok(events)
@@ -1905,6 +1921,14 @@ impl SessionEngine {
         if summary.is_empty() {
             return Err("agent evidence summary cannot be empty".to_string());
         }
+        let path = match path {
+            Some(path) => Some(validate_evidence_path_for_event(&path)?),
+            None => None,
+        };
+        let source = source
+            .map(|source| sanitize_evidence_source_for_event(&source))
+            .filter(|source| !source.is_empty());
+        let summary = sanitize_evidence_summary_for_event(&summary);
 
         let gate_index = self
             .runtime_merge_gates
@@ -2426,8 +2450,7 @@ impl SessionEngine {
             origin_session_id: Some(self.session_id().to_string()),
             payload,
         };
-        #[cfg(test)]
-        if self.fail_next_workflow_append.replace(false) {
+        if self.should_fail_workflow_append_for_test() {
             return Err("injected workflow append failure".to_string());
         }
         self.workflows.append_agent_event(&event)
@@ -3005,8 +3028,10 @@ fn reduce_merge_gate_status(
 fn transactional_runtime_command(command: &RuntimeCommand) -> bool {
     matches!(
         command,
-        RuntimeCommand::AcceptMergeGate { .. }
+        RuntimeCommand::StartAgentDag { .. }
             | RuntimeCommand::StartAgentTask { .. }
+            | RuntimeCommand::CancelAgentTask { .. }
+            | RuntimeCommand::AcceptMergeGate { .. }
             | RuntimeCommand::RejectMergeGate { .. }
             | RuntimeCommand::RecordAgentEvidence { .. }
             | RuntimeCommand::AcceptAgentArtifact { .. }
@@ -4297,8 +4322,135 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
             handle_id: redact_identifier_for_event(handle_id),
             reason: bound_redacted_context_reason(reason),
         },
-        other => other.clone(),
+        RuntimeCommand::CancelActiveTurn => RuntimeCommand::CancelActiveTurn,
+        RuntimeCommand::SetWorkMode { mode } => RuntimeCommand::SetWorkMode { mode: *mode },
+        RuntimeCommand::SetPermissionLevel { level } => {
+            RuntimeCommand::SetPermissionLevel { level: *level }
+        }
+        RuntimeCommand::RespondToApproval {
+            request_id,
+            response,
+        } => RuntimeCommand::RespondToApproval {
+            request_id: redact_identifier_for_event(request_id),
+            response: ApprovalResponse {
+                approved: response.approved,
+                feedback: response.feedback.as_deref().map(redact_command_text),
+            },
+        },
+        RuntimeCommand::ConfigureProvider {
+            provider_id,
+            api_key_env,
+            endpoint,
+            default_model,
+        } => RuntimeCommand::ConfigureProvider {
+            provider_id: redact_identifier_for_event(provider_id),
+            api_key_env: api_key_env.as_deref().map(redact_command_text),
+            endpoint: endpoint.as_deref().map(redact_command_text),
+            default_model: default_model.as_deref().map(redact_command_text),
+        },
+        RuntimeCommand::SelectModel { provider_id, model } => RuntimeCommand::SelectModel {
+            provider_id: redact_identifier_for_event(provider_id),
+            model: redact_command_text(model),
+        },
+        RuntimeCommand::ActivateModel { provider_id, model } => RuntimeCommand::ActivateModel {
+            provider_id: redact_identifier_for_event(provider_id),
+            model: redact_command_text(model),
+        },
+        RuntimeCommand::DeactivateModel { provider_id, model } => RuntimeCommand::DeactivateModel {
+            provider_id: redact_identifier_for_event(provider_id),
+            model: redact_command_text(model),
+        },
+        RuntimeCommand::StartAgentTask { task_id } => RuntimeCommand::StartAgentTask {
+            task_id: redact_identifier_for_event(task_id),
+        },
+        RuntimeCommand::CancelAgentTask { task_id } => RuntimeCommand::CancelAgentTask {
+            task_id: redact_identifier_for_event(task_id),
+        },
+        RuntimeCommand::AcceptMergeGate { gate_id, decision } => RuntimeCommand::AcceptMergeGate {
+            gate_id: redact_identifier_for_event(gate_id),
+            decision: decision.as_deref().map(redact_command_text),
+        },
+        RuntimeCommand::RejectMergeGate { gate_id, reason } => RuntimeCommand::RejectMergeGate {
+            gate_id: redact_identifier_for_event(gate_id),
+            reason: redact_command_text(reason),
+        },
+        RuntimeCommand::RecordAgentEvidence {
+            gate_id,
+            evidence_id,
+            kind,
+            summary,
+            ..
+        } => RuntimeCommand::RecordAgentEvidence {
+            gate_id: redact_identifier_for_event(gate_id),
+            evidence_id: evidence_id.as_deref().map(redact_identifier_for_event),
+            kind: redact_identifier_for_event(kind),
+            summary: redacted_evidence_summary_marker(summary),
+            path: None,
+            source: None,
+            canonical: None,
+        },
+        RuntimeCommand::AcceptAgentArtifact {
+            gate_id,
+            evidence_id,
+            decision,
+        } => RuntimeCommand::AcceptAgentArtifact {
+            gate_id: redact_identifier_for_event(gate_id),
+            evidence_id: redact_identifier_for_event(evidence_id),
+            decision: decision.as_deref().map(redact_command_text),
+        },
+        RuntimeCommand::RejectAgentArtifact {
+            gate_id,
+            evidence_id,
+            reason,
+        } => RuntimeCommand::RejectAgentArtifact {
+            gate_id: redact_identifier_for_event(gate_id),
+            evidence_id: redact_identifier_for_event(evidence_id),
+            reason: redact_command_text(reason),
+        },
+        RuntimeCommand::MergeAgentPatch { gate_id, decision } => RuntimeCommand::MergeAgentPatch {
+            gate_id: redact_identifier_for_event(gate_id),
+            decision: decision.as_deref().map(redact_command_text),
+        },
     }
+}
+
+fn redacted_evidence_summary_marker(summary: &str) -> String {
+    if summary.trim().is_empty() {
+        "[REDACTED:empty]".to_string()
+    } else {
+        "[REDACTED:bounded-summary]".to_string()
+    }
+}
+
+fn validate_evidence_path_for_event(path: &str) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty()
+        || trimmed.chars().any(char::is_control)
+        || std::path::Path::new(trimmed).is_absolute()
+        || std::path::Path::new(trimmed).components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return Err("invalid evidence path".to_string());
+    }
+    Ok(trimmed
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect::<Vec<_>>()
+        .join("/"))
+}
+
+fn sanitize_evidence_summary_for_event(summary: &str) -> String {
+    truncate_for_preview(&redact_command_text(summary), 500)
+}
+
+fn sanitize_evidence_source_for_event(source: &str) -> String {
+    truncate_for_preview(&redact_command_text(source), 120)
 }
 
 fn redact_command_text(input: &str) -> String {

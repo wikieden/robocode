@@ -283,6 +283,8 @@ pub struct SessionEngine {
     #[cfg(test)]
     fail_next_workflow_append: Cell<bool>,
     #[cfg(test)]
+    fail_workflow_append_after: Cell<Option<usize>>,
+    #[cfg(test)]
     fail_transcript_append_after: Cell<Option<usize>>,
 }
 
@@ -376,6 +378,8 @@ impl SessionEngine {
             context_budget_override: None,
             #[cfg(test)]
             fail_next_workflow_append: Cell::new(false),
+            #[cfg(test)]
+            fail_workflow_append_after: Cell::new(None),
             #[cfg(test)]
             fail_transcript_append_after: Cell::new(None),
         };
@@ -476,6 +480,12 @@ impl SessionEngine {
     #[cfg(test)]
     pub(crate) fn fail_next_workflow_append_for_test(&self) {
         self.fail_next_workflow_append.set(true);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_after_workflow_appends_for_test(&self, successful_appends: usize) {
+        self.fail_workflow_append_after
+            .set(Some(successful_appends));
     }
 
     #[cfg(test)]

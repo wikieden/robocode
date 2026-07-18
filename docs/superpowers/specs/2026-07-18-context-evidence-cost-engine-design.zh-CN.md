@@ -80,6 +80,9 @@ Project agent facts 由 `viden-workflows` 单一拥有。Runtime startup/resume
 先 replay legacy session transcript entries 以保持兼容，再应用 workflow
 projections，因此 workflow facts 确定性优先。新的 runtime commands 不能把同一个
 DAG/task/evidence/gate semantic fact 同时写成 session `runtime_event`。
+每个新 command 只写一条 command-scoped workflow projection batch，包含 schema
+version、batch id、event count 和有序、受限、已清洗的 project runtime events；
+legacy single-event projections 继续可读。
 
 ## 核心契约
 

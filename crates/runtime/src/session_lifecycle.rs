@@ -3,11 +3,15 @@ use viden_session::SessionStore;
 use viden_types::{
     CostUsageRecord, Message, PermissionLevel, PermissionMode, Role, RuntimeEvent,
     RuntimeEventKind, SessionMetaEntry, SessionSummary, TranscriptEntry, WorkMode, fresh_id,
-    now_timestamp,
+    now_timestamp, truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
 use crate::SessionEngine;
+
+const WORKFLOW_PROJECTION_SCHEMA_VERSION: &str = "1";
+const WORKFLOW_PROJECTION_EVENT_CAP: usize = 256;
+const WORKFLOW_PROJECTION_BYTES_CAP: usize = 512 * 1024;
 
 impl SessionEngine {
     pub(super) fn handle_sessions(&self) -> Result<String, String> {
@@ -233,47 +237,115 @@ impl SessionEngine {
         &mut self,
         events: &[RuntimeEvent],
     ) -> Result<(), String> {
+        let command_id = events.iter().find_map(|event| match &event.kind {
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+            | RuntimeEventKind::CommandRejected { command_id, .. } => Some(command_id.clone()),
+            _ => None,
+        });
         let domain_events = events
             .iter()
             .filter(|event| is_durable_runtime_domain_event(&event.kind))
             .cloned()
             .collect::<Vec<_>>();
-        for event in &domain_events {
-            self.persist_workflow_runtime_projection(event)?;
-        }
+        self.persist_workflow_runtime_projection_batch(command_id.as_deref(), &domain_events)?;
         for event in domain_events {
             self.remember_runtime_domain_event(event);
         }
         Ok(())
     }
 
-    fn persist_workflow_runtime_projection(&self, event: &RuntimeEvent) -> Result<(), String> {
-        let Some((dag_id, task_id)) = self.workflow_projection_identity(event) else {
+    fn persist_workflow_runtime_projection_batch(
+        &self,
+        command_id: Option<&str>,
+        events: &[RuntimeEvent],
+    ) -> Result<(), String> {
+        if events.is_empty() {
             return Ok(());
-        };
+        }
+        if events.len() > WORKFLOW_PROJECTION_EVENT_CAP {
+            return Err(format!(
+                "workflow projection batch exceeds event cap: {} > {}",
+                events.len(),
+                WORKFLOW_PROJECTION_EVENT_CAP
+            ));
+        }
+        let sanitized_events = events
+            .iter()
+            .map(sanitized_runtime_event_for_workflow_projection)
+            .collect::<Vec<_>>();
+        let events_json =
+            serde_json::to_string(&sanitized_events).map_err(|err| err.to_string())?;
+        if events_json.len() > WORKFLOW_PROJECTION_BYTES_CAP {
+            return Err(format!(
+                "workflow projection batch exceeds byte cap: {} > {}",
+                events_json.len(),
+                WORKFLOW_PROJECTION_BYTES_CAP
+            ));
+        }
+        let (dag_id, task_id) = self.workflow_projection_batch_identity(events);
+        let batch_id = command_id
+            .map(|id| format!("cmd:{id}"))
+            .unwrap_or_else(|| fresh_id("projection_batch"));
+        let kinds = sanitized_events
+            .iter()
+            .map(|event| runtime_projection_kind_name(&event.kind))
+            .collect::<Vec<_>>();
         let mut payload = std::collections::BTreeMap::new();
         payload.insert(
-            "runtime_event_kind".to_string(),
-            runtime_projection_kind_name(&event.kind).to_string(),
+            "schema_version".to_string(),
+            WORKFLOW_PROJECTION_SCHEMA_VERSION.to_string(),
+        );
+        payload.insert("batch_id".to_string(), batch_id);
+        if let Some(command_id) = command_id {
+            payload.insert("command_id".to_string(), command_id.to_string());
+        }
+        payload.insert(
+            "event_count".to_string(),
+            sanitized_events.len().to_string(),
         );
         payload.insert(
-            "runtime_event_json".to_string(),
-            serde_json::to_string(event).map_err(|err| err.to_string())?,
+            "runtime_event_kinds".to_string(),
+            serde_json::to_string(&kinds).map_err(|err| err.to_string())?,
         );
+        payload.insert("runtime_events_json".to_string(), events_json);
         let projection = WorkflowAgentEvent {
             event_id: fresh_id("agent_projection"),
             dag_id,
             task_id,
-            event_type: "runtime_projection".to_string(),
+            event_type: "runtime_projection_batch".to_string(),
             timestamp: now_timestamp(),
             origin_session_id: Some(self.session_id().to_string()),
             payload,
         };
-        #[cfg(test)]
-        if self.fail_next_workflow_append.replace(false) {
+        if self.should_fail_workflow_append_for_test() {
             return Err("injected workflow append failure".to_string());
         }
         self.workflows.append_agent_event(&projection)
+    }
+
+    fn workflow_projection_batch_identity(
+        &self,
+        events: &[RuntimeEvent],
+    ) -> (String, Option<String>) {
+        let mut dag_id = None;
+        let mut task_id = None;
+        for event in events {
+            let Some((event_dag_id, event_task_id)) = self.workflow_projection_identity(event)
+            else {
+                continue;
+            };
+            dag_id.get_or_insert(event_dag_id);
+            if task_id.is_none() {
+                task_id = event_task_id;
+            } else if task_id != event_task_id {
+                task_id = None;
+                break;
+            }
+        }
+        (
+            dag_id.unwrap_or_else(|| "project-agent-runtime".to_string()),
+            task_id,
+        )
     }
 
     fn workflow_projection_identity(
@@ -390,18 +462,75 @@ impl SessionEngine {
 
     fn hydrate_workflow_agent_projection(&mut self) -> Result<(), String> {
         let events = self.workflows.load_agent_events()?;
+        let mut seen_batches = std::collections::BTreeSet::new();
         for event in events {
-            if event.event_type != "runtime_projection" {
-                continue;
+            match event.event_type.as_str() {
+                "runtime_projection" => {
+                    let Some(json) = event.payload.get("runtime_event_json") else {
+                        continue;
+                    };
+                    let runtime_event = serde_json::from_str::<RuntimeEvent>(json)
+                        .map_err(|err| err.to_string())?;
+                    self.remember_runtime_domain_event(runtime_event);
+                }
+                "runtime_projection_batch" => {
+                    if event.payload.get("schema_version").map(String::as_str)
+                        != Some(WORKFLOW_PROJECTION_SCHEMA_VERSION)
+                    {
+                        continue;
+                    }
+                    let Some(batch_id) = event.payload.get("batch_id") else {
+                        continue;
+                    };
+                    if !seen_batches.insert(batch_id.clone()) {
+                        continue;
+                    }
+                    let expected_count = event
+                        .payload
+                        .get("event_count")
+                        .and_then(|count| count.parse::<usize>().ok());
+                    let Some(json) = event.payload.get("runtime_events_json") else {
+                        continue;
+                    };
+                    if json.len() > WORKFLOW_PROJECTION_BYTES_CAP {
+                        return Err(format!(
+                            "workflow projection batch exceeds byte cap: {} > {}",
+                            json.len(),
+                            WORKFLOW_PROJECTION_BYTES_CAP
+                        ));
+                    }
+                    let runtime_events = serde_json::from_str::<Vec<RuntimeEvent>>(json)
+                        .map_err(|err| err.to_string())?;
+                    if runtime_events.len() > WORKFLOW_PROJECTION_EVENT_CAP
+                        || expected_count != Some(runtime_events.len())
+                    {
+                        continue;
+                    }
+                    for runtime_event in runtime_events {
+                        self.remember_runtime_domain_event(runtime_event);
+                    }
+                }
+                _ => {}
             }
-            let Some(json) = event.payload.get("runtime_event_json") else {
-                continue;
-            };
-            let runtime_event =
-                serde_json::from_str::<RuntimeEvent>(json).map_err(|err| err.to_string())?;
-            self.remember_runtime_domain_event(runtime_event);
         }
         Ok(())
+    }
+
+    pub(crate) fn should_fail_workflow_append_for_test(&self) -> bool {
+        #[cfg(test)]
+        {
+            if self.fail_next_workflow_append.replace(false) {
+                return true;
+            }
+            if let Some(remaining) = self.fail_workflow_append_after.get() {
+                if remaining == 0 {
+                    self.fail_workflow_append_after.set(None);
+                    return true;
+                }
+                self.fail_workflow_append_after.set(Some(remaining - 1));
+            }
+        }
+        false
     }
 
     fn remember_runtime_domain_event(&mut self, event: RuntimeEvent) {
@@ -480,6 +609,73 @@ fn runtime_projection_kind_name(kind: &RuntimeEventKind) -> &'static str {
         RuntimeEventKind::MergeGateUpdated { .. } => "merge_gate_updated",
         _ => "runtime_event",
     }
+}
+
+fn sanitized_runtime_event_for_workflow_projection(event: &RuntimeEvent) -> RuntimeEvent {
+    let mut event = event.clone();
+    if let RuntimeEventKind::EvidenceRecorded { evidence } = &mut event.kind {
+        evidence.summary = sanitize_projection_text(&evidence.summary, 500);
+        evidence.source = evidence
+            .source
+            .as_deref()
+            .map(|source| sanitize_projection_text(source, 120))
+            .filter(|source| !source.is_empty());
+        evidence.path = evidence
+            .path
+            .as_deref()
+            .and_then(safe_project_relative_projection_path);
+    }
+    event
+}
+
+fn sanitize_projection_text(input: &str, max_chars: usize) -> String {
+    let sanitized = input
+        .split_whitespace()
+        .map(|word| {
+            let lower = word.to_ascii_lowercase();
+            if lower.starts_with("sk-")
+                || lower.contains("secret")
+                || lower.contains("token=")
+                || lower.contains("api_key")
+                || word.starts_with('/')
+                || word.contains("/Users/")
+                || word.contains("/tmp/")
+                || word.contains("/var/")
+                || word.chars().any(char::is_control)
+            {
+                "[REDACTED]"
+            } else {
+                word
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    truncate_for_preview(&sanitized, max_chars)
+}
+
+fn safe_project_relative_projection_path(path: &str) -> Option<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty()
+        || trimmed.chars().any(char::is_control)
+        || std::path::Path::new(trimmed).is_absolute()
+        || std::path::Path::new(trimmed).components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return None;
+    }
+    Some(
+        trimmed
+            .split('/')
+            .filter(|part| !part.is_empty() && *part != ".")
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
 }
 
 fn is_durable_runtime_domain_event(kind: &RuntimeEventKind) -> bool {
