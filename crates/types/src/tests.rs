@@ -831,6 +831,102 @@ fn runtime_view_state_does_not_double_count_duplicate_cost_usage_id() {
 }
 
 #[test]
+fn legacy_flat_cost_usage_events_replay_with_unknown_actual_preserved() {
+    let fixture = include_str!("../tests/fixtures/runtime-contract-legacy-cost.json");
+    let events: Vec<RuntimeEvent> = serde_json::from_str(fixture).unwrap();
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+
+    for event in &events {
+        view.apply_event(event);
+    }
+
+    assert_eq!(view.cost_usage.len(), 3);
+    assert_ne!(view.cost_usage[0].usage_id, view.cost_usage[1].usage_id);
+    assert_ne!(view.cost_usage[1].usage_id, view.cost_usage[2].usage_id);
+    assert!(view.cost_usage[1].usage_id.contains("legacy-request-2"));
+    assert!(view.cost_usage[2].usage_id.contains("legacy-request-3"));
+    assert_eq!(view.cost_ledger.input_tokens, 50);
+    assert_eq!(view.cost_ledger.output_tokens, 19);
+    assert_eq!(view.cost_ledger.cached_input_tokens, 5);
+    assert_eq!(view.cost_ledger.retrieval_tokens, 0);
+    assert_eq!(view.cost_ledger.total_tokens, 69);
+    assert_eq!(view.cost_ledger.total_estimated_cost_micro_usd, 1100);
+    assert_eq!(view.cost_ledger.total_actual_cost_micro_usd, None);
+    assert_eq!(view.cost_usage[0].attempt_index, 0);
+    assert_eq!(view.cost_usage[0].outcome, CostUsageOutcome::Success);
+    assert!(
+        view.cost_usage[0]
+            .scopes
+            .contains(&CostScope::AgentTask("legacy-task".into()))
+    );
+    assert!(
+        !view.cost_usage[0]
+            .scopes
+            .iter()
+            .any(|scope| matches!(scope, CostScope::Request(_)))
+    );
+    assert!(
+        view.cost_usage[1]
+            .scopes
+            .contains(&CostScope::Request("legacy-request-2".into()))
+    );
+    assert!(
+        view.cost_usage[1]
+            .scopes
+            .contains(&CostScope::Workflow("legacy-workflow".into()))
+    );
+    assert_eq!(
+        view.cost_usage[0]
+            .estimate
+            .as_ref()
+            .unwrap()
+            .price_table_version,
+        "legacy-flat-cost-v1"
+    );
+
+    let serialized = serde_json::to_value(&view.cost_usage[0]).unwrap();
+    assert!(serialized.get("scope").is_none());
+    assert!(serialized.get("input_tokens").is_none());
+    assert!(serialized.get("estimated_cost_micro_usd").is_none());
+    assert!(serialized.get("scopes").is_some());
+    assert!(serialized.get("tokens").is_some());
+}
+
+#[test]
+fn legacy_cost_usage_rejects_ambiguous_or_malformed_shapes_without_raw_payload() {
+    let ambiguous = serde_json::json!({
+        "usage_id": "ambiguous",
+        "provider_id": "deepseek",
+        "model": "deepseek",
+        "scope": {"type": "task", "id": "legacy-task"},
+        "scopes": [{"type": "request", "id": "new-request"}],
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "estimated_cost_micro_usd": 1,
+        "tokens": {"input_tokens": 1, "output_tokens": 1, "cached_input_tokens": 0, "retrieval_tokens": 0, "total_tokens": 2},
+        "recorded_at": 1
+    });
+    let err = serde_json::from_value::<CostUsageRecord>(ambiguous)
+        .expect_err("ambiguous legacy/new shape must be rejected")
+        .to_string();
+    assert!(err.contains("ambiguous cost usage"));
+    assert!(!err.contains("sk-"));
+    assert!(!err.contains("legacy-task"));
+
+    let malformed = serde_json::json!({
+        "provider_id": "deepseek",
+        "model": "deepseek",
+        "scope": {"type": "task", "id": "sk-secret-task"},
+        "input_tokens": 1
+    });
+    let err = serde_json::from_value::<CostUsageRecord>(malformed)
+        .expect_err("incomplete legacy shape must be rejected")
+        .to_string();
+    assert!(err.contains("malformed legacy cost usage"));
+    assert!(!err.contains("sk-secret-task"));
+}
+
+#[test]
 fn runtime_events_replay_into_ui_independent_view_state() {
     let snapshot = runtime_snapshot_for_contract();
     let mut view = RuntimeViewState::new(RuntimeSnapshot {

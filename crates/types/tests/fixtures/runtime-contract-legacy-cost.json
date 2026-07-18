@@ -1,0 +1,77 @@
+[
+  {
+    "sequence": 1,
+    "timestamp": 2001,
+    "kind": {
+      "type": "cost_usage_recorded",
+      "payload": {
+        "cost": {
+          "usage_id": "legacy-cost-1",
+          "provider_id": "deepseek",
+          "model": "deepseek-reasoner",
+          "scope": {
+            "type": "task",
+            "id": "legacy-task"
+          },
+          "input_tokens": 10,
+          "output_tokens": 5,
+          "cached_input_tokens": 5,
+          "total_tokens": 15,
+          "estimated_cost_micro_usd": 300,
+          "actual_cost_micro_usd": null,
+          "recorded_at": 2001
+        }
+      }
+    }
+  },
+  {
+    "sequence": 2,
+    "timestamp": 2002,
+    "kind": {
+      "type": "cost_usage_recorded",
+      "payload": {
+        "cost": {
+          "provider_id": "deepseek",
+          "request_id": "legacy-request-2",
+          "model": "deepseek-reasoner",
+          "scope": {
+            "type": "workflow",
+            "id": "legacy-workflow"
+          },
+          "input_tokens": 20,
+          "output_tokens": 7,
+          "cached_input_tokens": 0,
+          "total_tokens": 27,
+          "estimated_cost_micro_usd": 400,
+          "actual_cost_micro_usd": 450,
+          "recorded_at": 2002
+        }
+      }
+    }
+  },
+  {
+    "sequence": 3,
+    "timestamp": 2003,
+    "kind": {
+      "type": "cost_usage_recorded",
+      "payload": {
+        "cost": {
+          "provider_id": "deepseek",
+          "request_id": "legacy-request-3",
+          "model": "deepseek-reasoner",
+          "scope": {
+            "type": "workflow",
+            "id": "legacy-workflow"
+          },
+          "input_tokens": 20,
+          "output_tokens": 7,
+          "cached_input_tokens": 0,
+          "total_tokens": 27,
+          "estimated_cost_micro_usd": 400,
+          "actual_cost_micro_usd": 550,
+          "recorded_at": 2002
+        }
+      }
+    }
+  }
+]
