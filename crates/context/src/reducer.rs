@@ -531,12 +531,12 @@ fn reduce_log(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
     let text = String::from_utf8_lossy(input);
     let all_lines = text.lines().collect::<Vec<_>>();
     let mut lines = Vec::new();
+    let mut kept_indices = HashSet::new();
     let mut seen_errors = HashSet::new();
     let mut first_failure_kept = false;
-    let mut omitted_duplicates = 0;
     let mut retained_markers = Vec::new();
 
-    for line in &all_lines {
+    for (index, line) in all_lines.iter().enumerate() {
         let lower = line.to_ascii_lowercase();
         let interesting = lower.contains("error")
             || lower.contains("failed")
@@ -546,34 +546,29 @@ fn reduce_log(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
         if interesting {
             if !first_failure_kept {
                 lines.push((*line).to_string());
+                kept_indices.insert(index);
                 retained_markers.push("first_failure".to_string());
                 seen_errors.insert((*line).to_string());
                 first_failure_kept = true;
             } else if seen_errors.insert((*line).to_string()) {
                 lines.push((*line).to_string());
+                kept_indices.insert(index);
                 retained_markers.push("unique_error".to_string());
-            } else {
-                omitted_duplicates += 1;
             }
         }
     }
 
-    for line in all_lines
-        .iter()
-        .rev()
-        .take(3)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-    {
+    let tail_start = all_lines.len().saturating_sub(3);
+    for (index, line) in all_lines.iter().enumerate().skip(tail_start) {
         if !lines.iter().any(|kept| kept == line) {
             lines.push((*line).to_string());
+            kept_indices.insert(index);
             retained_markers.push("tail".to_string());
         }
     }
 
     let mut view = result(lines.join("\n"), retained_markers, false);
-    let omitted = all_lines.len().saturating_sub(lines.len()) + omitted_duplicates;
+    let omitted = all_lines.len().saturating_sub(kept_indices.len());
     if omitted > 0 {
         view.omissions
             .push(omission("log_lines_omitted_or_deduplicated", omitted));
@@ -797,7 +792,8 @@ fn final_marker_supported(marker: &str, content: &str) -> bool {
         "risky_change" => content.contains("unsafe") || content.contains("TODO"),
         marker if marker.starts_with("declaration:") => content
             .lines()
-            .any(|line| code_declaration_marker(line.trim_start()).is_some()),
+            .filter_map(|line| code_declaration_marker(line.trim_start()))
+            .any(|declaration| declaration == marker),
         _ => content.contains(marker),
     }
 }
@@ -1250,13 +1246,13 @@ mod tests {
                 ContextContentKind::Log,
                 b"running tests\nERROR src/a.rs:1 boom\nERROR src/a.rs:1 boom\nwarning\nfinal tail\n",
                 ReductionPolicy::default(),
-                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":3}],"retained_markers":["first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_a242b2a84535c876","target_id":"viden-context-native:native-v1:Log","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_a242b2a84535c876","target_id":"viden-context-native:native-v1:Log","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
                 ContextContentKind::Diagnostic,
                 b"running tests\nERROR src/a.rs:1 boom\nERROR src/a.rs:1 boom\nwarning\nfinal tail\n",
                 ReductionPolicy::default(),
-                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":3}],"retained_markers":["first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_78dfd578c8672422","target_id":"viden-context-native:native-v1:Diagnostic","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_78dfd578c8672422","target_id":"viden-context-native:native-v1:Diagnostic","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
                 ContextContentKind::Transcript,
@@ -1527,6 +1523,24 @@ mod tests {
                 .iter()
                 .find(|omission| omission.reason == "log_lines_omitted_or_deduplicated")
                 .map(|omission| omission.omitted_count),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn duplicate_log_omissions_count_source_lines_once() {
+        let view = reduce(
+            ContextContentKind::Log,
+            b"ignored\nERROR one\nERROR one\nERROR one\nfinal tail\n",
+            &ReductionPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            view.omissions
+                .iter()
+                .find(|omission| omission.reason == "log_lines_omitted_or_deduplicated")
+                .map(|omission| omission.omitted_count),
             Some(3)
         );
     }
@@ -1604,5 +1618,23 @@ mod tests {
                 .iter()
                 .any(|marker| marker == "decision")
         );
+    }
+
+    #[test]
+    fn required_declaration_marker_must_match_final_declaration_kind() {
+        let policy = ReductionPolicy {
+            max_output_bytes: 16,
+            required_markers: vec!["declaration:fn".to_string()],
+            ..ReductionPolicy::default()
+        };
+
+        assert!(matches!(
+            reduce(
+                ContextContentKind::Code,
+                b"struct Config {}\nfn run() {}\n",
+                &policy
+            ),
+            Err(crate::ContextError::QualityFailed { .. })
+        ));
     }
 }
