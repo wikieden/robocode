@@ -17,6 +17,12 @@ pub struct LineRange {
 pub struct ReductionPolicy {
     pub max_output_bytes: usize,
     pub max_output_tokens: u64,
+    pub max_input_bytes: usize,
+    pub max_json_depth: usize,
+    pub max_json_values: usize,
+    /// Required markers are semantic retained marker ids, such as `key:errors`.
+    /// Use `literal:<text>` only when the policy intentionally requires exact
+    /// output text. Empty markers are invalid policy.
     pub required_markers: Vec<String>,
     pub selected_line_ranges: Vec<LineRange>,
     pub recent_turns: usize,
@@ -27,6 +33,9 @@ impl Default for ReductionPolicy {
         Self {
             max_output_bytes: 8 * 1024,
             max_output_tokens: 2_000,
+            max_input_bytes: 2 * 1024 * 1024,
+            max_json_depth: 64,
+            max_json_values: 20_000,
             required_markers: Vec::new(),
             selected_line_ranges: Vec::new(),
             recent_turns: 8,
@@ -65,6 +74,12 @@ pub fn reduce(
     policy: &ReductionPolicy,
 ) -> Result<ReductionResult, crate::ContextError> {
     validate_policy(policy)?;
+    if input.len() > policy.max_input_bytes {
+        return Err(crate::ContextError::ReductionInputTooLarge {
+            byte_count: input.len(),
+            max_input_bytes: policy.max_input_bytes,
+        });
+    }
 
     let original = estimate_bytes(input);
     let mut view = match kind {
@@ -74,6 +89,13 @@ pub fn reduce(
         ContextContentKind::Log | ContextContentKind::Diagnostic => reduce_log(input, policy),
         ContextContentKind::Transcript | ContextContentKind::Text => reduce_text(input, policy),
     };
+    if kind != ContextContentKind::Json {
+        let redacted = redact_text(&view.content);
+        if redacted != view.content {
+            view.content = redacted;
+            view.omissions.push(omission("secret_values_redacted", 1));
+        }
+    }
     if kind != ContextContentKind::Json || view.fallback_raw {
         bound_output(&mut view.content, policy, &mut view.omissions);
     }
@@ -86,8 +108,8 @@ pub fn reduce(
     let missing_markers = policy
         .required_markers
         .iter()
-        .filter(|marker| !view.content.contains(marker.as_str()))
-        .cloned()
+        .filter(|marker| !required_marker_retained(marker, &view))
+        .map(|marker| redact_text(marker))
         .collect::<Vec<_>>();
     if !missing_markers.is_empty() {
         let quality = quality_record(
@@ -111,11 +133,18 @@ pub fn reduce(
 
 fn reduce_json(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
     match serde_json::from_slice::<serde_json::Value>(input) {
-        Ok(value) => {
-            let mut retained_markers = Vec::new();
-            collect_json_markers(&value, &mut retained_markers);
+        Ok(mut value) => {
             let mut omissions = Vec::new();
+            if let Some(reason) = json_limit_reason(&value, policy) {
+                omissions.push(omission(reason, 1));
+                omissions.push(omission("minimal_json_fallback", 1));
+                let mut view = result("0".to_string(), Vec::new(), false);
+                view.omissions = omissions;
+                return view;
+            }
+            redact_json_value(&mut value, &mut omissions);
             let content = bounded_json_content(&value, policy, &mut omissions);
+            let retained_markers = collect_json_markers_from_content(&content);
             let mut view = result(content, retained_markers, false);
             view.omissions = omissions;
             view
@@ -138,10 +167,7 @@ fn bounded_json_content(
     omissions.push(omission("json_values_pruned", count_json_values(value)));
     omissions.push(omission("size_bound", content.len().saturating_sub(limit)));
 
-    let candidate = pruned_json_value(value, limit);
-    let candidate_content =
-        serde_json::to_string_pretty(&candidate).expect("serializing JSON value");
-    if candidate_content.len() <= limit {
+    if let Some(candidate_content) = pruned_json_content(value, limit) {
         return candidate_content;
     }
 
@@ -153,35 +179,40 @@ fn bounded_json_content(
     "null".to_string()
 }
 
-fn pruned_json_value(value: &serde_json::Value, limit: usize) -> serde_json::Value {
+fn pruned_json_content(value: &serde_json::Value, limit: usize) -> Option<String> {
     match value {
         serde_json::Value::Object(map) => {
-            let mut pruned = serde_json::Map::new();
+            if "{}".len() > limit {
+                return None;
+            }
+            let mut lines = Vec::new();
             for (key, _) in map {
-                let mut candidate = pruned.clone();
-                candidate.insert(key.clone(), serde_json::Value::Null);
-                if serde_json::to_string_pretty(&serde_json::Value::Object(candidate.clone()))
-                    .expect("serializing JSON value")
-                    .len()
-                    <= limit
-                {
-                    pruned = candidate;
+                if is_secret_label(key) {
+                    continue;
+                }
+                let encoded_key = serde_json::to_string(key).expect("serializing JSON key");
+                let next_line = format!("  {encoded_key}: null");
+                let mut candidate_lines = lines.clone();
+                candidate_lines.push(next_line);
+                let candidate = format!("{{\n{}\n}}", candidate_lines.join(",\n"));
+                if candidate.len() <= limit {
+                    lines = candidate_lines;
                 }
             }
-            if pruned.is_empty() {
-                serde_json::Value::Null
+            if lines.is_empty() {
+                None
             } else {
-                serde_json::Value::Object(pruned)
+                Some(format!("{{\n{}\n}}", lines.join(",\n")))
             }
         }
         serde_json::Value::Array(values) => {
             if values.is_empty() || "[\n  null\n]".len() > limit {
-                serde_json::Value::Array(Vec::new())
+                ("[]".len() <= limit).then(|| "[]".to_string())
             } else {
-                serde_json::Value::Array(vec![serde_json::Value::Null])
+                Some("[\n  null\n]".to_string())
             }
         }
-        _ => serde_json::Value::Null,
+        _ => ("0".len() <= limit).then(|| "0".to_string()),
     }
 }
 
@@ -210,6 +241,81 @@ fn collect_json_markers(value: &serde_json::Value, markers: &mut Vec<String>) {
     }
 }
 
+fn collect_json_markers_from_content(content: &str) -> Vec<String> {
+    match serde_json::from_str::<serde_json::Value>(content) {
+        Ok(value) => {
+            let mut markers = Vec::new();
+            collect_json_markers(&value, &mut markers);
+            markers
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
+fn json_limit_reason(value: &serde_json::Value, policy: &ReductionPolicy) -> Option<&'static str> {
+    let mut stack = vec![(value, 1_usize)];
+    let mut values = 0_usize;
+    while let Some((current, depth)) = stack.pop() {
+        values = values.saturating_add(1);
+        if values > policy.max_json_values {
+            return Some("json_value_limit");
+        }
+        if depth > policy.max_json_depth {
+            return Some("json_depth_limit");
+        }
+        match current {
+            serde_json::Value::Object(map) => {
+                for child in map.values() {
+                    stack.push((child, depth.saturating_add(1)));
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for child in items {
+                    stack.push((child, depth.saturating_add(1)));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn redact_json_value(value: &mut serde_json::Value, omissions: &mut Vec<ReductionOmission>) {
+    let mut redacted = 0_usize;
+    redact_json_value_inner(value, None, &mut redacted);
+    if redacted > 0 {
+        omissions.push(omission("secret_values_redacted", redacted));
+    }
+}
+
+fn redact_json_value_inner(value: &mut serde_json::Value, key: Option<&str>, redacted: &mut usize) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map {
+                redact_json_value_inner(child, Some(key), redacted);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                redact_json_value_inner(child, key, redacted);
+            }
+        }
+        serde_json::Value::String(text) => {
+            if key.is_some_and(is_secret_label) {
+                *text = "[REDACTED]".to_string();
+                *redacted += 1;
+            } else {
+                let next = redact_text(text);
+                if next != *text {
+                    *text = next;
+                    *redacted += 1;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn reduce_code(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
     let text = String::from_utf8_lossy(input);
     let all_lines = text.lines().collect::<Vec<_>>();
@@ -223,7 +329,12 @@ fn reduce_code(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
         let line = all_lines[index];
         let line_number = index + 1;
         let trimmed = line.trim_start();
-        let declaration = code_declaration_marker(trimmed);
+        let attribute_start = trimmed.starts_with("#[");
+        let declaration = if attribute_start {
+            next_declaration_marker(&all_lines, index)
+        } else {
+            code_declaration_marker(trimmed)
+        };
         let selected = policy
             .selected_line_ranges
             .iter()
@@ -252,6 +363,7 @@ fn reduce_code(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
             && !trimmed.starts_with("use ")
             && !trimmed.starts_with("pub use ")
             && !trimmed.starts_with("mod ")
+            && !attribute_start
             && declaration.is_none()
         {
             omitted += 1;
@@ -279,15 +391,16 @@ fn scan_code_statement(lines: &[&str], start: usize, kind: CodeScanKind) -> (Str
 
     for (offset, line) in lines[start..].iter().enumerate() {
         captured.push((*line).to_string());
-        balance += delimiter_delta(line);
+        balance += match kind {
+            CodeScanKind::Import => delimiter_delta(line),
+            CodeScanKind::Declaration => signature_delta(line),
+        };
         end = start + offset;
 
         let trimmed = line.trim_end();
         let complete = match kind {
             CodeScanKind::Import => trimmed.ends_with(';') && balance <= 0,
-            CodeScanKind::Declaration => {
-                (trimmed.ends_with(';') && balance <= 0) || trimmed.ends_with('{')
-            }
+            CodeScanKind::Declaration => declaration_header_complete(trimmed, balance),
         };
         if complete {
             break;
@@ -295,6 +408,17 @@ fn scan_code_statement(lines: &[&str], start: usize, kind: CodeScanKind) -> (Str
     }
 
     (captured.join("\n"), end)
+}
+
+fn declaration_header_complete(trimmed: &str, balance: i64) -> bool {
+    balance <= 0
+        && (trimmed.ends_with(';')
+            || trimmed.ends_with('{')
+            || trimmed.contains("{ ")
+            || trimmed.contains("{\t")
+            || trimmed.contains("{}")
+            || trimmed.contains("{ //")
+            || trimmed.contains("{ /*"))
 }
 
 fn delimiter_delta(line: &str) -> i64 {
@@ -309,29 +433,54 @@ fn delimiter_delta(line: &str) -> i64 {
     delta
 }
 
+fn signature_delta(line: &str) -> i64 {
+    let mut delta = 0;
+    for character in line.chars() {
+        match character {
+            '(' | '[' => delta += 1,
+            ')' | ']' => delta -= 1,
+            _ => {}
+        }
+    }
+    delta
+}
+
 fn code_declaration_marker(trimmed: &str) -> Option<String> {
-    let declarations = [
-        ("pub struct ", "declaration:struct"),
-        ("struct ", "declaration:struct"),
-        ("pub enum ", "declaration:enum"),
-        ("enum ", "declaration:enum"),
-        ("pub trait ", "declaration:trait"),
-        ("trait ", "declaration:trait"),
-        ("impl ", "declaration:impl"),
-        ("pub fn ", "declaration:fn"),
-        ("fn ", "declaration:fn"),
-        ("pub async fn ", "declaration:fn"),
-        ("async fn ", "declaration:fn"),
-        ("pub type ", "declaration:type"),
-        ("type ", "declaration:type"),
-        ("pub const ", "declaration:const"),
-        ("const ", "declaration:const"),
-        ("pub static ", "declaration:static"),
-        ("static ", "declaration:static"),
-    ];
-    declarations
-        .iter()
-        .find_map(|(prefix, marker)| trimmed.starts_with(prefix).then(|| (*marker).to_string()))
+    let normalized = trimmed
+        .replace("(", " ")
+        .replace(")", " ")
+        .replace("{", " ");
+    let words = normalized.split_whitespace().collect::<Vec<_>>();
+    if words.contains(&"impl") {
+        Some("declaration:impl".to_string())
+    } else if words.contains(&"struct") {
+        Some("declaration:struct".to_string())
+    } else if words.contains(&"enum") {
+        Some("declaration:enum".to_string())
+    } else if words.contains(&"trait") {
+        Some("declaration:trait".to_string())
+    } else if words.contains(&"fn") {
+        Some("declaration:fn".to_string())
+    } else if words.contains(&"type") {
+        Some("declaration:type".to_string())
+    } else if words.contains(&"const") {
+        Some("declaration:const".to_string())
+    } else if words.contains(&"static") {
+        Some("declaration:static".to_string())
+    } else {
+        None
+    }
+}
+
+fn next_declaration_marker(lines: &[&str], start: usize) -> Option<String> {
+    for line in &lines[start..] {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("#[") || trimmed.is_empty() {
+            continue;
+        }
+        return code_declaration_marker(trimmed);
+    }
+    None
 }
 
 fn reduce_diff(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
@@ -559,7 +708,103 @@ fn validate_policy(policy: &ReductionPolicy) -> Result<(), crate::ContextError> 
             reason: "must be at least 1",
         });
     }
+    if policy.max_input_bytes == 0 {
+        return Err(crate::ContextError::InvalidReductionPolicy {
+            field: "max_input_bytes",
+            reason: "must be at least 1",
+        });
+    }
+    if policy.max_json_depth == 0 {
+        return Err(crate::ContextError::InvalidReductionPolicy {
+            field: "max_json_depth",
+            reason: "must be at least 1",
+        });
+    }
+    if policy.max_json_values == 0 {
+        return Err(crate::ContextError::InvalidReductionPolicy {
+            field: "max_json_values",
+            reason: "must be at least 1",
+        });
+    }
+    if policy
+        .required_markers
+        .iter()
+        .any(|marker| marker.is_empty())
+    {
+        return Err(crate::ContextError::InvalidReductionPolicy {
+            field: "required_markers",
+            reason: "must not contain empty marker ids",
+        });
+    }
     Ok(())
+}
+
+fn required_marker_retained(marker: &str, view: &ReductionResult) -> bool {
+    if let Some(literal) = marker.strip_prefix("literal:") {
+        view.content.contains(literal)
+    } else {
+        view.retained_markers
+            .iter()
+            .any(|retained| retained == marker)
+    }
+}
+
+fn redact_text(input: &str) -> String {
+    let mut output = Vec::new();
+    for line in input.lines() {
+        output.push(redact_line(line));
+    }
+    if input.ends_with('\n') {
+        format!("{}\n", output.join("\n"))
+    } else {
+        output.join("\n")
+    }
+}
+
+fn redact_line(line: &str) -> String {
+    let bearer_redacted = redact_bearer(line);
+    redact_assignment(&bearer_redacted)
+}
+
+fn redact_bearer(line: &str) -> String {
+    let Some(index) = line.to_ascii_lowercase().find("bearer ") else {
+        return line.to_string();
+    };
+    let value_start = index + "bearer ".len();
+    let value_end = line[value_start..]
+        .find(|character: char| character.is_whitespace() || character == ',' || character == ';')
+        .map_or(line.len(), |offset| value_start + offset);
+    format!("{}[REDACTED]{}", &line[..value_start], &line[value_end..])
+}
+
+fn redact_assignment(line: &str) -> String {
+    for separator in ['=', ':'] {
+        if let Some(index) = line.find(separator) {
+            let label = line[..index].trim();
+            if is_secret_label(label) {
+                let prefix = &line[..=index];
+                let quote = line[index + 1..]
+                    .chars()
+                    .find(|character| *character == '"' || *character == '\'');
+                return match quote {
+                    Some(character) => format!("{prefix} {character}[REDACTED]{character}"),
+                    None => format!("{prefix} [REDACTED]"),
+                };
+            }
+        }
+    }
+    line.to_string()
+}
+
+fn is_secret_label(label: &str) -> bool {
+    let lower = label.to_ascii_lowercase();
+    lower.contains("authorization")
+        || lower.contains("password")
+        || lower.contains("secret")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
+        || lower.ends_with("_token")
+        || lower.contains("token")
 }
 
 fn push_unique(lines: &mut Vec<String>, seen: &mut HashSet<String>, line: String) {
@@ -636,6 +881,9 @@ mod tests {
         ReductionPolicy {
             max_output_bytes: max_bytes,
             max_output_tokens: 1_000,
+            max_input_bytes: 2 * 1024 * 1024,
+            max_json_depth: 64,
+            max_json_values: 20_000,
             required_markers: Vec::new(),
             selected_line_ranges: Vec::new(),
             recent_turns: 4,
@@ -1032,5 +1280,190 @@ mod tests {
                 assert!(!err.to_string().contains("ERROR boom"));
             }
         }
+    }
+
+    #[test]
+    fn marker_validation_uses_retained_markers_not_literal_content() {
+        let pass_policy = ReductionPolicy {
+            required_markers: vec!["key:errors".to_string()],
+            ..tight_policy(256)
+        };
+        let pass = reduce(
+            ContextContentKind::Json,
+            br#"{"errors":[{"message":"boom"}],"ok":true}"#,
+            &pass_policy,
+        )
+        .unwrap();
+        assert!(
+            pass.retained_markers
+                .iter()
+                .any(|marker| marker == "key:errors")
+        );
+
+        let fail_policy = ReductionPolicy {
+            required_markers: vec!["key:errors".to_string()],
+            ..tight_policy(12)
+        };
+        assert!(matches!(
+            reduce(
+                ContextContentKind::Json,
+                br#"{"errors":[{"message":"boom"}],"ok":true}"#,
+                &fail_policy
+            ),
+            Err(crate::ContextError::QualityFailed { .. })
+        ));
+
+        let empty_policy = ReductionPolicy {
+            required_markers: vec!["".to_string()],
+            ..ReductionPolicy::default()
+        };
+        assert!(matches!(
+            reduce(ContextContentKind::Text, b"anything", &empty_policy),
+            Err(crate::ContextError::InvalidReductionPolicy { .. })
+        ));
+    }
+
+    #[test]
+    fn rust_scanner_does_not_capture_bodies_secrets_or_next_declarations() {
+        let input = b"#[inline]\npub(crate) async unsafe extern \"C\" fn compute(\n    token: &str,\n) -> Result<(), Error> { // comment\n    let API_TOKEN = \"raw-secret\";\n}\n\npub(super) fn next() {}\n";
+
+        let view = reduce(ContextContentKind::Code, input, &ReductionPolicy::default()).unwrap();
+
+        assert!(
+            view.content
+                .contains("#[inline]\npub(crate) async unsafe extern \"C\" fn compute(")
+        );
+        assert!(view.content.contains(") -> Result<(), Error> { // comment"));
+        assert!(view.content.contains("pub(super) fn next() {"));
+        assert!(!view.content.contains("raw-secret"));
+        assert!(!view.content.contains("let API_TOKEN"));
+        assert_eq!(view.content.matches("pub(super) fn next").count(), 1);
+    }
+
+    #[test]
+    fn secret_redaction_applies_to_every_reducer_route() {
+        let cases = [
+            (
+                ContextContentKind::Json,
+                br#"{"authorization":"Bearer abc.def.ghi","nested":{"api_key":"sk-live-secret"}}"#.as_slice(),
+            ),
+            (
+                ContextContentKind::Code,
+                b"const API_TOKEN: &str = \"secret-token\";\nfn call() {\n    let password = \"hunter2\";\n}\n",
+            ),
+            (
+                ContextContentKind::Diff,
+                b"diff --git a/.env b/.env\n@@ -1 +1 @@\n-API_KEY=old-secret\n+API_KEY=new-secret\n",
+            ),
+            (
+                ContextContentKind::Log,
+                b"ERROR Authorization: Bearer raw-secret-token\nTOKEN=secret-token\n",
+            ),
+            (
+                ContextContentKind::Diagnostic,
+                b"ERROR password=hunter2\nSECRET=raw-secret\n",
+            ),
+            (
+                ContextContentKind::Transcript,
+                b"User: constraint: Authorization: Bearer raw-secret-token\nAssistant: recent\n",
+            ),
+            (
+                ContextContentKind::Text,
+                b"decision: password = hunter2\n.env API_KEY=raw-secret\n",
+            ),
+        ];
+
+        for (kind, input) in cases {
+            let view = reduce(kind, input, &ReductionPolicy::default()).unwrap();
+            let serialized = serde_json::to_string(&view).unwrap();
+
+            assert!(view.content.contains("[REDACTED]"), "{kind:?}");
+            assert!(!serialized.contains("raw-secret"), "{kind:?}");
+            assert!(!serialized.contains("hunter2"), "{kind:?}");
+            assert!(!serialized.contains("secret-token"), "{kind:?}");
+            assert!(!serialized.contains("sk-live-secret"), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn json_resource_limits_are_deterministic_and_non_leaking() {
+        let input_policy = ReductionPolicy {
+            max_input_bytes: 8,
+            ..ReductionPolicy::default()
+        };
+        let err = reduce(
+            ContextContentKind::Json,
+            br#"{"password":"secret-value","items":[1,2,3]}"#,
+            &input_policy,
+        )
+        .expect_err("oversized input should be rejected");
+        assert!(matches!(
+            err,
+            crate::ContextError::ReductionInputTooLarge { .. }
+        ));
+        assert!(!err.to_string().contains("secret-value"));
+
+        let deep_policy = ReductionPolicy {
+            max_json_depth: 2,
+            ..ReductionPolicy::default()
+        };
+        let deep = reduce(
+            ContextContentKind::Json,
+            br#"{"a":{"b":{"c":1}}}"#,
+            &deep_policy,
+        )
+        .unwrap();
+        let again = reduce(
+            ContextContentKind::Json,
+            br#"{"a":{"b":{"c":1}}}"#,
+            &deep_policy,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_string(&deep).unwrap(),
+            serde_json::to_string(&again).unwrap()
+        );
+        assert_eq!(deep.content, "0");
+        assert!(
+            deep.omissions
+                .iter()
+                .any(|omission| omission.reason == "json_depth_limit")
+        );
+
+        let value_policy = ReductionPolicy {
+            max_json_values: 3,
+            ..ReductionPolicy::default()
+        };
+        let value_heavy = reduce(
+            ContextContentKind::Json,
+            br#"{"a":1,"b":2,"c":3,"d":4}"#,
+            &value_policy,
+        )
+        .unwrap();
+        assert_eq!(value_heavy.content, "0");
+        assert!(
+            value_heavy
+                .omissions
+                .iter()
+                .any(|omission| omission.reason == "json_value_limit")
+        );
+    }
+
+    #[test]
+    fn log_omission_accounting_counts_each_omitted_line_once() {
+        let view = reduce(
+            ContextContentKind::Log,
+            b"ignored one\nERROR src/a.rs:1 boom\nERROR src/a.rs:1 boom\nignored two\nfinal tail\n",
+            &ReductionPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            view.omissions
+                .iter()
+                .find(|omission| omission.reason == "log_lines_omitted_or_deduplicated")
+                .map(|omission| omission.omitted_count),
+            Some(3)
+        );
     }
 }

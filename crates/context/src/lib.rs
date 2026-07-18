@@ -23,6 +23,10 @@ pub enum ContextError {
         field: &'static str,
         reason: &'static str,
     },
+    ReductionInputTooLarge {
+        byte_count: usize,
+        max_input_bytes: usize,
+    },
 }
 
 impl Display for ContextError {
@@ -40,6 +44,13 @@ impl Display for ContextError {
             Self::InvalidReductionPolicy { field, reason } => {
                 write!(formatter, "invalid reduction policy: {field} {reason}")
             }
+            Self::ReductionInputTooLarge {
+                byte_count,
+                max_input_bytes,
+            } => write!(
+                formatter,
+                "reduction input too large: byte_count={byte_count}, max_input_bytes={max_input_bytes}"
+            ),
         }
     }
 }
@@ -48,7 +59,9 @@ impl Error for ContextError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Store(err) => Some(err),
-            Self::QualityFailed { .. } | Self::InvalidReductionPolicy { .. } => None,
+            Self::QualityFailed { .. }
+            | Self::InvalidReductionPolicy { .. }
+            | Self::ReductionInputTooLarge { .. } => None,
         }
     }
 }
