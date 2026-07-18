@@ -1891,6 +1891,260 @@ fn accept_merge_gate_command_cannot_bypass_invalid_evidence() {
 }
 
 #[test]
+fn merge_gate_with_empty_required_evidence_collects_summary_evidence() {
+    let cwd = temp_dir("runtime_contract_empty_required_summary_cwd");
+    let home = temp_dir("runtime_contract_empty_required_summary_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    let _ = start_gate_with_required(&mut engine, &mut approver, "task_empty_summary", Vec::new());
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_empty_summary",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_empty_summary".to_string(),
+                evidence_id: Some("evidence-empty-summary".to_string()),
+                kind: "patch".to_string(),
+                summary: "summary evidence should not accept empty requirements".to_string(),
+                path: None,
+                source: Some("legacy-agent".to_string()),
+                canonical: None,
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_gate_status_with_reason(
+        &events,
+        "gate-task_empty_summary",
+        MergeGateStatus::CollectingEvidence,
+        "missing_required_kind",
+    );
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &engine.runtime_view_state());
+}
+
+#[test]
+fn merge_gate_with_empty_required_evidence_collects_canonical_evidence_and_replays() {
+    let cwd = temp_dir("runtime_contract_empty_required_canonical_cwd");
+    let home = temp_dir("runtime_contract_empty_required_canonical_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    let mut start_events = start_gate_with_required(
+        &mut engine,
+        &mut approver,
+        "task_empty_canonical",
+        Vec::new(),
+    );
+    let (item, canonical) = stored_canonical_context(
+        &cwd,
+        "task_empty_canonical",
+        "evidence-empty-canonical",
+        "bundle-empty-canonical",
+        ContextContentKind::Diff,
+        b"canonical evidence still needs an explicit requirement",
+    );
+    engine.set_merge_gate_context_facts_for_test("bundle-empty-canonical", item);
+
+    let mut events = engine
+        .handle_runtime_command(
+            "cmd_empty_canonical",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_empty_canonical".to_string(),
+                evidence_id: Some("evidence-empty-canonical".to_string()),
+                kind: "patch".to_string(),
+                summary: "canonical evidence still needs an explicit requirement".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(canonical),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_gate_status_with_reason(
+        &events,
+        "gate-task_empty_canonical",
+        MergeGateStatus::CollectingEvidence,
+        "missing_required_kind",
+    );
+    let live = engine.runtime_view_state();
+    let mut replayed = RuntimeViewState::new(live.snapshot.clone());
+    start_events.append(&mut events);
+    for event in &start_events {
+        replayed.apply_event(event);
+    }
+    assert_eq!(replayed.merge_gates, live.merge_gates);
+    assert_eq!(replayed.latest_evidence, live.latest_evidence);
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &live);
+}
+
+#[test]
+fn accept_merge_gate_command_cannot_bypass_empty_required_evidence() {
+    let cwd = temp_dir("runtime_contract_empty_required_accept_cwd");
+    let home = temp_dir("runtime_contract_empty_required_accept_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    let _ = start_gate_with_required(&mut engine, &mut approver, "task_empty_accept", Vec::new());
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_accept_empty_required",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: "gate-task_empty_accept".to_string(),
+                decision: Some("force accept empty".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_accept_empty_required"
+                && reason.contains("missing_required_kind")
+    )));
+    assert_eq!(
+        engine
+            .runtime_view_state()
+            .merge_gates
+            .iter()
+            .find(|gate| gate.gate_id == "gate-task_empty_accept")
+            .unwrap()
+            .status,
+        MergeGateStatus::Proposed
+    );
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &engine.runtime_view_state());
+}
+
+#[test]
+fn record_agent_evidence_rolls_back_when_workflow_append_fails() {
+    let cwd = temp_dir("runtime_contract_workflow_append_fail_cwd");
+    let home = temp_dir("runtime_contract_workflow_append_fail_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    start_single_patch_gate(&mut engine, &mut approver, "task_workflow_append_fail");
+    let before = engine.runtime_view_state();
+    let (item, canonical) = stored_canonical_context(
+        &cwd,
+        "task_workflow_append_fail",
+        "evidence-workflow-append-fail",
+        "bundle-workflow-append-fail",
+        ContextContentKind::Diff,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    );
+    engine.set_merge_gate_context_facts_for_test("bundle-workflow-append-fail", item);
+    engine.fail_next_workflow_append_for_test();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_workflow_append_fail",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_workflow_append_fail".to_string(),
+                evidence_id: Some("evidence-workflow-append-fail".to_string()),
+                kind: "patch".to_string(),
+                summary: "canonical patch should roll back on workflow append failure".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(canonical),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_workflow_append_fail"
+                && reason.contains("injected workflow append failure")
+    )));
+    assert_eq!(
+        engine.runtime_view_state().merge_gates,
+        before.merge_gates,
+        "workflow append failure must not leak a gate update"
+    );
+    assert_eq!(
+        engine.runtime_view_state().latest_evidence,
+        before.latest_evidence,
+        "workflow append failure must not leak evidence"
+    );
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &engine.runtime_view_state());
+}
+
+#[test]
+fn record_agent_evidence_rolls_back_when_runtime_event_append_fails() {
+    let cwd = temp_dir("runtime_contract_runtime_append_fail_cwd");
+    let home = temp_dir("runtime_contract_runtime_append_fail_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    start_single_patch_gate(&mut engine, &mut approver, "task_runtime_append_fail");
+    let before = engine.runtime_view_state();
+    let (item, canonical) = stored_canonical_context(
+        &cwd,
+        "task_runtime_append_fail",
+        "evidence-runtime-append-fail",
+        "bundle-runtime-append-fail",
+        ContextContentKind::Diff,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    );
+    engine.set_merge_gate_context_facts_for_test("bundle-runtime-append-fail", item);
+    engine.fail_next_transcript_append_for_test();
+
+    let err = engine
+        .handle_runtime_command(
+            "cmd_runtime_append_fail",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_runtime_append_fail".to_string(),
+                evidence_id: Some("evidence-runtime-append-fail".to_string()),
+                kind: "patch".to_string(),
+                summary: "canonical patch should roll back on runtime append failure".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(canonical),
+            },
+            &mut approver,
+        )
+        .unwrap_err();
+
+    assert!(err.contains("injected transcript append failure"));
+    assert_eq!(
+        engine.runtime_view_state().merge_gates,
+        before.merge_gates,
+        "runtime event append failure must not leak a gate update"
+    );
+    assert_eq!(
+        engine.runtime_view_state().latest_evidence,
+        before.latest_evidence,
+        "runtime event append failure must not leak evidence"
+    );
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &engine.runtime_view_state());
+}
+
+#[test]
 fn merge_gate_accepts_fully_verified_canonical_evidence() {
     let cwd = temp_dir("runtime_contract_verified_canonical_gate_cwd");
     let home = temp_dir("runtime_contract_verified_canonical_gate_home");
@@ -2443,27 +2697,36 @@ fn start_single_patch_gate(
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     task_id: &str,
 ) {
+    let _ = start_gate_with_required(engine, approver, task_id, vec!["patch".to_string()]);
+}
+
+fn start_gate_with_required(
+    engine: &mut SessionEngine,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    task_id: &str,
+    required_evidence: Vec<String>,
+) -> Vec<RuntimeEvent> {
     engine
         .handle_runtime_command(
             format!("cmd_agent_dag_{task_id}"),
             RuntimeCommand::StartAgentDag {
-                goal: format!("Require canonical patch for {task_id}"),
+                goal: format!("Require canonical evidence for {task_id}"),
                 tasks: vec![AgentDagTaskSpec {
                     task_id: task_id.to_string(),
                     role: AgentRole::Coder,
-                    title: "Patch with canonical source".to_string(),
-                    objective: "Record a verified patch".to_string(),
+                    title: "Canonical evidence gate".to_string(),
+                    objective: "Record verified evidence".to_string(),
                     dependencies: Vec::new(),
                     workspace: None,
                     file_scope: vec!["crates/runtime".to_string()],
                     context_bundle_id: None,
-                    required_evidence: vec!["patch".to_string()],
+                    required_evidence,
                     permission_policy: "scoped_mutation".to_string(),
                 }],
             },
             approver,
         )
-        .unwrap();
+        .unwrap()
 }
 
 fn stored_canonical_context(
@@ -2498,6 +2761,31 @@ fn blob_path_for_hash(cwd: &std::path::Path, hash: &str) -> std::path::PathBuf {
         .join("blobs")
         .join(&hash[..2])
         .join(hash)
+}
+
+fn assert_resumed_runtime_matches(
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+    session_id: &str,
+    expected: &RuntimeViewState,
+) {
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut resumed =
+        SessionEngine::new_with_home(cwd, provider, Some(home.to_path_buf())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let resume_events = resumed
+        .process_input_with_approval(&format!("/resume {session_id}"), &mut approver)
+        .unwrap();
+    assert!(resume_events.iter().any(
+        |event| matches!(event, crate::EngineEvent::Command(text) if text.contains("Resumed session"))
+    ));
+    let actual = resumed.runtime_view_state();
+    assert_eq!(actual.merge_gates, expected.merge_gates);
+    assert_eq!(actual.latest_evidence, expected.latest_evidence);
+    assert_eq!(actual.tasks, expected.tasks);
 }
 
 fn assert_gate_status_with_reason(

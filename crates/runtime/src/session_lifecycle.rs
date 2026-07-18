@@ -196,6 +196,11 @@ impl SessionEngine {
     }
 
     pub(super) fn store_entry(&self, entry: TranscriptEntry) -> Result<(), String> {
+        #[cfg(test)]
+        if self.fail_next_transcript_append.replace(false) {
+            return Err("injected transcript append failure".to_string());
+        }
+
         self.store.append_entry(&entry)
     }
 

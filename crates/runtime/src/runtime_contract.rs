@@ -53,6 +53,13 @@ struct RecordAgentEvidenceRequest<'a> {
 }
 
 #[derive(Debug, Clone)]
+struct RuntimeDomainSnapshot {
+    tasks: Vec<AgentTaskRecord>,
+    merge_gates: Vec<MergeGateRecord>,
+    evidence: Vec<EvidenceView>,
+}
+
+#[derive(Debug, Clone)]
 struct RuntimePermissionScope {
     work_mode: WorkMode,
     permission_mode: PermissionMode,
@@ -270,6 +277,10 @@ impl SessionEngine {
         }
 
         let persist_after_match = !matches!(&command, RuntimeCommand::StartAgentTask { .. });
+        // Merge gate decisions are valid only when both workflow and session facts
+        // append successfully; restore live domain state if either boundary fails.
+        let transaction_snapshot =
+            transactional_runtime_command(&command).then(|| self.runtime_domain_snapshot());
         let accepted = RuntimeEvent::new(
             1,
             RuntimeEventKind::CommandAccepted {
@@ -392,7 +403,13 @@ impl SessionEngine {
                     "decision",
                 ) {
                     Ok(decision_events) => append_resequenced(&mut events, decision_events),
-                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                    Err(err) => {
+                        return Ok(self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        ));
+                    }
                 }
             }
             RuntimeCommand::RejectMergeGate { gate_id, reason } => {
@@ -404,7 +421,13 @@ impl SessionEngine {
                     "reason",
                 ) {
                     Ok(decision_events) => append_resequenced(&mut events, decision_events),
-                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                    Err(err) => {
+                        return Ok(self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        ));
+                    }
                 }
             }
             RuntimeCommand::RecordAgentEvidence {
@@ -427,7 +450,13 @@ impl SessionEngine {
                 });
                 match record_result {
                     Ok(evidence_events) => append_resequenced(&mut events, evidence_events),
-                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                    Err(err) => {
+                        return Ok(self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        ));
+                    }
                 }
             }
             RuntimeCommand::AcceptAgentArtifact {
@@ -441,7 +470,13 @@ impl SessionEngine {
                     decision.unwrap_or_else(|| "artifact accepted".to_string()),
                 ) {
                     Ok(artifact_events) => append_resequenced(&mut events, artifact_events),
-                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                    Err(err) => {
+                        return Ok(self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        ));
+                    }
                 }
             }
             RuntimeCommand::RejectAgentArtifact {
@@ -450,7 +485,13 @@ impl SessionEngine {
                 reason,
             } => match self.reject_agent_artifact(&gate_id, &evidence_id, reason) {
                 Ok(artifact_events) => append_resequenced(&mut events, artifact_events),
-                Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                Err(err) => {
+                    return Ok(self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    ));
+                }
             },
             RuntimeCommand::MergeAgentPatch { gate_id, decision } => {
                 match self.merge_agent_patch(
@@ -458,7 +499,13 @@ impl SessionEngine {
                     decision.unwrap_or_else(|| "patch merged".to_string()),
                 ) {
                     Ok(merge_events) => append_resequenced(&mut events, merge_events),
-                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                    Err(err) => {
+                        return Ok(self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        ));
+                    }
                 }
             }
             RuntimeCommand::RetrieveContext { .. } => unreachable!("handled before acceptance"),
@@ -470,10 +517,41 @@ impl SessionEngine {
             }
         }
 
-        if persist_after_match {
-            self.persist_runtime_domain_events(&events)?;
+        if persist_after_match && let Err(err) = self.persist_runtime_domain_events(&events) {
+            self.restore_transaction_snapshot(&transaction_snapshot);
+            return Err(err);
         }
         Ok(events)
+    }
+
+    fn runtime_domain_snapshot(&self) -> RuntimeDomainSnapshot {
+        RuntimeDomainSnapshot {
+            tasks: self.runtime_tasks.clone(),
+            merge_gates: self.runtime_merge_gates.clone(),
+            evidence: self.runtime_evidence.clone(),
+        }
+    }
+
+    fn restore_runtime_domain_snapshot(&mut self, snapshot: RuntimeDomainSnapshot) {
+        self.runtime_tasks = snapshot.tasks;
+        self.runtime_merge_gates = snapshot.merge_gates;
+        self.runtime_evidence = snapshot.evidence;
+    }
+
+    fn restore_transaction_snapshot(&mut self, snapshot: &Option<RuntimeDomainSnapshot>) {
+        if let Some(snapshot) = snapshot {
+            self.restore_runtime_domain_snapshot(snapshot.clone());
+        }
+    }
+
+    fn command_rejected_after_transaction_rollback(
+        &mut self,
+        snapshot: &Option<RuntimeDomainSnapshot>,
+        command_id: String,
+        err: String,
+    ) -> Vec<RuntimeEvent> {
+        self.restore_transaction_snapshot(snapshot);
+        vec![command_rejected(command_id, err)]
     }
 
     fn persist_cost_usage_events(&mut self, events: &[RuntimeEvent]) -> Result<(), String> {
@@ -1686,13 +1764,6 @@ impl SessionEngine {
             .find(|dag| dag.tasks.iter().any(|task| task.task_id == task_id))
             .map(|dag| dag.dag_id.clone())
             .ok_or_else(|| format!("agent DAG for task `{task_id}` does not exist"))?;
-        if status == MergeGateStatus::Accepted
-            && self.runtime_merge_gates[gate_index].evidence_ids.is_empty()
-        {
-            return Err(format!(
-                "merge gate `{gate_id}` cannot be accepted without evidence"
-            ));
-        }
         if status == MergeGateStatus::Accepted {
             let report = reduce_merge_gate_status(
                 &self.runtime_merge_gates[gate_index],
@@ -2210,6 +2281,11 @@ impl SessionEngine {
         event_type: &str,
         payload_fields: &[(&str, &str)],
     ) -> Result<(), String> {
+        #[cfg(test)]
+        if self.fail_next_workflow_append.replace(false) {
+            return Err("injected workflow append failure".to_string());
+        }
+
         let payload = payload_fields
             .iter()
             .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
@@ -2760,6 +2836,12 @@ fn reduce_merge_gate_status(
         .iter()
         .map(|required| canonical_required_evidence_kind(required))
         .collect::<BTreeSet<_>>();
+    if required_kinds.is_empty() {
+        return EvidenceCanonicalStatusReport {
+            status: EvidenceCanonicalStatus::Missing,
+            reason_codes: vec![EvidenceCanonicalReasonCode::MissingRequiredKind],
+        };
+    }
 
     for evidence_id in &gate.evidence_ids {
         let Some(item) = evidence_by_id.get(evidence_id.as_str()) else {
@@ -2786,6 +2868,18 @@ fn reduce_merge_gate_status(
         status,
         reason_codes: reasons.into_iter().collect(),
     }
+}
+
+fn transactional_runtime_command(command: &RuntimeCommand) -> bool {
+    matches!(
+        command,
+        RuntimeCommand::AcceptMergeGate { .. }
+            | RuntimeCommand::RejectMergeGate { .. }
+            | RuntimeCommand::RecordAgentEvidence { .. }
+            | RuntimeCommand::AcceptAgentArtifact { .. }
+            | RuntimeCommand::RejectAgentArtifact { .. }
+            | RuntimeCommand::MergeAgentPatch { .. }
+    )
 }
 
 fn evidence_by_id(evidence: &[EvidenceView]) -> std::collections::BTreeMap<&str, &EvidenceView> {

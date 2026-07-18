@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{
@@ -276,6 +278,10 @@ pub struct SessionEngine {
     last_context_runtime_events: Vec<RuntimeEvent>,
     context_engine_root: PathBuf,
     context_budget_override: Option<(u64, u64)>,
+    #[cfg(test)]
+    fail_next_workflow_append: Cell<bool>,
+    #[cfg(test)]
+    fail_next_transcript_append: Cell<bool>,
 }
 
 impl SessionEngine {
@@ -358,6 +364,10 @@ impl SessionEngine {
             last_context_runtime_events: Vec::new(),
             context_engine_root,
             context_budget_override: None,
+            #[cfg(test)]
+            fail_next_workflow_append: Cell::new(false),
+            #[cfg(test)]
+            fail_next_transcript_append: Cell::new(false),
         };
         engine.persist_meta("work_mode", engine.runtime_snapshot.work_mode.cli_name())?;
         engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;
@@ -451,6 +461,16 @@ impl SessionEngine {
         {
             dag.dag_id = bounded;
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_workflow_append_for_test(&self) {
+        self.fail_next_workflow_append.set(true);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_transcript_append_for_test(&self) {
+        self.fail_next_transcript_append.set(true);
     }
 
     #[cfg(test)]
