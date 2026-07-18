@@ -524,7 +524,9 @@ name = "viden-runtime"
 version = "0.1.30"
 dependencies = [
  "serde_json",
+ "sha2",
  "viden-config",
+ "viden-context",
  "viden-lsp",
  "viden-permissions",
  "viden-plugin-api",

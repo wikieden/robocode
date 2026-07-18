@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::agent_commands::{tracked_agent_job_runtime_events, tracked_agent_job_tasks};
+use crate::context_bundle::ContextBuildMode;
 use crate::lsp_tools::render_lsp_diagnostics;
 use crate::{EngineEvent, ProviderTelemetry, SessionEngine};
 use viden_config::ProviderConfigUpdate;
@@ -177,17 +178,28 @@ impl SessionEngine {
             1,
             RuntimeEventKind::CommandAccepted {
                 command_id: command_id.clone(),
-                command: command.clone(),
+                command: redacted_runtime_command_for_event(&command),
             },
         );
 
         let mut events = vec![accepted];
         match command {
             RuntimeCommand::SubmitUserInput { content } => {
-                append_resequenced(
-                    &mut events,
-                    self.process_runtime_input_with_approval(&content, approver)?,
-                );
+                match self.process_runtime_input_with_approval(&content, approver) {
+                    Ok(input_events) => append_resequenced(&mut events, input_events),
+                    Err(err) if err.contains("context hard limit") => {
+                        append_resequenced(&mut events, self.runtime_state_events());
+                        events.push(RuntimeEvent::new(
+                            next_sequence(&events),
+                            RuntimeEventKind::CommandRejected {
+                                command_id,
+                                reason: err,
+                            },
+                        ));
+                        return Ok(events);
+                    }
+                    Err(err) => return Err(err),
+                }
             }
             RuntimeCommand::QueueFollowUp { content } => {
                 let queued = QueuedRuntimeInput::new(content);
@@ -417,6 +429,12 @@ impl SessionEngine {
             },
         )];
         if let Some(context) = &self.last_context_bundle {
+            for event in &self.last_context_runtime_events {
+                events.push(RuntimeEvent::new(
+                    next_sequence(&events),
+                    event.kind.clone(),
+                ));
+            }
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
                 RuntimeEventKind::ContextUpdated {
@@ -480,7 +498,9 @@ impl SessionEngine {
         for task in self.agent_task_snapshot() {
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
-                RuntimeEventKind::TaskUpdated { task },
+                RuntimeEventKind::TaskUpdated {
+                    task: redacted_task_for_event(task),
+                },
             ));
         }
         for evidence in &self.runtime_evidence {
@@ -781,6 +801,8 @@ impl SessionEngine {
         };
         let context = self.agent_context_bundle(&spec, &prompt);
         self.last_context_bundle = Some(context.clone());
+        self.last_context_runtime_events =
+            self.context_events_for_existing_bundle(&context, ContextBuildMode::Normal);
         let assistant_output = assistant_output_from_events(&provider_events);
         append_resequenced(&mut events, provider_events);
         events.push(RuntimeEvent::new(
@@ -789,6 +811,12 @@ impl SessionEngine {
                 snapshot: self.runtime_snapshot(),
             },
         ));
+        for event in &self.last_context_runtime_events {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                event.kind.clone(),
+            ));
+        }
         events.push(RuntimeEvent::new(
             next_sequence(&events),
             RuntimeEventKind::ContextUpdated { context },
@@ -2778,6 +2806,52 @@ fn approval_request_view(request_id: &str, prompt: &PermissionPrompt) -> Approva
 
 fn command_rejected(command_id: String, reason: String) -> RuntimeEvent {
     RuntimeEvent::new(1, RuntimeEventKind::CommandRejected { command_id, reason })
+}
+
+fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> RuntimeCommand {
+    match command {
+        RuntimeCommand::SubmitUserInput { content } => RuntimeCommand::SubmitUserInput {
+            content: redact_command_text(content),
+        },
+        RuntimeCommand::QueueFollowUp { content } => RuntimeCommand::QueueFollowUp {
+            content: redact_command_text(content),
+        },
+        other => other.clone(),
+    }
+}
+
+fn redact_command_text(input: &str) -> String {
+    input
+        .split_whitespace()
+        .map(|word| {
+            let lower = word.to_ascii_lowercase();
+            if lower.starts_with("sk-")
+                || lower.contains("secret")
+                || lower.contains("token=")
+                || lower.contains("api_key")
+            {
+                "[REDACTED]"
+            } else {
+                word
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn redacted_task_for_event(mut task: AgentTaskRecord) -> AgentTaskRecord {
+    task.title = redact_command_text(&task.title);
+    task.activity = redact_command_text(&task.activity);
+    task.summary = redact_command_text(&task.summary);
+    if let Some(result) = task.result {
+        task.result = Some(redact_command_text(&result));
+    }
+    task.evidence = task
+        .evidence
+        .into_iter()
+        .map(|evidence| redact_command_text(&evidence))
+        .collect();
+    task
 }
 
 fn permission_mode_for_level(level: PermissionLevel) -> PermissionMode {

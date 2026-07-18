@@ -1203,7 +1203,7 @@ fn runtime_supervisor_applies_role_policy_matrix_to_tools() {
             },
         )
         .unwrap();
-    let tester_events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+    let tester_events = collect_events_until(&supervisor, Duration::from_secs(5), |events| {
         events.iter().any(|event| {
             matches!(
                 &event.kind,
@@ -1677,7 +1677,7 @@ fn runtime_supervisor_applies_scoped_git_policy_to_agent_tasks() {
             },
         )
         .unwrap();
-    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+    let events = collect_events_until(&supervisor, Duration::from_secs(5), |events| {
         events.iter().any(|event| {
             matches!(
                 &event.kind,

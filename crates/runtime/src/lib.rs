@@ -189,6 +189,9 @@ pub struct SessionEngine {
     runtime_event_sink: Option<RuntimeEventSink>,
     provider_telemetry: ProviderTelemetry,
     last_context_bundle: Option<ContextBundleRecord>,
+    last_context_runtime_events: Vec<RuntimeEvent>,
+    context_engine_root: PathBuf,
+    context_budget_override: Option<(u64, u64)>,
 }
 
 impl SessionEngine {
@@ -234,6 +237,7 @@ impl SessionEngine {
             None => SessionStore::new(&cwd, None)?,
         };
         let workflows = WorkflowStore::new(store.home_dir().to_path_buf(), &cwd)?;
+        let context_engine_root = cwd.join(".viden").join("context-engine");
         let engine = Self {
             cwd: cwd.clone(),
             provider,
@@ -261,6 +265,9 @@ impl SessionEngine {
             runtime_event_sink: None,
             provider_telemetry: ProviderTelemetry::default(),
             last_context_bundle: None,
+            last_context_runtime_events: Vec::new(),
+            context_engine_root,
+            context_budget_override: None,
         };
         engine.persist_meta("work_mode", engine.runtime_snapshot.work_mode.cli_name())?;
         engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;

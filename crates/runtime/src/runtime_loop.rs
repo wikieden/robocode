@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Instant};
 
 use crate::{
     EngineEvent, PROVIDER_REASONING_CONTENT_KEY, SessionEngine,
-    context_bundle::{context_evidence_rows, render_provider_context_message},
+    context_bundle::{ContextBuildMode, context_evidence_rows, render_provider_context_message},
     lsp_tools::LspToolAdapter,
     lsp_tools::render_lsp_diagnostics,
     presentation::render_permission_denial,
@@ -62,8 +62,17 @@ impl SessionEngine {
         self.store_entry(TranscriptEntry::Message {
             message: user_message,
         })?;
-        let context_bundle = self.build_main_context_bundle(trimmed);
+        let built_context_bundle =
+            self.build_main_context_bundle_with_mode(trimmed, ContextBuildMode::Normal);
+        let mut context_bundle = built_context_bundle.bundle;
+        self.last_context_runtime_events = built_context_bundle.events;
         self.last_context_bundle = Some(context_bundle.clone());
+        if built_context_bundle.hard_exceeded {
+            return Err(format!(
+                "context hard limit exceeded before provider request: used {} tokens, hard limit {}. reduce input, narrow file scope, or split the task.",
+                context_bundle.estimated_tokens, context_bundle.hard_token_limit
+            ));
+        }
         let mut provider_task = self.provider_task(
             trimmed,
             AgentTaskStatus::Thinking,
@@ -114,6 +123,19 @@ impl SessionEngine {
                         && !retried_request_too_large
                     {
                         retried_request_too_large = true;
+                        let retry_context = self.build_main_context_bundle_with_mode(
+                            trimmed,
+                            ContextBuildMode::RequestTooLargeRetry,
+                        );
+                        context_bundle = retry_context.bundle;
+                        self.last_context_runtime_events = retry_context.events;
+                        self.last_context_bundle = Some(context_bundle.clone());
+                        if retry_context.hard_exceeded {
+                            return Err(format!(
+                                "context hard limit exceeded during request-too-large recovery: used {} tokens, hard limit {}. reduce input, narrow file scope, or split the task.",
+                                context_bundle.estimated_tokens, context_bundle.hard_token_limit
+                            ));
+                        }
                         let note =
                             "Provider request was too large; retrying with compacted context.";
                         let system_message = Message::new(Role::System, note);

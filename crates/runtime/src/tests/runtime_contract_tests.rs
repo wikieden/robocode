@@ -1,13 +1,56 @@
 use std::fs;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
+};
 
+use viden_provider::ModelProvider;
 use viden_types::{
-    ApprovalResponse, EvidenceView, ModelEvent, PermissionLevel, RuntimeCommand, RuntimeEvent,
-    RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, WorkMode,
+    ApprovalResponse, EvidenceView, ModelEvent, ModelRequest, PermissionLevel, RuntimeCommand,
+    RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, WorkMode,
 };
 
 use crate::{EngineEvent, SessionEngine};
 
 use super::{SequenceProvider, temp_dir};
+
+struct CountingProvider {
+    request_count: Arc<AtomicU64>,
+    requests: Arc<Mutex<Vec<ModelRequest>>>,
+    result: Result<Vec<ModelEvent>, String>,
+}
+
+impl CountingProvider {
+    fn new(
+        request_count: Arc<AtomicU64>,
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+        result: Result<Vec<ModelEvent>, String>,
+    ) -> Self {
+        Self {
+            request_count,
+            requests,
+            result,
+        }
+    }
+}
+
+impl ModelProvider for CountingProvider {
+    fn provider_name(&self) -> &str {
+        "counting"
+    }
+
+    fn model(&self) -> &str {
+        "counting-model"
+    }
+
+    fn set_model(&mut self, _model: String) {}
+
+    fn next_events(&mut self, request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+        self.request_count.fetch_add(1, Ordering::SeqCst);
+        self.requests.lock().unwrap().push(request.clone());
+        self.result.clone()
+    }
+}
 
 fn assert_strictly_increasing_sequences(events: &[viden_types::RuntimeEvent]) {
     for pair in events.windows(2) {
@@ -92,6 +135,7 @@ fn core_runtime_bridge_records_tool_calls_and_results() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
     let mut approver = |_prompt| ApprovalResponse {
         approved: true,
         feedback: None,
@@ -384,6 +428,128 @@ fn runtime_command_bus_queues_follow_up_input() {
     let view = engine.runtime_view_state();
     assert_eq!(view.queued_inputs.len(), 1);
     assert_eq!(view.queued_inputs[0].content_preview, "continue with tests");
+}
+
+#[test]
+fn hard_context_limit_rejects_before_provider_request() {
+    let cwd = temp_dir("runtime_contract_hard_budget_cwd");
+    let home = temp_dir("runtime_contract_hard_budget_home");
+    let request_count = Arc::new(AtomicU64::new(0));
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(CountingProvider::new(
+        Arc::clone(&request_count),
+        Arc::clone(&requests),
+        Ok(vec![ModelEvent::AssistantText {
+            content: "should not be called".to_string(),
+        }]),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_context_budget_for_test(10, 20);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_hard_budget",
+            RuntimeCommand::SubmitUserInput {
+                content: "required evidence marker ".repeat(100),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_eq!(request_count.load(Ordering::SeqCst), 0);
+    assert!(requests.lock().unwrap().is_empty());
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ContextBudgetExceeded { budget }
+                if budget.exceeded
+                    && budget.soft_token_limit == 10
+                    && budget.hard_token_limit == 20
+                    && budget.used_tokens > budget.hard_token_limit
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == "cmd_hard_budget"
+                    && reason.contains("context hard limit")
+                    && reason.contains("reduce input")
+        )
+    }));
+}
+
+#[test]
+fn context_engine_events_replay_without_raw_secret_or_paths() {
+    let cwd = temp_dir("runtime_contract_context_replay_cwd");
+    let home = temp_dir("runtime_contract_context_replay_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "context ready".to_string(),
+        },
+        ModelEvent::Done,
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let secret = "sk-test-secret-1234567890";
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_context_replay",
+            RuntimeCommand::SubmitUserInput {
+                content: format!("summarize without leaking {secret}"),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let event_json = serde_json::to_string(&events).unwrap();
+    assert!(!event_json.contains(secret));
+    for event in &events {
+        if matches!(
+            event.kind,
+            RuntimeEventKind::ContextItemStored { .. }
+                | RuntimeEventKind::ContextViewDerived { .. }
+                | RuntimeEventKind::ContextBundleBuilt { .. }
+                | RuntimeEventKind::ContextBudgetExceeded { .. }
+                | RuntimeEventKind::ContextUpdated { .. }
+        ) {
+            let context_event_json = serde_json::to_string(event).unwrap();
+            assert!(!context_event_json.contains(cwd.to_string_lossy().as_ref()));
+        }
+    }
+    assert!(events.iter().any(|event| {
+        matches!(&event.kind, RuntimeEventKind::ContextItemStored { item }
+            if !item.content_sha256.is_empty() && item.summary.contains("user-task"))
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(&event.kind, RuntimeEventKind::ContextViewDerived { view, handle }
+            if view.token_count > 0
+                && handle.item_id == view.item_id
+                && !handle.content_sha256.is_empty()
+                && !view.content_sha256.is_empty()
+                && handle.preferred_view_id.as_deref() == Some(view.view_id.as_str()))
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(&event.kind, RuntimeEventKind::ContextBundleBuilt { handle_ids, estimated_tokens, .. }
+            if !handle_ids.is_empty() && *estimated_tokens > 0)
+    }));
+
+    let mut view = RuntimeViewState::new(engine.runtime_snapshot());
+    for event in &events {
+        view.apply_event(event);
+    }
+    assert!(view.context.is_some());
+    assert!(!view.context_items.is_empty());
+    assert_eq!(view.context_items.len(), view.context_handles.len());
+    assert_eq!(view.context_views.len(), view.context_handles.len());
 }
 
 #[test]
