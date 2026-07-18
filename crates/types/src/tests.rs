@@ -310,6 +310,74 @@ fn agent_dag_context_evidence_and_merge_gate_roundtrip_json() {
 }
 
 #[test]
+fn canonical_evidence_status_preserves_legacy_summary_only_shape() {
+    let legacy_json = r#"{
+        "id":"evidence-legacy",
+        "kind":"patch",
+        "summary":"patch was generated from an older ACP flow",
+        "path":null,
+        "source":"acp",
+        "timestamp":12
+    }"#;
+    let evidence: EvidenceView = serde_json::from_str(legacy_json).unwrap();
+
+    assert_eq!(evidence.canonical, None);
+    assert_eq!(
+        canonical_evidence_status(&evidence),
+        EvidenceCanonicalStatus::Missing
+    );
+    assert!(
+        !serde_json::to_string(&evidence)
+            .unwrap()
+            .contains("canonical")
+    );
+}
+
+#[test]
+fn canonical_evidence_status_reports_verified_and_quality_failed_states() {
+    let mut evidence = EvidenceView {
+        id: "evidence-canonical".to_string(),
+        kind: "test_result".to_string(),
+        summary: "cargo test -p viden-runtime passed".to_string(),
+        path: None,
+        source: Some("cargo".to_string()),
+        canonical: Some(CanonicalEvidenceReference {
+            item_id: "ctxi-test".to_string(),
+            bundle_id: "bundle-test".to_string(),
+            source_hash: "ab".repeat(32),
+            producer: EvidenceProducer {
+                identity: "executor".to_string(),
+                role: "tester".to_string(),
+                task_id: "task-test".to_string(),
+            },
+            permission_snapshot_id: Some("perm-task-test".to_string()),
+            permission_scope: ContextScope::Task("task-test".to_string()),
+            evidence_scope: ContextScope::Task("task-test".to_string()),
+            verification: EvidenceVerificationState::Verified,
+            quality: EvidenceQualityFacts {
+                status: EvidenceQualityStatus::Pass,
+                reason_codes: Vec::new(),
+            },
+        }),
+        metadata: None,
+        timestamp: Some(12),
+    };
+
+    assert_eq!(
+        canonical_evidence_status(&evidence),
+        EvidenceCanonicalStatus::Verified
+    );
+
+    let canonical = evidence.canonical.as_mut().unwrap();
+    canonical.quality.status = EvidenceQualityStatus::Fail;
+    canonical.quality.reason_codes = vec![EvidenceCanonicalReasonCode::QualityFailed];
+    assert_eq!(
+        canonical_evidence_status(&evidence),
+        EvidenceCanonicalStatus::NeedsChanges
+    );
+}
+
+#[test]
 fn lsp_diagnostic_roundtrips_json() {
     let diagnostic = LspDiagnostic {
         path: "src/lib.rs".to_string(),
@@ -471,6 +539,7 @@ fn agent_dag_runtime_command_roundtrips_json() {
             summary: "focused tests passed".to_string(),
             path: Some("target/test.log".to_string()),
             source: Some("tester".to_string()),
+            canonical: None,
         },
         RuntimeCommand::AcceptAgentArtifact {
             gate_id: "gate-task_planner".to_string(),
@@ -999,6 +1068,7 @@ fn runtime_events_replay_into_ui_independent_view_state() {
         summary: "viden-types tests passed".to_string(),
         path: Some("target/test.log".to_string()),
         source: Some("cargo".to_string()),
+        canonical: None,
         metadata: None,
         timestamp: Some(42),
     };

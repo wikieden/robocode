@@ -13,6 +13,9 @@ const RUNTIME_VIEW_COLLECTION_LIMIT: usize = 50;
 
 /// UI-independent command contract sent from a client surface into the runtime.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+// This is a stable serialized runtime protocol enum. Boxing large payloads
+// would churn public construction semantics without changing wire format.
+#[allow(clippy::large_enum_variant)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuntimeCommand {
     SubmitUserInput {
@@ -75,6 +78,8 @@ pub enum RuntimeCommand {
         summary: String,
         path: Option<String>,
         source: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        canonical: Option<CanonicalEvidenceReference>,
     },
     AcceptAgentArtifact {
         gate_id: MergeGateId,
@@ -126,8 +131,99 @@ pub struct EvidenceView {
     pub path: Option<String>,
     pub source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical: Option<CanonicalEvidenceReference>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
     pub timestamp: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CanonicalEvidenceReference {
+    pub item_id: String,
+    pub bundle_id: String,
+    pub source_hash: String,
+    pub producer: EvidenceProducer,
+    pub permission_snapshot_id: Option<String>,
+    pub permission_scope: ContextScope,
+    pub evidence_scope: ContextScope,
+    pub verification: EvidenceVerificationState,
+    pub quality: EvidenceQualityFacts,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EvidenceProducer {
+    pub identity: String,
+    pub role: String,
+    pub task_id: AgentTaskId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceVerificationState {
+    Unverified,
+    Verified,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EvidenceQualityFacts {
+    pub status: EvidenceQualityStatus,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reason_codes: Vec<EvidenceCanonicalReasonCode>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceQualityStatus {
+    Pass,
+    Warn,
+    Fail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceCanonicalStatus {
+    Missing,
+    Verified,
+    Blocked,
+    NeedsChanges,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceCanonicalReasonCode {
+    MissingCanonical,
+    MissingRequiredKind,
+    MissingSource,
+    HashMismatch,
+    ScopeMismatch,
+    MissingPermissionSnapshot,
+    InvalidPermissionSnapshot,
+    MissingProducer,
+    QualityFailed,
+    VerificationFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EvidenceCanonicalStatusReport {
+    pub status: EvidenceCanonicalStatus,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reason_codes: Vec<EvidenceCanonicalReasonCode>,
+}
+
+pub fn canonical_evidence_status(evidence: &EvidenceView) -> EvidenceCanonicalStatus {
+    match &evidence.canonical {
+        None => EvidenceCanonicalStatus::Missing,
+        Some(canonical) if canonical.quality.status == EvidenceQualityStatus::Fail => {
+            EvidenceCanonicalStatus::NeedsChanges
+        }
+        Some(canonical) if canonical.verification == EvidenceVerificationState::Verified => {
+            EvidenceCanonicalStatus::Verified
+        }
+        Some(_) => EvidenceCanonicalStatus::Blocked,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -419,7 +515,9 @@ impl RuntimeViewState {
                 self.active_tool_calls
                     .retain(|tool| tool.tool_call_id != *tool_call_id);
                 if let Some(evidence) = evidence {
-                    self.latest_evidence.push(evidence.clone());
+                    upsert_by_id(&mut self.latest_evidence, evidence.clone(), |existing| {
+                        existing.id == evidence.id
+                    });
                 }
             }
             RuntimeEventKind::ApprovalRequested { approval } => {
@@ -472,7 +570,9 @@ impl RuntimeViewState {
                 });
             }
             RuntimeEventKind::EvidenceRecorded { evidence } => {
-                self.latest_evidence.push(evidence.clone());
+                upsert_by_id(&mut self.latest_evidence, evidence.clone(), |existing| {
+                    existing.id == evidence.id
+                });
             }
             RuntimeEventKind::ContextUpdated { context } => {
                 self.context = Some(context.clone());

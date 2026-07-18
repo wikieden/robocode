@@ -17,9 +17,11 @@ pub use context::{
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use runtime::{
-    ApprovalRequestView, CommandAction, EvidenceView, ProviderHealthView, QueuedInputView,
-    RuntimeCommand, RuntimeCommandReceipt, RuntimeErrorView, RuntimeEvent, RuntimeEventKind,
-    RuntimeViewState, TokenCostView, ToolCallView,
+    ApprovalRequestView, CanonicalEvidenceReference, CommandAction, EvidenceCanonicalReasonCode,
+    EvidenceCanonicalStatus, EvidenceCanonicalStatusReport, EvidenceProducer, EvidenceQualityFacts,
+    EvidenceQualityStatus, EvidenceVerificationState, EvidenceView, ProviderHealthView,
+    QueuedInputView, RuntimeCommand, RuntimeCommandReceipt, RuntimeErrorView, RuntimeEvent,
+    RuntimeEventKind, RuntimeViewState, TokenCostView, ToolCallView, canonical_evidence_status,
 };
 pub use transcript::{CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptEntry};
 pub use workflow::{

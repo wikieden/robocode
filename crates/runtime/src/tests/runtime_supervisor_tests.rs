@@ -3410,7 +3410,7 @@ fn runtime_supervisor_rejects_unknown_agent_artifact_evidence() {
                     workspace: None,
                     file_scope: vec!["src".to_string()],
                     context_bundle_id: None,
-                    required_evidence: vec!["patch".to_string(), "test_result".to_string()],
+                    required_evidence: vec!["patch".to_string()],
                     permission_policy: "scoped_mutation".to_string(),
                 }],
             },
@@ -3554,6 +3554,7 @@ fn runtime_supervisor_reduces_merge_gate_from_required_evidence_kinds() {
                     summary: summary.to_string(),
                     path: None,
                     source: Some("release-gate".to_string()),
+                    canonical: None,
                 },
             )
             .unwrap();
@@ -3632,7 +3633,7 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
                     workspace: None,
                     file_scope: vec!["crates/runtime".to_string()],
                     context_bundle_id: None,
-                    required_evidence: vec!["patch".to_string(), "test_result".to_string()],
+                    required_evidence: vec!["patch".to_string()],
                     permission_policy: "scoped_mutation".to_string(),
                 }],
             },
@@ -3674,6 +3675,7 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
                 summary: "focused tests passed".to_string(),
                 path: Some("target/focused-tests.log".to_string()),
                 source: Some("tester".to_string()),
+                canonical: None,
             },
         )
         .unwrap();
@@ -3778,6 +3780,7 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
                 summary: "correct focused tests passed".to_string(),
                 path: Some("target/focused-tests.log".to_string()),
                 source: Some("tester".to_string()),
+                canonical: None,
             },
         )
         .unwrap();
@@ -3892,7 +3895,7 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
                     workspace: None,
                     file_scope: vec!["src".to_string()],
                     context_bundle_id: None,
-                    required_evidence: vec!["patch".to_string(), "test_result".to_string()],
+                    required_evidence: vec!["patch".to_string()],
                     permission_policy: "scoped_mutation".to_string(),
                 }],
             },
@@ -3934,6 +3937,7 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
                 summary: "focused tests passed".to_string(),
                 path: Some("target/focused-tests.log".to_string()),
                 source: Some("tester".to_string()),
+                canonical: None,
             },
         )
         .unwrap();
@@ -4027,7 +4031,7 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
                     workspace: None,
                     file_scope: vec!["src".to_string()],
                     context_bundle_id: None,
-                    required_evidence: vec!["patch".to_string(), "test_result".to_string()],
+                    required_evidence: vec!["patch".to_string()],
                     permission_policy: "scoped_mutation".to_string(),
                 }],
             },
@@ -4068,6 +4072,7 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
                 summary: "focused tests passed".to_string(),
                 path: Some("target/focused-tests.log".to_string()),
                 source: Some("tester".to_string()),
+                canonical: None,
             },
         )
         .unwrap();

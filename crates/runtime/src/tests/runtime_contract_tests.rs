@@ -7,11 +7,12 @@ use std::sync::{
 use viden_context::{ContextEngine, ContextPutRequest};
 use viden_provider::ModelProvider;
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, ApprovalResponse, ContextContentKind, ContextHandleRecord,
-    ContextScope, CostScope, EvidenceView, ModelEvent, ModelRequest, ModelUsage,
-    PermissionBehavior, PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue,
-    RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput,
-    WorkMode,
+    AgentDagTaskSpec, AgentRole, ApprovalResponse, CanonicalEvidenceReference, ContextContentKind,
+    ContextHandleRecord, ContextItemRecord, ContextScope, CostScope, EvidenceProducer,
+    EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState, EvidenceView,
+    MergeGateStatus, ModelEvent, ModelRequest, ModelUsage, PermissionBehavior, PermissionLevel,
+    PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand, RuntimeEvent,
+    RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, WorkMode,
 };
 
 use crate::{EngineEvent, SessionEngine, context_bundle::ContextBuildMode};
@@ -1735,6 +1736,552 @@ fn runtime_command_bus_configures_provider_and_active_models() {
 }
 
 #[test]
+fn merge_gate_rejects_summary_only_patch_evidence() {
+    let cwd = temp_dir("runtime_contract_summary_only_gate_cwd");
+    let home = temp_dir("runtime_contract_summary_only_gate_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .handle_runtime_command(
+            "cmd_agent_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Require canonical evidence".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_canonical_patch".to_string(),
+                    role: AgentRole::Coder,
+                    title: "Patch with canonical evidence".to_string(),
+                    objective: "Record a patch".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec!["crates/runtime".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["patch".to_string()],
+                    permission_policy: "scoped_mutation".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_summary_evidence",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_canonical_patch".to_string(),
+                evidence_id: Some("evidence-summary-patch".to_string()),
+                kind: "patch".to_string(),
+                summary: "diff --git a/src/lib.rs b/src/lib.rs".to_string(),
+                path: None,
+                source: Some("legacy-agent".to_string()),
+                canonical: None,
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::MergeGateUpdated { gate }
+                if gate.gate_id == "gate-task_canonical_patch"
+                    && gate.status == MergeGateStatus::CollectingEvidence
+                    && gate.decision.as_deref().is_some_and(|decision| decision.contains("missing_canonical"))
+        )
+    }));
+    let store = viden_workflows::stores::WorkflowStore::new(home, &cwd).unwrap();
+    let agent_events = store.load_agent_events().unwrap();
+    assert!(agent_events.iter().any(|event| {
+        event.event_type == "agent_evidence_recorded"
+            && event.task_id.as_deref() == Some("task_canonical_patch")
+            && event
+                .payload
+                .get("gate_status")
+                .is_some_and(|status| status == "collecting_evidence")
+            && event
+                .payload
+                .get("canonical_reasons")
+                .is_some_and(|reasons| reasons.contains("missing_canonical"))
+    }));
+}
+
+#[test]
+fn accept_merge_gate_command_cannot_bypass_invalid_evidence() {
+    let cwd = temp_dir("runtime_contract_accept_bypass_gate_cwd");
+    let home = temp_dir("runtime_contract_accept_bypass_gate_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .handle_runtime_command(
+            "cmd_agent_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Block direct accept".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_accept_bypass".to_string(),
+                    role: AgentRole::Coder,
+                    title: "Patch with summary evidence".to_string(),
+                    objective: "Record an incomplete patch".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec!["crates/runtime".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["patch".to_string()],
+                    permission_policy: "scoped_mutation".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+    engine
+        .handle_runtime_command(
+            "cmd_summary_evidence",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_accept_bypass".to_string(),
+                evidence_id: Some("evidence-summary-patch".to_string()),
+                kind: "patch".to_string(),
+                summary: "summary-only patch".to_string(),
+                path: None,
+                source: Some("legacy-agent".to_string()),
+                canonical: None,
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_accept_gate",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: "gate-task_accept_bypass".to_string(),
+                decision: Some("force accept".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == "cmd_accept_gate"
+                    && reason.contains("missing_canonical")
+        )
+    }));
+    assert_eq!(
+        engine
+            .runtime_view_state()
+            .merge_gates
+            .iter()
+            .find(|gate| gate.gate_id == "gate-task_accept_bypass")
+            .unwrap()
+            .status,
+        MergeGateStatus::CollectingEvidence
+    );
+}
+
+#[test]
+fn merge_gate_accepts_fully_verified_canonical_evidence() {
+    let cwd = temp_dir("runtime_contract_verified_canonical_gate_cwd");
+    let home = temp_dir("runtime_contract_verified_canonical_gate_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .handle_runtime_command(
+            "cmd_agent_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Accept canonical evidence".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_verified_patch".to_string(),
+                    role: AgentRole::Coder,
+                    title: "Patch with canonical source".to_string(),
+                    objective: "Record a verified patch".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec!["crates/runtime".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["patch".to_string()],
+                    permission_policy: "scoped_mutation".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let item = canonical_context_item("task_verified_patch", "ctxi-patch", "ab");
+    engine.set_merge_gate_context_facts_for_test("bundle-patch", item.clone());
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_canonical_evidence",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_verified_patch".to_string(),
+                evidence_id: Some("evidence-canonical-patch".to_string()),
+                kind: "patch".to_string(),
+                summary: "canonical patch evidence".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(canonical_reference(
+                    "task_verified_patch",
+                    "ctxi-patch",
+                    "bundle-patch",
+                    "ab",
+                )),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::MergeGateUpdated { gate }
+                if gate.gate_id == "gate-task_verified_patch"
+                    && gate.status == MergeGateStatus::Accepted
+                    && gate.decision.is_none()
+        )
+    }));
+}
+
+#[test]
+fn merge_gate_accepts_all_required_canonical_evidence_kinds_idempotently_after_replay() {
+    let cwd = temp_dir("runtime_contract_all_canonical_kinds_cwd");
+    let home = temp_dir("runtime_contract_all_canonical_kinds_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let mut recorded_events = engine
+        .handle_runtime_command(
+            "cmd_agent_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Require all canonical evidence kinds".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_all_kinds".to_string(),
+                    role: AgentRole::ReleaseOperator,
+                    title: "Release gate".to_string(),
+                    objective: "Collect all gate evidence".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec![".".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec![
+                        "patch".to_string(),
+                        "test".to_string(),
+                        "review".to_string(),
+                        "doc".to_string(),
+                        "release".to_string(),
+                    ],
+                    permission_policy: "scoped_mutation".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    for (index, (kind, prefix)) in [
+        ("patch", "aa"),
+        ("test_result", "bb"),
+        ("review", "cc"),
+        ("doc_update", "dd"),
+        ("release_artifact", "ee"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let item_id = format!("ctxi-{kind}");
+        let bundle_id = format!("bundle-{kind}");
+        let evidence_id = format!("evidence-{kind}");
+        let item = canonical_context_item("task_all_kinds", &item_id, prefix);
+        engine.set_merge_gate_context_facts_for_test(&bundle_id, item);
+        let mut events = engine
+            .handle_runtime_command(
+                format!("cmd_canonical_{kind}"),
+                RuntimeCommand::RecordAgentEvidence {
+                    gate_id: "gate-task_all_kinds".to_string(),
+                    evidence_id: Some(evidence_id.clone()),
+                    kind: kind.to_string(),
+                    summary: format!("canonical {kind} evidence"),
+                    path: None,
+                    source: Some("executor".to_string()),
+                    canonical: Some(canonical_reference(
+                        "task_all_kinds",
+                        &item_id,
+                        &bundle_id,
+                        prefix,
+                    )),
+                },
+                &mut approver,
+            )
+            .unwrap();
+        if index == 4 {
+            assert!(events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::MergeGateUpdated { gate }
+                        if gate.gate_id == "gate-task_all_kinds"
+                            && gate.status == MergeGateStatus::Accepted
+                            && gate.evidence_ids.len() == 5
+                )
+            }));
+        }
+        recorded_events.append(&mut events);
+    }
+
+    let duplicate_events = engine
+        .handle_runtime_command(
+            "cmd_duplicate_patch",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_all_kinds".to_string(),
+                evidence_id: Some("evidence-patch".to_string()),
+                kind: "patch".to_string(),
+                summary: "duplicate canonical patch evidence".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(canonical_reference(
+                    "task_all_kinds",
+                    "ctxi-patch",
+                    "bundle-patch",
+                    "aa",
+                )),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    recorded_events.extend(duplicate_events);
+
+    let live = engine.runtime_view_state();
+    let gate = live
+        .merge_gates
+        .iter()
+        .find(|gate| gate.gate_id == "gate-task_all_kinds")
+        .unwrap();
+    assert_eq!(gate.status, MergeGateStatus::Accepted);
+    assert_eq!(gate.evidence_ids.len(), 5);
+    assert_eq!(
+        live.latest_evidence
+            .iter()
+            .filter(|evidence| evidence.id == "evidence-patch")
+            .count(),
+        1
+    );
+    assert_eq!(live.canonical_evidence.len(), 5);
+    let live_json = serde_json::to_string(&live).unwrap();
+    assert!(!live_json.contains("storage_path"));
+
+    let mut replayed = RuntimeViewState::new(live.snapshot.clone());
+    for event in &recorded_events {
+        replayed.apply_event(event);
+    }
+    assert_eq!(replayed.merge_gates, live.merge_gates);
+    assert_eq!(replayed.latest_evidence, live.latest_evidence);
+}
+
+#[test]
+fn merge_gate_reports_stable_canonical_failure_reasons() {
+    for (case, expected_status, expected_reason, configure) in canonical_failure_cases() {
+        let cwd = temp_dir(&format!("runtime_contract_canonical_failure_{case}_cwd"));
+        let home = temp_dir(&format!("runtime_contract_canonical_failure_{case}_home"));
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        let task_id = format!("task_{case}");
+        engine
+            .handle_runtime_command(
+                "cmd_agent_dag",
+                RuntimeCommand::StartAgentDag {
+                    goal: format!("Canonical failure {case}"),
+                    tasks: vec![AgentDagTaskSpec {
+                        task_id: task_id.clone(),
+                        role: AgentRole::Tester,
+                        title: format!("Canonical failure {case}"),
+                        objective: "Record canonical test evidence".to_string(),
+                        dependencies: Vec::new(),
+                        workspace: None,
+                        file_scope: vec!["crates/runtime".to_string()],
+                        context_bundle_id: None,
+                        required_evidence: vec!["test".to_string()],
+                        permission_policy: "read_only".to_string(),
+                    }],
+                },
+                &mut approver,
+            )
+            .unwrap();
+
+        let mut canonical = canonical_reference(&task_id, "ctxi-test", "bundle-test", "ab");
+        let mut item = canonical_context_item(&task_id, "ctxi-test", "ab");
+        let should_seed_source = configure(&mut canonical, &mut item);
+        if should_seed_source {
+            engine.set_merge_gate_context_facts_for_test("bundle-test", item);
+        }
+
+        let events = engine
+            .handle_runtime_command(
+                "cmd_canonical_evidence",
+                RuntimeCommand::RecordAgentEvidence {
+                    gate_id: format!("gate-{task_id}"),
+                    evidence_id: Some(format!("evidence-{case}")),
+                    kind: "test_result".to_string(),
+                    summary: "canonical test evidence".to_string(),
+                    path: None,
+                    source: Some("executor".to_string()),
+                    canonical: Some(canonical),
+                },
+                &mut approver,
+            )
+            .unwrap();
+
+        assert!(
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::MergeGateUpdated { gate }
+                        if gate.gate_id == format!("gate-{task_id}")
+                            && gate.status == expected_status
+                            && gate
+                                .decision
+                                .as_deref()
+                                .is_some_and(|decision| decision.contains(expected_reason))
+                )
+            }),
+            "case {case} did not report {expected_status:?}/{expected_reason}: {events:#?}"
+        );
+    }
+}
+
+type CanonicalFailureConfigurator =
+    fn(&mut CanonicalEvidenceReference, &mut ContextItemRecord) -> bool;
+
+fn canonical_failure_cases() -> Vec<(
+    &'static str,
+    MergeGateStatus,
+    &'static str,
+    CanonicalFailureConfigurator,
+)> {
+    vec![
+        (
+            "hash_mismatch",
+            MergeGateStatus::Blocked,
+            "hash_mismatch",
+            |canonical, _item| {
+                canonical.source_hash = "cd".repeat(32);
+                true
+            },
+        ),
+        (
+            "missing_source",
+            MergeGateStatus::Blocked,
+            "missing_source",
+            |_canonical, _item| false,
+        ),
+        (
+            "wrong_scope",
+            MergeGateStatus::Blocked,
+            "scope_mismatch",
+            |canonical, item| {
+                canonical.evidence_scope = ContextScope::Task("task-other".to_string());
+                canonical.permission_scope = ContextScope::Task("task-other".to_string());
+                item.scope = ContextScope::Task("task-other".to_string());
+                true
+            },
+        ),
+        (
+            "missing_permission",
+            MergeGateStatus::Blocked,
+            "missing_permission_snapshot",
+            |canonical, _item| {
+                canonical.permission_snapshot_id = None;
+                true
+            },
+        ),
+        (
+            "invalid_permission",
+            MergeGateStatus::Blocked,
+            "invalid_permission_snapshot",
+            |canonical, _item| {
+                canonical.permission_scope = ContextScope::Task("task-other".to_string());
+                true
+            },
+        ),
+        (
+            "missing_producer",
+            MergeGateStatus::Blocked,
+            "missing_producer",
+            |canonical, _item| {
+                canonical.producer.identity.clear();
+                true
+            },
+        ),
+        (
+            "quality_fail",
+            MergeGateStatus::NeedsChanges,
+            "quality_failed",
+            |canonical, _item| {
+                canonical.quality.status = EvidenceQualityStatus::Fail;
+                true
+            },
+        ),
+    ]
+}
+
+fn canonical_context_item(task_id: &str, item_id: &str, hash_prefix: &str) -> ContextItemRecord {
+    ContextItemRecord {
+        item_id: item_id.to_string(),
+        scope: ContextScope::Task(task_id.to_string()),
+        kind: ContextContentKind::Diff,
+        content_sha256: hash_prefix.repeat(32),
+        title: "canonical evidence".to_string(),
+        summary: "bounded canonical evidence summary".to_string(),
+        token_count: 10,
+        evidence_id: None,
+        created_at: Some(1),
+    }
+}
+
+fn canonical_reference(
+    task_id: &str,
+    item_id: &str,
+    bundle_id: &str,
+    hash_prefix: &str,
+) -> CanonicalEvidenceReference {
+    CanonicalEvidenceReference {
+        item_id: item_id.to_string(),
+        bundle_id: bundle_id.to_string(),
+        source_hash: hash_prefix.repeat(32),
+        producer: EvidenceProducer {
+            identity: "executor".to_string(),
+            role: "coder".to_string(),
+            task_id: task_id.to_string(),
+        },
+        permission_snapshot_id: Some(format!("perm-{task_id}")),
+        permission_scope: ContextScope::Task(task_id.to_string()),
+        evidence_scope: ContextScope::Task(task_id.to_string()),
+        verification: EvidenceVerificationState::Verified,
+        quality: EvidenceQualityFacts {
+            status: EvidenceQualityStatus::Pass,
+            reason_codes: Vec::new(),
+        },
+    }
+}
+
+#[test]
 fn runtime_view_state_emits_lane_facts_from_core_store() {
     let cwd = temp_dir("runtime_contract_lane_cwd");
     let home = temp_dir("runtime_contract_lane_home");
@@ -1794,6 +2341,7 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
                         summary: "ACP turn completed".to_string(),
                         path: Some(log_path.display().to_string()),
                         source: Some("acp".to_string()),
+                        canonical: None,
                         metadata: None,
                         timestamp: None,
                     },

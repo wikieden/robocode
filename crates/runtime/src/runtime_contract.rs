@@ -11,21 +11,24 @@ use crate::context_bundle::{ContextBuildMode, redact_context_summary_for_event};
 use crate::lsp_tools::render_lsp_diagnostics;
 use crate::{CostAttribution, EngineEvent, ProviderTelemetry, SessionEngine};
 use viden_config::ProviderConfigUpdate;
-use viden_context::{ContextEngine, ReductionPolicy, reduce};
+use viden_context::{ContextEngine, ContextPutRequest, ReductionPolicy, reduce};
 use viden_lsp::SemanticProvider;
 use viden_permissions::{PermissionContext, PermissionEngine};
 use viden_provider::ModelRequestControl;
 use viden_tools::context_read_tool_spec;
 use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
-    AgentTaskRecord, AgentTaskStatus, ApprovalRequestView, ApprovalResponse, ContextContentKind,
-    ContextHandleRecord, ContextItemRecord, ContextRetrievalRecord, ContextScope,
-    ContextSourceRecord, CostUsageOutcome, CostUsageRecord, EvidenceView, MergeGateRecord,
-    MergeGateStatus, PermissionBehavior, PermissionDecision, PermissionDecisionReason,
-    PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule, PermissionRuleSource,
-    PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand, RuntimeErrorView,
-    RuntimeEvent, RuntimeEventKind, RuntimeSnapshot, RuntimeViewState, TokenCostView, TokenUsage,
-    ToolCallId, ToolInput, WorkMode, fresh_id, now_timestamp, truncate_for_preview,
+    AgentTaskRecord, AgentTaskStatus, ApprovalRequestView, ApprovalResponse,
+    CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord, ContextItemRecord,
+    ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome, CostUsageRecord,
+    EvidenceCanonicalReasonCode, EvidenceCanonicalStatus, EvidenceCanonicalStatusReport,
+    EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
+    EvidenceView, MergeGateRecord, MergeGateStatus, PermissionBehavior, PermissionDecision,
+    PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
+    PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeSnapshot, RuntimeViewState,
+    TokenCostView, TokenUsage, ToolCallId, ToolInput, WorkMode, canonical_evidence_status,
+    fresh_id, now_timestamp, truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
@@ -34,6 +37,16 @@ pub(crate) struct QueuedRuntimeInput {
     id: String,
     content: String,
     created_at: u64,
+}
+
+struct RecordAgentEvidenceRequest<'a> {
+    gate_id: &'a str,
+    evidence_id: Option<String>,
+    kind: String,
+    summary: String,
+    path: Option<String>,
+    source: Option<String>,
+    canonical: Option<CanonicalEvidenceReference>,
 }
 
 #[derive(Debug, Clone)]
@@ -132,6 +145,7 @@ impl SessionEngine {
                                 summary: truncate_for_preview(text, 500),
                                 path: None,
                                 source: Some("engine".to_string()),
+                                canonical: None,
                                 metadata: None,
                                 timestamp: None,
                             },
@@ -182,6 +196,7 @@ impl SessionEngine {
                                 summary: truncate_for_preview(output, 500),
                                 path: None,
                                 source: Some("engine".to_string()),
+                                canonical: None,
                                 metadata: None,
                                 timestamp: None,
                             }),
@@ -198,6 +213,7 @@ impl SessionEngine {
                                 summary: truncate_for_preview(text, 500),
                                 path: None,
                                 source: Some("engine".to_string()),
+                                canonical: None,
                                 metadata: None,
                                 timestamp: None,
                             },
@@ -393,9 +409,17 @@ impl SessionEngine {
                 summary,
                 path,
                 source,
+                canonical,
             } => {
-                let record_result =
-                    self.record_agent_evidence(&gate_id, evidence_id, kind, summary, path, source);
+                let record_result = self.record_agent_evidence(RecordAgentEvidenceRequest {
+                    gate_id: &gate_id,
+                    evidence_id,
+                    kind,
+                    summary,
+                    path,
+                    source,
+                    canonical,
+                });
                 match record_result {
                     Ok(evidence_events) => append_resequenced(&mut events, evidence_events),
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
@@ -685,6 +709,62 @@ impl SessionEngine {
         });
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_merge_gate_context_facts_for_test(
+        &mut self,
+        bundle_id: &str,
+        item: ContextItemRecord,
+    ) {
+        let source = ContextSourceRecord {
+            name: "canonical evidence".to_string(),
+            kind: "test".to_string(),
+            priority: 1,
+            estimated_tokens: item.token_count,
+            summary: item.summary.clone(),
+            include_reason: "test canonical evidence".to_string(),
+            handle_id: None,
+            item_id: Some(item.item_id.clone()),
+            view_id: None,
+            content_sha256: Some(item.content_sha256.clone()),
+            view_sha256: None,
+            quality_id: None,
+        };
+        if let Some(bundle) = &mut self.last_context_bundle {
+            bundle.sources.push(source);
+            bundle.estimated_tokens = bundle.estimated_tokens.saturating_add(item.token_count);
+        } else {
+            self.last_context_bundle = Some(viden_types::ContextBundleRecord {
+                bundle_id: bundle_id.to_string(),
+                task_id: match &item.scope {
+                    ContextScope::Task(task_id) => task_id.clone(),
+                    ContextScope::Dag(dag_id) | ContextScope::Workflow(dag_id) => dag_id.clone(),
+                },
+                policy: "test".to_string(),
+                sources: vec![source],
+                omitted_sources: Vec::new(),
+                estimated_tokens: item.token_count,
+                largest_sources: Vec::new(),
+                compaction_notes: Vec::new(),
+                soft_token_budget: 1_000,
+                hard_token_limit: 2_000,
+            });
+        }
+        let next = self.last_context_runtime_events.len() as u64 + 1;
+        self.last_context_runtime_events.push(RuntimeEvent::new(
+            next,
+            RuntimeEventKind::ContextBundleBuilt {
+                bundle_id: bundle_id.to_string(),
+                scope: item.scope.clone(),
+                handle_ids: Vec::new(),
+                estimated_tokens: item.token_count,
+            },
+        ));
+        self.last_context_runtime_events.push(RuntimeEvent::new(
+            next + 1,
+            RuntimeEventKind::ContextItemStored { item },
+        ));
+    }
+
     pub(crate) fn process_runtime_input_with_approval_and_control<F>(
         &mut self,
         input: &str,
@@ -870,6 +950,16 @@ impl SessionEngine {
                     evidence: evidence.clone(),
                 },
             ));
+            if let Some(canonical) = &evidence.canonical {
+                events.push(RuntimeEvent::new(
+                    next_sequence(&events),
+                    RuntimeEventKind::EvidenceCanonicalized {
+                        evidence_id: evidence.id.clone(),
+                        item_id: canonical.item_id.clone(),
+                        content_sha256: canonical.source_hash.clone(),
+                    },
+                ));
+            }
         }
         for gate in &self.runtime_merge_gates {
             events.push(RuntimeEvent::new(
@@ -878,6 +968,74 @@ impl SessionEngine {
             ));
         }
         events
+    }
+
+    fn merge_gate_validation_facts(&self) -> MergeGateValidationFacts {
+        let view = self.runtime_view_state();
+        MergeGateValidationFacts {
+            context_bundles: view.context_bundles,
+            context_items: view.context_items,
+        }
+    }
+
+    fn canonicalize_agent_evidence(
+        &mut self,
+        task_id: &str,
+        evidence_id: &str,
+        evidence_kind: &str,
+        summary: &str,
+        producer_role: AgentRole,
+    ) -> Option<(CanonicalEvidenceReference, Vec<RuntimeEvent>)> {
+        let scope = ContextScope::Task(task_id.to_string());
+        let mut engine = ContextEngine::open(&self.context_engine_root).ok()?;
+        let stored = engine
+            .store(ContextPutRequest {
+                scope: scope.clone(),
+                kind: evidence_context_kind(evidence_kind),
+                content: summary.as_bytes(),
+                evidence_id: Some(evidence_id.to_string()),
+            })
+            .ok()?;
+        let mut item = stored.item;
+        item.title = format!("canonical {evidence_kind} evidence");
+        item.summary = truncate_for_preview(summary, 200);
+        item.token_count = summary.len() as u64;
+        let bundle_id = format!("bundle-{evidence_id}");
+        let canonical = CanonicalEvidenceReference {
+            item_id: item.item_id.clone(),
+            bundle_id: bundle_id.clone(),
+            source_hash: item.content_sha256.clone(),
+            producer: EvidenceProducer {
+                identity: producer_role.as_str().to_string(),
+                role: producer_role.as_str().to_string(),
+                task_id: task_id.to_string(),
+            },
+            permission_snapshot_id: Some(format!(
+                "permission-{task_id}-{}",
+                producer_role.as_str()
+            )),
+            permission_scope: scope.clone(),
+            evidence_scope: scope.clone(),
+            verification: EvidenceVerificationState::Verified,
+            quality: EvidenceQualityFacts {
+                status: EvidenceQualityStatus::Pass,
+                reason_codes: Vec::new(),
+            },
+        };
+        let events = vec![
+            RuntimeEvent::new(
+                1,
+                RuntimeEventKind::ContextBundleBuilt {
+                    bundle_id,
+                    scope,
+                    handle_ids: vec![stored.handle.handle_id],
+                    estimated_tokens: item.token_count,
+                },
+            ),
+            RuntimeEvent::new(2, RuntimeEventKind::ContextItemStored { item }),
+        ];
+        self.last_context_runtime_events.extend(events.clone());
+        Some((canonical, events))
     }
 
     fn start_agent_dag(
@@ -1228,20 +1386,48 @@ impl SessionEngine {
         } else {
             assistant_output.clone()
         };
+        let canonicalized = self.canonicalize_agent_evidence(
+            task_id,
+            &evidence_id,
+            evidence_kind,
+            &summary,
+            spec.role,
+        );
+        if let Some((_, canonical_events)) = &canonicalized {
+            for event in canonical_events {
+                events.push(RuntimeEvent::new(
+                    next_sequence(&events),
+                    event.kind.clone(),
+                ));
+            }
+        }
         let evidence = EvidenceView {
             id: evidence_id.clone(),
             kind: evidence_kind.to_string(),
             summary: summary.clone(),
             path: None,
             source: Some(spec.role.as_str().to_string()),
+            canonical: canonicalized.map(|(canonical, _)| canonical),
             metadata: None,
             timestamp: Some(now_timestamp()),
         };
         self.upsert_runtime_evidence(evidence.clone());
         events.push(RuntimeEvent::new(
             next_sequence(&events),
-            RuntimeEventKind::EvidenceRecorded { evidence },
+            RuntimeEventKind::EvidenceRecorded {
+                evidence: evidence.clone(),
+            },
         ));
+        if let Some(canonical) = &evidence.canonical {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::EvidenceCanonicalized {
+                    evidence_id: evidence.id.clone(),
+                    item_id: canonical.item_id.clone(),
+                    content_sha256: canonical.source_hash.clone(),
+                },
+            ));
+        }
 
         let Some(mut task) = self
             .runtime_tasks
@@ -1264,6 +1450,7 @@ impl SessionEngine {
         ));
 
         let runtime_evidence = self.runtime_evidence.clone();
+        let validation_facts = self.merge_gate_validation_facts();
         if let Some(gate) = self
             .runtime_merge_gates
             .iter_mut()
@@ -1272,7 +1459,9 @@ impl SessionEngine {
             if !gate.evidence_ids.contains(&evidence_id) {
                 gate.evidence_ids.push(evidence_id);
             }
-            gate.status = reduce_merge_gate_status(gate, &runtime_evidence);
+            let report = reduce_merge_gate_status(gate, &runtime_evidence, &validation_facts);
+            gate.status = merge_gate_status_from_canonical(report.status);
+            gate.decision = canonical_reason_summary(&report);
             gate.updated_at = Some(now_timestamp());
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -1495,6 +1684,20 @@ impl SessionEngine {
                 "merge gate `{gate_id}` cannot be accepted without evidence"
             ));
         }
+        if status == MergeGateStatus::Accepted {
+            let report = reduce_merge_gate_status(
+                &self.runtime_merge_gates[gate_index],
+                &self.runtime_evidence,
+                &self.merge_gate_validation_facts(),
+            );
+            if report.status != EvidenceCanonicalStatus::Verified {
+                return Err(format!(
+                    "merge gate `{gate_id}` cannot be accepted: {}",
+                    canonical_reason_summary(&report)
+                        .unwrap_or_else(|| "canonical_evidence_invalid".to_string())
+                ));
+            }
+        }
 
         let now = now_timestamp();
         let gate = &mut self.runtime_merge_gates[gate_index];
@@ -1545,13 +1748,17 @@ impl SessionEngine {
 
     fn record_agent_evidence(
         &mut self,
-        gate_id: &str,
-        evidence_id: Option<String>,
-        kind: String,
-        summary: String,
-        path: Option<String>,
-        source: Option<String>,
+        request: RecordAgentEvidenceRequest<'_>,
     ) -> Result<Vec<RuntimeEvent>, String> {
+        let RecordAgentEvidenceRequest {
+            gate_id,
+            evidence_id,
+            kind,
+            summary,
+            path,
+            source,
+            canonical,
+        } = request;
         let kind = normalize_evidence_kind(&kind);
         if kind.is_empty() {
             return Err("agent evidence kind cannot be empty".to_string());
@@ -1579,29 +1786,46 @@ impl SessionEngine {
             summary: truncate_for_preview(&summary, 500),
             path,
             source,
+            canonical,
             metadata: None,
             timestamp: Some(now),
         };
         self.upsert_runtime_evidence(evidence.clone());
 
         let runtime_evidence = self.runtime_evidence.clone();
+        let validation_facts = self.merge_gate_validation_facts();
         let gate = &mut self.runtime_merge_gates[gate_index];
         if !gate.evidence_ids.contains(&evidence_id) {
             gate.evidence_ids.push(evidence_id.clone());
         }
-        gate.status = reduce_merge_gate_status(gate, &runtime_evidence);
+        let report = reduce_merge_gate_status(gate, &runtime_evidence, &validation_facts);
+        let gate_status = merge_gate_status_from_canonical(report.status);
+        let canonical_reasons = canonical_reason_summary(&report).unwrap_or_default();
+        gate.status = gate_status;
+        gate.decision = (!canonical_reasons.is_empty()).then_some(canonical_reasons.clone());
         gate.updated_at = Some(now);
         let gate = gate.clone();
 
-        let mut events = vec![
-            RuntimeEvent::new(
-                1,
-                RuntimeEventKind::EvidenceRecorded {
-                    evidence: evidence.clone(),
+        let mut events = vec![RuntimeEvent::new(
+            1,
+            RuntimeEventKind::EvidenceRecorded {
+                evidence: evidence.clone(),
+            },
+        )];
+        if let Some(canonical) = &evidence.canonical {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::EvidenceCanonicalized {
+                    evidence_id: evidence.id.clone(),
+                    item_id: canonical.item_id.clone(),
+                    content_sha256: canonical.source_hash.clone(),
                 },
-            ),
-            RuntimeEvent::new(2, RuntimeEventKind::MergeGateUpdated { gate }),
-        ];
+            ));
+        }
+        events.push(RuntimeEvent::new(
+            next_sequence(&events),
+            RuntimeEventKind::MergeGateUpdated { gate },
+        ));
         if let Some(mut task) = self
             .runtime_tasks
             .iter()
@@ -1629,6 +1853,8 @@ impl SessionEngine {
                 ("evidence_id", evidence_id.as_str()),
                 ("evidence_kind", kind.as_str()),
                 ("summary", summary.as_str()),
+                ("gate_status", merge_gate_status_name(gate_status)),
+                ("canonical_reasons", canonical_reasons.as_str()),
             ],
         )?;
         Ok(events)
@@ -1658,11 +1884,14 @@ impl SessionEngine {
             .ok_or_else(|| format!("agent artifact evidence `{evidence_id}` does not exist"))?;
         let now = now_timestamp();
         let runtime_evidence = self.runtime_evidence.clone();
+        let validation_facts = self.merge_gate_validation_facts();
         let gate = &mut self.runtime_merge_gates[gate_index];
         if !gate.evidence_ids.contains(&evidence_id) {
             gate.evidence_ids.push(evidence_id.clone());
         }
-        gate.status = reduce_merge_gate_status(gate, &runtime_evidence);
+        let report = reduce_merge_gate_status(gate, &runtime_evidence, &validation_facts);
+        gate.status = merge_gate_status_from_canonical(report.status);
+        gate.decision = canonical_reason_summary(&report);
         gate.decision = Some(decision.clone());
         gate.updated_at = Some(now);
         let gate = gate.clone();
@@ -2459,27 +2688,238 @@ fn role_file_score(role: AgentRole, file: &str) -> u8 {
     }
 }
 
-fn reduce_merge_gate_status(gate: &MergeGateRecord, evidence: &[EvidenceView]) -> MergeGateStatus {
-    // Merge gates are reduced from recorded evidence facts, not frontend-local
-    // checklist state or evidence id naming conventions.
-    if merge_gate_has_required_evidence(gate, evidence) {
-        MergeGateStatus::Accepted
-    } else {
-        MergeGateStatus::CollectingEvidence
+#[derive(Debug, Clone, Default)]
+struct MergeGateValidationFacts {
+    context_bundles: Vec<viden_types::ContextBundleSummaryRecord>,
+    context_items: Vec<ContextItemRecord>,
+}
+
+fn reduce_merge_gate_status(
+    gate: &MergeGateRecord,
+    evidence: &[EvidenceView],
+    facts: &MergeGateValidationFacts,
+) -> EvidenceCanonicalStatusReport {
+    let mut status = EvidenceCanonicalStatus::Verified;
+    let mut reasons = BTreeSet::new();
+    let mut seen_valid_kinds = BTreeSet::new();
+    let evidence_by_id = evidence_by_id(evidence);
+    let required_kinds = gate
+        .required_evidence
+        .iter()
+        .map(|required| canonical_required_evidence_kind(required))
+        .collect::<BTreeSet<_>>();
+
+    for evidence_id in &gate.evidence_ids {
+        let Some(item) = evidence_by_id.get(evidence_id.as_str()) else {
+            continue;
+        };
+        if !required_kinds.contains(&canonical_required_evidence_kind(&item.kind)) {
+            continue;
+        }
+        let report = validate_canonical_evidence_for_gate(gate, item, facts);
+        merge_report_status(&mut status, &mut reasons, &report);
+        if report.status == EvidenceCanonicalStatus::Verified {
+            seen_valid_kinds.insert(canonical_required_evidence_kind(&item.kind));
+        }
+    }
+
+    for required in &required_kinds {
+        if !seen_valid_kinds.contains(required) {
+            status = merge_status(status, EvidenceCanonicalStatus::Missing);
+            reasons.insert(EvidenceCanonicalReasonCode::MissingRequiredKind);
+        }
+    }
+
+    EvidenceCanonicalStatusReport {
+        status,
+        reason_codes: reasons.into_iter().collect(),
     }
 }
 
-fn merge_gate_has_required_evidence(gate: &MergeGateRecord, evidence: &[EvidenceView]) -> bool {
-    let collected_kinds = gate
-        .evidence_ids
+fn evidence_by_id(evidence: &[EvidenceView]) -> std::collections::BTreeMap<&str, &EvidenceView> {
+    let mut by_id = std::collections::BTreeMap::new();
+    for item in evidence {
+        by_id.entry(item.id.as_str()).or_insert(item);
+    }
+    by_id
+}
+
+fn validate_canonical_evidence_for_gate(
+    gate: &MergeGateRecord,
+    evidence: &EvidenceView,
+    facts: &MergeGateValidationFacts,
+) -> EvidenceCanonicalStatusReport {
+    let mut status = canonical_evidence_status(evidence);
+    let mut reasons = BTreeSet::new();
+    let Some(canonical) = &evidence.canonical else {
+        reasons.insert(EvidenceCanonicalReasonCode::MissingCanonical);
+        return EvidenceCanonicalStatusReport {
+            status,
+            reason_codes: reasons.into_iter().collect(),
+        };
+    };
+
+    let item = facts
+        .context_items
         .iter()
-        .filter_map(|evidence_id| evidence.iter().find(|item| item.id == *evidence_id))
-        .map(|item| normalize_evidence_kind(&item.kind))
-        .collect::<BTreeSet<_>>();
-    gate.required_evidence
+        .find(|item| item.item_id == canonical.item_id);
+    let bundle = facts
+        .context_bundles
         .iter()
-        .map(|required| normalize_evidence_kind(required))
-        .all(|required| collected_kinds.contains(&required))
+        .find(|bundle| bundle.bundle_id == canonical.bundle_id);
+    match item {
+        Some(item) if item.content_sha256 == canonical.source_hash => {}
+        Some(_) => {
+            status = merge_status(status, EvidenceCanonicalStatus::Blocked);
+            reasons.insert(EvidenceCanonicalReasonCode::HashMismatch);
+        }
+        None => {
+            status = merge_status(status, EvidenceCanonicalStatus::Blocked);
+            reasons.insert(EvidenceCanonicalReasonCode::MissingSource);
+        }
+    }
+    if bundle.is_none() {
+        status = merge_status(status, EvidenceCanonicalStatus::Blocked);
+        reasons.insert(EvidenceCanonicalReasonCode::MissingSource);
+    }
+
+    if !scope_matches_gate(&canonical.evidence_scope, gate)
+        || item.is_some_and(|item| item.scope != canonical.evidence_scope)
+    {
+        status = merge_status(status, EvidenceCanonicalStatus::Blocked);
+        reasons.insert(EvidenceCanonicalReasonCode::ScopeMismatch);
+    }
+    if canonical
+        .permission_snapshot_id
+        .as_deref()
+        .unwrap_or("")
+        .is_empty()
+    {
+        status = merge_status(status, EvidenceCanonicalStatus::Blocked);
+        reasons.insert(EvidenceCanonicalReasonCode::MissingPermissionSnapshot);
+    } else if canonical.permission_scope != canonical.evidence_scope
+        || !scope_matches_gate(&canonical.permission_scope, gate)
+    {
+        status = merge_status(status, EvidenceCanonicalStatus::Blocked);
+        reasons.insert(EvidenceCanonicalReasonCode::InvalidPermissionSnapshot);
+    }
+    if canonical.producer.identity.trim().is_empty()
+        || canonical.producer.role.trim().is_empty()
+        || canonical.producer.task_id != gate.task_id
+    {
+        status = merge_status(status, EvidenceCanonicalStatus::Blocked);
+        reasons.insert(EvidenceCanonicalReasonCode::MissingProducer);
+    }
+    if canonical.quality.status == EvidenceQualityStatus::Fail {
+        status = merge_status(status, EvidenceCanonicalStatus::NeedsChanges);
+        reasons.insert(EvidenceCanonicalReasonCode::QualityFailed);
+    }
+    if canonical.verification == EvidenceVerificationState::Failed {
+        status = merge_status(status, EvidenceCanonicalStatus::NeedsChanges);
+        reasons.insert(EvidenceCanonicalReasonCode::VerificationFailed);
+    }
+    for reason in &canonical.quality.reason_codes {
+        reasons.insert(*reason);
+    }
+
+    EvidenceCanonicalStatusReport {
+        status,
+        reason_codes: reasons.into_iter().collect(),
+    }
+}
+
+fn merge_report_status(
+    status: &mut EvidenceCanonicalStatus,
+    reasons: &mut BTreeSet<EvidenceCanonicalReasonCode>,
+    report: &EvidenceCanonicalStatusReport,
+) {
+    *status = merge_status(*status, report.status);
+    reasons.extend(report.reason_codes.iter().copied());
+}
+
+fn merge_status(
+    current: EvidenceCanonicalStatus,
+    next: EvidenceCanonicalStatus,
+) -> EvidenceCanonicalStatus {
+    use EvidenceCanonicalStatus::*;
+    match (current, next) {
+        (NeedsChanges, _) | (_, NeedsChanges) => NeedsChanges,
+        (Blocked, _) | (_, Blocked) => Blocked,
+        (Missing, _) | (_, Missing) => Missing,
+        _ => Verified,
+    }
+}
+
+fn canonical_reason_summary(report: &EvidenceCanonicalStatusReport) -> Option<String> {
+    if report.reason_codes.is_empty() {
+        return None;
+    }
+    Some(
+        report
+            .reason_codes
+            .iter()
+            .map(canonical_reason_code)
+            .collect::<Vec<_>>()
+            .join(","),
+    )
+}
+
+fn canonical_reason_code(reason: &EvidenceCanonicalReasonCode) -> &'static str {
+    match reason {
+        EvidenceCanonicalReasonCode::MissingCanonical => "missing_canonical",
+        EvidenceCanonicalReasonCode::MissingRequiredKind => "missing_required_kind",
+        EvidenceCanonicalReasonCode::MissingSource => "missing_source",
+        EvidenceCanonicalReasonCode::HashMismatch => "hash_mismatch",
+        EvidenceCanonicalReasonCode::ScopeMismatch => "scope_mismatch",
+        EvidenceCanonicalReasonCode::MissingPermissionSnapshot => "missing_permission_snapshot",
+        EvidenceCanonicalReasonCode::InvalidPermissionSnapshot => "invalid_permission_snapshot",
+        EvidenceCanonicalReasonCode::MissingProducer => "missing_producer",
+        EvidenceCanonicalReasonCode::QualityFailed => "quality_failed",
+        EvidenceCanonicalReasonCode::VerificationFailed => "verification_failed",
+    }
+}
+
+fn merge_gate_status_from_canonical(status: EvidenceCanonicalStatus) -> MergeGateStatus {
+    match status {
+        EvidenceCanonicalStatus::Verified => MergeGateStatus::Accepted,
+        EvidenceCanonicalStatus::Missing => MergeGateStatus::CollectingEvidence,
+        EvidenceCanonicalStatus::Blocked => MergeGateStatus::Blocked,
+        EvidenceCanonicalStatus::NeedsChanges => MergeGateStatus::NeedsChanges,
+    }
+}
+
+fn merge_gate_status_name(status: MergeGateStatus) -> &'static str {
+    match status {
+        MergeGateStatus::Proposed => "proposed",
+        MergeGateStatus::CollectingEvidence => "collecting_evidence",
+        MergeGateStatus::Blocked => "blocked",
+        MergeGateStatus::NeedsChanges => "needs_changes",
+        MergeGateStatus::Accepted => "accepted",
+        MergeGateStatus::Merged => "merged",
+        MergeGateStatus::Reverted => "reverted",
+    }
+}
+
+fn scope_matches_gate(scope: &ContextScope, gate: &MergeGateRecord) -> bool {
+    matches!(scope, ContextScope::Task(task_id) if task_id == &gate.task_id)
+}
+
+fn canonical_required_evidence_kind(kind: &str) -> String {
+    match normalize_evidence_kind(kind).as_str() {
+        "test" | "tests" | "test_result" => "test".to_string(),
+        "doc" | "docs" | "doc_update" => "doc".to_string(),
+        "release" | "release_artifact" => "release".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn evidence_context_kind(kind: &str) -> ContextContentKind {
+    match canonical_required_evidence_kind(kind).as_str() {
+        "patch" => ContextContentKind::Diff,
+        "test" => ContextContentKind::Log,
+        "review" | "doc" | "release" => ContextContentKind::Text,
+        _ => ContextContentKind::Text,
+    }
 }
 
 fn normalize_evidence_kind(kind: &str) -> String {
@@ -3210,6 +3650,7 @@ fn runtime_evidence(sequence: u64, kind: &str, summary: String) -> EvidenceView 
         summary: truncate_for_preview(&summary, 500),
         path: None,
         source: Some("runtime_command".to_string()),
+        canonical: None,
         metadata: None,
         timestamp: None,
     }
@@ -3310,6 +3751,7 @@ pub(crate) fn execute_context_retrieval_job(
                 summary: output,
                 path: None,
                 source: Some("runtime".to_string()),
+                canonical: None,
                 metadata: None,
                 timestamp: Some(now_timestamp()),
             }),

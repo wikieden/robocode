@@ -49,6 +49,10 @@ struct SupervisorShared<'a> {
     pending_approvals: &'a Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 }
 
+// Internal channel payload mirrors RuntimeCommand construction. Boxing command
+// variants would add indirection at every supervisor send site without changing
+// the protocol boundary.
+#[allow(clippy::large_enum_variant)]
 enum SupervisorMessage {
     Command {
         command_id: String,

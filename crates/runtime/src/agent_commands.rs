@@ -4029,6 +4029,7 @@ fn append_acp_update_runtime_events(
                     summary: acp_patch_summary(&patch, path.as_deref()),
                     path: path.clone(),
                     source: Some("acp:patch.v1".to_string()),
+                    canonical: None,
                     metadata: Some(acp_patch_metadata(&patch, path.as_deref(), update)),
                     timestamp: None,
                 };
@@ -4047,6 +4048,7 @@ fn append_acp_update_runtime_events(
                 summary: truncate_for_preview(content, 500),
                 path: None,
                 source: Some("acp".to_string()),
+                canonical: None,
                 metadata: None,
                 timestamp: None,
             };
@@ -4097,6 +4099,7 @@ fn append_acp_update_runtime_events(
                     summary: acp_patch_summary(&patch, path.as_deref()),
                     path: path.clone(),
                     source: Some("acp:patch.v1".to_string()),
+                    canonical: None,
                     metadata: Some(acp_patch_metadata(&patch, path.as_deref(), update)),
                     timestamp: None,
                 };
@@ -4130,6 +4133,7 @@ fn append_acp_update_runtime_events(
                 summary: format!("ACP session {session_id} ended with status {status}"),
                 path: None,
                 source: Some("acp".to_string()),
+                canonical: None,
                 metadata: None,
                 timestamp: None,
             };
