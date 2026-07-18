@@ -127,8 +127,14 @@
 - [ ] 编写 summary-only rejection、verified canonical acceptance、hash mismatch、missing source 和 restart replay tests。
 - [ ] 运行 `cargo test -p viden-runtime merge_gate_rejects_summary_only_patch_evidence -- --exact`，确认 RED。
 - [ ] Evidence 增加 canonical item id、bundle id、source hash、producer、permission snapshot id 和 verification state。
+- [ ] `viden-workflows` 作为 project Agent DAG/task/evidence/canonicalization/MergeGate
+  facts 的唯一 durable owner；新 commands 不能同时写 session transcript
+  `runtime_event`。Resume 先应用 legacy transcript runtime events，再应用 workflow
+  projections，让 workflow facts 确定性优先且不改写旧日志。
 - [ ] Patch/test/review/doc/release evidence 只有在 canonical source 存在、hash 正确、scope 有效且 quality pass 时计入 gate。
 - [ ] 失败进入 `blocked` 或 `needs_changes`，并带 machine-readable reason。
+- [ ] Patch merge 在 stage file writes 前重新验证 workflow-owned gate，记录 workflow
+  intent/outcome；apply 或后续记录失败时补偿文件变更。
 - [ ] 运行 `cargo test -p viden-workflows -p viden-runtime merge_gate`。
 - [ ] 提交：`feat: verify canonical merge gate evidence`。
 

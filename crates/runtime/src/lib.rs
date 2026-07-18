@@ -44,9 +44,9 @@ use viden_types::PermissionRule;
 use viden_types::{
     AgentDagRecord, AgentTaskRecord, ContextBundleRecord, CostScope, CostUsageRecord, EvidenceView,
     MemoryEntry, MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode,
-    RuntimeEvent, RuntimeSnapshot, TaskRecord, TranscriptEntry, WorkMode,
+    RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode,
 };
-use viden_workflows::stores::{WorkflowAgentEvent, WorkflowStore};
+use viden_workflows::stores::WorkflowStore;
 
 const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
 
@@ -272,12 +272,6 @@ pub struct SessionEngine {
     runtime_event_sink: Option<RuntimeEventSink>,
     provider_telemetry: ProviderTelemetry,
     provider_cost_usage: Vec<CostUsageRecord>,
-    defer_cost_usage_persistence: bool,
-    deferred_cost_usage: Vec<CostUsageRecord>,
-    defer_transcript_persistence: bool,
-    deferred_transcript_entries: RefCell<Vec<TranscriptEntry>>,
-    defer_workflow_persistence: bool,
-    deferred_workflow_agent_events: RefCell<Vec<WorkflowAgentEvent>>,
     transaction_file_rollback: RefCell<Vec<FileRollback>>,
     cost_workflow_id: Option<String>,
     cost_smoke_run_id: Option<String>,
@@ -289,11 +283,7 @@ pub struct SessionEngine {
     #[cfg(test)]
     fail_next_workflow_append: Cell<bool>,
     #[cfg(test)]
-    fail_next_transcript_append: Cell<bool>,
-    #[cfg(test)]
     fail_transcript_append_after: Cell<Option<usize>>,
-    #[cfg(test)]
-    fail_deferred_workflow_flush: Cell<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -376,12 +366,6 @@ impl SessionEngine {
             runtime_event_sink: None,
             provider_telemetry: ProviderTelemetry::default(),
             provider_cost_usage: Vec::new(),
-            defer_cost_usage_persistence: false,
-            deferred_cost_usage: Vec::new(),
-            defer_transcript_persistence: false,
-            deferred_transcript_entries: RefCell::new(Vec::new()),
-            defer_workflow_persistence: false,
-            deferred_workflow_agent_events: RefCell::new(Vec::new()),
             transaction_file_rollback: RefCell::new(Vec::new()),
             cost_workflow_id,
             cost_smoke_run_id: None,
@@ -393,11 +377,7 @@ impl SessionEngine {
             #[cfg(test)]
             fail_next_workflow_append: Cell::new(false),
             #[cfg(test)]
-            fail_next_transcript_append: Cell::new(false),
-            #[cfg(test)]
             fail_transcript_append_after: Cell::new(None),
-            #[cfg(test)]
-            fail_deferred_workflow_flush: Cell::new(false),
         };
         engine.persist_meta("work_mode", engine.runtime_snapshot.work_mode.cli_name())?;
         engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;
@@ -499,19 +479,9 @@ impl SessionEngine {
     }
 
     #[cfg(test)]
-    pub(crate) fn fail_next_transcript_append_for_test(&self) {
-        self.fail_next_transcript_append.set(true);
-    }
-
-    #[cfg(test)]
     pub(crate) fn fail_after_transcript_appends_for_test(&self, successful_appends: usize) {
         self.fail_transcript_append_after
             .set(Some(successful_appends));
-    }
-
-    #[cfg(test)]
-    pub(crate) fn fail_deferred_workflow_flush_for_test(&self) {
-        self.fail_deferred_workflow_flush.set(true);
     }
 
     #[cfg(test)]

@@ -34,7 +34,10 @@ Viden 使用 Rust 原生实现上下文、证据和成本编排。Headroom 作�
 
 - 第一阶段不建设通用向量数据库。
 - 必经请求路径不使用模型摘要。
-- 不替换作为 canonical history 的 JSONL session/workflow logs。
+- 不替换作为 canonical history 的 JSONL logs。`viden-workflows` 是
+  project-level Agent DAG/task/evidence/canonicalization/MergeGate facts 的
+  唯一 durable owner；`viden-session` 只拥有 session conversation、tool、
+  cost 和 audit facts。
 - UI client 不能修改 context records 或计算权威费用。
 - Headroom、Python、本地 proxy 或 MCP process 均不能成为必需依赖。
 - 没有明确测量方法时，不宣称反事实 output savings。
@@ -72,6 +75,11 @@ flowchart LR
 | `crates/workflows` | 持久化 task/DAG/evidence 关系和事件 replay。 | Reducer 算法或 provider 调用。 |
 | `crates/plugin-api` / `plugin-host` | 可选 context reducer/benchmark adapter 描述与隔离。 | 强制 context processing。 |
 | `apps/tui` / `apps/gui` | 渲染投影事实并发送 runtime commands。 | Canonical storage、费用权威值、reduction 或 merge decisions。 |
+
+Project agent facts 由 `viden-workflows` 单一拥有。Runtime startup/resume
+先 replay legacy session transcript entries 以保持兼容，再应用 workflow
+projections，因此 workflow facts 确定性优先。新的 runtime commands 不能把同一个
+DAG/task/evidence/gate semantic fact 同时写成 session `runtime_event`。
 
 ## 核心契约
 
@@ -178,6 +186,9 @@ provider 请求前拒绝 bundle。
 | Reducer parse 失败 | 回退到受限原文，或以明确 reason 省略。 |
 | Canonical item 缺失 | 拒绝 retrieval，并阻塞依赖 evidence。 |
 | Hash mismatch | 标记 source corrupt、阻塞 Merge Gate、保留 audit event。 |
+| Workflow append failure | Reject command，并在对用户报告成功前回滚 live project projections。 |
+| Derived transcript audit append failure | 不回滚已提交的 workflow fact；通过 session layer 暴露 health/audit degradation。 |
+| Patch merge persistence/apply split | 先用 canonical workflow/context facts 验证 gate，再 stage file writes，记录 workflow intent/outcome；apply 或后续记录失败时补偿文件变更。 |
 | Provider 413/context error | 单独分类，使用更严格 policy 重建一次，之后要求用户可见恢复。 |
 | Provider usage 未知 | Actual cost 记录 unknown，只能保存带标签 estimate，禁止伪精度。 |
 | 可选 Headroom adapter 不可用 | 继续使用 native engine，只报告 adapter health。 |
@@ -208,4 +219,3 @@ provider 请求前拒绝 bundle。
    required evidence 不缺失，且没有新增 permission bypass。
 10. Workspace tests、deterministic context tests、crash/replay tests 和 live smoke gate
     全部通过，并产出 token、cost、latency、retrieval 和 failure evidence。
-

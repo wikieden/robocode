@@ -545,12 +545,9 @@ impl SessionEngine {
     }
 
     fn begin_runtime_domain_transaction(&mut self) -> RuntimeDomainSnapshot {
-        self.defer_cost_usage_persistence = true;
-        self.deferred_cost_usage.clear();
-        self.defer_transcript_persistence = true;
-        self.deferred_transcript_entries.borrow_mut().clear();
-        self.defer_workflow_persistence = true;
-        self.deferred_workflow_agent_events.borrow_mut().clear();
+        // Project facts are owned by the workflow log. This snapshot only
+        // compensates live projections and staged file writes if workflow
+        // append fails before the command is durably owned.
         self.transaction_file_rollback.borrow_mut().clear();
         RuntimeDomainSnapshot {
             runtime_snapshot: self.runtime_snapshot.clone(),
@@ -584,12 +581,6 @@ impl SessionEngine {
         self.provider_cost_usage = snapshot.provider_cost_usage;
         self.last_context_bundle = snapshot.last_context_bundle;
         self.last_context_runtime_events = snapshot.last_context_runtime_events;
-        self.defer_cost_usage_persistence = false;
-        self.deferred_cost_usage.clear();
-        self.defer_transcript_persistence = false;
-        self.deferred_transcript_entries.borrow_mut().clear();
-        self.defer_workflow_persistence = false;
-        self.deferred_workflow_agent_events.borrow_mut().clear();
         self.restore_transaction_files()?;
         self.transaction_file_rollback.borrow_mut().clear();
         Ok(())
@@ -607,12 +598,6 @@ impl SessionEngine {
 
     fn commit_transaction_snapshot(&mut self, snapshot: &Option<RuntimeDomainSnapshot>) {
         if snapshot.is_some() {
-            self.defer_cost_usage_persistence = false;
-            self.deferred_cost_usage.clear();
-            self.defer_transcript_persistence = false;
-            self.deferred_transcript_entries.borrow_mut().clear();
-            self.defer_workflow_persistence = false;
-            self.deferred_workflow_agent_events.borrow_mut().clear();
             self.transaction_file_rollback.borrow_mut().clear();
         }
     }
@@ -2227,6 +2212,22 @@ impl SessionEngine {
                 );
             }
         };
+        let changed_files = patch_application.changed_files.join(",");
+        // File writes cannot be atomically committed with the workflow log.
+        // The workflow intent is recorded first so replay can distinguish a
+        // pre-apply failure from an apply/outcome failure; rollback restores
+        // file contents if any later step fails.
+        self.persist_agent_event(
+            &dag_id,
+            Some(&task_id),
+            "agent_patch_merge_intent",
+            &[
+                ("gate_id", gate_id),
+                ("decision", decision.as_str()),
+                ("evidence_id", patch_evidence.id.as_str()),
+                ("changed_files", changed_files.as_str()),
+            ],
+        )?;
         self.stage_patch_rollback(&patch_application)?;
         if let Err(err) = write_patch_application(&patch_application) {
             self.restore_transaction_files()?;
@@ -2237,7 +2238,6 @@ impl SessionEngine {
                 format!("patch conflict: {err}"),
             );
         }
-        let changed_files = patch_application.changed_files.join(",");
 
         let now = now_timestamp();
         let gate = &mut self.runtime_merge_gates[gate_index];
@@ -2426,10 +2426,6 @@ impl SessionEngine {
             origin_session_id: Some(self.session_id().to_string()),
             payload,
         };
-        if self.defer_workflow_persistence {
-            self.deferred_workflow_agent_events.borrow_mut().push(event);
-            return Ok(());
-        }
         #[cfg(test)]
         if self.fail_next_workflow_append.replace(false) {
             return Err("injected workflow append failure".to_string());

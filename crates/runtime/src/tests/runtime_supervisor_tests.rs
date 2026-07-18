@@ -3998,6 +3998,18 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
     assert!(agent_events.iter().any(|event| {
+        event.event_type == "agent_patch_merge_intent"
+            && event.task_id.as_deref() == Some("task_coder_apply")
+            && event
+                .payload
+                .get("evidence_id")
+                .is_some_and(|id| id == "evidence-task_coder_apply-patch")
+            && event
+                .payload
+                .get("changed_files")
+                .is_some_and(|files| files == "src/lib.rs")
+    }));
+    assert!(agent_events.iter().any(|event| {
         event.event_type == "agent_patch_merged"
             && event.task_id.as_deref() == Some("task_coder_apply")
             && event

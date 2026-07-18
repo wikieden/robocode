@@ -8,12 +8,13 @@ use viden_context::{ContextEngine, ContextPutRequest};
 use viden_provider::ModelProvider;
 use viden_session::SessionStore;
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, ApprovalResponse, CanonicalEvidenceReference, ContextContentKind,
-    ContextHandleRecord, ContextItemRecord, ContextScope, CostScope, EvidenceProducer,
-    EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState, EvidenceView,
-    MergeGateStatus, ModelEvent, ModelRequest, ModelUsage, PermissionBehavior, PermissionLevel,
-    PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand, RuntimeEvent,
-    RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, WorkMode,
+    AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalResponse, CanonicalEvidenceReference,
+    ContextContentKind, ContextHandleRecord, ContextItemRecord, ContextScope, CostScope,
+    EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
+    EvidenceView, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage, PermissionBehavior,
+    PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand,
+    RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, TranscriptEntry,
+    WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -107,6 +108,23 @@ fn cost_provider_task_id(cost: &viden_types::CostUsageRecord) -> String {
             _ => None,
         })
         .expect("provider cost should include task scope")
+}
+
+fn transcript_runtime_events(
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+    session_id: &str,
+) -> Vec<RuntimeEventKind> {
+    let store = SessionStore::new_with_home(home, cwd, Some(session_id.to_string())).unwrap();
+    store
+        .load_entries()
+        .unwrap()
+        .into_iter()
+        .filter_map(|entry| match entry {
+            TranscriptEntry::RuntimeEvent { event } => Some(event.kind),
+            _ => None,
+        })
+        .collect()
 }
 
 #[test]
@@ -2055,7 +2073,7 @@ fn record_agent_evidence_rolls_back_when_workflow_append_fails() {
     engine.set_merge_gate_context_facts_for_test("bundle-workflow-append-fail", item);
     engine.fail_next_workflow_append_for_test();
 
-    let err = engine
+    let events = engine
         .handle_runtime_command(
             "cmd_workflow_append_fail",
             RuntimeCommand::RecordAgentEvidence {
@@ -2069,9 +2087,14 @@ fn record_agent_evidence_rolls_back_when_workflow_append_fails() {
             },
             &mut approver,
         )
-        .unwrap_err();
+        .unwrap();
 
-    assert!(err.contains("injected workflow append failure"));
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_workflow_append_fail"
+                && reason.contains("injected workflow append failure")
+    )));
     assert_eq!(
         engine.runtime_view_state().merge_gates,
         before.merge_gates,
@@ -2086,9 +2109,9 @@ fn record_agent_evidence_rolls_back_when_workflow_append_fails() {
 }
 
 #[test]
-fn record_agent_evidence_rolls_back_when_runtime_event_append_fails() {
-    let cwd = temp_dir("runtime_contract_runtime_append_fail_cwd");
-    let home = temp_dir("runtime_contract_runtime_append_fail_home");
+fn record_agent_evidence_does_not_dual_write_or_roll_back_on_transcript_failure() {
+    let cwd = temp_dir("runtime_contract_no_dual_write_evidence_cwd");
+    let home = temp_dir("runtime_contract_no_dual_write_evidence_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
     let mut approver = |_prompt| ApprovalResponse {
@@ -2096,63 +2119,70 @@ fn record_agent_evidence_rolls_back_when_runtime_event_append_fails() {
         feedback: None,
     };
     let session_id = engine.session_id().to_string();
-    start_single_patch_gate(&mut engine, &mut approver, "task_runtime_append_fail");
-    let before = engine.runtime_view_state();
+    start_single_patch_gate(&mut engine, &mut approver, "task_no_dual_write");
     let (item, canonical) = stored_canonical_context(
         &cwd,
-        "task_runtime_append_fail",
-        "evidence-runtime-append-fail",
-        "bundle-runtime-append-fail",
+        "task_no_dual_write",
+        "evidence-no-dual-write",
+        "bundle-no-dual-write",
         ContextContentKind::Diff,
         b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
     );
-    engine.set_merge_gate_context_facts_for_test("bundle-runtime-append-fail", item);
+    engine.set_merge_gate_context_facts_for_test("bundle-no-dual-write", item);
     engine.fail_after_transcript_appends_for_test(1);
 
-    let err = engine
+    let events = engine
         .handle_runtime_command(
-            "cmd_runtime_append_fail",
+            "cmd_no_dual_write_evidence",
             RuntimeCommand::RecordAgentEvidence {
-                gate_id: "gate-task_runtime_append_fail".to_string(),
-                evidence_id: Some("evidence-runtime-append-fail".to_string()),
+                gate_id: "gate-task_no_dual_write".to_string(),
+                evidence_id: Some("evidence-no-dual-write".to_string()),
                 kind: "patch".to_string(),
-                summary: "canonical patch should roll back on runtime append failure".to_string(),
+                summary: "canonical patch should commit through workflow owner".to_string(),
                 path: None,
                 source: Some("executor".to_string()),
                 canonical: Some(canonical),
             },
             &mut approver,
         )
-        .unwrap_err();
+        .unwrap();
 
-    assert!(err.contains("injected transcript append failure"));
-    assert_eq!(
-        engine.runtime_view_state().merge_gates,
-        before.merge_gates,
-        "runtime event append failure must not leak a gate update"
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::MergeGateUpdated { gate }
+            if gate.gate_id == "gate-task_no_dual_write"
+                && gate.status == MergeGateStatus::Accepted
+    )));
+    let transcript_events = transcript_runtime_events(&cwd, &home, &session_id);
+    assert!(
+        !transcript_events.iter().any(|kind| matches!(
+            kind,
+            RuntimeEventKind::EvidenceRecorded { .. }
+                | RuntimeEventKind::EvidenceCanonicalized { .. }
+                | RuntimeEventKind::MergeGateUpdated { .. }
+                | RuntimeEventKind::TaskUpdated { .. }
+        )),
+        "project agent facts must not be dual-written to the session transcript"
     );
-    assert_eq!(
-        engine.runtime_view_state().latest_evidence,
-        before.latest_evidence,
-        "runtime event append failure must not leak evidence"
-    );
+    let workflow_events = WorkflowStore::new(&home, &cwd)
+        .unwrap()
+        .load_agent_events()
+        .unwrap();
+    assert!(workflow_events.iter().any(|event| {
+        event.event_type == "runtime_projection"
+            && event
+                .payload
+                .get("runtime_event_kind")
+                .is_some_and(|kind| kind == "evidence_recorded")
+    }));
     assert_resumed_runtime_matches(&cwd, &home, &session_id, &engine.runtime_view_state());
 }
 
 #[test]
-fn start_agent_task_rolls_back_context_gate_evidence_and_cost_when_runtime_append_fails() {
-    let cwd = temp_dir("runtime_contract_start_task_append_fail_cwd");
-    let home = temp_dir("runtime_contract_start_task_append_fail_home");
+fn start_agent_task_projects_state_to_workflow_not_transcript() {
+    let cwd = temp_dir("runtime_contract_start_task_workflow_projection_cwd");
+    let home = temp_dir("runtime_contract_start_task_workflow_projection_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![
-        ModelEvent::Usage(ModelUsage {
-            input_tokens: Some(7),
-            output_tokens: Some(3),
-            cached_input_tokens: None,
-            retrieval_tokens: None,
-            total_tokens: Some(10),
-            cost_micro_usd: Some(12),
-            actual_cost_micro_usd: None,
-        }),
         ModelEvent::AssistantText {
             content: "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n".to_string(),
         },
@@ -2164,38 +2194,56 @@ fn start_agent_task_rolls_back_context_gate_evidence_and_cost_when_runtime_appen
         feedback: None,
     };
     let session_id = engine.session_id().to_string();
-    start_single_patch_gate(&mut engine, &mut approver, "task_start_append_fail");
-    let before = engine.runtime_view_state();
-    engine.fail_next_transcript_append_for_test();
+    start_single_patch_gate(&mut engine, &mut approver, "task_start_projection");
 
-    let err = engine
+    let events = engine
         .handle_runtime_command(
-            "cmd_start_append_fail",
+            "cmd_start_projection",
             RuntimeCommand::StartAgentTask {
-                task_id: "task_start_append_fail".to_string(),
+                task_id: "task_start_projection".to_string(),
             },
             &mut approver,
         )
-        .unwrap_err();
+        .unwrap();
 
-    assert!(err.contains("injected transcript append failure"));
     let live = engine.runtime_view_state();
-    assert_eq!(live.tasks, before.tasks, "task update leaked");
-    assert_eq!(live.agent_dags, before.agent_dags, "DAG update leaked");
-    assert_eq!(live.merge_gates, before.merge_gates, "gate update leaked");
-    assert_eq!(
-        live.latest_evidence, before.latest_evidence,
-        "evidence leaked"
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::TaskUpdated { task }
+            if task.id == "task_start_projection"
+                && task.status == AgentTaskStatus::Done.as_str()
+    )));
+    assert!(live.latest_evidence.iter().any(|evidence| {
+        evidence
+            .id
+            .starts_with("evidence-task_start_projection-patch")
+    }));
+    assert!(live.merge_gates.iter().any(|gate| {
+        gate.gate_id == "gate-task_start_projection" && gate.status == MergeGateStatus::Accepted
+    }));
+    let transcript_events = transcript_runtime_events(&cwd, &home, &session_id);
+    assert!(
+        !transcript_events.iter().any(|kind| matches!(
+            kind,
+            RuntimeEventKind::EvidenceRecorded { .. }
+                | RuntimeEventKind::EvidenceCanonicalized { .. }
+                | RuntimeEventKind::MergeGateUpdated { .. }
+                | RuntimeEventKind::TaskUpdated { .. }
+        )),
+        "project agent facts must be workflow-owned for StartAgentTask"
     );
-    assert_eq!(
-        live.context_bundles, before.context_bundles,
-        "context bundle leaked"
-    );
-    assert_eq!(
-        live.context_items, before.context_items,
-        "context item leaked"
-    );
-    assert_eq!(live.cost_usage, before.cost_usage, "cost usage leaked");
+    let workflow_events = WorkflowStore::new(&home, &cwd)
+        .unwrap()
+        .load_agent_events()
+        .unwrap();
+    assert!(workflow_events.iter().any(|event| {
+        event.event_type == "runtime_projection"
+            && event.task_id.as_deref() == Some("task_start_projection")
+            && event
+                .payload
+                .get("runtime_event_kind")
+                .is_some_and(|kind| kind == "evidence_recorded")
+    }));
     assert_resumed_runtime_matches(&cwd, &home, &session_id, &live);
 }
 
@@ -2219,7 +2267,7 @@ fn start_agent_task_rolls_back_when_workflow_append_fails() {
     let before = engine.runtime_view_state();
     engine.fail_next_workflow_append_for_test();
 
-    let err = engine
+    let events = engine
         .handle_runtime_command(
             "cmd_start_workflow_fail",
             RuntimeCommand::StartAgentTask {
@@ -2227,9 +2275,14 @@ fn start_agent_task_rolls_back_when_workflow_append_fails() {
             },
             &mut approver,
         )
-        .unwrap_err();
+        .unwrap();
 
-    assert!(err.contains("injected workflow append failure"));
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_start_workflow_fail"
+                && reason.contains("injected workflow append failure")
+    )));
     let live = engine.runtime_view_state();
     assert_eq!(live.tasks, before.tasks, "task update leaked");
     assert_eq!(live.agent_dags, before.agent_dags, "DAG update leaked");
@@ -2246,9 +2299,9 @@ fn start_agent_task_rolls_back_when_workflow_append_fails() {
 }
 
 #[test]
-fn start_agent_task_deferred_workflow_failure_leaves_logs_and_replay_unchanged() {
-    let cwd = temp_dir("runtime_contract_start_task_deferred_workflow_fail_cwd");
-    let home = temp_dir("runtime_contract_start_task_deferred_workflow_fail_home");
+fn start_agent_task_workflow_projection_failure_leaves_logs_and_replay_unchanged() {
+    let cwd = temp_dir("runtime_contract_start_task_projection_fail_cwd");
+    let home = temp_dir("runtime_contract_start_task_projection_fail_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![
         ModelEvent::AssistantText {
             content: "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n".to_string(),
@@ -2261,29 +2314,30 @@ fn start_agent_task_deferred_workflow_failure_leaves_logs_and_replay_unchanged()
         feedback: None,
     };
     let session_id = engine.session_id().to_string();
-    start_single_patch_gate(
-        &mut engine,
-        &mut approver,
-        "task_start_deferred_workflow_fail",
-    );
+    start_single_patch_gate(&mut engine, &mut approver, "task_start_projection_fail");
     let before = engine.runtime_view_state();
     let workflow_before = WorkflowStore::new(&home, &cwd)
         .unwrap()
         .load_agent_events()
         .unwrap();
-    engine.fail_deferred_workflow_flush_for_test();
+    engine.fail_next_workflow_append_for_test();
 
-    let err = engine
+    let events = engine
         .handle_runtime_command(
-            "cmd_start_deferred_workflow_fail",
+            "cmd_start_projection_fail",
             RuntimeCommand::StartAgentTask {
-                task_id: "task_start_deferred_workflow_fail".to_string(),
+                task_id: "task_start_projection_fail".to_string(),
             },
             &mut approver,
         )
-        .unwrap_err();
+        .unwrap();
 
-    assert!(err.contains("injected workflow append failure"));
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_start_projection_fail"
+                && reason.contains("injected workflow append failure")
+    )));
     let live = engine.runtime_view_state();
     assert_eq!(live.tasks, before.tasks, "task update leaked");
     assert_eq!(live.merge_gates, before.merge_gates, "gate update leaked");
@@ -2306,7 +2360,7 @@ fn start_agent_task_deferred_workflow_failure_leaves_logs_and_replay_unchanged()
 }
 
 #[test]
-fn merge_agent_patch_restores_files_when_persistence_fails_after_write() {
+fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
     let cwd = temp_dir("runtime_contract_merge_patch_restore_after_write_cwd");
     let home = temp_dir("runtime_contract_merge_patch_restore_after_write_home");
     std::fs::create_dir_all(cwd.join("src")).unwrap();
@@ -2354,9 +2408,9 @@ fn merge_agent_patch_restores_files_when_persistence_fails_after_write() {
         .unwrap()
         .load_agent_events()
         .unwrap();
-    engine.fail_deferred_workflow_flush_for_test();
+    engine.fail_next_workflow_append_for_test();
 
-    let err = engine
+    let events = engine
         .handle_runtime_command(
             "cmd_merge_restore",
             RuntimeCommand::MergeAgentPatch {
@@ -2365,9 +2419,14 @@ fn merge_agent_patch_restores_files_when_persistence_fails_after_write() {
             },
             &mut approver,
         )
-        .unwrap_err();
+        .unwrap();
 
-    assert!(err.contains("injected workflow append failure"));
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_merge_restore"
+                && reason.contains("injected workflow append failure")
+    )));
     assert_eq!(
         std::fs::read_to_string(cwd.join("src/lib.rs")).unwrap(),
         "old\n"
@@ -2385,9 +2444,9 @@ fn merge_agent_patch_restores_files_when_persistence_fails_after_write() {
 }
 
 #[test]
-fn record_agent_evidence_mid_batch_append_failure_replays_without_partial_batch() {
-    let cwd = temp_dir("runtime_contract_mid_batch_append_fail_cwd");
-    let home = temp_dir("runtime_contract_mid_batch_append_fail_home");
+fn record_agent_evidence_ignores_transcript_batch_failure_for_project_facts() {
+    let cwd = temp_dir("runtime_contract_project_fact_transcript_batch_fail_cwd");
+    let home = temp_dir("runtime_contract_project_fact_transcript_batch_fail_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
     let mut approver = |_prompt| ApprovalResponse {
@@ -2395,43 +2454,42 @@ fn record_agent_evidence_mid_batch_append_failure_replays_without_partial_batch(
         feedback: None,
     };
     let session_id = engine.session_id().to_string();
-    start_single_patch_gate(&mut engine, &mut approver, "task_mid_batch_append_fail");
-    let before = engine.runtime_view_state();
+    start_single_patch_gate(&mut engine, &mut approver, "task_project_fact_batch_fail");
     let (item, canonical) = stored_canonical_context(
         &cwd,
-        "task_mid_batch_append_fail",
-        "evidence-mid-batch-append-fail",
-        "bundle-mid-batch-append-fail",
+        "task_project_fact_batch_fail",
+        "evidence-project-fact-batch-fail",
+        "bundle-project-fact-batch-fail",
         ContextContentKind::Diff,
         b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
     );
-    engine.set_merge_gate_context_facts_for_test("bundle-mid-batch-append-fail", item);
+    engine.set_merge_gate_context_facts_for_test("bundle-project-fact-batch-fail", item);
     engine.fail_after_transcript_appends_for_test(2);
 
-    let err = engine
+    let events = engine
         .handle_runtime_command(
-            "cmd_mid_batch_append_fail",
+            "cmd_project_fact_batch_fail",
             RuntimeCommand::RecordAgentEvidence {
-                gate_id: "gate-task_mid_batch_append_fail".to_string(),
-                evidence_id: Some("evidence-mid-batch-append-fail".to_string()),
+                gate_id: "gate-task_project_fact_batch_fail".to_string(),
+                evidence_id: Some("evidence-project-fact-batch-fail".to_string()),
                 kind: "patch".to_string(),
-                summary: "canonical patch should not partially replay".to_string(),
+                summary: "canonical patch should commit without transcript projection".to_string(),
                 path: None,
                 source: Some("executor".to_string()),
                 canonical: Some(canonical),
             },
             &mut approver,
         )
-        .unwrap_err();
+        .unwrap();
 
-    assert!(err.contains("injected transcript append failure"));
-    let live = engine.runtime_view_state();
-    assert_eq!(live.merge_gates, before.merge_gates, "gate update leaked");
-    assert_eq!(
-        live.latest_evidence, before.latest_evidence,
-        "evidence leaked"
-    );
-    assert_resumed_runtime_matches(&cwd, &home, &session_id, &live);
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::MergeGateUpdated { gate }
+            if gate.gate_id == "gate-task_project_fact_batch_fail"
+                && gate.status == MergeGateStatus::Accepted
+    )));
+    assert!(transcript_runtime_events(&cwd, &home, &session_id).is_empty());
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &engine.runtime_view_state());
 }
 
 #[test]
@@ -2899,24 +2957,12 @@ fn merge_gate_canonical_state_survives_real_session_resume() {
         .unwrap()
         .load_entries()
         .unwrap();
-    assert!(entries.iter().any(|entry| matches!(
-        entry,
-        viden_types::TranscriptEntry::RuntimeEvent { event }
-            if matches!(&event.kind, RuntimeEventKind::EvidenceRecorded { evidence }
-                if evidence.id == "evidence-task_resume_gate-patch")
-    )));
-    assert!(entries.iter().any(|entry| matches!(
-        entry,
-        viden_types::TranscriptEntry::RuntimeEvent { event }
-            if matches!(&event.kind, RuntimeEventKind::MergeGateUpdated { gate }
-                if gate.gate_id == "gate-task_resume_gate" && gate.status == MergeGateStatus::Accepted)
-    )));
-    assert!(entries.iter().any(|entry| matches!(
-        entry,
-        viden_types::TranscriptEntry::RuntimeEvent { event }
-            if matches!(&event.kind, RuntimeEventKind::ContextItemStored { item }
-                if item.evidence_id.as_deref() == Some("evidence-task_resume_gate-patch"))
-    )));
+    assert!(
+        entries
+            .iter()
+            .all(|entry| !matches!(entry, viden_types::TranscriptEntry::RuntimeEvent { .. })),
+        "new project agent facts must not be dual-written to transcript runtime_event entries"
+    );
 
     let workflow_events = WorkflowStore::new(home, &cwd)
         .unwrap()
@@ -2935,6 +2981,22 @@ fn merge_gate_canonical_state_survives_real_session_resume() {
                 .payload
                 .get("evidence_kind")
                 .is_some_and(|kind| kind == "patch")
+    }));
+    assert!(workflow_events.iter().any(|event| {
+        event.event_type == "runtime_projection"
+            && event.task_id.as_deref() == Some("task_resume_gate")
+            && event
+                .payload
+                .get("runtime_event_kind")
+                .is_some_and(|kind| kind == "evidence_recorded")
+    }));
+    assert!(workflow_events.iter().any(|event| {
+        event.event_type == "runtime_projection"
+            && event.task_id.as_deref() == Some("task_resume_gate")
+            && event
+                .payload
+                .get("runtime_event_kind")
+                .is_some_and(|kind| kind == "merge_gate_updated")
     }));
 }
 

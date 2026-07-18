@@ -119,6 +119,30 @@ fn replay_discards_nested_batch_without_hiding_later_valid_batch() {
 }
 
 #[test]
+fn replay_loads_multiple_committed_batches_written_under_append_lock() {
+    let home = temp_home("multiple_committed_batches");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store =
+        SessionStore::new_with_home(&home, &cwd, Some("session_multiple_batches".into())).unwrap();
+    let first = TranscriptEntry::Message {
+        message: Message::new(Role::User, "first batch"),
+    };
+    let second = TranscriptEntry::Message {
+        message: Message::new(Role::Assistant, "second batch"),
+    };
+
+    store
+        .append_entries_atomic(std::slice::from_ref(&first))
+        .unwrap();
+    store
+        .append_entries_atomic(std::slice::from_ref(&second))
+        .unwrap();
+
+    assert_eq!(store.load_entries().unwrap(), vec![first, second]);
+}
+
+#[test]
 fn replay_keeps_strict_errors_for_malformed_legacy_entries() {
     let home = temp_home("malformed_legacy");
     let cwd = home.join("workspace");

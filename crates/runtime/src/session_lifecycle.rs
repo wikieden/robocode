@@ -5,6 +5,7 @@ use viden_types::{
     RuntimeEventKind, SessionMetaEntry, SessionSummary, TranscriptEntry, WorkMode, fresh_id,
     now_timestamp,
 };
+use viden_workflows::stores::WorkflowAgentEvent;
 
 use crate::SessionEngine;
 
@@ -40,6 +41,7 @@ impl SessionEngine {
         self.provider_cost_usage.clear();
         self.permissions = PermissionEngine::new(&self.cwd);
         self.hydrate(entries)?;
+        self.hydrate_workflow_agent_projection()?;
         Ok(format!(
             "Resumed session {} ({})",
             summary.session_id,
@@ -196,14 +198,6 @@ impl SessionEngine {
     }
 
     pub(super) fn store_entry(&self, entry: TranscriptEntry) -> Result<(), String> {
-        if self.defer_transcript_persistence {
-            self.deferred_transcript_entries.borrow_mut().push(entry);
-            return Ok(());
-        }
-        #[cfg(test)]
-        if self.fail_next_transcript_append.replace(false) {
-            return Err("injected transcript append failure".to_string());
-        }
         #[cfg(test)]
         if let Some(remaining) = self.fail_transcript_append_after.get() {
             if remaining == 0 {
@@ -217,22 +211,6 @@ impl SessionEngine {
     }
 
     pub(super) fn record_cost_usage(&mut self, cost: CostUsageRecord) -> Result<(), String> {
-        if self.defer_cost_usage_persistence || self.defer_transcript_persistence {
-            if !self
-                .deferred_cost_usage
-                .iter()
-                .any(|existing| existing.usage_id == cost.usage_id)
-            {
-                self.deferred_cost_usage.push(cost.clone());
-            }
-            self.deferred_transcript_entries
-                .borrow_mut()
-                .push(TranscriptEntry::CostUsage {
-                    cost: Box::new(cost.clone()),
-                });
-            self.remember_cost_usage(cost);
-            return Ok(());
-        }
         self.store_entry(TranscriptEntry::CostUsage {
             cost: Box::new(cost.clone()),
         })?;
@@ -260,63 +238,168 @@ impl SessionEngine {
             .filter(|event| is_durable_runtime_domain_event(&event.kind))
             .cloned()
             .collect::<Vec<_>>();
-        let mut entries = self.deferred_transcript_entries.borrow().clone();
-        entries.extend(
-            domain_events
-                .iter()
-                .map(|event| TranscriptEntry::RuntimeEvent {
-                    event: Box::new(event.clone()),
-                }),
-        );
-        self.store_entries(entries)?;
+        for event in &domain_events {
+            self.persist_workflow_runtime_projection(event)?;
+        }
         for event in domain_events {
             self.remember_runtime_domain_event(event);
         }
         Ok(())
     }
 
-    fn store_entries(&self, entries: Vec<TranscriptEntry>) -> Result<(), String> {
-        if entries.is_empty() {
-            self.flush_deferred_workflow_events()?;
+    fn persist_workflow_runtime_projection(&self, event: &RuntimeEvent) -> Result<(), String> {
+        let Some((dag_id, task_id)) = self.workflow_projection_identity(event) else {
             return Ok(());
-        }
+        };
+        let mut payload = std::collections::BTreeMap::new();
+        payload.insert(
+            "runtime_event_kind".to_string(),
+            runtime_projection_kind_name(&event.kind).to_string(),
+        );
+        payload.insert(
+            "runtime_event_json".to_string(),
+            serde_json::to_string(event).map_err(|err| err.to_string())?,
+        );
+        let projection = WorkflowAgentEvent {
+            event_id: fresh_id("agent_projection"),
+            dag_id,
+            task_id,
+            event_type: "runtime_projection".to_string(),
+            timestamp: now_timestamp(),
+            origin_session_id: Some(self.session_id().to_string()),
+            payload,
+        };
         #[cfg(test)]
-        if self.fail_next_transcript_append.replace(false) {
-            return Err("injected transcript append failure".to_string());
-        }
-        #[cfg(test)]
-        if let Some(committed_entries) = self.fail_transcript_append_after.get() {
-            self.fail_transcript_append_after.set(None);
-            return self
-                .store
-                .append_entries_uncommitted_for_test(&entries, committed_entries);
-        }
-        if self.defer_workflow_persistence
-            && !self.deferred_workflow_agent_events.borrow().is_empty()
-        {
-            let batch = self.store.append_entries_precommit(&entries)?;
-            self.flush_deferred_workflow_events()?;
-            return self.store.commit_entries_batch(&batch);
-        }
-        self.store.append_entries_atomic(&entries)?;
-        self.flush_deferred_workflow_events()
-    }
-
-    fn flush_deferred_workflow_events(&self) -> Result<(), String> {
-        if !self.defer_workflow_persistence {
-            return Ok(());
-        }
-        #[cfg(test)]
-        if self.fail_deferred_workflow_flush.replace(false) {
+        if self.fail_next_workflow_append.replace(false) {
             return Err("injected workflow append failure".to_string());
         }
-        let events = self.deferred_workflow_agent_events.borrow().clone();
-        for event in events {
-            #[cfg(test)]
-            if self.fail_next_workflow_append.replace(false) {
-                return Err("injected workflow append failure".to_string());
+        self.workflows.append_agent_event(&projection)
+    }
+
+    fn workflow_projection_identity(
+        &self,
+        event: &RuntimeEvent,
+    ) -> Option<(String, Option<String>)> {
+        match &event.kind {
+            RuntimeEventKind::AgentDagUpdated { dag } => Some((dag.dag_id.clone(), None)),
+            RuntimeEventKind::TaskUpdated { task } => Some((
+                self.dag_id_for_task_projection(&task.id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(task.id.clone()),
+            )),
+            RuntimeEventKind::EvidenceRecorded { evidence } => {
+                let task_id = evidence
+                    .canonical
+                    .as_ref()
+                    .map(|canonical| canonical.producer.task_id.clone())
+                    .or_else(|| self.task_id_for_evidence(&evidence.id));
+                Some((
+                    task_id
+                        .as_deref()
+                        .and_then(|id| self.dag_id_for_task_projection(id))
+                        .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                    task_id,
+                ))
             }
-            self.workflows.append_agent_event(&event)?;
+            RuntimeEventKind::EvidenceCanonicalized { evidence_id, .. } => {
+                let task_id = self
+                    .runtime_evidence
+                    .iter()
+                    .find(|evidence| evidence.id == *evidence_id)
+                    .and_then(|evidence| {
+                        evidence
+                            .canonical
+                            .as_ref()
+                            .map(|canonical| canonical.producer.task_id.clone())
+                    })
+                    .or_else(|| self.task_id_for_evidence(evidence_id));
+                Some((
+                    task_id
+                        .as_deref()
+                        .and_then(|id| self.dag_id_for_task_projection(id))
+                        .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                    task_id,
+                ))
+            }
+            RuntimeEventKind::MergeGateUpdated { gate } => Some((
+                self.dag_id_for_task_projection(&gate.task_id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(gate.task_id.clone()),
+            )),
+            RuntimeEventKind::ContextBundleBuilt { scope, .. } => {
+                let task_id = task_id_for_context_scope(scope);
+                Some((
+                    task_id
+                        .as_deref()
+                        .and_then(|id| self.dag_id_for_task_projection(id))
+                        .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                    task_id,
+                ))
+            }
+            RuntimeEventKind::ContextItemStored { item } => {
+                let task_id = task_id_for_context_scope(&item.scope);
+                Some((
+                    task_id
+                        .as_deref()
+                        .and_then(|id| self.dag_id_for_task_projection(id))
+                        .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                    task_id,
+                ))
+            }
+            RuntimeEventKind::ContextViewDerived { handle, .. } => {
+                let task_id = task_id_for_context_scope(&handle.scope);
+                Some((
+                    task_id
+                        .as_deref()
+                        .and_then(|id| self.dag_id_for_task_projection(id))
+                        .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                    task_id,
+                ))
+            }
+            RuntimeEventKind::ContextBudgetExceeded { budget } => {
+                let task_id = task_id_for_context_scope(&budget.scope);
+                Some((
+                    task_id
+                        .as_deref()
+                        .and_then(|id| self.dag_id_for_task_projection(id))
+                        .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                    task_id,
+                ))
+            }
+            RuntimeEventKind::ContextQualityFailed { .. }
+            | RuntimeEventKind::ContextUpdated { .. } => {
+                Some(("project-agent-runtime".to_string(), None))
+            }
+            _ => None,
+        }
+    }
+
+    fn dag_id_for_task_projection(&self, task_id: &str) -> Option<String> {
+        self.runtime_agent_dags
+            .iter()
+            .find(|dag| dag.tasks.iter().any(|task| task.task_id == task_id))
+            .map(|dag| dag.dag_id.clone())
+    }
+
+    fn task_id_for_evidence(&self, evidence_id: &str) -> Option<String> {
+        self.runtime_merge_gates
+            .iter()
+            .find(|gate| gate.evidence_ids.iter().any(|id| id == evidence_id))
+            .map(|gate| gate.task_id.clone())
+    }
+
+    fn hydrate_workflow_agent_projection(&mut self) -> Result<(), String> {
+        let events = self.workflows.load_agent_events()?;
+        for event in events {
+            if event.event_type != "runtime_projection" {
+                continue;
+            }
+            let Some(json) = event.payload.get("runtime_event_json") else {
+                continue;
+            };
+            let runtime_event =
+                serde_json::from_str::<RuntimeEvent>(json).map_err(|err| err.to_string())?;
+            self.remember_runtime_domain_event(runtime_event);
         }
         Ok(())
     }
@@ -372,6 +455,30 @@ impl SessionEngine {
         {
             self.last_context_runtime_events.push(event);
         }
+    }
+}
+
+fn task_id_for_context_scope(scope: &viden_types::ContextScope) -> Option<String> {
+    match scope {
+        viden_types::ContextScope::Task(task_id) => Some(task_id.clone()),
+        _ => None,
+    }
+}
+
+fn runtime_projection_kind_name(kind: &RuntimeEventKind) -> &'static str {
+    match kind {
+        RuntimeEventKind::AgentDagUpdated { .. } => "agent_dag_updated",
+        RuntimeEventKind::TaskUpdated { .. } => "task_updated",
+        RuntimeEventKind::ContextBundleBuilt { .. } => "context_bundle_built",
+        RuntimeEventKind::ContextItemStored { .. } => "context_item_stored",
+        RuntimeEventKind::ContextViewDerived { .. } => "context_view_derived",
+        RuntimeEventKind::ContextBudgetExceeded { .. } => "context_budget_exceeded",
+        RuntimeEventKind::ContextQualityFailed { .. } => "context_quality_failed",
+        RuntimeEventKind::ContextUpdated { .. } => "context_updated",
+        RuntimeEventKind::EvidenceRecorded { .. } => "evidence_recorded",
+        RuntimeEventKind::EvidenceCanonicalized { .. } => "evidence_canonicalized",
+        RuntimeEventKind::MergeGateUpdated { .. } => "merge_gate_updated",
+        _ => "runtime_event",
     }
 }
 

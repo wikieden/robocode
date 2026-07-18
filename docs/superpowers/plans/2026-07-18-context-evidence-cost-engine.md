@@ -476,12 +476,20 @@ Expected: canonical evidence status is missing from contracts.
 
 Add canonical item id, bundle id, source hash, producer, permission snapshot id,
 and verification state to evidence records. Preserve append-only workflow events.
+`viden-workflows` is the sole durable owner for project Agent
+DAG/task/evidence/canonicalization/MergeGate facts; new commands must not also
+write those facts as session transcript `runtime_event` entries. Resume applies
+legacy transcript runtime events first, then workflow projections so workflow
+facts win without rewriting old logs.
 
 - [ ] **Step 4: Enforce gate rules**
 
 Required patch/test/review/doc/release evidence counts only when canonical source
 exists, hash verifies, scope is valid, and quality status passes. A failed check
 moves the gate to `blocked` or `needs_changes` with a machine-readable reason.
+Patch merge verifies the workflow-owned gate immediately before staging file
+writes, records workflow intent/outcome, and compensates file changes if apply
+or later recording fails.
 
 - [ ] **Step 5: Verify reducer and replay**
 

@@ -40,7 +40,9 @@ The engine must:
 
 - A generic vector database in the first slice.
 - Model-based summarization on the mandatory request path.
-- Replacing JSONL session or workflow logs as canonical history.
+- Replacing JSONL logs as canonical history. `viden-workflows` owns
+  project-level Agent DAG/task/evidence/canonicalization/MergeGate facts;
+  `viden-session` owns session conversation, tool, cost, and audit facts.
 - Letting UI clients edit context records or calculate authoritative cost.
 - Making Headroom, Python, a local proxy, or an MCP process mandatory.
 - Claiming savings from estimated counterfactual output without a labelled
@@ -79,6 +81,12 @@ flowchart LR
 | `crates/workflows` | Durable task/DAG/evidence relationships and event replay. | Reduction algorithms or provider calls. |
 | `crates/plugin-api` / `plugin-host` | Optional context reducer/benchmark adapter descriptors and isolation. | Mandatory context processing. |
 | `apps/tui` / `apps/gui` | Render projected facts and send runtime commands. | Canonical storage, cost authority, reduction, or merge decisions. |
+
+Project agent facts are single-owned by `viden-workflows`. Runtime startup and
+resume first replay legacy session transcript entries for compatibility, then
+apply workflow projections so workflow facts win deterministically. New runtime
+commands must not dual-write the same DAG/task/evidence/gate semantic fact as a
+session `runtime_event`.
 
 ## Core Contracts
 
@@ -211,6 +219,9 @@ raw secret-bearing content.
 | Reducer parse failure | Fall back to bounded raw content or omit with explicit reason. |
 | Missing canonical item | Reject retrieval and block dependent evidence. |
 | Hash mismatch | Mark source corrupt, block merge gate, retain audit event. |
+| Workflow append failure | Reject the command and roll back live project projections before user-visible success. |
+| Derived transcript audit append failure | Do not roll back an already committed workflow fact; surface health/audit degradation through the session layer. |
+| Patch merge persistence/apply split | Verify the gate from canonical workflow/context facts first, stage file writes, record workflow intent/outcome, and compensate file changes if apply or later recording fails. |
 | Provider 413/context error | Classify separately, rebuild with stricter policy once, then require user-visible recovery. |
 | Unknown provider usage | Record unknown actual cost and a labelled estimate; never fabricate precision. |
 | Optional Headroom adapter unavailable | Continue with native engine; report adapter health only. |
@@ -246,4 +257,3 @@ The feature is complete only when:
    new permission bypass.
 10. Workspace tests, deterministic context tests, crash/replay tests, and live
     smoke gates pass with token, cost, latency, retrieval, and failure evidence.
-
