@@ -1701,45 +1701,105 @@ fn redact_line(line: &str) -> String {
 }
 
 fn redact_authorization(line: &str) -> String {
-    let lower = line.to_ascii_lowercase();
-    let Some(label_start) = lower.find("authorization") else {
-        return line.to_string();
-    };
-    let mut separator = label_start + "authorization".len();
-    while line[separator..]
-        .chars()
-        .next()
-        .is_some_and(char::is_whitespace)
-    {
-        separator += line[separator..].chars().next().unwrap().len_utf8();
-    }
-    if !matches!(line.as_bytes().get(separator), Some(b':' | b'=')) {
-        return line.to_string();
-    }
-
-    let Some((mut value_start, mut value_end)) = assignment_value_span(line, separator) else {
-        return line.to_string();
-    };
-    let scheme = line[value_start..value_end].to_ascii_lowercase();
-    if matches!(scheme.as_str(), "bearer" | "basic") {
-        let Some((credential_start, credential_end)) = next_value_token(line, value_end) else {
-            return line.to_string();
+    let mut output = line.to_string();
+    let mut cursor = 0;
+    while let Some(label_start) = find_ascii_case_insensitive(&output, cursor, "authorization") {
+        let label_end = label_start + "authorization".len();
+        if !has_token_boundary_before(&output, label_start) {
+            cursor = label_end;
+            continue;
+        }
+        let separator = skip_whitespace(&output, label_end);
+        if !matches!(output.as_bytes().get(separator), Some(b':' | b'=')) {
+            cursor = label_end;
+            continue;
+        }
+        let Some((value_start, value_end)) = authorization_value_span(&output, separator) else {
+            cursor = separator + 1;
+            continue;
         };
-        value_start = credential_start;
-        value_end = credential_end;
+        if &output[value_start..value_end] == "[REDACTED]" {
+            cursor = value_end;
+            continue;
+        }
+        output.replace_range(value_start..value_end, "[REDACTED]");
+        cursor = value_start + "[REDACTED]".len();
     }
-    replace_redacted_value(line, value_start, value_end)
+    output
 }
 
 fn redact_bearer(line: &str) -> String {
-    let Some(index) = line.to_ascii_lowercase().find("bearer ") else {
-        return line.to_string();
-    };
-    let value_start = index + "bearer ".len();
-    let value_end = line[value_start..]
-        .find(|character: char| character.is_whitespace() || character == ',' || character == ';')
+    let mut output = line.to_string();
+    let mut cursor = 0;
+    while let Some(label_start) = find_ascii_case_insensitive(&output, cursor, "bearer") {
+        let label_end = label_start + "bearer".len();
+        if !has_token_boundary_before(&output, label_start) {
+            cursor = label_end;
+            continue;
+        }
+        let Some(next) = output[label_end..].chars().next() else {
+            break;
+        };
+        let value_hint = if next.is_whitespace() {
+            label_end
+        } else if matches!(next, ':' | '=') {
+            label_end + next.len_utf8()
+        } else {
+            cursor = label_end;
+            continue;
+        };
+        let Some((value_start, value_end)) = value_span_at(&output, value_hint) else {
+            cursor = label_end;
+            continue;
+        };
+        if &output[value_start..value_end] == "[REDACTED]" {
+            cursor = value_end;
+            continue;
+        }
+        output.replace_range(value_start..value_end, "[REDACTED]");
+        cursor = value_start + "[REDACTED]".len();
+    }
+    output
+}
+
+fn find_ascii_case_insensitive(line: &str, start: usize, needle: &str) -> Option<usize> {
+    line[start..]
+        .to_ascii_lowercase()
+        .find(needle)
+        .map(|offset| start + offset)
+}
+
+fn has_token_boundary_before(line: &str, start: usize) -> bool {
+    line[..start]
+        .chars()
+        .next_back()
+        .is_none_or(|character| !character.is_ascii_alphanumeric() && character != '_')
+}
+
+fn authorization_value_span(line: &str, separator: usize) -> Option<(usize, usize)> {
+    let value_start = skip_whitespace(line, separator + 1);
+    let scheme_end = line[value_start..]
+        .find(|character: char| !character.is_ascii_alphabetic())
         .map_or(line.len(), |offset| value_start + offset);
-    format!("{}[REDACTED]{}", &line[..value_start], &line[value_end..])
+    let scheme = line[value_start..scheme_end].to_ascii_lowercase();
+    if matches!(scheme.as_str(), "bearer" | "basic") {
+        let mut credential_hint = scheme_end;
+        if matches!(line[credential_hint..].chars().next(), Some(':' | '=')) {
+            credential_hint += 1;
+        }
+        return value_span_at(line, credential_hint);
+    }
+    value_span_at(line, value_start)
+}
+
+fn skip_whitespace(line: &str, mut start: usize) -> usize {
+    while let Some(character) = line[start..].chars().next() {
+        if !character.is_whitespace() {
+            break;
+        }
+        start += character.len_utf8();
+    }
+    start
 }
 
 fn redact_assignment(line: &str) -> String {
@@ -1825,54 +1885,48 @@ fn normalized_label_before(line: &str, end: usize) -> Option<String> {
 }
 
 fn assignment_value_span(line: &str, separator_index: usize) -> Option<(usize, usize)> {
-    let mut value_start = separator_index + 1;
-    while line[value_start..]
-        .chars()
-        .next()
-        .is_some_and(char::is_whitespace)
-    {
-        value_start += line[value_start..].chars().next()?.len_utf8();
+    value_span_at(line, separator_index + 1)
+}
+
+fn value_span_at(line: &str, hint: usize) -> Option<(usize, usize)> {
+    let value_start = skip_whitespace(line, hint);
+    if line[value_start..].starts_with("[REDACTED]") {
+        return Some((value_start, value_start + "[REDACTED]".len()));
     }
     let first = line[value_start..].chars().next()?;
+    if matches!(first, ',' | ';' | ')' | ']' | '}') {
+        return None;
+    }
     if matches!(first, '"' | '\'') {
         let content_start = value_start + first.len_utf8();
+        if line[content_start..]
+            .chars()
+            .next()
+            .is_none_or(|character| {
+                character.is_whitespace() || matches!(character, ',' | ';' | ')' | ']' | '}')
+            })
+        {
+            return None;
+        }
         let mut escaped = false;
         for (offset, character) in line[content_start..].char_indices() {
             if character == first && !escaped {
-                return Some((content_start, content_start + offset));
+                return (offset > 0).then_some((content_start, content_start + offset));
             }
             escaped = character == '\\' && !escaped;
             if character != '\\' {
                 escaped = false;
             }
         }
-        return Some((content_start, line.len()));
+        return (content_start < line.len()).then_some((content_start, line.len()));
     }
     let value_end = line[value_start..]
         .find(|character: char| {
-            character.is_whitespace() || matches!(character, ',' | ';' | ')' | ']' | '}')
+            character.is_whitespace()
+                || matches!(character, ',' | ';' | ')' | ']' | '}' | '"' | '\'')
         })
         .map_or(line.len(), |offset| value_start + offset);
     (value_start < value_end).then_some((value_start, value_end))
-}
-
-fn next_value_token(line: &str, after: usize) -> Option<(usize, usize)> {
-    let mut start = after;
-    while line[start..]
-        .chars()
-        .next()
-        .is_some_and(char::is_whitespace)
-    {
-        start += line[start..].chars().next()?.len_utf8();
-    }
-    let end = line[start..]
-        .find(|character: char| character.is_whitespace() || matches!(character, ',' | ';'))
-        .map_or(line.len(), |offset| start + offset);
-    (start < end).then_some((start, end))
-}
-
-fn replace_redacted_value(line: &str, start: usize, end: usize) -> String {
-    format!("{}[REDACTED]{}", &line[..start], &line[end..])
 }
 
 fn is_secret_label(label: &str) -> bool {
@@ -3079,6 +3133,88 @@ mod tests {
                 view.content
             );
             assert!(!serialized.contains(raw_secret), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn every_inline_authorization_and_bearer_credential_is_redacted_across_routes() {
+        let code_policy = ReductionPolicy {
+            selected_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            ..ReductionPolicy::default()
+        };
+        let cases = [
+            (
+                ContextContentKind::Log,
+                "ERROR Authorization:Bearer log-auth, proxy bEaReR=log-loose); AUTHORIZATION=Basic log-basic; total_tokens=9 tail=kept dangling Bearer ; Authorization:\n"
+                    .to_string(),
+                ReductionPolicy::default(),
+                ["log-auth", "log-loose", "log-basic"],
+            ),
+            (
+                ContextContentKind::Text,
+                "decision: Authorization:Bearer text-auth, proxy bEaReR=text-loose); AUTHORIZATION=Basic text-basic; total_tokens=9 tail=kept dangling Bearer ; Authorization:\n"
+                    .to_string(),
+                ReductionPolicy::default(),
+                ["text-auth", "text-loose", "text-basic"],
+            ),
+            (
+                ContextContentKind::Diff,
+                "diff --git a/a b/a\n@@ -1 +1 @@\n+Authorization:Bearer diff-auth, proxy bEaReR=diff-loose); AUTHORIZATION=Basic diff-basic; total_tokens=9 tail=kept dangling Bearer ; Authorization:\n"
+                    .to_string(),
+                ReductionPolicy::default(),
+                ["diff-auth", "diff-loose", "diff-basic"],
+            ),
+            (
+                ContextContentKind::Code,
+                "let message = \"Authorization:Bearer code-auth, proxy bEaReR=code-loose); AUTHORIZATION=Basic code-basic; total_tokens=9 tail=kept dangling Bearer ; Authorization:\";\n"
+                    .to_string(),
+                code_policy,
+                ["code-auth", "code-loose", "code-basic"],
+            ),
+        ];
+
+        for (kind, input, policy, raw_credentials) in cases {
+            let view = reduce(kind, input.as_bytes(), &policy).unwrap();
+            let serialized = serde_json::to_string(&view).unwrap();
+
+            assert_eq!(
+                view.content.matches("[REDACTED]").count(),
+                3,
+                "{kind:?}: {}",
+                view.content
+            );
+            assert!(view.content.contains("[REDACTED],"), "{kind:?}");
+            assert!(view.content.contains("[REDACTED]);"), "{kind:?}");
+            assert!(view.content.contains("Basic [REDACTED];"), "{kind:?}");
+            assert!(view.content.contains("total_tokens=9"), "{kind:?}");
+            assert!(view.content.contains("tail=kept"), "{kind:?}");
+            assert!(
+                view.content.contains("dangling Bearer ; Authorization:"),
+                "{kind:?}"
+            );
+            for credential in raw_credentials {
+                assert!(!serialized.contains(credential), "{kind:?}: {credential}");
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_json_fallback_redacts_every_inline_credential() {
+        let input = b"{broken: \"Authorization:Bearer json-auth, proxy bEaReR=json-loose); AUTHORIZATION=Basic json-basic; total_tokens=9 tail=kept dangling Bearer ; Authorization:\"";
+
+        let view = reduce(ContextContentKind::Json, input, &ReductionPolicy::default()).unwrap();
+        let serialized = serde_json::to_string(&view).unwrap();
+
+        assert!(view.fallback_raw);
+        assert_eq!(view.content.matches("[REDACTED]").count(), 3);
+        assert!(view.content.contains("[REDACTED],"));
+        assert!(view.content.contains("[REDACTED]);"));
+        assert!(view.content.contains("Basic [REDACTED];"));
+        assert!(view.content.contains("total_tokens=9"));
+        assert!(view.content.contains("tail=kept"));
+        assert!(view.content.contains("dangling Bearer ; Authorization:"));
+        for credential in ["json-auth", "json-loose", "json-basic"] {
+            assert!(!serialized.contains(credential), "{credential}");
         }
     }
 
