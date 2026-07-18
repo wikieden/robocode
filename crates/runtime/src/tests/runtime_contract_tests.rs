@@ -9,12 +9,12 @@ use viden_provider::ModelProvider;
 use viden_session::SessionStore;
 use viden_types::{
     AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalResponse, CanonicalEvidenceReference,
-    ContextContentKind, ContextHandleRecord, ContextItemRecord, ContextScope, CostScope,
-    EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
-    EvidenceView, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage, PermissionBehavior,
-    PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand,
-    RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, TranscriptEntry,
-    WorkMode,
+    ContextContentKind, ContextHandleRecord, ContextItemRecord, ContextReductionRecord,
+    ContextScope, CostScope, EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus,
+    EvidenceVerificationState, EvidenceView, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage,
+    PermissionBehavior, PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue,
+    RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput,
+    TranscriptEntry, WorkMode,
 };
 use viden_workflows::stores::{WorkflowAgentEvent, WorkflowStore};
 
@@ -75,6 +75,16 @@ fn stable_provider_context_bytes(rendered: &str) -> Vec<u8> {
         .collect::<Vec<_>>()
         .join("\n")
         .into_bytes()
+}
+
+fn context_reduction_records(events: &[RuntimeEvent]) -> Vec<ContextReductionRecord> {
+    events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::ContextReductionRecorded { reduction } => Some(reduction.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 impl CountingProvider {
@@ -452,11 +462,17 @@ fn context_reducer_default_matches_native_bundle_without_adapter_provenance() {
     .unwrap();
     engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
 
-    let bundle = engine.build_main_context_bundle("ERROR src/a.rs:1 boom");
+    let built = engine
+        .build_main_context_bundle_with_mode("ERROR src/a.rs:1 boom", ContextBuildMode::Normal);
+    let bundle = built.bundle;
 
     assert!(bundle.sources.iter().all(|source| {
         source.summary != "adapter reduced" && !source.include_reason.contains("adapter")
     }));
+    assert!(
+        context_reduction_records(&built.events).is_empty(),
+        "default disabled adapter path must not emit health noise"
+    );
 }
 
 #[test]
@@ -474,7 +490,8 @@ fn context_reducer_explicit_disabled_matches_absent_native_provider_bytes() {
     )
     .unwrap();
     absent.set_context_engine_root_for_test(cwd_absent.join(".viden/private-context-test"));
-    let absent_bundle = absent.build_main_context_bundle(input);
+    let absent_built = absent.build_main_context_bundle_with_mode(input, ContextBuildMode::Normal);
+    let absent_bundle = absent_built.bundle;
 
     let mut disabled = SessionEngine::new_with_home(
         &cwd_disabled,
@@ -484,7 +501,9 @@ fn context_reducer_explicit_disabled_matches_absent_native_provider_bytes() {
     .unwrap();
     disabled.set_context_engine_root_for_test(cwd_disabled.join(".viden/private-context-test"));
     disabled.set_disabled_context_reducer_adapter_for_test("adapter", "0.1.0");
-    let disabled_bundle = disabled.build_main_context_bundle(input);
+    let disabled_built =
+        disabled.build_main_context_bundle_with_mode(input, ContextBuildMode::Normal);
+    let disabled_bundle = disabled_built.bundle;
 
     assert_eq!(
         stable_context_bundle_bytes(absent_bundle.clone()),
@@ -494,6 +513,8 @@ fn context_reducer_explicit_disabled_matches_absent_native_provider_bytes() {
         stable_provider_context_bytes(&render_provider_context_message(&absent_bundle)),
         stable_provider_context_bytes(&render_provider_context_message(&disabled_bundle))
     );
+    assert!(context_reduction_records(&absent_built.events).is_empty());
+    assert!(context_reduction_records(&disabled_built.events).is_empty());
 }
 
 #[test]
@@ -527,6 +548,32 @@ fn context_reducer_opt_in_records_adapter_provenance_and_quality() {
                 if view.derivation.starts_with("adapter:0.1.0:user-task")
         )
     }));
+    let reductions = context_reduction_records(&built.events);
+    let user_task_reduction = reductions
+        .iter()
+        .find(|reduction| reduction.item_id == user_task.item_id.as_deref().unwrap_or_default())
+        .expect("user task reduction health evidence recorded");
+    assert_eq!(user_task_reduction.reducer_id, "adapter");
+    assert_eq!(user_task_reduction.reducer_version, "0.1.0");
+    assert_eq!(user_task_reduction.status, "ok");
+    assert!(!user_task_reduction.fallback);
+    assert!(user_task_reduction.host_latency_ms < 250);
+    assert!(user_task_reduction.reason.is_none());
+
+    let mut replayed = RuntimeViewState::new(engine.runtime_view_state().snapshot.clone());
+    for event in &built.events {
+        replayed.apply_event(event);
+    }
+    assert!(
+        replayed
+            .context_reductions
+            .iter()
+            .any(|reduction| reduction.reduction_id == user_task_reduction.reduction_id)
+    );
+    let evidence_json = serde_json::to_string(&replayed.context_reductions).unwrap();
+    assert!(!evidence_json.contains("ERROR src/a.rs"));
+    assert!(!evidence_json.contains("/Users/"));
+    assert!(!evidence_json.contains("sk-"));
 }
 
 #[test]
@@ -583,6 +630,24 @@ fn context_reducer_sleeping_adapter_times_out_without_blocking_provider_request(
     assert!(events.iter().any(
         |event| matches!(event, EngineEvent::Assistant(text) if text == "native timeout path still works")
     ));
+    let view = engine.runtime_view_state();
+    assert!(view.context_reductions.iter().any(|reduction| {
+        reduction.reducer_id == "adapter"
+            && reduction.reducer_version == "0.1.0"
+            && reduction.status == "timeout"
+            && reduction.fallback
+            && reduction.host_latency_ms <= 25
+    }));
+    assert!(view.context_reductions.iter().any(|reduction| {
+        reduction.reducer_id == "adapter"
+            && reduction.reducer_version == "0.1.0"
+            && reduction.status == "circuit_open"
+            && reduction.fallback
+    }));
+    let evidence_json = serde_json::to_string(&view.context_reductions).unwrap();
+    assert!(!evidence_json.contains("ERROR src/a.rs"));
+    assert!(!evidence_json.contains("/Users/"));
+    assert!(!evidence_json.contains("sk-"));
 }
 
 #[test]

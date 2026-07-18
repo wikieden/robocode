@@ -106,6 +106,20 @@ pub struct ContextViewRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ContextReductionRecord {
+    pub reduction_id: String,
+    pub item_id: String,
+    pub view_id: Option<String>,
+    pub reducer_id: String,
+    pub reducer_version: String,
+    pub status: String,
+    pub reason: Option<String>,
+    pub fallback: bool,
+    pub host_latency_ms: u64,
+    pub created_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ContextRetrievalRecord {
     pub retrieval_id: String,
     pub handle_id: String,

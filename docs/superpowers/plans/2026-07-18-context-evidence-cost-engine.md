@@ -518,7 +518,8 @@ git commit -m "feat: verify canonical merge gate evidence"
 - [ ] **Step 1: Write failing descriptor and fallback tests**
 
 Test registration of a `context_reducer` capability, version negotiation,
-timeout, malformed response, process absence, and native fallback.
+timeout, malformed response, process absence, process timeout/kill, bounded
+runtime health evidence, and native fallback.
 
 - [ ] **Step 2: Verify RED**
 
@@ -538,6 +539,15 @@ disabled by default and require explicit configuration.
 Adapter timeout, crash, invalid hash, or quality failure must produce health
 evidence and fall back to the native reducer. It must never block startup or
 provider access when native processing is healthy.
+
+Production adapters execute only through the process transport: literal
+executable plus args, no shell interpolation, sanitized environment, bounded
+JSON pipes, host wall-clock deadline, and direct-child kill/wait on timeout.
+The in-process executor is a trusted test harness and is not a cancellable
+production boundary. Runtime `ContextReductionRecord` events persist bounded
+adapter id/version, status/reason, measured latency, and fallback provenance
+without request content, storage paths, raw credentials, raw stderr, or raw
+adapter output.
 
 - [ ] **Step 5: Verify no mandatory Headroom dependency**
 

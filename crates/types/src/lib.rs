@@ -11,9 +11,10 @@ mod workflow;
 
 pub use context::{
     ContextBudgetRecord, ContextBundleSummaryRecord, ContextContentKind, ContextHandleRecord,
-    ContextItemRecord, ContextQualityRecord, ContextRetrievalRecord, ContextScope,
-    ContextViewRecord, CostAmount, CostEstimate, CostLedgerTotals, CostScope, CostUsageOutcome,
-    CostUsageRecord, EvidenceCanonicalizationRecord, ProviderCacheObservationRecord, TokenUsage,
+    ContextItemRecord, ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord,
+    ContextScope, ContextViewRecord, CostAmount, CostEstimate, CostLedgerTotals, CostScope,
+    CostUsageOutcome, CostUsageRecord, EvidenceCanonicalizationRecord,
+    ProviderCacheObservationRecord, TokenUsage,
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use runtime::{

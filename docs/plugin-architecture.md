@@ -24,8 +24,8 @@ The descriptor is represented by `ContextReducerDescriptor` in
 - `config_schema_version`.
 
 Future adapters, including Headroom-style adapters, are represented by the same
-neutral descriptor. Core crates do not depend on Headroom, Python, Pyo3, or any
-adapter-specific process runtime.
+neutral descriptor plus optional process configuration. Core crates do not
+depend on Headroom, Python, Pyo3, or any adapter-specific runtime.
 
 ## Request Envelope
 
@@ -62,10 +62,23 @@ bypass permissions, weaken evidence recall, or change Merge Gate truth.
 ## Host Validation And Fallback
 
 `crates/plugin-host` negotiates schema and content-kind support before calling an
-adapter. In-process adapters execute on a named worker thread with an owned
-request value, `catch_unwind`, and a host wall-clock `recv_timeout`. The host
-does not trust response-reported latency for timeout decisions. Future external
-process adapters can use the same owned request/response contract.
+adapter. Production adapters use `ContextReducerProcessConfig`: a safe
+executable path plus literal args, optional cwd, explicit environment allowlist,
+and bounded stderr capture. The host never invokes a shell, clears the
+environment before applying the allowlist, sends request/response JSON over
+bounded pipes, and enforces a host wall-clock deadline. On timeout the host
+kills and waits for the direct child before returning native fallback. The
+adapter contract disallows shell wrapping and child spawning when cross-platform
+process-group cancellation is unavailable, so the direct-child kill guarantee is
+the production cancellation boundary.
+
+In-process closure executors exist only for trusted tests and cooperative local
+harnesses. They run on a named worker thread with an owned request value,
+`catch_unwind`, and a host wall-clock `recv_timeout`, but they cannot cancel
+arbitrary user code after timeout and are not the production adapter boundary.
+The runtime uses the process transport when configured, otherwise it uses no
+external adapter. The host does not trust response-reported latency for timeout
+decisions.
 
 External output is accepted only when request id, canonical hash, permission
 snapshot reference, scope, content kind, negotiated reducer id/version, schema
@@ -81,3 +94,10 @@ failure threshold, calls are skipped until the monotonic deadline. The next call
 after the deadline is a half-open probe: success resets the breaker, while
 failure reopens it. Telemetry is limited to health, measured latency, and failure
 category; it must not include secrets or raw local paths.
+
+Runtime records successful and fallback adapter attempts through
+`ContextReductionRecorded` / `ContextReductionRecord`. The record carries the
+adapter id/version, bounded status/reason, host-measured latency, fallback flag,
+item/view binding, and timestamp. It intentionally omits request content,
+canonical storage paths, credentials, raw stderr, and raw adapter output.
+Default-disabled adapters do not emit failure noise.

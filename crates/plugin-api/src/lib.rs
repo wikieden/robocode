@@ -280,6 +280,8 @@ pub struct ContextReducerAdapterConfig {
     pub max_depth: usize,
     #[serde(default)]
     pub circuit_breaker: ContextReducerCircuitBreakerConfig,
+    #[serde(default)]
+    pub process: Option<ContextReducerProcessConfig>,
 }
 
 impl Default for ContextReducerAdapterConfig {
@@ -294,8 +296,26 @@ impl Default for ContextReducerAdapterConfig {
             max_output_items: default_context_reducer_max_output_items(),
             max_depth: default_context_reducer_max_depth(),
             circuit_breaker: ContextReducerCircuitBreakerConfig::default(),
+            process: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContextReducerProcessConfig {
+    pub executable: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub env_allowlist: Vec<String>,
+    #[serde(default = "default_context_reducer_stderr_bytes")]
+    pub max_stderr_bytes: usize,
+}
+
+const fn default_context_reducer_stderr_bytes() -> usize {
+    4 * 1024
 }
 
 const fn default_context_reducer_timeout_ms() -> u64 {
@@ -512,6 +532,22 @@ mod tests {
 
         assert_eq!(decoded, descriptor);
         assert!(!ContextReducerAdapterConfig::default().enabled);
+        assert!(ContextReducerAdapterConfig::default().process.is_none());
+
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            process: Some(ContextReducerProcessConfig {
+                executable: "/usr/bin/context-reducer".to_string(),
+                args: vec!["--json".to_string()],
+                cwd: Some("/tmp".to_string()),
+                env_allowlist: vec!["LANG".to_string()],
+                max_stderr_bytes: 512,
+            }),
+            ..ContextReducerAdapterConfig::default()
+        };
+        let decoded_config: ContextReducerAdapterConfig =
+            serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+        assert_eq!(decoded_config, config);
     }
 
     #[test]

@@ -6,4 +6,5 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+serde_json = "1"
 viden-plugin-api = { path = "../plugin-api" }

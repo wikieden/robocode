@@ -11,11 +11,14 @@ use viden_plugin_api::{
     ContextReducerOmission, ContextReducerPolicy, ContextReducerQualityFacts,
     ContextReducerRequest, ContextReducerResponse, ContextReducerScope,
 };
-use viden_plugin_host::{ContextReducerExecutor, execute_context_reducer_with_breaker};
+use viden_plugin_host::{
+    ContextReducerExecutor, context_reducer_process_executor, execute_context_reducer_with_breaker,
+};
 use viden_types::{
     ContextBudgetRecord, ContextBundleRecord, ContextContentKind, ContextHandleRecord,
-    ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, ContextViewRecord, RuntimeEvent,
-    RuntimeEventKind, fresh_id, now_timestamp, truncate_for_preview,
+    ContextOmittedSourceRecord, ContextReductionRecord, ContextScope, ContextSourceRecord,
+    ContextViewRecord, RuntimeEvent, RuntimeEventKind, fresh_id, now_timestamp,
+    truncate_for_preview,
 };
 
 use crate::{SessionEngine, TestEvidence};
@@ -44,6 +47,20 @@ struct ContextSourceDraft {
     record: ContextSourceRecord,
     content: String,
     content_kind: ContextContentKind,
+}
+
+struct ReducedContextSource {
+    result: ReductionResult,
+    attempt: Option<ContextReductionAttempt>,
+}
+
+struct ContextReductionAttempt {
+    reducer_id: String,
+    reducer_version: String,
+    status: String,
+    reason: Option<String>,
+    fallback: bool,
+    host_latency_ms: u64,
 }
 
 impl SessionEngine {
@@ -653,7 +670,9 @@ impl SessionEngine {
             )
         };
         let policy = reduction_policy_for_source(source, mode);
-        let reduced = self.reduce_context_source(source, scope, &handle, &content, &policy)?;
+        let reduced_source =
+            self.reduce_context_source(source, scope, &handle, &content, &policy)?;
+        let reduced = reduced_source.result;
         let view_id = fresh_id("ctxv");
         let view = ContextViewRecord {
             view_id: view_id.clone(),
@@ -708,6 +727,25 @@ impl SessionEngine {
                 handle: handle.clone(),
             },
         ));
+        if let Some(attempt) = reduced_source.attempt {
+            events.push(RuntimeEvent::new(
+                1,
+                RuntimeEventKind::ContextReductionRecorded {
+                    reduction: ContextReductionRecord {
+                        reduction_id: fresh_id("ctxr"),
+                        item_id: handle.item_id.clone(),
+                        view_id: handle.preferred_view_id.clone(),
+                        reducer_id: attempt.reducer_id,
+                        reducer_version: attempt.reducer_version,
+                        status: attempt.status,
+                        reason: attempt.reason,
+                        fallback: attempt.fallback,
+                        host_latency_ms: attempt.host_latency_ms,
+                        created_at: Some(now_timestamp()),
+                    },
+                },
+            ));
+        }
         Ok((record, events, vec![handle.handle_id]))
     }
 
@@ -718,14 +756,20 @@ impl SessionEngine {
         handle: &ContextHandleRecord,
         content: &[u8],
         policy: &ReductionPolicy,
-    ) -> Result<ReductionResult, String> {
+    ) -> Result<ReducedContextSource, String> {
         let native = reduce(source.content_kind, content, policy)
             .map_err(|err| format!("context reduction failed: {err}"))?;
         let Some(descriptor) = self.context_reducer_descriptor.as_ref() else {
-            return Ok(native);
+            return Ok(ReducedContextSource {
+                result: native,
+                attempt: None,
+            });
         };
         if !self.context_reducer_config.enabled {
-            return Ok(native);
+            return Ok(ReducedContextSource {
+                result: native,
+                attempt: None,
+            });
         }
         let request =
             context_reducer_request(source, scope, handle, policy, native_quality_facts(&native));
@@ -739,14 +783,32 @@ impl SessionEngine {
             |_| native_response,
             &mut self.context_reducer_breaker.borrow_mut(),
         );
+        let attempt = ContextReductionAttempt {
+            reducer_id: descriptor.reducer_id.clone(),
+            reducer_version: descriptor.version.clone(),
+            status: context_reducer_status_label(outcome.health.status),
+            reason: outcome
+                .health
+                .message
+                .as_deref()
+                .map(bound_context_reducer_health_reason),
+            fallback: outcome.used_native_fallback,
+            host_latency_ms: outcome.health.latency_ms,
+        };
         if outcome.used_native_fallback {
-            return Ok(native);
+            return Ok(ReducedContextSource {
+                result: native,
+                attempt: Some(attempt),
+            });
         }
-        Ok(reduction_result_from_adapter_response(
-            source.content_kind,
-            content,
-            &outcome.response,
-        ))
+        Ok(ReducedContextSource {
+            result: reduction_result_from_adapter_response(
+                source.content_kind,
+                content,
+                &outcome.response,
+            ),
+            attempt: Some(attempt),
+        })
     }
 
     fn context_reducer_executor_for_runtime(
@@ -754,10 +816,21 @@ impl SessionEngine {
         descriptor: &ContextReducerDescriptor,
         _request: &ContextReducerRequest,
     ) -> Option<ContextReducerExecutor> {
-        #[cfg(not(test))]
-        let _ = descriptor;
+        if let Some(process) = self.context_reducer_config.process.clone() {
+            let max_stdout_bytes = self
+                .context_reducer_config
+                .max_output_bytes
+                .min(descriptor.limits.max_output_bytes);
+            return Some(context_reducer_process_executor(
+                process,
+                max_stdout_bytes,
+                self.context_reducer_config.timeout_ms,
+            ));
+        }
         #[cfg(test)]
         {
+            // Test-only cooperative executor. Production runtime integration
+            // must use the process transport above or no external adapter.
             let reducer_id = descriptor.reducer_id.clone();
             let reducer_version = descriptor.version.clone();
             self.context_reducer_test_behavior.clone().map(|behavior| {
@@ -1064,6 +1137,33 @@ fn reduction_estimate(byte_count: usize) -> ReductionEstimate {
         byte_count,
         token_count: u64::try_from(byte_count.div_ceil(4)).unwrap_or(u64::MAX),
     }
+}
+
+fn context_reducer_status_label(status: ContextReducerHealthStatus) -> String {
+    match status {
+        ContextReducerHealthStatus::Ok => "ok",
+        ContextReducerHealthStatus::Disabled => "disabled",
+        ContextReducerHealthStatus::CircuitOpen => "circuit_open",
+        ContextReducerHealthStatus::PolicyRejected => "policy_rejected",
+        ContextReducerHealthStatus::AdapterAbsent => "adapter_absent",
+        ContextReducerHealthStatus::Timeout => "timeout",
+        ContextReducerHealthStatus::Crash => "crash",
+        ContextReducerHealthStatus::Malformed => "malformed",
+        ContextReducerHealthStatus::VersionMismatch => "version_mismatch",
+        ContextReducerHealthStatus::BindingMismatch => "binding_mismatch",
+        ContextReducerHealthStatus::Oversize => "oversize",
+        ContextReducerHealthStatus::QualityFailed => "quality_failed",
+    }
+    .to_string()
+}
+
+fn bound_context_reducer_health_reason(reason: &str) -> String {
+    let redacted = redact_for_event(reason);
+    redacted
+        .chars()
+        .filter(|ch| ch.is_ascii_graphic() || ch.is_ascii_whitespace())
+        .take(160)
+        .collect()
 }
 
 fn scope_label(scope: &ContextScope) -> String {

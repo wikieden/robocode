@@ -1,8 +1,8 @@
 use crate::{
     AgentDagRecord, AgentDagTaskSpec, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
     ApprovalResponse, ContextBudgetRecord, ContextBundleRecord, ContextBundleSummaryRecord,
-    ContextHandleRecord, ContextItemRecord, ContextQualityRecord, ContextRetrievalRecord,
-    ContextScope, ContextViewRecord, CostLedgerTotals, CostUsageRecord,
+    ContextHandleRecord, ContextItemRecord, ContextQualityRecord, ContextReductionRecord,
+    ContextRetrievalRecord, ContextScope, ContextViewRecord, CostLedgerTotals, CostUsageRecord,
     EvidenceCanonicalizationRecord, EvidenceId, MergeGateId, MergeGateRecord, MessageId,
     PermissionLevel, ProviderCacheObservationRecord, RuntimeSnapshot, ToolCallId, WorkMode,
     now_timestamp,
@@ -373,6 +373,9 @@ pub enum RuntimeEventKind {
         view: ContextViewRecord,
         handle: ContextHandleRecord,
     },
+    ContextReductionRecorded {
+        reduction: ContextReductionRecord,
+    },
     ContextRetrieved {
         retrieval: ContextRetrievalRecord,
     },
@@ -431,6 +434,8 @@ pub struct RuntimeViewState {
     #[serde(default)]
     pub context_views: Vec<ContextViewRecord>,
     #[serde(default)]
+    pub context_reductions: Vec<ContextReductionRecord>,
+    #[serde(default)]
     pub context_retrievals: Vec<ContextRetrievalRecord>,
     #[serde(default)]
     pub context_budgets: Vec<ContextBudgetRecord>,
@@ -470,6 +475,7 @@ impl RuntimeViewState {
             context_handles: Vec::new(),
             context_items: Vec::new(),
             context_views: Vec::new(),
+            context_reductions: Vec::new(),
             context_retrievals: Vec::new(),
             context_budgets: Vec::new(),
             context_quality: Vec::new(),
@@ -610,6 +616,14 @@ impl RuntimeViewState {
                 });
                 cap_vec(&mut self.context_views);
                 cap_vec(&mut self.context_handles);
+            }
+            RuntimeEventKind::ContextReductionRecorded { reduction } => {
+                upsert_by_id(
+                    &mut self.context_reductions,
+                    reduction.clone(),
+                    |existing| existing.reduction_id == reduction.reduction_id,
+                );
+                cap_vec(&mut self.context_reductions);
             }
             RuntimeEventKind::ContextRetrieved { retrieval } => {
                 self.context_retrievals.push(retrieval.clone());

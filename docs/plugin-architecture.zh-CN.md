@@ -17,7 +17,7 @@ descriptor 由 `crates/plugin-api` 中的 `ContextReducerDescriptor` 表示：
 - `default_enabled`，出于安全原因必须保持 `false`；
 - `config_schema_version`。
 
-未来的 adapter，包括 Headroom 风格 adapter，都只通过这个中性的 descriptor 表达。核心 crates 不依赖 Headroom、Python、Pyo3 或任何 adapter 专有的进程运行时。
+未来的 adapter，包括 Headroom 风格 adapter，都通过这个中性的 descriptor 加可选 process config 表达。核心 crates 不依赖 Headroom、Python、Pyo3 或任何 adapter 专有运行时。
 
 ## Request Envelope
 
@@ -48,10 +48,14 @@ adapter 可以优化 provider input，但不能修改 canonical context、绕过
 
 ## Host Validation And Fallback
 
-`crates/plugin-host` 在调用 adapter 前会协商 schema 和 content-kind support。in-process adapter 会在命名 worker thread 中执行，host 只传入 owned request value，并使用 `catch_unwind` 和 host wall-clock `recv_timeout` 做隔离。host 不信任 response 自报 latency 来做 timeout 决策。未来 external process adapter 可以复用同一套 owned request/response contract。
+`crates/plugin-host` 在调用 adapter 前会协商 schema 和 content-kind support。生产 adapter 使用 `ContextReducerProcessConfig`：安全 executable path、字面 args、可选 cwd、显式 env allowlist，以及有界 stderr capture。host 不调用 shell，会先清空 environment 再应用 allowlist，通过有界 pipe 传输 request/response JSON，并执行 host wall-clock deadline。timeout 时，host 会 kill 并 wait/reap direct child，然后再返回 native fallback。由于跨平台 process-group kill 不可用时只能保证 direct child，adapter contract 禁止 shell wrapping 和自行 spawn child。
+
+in-process closure executor 只用于可信测试和 cooperative local harness。它会在命名 worker thread 中运行 owned request value，并使用 `catch_unwind` 与 host wall-clock `recv_timeout`，但 timeout 后不能取消任意用户代码，因此不是生产 adapter boundary。runtime 只有在配置 process transport 时才使用外部 adapter，否则不使用 adapter。host 不信任 response 自报 latency 来做 timeout 决策。
 
 只有 request id、canonical hash、permission snapshot reference、scope、content kind、已协商 reducer id/version、schema version、size、encoding、quality/evidence thresholds 全部通过时，外部结果才会被接受。
 
 timeout、crash、adapter absent、malformed response、错误 schema version、错误 hash、错误 scope、oversize response 和 quality failure 都会产生有界 health evidence，并确定性回退到 native reducer。当 native reducer 健康时，startup 和 provider request 不能被 adapter 阻塞。
 
 host 包含带有有界 `open_until` 的 circuit breaker。达到 failure threshold 后，调用会被跳过直到 monotonic deadline。deadline 之后的下一次调用是 half-open probe：成功会 reset breaker，失败会重新 open。telemetry 只记录 health、measured latency 和 failure category；不得包含 secrets 或原始本地路径。
+
+runtime 会通过 `ContextReductionRecorded` / `ContextReductionRecord` 记录成功和 fallback 的 adapter attempt。record 包含 adapter id/version、有界 status/reason、host-measured latency、fallback flag、item/view binding 和 timestamp。它刻意不包含 request content、canonical storage path、credential、raw stderr 或 raw adapter output。默认关闭的 adapter 不会产生 failure noise。

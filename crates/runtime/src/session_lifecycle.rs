@@ -552,6 +552,7 @@ impl SessionEngine {
             RuntimeEventKind::ContextBundleBuilt { .. }
             | RuntimeEventKind::ContextItemStored { .. }
             | RuntimeEventKind::ContextViewDerived { .. }
+            | RuntimeEventKind::ContextReductionRecorded { .. }
             | RuntimeEventKind::ContextBudgetExceeded { .. }
             | RuntimeEventKind::ContextQualityFailed { .. } => {
                 self.remember_context_runtime_event(event);
@@ -603,6 +604,7 @@ fn runtime_projection_kind_name(kind: &RuntimeEventKind) -> &'static str {
         RuntimeEventKind::ContextBundleBuilt { .. } => "context_bundle_built",
         RuntimeEventKind::ContextItemStored { .. } => "context_item_stored",
         RuntimeEventKind::ContextViewDerived { .. } => "context_view_derived",
+        RuntimeEventKind::ContextReductionRecorded { .. } => "context_reduction_recorded",
         RuntimeEventKind::ContextBudgetExceeded { .. } => "context_budget_exceeded",
         RuntimeEventKind::ContextQualityFailed { .. } => "context_quality_failed",
         RuntimeEventKind::ContextUpdated { .. } => "context_updated",
@@ -879,6 +881,7 @@ fn is_durable_runtime_domain_event(kind: &RuntimeEventKind) -> bool {
             | RuntimeEventKind::ContextBundleBuilt { .. }
             | RuntimeEventKind::ContextItemStored { .. }
             | RuntimeEventKind::ContextViewDerived { .. }
+            | RuntimeEventKind::ContextReductionRecorded { .. }
             | RuntimeEventKind::ContextBudgetExceeded { .. }
             | RuntimeEventKind::ContextQualityFailed { .. }
             | RuntimeEventKind::ContextUpdated { .. }
