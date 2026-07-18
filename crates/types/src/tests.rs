@@ -1202,6 +1202,56 @@ fn runtime_view_state_replays_agent_dag_and_merge_gate_events() {
 }
 
 #[test]
+fn runtime_view_state_sanitizes_context_reduction_records_from_raw_jsonl() {
+    let raw = r#"
+    {
+      "sequence": 1,
+      "timestamp": 1,
+      "kind": {
+        "type": "context_reduction_recorded",
+        "payload": {
+          "reduction": {
+            "reduction_id": "ctxr/../../bad",
+            "item_id": "ctxi_/Users/wiki/private/sk-test-secret",
+            "view_id": "ctxv_/Users/wiki/private",
+            "reducer_id": "adapter/../../sk-test-secret",
+            "reducer_version": "../0.1.0",
+            "status": "timeout\n/Users/wiki/private",
+            "reason": "stderr /Users/wiki/private sk-test-secret ".repeat(10),
+            "fallback": true,
+            "host_latency_ms": 999999999999,
+            "created_at": 1
+          }
+        }
+      }
+    }
+    "#;
+    let raw = raw.replace(
+        "\"stderr /Users/wiki/private sk-test-secret \".repeat(10)",
+        &format!(
+            "{:?}",
+            "stderr /Users/wiki/private sk-test-secret ".repeat(10)
+        ),
+    );
+    let event: RuntimeEvent = serde_json::from_str(&raw).unwrap();
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+
+    view.apply_event(&event);
+
+    let reduction = view.context_reductions.first().unwrap();
+    assert_eq!(
+        reduction.reducer_id,
+        "adapter_.._.._sk_redacted_test-secret"
+    );
+    assert_eq!(reduction.reducer_version, ".._0.1.0");
+    assert_eq!(reduction.status, "timeout__Users_wiki_private");
+    assert!(reduction.reason.as_ref().unwrap().len() <= 160);
+    let replayed = serde_json::to_string(&view.context_reductions).unwrap();
+    assert!(!replayed.contains("/Users/"));
+    assert!(!replayed.contains("sk-test-secret "));
+}
+
+#[test]
 fn runtime_contract_fixture_replays_phase2_cross_frontend_facts() {
     let fixture = include_str!("../tests/fixtures/runtime-contract-phase2.json");
     let events: Vec<RuntimeEvent> = serde_json::from_str(fixture).unwrap();

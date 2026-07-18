@@ -15,7 +15,8 @@ descriptor 由 `crates/plugin-api` 中的 `ContextReducerDescriptor` 表示：
 - 支持的 `content_kinds`；
 - input bytes、output bytes、output item count 和 depth 的硬限制；
 - `default_enabled`，出于安全原因必须保持 `false`；
-- `config_schema_version`。
+- `config_schema_version`；
+- 可选 `ContextReducerProcessDescriptor`，只能由 plugin host/install boundary 提供。
 
 未来的 adapter，包括 Headroom 风格 adapter，都通过这个中性的 descriptor 加可选 process config 表达。核心 crates 不依赖 Headroom、Python、Pyo3 或任何 adapter 专有运行时。
 
@@ -48,9 +49,11 @@ adapter 可以优化 provider input，但不能修改 canonical context、绕过
 
 ## Host Validation And Fallback
 
-`crates/plugin-host` 在调用 adapter 前会协商 schema 和 content-kind support。生产 adapter 使用 `ContextReducerProcessConfig`：安全 executable path、字面 args、可选 cwd、显式 env allowlist，以及有界 stderr capture。host 不调用 shell，会先清空 environment 再应用 allowlist，通过有界 pipe 传输 request/response JSON，并执行 host wall-clock deadline。timeout 时，host 会 kill 并 wait/reap direct child，然后再返回 native fallback。由于跨平台 process-group kill 不可用时只能保证 direct child，adapter contract 禁止 shell wrapping 和自行 spawn child。
+`crates/plugin-host` 在调用 adapter 前会协商 schema 和 content-kind support。runtime config 只能 enable/select 已注册 reducer id，不能提供 executable 或 cwd。生产 adapter 使用由 plugin host/install boundary 注册的 `ContextReducerProcessDescriptor`：canonical absolute executable、字面 args、同一 canonical trusted plugin root 下的可选 cwd、显式 env allowlist、有界 stderr capture，以及把 adapter id/version 绑定到 executable identity 和 permission snapshot reference 的 `ContextReducerProcessAuthorization`。
 
-in-process closure executor 只用于可信测试和 cooperative local harness。它会在命名 worker thread 中运行 owned request value，并使用 `catch_unwind` 与 host wall-clock `recv_timeout`，但 timeout 后不能取消任意用户代码，因此不是生产 adapter boundary。runtime 只有在配置 process transport 时才使用外部 adapter，否则不使用 adapter。host 不信任 response 自报 latency 来做 timeout 决策。
+host 会在 spawn 前拒绝 PATH-relative executable、symlink escape、trusted root 外的 cwd、不安全 reducer id/version，以及缺失或不匹配的 process authorization。host 不调用 shell，会先清空 environment 再应用 allowlist，通过有界 pipe 传输 request/response JSON，并执行 host wall-clock deadline。timeout 时，process transport 会 kill 并 wait/reap direct child，然后再返回 native fallback。由于跨平台 process-group kill 不可用时只能保证 direct child，adapter contract 禁止 shell wrapping 和自行 spawn child。
+
+in-process closure executor 只用于可信测试和 cooperative local harness。它会在命名 worker thread 中运行 owned request value，并使用 `catch_unwind` 与 host wall-clock `recv_timeout`，但 timeout 后不能取消任意用户代码，因此不是生产 adapter boundary。runtime 只有在存在已注册 process descriptor 时才使用外部 adapter，否则不使用 adapter。host 不信任 response 自报 latency 来做 timeout 决策。
 
 只有 request id、canonical hash、permission snapshot reference、scope、content kind、已协商 reducer id/version、schema version、size、encoding、quality/evidence thresholds 全部通过时，外部结果才会被接受。
 

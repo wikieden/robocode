@@ -618,11 +618,11 @@ impl RuntimeViewState {
                 cap_vec(&mut self.context_handles);
             }
             RuntimeEventKind::ContextReductionRecorded { reduction } => {
-                upsert_by_id(
-                    &mut self.context_reductions,
-                    reduction.clone(),
-                    |existing| existing.reduction_id == reduction.reduction_id,
-                );
+                let reduction = sanitize_context_reduction_record(reduction);
+                let reduction_id = reduction.reduction_id.clone();
+                upsert_by_id(&mut self.context_reductions, reduction, |existing| {
+                    existing.reduction_id == reduction_id
+                });
                 cap_vec(&mut self.context_reductions);
             }
             RuntimeEventKind::ContextRetrieved { retrieval } => {
@@ -710,6 +710,54 @@ fn cap_vec<T>(items: &mut Vec<T>) {
     if excess > 0 {
         items.drain(0..excess);
     }
+}
+
+fn sanitize_context_reduction_record(reduction: &ContextReductionRecord) -> ContextReductionRecord {
+    ContextReductionRecord {
+        reduction_id: sanitize_runtime_atom(&reduction.reduction_id, 96),
+        item_id: sanitize_runtime_atom(&reduction.item_id, 96),
+        view_id: reduction
+            .view_id
+            .as_deref()
+            .map(|view_id| sanitize_runtime_atom(view_id, 96)),
+        reducer_id: sanitize_runtime_atom(&reduction.reducer_id, 80),
+        reducer_version: sanitize_runtime_atom(&reduction.reducer_version, 80),
+        status: sanitize_runtime_atom(&reduction.status, 80),
+        reason: reduction
+            .reason
+            .as_deref()
+            .map(|reason| sanitize_runtime_text(reason, 160)),
+        fallback: reduction.fallback,
+        host_latency_ms: reduction.host_latency_ms.min(60_000),
+        created_at: reduction.created_at,
+    }
+}
+
+fn sanitize_runtime_atom(value: &str, max_chars: usize) -> String {
+    sanitize_runtime_text(value, max_chars)
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn sanitize_runtime_text(value: &str, max_chars: usize) -> String {
+    value
+        .replace("/Users/", "_Users_")
+        .replace("\\Users\\", "_Users_")
+        .replace("sk-", "sk_redacted_")
+        .replace("storage_path", "storage_ref")
+        .replace("credential", "cred_ref")
+        .replace("password", "password_ref")
+        .chars()
+        .filter(|ch| ch.is_ascii_graphic() || ch.is_ascii_whitespace())
+        .take(max_chars)
+        .collect()
 }
 
 fn upsert_by_id<T, F>(items: &mut Vec<T>, item: T, matches: F)

@@ -21,7 +21,9 @@ The descriptor is represented by `ContextReducerDescriptor` in
 - supported `content_kinds`;
 - hard `limits` for input bytes, output bytes, output item count, and depth;
 - `default_enabled`, which must remain `false` for built-in safety;
-- `config_schema_version`.
+- `config_schema_version`;
+- optional `ContextReducerProcessDescriptor`, supplied only by the plugin
+  host/install boundary.
 
 Future adapters, including Headroom-style adapters, are represented by the same
 neutral descriptor plus optional process configuration. Core crates do not
@@ -62,13 +64,21 @@ bypass permissions, weaken evidence recall, or change Merge Gate truth.
 ## Host Validation And Fallback
 
 `crates/plugin-host` negotiates schema and content-kind support before calling an
-adapter. Production adapters use `ContextReducerProcessConfig`: a safe
-executable path plus literal args, optional cwd, explicit environment allowlist,
-and bounded stderr capture. The host never invokes a shell, clears the
-environment before applying the allowlist, sends request/response JSON over
-bounded pipes, and enforces a host wall-clock deadline. On timeout the host
-kills and waits for the direct child before returning native fallback. The
-adapter contract disallows shell wrapping and child spawning when cross-platform
+adapter. Runtime configuration only enables/selects a registered reducer id; it
+cannot supply executable or cwd values. Production adapters use a
+`ContextReducerProcessDescriptor` registered by the plugin host/install
+boundary: canonical absolute executable, literal args, optional cwd under the
+same canonical trusted plugin root, explicit environment allowlist, bounded
+stderr capture, and `ContextReducerProcessAuthorization` binding adapter
+id/version to the executable identity and permission snapshot reference.
+
+The host rejects PATH-relative executables, symlink escapes, cwd outside the
+trusted root, unsafe reducer ids/versions, and missing or mismatched process
+authorization before spawn. It never invokes a shell, clears the environment
+before applying the allowlist, sends request/response JSON over bounded pipes,
+and enforces a host wall-clock deadline. On timeout the process transport kills
+and waits for the direct child before returning native fallback. The adapter
+contract disallows shell wrapping and child spawning when cross-platform
 process-group cancellation is unavailable, so the direct-child kill guarantee is
 the production cancellation boundary.
 
@@ -76,9 +86,9 @@ In-process closure executors exist only for trusted tests and cooperative local
 harnesses. They run on a named worker thread with an owned request value,
 `catch_unwind`, and a host wall-clock `recv_timeout`, but they cannot cancel
 arbitrary user code after timeout and are not the production adapter boundary.
-The runtime uses the process transport when configured, otherwise it uses no
-external adapter. The host does not trust response-reported latency for timeout
-decisions.
+The runtime uses the registered process descriptor when present, otherwise it
+uses no external adapter. The host does not trust response-reported latency for
+timeout decisions.
 
 External output is accepted only when request id, canonical hash, permission
 snapshot reference, scope, content kind, negotiated reducer id/version, schema

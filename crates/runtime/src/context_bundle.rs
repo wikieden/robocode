@@ -11,9 +11,7 @@ use viden_plugin_api::{
     ContextReducerOmission, ContextReducerPolicy, ContextReducerQualityFacts,
     ContextReducerRequest, ContextReducerResponse, ContextReducerScope,
 };
-use viden_plugin_host::{
-    ContextReducerExecutor, context_reducer_process_executor, execute_context_reducer_with_breaker,
-};
+use viden_plugin_host::{ContextReducerExecutor, execute_context_reducer_with_breaker};
 use viden_types::{
     ContextBudgetRecord, ContextBundleRecord, ContextContentKind, ContextHandleRecord,
     ContextOmittedSourceRecord, ContextReductionRecord, ContextScope, ContextSourceRecord,
@@ -586,6 +584,7 @@ impl SessionEngine {
             },
             default_enabled: false,
             config_schema_version: 1,
+            process: None,
         });
         self.context_reducer_test_behavior = Some(crate::ContextReducerTestBehavior::Output(
             reduced_content.to_string(),
@@ -816,16 +815,8 @@ impl SessionEngine {
         descriptor: &ContextReducerDescriptor,
         _request: &ContextReducerRequest,
     ) -> Option<ContextReducerExecutor> {
-        if let Some(process) = self.context_reducer_config.process.clone() {
-            let max_stdout_bytes = self
-                .context_reducer_config
-                .max_output_bytes
-                .min(descriptor.limits.max_output_bytes);
-            return Some(context_reducer_process_executor(
-                process,
-                max_stdout_bytes,
-                self.context_reducer_config.timeout_ms,
-            ));
+        if let Some(process) = descriptor.process.clone() {
+            return Some(ContextReducerExecutor::process(process));
         }
         #[cfg(test)]
         {
@@ -834,42 +825,44 @@ impl SessionEngine {
             let reducer_id = descriptor.reducer_id.clone();
             let reducer_version = descriptor.version.clone();
             self.context_reducer_test_behavior.clone().map(|behavior| {
-                Box::new(move |request: ContextReducerRequest| {
-                    let content = match behavior {
-                        crate::ContextReducerTestBehavior::Output(content) => content,
-                        crate::ContextReducerTestBehavior::SleepThenOutput {
-                            sleep_ms,
-                            content,
-                        } => {
-                            std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
-                            content
-                        }
-                    };
-                    Ok(ContextReducerResponse {
-                        schema_version: request.schema_version,
-                        request_id: request.request_id.clone(),
-                        canonical_hash: request.canonical.content_sha256.clone(),
-                        permission_snapshot_ref: request.permission_snapshot_ref.clone(),
-                        scope: request.scope.clone(),
-                        content_kind: request.content_kind,
-                        reduced_content: content.clone(),
-                        omissions: Vec::new(),
-                        reducer_id: reducer_id.clone(),
-                        reducer_version: reducer_version.clone(),
-                        quality: ContextReducerQualityFacts {
-                            passed: true,
-                            score_microunits: 990_000,
-                            evidence_recall_microunits: 990_000,
-                            checks: vec!["test_adapter_retained_required_context".to_string()],
-                            deterministic_fingerprint: "test-adapter".to_string(),
-                        },
-                        health: ContextReducerHealthMetadata {
-                            latency_ms: 1,
-                            status: ContextReducerHealthStatus::Ok,
-                            message: None,
-                        },
-                    })
-                }) as ContextReducerExecutor
+                ContextReducerExecutor::trusted_in_process_for_test(
+                    move |request: ContextReducerRequest| {
+                        let content = match behavior {
+                            crate::ContextReducerTestBehavior::Output(content) => content,
+                            crate::ContextReducerTestBehavior::SleepThenOutput {
+                                sleep_ms,
+                                content,
+                            } => {
+                                std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+                                content
+                            }
+                        };
+                        Ok(ContextReducerResponse {
+                            schema_version: request.schema_version,
+                            request_id: request.request_id.clone(),
+                            canonical_hash: request.canonical.content_sha256.clone(),
+                            permission_snapshot_ref: request.permission_snapshot_ref.clone(),
+                            scope: request.scope.clone(),
+                            content_kind: request.content_kind,
+                            reduced_content: content.clone(),
+                            omissions: Vec::new(),
+                            reducer_id: reducer_id.clone(),
+                            reducer_version: reducer_version.clone(),
+                            quality: ContextReducerQualityFacts {
+                                passed: true,
+                                score_microunits: 990_000,
+                                evidence_recall_microunits: 990_000,
+                                checks: vec!["test_adapter_retained_required_context".to_string()],
+                                deterministic_fingerprint: "test-adapter".to_string(),
+                            },
+                            health: ContextReducerHealthMetadata {
+                                latency_ms: 1,
+                                status: ContextReducerHealthStatus::Ok,
+                                message: None,
+                            },
+                        })
+                    },
+                )
             })
         }
         #[cfg(not(test))]

@@ -540,14 +540,17 @@ Adapter timeout, crash, invalid hash, or quality failure must produce health
 evidence and fall back to the native reducer. It must never block startup or
 provider access when native processing is healthy.
 
-Production adapters execute only through the process transport: literal
-executable plus args, no shell interpolation, sanitized environment, bounded
-JSON pipes, host wall-clock deadline, and direct-child kill/wait on timeout.
-The in-process executor is a trusted test harness and is not a cancellable
-production boundary. Runtime `ContextReductionRecord` events persist bounded
-adapter id/version, status/reason, measured latency, and fallback provenance
-without request content, storage paths, raw credentials, raw stderr, or raw
-adapter output.
+Production adapters execute only through registered process descriptors:
+canonical absolute executable under a canonical trusted plugin root, literal
+args, no shell interpolation, sanitized environment, bounded JSON pipes,
+host wall-clock deadline, and direct-child kill/wait on timeout. Runtime config
+only enables/selects a registered reducer id and cannot supply executable/cwd.
+Execution requires process authorization binding adapter id/version to the
+executable identity and permission snapshot reference. The in-process executor
+is a trusted test harness and is not a cancellable production boundary. Runtime
+`ContextReductionRecord` events persist bounded adapter id/version,
+status/reason, measured latency, and fallback provenance without request
+content, storage paths, raw credentials, raw stderr, or raw adapter output.
 
 - [ ] **Step 5: Verify no mandatory Headroom dependency**
 

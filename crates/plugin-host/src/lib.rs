@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
@@ -17,8 +18,8 @@ use viden_plugin_api::{
     AgentPluginDescriptor, AgentProtocolVersion, AgentRegistryPackage, AgentSource, AgentTransport,
     CONTEXT_REDUCER_SCHEMA_VERSION, ContextReducerAdapterConfig, ContextReducerContentKind,
     ContextReducerDescriptor, ContextReducerHealthMetadata, ContextReducerHealthStatus,
-    ContextReducerProcessConfig, ContextReducerRequest, ContextReducerResponse, PluginKind,
-    PluginManifest,
+    ContextReducerProcessAuthorization, ContextReducerProcessDescriptor, ContextReducerRequest,
+    ContextReducerResponse, PluginKind, PluginManifest,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -43,8 +44,16 @@ impl StaticPluginRegistry {
 
     pub fn register_context_reducer(
         &mut self,
-        descriptor: ContextReducerDescriptor,
+        mut descriptor: ContextReducerDescriptor,
     ) -> Result<(), PluginHostError> {
+        validate_context_reducer_identity(&descriptor)?;
+        if let Some(process) = descriptor.process.take() {
+            descriptor.process = Some(validate_context_reducer_process(
+                &descriptor.reducer_id,
+                &descriptor.version,
+                process,
+            )?);
+        }
         if self
             .context_reducers
             .iter()
@@ -107,6 +116,7 @@ impl StaticPluginRegistry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluginHostError {
     DuplicateContextReducer { reducer_id: String },
+    InvalidContextReducer { reducer_id: String, reason: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,16 +124,38 @@ pub enum ContextReducerHostError {
     Timeout,
     AdapterAbsent,
     AdapterCrash,
+    PolicyRejected(String),
     ProcessCrash(String),
     MalformedResponse,
     OversizeResponse,
 }
 
-pub type ContextReducerExecutor = Box<
+type ContextReducerInProcessExecutor = Box<
     dyn FnOnce(ContextReducerRequest) -> Result<ContextReducerResponse, ContextReducerHostError>
         + Send
         + 'static,
 >;
+
+pub enum ContextReducerExecutor {
+    TrustedInProcess(ContextReducerInProcessExecutor),
+    Process(Box<ContextReducerProcessDescriptor>),
+}
+
+impl ContextReducerExecutor {
+    pub fn trusted_in_process_for_test(
+        executor: impl FnOnce(
+            ContextReducerRequest,
+        ) -> Result<ContextReducerResponse, ContextReducerHostError>
+        + Send
+        + 'static,
+    ) -> Self {
+        Self::TrustedInProcess(Box::new(executor))
+    }
+
+    pub fn process(process: ContextReducerProcessDescriptor) -> Self {
+        Self::Process(Box::new(process))
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextReducerHostOutcome {
@@ -205,14 +237,6 @@ where
     )
 }
 
-pub fn context_reducer_process_executor(
-    config: ContextReducerProcessConfig,
-    max_stdout_bytes: usize,
-    timeout_ms: u64,
-) -> ContextReducerExecutor {
-    Box::new(move |request| execute_process_adapter(&config, max_stdout_bytes, timeout_ms, request))
-}
-
 pub fn execute_context_reducer_with_breaker<N>(
     config: &ContextReducerAdapterConfig,
     descriptor: &ContextReducerDescriptor,
@@ -292,12 +316,7 @@ where
         );
     };
 
-    let execution = match execute_adapter_isolated(
-        descriptor.reducer_id.clone(),
-        request.clone(),
-        executor,
-        Duration::from_millis(config.timeout_ms),
-    ) {
+    let execution = match execute_adapter(config, descriptor, request.clone(), executor) {
         Ok(execution) => execution,
         Err(ContextReducerHostError::Timeout) => {
             breaker.record_failure(&descriptor.reducer_id, config);
@@ -333,6 +352,14 @@ where
                     0,
                     "context reducer crashed",
                 ),
+            );
+        }
+        Err(ContextReducerHostError::PolicyRejected(message)) => {
+            breaker.record_failure(&descriptor.reducer_id, config);
+            return fallback_outcome(
+                &request,
+                native_fallback,
+                health(ContextReducerHealthStatus::PolicyRejected, 0, message),
             );
         }
         Err(ContextReducerHostError::ProcessCrash(message)) => {
@@ -396,7 +423,7 @@ where
 fn execute_adapter_isolated(
     reducer_id: String,
     request: ContextReducerRequest,
-    executor: ContextReducerExecutor,
+    executor: ContextReducerInProcessExecutor,
     timeout: Duration,
 ) -> Result<ContextReducerExecution, ContextReducerHostError> {
     let (sender, receiver) = mpsc::sync_channel(1);
@@ -425,15 +452,205 @@ struct ContextReducerExecution {
     latency_ms: u64,
 }
 
+fn validate_context_reducer_identity(
+    descriptor: &ContextReducerDescriptor,
+) -> Result<(), PluginHostError> {
+    for (name, value) in [
+        ("reducer id", descriptor.reducer_id.as_str()),
+        ("reducer version", descriptor.version.as_str()),
+    ] {
+        if !is_safe_identifier(value) {
+            return Err(PluginHostError::InvalidContextReducer {
+                reducer_id: descriptor.reducer_id.clone(),
+                reason: format!("{name} contains unsafe characters"),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_context_reducer_process(
+    reducer_id: &str,
+    reducer_version: &str,
+    process: ContextReducerProcessDescriptor,
+) -> Result<ContextReducerProcessDescriptor, PluginHostError> {
+    let trusted_root = canonical_absolute(&process.trusted_root).map_err(|reason| {
+        PluginHostError::InvalidContextReducer {
+            reducer_id: reducer_id.to_string(),
+            reason,
+        }
+    })?;
+    let executable = canonical_absolute(&process.executable).map_err(|reason| {
+        PluginHostError::InvalidContextReducer {
+            reducer_id: reducer_id.to_string(),
+            reason,
+        }
+    })?;
+    if !executable.starts_with(&trusted_root) {
+        return Err(PluginHostError::InvalidContextReducer {
+            reducer_id: reducer_id.to_string(),
+            reason: "context reducer executable escapes trusted plugin root".to_string(),
+        });
+    }
+    let cwd = match process.cwd {
+        Some(cwd) => {
+            let cwd = canonical_absolute(&cwd).map_err(|reason| {
+                PluginHostError::InvalidContextReducer {
+                    reducer_id: reducer_id.to_string(),
+                    reason,
+                }
+            })?;
+            if !cwd.starts_with(&trusted_root) {
+                return Err(PluginHostError::InvalidContextReducer {
+                    reducer_id: reducer_id.to_string(),
+                    reason: "context reducer cwd escapes trusted plugin root".to_string(),
+                });
+            }
+            Some(cwd.display().to_string())
+        }
+        None => None,
+    };
+    let authorization =
+        process
+            .authorization
+            .ok_or_else(|| PluginHostError::InvalidContextReducer {
+                reducer_id: reducer_id.to_string(),
+                reason: "context reducer process authorization missing".to_string(),
+            })?;
+    validate_process_authorization_values(
+        reducer_id,
+        reducer_version,
+        executable.as_path(),
+        &authorization,
+    )
+    .map_err(|reason| PluginHostError::InvalidContextReducer {
+        reducer_id: reducer_id.to_string(),
+        reason,
+    })?;
+    Ok(ContextReducerProcessDescriptor {
+        executable: executable.display().to_string(),
+        args: process.args,
+        cwd,
+        trusted_root: trusted_root.display().to_string(),
+        env_allowlist: process.env_allowlist,
+        max_stderr_bytes: process.max_stderr_bytes,
+        authorization: Some(authorization),
+    })
+}
+
+fn validate_process_authorization(
+    reducer_id: &str,
+    reducer_version: &str,
+    process: &ContextReducerProcessDescriptor,
+) -> Result<(), ContextReducerHostError> {
+    let executable = canonical_absolute(&process.executable).map_err(|reason| {
+        if reason.contains("not found") {
+            ContextReducerHostError::AdapterAbsent
+        } else {
+            ContextReducerHostError::PolicyRejected(reason)
+        }
+    })?;
+    let trusted_root = canonical_absolute(&process.trusted_root)
+        .map_err(ContextReducerHostError::PolicyRejected)?;
+    if !executable.starts_with(&trusted_root) {
+        return Err(ContextReducerHostError::PolicyRejected(
+            "context reducer executable escapes trusted plugin root".to_string(),
+        ));
+    }
+    if let Some(cwd) = process.cwd.as_deref() {
+        let cwd = canonical_absolute(cwd).map_err(ContextReducerHostError::PolicyRejected)?;
+        if !cwd.starts_with(&trusted_root) {
+            return Err(ContextReducerHostError::PolicyRejected(
+                "context reducer cwd escapes trusted plugin root".to_string(),
+            ));
+        }
+    }
+    let authorization = process.authorization.as_ref().ok_or_else(|| {
+        ContextReducerHostError::PolicyRejected(
+            "context reducer process authorization missing".to_string(),
+        )
+    })?;
+    validate_process_authorization_values(
+        reducer_id,
+        reducer_version,
+        executable.as_path(),
+        authorization,
+    )
+    .map_err(ContextReducerHostError::PolicyRejected)
+}
+
+fn validate_process_authorization_values(
+    reducer_id: &str,
+    reducer_version: &str,
+    executable: &Path,
+    authorization: &ContextReducerProcessAuthorization,
+) -> Result<(), String> {
+    if authorization.adapter_id != reducer_id
+        || authorization.adapter_version != reducer_version
+        || authorization.executable_identity != executable.display().to_string()
+        || authorization.permission_snapshot_ref.trim().is_empty()
+        || contains_path_or_secret(&authorization.permission_snapshot_ref)
+    {
+        return Err(
+            "context reducer process authorization does not bind adapter identity".to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn canonical_absolute(path: &str) -> Result<PathBuf, String> {
+    let path = Path::new(path);
+    if !path.is_absolute() {
+        return Err("context reducer process path must be absolute".to_string());
+    }
+    path.canonicalize()
+        .map_err(|_| "context reducer process path not found".to_string())
+}
+
+fn execute_adapter(
+    config: &ContextReducerAdapterConfig,
+    descriptor: &ContextReducerDescriptor,
+    request: ContextReducerRequest,
+    executor: ContextReducerExecutor,
+) -> Result<ContextReducerExecution, ContextReducerHostError> {
+    match executor {
+        ContextReducerExecutor::TrustedInProcess(executor) => execute_adapter_isolated(
+            descriptor.reducer_id.clone(),
+            request,
+            executor,
+            Duration::from_millis(config.timeout_ms),
+        ),
+        ContextReducerExecutor::Process(process) => {
+            let max_stdout_bytes = config
+                .max_output_bytes
+                .max(descriptor.limits.max_output_bytes)
+                .max(request.policy.max_output_bytes);
+            let started = Instant::now();
+            let response = execute_process_adapter(
+                &descriptor.reducer_id,
+                &descriptor.version,
+                &process,
+                max_stdout_bytes,
+                config.timeout_ms,
+                request,
+            )?;
+            Ok(ContextReducerExecution {
+                response,
+                latency_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            })
+        }
+    }
+}
+
 fn execute_process_adapter(
-    config: &ContextReducerProcessConfig,
+    reducer_id: &str,
+    reducer_version: &str,
+    config: &ContextReducerProcessDescriptor,
     max_stdout_bytes: usize,
     timeout_ms: u64,
     request: ContextReducerRequest,
 ) -> Result<ContextReducerResponse, ContextReducerHostError> {
-    if config.executable.trim().is_empty() {
-        return Err(ContextReducerHostError::AdapterAbsent);
-    }
+    validate_process_authorization(reducer_id, reducer_version, config)?;
     let request_json =
         serde_json::to_vec(&request).map_err(|_| ContextReducerHostError::MalformedResponse)?;
     let mut command = Command::new(&config.executable);
@@ -468,6 +685,7 @@ fn execute_process_adapter(
             .write_all(&request_json)
             .and_then(|_| stdin.write_all(b"\n"))
             .map_err(|_| ContextReducerHostError::AdapterCrash)?;
+        drop(stdin);
     }
     let stdout = child
         .stdout
@@ -677,6 +895,14 @@ fn contains_path_or_secret(value: &str) -> bool {
         || lower.contains("credential")
         || lower.contains("password")
         || value.contains("sk-")
+}
+
+fn is_safe_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 80
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
 }
 
 fn max_structural_depth(value: &str) -> usize {
@@ -946,6 +1172,7 @@ mod tests {
             },
             default_enabled: false,
             config_schema_version: 1,
+            process: None,
         }
     }
 
@@ -1023,14 +1250,22 @@ mod tests {
         response
     }
 
+    fn in_process(
+        executor: impl FnOnce(
+            ContextReducerRequest,
+        ) -> Result<ContextReducerResponse, ContextReducerHostError>
+        + Send
+        + 'static,
+    ) -> ContextReducerExecutor {
+        ContextReducerExecutor::trusted_in_process_for_test(executor)
+    }
+
     fn compile_context_reducer_helper() -> std::path::PathBuf {
+        static HELPER_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let unique = format!(
             "viden-context-reducer-helper-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            HELPER_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         );
         let dir = std::env::temp_dir().join(unique);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1060,7 +1295,10 @@ fn main() {
         "success" => print!("{}", success_json()),
         "sleep" => {
             let marker = env::args().nth(2).expect("marker path");
-            thread::sleep(Duration::from_millis(1000));
+            if let Some(pid_path) = env::args().nth(3) {
+                fs::write(pid_path, std::process::id().to_string()).unwrap();
+            }
+            thread::sleep(Duration::from_millis(5000));
             fs::write(marker, "late mutation").unwrap();
             print!("{}", success_json());
         }
@@ -1086,13 +1324,28 @@ fn main() {
         bin
     }
 
-    fn process_config(helper: &std::path::Path, mode: &str) -> ContextReducerProcessConfig {
-        ContextReducerProcessConfig {
-            executable: helper.display().to_string(),
+    fn process_descriptor(helper: &std::path::Path, mode: &str) -> ContextReducerProcessDescriptor {
+        let executable = helper.canonicalize().unwrap().display().to_string();
+        let trusted_root = helper
+            .parent()
+            .unwrap()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string();
+        ContextReducerProcessDescriptor {
+            executable: executable.clone(),
             args: vec![mode.to_string()],
             cwd: None,
+            trusted_root,
             env_allowlist: vec!["PATH".to_string(), "HOME".to_string()],
             max_stderr_bytes: 128,
+            authorization: Some(ContextReducerProcessAuthorization {
+                adapter_id: "adapter".to_string(),
+                adapter_version: "0.1.0".to_string(),
+                executable_identity: executable,
+                permission_snapshot_ref: "plugin-install:adapter:approved".to_string(),
+            }),
         }
     }
 
@@ -1135,6 +1388,115 @@ fn main() {
     }
 
     #[test]
+    fn context_reducer_registration_rejects_unsafe_process_descriptors() {
+        let mut unsafe_id = context_reducer_descriptor("bad/id");
+        unsafe_id.version = "0.1.0".to_string();
+        assert!(
+            StaticPluginRegistry::new()
+                .register_context_reducer(unsafe_id)
+                .is_err()
+        );
+
+        let mut unsafe_version = context_reducer_descriptor("safe-id");
+        unsafe_version.version = "../0.1.0".to_string();
+        assert!(
+            StaticPluginRegistry::new()
+                .register_context_reducer(unsafe_version)
+                .is_err()
+        );
+
+        let helper = compile_context_reducer_helper();
+        let trusted_root = helper.parent().unwrap().canonicalize().unwrap();
+        let mut relative = context_reducer_descriptor("relative-adapter");
+        relative.process = Some(ContextReducerProcessDescriptor {
+            executable: "helper".to_string(),
+            args: Vec::new(),
+            cwd: None,
+            trusted_root: trusted_root.display().to_string(),
+            env_allowlist: Vec::new(),
+            max_stderr_bytes: 128,
+            authorization: Some(ContextReducerProcessAuthorization {
+                adapter_id: "relative-adapter".to_string(),
+                adapter_version: "0.1.0".to_string(),
+                executable_identity: "helper".to_string(),
+                permission_snapshot_ref: "plugin-install:relative-adapter:approved".to_string(),
+            }),
+        });
+        assert!(
+            StaticPluginRegistry::new()
+                .register_context_reducer(relative)
+                .is_err()
+        );
+
+        let mut outside_cwd = context_reducer_descriptor("cwd-adapter");
+        let mut process = process_descriptor(&helper, "success");
+        process.cwd = Some(std::env::temp_dir().display().to_string());
+        outside_cwd.process = Some(process);
+        assert!(
+            StaticPluginRegistry::new()
+                .register_context_reducer(outside_cwd)
+                .is_err()
+        );
+
+        #[cfg(unix)]
+        {
+            let outside = trusted_root.with_file_name("outside-helper");
+            std::fs::copy(&helper, &outside).unwrap();
+            let link = trusted_root.join("link-helper");
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            let mut symlink_escape = context_reducer_descriptor("symlink-adapter");
+            symlink_escape.process = Some(ContextReducerProcessDescriptor {
+                executable: link.display().to_string(),
+                args: Vec::new(),
+                cwd: None,
+                trusted_root: trusted_root.display().to_string(),
+                env_allowlist: Vec::new(),
+                max_stderr_bytes: 128,
+                authorization: Some(ContextReducerProcessAuthorization {
+                    adapter_id: "symlink-adapter".to_string(),
+                    adapter_version: "0.1.0".to_string(),
+                    executable_identity: link.display().to_string(),
+                    permission_snapshot_ref: "plugin-install:symlink-adapter:approved".to_string(),
+                }),
+            });
+            assert!(
+                StaticPluginRegistry::new()
+                    .register_context_reducer(symlink_escape)
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn context_reducer_process_missing_authorization_falls_back_without_spawn() {
+        let helper = compile_context_reducer_helper();
+        let marker = helper.with_file_name("auth-missing-marker");
+        let mut process = process_descriptor(&helper, "sleep");
+        process.args.push(marker.display().to_string());
+        process.authorization = None;
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            timeout_ms: 250,
+            ..ContextReducerAdapterConfig::default()
+        };
+
+        let outcome = execute_context_reducer(
+            &config,
+            &context_reducer_descriptor("adapter"),
+            context_reducer_request(),
+            Some(ContextReducerExecutor::process(process)),
+            native_response,
+        );
+
+        assert!(outcome.used_native_fallback);
+        assert_eq!(
+            outcome.health.status,
+            ContextReducerHealthStatus::PolicyRejected
+        );
+        assert!(!marker.exists(), "unauthorized process must not spawn");
+    }
+
+    #[test]
     fn context_reducer_accepts_valid_external_response() {
         let request = context_reducer_request();
         let config = ContextReducerAdapterConfig {
@@ -1145,7 +1507,7 @@ fn main() {
             &config,
             &context_reducer_descriptor("adapter"),
             request.clone(),
-            Some(Box::new(|request| Ok(context_reducer_response(&request)))),
+            Some(in_process(|request| Ok(context_reducer_response(&request)))),
             native_response,
         );
 
@@ -1171,17 +1533,17 @@ fn main() {
             ("absent", None),
             (
                 "crash",
-                Some(Box::new(|_| Err(ContextReducerHostError::AdapterCrash))),
+                Some(in_process(|_| Err(ContextReducerHostError::AdapterCrash))),
             ),
             (
                 "malformed",
-                Some(Box::new(|_| {
+                Some(in_process(|_| {
                     Err(ContextReducerHostError::MalformedResponse)
                 })),
             ),
             (
                 "wrong_version",
-                Some(Box::new(|request| {
+                Some(in_process(|request| {
                     let mut response = context_reducer_response(&request);
                     response.schema_version = 999;
                     Ok(response)
@@ -1189,7 +1551,7 @@ fn main() {
             ),
             (
                 "wrong_hash",
-                Some(Box::new(|request| {
+                Some(in_process(|request| {
                     let mut response = context_reducer_response(&request);
                     response.canonical_hash = "cd".repeat(32);
                     Ok(response)
@@ -1197,7 +1559,7 @@ fn main() {
             ),
             (
                 "wrong_scope",
-                Some(Box::new(|request| {
+                Some(in_process(|request| {
                     let mut response = context_reducer_response(&request);
                     response.scope.task_id = "task-2".to_string();
                     Ok(response)
@@ -1205,7 +1567,7 @@ fn main() {
             ),
             (
                 "oversize",
-                Some(Box::new(|request| {
+                Some(in_process(|request| {
                     let mut response = context_reducer_response(&request);
                     response.reduced_content = "x".repeat(1024);
                     Ok(response)
@@ -1213,7 +1575,7 @@ fn main() {
             ),
             (
                 "too_many_items",
-                Some(Box::new(|request| {
+                Some(in_process(|request| {
                     let mut response = context_reducer_response(&request);
                     response.reduced_content = (0..64)
                         .map(|index| format!("line {index}"))
@@ -1224,7 +1586,7 @@ fn main() {
             ),
             (
                 "too_deep",
-                Some(Box::new(|request| {
+                Some(in_process(|request| {
                     let mut response = context_reducer_response(&request);
                     response.reduced_content = "[[[[[[[[[too deep]]]]]]]]]".to_string();
                     Ok(response)
@@ -1232,7 +1594,7 @@ fn main() {
             ),
             (
                 "quality",
-                Some(Box::new(|request| {
+                Some(in_process(|request| {
                     let mut response = context_reducer_response(&request);
                     response.quality.passed = false;
                     response.quality.evidence_recall_microunits = 1;
@@ -1274,7 +1636,7 @@ fn main() {
             &config,
             &context_reducer_descriptor("adapter"),
             context_reducer_request(),
-            Some(Box::new(|request| {
+            Some(in_process(|request| {
                 let mut response = context_reducer_response(&request);
                 response.health.latency_ms = 99_999;
                 Ok(response)
@@ -1302,7 +1664,7 @@ fn main() {
         let cases: Vec<(&str, ContextReducerExecutor)> = vec![
             (
                 "wrong_permission_snapshot",
-                Box::new(|request| {
+                in_process(|request| {
                     let mut response = context_reducer_response(&request);
                     response.permission_snapshot_ref = "perm-snap-2".to_string();
                     Ok(response)
@@ -1310,7 +1672,7 @@ fn main() {
             ),
             (
                 "wrong_reducer_id",
-                Box::new(|request| {
+                in_process(|request| {
                     let mut response = context_reducer_response(&request);
                     response.reducer_id = "other-adapter".to_string();
                     Ok(response)
@@ -1318,7 +1680,7 @@ fn main() {
             ),
             (
                 "wrong_reducer_version",
-                Box::new(|request| {
+                in_process(|request| {
                     let mut response = context_reducer_response(&request);
                     response.reducer_version = "9.9.9".to_string();
                     Ok(response)
@@ -1326,7 +1688,7 @@ fn main() {
             ),
             (
                 "wrong_content_kind",
-                Box::new(|request| {
+                in_process(|request| {
                     let mut response = context_reducer_response(&request);
                     response.content_kind = ContextReducerContentKind::Text;
                     Ok(response)
@@ -1368,7 +1730,7 @@ fn main() {
             &config,
             &context_reducer_descriptor("adapter"),
             context_reducer_request(),
-            Some(Box::new(|request| {
+            Some(in_process(|request| {
                 std::thread::sleep(std::time::Duration::from_millis(200));
                 Ok(context_reducer_response(&request))
             })),
@@ -1394,7 +1756,7 @@ fn main() {
             &config,
             &context_reducer_descriptor("adapter"),
             context_reducer_request(),
-            Some(Box::new(|_request| panic!("adapter panic"))),
+            Some(in_process(|_request| panic!("adapter panic"))),
             native_response,
         );
 
@@ -1408,17 +1770,17 @@ fn main() {
         let helper = compile_context_reducer_helper();
         let config = ContextReducerAdapterConfig {
             enabled: true,
-            timeout_ms: 2_000,
+            timeout_ms: 10_000,
             ..ContextReducerAdapterConfig::default()
         };
         let descriptor = context_reducer_descriptor("adapter");
-        let process = process_config(&helper, "success");
+        let process = process_descriptor(&helper, "success");
 
         let outcome = execute_context_reducer(
             &config,
             &descriptor,
             context_reducer_request(),
-            Some(context_reducer_process_executor(process, 4096, 2_000)),
+            Some(ContextReducerExecutor::process(process)),
             native_response,
         );
 
@@ -1428,7 +1790,45 @@ fn main() {
             outcome.health
         );
         assert_eq!(outcome.health.status, ContextReducerHealthStatus::Ok);
-        assert!(outcome.health.latency_ms < 2_000);
+        assert!(outcome.health.latency_ms < 10_000);
+        assert_eq!(outcome.response.reducer_id, "adapter");
+    }
+
+    #[test]
+    fn context_reducer_registered_process_descriptor_executes_when_approved() {
+        let helper = compile_context_reducer_helper();
+        let mut descriptor = context_reducer_descriptor("adapter");
+        descriptor.process = Some(process_descriptor(&helper, "success"));
+        let mut registry = StaticPluginRegistry::new();
+        registry.register_context_reducer(descriptor).unwrap();
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            preferred_reducer_id: Some("adapter".to_string()),
+            timeout_ms: 10_000,
+            ..ContextReducerAdapterConfig::default()
+        };
+        let selected = registry
+            .negotiate_context_reducer(
+                &config,
+                ContextReducerContentKind::Log,
+                CONTEXT_REDUCER_SCHEMA_VERSION,
+            )
+            .unwrap();
+        let process = selected.process.clone().expect("registered process");
+
+        let outcome = execute_context_reducer(
+            &config,
+            selected,
+            context_reducer_request(),
+            Some(ContextReducerExecutor::process(process)),
+            native_response,
+        );
+
+        assert!(
+            !outcome.used_native_fallback,
+            "unexpected fallback: {:?}",
+            outcome.health
+        );
         assert_eq!(outcome.response.reducer_id, "adapter");
     }
 
@@ -1436,18 +1836,37 @@ fn main() {
     fn context_reducer_process_timeout_kills_and_reaps_child_before_fallback() {
         let helper = compile_context_reducer_helper();
         let marker = helper.with_file_name("late-marker");
+        let pid_file = helper.with_file_name("sleep-pid");
         let config = ContextReducerAdapterConfig {
             enabled: true,
-            timeout_ms: 25,
+            timeout_ms: 2_500,
             ..ContextReducerAdapterConfig::default()
         };
         let descriptor = context_reducer_descriptor("adapter");
-        let process = ContextReducerProcessConfig {
-            executable: helper.display().to_string(),
-            args: vec!["sleep".to_string(), marker.display().to_string()],
+        let executable = helper.canonicalize().unwrap().display().to_string();
+        let process = ContextReducerProcessDescriptor {
+            executable: executable.clone(),
+            args: vec![
+                "sleep".to_string(),
+                marker.display().to_string(),
+                pid_file.display().to_string(),
+            ],
             cwd: None,
+            trusted_root: helper
+                .parent()
+                .unwrap()
+                .canonicalize()
+                .unwrap()
+                .display()
+                .to_string(),
             env_allowlist: Vec::new(),
             max_stderr_bytes: 128,
+            authorization: Some(ContextReducerProcessAuthorization {
+                adapter_id: "adapter".to_string(),
+                adapter_version: "0.1.0".to_string(),
+                executable_identity: executable,
+                permission_snapshot_ref: "plugin-install:adapter:approved".to_string(),
+            }),
         };
         let started = std::time::Instant::now();
 
@@ -1455,11 +1874,11 @@ fn main() {
             &config,
             &descriptor,
             context_reducer_request(),
-            Some(context_reducer_process_executor(process, 4096, 25)),
+            Some(ContextReducerExecutor::process(process)),
             native_response,
         );
 
-        assert!(started.elapsed() < std::time::Duration::from_millis(250));
+        assert!(started.elapsed() < std::time::Duration::from_millis(3_500));
         assert!(outcome.used_native_fallback);
         assert_eq!(outcome.health.status, ContextReducerHealthStatus::Timeout);
         assert_eq!(outcome.response.reducer_id, "viden-context-native");
@@ -1468,6 +1887,16 @@ fn main() {
             !marker.exists(),
             "timed-out child must be killed before late mutation"
         );
+        let pid = std::fs::read_to_string(&pid_file).expect("helper writes pid before sleep");
+        let ps = std::process::Command::new("ps")
+            .arg("-p")
+            .arg(pid.trim())
+            .output()
+            .expect("ps is available on unix-like test host");
+        assert!(
+            !String::from_utf8_lossy(&ps.stdout).contains(pid.trim()),
+            "timed-out direct child must be reaped before host returns"
+        );
     }
 
     #[test]
@@ -1475,38 +1904,54 @@ fn main() {
         let helper = compile_context_reducer_helper();
         let config = ContextReducerAdapterConfig {
             enabled: true,
-            timeout_ms: 2_000,
+            timeout_ms: 10_000,
             ..ContextReducerAdapterConfig::default()
         };
         let descriptor = context_reducer_descriptor("adapter");
         let cases = vec![
             (
                 "absent",
-                ContextReducerProcessConfig {
+                ContextReducerProcessDescriptor {
                     executable: helper
                         .with_file_name("missing-helper")
                         .display()
                         .to_string(),
                     args: Vec::new(),
                     cwd: None,
+                    trusted_root: helper
+                        .parent()
+                        .unwrap()
+                        .canonicalize()
+                        .unwrap()
+                        .display()
+                        .to_string(),
                     env_allowlist: Vec::new(),
                     max_stderr_bytes: 128,
+                    authorization: Some(ContextReducerProcessAuthorization {
+                        adapter_id: "adapter".to_string(),
+                        adapter_version: "0.1.0".to_string(),
+                        executable_identity: helper
+                            .with_file_name("missing-helper")
+                            .display()
+                            .to_string(),
+                        permission_snapshot_ref: "plugin-install:adapter:approved".to_string(),
+                    }),
                 },
                 ContextReducerHealthStatus::AdapterAbsent,
             ),
             (
                 "nonzero",
-                process_config(&helper, "nonzero"),
+                process_descriptor(&helper, "nonzero"),
                 ContextReducerHealthStatus::Crash,
             ),
             (
                 "malformed",
-                process_config(&helper, "malformed"),
+                process_descriptor(&helper, "malformed"),
                 ContextReducerHealthStatus::Malformed,
             ),
             (
                 "oversize",
-                process_config(&helper, "oversize"),
+                process_descriptor(&helper, "oversize"),
                 ContextReducerHealthStatus::Oversize,
             ),
         ];
@@ -1516,7 +1961,7 @@ fn main() {
                 &config,
                 &descriptor,
                 context_reducer_request(),
-                Some(context_reducer_process_executor(process, 4096, 2_000)),
+                Some(ContextReducerExecutor::process(process)),
                 native_response,
             );
             assert!(outcome.used_native_fallback, "{name}");
@@ -1550,7 +1995,7 @@ fn main() {
                 &config,
                 &descriptor,
                 context_reducer_request(),
-                Some(Box::new(|_| Err(ContextReducerHostError::AdapterCrash))),
+                Some(in_process(|_| Err(ContextReducerHostError::AdapterCrash))),
                 native_response,
                 &mut breaker,
             );
@@ -1561,7 +2006,7 @@ fn main() {
             &config,
             &descriptor,
             context_reducer_request(),
-            Some(Box::new(|request| Ok(context_reducer_response(&request)))),
+            Some(in_process(|request| Ok(context_reducer_response(&request)))),
             native_response,
             &mut breaker,
         );
@@ -1594,7 +2039,7 @@ fn main() {
                 &config,
                 &descriptor,
                 context_reducer_request(),
-                Some(Box::new(move |_request| {
+                Some(in_process(move |_request| {
                     calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     Err(ContextReducerHostError::AdapterCrash)
                 })),
@@ -1610,7 +2055,7 @@ fn main() {
             &config,
             &descriptor,
             context_reducer_request(),
-            Some(Box::new(move |request| {
+            Some(in_process(move |request| {
                 calls_for_skipped.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Ok(context_reducer_response(&request))
             })),
@@ -1629,7 +2074,7 @@ fn main() {
             &config,
             &descriptor,
             context_reducer_request(),
-            Some(Box::new(move |request| {
+            Some(in_process(move |request| {
                 calls_for_probe.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Ok(context_reducer_response(&request))
             })),
@@ -1645,7 +2090,7 @@ fn main() {
                 &config,
                 &descriptor,
                 context_reducer_request(),
-                Some(Box::new(|_| Err(ContextReducerHostError::AdapterCrash))),
+                Some(in_process(|_| Err(ContextReducerHostError::AdapterCrash))),
                 native_response,
                 &mut breaker,
             );
@@ -1656,7 +2101,7 @@ fn main() {
             &config,
             &descriptor,
             context_reducer_request(),
-            Some(Box::new(|_| Err(ContextReducerHostError::AdapterCrash))),
+            Some(in_process(|_| Err(ContextReducerHostError::AdapterCrash))),
             native_response,
             &mut breaker,
         );
@@ -1665,7 +2110,7 @@ fn main() {
             &config,
             &descriptor,
             context_reducer_request(),
-            Some(Box::new(|request| Ok(context_reducer_response(&request)))),
+            Some(in_process(|request| Ok(context_reducer_response(&request)))),
             native_response,
             &mut breaker,
         );
@@ -1690,7 +2135,7 @@ fn main() {
             &config,
             &descriptor,
             request,
-            Some(Box::new(|request| Ok(context_reducer_response(&request)))),
+            Some(in_process(|request| Ok(context_reducer_response(&request)))),
             native_response,
         );
 

@@ -243,6 +243,8 @@ pub struct ContextReducerDescriptor {
     #[serde(default)]
     pub default_enabled: bool,
     pub config_schema_version: u32,
+    #[serde(default)]
+    pub process: Option<ContextReducerProcessDescriptor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -280,8 +282,6 @@ pub struct ContextReducerAdapterConfig {
     pub max_depth: usize,
     #[serde(default)]
     pub circuit_breaker: ContextReducerCircuitBreakerConfig,
-    #[serde(default)]
-    pub process: Option<ContextReducerProcessConfig>,
 }
 
 impl Default for ContextReducerAdapterConfig {
@@ -296,22 +296,32 @@ impl Default for ContextReducerAdapterConfig {
             max_output_items: default_context_reducer_max_output_items(),
             max_depth: default_context_reducer_max_depth(),
             circuit_breaker: ContextReducerCircuitBreakerConfig::default(),
-            process: None,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContextReducerProcessConfig {
+pub struct ContextReducerProcessDescriptor {
     pub executable: String,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
     pub cwd: Option<String>,
+    pub trusted_root: String,
     #[serde(default)]
     pub env_allowlist: Vec<String>,
     #[serde(default = "default_context_reducer_stderr_bytes")]
     pub max_stderr_bytes: usize,
+    #[serde(default)]
+    pub authorization: Option<ContextReducerProcessAuthorization>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContextReducerProcessAuthorization {
+    pub adapter_id: String,
+    pub adapter_version: String,
+    pub executable_identity: String,
+    pub permission_snapshot_ref: String,
 }
 
 const fn default_context_reducer_stderr_bytes() -> usize {
@@ -523,6 +533,20 @@ mod tests {
             },
             default_enabled: false,
             config_schema_version: 1,
+            process: Some(ContextReducerProcessDescriptor {
+                executable: "/trusted/root/bin/context-reducer".to_string(),
+                args: vec!["--json".to_string()],
+                cwd: Some("/trusted/root".to_string()),
+                trusted_root: "/trusted/root".to_string(),
+                env_allowlist: vec!["LANG".to_string()],
+                max_stderr_bytes: 512,
+                authorization: Some(ContextReducerProcessAuthorization {
+                    adapter_id: "neutral-context-adapter".to_string(),
+                    adapter_version: "0.1.0".to_string(),
+                    executable_identity: "/trusted/root/bin/context-reducer".to_string(),
+                    permission_snapshot_ref: "plugin-install:ctx-reducer:approved".to_string(),
+                }),
+            }),
         };
 
         let json = serde_json::to_value(&descriptor).unwrap();
@@ -532,22 +556,10 @@ mod tests {
 
         assert_eq!(decoded, descriptor);
         assert!(!ContextReducerAdapterConfig::default().enabled);
-        assert!(ContextReducerAdapterConfig::default().process.is_none());
-
-        let config = ContextReducerAdapterConfig {
-            enabled: true,
-            process: Some(ContextReducerProcessConfig {
-                executable: "/usr/bin/context-reducer".to_string(),
-                args: vec!["--json".to_string()],
-                cwd: Some("/tmp".to_string()),
-                env_allowlist: vec!["LANG".to_string()],
-                max_stderr_bytes: 512,
-            }),
-            ..ContextReducerAdapterConfig::default()
-        };
-        let decoded_config: ContextReducerAdapterConfig =
-            serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
-        assert_eq!(decoded_config, config);
+        assert_eq!(
+            ContextReducerAdapterConfig::default().preferred_reducer_id,
+            None
+        );
     }
 
     #[test]

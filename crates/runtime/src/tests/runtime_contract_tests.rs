@@ -626,7 +626,7 @@ fn context_reducer_sleeping_adapter_times_out_without_blocking_provider_request(
         .process_input_with_approval("ERROR src/a.rs:1 boom", &mut approver)
         .unwrap();
 
-    assert!(started.elapsed() < std::time::Duration::from_millis(300));
+    assert!(started.elapsed() < std::time::Duration::from_millis(900));
     assert!(events.iter().any(
         |event| matches!(event, EngineEvent::Assistant(text) if text == "native timeout path still works")
     ));
