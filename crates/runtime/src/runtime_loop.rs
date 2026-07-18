@@ -155,8 +155,8 @@ impl SessionEngine {
                         && !retried_request_too_large
                     {
                         retried_request_too_large = true;
-                        let retry_context = self.build_main_context_bundle_with_mode(
-                            trimmed,
+                        let retry_context = self.materialize_existing_context_bundle(
+                            &context_bundle,
                             ContextBuildMode::RequestTooLargeRetry,
                         );
                         context_bundle = retry_context.bundle;

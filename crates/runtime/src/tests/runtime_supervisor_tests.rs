@@ -118,6 +118,10 @@ impl RecordingProvider {
             errors: Vec::new(),
         }
     }
+
+    fn with_errors(requests: Arc<Mutex<Vec<ModelRequest>>>, errors: Vec<String>) -> Self {
+        Self { requests, errors }
+    }
 }
 
 impl ModelProvider for RecordingProvider {
@@ -728,6 +732,7 @@ fn runtime_supervisor_builds_role_specific_context_bundle_sources() {
         vec![ModelEvent::Done],
         vec![ModelEvent::Done],
         vec![ModelEvent::Done],
+        vec![ModelEvent::Done],
     ]));
     let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
@@ -761,6 +766,18 @@ fn runtime_supervisor_builds_role_specific_context_bundle_sources() {
                         context_bundle_id: None,
                         required_evidence: vec!["patch".to_string()],
                         permission_policy: "ask".to_string(),
+                    },
+                    AgentDagTaskSpec {
+                        task_id: "task_review".to_string(),
+                        role: AgentRole::Reviewer,
+                        title: "Review context".to_string(),
+                        objective: "Review the change".to_string(),
+                        dependencies: Vec::new(),
+                        workspace: None,
+                        file_scope: vec!["crates/runtime".to_string()],
+                        context_bundle_id: None,
+                        required_evidence: vec!["review".to_string()],
+                        permission_policy: "read_only".to_string(),
                     },
                     AgentDagTaskSpec {
                         task_id: "task_test".to_string(),
@@ -805,6 +822,13 @@ fn runtime_supervisor_builds_role_specific_context_bundle_sources() {
     assert_context_source(&coder, "role-implementation-context", "role-guidance");
     assert_context_source(&coder, "agent-file-scope", "file-scope");
     assert_context_source(&coder, "agent-evidence-contract", "evidence-contract");
+
+    let reviewer = start_agent_task_and_capture_context(&supervisor, "task_review");
+    assert_context_source(&reviewer, "role-review-context", "role-guidance");
+    assert_ne!(
+        context_source_summary(&planner, "role-planning-context", "role-guidance"),
+        context_source_summary(&reviewer, "role-review-context", "role-guidance")
+    );
 
     let tester = start_agent_task_and_capture_context(&supervisor, "task_test");
     assert_context_source(&tester, "role-verification-context", "role-guidance");
@@ -872,11 +896,13 @@ fn agent_task_provider_request_uses_final_role_context_bundle() {
         .content
         .clone();
     assert!(provider_manifest.contains("Bundle: ctx-agent-task_plan_provider_bundle"));
+    assert!(provider_manifest.contains("Scope: task:task_plan_provider_bundle"));
     assert!(provider_manifest.contains("role-planning-context"));
     assert!(provider_manifest.contains("handle="));
     assert!(provider_manifest.contains("view="));
     assert!(provider_manifest.contains("quality="));
     assert!(!provider_manifest.contains("Focus on requirements"));
+    assert!(!provider_manifest.contains(cwd.to_string_lossy().as_ref()));
     assert!(events.iter().any(|event| {
         matches!(
             &event.kind,
@@ -891,6 +917,142 @@ fn agent_task_provider_request_uses_final_role_context_bundle() {
                     })
         )
     }));
+}
+
+#[test]
+fn reviewer_agent_task_provider_request_uses_review_role_context() {
+    let cwd = temp_dir("runtime_supervisor_reviewer_provider_bundle_cwd");
+    let home = temp_dir("runtime_supervisor_reviewer_provider_bundle_home");
+    write_test_file(
+        &cwd.join("crates/runtime/src/runtime_contract.rs"),
+        "pub struct ReviewRoleScopedBundle {}\n",
+    );
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingProvider::success(Arc::clone(&requests)));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_context_budget_for_test(1_000, 8_000);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .handle_runtime_command(
+            "cmd_agent_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Review role bundle".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_review_provider_bundle".to_string(),
+                    role: AgentRole::Reviewer,
+                    title: "Review provider bundle".to_string(),
+                    objective: "Review with role guidance".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec!["crates/runtime".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["review".to_string()],
+                    permission_policy: "read_only".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    engine
+        .handle_runtime_command(
+            "cmd_start_agent",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_review_provider_bundle".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let provider_manifest = provider_manifest(&requests[0]);
+    assert!(provider_manifest.contains("Bundle: ctx-agent-task_review_provider_bundle"));
+    assert!(provider_manifest.contains("Scope: task:task_review_provider_bundle"));
+    assert!(provider_manifest.contains("role-review-context"));
+    assert!(!provider_manifest.contains("role-planning-context"));
+    assert!(!provider_manifest.contains("Focus on behavioral regressions"));
+    assert!(!provider_manifest.contains(cwd.to_string_lossy().as_ref()));
+}
+
+#[test]
+fn agent_task_context_overflow_retry_preserves_role_scoped_bundle() {
+    let cwd = temp_dir("runtime_supervisor_agent_retry_role_bundle_cwd");
+    let home = temp_dir("runtime_supervisor_agent_retry_role_bundle_home");
+    write_test_file(
+        &cwd.join("crates/runtime/src/runtime_contract.rs"),
+        "pub struct RetryRoleScopedBundle {}\n",
+    );
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingProvider::with_errors(
+        Arc::clone(&requests),
+        vec!["context_overflow: current request exceeded provider context".to_string()],
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_context_budget_for_test(2_000, 8_000);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .handle_runtime_command(
+            "cmd_agent_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Retry role bundle".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_retry_role_bundle".to_string(),
+                    role: AgentRole::Planner,
+                    title: "Retry planner".to_string(),
+                    objective: "Plan while retrying context overflow".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec!["crates/runtime".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["plan".to_string()],
+                    permission_policy: "read_only".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_start_agent",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_retry_role_bundle".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            RuntimeEvent { kind: RuntimeEventKind::AssistantDelta { content, .. }, .. }
+                if content.contains("recorded")
+        )
+    }));
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    let first_manifest = provider_manifest(&requests[0]);
+    let second_manifest = provider_manifest(&requests[1]);
+    assert!(first_manifest.contains("Bundle: ctx-agent-task_retry_role_bundle"));
+    assert!(second_manifest.contains("Bundle: ctx-agent-task_retry_role_bundle"));
+    assert!(first_manifest.contains("Policy: agent-role-planner-priority-budget"));
+    assert!(second_manifest.contains("Policy: agent-role-planner-priority-budget-strict-retry"));
+    assert!(first_manifest.contains("role-planning-context"));
+    assert!(second_manifest.contains("role-planning-context"));
+    assert!(first_manifest.contains("Scope: task:task_retry_role_bundle"));
+    assert!(second_manifest.contains("Scope: task:task_retry_role_bundle"));
+    assert!(second_manifest.contains("handle="));
+    assert!(second_manifest.contains("view="));
+    assert!(second_manifest.contains("strict-retry"));
 }
 
 #[test]
@@ -3187,6 +3349,16 @@ fn context_source_summary(context: &ContextBundleRecord, name: &str, kind: &str)
         .find(|source| source.name == name && source.kind == kind)
         .unwrap_or_else(|| panic!("missing context source {name}/{kind}"))
         .summary
+        .clone()
+}
+
+fn provider_manifest(request: &ModelRequest) -> String {
+    request
+        .messages
+        .iter()
+        .find(|message| message.content.contains("Viden ContextBundle"))
+        .expect("provider context manifest")
+        .content
         .clone()
 }
 

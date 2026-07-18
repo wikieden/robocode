@@ -1124,6 +1124,7 @@ fn classify_provider_model_failure(error: &str) -> Option<ProviderFailureClass> 
             next_action: "retry, increase request timeout, or switch provider",
         }
     } else if lower.contains("context_length")
+        || lower.contains("context_overflow")
         || lower.contains("maximum context")
         || lower.contains("context overflow")
     {

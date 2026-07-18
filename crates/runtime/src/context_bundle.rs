@@ -240,8 +240,7 @@ impl SessionEngine {
         }
         context_events.extend(quality_events);
         let mut sources = materialized_sources;
-        let mut omitted_sources =
-            omit_sources_over_soft_budget(&mut sources, soft_budget, hard_limit);
+        let mut omitted_sources = omit_sources_over_soft_budget(&mut sources, soft_budget);
         let hard_omitted = omit_sources_over_hard_limit(&mut sources, hard_limit);
         omitted_sources.extend(hard_omitted);
         let estimated_tokens = sources.iter().fold(0_u64, |sum, source| {
@@ -405,8 +404,9 @@ pub(crate) fn render_provider_context_message(bundle: &ContextBundleRecord) -> S
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Viden ContextBundle\nBundle: {}\nPolicy: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\nSources:\n{}\nOmitted sources:\n{}\nCompaction notes:\n{}",
+        "Viden ContextBundle\nBundle: {}\nScope: task:{}\nPolicy: {}\nEstimated tokens: {}\nContext pressure: {}%\nSoft budget: {}\nHard limit: {}\nSources:\n{}\nOmitted sources:\n{}\nCompaction notes:\n{}",
         bundle.bundle_id,
+        stable_scope_id(&bundle.task_id),
         bundle.policy,
         bundle.estimated_tokens,
         bundle.pressure_percent(),
@@ -619,11 +619,15 @@ impl SessionEngine {
             }
         }
         let mut final_bundle = bundle.clone();
+        if mode == ContextBuildMode::RequestTooLargeRetry
+            && !final_bundle.policy.ends_with("-strict-retry")
+        {
+            final_bundle.policy = format!("{}-strict-retry", final_bundle.policy);
+        }
         final_bundle.sources = materialized_sources;
         let mut omitted_sources = omit_sources_over_soft_budget(
             &mut final_bundle.sources,
             final_bundle.soft_token_budget,
-            final_bundle.hard_token_limit,
         );
         omitted_sources.extend(omit_sources_over_hard_limit(
             &mut final_bundle.sources,
@@ -706,7 +710,6 @@ fn reduction_policy_for_source(
 fn omit_sources_over_soft_budget(
     sources: &mut Vec<ContextSourceRecord>,
     soft_budget: u64,
-    hard_limit: u64,
 ) -> Vec<ContextOmittedSourceRecord> {
     let mut total = sources.iter().fold(0_u64, |sum, source| {
         sum.saturating_add(source.estimated_tokens)
@@ -723,7 +726,7 @@ fn omit_sources_over_soft_budget(
     });
     let mut omitted = Vec::new();
     let mut index = sources.len();
-    while total > soft_budget && total > hard_limit && index > 0 {
+    while total > soft_budget && index > 0 {
         index -= 1;
         if sources[index].priority >= 90 {
             continue;
@@ -757,6 +760,11 @@ fn context_budget_record(bundle: &ContextBundleRecord, scope: ContextScope) -> C
         exceeded: bundle.estimated_tokens > bundle.hard_token_limit,
         updated_at: Some(now_timestamp()),
     }
+}
+
+fn stable_scope_id(input: &str) -> String {
+    let bounded = input.chars().take(96).collect::<String>();
+    redact_for_event(&bounded)
 }
 
 fn redact_for_event(input: &str) -> String {

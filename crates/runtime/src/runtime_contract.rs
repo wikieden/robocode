@@ -2412,6 +2412,7 @@ fn classify_agent_task_failure(error: &str) -> AgentTaskFailureClassification {
             recovery_suggestion: "retry, increase request timeout, or switch provider",
         }
     } else if lower.contains("context_length")
+        || lower.contains("context_overflow")
         || lower.contains("maximum context")
         || lower.contains("context overflow")
     {

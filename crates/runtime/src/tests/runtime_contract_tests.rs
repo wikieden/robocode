@@ -485,6 +485,55 @@ fn hard_context_limit_rejects_before_provider_request() {
 }
 
 #[test]
+fn soft_context_budget_evicts_low_priority_sources_before_provider_request() {
+    let cwd = temp_dir("runtime_contract_soft_budget_cwd");
+    let home = temp_dir("runtime_contract_soft_budget_home");
+    let request_count = Arc::new(AtomicU64::new(0));
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(CountingProvider::new(
+        Arc::clone(&request_count),
+        Arc::clone(&requests),
+        Ok(vec![ModelEvent::AssistantText {
+            content: "soft budget ok".to_string(),
+        }]),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_context_budget_for_test(100, 1_000);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .process_input_with_approval(
+            &format!("/memory add {}", "low-priority-memory ".repeat(300)),
+            &mut approver,
+        )
+        .unwrap();
+    let events = engine
+        .handle_runtime_command(
+            "cmd_soft_budget",
+            RuntimeCommand::SubmitUserInput {
+                content: "short task".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_eq!(request_count.load(Ordering::SeqCst), 1);
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ContextUpdated { context }
+                if context.estimated_tokens <= context.soft_token_budget
+                    && context.hard_token_limit == 1_000
+                    && context.omitted_sources.iter().any(|source| source.name == "memory")
+                    && context.sources.iter().any(|source| source.name == "user-task")
+        )
+    }));
+}
+
+#[test]
 fn context_engine_events_replay_without_raw_secret_or_paths() {
     let cwd = temp_dir("runtime_contract_context_replay_cwd");
     let home = temp_dir("runtime_contract_context_replay_home");
