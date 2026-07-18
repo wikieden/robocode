@@ -630,6 +630,11 @@ fn redact_json_value(value: &mut serde_json::Value, omissions: &mut Vec<Reductio
 }
 
 fn redact_json_value_inner(value: &mut serde_json::Value, key: Option<&str>, redacted: &mut usize) {
+    if key.is_some_and(is_secret_label) {
+        *value = serde_json::Value::String("[REDACTED]".to_string());
+        *redacted += 1;
+        return;
+    }
     match value {
         serde_json::Value::Object(map) => {
             for (key, child) in map {
@@ -642,15 +647,10 @@ fn redact_json_value_inner(value: &mut serde_json::Value, key: Option<&str>, red
             }
         }
         serde_json::Value::String(text) => {
-            if key.is_some_and(is_secret_label) {
-                *text = "[REDACTED]".to_string();
+            let next = redact_text(text);
+            if next != *text {
+                *text = next;
                 *redacted += 1;
-            } else {
-                let next = redact_text(text);
-                if next != *text {
-                    *text = next;
-                    *redacted += 1;
-                }
             }
         }
         _ => {}
@@ -2178,6 +2178,71 @@ mod tests {
             reduce(ContextContentKind::Json, input, &tight),
             Err(crate::ContextError::QualityFailed { .. })
         ));
+    }
+
+    #[test]
+    fn secret_json_keys_replace_every_value_type_before_priority_reduction() {
+        let input = br#"{
+            "api_key":123456,
+            "token":true,
+            "password":null,
+            "secret":["array-secret",{"nested":"array-object-secret"}],
+            "profile":{"password":{"raw":"object-secret","nested":["deeper-secret"]}},
+            "errors":[{"api_key":{"raw":"error-object-secret"},"message":"boom"}],
+            "noise":"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+        }"#;
+        let selected_json_paths = vec![
+            "/api_key".to_string(),
+            "/token".to_string(),
+            "/password".to_string(),
+            "/secret".to_string(),
+            "/profile/password".to_string(),
+            "/errors/0/api_key".to_string(),
+        ];
+        let policy = ReductionPolicy {
+            max_output_bytes: 320,
+            selected_json_paths: selected_json_paths.clone(),
+            ..ReductionPolicy::default()
+        };
+
+        let view = reduce(ContextContentKind::Json, input, &policy).unwrap();
+        let parsed = serde_json::from_str::<serde_json::Value>(&view.content).unwrap();
+        let serialized = serde_json::to_string(&view).unwrap();
+
+        for path in &selected_json_paths {
+            let tokens = parse_json_path(path).unwrap();
+            let (_, value) = resolve_json_path(&parsed, &tokens).unwrap();
+            assert_eq!(value, "[REDACTED]", "{path}");
+            assert!(
+                view.retained_markers
+                    .iter()
+                    .any(|marker| marker == &format!("path:{path}")),
+                "{path}"
+            );
+        }
+        assert_eq!(parsed["errors"][0]["message"], "boom");
+        assert!(
+            view.retained_markers
+                .iter()
+                .any(|marker| marker == "key:errors")
+        );
+        assert_eq!(
+            view.omissions
+                .iter()
+                .find(|omission| omission.reason == "secret_values_redacted")
+                .map(|omission| omission.omitted_count),
+            Some(6)
+        );
+        for raw in [
+            "123456",
+            "array-secret",
+            "array-object-secret",
+            "object-secret",
+            "deeper-secret",
+            "error-object-secret",
+        ] {
+            assert!(!serialized.contains(raw), "{raw}");
+        }
     }
 
     #[test]
