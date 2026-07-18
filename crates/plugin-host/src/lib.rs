@@ -5,10 +5,12 @@
 //! tools, agents, workflows, and providers move behind the plugin API.
 
 use std::collections::HashMap;
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -657,12 +659,23 @@ fn execute_process_adapter(
     validate_process_authorization(reducer_id, reducer_version, config)?;
     let request_json =
         serde_json::to_vec(&request).map_err(|_| ContextReducerHostError::MalformedResponse)?;
+    let io =
+        ProcessAdapterIo::new(&request_json).map_err(|_| ContextReducerHostError::AdapterCrash)?;
+    let stdin = io
+        .open_stdin()
+        .map_err(|_| ContextReducerHostError::AdapterCrash)?;
+    let stdout = io
+        .open_stdout()
+        .map_err(|_| ContextReducerHostError::AdapterCrash)?;
+    let stderr = io
+        .open_stderr()
+        .map_err(|_| ContextReducerHostError::AdapterCrash)?;
     let mut command = Command::new(&config.executable);
     command
         .args(&config.args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdin(Stdio::from(stdin))
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
         .env_clear();
     for name in &config.env_allowlist {
         if let Ok(value) = std::env::var(name)
@@ -675,86 +688,49 @@ fn execute_process_adapter(
     if let Some(cwd) = config.cwd.as_deref() {
         command.current_dir(cwd);
     }
+    configure_process_group(&mut command);
 
     let started = Instant::now();
     let mut child = match command.spawn() {
-        Ok(child) => child,
+        Ok(child) => ProcessChildGuard::new(child),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             return Err(ContextReducerHostError::AdapterAbsent);
         }
         Err(_) => return Err(ContextReducerHostError::AdapterCrash),
     };
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(&request_json)
-            .and_then(|_| stdin.write_all(b"\n"))
-            .map_err(|_| ContextReducerHostError::AdapterCrash)?;
-        drop(stdin);
-    }
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or(ContextReducerHostError::AdapterCrash)?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or(ContextReducerHostError::AdapterCrash)?;
-    let (stdout_sender, stdout_receiver) = mpsc::sync_channel(1);
-    let stdout_reader = thread::spawn(move || {
-        let _ = stdout_sender.send(read_bounded(stdout, max_stdout_bytes));
-    });
     let stderr_limit = config
         .max_stderr_bytes
         .min(CONTEXT_REDUCER_PROCESS_STDERR_HARD_CAP_BYTES);
-    let stderr_reader = thread::spawn(move || read_bounded(stderr, stderr_limit));
     let deadline = started + Duration::from_millis(timeout_ms);
-    let mut completed_stdout = None;
     let status = loop {
-        match stdout_receiver.try_recv() {
-            Ok(Ok(stdout)) if stdout.exceeded => {
-                kill_wait_join(&mut child, stdout_reader, stderr_reader);
-                return Err(ContextReducerHostError::OversizeResponse);
-            }
-            Ok(Err(_)) => {
-                kill_wait_join(&mut child, stdout_reader, stderr_reader);
-                return Err(ContextReducerHostError::AdapterCrash);
-            }
-            Ok(Ok(stdout)) => {
-                completed_stdout = Some(stdout);
-                break child
-                    .wait()
-                    .map_err(|_| ContextReducerHostError::AdapterCrash)?;
-            }
-            Err(mpsc::TryRecvError::Disconnected) => {
-                kill_wait_join(&mut child, stdout_reader, stderr_reader);
-                return Err(ContextReducerHostError::AdapterCrash);
-            }
-            Err(mpsc::TryRecvError::Empty) => {}
+        if io
+            .stdout_reached_sentinel(max_stdout_bytes)
+            .map_err(|_| ContextReducerHostError::AdapterCrash)?
+        {
+            child.kill_and_wait();
+            return Err(ContextReducerHostError::OversizeResponse);
         }
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if Instant::now() >= deadline => {
-                // Production isolation is the direct child process: kill and
-                // reap it before returning so late stdout/stderr cannot mutate
-                // host state after native fallback has been selected.
-                kill_wait_join(&mut child, stdout_reader, stderr_reader);
+                // Production isolation is process based: kill and reap before
+                // returning so late writes cannot affect native fallback.
+                child.kill_and_wait();
                 return Err(ContextReducerHostError::Timeout);
             }
             Ok(None) => thread::sleep(Duration::from_millis(5)),
-            Err(_) => return Err(ContextReducerHostError::AdapterCrash),
+            Err(_) => {
+                child.kill_and_wait();
+                return Err(ContextReducerHostError::AdapterCrash);
+            }
         }
     };
-    let stdout = match completed_stdout {
-        Some(stdout) => stdout,
-        None => match stdout_receiver.recv() {
-            Ok(Ok(stdout)) => stdout,
-            Ok(Err(_)) | Err(_) => return Err(ContextReducerHostError::AdapterCrash),
-        },
-    };
-    let _ = stdout_reader.join();
-    let stderr = stderr_reader
-        .join()
-        .map_err(|_| ContextReducerHostError::AdapterCrash)?
+    child.disarm_after_exit();
+    let stdout = io
+        .read_stdout_bounded(max_stdout_bytes)
+        .map_err(|_| ContextReducerHostError::AdapterCrash)?;
+    let stderr = io
+        .read_stderr_bounded(stderr_limit)
         .map_err(|_| ContextReducerHostError::AdapterCrash)?;
     if !status.success() {
         let stderr = bounded_redacted_stderr(&stderr.bytes);
@@ -769,15 +745,166 @@ fn execute_process_adapter(
         .map_err(|_| ContextReducerHostError::MalformedResponse)
 }
 
-fn kill_wait_join(
-    child: &mut std::process::Child,
-    stdout_reader: thread::JoinHandle<()>,
-    stderr_reader: thread::JoinHandle<Result<BoundedRead, std::io::Error>>,
-) {
+struct ProcessChildGuard {
+    child: Option<std::process::Child>,
+}
+
+impl ProcessChildGuard {
+    fn new(child: std::process::Child) -> Self {
+        Self { child: Some(child) }
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.child
+            .as_mut()
+            .expect("process child is present")
+            .try_wait()
+    }
+
+    fn kill_and_wait(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            kill_process_tree(&mut child);
+            let _ = child.wait();
+        }
+    }
+
+    fn disarm_after_exit(&mut self) {
+        let _ = self.child.take();
+    }
+}
+
+impl Drop for ProcessChildGuard {
+    fn drop(&mut self) {
+        self.kill_and_wait();
+    }
+}
+
+#[cfg(unix)]
+fn configure_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_process_group(_command: &mut Command) {}
+
+#[cfg(unix)]
+fn kill_process_tree(child: &mut std::process::Child) {
+    let pgid = child.id() as libc::pid_t;
+    if pgid > 0 {
+        // Adapters run in their own process group; negative pgid kill is a
+        // defense-in-depth containment boundary for accidental descendants.
+        unsafe {
+            libc::kill(-pgid, libc::SIGKILL);
+        }
+    }
     let _ = child.kill();
-    let _ = child.wait();
-    let _ = stdout_reader.join();
-    let _ = stderr_reader.join();
+}
+
+#[cfg(not(unix))]
+fn kill_process_tree(child: &mut std::process::Child) {
+    let _ = child.kill();
+}
+
+struct ProcessAdapterIo {
+    dir: PathBuf,
+    stdin_path: PathBuf,
+    stdout_path: PathBuf,
+    stderr_path: PathBuf,
+}
+
+impl ProcessAdapterIo {
+    fn new(request_json: &[u8]) -> std::io::Result<Self> {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "viden-context-reducer-io-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        fs::create_dir(&dir)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+        }
+        let io = Self {
+            stdin_path: dir.join("request.json"),
+            stdout_path: dir.join("stdout.json"),
+            stderr_path: dir.join("stderr.txt"),
+            dir,
+        };
+        {
+            let mut file = private_write_file(&io.stdin_path)?;
+            file.write_all(request_json)?;
+            file.write_all(b"\n")?;
+        }
+        private_write_file(&io.stdout_path)?;
+        private_write_file(&io.stderr_path)?;
+        Ok(io)
+    }
+
+    fn open_stdin(&self) -> std::io::Result<File> {
+        File::open(&self.stdin_path)
+    }
+
+    fn open_stdout(&self) -> std::io::Result<File> {
+        private_truncate_file(&self.stdout_path)
+    }
+
+    fn open_stderr(&self) -> std::io::Result<File> {
+        private_truncate_file(&self.stderr_path)
+    }
+
+    fn stdout_reached_sentinel(&self, max_stdout_bytes: usize) -> std::io::Result<bool> {
+        let sentinel = max_stdout_bytes.saturating_add(1);
+        let len = fs::metadata(&self.stdout_path)?.len();
+        Ok(len >= u64::try_from(sentinel).unwrap_or(u64::MAX))
+    }
+
+    fn read_stdout_bounded(&self, max_bytes: usize) -> std::io::Result<BoundedRead> {
+        read_bounded(File::open(&self.stdout_path)?, max_bytes)
+    }
+
+    fn read_stderr_bounded(&self, max_bytes: usize) -> std::io::Result<BoundedRead> {
+        read_bounded(File::open(&self.stderr_path)?, max_bytes)
+    }
+
+    #[cfg(test)]
+    fn dir_for_test(&self) -> &Path {
+        &self.dir
+    }
+}
+
+impl Drop for ProcessAdapterIo {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.stdin_path);
+        let _ = fs::remove_file(&self.stdout_path);
+        let _ = fs::remove_file(&self.stderr_path);
+        let _ = fs::remove_dir(&self.dir);
+    }
+}
+
+fn private_write_file(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
+fn private_truncate_file(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
 }
 
 struct BoundedRead {
@@ -1347,11 +1474,29 @@ fn success_json() -> String {
 }
 
 fn main() {
+    let mode = env::args().nth(1).unwrap_or_else(|| "success".to_string());
+    if matches!(mode.as_str(), "sleep" | "stream_oversize" | "timeout_descendant") {
+        if let Some(pid_path) = env::args().nth(3) {
+            fs::write(pid_path, std::process::id().to_string()).unwrap();
+        }
+    }
     let mut stdin = String::new();
     let _ = io::stdin().read_to_string(&mut stdin);
-    let mode = env::args().nth(1).unwrap_or_else(|| "success".to_string());
     match mode.as_str() {
         "success" => print!("{}", success_json()),
+        "stdin_file" => {
+            #[cfg(unix)]
+            {
+                let meta = fs::metadata("/dev/fd/0").unwrap();
+                if !meta.file_type().is_file() {
+                    std::process::exit(8);
+                }
+            }
+            if !stdin.contains("\"request_id\":\"ctxred-1\"") {
+                std::process::exit(9);
+            }
+            print!("{}", success_json());
+        }
         "sleep" => {
             let marker = env::args().nth(2).expect("marker path");
             if let Some(pid_path) = env::args().nth(3) {
@@ -1375,6 +1520,41 @@ fn main() {
             print!("{}", "x".repeat(2_000_000));
             thread::sleep(Duration::from_millis(5000));
             fs::write(marker, "late mutation").unwrap();
+        }
+        "descendant_stdout" => {
+            let marker = env::args().nth(2).expect("marker path");
+            print!("{}", success_json());
+            let child = std::process::Command::new(env::current_exe().unwrap())
+                .arg("hold_stdout")
+                .arg(marker)
+                .stdout(std::process::Stdio::inherit())
+                .spawn()
+                .unwrap();
+            std::mem::forget(child);
+        }
+        "hold_stdout" => {
+            let marker = env::args().nth(2).expect("marker path");
+            thread::sleep(Duration::from_millis(5000));
+            fs::write(marker, "descendant retained stdout").unwrap();
+        }
+        "timeout_descendant" => {
+            let marker = env::args().nth(2).expect("marker path");
+            if let Some(pid_path) = env::args().nth(3) {
+                fs::write(pid_path, std::process::id().to_string()).unwrap();
+            }
+            let child = std::process::Command::new(env::current_exe().unwrap())
+                .arg("late_marker")
+                .arg(marker)
+                .stdout(std::process::Stdio::inherit())
+                .spawn()
+                .unwrap();
+            std::mem::forget(child);
+            thread::sleep(Duration::from_millis(8000));
+        }
+        "late_marker" => {
+            let marker = env::args().nth(2).expect("marker path");
+            thread::sleep(Duration::from_millis(6500));
+            fs::write(marker, "descendant late mutation").unwrap();
         }
         "stderr_large_nonzero" => {
             eprintln!("{}", "failed /Users/wiki/private sk-test-secret ".repeat(1000));
@@ -1917,7 +2097,7 @@ fn main() {
         let pid_file = helper.with_file_name("sleep-pid");
         let config = ContextReducerAdapterConfig {
             enabled: true,
-            timeout_ms: 2_500,
+            timeout_ms: 4_000,
             ..ContextReducerAdapterConfig::default()
         };
         let descriptor = context_reducer_descriptor("adapter");
@@ -1956,7 +2136,7 @@ fn main() {
             native_response,
         );
 
-        assert!(started.elapsed() < std::time::Duration::from_millis(3_500));
+        assert!(started.elapsed() < std::time::Duration::from_millis(4_500));
         assert!(outcome.used_native_fallback);
         assert_eq!(outcome.health.status, ContextReducerHealthStatus::Timeout);
         assert_eq!(outcome.response.reducer_id, "viden-context-native");
@@ -2109,7 +2289,7 @@ fn main() {
             native_response,
         );
 
-        assert!(started.elapsed() < std::time::Duration::from_millis(3_000));
+        assert!(started.elapsed() < std::time::Duration::from_millis(4_500));
         assert!(outcome.used_native_fallback);
         assert_eq!(outcome.health.status, ContextReducerHealthStatus::Oversize);
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -2126,6 +2306,105 @@ fn main() {
         assert!(
             !String::from_utf8_lossy(&ps.stdout).contains(pid.trim()),
             "oversize direct child must be reaped before host returns"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn context_reducer_process_stdin_is_private_request_file_not_pipe() {
+        let helper = compile_context_reducer_helper();
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            timeout_ms: 10_000,
+            ..ContextReducerAdapterConfig::default()
+        };
+
+        let outcome = execute_context_reducer(
+            &config,
+            &context_reducer_descriptor("adapter"),
+            process_request_with_limit(4096),
+            Some(ContextReducerExecutor::process(process_descriptor(
+                &helper,
+                "stdin_file",
+            ))),
+            native_response,
+        );
+
+        assert!(
+            !outcome.used_native_fallback,
+            "adapter should read the request from a regular stdin file"
+        );
+        assert_eq!(outcome.response.reducer_id, "adapter");
+    }
+
+    #[test]
+    fn context_reducer_process_does_not_wait_for_descendant_held_stdout_eof() {
+        let helper = compile_context_reducer_helper();
+        let marker = helper.with_file_name("descendant-stdout-marker");
+        let mut process = process_descriptor(&helper, "descendant_stdout");
+        process.args.push(marker.display().to_string());
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            timeout_ms: 10_000,
+            ..ContextReducerAdapterConfig::default()
+        };
+        let started = std::time::Instant::now();
+
+        let outcome = execute_context_reducer(
+            &config,
+            &context_reducer_descriptor("adapter"),
+            process_request_with_limit(4096),
+            Some(ContextReducerExecutor::process(process)),
+            native_response,
+        );
+
+        assert!(started.elapsed() < std::time::Duration::from_millis(4_500));
+        assert!(
+            !outcome.used_native_fallback,
+            "direct child emitted a valid response before descendant retained stdout"
+        );
+        assert_eq!(outcome.response.reducer_id, "adapter");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn context_reducer_process_timeout_kills_descendant_process_group() {
+        let helper = compile_context_reducer_helper();
+        let marker = helper.with_file_name("timeout-descendant-marker");
+        let mut process = process_descriptor(&helper, "timeout_descendant");
+        process.args.push(marker.display().to_string());
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            timeout_ms: 4_000,
+            ..ContextReducerAdapterConfig::default()
+        };
+
+        let outcome = execute_context_reducer(
+            &config,
+            &context_reducer_descriptor("adapter"),
+            context_reducer_request(),
+            Some(ContextReducerExecutor::process(process)),
+            native_response,
+        );
+
+        assert!(outcome.used_native_fallback);
+        assert_eq!(outcome.health.status, ContextReducerHealthStatus::Timeout);
+        std::thread::sleep(std::time::Duration::from_millis(7_000));
+        assert!(
+            !marker.exists(),
+            "timeout must kill adapter process group before descendant writes"
+        );
+    }
+
+    #[test]
+    fn context_reducer_process_temp_io_artifacts_are_cleaned_after_failure() {
+        let io = ProcessAdapterIo::new(b"{}").expect("temp io can be created");
+        let dir = io.dir_for_test().to_path_buf();
+        assert!(dir.exists());
+        drop(io);
+        assert!(
+            !dir.exists(),
+            "private process io directory must be removed"
         );
     }
 

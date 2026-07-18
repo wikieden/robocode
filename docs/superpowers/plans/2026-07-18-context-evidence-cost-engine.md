@@ -542,18 +542,22 @@ provider access when native processing is healthy.
 
 Production adapters execute only through registered process descriptors:
 canonical absolute executable under a canonical trusted plugin root, literal
-args, no shell interpolation, sanitized environment, bounded JSON pipes,
-host wall-clock deadline, and direct-child kill/wait on timeout. Runtime config
-only enables/selects a registered reducer id and cannot supply executable/cwd.
-Execution requires process authorization binding adapter id/version to the
-executable identity and permission snapshot reference. The in-process executor
-is a trusted test harness and is not a cancellable production boundary. Runtime
-`ContextReductionRecord` events persist bounded adapter id/version,
+args, no shell interpolation, sanitized environment, private temp-file
+request/stdout/stderr transport, host wall-clock deadline, and kill/wait before
+fallback. Unix adapters run in their own process group so timeout/oversize kills
+descendants before reaping the direct child; non-Unix documents the
+direct-child boundary. Runtime config only enables/selects a registered reducer
+id and cannot supply executable/cwd. Execution requires process authorization
+binding adapter id/version to the executable identity and permission snapshot
+reference. The in-process executor is a trusted test harness and is not a
+cancellable production boundary. Runtime `ContextReductionRecord` events
+persist bounded adapter id/version,
 status/reason, measured latency, and fallback provenance without request
 content, storage paths, raw credentials, raw stderr, or raw adapter output.
 Process stdout uses the minimum of config, descriptor, request policy, and a
-hard global cap with one sentinel byte; sentinel overflow kills and reaps the
-direct child before fallback. Stderr is separately hard-capped and redacted.
+hard global cap with one sentinel byte from the stdout temp file; sentinel
+overflow kills and reaps the process boundary before fallback. Stderr is
+separately hard-capped/redacted, and temp artifacts are cleaned after the call.
 
 - [ ] **Step 5: Verify no mandatory Headroom dependency**
 

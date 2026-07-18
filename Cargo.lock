@@ -497,6 +497,7 @@ dependencies = [
 name = "viden-plugin-host"
 version = "0.1.30"
 dependencies = [
+ "libc",
  "serde_json",
  "viden-plugin-api",
 ]

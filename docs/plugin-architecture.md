@@ -75,18 +75,22 @@ id/version to the executable identity and permission snapshot reference.
 The host rejects PATH-relative executables, symlink escapes, cwd outside the
 trusted root, unsafe reducer ids/versions, and missing or mismatched process
 authorization before spawn. It never invokes a shell, clears the environment
-before applying the allowlist, sends request/response JSON over bounded pipes,
-and enforces a host wall-clock deadline. On timeout the process transport kills
-and waits for the direct child before returning native fallback. The adapter
-contract disallows shell wrapping and child spawning when cross-platform
-process-group cancellation is unavailable, so the direct-child kill guarantee is
-the production cancellation boundary.
+before applying the allowlist, writes the request JSON to a private read-only
+stdin temp file, routes stdout/stderr to private temp files, and enforces a host
+wall-clock deadline. The host reads only bounded prefixes after child
+exit/timeout/reap, so it never waits for pipe EOF from a descendant-held handle.
+On Unix the adapter is launched in its own process group and timeout/oversize
+kills the group before waiting for the direct child; on non-Unix the documented
+fallback boundary is direct-child kill/wait. The adapter contract still
+disallows shell wrapping and child spawning.
 
 Process stdout is bounded by the minimum of runtime limits, descriptor limits,
-request policy, and a hard global cap. The reader keeps at most one sentinel
-byte beyond that bound; crossing the sentinel kills and reaps the direct child
-before native fallback. Stderr is captured with an independent hard cap and only
-appears in redacted bounded health.
+request policy, and a hard global cap. The host polls the stdout temp-file
+length and reads at most one sentinel byte beyond that bound; crossing the
+sentinel kills and reaps the process boundary before native fallback. Stderr is
+captured in a separate temp file with an independent hard cap and only appears
+in redacted bounded health. Temp artifacts are private and removed after the
+adapter call.
 
 In-process closure executors exist only for trusted tests and cooperative local
 harnesses. They run on a named worker thread with an owned request value,
