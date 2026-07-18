@@ -20,14 +20,34 @@ static CONTEXT_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 pub enum ContextError {
     Io(std::io::Error),
     MetadataEncode(serde_json::Error),
-    InvalidContentSha256 { value: String },
-    InvalidMetadataUtf8 { line: usize },
-    MalformedMetadata { line: usize, message: String },
-    DivergentDuplicateHandle { handle_id: String, line: usize },
-    MissingHandle { handle_id: String },
-    MissingBlob { content_sha256: String },
-    HashMismatch { expected: String, actual: String },
-    ScopeDenied { handle_id: String },
+    InvalidContentSha256 {
+        byte_len: usize,
+        category: Sha256ValidationCategory,
+    },
+    InvalidMetadataUtf8 {
+        line: usize,
+    },
+    MalformedMetadata {
+        line: usize,
+        message: String,
+    },
+    DivergentDuplicateHandle {
+        handle_id: String,
+        line: usize,
+    },
+    MissingHandle {
+        handle_id: String,
+    },
+    MissingBlob {
+        content_sha256: String,
+    },
+    HashMismatch {
+        expected: String,
+        actual: String,
+    },
+    ScopeDenied {
+        handle_id: String,
+    },
 }
 
 impl Display for ContextError {
@@ -35,8 +55,11 @@ impl Display for ContextError {
         match self {
             Self::Io(err) => write!(formatter, "context store I/O failed: {err}"),
             Self::MetadataEncode(err) => write!(formatter, "context metadata encode failed: {err}"),
-            Self::InvalidContentSha256 { value } => {
-                write!(formatter, "invalid context content sha256: {value}")
+            Self::InvalidContentSha256 { byte_len, category } => {
+                write!(
+                    formatter,
+                    "invalid context content sha256: byte_len={byte_len}, category={category}"
+                )
             }
             Self::InvalidMetadataUtf8 { line } => {
                 write!(formatter, "context metadata line {line} is not valid UTF-8")
@@ -78,6 +101,23 @@ impl Error for ContextError {}
 impl From<std::io::Error> for ContextError {
     fn from(err: std::io::Error) -> Self {
         Self::Io(err)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sha256ValidationCategory {
+    Empty,
+    WrongLength,
+    NonAsciiHex,
+}
+
+impl Display for Sha256ValidationCategory {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => write!(formatter, "empty"),
+            Self::WrongLength => write!(formatter, "wrong_length"),
+            Self::NonAsciiHex => write!(formatter, "non_ascii_hex"),
+        }
     }
 }
 
@@ -389,17 +429,29 @@ fn validate_metadata_record(record: &MetadataRecord) -> Result<(), ContextError>
 }
 
 fn validate_content_sha256(value: &str) -> Result<(), ContextError> {
-    if is_valid_content_sha256(value) {
-        Ok(())
-    } else {
-        Err(ContextError::InvalidContentSha256 {
-            value: value.to_string(),
-        })
+    match content_sha256_validation_category(value) {
+        None => Ok(()),
+        Some(category) => Err(ContextError::InvalidContentSha256 {
+            byte_len: value.len(),
+            category,
+        }),
     }
 }
 
 fn is_valid_content_sha256(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    content_sha256_validation_category(value).is_none()
+}
+
+fn content_sha256_validation_category(value: &str) -> Option<Sha256ValidationCategory> {
+    if value.is_empty() {
+        Some(Sha256ValidationCategory::Empty)
+    } else if value.len() != 64 {
+        Some(Sha256ValidationCategory::WrongLength)
+    } else if !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Some(Sha256ValidationCategory::NonAsciiHex)
+    } else {
+        None
+    }
 }
 
 fn verify_blob_hash(path: &Path, expected: &str) -> Result<(), ContextError> {
@@ -634,6 +686,41 @@ mod tests {
     }
 
     #[test]
+    fn invalid_hash_error_formats_do_not_expose_raw_caller_input() {
+        let root = temp_dir("redacted-invalid-hashes");
+        let mut store = ContextStore::open(&root).unwrap();
+        let stored = store
+            .put(ContextPutRequest::task(
+                "task-1",
+                ContextContentKind::Text,
+                b"valid",
+            ))
+            .unwrap();
+
+        for invalid_hash in ["../outside/secret.txt", "sk-proj-test-secret-value"] {
+            let mut handle = stored.handle.clone();
+            handle.content_sha256 = invalid_hash.to_string();
+            let error = store
+                .retrieve(&handle, &ContextScope::Task("task-1".into()))
+                .unwrap_err();
+
+            assert!(matches!(
+                error,
+                ContextError::InvalidContentSha256 {
+                    byte_len: _,
+                    category: _
+                }
+            ));
+            for formatted in error_formats(&error) {
+                assert!(
+                    !formatted.contains(invalid_hash),
+                    "leaked invalid hash in error formatting: {formatted}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn replay_rejects_invalid_hashes_without_constructing_blob_paths() {
         let root = temp_dir("replay-invalid-hashes");
         let mut store = ContextStore::open(&root).unwrap();
@@ -788,5 +875,16 @@ mod tests {
 
         assert_eq!(store.handle_count(), writers * writes_per_thread);
         assert_eq!(metadata_line_count(&root), writers * writes_per_thread);
+    }
+
+    fn error_formats(error: &ContextError) -> Vec<String> {
+        let mut formats = vec![error.to_string(), format!("{error:?}")];
+        let mut source = std::error::Error::source(error);
+        while let Some(next) = source {
+            formats.push(next.to_string());
+            formats.push(format!("{next:?}"));
+            source = next.source();
+        }
+        formats
     }
 }
