@@ -89,7 +89,7 @@ pub fn reduce(
         ContextContentKind::Log | ContextContentKind::Diagnostic => reduce_log(input, policy),
         ContextContentKind::Transcript | ContextContentKind::Text => reduce_text(input, policy),
     };
-    if kind != ContextContentKind::Json {
+    if kind != ContextContentKind::Json || view.fallback_raw {
         let redacted = redact_text(&view.content);
         if redacted != view.content {
             view.content = redacted;
@@ -99,6 +99,7 @@ pub fn reduce(
     if kind != ContextContentKind::Json || view.fallback_raw {
         bound_output(&mut view.content, policy, &mut view.omissions);
     }
+    view.retained_markers = final_retained_markers(kind, &view);
     view.retained_markers.sort();
     view.retained_markers.dedup();
     view.original = original;
@@ -747,6 +748,69 @@ fn required_marker_retained(marker: &str, view: &ReductionResult) -> bool {
             .iter()
             .any(|retained| retained == marker)
     }
+}
+
+fn final_retained_markers(kind: ContextContentKind, view: &ReductionResult) -> Vec<String> {
+    if view.fallback_raw {
+        return Vec::new();
+    }
+    match kind {
+        ContextContentKind::Json => collect_json_markers_from_content(&view.content),
+        _ => view
+            .retained_markers
+            .iter()
+            .filter(|marker| final_marker_supported(marker, &view.content))
+            .cloned()
+            .collect(),
+    }
+}
+
+fn final_marker_supported(marker: &str, content: &str) -> bool {
+    match marker {
+        "first_failure" | "unique_error" => contains_failure_line(content),
+        "tail" => !content.is_empty(),
+        "constraint" => {
+            content.to_ascii_lowercase().contains("constraint")
+                || content.to_ascii_lowercase().contains("must ")
+                || content.to_ascii_lowercase().contains("do not ")
+        }
+        "decision" => {
+            content.to_ascii_lowercase().contains("decision")
+                || content.to_ascii_lowercase().contains("decided")
+        }
+        "question" => {
+            content.to_ascii_lowercase().contains("unresolved")
+                || content.to_ascii_lowercase().contains("question")
+                || content.contains('?')
+        }
+        "recent_turn" => !content.is_empty(),
+        "import_or_module" => content.lines().any(|line| {
+            let trimmed = line.trim_start();
+            trimmed.starts_with("use ")
+                || trimmed.starts_with("pub use ")
+                || trimmed.starts_with("mod ")
+        }),
+        "selected_range" => content.lines().any(|line| line.starts_with('L')),
+        "diff_file" => content.contains("diff --git "),
+        "diff_hunk" => content.contains("@@ "),
+        "changed_line" => content.lines().any(is_changed_diff_line),
+        "risky_change" => content.contains("unsafe") || content.contains("TODO"),
+        marker if marker.starts_with("declaration:") => content
+            .lines()
+            .any(|line| code_declaration_marker(line.trim_start()).is_some()),
+        _ => content.contains(marker),
+    }
+}
+
+fn contains_failure_line(content: &str) -> bool {
+    content.lines().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower.contains("error")
+            || lower.contains("failed")
+            || lower.contains("failure")
+            || lower.contains("panicked")
+            || lower.contains("panic")
+    })
 }
 
 fn redact_text(input: &str) -> String {
@@ -1464,6 +1528,81 @@ mod tests {
                 .find(|omission| omission.reason == "log_lines_omitted_or_deduplicated")
                 .map(|omission| omission.omitted_count),
             Some(3)
+        );
+    }
+
+    #[test]
+    fn invalid_json_raw_fallback_redacts_secrets_before_output() {
+        let input =
+            b"{ api_key = raw-secret-token, Authorization: Bearer bearer-secret, password=hunter2";
+
+        let view = reduce(ContextContentKind::Json, input, &ReductionPolicy::default()).unwrap();
+        let serialized = serde_json::to_string(&view).unwrap();
+
+        assert!(view.fallback_raw);
+        assert!(view.content.contains("[REDACTED]"));
+        assert!(!serialized.contains("raw-secret-token"));
+        assert!(!serialized.contains("bearer-secret"));
+        assert!(!serialized.contains("hunter2"));
+        assert!(
+            !view
+                .retained_markers
+                .iter()
+                .any(|marker| marker.contains("raw-secret"))
+        );
+        assert!(
+            !view
+                .omissions
+                .iter()
+                .any(|omission| omission.reason.contains("raw-secret"))
+        );
+    }
+
+    #[test]
+    fn required_markers_are_checked_against_final_bounded_output() {
+        let semantic_policy = ReductionPolicy {
+            max_output_bytes: 4,
+            required_markers: vec!["first_failure".to_string()],
+            ..ReductionPolicy::default()
+        };
+        assert!(matches!(
+            reduce(
+                ContextContentKind::Log,
+                b"ERROR src/a.rs:1 boom",
+                &semantic_policy
+            ),
+            Err(crate::ContextError::QualityFailed { .. })
+        ));
+
+        let literal_policy = ReductionPolicy {
+            max_output_bytes: 10,
+            required_markers: vec!["literal:must-keep".to_string()],
+            ..ReductionPolicy::default()
+        };
+        assert!(matches!(
+            reduce(
+                ContextContentKind::Text,
+                b"constraint: must-keep",
+                &literal_policy
+            ),
+            Err(crate::ContextError::QualityFailed { .. })
+        ));
+
+        let retained_policy = ReductionPolicy {
+            required_markers: vec!["decision".to_string(), "literal:keep".to_string()],
+            ..ReductionPolicy::default()
+        };
+        let retained = reduce(
+            ContextContentKind::Text,
+            b"decision: keep",
+            &retained_policy,
+        )
+        .unwrap();
+        assert!(
+            retained
+                .retained_markers
+                .iter()
+                .any(|marker| marker == "decision")
         );
     }
 }
