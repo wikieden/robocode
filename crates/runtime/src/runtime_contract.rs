@@ -401,11 +401,11 @@ impl SessionEngine {
                 match self.run_agent_task(&task_id, approver) {
                     Ok(task_events) => append_resequenced(&mut events, task_events),
                     Err(err) => {
-                        return Ok(self.command_rejected_after_transaction_rollback(
+                        return self.command_rejected_after_transaction_rollback(
                             &transaction_snapshot,
                             command_id,
                             err,
-                        ));
+                        );
                     }
                 }
             }
@@ -422,11 +422,11 @@ impl SessionEngine {
                 ) {
                     Ok(decision_events) => append_resequenced(&mut events, decision_events),
                     Err(err) => {
-                        return Ok(self.command_rejected_after_transaction_rollback(
+                        return self.command_rejected_after_transaction_rollback(
                             &transaction_snapshot,
                             command_id,
                             err,
-                        ));
+                        );
                     }
                 }
             }
@@ -440,11 +440,11 @@ impl SessionEngine {
                 ) {
                     Ok(decision_events) => append_resequenced(&mut events, decision_events),
                     Err(err) => {
-                        return Ok(self.command_rejected_after_transaction_rollback(
+                        return self.command_rejected_after_transaction_rollback(
                             &transaction_snapshot,
                             command_id,
                             err,
-                        ));
+                        );
                     }
                 }
             }
@@ -469,11 +469,11 @@ impl SessionEngine {
                 match record_result {
                     Ok(evidence_events) => append_resequenced(&mut events, evidence_events),
                     Err(err) => {
-                        return Ok(self.command_rejected_after_transaction_rollback(
+                        return self.command_rejected_after_transaction_rollback(
                             &transaction_snapshot,
                             command_id,
                             err,
-                        ));
+                        );
                     }
                 }
             }
@@ -489,11 +489,11 @@ impl SessionEngine {
                 ) {
                     Ok(artifact_events) => append_resequenced(&mut events, artifact_events),
                     Err(err) => {
-                        return Ok(self.command_rejected_after_transaction_rollback(
+                        return self.command_rejected_after_transaction_rollback(
                             &transaction_snapshot,
                             command_id,
                             err,
-                        ));
+                        );
                     }
                 }
             }
@@ -504,11 +504,11 @@ impl SessionEngine {
             } => match self.reject_agent_artifact(&gate_id, &evidence_id, reason) {
                 Ok(artifact_events) => append_resequenced(&mut events, artifact_events),
                 Err(err) => {
-                    return Ok(self.command_rejected_after_transaction_rollback(
+                    return self.command_rejected_after_transaction_rollback(
                         &transaction_snapshot,
                         command_id,
                         err,
-                    ));
+                    );
                 }
             },
             RuntimeCommand::MergeAgentPatch { gate_id, decision } => {
@@ -518,11 +518,11 @@ impl SessionEngine {
                 ) {
                     Ok(merge_events) => append_resequenced(&mut events, merge_events),
                     Err(err) => {
-                        return Ok(self.command_rejected_after_transaction_rollback(
+                        return self.command_rejected_after_transaction_rollback(
                             &transaction_snapshot,
                             command_id,
                             err,
-                        ));
+                        );
                     }
                 }
             }
@@ -536,7 +536,8 @@ impl SessionEngine {
         }
 
         if persist_after_match && let Err(err) = self.persist_runtime_domain_events(&events) {
-            self.restore_transaction_snapshot(&transaction_snapshot);
+            self.restore_transaction_snapshot(&transaction_snapshot)
+                .map_err(|rollback| format!("{err}; rollback failed: {rollback}"))?;
             return Err(err);
         }
         self.commit_transaction_snapshot(&transaction_snapshot);
@@ -548,6 +549,9 @@ impl SessionEngine {
         self.deferred_cost_usage.clear();
         self.defer_transcript_persistence = true;
         self.deferred_transcript_entries.borrow_mut().clear();
+        self.defer_workflow_persistence = true;
+        self.deferred_workflow_agent_events.borrow_mut().clear();
+        self.transaction_file_rollback.borrow_mut().clear();
         RuntimeDomainSnapshot {
             runtime_snapshot: self.runtime_snapshot.clone(),
             messages: self.messages.clone(),
@@ -564,7 +568,10 @@ impl SessionEngine {
         }
     }
 
-    fn restore_runtime_domain_snapshot(&mut self, snapshot: RuntimeDomainSnapshot) {
+    fn restore_runtime_domain_snapshot(
+        &mut self,
+        snapshot: RuntimeDomainSnapshot,
+    ) -> Result<(), String> {
         self.runtime_snapshot = snapshot.runtime_snapshot;
         self.messages = snapshot.messages;
         self.last_diff = snapshot.last_diff;
@@ -581,12 +588,21 @@ impl SessionEngine {
         self.deferred_cost_usage.clear();
         self.defer_transcript_persistence = false;
         self.deferred_transcript_entries.borrow_mut().clear();
+        self.defer_workflow_persistence = false;
+        self.deferred_workflow_agent_events.borrow_mut().clear();
+        self.restore_transaction_files()?;
+        self.transaction_file_rollback.borrow_mut().clear();
+        Ok(())
     }
 
-    fn restore_transaction_snapshot(&mut self, snapshot: &Option<RuntimeDomainSnapshot>) {
+    fn restore_transaction_snapshot(
+        &mut self,
+        snapshot: &Option<RuntimeDomainSnapshot>,
+    ) -> Result<(), String> {
         if let Some(snapshot) = snapshot {
-            self.restore_runtime_domain_snapshot(snapshot.clone());
+            self.restore_runtime_domain_snapshot(snapshot.clone())?;
         }
+        Ok(())
     }
 
     fn commit_transaction_snapshot(&mut self, snapshot: &Option<RuntimeDomainSnapshot>) {
@@ -595,6 +611,9 @@ impl SessionEngine {
             self.deferred_cost_usage.clear();
             self.defer_transcript_persistence = false;
             self.deferred_transcript_entries.borrow_mut().clear();
+            self.defer_workflow_persistence = false;
+            self.deferred_workflow_agent_events.borrow_mut().clear();
+            self.transaction_file_rollback.borrow_mut().clear();
         }
     }
 
@@ -603,9 +622,10 @@ impl SessionEngine {
         snapshot: &Option<RuntimeDomainSnapshot>,
         command_id: String,
         err: String,
-    ) -> Vec<RuntimeEvent> {
-        self.restore_transaction_snapshot(snapshot);
-        vec![command_rejected(command_id, err)]
+    ) -> Result<Vec<RuntimeEvent>, String> {
+        self.restore_transaction_snapshot(snapshot)
+            .map_err(|rollback| format!("{err}; rollback failed: {rollback}"))?;
+        Ok(vec![command_rejected(command_id, err)])
     }
 
     fn persist_cost_usage_events(&mut self, events: &[RuntimeEvent]) -> Result<(), String> {
@@ -2207,7 +2227,9 @@ impl SessionEngine {
                 );
             }
         };
+        self.stage_patch_rollback(&patch_application)?;
         if let Err(err) = write_patch_application(&patch_application) {
+            self.restore_transaction_files()?;
             return self.mark_agent_patch_conflict(
                 gate_index,
                 &dag_id,
@@ -2258,6 +2280,46 @@ impl SessionEngine {
             ],
         )?;
         Ok(events)
+    }
+
+    fn stage_patch_rollback(&self, application: &PatchApplication) -> Result<(), String> {
+        let mut rollback = self.transaction_file_rollback.borrow_mut();
+        rollback.clear();
+        for (path, _) in &application.writes {
+            let metadata = fs::metadata(path).ok();
+            rollback.push(crate::FileRollback {
+                path: path.clone(),
+                contents: fs::read(path).ok(),
+                permissions: metadata.map(|metadata| metadata.permissions()),
+            });
+        }
+        Ok(())
+    }
+
+    fn restore_transaction_files(&self) -> Result<(), String> {
+        for file in self.transaction_file_rollback.borrow().iter().rev() {
+            match &file.contents {
+                Some(contents) => {
+                    if let Some(parent) = file.path.parent() {
+                        fs::create_dir_all(parent)
+                            .map_err(|err| format!("{}: {err}", parent.display()))?;
+                    }
+                    fs::write(&file.path, contents)
+                        .map_err(|err| format!("{}: {err}", file.path.display()))?;
+                    if let Some(permissions) = &file.permissions {
+                        fs::set_permissions(&file.path, permissions.clone())
+                            .map_err(|err| format!("{}: {err}", file.path.display()))?;
+                    }
+                }
+                None => {
+                    if file.path.exists() {
+                        fs::remove_file(&file.path)
+                            .map_err(|err| format!("{}: {err}", file.path.display()))?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn patch_evidence_for_gate(&self, gate_index: usize) -> Option<&EvidenceView> {
@@ -2351,16 +2413,11 @@ impl SessionEngine {
         event_type: &str,
         payload_fields: &[(&str, &str)],
     ) -> Result<(), String> {
-        #[cfg(test)]
-        if self.fail_next_workflow_append.replace(false) {
-            return Err("injected workflow append failure".to_string());
-        }
-
         let payload = payload_fields
             .iter()
             .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
             .collect();
-        self.workflows.append_agent_event(&WorkflowAgentEvent {
+        let event = WorkflowAgentEvent {
             event_id: fresh_id("agent_evt"),
             dag_id: dag_id.to_string(),
             task_id: task_id.map(ToString::to_string),
@@ -2368,7 +2425,16 @@ impl SessionEngine {
             timestamp: now_timestamp(),
             origin_session_id: Some(self.session_id().to_string()),
             payload,
-        })
+        };
+        if self.defer_workflow_persistence {
+            self.deferred_workflow_agent_events.borrow_mut().push(event);
+            return Ok(());
+        }
+        #[cfg(test)]
+        if self.fail_next_workflow_append.replace(false) {
+            return Err("injected workflow append failure".to_string());
+        }
+        self.workflows.append_agent_event(&event)
     }
 }
 

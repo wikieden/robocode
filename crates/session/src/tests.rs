@@ -26,6 +26,115 @@ fn jsonl_round_trip_works() {
 }
 
 #[test]
+fn replay_discards_trailing_partial_batch() {
+    let home = temp_home("partial_batch_legacy");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store =
+        SessionStore::new_with_home(&home, &cwd, Some("session_partial_batch".into())).unwrap();
+    fs::write(
+        store.transcript_path(),
+        "{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"batch-a\",\"count\":1}\n{\"type\":\"message\",\"id\":\"msg_partial\",\"role\":\"user\",\"content\":\"discarded\",\"timestamp\":1,\"tool_name\":null,\"tool_call_id\":null}\n",
+    )
+    .unwrap();
+
+    assert_eq!(store.load_entries().unwrap(), Vec::<TranscriptEntry>::new());
+}
+
+#[test]
+fn replay_discards_malformed_uncommitted_batch_then_loads_later_committed_batch() {
+    let home = temp_home("malformed_uncommitted_then_committed");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store =
+        SessionStore::new_with_home(&home, &cwd, Some("session_malformed_uncommitted".into()))
+            .unwrap();
+    let committed = TranscriptEntry::Message {
+        message: Message::new(Role::Assistant, "committed survives"),
+    };
+    fs::write(
+        store.transcript_path(),
+        format!(
+            "{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"bad\",\"count\":2}}\n{{not-json}}\n{{\"type\":\"runtime_event_batch_commit\",\"batch_id\":\"bad\",\"count\":2}}\n{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"good\",\"count\":1}}\n{}\n{{\"type\":\"runtime_event_batch_commit\",\"batch_id\":\"good\",\"count\":1}}\n",
+            committed.to_json_line()
+        ),
+    )
+    .unwrap();
+
+    assert_eq!(store.load_entries().unwrap(), vec![committed]);
+}
+
+#[test]
+fn replay_discards_mismatched_id_and_count_batches() {
+    let home = temp_home("mismatched_batch_markers");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store = SessionStore::new_with_home(&home, &cwd, Some("session_mismatch".into())).unwrap();
+    let discarded_id = TranscriptEntry::Message {
+        message: Message::new(Role::User, "wrong id"),
+    };
+    let discarded_count = TranscriptEntry::Message {
+        message: Message::new(Role::User, "wrong count"),
+    };
+    let kept = TranscriptEntry::Message {
+        message: Message::new(Role::User, "kept"),
+    };
+    fs::write(
+        store.transcript_path(),
+        format!(
+            "{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"a\",\"count\":1}}\n{}\n{{\"type\":\"runtime_event_batch_commit\",\"batch_id\":\"b\",\"count\":1}}\n{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"c\",\"count\":2}}\n{}\n{{\"type\":\"runtime_event_batch_commit\",\"batch_id\":\"c\",\"count\":2}}\n{}\n",
+            discarded_id.to_json_line(),
+            discarded_count.to_json_line(),
+            kept.to_json_line()
+        ),
+    )
+    .unwrap();
+
+    assert_eq!(store.load_entries().unwrap(), vec![kept]);
+}
+
+#[test]
+fn replay_discards_nested_batch_without_hiding_later_valid_batch() {
+    let home = temp_home("nested_batch");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store = SessionStore::new_with_home(&home, &cwd, Some("session_nested".into())).unwrap();
+    let nested = TranscriptEntry::Message {
+        message: Message::new(Role::User, "nested discarded"),
+    };
+    let kept = TranscriptEntry::Message {
+        message: Message::new(Role::Assistant, "later valid"),
+    };
+    fs::write(
+        store.transcript_path(),
+        format!(
+            "{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"outer\",\"count\":1}}\n{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"inner\",\"count\":1}}\n{}\n{{\"type\":\"runtime_event_batch_commit\",\"batch_id\":\"outer\",\"count\":1}}\n{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"later\",\"count\":1}}\n{}\n{{\"type\":\"runtime_event_batch_commit\",\"batch_id\":\"later\",\"count\":1}}\n",
+            nested.to_json_line(),
+            kept.to_json_line()
+        ),
+    )
+    .unwrap();
+
+    assert_eq!(store.load_entries().unwrap(), vec![kept]);
+}
+
+#[test]
+fn replay_keeps_strict_errors_for_malformed_legacy_entries() {
+    let home = temp_home("malformed_legacy");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store =
+        SessionStore::new_with_home(&home, &cwd, Some("session_malformed_legacy".into())).unwrap();
+    fs::write(store.transcript_path(), "{not-json}\n").unwrap();
+
+    let error = store.load_entries().unwrap_err();
+    assert!(
+        error.contains("Malformed") || error.contains("Missing field"),
+        "{error}"
+    );
+}
+
+#[test]
 fn jsonl_round_trip_preserves_cost_usage_entries() {
     let home = temp_home("jsonl_cost_usage");
     let cwd = home.join("workspace");

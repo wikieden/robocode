@@ -2055,7 +2055,7 @@ fn record_agent_evidence_rolls_back_when_workflow_append_fails() {
     engine.set_merge_gate_context_facts_for_test("bundle-workflow-append-fail", item);
     engine.fail_next_workflow_append_for_test();
 
-    let events = engine
+    let err = engine
         .handle_runtime_command(
             "cmd_workflow_append_fail",
             RuntimeCommand::RecordAgentEvidence {
@@ -2069,14 +2069,9 @@ fn record_agent_evidence_rolls_back_when_workflow_append_fails() {
             },
             &mut approver,
         )
-        .unwrap();
+        .unwrap_err();
 
-    assert!(events.iter().any(|event| matches!(
-        &event.kind,
-        RuntimeEventKind::CommandRejected { command_id, reason }
-            if command_id == "cmd_workflow_append_fail"
-                && reason.contains("injected workflow append failure")
-    )));
+    assert!(err.contains("injected workflow append failure"));
     assert_eq!(
         engine.runtime_view_state().merge_gates,
         before.merge_gates,
@@ -2224,7 +2219,7 @@ fn start_agent_task_rolls_back_when_workflow_append_fails() {
     let before = engine.runtime_view_state();
     engine.fail_next_workflow_append_for_test();
 
-    let events = engine
+    let err = engine
         .handle_runtime_command(
             "cmd_start_workflow_fail",
             RuntimeCommand::StartAgentTask {
@@ -2232,14 +2227,9 @@ fn start_agent_task_rolls_back_when_workflow_append_fails() {
             },
             &mut approver,
         )
-        .unwrap();
+        .unwrap_err();
 
-    assert!(events.iter().any(|event| matches!(
-        &event.kind,
-        RuntimeEventKind::CommandRejected { command_id, reason }
-            if command_id == "cmd_start_workflow_fail"
-                && reason.contains("injected workflow append failure")
-    )));
+    assert!(err.contains("injected workflow append failure"));
     let live = engine.runtime_view_state();
     assert_eq!(live.tasks, before.tasks, "task update leaked");
     assert_eq!(live.agent_dags, before.agent_dags, "DAG update leaked");
@@ -2253,6 +2243,145 @@ fn start_agent_task_rolls_back_when_workflow_append_fails() {
         "context bundle leaked"
     );
     assert_resumed_runtime_matches(&cwd, &home, &session_id, &live);
+}
+
+#[test]
+fn start_agent_task_deferred_workflow_failure_leaves_logs_and_replay_unchanged() {
+    let cwd = temp_dir("runtime_contract_start_task_deferred_workflow_fail_cwd");
+    let home = temp_dir("runtime_contract_start_task_deferred_workflow_fail_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n".to_string(),
+        },
+        ModelEvent::Done,
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    start_single_patch_gate(
+        &mut engine,
+        &mut approver,
+        "task_start_deferred_workflow_fail",
+    );
+    let before = engine.runtime_view_state();
+    let workflow_before = WorkflowStore::new(&home, &cwd)
+        .unwrap()
+        .load_agent_events()
+        .unwrap();
+    engine.fail_deferred_workflow_flush_for_test();
+
+    let err = engine
+        .handle_runtime_command(
+            "cmd_start_deferred_workflow_fail",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_start_deferred_workflow_fail".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap_err();
+
+    assert!(err.contains("injected workflow append failure"));
+    let live = engine.runtime_view_state();
+    assert_eq!(live.tasks, before.tasks, "task update leaked");
+    assert_eq!(live.merge_gates, before.merge_gates, "gate update leaked");
+    assert_eq!(
+        live.latest_evidence, before.latest_evidence,
+        "evidence leaked"
+    );
+    assert_eq!(
+        live.context_items, before.context_items,
+        "context item leaked"
+    );
+    assert_eq!(
+        WorkflowStore::new(&home, &cwd)
+            .unwrap()
+            .load_agent_events()
+            .unwrap(),
+        workflow_before
+    );
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &live);
+}
+
+#[test]
+fn merge_agent_patch_restores_files_when_persistence_fails_after_write() {
+    let cwd = temp_dir("runtime_contract_merge_patch_restore_after_write_cwd");
+    let home = temp_dir("runtime_contract_merge_patch_restore_after_write_home");
+    std::fs::create_dir_all(cwd.join("src")).unwrap();
+    std::fs::write(cwd.join("src/lib.rs"), "old\n").unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    start_single_patch_gate(&mut engine, &mut approver, "task_merge_restore");
+    let patch = b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let (patch_item, patch_canonical) = stored_canonical_context(
+        &cwd,
+        "task_merge_restore",
+        "evidence-merge-restore-patch",
+        "bundle-merge-restore-patch",
+        ContextContentKind::Diff,
+        patch,
+    );
+    engine.set_merge_gate_context_facts_for_test("bundle-merge-restore-patch", patch_item);
+    let evidence_events = engine
+        .handle_runtime_command(
+            "cmd_merge_restore_evidence",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_merge_restore".to_string(),
+                evidence_id: Some("evidence-merge-restore-patch".to_string()),
+                kind: "patch".to_string(),
+                summary: "canonical patch".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(patch_canonical),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert!(evidence_events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::MergeGateUpdated { gate }
+            if gate.gate_id == "gate-task_merge_restore"
+                && gate.status == MergeGateStatus::Accepted
+    )));
+    let before = engine.runtime_view_state();
+    let workflow_before = WorkflowStore::new(&home, &cwd)
+        .unwrap()
+        .load_agent_events()
+        .unwrap();
+    engine.fail_deferred_workflow_flush_for_test();
+
+    let err = engine
+        .handle_runtime_command(
+            "cmd_merge_restore",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_merge_restore".to_string(),
+                decision: Some("merge with rollback".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap_err();
+
+    assert!(err.contains("injected workflow append failure"));
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("src/lib.rs")).unwrap(),
+        "old\n"
+    );
+    let live = engine.runtime_view_state();
+    assert_eq!(live.merge_gates, before.merge_gates, "gate update leaked");
+    assert_eq!(live.tasks, before.tasks, "task update leaked");
+    assert_eq!(
+        WorkflowStore::new(&home, &cwd)
+            .unwrap()
+            .load_agent_events()
+            .unwrap(),
+        workflow_before
+    );
 }
 
 #[test]

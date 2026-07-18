@@ -277,6 +277,7 @@ impl SessionEngine {
 
     fn store_entries(&self, entries: Vec<TranscriptEntry>) -> Result<(), String> {
         if entries.is_empty() {
+            self.flush_deferred_workflow_events()?;
             return Ok(());
         }
         #[cfg(test)]
@@ -290,7 +291,34 @@ impl SessionEngine {
                 .store
                 .append_entries_uncommitted_for_test(&entries, committed_entries);
         }
-        self.store.append_entries_atomic(&entries)
+        if self.defer_workflow_persistence
+            && !self.deferred_workflow_agent_events.borrow().is_empty()
+        {
+            let batch = self.store.append_entries_precommit(&entries)?;
+            self.flush_deferred_workflow_events()?;
+            return self.store.commit_entries_batch(&batch);
+        }
+        self.store.append_entries_atomic(&entries)?;
+        self.flush_deferred_workflow_events()
+    }
+
+    fn flush_deferred_workflow_events(&self) -> Result<(), String> {
+        if !self.defer_workflow_persistence {
+            return Ok(());
+        }
+        #[cfg(test)]
+        if self.fail_deferred_workflow_flush.replace(false) {
+            return Err("injected workflow append failure".to_string());
+        }
+        let events = self.deferred_workflow_agent_events.borrow().clone();
+        for event in events {
+            #[cfg(test)]
+            if self.fail_next_workflow_append.replace(false) {
+                return Err("injected workflow append failure".to_string());
+            }
+            self.workflows.append_agent_event(&event)?;
+        }
+        Ok(())
     }
 
     fn remember_runtime_domain_event(&mut self, event: RuntimeEvent) {

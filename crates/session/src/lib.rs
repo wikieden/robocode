@@ -1,8 +1,10 @@
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use viden_types::{
     Role, SessionSummary, TranscriptEntry, fresh_id, now_timestamp, truncate_for_preview,
@@ -15,6 +17,12 @@ pub struct SessionPaths {
     pub project_dir: PathBuf,
     pub transcript_path: PathBuf,
     pub index_db_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TranscriptBatchCommit {
+    pub batch_id: String,
+    pub count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -89,7 +97,34 @@ impl SessionStore {
     }
 
     pub fn append_entries_atomic(&self, entries: &[TranscriptEntry]) -> Result<(), String> {
-        self.append_entries_atomic_with_uncommitted_for_test(entries, None)
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let batch = self.append_entries_precommit(entries)?;
+        self.commit_entries_batch(&batch)
+    }
+
+    pub fn append_entries_precommit(
+        &self,
+        entries: &[TranscriptEntry],
+    ) -> Result<TranscriptBatchCommit, String> {
+        let batch_id = fresh_id("txbatch");
+        self.append_entries_batch_payload(entries, &batch_id, false)?;
+        Ok(TranscriptBatchCommit {
+            batch_id,
+            count: entries.len(),
+        })
+    }
+
+    pub fn commit_entries_batch(&self, batch: &TranscriptBatchCommit) -> Result<(), String> {
+        let payload = format!(
+            "{{\"type\":\"runtime_event_batch_commit\",\"batch_id\":\"{}\",\"count\":{}}}\n",
+            escape_json(&batch.batch_id),
+            batch.count
+        );
+        self.append_payload(&payload)?;
+        let _ = self.rebuild_index_for_current();
+        Ok(())
     }
 
     pub fn append_entries_uncommitted_for_test(
@@ -105,53 +140,61 @@ impl SessionStore {
         entries: &[TranscriptEntry],
         uncommitted_entries: Option<usize>,
     ) -> Result<(), String> {
-        self.append_entries_atomic_payload(entries, uncommitted_entries)
-    }
-
-    fn append_entries_atomic_payload(
-        &self,
-        entries: &[TranscriptEntry],
-        uncommitted_entries: Option<usize>,
-    ) -> Result<(), String> {
         if entries.is_empty() {
             return Ok(());
         }
         let batch_id = fresh_id("txbatch");
-        // Replay applies only batches with a commit marker, so a failed append can
-        // leave auditable uncommitted lines without changing rebuilt session state.
-        let mut payload = format!(
-            "{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"{}\",\"count\":{}}}\n",
-            escape_json(&batch_id),
-            entries.len()
-        );
         let take_entries = uncommitted_entries
             .unwrap_or(entries.len())
             .min(entries.len());
-        for entry in entries.iter().take(take_entries) {
-            payload.push_str(&entry.to_json_line());
-            payload.push('\n');
-        }
+        self.append_entries_batch_payload(&entries[..take_entries], &batch_id, true)?;
         if uncommitted_entries.is_none() {
-            payload.push_str(&format!(
-                "{{\"type\":\"runtime_event_batch_commit\",\"batch_id\":\"{}\"}}\n",
-                escape_json(&batch_id)
-            ));
+            self.commit_entries_batch(&TranscriptBatchCommit {
+                batch_id,
+                count: entries.len(),
+            })?;
         }
-        self.append_payload(&payload)?;
-        let _ = self.rebuild_index_for_current();
         if uncommitted_entries.is_some() {
             return Err("injected transcript append failure".to_string());
         }
         Ok(())
     }
 
+    fn append_entries_batch_payload(
+        &self,
+        entries: &[TranscriptEntry],
+        batch_id: &str,
+        declared_full_count: bool,
+    ) -> Result<(), String> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        // Replay applies only batches with a commit marker, so a failed append can
+        // leave auditable uncommitted lines without changing rebuilt session state.
+        let mut payload = format!(
+            "{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"{}\",\"count\":{}}}\n",
+            escape_json(batch_id),
+            entries.len()
+        );
+        for entry in entries {
+            payload.push_str(&entry.to_json_line());
+            payload.push('\n');
+        }
+        if !declared_full_count {
+            // The caller may append the commit marker only after related durable
+            // stores succeed, leaving this batch ignored by replay if they fail.
+        }
+        self.append_payload(&payload)?;
+        Ok(())
+    }
+
     fn append_payload(&self, payload: &str) -> Result<(), String> {
+        let _lock = AppendLock::acquire(&self.paths.transcript_path)?;
         if self.paths.transcript_path.exists() {
             let mut file = fs::OpenOptions::new()
                 .append(true)
                 .open(&self.paths.transcript_path)
                 .map_err(|err| err.to_string())?;
-            use std::io::Write;
             file.write_all(payload.as_bytes())
                 .map_err(|err| err.to_string())?;
         } else {
@@ -170,22 +213,35 @@ impl SessionStore {
         }
         let contents = fs::read_to_string(path).map_err(|err| err.to_string())?;
         let mut entries = Vec::new();
-        let mut pending_batch: Option<Vec<TranscriptEntry>> = None;
+        let mut pending_batch: Option<PendingBatch> = None;
         for line in contents.lines().filter(|line| !line.trim().is_empty()) {
             match transcript_batch_marker(line)? {
-                Some(BatchMarker::Begin) => {
-                    pending_batch = Some(Vec::new());
+                Some(BatchMarker::Begin { batch_id, count }) => {
+                    pending_batch = Some(PendingBatch {
+                        batch_id,
+                        count,
+                        entries: Vec::new(),
+                        invalid: pending_batch.is_some(),
+                    });
                 }
-                Some(BatchMarker::Commit) => {
-                    if let Some(batch) = pending_batch.take() {
-                        entries.extend(batch);
+                Some(BatchMarker::Commit { batch_id, count }) => {
+                    if let Some(batch) = pending_batch.take()
+                        && !batch.invalid
+                        && batch.batch_id == batch_id
+                        && batch.count == count
+                        && batch.entries.len() == count
+                    {
+                        entries.extend(batch.entries);
                     }
                 }
                 None => {
-                    let entry = TranscriptEntry::from_json_line(line)?;
                     if let Some(batch) = &mut pending_batch {
-                        batch.push(entry);
+                        match TranscriptEntry::from_json_line(line) {
+                            Ok(entry) => batch.entries.push(entry),
+                            Err(_) => batch.invalid = true,
+                        }
                     } else {
+                        let entry = TranscriptEntry::from_json_line(line)?;
                         entries.push(entry);
                     }
                 }
@@ -514,19 +570,57 @@ fn empty_to_none(input: &str) -> Option<String> {
     }
 }
 
+struct PendingBatch {
+    batch_id: String,
+    count: usize,
+    entries: Vec<TranscriptEntry>,
+    invalid: bool,
+}
+
 enum BatchMarker {
-    Begin,
-    Commit,
+    Begin { batch_id: String, count: usize },
+    Commit { batch_id: String, count: usize },
 }
 
 fn transcript_batch_marker(line: &str) -> Result<Option<BatchMarker>, String> {
     if line.contains("\"type\":\"runtime_event_batch_begin\"") {
-        Ok(Some(BatchMarker::Begin))
+        let Some(batch_id) = extract_json_string_field(line, "batch_id") else {
+            return Ok(None);
+        };
+        let Some(count) = extract_json_usize_field(line, "count") else {
+            return Ok(None);
+        };
+        Ok(Some(BatchMarker::Begin { batch_id, count }))
     } else if line.contains("\"type\":\"runtime_event_batch_commit\"") {
-        Ok(Some(BatchMarker::Commit))
+        let Some(batch_id) = extract_json_string_field(line, "batch_id") else {
+            return Ok(None);
+        };
+        let Some(count) = extract_json_usize_field(line, "count") else {
+            return Ok(None);
+        };
+        Ok(Some(BatchMarker::Commit { batch_id, count }))
     } else {
         Ok(None)
     }
+}
+
+fn extract_json_string_field(line: &str, field: &str) -> Option<String> {
+    let needle = format!("\"{field}\":\"");
+    let start = line.find(&needle)? + needle.len();
+    let rest = &line[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+fn extract_json_usize_field(line: &str, field: &str) -> Option<usize> {
+    let needle = format!("\"{field}\":");
+    let start = line.find(&needle)? + needle.len();
+    let rest = &line[start..];
+    let digits = rest
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    digits.parse().ok()
 }
 
 fn escape_json(input: &str) -> String {
@@ -542,6 +636,42 @@ fn escape_json(input: &str) -> String {
         }
     }
     out
+}
+
+struct AppendLock {
+    path: PathBuf,
+}
+
+impl AppendLock {
+    fn acquire(transcript_path: &Path) -> Result<Self, String> {
+        let lock_path = transcript_path.with_extension("jsonl.lock");
+        for _ in 0..200 {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+            {
+                Ok(mut file) => {
+                    file.write_all(b"locked\n").map_err(|err| err.to_string())?;
+                    return Ok(Self { path: lock_path });
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(err) => return Err(err.to_string()),
+            }
+        }
+        Err(format!(
+            "timed out waiting for transcript append lock {}",
+            lock_path.display()
+        ))
+    }
+}
+
+impl Drop for AppendLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 #[cfg(test)]
