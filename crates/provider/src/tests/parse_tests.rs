@@ -69,6 +69,87 @@ fn openai_response_parser_extracts_cached_token_provider_variants_without_pricin
 }
 
 #[test]
+fn openai_response_parser_extracts_deepseek_top_level_cache_hit_tokens() {
+    let response = r#"{
+        "choices":[{"message":{"role":"assistant","content":"deepseek cache"}}],
+        "usage":{
+            "prompt_tokens":1000,
+            "completion_tokens":200,
+            "prompt_cache_hit_tokens":750,
+            "prompt_cache_miss_tokens":250,
+            "total_tokens":1200
+        }
+    }"#;
+    let events = parse_openai_events(response).unwrap();
+
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens == Some(1000)
+                && usage.output_tokens == Some(200)
+                && usage.cached_input_tokens == Some(750)
+                && usage.total_tokens == Some(1200)
+    ));
+}
+
+#[test]
+fn openai_response_parser_reconciles_deepseek_cache_accounting_safely() {
+    let derived_prompt = r#"{
+        "choices":[{"message":{"role":"assistant","content":"derive prompt"}}],
+        "usage":{
+            "completion_tokens":5,
+            "prompt_cache_hit_tokens":9,
+            "prompt_cache_miss_tokens":4
+        }
+    }"#;
+    let events = parse_openai_events(derived_prompt).unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens == Some(13)
+                && usage.output_tokens == Some(5)
+                && usage.cached_input_tokens == Some(9)
+                && usage.total_tokens == Some(18)
+    ));
+
+    let impossible = r#"{
+        "choices":[{"message":{"role":"assistant","content":"cap impossible cache"}}],
+        "usage":{
+            "prompt_tokens":10,
+            "completion_tokens":2,
+            "prompt_cache_hit_tokens":20,
+            "prompt_cache_miss_tokens":20,
+            "total_tokens":12
+        }
+    }"#;
+    let events = parse_openai_events(impossible).unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens == Some(10)
+                && usage.output_tokens == Some(2)
+                && usage.cached_input_tokens == Some(10)
+                && usage.total_tokens == Some(12)
+    ));
+
+    let nested_only = r#"{
+        "choices":[{"message":{"role":"assistant","content":"nested cache"}}],
+        "usage":{
+            "prompt_tokens":10,
+            "completion_tokens":2,
+            "prompt_tokens_details":{"cached_tokens":7},
+            "total_tokens":12
+        }
+    }"#;
+    let events = parse_openai_events(nested_only).unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.cached_input_tokens == Some(7)
+    ));
+}
+
+#[test]
 fn openai_response_parser_saturates_derived_total_tokens_on_overflow() {
     let response = format!(
         r#"{{

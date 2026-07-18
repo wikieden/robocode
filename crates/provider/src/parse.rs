@@ -273,10 +273,19 @@ fn merge_usage(current: Option<ModelUsage>, next: Option<ModelUsage>) -> Option<
 
 fn parse_openai_usage(value: &Value) -> Option<ModelUsage> {
     let usage = value.get("usage")?;
-    let input_tokens = usage
+    let explicit_input_tokens = usage
         .get("prompt_tokens")
         .or_else(|| usage.get("input_tokens"))
         .and_then(Value::as_u64);
+    let cache_hit_tokens = usage.get("prompt_cache_hit_tokens").and_then(Value::as_u64);
+    let cache_miss_tokens = usage
+        .get("prompt_cache_miss_tokens")
+        .and_then(Value::as_u64);
+    let input_tokens = explicit_input_tokens.or_else(|| {
+        cache_hit_tokens
+            .zip(cache_miss_tokens)
+            .map(|(hit, miss)| hit.saturating_add(miss))
+    });
     let output_tokens = usage
         .get("completion_tokens")
         .or_else(|| usage.get("output_tokens"))
@@ -289,13 +298,16 @@ fn parse_openai_usage(value: &Value) -> Option<ModelUsage> {
                 .zip(output_tokens)
                 .map(|(input, output)| input.saturating_add(output))
         });
-    let cached_input_tokens = usage
+    let nested_cached_input_tokens = usage
         .pointer("/prompt_tokens_details/cached_tokens")
         .or_else(|| usage.pointer("/input_tokens_details/cached_tokens"))
         .or_else(|| usage.pointer("/input_token_details/cached_tokens"))
         .or_else(|| usage.pointer("/input_token_details/cache_read"))
         .or_else(|| usage.pointer("/input_tokens_details/cache_read"))
         .and_then(Value::as_u64);
+    let cached_input_tokens =
+        reconciled_cached_input_tokens(cache_hit_tokens, cache_miss_tokens, input_tokens)
+            .or(nested_cached_input_tokens);
     let actual_cost_micro_usd = usage
         .get("actual_cost_micro_usd")
         .or_else(|| usage.get("provider_actual_cost_micro_usd"))
@@ -310,6 +322,26 @@ fn parse_openai_usage(value: &Value) -> Option<ModelUsage> {
         total_tokens,
         actual_cost_micro_usd,
     )
+}
+
+fn reconciled_cached_input_tokens(
+    cache_hit_tokens: Option<u64>,
+    cache_miss_tokens: Option<u64>,
+    input_tokens: Option<u64>,
+) -> Option<u64> {
+    let hit = cache_hit_tokens?;
+    let Some(input) = input_tokens else {
+        return Some(hit);
+    };
+    let Some(miss) = cache_miss_tokens else {
+        return Some(hit.min(input));
+    };
+    let accounted = hit.saturating_add(miss);
+    if accounted == input {
+        Some(hit)
+    } else {
+        Some(hit.min(input))
+    }
 }
 
 fn parse_anthropic_usage(value: &Value) -> Option<ModelUsage> {
