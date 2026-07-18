@@ -483,6 +483,7 @@ fn append_metadata(path: &Path, record: &MetadataRecord) -> Result<(), ContextEr
 fn lock_file_exclusive(path: &Path) -> Result<fs::File, ContextError> {
     let lock = fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(path)?;
@@ -493,6 +494,7 @@ fn lock_file_exclusive(path: &Path) -> Result<fs::File, ContextError> {
 fn lock_file_shared(path: &Path) -> Result<fs::File, ContextError> {
     let lock = fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(path)?;
