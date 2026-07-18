@@ -623,12 +623,16 @@ fn provider_attempt_usage_id(task_id: &str, attempt_index: u32) -> String {
     format!("{task_id}-provider-attempt-{attempt_index}")
 }
 
-fn estimate_provider_cost(
+pub(crate) fn estimate_provider_cost(
     provider_id: &str,
     model: &str,
     usage: &ModelUsage,
 ) -> Option<CostEstimate> {
     let price = price_table(provider_id, model)?;
+    debug_assert!(!price.source_url.is_empty());
+    if let Some(compatibility_until_utc) = price.compatibility_until_utc {
+        debug_assert!(!compatibility_until_utc.is_empty());
+    }
     let billable_input = usage
         .input_tokens
         .unwrap_or(0)
@@ -652,7 +656,7 @@ fn estimate_provider_cost(
             micro_units,
         },
         provider_id: provider_id.to_string(),
-        model: model.to_string(),
+        model: price.priced_model.to_string(),
         price_table_version: price.version.to_string(),
         estimated: true,
     })
@@ -664,32 +668,51 @@ fn multiply_per_million(tokens: u64, micro_usd_per_million: u64) -> u64 {
 }
 
 #[derive(Clone, Copy)]
-struct PriceRow {
-    version: &'static str,
-    input_micro_usd_per_million: u64,
-    cached_input_micro_usd_per_million: Option<u64>,
-    output_micro_usd_per_million: u64,
+pub(crate) struct PriceRow {
+    pub(crate) version: &'static str,
+    pub(crate) source_url: &'static str,
+    pub(crate) priced_model: &'static str,
+    pub(crate) compatibility_until_utc: Option<&'static str>,
+    pub(crate) input_micro_usd_per_million: u64,
+    pub(crate) cached_input_micro_usd_per_million: Option<u64>,
+    pub(crate) output_micro_usd_per_million: u64,
 }
 
-fn price_table(provider_id: &str, model: &str) -> Option<PriceRow> {
+const DEEPSEEK_PRICING_VERSION: &str = "deepseek-pricing-2026-07-18";
+const DEEPSEEK_PRICING_SOURCE_URL: &str = "https://api-docs.deepseek.com/quick_start/pricing/";
+const DEEPSEEK_V4_COMPATIBILITY_UNTIL_UTC: &str = "2026-07-24T15:59:00Z";
+
+pub(crate) fn price_table(provider_id: &str, model: &str) -> Option<PriceRow> {
     match (provider_id, model) {
         ("sequence", "test-model") => Some(PriceRow {
             version: "test-2026-07-18",
+            source_url: "test",
+            priced_model: "test-model",
+            compatibility_until_utc: None,
             input_micro_usd_per_million: 1_000_000,
             cached_input_micro_usd_per_million: Some(100_000),
             output_micro_usd_per_million: 2_000_000,
         }),
-        ("deepseek", "deepseek-v4-flash" | "deepseek-chat") => Some(PriceRow {
-            version: "deepseek-2026-07-18",
-            input_micro_usd_per_million: 140_000,
-            cached_input_micro_usd_per_million: Some(14_000),
-            output_micro_usd_per_million: 280_000,
-        }),
-        ("deepseek", "deepseek-v4-pro" | "deepseek-reasoner") => Some(PriceRow {
-            version: "deepseek-2026-07-18",
-            input_micro_usd_per_million: 550_000,
-            cached_input_micro_usd_per_million: Some(55_000),
-            output_micro_usd_per_million: 2_190_000,
+        ("deepseek", "deepseek-v4-flash" | "deepseek-chat" | "deepseek-reasoner") => {
+            Some(PriceRow {
+                version: DEEPSEEK_PRICING_VERSION,
+                source_url: DEEPSEEK_PRICING_SOURCE_URL,
+                priced_model: "deepseek-v4-flash",
+                compatibility_until_utc: matches!(model, "deepseek-chat" | "deepseek-reasoner")
+                    .then_some(DEEPSEEK_V4_COMPATIBILITY_UNTIL_UTC),
+                input_micro_usd_per_million: 140_000,
+                cached_input_micro_usd_per_million: Some(2_800),
+                output_micro_usd_per_million: 280_000,
+            })
+        }
+        ("deepseek", "deepseek-v4-pro") => Some(PriceRow {
+            version: DEEPSEEK_PRICING_VERSION,
+            source_url: DEEPSEEK_PRICING_SOURCE_URL,
+            priced_model: "deepseek-v4-pro",
+            compatibility_until_utc: None,
+            input_micro_usd_per_million: 435_000,
+            cached_input_micro_usd_per_million: Some(3_625),
+            output_micro_usd_per_million: 870_000,
         }),
         _ => None,
     }

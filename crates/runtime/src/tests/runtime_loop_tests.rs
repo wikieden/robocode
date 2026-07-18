@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::runtime_loop::{estimate_provider_cost, price_table};
 use crate::{EngineEvent, SessionEngine};
 use viden_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use viden_provider::{ModelProvider, ModelRequestControl};
@@ -12,6 +13,116 @@ use viden_types::{
 };
 
 use super::{SequenceProvider, temp_dir};
+
+#[test]
+fn deepseek_pricing_estimates_flash_exact_micro_usd_and_unknown_model_none() {
+    let usage = ModelUsage {
+        input_tokens: Some(1_000_003),
+        output_tokens: Some(2_000_005),
+        cached_input_tokens: Some(333_333),
+        retrieval_tokens: None,
+        total_tokens: Some(3_000_008),
+        cost_micro_usd: None,
+        actual_cost_micro_usd: None,
+    };
+
+    let estimate =
+        estimate_provider_cost("deepseek", "deepseek-v4-flash", &usage).expect("flash estimate");
+
+    assert_eq!(estimate.amount.currency, "USD");
+    assert_eq!(estimate.amount.micro_units, 654_267);
+    assert_eq!(estimate.provider_id, "deepseek");
+    assert_eq!(estimate.model, "deepseek-v4-flash");
+    assert_eq!(estimate.price_table_version, "deepseek-pricing-2026-07-18");
+    assert!(estimate.estimated);
+    assert!(estimate_provider_cost("deepseek", "unknown-model", &usage).is_none());
+}
+
+#[test]
+fn deepseek_pricing_estimates_pro_and_aliases_with_canonical_priced_model_metadata() {
+    let usage = ModelUsage {
+        input_tokens: Some(1_000_003),
+        output_tokens: Some(2_000_005),
+        cached_input_tokens: Some(333_333),
+        retrieval_tokens: None,
+        total_tokens: Some(3_000_008),
+        cost_micro_usd: None,
+        actual_cost_micro_usd: None,
+    };
+
+    let pro = estimate_provider_cost("deepseek", "deepseek-v4-pro", &usage).expect("pro estimate");
+    let chat = estimate_provider_cost("deepseek", "deepseek-chat", &usage).expect("chat alias");
+    let reasoner =
+        estimate_provider_cost("deepseek", "deepseek-reasoner", &usage).expect("reasoner alias");
+
+    assert_eq!(pro.amount.micro_units, 2_031_213);
+    assert_eq!(pro.model, "deepseek-v4-pro");
+    assert_eq!(chat.amount.micro_units, 654_267);
+    assert_eq!(chat.model, "deepseek-v4-flash");
+    assert_eq!(reasoner.amount.micro_units, 654_267);
+    assert_eq!(reasoner.model, "deepseek-v4-flash");
+
+    let chat_price = price_table("deepseek", "deepseek-chat").unwrap();
+    let reasoner_price = price_table("deepseek", "deepseek-reasoner").unwrap();
+    assert_eq!(
+        chat_price.source_url,
+        "https://api-docs.deepseek.com/quick_start/pricing/"
+    );
+    assert_eq!(
+        chat_price.compatibility_until_utc,
+        Some("2026-07-24T15:59:00Z")
+    );
+    assert_eq!(
+        reasoner_price.compatibility_until_utc,
+        Some("2026-07-24T15:59:00Z")
+    );
+}
+
+#[test]
+fn deepseek_alias_cost_record_preserves_requested_model_and_prices_canonical_model() {
+    let home = temp_dir("deepseek_alias_pricing_home");
+    let cwd = temp_dir("deepseek_alias_pricing_cwd");
+    let provider = Box::new(NamedSequenceProvider::new(
+        "deepseek",
+        "deepseek-chat",
+        vec![vec![
+            ModelEvent::AssistantText {
+                content: "priced alias".to_string(),
+            },
+            ModelEvent::Usage(ModelUsage {
+                input_tokens: Some(1_000_003),
+                output_tokens: Some(2_000_005),
+                cached_input_tokens: Some(333_333),
+                retrieval_tokens: None,
+                total_tokens: Some(3_000_008),
+                cost_micro_usd: None,
+                actual_cost_micro_usd: None,
+            }),
+        ]],
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let engine_events = engine
+        .process_input_with_approval("price alias", &mut approver)
+        .unwrap();
+    let runtime_events = engine.runtime_events_for_engine_events(&engine_events);
+
+    let cost = runtime_events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::CostUsageRecorded { cost } => Some(cost),
+            _ => None,
+        })
+        .expect("cost usage");
+    let estimate = cost.estimate.as_ref().expect("estimate");
+
+    assert_eq!(cost.model, "deepseek-chat");
+    assert_eq!(estimate.model, "deepseek-v4-flash");
+    assert_eq!(estimate.amount.micro_units, 654_267);
+}
 
 #[test]
 fn single_turn_text_response_is_recorded() {
@@ -926,6 +1037,43 @@ impl ModelProvider for RecordingSequenceProvider {
 
     fn next_events(&mut self, request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
         self.requests.lock().unwrap().push(request.clone());
+        Ok(self
+            .turns
+            .pop_front()
+            .unwrap_or_else(|| vec![ModelEvent::Done]))
+    }
+}
+
+struct NamedSequenceProvider {
+    provider_name: &'static str,
+    model: String,
+    turns: std::collections::VecDeque<Vec<ModelEvent>>,
+}
+
+impl NamedSequenceProvider {
+    fn new(provider_name: &'static str, model: &str, turns: Vec<Vec<ModelEvent>>) -> Self {
+        Self {
+            provider_name,
+            model: model.to_string(),
+            turns: turns.into(),
+        }
+    }
+}
+
+impl ModelProvider for NamedSequenceProvider {
+    fn provider_name(&self) -> &str {
+        self.provider_name
+    }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    fn set_model(&mut self, model: String) {
+        self.model = model;
+    }
+
+    fn next_events(&mut self, _request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
         Ok(self
             .turns
             .pop_front()
