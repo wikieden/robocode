@@ -1874,14 +1874,15 @@ fn normalized_label_before(line: &str, end: usize) -> Option<String> {
     }
     let mut token_start = token_end;
     while let Some(character) = line[..token_start].chars().next_back() {
-        if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
+        if character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.') {
             token_start -= character.len_utf8();
         } else {
             break;
         }
     }
-    let label = line[token_start..token_end].trim_matches('-');
-    (!label.is_empty()).then(|| label.to_ascii_lowercase().replace('-', "_"))
+    let label =
+        line[token_start..token_end].trim_matches(|character| matches!(character, '-' | '.'));
+    (!label.is_empty()).then(|| normalize_label(label))
 }
 
 fn assignment_value_span(line: &str, separator_index: usize) -> Option<(usize, usize)> {
@@ -1930,7 +1931,7 @@ fn value_span_at(line: &str, hint: usize) -> Option<(usize, usize)> {
 }
 
 fn is_secret_label(label: &str) -> bool {
-    let normalized = label.to_ascii_lowercase().replace('-', "_");
+    let normalized = normalize_label(label);
     matches!(
         normalized.as_str(),
         "authorization"
@@ -1945,16 +1946,64 @@ fn is_secret_label(label: &str) -> bool {
             | "auth_token"
             | "bearer_token"
             | "refresh_token"
+            | "secret_key"
+            | "private_key"
+            | "passphrase"
             | "credential"
             | "credentials"
             | "client_credential"
             | "client_credentials"
             | "client_secret"
+            | "apitoken"
+            | "accesstoken"
+            | "authtoken"
+            | "bearertoken"
+            | "refreshtoken"
+            | "clientsecret"
+            | "secretkey"
+            | "privatekey"
     ) || normalized.ends_with("_password")
+        || normalized.ends_with("_passphrase")
         || normalized.ends_with("_secret")
+        || normalized.ends_with("_secret_key")
+        || normalized.ends_with("_private_key")
         || normalized.ends_with("_api_key")
+        || normalized.ends_with("_token")
         || normalized.ends_with("_credential")
         || normalized.ends_with("_credentials")
+}
+
+fn normalize_label(label: &str) -> String {
+    let characters = label.chars().collect::<Vec<_>>();
+    let mut words = Vec::new();
+    let mut current = String::new();
+
+    for (index, character) in characters.iter().copied().enumerate() {
+        if !character.is_ascii_alphanumeric() {
+            if !current.is_empty() {
+                words.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+
+        if character.is_ascii_uppercase() && !current.is_empty() {
+            let previous = characters[index - 1];
+            let next_is_lowercase = characters
+                .get(index + 1)
+                .is_some_and(|next| next.is_ascii_lowercase());
+            if previous.is_ascii_lowercase()
+                || previous.is_ascii_digit()
+                || (previous.is_ascii_uppercase() && next_is_lowercase)
+            {
+                words.push(std::mem::take(&mut current));
+            }
+        }
+        current.push(character.to_ascii_lowercase());
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words.join("_")
 }
 
 fn push_unique(lines: &mut Vec<String>, seen: &mut HashSet<String>, line: String) {
@@ -2240,6 +2289,79 @@ mod tests {
             "object-secret",
             "deeper-secret",
             "error-object-secret",
+        ] {
+            assert!(!serialized.contains(raw), "{raw}");
+        }
+    }
+
+    #[test]
+    fn normalized_json_credential_labels_redact_non_string_values_without_metric_false_positives() {
+        let input = br#"{
+            "accessToken":1,
+            "AuthToken":false,
+            "BearerToken":null,
+            "apiKey":["json-api-array"],
+            "clientSecret":{"raw":"json-client-object"},
+            "secretKey":2,
+            "privateKey":true,
+            "password":null,
+            "passphrase":{"raw":"json-passphrase-object"},
+            "ACCESS_TOKEN":["upper-access-array"],
+            "API_KEY":{"raw":"upper-api-object"},
+            "totalTokens":101,
+            "inputTokens":102,
+            "outputTokens":103,
+            "tokenCount":104,
+            "tokensPerSecond":105,
+            "maxOutputTokens":106,
+            "tokenizer":"keep-tokenizer",
+            "tokenization":"keep-tokenization"
+        }"#;
+
+        let view = reduce(ContextContentKind::Json, input, &ReductionPolicy::default()).unwrap();
+        let parsed = serde_json::from_str::<serde_json::Value>(&view.content).unwrap();
+        let serialized = serde_json::to_string(&view).unwrap();
+
+        for key in [
+            "accessToken",
+            "AuthToken",
+            "BearerToken",
+            "apiKey",
+            "clientSecret",
+            "secretKey",
+            "privateKey",
+            "password",
+            "passphrase",
+            "ACCESS_TOKEN",
+            "API_KEY",
+        ] {
+            assert_eq!(parsed[key], "[REDACTED]", "{key}");
+        }
+        for (key, expected) in [
+            ("totalTokens", 101),
+            ("inputTokens", 102),
+            ("outputTokens", 103),
+            ("tokenCount", 104),
+            ("tokensPerSecond", 105),
+            ("maxOutputTokens", 106),
+        ] {
+            assert_eq!(parsed[key], expected, "{key}");
+        }
+        assert_eq!(parsed["tokenizer"], "keep-tokenizer");
+        assert_eq!(parsed["tokenization"], "keep-tokenization");
+        assert_eq!(
+            view.omissions
+                .iter()
+                .find(|omission| omission.reason == "secret_values_redacted")
+                .map(|omission| omission.omitted_count),
+            Some(11)
+        );
+        for raw in [
+            "json-api-array",
+            "json-client-object",
+            "json-passphrase-object",
+            "upper-access-array",
+            "upper-api-object",
         ] {
             assert!(!serialized.contains(raw), "{raw}");
         }
@@ -3140,6 +3262,70 @@ mod tests {
                 assert!(view.content.contains(metric), "{kind:?}: {metric}");
             }
             assert!(!view.content.contains("[REDACTED]"), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn normalized_inline_credential_labels_redact_across_routes_without_evidence_loss() {
+        let code_policy = ReductionPolicy {
+            selected_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            ..ReductionPolicy::default()
+        };
+        let cases = [
+            (
+                ContextContentKind::Log,
+                "ERROR env.accessToken=log-access AUTH-TOKEN=log-auth totalTokens=10 tokenizer=lexer tokenization=mode\n"
+                    .to_string(),
+                ReductionPolicy::default(),
+                vec!["log-access", "log-auth"],
+                vec![
+                    "totalTokens=10",
+                    "tokenizer=lexer",
+                    "tokenization=mode",
+                ],
+            ),
+            (
+                ContextContentKind::Text,
+                "decision: BearerToken=text-bearer env.api.key=text-api inputTokens=11 outputTokens=12\n"
+                    .to_string(),
+                ReductionPolicy::default(),
+                vec!["text-bearer", "text-api"],
+                vec!["inputTokens=11", "outputTokens=12"],
+            ),
+            (
+                ContextContentKind::Diff,
+                "diff --git a/.env b/.env\n@@ -1 +1 @@\n+APP.CLIENT_SECRET=diff-client secretKey=diff-secret private-key=diff-private tokenCount=13 tokensPerSecond=14\n"
+                    .to_string(),
+                ReductionPolicy::default(),
+                vec!["diff-client", "diff-secret", "diff-private"],
+                vec!["tokenCount=13", "tokensPerSecond=14"],
+            ),
+            (
+                ContextContentKind::Code,
+                "let password = \"code-password\"; passphrase='code-passphrase'; ACCESS_TOKEN=code-access; maxOutputTokens=15;\n"
+                    .to_string(),
+                code_policy,
+                vec!["code-password", "code-passphrase", "code-access"],
+                vec!["maxOutputTokens=15"],
+            ),
+        ];
+
+        for (kind, input, policy, raw_secrets, retained_evidence) in cases {
+            let view = reduce(kind, input.as_bytes(), &policy).unwrap();
+            let serialized = serde_json::to_string(&view).unwrap();
+
+            assert_eq!(
+                view.content.matches("[REDACTED]").count(),
+                raw_secrets.len(),
+                "{kind:?}: {}",
+                view.content
+            );
+            for raw_secret in raw_secrets {
+                assert!(!serialized.contains(raw_secret), "{kind:?}: {raw_secret}");
+            }
+            for evidence in retained_evidence {
+                assert!(view.content.contains(evidence), "{kind:?}: {evidence}");
+            }
         }
     }
 
