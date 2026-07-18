@@ -79,6 +79,43 @@ fn deepseek_pricing_estimates_pro_and_aliases_with_canonical_priced_model_metada
 }
 
 #[test]
+fn deepseek_anthropic_pricing_uses_deepseek_table_for_flash_and_pro() {
+    let usage = ModelUsage {
+        input_tokens: Some(1_000_003),
+        output_tokens: Some(2_000_005),
+        cached_input_tokens: Some(333_333),
+        retrieval_tokens: None,
+        total_tokens: Some(3_000_008),
+        cost_micro_usd: None,
+        actual_cost_micro_usd: None,
+    };
+
+    let flash = estimate_provider_cost("deepseek-anthropic", "deepseek-v4-flash", &usage)
+        .expect("anthropic flash estimate");
+    let pro = estimate_provider_cost("deepseek-anthropic", "deepseek-v4-pro", &usage)
+        .expect("anthropic pro estimate");
+    let chat = estimate_provider_cost("deepseek-anthropic", "deepseek-chat", &usage)
+        .expect("anthropic chat alias");
+
+    assert_eq!(flash.provider_id, "deepseek-anthropic");
+    assert_eq!(flash.model, "deepseek-v4-flash");
+    assert_eq!(flash.amount.micro_units, 654_267);
+    assert_eq!(flash.price_table_version, "deepseek-pricing-2026-07-18");
+    assert_eq!(pro.provider_id, "deepseek-anthropic");
+    assert_eq!(pro.model, "deepseek-v4-pro");
+    assert_eq!(pro.amount.micro_units, 2_031_213);
+    assert_eq!(chat.model, "deepseek-v4-flash");
+
+    let price = price_table("deepseek-anthropic", "deepseek-v4-flash").unwrap();
+    assert_eq!(
+        price.source_url,
+        "https://api-docs.deepseek.com/quick_start/pricing/"
+    );
+    assert_eq!(price.priced_model, "deepseek-v4-flash");
+    assert_eq!(price.cached_input_micro_usd_per_million, Some(2_800));
+}
+
+#[test]
 fn deepseek_alias_cost_record_preserves_requested_model_and_prices_canonical_model() {
     let home = temp_dir("deepseek_alias_pricing_home");
     let cwd = temp_dir("deepseek_alias_pricing_cwd");
@@ -122,6 +159,54 @@ fn deepseek_alias_cost_record_preserves_requested_model_and_prices_canonical_mod
     assert_eq!(cost.model, "deepseek-chat");
     assert_eq!(estimate.model, "deepseek-v4-flash");
     assert_eq!(estimate.amount.micro_units, 654_267);
+}
+
+#[test]
+fn deepseek_anthropic_cost_record_preserves_provider_id_and_estimates_cost() {
+    let home = temp_dir("deepseek_anthropic_pricing_home");
+    let cwd = temp_dir("deepseek_anthropic_pricing_cwd");
+    let provider = Box::new(NamedSequenceProvider::new(
+        "deepseek-anthropic",
+        "deepseek-v4-pro",
+        vec![vec![
+            ModelEvent::AssistantText {
+                content: "priced anthropic".to_string(),
+            },
+            ModelEvent::Usage(ModelUsage {
+                input_tokens: Some(1_000_003),
+                output_tokens: Some(2_000_005),
+                cached_input_tokens: Some(333_333),
+                retrieval_tokens: None,
+                total_tokens: Some(3_000_008),
+                cost_micro_usd: None,
+                actual_cost_micro_usd: None,
+            }),
+        ]],
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let engine_events = engine
+        .process_input_with_approval("price anthropic", &mut approver)
+        .unwrap();
+    let runtime_events = engine.runtime_events_for_engine_events(&engine_events);
+
+    let cost = runtime_events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::CostUsageRecorded { cost } => Some(cost),
+            _ => None,
+        })
+        .expect("cost usage");
+    let estimate = cost.estimate.as_ref().expect("estimate");
+
+    assert_eq!(cost.provider_id, "deepseek-anthropic");
+    assert_eq!(cost.model, "deepseek-v4-pro");
+    assert_eq!(estimate.provider_id, "deepseek-anthropic");
+    assert_eq!(estimate.model, "deepseek-v4-pro");
+    assert_eq!(estimate.amount.micro_units, 2_031_213);
 }
 
 #[test]

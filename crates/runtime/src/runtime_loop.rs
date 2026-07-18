@@ -683,7 +683,7 @@ const DEEPSEEK_PRICING_SOURCE_URL: &str = "https://api-docs.deepseek.com/quick_s
 const DEEPSEEK_V4_COMPATIBILITY_UNTIL_UTC: &str = "2026-07-24T15:59:00Z";
 
 pub(crate) fn price_table(provider_id: &str, model: &str) -> Option<PriceRow> {
-    match (provider_id, model) {
+    match (canonical_pricing_provider_id(provider_id), model) {
         ("sequence", "test-model") => Some(PriceRow {
             version: "test-2026-07-18",
             source_url: "test",
@@ -715,6 +715,13 @@ pub(crate) fn price_table(provider_id: &str, model: &str) -> Option<PriceRow> {
             output_micro_usd_per_million: 870_000,
         }),
         _ => None,
+    }
+}
+
+fn canonical_pricing_provider_id(provider_id: &str) -> &str {
+    match provider_id {
+        "deepseek" | "deepseek-anthropic" => "deepseek",
+        provider_id => provider_id,
     }
 }
 
