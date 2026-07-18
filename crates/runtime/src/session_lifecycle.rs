@@ -196,15 +196,43 @@ impl SessionEngine {
     }
 
     pub(super) fn store_entry(&self, entry: TranscriptEntry) -> Result<(), String> {
+        if self.defer_transcript_persistence {
+            self.deferred_transcript_entries.borrow_mut().push(entry);
+            return Ok(());
+        }
         #[cfg(test)]
         if self.fail_next_transcript_append.replace(false) {
             return Err("injected transcript append failure".to_string());
+        }
+        #[cfg(test)]
+        if let Some(remaining) = self.fail_transcript_append_after.get() {
+            if remaining == 0 {
+                self.fail_transcript_append_after.set(None);
+                return Err("injected transcript append failure".to_string());
+            }
+            self.fail_transcript_append_after.set(Some(remaining - 1));
         }
 
         self.store.append_entry(&entry)
     }
 
     pub(super) fn record_cost_usage(&mut self, cost: CostUsageRecord) -> Result<(), String> {
+        if self.defer_cost_usage_persistence || self.defer_transcript_persistence {
+            if !self
+                .deferred_cost_usage
+                .iter()
+                .any(|existing| existing.usage_id == cost.usage_id)
+            {
+                self.deferred_cost_usage.push(cost.clone());
+            }
+            self.deferred_transcript_entries
+                .borrow_mut()
+                .push(TranscriptEntry::CostUsage {
+                    cost: Box::new(cost.clone()),
+                });
+            self.remember_cost_usage(cost);
+            return Ok(());
+        }
         self.store_entry(TranscriptEntry::CostUsage {
             cost: Box::new(cost.clone()),
         })?;
@@ -232,13 +260,37 @@ impl SessionEngine {
             .filter(|event| is_durable_runtime_domain_event(&event.kind))
             .cloned()
             .collect::<Vec<_>>();
+        let mut entries = self.deferred_transcript_entries.borrow().clone();
+        entries.extend(
+            domain_events
+                .iter()
+                .map(|event| TranscriptEntry::RuntimeEvent {
+                    event: Box::new(event.clone()),
+                }),
+        );
+        self.store_entries(entries)?;
         for event in domain_events {
-            self.store_entry(TranscriptEntry::RuntimeEvent {
-                event: Box::new(event.clone()),
-            })?;
             self.remember_runtime_domain_event(event);
         }
         Ok(())
+    }
+
+    fn store_entries(&self, entries: Vec<TranscriptEntry>) -> Result<(), String> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        #[cfg(test)]
+        if self.fail_next_transcript_append.replace(false) {
+            return Err("injected transcript append failure".to_string());
+        }
+        #[cfg(test)]
+        if let Some(committed_entries) = self.fail_transcript_append_after.get() {
+            self.fail_transcript_append_after.set(None);
+            return self
+                .store
+                .append_entries_uncommitted_for_test(&entries, committed_entries);
+        }
+        self.store.append_entries_atomic(&entries)
     }
 
     fn remember_runtime_domain_event(&mut self, event: RuntimeEvent) {

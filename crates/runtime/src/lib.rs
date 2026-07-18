@@ -1,5 +1,6 @@
 #[cfg(test)]
 use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{
@@ -43,7 +44,7 @@ use viden_types::PermissionRule;
 use viden_types::{
     AgentDagRecord, AgentTaskRecord, ContextBundleRecord, CostScope, CostUsageRecord, EvidenceView,
     MemoryEntry, MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode,
-    RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode,
+    RuntimeEvent, RuntimeSnapshot, TaskRecord, TranscriptEntry, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -271,6 +272,10 @@ pub struct SessionEngine {
     runtime_event_sink: Option<RuntimeEventSink>,
     provider_telemetry: ProviderTelemetry,
     provider_cost_usage: Vec<CostUsageRecord>,
+    defer_cost_usage_persistence: bool,
+    deferred_cost_usage: Vec<CostUsageRecord>,
+    defer_transcript_persistence: bool,
+    deferred_transcript_entries: RefCell<Vec<TranscriptEntry>>,
     cost_workflow_id: Option<String>,
     cost_smoke_run_id: Option<String>,
     active_cost_attribution: Option<CostAttribution>,
@@ -282,6 +287,8 @@ pub struct SessionEngine {
     fail_next_workflow_append: Cell<bool>,
     #[cfg(test)]
     fail_next_transcript_append: Cell<bool>,
+    #[cfg(test)]
+    fail_transcript_append_after: Cell<Option<usize>>,
 }
 
 impl SessionEngine {
@@ -357,6 +364,10 @@ impl SessionEngine {
             runtime_event_sink: None,
             provider_telemetry: ProviderTelemetry::default(),
             provider_cost_usage: Vec::new(),
+            defer_cost_usage_persistence: false,
+            deferred_cost_usage: Vec::new(),
+            defer_transcript_persistence: false,
+            deferred_transcript_entries: RefCell::new(Vec::new()),
             cost_workflow_id,
             cost_smoke_run_id: None,
             active_cost_attribution: None,
@@ -368,6 +379,8 @@ impl SessionEngine {
             fail_next_workflow_append: Cell::new(false),
             #[cfg(test)]
             fail_next_transcript_append: Cell::new(false),
+            #[cfg(test)]
+            fail_transcript_append_after: Cell::new(None),
         };
         engine.persist_meta("work_mode", engine.runtime_snapshot.work_mode.cli_name())?;
         engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;
@@ -471,6 +484,12 @@ impl SessionEngine {
     #[cfg(test)]
     pub(crate) fn fail_next_transcript_append_for_test(&self) {
         self.fail_next_transcript_append.set(true);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_after_transcript_appends_for_test(&self, successful_appends: usize) {
+        self.fail_transcript_append_after
+            .set(Some(successful_appends));
     }
 
     #[cfg(test)]

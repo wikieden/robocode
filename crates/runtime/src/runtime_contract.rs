@@ -54,9 +54,18 @@ struct RecordAgentEvidenceRequest<'a> {
 
 #[derive(Debug, Clone)]
 struct RuntimeDomainSnapshot {
+    runtime_snapshot: RuntimeSnapshot,
+    messages: Vec<viden_types::Message>,
+    last_diff: Option<String>,
+    last_test: Option<crate::TestEvidence>,
     tasks: Vec<AgentTaskRecord>,
+    agent_dags: Vec<AgentDagRecord>,
     merge_gates: Vec<MergeGateRecord>,
     evidence: Vec<EvidenceView>,
+    provider_telemetry: ProviderTelemetry,
+    provider_cost_usage: Vec<CostUsageRecord>,
+    last_context_bundle: Option<viden_types::ContextBundleRecord>,
+    last_context_runtime_events: Vec<RuntimeEvent>,
 }
 
 #[derive(Debug, Clone)]
@@ -276,11 +285,11 @@ impl SessionEngine {
             return Ok(events);
         }
 
-        let persist_after_match = !matches!(&command, RuntimeCommand::StartAgentTask { .. });
+        let persist_after_match = true;
         // Merge gate decisions are valid only when both workflow and session facts
         // append successfully; restore live domain state if either boundary fails.
-        let transaction_snapshot =
-            transactional_runtime_command(&command).then(|| self.runtime_domain_snapshot());
+        let transaction_snapshot = transactional_runtime_command(&command)
+            .then(|| self.begin_runtime_domain_transaction());
         let accepted = RuntimeEvent::new(
             1,
             RuntimeEventKind::CommandAccepted {
@@ -389,7 +398,16 @@ impl SessionEngine {
                 append_resequenced(&mut events, self.start_agent_dag(goal, tasks)?);
             }
             RuntimeCommand::StartAgentTask { task_id } => {
-                append_resequenced(&mut events, self.run_agent_task(&task_id, approver)?);
+                match self.run_agent_task(&task_id, approver) {
+                    Ok(task_events) => append_resequenced(&mut events, task_events),
+                    Err(err) => {
+                        return Ok(self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        ));
+                    }
+                }
             }
             RuntimeCommand::CancelAgentTask { task_id } => {
                 append_resequenced(&mut events, self.cancel_agent_task(&task_id)?);
@@ -521,26 +539,62 @@ impl SessionEngine {
             self.restore_transaction_snapshot(&transaction_snapshot);
             return Err(err);
         }
+        self.commit_transaction_snapshot(&transaction_snapshot);
         Ok(events)
     }
 
-    fn runtime_domain_snapshot(&self) -> RuntimeDomainSnapshot {
+    fn begin_runtime_domain_transaction(&mut self) -> RuntimeDomainSnapshot {
+        self.defer_cost_usage_persistence = true;
+        self.deferred_cost_usage.clear();
+        self.defer_transcript_persistence = true;
+        self.deferred_transcript_entries.borrow_mut().clear();
         RuntimeDomainSnapshot {
+            runtime_snapshot: self.runtime_snapshot.clone(),
+            messages: self.messages.clone(),
+            last_diff: self.last_diff.clone(),
+            last_test: self.last_test.clone(),
             tasks: self.runtime_tasks.clone(),
+            agent_dags: self.runtime_agent_dags.clone(),
             merge_gates: self.runtime_merge_gates.clone(),
             evidence: self.runtime_evidence.clone(),
+            provider_telemetry: self.provider_telemetry.clone(),
+            provider_cost_usage: self.provider_cost_usage.clone(),
+            last_context_bundle: self.last_context_bundle.clone(),
+            last_context_runtime_events: self.last_context_runtime_events.clone(),
         }
     }
 
     fn restore_runtime_domain_snapshot(&mut self, snapshot: RuntimeDomainSnapshot) {
+        self.runtime_snapshot = snapshot.runtime_snapshot;
+        self.messages = snapshot.messages;
+        self.last_diff = snapshot.last_diff;
+        self.last_test = snapshot.last_test;
         self.runtime_tasks = snapshot.tasks;
+        self.runtime_agent_dags = snapshot.agent_dags;
         self.runtime_merge_gates = snapshot.merge_gates;
         self.runtime_evidence = snapshot.evidence;
+        self.provider_telemetry = snapshot.provider_telemetry;
+        self.provider_cost_usage = snapshot.provider_cost_usage;
+        self.last_context_bundle = snapshot.last_context_bundle;
+        self.last_context_runtime_events = snapshot.last_context_runtime_events;
+        self.defer_cost_usage_persistence = false;
+        self.deferred_cost_usage.clear();
+        self.defer_transcript_persistence = false;
+        self.deferred_transcript_entries.borrow_mut().clear();
     }
 
     fn restore_transaction_snapshot(&mut self, snapshot: &Option<RuntimeDomainSnapshot>) {
         if let Some(snapshot) = snapshot {
             self.restore_runtime_domain_snapshot(snapshot.clone());
+        }
+    }
+
+    fn commit_transaction_snapshot(&mut self, snapshot: &Option<RuntimeDomainSnapshot>) {
+        if snapshot.is_some() {
+            self.defer_cost_usage_persistence = false;
+            self.deferred_cost_usage.clear();
+            self.defer_transcript_persistence = false;
+            self.deferred_transcript_entries.borrow_mut().clear();
         }
     }
 
@@ -1566,7 +1620,6 @@ impl SessionEngine {
             ],
         )?;
 
-        self.persist_runtime_domain_events(&events)?;
         Ok(events)
     }
 
@@ -2105,6 +2158,23 @@ impl SessionEngine {
             return Err(format!(
                 "merge gate `{gate_id}` must be accepted before patch merge"
             ));
+        }
+        let report = reduce_merge_gate_status(
+            &self.runtime_merge_gates[gate_index],
+            &self.runtime_evidence,
+            &self.merge_gate_validation_facts(),
+        );
+        if report.status != EvidenceCanonicalStatus::Verified {
+            return self.mark_agent_patch_conflict(
+                gate_index,
+                &dag_id,
+                &task_id,
+                format!(
+                    "patch conflict: {}",
+                    canonical_reason_summary(&report)
+                        .unwrap_or_else(|| "canonical_evidence_invalid".to_string())
+                ),
+            );
         }
         let patch_evidence = self.patch_evidence_for_gate(gate_index).cloned();
         let Some(patch_evidence) = patch_evidence else {
@@ -2874,6 +2944,7 @@ fn transactional_runtime_command(command: &RuntimeCommand) -> bool {
     matches!(
         command,
         RuntimeCommand::AcceptMergeGate { .. }
+            | RuntimeCommand::StartAgentTask { .. }
             | RuntimeCommand::RejectMergeGate { .. }
             | RuntimeCommand::RecordAgentEvidence { .. }
             | RuntimeCommand::AcceptAgentArtifact { .. }

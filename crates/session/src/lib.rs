@@ -83,6 +83,69 @@ impl SessionStore {
     pub fn append_entry(&self, entry: &TranscriptEntry) -> Result<(), String> {
         let mut payload = entry.to_json_line();
         payload.push('\n');
+        self.append_payload(&payload)?;
+        let _ = self.rebuild_index_for_current();
+        Ok(())
+    }
+
+    pub fn append_entries_atomic(&self, entries: &[TranscriptEntry]) -> Result<(), String> {
+        self.append_entries_atomic_with_uncommitted_for_test(entries, None)
+    }
+
+    pub fn append_entries_uncommitted_for_test(
+        &self,
+        entries: &[TranscriptEntry],
+        committed_entries: usize,
+    ) -> Result<(), String> {
+        self.append_entries_atomic_with_uncommitted_for_test(entries, Some(committed_entries))
+    }
+
+    fn append_entries_atomic_with_uncommitted_for_test(
+        &self,
+        entries: &[TranscriptEntry],
+        uncommitted_entries: Option<usize>,
+    ) -> Result<(), String> {
+        self.append_entries_atomic_payload(entries, uncommitted_entries)
+    }
+
+    fn append_entries_atomic_payload(
+        &self,
+        entries: &[TranscriptEntry],
+        uncommitted_entries: Option<usize>,
+    ) -> Result<(), String> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let batch_id = fresh_id("txbatch");
+        // Replay applies only batches with a commit marker, so a failed append can
+        // leave auditable uncommitted lines without changing rebuilt session state.
+        let mut payload = format!(
+            "{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"{}\",\"count\":{}}}\n",
+            escape_json(&batch_id),
+            entries.len()
+        );
+        let take_entries = uncommitted_entries
+            .unwrap_or(entries.len())
+            .min(entries.len());
+        for entry in entries.iter().take(take_entries) {
+            payload.push_str(&entry.to_json_line());
+            payload.push('\n');
+        }
+        if uncommitted_entries.is_none() {
+            payload.push_str(&format!(
+                "{{\"type\":\"runtime_event_batch_commit\",\"batch_id\":\"{}\"}}\n",
+                escape_json(&batch_id)
+            ));
+        }
+        self.append_payload(&payload)?;
+        let _ = self.rebuild_index_for_current();
+        if uncommitted_entries.is_some() {
+            return Err("injected transcript append failure".to_string());
+        }
+        Ok(())
+    }
+
+    fn append_payload(&self, payload: &str) -> Result<(), String> {
         if self.paths.transcript_path.exists() {
             let mut file = fs::OpenOptions::new()
                 .append(true)
@@ -94,7 +157,6 @@ impl SessionStore {
         } else {
             fs::write(&self.paths.transcript_path, payload).map_err(|err| err.to_string())?;
         }
-        let _ = self.rebuild_index_for_current();
         Ok(())
     }
 
@@ -108,8 +170,26 @@ impl SessionStore {
         }
         let contents = fs::read_to_string(path).map_err(|err| err.to_string())?;
         let mut entries = Vec::new();
+        let mut pending_batch: Option<Vec<TranscriptEntry>> = None;
         for line in contents.lines().filter(|line| !line.trim().is_empty()) {
-            entries.push(TranscriptEntry::from_json_line(line)?);
+            match transcript_batch_marker(line)? {
+                Some(BatchMarker::Begin) => {
+                    pending_batch = Some(Vec::new());
+                }
+                Some(BatchMarker::Commit) => {
+                    if let Some(batch) = pending_batch.take() {
+                        entries.extend(batch);
+                    }
+                }
+                None => {
+                    let entry = TranscriptEntry::from_json_line(line)?;
+                    if let Some(batch) = &mut pending_batch {
+                        batch.push(entry);
+                    } else {
+                        entries.push(entry);
+                    }
+                }
+            }
         }
         Ok(entries)
     }
@@ -432,6 +512,36 @@ fn empty_to_none(input: &str) -> Option<String> {
     } else {
         Some(input.to_string())
     }
+}
+
+enum BatchMarker {
+    Begin,
+    Commit,
+}
+
+fn transcript_batch_marker(line: &str) -> Result<Option<BatchMarker>, String> {
+    if line.contains("\"type\":\"runtime_event_batch_begin\"") {
+        Ok(Some(BatchMarker::Begin))
+    } else if line.contains("\"type\":\"runtime_event_batch_commit\"") {
+        Ok(Some(BatchMarker::Commit))
+    } else {
+        Ok(None)
+    }
+}
+
+fn escape_json(input: &str) -> String {
+    let mut out = String::new();
+    for ch in input.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

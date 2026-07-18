@@ -2112,7 +2112,7 @@ fn record_agent_evidence_rolls_back_when_runtime_event_append_fails() {
         b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
     );
     engine.set_merge_gate_context_facts_for_test("bundle-runtime-append-fail", item);
-    engine.fail_next_transcript_append_for_test();
+    engine.fail_after_transcript_appends_for_test(1);
 
     let err = engine
         .handle_runtime_command(
@@ -2142,6 +2142,274 @@ fn record_agent_evidence_rolls_back_when_runtime_event_append_fails() {
         "runtime event append failure must not leak evidence"
     );
     assert_resumed_runtime_matches(&cwd, &home, &session_id, &engine.runtime_view_state());
+}
+
+#[test]
+fn start_agent_task_rolls_back_context_gate_evidence_and_cost_when_runtime_append_fails() {
+    let cwd = temp_dir("runtime_contract_start_task_append_fail_cwd");
+    let home = temp_dir("runtime_contract_start_task_append_fail_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::Usage(ModelUsage {
+            input_tokens: Some(7),
+            output_tokens: Some(3),
+            cached_input_tokens: None,
+            retrieval_tokens: None,
+            total_tokens: Some(10),
+            cost_micro_usd: Some(12),
+            actual_cost_micro_usd: None,
+        }),
+        ModelEvent::AssistantText {
+            content: "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n".to_string(),
+        },
+        ModelEvent::Done,
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    start_single_patch_gate(&mut engine, &mut approver, "task_start_append_fail");
+    let before = engine.runtime_view_state();
+    engine.fail_next_transcript_append_for_test();
+
+    let err = engine
+        .handle_runtime_command(
+            "cmd_start_append_fail",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_start_append_fail".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap_err();
+
+    assert!(err.contains("injected transcript append failure"));
+    let live = engine.runtime_view_state();
+    assert_eq!(live.tasks, before.tasks, "task update leaked");
+    assert_eq!(live.agent_dags, before.agent_dags, "DAG update leaked");
+    assert_eq!(live.merge_gates, before.merge_gates, "gate update leaked");
+    assert_eq!(
+        live.latest_evidence, before.latest_evidence,
+        "evidence leaked"
+    );
+    assert_eq!(
+        live.context_bundles, before.context_bundles,
+        "context bundle leaked"
+    );
+    assert_eq!(
+        live.context_items, before.context_items,
+        "context item leaked"
+    );
+    assert_eq!(live.cost_usage, before.cost_usage, "cost usage leaked");
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &live);
+}
+
+#[test]
+fn start_agent_task_rolls_back_when_workflow_append_fails() {
+    let cwd = temp_dir("runtime_contract_start_task_workflow_fail_cwd");
+    let home = temp_dir("runtime_contract_start_task_workflow_fail_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "this should not run after workflow append failure".to_string(),
+        },
+        ModelEvent::Done,
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    start_single_patch_gate(&mut engine, &mut approver, "task_start_workflow_fail");
+    let before = engine.runtime_view_state();
+    engine.fail_next_workflow_append_for_test();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_start_workflow_fail",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_start_workflow_fail".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_start_workflow_fail"
+                && reason.contains("injected workflow append failure")
+    )));
+    let live = engine.runtime_view_state();
+    assert_eq!(live.tasks, before.tasks, "task update leaked");
+    assert_eq!(live.agent_dags, before.agent_dags, "DAG update leaked");
+    assert_eq!(live.merge_gates, before.merge_gates, "gate update leaked");
+    assert_eq!(
+        live.latest_evidence, before.latest_evidence,
+        "evidence leaked"
+    );
+    assert_eq!(
+        live.context_bundles, before.context_bundles,
+        "context bundle leaked"
+    );
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &live);
+}
+
+#[test]
+fn record_agent_evidence_mid_batch_append_failure_replays_without_partial_batch() {
+    let cwd = temp_dir("runtime_contract_mid_batch_append_fail_cwd");
+    let home = temp_dir("runtime_contract_mid_batch_append_fail_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    start_single_patch_gate(&mut engine, &mut approver, "task_mid_batch_append_fail");
+    let before = engine.runtime_view_state();
+    let (item, canonical) = stored_canonical_context(
+        &cwd,
+        "task_mid_batch_append_fail",
+        "evidence-mid-batch-append-fail",
+        "bundle-mid-batch-append-fail",
+        ContextContentKind::Diff,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    );
+    engine.set_merge_gate_context_facts_for_test("bundle-mid-batch-append-fail", item);
+    engine.fail_after_transcript_appends_for_test(2);
+
+    let err = engine
+        .handle_runtime_command(
+            "cmd_mid_batch_append_fail",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_mid_batch_append_fail".to_string(),
+                evidence_id: Some("evidence-mid-batch-append-fail".to_string()),
+                kind: "patch".to_string(),
+                summary: "canonical patch should not partially replay".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(canonical),
+            },
+            &mut approver,
+        )
+        .unwrap_err();
+
+    assert!(err.contains("injected transcript append failure"));
+    let live = engine.runtime_view_state();
+    assert_eq!(live.merge_gates, before.merge_gates, "gate update leaked");
+    assert_eq!(
+        live.latest_evidence, before.latest_evidence,
+        "evidence leaked"
+    );
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &live);
+}
+
+#[test]
+fn merge_agent_patch_revalidates_non_patch_required_evidence_before_writing() {
+    let cwd = temp_dir("runtime_contract_merge_revalidates_non_patch_cwd");
+    let home = temp_dir("runtime_contract_merge_revalidates_non_patch_home");
+    std::fs::create_dir_all(cwd.join("src")).unwrap();
+    std::fs::write(cwd.join("src/lib.rs"), "old\n").unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let _ = start_gate_with_required(
+        &mut engine,
+        &mut approver,
+        "task_merge_revalidate",
+        vec!["patch".to_string(), "test".to_string()],
+    );
+    let patch = b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let (patch_item, patch_canonical) = stored_canonical_context(
+        &cwd,
+        "task_merge_revalidate",
+        "evidence-merge-patch",
+        "bundle-merge-patch",
+        ContextContentKind::Diff,
+        patch,
+    );
+    engine.set_merge_gate_context_facts_for_test("bundle-merge-patch", patch_item);
+    let (test_item, test_canonical) = stored_canonical_context(
+        &cwd,
+        "task_merge_revalidate",
+        "evidence-merge-test",
+        "bundle-merge-test",
+        ContextContentKind::Text,
+        b"cargo test -p viden-runtime merge_revalidates -- ok",
+    );
+    let test_hash = test_item.content_sha256.clone();
+    engine.set_merge_gate_context_facts_for_test("bundle-merge-test", test_item);
+
+    let patch_events = engine
+        .handle_runtime_command(
+            "cmd_merge_patch_evidence",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_merge_revalidate".to_string(),
+                evidence_id: Some("evidence-merge-patch".to_string()),
+                kind: "patch".to_string(),
+                summary: "canonical patch".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(patch_canonical),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert_gate_status_with_reason(
+        &patch_events,
+        "gate-task_merge_revalidate",
+        MergeGateStatus::CollectingEvidence,
+        "missing_required_kind",
+    );
+    let test_events = engine
+        .handle_runtime_command(
+            "cmd_merge_test_evidence",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_merge_revalidate".to_string(),
+                evidence_id: Some("evidence-merge-test".to_string()),
+                kind: "test".to_string(),
+                summary: "canonical test".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(test_canonical),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert!(test_events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::MergeGateUpdated { gate }
+            if gate.gate_id == "gate-task_merge_revalidate"
+                && gate.status == MergeGateStatus::Accepted
+    )));
+
+    std::fs::remove_file(blob_path_for_hash(&cwd, &test_hash)).unwrap();
+    let events = engine
+        .handle_runtime_command(
+            "cmd_merge_after_test_tamper",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_merge_revalidate".to_string(),
+                decision: Some("merge only if all evidence still verifies".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::MergeGateUpdated { gate }
+            if gate.gate_id == "gate-task_merge_revalidate"
+                && gate.status == MergeGateStatus::NeedsChanges
+                && gate.decision.as_deref().is_some_and(|reason| reason.contains("missing_source"))
+    )));
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("src/lib.rs")).unwrap(),
+        "old\n"
+    );
 }
 
 #[test]
