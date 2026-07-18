@@ -8,9 +8,10 @@ use viden_context::{ContextEngine, ContextPutRequest};
 use viden_provider::ModelProvider;
 use viden_types::{
     AgentDagTaskSpec, AgentRole, ApprovalResponse, ContextContentKind, ContextHandleRecord,
-    ContextScope, EvidenceView, ModelEvent, ModelRequest, PermissionBehavior, PermissionLevel,
-    PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand, RuntimeEvent,
-    RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, WorkMode,
+    ContextScope, CostScope, EvidenceView, ModelEvent, ModelRequest, ModelUsage,
+    PermissionBehavior, PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue,
+    RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput,
+    WorkMode,
 };
 
 use crate::{EngineEvent, SessionEngine, context_bundle::ContextBuildMode};
@@ -64,6 +65,45 @@ fn assert_strictly_increasing_sequences(events: &[viden_types::RuntimeEvent]) {
             pair[1].sequence
         );
     }
+}
+
+fn single_cost<'a>(
+    events: &'a [viden_types::RuntimeEvent],
+    provider_id: &str,
+) -> &'a viden_types::CostUsageRecord {
+    let costs = events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::CostUsageRecorded { cost } if cost.provider_id == provider_id => {
+                Some(cost)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(costs.len(), 1, "expected one {provider_id} cost event");
+    costs[0]
+}
+
+fn assert_scope_once(cost: &viden_types::CostUsageRecord, scope: CostScope) {
+    assert_eq!(
+        cost.scopes
+            .iter()
+            .filter(|candidate| **candidate == scope)
+            .count(),
+        1,
+        "scope {scope:?} should appear exactly once in {:?}",
+        cost.scopes
+    );
+}
+
+fn cost_provider_task_id(cost: &viden_types::CostUsageRecord) -> String {
+    cost.scopes
+        .iter()
+        .find_map(|scope| match scope {
+            CostScope::AgentTask(id) => Some(id.clone()),
+            _ => None,
+        })
+        .expect("provider cost should include task scope")
 }
 
 #[test]
@@ -121,6 +161,131 @@ fn core_exports_runtime_view_state_without_tui_dependencies() {
     assert!(view.assistant_stream.contains("hello from runtime"));
     assert!(view.provider.is_some());
     assert!(view.tasks.iter().any(|task| task.kind == "provider"));
+}
+
+#[test]
+fn provider_cost_attribution_uses_explicit_workflow_and_smoke_without_duplicate_scopes() {
+    let cwd = temp_dir("cost_attr_main_cwd");
+    let home = temp_dir("cost_attr_main_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "cost attribution".to_string(),
+        },
+        ModelEvent::Usage(ModelUsage {
+            input_tokens: Some(10),
+            output_tokens: Some(4),
+            cached_input_tokens: Some(3),
+            retrieval_tokens: None,
+            total_tokens: Some(14),
+            cost_micro_usd: None,
+            actual_cost_micro_usd: None,
+        }),
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_cost_workflow_id_for_test(Some("workflow-main-1"));
+    engine.set_cost_smoke_run_id_for_test(Some("smoke-main-1"));
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let engine_events = engine
+        .process_input_with_approval("attribute main turn", &mut approver)
+        .unwrap();
+    let runtime_events = engine.runtime_events_for_engine_events(&engine_events);
+    let mut view = RuntimeViewState::new(engine.runtime_snapshot());
+    for event in &runtime_events {
+        view.apply_event(event);
+    }
+    let cost = single_cost(&runtime_events, "sequence");
+
+    assert_scope_once(cost, CostScope::Request(cost.usage_id.clone()));
+    assert_scope_once(cost, CostScope::AgentTask(cost_provider_task_id(cost)));
+    assert_scope_once(cost, CostScope::Workflow("workflow-main-1".to_string()));
+    assert_scope_once(cost, CostScope::SmokeRun("smoke-main-1".to_string()));
+    assert!(
+        !cost
+            .scopes
+            .contains(&CostScope::Workflow("interactive".to_string()))
+    );
+    assert_eq!(view.cost_ledger.input_tokens, 10);
+    assert_eq!(view.cost_ledger.cached_input_tokens, 3);
+    assert_eq!(
+        view.cost_usage
+            .iter()
+            .filter(|record| record
+                .scopes
+                .contains(&CostScope::SmokeRun("smoke-main-1".to_string())))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn agent_task_provider_cost_includes_dag_workflow_and_smoke_scopes() {
+    let cwd = temp_dir("cost_attr_agent_cwd");
+    let home = temp_dir("cost_attr_agent_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "agent done".to_string(),
+        },
+        ModelEvent::Usage(ModelUsage {
+            input_tokens: Some(21),
+            output_tokens: Some(8),
+            cached_input_tokens: None,
+            retrieval_tokens: None,
+            total_tokens: Some(29),
+            cost_micro_usd: None,
+            actual_cost_micro_usd: None,
+        }),
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_cost_workflow_id_for_test(Some("workflow-agent-1"));
+    engine.set_cost_smoke_run_id_for_test(Some("smoke-agent-1"));
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let task_id = "agent-cost-task".to_string();
+    let dag_id = "agent-cost-dag".to_string();
+
+    engine
+        .handle_runtime_command(
+            "cmd_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "cost attribution dag".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: task_id.clone(),
+                    role: AgentRole::Coder,
+                    title: "cost task".to_string(),
+                    objective: "return usage".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: Vec::new(),
+                    context_bundle_id: None,
+                    required_evidence: vec!["patch".to_string()],
+                    permission_policy: "read_write".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+    engine.set_runtime_dag_id_for_test(&task_id, &dag_id);
+    let events = engine
+        .handle_runtime_command(
+            "cmd_task",
+            RuntimeCommand::StartAgentTask {
+                task_id: task_id.clone(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let cost = single_cost(&events, "sequence");
+
+    assert_scope_once(cost, CostScope::AgentTask(task_id));
+    assert_scope_once(cost, CostScope::Dag(dag_id));
+    assert_scope_once(cost, CostScope::Workflow("workflow-agent-1".to_string()));
+    assert_scope_once(cost, CostScope::SmokeRun("smoke-agent-1".to_string()));
 }
 
 #[test]
@@ -729,6 +894,31 @@ fn retrieve_context_returns_safe_bytes_and_event_metadata() {
         .unwrap();
     let view = engine.runtime_view_state();
     let context = view.context.as_ref().expect("runtime context bundle");
+    let context_task_id = context.task_id.clone();
+    engine.set_cost_workflow_id_for_test(Some("workflow-retrieval-1"));
+    engine.set_cost_smoke_run_id_for_test(Some("smoke-retrieval-1"));
+    engine
+        .handle_runtime_command(
+            "cmd_retrieval_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "retrieval ancestry".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: context_task_id.clone(),
+                    role: AgentRole::Reviewer,
+                    title: "retrieval task".to_string(),
+                    objective: "retrieve context".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: Vec::new(),
+                    context_bundle_id: None,
+                    required_evidence: vec!["review".to_string()],
+                    permission_policy: "read_only".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+    engine.set_runtime_dag_id_for_test(&context_task_id, "dag-retrieval-1");
     let handle = context
         .sources
         .iter()
@@ -781,6 +971,10 @@ fn retrieve_context_returns_safe_bytes_and_event_metadata() {
                     && cost.model == "retrieval"
                     && cost.tokens.retrieval_tokens.is_some()
                     && cost.tokens.total_tokens == cost.tokens.retrieval_tokens
+                    && cost.scopes.contains(&CostScope::AgentTask(context_task_id.clone()))
+                    && cost.scopes.contains(&CostScope::Dag("dag-retrieval-1".to_string()))
+                    && cost.scopes.contains(&CostScope::Workflow("workflow-retrieval-1".to_string()))
+                    && cost.scopes.contains(&CostScope::SmokeRun("smoke-retrieval-1".to_string()))
         )
     }));
     assert!(

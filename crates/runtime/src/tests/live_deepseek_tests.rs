@@ -3,7 +3,7 @@ use std::process::Command;
 
 use crate::SessionEngine;
 use viden_provider::{ProviderConfig, create_provider};
-use viden_types::ApprovalResponse;
+use viden_types::{ApprovalResponse, CostScope, RuntimeEventKind, RuntimeViewState};
 
 use super::temp_dir;
 
@@ -43,6 +43,8 @@ fn deepseek_live_development_scenario_creates_and_runs_program() {
         .unwrap(),
     );
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let smoke_run_id = safe_smoke_run_id();
+    engine.set_cost_smoke_run_id_for_test(Some(&smoke_run_id));
     let mut approver = |_prompt| ApprovalResponse {
         approved: true,
         feedback: None,
@@ -55,6 +57,17 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
     let events = engine
         .process_input_with_approval(prompt, &mut approver)
         .expect("DeepSeek provider turn should complete");
+    let runtime_events = engine.runtime_events_for_engine_events(&events);
+    let mut view = RuntimeViewState::new(engine.runtime_snapshot());
+    for event in &runtime_events {
+        view.apply_event(event);
+    }
+    assert!(
+        runtime_events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::CostUsageRecorded { .. })),
+        "live DeepSeek turn did not emit cost usage events"
+    );
     assert!(
         events
             .iter()
@@ -101,6 +114,25 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
         input_tokens > 0 && output_tokens > 0 && total_tokens > 0,
         "DeepSeek usage tokens were not reported: {telemetry:#?}"
     );
+    if cached_input_tokens > 0 {
+        assert!(
+            runtime_events.iter().any(|event| matches!(
+                event.kind,
+                RuntimeEventKind::ProviderCacheObserved {
+                    cached_input_tokens: tokens,
+                    ..
+                } if tokens > 0
+            )),
+            "provider reported cached tokens but runtime did not emit cache event"
+        );
+    }
+    assert!(
+        view.cost_usage.iter().any(|cost| {
+            cost.scopes
+                .contains(&CostScope::SmokeRun(smoke_run_id.clone()))
+        }),
+        "cost usage did not include smoke run scope"
+    );
 
     let price = deepseek_price_cny(&model);
     let estimated_cost_cny = price.map(|price| {
@@ -113,8 +145,9 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
     });
     let usage_json = render_usage_json(
         &model,
-        &cwd.to_string_lossy(),
+        &smoke_run_id,
         &telemetry,
+        &view,
         price,
         estimated_cost_cny,
     );
@@ -131,7 +164,6 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
             .map(|cost| format!("{cost:.6}"))
             .unwrap_or_else(|| "unknown".to_string()),
     );
-    println!("VIDEN_LIVE_WORKSPACE={}", cwd.display());
 }
 
 fn deepseek_price_cny(model: &str) -> Option<DeepSeekPriceCny> {
@@ -177,8 +209,9 @@ fn estimate_cost_cny(
 
 fn render_usage_json(
     model: &str,
-    workspace: &str,
+    smoke_run_id: &str,
     telemetry: &crate::ProviderTelemetry,
+    view: &RuntimeViewState,
     price: Option<DeepSeekPriceCny>,
     estimated_cost_cny: Option<f64>,
 ) -> String {
@@ -192,9 +225,9 @@ fn render_usage_json(
         .map(|price| price.output_per_million.to_string())
         .unwrap_or_else(|| "null".to_string());
     format!(
-        "{{\"provider\":\"deepseek\",\"model\":\"{}\",\"workspace\":\"{}\",\"scenario\":\"python_add_module_with_test\",\"request_count\":{},\"success_count\":{},\"failure_count\":{},\"input_tokens\":{},\"output_tokens\":{},\"cached_input_tokens\":{},\"total_tokens\":{},\"estimated_cost_cny\":{},\"input_cny_per_million_cache_miss\":{},\"output_cny_per_million\":{},\"pricing_basis\":\"deepseek_cache_miss_estimate\"}}",
+        "{{\"provider\":\"deepseek\",\"model\":\"{}\",\"smoke_run_id\":\"{}\",\"scenario\":\"python_add_module_with_test\",\"request_count\":{},\"success_count\":{},\"failure_count\":{},\"input_tokens\":{},\"output_tokens\":{},\"cached_input_tokens\":{},\"total_tokens\":{},\"ledger_estimated_micro_usd\":{},\"ledger_actual_micro_usd\":{},\"estimated_cost_cny\":{},\"input_cny_per_million_cache_miss\":{},\"output_cny_per_million\":{},\"pricing_basis\":\"deepseek_cache_miss_estimate\"}}",
         json_escape(model),
-        json_escape(workspace),
+        json_escape(smoke_run_id),
         telemetry.request_count,
         telemetry.success_count,
         telemetry.failure_count,
@@ -202,10 +235,31 @@ fn render_usage_json(
         telemetry.total_output_tokens,
         telemetry.total_cached_input_tokens,
         telemetry.total_tokens,
+        view.cost_ledger.total_estimated_cost_micro_usd,
+        view.cost_ledger
+            .total_actual_cost_micro_usd
+            .map(|cost| cost.to_string())
+            .unwrap_or_else(|| "null".to_string()),
         estimated_cost,
         input_price,
         output_price,
     )
+}
+
+fn safe_smoke_run_id() -> String {
+    std::env::var("VIDEN_LIVE_SMOKE_RUN_ID")
+        .ok()
+        .map(|value| sanitize_smoke_run_id(&value))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("deepseek-live-{}", viden_types::now_timestamp()))
+}
+
+fn sanitize_smoke_run_id(input: &str) -> String {
+    input
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+        .take(80)
+        .collect()
 }
 
 fn json_escape(input: &str) -> String {

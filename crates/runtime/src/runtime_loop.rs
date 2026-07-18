@@ -12,11 +12,13 @@ use viden_permissions::PermissionEngine;
 use viden_provider::ModelRequestControl;
 use viden_tools::ToolExecutionContext;
 use viden_types::{
-    AgentTaskStatus, ApprovalResponse, ContextBundleRecord, CostAmount, CostEstimate, CostScope,
+    AgentTaskStatus, ApprovalResponse, ContextBundleRecord, CostAmount, CostEstimate,
     CostUsageOutcome, CostUsageRecord, Message, ModelEvent, ModelRequest, ModelUsage,
     PermissionDecision, PermissionLogEntry, Role, TokenUsage, ToolCall, ToolResult,
     TranscriptEntry, fresh_id, now_timestamp,
 };
+
+use crate::CostAttribution;
 
 const PROVIDER_REQUEST_CHAR_BUDGET: usize = 48_000;
 const PROVIDER_RECENT_HISTORY_LIMIT: usize = 8;
@@ -142,13 +144,14 @@ impl SessionEngine {
             let model_events = match self.provider.next_events_with_control(&request, control) {
                 Ok(events) => {
                     let usage = aggregate_model_usage(&events);
+                    let usage_id = provider_attempt_usage_id(&provider_task.id, attempt_index);
                     self.provider_cost_usage.push(provider_attempt_cost_record(
-                        &provider_task.id,
                         self.provider_name(),
                         self.model_name(),
                         attempt_index,
                         usage.as_ref(),
                         CostUsageOutcome::Success,
+                        self.cost_attribution_for_request(&usage_id, Some(&provider_task.id)),
                     ));
                     self.provider_telemetry.record_success(
                         request_started.elapsed(),
@@ -158,13 +161,14 @@ impl SessionEngine {
                     events
                 }
                 Err(err) => {
+                    let usage_id = provider_attempt_usage_id(&provider_task.id, attempt_index);
                     self.provider_cost_usage.push(provider_attempt_cost_record(
-                        &provider_task.id,
                         self.provider_name(),
                         self.model_name(),
                         attempt_index,
                         None,
                         CostUsageOutcome::Failure,
+                        self.cost_attribution_for_request(&usage_id, Some(&provider_task.id)),
                     ));
                     self.provider_telemetry
                         .record_failure(request_started.elapsed(), &err);
@@ -570,14 +574,17 @@ fn aggregate_model_usage(events: &[ModelEvent]) -> Option<viden_types::ModelUsag
 }
 
 fn provider_attempt_cost_record(
-    task_id: &str,
     provider_id: &str,
     model: &str,
     attempt_index: u32,
     usage: Option<&ModelUsage>,
     outcome: CostUsageOutcome,
+    attribution: CostAttribution,
 ) -> CostUsageRecord {
-    let usage_id = format!("{task_id}-provider-attempt-{attempt_index}");
+    let usage_id = attribution
+        .request_id
+        .clone()
+        .unwrap_or_else(|| format!("provider-attempt-{attempt_index}"));
     let tokens = usage
         .map(|usage| TokenUsage {
             input_tokens: usage.input_tokens,
@@ -597,11 +604,7 @@ fn provider_attempt_cost_record(
         usage_id: usage_id.clone(),
         provider_id: provider_id.to_string(),
         model: model.to_string(),
-        scopes: vec![
-            CostScope::Request(usage_id),
-            CostScope::AgentTask(task_id.to_string()),
-            CostScope::Workflow("interactive".to_string()),
-        ],
+        scopes: attribution.with_request_id(&usage_id).scopes(),
         estimate: usage.and_then(|usage| estimate_provider_cost(provider_id, model, usage)),
         actual_cost: usage
             .and_then(|usage| usage.actual_cost_micro_usd)
@@ -614,6 +617,10 @@ fn provider_attempt_cost_record(
         outcome,
         recorded_at: Some(now_timestamp()),
     }
+}
+
+fn provider_attempt_usage_id(task_id: &str, attempt_index: u32) -> String {
+    format!("{task_id}-provider-attempt-{attempt_index}")
 }
 
 fn estimate_provider_cost(

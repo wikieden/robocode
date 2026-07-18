@@ -39,7 +39,7 @@ use viden_tools::ToolRegistry;
 #[cfg(test)]
 use viden_types::PermissionRule;
 use viden_types::{
-    AgentDagRecord, AgentTaskRecord, ContextBundleRecord, CostUsageRecord, EvidenceView,
+    AgentDagRecord, AgentTaskRecord, ContextBundleRecord, CostScope, CostUsageRecord, EvidenceView,
     MemoryEntry, MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode,
     RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode,
 };
@@ -48,6 +48,75 @@ use viden_workflows::stores::WorkflowStore;
 const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
 
 pub(crate) type RuntimeEventSink = Arc<dyn Fn(Vec<RuntimeEvent>) + Send + Sync + 'static>;
+
+const COST_ATTRIBUTION_ID_MAX_CHARS: usize = 96;
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CostAttribution {
+    pub(crate) request_id: Option<String>,
+    pub(crate) agent_task_id: Option<String>,
+    pub(crate) dag_id: Option<String>,
+    pub(crate) workflow_id: Option<String>,
+    pub(crate) smoke_run_id: Option<String>,
+}
+
+impl CostAttribution {
+    pub(crate) fn with_request_id(&self, request_id: impl AsRef<str>) -> Self {
+        let mut next = self.clone();
+        next.request_id = bounded_cost_id(request_id.as_ref());
+        next
+    }
+
+    pub(crate) fn scopes(&self) -> Vec<CostScope> {
+        let mut scopes = Vec::new();
+        push_scope(
+            &mut scopes,
+            self.request_id
+                .as_ref()
+                .map(|id| CostScope::Request(id.clone())),
+        );
+        push_scope(
+            &mut scopes,
+            self.agent_task_id
+                .as_ref()
+                .map(|id| CostScope::AgentTask(id.clone())),
+        );
+        push_scope(
+            &mut scopes,
+            self.dag_id.as_ref().map(|id| CostScope::Dag(id.clone())),
+        );
+        push_scope(
+            &mut scopes,
+            self.workflow_id
+                .as_ref()
+                .map(|id| CostScope::Workflow(id.clone())),
+        );
+        push_scope(
+            &mut scopes,
+            self.smoke_run_id
+                .as_ref()
+                .map(|id| CostScope::SmokeRun(id.clone())),
+        );
+        scopes
+    }
+}
+
+fn push_scope(scopes: &mut Vec<CostScope>, scope: Option<CostScope>) {
+    if let Some(scope) = scope
+        && !scopes.contains(&scope)
+    {
+        scopes.push(scope);
+    }
+}
+
+fn bounded_cost_id(input: &str) -> Option<String> {
+    let bounded = input
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+        .take(COST_ATTRIBUTION_ID_MAX_CHARS)
+        .collect::<String>();
+    (!bounded.is_empty()).then_some(bounded)
+}
 
 #[derive(Debug, Clone)]
 pub enum EngineEvent {
@@ -200,6 +269,9 @@ pub struct SessionEngine {
     runtime_event_sink: Option<RuntimeEventSink>,
     provider_telemetry: ProviderTelemetry,
     provider_cost_usage: Vec<CostUsageRecord>,
+    cost_workflow_id: Option<String>,
+    cost_smoke_run_id: Option<String>,
+    active_cost_attribution: Option<CostAttribution>,
     last_context_bundle: Option<ContextBundleRecord>,
     last_context_runtime_events: Vec<RuntimeEvent>,
     context_engine_root: PathBuf,
@@ -250,6 +322,8 @@ impl SessionEngine {
         };
         let workflows = WorkflowStore::new(store.home_dir().to_path_buf(), &cwd)?;
         let context_engine_root = cwd.join(".viden").join("context-engine");
+        let cost_workflow_id =
+            Some(bounded_cost_id(store.session_id()).unwrap_or_else(|| "session".to_string()));
         let engine = Self {
             cwd: cwd.clone(),
             provider,
@@ -277,6 +351,9 @@ impl SessionEngine {
             runtime_event_sink: None,
             provider_telemetry: ProviderTelemetry::default(),
             provider_cost_usage: Vec::new(),
+            cost_workflow_id,
+            cost_smoke_run_id: None,
+            active_cost_attribution: None,
             last_context_bundle: None,
             last_context_runtime_events: Vec::new(),
             context_engine_root,
@@ -297,9 +374,83 @@ impl SessionEngine {
         self.runtime_event_sink.clone()
     }
 
+    pub(crate) fn cost_attribution_for_request(
+        &self,
+        request_id: &str,
+        default_agent_task_id: Option<&str>,
+    ) -> CostAttribution {
+        let mut attribution = self.active_cost_attribution.clone().unwrap_or_default();
+        attribution.request_id = bounded_cost_id(request_id);
+        if attribution.agent_task_id.is_none() {
+            attribution.agent_task_id = default_agent_task_id.and_then(bounded_cost_id);
+        }
+        if attribution.dag_id.is_none()
+            && let Some(agent_task_id) = attribution.agent_task_id.as_deref()
+        {
+            attribution.dag_id = self.dag_id_for_task_optional(agent_task_id);
+        }
+        if attribution.workflow_id.is_none() {
+            attribution.workflow_id = self.cost_workflow_id.clone();
+        }
+        if attribution.smoke_run_id.is_none() {
+            attribution.smoke_run_id = self.cost_smoke_run_id.clone();
+        }
+        attribution
+    }
+
+    pub(crate) fn cost_attribution_for_context_scope(
+        &self,
+        request_id: &str,
+        scope: &viden_types::ContextScope,
+    ) -> CostAttribution {
+        let mut attribution = self.cost_attribution_for_request(request_id, None);
+        match scope {
+            viden_types::ContextScope::Task(id) => {
+                attribution.agent_task_id = bounded_cost_id(id);
+                attribution.dag_id = self.dag_id_for_task_optional(id);
+            }
+            viden_types::ContextScope::Dag(id) => {
+                attribution.dag_id = bounded_cost_id(id);
+            }
+            viden_types::ContextScope::Workflow(id) => {
+                attribution.workflow_id = bounded_cost_id(id);
+            }
+        }
+        attribution
+    }
+
+    pub(crate) fn dag_id_for_task_optional(&self, task_id: &str) -> Option<String> {
+        self.runtime_agent_dags
+            .iter()
+            .find(|dag| dag.tasks.iter().any(|task| task.task_id == task_id))
+            .and_then(|dag| bounded_cost_id(&dag.dag_id))
+    }
+
     #[cfg(test)]
     pub(crate) fn add_permission_rule_for_test(&mut self, rule: PermissionRule) {
         self.permissions.add_rule(rule);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_cost_workflow_id_for_test(&mut self, workflow_id: Option<&str>) {
+        self.cost_workflow_id = workflow_id.and_then(bounded_cost_id);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_cost_smoke_run_id_for_test(&mut self, smoke_run_id: Option<&str>) {
+        self.cost_smoke_run_id = smoke_run_id.and_then(bounded_cost_id);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_runtime_dag_id_for_test(&mut self, task_id: &str, dag_id: &str) {
+        if let Some(dag) = self
+            .runtime_agent_dags
+            .iter_mut()
+            .find(|dag| dag.tasks.iter().any(|task| task.task_id == task_id))
+            && let Some(bounded) = bounded_cost_id(dag_id)
+        {
+            dag.dag_id = bounded;
+        }
     }
 
     #[cfg(test)]

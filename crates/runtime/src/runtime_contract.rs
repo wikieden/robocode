@@ -9,7 +9,7 @@ use std::{
 use crate::agent_commands::{tracked_agent_job_runtime_events, tracked_agent_job_tasks};
 use crate::context_bundle::{ContextBuildMode, redact_context_summary_for_event};
 use crate::lsp_tools::render_lsp_diagnostics;
-use crate::{EngineEvent, ProviderTelemetry, SessionEngine};
+use crate::{CostAttribution, EngineEvent, ProviderTelemetry, SessionEngine};
 use viden_config::ProviderConfigUpdate;
 use viden_context::{ContextEngine, ReductionPolicy, reduce};
 use viden_lsp::SemanticProvider;
@@ -20,13 +20,12 @@ use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
     AgentTaskRecord, AgentTaskStatus, ApprovalRequestView, ApprovalResponse, ContextContentKind,
     ContextHandleRecord, ContextItemRecord, ContextRetrievalRecord, ContextScope,
-    ContextSourceRecord, CostScope, CostUsageOutcome, CostUsageRecord, EvidenceView,
-    MergeGateRecord, MergeGateStatus, PermissionBehavior, PermissionDecision,
-    PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
-    PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeSnapshot, RuntimeViewState,
-    TokenCostView, TokenUsage, ToolCallId, ToolInput, WorkMode, fresh_id, now_timestamp,
-    truncate_for_preview,
+    ContextSourceRecord, CostUsageOutcome, CostUsageRecord, EvidenceView, MergeGateRecord,
+    MergeGateStatus, PermissionBehavior, PermissionDecision, PermissionDecisionReason,
+    PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule, PermissionRuleSource,
+    PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand, RuntimeErrorView,
+    RuntimeEvent, RuntimeEventKind, RuntimeSnapshot, RuntimeViewState, TokenCostView, TokenUsage,
+    ToolCallId, ToolInput, WorkMode, fresh_id, now_timestamp, truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
@@ -53,6 +52,7 @@ pub(crate) struct PreparedContextRetrieval {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ContextRetrievalJob {
+    pub(crate) retrieval_id: String,
     pub(crate) handle: ContextHandleRecord,
     pub(crate) item: ContextItemRecord,
     pub(crate) scope: ContextScope,
@@ -61,6 +61,7 @@ pub(crate) struct ContextRetrievalJob {
     pub(crate) reason_category: String,
     pub(crate) permission_decision: String,
     pub(crate) reason_rule_category: String,
+    pub(crate) cost_attribution: CostAttribution,
 }
 
 #[derive(Debug, Clone)]
@@ -512,9 +513,14 @@ impl SessionEngine {
             PermissionDecision::Allow(_) => {}
         }
 
+        let retrieval_id = fresh_id("ctxr");
+        let usage_id = format!("{retrieval_id}-cost");
         Ok(PreparedContextRetrieval {
             pre_events: events,
             job: ContextRetrievalJob {
+                retrieval_id,
+                cost_attribution: self
+                    .cost_attribution_for_context_scope(&usage_id, &expected_scope),
                 handle,
                 item,
                 scope: expected_scope,
@@ -541,7 +547,11 @@ impl SessionEngine {
         permission_input.insert("reason_category".to_string(), reason_category.clone());
         let tool_spec = context_read_tool_spec();
         let decision = self.permissions.decide(&tool_spec, &permission_input);
+        let retrieval_id = fresh_id("ctxr");
+        let usage_id = format!("{retrieval_id}-cost");
         let mut job = ContextRetrievalJob {
+            retrieval_id,
+            cost_attribution: self.cost_attribution_for_context_scope(&usage_id, &expected_scope),
             handle,
             item,
             scope: expected_scope,
@@ -1093,12 +1103,20 @@ impl SessionEngine {
             return Ok(events);
         }
         let previous_permissions = self.apply_agent_permission_policy(&spec);
+        let previous_cost_attribution = self.active_cost_attribution.replace(CostAttribution {
+            request_id: None,
+            agent_task_id: Some(task_id.to_string()),
+            dag_id: Some(dag_id.clone()),
+            workflow_id: self.cost_workflow_id.clone(),
+            smoke_run_id: self.cost_smoke_run_id.clone(),
+        });
         let provider_result = self.process_runtime_input_with_built_context_bundle_and_control(
             &prompt,
             approver,
             control,
             built_context,
         );
+        self.active_cost_attribution = previous_cost_attribution;
         self.restore_agent_permission_policy(previous_permissions);
         let provider_events = match provider_result {
             Ok(events) => events,
@@ -3260,9 +3278,10 @@ pub(crate) fn execute_context_retrieval_job(
     control.check_cancelled()?;
     let byte_count = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     let token_count = output.chars().count().div_ceil(4).max(1) as u64;
-    let retrieval_id = fresh_id("ctxr");
+    let retrieval_id = job.retrieval_id;
     let usage_id = format!("{retrieval_id}-cost");
     let scope = job.scope.clone();
+    let cost_attribution = job.cost_attribution.with_request_id(&usage_id);
     events.push(RuntimeEvent::new(
         next_sequence(&events),
         RuntimeEventKind::ToolCallFinished {
@@ -3308,10 +3327,7 @@ pub(crate) fn execute_context_retrieval_job(
                 usage_id: usage_id.clone(),
                 provider_id: "context".to_string(),
                 model: "retrieval".to_string(),
-                scopes: vec![
-                    CostScope::Request(usage_id),
-                    cost_scope_from_context_scope(&scope),
-                ],
+                scopes: cost_attribution.scopes(),
                 tokens: TokenUsage {
                     input_tokens: None,
                     output_tokens: None,
@@ -3328,14 +3344,6 @@ pub(crate) fn execute_context_retrieval_job(
         },
     ));
     Ok(events)
-}
-
-fn cost_scope_from_context_scope(scope: &ContextScope) -> CostScope {
-    match scope {
-        ContextScope::Task(id) => CostScope::AgentTask(id.clone()),
-        ContextScope::Dag(id) => CostScope::Dag(id.clone()),
-        ContextScope::Workflow(id) => CostScope::Workflow(id.clone()),
-    }
 }
 
 fn validate_context_retrieval_scope_and_expiry(
