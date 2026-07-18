@@ -787,6 +787,65 @@ fn retrieve_context_returns_safe_bytes_and_event_metadata() {
 }
 
 #[test]
+fn retrieve_context_bounds_long_secret_and_path_reason_before_recording_event() {
+    let cwd = temp_dir("runtime_command_retrieve_context_reason_cwd");
+    let home = temp_dir("runtime_command_retrieve_context_reason_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .handle_runtime_command(
+            "cmd_build_context",
+            RuntimeCommand::SubmitUserInput {
+                content: "bounded reason body".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let handle_id = engine
+        .runtime_view_state()
+        .context_handles
+        .first()
+        .unwrap()
+        .handle_id
+        .clone();
+    let long_reason = format!(
+        "hydrate {} /Users/wiki/private/context-store sk-test-secret-value {}",
+        "安全".repeat(200),
+        "tail".repeat(200)
+    );
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_retrieve_long_reason",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: long_reason,
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let retrieval = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::ContextRetrieved { retrieval } => Some(retrieval),
+            _ => None,
+        })
+        .expect("retrieval event");
+    assert!(retrieval.reason.len() <= 256, "{}", retrieval.reason.len());
+    assert!(retrieval.reason.chars().count() <= 160);
+    assert!(!retrieval.reason.contains("/Users/wiki"));
+    assert!(!retrieval.reason.contains("sk-test-secret"));
+    assert!(std::str::from_utf8(retrieval.reason.as_bytes()).is_ok());
+    assert_eq!(retrieval.permission_decision, "allow");
+    assert_eq!(retrieval.reason_rule_category, "safe_read");
+}
+
+#[test]
 fn retrieve_context_denies_unknown_and_cross_scope_handles_before_reading_bytes() {
     let cwd = temp_dir("runtime_command_retrieve_context_scope_cwd");
     let home = temp_dir("runtime_command_retrieve_context_scope_home");

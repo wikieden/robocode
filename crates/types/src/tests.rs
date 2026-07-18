@@ -494,6 +494,8 @@ fn context_contracts_round_trip_without_exposing_storage_paths() {
         byte_count: 256,
         token_count: 64,
         reason_category: "hydrate".into(),
+        permission_decision: "allow".into(),
+        reason_rule_category: "safe_read".into(),
         reason: "answer follow-up".into(),
         requester: "runtime".into(),
         retrieved_at: Some(102),
@@ -553,6 +555,8 @@ fn context_contracts_round_trip_without_exposing_storage_paths() {
     assert_eq!(records["retrieval"]["scope"]["type"], "task");
     assert_eq!(records["retrieval"]["byte_count"], 256);
     assert_eq!(records["retrieval"]["reason_category"], "hydrate");
+    assert_eq!(records["retrieval"]["permission_decision"], "allow");
+    assert_eq!(records["retrieval"]["reason_rule_category"], "safe_read");
     assert_eq!(records["quality"]["score_microunits"], 920_000);
     assert_eq!(records["budget"]["scope"]["type"], "workflow");
     assert_eq!(
@@ -606,6 +610,8 @@ fn context_and_cost_runtime_events_project_bounded_summaries() {
         byte_count: 512,
         token_count: 80,
         reason_category: "hydrate".into(),
+        permission_decision: "allow".into(),
+        reason_rule_category: "safe_read".into(),
         reason: "hydrate evidence".into(),
         requester: "runtime".into(),
         retrieved_at: Some(202),
@@ -725,6 +731,8 @@ fn context_and_cost_runtime_events_project_bounded_summaries() {
                     byte_count: 64,
                     token_count: 16,
                     reason_category: "replay".into(),
+                    permission_decision: "allow".into(),
+                    reason_rule_category: "safe_read".into(),
                     reason: "bounded replay".into(),
                     requester: "runtime".into(),
                     retrieved_at: Some(300 + index),

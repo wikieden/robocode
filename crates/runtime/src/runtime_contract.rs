@@ -21,10 +21,11 @@ use viden_types::{
     AgentTaskRecord, AgentTaskStatus, ApprovalRequestView, ApprovalResponse, ContextContentKind,
     ContextHandleRecord, ContextItemRecord, ContextRetrievalRecord, ContextScope,
     ContextSourceRecord, EvidenceView, MergeGateRecord, MergeGateStatus, PermissionBehavior,
-    PermissionDecision, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
-    PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeSnapshot, RuntimeViewState,
-    TokenCostView, ToolCallId, ToolInput, WorkMode, fresh_id, now_timestamp, truncate_for_preview,
+    PermissionDecision, PermissionDecisionReason, PermissionLevel, PermissionMode,
+    PermissionPrompt, PermissionRule, PermissionRuleSource, PermissionRuleValue,
+    ProviderHealthView, QueuedInputView, RuntimeCommand, RuntimeErrorView, RuntimeEvent,
+    RuntimeEventKind, RuntimeSnapshot, RuntimeViewState, TokenCostView, ToolCallId, ToolInput,
+    WorkMode, fresh_id, now_timestamp, truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
@@ -57,6 +58,17 @@ pub(crate) struct ContextRetrievalJob {
     pub(crate) root: PathBuf,
     pub(crate) reason: String,
     pub(crate) reason_category: String,
+    pub(crate) permission_decision: String,
+    pub(crate) reason_rule_category: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum SupervisorContextRetrievalPreparation {
+    Ready(PreparedContextRetrieval),
+    PendingApproval {
+        approval: ApprovalRequestView,
+        job: ContextRetrievalJob,
+    },
 }
 
 #[cfg(test)]
@@ -64,6 +76,10 @@ type RetrieveContextTestHook = Arc<dyn Fn(&ModelRequestControl) + Send + Sync>;
 
 #[cfg(test)]
 static RETRIEVE_CONTEXT_TEST_HOOK: OnceLock<Mutex<Option<RetrieveContextTestHook>>> =
+    OnceLock::new();
+
+#[cfg(test)]
+static RETRIEVE_CONTEXT_PUBLISH_TEST_HOOK: OnceLock<Mutex<Option<RetrieveContextTestHook>>> =
     OnceLock::new();
 
 impl QueuedRuntimeInput {
@@ -447,13 +463,17 @@ impl SessionEngine {
         let (handle, item, expected_scope) = self.resolve_current_context_handle(handle_id)?;
         validate_context_retrieval_scope_and_expiry(&handle, &expected_scope)?;
         let reason_category = context_retrieval_reason_category(reason);
+        let bounded_reason = bound_redacted_context_reason(reason);
         let mut permission_input = ToolInput::new();
         permission_input.insert("handle_id".to_string(), handle.handle_id.clone());
         permission_input.insert("reason_category".to_string(), reason_category.clone());
         let tool_spec = context_read_tool_spec();
         let mut decision = self.permissions.decide(&tool_spec, &permission_input);
+        let mut permission_decision = "allow".to_string();
+        let mut reason_rule_category = permission_reason_category_from_decision(&decision);
         let mut events = Vec::new();
         if let PermissionDecision::Ask(ask) = &decision {
+            reason_rule_category = permission_reason_category(ask.decision_reason.as_ref());
             let request_id = fresh_id("approval");
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -471,6 +491,7 @@ impl SessionEngine {
             ));
             let approved = approval.approved;
             decision = self.permissions.apply_approval(approval, ask);
+            permission_decision = if approved { "approved" } else { "denied" }.to_string();
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
                 RuntimeEventKind::ApprovalResolved {
@@ -492,10 +513,58 @@ impl SessionEngine {
                 item,
                 scope: expected_scope,
                 root: self.context_engine_root.clone(),
-                reason: redact_command_text(reason),
+                reason: bounded_reason,
                 reason_category,
+                permission_decision,
+                reason_rule_category,
             },
         })
+    }
+
+    pub(crate) fn prepare_context_retrieval_for_supervisor(
+        &mut self,
+        handle_id: &str,
+        reason: &str,
+    ) -> Result<SupervisorContextRetrievalPreparation, String> {
+        let (handle, item, expected_scope) = self.resolve_current_context_handle(handle_id)?;
+        validate_context_retrieval_scope_and_expiry(&handle, &expected_scope)?;
+        let reason_category = context_retrieval_reason_category(reason);
+        let bounded_reason = bound_redacted_context_reason(reason);
+        let mut permission_input = ToolInput::new();
+        permission_input.insert("handle_id".to_string(), handle.handle_id.clone());
+        permission_input.insert("reason_category".to_string(), reason_category.clone());
+        let tool_spec = context_read_tool_spec();
+        let decision = self.permissions.decide(&tool_spec, &permission_input);
+        let mut job = ContextRetrievalJob {
+            handle,
+            item,
+            scope: expected_scope,
+            root: self.context_engine_root.clone(),
+            reason: bounded_reason,
+            reason_category,
+            permission_decision: "allow".to_string(),
+            reason_rule_category: permission_reason_category_from_decision(&decision),
+        };
+
+        match decision {
+            PermissionDecision::Allow(_) => Ok(SupervisorContextRetrievalPreparation::Ready(
+                PreparedContextRetrieval {
+                    pre_events: Vec::new(),
+                    job,
+                },
+            )),
+            PermissionDecision::Deny(deny) => Err(deny.message),
+            PermissionDecision::Ask(ask) => {
+                job.permission_decision = "pending".to_string();
+                job.reason_rule_category = permission_reason_category(ask.decision_reason.as_ref());
+                let request_id = fresh_id("approval");
+                let prompt = PermissionEngine::prompt_for("context_read", &ask, &permission_input);
+                Ok(SupervisorContextRetrievalPreparation::PendingApproval {
+                    approval: approval_request_view(&request_id, &prompt),
+                    job,
+                })
+            }
+        }
     }
 
     fn resolve_current_context_handle(
@@ -3106,6 +3175,9 @@ fn command_rejected(command_id: String, reason: String) -> RuntimeEvent {
     RuntimeEvent::new(1, RuntimeEventKind::CommandRejected { command_id, reason })
 }
 
+pub(crate) const CONTEXT_RETRIEVAL_REASON_MAX_BYTES: usize = 256;
+pub(crate) const CONTEXT_RETRIEVAL_REASON_MAX_CHARS: usize = 160;
+
 pub(crate) fn execute_context_retrieval_job(
     job: ContextRetrievalJob,
     control: &ModelRequestControl,
@@ -3135,6 +3207,11 @@ pub(crate) fn execute_context_retrieval_job(
         .map_err(|err| sanitize_context_error(&err.to_string()))?;
     control.check_cancelled()?;
     let output = bounded_context_output(job.item.kind, &bytes)?;
+    control.check_cancelled()?;
+    #[cfg(test)]
+    if let Some(hook) = retrieve_context_publish_test_hook() {
+        hook(control);
+    }
     control.check_cancelled()?;
     let byte_count = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     let token_count = output.chars().count().div_ceil(4).max(1) as u64;
@@ -3168,6 +3245,8 @@ pub(crate) fn execute_context_retrieval_job(
                 byte_count,
                 token_count,
                 reason_category: job.reason_category,
+                permission_decision: job.permission_decision,
+                reason_rule_category: job.reason_rule_category,
                 reason: job.reason,
                 requester: "runtime".to_string(),
                 retrieved_at: Some(now_timestamp()),
@@ -3214,6 +3293,23 @@ fn retrieve_context_test_hook() -> Option<RetrieveContextTestHook> {
         .clone()
 }
 
+#[cfg(test)]
+pub(crate) fn set_retrieve_context_publish_test_hook(hook: Option<RetrieveContextTestHook>) {
+    let slot = RETRIEVE_CONTEXT_PUBLISH_TEST_HOOK.get_or_init(|| Mutex::new(None));
+    *slot
+        .lock()
+        .expect("retrieve context publish test hook lock") = hook;
+}
+
+#[cfg(test)]
+fn retrieve_context_publish_test_hook() -> Option<RetrieveContextTestHook> {
+    RETRIEVE_CONTEXT_PUBLISH_TEST_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .expect("retrieve context publish test hook lock")
+        .clone()
+}
+
 fn bounded_context_output(kind: ContextContentKind, bytes: &[u8]) -> Result<String, String> {
     const MAX_CONTEXT_RESULT_BYTES: usize = 16 * 1024;
     let policy = ReductionPolicy {
@@ -3245,6 +3341,49 @@ fn context_retrieval_reason_category(reason: &str) -> String {
     } else {
         normalized
     }
+}
+
+fn bound_redacted_context_reason(reason: &str) -> String {
+    let redacted = redact_command_text(reason);
+    let mut out = String::new();
+    for (chars, ch) in redacted.chars().enumerate() {
+        if chars >= CONTEXT_RETRIEVAL_REASON_MAX_CHARS {
+            break;
+        }
+        let next_len = out.len() + ch.len_utf8();
+        if next_len > CONTEXT_RETRIEVAL_REASON_MAX_BYTES {
+            break;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn permission_reason_category_from_decision(decision: &PermissionDecision) -> String {
+    match decision {
+        PermissionDecision::Allow(allow) => {
+            permission_reason_category(allow.decision_reason.as_ref())
+        }
+        PermissionDecision::Ask(ask) => permission_reason_category(ask.decision_reason.as_ref()),
+        PermissionDecision::Deny(deny) => permission_reason_category(Some(&deny.decision_reason)),
+    }
+}
+
+fn permission_reason_category(reason: Option<&PermissionDecisionReason>) -> String {
+    match reason {
+        Some(PermissionDecisionReason::RuleAllow) => "rule_allow",
+        Some(PermissionDecisionReason::RuleDeny) => "rule_deny",
+        Some(PermissionDecisionReason::RuleAsk) => "rule_ask",
+        Some(PermissionDecisionReason::SafeRead) => "safe_read",
+        Some(PermissionDecisionReason::RequiresApproval) => "requires_approval",
+        Some(PermissionDecisionReason::OutOfScopePath) => "out_of_scope_path",
+        Some(PermissionDecisionReason::BypassMode) => "bypass_mode",
+        Some(PermissionDecisionReason::DontAskMode) => "dont_ask_mode",
+        Some(PermissionDecisionReason::PlanMode) => "plan_mode",
+        Some(PermissionDecisionReason::AcceptEditsMode) => "accept_edits_mode",
+        None => "unknown",
+    }
+    .to_string()
 }
 
 fn sanitize_context_error(message: &str) -> String {
@@ -3291,7 +3430,7 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         },
         RuntimeCommand::RetrieveContext { handle_id, reason } => RuntimeCommand::RetrieveContext {
             handle_id: redact_identifier_for_event(handle_id),
-            reason: redact_command_text(reason),
+            reason: bound_redacted_context_reason(reason),
         },
         other => other.clone(),
     }

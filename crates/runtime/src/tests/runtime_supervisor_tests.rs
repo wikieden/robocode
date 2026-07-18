@@ -9,16 +9,21 @@ use viden_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
     AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalResponse, ContextBundleRecord,
-    MergeGateStatus, ModelEvent, ModelRequest, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
+    MergeGateStatus, ModelEvent, ModelRequest, PermissionBehavior, PermissionRule,
+    PermissionRuleSource, PermissionRuleValue, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
     ToolCall, ToolInput, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
-use crate::{RuntimeSupervisor, SessionEngine, runtime_contract::set_retrieve_context_test_hook};
+use crate::{
+    RuntimeSupervisor, SessionEngine,
+    runtime_contract::{set_retrieve_context_publish_test_hook, set_retrieve_context_test_hook},
+};
 
 use super::{SequenceProvider, temp_dir};
 
 static CUSTOM_ACP_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static RETRIEVE_CONTEXT_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 struct BlockingProvider {
     entered: Arc<AtomicBool>,
@@ -220,6 +225,10 @@ fn runtime_supervisor_cancels_active_provider_turn_and_keeps_worker_alive() {
 
 #[test]
 fn runtime_supervisor_keeps_input_responsive_during_context_retrieval() {
+    let _guard = RETRIEVE_CONTEXT_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("retrieve context hook lock");
     let cwd = temp_dir("runtime_supervisor_context_retrieve_cwd");
     let home = temp_dir("runtime_supervisor_context_retrieve_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
@@ -313,6 +322,267 @@ fn runtime_supervisor_keeps_input_responsive_during_context_retrieval() {
             &event.kind,
             RuntimeEventKind::CommandAccepted { command_id, .. }
                 if command_id == "cmd_cancel_retrieval"
+        )
+    }));
+    assert!(events.iter().all(|event| match &event.kind {
+        RuntimeEventKind::ContextRetrieved { .. } => false,
+        RuntimeEventKind::ToolCallFinished { name, .. } if name == "context_read" => false,
+        _ => true,
+    }));
+}
+
+#[test]
+fn runtime_supervisor_retrieve_context_waits_for_ask_approval_before_reading() {
+    let _guard = RETRIEVE_CONTEXT_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("retrieve context hook lock");
+    let (mut engine, handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_context_ask_approve",
+        "ask approve body",
+    );
+    engine.add_permission_rule_for_test(context_read_rule(PermissionBehavior::Ask));
+    let read_started = Arc::new(AtomicBool::new(false));
+    let read_started_for_hook = Arc::clone(&read_started);
+    set_retrieve_context_test_hook(Some(Arc::new(move |_control| {
+        read_started_for_hook.store(true, Ordering::SeqCst);
+    })));
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command(
+            "cmd_retrieve_context_ask",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate ask approve".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalRequested { approval }
+                    if approval.tool_name == "context_read"
+            )
+        })
+    });
+    assert!(
+        !read_started.load(Ordering::SeqCst),
+        "retrieval read started before approval"
+    );
+    let request_id = approval_id(&events);
+
+    supervisor
+        .send_command(
+            "cmd_retrieve_approval",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse {
+                    approved: true,
+                    feedback: None,
+                },
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ContextRetrieved { retrieval }
+                        if retrieval.permission_decision == "approved"
+                            && retrieval.reason_rule_category == "rule_ask"
+                )
+            })
+        },
+    ));
+    set_retrieve_context_test_hook(None);
+
+    assert!(read_started.load(Ordering::SeqCst));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: resolved,
+                approved: true
+            } if resolved == &request_id
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ToolCallFinished {
+                name,
+                success: true,
+                evidence: Some(evidence),
+                ..
+            } if name == "context_read" && evidence.summary.contains("ask approve body")
+        )
+    }));
+
+    supervisor
+        .send_command(
+            "cmd_retrieve_approval_again",
+            RuntimeCommand::RespondToApproval {
+                request_id,
+                response: ApprovalResponse {
+                    approved: true,
+                    feedback: None,
+                },
+            },
+        )
+        .unwrap();
+    let replay = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_retrieve_approval_again"
+                        && reason.contains("is not pending")
+            )
+        })
+    });
+    assert!(replay.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, .. }
+                if command_id == "cmd_retrieve_approval_again"
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_retrieve_context_ask_denial_does_not_read() {
+    let _guard = RETRIEVE_CONTEXT_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("retrieve context hook lock");
+    let (mut engine, handle_id) =
+        supervisor_engine_with_context("runtime_supervisor_context_ask_deny", "ask deny body");
+    engine.add_permission_rule_for_test(context_read_rule(PermissionBehavior::Ask));
+    let read_started = Arc::new(AtomicBool::new(false));
+    let read_started_for_hook = Arc::clone(&read_started);
+    set_retrieve_context_test_hook(Some(Arc::new(move |_control| {
+        read_started_for_hook.store(true, Ordering::SeqCst);
+    })));
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command(
+            "cmd_retrieve_context_deny",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate ask deny".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let request_id = approval_id(&events);
+
+    supervisor
+        .send_command(
+            "cmd_retrieve_denial",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse {
+                    approved: false,
+                    feedback: Some("no".to_string()),
+                },
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::Error { error }
+                        if error.recoverable
+                            && error.message.contains("User denied the permission request")
+                )
+            })
+        },
+    ));
+    set_retrieve_context_test_hook(None);
+
+    assert!(!read_started.load(Ordering::SeqCst));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: resolved,
+                approved: false
+            } if resolved == &request_id
+        )
+    }));
+    assert!(events.iter().all(|event| match &event.kind {
+        RuntimeEventKind::ContextRetrieved { .. } => false,
+        RuntimeEventKind::ToolCallFinished { name, .. } if name == "context_read" => false,
+        _ => true,
+    }));
+}
+
+#[test]
+fn runtime_supervisor_context_retrieval_cancel_wins_before_success_publish() {
+    let _guard = RETRIEVE_CONTEXT_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("retrieve context hook lock");
+    let (engine, handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_context_cancel_before_publish",
+        "cancel fence body",
+    );
+    let paused = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let paused_for_hook = Arc::clone(&paused);
+    let release_for_hook = Arc::clone(&release);
+    set_retrieve_context_publish_test_hook(Some(Arc::new(move |control| {
+        paused_for_hook.store(true, Ordering::SeqCst);
+        while !release_for_hook.load(Ordering::SeqCst) && control.check_cancelled().is_ok() {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    })));
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "cmd_retrieve_context_cancel_fence",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate cancel fence".to_string(),
+            },
+        )
+        .unwrap();
+    wait_until(|| paused.load(Ordering::SeqCst));
+    supervisor
+        .send_command("cmd_cancel_after_reduce", RuntimeCommand::CancelActiveTurn)
+        .unwrap();
+    release.store(true, Ordering::SeqCst);
+
+    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::Error { error }
+                    if error.message.contains("Model request cancelled")
+            )
+        })
+    });
+    set_retrieve_context_publish_test_hook(None);
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_cancel_after_reduce"
         )
     }));
     assert!(events.iter().all(|event| match &event.kind {
@@ -3459,6 +3729,55 @@ fn collect_events_until(
         }
     }
     events
+}
+
+fn supervisor_engine_with_context(name: &str, content: &str) -> (SessionEngine, String) {
+    let cwd = temp_dir(&format!("{name}_cwd"));
+    let home = temp_dir(&format!("{name}_home"));
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .handle_runtime_command(
+            "cmd_build_context",
+            RuntimeCommand::SubmitUserInput {
+                content: content.to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let handle_id = engine
+        .runtime_view_state()
+        .context_handles
+        .first()
+        .unwrap()
+        .handle_id
+        .clone();
+    (engine, handle_id)
+}
+
+fn context_read_rule(rule_behavior: PermissionBehavior) -> PermissionRule {
+    PermissionRule {
+        source: PermissionRuleSource::Session,
+        rule_behavior,
+        rule_value: PermissionRuleValue {
+            tool_name: "context_read".to_string(),
+            rule_content: None,
+        },
+    }
+}
+
+fn approval_id(events: &[RuntimeEvent]) -> String {
+    events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::ApprovalRequested { approval } => Some(approval.id.clone()),
+            _ => None,
+        })
+        .expect("approval request id")
 }
 
 fn start_agent_task_and_capture_context(

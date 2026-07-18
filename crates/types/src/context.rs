@@ -67,6 +67,10 @@ pub struct ContextRetrievalRecord {
     pub token_count: u64,
     #[serde(default = "default_context_retrieval_reason_category")]
     pub reason_category: String,
+    #[serde(default = "default_context_retrieval_permission_decision")]
+    pub permission_decision: String,
+    #[serde(default = "default_context_retrieval_reason_rule_category")]
+    pub reason_rule_category: String,
     pub reason: String,
     pub requester: String,
     pub retrieved_at: Option<u64>,
@@ -78,6 +82,14 @@ fn default_context_retrieval_scope() -> ContextScope {
 
 fn default_context_retrieval_reason_category() -> String {
     "retrieve".to_string()
+}
+
+fn default_context_retrieval_permission_decision() -> String {
+    "unknown".to_string()
+}
+
+fn default_context_retrieval_reason_rule_category() -> String {
+    "unknown".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
