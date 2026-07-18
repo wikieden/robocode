@@ -6,6 +6,10 @@ use viden_types::{ContextContentKind, ContextQualityRecord};
 
 const REDUCER_ID: &str = "viden-context-native";
 const REDUCER_VERSION: &str = "native-v1";
+const MAX_REFERENCED_SYMBOLS: usize = 64;
+const MAX_REFERENCED_SYMBOL_BYTES: usize = 128;
+const MAX_REFERENCE_SITES_PER_SYMBOL: usize = 4;
+const SYMBOL_CONTEXT_RADIUS: usize = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineRange {
@@ -25,6 +29,11 @@ pub struct ReductionPolicy {
     /// output text. Empty markers are invalid policy.
     pub required_markers: Vec<String>,
     pub selected_line_ranges: Vec<LineRange>,
+    /// Explicit Rust identifiers whose declarations and bounded reference
+    /// slices should be retained. Reducer v1 performs line-oriented matching,
+    /// not AST resolution.
+    #[serde(default)]
+    pub referenced_symbols: Vec<String>,
     pub recent_turns: usize,
 }
 
@@ -38,6 +47,7 @@ impl Default for ReductionPolicy {
             max_json_values: 20_000,
             required_markers: Vec::new(),
             selected_line_ranges: Vec::new(),
+            referenced_symbols: Vec::new(),
             recent_turns: 8,
         }
     }
@@ -321,14 +331,13 @@ fn reduce_code(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
     let text = String::from_utf8_lossy(input);
     let all_lines = text.lines().collect::<Vec<_>>();
     let mut lines = Vec::new();
-    let mut omitted = 0;
     let mut retained_markers = Vec::new();
     let mut seen = HashSet::new();
+    let mut retained_source_indices = HashSet::new();
     let mut index = 0;
 
     while index < all_lines.len() {
         let line = all_lines[index];
-        let line_number = index + 1;
         let trimmed = line.trim_start();
         let attribute_start = trimmed.starts_with("#[");
         let declaration = if attribute_start {
@@ -336,10 +345,6 @@ fn reduce_code(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
         } else {
             code_declaration_marker(trimmed)
         };
-        let selected = policy
-            .selected_line_ranges
-            .iter()
-            .any(|range| line_number >= range.start && line_number <= range.end);
 
         if trimmed.starts_with("use ")
             || trimmed.starts_with("pub use ")
@@ -347,36 +352,164 @@ fn reduce_code(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
         {
             let (block, end_index) = scan_code_statement(&all_lines, index, CodeScanKind::Import);
             push_unique(&mut lines, &mut seen, block);
+            retained_source_indices.extend(index..=end_index);
             retained_markers.push("import_or_module".to_string());
             index = end_index;
         } else if let Some(marker) = declaration.as_ref() {
             let (block, end_index) =
                 scan_code_statement(&all_lines, index, CodeScanKind::Declaration);
             push_unique(&mut lines, &mut seen, block);
+            retained_source_indices.extend(index..=end_index);
             retained_markers.push(marker.clone());
             index = end_index;
-        }
-
-        if selected {
-            push_unique(&mut lines, &mut seen, format!("L{line_number}: {line}"));
-            retained_markers.push("selected_range".to_string());
-        } else if !trimmed.is_empty()
-            && !trimmed.starts_with("use ")
-            && !trimmed.starts_with("pub use ")
-            && !trimmed.starts_with("mod ")
-            && !attribute_start
-            && declaration.is_none()
-        {
-            omitted += 1;
         }
         index += 1;
     }
 
+    for (index, line) in all_lines.iter().enumerate() {
+        let line_number = index + 1;
+        if policy
+            .selected_line_ranges
+            .iter()
+            .any(|range| line_number >= range.start && line_number <= range.end)
+        {
+            push_unique(&mut lines, &mut seen, format!("L{line_number}: {line}"));
+            retained_source_indices.insert(index);
+            retained_markers.push("selected_range".to_string());
+        }
+    }
+
+    let mut missing_symbols = 0;
+    let mut omitted_reference_sites = 0;
+    for symbol in &policy.referenced_symbols {
+        let declaration_ranges = symbol_declaration_ranges(&all_lines, symbol);
+        let mut symbol_found = !declaration_ranges.is_empty();
+        let mut reference_sites = 0;
+
+        for (index, line) in all_lines.iter().enumerate() {
+            if declaration_ranges
+                .iter()
+                .any(|(start, end)| index >= *start && index <= *end)
+                || !contains_identifier(line, symbol)
+            {
+                continue;
+            }
+            symbol_found = true;
+            if reference_sites >= MAX_REFERENCE_SITES_PER_SYMBOL {
+                omitted_reference_sites += 1;
+                continue;
+            }
+            reference_sites += 1;
+            let slice_start = index.saturating_sub(SYMBOL_CONTEXT_RADIUS);
+            let slice_end = (index + SYMBOL_CONTEXT_RADIUS).min(all_lines.len() - 1);
+            for (slice_index, slice_line) in all_lines
+                .iter()
+                .enumerate()
+                .take(slice_end + 1)
+                .skip(slice_start)
+            {
+                if slice_line.trim().is_empty() {
+                    continue;
+                }
+                push_unique(
+                    &mut lines,
+                    &mut seen,
+                    format!("L{}: {slice_line}", slice_index + 1),
+                );
+                retained_source_indices.insert(slice_index);
+            }
+        }
+
+        if symbol_found {
+            retained_markers.push(format!("symbol:{symbol}"));
+        } else {
+            missing_symbols += 1;
+        }
+    }
+
     let mut view = result(lines.join("\n"), retained_markers, false);
+    let omitted = all_lines
+        .iter()
+        .enumerate()
+        .filter(|(index, line)| !line.trim().is_empty() && !retained_source_indices.contains(index))
+        .count();
     if omitted > 0 {
         view.omissions.push(omission("code_body_omitted", omitted));
     }
+    if missing_symbols > 0 {
+        view.omissions
+            .push(omission("referenced_symbol_not_found", missing_symbols));
+    }
+    if omitted_reference_sites > 0 {
+        view.omissions.push(omission(
+            "referenced_symbol_sites_omitted",
+            omitted_reference_sites,
+        ));
+    }
     view
+}
+
+fn symbol_declaration_ranges(lines: &[&str], symbol: &str) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let trimmed = lines[index].trim_start();
+        let declaration = if trimmed.starts_with("#[") {
+            next_declaration_marker(lines, index)
+        } else {
+            code_declaration_marker(trimmed)
+        };
+        if declaration.is_some() {
+            let (block, end_index) = scan_code_statement(lines, index, CodeScanKind::Declaration);
+            if declaration_header_declares_symbol(&block, symbol) {
+                ranges.push((index, end_index));
+            }
+            index = end_index;
+        }
+        index += 1;
+    }
+    ranges
+}
+
+fn declaration_header_declares_symbol(header: &str, symbol: &str) -> bool {
+    let identifiers = header
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .filter(|identifier| !identifier.is_empty())
+        .collect::<Vec<_>>();
+
+    for (index, identifier) in identifiers.iter().enumerate() {
+        if matches!(
+            *identifier,
+            "fn" | "struct" | "enum" | "trait" | "type" | "const" | "static" | "mod"
+        ) && identifiers
+            .get(index + 1)
+            .is_some_and(|name| *name == symbol)
+        {
+            return true;
+        }
+        if *identifier == "impl"
+            && identifiers[index + 1..]
+                .iter()
+                .take_while(|name| **name != "where")
+                .any(|name| *name == symbol)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn contains_identifier(line: &str, identifier: &str) -> bool {
+    line.match_indices(identifier).any(|(start, matched)| {
+        let before = line[..start].chars().next_back();
+        let end = start + matched.len();
+        let after = line[end..].chars().next();
+        !before.is_some_and(is_identifier_character) && !after.is_some_and(is_identifier_character)
+    })
+}
+
+fn is_identifier_character(character: char) -> bool {
+    character.is_ascii_alphanumeric() || character == '_'
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -494,6 +627,9 @@ fn reduce_diff(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
         if line.starts_with("diff --git ") {
             lines.push(line.to_string());
             retained_markers.push("diff_file".to_string());
+        } else if let Some(marker) = diff_metadata_marker(line) {
+            lines.push(line.to_string());
+            retained_markers.push(marker.to_string());
         } else if line.starts_with("index ")
             || line.starts_with("--- ")
             || line.starts_with("+++ ")
@@ -522,6 +658,25 @@ fn reduce_diff(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
     view
 }
 
+fn diff_metadata_marker(line: &str) -> Option<&'static str> {
+    [
+        ("new file mode ", "diff:new_file_mode"),
+        ("deleted file mode ", "diff:deleted_file_mode"),
+        ("old mode ", "diff:old_mode"),
+        ("new mode ", "diff:new_mode"),
+        ("rename from ", "diff:rename_from"),
+        ("rename to ", "diff:rename_to"),
+        ("copy from ", "diff:copy_from"),
+        ("copy to ", "diff:copy_to"),
+        ("similarity index ", "diff:similarity_index"),
+        ("dissimilarity index ", "diff:dissimilarity_index"),
+        ("Binary files ", "diff:binary_file"),
+        ("GIT binary patch", "diff:binary_file"),
+    ]
+    .into_iter()
+    .find_map(|(prefix, marker)| line.starts_with(prefix).then_some(marker))
+}
+
 fn is_changed_diff_line(line: &str) -> bool {
     (line.starts_with('+') && !line.starts_with("+++ "))
         || (line.starts_with('-') && !line.starts_with("--- "))
@@ -530,43 +685,60 @@ fn is_changed_diff_line(line: &str) -> bool {
 fn reduce_log(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
     let text = String::from_utf8_lossy(input);
     let all_lines = text.lines().collect::<Vec<_>>();
-    let mut lines = Vec::new();
     let mut kept_indices = HashSet::new();
     let mut seen_errors = HashSet::new();
     let mut first_failure_kept = false;
     let mut retained_markers = Vec::new();
 
     for (index, line) in all_lines.iter().enumerate() {
-        let lower = line.to_ascii_lowercase();
-        let interesting = lower.contains("error")
-            || lower.contains("failed")
-            || lower.contains("failure")
-            || lower.contains("panicked")
-            || lower.contains("panic");
-        if interesting {
+        let command = is_log_command_line(line);
+        let failure = !command && is_log_failure_line(line);
+        let mut keep_failure = false;
+        if command {
+            kept_indices.insert(index);
+            retained_markers.push("command".to_string());
+        }
+        if is_log_exit_status(line) {
+            kept_indices.insert(index);
+            retained_markers.push("exit_status".to_string());
+        }
+        if failure {
             if !first_failure_kept {
-                lines.push((*line).to_string());
                 kept_indices.insert(index);
                 retained_markers.push("first_failure".to_string());
-                seen_errors.insert((*line).to_string());
+                seen_errors.insert(redact_line(line));
                 first_failure_kept = true;
-            } else if seen_errors.insert((*line).to_string()) {
-                lines.push((*line).to_string());
+                keep_failure = true;
+            } else if seen_errors.insert(redact_line(line)) {
                 kept_indices.insert(index);
                 retained_markers.push("unique_error".to_string());
+                keep_failure = true;
             }
+        }
+        if has_failing_location(line) && (!failure || keep_failure) {
+            kept_indices.insert(index);
+            retained_markers.push("failing_location".to_string());
         }
     }
 
+    let kept_values = kept_indices
+        .iter()
+        .map(|index| all_lines[*index])
+        .collect::<HashSet<_>>();
     let tail_start = all_lines.len().saturating_sub(3);
     for (index, line) in all_lines.iter().enumerate().skip(tail_start) {
-        if !lines.iter().any(|kept| kept == line) {
-            lines.push((*line).to_string());
+        if !kept_values.contains(line) {
             kept_indices.insert(index);
             retained_markers.push("tail".to_string());
         }
     }
 
+    let lines = all_lines
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| kept_indices.contains(index))
+        .map(|(_, line)| (*line).to_string())
+        .collect::<Vec<_>>();
     let mut view = result(lines.join("\n"), retained_markers, false);
     let omitted = all_lines.len().saturating_sub(kept_indices.len());
     if omitted > 0 {
@@ -574,6 +746,83 @@ fn reduce_log(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
             .push(omission("log_lines_omitted_or_deduplicated", omitted));
     }
     view
+}
+
+fn is_log_command_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let lower = trimmed.to_ascii_lowercase();
+    if trimmed.starts_with("$ ")
+        || trimmed.starts_with("> ")
+        || trimmed.starts_with("+ ")
+        || lower.starts_with("##[command]")
+        || [
+            "command:",
+            "command=",
+            "cmd:",
+            "cmd=",
+            "executing command:",
+            "run command:",
+        ]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+    {
+        return true;
+    }
+
+    [
+        "cargo ", "git ", "make ", "cmake ", "npm ", "pnpm ", "yarn ", "pytest ", "python ",
+        "node ", "go test", "dotnet ", "mvn ", "gradle ", "./",
+    ]
+    .iter()
+    .any(|prefix| lower.starts_with(prefix))
+}
+
+fn is_log_exit_status(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    [
+        "exit status",
+        "exit code",
+        "exited with status",
+        "exited with code",
+    ]
+    .iter()
+    .any(|phrase| {
+        lower.find(phrase).is_some_and(|index| {
+            lower[index + phrase.len()..]
+                .chars()
+                .any(|character| character.is_ascii_digit())
+        })
+    })
+}
+
+fn is_log_failure_line(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    lower.contains("error")
+        || lower.contains("failed")
+        || lower.contains("failure")
+        || lower.contains("panicked")
+        || lower.contains("panic")
+}
+
+fn has_failing_location(line: &str) -> bool {
+    line.split_whitespace().any(|word| {
+        let candidate = word.trim_matches(|character: char| {
+            matches!(character, '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';')
+        });
+        let segments = candidate.split(':').collect::<Vec<_>>();
+        segments.iter().enumerate().skip(1).any(|(index, segment)| {
+            let number = segment.trim_matches(|character: char| !character.is_ascii_digit());
+            if number.is_empty() || !number.chars().all(|character| character.is_ascii_digit()) {
+                return false;
+            }
+            let path = segments[..index].join(":");
+            path.contains('/')
+                || path.contains('\\')
+                || path
+                    .rsplit_once('.')
+                    .is_some_and(|(stem, extension)| !stem.is_empty() && !extension.is_empty())
+        })
+    })
 }
 
 fn reduce_text(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
@@ -732,7 +981,56 @@ fn validate_policy(policy: &ReductionPolicy) -> Result<(), crate::ContextError> 
             reason: "must not contain empty marker ids",
         });
     }
+    if policy.referenced_symbols.len() > MAX_REFERENCED_SYMBOLS {
+        return Err(crate::ContextError::InvalidReductionPolicy {
+            field: "referenced_symbols",
+            reason: "contains too many entries",
+        });
+    }
+    if policy.referenced_symbols.iter().any(|symbol| {
+        symbol.is_empty()
+            || symbol.len() > MAX_REFERENCED_SYMBOL_BYTES
+            || !is_valid_identifier(symbol)
+            || is_secret_like_symbol(symbol)
+    }) {
+        return Err(crate::ContextError::InvalidReductionPolicy {
+            field: "referenced_symbols",
+            reason: "entries must be bounded non-secret identifiers",
+        });
+    }
     Ok(())
+}
+
+fn is_valid_identifier(identifier: &str) -> bool {
+    let mut characters = identifier.chars();
+    characters
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
+        && characters.all(is_identifier_character)
+}
+
+fn is_secret_like_symbol(symbol: &str) -> bool {
+    let lower = symbol.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "authorization"
+            | "password"
+            | "secret"
+            | "token"
+            | "api_key"
+            | "apikey"
+            | "api_token"
+            | "access_token"
+            | "auth_token"
+            | "bearer_token"
+            | "refresh_token"
+    ) || lower.starts_with("password_")
+        || lower.starts_with("secret_")
+        || lower.ends_with("_password")
+        || lower.ends_with("_secret")
+        || lower.ends_with("_api_key")
+        || lower.ends_with("_apikey")
+        || lower.contains("credential")
 }
 
 fn required_marker_retained(marker: &str, view: &ReductionResult) -> bool {
@@ -763,6 +1061,9 @@ fn final_retained_markers(kind: ContextContentKind, view: &ReductionResult) -> V
 fn final_marker_supported(marker: &str, content: &str) -> bool {
     match marker {
         "first_failure" | "unique_error" => contains_failure_line(content),
+        "command" => content.lines().any(is_log_command_line),
+        "exit_status" => content.lines().any(is_log_exit_status),
+        "failing_location" => content.lines().any(has_failing_location),
         "tail" => !content.is_empty(),
         "constraint" => {
             content.to_ascii_lowercase().contains("constraint")
@@ -790,6 +1091,13 @@ fn final_marker_supported(marker: &str, content: &str) -> bool {
         "diff_hunk" => content.contains("@@ "),
         "changed_line" => content.lines().any(is_changed_diff_line),
         "risky_change" => content.contains("unsafe") || content.contains("TODO"),
+        marker if marker.starts_with("diff:") => content
+            .lines()
+            .filter_map(diff_metadata_marker)
+            .any(|retained| retained == marker),
+        marker if marker.starts_with("symbol:") => marker
+            .strip_prefix("symbol:")
+            .is_some_and(|symbol| final_symbol_supported(content, symbol)),
         marker if marker.starts_with("declaration:") => content
             .lines()
             .filter_map(|line| code_declaration_marker(line.trim_start()))
@@ -798,15 +1106,25 @@ fn final_marker_supported(marker: &str, content: &str) -> bool {
     }
 }
 
-fn contains_failure_line(content: &str) -> bool {
+fn final_symbol_supported(content: &str, symbol: &str) -> bool {
     content.lines().any(|line| {
-        let lower = line.to_ascii_lowercase();
-        lower.contains("error")
-            || lower.contains("failed")
-            || lower.contains("failure")
-            || lower.contains("panicked")
-            || lower.contains("panic")
+        let trimmed = line.trim_start();
+        let labeled_reference = trimmed
+            .strip_prefix('L')
+            .and_then(|rest| rest.split_once(": "))
+            .is_some_and(|(number, source)| {
+                !number.is_empty()
+                    && number.chars().all(|character| character.is_ascii_digit())
+                    && contains_identifier(source, symbol)
+            });
+        labeled_reference || declaration_header_declares_symbol(trimmed, symbol)
     })
+}
+
+fn contains_failure_line(content: &str) -> bool {
+    content
+        .lines()
+        .any(|line| !is_log_command_line(line) && is_log_failure_line(line))
 }
 
 fn redact_text(input: &str) -> String {
@@ -946,6 +1264,7 @@ mod tests {
             max_json_values: 20_000,
             required_markers: Vec::new(),
             selected_line_ranges: Vec::new(),
+            referenced_symbols: Vec::new(),
             recent_turns: 4,
         }
     }
@@ -1022,6 +1341,61 @@ mod tests {
             view.retained_markers
                 .iter()
                 .any(|marker| marker == "diff_hunk")
+        );
+    }
+
+    #[test]
+    fn diff_reducer_preserves_exact_file_operation_metadata() {
+        let input = b"diff --git a/old.rs b/new.rs\nsimilarity index 91%\nrename from old.rs\nrename to new.rs\nold mode 100644\nnew mode 100755\nBinary files a/old.rs and b/new.rs differ\ncontext omitted\ndiff --git a/add.rs b/add.rs\nnew file mode 100644\nindex 000..111 100644\n--- /dev/null\n+++ b/add.rs\n@@ -0,0 +1 @@\n+new\ndeleted file mode 100644\ndissimilarity index 12%\ncopy from source.rs\ncopy to copied.rs\nGIT binary patch\nliteral 0\n";
+
+        let view = reduce(ContextContentKind::Diff, input, &ReductionPolicy::default()).unwrap();
+        let again = reduce(ContextContentKind::Diff, input, &ReductionPolicy::default()).unwrap();
+
+        assert_eq!(
+            view.content,
+            "diff --git a/old.rs b/new.rs\n\
+             similarity index 91%\n\
+             rename from old.rs\n\
+             rename to new.rs\n\
+             old mode 100644\n\
+             new mode 100755\n\
+             Binary files a/old.rs and b/new.rs differ\n\
+             diff --git a/add.rs b/add.rs\n\
+             new file mode 100644\n\
+             index 000..111 100644\n\
+             --- /dev/null\n\
+             +++ b/add.rs\n\
+             @@ -0,0 +1 @@\n\
+             +new\n\
+             deleted file mode 100644\n\
+             dissimilarity index 12%\n\
+             copy from source.rs\n\
+             copy to copied.rs\n\
+             GIT binary patch"
+        );
+        assert_eq!(
+            view.retained_markers,
+            vec![
+                "changed_line",
+                "diff:binary_file",
+                "diff:copy_from",
+                "diff:copy_to",
+                "diff:deleted_file_mode",
+                "diff:dissimilarity_index",
+                "diff:new_file_mode",
+                "diff:new_mode",
+                "diff:old_mode",
+                "diff:rename_from",
+                "diff:rename_to",
+                "diff:similarity_index",
+                "diff_file",
+                "diff_hunk",
+            ]
+        );
+        assert_eq!(view.omissions, vec![omission("diff_context_omitted", 2)]);
+        assert_eq!(
+            serde_json::to_string(&view).unwrap(),
+            serde_json::to_string(&again).unwrap()
         );
     }
 
@@ -1222,6 +1596,134 @@ mod tests {
     }
 
     #[test]
+    fn referenced_symbol_preserves_exact_declaration_and_labeled_slice() {
+        let input = b"struct Worker;\nfn target(value: i32) -> i32 {\n    value + 1\n}\nfn caller() {\n    let password = \"body-secret\";\n    let result = target(1);\n    let target_suffix = result;\n}\n";
+        let policy = ReductionPolicy {
+            referenced_symbols: vec!["target".to_string()],
+            ..ReductionPolicy::default()
+        };
+
+        let view = reduce(ContextContentKind::Code, input, &policy).unwrap();
+        let again = reduce(ContextContentKind::Code, input, &policy).unwrap();
+
+        assert_eq!(
+            view.content,
+            "struct Worker;\n\
+             fn target(value: i32) -> i32 {\n\
+             fn caller() {\n\
+             L6:     let password = \"[REDACTED]\"\n\
+             L7:     let result = target(1);\n\
+             L8:     let target_suffix = result;"
+        );
+        assert_eq!(
+            view.retained_markers,
+            vec!["declaration:fn", "declaration:struct", "symbol:target"]
+        );
+        assert_eq!(
+            view.omissions,
+            vec![
+                omission("code_body_omitted", 3),
+                omission("secret_values_redacted", 1),
+            ]
+        );
+        let serialized = serde_json::to_string(&view).unwrap();
+        assert_eq!(serialized, serde_json::to_string(&again).unwrap());
+        assert!(!serialized.contains("body-secret"));
+    }
+
+    #[test]
+    fn referenced_symbol_absence_and_substrings_do_not_create_evidence() {
+        let policy = ReductionPolicy {
+            referenced_symbols: vec!["target".to_string(), "missing".to_string()],
+            ..ReductionPolicy::default()
+        };
+
+        let view = reduce(
+            ContextContentKind::Code,
+            b"fn target_suffix() {}\nfn caller() { target_suffix(); }\n",
+            &policy,
+        )
+        .unwrap();
+
+        assert!(!view.content.lines().any(|line| line.starts_with('L')));
+        assert!(
+            !view
+                .retained_markers
+                .iter()
+                .any(|marker| marker == "symbol:target")
+        );
+        assert!(
+            !view
+                .retained_markers
+                .iter()
+                .any(|marker| marker == "symbol:missing")
+        );
+        assert_eq!(
+            view.omissions
+                .iter()
+                .find(|omission| omission.reason == "referenced_symbol_not_found")
+                .map(|omission| omission.omitted_count),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn referenced_symbol_policy_rejects_empty_unbounded_and_secret_like_entries() {
+        let invalid_symbols = [
+            vec![String::new()],
+            vec!["x".repeat(129)],
+            vec!["name".to_string(); 65],
+            vec!["API_TOKEN".to_string()],
+        ];
+
+        for referenced_symbols in invalid_symbols {
+            let policy = ReductionPolicy {
+                referenced_symbols,
+                ..ReductionPolicy::default()
+            };
+            let error = reduce(ContextContentKind::Code, b"fn ok() {}", &policy)
+                .expect_err("invalid referenced symbol policy must fail");
+
+            assert!(matches!(
+                error,
+                crate::ContextError::InvalidReductionPolicy {
+                    field: "referenced_symbols",
+                    ..
+                }
+            ));
+            assert!(!error.to_string().contains("API_TOKEN"));
+        }
+    }
+
+    #[test]
+    fn referenced_symbol_bounds_are_deterministic_and_required_after_bounding() {
+        let input = b"struct Keep {}\nfn run() {}\nfn caller() {\n    run();\n    run();\n    run();\n    run();\n    run();\n}\n";
+        let bounded_policy = ReductionPolicy {
+            max_output_bytes: 72,
+            referenced_symbols: vec!["run".to_string()],
+            ..ReductionPolicy::default()
+        };
+        let first = reduce(ContextContentKind::Code, input, &bounded_policy).unwrap();
+        let second = reduce(ContextContentKind::Code, input, &bounded_policy).unwrap();
+        assert!(first.content.len() <= 72);
+        assert_eq!(
+            serde_json::to_string(&first).unwrap(),
+            serde_json::to_string(&second).unwrap()
+        );
+
+        let required_policy = ReductionPolicy {
+            max_output_bytes: 16,
+            referenced_symbols: vec!["run".to_string()],
+            required_markers: vec!["symbol:run".to_string()],
+            ..ReductionPolicy::default()
+        };
+        assert!(matches!(
+            reduce(ContextContentKind::Code, input, &required_policy),
+            Err(crate::ContextError::QualityFailed { .. })
+        ));
+    }
+
+    #[test]
     fn reducers_have_exact_golden_outputs_and_serialized_determinism() {
         let cases = [
             (
@@ -1246,13 +1748,13 @@ mod tests {
                 ContextContentKind::Log,
                 b"running tests\nERROR src/a.rs:1 boom\nERROR src/a.rs:1 boom\nwarning\nfinal tail\n",
                 ReductionPolicy::default(),
-                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_a242b2a84535c876","target_id":"viden-context-native:native-v1:Log","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["failing_location","first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_a242b2a84535c876","target_id":"viden-context-native:native-v1:Log","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
                 ContextContentKind::Diagnostic,
                 b"running tests\nERROR src/a.rs:1 boom\nERROR src/a.rs:1 boom\nwarning\nfinal tail\n",
                 ReductionPolicy::default(),
-                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_78dfd578c8672422","target_id":"viden-context-native:native-v1:Diagnostic","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["failing_location","first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_78dfd578c8672422","target_id":"viden-context-native:native-v1:Diagnostic","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
                 ContextContentKind::Transcript,
@@ -1543,6 +2045,95 @@ mod tests {
                 .map(|omission| omission.omitted_count),
             Some(3)
         );
+    }
+
+    #[test]
+    fn log_reducer_preserves_exact_workflow_evidence_anywhere() {
+        let input = b"noise before\n$ cargo test -p demo --token=raw-secret\nsetup noise\nat src/lib.rs:42:17\nERROR first failure\nERROR first failure\nerror[E0308]: mismatched types\nignored tail\nexit status: 101\ntail final\n";
+
+        for kind in [ContextContentKind::Log, ContextContentKind::Diagnostic] {
+            let view = reduce(kind, input, &ReductionPolicy::default()).unwrap();
+            let again = reduce(kind, input, &ReductionPolicy::default()).unwrap();
+
+            assert_eq!(
+                view.content,
+                "$ cargo test -p demo --token= [REDACTED]\n\
+                 at src/lib.rs:42:17\n\
+                 ERROR first failure\n\
+                 error[E0308]: mismatched types\n\
+                 ignored tail\n\
+                 exit status: 101\n\
+                 tail final"
+            );
+            assert_eq!(
+                view.retained_markers,
+                vec![
+                    "command",
+                    "exit_status",
+                    "failing_location",
+                    "first_failure",
+                    "tail",
+                    "unique_error",
+                ]
+            );
+            assert_eq!(
+                view.omissions,
+                vec![
+                    omission("log_lines_omitted_or_deduplicated", 3),
+                    omission("secret_values_redacted", 1),
+                ]
+            );
+            assert_eq!(
+                serde_json::to_string(&view).unwrap(),
+                serde_json::to_string(&again).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn log_reducer_recognizes_common_command_and_exit_formats() {
+        let input = b"##[command]cargo test --workspace\nCommand: npm test\n+ pytest -q\nintermediate\nexit code: 1\nProcess exited with status 2\nlast\n";
+
+        let view = reduce(ContextContentKind::Log, input, &ReductionPolicy::default()).unwrap();
+
+        assert_eq!(
+            view.content,
+            "##[command]cargo test --workspace\n\
+             Command: npm test\n\
+             + pytest -q\n\
+             exit code: 1\n\
+             Process exited with status 2\n\
+             last"
+        );
+        assert_eq!(
+            view.retained_markers,
+            vec!["command", "exit_status", "tail"]
+        );
+        assert_eq!(
+            view.omissions,
+            vec![omission("log_lines_omitted_or_deduplicated", 1)]
+        );
+    }
+
+    #[test]
+    fn log_command_text_does_not_fabricate_failure_evidence() {
+        let input = b"$ cargo test failed_case\nsetup\nERROR actual failure\nend\n";
+        let view = reduce(ContextContentKind::Log, input, &ReductionPolicy::default()).unwrap();
+
+        assert_eq!(
+            view.retained_markers,
+            vec!["command", "first_failure", "tail"]
+        );
+
+        let tight = ReductionPolicy {
+            max_output_bytes: 25,
+            required_markers: vec!["first_failure".to_string()],
+            ..ReductionPolicy::default()
+        };
+        assert!(matches!(
+            reduce(ContextContentKind::Log, input, &tight),
+            Err(crate::ContextError::QualityFailed { .. })
+        ));
     }
 
     #[test]
