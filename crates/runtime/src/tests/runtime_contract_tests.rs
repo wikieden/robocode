@@ -11,7 +11,7 @@ use viden_types::{
     ToolInput, WorkMode,
 };
 
-use crate::{EngineEvent, SessionEngine};
+use crate::{EngineEvent, SessionEngine, context_bundle::ContextBuildMode};
 
 use super::{SequenceProvider, temp_dir};
 
@@ -600,6 +600,54 @@ fn context_engine_events_replay_without_raw_secret_or_paths() {
     assert!(!view.context_items.is_empty());
     assert_eq!(view.context_items.len(), view.context_handles.len());
     assert_eq!(view.context_views.len(), view.context_handles.len());
+}
+
+#[test]
+fn existing_context_source_hash_corruption_fails_visibly_on_rematerialization() {
+    let cwd = temp_dir("runtime_contract_corrupt_context_cwd");
+    let home = temp_dir("runtime_contract_corrupt_context_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "context ready".to_string(),
+        },
+        ModelEvent::Done,
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .handle_runtime_command(
+            "cmd_context",
+            RuntimeCommand::SubmitUserInput {
+                content: "build canonical context".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let mut bundle = engine.provider_context_bundle().expect("context bundle");
+    let source = bundle
+        .sources
+        .iter_mut()
+        .find(|source| source.name == "user-task")
+        .expect("user-task source");
+    source.content_sha256 = Some("ff".repeat(32));
+
+    let rebuilt =
+        engine.materialize_existing_context_bundle(&bundle, ContextBuildMode::RequestTooLargeRetry);
+
+    assert!(rebuilt.events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ContextQualityFailed { quality }
+                if quality.target_id == "user-task"
+                    && quality.failure_reason.as_deref().is_some_and(|reason| {
+                        reason.contains("hash mismatch") || reason.contains("context blob")
+                    })
+        )
+    }));
 }
 
 #[test]

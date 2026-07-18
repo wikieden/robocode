@@ -3,9 +3,9 @@ use std::process::Command;
 use sha2::{Digest, Sha256};
 use viden_context::{ContextEngine, ContextPutRequest, ReductionPolicy, reduce};
 use viden_types::{
-    ContextBudgetRecord, ContextBundleRecord, ContextContentKind, ContextOmittedSourceRecord,
-    ContextScope, ContextSourceRecord, ContextViewRecord, RuntimeEvent, RuntimeEventKind, fresh_id,
-    now_timestamp,
+    ContextBudgetRecord, ContextBundleRecord, ContextContentKind, ContextHandleRecord,
+    ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, ContextViewRecord, RuntimeEvent,
+    RuntimeEventKind, fresh_id, now_timestamp, truncate_for_preview,
 };
 
 use crate::{SessionEngine, TestEvidence};
@@ -14,6 +14,8 @@ const MAIN_SOFT_BUDGET: u64 = 48_000;
 const MAIN_HARD_LIMIT: u64 = 128_000;
 const STRICT_RETRY_SOFT_BUDGET: u64 = 12_000;
 const STRICT_RETRY_HARD_LIMIT: u64 = 32_000;
+const PROVIDER_SOURCE_SNIPPET_CHARS: usize = 320;
+const PROVIDER_MANIFEST_SNIPPET_CHARS: usize = 4_000;
 
 pub(crate) struct BuiltContextBundle {
     pub(crate) bundle: ContextBundleRecord,
@@ -384,12 +386,14 @@ pub(crate) fn render_context_bundle_detail(bundle: &ContextBundleRecord) -> Stri
 }
 
 pub(crate) fn render_provider_context_message(bundle: &ContextBundleRecord) -> String {
+    let mut remaining_snippet_chars = PROVIDER_MANIFEST_SNIPPET_CHARS;
     let sources = bundle
         .sources
         .iter()
         .map(|source| {
+            let snippet = provider_source_snippet(source, &mut remaining_snippet_chars);
             format!(
-                "- {} [{}] ~{} tok handle={} item={} view={} raw_hash={} view_hash={} quality={}",
+                "- {} [{}] ~{} tok handle={} item={} view={} raw_hash={} view_hash={} quality={}\n  Snippet: {}",
                 source.name,
                 source.kind,
                 source.estimated_tokens,
@@ -398,7 +402,8 @@ pub(crate) fn render_provider_context_message(bundle: &ContextBundleRecord) -> S
                 source.view_id.as_deref().unwrap_or("<pending>"),
                 source.content_sha256.as_deref().unwrap_or("<pending>"),
                 source.view_sha256.as_deref().unwrap_or("<pending>"),
-                source.quality_id.as_deref().unwrap_or("<pending>")
+                source.quality_id.as_deref().unwrap_or("<pending>"),
+                snippet
             )
         })
         .collect::<Vec<_>>()
@@ -420,6 +425,21 @@ pub(crate) fn render_provider_context_message(bundle: &ContextBundleRecord) -> S
         list_omitted_or_none(&bundle.omitted_sources),
         list_or_none(&bundle.compaction_notes)
     )
+}
+
+fn provider_source_snippet(source: &ContextSourceRecord, remaining: &mut usize) -> String {
+    if *remaining == 0 {
+        return "<omitted by provider manifest bound>".to_string();
+    }
+    let max_chars = PROVIDER_SOURCE_SNIPPET_CHARS.min(*remaining);
+    let safe = redact_for_event(&source.summary.replace('\n', " "));
+    let snippet = truncate_for_preview(&safe, max_chars);
+    *remaining = remaining.saturating_sub(snippet.chars().count());
+    if snippet.is_empty() {
+        "<empty>".to_string()
+    } else {
+        snippet
+    }
 }
 
 pub(crate) fn context_evidence_rows(bundle: &ContextBundleRecord) -> Vec<String> {
@@ -512,25 +532,41 @@ impl SessionEngine {
         source: &ContextSourceDraft,
         mode: ContextBuildMode,
     ) -> Result<(ContextSourceRecord, Vec<RuntimeEvent>, Vec<String>), String> {
-        let stored = engine
-            .store(ContextPutRequest {
-                scope: scope.clone(),
-                kind: source.content_kind,
-                content: source.content.as_bytes(),
-                evidence_id: None,
-            })
-            .map_err(|err| format!("context store failed: {err}"))?;
+        let existing_handle = context_handle_from_source(&source.record, scope);
+        let (content, item_event, mut handle) = if let Some(handle) = existing_handle {
+            let content = engine
+                .retrieve(&handle, scope)
+                .map_err(|err| format!("context retrieve failed: {err}"))?;
+            (content, None, handle)
+        } else {
+            let stored = engine
+                .store(ContextPutRequest {
+                    scope: scope.clone(),
+                    kind: source.content_kind,
+                    content: source.content.as_bytes(),
+                    evidence_id: None,
+                })
+                .map_err(|err| format!("context store failed: {err}"))?;
+            let mut item = stored.item;
+            item.title = source.record.name.clone();
+            item.summary = format!("{} {}", source.record.name, source.record.kind);
+            item.token_count = source.content.len() as u64;
+            (
+                source.content.as_bytes().to_vec(),
+                Some(RuntimeEvent::new(
+                    1,
+                    RuntimeEventKind::ContextItemStored { item },
+                )),
+                stored.handle,
+            )
+        };
         let policy = reduction_policy_for_source(source, mode);
-        let reduced = reduce(source.content_kind, source.content.as_bytes(), &policy)
+        let reduced = reduce(source.content_kind, &content, &policy)
             .map_err(|err| format!("context reduction failed: {err}"))?;
         let view_id = fresh_id("ctxv");
-        let mut item = stored.item;
-        item.title = source.record.name.clone();
-        item.summary = format!("{} {}", source.record.name, source.record.kind);
-        item.token_count = reduced.original.token_count;
         let view = ContextViewRecord {
             view_id: view_id.clone(),
-            item_id: item.item_id.clone(),
+            item_id: handle.item_id.clone(),
             kind: source.content_kind,
             derivation: format!(
                 "{}:{}:{}",
@@ -541,11 +577,10 @@ impl SessionEngine {
             quality_id: Some(reduced.quality.quality_id.clone()),
             created_at: Some(now_timestamp()),
         };
-        let mut handle = stored.handle;
         handle.preferred_view_id = Some(view_id);
         let mut record = source.record.clone();
         record.estimated_tokens = reduced.reduced.token_count;
-        record.summary = self.redact_context_summary(&source.record.summary);
+        record.summary = self.redact_context_summary(&reduced.content);
         record.handle_id = Some(handle.handle_id.clone());
         record.item_id = Some(handle.item_id.clone());
         record.view_id = handle.preferred_view_id.clone();
@@ -562,16 +597,17 @@ impl SessionEngine {
             record.include_reason =
                 format!("{}; reduced omissions {reasons}", record.include_reason);
         }
-        let events = vec![
-            RuntimeEvent::new(1, RuntimeEventKind::ContextItemStored { item }),
-            RuntimeEvent::new(
-                1,
-                RuntimeEventKind::ContextViewDerived {
-                    view,
-                    handle: handle.clone(),
-                },
-            ),
-        ];
+        let mut events = Vec::new();
+        if let Some(item_event) = item_event {
+            events.push(item_event);
+        }
+        events.push(RuntimeEvent::new(
+            1,
+            RuntimeEventKind::ContextViewDerived {
+                view,
+                handle: handle.clone(),
+            },
+        ));
         Ok((record, events, vec![handle.handle_id]))
     }
 
@@ -619,6 +655,9 @@ impl SessionEngine {
             }
         }
         let mut final_bundle = bundle.clone();
+        let (soft_budget, hard_limit) = self.context_budget_for_mode(mode);
+        final_bundle.soft_token_budget = soft_budget;
+        final_bundle.hard_token_limit = hard_limit;
         if mode == ContextBuildMode::RequestTooLargeRetry
             && !final_bundle.policy.ends_with("-strict-retry")
         {
@@ -687,6 +726,20 @@ fn content_kind_for_source(kind: &str) -> ContextContentKind {
         "transcript-summary" => ContextContentKind::Transcript,
         _ => ContextContentKind::Text,
     }
+}
+
+fn context_handle_from_source(
+    source: &ContextSourceRecord,
+    scope: &ContextScope,
+) -> Option<ContextHandleRecord> {
+    Some(ContextHandleRecord {
+        handle_id: source.handle_id.clone()?,
+        item_id: source.item_id.clone()?,
+        preferred_view_id: source.view_id.clone(),
+        content_sha256: source.content_sha256.clone()?,
+        scope: scope.clone(),
+        expires_at: None,
+    })
 }
 
 fn reduction_policy_for_source(

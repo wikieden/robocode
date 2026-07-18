@@ -219,6 +219,48 @@ fn runtime_supervisor_cancels_active_provider_turn_and_keeps_worker_alive() {
 }
 
 #[test]
+fn runtime_supervisor_redacts_fast_path_command_accepted_events() {
+    let cwd = temp_dir("runtime_supervisor_fast_path_redaction_cwd");
+    let home = temp_dir("runtime_supervisor_fast_path_redaction_home");
+    let secret = "sk-fast-path-secret";
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command(
+            "cmd_secret_input",
+            RuntimeCommand::SubmitUserInput {
+                content: format!("inspect {secret} under {}", cwd.display()),
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, command }
+                    if command_id == "cmd_secret_input"
+                        && matches!(command, RuntimeCommand::SubmitUserInput { .. })
+            )
+        })
+    });
+
+    let serialized = serde_json::to_string(&events).unwrap();
+    assert!(!serialized.contains(secret));
+    assert!(!serialized.contains(cwd.to_string_lossy().as_ref()));
+    assert!(serialized.contains("[REDACTED]"));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, command }
+                if command_id == "cmd_secret_input"
+                    && matches!(command, RuntimeCommand::SubmitUserInput { .. })
+        )
+    }));
+}
+
+#[test]
 fn runtime_supervisor_cancels_active_agent_task_and_keeps_worker_alive() {
     let cwd = temp_dir("runtime_supervisor_cancel_agent_cwd");
     let home = temp_dir("runtime_supervisor_cancel_agent_home");
@@ -863,7 +905,10 @@ fn agent_task_provider_request_uses_final_role_context_bundle() {
                     task_id: "task_plan_provider_bundle".to_string(),
                     role: AgentRole::Planner,
                     title: "Plan provider bundle".to_string(),
-                    objective: "Plan with role guidance".to_string(),
+                    objective: format!(
+                        "Plan with role guidance without leaking sk-plan-secret from {}",
+                        cwd.display()
+                    ),
                     dependencies: Vec::new(),
                     workspace: None,
                     file_scope: vec!["crates/runtime".to_string()],
@@ -898,10 +943,13 @@ fn agent_task_provider_request_uses_final_role_context_bundle() {
     assert!(provider_manifest.contains("Bundle: ctx-agent-task_plan_provider_bundle"));
     assert!(provider_manifest.contains("Scope: task:task_plan_provider_bundle"));
     assert!(provider_manifest.contains("role-planning-context"));
+    assert!(provider_manifest.contains("Snippet:"));
+    assert!(provider_manifest.contains("Focus on requirements"));
+    assert!(provider_manifest.contains("crates/runtime/src/runtime_contract.rs"));
     assert!(provider_manifest.contains("handle="));
     assert!(provider_manifest.contains("view="));
     assert!(provider_manifest.contains("quality="));
-    assert!(!provider_manifest.contains("Focus on requirements"));
+    assert!(!provider_manifest.contains("sk-plan-secret"));
     assert!(!provider_manifest.contains(cwd.to_string_lossy().as_ref()));
     assert!(events.iter().any(|event| {
         matches!(
@@ -974,8 +1022,9 @@ fn reviewer_agent_task_provider_request_uses_review_role_context() {
     assert!(provider_manifest.contains("Bundle: ctx-agent-task_review_provider_bundle"));
     assert!(provider_manifest.contains("Scope: task:task_review_provider_bundle"));
     assert!(provider_manifest.contains("role-review-context"));
+    assert!(provider_manifest.contains("Snippet:"));
+    assert!(provider_manifest.contains("Focus on behavioral regressions"));
     assert!(!provider_manifest.contains("role-planning-context"));
-    assert!(!provider_manifest.contains("Focus on behavioral regressions"));
     assert!(!provider_manifest.contains(cwd.to_string_lossy().as_ref()));
 }
 
@@ -993,7 +1042,6 @@ fn agent_task_context_overflow_retry_preserves_role_scoped_bundle() {
         vec!["context_overflow: current request exceeded provider context".to_string()],
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    engine.set_context_budget_for_test(2_000, 8_000);
     let mut approver = |_prompt| ApprovalResponse {
         approved: true,
         feedback: None,
@@ -1053,6 +1101,15 @@ fn agent_task_context_overflow_retry_preserves_role_scoped_bundle() {
     assert!(second_manifest.contains("handle="));
     assert!(second_manifest.contains("view="));
     assert!(second_manifest.contains("strict-retry"));
+    let first_role_refs = manifest_source_refs(&first_manifest, "role-planning-context");
+    let second_role_refs = manifest_source_refs(&second_manifest, "role-planning-context");
+    assert_eq!(first_role_refs.handle, second_role_refs.handle);
+    assert_eq!(first_role_refs.item, second_role_refs.item);
+    assert_eq!(first_role_refs.raw_hash, second_role_refs.raw_hash);
+    assert_ne!(first_role_refs.view, second_role_refs.view);
+    assert_ne!(first_role_refs.view_hash, second_role_refs.view_hash);
+    assert!(second_manifest.contains("Soft budget: 12000"));
+    assert!(second_manifest.contains("Hard limit: 32000"));
 }
 
 #[test]
@@ -3360,6 +3417,36 @@ fn provider_manifest(request: &ModelRequest) -> String {
         .expect("provider context manifest")
         .content
         .clone()
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ManifestSourceRefs {
+    handle: String,
+    item: String,
+    view: String,
+    raw_hash: String,
+    view_hash: String,
+}
+
+fn manifest_source_refs(manifest: &str, source_name: &str) -> ManifestSourceRefs {
+    let line = manifest
+        .lines()
+        .find(|line| line.contains(source_name) && line.contains("handle="))
+        .unwrap_or_else(|| panic!("missing source refs for {source_name} in {manifest}"));
+    ManifestSourceRefs {
+        handle: manifest_ref_value(line, "handle="),
+        item: manifest_ref_value(line, "item="),
+        view: manifest_ref_value(line, "view="),
+        raw_hash: manifest_ref_value(line, "raw_hash="),
+        view_hash: manifest_ref_value(line, "view_hash="),
+    }
+}
+
+fn manifest_ref_value(line: &str, key: &str) -> String {
+    line.split_whitespace()
+        .find_map(|part| part.strip_prefix(key))
+        .unwrap_or_else(|| panic!("missing {key} in {line}"))
+        .to_string()
 }
 
 fn write_test_file(path: &Path, contents: &str) {

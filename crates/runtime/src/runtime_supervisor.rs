@@ -13,7 +13,7 @@ use viden_types::{
     RuntimeEvent, RuntimeEventKind, fresh_id,
 };
 
-use crate::SessionEngine;
+use crate::{SessionEngine, runtime_contract::redacted_runtime_command_for_event};
 
 enum SupervisorMessage {
     Command {
@@ -103,7 +103,9 @@ impl RuntimeSupervisor {
                     &self.sequence,
                     RuntimeEventKind::CommandAccepted {
                         command_id,
-                        command: RuntimeCommand::CancelActiveTurn,
+                        command: redacted_runtime_command_for_event(
+                            &RuntimeCommand::CancelActiveTurn,
+                        ),
                     },
                 );
                 Ok(())
@@ -136,10 +138,12 @@ impl RuntimeSupervisor {
                     &self.sequence,
                     RuntimeEventKind::CommandAccepted {
                         command_id,
-                        command: RuntimeCommand::RespondToApproval {
-                            request_id,
-                            response,
-                        },
+                        command: redacted_runtime_command_for_event(
+                            &RuntimeCommand::RespondToApproval {
+                                request_id,
+                                response,
+                            },
+                        ),
                     },
                 );
                 Ok(())
@@ -234,9 +238,9 @@ fn run_supervised_agent_task(
         sequence,
         RuntimeEventKind::CommandAccepted {
             command_id,
-            command: RuntimeCommand::StartAgentTask {
+            command: redacted_runtime_command_for_event(&RuntimeCommand::StartAgentTask {
                 task_id: task_id.clone(),
-            },
+            }),
         },
     );
 
@@ -297,9 +301,9 @@ fn run_supervised_input(
         sequence,
         RuntimeEventKind::CommandAccepted {
             command_id,
-            command: RuntimeCommand::SubmitUserInput {
+            command: redacted_runtime_command_for_event(&RuntimeCommand::SubmitUserInput {
                 content: content.clone(),
-            },
+            }),
         },
     );
 

@@ -2926,7 +2926,7 @@ fn command_rejected(command_id: String, reason: String) -> RuntimeEvent {
     RuntimeEvent::new(1, RuntimeEventKind::CommandRejected { command_id, reason })
 }
 
-fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> RuntimeCommand {
+pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> RuntimeCommand {
     match command {
         RuntimeCommand::SubmitUserInput { content } => RuntimeCommand::SubmitUserInput {
             content: redact_command_text(content),
