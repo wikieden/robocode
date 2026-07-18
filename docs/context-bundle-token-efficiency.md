@@ -4,6 +4,11 @@ Chinese version: [context-bundle-token-efficiency.zh-CN.md](context-bundle-token
 
 Last updated: 2026-05-27
 
+> This document records the original ContextBundle direction and landed 0.1.x
+> slice. The approved native canonical-store, scoped-retrieval, cost-ledger, and
+> acceptance design is now maintained in
+> [Context, Evidence, And Cost Engine Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md).
+
 ## Goal
 
 Viden's multi-agent orchestration should not depend on sending the full

@@ -163,6 +163,14 @@ TUI should use compact summaries and drill-down panels. GUI should expose a
 source table with filters for included, omitted, large, diagnostic, and
 evidence sources.
 
+The native Context Engine extends this projection with bundle-built, item/view
+derived, retrieval, budget, quality, cache, and cost events. Frontends may send
+`RetrieveContext` with a user-visible reason, but only runtime resolves handles
+and returns bounded content. Frontends must never import `crates/context`, read
+canonical blobs, trust compact views as merge evidence, or calculate
+authoritative cost. See
+[Context, Evidence, And Cost Engine Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md).
+
 ## Approval And Permission UI Contract
 
 Approvals use `ApprovalRequestView` and `RespondToApproval`.

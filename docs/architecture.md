@@ -174,6 +174,18 @@ Architecture TODO:
   keep agent orchestration inside `viden-runtime` / `viden-workflows`;
 - make TUI and GUI render only `RuntimeViewState` plus ordered runtime events.
 
+### Native Context, Evidence, And Cost Boundary
+
+The approved boundary is defined in
+[Context, Evidence, And Cost Engine Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md).
+`crates/context` owns content-addressed canonical storage, deterministic
+type-aware reducers, scoped retrieval, quality checks, and exact cost
+aggregation. `viden-runtime` remains the only orchestrator that builds bundles,
+enforces budgets, calls providers, and emits replayable facts. Merge gates
+validate canonical evidence rather than compact summaries. Optional external
+reducers use plugin/MCP adapter contracts with native fallback; they never
+become a mandatory provider path.
+
 ## Terminal Presentation
 
 `viden-runtime` owns plain-text terminal presentation helpers so slash-command

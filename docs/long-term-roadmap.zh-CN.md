@@ -352,14 +352,21 @@ TUI 仍然是 runtime 被证明之前的主要入口。之后再扩：
    evidence 分清楚，通过统一 `RuntimeSnapshot` / event stream 传递 plan、build、
    approval、tool、provider 和 lane 状态，TUI 只订阅状态，不直接绑定业务逻辑。
 8. `0.2.1`: Context 与 token/cost 引擎。实现 `ContextBundle`、语义文件选择、日志压缩、
-   tool result 去重、token budget 和费用面板，解决长任务上下文膨胀、DeepSeek 413 和成本不可见。
+   tool result 去重、token budget 和费用面板，解决长任务上下文膨胀、DeepSeek 413 和成本不可见；
+   增加 canonical raw context、derived views、scoped handles/retrieval、确定性 reducers
+   和 cost ledger，详见
+   [Context、Evidence 与 Cost Engine 设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)。
 9. `0.2.2`: Agent 执行闭环。把 planner、coder、reviewer、tester、doc-writer 做成可监督角色，
    每个角色都有任务、输入、输出、证据、失败分类和下一步动作。
-10. `0.2.3`: 真实开发场景 gate。把 DeepSeek 真实开发 smoke、daily-loop、plan-mode、
-    provider/model、lane operator、release gate 固化为每次发布前必跑，并输出 token、费用、耗时和失败类型。
-11. `0.3.0`: 多前端 Contract Freeze。冻结 UI/runtime contract 和 Viden migration plan，
+10. `0.2.3`: Evidence 与 Merge Gate。接受变更前必须具备 canonical task、context、
+    permission、test、review、doc 和 release evidence。
+11. `0.2.4`: Plugin Runtime Boundary。与 process-plugin/external-agent contracts 一起
+    增加带 native fallback 的可选 context reducer adapters。
+12. `0.2.5`: 真实开发场景 gate。每次发布必须运行 DeepSeek live development smoke
+    和 Context Engine A/B token/cost/success evidence。
+13. `0.3.0`: 多前端 Contract Freeze。冻结 UI/runtime contract 和 Viden migration plan，
     然后再进入并行 frontend 实现。
-12. `0.3.1`: TUI 与 GUI 并行实现。Core/runtime、TUI、GUI 分支可并行推进，最多三个
+14. `0.3.1`: TUI 与 GUI 并行实现。Core/runtime、TUI、GUI 分支可并行推进，最多三个
     active owner，所有 frontend 都必须消费同一套 runtime。
 
 这条线保持 Viden 的核心 wedge：不是最大自治，而是最大 operator trust。

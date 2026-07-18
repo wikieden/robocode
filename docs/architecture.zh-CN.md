@@ -158,6 +158,16 @@ frontend-neutral event stream。
   orchestration 留在 `viden-runtime` / `viden-workflows`；
 - TUI 和 GUI 只渲染 `RuntimeViewState` 加有序 runtime events。
 
+### 原生 Context、Evidence 与 Cost 边界
+
+已批准边界见
+[Context、Evidence 与 Cost Engine 设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)。
+`crates/context` 负责 content-addressed canonical storage、确定性 type-aware
+reducers、scoped retrieval、quality checks 和精确 cost aggregation。只有
+`viden-runtime` 可以构造 bundle、执行 budget、调用 provider 并发送可 replay facts。
+Merge Gate 校验 canonical evidence，不能只信 compact summary。可选 external reducer
+通过 plugin/MCP adapter contract 接入并具备 native fallback，不能成为强制 provider path。
+
 ## 终端展示
 
 `viden-runtime` 负责 plain-text terminal presentation helpers，让 slash-command

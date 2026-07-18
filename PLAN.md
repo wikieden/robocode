@@ -115,7 +115,12 @@ Next release planning (`0.2.x` and `0.3.x`):
 - `0.2.1`: Context and token/cost engine. Build `ContextBundle`, semantic file
   selection, log compaction, tool-result deduplication, token budgets, and cost
   panels to address long-task context growth, DeepSeek 413 failures, and
-  invisible spend.
+  invisible spend. The approved design keeps canonical raw context and evidence
+  content-addressed, gives agents scoped `ContextHandle` references with audited
+  retrieval, routes content through deterministic type-aware reducers, and
+  attributes usage through an append-only cost ledger. See
+  `docs/superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md` and
+  `docs/superpowers/plans/2026-07-18-context-evidence-cost-engine.md`.
 - `0.2.2`: Agent DAG and role runtime - complete in the current working tree.
   Completion evidence is recorded in `docs/release-0.2.2-status.md` and
   `docs/release-0.2.2-status.zh-CN.md`. Promote planner, coder, reviewer,
@@ -152,13 +157,17 @@ Next release planning (`0.2.x` and `0.3.x`):
 - `0.2.3`: Evidence and merge gate. Require task, context, permission, test,
   review, and release evidence before accepting generated changes. First slice
   adds `RecordAgentEvidence`, kind-based gate reduction, and matching
-  runtime/workflow events for recorded evidence.
+  runtime/workflow events for recorded evidence. Final acceptance must resolve
+  canonical evidence and reject summary-only evidence.
 - `0.2.4`: Plugin runtime boundary. Add process-plugin protocol,
   manifest/capability registration, extension boundaries, and least-privilege
-  external agent scopes.
+  external agent scopes. Context reducers such as Headroom remain optional
+  adapters with native fallback and cannot become mandatory dependencies.
 - `0.2.5`: Real development gate. Keep DeepSeek live development smoke,
   daily-loop, plan-mode, provider/model, lane operator, release gate, and
-  token/cost summaries mandatory before releases.
+  token/cost summaries mandatory before releases. Add three-run-per-cohort
+  Context Engine A/B evidence with task/test parity, canonical evidence parity,
+  median token/cost comparisons, retrieval counts, latency, and failure classes.
 - `0.3.0`: Multi-frontend contract freeze and Viden migration plan. Freeze the
   UI/runtime contract before parallel UI work and define `viden` binary/config
   migration plus the `viden` compatibility shim.

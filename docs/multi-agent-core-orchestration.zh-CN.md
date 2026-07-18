@@ -318,10 +318,12 @@ Merge 规则：
 
 ### 0.2.1 Context 与 Cost Engine
 
-- 引入 `ContextBundle` builder 和 metadata。
-- 增加 token/cost estimates、truncation records、tool-result deduplication
-  和 provider compatibility warnings。
-- 让 DeepSeek 413 和 context overflow 失败可分类、可恢复。
+- 实现
+  [Context、Evidence 与 Cost Engine 设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)
+  定义的原生 canonical store、derived context views、scoped handles、audited retrieval、
+  确定性 type-aware reducers、quality records 和 append-only cost ledger。
+- 每个 provider-backed AgentTask 都从这些 handles 构造 bundle，在 transport 前执行
+  hard limit，并保持 DeepSeek 413/context failure 可分类。
 
 ### 0.2.2 Agent DAG 与 Role Runtime
 
@@ -352,7 +354,8 @@ Merge 规则：
 ### 0.2.3 Evidence 与 Merge Gate
 
 - 增加 evidence records 和 merge-gate state machine。
-- agent patches 必须具备 task、context、permission、test、review evidence。
+- agent patches 必须具备 canonical task、context、permission、test、review evidence；
+  summary-only evidence 不能满足 gate。
 - 将 release-gate evidence 做成可复用 gate type。
 
 ### 0.2.4 External Agent 与 Plugin Boundary

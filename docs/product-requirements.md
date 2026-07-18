@@ -80,6 +80,13 @@ Product naming boundary:
 - Keep the engine extensible enough to host integrations and advanced workflows
 - Let users turn repeatable engineering work into supervised workflows with
   explicit roles, task dependencies, evidence requirements, and merge gates
+- Orchestrate context, canonical evidence, and cost together with agents so
+  multi-agent work reuses facts instead of multiplying full prompts
+
+The approved native context/evidence/cost requirements and acceptance criteria
+are defined in [Context, Evidence, And Cost Engine Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md).
+Headroom may be used as an optional benchmark or adapter, but Viden owns the
+core contracts and always retains a native execution path.
 
 ### Product Non-Goals
 

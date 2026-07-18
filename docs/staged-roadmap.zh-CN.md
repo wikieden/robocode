@@ -316,7 +316,11 @@ quick/full release gates 已通过，GitHub Release 与 Homebrew validation 全�
   supervisor、event stream、command bus 和 compatibility exports，然后再启动 GUI 实现。
 - `0.2.1`：Context、token/cost、evidence 和 runtime fact model。实现
   `ContextBundle`、语义文件选择、日志压缩、tool result 去重、token budget、
-  provider health 和费用可见性。
+  provider health 和费用可见性；增加 canonical context items、derived views、
+  scoped handles/retrieval、确定性 content-aware reducers、quality records 和
+  append-only cost ledger。完整设计和 gate 见
+  [Context、Evidence 与 Cost Engine 设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)
+  与[实施计划](superpowers/plans/2026-07-18-context-evidence-cost-engine.zh-CN.md)。
 - `0.2.2`：Agent DAG 与 role runtime，当前 working tree 已完成。完成证据记录在
   [0.2.2 状态](release-0.2.2-status.zh-CN.md)。它把 planner、coder、reviewer、
   tester、doc-writer 做成可监督角色，每个角色都有 ContextBundle 引用、证据、失败分类和下一步动作。
@@ -343,12 +347,14 @@ quick/full release gates 已通过，GitHub Release 与 Homebrew validation 全�
 - `0.2.3`：Evidence 与 merge gate。覆盖更完整 agent patch 格式、test results、
   reviews、docs、release artifacts 和 conflict handling。第一刀加入显式
   `RecordAgentEvidence`、按 evidence kind 归约 merge gate，以及 recorded evidence 的
-  runtime/workflow event 一致性。
+  runtime/workflow event 一致性；evidence 满足 gate 前必须校验 canonical
+  source/hash/permission。
 - `0.2.4`：Plugin runtime boundary。增加 process-plugin protocol、
-  manifest/capability registration、extension boundaries 和 least-privilege
-  external agent scopes。
+  manifest/capability registration、extension boundaries、least-privilege
+  external agent scopes，以及带 native fallback 的可选 context-reducer adapters。
 - `0.2.5`：真实开发 gate。继续把 DeepSeek 真实开发 smoke、daily-loop、plan-mode、
-  provider/model、lane operator、release gate、token/cost summary 固化为每次发版前必跑。
+  provider/model、lane operator、release gate、token/cost summary 固化为每次发版前必跑；
+  增加 Context Engine on/off 受控 A/B，对 task/test/evidence regression 阻塞发版。
 - `0.3.0`：多前端 contract freeze 与 Viden migration plan。冻结 UI/runtime
   contract，定义 `viden` binary/config migration 和 `viden` compatibility shim。
   freeze 范围包含 [前端对接契约](frontend-integration-contract.zh-CN.md)，用于把已完成

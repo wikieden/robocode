@@ -369,6 +369,11 @@ Next planned:
 - `0.2.1`: Context, token/cost, evidence, and runtime fact model for
   `ContextBundle`, semantic file selection, log compaction,
   tool-result deduplication, budgets, provider health, and cost visibility.
+  Add canonical context items, derived views, scoped handles/retrieval,
+  deterministic content-aware reducers, quality records, and an append-only
+  cost ledger. Detailed design and execution gates are in
+  [Context, Evidence, And Cost Engine Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md)
+  and its [implementation plan](superpowers/plans/2026-07-18-context-evidence-cost-engine.md).
 - `0.2.2`: Agent DAG and role runtime - complete in the current working tree.
   Completion evidence is recorded in
   [0.2.2 Status](release-0.2.2-status.md). It covers planner, coder, reviewer,
@@ -405,12 +410,15 @@ Next planned:
 - `0.2.3`: Evidence and merge gate for richer agent patch formats, test
   results, reviews, docs, release artifacts, and conflict handling. First slice
   adds explicit `RecordAgentEvidence`, kind-based merge-gate reduction, and
-  runtime/workflow event consistency for recorded evidence.
+  runtime/workflow event consistency for recorded evidence. Require canonical
+  source/hash/permission verification before evidence can satisfy a gate.
 - `0.2.4`: Plugin runtime boundary for process plugins, manifest/capability
-  registration, extension boundaries, and least-privilege external agent scopes.
+  registration, extension boundaries, least-privilege external agent scopes,
+  and optional context-reducer adapters with native fallback.
 - `0.2.5`: Real development gate for DeepSeek live development smoke,
   daily-loop, plan-mode, provider/model, lane operator, release gate, and
-  token/cost summaries.
+  token/cost summaries. Add controlled Context Engine on/off A/B runs and block
+  release on task/test/evidence regression.
 - `0.3.0`: Multi-frontend contract freeze and Viden migration plan. Freeze the
   UI/runtime contract and define `viden` binary/config migration plus the
   `viden` compatibility shim. The freeze includes

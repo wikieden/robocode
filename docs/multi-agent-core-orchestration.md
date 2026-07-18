@@ -360,10 +360,12 @@ Merge rules:
 
 ### 0.2.1 Context and Cost Engine
 
-- Introduce `ContextBundle` builder and metadata.
-- Add token/cost estimates, truncation records, tool-result deduplication, and
-  provider compatibility warnings.
-- Make DeepSeek 413 and context overflow failures classifiable and recoverable.
+- Implement the native canonical store, derived context views, scoped handles,
+  audited retrieval, deterministic type-aware reducers, quality records, and
+  append-only cost ledger defined in
+  [Context, Evidence, And Cost Engine Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md).
+- Build every provider-backed AgentTask bundle from those handles, enforce hard
+  limits before transport, and keep provider 413/context failures classifiable.
 
 ### 0.2.2 Agent DAG and Role Runtime
 
@@ -399,7 +401,8 @@ Merge rules:
 ### 0.2.3 Evidence and Merge Gate
 
 - Add evidence records and merge-gate state machine.
-- Require task, context, permission, test, and review evidence for agent patches.
+- Require canonical task, context, permission, test, and review evidence for
+  agent patches; summary-only evidence cannot satisfy a gate.
 - Add release-gate evidence as a reusable gate type.
 
 ### 0.2.4 External Agent and Plugin Boundary

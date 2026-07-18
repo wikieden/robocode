@@ -384,16 +384,21 @@ After `0.1.24`, the likely sequence is:
 8. `0.2.1`: Context And Token/Cost Engine. Add `ContextBundle`, semantic file
    selection, log compaction, tool-result deduplication, token budgets, and
    cost panels to reduce context blowups, DeepSeek 413 failures, and invisible
-   spend.
+   spend. Add canonical raw context, derived views, scoped handles/retrieval,
+   deterministic reducers, and a cost ledger as specified in
+   [Context, Evidence, And Cost Engine Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md).
 9. `0.2.2`: Agent Execution Loop. Make planner, coder, reviewer, tester, and
    doc-writer supervised roles with task envelopes, inputs, outputs, evidence,
    failure classification, and next actions.
-10. `0.2.3`: Real Development Scenario Gate. Require DeepSeek live development
-    smoke, daily-loop, plan-mode, provider/model, lane operator, release gate,
-    and token/cost summaries for every release.
-11. `0.3.0`: Multi-frontend Contract Freeze. Freeze the UI/runtime contract
+10. `0.2.3`: Evidence And Merge Gate. Require canonical task, context,
+    permission, test, review, doc, and release evidence before acceptance.
+11. `0.2.4`: Plugin Runtime Boundary. Add optional context reducer adapters
+    with native fallback alongside process-plugin and external-agent contracts.
+12. `0.2.5`: Real Development Scenario Gate. Require DeepSeek live development
+    smoke and Context Engine A/B token/cost/success evidence for every release.
+13. `0.3.0`: Multi-frontend Contract Freeze. Freeze the UI/runtime contract
     and Viden migration plan before parallel frontend implementation.
-12. `0.3.1`: Parallel TUI and GUI Implementation. Run core/runtime, TUI, and
+14. `0.3.1`: Parallel TUI and GUI Implementation. Run core/runtime, TUI, and
     GUI branches concurrently, with at most three active owners and every
     frontend consuming the same runtime.
 

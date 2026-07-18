@@ -152,6 +152,13 @@ flowchart LR
 TUI 应使用紧凑摘要和 drill-down panels。GUI 应提供 source table，并支持 included、
 omitted、large、diagnostic、evidence sources 过滤。
 
+原生 Context Engine 会继续投影 bundle-built、item/view derived、retrieval、budget、
+quality、cache 和 cost events。前端可以发送带用户可见 reason 的 `RetrieveContext`，
+但只有 runtime 能解析 handle 并返回 bounded content。前端禁止 import
+`crates/context`、读取 canonical blobs、把 compact view 当作 Merge Gate evidence，
+或计算 authoritative cost。详见
+[Context、Evidence 与 Cost Engine 设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)。
+
 ## Approval 和 Permission UI 契约
 
 Approval 使用 `ApprovalRequestView` 和 `RespondToApproval`。

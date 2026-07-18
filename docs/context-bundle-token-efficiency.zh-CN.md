@@ -4,6 +4,10 @@
 
 最后更新：2026-05-27
 
+> 本文保留最初 ContextBundle 方向和已落地的 0.1.x slice。已批准的 native
+> canonical store、scoped retrieval、cost ledger 和验收设计统一维护在
+> [Context、Evidence 与 Cost Engine 设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)。
+
 ## 目标
 
 Viden 的多 Agent 编排不能依赖“把完整 transcript 发给每个 agent”。

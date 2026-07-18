@@ -71,6 +71,13 @@ Viden 是一个面向软件开发的本地优先 Agent Orchestration workspace�
 - 从首个稳定版本起支持跨平台本地开发
 - 保持内核足够可扩展，以承载后续集成和高级工作流
 - 让用户可以把重复工程工作转成可监督 workflow，并明确角色、任务依赖、证据要求和 merge gate
+- 在编排 Agent 的同时编排 context、canonical evidence 和 cost，让多 Agent 复用事实，
+  而不是成倍复制完整 prompt
+
+已批准的原生 context/evidence/cost 需求与验收标准见
+[Context、Evidence 与 Cost Engine 设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)。
+Headroom 可以作为可选 benchmark 或 adapter，但核心 contracts 由 Viden 持有，并始终
+保留原生执行路径。
 
 ### 非目标
 
