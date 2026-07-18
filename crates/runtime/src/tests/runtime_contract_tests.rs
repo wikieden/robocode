@@ -392,6 +392,85 @@ fn core_runtime_bridge_records_tool_calls_and_results() {
 }
 
 #[test]
+fn context_reducer_default_matches_native_bundle_without_adapter_provenance() {
+    let cwd = temp_dir("runtime_contract_context_reducer_default_cwd");
+    let home = temp_dir("runtime_contract_context_reducer_default_home");
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
+
+    let bundle = engine.build_main_context_bundle("ERROR src/a.rs:1 boom");
+
+    assert!(bundle.sources.iter().all(|source| {
+        source.summary != "adapter reduced" && !source.include_reason.contains("adapter")
+    }));
+}
+
+#[test]
+fn context_reducer_opt_in_records_adapter_provenance_and_quality() {
+    let cwd = temp_dir("runtime_contract_context_reducer_adapter_cwd");
+    let home = temp_dir("runtime_contract_context_reducer_adapter_home");
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
+    engine.set_context_reducer_adapter_for_test("adapter", "0.1.0", "adapter reduced");
+
+    let built = engine
+        .build_main_context_bundle_with_mode("ERROR src/a.rs:1 boom", ContextBuildMode::Normal);
+
+    let user_task = built
+        .bundle
+        .sources
+        .iter()
+        .find(|source| source.name == "user-task")
+        .expect("user task source materialized");
+    assert_eq!(user_task.summary, "adapter reduced");
+    assert!(user_task.include_reason.contains("adapter:0.1.0"));
+    assert!(built.events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ContextViewDerived { view, .. }
+                if view.derivation.starts_with("adapter:0.1.0:user-task")
+        )
+    }));
+}
+
+#[test]
+fn context_reducer_absent_adapter_does_not_block_provider_request() {
+    let cwd = temp_dir("runtime_contract_context_reducer_absent_cwd");
+    let home = temp_dir("runtime_contract_context_reducer_absent_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "native path still works".to_string(),
+        },
+        ModelEvent::Done,
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
+    engine.set_absent_context_reducer_adapter_for_test("adapter", "0.1.0");
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .process_input_with_approval("ERROR src/a.rs:1 boom", &mut approver)
+        .unwrap();
+
+    assert!(events.iter().any(
+        |event| matches!(event, EngineEvent::Assistant(text) if text == "native path still works")
+    ));
+}
+
+#[test]
 fn core_runtime_bridge_does_not_fail_successful_tool_output_with_error_words() {
     let cwd = temp_dir("runtime_contract_tool_error_word_cwd");
     let home = temp_dir("runtime_contract_tool_error_word_home");

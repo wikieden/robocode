@@ -1,7 +1,17 @@
 use std::process::Command;
 
 use sha2::{Digest, Sha256};
-use viden_context::{ContextEngine, ContextPutRequest, ReductionPolicy, reduce};
+use viden_context::{
+    ContextEngine, ContextPutRequest, ReductionEstimate, ReductionOmission, ReductionPolicy,
+    ReductionResult, reduce,
+};
+use viden_plugin_api::{
+    CONTEXT_REDUCER_SCHEMA_VERSION, ContextReducerCanonicalRef, ContextReducerContentKind,
+    ContextReducerDescriptor, ContextReducerHealthMetadata, ContextReducerHealthStatus,
+    ContextReducerOmission, ContextReducerPolicy, ContextReducerQualityFacts,
+    ContextReducerRequest, ContextReducerResponse, ContextReducerScope,
+};
+use viden_plugin_host::{ContextReducerExecutor, execute_context_reducer};
 use viden_types::{
     ContextBudgetRecord, ContextBundleRecord, ContextContentKind, ContextHandleRecord,
     ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, ContextViewRecord, RuntimeEvent,
@@ -525,6 +535,54 @@ impl SessionEngine {
         self.context_engine_root = root;
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_context_reducer_adapter_for_test(
+        &mut self,
+        reducer_id: &str,
+        version: &str,
+        reduced_content: &str,
+    ) {
+        self.context_reducer_config = viden_plugin_api::ContextReducerAdapterConfig {
+            enabled: true,
+            preferred_reducer_id: Some(reducer_id.to_string()),
+            ..viden_plugin_api::ContextReducerAdapterConfig::default()
+        };
+        self.context_reducer_descriptor = Some(ContextReducerDescriptor {
+            reducer_id: reducer_id.to_string(),
+            display_name: "Test Context Reducer".to_string(),
+            version: version.to_string(),
+            supported_schema_versions: vec![CONTEXT_REDUCER_SCHEMA_VERSION],
+            content_kinds: vec![
+                ContextReducerContentKind::Json,
+                ContextReducerContentKind::Code,
+                ContextReducerContentKind::Diff,
+                ContextReducerContentKind::Log,
+                ContextReducerContentKind::Diagnostic,
+                ContextReducerContentKind::Transcript,
+                ContextReducerContentKind::Text,
+            ],
+            limits: viden_plugin_api::ContextReducerLimits {
+                max_input_bytes: 2 * 1024 * 1024,
+                max_output_bytes: 16 * 1024,
+                max_output_items: 512,
+                max_depth: 64,
+            },
+            default_enabled: false,
+            config_schema_version: 1,
+        });
+        self.context_reducer_test_output = Some(reduced_content.to_string());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_absent_context_reducer_adapter_for_test(
+        &mut self,
+        reducer_id: &str,
+        version: &str,
+    ) {
+        self.set_context_reducer_adapter_for_test(reducer_id, version, "");
+        self.context_reducer_test_output = None;
+    }
+
     fn materialize_context_source(
         &self,
         engine: &mut ContextEngine,
@@ -561,8 +619,7 @@ impl SessionEngine {
             )
         };
         let policy = reduction_policy_for_source(source, mode);
-        let reduced = reduce(source.content_kind, &content, &policy)
-            .map_err(|err| format!("context reduction failed: {err}"))?;
+        let reduced = self.reduce_context_source(source, scope, &handle, &content, &policy)?;
         let view_id = fresh_id("ctxv");
         let view = ContextViewRecord {
             view_id: view_id.clone(),
@@ -587,6 +644,15 @@ impl SessionEngine {
         record.content_sha256 = Some(handle.content_sha256.clone());
         record.view_sha256 = Some(view.content_sha256.clone());
         record.quality_id = view.quality_id.clone();
+        if reduced.reducer_id != "viden-context-native" {
+            record.include_reason = format!(
+                "{}; reducer {}:{} quality {:?}",
+                record.include_reason,
+                reduced.reducer_id,
+                reduced.reducer_version,
+                reduced.quality.score_microunits
+            );
+        }
         if !reduced.omissions.is_empty() {
             let reasons = reduced
                 .omissions
@@ -609,6 +675,83 @@ impl SessionEngine {
             },
         ));
         Ok((record, events, vec![handle.handle_id]))
+    }
+
+    fn reduce_context_source(
+        &self,
+        source: &ContextSourceDraft,
+        scope: &ContextScope,
+        handle: &ContextHandleRecord,
+        content: &[u8],
+        policy: &ReductionPolicy,
+    ) -> Result<ReductionResult, String> {
+        let native = reduce(source.content_kind, content, policy)
+            .map_err(|err| format!("context reduction failed: {err}"))?;
+        let Some(descriptor) = self.context_reducer_descriptor.as_ref() else {
+            return Ok(native);
+        };
+        if !self.context_reducer_config.enabled {
+            return Ok(native);
+        }
+        let request =
+            context_reducer_request(source, scope, handle, policy, native_quality_facts(&native));
+        let native_response = context_reducer_response_from_native(&request, &native);
+        let executor = self.context_reducer_executor_for_runtime(descriptor, &request);
+        let outcome = execute_context_reducer(
+            &self.context_reducer_config,
+            descriptor,
+            request,
+            executor,
+            |_| native_response,
+        );
+        if outcome.used_native_fallback {
+            return Ok(native);
+        }
+        Ok(reduction_result_from_adapter_response(
+            source.content_kind,
+            content,
+            &outcome.response,
+        ))
+    }
+
+    fn context_reducer_executor_for_runtime(
+        &self,
+        _descriptor: &ContextReducerDescriptor,
+        _request: &ContextReducerRequest,
+    ) -> Option<ContextReducerExecutor> {
+        #[cfg(test)]
+        {
+            self.context_reducer_test_output.clone().map(|content| {
+                Box::new(move |request: &ContextReducerRequest| {
+                    Ok(ContextReducerResponse {
+                        schema_version: request.schema_version,
+                        request_id: request.request_id.clone(),
+                        canonical_hash: request.canonical.content_sha256.clone(),
+                        scope: request.scope.clone(),
+                        reduced_content: content.clone(),
+                        omissions: Vec::new(),
+                        reducer_id: "adapter".to_string(),
+                        reducer_version: "0.1.0".to_string(),
+                        quality: ContextReducerQualityFacts {
+                            passed: true,
+                            score_microunits: 990_000,
+                            evidence_recall_microunits: 990_000,
+                            checks: vec!["test_adapter_retained_required_context".to_string()],
+                            deterministic_fingerprint: "test-adapter".to_string(),
+                        },
+                        health: ContextReducerHealthMetadata {
+                            latency_ms: 1,
+                            status: ContextReducerHealthStatus::Ok,
+                            message: None,
+                        },
+                    })
+                }) as ContextReducerExecutor
+            })
+        }
+        #[cfg(not(test))]
+        {
+            None
+        }
     }
 
     pub(crate) fn materialize_existing_context_bundle(
@@ -725,6 +868,156 @@ fn content_kind_for_source(kind: &str) -> ContextContentKind {
         "test" | "runtime-summary" | "lsp-diagnostics" => ContextContentKind::Log,
         "transcript-summary" => ContextContentKind::Transcript,
         _ => ContextContentKind::Text,
+    }
+}
+
+fn plugin_content_kind(kind: ContextContentKind) -> ContextReducerContentKind {
+    match kind {
+        ContextContentKind::Json => ContextReducerContentKind::Json,
+        ContextContentKind::Code => ContextReducerContentKind::Code,
+        ContextContentKind::Diff => ContextReducerContentKind::Diff,
+        ContextContentKind::Log => ContextReducerContentKind::Log,
+        ContextContentKind::Diagnostic => ContextReducerContentKind::Diagnostic,
+        ContextContentKind::Transcript => ContextReducerContentKind::Transcript,
+        ContextContentKind::Text => ContextReducerContentKind::Text,
+    }
+}
+
+fn context_reducer_request(
+    source: &ContextSourceDraft,
+    scope: &ContextScope,
+    handle: &ContextHandleRecord,
+    policy: &ReductionPolicy,
+    native_baseline_quality: ContextReducerQualityFacts,
+) -> ContextReducerRequest {
+    ContextReducerRequest {
+        schema_version: CONTEXT_REDUCER_SCHEMA_VERSION,
+        request_id: fresh_id("ctxred"),
+        content_kind: plugin_content_kind(source.content_kind),
+        canonical: ContextReducerCanonicalRef {
+            item_id: handle.item_id.clone(),
+            content_sha256: handle.content_sha256.clone(),
+            evidence_id: None,
+            reference: format!("context-item:{}", handle.item_id),
+        },
+        policy: ContextReducerPolicy {
+            max_output_bytes: policy.max_output_bytes,
+            max_output_tokens: policy.max_output_tokens,
+            max_input_bytes: policy.max_input_bytes,
+            max_depth: policy.max_json_depth,
+            max_output_items: policy.max_json_values,
+            required_markers: policy.required_markers.clone(),
+        },
+        scope: ContextReducerScope {
+            role: "provider_context".to_string(),
+            task_id: match scope {
+                ContextScope::Task(task_id) => task_id.clone(),
+                ContextScope::Dag(dag_id) => dag_id.clone(),
+                ContextScope::Workflow(workflow_id) => workflow_id.clone(),
+            },
+            dag_id: match scope {
+                ContextScope::Dag(dag_id) => Some(dag_id.clone()),
+                _ => None,
+            },
+            workflow_id: match scope {
+                ContextScope::Workflow(workflow_id) => Some(workflow_id.clone()),
+                _ => None,
+            },
+        },
+        permission_snapshot_ref: format!("permission-scope:{}", scope_label(scope)),
+        native_baseline_quality: Some(native_baseline_quality),
+    }
+}
+
+fn context_reducer_response_from_native(
+    request: &ContextReducerRequest,
+    native: &ReductionResult,
+) -> ContextReducerResponse {
+    ContextReducerResponse {
+        schema_version: request.schema_version,
+        request_id: request.request_id.clone(),
+        canonical_hash: request.canonical.content_sha256.clone(),
+        scope: request.scope.clone(),
+        reduced_content: native.content.clone(),
+        omissions: native
+            .omissions
+            .iter()
+            .map(|omission| ContextReducerOmission {
+                reason: omission.reason.clone(),
+                omitted_count: omission.omitted_count,
+            })
+            .collect(),
+        reducer_id: native.reducer_id.clone(),
+        reducer_version: native.reducer_version.clone(),
+        quality: native_quality_facts(native),
+        health: ContextReducerHealthMetadata {
+            latency_ms: 0,
+            status: ContextReducerHealthStatus::Ok,
+            message: None,
+        },
+    }
+}
+
+fn native_quality_facts(native: &ReductionResult) -> ContextReducerQualityFacts {
+    ContextReducerQualityFacts {
+        passed: native.quality.passed,
+        score_microunits: native.quality.score_microunits.unwrap_or(0),
+        evidence_recall_microunits: native.quality.score_microunits.unwrap_or(0),
+        checks: native.quality.checks.clone(),
+        deterministic_fingerprint: native.quality.quality_id.clone(),
+    }
+}
+
+fn reduction_result_from_adapter_response(
+    kind: ContextContentKind,
+    original: &[u8],
+    response: &ContextReducerResponse,
+) -> ReductionResult {
+    let original_estimate = reduction_estimate(original.len());
+    let reduced_estimate = reduction_estimate(response.reduced_content.len());
+    ReductionResult {
+        content: response.reduced_content.clone(),
+        original: original_estimate,
+        reduced: reduced_estimate,
+        omissions: response
+            .omissions
+            .iter()
+            .map(|omission| ReductionOmission {
+                reason: omission.reason.clone(),
+                omitted_count: omission.omitted_count,
+            })
+            .collect(),
+        retained_markers: response.quality.checks.clone(),
+        reducer_id: response.reducer_id.clone(),
+        reducer_version: response.reducer_version.clone(),
+        quality: viden_types::ContextQualityRecord {
+            quality_id: fresh_id("ctxq"),
+            target_id: format!(
+                "{}:{}:{:?}",
+                response.reducer_id, response.reducer_version, kind
+            ),
+            passed: response.quality.passed,
+            score_microunits: Some(response.quality.score_microunits),
+            checks: response.quality.checks.clone(),
+            failure_reason: None,
+            checked_at: Some(now_timestamp()),
+        },
+        fallback_raw: false,
+    }
+}
+
+fn reduction_estimate(byte_count: usize) -> ReductionEstimate {
+    ReductionEstimate {
+        byte_count,
+        token_count: u64::try_from(byte_count.div_ceil(4)).unwrap_or(u64::MAX),
+    }
+}
+
+fn scope_label(scope: &ContextScope) -> String {
+    match scope {
+        ContextScope::Task(id) => format!("task:{id}"),
+        ContextScope::Dag(id) => format!("dag:{id}"),
+        ContextScope::Workflow(id) => format!("workflow:{id}"),
     }
 }
 

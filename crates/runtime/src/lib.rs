@@ -36,6 +36,7 @@ use formatting::{format_relative_age, render_resume_context, render_task_detail}
 pub use runtime_supervisor::RuntimeSupervisor;
 use viden_lsp::{LspRuntime, LspServerRegistry};
 use viden_permissions::PermissionEngine;
+use viden_plugin_api::{ContextReducerAdapterConfig, ContextReducerDescriptor};
 use viden_provider::{ModelProvider, ProviderDescriptor, ProviderHost};
 use viden_session::SessionStore;
 use viden_tools::ToolRegistry;
@@ -280,6 +281,10 @@ pub struct SessionEngine {
     last_context_runtime_events: Vec<RuntimeEvent>,
     context_engine_root: PathBuf,
     context_budget_override: Option<(u64, u64)>,
+    context_reducer_config: ContextReducerAdapterConfig,
+    context_reducer_descriptor: Option<ContextReducerDescriptor>,
+    #[cfg(test)]
+    context_reducer_test_output: Option<String>,
     #[cfg(test)]
     fail_next_workflow_append: Cell<bool>,
     #[cfg(test)]
@@ -376,6 +381,10 @@ impl SessionEngine {
             last_context_runtime_events: Vec::new(),
             context_engine_root,
             context_budget_override: None,
+            context_reducer_config: ContextReducerAdapterConfig::default(),
+            context_reducer_descriptor: None,
+            #[cfg(test)]
+            context_reducer_test_output: None,
             #[cfg(test)]
             fail_next_workflow_append: Cell::new(false),
             #[cfg(test)]
