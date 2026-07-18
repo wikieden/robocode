@@ -1,10 +1,11 @@
 use viden_permissions::PermissionEngine;
 use viden_session::SessionStore;
 use viden_types::{
-    AgentDagTaskSpec, AgentNextAction, ContextBundleRecord, ContextItemRecord,
-    ContextOmittedSourceRecord, ContextSourceRecord, CostUsageRecord, Message, PermissionLevel,
-    PermissionMode, Role, RuntimeEvent, RuntimeEventKind, SessionMetaEntry, SessionSummary,
-    TranscriptEntry, WorkMode, fresh_id, now_timestamp, truncate_for_preview,
+    AgentDagTaskSpec, AgentNextAction, CanonicalEvidenceReference, ContextBundleRecord,
+    ContextItemRecord, ContextOmittedSourceRecord, ContextScope, ContextSourceRecord,
+    CostUsageRecord, Message, PermissionLevel, PermissionMode, Role, RuntimeEvent,
+    RuntimeEventKind, SessionMetaEntry, SessionSummary, TranscriptEntry, WorkMode, fresh_id,
+    now_timestamp, truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
@@ -654,6 +655,17 @@ fn sanitized_runtime_event_for_workflow_projection(event: &RuntimeEvent) -> Runt
                 .path
                 .as_deref()
                 .and_then(safe_project_relative_projection_path);
+            if let Some(canonical) = &mut evidence.canonical {
+                sanitize_projection_canonical_reference(canonical);
+            }
+        }
+        RuntimeEventKind::EvidenceCanonicalized {
+            item_id,
+            content_sha256,
+            ..
+        } => {
+            *item_id = sanitize_projection_identifier(item_id, 128);
+            *content_sha256 = sanitize_projection_hash(content_sha256);
         }
         RuntimeEventKind::MergeGateUpdated { gate } => {
             gate.decision = gate
@@ -733,6 +745,75 @@ fn sanitize_projection_omitted_source(source: &mut ContextOmittedSourceRecord) {
 fn sanitize_projection_context_item(item: &mut ContextItemRecord) {
     item.title = sanitize_projection_text(&item.title, 120);
     item.summary = sanitize_projection_text(&item.summary, 240);
+}
+
+fn sanitize_projection_canonical_reference(canonical: &mut CanonicalEvidenceReference) {
+    canonical.item_id = sanitize_projection_identifier(&canonical.item_id, 128);
+    canonical.bundle_id = sanitize_projection_identifier(&canonical.bundle_id, 128);
+    canonical.source_hash = sanitize_projection_hash(&canonical.source_hash);
+    canonical.producer.identity = sanitize_projection_identifier(&canonical.producer.identity, 64);
+    canonical.producer.role = sanitize_projection_identifier(&canonical.producer.role, 32);
+    canonical.producer.task_id = sanitize_projection_identifier(&canonical.producer.task_id, 128);
+    canonical.permission_snapshot_id = canonical
+        .permission_snapshot_id
+        .as_deref()
+        .map(|id| sanitize_projection_identifier(id, 128))
+        .filter(|id| id != "[REDACTED]");
+    sanitize_projection_scope(&mut canonical.permission_scope);
+    sanitize_projection_scope(&mut canonical.evidence_scope);
+}
+
+fn sanitize_projection_scope(scope: &mut ContextScope) {
+    match scope {
+        ContextScope::Task(id) | ContextScope::Dag(id) | ContextScope::Workflow(id) => {
+            *id = sanitize_projection_identifier(id, 128);
+        }
+    }
+}
+
+fn sanitize_projection_hash(value: &str) -> String {
+    if value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        value.to_string()
+    } else {
+        "[REDACTED]".to_string()
+    }
+}
+
+fn sanitize_projection_identifier(value: &str, max_len: usize) -> String {
+    if is_safe_projection_identifier(value, max_len) {
+        value.to_string()
+    } else {
+        "[REDACTED]".to_string()
+    }
+}
+
+fn is_safe_projection_identifier(value: &str, max_len: usize) -> bool {
+    if value.is_empty()
+        || value.len() > max_len
+        || value.trim() != value
+        || value.contains('/')
+        || value.contains('\\')
+        || value.contains("..")
+        || value.contains("://")
+        || value.chars().any(char::is_control)
+    {
+        return false;
+    }
+    let lower = value.to_ascii_lowercase();
+    if lower.starts_with("sk-")
+        || lower.contains("secret")
+        || lower.contains("token=")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
+    {
+        return false;
+    }
+    value.bytes().all(|byte| {
+        matches!(
+            byte,
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-' | b'.' | b':'
+        )
+    })
 }
 
 fn sanitize_projection_text(input: &str, max_chars: usize) -> String {

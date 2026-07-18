@@ -1857,6 +1857,9 @@ impl SessionEngine {
             .map(|source| sanitize_evidence_source_for_event(&source))
             .filter(|source| !source.is_empty());
         let summary = sanitize_evidence_summary_for_event(&summary);
+        let canonical = canonical
+            .map(validate_external_canonical_evidence_reference)
+            .transpose()?;
 
         let gate_index = self
             .runtime_merge_gates
@@ -4317,6 +4320,92 @@ fn redacted_evidence_summary_marker(summary: &str) -> String {
     } else {
         "[REDACTED:bounded-summary]".to_string()
     }
+}
+
+fn validate_external_canonical_evidence_reference(
+    canonical: CanonicalEvidenceReference,
+) -> Result<CanonicalEvidenceReference, String> {
+    validate_canonical_identifier("item_id", &canonical.item_id, 128)?;
+    validate_canonical_identifier("bundle_id", &canonical.bundle_id, 128)?;
+    validate_canonical_hash("source_hash", &canonical.source_hash)?;
+    validate_optional_canonical_identifier("producer.identity", &canonical.producer.identity, 64)?;
+    if !canonical.producer.role.is_empty() && AgentRole::parse(&canonical.producer.role).is_none() {
+        return Err("invalid_canonical_evidence_reference:producer.role".to_string());
+    }
+    validate_optional_canonical_identifier("producer.role", &canonical.producer.role, 32)?;
+    validate_canonical_identifier("producer.task_id", &canonical.producer.task_id, 128)?;
+    if let Some(snapshot_id) = &canonical.permission_snapshot_id {
+        validate_canonical_identifier("permission_snapshot_id", snapshot_id, 128)?;
+    }
+    validate_canonical_scope("permission_scope", &canonical.permission_scope)?;
+    validate_canonical_scope("evidence_scope", &canonical.evidence_scope)?;
+    Ok(canonical)
+}
+
+fn validate_canonical_scope(field: &str, scope: &ContextScope) -> Result<(), String> {
+    match scope {
+        ContextScope::Task(id) => {
+            validate_canonical_identifier(&format!("{field}.task_id"), id, 128)
+        }
+        ContextScope::Dag(id) => validate_canonical_identifier(&format!("{field}.dag_id"), id, 128),
+        ContextScope::Workflow(id) => {
+            validate_canonical_identifier(&format!("{field}.workflow_id"), id, 128)
+        }
+    }
+}
+
+fn validate_canonical_hash(field: &str, value: &str) -> Result<(), String> {
+    if value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Ok(())
+    } else {
+        Err(format!("invalid_canonical_evidence_reference:{field}"))
+    }
+}
+
+fn validate_canonical_identifier(field: &str, value: &str, max_len: usize) -> Result<(), String> {
+    if is_safe_canonical_identifier(value, max_len) {
+        Ok(())
+    } else {
+        Err(format!("invalid_canonical_evidence_reference:{field}"))
+    }
+}
+
+fn validate_optional_canonical_identifier(
+    field: &str,
+    value: &str,
+    max_len: usize,
+) -> Result<(), String> {
+    if value.is_empty() {
+        Ok(())
+    } else {
+        validate_canonical_identifier(field, value, max_len)
+    }
+}
+
+fn is_safe_canonical_identifier(value: &str, max_len: usize) -> bool {
+    if value.is_empty()
+        || value.len() > max_len
+        || value.trim() != value
+        || value.contains('/')
+        || value.contains('\\')
+        || value.contains("..")
+        || value.contains("://")
+        || value.chars().any(char::is_control)
+    {
+        return false;
+    }
+    let lower = value.to_ascii_lowercase();
+    if lower.starts_with("sk-")
+        || lower.contains("secret")
+        || lower.contains("token=")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
+    {
+        return false;
+    }
+    value.bytes().all(
+        |byte| matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-' | b'.' | b':'),
+    )
 }
 
 fn sanitize_agent_task_spec_for_domain(mut spec: AgentDagTaskSpec) -> AgentDagTaskSpec {

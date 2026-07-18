@@ -2419,6 +2419,116 @@ fn workflow_projection_redacts_adversarial_project_command_payloads() {
 }
 
 #[test]
+fn record_agent_evidence_rejects_adversarial_nested_canonical_metadata() {
+    for field in [
+        "item_id",
+        "bundle_id",
+        "source_hash",
+        "producer.identity",
+        "producer.role",
+        "producer.task_id",
+        "permission_snapshot_id",
+        "permission_scope.task_id",
+        "evidence_scope.workflow_id",
+    ] {
+        let cwd = temp_dir(&format!(
+            "runtime_contract_bad_canonical_{}_cwd",
+            field.replace('.', "_")
+        ));
+        let home = temp_dir(&format!(
+            "runtime_contract_bad_canonical_{}_home",
+            field.replace('.', "_")
+        ));
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+        let mut approver = |_prompt| ApprovalResponse {
+            approved: true,
+            feedback: None,
+        };
+        start_single_patch_gate(&mut engine, &mut approver, "task_bad_canonical");
+        let (item, mut canonical) = stored_canonical_context(
+            &cwd,
+            "task_bad_canonical",
+            "evidence-bad-canonical",
+            "bundle-bad-canonical",
+            ContextContentKind::Diff,
+            b"safe canonical patch",
+        );
+        engine.set_merge_gate_context_facts_for_test("bundle-bad-canonical", item);
+        let malicious = match field {
+            "source_hash" => "/Users/wiki/private/sk-source-hash",
+            "permission_snapshot_id" => "https://evil.example/sk-permission",
+            "permission_scope.task_id" => "/Users/wiki/private/task",
+            "evidence_scope.workflow_id" => "../workflow/sk-secret",
+            _ => "sk-secret/../../Users/wiki/private",
+        };
+        match field {
+            "item_id" => canonical.item_id = malicious.to_string(),
+            "bundle_id" => canonical.bundle_id = malicious.to_string(),
+            "source_hash" => canonical.source_hash = malicious.to_string(),
+            "producer.identity" => canonical.producer.identity = malicious.to_string(),
+            "producer.role" => canonical.producer.role = malicious.to_string(),
+            "producer.task_id" => canonical.producer.task_id = malicious.to_string(),
+            "permission_snapshot_id" => {
+                canonical.permission_snapshot_id = Some(malicious.to_string());
+            }
+            "permission_scope.task_id" => {
+                canonical.permission_scope = ContextScope::Task(malicious.to_string());
+            }
+            "evidence_scope.workflow_id" => {
+                canonical.evidence_scope = ContextScope::Workflow(malicious.to_string());
+            }
+            _ => unreachable!(),
+        }
+
+        let events = engine
+            .handle_runtime_command(
+                format!("cmd_bad_canonical_{}", field.replace('.', "_")),
+                RuntimeCommand::RecordAgentEvidence {
+                    gate_id: "gate-task_bad_canonical".to_string(),
+                    evidence_id: Some("evidence-bad-canonical".to_string()),
+                    kind: "patch".to_string(),
+                    summary: "safe summary".to_string(),
+                    path: None,
+                    source: Some("executor".to_string()),
+                    canonical: Some(canonical),
+                },
+                &mut approver,
+            )
+            .unwrap();
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { reason, .. }
+                    if reason.contains("invalid_canonical_evidence_reference")
+                        && reason.contains(field)
+            )
+        }));
+        let serialized_events = serde_json::to_string(&events).unwrap();
+        assert!(!serialized_events.contains(malicious));
+        let workflow_json = fs::read_to_string(
+            WorkflowStore::new(&home, &cwd)
+                .unwrap()
+                .paths()
+                .agent_log
+                .clone(),
+        )
+        .unwrap();
+        assert!(!workflow_json.contains(malicious));
+        let runtime_json = serde_json::to_string(&engine.runtime_view_state()).unwrap();
+        assert!(!runtime_json.contains(malicious));
+        assert!(
+            engine
+                .runtime_view_state()
+                .latest_evidence
+                .iter()
+                .all(|evidence| evidence.id != "evidence-bad-canonical")
+        );
+    }
+}
+
+#[test]
 fn record_agent_evidence_rejects_traversal_and_control_character_paths() {
     for (case, path) in [
         ("traversal", "../secret.txt"),
