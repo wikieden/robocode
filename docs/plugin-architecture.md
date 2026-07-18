@@ -48,10 +48,11 @@ mutable handles to the canonical store.
 
 Adapters return `ContextReducerResponse` with:
 
-- the same schema version, request id, canonical hash, and scope binding;
+- the same schema version, request id, canonical hash, permission snapshot
+  reference, scope binding, and content kind;
 - reduced UTF-8 content within strict byte/item/depth limits;
 - omission records;
-- reducer id and version;
+- the negotiated reducer id and version;
 - deterministic quality facts, including score and evidence recall;
 - latency and health metadata.
 
@@ -61,15 +62,22 @@ bypass permissions, weaken evidence recall, or change Merge Gate truth.
 ## Host Validation And Fallback
 
 `crates/plugin-host` negotiates schema and content-kind support before calling an
-adapter. External output is accepted only when request id, canonical hash, scope,
-schema version, size, encoding, and quality/evidence thresholds all pass.
+adapter. In-process adapters execute on a named worker thread with an owned
+request value, `catch_unwind`, and a host wall-clock `recv_timeout`. The host
+does not trust response-reported latency for timeout decisions. Future external
+process adapters can use the same owned request/response contract.
+
+External output is accepted only when request id, canonical hash, permission
+snapshot reference, scope, content kind, negotiated reducer id/version, schema
+version, size, encoding, and quality/evidence thresholds all pass.
 
 Timeouts, crashes, absent adapters, malformed responses, wrong schema versions,
 wrong hashes, wrong scopes, oversize responses, and quality failures produce
 bounded health evidence and deterministic native fallback. Startup and provider
 requests must continue when the native reducer is healthy.
 
-The host includes a circuit breaker with bounded backoff so repeated failing
-adapters are skipped instead of repeatedly delaying context assembly. Telemetry
-is limited to health, latency, and failure category; it must not include secrets
-or raw local paths.
+The host includes a circuit breaker with bounded `open_until` backoff. After the
+failure threshold, calls are skipped until the monotonic deadline. The next call
+after the deadline is a half-open probe: success resets the breaker, while
+failure reopens it. Telemetry is limited to health, measured latency, and failure
+category; it must not include secrets or raw local paths.

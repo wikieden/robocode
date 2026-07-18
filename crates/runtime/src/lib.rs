@@ -37,6 +37,7 @@ pub use runtime_supervisor::RuntimeSupervisor;
 use viden_lsp::{LspRuntime, LspServerRegistry};
 use viden_permissions::PermissionEngine;
 use viden_plugin_api::{ContextReducerAdapterConfig, ContextReducerDescriptor};
+use viden_plugin_host::ContextReducerCircuitBreaker;
 use viden_provider::{ModelProvider, ProviderDescriptor, ProviderHost};
 use viden_session::SessionStore;
 use viden_tools::ToolRegistry;
@@ -283,8 +284,9 @@ pub struct SessionEngine {
     context_budget_override: Option<(u64, u64)>,
     context_reducer_config: ContextReducerAdapterConfig,
     context_reducer_descriptor: Option<ContextReducerDescriptor>,
+    context_reducer_breaker: RefCell<ContextReducerCircuitBreaker>,
     #[cfg(test)]
-    context_reducer_test_output: Option<String>,
+    context_reducer_test_behavior: Option<ContextReducerTestBehavior>,
     #[cfg(test)]
     fail_next_workflow_append: Cell<bool>,
     #[cfg(test)]
@@ -298,6 +300,13 @@ pub(crate) struct FileRollback {
     pub(crate) path: PathBuf,
     pub(crate) contents: Option<Vec<u8>>,
     pub(crate) permissions: Option<std::fs::Permissions>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub(crate) enum ContextReducerTestBehavior {
+    Output(String),
+    SleepThenOutput { sleep_ms: u64, content: String },
 }
 
 impl SessionEngine {
@@ -383,8 +392,9 @@ impl SessionEngine {
             context_budget_override: None,
             context_reducer_config: ContextReducerAdapterConfig::default(),
             context_reducer_descriptor: None,
+            context_reducer_breaker: RefCell::new(ContextReducerCircuitBreaker::default()),
             #[cfg(test)]
-            context_reducer_test_output: None,
+            context_reducer_test_behavior: None,
             #[cfg(test)]
             fail_next_workflow_append: Cell::new(false),
             #[cfg(test)]

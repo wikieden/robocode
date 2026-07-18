@@ -407,7 +407,9 @@ pub struct ContextReducerResponse {
     pub schema_version: u32,
     pub request_id: String,
     pub canonical_hash: String,
+    pub permission_snapshot_ref: String,
     pub scope: ContextReducerScope,
+    pub content_kind: ContextReducerContentKind,
     pub reduced_content: String,
     #[serde(default)]
     pub omissions: Vec<ContextReducerOmission>,
@@ -561,12 +563,14 @@ mod tests {
             schema_version: CONTEXT_REDUCER_SCHEMA_VERSION,
             request_id: "ctxred-1".to_string(),
             canonical_hash: "ab".repeat(32),
+            permission_snapshot_ref: "perm-snap-1".to_string(),
             scope: ContextReducerScope {
                 role: "executor".to_string(),
                 task_id: "task-1".to_string(),
                 dag_id: None,
                 workflow_id: Some("wf-1".to_string()),
             },
+            content_kind: ContextReducerContentKind::Log,
             reduced_content: "ERROR src/a.rs:1 boom".to_string(),
             omissions: vec![ContextReducerOmission {
                 reason: "deduplicated".to_string(),

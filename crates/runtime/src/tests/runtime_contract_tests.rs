@@ -18,7 +18,10 @@ use viden_types::{
 };
 use viden_workflows::stores::{WorkflowAgentEvent, WorkflowStore};
 
-use crate::{EngineEvent, SessionEngine, context_bundle::ContextBuildMode};
+use crate::{
+    EngineEvent, SessionEngine,
+    context_bundle::{ContextBuildMode, render_provider_context_message},
+};
 
 use super::{SequenceProvider, temp_dir};
 
@@ -26,6 +29,52 @@ struct CountingProvider {
     request_count: Arc<AtomicU64>,
     requests: Arc<Mutex<Vec<ModelRequest>>>,
     result: Result<Vec<ModelEvent>, String>,
+}
+
+fn stable_context_bundle_bytes(mut bundle: viden_types::ContextBundleRecord) -> Vec<u8> {
+    bundle.bundle_id = "<bundle>".to_string();
+    bundle.task_id = "<task>".to_string();
+    for source in &mut bundle.sources {
+        source.handle_id = source.handle_id.as_ref().map(|_| "<handle>".to_string());
+        source.item_id = source.item_id.as_ref().map(|_| "<item>".to_string());
+        source.view_id = source.view_id.as_ref().map(|_| "<view>".to_string());
+        source.quality_id = source.quality_id.as_ref().map(|_| "<quality>".to_string());
+    }
+    serde_json::to_vec(&bundle).expect("context bundle serializes")
+}
+
+fn stable_provider_context_bytes(rendered: &str) -> Vec<u8> {
+    rendered
+        .lines()
+        .map(|line| {
+            if let Some(rest) = line.strip_prefix("Bundle: ") {
+                let _ = rest;
+                return "Bundle: <bundle>".to_string();
+            }
+            if let Some(rest) = line.strip_prefix("Scope: task:") {
+                let _ = rest;
+                return "Scope: task:<task>".to_string();
+            }
+            line.split_whitespace()
+                .map(|token| {
+                    if token.starts_with("handle=") {
+                        "handle=<handle>".to_string()
+                    } else if token.starts_with("item=") {
+                        "item=<item>".to_string()
+                    } else if token.starts_with("view=") {
+                        "view=<view>".to_string()
+                    } else if token.starts_with("quality=") {
+                        "quality=<quality>".to_string()
+                    } else {
+                        token.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .into_bytes()
 }
 
 impl CountingProvider {
@@ -411,6 +460,43 @@ fn context_reducer_default_matches_native_bundle_without_adapter_provenance() {
 }
 
 #[test]
+fn context_reducer_explicit_disabled_matches_absent_native_provider_bytes() {
+    let cwd_absent = temp_dir("runtime_contract_context_reducer_absent_equiv_cwd");
+    let home_absent = temp_dir("runtime_contract_context_reducer_absent_equiv_home");
+    let cwd_disabled = temp_dir("runtime_contract_context_reducer_disabled_equiv_cwd");
+    let home_disabled = temp_dir("runtime_contract_context_reducer_disabled_equiv_home");
+    let input = "ERROR src/a.rs:1 boom\nfinal tail";
+
+    let mut absent = SessionEngine::new_with_home(
+        &cwd_absent,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home_absent),
+    )
+    .unwrap();
+    absent.set_context_engine_root_for_test(cwd_absent.join(".viden/private-context-test"));
+    let absent_bundle = absent.build_main_context_bundle(input);
+
+    let mut disabled = SessionEngine::new_with_home(
+        &cwd_disabled,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home_disabled),
+    )
+    .unwrap();
+    disabled.set_context_engine_root_for_test(cwd_disabled.join(".viden/private-context-test"));
+    disabled.set_disabled_context_reducer_adapter_for_test("adapter", "0.1.0");
+    let disabled_bundle = disabled.build_main_context_bundle(input);
+
+    assert_eq!(
+        stable_context_bundle_bytes(absent_bundle.clone()),
+        stable_context_bundle_bytes(disabled_bundle.clone())
+    );
+    assert_eq!(
+        stable_provider_context_bytes(&render_provider_context_message(&absent_bundle)),
+        stable_provider_context_bytes(&render_provider_context_message(&disabled_bundle))
+    );
+}
+
+#[test]
 fn context_reducer_opt_in_records_adapter_provenance_and_quality() {
     let cwd = temp_dir("runtime_contract_context_reducer_adapter_cwd");
     let home = temp_dir("runtime_contract_context_reducer_adapter_home");
@@ -467,6 +553,35 @@ fn context_reducer_absent_adapter_does_not_block_provider_request() {
 
     assert!(events.iter().any(
         |event| matches!(event, EngineEvent::Assistant(text) if text == "native path still works")
+    ));
+}
+
+#[test]
+fn context_reducer_sleeping_adapter_times_out_without_blocking_provider_request() {
+    let cwd = temp_dir("runtime_contract_context_reducer_sleeping_cwd");
+    let home = temp_dir("runtime_contract_context_reducer_sleeping_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "native timeout path still works".to_string(),
+        },
+        ModelEvent::Done,
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
+    engine.set_sleeping_context_reducer_adapter_for_test("adapter", "0.1.0", 1_000, 25);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let started = std::time::Instant::now();
+
+    let events = engine
+        .process_input_with_approval("ERROR src/a.rs:1 boom", &mut approver)
+        .unwrap();
+
+    assert!(started.elapsed() < std::time::Duration::from_millis(300));
+    assert!(events.iter().any(
+        |event| matches!(event, EngineEvent::Assistant(text) if text == "native timeout path still works")
     ));
 }
 

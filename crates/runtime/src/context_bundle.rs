@@ -11,7 +11,7 @@ use viden_plugin_api::{
     ContextReducerOmission, ContextReducerPolicy, ContextReducerQualityFacts,
     ContextReducerRequest, ContextReducerResponse, ContextReducerScope,
 };
-use viden_plugin_host::{ContextReducerExecutor, execute_context_reducer};
+use viden_plugin_host::{ContextReducerExecutor, execute_context_reducer_with_breaker};
 use viden_types::{
     ContextBudgetRecord, ContextBundleRecord, ContextContentKind, ContextHandleRecord,
     ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, ContextViewRecord, RuntimeEvent,
@@ -570,7 +570,9 @@ impl SessionEngine {
             default_enabled: false,
             config_schema_version: 1,
         });
-        self.context_reducer_test_output = Some(reduced_content.to_string());
+        self.context_reducer_test_behavior = Some(crate::ContextReducerTestBehavior::Output(
+            reduced_content.to_string(),
+        ));
     }
 
     #[cfg(test)]
@@ -580,7 +582,39 @@ impl SessionEngine {
         version: &str,
     ) {
         self.set_context_reducer_adapter_for_test(reducer_id, version, "");
-        self.context_reducer_test_output = None;
+        self.context_reducer_test_behavior = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_disabled_context_reducer_adapter_for_test(
+        &mut self,
+        reducer_id: &str,
+        version: &str,
+    ) {
+        self.set_context_reducer_adapter_for_test(reducer_id, version, "");
+        self.context_reducer_config.enabled = false;
+        self.context_reducer_test_behavior = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_sleeping_context_reducer_adapter_for_test(
+        &mut self,
+        reducer_id: &str,
+        version: &str,
+        sleep_ms: u64,
+        timeout_ms: u64,
+    ) {
+        self.set_context_reducer_adapter_for_test(reducer_id, version, "adapter reduced");
+        self.context_reducer_config.timeout_ms = timeout_ms;
+        self.context_reducer_config
+            .circuit_breaker
+            .failure_threshold = 1;
+        self.context_reducer_config.circuit_breaker.backoff_ms = 30_000;
+        self.context_reducer_test_behavior =
+            Some(crate::ContextReducerTestBehavior::SleepThenOutput {
+                sleep_ms,
+                content: "adapter reduced".to_string(),
+            });
     }
 
     fn materialize_context_source(
@@ -697,12 +731,13 @@ impl SessionEngine {
             context_reducer_request(source, scope, handle, policy, native_quality_facts(&native));
         let native_response = context_reducer_response_from_native(&request, &native);
         let executor = self.context_reducer_executor_for_runtime(descriptor, &request);
-        let outcome = execute_context_reducer(
+        let outcome = execute_context_reducer_with_breaker(
             &self.context_reducer_config,
             descriptor,
             request,
             executor,
             |_| native_response,
+            &mut self.context_reducer_breaker.borrow_mut(),
         );
         if outcome.used_native_fallback {
             return Ok(native);
@@ -716,22 +751,38 @@ impl SessionEngine {
 
     fn context_reducer_executor_for_runtime(
         &self,
-        _descriptor: &ContextReducerDescriptor,
+        descriptor: &ContextReducerDescriptor,
         _request: &ContextReducerRequest,
     ) -> Option<ContextReducerExecutor> {
+        #[cfg(not(test))]
+        let _ = descriptor;
         #[cfg(test)]
         {
-            self.context_reducer_test_output.clone().map(|content| {
-                Box::new(move |request: &ContextReducerRequest| {
+            let reducer_id = descriptor.reducer_id.clone();
+            let reducer_version = descriptor.version.clone();
+            self.context_reducer_test_behavior.clone().map(|behavior| {
+                Box::new(move |request: ContextReducerRequest| {
+                    let content = match behavior {
+                        crate::ContextReducerTestBehavior::Output(content) => content,
+                        crate::ContextReducerTestBehavior::SleepThenOutput {
+                            sleep_ms,
+                            content,
+                        } => {
+                            std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+                            content
+                        }
+                    };
                     Ok(ContextReducerResponse {
                         schema_version: request.schema_version,
                         request_id: request.request_id.clone(),
                         canonical_hash: request.canonical.content_sha256.clone(),
+                        permission_snapshot_ref: request.permission_snapshot_ref.clone(),
                         scope: request.scope.clone(),
+                        content_kind: request.content_kind,
                         reduced_content: content.clone(),
                         omissions: Vec::new(),
-                        reducer_id: "adapter".to_string(),
-                        reducer_version: "0.1.0".to_string(),
+                        reducer_id: reducer_id.clone(),
+                        reducer_version: reducer_version.clone(),
                         quality: ContextReducerQualityFacts {
                             passed: true,
                             score_microunits: 990_000,
@@ -937,7 +988,9 @@ fn context_reducer_response_from_native(
         schema_version: request.schema_version,
         request_id: request.request_id.clone(),
         canonical_hash: request.canonical.content_sha256.clone(),
+        permission_snapshot_ref: request.permission_snapshot_ref.clone(),
         scope: request.scope.clone(),
+        content_kind: request.content_kind,
         reduced_content: native.content.clone(),
         omissions: native
             .omissions

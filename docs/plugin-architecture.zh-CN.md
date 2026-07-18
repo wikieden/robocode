@@ -37,10 +37,10 @@ descriptor 由 `crates/plugin-api` 中的 `ContextReducerDescriptor` 表示：
 
 adapter 返回 `ContextReducerResponse`，其中包含：
 
-- 相同的 schema version、request id、canonical hash 和 scope binding；
+- 相同的 schema version、request id、canonical hash、permission snapshot reference、scope binding 和 content kind；
 - 严格满足 byte/item/depth 限制的 UTF-8 reduced content；
 - omission records；
-- reducer id 和 version；
+- 已协商的 reducer id 和 version；
 - 确定性的 quality facts，包括 score 和 evidence recall；
 - latency 和 health metadata。
 
@@ -48,8 +48,10 @@ adapter 可以优化 provider input，但不能修改 canonical context、绕过
 
 ## Host Validation And Fallback
 
-`crates/plugin-host` 在调用 adapter 前会协商 schema 和 content-kind support。只有 request id、canonical hash、scope、schema version、size、encoding、quality/evidence thresholds 全部通过时，外部结果才会被接受。
+`crates/plugin-host` 在调用 adapter 前会协商 schema 和 content-kind support。in-process adapter 会在命名 worker thread 中执行，host 只传入 owned request value，并使用 `catch_unwind` 和 host wall-clock `recv_timeout` 做隔离。host 不信任 response 自报 latency 来做 timeout 决策。未来 external process adapter 可以复用同一套 owned request/response contract。
+
+只有 request id、canonical hash、permission snapshot reference、scope、content kind、已协商 reducer id/version、schema version、size、encoding、quality/evidence thresholds 全部通过时，外部结果才会被接受。
 
 timeout、crash、adapter absent、malformed response、错误 schema version、错误 hash、错误 scope、oversize response 和 quality failure 都会产生有界 health evidence，并确定性回退到 native reducer。当 native reducer 健康时，startup 和 provider request 不能被 adapter 阻塞。
 
-host 包含 circuit breaker 和有界 backoff，避免反复调用持续失败的 adapter，从而拖慢 context assembly。telemetry 只记录 health、latency 和 failure category；不得包含 secrets 或原始本地路径。
+host 包含带有有界 `open_until` 的 circuit breaker。达到 failure threshold 后，调用会被跳过直到 monotonic deadline。deadline 之后的下一次调用是 half-open probe：成功会 reset breaker，失败会重新 open。telemetry 只记录 health、measured latency 和 failure category；不得包含 secrets 或原始本地路径。

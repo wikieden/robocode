@@ -5,6 +5,9 @@
 //! tools, agents, workflows, and providers move behind the plugin API.
 
 use std::collections::HashMap;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use viden_plugin_api::{
     AgentAuthMode, AgentCommandSpec, AgentEnvRef, AgentPermissionProfile, AgentPluginCapability,
@@ -104,13 +107,15 @@ pub enum PluginHostError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContextReducerHostError {
+    Timeout,
     AdapterCrash,
     MalformedResponse,
 }
 
 pub type ContextReducerExecutor = Box<
-    dyn Fn(&ContextReducerRequest) -> Result<ContextReducerResponse, ContextReducerHostError>
-        + Send,
+    dyn FnOnce(ContextReducerRequest) -> Result<ContextReducerResponse, ContextReducerHostError>
+        + Send
+        + 'static,
 >;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,26 +127,53 @@ pub struct ContextReducerHostOutcome {
 
 #[derive(Debug, Clone, Default)]
 pub struct ContextReducerCircuitBreaker {
-    failures: HashMap<String, u32>,
+    states: HashMap<String, ContextReducerBreakerState>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ContextReducerBreakerState {
+    failures: u32,
+    open_until: Option<Instant>,
 }
 
 impl ContextReducerCircuitBreaker {
     pub fn failure_count(&self, reducer_id: &str) -> u32 {
-        self.failures.get(reducer_id).copied().unwrap_or(0)
+        self.states
+            .get(reducer_id)
+            .map(|state| state.failures)
+            .unwrap_or(0)
     }
 
     fn record_success(&mut self, reducer_id: &str) {
-        self.failures.remove(reducer_id);
+        self.states.remove(reducer_id);
     }
 
-    fn record_failure(&mut self, reducer_id: &str) {
-        let failure_count = self.failures.entry(reducer_id.to_string()).or_default();
-        *failure_count = failure_count.saturating_add(1);
-    }
-
-    fn is_open(&self, reducer_id: &str, config: &ContextReducerAdapterConfig) -> bool {
+    fn record_failure(&mut self, reducer_id: &str, config: &ContextReducerAdapterConfig) {
+        const MAX_CONTEXT_REDUCER_BACKOFF_MS: u64 = 5 * 60 * 1_000;
+        let state = self.states.entry(reducer_id.to_string()).or_default();
+        state.failures = state.failures.saturating_add(1);
         let threshold = config.circuit_breaker.failure_threshold.max(1);
-        self.failure_count(reducer_id) >= threshold
+        if state.failures >= threshold {
+            let backoff_ms = config
+                .circuit_breaker
+                .backoff_ms
+                .min(MAX_CONTEXT_REDUCER_BACKOFF_MS);
+            state.open_until = Some(Instant::now() + Duration::from_millis(backoff_ms));
+        }
+    }
+
+    fn is_open(&mut self, reducer_id: &str) -> bool {
+        let Some(state) = self.states.get_mut(reducer_id) else {
+            return false;
+        };
+        match state.open_until {
+            Some(open_until) if Instant::now() < open_until => true,
+            Some(_) => {
+                state.open_until = None;
+                false
+            }
+            None => false,
+        }
     }
 }
 
@@ -221,7 +253,7 @@ where
             ),
         );
     }
-    if breaker.is_open(&descriptor.reducer_id, config) {
+    if breaker.is_open(&descriptor.reducer_id) {
         return fallback_outcome(
             &request,
             native_fallback,
@@ -233,7 +265,7 @@ where
         );
     }
     let Some(executor) = executor else {
-        breaker.record_failure(&descriptor.reducer_id);
+        breaker.record_failure(&descriptor.reducer_id, config);
         return fallback_outcome(
             &request,
             native_fallback,
@@ -245,10 +277,27 @@ where
         );
     };
 
-    let response = match executor(&request) {
-        Ok(response) => response,
+    let execution = match execute_adapter_isolated(
+        descriptor.reducer_id.clone(),
+        request.clone(),
+        executor,
+        Duration::from_millis(config.timeout_ms),
+    ) {
+        Ok(execution) => execution,
+        Err(ContextReducerHostError::Timeout) => {
+            breaker.record_failure(&descriptor.reducer_id, config);
+            return fallback_outcome(
+                &request,
+                native_fallback,
+                health(
+                    ContextReducerHealthStatus::Timeout,
+                    config.timeout_ms,
+                    "context reducer timed out",
+                ),
+            );
+        }
         Err(ContextReducerHostError::AdapterCrash) => {
-            breaker.record_failure(&descriptor.reducer_id);
+            breaker.record_failure(&descriptor.reducer_id, config);
             return fallback_outcome(
                 &request,
                 native_fallback,
@@ -260,7 +309,7 @@ where
             );
         }
         Err(ContextReducerHostError::MalformedResponse) => {
-            breaker.record_failure(&descriptor.reducer_id);
+            breaker.record_failure(&descriptor.reducer_id, config);
             return fallback_outcome(
                 &request,
                 native_fallback,
@@ -273,7 +322,15 @@ where
         }
     };
 
-    match validate_response(config, descriptor, &request, &response) {
+    let mut response = execution.response;
+    response.health.latency_ms = execution.latency_ms;
+    match validate_response(
+        config,
+        descriptor,
+        &request,
+        &response,
+        execution.latency_ms,
+    ) {
         Ok(()) => {
             breaker.record_success(&descriptor.reducer_id);
             ContextReducerHostOutcome {
@@ -283,10 +340,42 @@ where
             }
         }
         Err(health) => {
-            breaker.record_failure(&descriptor.reducer_id);
+            breaker.record_failure(&descriptor.reducer_id, config);
             fallback_outcome(&request, native_fallback, health)
         }
     }
+}
+
+fn execute_adapter_isolated(
+    reducer_id: String,
+    request: ContextReducerRequest,
+    executor: ContextReducerExecutor,
+    timeout: Duration,
+) -> Result<ContextReducerExecution, ContextReducerHostError> {
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let thread_name = format!("viden-context-reducer-{reducer_id}");
+    let builder = std::thread::Builder::new().name(thread_name);
+    let started = Instant::now();
+    builder
+        .spawn(move || {
+            let result = catch_unwind(AssertUnwindSafe(|| executor(request)))
+                .unwrap_or(Err(ContextReducerHostError::AdapterCrash));
+            let _ = sender.send(result);
+        })
+        .map_err(|_| ContextReducerHostError::AdapterCrash)?;
+    let response = receiver.recv_timeout(timeout).map_err(|err| match err {
+        mpsc::RecvTimeoutError::Timeout => ContextReducerHostError::Timeout,
+        mpsc::RecvTimeoutError::Disconnected => ContextReducerHostError::AdapterCrash,
+    })??;
+    Ok(ContextReducerExecution {
+        response,
+        latency_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    })
+}
+
+struct ContextReducerExecution {
+    response: ContextReducerResponse,
+    latency_ms: u64,
 }
 
 fn validate_request(request: &ContextReducerRequest) -> Result<(), &'static str> {
@@ -310,28 +399,26 @@ fn validate_response(
     descriptor: &ContextReducerDescriptor,
     request: &ContextReducerRequest,
     response: &ContextReducerResponse,
+    observed_latency_ms: u64,
 ) -> Result<(), ContextReducerHealthMetadata> {
-    if response.health.latency_ms > config.timeout_ms {
-        return Err(health(
-            ContextReducerHealthStatus::Timeout,
-            response.health.latency_ms,
-            "context reducer timeout",
-        ));
-    }
     if response.schema_version != request.schema_version {
         return Err(health(
             ContextReducerHealthStatus::VersionMismatch,
-            response.health.latency_ms,
+            observed_latency_ms,
             "context reducer response schema mismatch",
         ));
     }
     if response.request_id != request.request_id
         || response.canonical_hash != request.canonical.content_sha256
+        || response.permission_snapshot_ref != request.permission_snapshot_ref
         || response.scope != request.scope
+        || response.content_kind != request.content_kind
+        || response.reducer_id != descriptor.reducer_id
+        || response.reducer_version != descriptor.version
     {
         return Err(health(
             ContextReducerHealthStatus::BindingMismatch,
-            response.health.latency_ms,
+            observed_latency_ms,
             "context reducer response does not bind request/hash/scope",
         ));
     }
@@ -350,7 +437,7 @@ fn validate_response(
     {
         return Err(health(
             ContextReducerHealthStatus::Oversize,
-            response.health.latency_ms,
+            observed_latency_ms,
             "context reducer response exceeds bounded output limits",
         ));
     }
@@ -360,14 +447,14 @@ fn validate_response(
     {
         return Err(health(
             ContextReducerHealthStatus::QualityFailed,
-            response.health.latency_ms,
+            observed_latency_ms,
             "context reducer quality threshold failed",
         ));
     }
     if contains_path_or_secret(&response.reduced_content) {
         return Err(health(
             ContextReducerHealthStatus::PolicyRejected,
-            response.health.latency_ms,
+            observed_latency_ms,
             "context reducer response contains path-like or secret-like data",
         ));
     }
@@ -724,7 +811,9 @@ mod tests {
             schema_version: request.schema_version,
             request_id: request.request_id.clone(),
             canonical_hash: request.canonical.content_sha256.clone(),
+            permission_snapshot_ref: request.permission_snapshot_ref.clone(),
             scope: request.scope.clone(),
+            content_kind: request.content_kind,
             reduced_content: "ERROR src/a.rs:1 boom".to_string(),
             omissions: vec![ContextReducerOmission {
                 reason: "deduplicated".to_string(),
@@ -804,7 +893,7 @@ mod tests {
             &config,
             &context_reducer_descriptor("adapter"),
             request.clone(),
-            Some(Box::new(|request| Ok(context_reducer_response(request)))),
+            Some(Box::new(|request| Ok(context_reducer_response(&request)))),
             native_response,
         );
 
@@ -817,21 +906,13 @@ mod tests {
     fn context_reducer_falls_back_on_absent_timeout_crash_malformed_and_binding_failures() {
         let config = ContextReducerAdapterConfig {
             enabled: true,
-            timeout_ms: 1,
+            timeout_ms: 250,
             ..ContextReducerAdapterConfig::default()
         };
         let descriptor = context_reducer_descriptor("adapter");
 
         let cases: Vec<(&str, Option<ContextReducerExecutor>)> = vec![
             ("absent", None),
-            (
-                "timeout",
-                Some(Box::new(|request| {
-                    let mut response = context_reducer_response(request);
-                    response.health.latency_ms = 20;
-                    Ok(response)
-                })),
-            ),
             (
                 "crash",
                 Some(Box::new(|_| Err(ContextReducerHostError::AdapterCrash))),
@@ -845,7 +926,7 @@ mod tests {
             (
                 "wrong_version",
                 Some(Box::new(|request| {
-                    let mut response = context_reducer_response(request);
+                    let mut response = context_reducer_response(&request);
                     response.schema_version = 999;
                     Ok(response)
                 })),
@@ -853,7 +934,7 @@ mod tests {
             (
                 "wrong_hash",
                 Some(Box::new(|request| {
-                    let mut response = context_reducer_response(request);
+                    let mut response = context_reducer_response(&request);
                     response.canonical_hash = "cd".repeat(32);
                     Ok(response)
                 })),
@@ -861,7 +942,7 @@ mod tests {
             (
                 "wrong_scope",
                 Some(Box::new(|request| {
-                    let mut response = context_reducer_response(request);
+                    let mut response = context_reducer_response(&request);
                     response.scope.task_id = "task-2".to_string();
                     Ok(response)
                 })),
@@ -869,7 +950,7 @@ mod tests {
             (
                 "oversize",
                 Some(Box::new(|request| {
-                    let mut response = context_reducer_response(request);
+                    let mut response = context_reducer_response(&request);
                     response.reduced_content = "x".repeat(1024);
                     Ok(response)
                 })),
@@ -877,7 +958,7 @@ mod tests {
             (
                 "too_many_items",
                 Some(Box::new(|request| {
-                    let mut response = context_reducer_response(request);
+                    let mut response = context_reducer_response(&request);
                     response.reduced_content = (0..64)
                         .map(|index| format!("line {index}"))
                         .collect::<Vec<_>>()
@@ -888,7 +969,7 @@ mod tests {
             (
                 "too_deep",
                 Some(Box::new(|request| {
-                    let mut response = context_reducer_response(request);
+                    let mut response = context_reducer_response(&request);
                     response.reduced_content = "[[[[[[[[[too deep]]]]]]]]]".to_string();
                     Ok(response)
                 })),
@@ -896,7 +977,7 @@ mod tests {
             (
                 "quality",
                 Some(Box::new(|request| {
-                    let mut response = context_reducer_response(request);
+                    let mut response = context_reducer_response(&request);
                     response.quality.passed = false;
                     response.quality.evidence_recall_microunits = 1;
                     Ok(response)
@@ -923,6 +1004,143 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn context_reducer_does_not_trust_response_reported_latency_for_timeout() {
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            timeout_ms: 25,
+            ..ContextReducerAdapterConfig::default()
+        };
+
+        let outcome = execute_context_reducer(
+            &config,
+            &context_reducer_descriptor("adapter"),
+            context_reducer_request(),
+            Some(Box::new(|request| {
+                let mut response = context_reducer_response(&request);
+                response.health.latency_ms = 99_999;
+                Ok(response)
+            })),
+            native_response,
+        );
+
+        assert!(!outcome.used_native_fallback);
+        assert_eq!(outcome.health.status, ContextReducerHealthStatus::Ok);
+        assert!(outcome.health.latency_ms < 25);
+    }
+
+    #[test]
+    fn context_reducer_rejects_wrong_permission_reducer_version_and_content_bindings() {
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            timeout_ms: 250,
+            ..ContextReducerAdapterConfig::default()
+        };
+        let descriptor = context_reducer_descriptor("adapter");
+        let cases: Vec<(&str, ContextReducerExecutor)> = vec![
+            (
+                "wrong_permission_snapshot",
+                Box::new(|request| {
+                    let mut response = context_reducer_response(&request);
+                    response.permission_snapshot_ref = "perm-snap-2".to_string();
+                    Ok(response)
+                }),
+            ),
+            (
+                "wrong_reducer_id",
+                Box::new(|request| {
+                    let mut response = context_reducer_response(&request);
+                    response.reducer_id = "other-adapter".to_string();
+                    Ok(response)
+                }),
+            ),
+            (
+                "wrong_reducer_version",
+                Box::new(|request| {
+                    let mut response = context_reducer_response(&request);
+                    response.reducer_version = "9.9.9".to_string();
+                    Ok(response)
+                }),
+            ),
+            (
+                "wrong_content_kind",
+                Box::new(|request| {
+                    let mut response = context_reducer_response(&request);
+                    response.content_kind = ContextReducerContentKind::Text;
+                    Ok(response)
+                }),
+            ),
+        ];
+
+        for (name, executor) in cases {
+            let outcome = execute_context_reducer(
+                &config,
+                &descriptor,
+                context_reducer_request(),
+                Some(executor),
+                native_response,
+            );
+            assert!(outcome.used_native_fallback, "{name}");
+            assert_eq!(
+                outcome.response.reducer_id, "viden-context-native",
+                "{name}"
+            );
+            assert_eq!(
+                outcome.health.status,
+                ContextReducerHealthStatus::BindingMismatch,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn context_reducer_times_out_sleeping_executor_near_host_deadline() {
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            timeout_ms: 25,
+            ..ContextReducerAdapterConfig::default()
+        };
+        let started = std::time::Instant::now();
+
+        let outcome = execute_context_reducer(
+            &config,
+            &context_reducer_descriptor("adapter"),
+            context_reducer_request(),
+            Some(Box::new(|request| {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                Ok(context_reducer_response(&request))
+            })),
+            native_response,
+        );
+
+        assert!(started.elapsed() < std::time::Duration::from_millis(125));
+        assert!(outcome.used_native_fallback);
+        assert_eq!(outcome.response.reducer_id, "viden-context-native");
+        assert_eq!(outcome.health.status, ContextReducerHealthStatus::Timeout);
+        assert!(outcome.health.message.as_deref().unwrap_or("").len() < 128);
+    }
+
+    #[test]
+    fn context_reducer_catches_executor_panic_as_crash() {
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            timeout_ms: 100,
+            ..ContextReducerAdapterConfig::default()
+        };
+
+        let outcome = execute_context_reducer(
+            &config,
+            &context_reducer_descriptor("adapter"),
+            context_reducer_request(),
+            Some(Box::new(|_request| panic!("adapter panic"))),
+            native_response,
+        );
+
+        assert!(outcome.used_native_fallback);
+        assert_eq!(outcome.response.reducer_id, "viden-context-native");
+        assert_eq!(outcome.health.status, ContextReducerHealthStatus::Crash);
     }
 
     #[test]
@@ -954,7 +1172,7 @@ mod tests {
             &config,
             &descriptor,
             context_reducer_request(),
-            Some(Box::new(|request| Ok(context_reducer_response(request)))),
+            Some(Box::new(|request| Ok(context_reducer_response(&request)))),
             native_response,
             &mut breaker,
         );
@@ -965,6 +1183,107 @@ mod tests {
             ContextReducerHealthStatus::CircuitOpen
         );
         assert_eq!(breaker.failure_count("adapter"), 2);
+    }
+
+    #[test]
+    fn context_reducer_circuit_breaker_uses_backoff_and_half_open_probe() {
+        let config = ContextReducerAdapterConfig {
+            enabled: true,
+            circuit_breaker: ContextReducerCircuitBreakerConfig {
+                failure_threshold: 2,
+                backoff_ms: 30,
+            },
+            ..ContextReducerAdapterConfig::default()
+        };
+        let descriptor = context_reducer_descriptor("adapter");
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut breaker = ContextReducerCircuitBreaker::default();
+
+        for _ in 0..2 {
+            let calls = std::sync::Arc::clone(&calls);
+            let outcome = execute_context_reducer_with_breaker(
+                &config,
+                &descriptor,
+                context_reducer_request(),
+                Some(Box::new(move |_request| {
+                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Err(ContextReducerHostError::AdapterCrash)
+                })),
+                native_response,
+                &mut breaker,
+            );
+            assert!(outcome.used_native_fallback);
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        let calls_for_skipped = std::sync::Arc::clone(&calls);
+        let skipped = execute_context_reducer_with_breaker(
+            &config,
+            &descriptor,
+            context_reducer_request(),
+            Some(Box::new(move |request| {
+                calls_for_skipped.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(context_reducer_response(&request))
+            })),
+            native_response,
+            &mut breaker,
+        );
+        assert_eq!(
+            skipped.health.status,
+            ContextReducerHealthStatus::CircuitOpen
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        let calls_for_probe = std::sync::Arc::clone(&calls);
+        let probe = execute_context_reducer_with_breaker(
+            &config,
+            &descriptor,
+            context_reducer_request(),
+            Some(Box::new(move |request| {
+                calls_for_probe.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(context_reducer_response(&request))
+            })),
+            native_response,
+            &mut breaker,
+        );
+        assert!(!probe.used_native_fallback);
+        assert_eq!(breaker.failure_count("adapter"), 0);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+
+        for _ in 0..2 {
+            let outcome = execute_context_reducer_with_breaker(
+                &config,
+                &descriptor,
+                context_reducer_request(),
+                Some(Box::new(|_| Err(ContextReducerHostError::AdapterCrash))),
+                native_response,
+                &mut breaker,
+            );
+            assert!(outcome.used_native_fallback);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        let failed_probe = execute_context_reducer_with_breaker(
+            &config,
+            &descriptor,
+            context_reducer_request(),
+            Some(Box::new(|_| Err(ContextReducerHostError::AdapterCrash))),
+            native_response,
+            &mut breaker,
+        );
+        assert!(failed_probe.used_native_fallback);
+        let reopened = execute_context_reducer_with_breaker(
+            &config,
+            &descriptor,
+            context_reducer_request(),
+            Some(Box::new(|request| Ok(context_reducer_response(&request)))),
+            native_response,
+            &mut breaker,
+        );
+        assert_eq!(
+            reopened.health.status,
+            ContextReducerHealthStatus::CircuitOpen
+        );
     }
 
     #[test]
@@ -982,7 +1301,7 @@ mod tests {
             &config,
             &descriptor,
             request,
-            Some(Box::new(|request| Ok(context_reducer_response(request)))),
+            Some(Box::new(|request| Ok(context_reducer_response(&request)))),
             native_response,
         );
 
