@@ -69,6 +69,56 @@ fn openai_response_parser_extracts_cached_token_provider_variants_without_pricin
 }
 
 #[test]
+fn openai_response_parser_saturates_derived_total_tokens_on_overflow() {
+    let response = format!(
+        r#"{{
+        "choices":[{{"message":{{"role":"assistant","content":"overflow"}}}}],
+        "usage":{{
+            "input_tokens":{},
+            "output_tokens":1,
+            "input_tokens_details":{{"cached_tokens":{}}}
+        }}
+    }}"#,
+        u64::MAX,
+        u64::MAX
+    );
+    let events = parse_openai_events(&response).unwrap();
+
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens == Some(u64::MAX)
+                && usage.output_tokens == Some(1)
+                && usage.cached_input_tokens == Some(u64::MAX)
+                && usage.total_tokens == Some(u64::MAX)
+    ));
+}
+
+#[test]
+fn openai_response_parser_preserves_explicit_total_tokens_when_derived_would_overflow() {
+    let response = format!(
+        r#"{{
+        "choices":[{{"message":{{"role":"assistant","content":"explicit"}}}}],
+        "usage":{{
+            "prompt_tokens":{},
+            "completion_tokens":1,
+            "total_tokens":42
+        }}
+    }}"#,
+        u64::MAX
+    );
+    let events = parse_openai_events(&response).unwrap();
+
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens == Some(u64::MAX)
+                && usage.output_tokens == Some(1)
+                && usage.total_tokens == Some(42)
+    ));
+}
+
+#[test]
 fn openai_response_parser_leaves_absent_usage_parts_unknown() {
     let response = r#"{
         "choices":[{"message":{"role":"assistant","content":"partial"}}],
@@ -129,6 +179,49 @@ fn anthropic_response_parser_extracts_tool_use() {
             if usage.input_tokens == Some(21)
                 && usage.output_tokens == Some(4)
                 && usage.total_tokens == Some(25)
+    ));
+}
+
+#[test]
+fn anthropic_response_parser_saturates_derived_total_tokens_on_overflow() {
+    let response = format!(
+        r#"{{
+        "content":[{{"type":"text","text":"overflow"}}],
+        "usage":{{"input_tokens":{},"output_tokens":1,"cache_read_input_tokens":{}}}
+    }}"#,
+        u64::MAX,
+        u64::MAX
+    );
+    let events = parse_anthropic_events(&response).unwrap();
+
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens == Some(u64::MAX)
+                && usage.output_tokens == Some(1)
+                && usage.cached_input_tokens == Some(u64::MAX)
+                && usage.total_tokens == Some(u64::MAX)
+    ));
+}
+
+#[test]
+fn ollama_response_parser_saturates_derived_total_tokens_on_overflow() {
+    let response = format!(
+        r#"{{
+        "message":{{"role":"assistant","content":"overflow"}},
+        "prompt_eval_count":{},
+        "eval_count":1
+    }}"#,
+        u64::MAX
+    );
+    let events = parse_ollama_events(&response).unwrap();
+
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Usage(usage))
+            if usage.input_tokens == Some(u64::MAX)
+                && usage.output_tokens == Some(1)
+                && usage.total_tokens == Some(u64::MAX)
     ));
 }
 

@@ -287,7 +287,7 @@ fn parse_openai_usage(value: &Value) -> Option<ModelUsage> {
         .or_else(|| {
             input_tokens
                 .zip(output_tokens)
-                .map(|(input, output)| input + output)
+                .map(|(input, output)| input.saturating_add(output))
         });
     let cached_input_tokens = usage
         .pointer("/prompt_tokens_details/cached_tokens")
@@ -318,7 +318,7 @@ fn parse_anthropic_usage(value: &Value) -> Option<ModelUsage> {
     let output_tokens = usage.get("output_tokens").and_then(Value::as_u64);
     let total_tokens = input_tokens
         .zip(output_tokens)
-        .map(|(input, output)| input + output);
+        .map(|(input, output)| input.saturating_add(output));
     let cached_input_tokens = usage
         .pointer("/cache_creation_input_tokens")
         .or_else(|| usage.pointer("/cache_read_input_tokens"))
@@ -338,7 +338,7 @@ fn parse_ollama_usage(value: &Value) -> Option<ModelUsage> {
     let output_tokens = value.get("eval_count").and_then(Value::as_u64);
     let total_tokens = input_tokens
         .zip(output_tokens)
-        .map(|(input, output)| input + output);
+        .map(|(input, output)| input.saturating_add(output));
     usage_from_parts(input_tokens, output_tokens, None, None, total_tokens, None)
 }
 
