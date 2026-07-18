@@ -3,6 +3,7 @@ members = [
     "apps/cli",
     "apps/tui",
     "crates/config",
+    "crates/context",
     "crates/core",
     "crates/lsp",
     "crates/permissions",
