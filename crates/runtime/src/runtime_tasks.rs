@@ -17,6 +17,7 @@ impl SessionEngine {
     }
 
     pub(crate) fn upsert_agent_task(&mut self, task: AgentTaskRecord) {
+        let task = sanitize_agent_task_record(task);
         if let Some(existing) = self
             .runtime_tasks
             .iter_mut()
@@ -206,6 +207,93 @@ fn first_line(input: &str) -> String {
         .chars()
         .take(120)
         .collect()
+}
+
+fn sanitize_agent_task_record(mut task: AgentTaskRecord) -> AgentTaskRecord {
+    task.title = redact_task_text(&task.title, 160);
+    task.activity = redact_task_text(&task.activity, 240);
+    task.summary = redact_task_text(&task.summary, 500);
+    task.workspace = task.workspace.as_deref().and_then(safe_task_path);
+    task.decision = task
+        .decision
+        .as_deref()
+        .map(|decision| redact_task_text(decision, 240))
+        .filter(|decision| !decision.is_empty());
+    task.result = task
+        .result
+        .as_deref()
+        .map(|result| redact_task_text(result, 500))
+        .filter(|result| !result.is_empty());
+    if let Some(next_action) = &mut task.next_action {
+        next_action.label = redact_task_text(&next_action.label, 80);
+        next_action.command = next_action
+            .command
+            .as_deref()
+            .map(|command| redact_task_text(command, 120))
+            .filter(|command| !command.is_empty());
+        next_action.reason = next_action
+            .reason
+            .as_deref()
+            .map(|reason| redact_task_text(reason, 160))
+            .filter(|reason| !reason.is_empty());
+    }
+    task
+}
+
+fn redact_task_text(input: &str, max_chars: usize) -> String {
+    let lower = input.to_ascii_lowercase();
+    if lower.contains("diff --git") {
+        return "[REDACTED]".to_string();
+    }
+    let sanitized = input
+        .split_whitespace()
+        .map(|word| {
+            let lower = word.to_ascii_lowercase();
+            if lower.starts_with("sk-")
+                || lower.contains("secret")
+                || lower.contains("token=")
+                || lower.contains("api_key")
+                || lower.contains("apikey")
+                || word.starts_with('/')
+                || word.contains("..")
+                || word.contains("/Users/")
+                || word.contains("/tmp/")
+                || word.contains("/var/")
+                || word.chars().any(char::is_control)
+            {
+                "[REDACTED]"
+            } else {
+                word
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    viden_types::truncate_for_preview(&sanitized, max_chars)
+}
+
+fn safe_task_path(path: &str) -> Option<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty()
+        || trimmed.chars().any(char::is_control)
+        || std::path::Path::new(trimmed).is_absolute()
+        || std::path::Path::new(trimmed).components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return None;
+    }
+    Some(
+        trimmed
+            .split('/')
+            .filter(|part| !part.is_empty() && *part != ".")
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
 }
 
 fn compact_session_id(session_id: &str) -> String {

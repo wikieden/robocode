@@ -134,6 +134,33 @@ fn workflow_agent_events(cwd: &std::path::Path, home: &std::path::Path) -> Vec<W
         .unwrap()
 }
 
+fn assert_no_project_side_channel_events(events: &[WorkflowAgentEvent]) {
+    let forbidden = [
+        "agent_dag_created",
+        "agent_task_queued",
+        "agent_task_started",
+        "agent_task_completed",
+        "agent_task_cancelled",
+        "agent_task_failed",
+        "agent_task_blocked",
+        "agent_evidence_recorded",
+        "merge_gate_proposed",
+        "merge_gate_accepted",
+        "merge_gate_rejected",
+        "agent_artifact_accepted",
+        "agent_artifact_rejected",
+        "agent_patch_merge_intent",
+        "agent_patch_merged",
+        "agent_patch_conflict",
+    ];
+    assert!(
+        events
+            .iter()
+            .all(|event| !forbidden.contains(&event.event_type.as_str())),
+        "new project commands must not emit legacy per-event agent facts: {events:?}"
+    );
+}
+
 #[test]
 fn core_exports_runtime_view_state_without_tui_dependencies() {
     let cwd = temp_dir("runtime_contract_cwd");
@@ -1822,17 +1849,24 @@ fn merge_gate_rejects_summary_only_patch_evidence() {
     }));
     let store = viden_workflows::stores::WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
+    assert!(
+        agent_events
+            .iter()
+            .all(|event| event.event_type != "agent_evidence_recorded")
+    );
     assert!(agent_events.iter().any(|event| {
-        event.event_type == "agent_evidence_recorded"
+        event.event_type == "runtime_projection_batch"
             && event.task_id.as_deref() == Some("task_canonical_patch")
             && event
                 .payload
-                .get("gate_status")
-                .is_some_and(|status| status == "collecting_evidence")
+                .get("command_id")
+                .is_some_and(|id| id == "cmd_summary_evidence")
             && event
                 .payload
-                .get("canonical_reasons")
-                .is_some_and(|reasons| reasons.contains("missing_canonical"))
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| {
+                    kinds.contains("evidence_recorded") && kinds.contains("merge_gate_updated")
+                })
     }));
 }
 
@@ -2178,6 +2212,7 @@ fn record_agent_evidence_does_not_dual_write_or_roll_back_on_transcript_failure(
         "project agent facts must not be dual-written to the session transcript"
     );
     let workflow_events = workflow_agent_events(&cwd, &home);
+    assert_no_project_side_channel_events(&workflow_events);
     let projection_batches = workflow_events
         .iter()
         .filter(|event| event.event_type == "runtime_projection_batch")
@@ -2263,6 +2298,124 @@ fn record_agent_evidence_projection_redacts_summary_source_and_unsafe_paths() {
     .unwrap();
     assert!(!workflow_json.contains("sk-secret-token"));
     assert!(!workflow_json.contains("/Users/wiki/private.txt"));
+}
+
+#[test]
+fn workflow_projection_redacts_adversarial_project_command_payloads() {
+    let cwd = temp_dir("runtime_contract_projection_adversarial_cwd");
+    let home = temp_dir("runtime_contract_projection_adversarial_home");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    fs::write(
+        cwd.join("src/lib.rs"),
+        "pub const STATUS: &str = \"old\";\n",
+    )
+    .unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine.session_id().to_string();
+    let secret = "sk-project-command-secret";
+    let private_path = "/Users/wiki/private/project.rs";
+
+    engine
+        .handle_runtime_command(
+            "cmd_adversarial_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: format!("ship {secret} from {private_path}"),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_adversarial".to_string(),
+                    role: AgentRole::Coder,
+                    title: format!("Patch {secret}"),
+                    objective: format!("Apply diff --git from {private_path}"),
+                    dependencies: Vec::new(),
+                    workspace: Some(private_path.to_string()),
+                    file_scope: vec![private_path.to_string(), "../secret.rs".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["patch".to_string()],
+                    permission_policy: "scoped_mutation".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let patch = b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-pub const STATUS: &str = \"old\";\n+pub const STATUS: &str = \"new\";\n";
+    let (item, canonical) = stored_canonical_context(
+        &cwd,
+        "task_adversarial",
+        "evidence-adversarial-patch",
+        "bundle-adversarial",
+        ContextContentKind::Diff,
+        patch,
+    );
+    engine.set_merge_gate_context_facts_for_test("bundle-adversarial", item);
+    let events = engine
+        .handle_runtime_command(
+            "cmd_adversarial_evidence",
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: "gate-task_adversarial".to_string(),
+                evidence_id: Some("evidence-adversarial-patch".to_string()),
+                kind: "patch".to_string(),
+                summary: format!("proof {secret} diff --git {private_path}"),
+                path: Some("src/lib.rs".to_string()),
+                source: Some(format!("source {secret}")),
+                canonical: Some(canonical),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert!(
+        serde_json::to_string(&events)
+            .unwrap()
+            .contains("[REDACTED]")
+    );
+    engine
+        .handle_runtime_command(
+            "cmd_adversarial_accept",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: "gate-task_adversarial".to_string(),
+                decision: Some(format!("accept {secret} {private_path}")),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    engine
+        .handle_runtime_command(
+            "cmd_adversarial_merge",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_adversarial".to_string(),
+                decision: Some(format!("merge {secret} diff --git {private_path}")),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let workflow_events = workflow_agent_events(&cwd, &home);
+    assert_no_project_side_channel_events(&workflow_events);
+    assert!(
+        workflow_events
+            .iter()
+            .all(|event| event.event_type == "runtime_projection_batch")
+    );
+    let workflow_json = fs::read_to_string(
+        WorkflowStore::new(&home, &cwd)
+            .unwrap()
+            .paths()
+            .agent_log
+            .clone(),
+    )
+    .unwrap();
+    assert!(!workflow_json.contains(secret));
+    assert!(!workflow_json.contains(private_path));
+    assert!(!workflow_json.contains("../secret.rs"));
+    assert!(!workflow_json.contains("diff --git"));
+    assert!(workflow_json.contains("[REDACTED]"));
+    let runtime_json = serde_json::to_string(&engine.runtime_view_state()).unwrap();
+    assert!(!runtime_json.contains(secret));
+    assert!(!runtime_json.contains(private_path));
+    assert_resumed_runtime_matches(&cwd, &home, &session_id, &engine.runtime_view_state());
 }
 
 #[test]
@@ -2492,7 +2645,7 @@ fn start_agent_dag_rolls_back_when_late_workflow_append_fails() {
         feedback: None,
     };
     let before = engine.runtime_view_state();
-    engine.fail_after_workflow_appends_for_test(1);
+    engine.fail_after_workflow_appends_for_test(0);
 
     let events = engine
         .handle_runtime_command(
@@ -3235,19 +3388,24 @@ fn merge_gate_canonical_state_survives_real_session_resume() {
         .unwrap()
         .load_agent_events()
         .unwrap();
-    assert!(
-        workflow_events
-            .iter()
-            .any(|event| event.event_type == "merge_gate_proposed"
-                && event.task_id.as_deref() == Some("task_resume_gate"))
-    );
+    assert!(workflow_events.iter().all(|event| {
+        !matches!(
+            event.event_type.as_str(),
+            "merge_gate_proposed" | "agent_task_completed"
+        )
+    }));
     assert!(workflow_events.iter().any(|event| {
-        event.event_type == "agent_task_completed"
-            && event.task_id.as_deref() == Some("task_resume_gate")
+        event.event_type == "runtime_projection_batch"
             && event
                 .payload
-                .get("evidence_kind")
-                .is_some_and(|kind| kind == "patch")
+                .get("command_id")
+                .is_some_and(|id| id == "cmd_agent_dag_task_resume_gate")
+            && event
+                .payload
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| {
+                    kinds.contains("agent_dag_updated") && kinds.contains("merge_gate_updated")
+                })
     }));
     assert!(workflow_events.iter().any(|event| {
         event.event_type == "runtime_projection_batch"

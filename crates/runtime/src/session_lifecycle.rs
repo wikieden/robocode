@@ -1,9 +1,10 @@
 use viden_permissions::PermissionEngine;
 use viden_session::SessionStore;
 use viden_types::{
-    CostUsageRecord, Message, PermissionLevel, PermissionMode, Role, RuntimeEvent,
-    RuntimeEventKind, SessionMetaEntry, SessionSummary, TranscriptEntry, WorkMode, fresh_id,
-    now_timestamp, truncate_for_preview,
+    AgentDagTaskSpec, AgentNextAction, ContextBundleRecord, ContextItemRecord,
+    ContextOmittedSourceRecord, ContextSourceRecord, CostUsageRecord, Message, PermissionLevel,
+    PermissionMode, Role, RuntimeEvent, RuntimeEventKind, SessionMetaEntry, SessionSummary,
+    TranscriptEntry, WorkMode, fresh_id, now_timestamp, truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
@@ -613,22 +614,131 @@ fn runtime_projection_kind_name(kind: &RuntimeEventKind) -> &'static str {
 
 fn sanitized_runtime_event_for_workflow_projection(event: &RuntimeEvent) -> RuntimeEvent {
     let mut event = event.clone();
-    if let RuntimeEventKind::EvidenceRecorded { evidence } = &mut event.kind {
-        evidence.summary = sanitize_projection_text(&evidence.summary, 500);
-        evidence.source = evidence
-            .source
-            .as_deref()
-            .map(|source| sanitize_projection_text(source, 120))
-            .filter(|source| !source.is_empty());
-        evidence.path = evidence
-            .path
-            .as_deref()
-            .and_then(safe_project_relative_projection_path);
+    match &mut event.kind {
+        RuntimeEventKind::AgentDagUpdated { dag } => {
+            dag.goal = sanitize_projection_text(&dag.goal, 160);
+            for task in &mut dag.tasks {
+                sanitize_projection_task_spec(task);
+            }
+        }
+        RuntimeEventKind::TaskUpdated { task } => {
+            task.title = sanitize_projection_text(&task.title, 160);
+            task.activity = sanitize_projection_text(&task.activity, 240);
+            task.summary = sanitize_projection_text(&task.summary, 500);
+            task.workspace = task
+                .workspace
+                .as_deref()
+                .and_then(safe_project_relative_projection_path);
+            task.decision = task
+                .decision
+                .as_deref()
+                .map(|decision| sanitize_projection_text(decision, 240))
+                .filter(|decision| !decision.is_empty());
+            task.result = task
+                .result
+                .as_deref()
+                .map(|result| sanitize_projection_text(result, 500))
+                .filter(|result| !result.is_empty());
+            if let Some(next_action) = &mut task.next_action {
+                sanitize_projection_next_action(next_action);
+            }
+        }
+        RuntimeEventKind::EvidenceRecorded { evidence } => {
+            evidence.summary = sanitize_projection_text(&evidence.summary, 500);
+            evidence.source = evidence
+                .source
+                .as_deref()
+                .map(|source| sanitize_projection_text(source, 120))
+                .filter(|source| !source.is_empty());
+            evidence.path = evidence
+                .path
+                .as_deref()
+                .and_then(safe_project_relative_projection_path);
+        }
+        RuntimeEventKind::MergeGateUpdated { gate } => {
+            gate.decision = gate
+                .decision
+                .as_deref()
+                .map(|decision| sanitize_projection_text(decision, 240))
+                .filter(|decision| !decision.is_empty());
+        }
+        RuntimeEventKind::ContextUpdated { context } => sanitize_projection_context(context),
+        RuntimeEventKind::ContextItemStored { item } => sanitize_projection_context_item(item),
+        _ => {}
     }
     event
 }
 
+fn sanitize_projection_task_spec(task: &mut AgentDagTaskSpec) {
+    task.title = sanitize_projection_text(&task.title, 160);
+    task.objective = sanitize_projection_text(&task.objective, 240);
+    task.workspace = task
+        .workspace
+        .as_deref()
+        .and_then(safe_project_relative_projection_path);
+    task.file_scope = task
+        .file_scope
+        .iter()
+        .filter_map(|scope| safe_project_relative_projection_path(scope))
+        .collect();
+}
+
+fn sanitize_projection_next_action(next_action: &mut AgentNextAction) {
+    next_action.label = sanitize_projection_text(&next_action.label, 80);
+    next_action.command = next_action
+        .command
+        .as_deref()
+        .map(|command| sanitize_projection_text(command, 120))
+        .filter(|command| !command.is_empty());
+    next_action.reason = next_action
+        .reason
+        .as_deref()
+        .map(|reason| sanitize_projection_text(reason, 160))
+        .filter(|reason| !reason.is_empty());
+}
+
+fn sanitize_projection_context(context: &mut ContextBundleRecord) {
+    context.policy = sanitize_projection_text(&context.policy, 120);
+    for source in &mut context.sources {
+        sanitize_projection_context_source(source);
+    }
+    for omitted in &mut context.omitted_sources {
+        sanitize_projection_omitted_source(omitted);
+    }
+    context.largest_sources = context
+        .largest_sources
+        .iter()
+        .map(|source| sanitize_projection_text(source, 120))
+        .collect();
+    context.compaction_notes = context
+        .compaction_notes
+        .iter()
+        .map(|note| sanitize_projection_text(note, 240))
+        .collect();
+}
+
+fn sanitize_projection_context_source(source: &mut ContextSourceRecord) {
+    source.name = sanitize_projection_text(&source.name, 120);
+    source.kind = sanitize_projection_text(&source.kind, 80);
+    source.summary = sanitize_projection_text(&source.summary, 240);
+    source.include_reason = sanitize_projection_text(&source.include_reason, 160);
+}
+
+fn sanitize_projection_omitted_source(source: &mut ContextOmittedSourceRecord) {
+    source.name = sanitize_projection_text(&source.name, 120);
+    source.kind = sanitize_projection_text(&source.kind, 80);
+    source.reason = sanitize_projection_text(&source.reason, 160);
+}
+
+fn sanitize_projection_context_item(item: &mut ContextItemRecord) {
+    item.title = sanitize_projection_text(&item.title, 120);
+    item.summary = sanitize_projection_text(&item.summary, 240);
+}
+
 fn sanitize_projection_text(input: &str, max_chars: usize) -> String {
+    if input.to_ascii_lowercase().contains("diff --git") {
+        return "[REDACTED]".to_string();
+    }
     let sanitized = input
         .split_whitespace()
         .map(|word| {

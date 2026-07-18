@@ -1207,6 +1207,11 @@ impl SessionEngine {
         if tasks.is_empty() {
             return Err("agent DAG requires at least one task".to_string());
         }
+        let goal = sanitize_runtime_domain_text(&goal, 160);
+        let tasks = tasks
+            .into_iter()
+            .map(sanitize_agent_task_spec_for_domain)
+            .collect::<Vec<_>>();
         validate_agent_dag_tasks(&tasks)?;
         let now = now_timestamp();
         let dag = AgentDagRecord {
@@ -1218,28 +1223,11 @@ impl SessionEngine {
             updated_at: Some(now),
         };
 
-        self.persist_agent_event(
-            &dag.dag_id,
-            None,
-            "agent_dag_created",
-            &[("goal", &dag.goal)],
-        )?;
-
         let mut events = vec![RuntimeEvent::new(
             1,
             RuntimeEventKind::AgentDagUpdated { dag: dag.clone() },
         )];
         for spec in &dag.tasks {
-            self.persist_agent_event(
-                &dag.dag_id,
-                Some(&spec.task_id),
-                "agent_task_queued",
-                &[
-                    ("role", spec.role.as_str()),
-                    ("title", spec.title.as_str()),
-                    ("permission_policy", spec.permission_policy.as_str()),
-                ],
-            )?;
             let task = agent_task_record_from_spec(self, spec, now);
             self.upsert_agent_task(task.clone());
             events.push(RuntimeEvent::new(
@@ -1258,12 +1246,6 @@ impl SessionEngine {
                 updated_at: Some(now),
             };
             self.runtime_merge_gates.push(gate.clone());
-            self.persist_agent_event(
-                &dag.dag_id,
-                Some(&spec.task_id),
-                "merge_gate_proposed",
-                &[("gate_id", gate.gate_id.as_str())],
-            )?;
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
                 RuntimeEventKind::MergeGateUpdated { gate },
@@ -1300,7 +1282,7 @@ impl SessionEngine {
     }
 
     fn cancel_agent_task(&mut self, task_id: &str) -> Result<Vec<RuntimeEvent>, String> {
-        let dag_id = self
+        let _dag_id = self
             .runtime_agent_dags
             .iter()
             .find(|dag| dag.tasks.iter().any(|task| task.task_id == task_id))
@@ -1311,12 +1293,6 @@ impl SessionEngine {
             AgentTaskStatus::Cancelled,
             "cancelled by operator",
             100,
-        )?;
-        self.persist_agent_event(
-            &dag_id,
-            Some(task_id),
-            "agent_task_cancelled",
-            &[("reason", "cancelled by operator")],
         )?;
         Ok(events)
     }
@@ -1395,15 +1371,6 @@ impl SessionEngine {
             "running supervised role task",
             10,
         )?;
-        self.persist_agent_event(
-            &dag_id,
-            Some(task_id),
-            "agent_task_started",
-            &[
-                ("role", spec.role.as_str()),
-                ("permission_policy", spec.permission_policy.as_str()),
-            ],
-        )?;
         let prompt = agent_task_prompt(&spec);
         let seeded_context = self.agent_context_bundle(&spec, &prompt);
         let built_context =
@@ -1472,12 +1439,6 @@ impl SessionEngine {
                             100,
                         )?,
                     );
-                    self.persist_agent_event(
-                        &dag_id,
-                        Some(task_id),
-                        "agent_task_cancelled",
-                        &[("role", spec.role.as_str()), ("error", err.as_str())],
-                    )?;
                 } else {
                     let failure = classify_agent_task_failure(&err);
                     error_hint = failure.recovery_suggestion.to_string();
@@ -1490,17 +1451,6 @@ impl SessionEngine {
                             failure.recovery_suggestion,
                         )?,
                     );
-                    self.persist_agent_event(
-                        &dag_id,
-                        Some(task_id),
-                        "agent_task_failed",
-                        &[
-                            ("role", spec.role.as_str()),
-                            ("error", err.as_str()),
-                            ("failure_class", failure.class),
-                            ("recovery_suggestion", failure.recovery_suggestion),
-                        ],
-                    )?;
                 }
                 events.push(RuntimeEvent::new(
                     next_sequence(&events),
@@ -1629,17 +1579,6 @@ impl SessionEngine {
                 RuntimeEventKind::MergeGateUpdated { gate: gate.clone() },
             ));
         }
-
-        self.persist_agent_event(
-            &dag_id,
-            Some(task_id),
-            "agent_task_completed",
-            &[
-                ("role", spec.role.as_str()),
-                ("evidence_kind", evidence_kind),
-                ("summary", summary.as_str()),
-            ],
-        )?;
 
         Ok(events)
     }
@@ -1773,7 +1712,7 @@ impl SessionEngine {
 
     fn blocked_by_unfinished_dependency(
         &mut self,
-        dag_id: &str,
+        _dag_id: &str,
         spec: &AgentDagTaskSpec,
     ) -> Result<Option<Vec<RuntimeEvent>>, String> {
         let Some(blocking_dependency) = spec.dependencies.iter().find(|dependency| {
@@ -1806,12 +1745,6 @@ impl SessionEngine {
         task.progress = 0;
         task.updated_at = Some(now_timestamp().saturating_mul(1000));
         self.upsert_agent_task(task.clone());
-        self.persist_agent_event(
-            dag_id,
-            Some(&spec.task_id),
-            "agent_task_blocked",
-            &[("dependency", blocking_dependency.as_str())],
-        )?;
         Ok(Some(vec![RuntimeEvent::new(
             1,
             RuntimeEventKind::TaskUpdated { task },
@@ -1823,16 +1756,17 @@ impl SessionEngine {
         gate_id: &str,
         status: MergeGateStatus,
         decision: String,
-        event_type: &str,
-        payload_key: &str,
+        _event_type: &str,
+        _payload_key: &str,
     ) -> Result<Vec<RuntimeEvent>, String> {
+        let decision = sanitize_runtime_domain_text(&decision, 240);
         let gate_index = self
             .runtime_merge_gates
             .iter()
             .position(|gate| gate.gate_id == gate_id)
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
-        let dag_id = self
+        let _dag_id = self
             .runtime_agent_dags
             .iter()
             .find(|dag| dag.tasks.iter().any(|task| task.task_id == task_id))
@@ -1891,12 +1825,6 @@ impl SessionEngine {
             ));
         }
 
-        self.persist_agent_event(
-            &dag_id,
-            Some(&task_id),
-            event_type,
-            &[("gate_id", gate_id), (payload_key, decision.as_str())],
-        )?;
         Ok(events)
     }
 
@@ -1936,7 +1864,7 @@ impl SessionEngine {
             .position(|gate| gate.gate_id == gate_id)
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
-        let dag_id = self.dag_id_for_task(&task_id)?;
+        let _dag_id = self.dag_id_for_task(&task_id)?;
         let evidence_id = evidence_id
             .map(|id| id.trim().to_string())
             .filter(|id| !id.is_empty())
@@ -2006,19 +1934,6 @@ impl SessionEngine {
             ));
         }
 
-        self.persist_agent_event(
-            &dag_id,
-            Some(&task_id),
-            "agent_evidence_recorded",
-            &[
-                ("gate_id", gate_id),
-                ("evidence_id", evidence_id.as_str()),
-                ("evidence_kind", kind.as_str()),
-                ("summary", summary.as_str()),
-                ("gate_status", merge_gate_status_name(gate_status)),
-                ("canonical_reasons", canonical_reasons.as_str()),
-            ],
-        )?;
         Ok(events)
     }
 
@@ -2028,6 +1943,7 @@ impl SessionEngine {
         evidence_id: String,
         decision: String,
     ) -> Result<Vec<RuntimeEvent>, String> {
+        let decision = sanitize_runtime_domain_text(&decision, 240);
         if evidence_id.trim().is_empty() {
             return Err("agent artifact evidence id cannot be empty".to_string());
         }
@@ -2037,7 +1953,7 @@ impl SessionEngine {
             .position(|gate| gate.gate_id == gate_id)
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
-        let dag_id = self.dag_id_for_task(&task_id)?;
+        let _dag_id = self.dag_id_for_task(&task_id)?;
         let evidence = self
             .runtime_evidence
             .iter()
@@ -2096,17 +2012,6 @@ impl SessionEngine {
             ));
         }
 
-        self.persist_agent_event(
-            &dag_id,
-            Some(&task_id),
-            "agent_artifact_accepted",
-            &[
-                ("gate_id", gate_id),
-                ("evidence_id", evidence_id.as_str()),
-                ("evidence_kind", evidence.kind.as_str()),
-                ("decision", decision.as_str()),
-            ],
-        )?;
         Ok(events)
     }
 
@@ -2116,13 +2021,14 @@ impl SessionEngine {
         evidence_id: &str,
         reason: String,
     ) -> Result<Vec<RuntimeEvent>, String> {
+        let reason = sanitize_runtime_domain_text(&reason, 240);
         let gate_index = self
             .runtime_merge_gates
             .iter()
             .position(|gate| gate.gate_id == gate_id)
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
-        let dag_id = self.dag_id_for_task(&task_id)?;
+        let _dag_id = self.dag_id_for_task(&task_id)?;
         let now = now_timestamp();
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.evidence_ids.retain(|id| id != evidence_id);
@@ -2158,16 +2064,6 @@ impl SessionEngine {
             ));
         }
 
-        self.persist_agent_event(
-            &dag_id,
-            Some(&task_id),
-            "agent_artifact_rejected",
-            &[
-                ("gate_id", gate_id),
-                ("evidence_id", evidence_id),
-                ("reason", reason.as_str()),
-            ],
-        )?;
         Ok(events)
     }
 
@@ -2176,6 +2072,7 @@ impl SessionEngine {
         gate_id: &str,
         decision: String,
     ) -> Result<Vec<RuntimeEvent>, String> {
+        let decision = sanitize_runtime_domain_text(&decision, 240);
         let gate_index = self
             .runtime_merge_gates
             .iter()
@@ -2236,22 +2133,6 @@ impl SessionEngine {
                 );
             }
         };
-        let changed_files = patch_application.changed_files.join(",");
-        // File writes cannot be atomically committed with the workflow log.
-        // The workflow intent is recorded first so replay can distinguish a
-        // pre-apply failure from an apply/outcome failure; rollback restores
-        // file contents if any later step fails.
-        self.persist_agent_event(
-            &dag_id,
-            Some(&task_id),
-            "agent_patch_merge_intent",
-            &[
-                ("gate_id", gate_id),
-                ("decision", decision.as_str()),
-                ("evidence_id", patch_evidence.id.as_str()),
-                ("changed_files", changed_files.as_str()),
-            ],
-        )?;
         self.stage_patch_rollback(&patch_application)?;
         if let Err(err) = write_patch_application(&patch_application) {
             self.restore_transaction_files()?;
@@ -2292,17 +2173,6 @@ impl SessionEngine {
             ));
         }
 
-        self.persist_agent_event(
-            &dag_id,
-            Some(&task_id),
-            "agent_patch_merged",
-            &[
-                ("gate_id", gate_id),
-                ("decision", decision.as_str()),
-                ("evidence_id", patch_evidence.id.as_str()),
-                ("changed_files", changed_files.as_str()),
-            ],
-        )?;
         Ok(events)
     }
 
@@ -2376,7 +2246,7 @@ impl SessionEngine {
     fn mark_agent_patch_conflict(
         &mut self,
         gate_index: usize,
-        dag_id: &str,
+        _dag_id: &str,
         task_id: &str,
         reason: String,
     ) -> Result<Vec<RuntimeEvent>, String> {
@@ -2413,12 +2283,6 @@ impl SessionEngine {
             ));
         }
 
-        self.persist_agent_event(
-            dag_id,
-            Some(task_id),
-            "agent_patch_conflict",
-            &[("reason", reason.as_str())],
-        )?;
         Ok(events)
     }
 
@@ -2430,6 +2294,7 @@ impl SessionEngine {
             .ok_or_else(|| format!("agent DAG for task `{task_id}` does not exist"))
     }
 
+    #[allow(dead_code)]
     fn persist_agent_event(
         &self,
         dag_id: &str,
@@ -2437,10 +2302,7 @@ impl SessionEngine {
         event_type: &str,
         payload_fields: &[(&str, &str)],
     ) -> Result<(), String> {
-        let payload = payload_fields
-            .iter()
-            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
-            .collect();
+        let payload = sanitized_agent_event_payload(payload_fields)?;
         let event = WorkflowAgentEvent {
             event_id: fresh_id("agent_evt"),
             dag_id: dag_id.to_string(),
@@ -2455,6 +2317,66 @@ impl SessionEngine {
         }
         self.workflows.append_agent_event(&event)
     }
+}
+
+#[allow(dead_code)]
+fn sanitized_agent_event_payload(
+    payload_fields: &[(&str, &str)],
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let mut payload = std::collections::BTreeMap::new();
+    for (key, value) in payload_fields {
+        let sanitized = match *key {
+            "id" | "dag_id" | "task_id" | "gate_id" | "evidence_id" | "bundle_id" | "item_id"
+            | "content_sha256" | "source_hash" | "status" | "kind" | "role" | "count"
+            | "event_count" | "schema_version" | "batch_id" | "command_id" => {
+                sanitize_identifier_payload_value(value)
+            }
+            "goal" | "title" | "summary" | "decision" | "reason" | "source" | "command"
+            | "error" | "changed_files" | "path" => {
+                let sanitized = sanitize_sensitive_payload_text(value, 160);
+                if sanitized.contains("[REDACTED]") {
+                    return Err(format!(
+                        "workflow agent event payload `{key}` is not allowed"
+                    ));
+                }
+                sanitized
+            }
+            _ => {
+                return Err(format!(
+                    "workflow agent event payload key `{key}` is not allowed"
+                ));
+            }
+        };
+        payload.insert((*key).to_string(), sanitized);
+    }
+    Ok(payload)
+}
+
+#[allow(dead_code)]
+fn sanitize_identifier_payload_value(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | ':' | '.'))
+        .take(128)
+        .collect()
+}
+
+#[allow(dead_code)]
+fn sanitize_sensitive_payload_text(value: &str, max_chars: usize) -> String {
+    let lower = value.to_ascii_lowercase();
+    if lower.contains("sk-")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
+        || lower.contains("secret")
+        || lower.contains("token=")
+        || value.starts_with('/')
+        || value.contains("..")
+        || value.chars().any(char::is_control)
+        || value.contains("diff --git")
+    {
+        return "[REDACTED]".to_string();
+    }
+    truncate_for_preview(value, max_chars)
 }
 
 fn agent_task_prompt(spec: &AgentDagTaskSpec) -> String {
@@ -3220,18 +3142,6 @@ fn merge_gate_status_from_canonical(status: EvidenceCanonicalStatus) -> MergeGat
     }
 }
 
-fn merge_gate_status_name(status: MergeGateStatus) -> &'static str {
-    match status {
-        MergeGateStatus::Proposed => "proposed",
-        MergeGateStatus::CollectingEvidence => "collecting_evidence",
-        MergeGateStatus::Blocked => "blocked",
-        MergeGateStatus::NeedsChanges => "needs_changes",
-        MergeGateStatus::Accepted => "accepted",
-        MergeGateStatus::Merged => "merged",
-        MergeGateStatus::Reverted => "reverted",
-    }
-}
-
 fn scope_matches_gate(scope: &ContextScope, gate: &MergeGateRecord) -> bool {
     matches!(scope, ContextScope::Task(task_id) if task_id == &gate.task_id)
 }
@@ -3272,7 +3182,6 @@ fn normalize_evidence_kind(kind: &str) -> String {
 #[derive(Debug, Clone)]
 struct PatchApplication {
     writes: Vec<(PathBuf, String)>,
-    changed_files: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -3294,7 +3203,6 @@ fn prepare_unified_diff_application(cwd: &Path, diff: &str) -> Result<PatchAppli
     }
 
     let mut writes = Vec::new();
-    let mut changed_files = Vec::new();
     for patch_file in patch_files {
         let relative_path = validate_patch_path(&patch_file.path)?;
         let full_path = cwd.join(&relative_path);
@@ -3302,14 +3210,10 @@ fn prepare_unified_diff_application(cwd: &Path, diff: &str) -> Result<PatchAppli
             .map_err(|err| format!("{}: {err}", relative_path.display()))?;
         let updated = apply_patch_file(&current, &patch_file)
             .map_err(|err| format!("{}: {err}", relative_path.display()))?;
-        changed_files.push(normalize_pathbuf(&relative_path));
         writes.push((full_path, updated));
     }
 
-    Ok(PatchApplication {
-        writes,
-        changed_files,
-    })
+    Ok(PatchApplication { writes })
 }
 
 fn write_patch_application(application: &PatchApplication) -> Result<(), String> {
@@ -3467,13 +3371,6 @@ fn validate_patch_path(path: &str) -> Result<PathBuf, String> {
         return Err(format!("unsafe patch path `{normalized}`"));
     }
     Ok(candidate.to_path_buf())
-}
-
-fn normalize_pathbuf(path: &Path) -> String {
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
 }
 
 struct AgentTaskFailureClassification {
@@ -4422,6 +4319,26 @@ fn redacted_evidence_summary_marker(summary: &str) -> String {
     }
 }
 
+fn sanitize_agent_task_spec_for_domain(mut spec: AgentDagTaskSpec) -> AgentDagTaskSpec {
+    spec.title = sanitize_runtime_domain_text(&spec.title, 160);
+    spec.objective = sanitize_runtime_domain_text(&spec.objective, 240);
+    spec.workspace = spec.workspace.as_deref().and_then(safe_runtime_domain_path);
+    spec.file_scope = spec
+        .file_scope
+        .iter()
+        .filter_map(|scope| safe_runtime_domain_path(scope))
+        .collect();
+    spec
+}
+
+fn sanitize_runtime_domain_text(value: &str, max_chars: usize) -> String {
+    truncate_for_preview(&redact_command_text(value), max_chars)
+}
+
+fn safe_runtime_domain_path(path: &str) -> Option<String> {
+    validate_evidence_path_for_event(path).ok()
+}
+
 fn validate_evidence_path_for_event(path: &str) -> Result<String, String> {
     let trimmed = path.trim();
     if trimmed.is_empty()
@@ -4454,6 +4371,9 @@ fn sanitize_evidence_source_for_event(source: &str) -> String {
 }
 
 fn redact_command_text(input: &str) -> String {
+    if input.to_ascii_lowercase().contains("diff --git") {
+        return "[REDACTED]".to_string();
+    }
     input
         .split_whitespace()
         .map(|word| {
@@ -4462,10 +4382,14 @@ fn redact_command_text(input: &str) -> String {
                 || lower.contains("secret")
                 || lower.contains("token=")
                 || lower.contains("api_key")
+                || lower.contains("apikey")
                 || word.starts_with('/')
+                || word.contains("..")
                 || word.contains("/Users/")
                 || word.contains("/tmp/")
                 || word.contains("/var/")
+                || word.contains("diff --git")
+                || word.chars().any(char::is_control)
             {
                 "[REDACTED]"
             } else {

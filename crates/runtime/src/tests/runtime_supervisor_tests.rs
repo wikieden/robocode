@@ -25,6 +25,33 @@ use super::{SequenceProvider, temp_dir};
 static CUSTOM_ACP_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static RETRIEVE_CONTEXT_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
+fn assert_no_project_side_channel_events(events: &[viden_workflows::stores::WorkflowAgentEvent]) {
+    let forbidden = [
+        "agent_dag_created",
+        "agent_task_queued",
+        "agent_task_started",
+        "agent_task_completed",
+        "agent_task_cancelled",
+        "agent_task_failed",
+        "agent_task_blocked",
+        "agent_evidence_recorded",
+        "merge_gate_proposed",
+        "merge_gate_accepted",
+        "merge_gate_rejected",
+        "agent_artifact_accepted",
+        "agent_artifact_rejected",
+        "agent_patch_merge_intent",
+        "agent_patch_merged",
+        "agent_patch_conflict",
+    ];
+    assert!(
+        events
+            .iter()
+            .all(|event| !forbidden.contains(&event.event_type.as_str())),
+        "new project commands must not emit legacy per-event agent facts: {events:?}"
+    );
+}
+
 struct BlockingProvider {
     entered: Arc<AtomicBool>,
 }
@@ -1439,13 +1466,15 @@ fn runtime_supervisor_cancels_active_agent_task_and_keeps_worker_alive() {
     }));
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
-    assert!(store.load_agent_events().unwrap().iter().any(|event| {
-        event.event_type == "agent_task_cancelled"
+    let agent_events = store.load_agent_events().unwrap();
+    assert_no_project_side_channel_events(&agent_events);
+    assert!(agent_events.iter().any(|event| {
+        event.event_type == "runtime_projection_batch"
             && event.task_id.as_deref() == Some("task_planner")
             && event
                 .payload
-                .get("error")
-                .is_some_and(|error| error.contains("Model request cancelled"))
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| kinds.contains("task_updated"))
     }));
 
     supervisor
@@ -1840,22 +1869,17 @@ fn runtime_supervisor_runs_agent_task_through_provider_and_merge_gate() {
     }));
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
-    let dag_id = agent_events
-        .iter()
-        .find(|event| {
-            event.event_type == "agent_task_completed"
-                && event.task_id.as_deref() == Some("task_planner")
-        })
-        .map(|event| event.dag_id.clone())
-        .unwrap();
+    assert_no_project_side_channel_events(&agent_events);
     assert!(agent_events.iter().any(|event| {
-        event.event_type == "agent_task_started"
-            && event.dag_id == dag_id
-            && event.task_id.as_deref() == Some("task_planner")
+        event.event_type == "runtime_projection_batch"
             && event
                 .payload
-                .get("role")
-                .is_some_and(|role| role == "planner")
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| kinds.contains("task_updated"))
+            && event
+                .payload
+                .get("runtime_events_json")
+                .is_some_and(|json| json.contains("task_planner"))
     }));
 }
 
@@ -3366,21 +3390,34 @@ fn runtime_supervisor_accepts_and_rejects_merge_gate_decisions() {
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
+    assert_no_project_side_channel_events(&agent_events);
     assert!(agent_events.iter().any(|event| {
-        event.event_type == "merge_gate_rejected"
+        event.event_type == "runtime_projection_batch"
             && event.task_id.as_deref() == Some("task_planner")
             && event
                 .payload
-                .get("reason")
-                .is_some_and(|reason| reason == "needs reviewer evidence")
+                .get("command_id")
+                .is_some_and(|id| id == "cmd_reject_gate")
+            && event
+                .payload
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| {
+                    kinds.contains("merge_gate_updated") && kinds.contains("task_updated")
+                })
     }));
     assert!(agent_events.iter().any(|event| {
-        event.event_type == "merge_gate_accepted"
+        event.event_type == "runtime_projection_batch"
             && event.task_id.as_deref() == Some("task_planner")
             && event
                 .payload
-                .get("decision")
-                .is_some_and(|decision| decision == "accepted after review")
+                .get("command_id")
+                .is_some_and(|id| id == "cmd_accept_gate")
+            && event
+                .payload
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| {
+                    kinds.contains("merge_gate_updated") && kinds.contains("task_updated")
+                })
     }));
 }
 
@@ -3594,14 +3631,15 @@ fn runtime_supervisor_reduces_merge_gate_from_required_evidence_kinds() {
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
+    assert_no_project_side_channel_events(&agent_events);
     for kind in ["test_result", "review", "doc_update", "release_artifact"] {
         assert!(agent_events.iter().any(|event| {
-            event.event_type == "agent_evidence_recorded"
+            event.event_type == "runtime_projection_batch"
                 && event.task_id.as_deref() == Some("task_release_gate")
                 && event
                     .payload
-                    .get("evidence_kind")
-                    .is_some_and(|recorded_kind| recorded_kind == kind)
+                    .get("runtime_events_json")
+                    .is_some_and(|json| json.contains(kind))
         }));
     }
 }
@@ -3849,29 +3887,20 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
-    assert!(!agent_events.iter().any(|event| {
-        event.event_type == "agent_artifact_accepted"
-            && event.task_id.as_deref() == Some("task_coder")
-            && event
-                .payload
-                .get("evidence_id")
-                .is_some_and(|id| id == "manual-test_result")
-    }));
+    assert_no_project_side_channel_events(&agent_events);
     assert!(agent_events.iter().any(|event| {
-        event.event_type == "agent_artifact_rejected"
+        event.event_type == "runtime_projection_batch"
             && event.task_id.as_deref() == Some("task_coder")
             && event
                 .payload
-                .get("reason")
-                .is_some_and(|reason| reason == "test output was from the wrong package")
-    }));
-    assert!(agent_events.iter().any(|event| {
-        event.event_type == "agent_patch_merged"
-            && event.task_id.as_deref() == Some("task_coder")
+                .get("command_id")
+                .is_some_and(|id| id == "cmd_merge_patch")
             && event
                 .payload
-                .get("decision")
-                .is_some_and(|decision| decision == "merge accepted patch")
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| {
+                    kinds.contains("merge_gate_updated") && kinds.contains("task_updated")
+                })
     }));
 }
 
@@ -3997,29 +4026,20 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
+    assert_no_project_side_channel_events(&agent_events);
     assert!(agent_events.iter().any(|event| {
-        event.event_type == "agent_patch_merge_intent"
+        event.event_type == "runtime_projection_batch"
             && event.task_id.as_deref() == Some("task_coder_apply")
             && event
                 .payload
-                .get("evidence_id")
-                .is_some_and(|id| id == "evidence-task_coder_apply-patch")
+                .get("command_id")
+                .is_some_and(|id| id == "cmd_merge_patch")
             && event
                 .payload
-                .get("changed_files")
-                .is_some_and(|files| files == "src/lib.rs")
-    }));
-    assert!(agent_events.iter().any(|event| {
-        event.event_type == "agent_patch_merged"
-            && event.task_id.as_deref() == Some("task_coder_apply")
-            && event
-                .payload
-                .get("evidence_id")
-                .is_some_and(|id| id == "evidence-task_coder_apply-patch")
-            && event
-                .payload
-                .get("changed_files")
-                .is_some_and(|files| files == "src/lib.rs")
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| {
+                    kinds.contains("merge_gate_updated") && kinds.contains("task_updated")
+                })
     }));
 }
 
@@ -4161,13 +4181,16 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
+    assert_no_project_side_channel_events(&agent_events);
     assert!(agent_events.iter().any(|event| {
-        event.event_type == "agent_patch_conflict"
+        event.event_type == "runtime_projection_batch"
             && event.task_id.as_deref() == Some("task_coder_conflict")
             && event
                 .payload
-                .get("reason")
-                .is_some_and(|reason| reason.contains("patch conflict"))
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| {
+                    kinds.contains("merge_gate_updated") && kinds.contains("task_updated")
+                })
     }));
 }
 
@@ -4251,17 +4274,14 @@ fn runtime_supervisor_classifies_agent_task_provider_failures() {
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
+    assert_no_project_side_channel_events(&agent_events);
     assert!(agent_events.iter().any(|event| {
-        event.event_type == "agent_task_failed"
+        event.event_type == "runtime_projection_batch"
             && event.task_id.as_deref() == Some("task_tester")
             && event
                 .payload
-                .get("failure_class")
-                .is_some_and(|class| class == "request_too_large")
-            && event
-                .payload
-                .get("recovery_suggestion")
-                .is_some_and(|suggestion| suggestion.contains("compact provider context"))
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| kinds.contains("task_updated"))
     }));
 }
 
@@ -4334,14 +4354,15 @@ fn runtime_supervisor_cancels_queued_agent_task_with_durable_event() {
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
+    assert_no_project_side_channel_events(&agent_events);
     assert!(agent_events.iter().any(|event| {
-        event.event_type == "agent_task_cancelled"
-            && event.dag_id == dag_id
+        event.event_type == "runtime_projection_batch"
             && event.task_id.as_deref() == Some("task_docs")
             && event
                 .payload
-                .get("reason")
-                .is_some_and(|reason| reason == "cancelled by operator")
+                .get("command_id")
+                .is_some_and(|id| id == "cmd_cancel_agent")
+            && event.dag_id == dag_id
     }));
 }
 
@@ -4429,25 +4450,18 @@ fn runtime_supervisor_blocks_agent_task_until_dependencies_complete() {
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
-    let dag_id = agent_events
-        .iter()
-        .find(|event| event.event_type == "agent_dag_created")
-        .map(|event| event.dag_id.clone())
-        .expect("persisted agent DAG event");
+    assert_no_project_side_channel_events(&agent_events);
     assert!(agent_events.iter().any(|event| {
-        event.event_type == "agent_task_blocked"
-            && event.dag_id == dag_id
-            && event.task_id.as_deref() == Some("task_coder")
+        event.event_type == "runtime_projection_batch"
             && event
                 .payload
-                .get("dependency")
-                .is_some_and(|dependency| dependency == "task_planner")
+                .get("runtime_event_kinds")
+                .is_some_and(|kinds| kinds.contains("task_updated"))
+            && event
+                .payload
+                .get("runtime_events_json")
+                .is_some_and(|json| json.contains("task_coder"))
     }));
-    assert!(
-        !agent_events
-            .iter()
-            .any(|event| { event.event_type == "agent_task_blocked" && event.dag_id == "runtime" })
-    );
 }
 
 fn wait_until(condition: impl Fn() -> bool) {
