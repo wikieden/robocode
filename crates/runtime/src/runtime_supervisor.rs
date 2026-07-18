@@ -26,10 +26,16 @@ enum PendingApproval {
     ContextRetrieval(Box<ContextRetrievalJob>),
 }
 
+#[derive(Clone)]
+struct ActiveRuntimeControl {
+    owner_id: String,
+    control: ModelRequestControl,
+}
+
 struct SupervisorShared<'a> {
     event_sender: &'a Sender<RuntimeEvent>,
     sequence: &'a Arc<AtomicU64>,
-    active_control: &'a Arc<Mutex<Option<ModelRequestControl>>>,
+    active_control: &'a Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &'a Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 }
 
@@ -46,7 +52,7 @@ pub struct RuntimeSupervisor {
     events: Receiver<RuntimeEvent>,
     event_sender: Sender<RuntimeEvent>,
     sequence: Arc<AtomicU64>,
-    active_control: Arc<Mutex<Option<ModelRequestControl>>>,
+    active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     _worker: JoinHandle<()>,
 }
@@ -115,7 +121,7 @@ impl RuntimeSupervisor {
                     );
                     return Ok(());
                 };
-                control.cancel();
+                control.control.cancel();
                 emit_event(
                     &self.event_sender,
                     &self.sequence,
@@ -172,19 +178,22 @@ impl RuntimeSupervisor {
                             &self.event_sender,
                             &self.sequence,
                             RuntimeEventKind::ApprovalResolved {
-                                request_id,
+                                request_id: request_id.clone(),
                                 approved: response.approved,
                             },
                         );
                         if response.approved {
                             let mut job = *job;
                             job.permission_decision = "approved".to_string();
-                            start_context_retrieval_worker(
+                            if let Err(err) = start_context_retrieval_worker(
+                                request_id.clone(),
                                 job,
                                 &self.event_sender,
                                 &self.sequence,
                                 &self.active_control,
-                            );
+                            ) {
+                                emit_error(&self.event_sender, &self.sequence, err);
+                            }
                         } else {
                             emit_error(
                                 &self.event_sender,
@@ -222,7 +231,7 @@ fn run_supervisor_worker(
     command_receiver: Receiver<SupervisorMessage>,
     event_sender: Sender<RuntimeEvent>,
     sequence: Arc<AtomicU64>,
-    active_control: Arc<Mutex<Option<ModelRequestControl>>>,
+    active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 ) {
     while let Ok(message) = command_receiver.recv() {
@@ -293,17 +302,6 @@ fn run_supervised_context_retrieval(
     reason: String,
     shared: SupervisorShared<'_>,
 ) {
-    emit_event(
-        shared.event_sender,
-        shared.sequence,
-        RuntimeEventKind::CommandAccepted {
-            command_id,
-            command: redacted_runtime_command_for_event(&RuntimeCommand::RetrieveContext {
-                handle_id: handle_id.clone(),
-                reason: reason.clone(),
-            }),
-        },
-    );
     let prepared = match engine.prepare_context_retrieval_for_supervisor(&handle_id, &reason) {
         Ok(prepared) => prepared,
         Err(err) => {
@@ -311,22 +309,47 @@ fn run_supervised_context_retrieval(
                 shared.event_sender,
                 shared.sequence,
                 RuntimeEventKind::CommandRejected {
-                    command_id: "retrieve_context".to_string(),
+                    command_id,
                     reason: err,
                 },
             );
             return;
         }
     };
+    if let Some(owner_id) = active_owner_id(shared.active_control) {
+        emit_event(
+            shared.event_sender,
+            shared.sequence,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: format!("active runtime job `{owner_id}` is already running"),
+            },
+        );
+        return;
+    }
+    emit_event(
+        shared.event_sender,
+        shared.sequence,
+        RuntimeEventKind::CommandAccepted {
+            command_id: command_id.clone(),
+            command: redacted_runtime_command_for_event(&RuntimeCommand::RetrieveContext {
+                handle_id: handle_id.clone(),
+                reason: reason.clone(),
+            }),
+        },
+    );
     match prepared {
         SupervisorContextRetrievalPreparation::Ready(prepared) => {
             emit_events(shared.event_sender, shared.sequence, prepared.pre_events);
-            start_context_retrieval_worker(
+            if let Err(err) = start_context_retrieval_worker(
+                command_id,
                 prepared.job,
                 shared.event_sender,
                 shared.sequence,
                 shared.active_control,
-            );
+            ) {
+                emit_error(shared.event_sender, shared.sequence, err);
+            }
         }
         SupervisorContextRetrievalPreparation::PendingApproval { approval, job } => {
             if let Ok(mut approvals) = shared.pending_approvals.lock() {
@@ -345,23 +368,34 @@ fn run_supervised_context_retrieval(
 }
 
 fn start_context_retrieval_worker(
+    owner_id: String,
     job: ContextRetrievalJob,
     event_sender: &Sender<RuntimeEvent>,
     sequence: &Arc<AtomicU64>,
-    active_control: &Arc<Mutex<Option<ModelRequestControl>>>,
-) {
+    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+) -> Result<(), String> {
     let control = ModelRequestControl::new();
-    if let Ok(mut slot) = active_control.lock() {
-        *slot = Some(control.clone());
+    let mut slot = active_control
+        .lock()
+        .map_err(|_| "active turn lock poisoned".to_string())?;
+    if let Some(active) = slot.as_ref() {
+        return Err(format!(
+            "active runtime job `{}` is already running",
+            active.owner_id
+        ));
     }
+    *slot = Some(ActiveRuntimeControl {
+        owner_id: owner_id.clone(),
+        control: control.clone(),
+    });
+    drop(slot);
+
     let worker_event_sender = event_sender.clone();
     let worker_sequence = Arc::clone(sequence);
     let worker_active_control = Arc::clone(active_control);
     thread::spawn(move || {
         let result = execute_context_retrieval_job(job, &control);
-        if let Ok(mut slot) = worker_active_control.lock() {
-            *slot = None;
-        }
+        clear_active_control(&worker_active_control, &owner_id);
         match result {
             Ok(events) => {
                 if control.check_cancelled().is_ok() {
@@ -377,6 +411,24 @@ fn start_context_retrieval_worker(
             Err(err) => emit_error(&worker_event_sender, &worker_sequence, err),
         }
     });
+    Ok(())
+}
+
+fn active_owner_id(active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>) -> Option<String> {
+    active_control
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|active| active.owner_id.clone()))
+}
+
+fn clear_active_control(active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>, owner_id: &str) {
+    if let Ok(mut slot) = active_control.lock()
+        && slot
+            .as_ref()
+            .is_some_and(|active| active.owner_id == owner_id)
+    {
+        *slot = None;
+    }
 }
 
 fn run_supervised_agent_task(
@@ -385,14 +437,14 @@ fn run_supervised_agent_task(
     task_id: String,
     event_sender: &Sender<RuntimeEvent>,
     sequence: &Arc<AtomicU64>,
-    active_control: &Arc<Mutex<Option<ModelRequestControl>>>,
+    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 ) {
     emit_event(
         event_sender,
         sequence,
         RuntimeEventKind::CommandAccepted {
-            command_id,
+            command_id: command_id.clone(),
             command: redacted_runtime_command_for_event(&RuntimeCommand::StartAgentTask {
                 task_id: task_id.clone(),
             }),
@@ -401,7 +453,10 @@ fn run_supervised_agent_task(
 
     let control = ModelRequestControl::new();
     if let Ok(mut slot) = active_control.lock() {
-        *slot = Some(control.clone());
+        *slot = Some(ActiveRuntimeControl {
+            owner_id: command_id.clone(),
+            control: control.clone(),
+        });
     }
 
     let mut approver = |prompt: PermissionPrompt| {
@@ -436,9 +491,7 @@ fn run_supervised_agent_task(
     };
 
     let result = engine.run_agent_task_with_control(&task_id, &mut approver, &control);
-    if let Ok(mut slot) = active_control.lock() {
-        *slot = None;
-    }
+    clear_active_control(active_control, &command_id);
     match result {
         Ok(events) => emit_events(event_sender, sequence, events),
         Err(err) => emit_error(event_sender, sequence, err),
@@ -451,14 +504,14 @@ fn run_supervised_input(
     content: String,
     event_sender: &Sender<RuntimeEvent>,
     sequence: &Arc<AtomicU64>,
-    active_control: &Arc<Mutex<Option<ModelRequestControl>>>,
+    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 ) {
     emit_event(
         event_sender,
         sequence,
         RuntimeEventKind::CommandAccepted {
-            command_id,
+            command_id: command_id.clone(),
             command: redacted_runtime_command_for_event(&RuntimeCommand::SubmitUserInput {
                 content: content.clone(),
             }),
@@ -467,7 +520,10 @@ fn run_supervised_input(
 
     let control = ModelRequestControl::new();
     if let Ok(mut slot) = active_control.lock() {
-        *slot = Some(control.clone());
+        *slot = Some(ActiveRuntimeControl {
+            owner_id: command_id.clone(),
+            control: control.clone(),
+        });
     }
 
     let mut approver = |prompt: PermissionPrompt| {
@@ -502,9 +558,7 @@ fn run_supervised_input(
     };
 
     let result = engine.process_input_with_approval_and_control(&content, &mut approver, &control);
-    if let Ok(mut slot) = active_control.lock() {
-        *slot = None;
-    }
+    clear_active_control(active_control, &command_id);
     match result {
         Ok(events) => emit_events(
             event_sender,

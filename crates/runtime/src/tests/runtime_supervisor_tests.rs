@@ -1,6 +1,6 @@
 use std::sync::{
     Arc, Mutex, OnceLock,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::time::{Duration, Instant};
 use std::{fs, path::Path};
@@ -589,6 +589,197 @@ fn runtime_supervisor_context_retrieval_cancel_wins_before_success_publish() {
         RuntimeEventKind::ContextRetrieved { .. } => false,
         RuntimeEventKind::ToolCallFinished { name, .. } if name == "context_read" => false,
         _ => true,
+    }));
+}
+
+#[test]
+fn runtime_supervisor_rejects_invalid_retrieve_context_before_accepting_original_command_id() {
+    let (engine, _handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_context_reject_before_accept",
+        "unknown handle body",
+    );
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command(
+            "cmd_unknown_supervisor_retrieve",
+            RuntimeCommand::RetrieveContext {
+                handle_id: "ctxh-supervisor-unknown".to_string(),
+                reason: "hydrate unknown supervisor handle".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, .. }
+                    if command_id == "cmd_unknown_supervisor_retrieve"
+            )
+        })
+    });
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == "cmd_unknown_supervisor_retrieve"
+                    && reason.contains("not known")
+        )
+    }));
+    assert!(events.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_unknown_supervisor_retrieve"
+        )
+    }));
+    assert!(events.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, .. }
+                if command_id == "retrieve_context"
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_serializes_overlapping_context_retrieval_jobs() {
+    let _guard = RETRIEVE_CONTEXT_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("retrieve context hook lock");
+    let (engine, handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_context_serialized_retrieval",
+        "serialized retrieval body",
+    );
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let worker_count = Arc::new(AtomicU64::new(0));
+    let entered_for_hook = Arc::clone(&entered);
+    let release_for_hook = Arc::clone(&release);
+    let worker_count_for_hook = Arc::clone(&worker_count);
+    set_retrieve_context_test_hook(Some(Arc::new(move |control| {
+        worker_count_for_hook.fetch_add(1, Ordering::SeqCst);
+        entered_for_hook.store(true, Ordering::SeqCst);
+        while !release_for_hook.load(Ordering::SeqCst) && control.check_cancelled().is_ok() {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    })));
+
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "cmd_retrieve_first",
+            RuntimeCommand::RetrieveContext {
+                handle_id: handle_id.clone(),
+                reason: "hydrate first serialized retrieval".to_string(),
+            },
+        )
+        .unwrap();
+    wait_until(|| entered.load(Ordering::SeqCst));
+
+    supervisor
+        .send_command(
+            "cmd_retrieve_second",
+            RuntimeCommand::RetrieveContext {
+                handle_id: handle_id.clone(),
+                reason: "hydrate second overlapping retrieval".to_string(),
+            },
+        )
+        .unwrap();
+    let second_rejected = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, .. }
+                    if command_id == "cmd_retrieve_second"
+            )
+        })
+    });
+    assert_eq!(worker_count.load(Ordering::SeqCst), 1);
+    assert!(second_rejected.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == "cmd_retrieve_second"
+                    && reason.contains("active")
+        )
+    }));
+    assert!(second_rejected.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_retrieve_second"
+        )
+    }));
+
+    supervisor
+        .send_command("cmd_cancel_first", RuntimeCommand::CancelActiveTurn)
+        .unwrap();
+    release.store(true, Ordering::SeqCst);
+    let cancelled = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::Error { error }
+                    if error.message.contains("Model request cancelled")
+            )
+        })
+    });
+    let late_events = collect_events_until(&supervisor, Duration::from_millis(200), |_| false);
+    set_retrieve_context_test_hook(None);
+    assert!(
+        cancelled
+            .iter()
+            .chain(late_events.iter())
+            .all(|event| match &event.kind {
+                RuntimeEventKind::ContextRetrieved { .. } => false,
+                RuntimeEventKind::ToolCallFinished {
+                    name,
+                    success: true,
+                    ..
+                } if name == "context_read" => false,
+                _ => true,
+            }),
+        "cancelled retrieval must not publish success"
+    );
+
+    supervisor
+        .send_command(
+            "cmd_retrieve_third",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate third after first clears".to_string(),
+            },
+        )
+        .unwrap();
+    let third = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ContextRetrieved { retrieval }
+                    if retrieval.reason_category == "hydrate"
+            )
+        })
+    });
+    assert!(third.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_retrieve_third"
+        )
+    }));
+    assert!(third.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ToolCallFinished {
+                name,
+                success: true,
+                evidence: Some(evidence),
+                ..
+            } if name == "context_read" && evidence.summary.contains("serialized retrieval body")
+        )
     }));
 }
 

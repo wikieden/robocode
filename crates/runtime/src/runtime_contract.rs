@@ -218,6 +218,34 @@ impl SessionEngine {
         F: FnMut(PermissionPrompt) -> ApprovalResponse,
     {
         let command_id = command_id.into();
+        if let RuntimeCommand::RetrieveContext { handle_id, reason } = &command {
+            let prepared = match self.prepare_context_retrieval(handle_id, reason, approver) {
+                Ok(prepared) => prepared,
+                Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+            };
+            let mut events = vec![RuntimeEvent::new(
+                1,
+                RuntimeEventKind::CommandAccepted {
+                    command_id: command_id.clone(),
+                    command: redacted_runtime_command_for_event(&command),
+                },
+            )];
+            append_resequenced(&mut events, prepared.pre_events);
+            match execute_context_retrieval_job(prepared.job, &ModelRequestControl::new()) {
+                Ok(retrieval_events) => append_resequenced(&mut events, retrieval_events),
+                Err(err) => {
+                    events.push(RuntimeEvent::new(
+                        next_sequence(&events),
+                        RuntimeEventKind::CommandRejected {
+                            command_id: command_id.clone(),
+                            reason: err,
+                        },
+                    ));
+                }
+            }
+            return Ok(events);
+        }
+
         let accepted = RuntimeEvent::new(
             1,
             RuntimeEventKind::CommandAccepted {
@@ -401,12 +429,7 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
-            RuntimeCommand::RetrieveContext { handle_id, reason } => {
-                match self.retrieve_context_for_runtime(&handle_id, &reason, approver) {
-                    Ok(retrieval_events) => append_resequenced(&mut events, retrieval_events),
-                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
-                }
-            }
+            RuntimeCommand::RetrieveContext { .. } => unreachable!("handled before acceptance"),
             RuntimeCommand::CancelActiveTurn | RuntimeCommand::RespondToApproval { .. } => {
                 return Ok(vec![command_rejected(
                     command_id,
@@ -431,24 +454,6 @@ impl SessionEngine {
             approver,
             &ModelRequestControl::new(),
         )
-    }
-
-    fn retrieve_context_for_runtime<F>(
-        &mut self,
-        handle_id: &str,
-        reason: &str,
-        approver: &mut F,
-    ) -> Result<Vec<RuntimeEvent>, String>
-    where
-        F: FnMut(PermissionPrompt) -> ApprovalResponse,
-    {
-        let prepared = self.prepare_context_retrieval(handle_id, reason, approver)?;
-        let mut events = prepared.pre_events;
-        append_resequenced(
-            &mut events,
-            execute_context_retrieval_job(prepared.job, &ModelRequestControl::new())?,
-        );
-        Ok(events)
     }
 
     pub(crate) fn prepare_context_retrieval<F>(

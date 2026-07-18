@@ -918,6 +918,132 @@ fn retrieve_context_denies_unknown_and_cross_scope_handles_before_reading_bytes(
 }
 
 #[test]
+fn retrieve_context_rejects_prepare_failures_without_accepting_or_rewriting_command_ids() {
+    let cwd = temp_dir("runtime_command_retrieve_context_prepare_order_cwd");
+    let home = temp_dir("runtime_command_retrieve_context_prepare_order_home");
+    let context_root = cwd.join(".viden/private-context-test");
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let mut unknown = engine_with_single_context(&cwd, &home, &context_root, "unknown body");
+    let unknown_events = unknown
+        .handle_runtime_command(
+            "cmd_unknown_retrieve",
+            RuntimeCommand::RetrieveContext {
+                handle_id: "ctxh-does-not-exist".to_string(),
+                reason: "hydrate unknown".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert_prepare_rejection_only(
+        &unknown_events,
+        unknown.runtime_snapshot(),
+        "cmd_unknown_retrieve",
+        "not known",
+    );
+
+    let mut denied = engine_with_single_context(&cwd, &home, &context_root, "denied body");
+    let denied_handle_id = denied.runtime_view_state().context_handles[0]
+        .handle_id
+        .clone();
+    denied.add_permission_rule_for_test(PermissionRule {
+        source: PermissionRuleSource::Session,
+        rule_behavior: PermissionBehavior::Deny,
+        rule_value: PermissionRuleValue {
+            tool_name: "context_read".to_string(),
+            rule_content: None,
+        },
+    });
+    let denied_events = denied
+        .handle_runtime_command(
+            "cmd_denied_retrieve",
+            RuntimeCommand::RetrieveContext {
+                handle_id: denied_handle_id,
+                reason: "hydrate denied".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert_prepare_rejection_only(
+        &denied_events,
+        denied.runtime_snapshot(),
+        "cmd_denied_retrieve",
+        "Denied",
+    );
+
+    let mut expired = engine_with_single_context(&cwd, &home, &context_root, "expired body");
+    let expired_handle_id = expired.runtime_view_state().context_handles[0]
+        .handle_id
+        .clone();
+    expired.mutate_context_handle_for_test(&expired_handle_id, |handle| {
+        handle.expires_at = Some(1);
+    });
+    let expired_events = expired
+        .handle_runtime_command(
+            "cmd_expired_retrieve",
+            RuntimeCommand::RetrieveContext {
+                handle_id: expired_handle_id,
+                reason: "hydrate expired".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert_prepare_rejection_only(
+        &expired_events,
+        expired.runtime_snapshot(),
+        "cmd_expired_retrieve",
+        "expired",
+    );
+}
+
+fn assert_prepare_rejection_only(
+    events: &[RuntimeEvent],
+    snapshot: viden_types::RuntimeSnapshot,
+    command_id: &str,
+    reason: &str,
+) {
+    assert!(
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected {
+                    command_id: rejected_id,
+                    reason: rejected_reason,
+                } if rejected_id == command_id && rejected_reason.contains(reason)
+            )
+        }),
+        "expected rejection for {command_id}: {events:#?}"
+    );
+    assert!(
+        events.iter().all(|event| {
+            !matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted {
+                    command_id: accepted_id,
+                    ..
+                } if accepted_id == command_id
+            )
+        }),
+        "prepare failure must not accept {command_id}: {events:#?}"
+    );
+
+    let mut projected = RuntimeViewState::new(snapshot);
+    for event in events {
+        projected.apply_event(event);
+    }
+    assert!(
+        projected
+            .errors
+            .iter()
+            .any(|error| error.message.contains(command_id) || error.message.contains(reason)),
+        "replay should retain recoverable rejection evidence: {projected:#?}"
+    );
+}
+
+#[test]
 fn retrieve_context_uses_permission_policy_for_deny_ask_approve_and_plan_read() {
     let cwd = temp_dir("runtime_command_retrieve_context_permissions_cwd");
     let home = temp_dir("runtime_command_retrieve_context_permissions_home");
