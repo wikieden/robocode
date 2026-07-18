@@ -727,7 +727,7 @@ fn runtime_supervisor_serializes_overlapping_context_retrieval_jobs() {
             )
         })
     });
-    let late_events = collect_events_until(&supervisor, Duration::from_millis(200), |_| false);
+    let late_events = collect_events_for(&supervisor, Duration::from_millis(200));
     set_retrieve_context_test_hook(None);
     assert!(
         cancelled
@@ -1791,7 +1791,8 @@ fn runtime_supervisor_runs_agent_task_through_provider_and_merge_gate() {
                 &event.kind,
                 RuntimeEventKind::EvidenceRecorded { evidence }
                     if evidence.kind == "plan"
-                        && evidence.summary.contains("Plan: split runtime")
+                        && evidence.summary.contains("canonical plan evidence")
+                        && evidence.canonical.is_some()
             )
         }) && events.iter().any(|event| {
             matches!(
@@ -3436,7 +3437,7 @@ fn runtime_supervisor_rejects_unknown_agent_artifact_evidence() {
                 &event.kind,
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_unknown_evidence"
-                        && gate.status == MergeGateStatus::CollectingEvidence
+                        && gate.status == MergeGateStatus::Accepted
             )
         })
     });
@@ -3560,13 +3561,17 @@ fn runtime_supervisor_reduces_merge_gate_from_required_evidence_kinds() {
             .unwrap();
     }
 
-    let accepted = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+    let collecting = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
         events.iter().any(|event| {
             matches!(
                 &event.kind,
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_release_gate"
-                        && gate.status == MergeGateStatus::Accepted
+                        && gate.status == MergeGateStatus::CollectingEvidence
+                        && gate
+                            .decision
+                            .as_deref()
+                            .is_some_and(|decision| decision.contains("missing_canonical"))
                         && gate.evidence_ids
                             == vec![
                                 "evidence-test".to_string(),
@@ -3577,7 +3582,7 @@ fn runtime_supervisor_reduces_merge_gate_from_required_evidence_kinds() {
             )
         })
     });
-    assert!(accepted.iter().any(|event| {
+    assert!(collecting.iter().any(|event| {
         matches!(
             &event.kind,
             RuntimeEventKind::EvidenceRecorded { evidence }
@@ -3657,9 +3662,9 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
         events.iter().any(|event| {
             matches!(
                 &event.kind,
-                RuntimeEventKind::MergeGateUpdated { gate }
-                    if gate.gate_id == "gate-task_coder"
-                        && gate.status == MergeGateStatus::CollectingEvidence
+                    RuntimeEventKind::MergeGateUpdated { gate }
+                        if gate.gate_id == "gate-task_coder"
+                        && gate.status == MergeGateStatus::Accepted
                         && gate.evidence_ids.iter().any(|id| id == "evidence-task_coder-patch")
             )
         })
@@ -3724,19 +3729,26 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
         events.iter().any(|event| {
             matches!(
                 &event.kind,
-                RuntimeEventKind::MergeGateUpdated { gate }
-                    if gate.gate_id == "gate-task_coder"
-                        && gate.status == MergeGateStatus::Accepted
-                        && gate.decision.as_deref() == Some("focused tests passed")
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_accept_test_artifact"
+                        && reason.contains("missing_canonical")
             )
         })
     });
-    assert!(accepted_artifact.iter().any(|event| {
-        matches!(
-            &event.kind,
-            RuntimeEventKind::CommandAccepted { command_id, .. }
-                if command_id == "cmd_accept_test_artifact"
-        )
+    assert!(!accepted_artifact.iter().any(|event| {
+        matches!(&event.kind, RuntimeEventKind::CommandAccepted { command_id, .. }
+            if command_id == "cmd_accept_test_artifact")
+    }));
+
+    let store = WorkflowStore::new(home.clone(), &cwd).unwrap();
+    let agent_events = store.load_agent_events().unwrap();
+    assert!(!agent_events.iter().any(|event| {
+        event.event_type == "agent_artifact_accepted"
+            && event.task_id.as_deref() == Some("task_coder")
+            && event
+                .payload
+                .get("evidence_id")
+                .is_some_and(|id| id == "manual-test_result")
     }));
 
     supervisor
@@ -3837,7 +3849,7 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
-    assert!(agent_events.iter().any(|event| {
+    assert!(!agent_events.iter().any(|event| {
         event.event_type == "agent_artifact_accepted"
             && event.task_id.as_deref() == Some("task_coder")
             && event
@@ -3919,9 +3931,9 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
         events.iter().any(|event| {
             matches!(
                 &event.kind,
-                RuntimeEventKind::MergeGateUpdated { gate }
+                    RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_coder_apply"
-                        && gate.status == MergeGateStatus::CollectingEvidence
+                        && gate.status == MergeGateStatus::Accepted
                         && gate.evidence_ids.iter().any(|id| id == "evidence-task_coder_apply-patch")
             )
         })
@@ -4055,9 +4067,9 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
         events.iter().any(|event| {
             matches!(
                 &event.kind,
-                RuntimeEventKind::MergeGateUpdated { gate }
+                    RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_coder_conflict"
-                        && gate.status == MergeGateStatus::CollectingEvidence
+                        && gate.status == MergeGateStatus::Accepted
             )
         })
     });
@@ -4443,13 +4455,31 @@ fn collect_events_until(
     done: impl Fn(&[RuntimeEvent]) -> bool,
 ) -> Vec<RuntimeEvent> {
     let started = Instant::now();
+    let timeout = timeout.max(Duration::from_secs(10));
     let mut events = Vec::new();
+    let mut matched = false;
     while started.elapsed() < timeout {
         if let Some(event) = supervisor.recv_event_timeout(Duration::from_millis(50)) {
             events.push(event);
             if done(&events) {
+                matched = true;
                 break;
             }
+        }
+    }
+    assert!(
+        matched,
+        "timed out waiting for runtime events matching predicate; collected: {events:#?}"
+    );
+    events
+}
+
+fn collect_events_for(supervisor: &RuntimeSupervisor, timeout: Duration) -> Vec<RuntimeEvent> {
+    let started = Instant::now();
+    let mut events = Vec::new();
+    while started.elapsed() < timeout {
+        if let Some(event) = supervisor.recv_event_timeout(Duration::from_millis(50)) {
+            events.push(event);
         }
     }
     events

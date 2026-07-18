@@ -1,8 +1,9 @@
 use viden_permissions::PermissionEngine;
 use viden_session::SessionStore;
 use viden_types::{
-    CostUsageRecord, Message, PermissionLevel, PermissionMode, Role, SessionMetaEntry,
-    SessionSummary, TranscriptEntry, WorkMode, fresh_id, now_timestamp,
+    CostUsageRecord, Message, PermissionLevel, PermissionMode, Role, RuntimeEvent,
+    RuntimeEventKind, SessionMetaEntry, SessionSummary, TranscriptEntry, WorkMode, fresh_id,
+    now_timestamp,
 };
 
 use crate::SessionEngine;
@@ -152,6 +153,9 @@ impl SessionEngine {
                     _ => {}
                 },
                 TranscriptEntry::CostUsage { cost } => self.remember_cost_usage(*cost),
+                TranscriptEntry::RuntimeEvent { event } => {
+                    self.remember_runtime_domain_event(*event)
+                }
                 _ => {}
             }
         }
@@ -213,4 +217,94 @@ impl SessionEngine {
         }
         self.provider_cost_usage.push(cost);
     }
+
+    pub(crate) fn persist_runtime_domain_events(
+        &mut self,
+        events: &[RuntimeEvent],
+    ) -> Result<(), String> {
+        let domain_events = events
+            .iter()
+            .filter(|event| is_durable_runtime_domain_event(&event.kind))
+            .cloned()
+            .collect::<Vec<_>>();
+        for event in domain_events {
+            self.store_entry(TranscriptEntry::RuntimeEvent {
+                event: Box::new(event.clone()),
+            })?;
+            self.remember_runtime_domain_event(event);
+        }
+        Ok(())
+    }
+
+    fn remember_runtime_domain_event(&mut self, event: RuntimeEvent) {
+        match event.kind {
+            RuntimeEventKind::AgentDagUpdated { dag } => {
+                if let Some(existing) = self
+                    .runtime_agent_dags
+                    .iter_mut()
+                    .find(|existing| existing.dag_id == dag.dag_id)
+                {
+                    *existing = dag;
+                } else {
+                    self.runtime_agent_dags.push(dag);
+                }
+            }
+            RuntimeEventKind::TaskUpdated { task } => self.upsert_agent_task(task),
+            RuntimeEventKind::ContextBundleBuilt { .. }
+            | RuntimeEventKind::ContextItemStored { .. }
+            | RuntimeEventKind::ContextViewDerived { .. }
+            | RuntimeEventKind::ContextBudgetExceeded { .. }
+            | RuntimeEventKind::ContextQualityFailed { .. } => {
+                self.remember_context_runtime_event(event);
+            }
+            RuntimeEventKind::ContextUpdated { context } => {
+                self.last_context_bundle = Some(context);
+            }
+            RuntimeEventKind::EvidenceRecorded { evidence } => {
+                self.upsert_runtime_evidence(evidence)
+            }
+            RuntimeEventKind::MergeGateUpdated { gate } => {
+                if let Some(existing) = self
+                    .runtime_merge_gates
+                    .iter_mut()
+                    .find(|existing| existing.gate_id == gate.gate_id)
+                {
+                    *existing = gate;
+                } else {
+                    self.runtime_merge_gates.push(gate);
+                }
+            }
+            RuntimeEventKind::EvidenceCanonicalized { .. } => {}
+            _ => {}
+        }
+    }
+
+    fn remember_context_runtime_event(&mut self, event: RuntimeEvent) {
+        if !self
+            .last_context_runtime_events
+            .iter()
+            .any(|existing| existing.kind == event.kind)
+        {
+            self.last_context_runtime_events.push(event);
+        }
+    }
+}
+
+fn is_durable_runtime_domain_event(kind: &RuntimeEventKind) -> bool {
+    // These facts rebuild runtime DAG/evidence/gate state. Transient command
+    // acknowledgements stay out of JSONL so replay remains append-only domain state.
+    matches!(
+        kind,
+        RuntimeEventKind::AgentDagUpdated { .. }
+            | RuntimeEventKind::TaskUpdated { .. }
+            | RuntimeEventKind::ContextBundleBuilt { .. }
+            | RuntimeEventKind::ContextItemStored { .. }
+            | RuntimeEventKind::ContextViewDerived { .. }
+            | RuntimeEventKind::ContextBudgetExceeded { .. }
+            | RuntimeEventKind::ContextQualityFailed { .. }
+            | RuntimeEventKind::ContextUpdated { .. }
+            | RuntimeEventKind::EvidenceRecorded { .. }
+            | RuntimeEventKind::EvidenceCanonicalized { .. }
+            | RuntimeEventKind::MergeGateUpdated { .. }
+    )
 }

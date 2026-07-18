@@ -1,5 +1,6 @@
 use crate::{
-    CostUsageRecord, Message, Role, ToolCall, ToolResult, decode_tool_input, encode_tool_input,
+    CostUsageRecord, Message, Role, RuntimeEvent, ToolCall, ToolResult, decode_tool_input,
+    encode_tool_input,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +36,7 @@ pub enum TranscriptEntry {
     Command { entry: CommandLogEntry },
     SessionMeta { entry: SessionMetaEntry },
     CostUsage { cost: Box<CostUsageRecord> },
+    RuntimeEvent { event: Box<RuntimeEvent> },
 }
 
 impl TranscriptEntry {
@@ -88,6 +90,11 @@ impl TranscriptEntry {
             TranscriptEntry::CostUsage { cost } => serde_json::json!({
                 "type": "cost_usage",
                 "cost": cost,
+            })
+            .to_string(),
+            TranscriptEntry::RuntimeEvent { event } => serde_json::json!({
+                "type": "runtime_event",
+                "event": event,
             })
             .to_string(),
         }
@@ -154,6 +161,7 @@ impl TranscriptEntry {
                 },
             }),
             "cost_usage" => cost_usage_entry_from_json_line(line),
+            "runtime_event" => runtime_event_entry_from_json_line(line),
             _ => Err("Unknown transcript entry type".to_string()),
         }
     }
@@ -177,6 +185,19 @@ fn cost_usage_entry_from_json_line(line: &str) -> Result<TranscriptEntry, String
         serde_json::from_value(cost_value).map_err(|_| "Malformed cost usage transcript entry")?;
     Ok(TranscriptEntry::CostUsage {
         cost: Box::new(cost),
+    })
+}
+
+fn runtime_event_entry_from_json_line(line: &str) -> Result<TranscriptEntry, String> {
+    #[derive(serde::Deserialize)]
+    struct RuntimeEventEntry {
+        event: RuntimeEvent,
+    }
+
+    let entry: RuntimeEventEntry = serde_json::from_str(line)
+        .map_err(|err| format!("Malformed runtime event transcript entry: {err}"))?;
+    Ok(TranscriptEntry::RuntimeEvent {
+        event: Box::new(entry.event),
     })
 }
 

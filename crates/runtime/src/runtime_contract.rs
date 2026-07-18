@@ -11,7 +11,10 @@ use crate::context_bundle::{ContextBuildMode, redact_context_summary_for_event};
 use crate::lsp_tools::render_lsp_diagnostics;
 use crate::{CostAttribution, EngineEvent, ProviderTelemetry, SessionEngine};
 use viden_config::ProviderConfigUpdate;
-use viden_context::{ContextEngine, ContextPutRequest, ReductionPolicy, reduce};
+use viden_context::{
+    ContextEngine, ContextError as EngineContextError, ContextPutRequest, ReductionPolicy, reduce,
+    store::ContextError as StoreContextError,
+};
 use viden_lsp::SemanticProvider;
 use viden_permissions::{PermissionContext, PermissionEngine};
 use viden_provider::ModelRequestControl;
@@ -262,9 +265,11 @@ impl SessionEngine {
                 }
             }
             self.persist_cost_usage_events(&events)?;
+            self.persist_runtime_domain_events(&events)?;
             return Ok(events);
         }
 
+        let persist_after_match = !matches!(&command, RuntimeCommand::StartAgentTask { .. });
         let accepted = RuntimeEvent::new(
             1,
             RuntimeEventKind::CommandAccepted {
@@ -465,6 +470,9 @@ impl SessionEngine {
             }
         }
 
+        if persist_after_match {
+            self.persist_runtime_domain_events(&events)?;
+        }
         Ok(events)
     }
 
@@ -973,8 +981,8 @@ impl SessionEngine {
     fn merge_gate_validation_facts(&self) -> MergeGateValidationFacts {
         let view = self.runtime_view_state();
         MergeGateValidationFacts {
+            context_engine_root: self.context_engine_root.clone(),
             context_bundles: view.context_bundles,
-            context_items: view.context_items,
         }
     }
 
@@ -998,7 +1006,7 @@ impl SessionEngine {
             .ok()?;
         let mut item = stored.item;
         item.title = format!("canonical {evidence_kind} evidence");
-        item.summary = truncate_for_preview(summary, 200);
+        item.summary = canonical_evidence_summary(evidence_kind, summary);
         item.token_count = summary.len() as u64;
         let bundle_id = format!("bundle-{evidence_id}");
         let canonical = CanonicalEvidenceReference {
@@ -1130,7 +1138,7 @@ impl SessionEngine {
         task.status = status.as_str().to_string();
         task.activity = activity.to_string();
         task.progress = progress;
-        task.updated_at = Some(u128::from(now_timestamp()) * 1000);
+        task.updated_at = Some(now_timestamp().saturating_mul(1000));
         self.upsert_agent_task(task.clone());
         Ok(vec![RuntimeEvent::new(
             1,
@@ -1179,7 +1187,7 @@ impl SessionEngine {
         task.activity = activity.to_string();
         task.progress = 100;
         task.result = Some(format!("failed:{failure_class}"));
-        task.updated_at = Some(u128::from(now_timestamp()) * 1000);
+        task.updated_at = Some(now_timestamp().saturating_mul(1000));
         task.next_action = Some(AgentNextAction {
             label: "retry agent task".to_string(),
             command: Some(format!("/agent start {task_id}")),
@@ -1404,7 +1412,7 @@ impl SessionEngine {
         let evidence = EvidenceView {
             id: evidence_id.clone(),
             kind: evidence_kind.to_string(),
-            summary: summary.clone(),
+            summary: canonical_evidence_summary(evidence_kind, &summary),
             path: None,
             source: Some(spec.role.as_str().to_string()),
             canonical: canonicalized.map(|(canonical, _)| canonical),
@@ -1442,7 +1450,7 @@ impl SessionEngine {
         task.progress = 100;
         task.result = Some(truncate_for_preview(&summary, 500));
         task.evidence.push(evidence_id.clone());
-        task.updated_at = Some(u128::from(now_timestamp()) * 1000);
+        task.updated_at = Some(now_timestamp().saturating_mul(1000));
         self.upsert_agent_task(task.clone());
         events.push(RuntimeEvent::new(
             next_sequence(&events),
@@ -1480,6 +1488,7 @@ impl SessionEngine {
             ],
         )?;
 
+        self.persist_runtime_domain_events(&events)?;
         Ok(events)
     }
 
@@ -1643,7 +1652,7 @@ impl SessionEngine {
         task.status = AgentTaskStatus::Blocked.as_str().to_string();
         task.activity = format!("waiting for dependency `{blocking_dependency}`");
         task.progress = 0;
-        task.updated_at = Some(u128::from(now_timestamp()) * 1000);
+        task.updated_at = Some(now_timestamp().saturating_mul(1000));
         self.upsert_agent_task(task.clone());
         self.persist_agent_event(
             dag_id,
@@ -1717,7 +1726,7 @@ impl SessionEngine {
             .cloned()
         {
             task.decision = Some(decision.clone());
-            task.updated_at = Some(u128::from(now) * 1000);
+            task.updated_at = Some(now.saturating_mul(1000));
             if status == MergeGateStatus::NeedsChanges {
                 task.status = AgentTaskStatus::NeedsInput.as_str().to_string();
                 task.activity = format!("merge gate requested changes: {decision}");
@@ -1836,7 +1845,7 @@ impl SessionEngine {
                 task.evidence.push(evidence_id.clone());
             }
             task.activity = format!("evidence recorded: {kind}");
-            task.updated_at = Some(u128::from(now) * 1000);
+            task.updated_at = Some(now.saturating_mul(1000));
             self.upsert_agent_task(task.clone());
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -1882,6 +1891,21 @@ impl SessionEngine {
             .find(|evidence| evidence.id == evidence_id)
             .cloned()
             .ok_or_else(|| format!("agent artifact evidence `{evidence_id}` does not exist"))?;
+        let mut artifact_gate = self.runtime_merge_gates[gate_index].clone();
+        artifact_gate.evidence_ids = vec![evidence_id.clone()];
+        artifact_gate.required_evidence = vec![canonical_required_evidence_kind(&evidence.kind)];
+        let report = reduce_merge_gate_status(
+            &artifact_gate,
+            &self.runtime_evidence,
+            &self.merge_gate_validation_facts(),
+        );
+        if report.status != EvidenceCanonicalStatus::Verified {
+            return Err(format!(
+                "agent artifact evidence `{evidence_id}` cannot be accepted: {}",
+                canonical_reason_summary(&report)
+                    .unwrap_or_else(|| "canonical_evidence_invalid".to_string())
+            ));
+        }
         let now = now_timestamp();
         let runtime_evidence = self.runtime_evidence.clone();
         let validation_facts = self.merge_gate_validation_facts();
@@ -1911,7 +1935,7 @@ impl SessionEngine {
             }
             task.decision = Some(decision.clone());
             task.activity = format!("artifact accepted: {decision}");
-            task.updated_at = Some(u128::from(now) * 1000);
+            task.updated_at = Some(now.saturating_mul(1000));
             self.upsert_agent_task(task.clone());
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -1973,7 +1997,7 @@ impl SessionEngine {
                 command: Some(format!("/agent start {}", task.id)),
                 reason: Some("merge gate rejected an artifact".to_string()),
             });
-            task.updated_at = Some(u128::from(now) * 1000);
+            task.updated_at = Some(now.saturating_mul(1000));
             self.upsert_agent_task(task.clone());
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -2020,18 +2044,28 @@ impl SessionEngine {
                 "patch conflict: accepted merge gate has no patch evidence".to_string(),
             );
         };
-        let patch_application =
-            match prepare_unified_diff_application(&self.cwd, &patch_evidence.summary) {
-                Ok(application) => application,
-                Err(err) => {
-                    return self.mark_agent_patch_conflict(
-                        gate_index,
-                        &dag_id,
-                        &task_id,
-                        format!("patch conflict: {err}"),
-                    );
-                }
-            };
+        let patch_content = match self.verified_patch_content(&patch_evidence) {
+            Ok(content) => content,
+            Err(err) => {
+                return self.mark_agent_patch_conflict(
+                    gate_index,
+                    &dag_id,
+                    &task_id,
+                    format!("patch conflict: {err}"),
+                );
+            }
+        };
+        let patch_application = match prepare_unified_diff_application(&self.cwd, &patch_content) {
+            Ok(application) => application,
+            Err(err) => {
+                return self.mark_agent_patch_conflict(
+                    gate_index,
+                    &dag_id,
+                    &task_id,
+                    format!("patch conflict: {err}"),
+                );
+            }
+        };
         if let Err(err) = write_patch_application(&patch_application) {
             return self.mark_agent_patch_conflict(
                 gate_index,
@@ -2063,7 +2097,7 @@ impl SessionEngine {
             task.activity = format!("patch merged: {decision}");
             task.decision = Some(decision.clone());
             task.next_action = None;
-            task.updated_at = Some(u128::from(now) * 1000);
+            task.updated_at = Some(now.saturating_mul(1000));
             self.upsert_agent_task(task.clone());
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -2092,6 +2126,24 @@ impl SessionEngine {
                 .iter()
                 .find(|evidence| evidence.id == *id && evidence.kind == "patch")
         })
+    }
+
+    fn verified_patch_content(&self, evidence: &EvidenceView) -> Result<String, String> {
+        let canonical = evidence
+            .canonical
+            .as_ref()
+            .ok_or_else(|| "patch evidence is not canonical".to_string())?;
+        let engine =
+            ContextEngine::open(&self.context_engine_root).map_err(|err| err.to_string())?;
+        let verified = engine
+            .verify_item(
+                &canonical.item_id,
+                &canonical.source_hash,
+                &canonical.evidence_scope,
+            )
+            .map_err(|err| err.to_string())?;
+        String::from_utf8(verified.content)
+            .map_err(|_| "canonical patch evidence is not valid utf-8".to_string())
     }
 
     fn mark_agent_patch_conflict(
@@ -2126,7 +2178,7 @@ impl SessionEngine {
                 command: Some(format!("/agent start {task_id}")),
                 reason: Some("merge gate could not apply the accepted patch".to_string()),
             });
-            task.updated_at = Some(u128::from(now) * 1000);
+            task.updated_at = Some(now.saturating_mul(1000));
             self.upsert_agent_task(task.clone());
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -2690,8 +2742,8 @@ fn role_file_score(role: AgentRole, file: &str) -> u8 {
 
 #[derive(Debug, Clone, Default)]
 struct MergeGateValidationFacts {
+    context_engine_root: PathBuf,
     context_bundles: Vec<viden_types::ContextBundleSummaryRecord>,
-    context_items: Vec<ContextItemRecord>,
 }
 
 fn reduce_merge_gate_status(
@@ -2759,23 +2811,16 @@ fn validate_canonical_evidence_for_gate(
         };
     };
 
-    let item = facts
-        .context_items
-        .iter()
-        .find(|item| item.item_id == canonical.item_id);
+    let verified_item = verify_canonical_context_item(facts, canonical);
     let bundle = facts
         .context_bundles
         .iter()
         .find(|bundle| bundle.bundle_id == canonical.bundle_id);
-    match item {
-        Some(item) if item.content_sha256 == canonical.source_hash => {}
-        Some(_) => {
+    match &verified_item {
+        Ok(_) => {}
+        Err(reason) => {
             status = merge_status(status, EvidenceCanonicalStatus::Blocked);
-            reasons.insert(EvidenceCanonicalReasonCode::HashMismatch);
-        }
-        None => {
-            status = merge_status(status, EvidenceCanonicalStatus::Blocked);
-            reasons.insert(EvidenceCanonicalReasonCode::MissingSource);
+            reasons.insert(*reason);
         }
     }
     if bundle.is_none() {
@@ -2784,7 +2829,9 @@ fn validate_canonical_evidence_for_gate(
     }
 
     if !scope_matches_gate(&canonical.evidence_scope, gate)
-        || item.is_some_and(|item| item.scope != canonical.evidence_scope)
+        || verified_item
+            .as_ref()
+            .is_ok_and(|item| item.scope != canonical.evidence_scope)
     {
         status = merge_status(status, EvidenceCanonicalStatus::Blocked);
         reasons.insert(EvidenceCanonicalReasonCode::ScopeMismatch);
@@ -2825,6 +2872,39 @@ fn validate_canonical_evidence_for_gate(
     EvidenceCanonicalStatusReport {
         status,
         reason_codes: reasons.into_iter().collect(),
+    }
+}
+
+fn verify_canonical_context_item(
+    facts: &MergeGateValidationFacts,
+    canonical: &CanonicalEvidenceReference,
+) -> Result<ContextItemRecord, EvidenceCanonicalReasonCode> {
+    // Merge gates must verify the stored blob, not view-state metadata, so
+    // replay and live decisions fail identically on missing or tampered bytes.
+    let engine = ContextEngine::open(&facts.context_engine_root)
+        .map_err(|_| EvidenceCanonicalReasonCode::MissingSource)?;
+    engine
+        .verify_item(
+            &canonical.item_id,
+            &canonical.source_hash,
+            &canonical.evidence_scope,
+        )
+        .map(|verified| verified.item)
+        .map_err(canonical_reason_from_context_error)
+}
+
+fn canonical_reason_from_context_error(err: EngineContextError) -> EvidenceCanonicalReasonCode {
+    match err {
+        EngineContextError::Store(StoreContextError::HashMismatch { .. }) => {
+            EvidenceCanonicalReasonCode::HashMismatch
+        }
+        EngineContextError::Store(StoreContextError::ScopeDenied { .. }) => {
+            EvidenceCanonicalReasonCode::ScopeMismatch
+        }
+        EngineContextError::Store(
+            StoreContextError::MissingBlob { .. } | StoreContextError::MissingHandle { .. },
+        ) => EvidenceCanonicalReasonCode::MissingSource,
+        _ => EvidenceCanonicalReasonCode::MissingSource,
     }
 }
 
@@ -2920,6 +3000,17 @@ fn evidence_context_kind(kind: &str) -> ContextContentKind {
         "review" | "doc" | "release" => ContextContentKind::Text,
         _ => ContextContentKind::Text,
     }
+}
+
+fn canonical_evidence_summary(kind: &str, content: &str) -> String {
+    let line_count = content.lines().count();
+    let byte_count = content.len();
+    format!(
+        "canonical {} evidence ({} bytes, {} lines)",
+        canonical_required_evidence_kind(kind),
+        byte_count,
+        line_count
+    )
 }
 
 fn normalize_evidence_kind(kind: &str) -> String {
@@ -3241,7 +3332,7 @@ fn agent_task_record_from_spec(
     spec: &AgentDagTaskSpec,
     timestamp: u64,
 ) -> AgentTaskRecord {
-    let now = u128::from(timestamp) * 1000;
+    let now = timestamp.saturating_mul(1000);
     AgentTaskRecord {
         id: spec.task_id.clone(),
         parent_id: spec.dependencies.first().cloned(),

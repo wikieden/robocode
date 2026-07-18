@@ -733,8 +733,8 @@ fn add_optional(left: Option<u64>, right: Option<u64>) -> Option<u64> {
     }
 }
 
-fn now_millis() -> u128 {
-    u128::from(now_timestamp()) * 1000
+fn now_millis() -> u64 {
+    now_timestamp().saturating_mul(1000)
 }
 
 fn build_provider_request_messages(

@@ -10,7 +10,7 @@ pub use cost::{CostLedger, totals_from_records};
 pub use reducer::{
     LineRange, ReductionEstimate, ReductionOmission, ReductionPolicy, ReductionResult, reduce,
 };
-pub use store::{ContextPutRequest, ContextStore, StoredContext};
+pub use store::{ContextPutRequest, ContextStore, StoredContext, VerifiedContextItem};
 
 use viden_types::{ContextHandleRecord, ContextScope};
 
@@ -95,6 +95,15 @@ impl ContextEngine {
         scope: &ContextScope,
     ) -> Result<Vec<u8>, ContextError> {
         Ok(self.store.retrieve(handle, scope)?)
+    }
+
+    pub fn verify_item(
+        &self,
+        item_id: &str,
+        expected_sha256: &str,
+        scope: &ContextScope,
+    ) -> Result<VerifiedContextItem, ContextError> {
+        Ok(self.store.verify_item(item_id, expected_sha256, scope)?)
     }
 }
 

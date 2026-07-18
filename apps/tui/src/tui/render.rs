@@ -533,7 +533,8 @@ struct LiveActivityStatus {
     is_live: bool,
 }
 
-fn relative_millis(updated_at: u128) -> String {
+fn relative_millis(updated_at: u64) -> String {
+    let updated_at = u128::from(updated_at);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
@@ -550,7 +551,8 @@ fn relative_millis(updated_at: u128) -> String {
     }
 }
 
-fn elapsed_millis(started_at: u128) -> String {
+fn elapsed_millis(started_at: u64) -> String {
+    let started_at = u128::from(started_at);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())

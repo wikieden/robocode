@@ -97,7 +97,7 @@ impl PendingTurn {
             model: model.to_string(),
             prompt: first_line(prompt),
             workspace: workspace.to_string(),
-            started_at,
+            started_at: u128::from(started_at),
             phase: "Waiting for provider response".to_string(),
             next_action: "wait".to_string(),
             queued_inputs: Vec::new(),
@@ -170,7 +170,7 @@ fn agent_task_from_codex_job(job: &AgentJob) -> AgentTask {
         summary: job.task.clone(),
         progress: codex_job_progress(job),
         started_at: None,
-        updated_at: Some(job.updated_at),
+        updated_at: Some(job.updated_at.min(u128::from(u64::MAX)) as u64),
         workspace: None,
         evidence: job.evidence.clone(),
         permissions: codex_job_permissions(job),
@@ -225,7 +225,7 @@ fn agent_task_from_pending_turn(turn: &PendingTurn) -> AgentTask {
         activity: turn.phase.clone(),
         summary: format!("Viden is processing the request{queued_suffix}"),
         progress: 0,
-        started_at: Some(turn.started_at),
+        started_at: Some(turn.started_at.min(u128::from(u64::MAX)) as u64),
         updated_at: Some(now_millis()),
         workspace: Some(turn.workspace.clone()),
         evidence: vec![
@@ -1001,11 +1001,12 @@ fn compact_session_id(session_id: &str) -> String {
         .collect::<String>()
 }
 
-fn now_millis() -> u128 {
-    SystemTime::now()
+fn now_millis() -> u64 {
+    let millis = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    millis.min(u128::from(u64::MAX)) as u64
 }
 
 fn tool_call_activity(body: &str) -> String {

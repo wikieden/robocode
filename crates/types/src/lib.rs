@@ -181,7 +181,7 @@ pub struct AgentTaskEvidence {
     pub kind: String,
     pub summary: String,
     pub path: Option<String>,
-    pub timestamp: Option<u128>,
+    pub timestamp: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -362,8 +362,8 @@ pub struct AgentTaskRecord {
     pub activity: String,
     pub summary: String,
     pub progress: u8,
-    pub started_at: Option<u128>,
-    pub updated_at: Option<u128>,
+    pub started_at: Option<u64>,
+    pub updated_at: Option<u64>,
     pub workspace: Option<String>,
     pub evidence: Vec<String>,
     pub permissions: Vec<String>,
@@ -412,7 +412,7 @@ impl AgentLaneRecord {
 pub struct AgentLaneEventRecord {
     pub lane_id: AgentLaneId,
     pub sequence: u64,
-    pub timestamp: Option<u128>,
+    pub timestamp: Option<u64>,
     pub kind: String,
     pub summary: String,
     pub detail: Option<String>,

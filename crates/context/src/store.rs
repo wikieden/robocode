@@ -196,6 +196,13 @@ pub struct StoredContext {
     pub handle: ContextHandleRecord,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedContextItem {
+    pub item: ContextItemRecord,
+    pub content: Vec<u8>,
+    pub byte_count: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct MetadataRecord {
     item: ContextItemRecord,
@@ -299,6 +306,50 @@ impl ContextStore {
         Ok(bytes)
     }
 
+    pub fn verify_item(
+        &self,
+        item_id: &str,
+        expected_sha256: &str,
+        scope: &ContextScope,
+    ) -> Result<VerifiedContextItem, ContextError> {
+        validate_content_sha256(expected_sha256)?;
+        let record = self.lookup_record_by_item_id(item_id)?;
+        if record.item.scope != *scope || record.handle.scope != *scope {
+            return Err(ContextError::ScopeDenied {
+                handle_id: record.handle.handle_id,
+            });
+        }
+        if record.item.content_sha256 != expected_sha256
+            || record.handle.content_sha256 != expected_sha256
+            || record.handle.item_id != record.item.item_id
+        {
+            return Err(ContextError::HashMismatch {
+                expected: expected_sha256.to_string(),
+                actual: record.item.content_sha256,
+            });
+        }
+        let blob_path = self.blob_path(expected_sha256);
+        if !blob_path.exists() {
+            return Err(ContextError::MissingBlob {
+                content_sha256: expected_sha256.to_string(),
+            });
+        }
+        let bytes = fs::read(blob_path)?;
+        let actual = sha256_hex(&bytes);
+        if actual != expected_sha256 {
+            return Err(ContextError::HashMismatch {
+                expected: expected_sha256.to_string(),
+                actual,
+            });
+        }
+        let byte_count = bytes.len();
+        Ok(VerifiedContextItem {
+            item: record.item,
+            content: bytes,
+            byte_count,
+        })
+    }
+
     fn lookup_record(&self, handle: &ContextHandleRecord) -> Result<MetadataRecord, ContextError> {
         if let Some(record) = self.handles.get(&handle.handle_id) {
             return Ok(record.clone());
@@ -308,6 +359,22 @@ impl ContextStore {
             .remove(&handle.handle_id)
             .ok_or_else(|| ContextError::MissingHandle {
                 handle_id: handle.handle_id.clone(),
+            })
+    }
+
+    fn lookup_record_by_item_id(&self, item_id: &str) -> Result<MetadataRecord, ContextError> {
+        if let Some(record) = self
+            .handles
+            .values()
+            .find(|record| record.item.item_id == item_id)
+        {
+            return Ok(record.clone());
+        }
+        load_metadata_locked(&self.metadata_path)?
+            .into_values()
+            .find(|record| record.item.item_id == item_id)
+            .ok_or_else(|| ContextError::MissingHandle {
+                handle_id: item_id.to_string(),
             })
     }
 

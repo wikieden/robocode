@@ -1144,7 +1144,7 @@ fn agent_task_from_job_record(cwd: &Path, mut job: CodexJobRecord) -> AgentTaskR
         summary: job.task.clone(),
         progress: agent_job_progress(&job.status),
         started_at: None,
-        updated_at: Some(job.updated_at),
+        updated_at: Some(job.updated_at.min(u128::from(u64::MAX)) as u64),
         workspace: None,
         evidence: evidence_lines,
         permissions: agent_job_permissions(&job),
@@ -4149,7 +4149,7 @@ fn append_acp_update_runtime_events(
                 RuntimeEventKind::MergeGateUpdated {
                     gate: acp_session_merge_gate(
                         session_id,
-                        MergeGateStatus::Accepted,
+                        MergeGateStatus::CollectingEvidence,
                         gate_evidence_ids,
                     ),
                 },
@@ -4170,7 +4170,11 @@ fn acp_session_merge_gate(
         status,
         required_evidence: acp_session_required_evidence(evidence_ids),
         evidence_ids: evidence_ids.to_vec(),
-        decision: None,
+        decision: if status == MergeGateStatus::CollectingEvidence && !evidence_ids.is_empty() {
+            Some("missing_canonical".to_string())
+        } else {
+            None
+        },
         updated_at: Some(now_timestamp()),
     }
 }
@@ -7054,9 +7058,10 @@ mod tests {
         )));
         assert!(evidence.runtime_events.iter().any(|event| matches!(
             &event.kind,
-            RuntimeEventKind::MergeGateUpdated { gate }
+                RuntimeEventKind::MergeGateUpdated { gate }
                 if gate.gate_id == "gate-acp-session-session_kiro"
-                    && gate.status == MergeGateStatus::Accepted
+                    && gate.status == MergeGateStatus::CollectingEvidence
+                    && gate.decision.as_deref() == Some("missing_canonical")
                     && gate.required_evidence == vec!["acp_turn_end".to_string()]
                     && gate.evidence_ids.iter().any(|id| id.starts_with("acp-tool-tool_1"))
                     && gate.evidence_ids.iter().any(|id| id.starts_with("acp-turn-end-session_kiro"))
@@ -7147,7 +7152,8 @@ mod tests {
                         "acp_turn_end".to_string(),
                     ]
                     && gate.evidence_ids.iter().any(|id| id == &patch_id)
-                    && gate.status == MergeGateStatus::Accepted
+                    && gate.status == MergeGateStatus::CollectingEvidence
+                    && gate.decision.as_deref() == Some("missing_canonical")
         )));
     }
 
@@ -8062,7 +8068,8 @@ mod tests {
             &event.kind,
             RuntimeEventKind::MergeGateUpdated { gate }
                 if gate.gate_id == "gate-acp-session-session_async"
-                    && gate.status == MergeGateStatus::Accepted
+                    && gate.status == MergeGateStatus::CollectingEvidence
+                    && gate.decision.as_deref() == Some("missing_canonical")
                     && gate.evidence_ids.iter().any(|id| id.starts_with("acp-turn-end-session_async"))
         )));
     }

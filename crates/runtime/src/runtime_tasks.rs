@@ -194,8 +194,8 @@ impl SessionEngine {
     }
 }
 
-fn now_millis() -> u128 {
-    u128::from(now_timestamp()) * 1000
+fn now_millis() -> u64 {
+    now_timestamp().saturating_mul(1000)
 }
 
 fn first_line(input: &str) -> String {
