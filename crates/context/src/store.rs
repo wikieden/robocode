@@ -214,7 +214,7 @@ impl ContextStore {
         let root = root.as_ref().to_path_buf();
         fs::create_dir_all(root.join("blobs"))?;
         let metadata_path = root.join("context-items.jsonl");
-        let handles = load_metadata(&metadata_path)?;
+        let handles = load_metadata_locked(&metadata_path)?;
         Ok(Self {
             root,
             metadata_path,
@@ -266,12 +266,7 @@ impl ContextStore {
                 handle_id: handle.handle_id.clone(),
             });
         }
-        let record =
-            self.handles
-                .get(&handle.handle_id)
-                .ok_or_else(|| ContextError::MissingHandle {
-                    handle_id: handle.handle_id.clone(),
-                })?;
+        let record = self.lookup_record(handle)?;
         if record.handle.scope != *scope {
             return Err(ContextError::ScopeDenied {
                 handle_id: handle.handle_id.clone(),
@@ -302,6 +297,18 @@ impl ContextStore {
             });
         }
         Ok(bytes)
+    }
+
+    fn lookup_record(&self, handle: &ContextHandleRecord) -> Result<MetadataRecord, ContextError> {
+        if let Some(record) = self.handles.get(&handle.handle_id) {
+            return Ok(record.clone());
+        }
+        let mut refreshed = load_metadata_locked(&self.metadata_path)?;
+        refreshed
+            .remove(&handle.handle_id)
+            .ok_or_else(|| ContextError::MissingHandle {
+                handle_id: handle.handle_id.clone(),
+            })
     }
 
     pub fn blob_count(&self) -> Result<usize, ContextError> {
@@ -361,7 +368,7 @@ impl ContextStore {
         let blob_path = self.blob_path(content_sha256);
         let parent = blob_path.parent().expect("blob path has parent");
         fs::create_dir_all(parent)?;
-        let _blob_lock = lock_file(&parent.join("blob-write.lock"))?;
+        let _blob_lock = lock_file_exclusive(&parent.join("blob-write.lock"))?;
         if blob_path.exists() {
             return verify_blob_hash(&blob_path, content_sha256);
         }
@@ -461,7 +468,7 @@ fn append_metadata(path: &Path, record: &MetadataRecord) -> Result<(), ContextEr
     payload.push('\n');
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
-    let _lock = lock_file(&parent.join("context-items.lock"))?;
+    let _lock = lock_file_exclusive(&parent.join("context-items.lock"))?;
     let mut file = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -473,7 +480,7 @@ fn append_metadata(path: &Path, record: &MetadataRecord) -> Result<(), ContextEr
     Ok(())
 }
 
-fn lock_file(path: &Path) -> Result<fs::File, ContextError> {
+fn lock_file_exclusive(path: &Path) -> Result<fs::File, ContextError> {
     let lock = fs::OpenOptions::new()
         .create(true)
         .read(true)
@@ -481,6 +488,23 @@ fn lock_file(path: &Path) -> Result<fs::File, ContextError> {
         .open(path)?;
     lock.lock_exclusive()?;
     Ok(lock)
+}
+
+fn lock_file_shared(path: &Path) -> Result<fs::File, ContextError> {
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(path)?;
+    lock.lock_shared()?;
+    Ok(lock)
+}
+
+fn load_metadata_locked(path: &Path) -> Result<HashMap<String, MetadataRecord>, ContextError> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let _lock = lock_file_shared(&parent.join("context-items.lock"))?;
+    load_metadata(path)
 }
 
 fn load_metadata(path: &Path) -> Result<HashMap<String, MetadataRecord>, ContextError> {
@@ -600,15 +624,19 @@ fn verify_blob_hash(path: &Path, expected: &str) -> Result<(), ContextError> {
 fn sync_directory(path: &Path) -> Result<(), ContextError> {
     match fs::File::open(path).and_then(|dir| dir.sync_all()) {
         Ok(()) => Ok(()),
-        Err(err)
-            if matches!(
-                err.kind(),
-                std::io::ErrorKind::InvalidInput | std::io::ErrorKind::PermissionDenied
-            ) =>
-        {
-            Ok(())
-        }
+        Err(err) if directory_sync_error_is_unsupported(&err) => Ok(()),
         Err(err) => Err(ContextError::Io(err)),
+    }
+}
+
+fn directory_sync_error_is_unsupported(err: &std::io::Error) -> bool {
+    match err.kind() {
+        std::io::ErrorKind::InvalidInput => true,
+        // Some non-Unix platforms do not expose syncable directory handles.
+        // Unix PermissionDenied is durability-relevant and must propagate.
+        #[cfg(windows)]
+        std::io::ErrorKind::PermissionDenied => true,
+        _ => false,
     }
 }
 
@@ -720,6 +748,31 @@ mod tests {
                 .unwrap(),
             bytes
         );
+    }
+
+    #[test]
+    fn stale_reader_refreshes_metadata_on_retrieve_miss() {
+        let root = temp_dir("stale-reader-refresh");
+        let stale_reader = ContextStore::open(&root).unwrap();
+        let mut writer = ContextStore::open(&root).unwrap();
+        let stored = writer
+            .put(ContextPutRequest::task(
+                "task-1",
+                ContextContentKind::Text,
+                b"from another store",
+            ))
+            .unwrap();
+
+        assert_eq!(
+            stale_reader
+                .retrieve(&stored.handle, &ContextScope::Task("task-1".into()))
+                .unwrap(),
+            b"from another store"
+        );
+        assert!(matches!(
+            stale_reader.retrieve(&stored.handle, &ContextScope::Task("task-2".into())),
+            Err(ContextError::ScopeDenied { .. })
+        ));
     }
 
     #[test]
@@ -1093,6 +1146,15 @@ mod tests {
             Err(ContextError::HashMismatch { .. })
         ));
         assert!(temp_blob_paths(&root).is_empty());
+    }
+
+    #[test]
+    fn directory_sync_error_classification_does_not_swallow_permission_denied() {
+        let permission_denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let invalid_input = std::io::Error::from(std::io::ErrorKind::InvalidInput);
+
+        assert!(!directory_sync_error_is_unsupported(&permission_denied));
+        assert!(directory_sync_error_is_unsupported(&invalid_input));
     }
 
     #[test]
