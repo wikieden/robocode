@@ -631,7 +631,7 @@ fn runtime_supervisor_runs_agent_task_through_provider_and_merge_gate() {
                 &event.kind,
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.task_id == "task_planner"
-                        && gate.status.is_open() == false
+                        && !gate.status.is_open()
                         && gate.evidence_ids.iter().any(|id| id.contains("task_planner"))
             )
         })
@@ -1801,7 +1801,7 @@ fn runtime_supervisor_accepts_and_rejects_merge_gate_decisions() {
                 &event.kind,
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_planner"
-                        && gate.status.is_open() == false
+                        && !gate.status.is_open()
             )
         })
     });

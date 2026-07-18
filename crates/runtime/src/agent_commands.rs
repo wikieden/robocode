@@ -426,7 +426,7 @@ fn custom_acp_agent_descriptor_from_env() -> Option<AgentPluginDescriptor> {
 }
 
 fn custom_acp_agent_descriptor(command: &str) -> AgentPluginDescriptor {
-    let (program, args) = shell_descriptor_command(&command);
+    let (program, args) = shell_descriptor_command(command);
     AgentPluginDescriptor {
         agent_id: "custom-acp".to_string(),
         display_name: "Custom ACP agent".to_string(),
@@ -672,6 +672,20 @@ struct AcpSessionOptions {
     load_session_id: Option<String>,
     mode_id: Option<String>,
     model_id: Option<String>,
+}
+
+struct AcpSessionPromptRunContext<'a, A, P>
+where
+    A: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    P: FnMut(u32),
+{
+    approver: &'a mut A,
+    log_path: PathBuf,
+    cancel_path: Option<PathBuf>,
+    runtime_event_log_path: Option<PathBuf>,
+    permission_context: PermissionContext,
+    runtime_event_sink: Option<RuntimeEventSink>,
+    on_pid: P,
 }
 
 fn parse_acp_run_args(args: &[String]) -> Result<AcpRunArgs, String> {
@@ -1748,20 +1762,22 @@ fn start_acp_session_job(
             &monitor_agent,
             &monitor_task,
             monitor_session.clone(),
-            &mut background_approver,
-            log_path.clone(),
-            Some(cancel_path.clone()),
-            Some(monitor_runtime_event_path.clone()),
-            PermissionContext::default(),
-            runtime_event_sink,
-            |pid| {
-                if let Ok(mut slot) = pid_slot_for_thread.lock() {
-                    *slot = Some(pid);
-                }
-                let mut pid_record = monitor_record.clone();
-                pid_record.pid = Some(pid);
-                pid_record.updated_at = timestamp_millis();
-                let _ = append_codex_job_record(&monitor_cwd, "pid", &pid_record);
+            AcpSessionPromptRunContext {
+                approver: &mut background_approver,
+                log_path: log_path.clone(),
+                cancel_path: Some(cancel_path.clone()),
+                runtime_event_log_path: Some(monitor_runtime_event_path.clone()),
+                permission_context: PermissionContext::default(),
+                runtime_event_sink,
+                on_pid: |pid| {
+                    if let Ok(mut slot) = pid_slot_for_thread.lock() {
+                        *slot = Some(pid);
+                    }
+                    let mut pid_record = monitor_record.clone();
+                    pid_record.pid = Some(pid);
+                    pid_record.updated_at = timestamp_millis();
+                    let _ = append_codex_job_record(&monitor_cwd, "pid", &pid_record);
+                },
             },
         );
         let was_cancelled = find_codex_job(&monitor_cwd, &monitor_record.id)
@@ -3255,29 +3271,38 @@ fn run_acp_session_prompt_for_agent_with_permissions(
         agent,
         prompt,
         session,
-        approver,
-        log_path,
-        None,
-        None,
-        permission_context,
-        runtime_event_sink,
-        |_| {},
+        AcpSessionPromptRunContext {
+            approver,
+            log_path,
+            cancel_path: None,
+            runtime_event_log_path: None,
+            permission_context,
+            runtime_event_sink,
+            on_pid: |_| {},
+        },
     )
 }
 
-fn run_acp_session_prompt_for_agent_with_log(
+fn run_acp_session_prompt_for_agent_with_log<A, P>(
     cwd: &Path,
     agent: &AgentPluginDescriptor,
     prompt: &str,
     session: AcpSessionOptions,
-    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
-    log_path: PathBuf,
-    cancel_path: Option<PathBuf>,
-    runtime_event_log_path: Option<PathBuf>,
-    permission_context: PermissionContext,
-    runtime_event_sink: Option<RuntimeEventSink>,
-    mut on_pid: impl FnMut(u32),
-) -> Result<AcpSessionPromptEvidence, String> {
+    context: AcpSessionPromptRunContext<'_, A, P>,
+) -> Result<AcpSessionPromptEvidence, String>
+where
+    A: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    P: FnMut(u32),
+{
+    let AcpSessionPromptRunContext {
+        approver,
+        log_path,
+        cancel_path,
+        runtime_event_log_path,
+        permission_context,
+        runtime_event_sink,
+        mut on_pid,
+    } = context;
     let mut log_entries = Vec::new();
     let mut permission_engine = PermissionEngine::new(cwd);
     permission_engine.restore_context(permission_context);
@@ -7776,8 +7801,10 @@ mod tests {
     fn acp_terminal_bridge_respects_plan_mode() {
         let root = temp_root("acp_terminal_plan_mode");
         let mut engine = PermissionEngine::new(&root);
-        let mut context = PermissionContext::default();
-        context.mode = viden_types::PermissionMode::Plan;
+        let context = PermissionContext {
+            mode: viden_types::PermissionMode::Plan,
+            ..Default::default()
+        };
         engine.restore_context(context);
         let mut terminals = AcpTerminalStore::default();
         let approvals = Cell::new(0usize);

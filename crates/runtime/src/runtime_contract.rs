@@ -2092,10 +2092,10 @@ fn parse_unified_diff(diff: &str) -> Result<Vec<PatchFile>, String> {
         }
 
         if let Some(path) = line.strip_prefix("+++ ") {
-            if let Some(file) = current_file.as_mut() {
-                if let Some(path) = path.trim().strip_prefix("b/") {
-                    file.path = path.to_string();
-                }
+            if let Some(file) = current_file.as_mut()
+                && let Some(path) = path.trim().strip_prefix("b/")
+            {
+                file.path = path.to_string();
             }
             continue;
         }
