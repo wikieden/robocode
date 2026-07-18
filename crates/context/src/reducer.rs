@@ -1695,8 +1695,40 @@ fn redact_text(input: &str) -> String {
 }
 
 fn redact_line(line: &str) -> String {
-    let bearer_redacted = redact_bearer(line);
+    let authorization_redacted = redact_authorization(line);
+    let bearer_redacted = redact_bearer(&authorization_redacted);
     redact_assignment(&bearer_redacted)
+}
+
+fn redact_authorization(line: &str) -> String {
+    let lower = line.to_ascii_lowercase();
+    let Some(label_start) = lower.find("authorization") else {
+        return line.to_string();
+    };
+    let mut separator = label_start + "authorization".len();
+    while line[separator..]
+        .chars()
+        .next()
+        .is_some_and(char::is_whitespace)
+    {
+        separator += line[separator..].chars().next().unwrap().len_utf8();
+    }
+    if !matches!(line.as_bytes().get(separator), Some(b':' | b'=')) {
+        return line.to_string();
+    }
+
+    let Some((mut value_start, mut value_end)) = assignment_value_span(line, separator) else {
+        return line.to_string();
+    };
+    let scheme = line[value_start..value_end].to_ascii_lowercase();
+    if matches!(scheme.as_str(), "bearer" | "basic") {
+        let Some((credential_start, credential_end)) = next_value_token(line, value_end) else {
+            return line.to_string();
+        };
+        value_start = credential_start;
+        value_end = credential_end;
+    }
+    replace_redacted_value(line, value_start, value_end)
 }
 
 fn redact_bearer(line: &str) -> String {
@@ -1711,33 +1743,164 @@ fn redact_bearer(line: &str) -> String {
 }
 
 fn redact_assignment(line: &str) -> String {
-    for separator in ['=', ':'] {
-        if let Some(index) = line.find(separator) {
-            let label = line[..index].trim();
-            if is_secret_label(label) {
-                let prefix = &line[..=index];
-                let quote = line[index + 1..]
-                    .chars()
-                    .find(|character| *character == '"' || *character == '\'');
-                return match quote {
-                    Some(character) => format!("{prefix} {character}[REDACTED]{character}"),
-                    None => format!("{prefix} [REDACTED]"),
-                };
-            }
+    let mut output = line.to_string();
+    let mut search_start = 0;
+    while let Some((offset, separator)) = output[search_start..]
+        .char_indices()
+        .find(|(_, character)| matches!(character, '=' | ':'))
+    {
+        let separator_index = search_start + offset;
+        let Some(label) = assignment_label(&output, separator_index, separator) else {
+            search_start = separator_index + separator.len_utf8();
+            continue;
+        };
+        if label == "authorization" {
+            search_start = separator_index + separator.len_utf8();
+            continue;
+        }
+        if !is_secret_label(&label) {
+            search_start = separator_index + separator.len_utf8();
+            continue;
+        }
+        let Some((value_start, value_end)) = assignment_value_span(&output, separator_index) else {
+            search_start = separator_index + separator.len_utf8();
+            continue;
+        };
+        if &output[value_start..value_end] == "[REDACTED]" {
+            search_start = value_end;
+            continue;
+        }
+        output.replace_range(value_start..value_end, "[REDACTED]");
+        search_start = value_start + "[REDACTED]".len();
+    }
+    output
+}
+
+fn assignment_label(line: &str, separator_index: usize, separator: char) -> Option<String> {
+    if separator == ':' && looks_like_typed_declaration(&line[..separator_index]) {
+        return None;
+    }
+    let direct = normalized_label_before(line, separator_index)?;
+    if separator == '='
+        && !is_secret_label(&direct)
+        && let Some(type_separator) = line[..separator_index].rfind(':')
+    {
+        let typed_label = normalized_label_before(line, type_separator)?;
+        if is_secret_label(&typed_label) {
+            return Some(typed_label);
         }
     }
-    line.to_string()
+    Some(direct)
+}
+
+fn looks_like_typed_declaration(prefix: &str) -> bool {
+    let trimmed = prefix.trim_start_matches(|character: char| {
+        character.is_whitespace() || matches!(character, '+' | '-' | 'L')
+    });
+    matches!(
+        trimmed.split_ascii_whitespace().next(),
+        Some("const" | "static" | "let")
+    )
+}
+
+fn normalized_label_before(line: &str, end: usize) -> Option<String> {
+    let mut token_end = end;
+    while let Some(character) = line[..token_end].chars().next_back() {
+        if character.is_whitespace() || matches!(character, '"' | '\'') {
+            token_end -= character.len_utf8();
+        } else {
+            break;
+        }
+    }
+    let mut token_start = token_end;
+    while let Some(character) = line[..token_start].chars().next_back() {
+        if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
+            token_start -= character.len_utf8();
+        } else {
+            break;
+        }
+    }
+    let label = line[token_start..token_end].trim_matches('-');
+    (!label.is_empty()).then(|| label.to_ascii_lowercase().replace('-', "_"))
+}
+
+fn assignment_value_span(line: &str, separator_index: usize) -> Option<(usize, usize)> {
+    let mut value_start = separator_index + 1;
+    while line[value_start..]
+        .chars()
+        .next()
+        .is_some_and(char::is_whitespace)
+    {
+        value_start += line[value_start..].chars().next()?.len_utf8();
+    }
+    let first = line[value_start..].chars().next()?;
+    if matches!(first, '"' | '\'') {
+        let content_start = value_start + first.len_utf8();
+        let mut escaped = false;
+        for (offset, character) in line[content_start..].char_indices() {
+            if character == first && !escaped {
+                return Some((content_start, content_start + offset));
+            }
+            escaped = character == '\\' && !escaped;
+            if character != '\\' {
+                escaped = false;
+            }
+        }
+        return Some((content_start, line.len()));
+    }
+    let value_end = line[value_start..]
+        .find(|character: char| {
+            character.is_whitespace() || matches!(character, ',' | ';' | ')' | ']' | '}')
+        })
+        .map_or(line.len(), |offset| value_start + offset);
+    (value_start < value_end).then_some((value_start, value_end))
+}
+
+fn next_value_token(line: &str, after: usize) -> Option<(usize, usize)> {
+    let mut start = after;
+    while line[start..]
+        .chars()
+        .next()
+        .is_some_and(char::is_whitespace)
+    {
+        start += line[start..].chars().next()?.len_utf8();
+    }
+    let end = line[start..]
+        .find(|character: char| character.is_whitespace() || matches!(character, ',' | ';'))
+        .map_or(line.len(), |offset| start + offset);
+    (start < end).then_some((start, end))
+}
+
+fn replace_redacted_value(line: &str, start: usize, end: usize) -> String {
+    format!("{}[REDACTED]{}", &line[..start], &line[end..])
 }
 
 fn is_secret_label(label: &str) -> bool {
-    let lower = label.to_ascii_lowercase();
-    lower.contains("authorization")
-        || lower.contains("password")
-        || lower.contains("secret")
-        || lower.contains("api_key")
-        || lower.contains("apikey")
-        || lower.ends_with("_token")
-        || lower.contains("token")
+    let normalized = label.to_ascii_lowercase().replace('-', "_");
+    matches!(
+        normalized.as_str(),
+        "authorization"
+            | "password"
+            | "passwd"
+            | "secret"
+            | "api_key"
+            | "apikey"
+            | "token"
+            | "api_token"
+            | "access_token"
+            | "auth_token"
+            | "bearer_token"
+            | "refresh_token"
+            | "credential"
+            | "credentials"
+            | "client_credential"
+            | "client_credentials"
+            | "client_secret"
+    ) || normalized.ends_with("_password")
+        || normalized.ends_with("_secret")
+        || normalized.ends_with("_api_key")
+        || normalized.ends_with("_credential")
+        || normalized.ends_with("_credentials")
 }
 
 fn push_unique(lines: &mut Vec<String>, seen: &mut HashSet<String>, line: String) {
@@ -2485,7 +2648,7 @@ mod tests {
             "struct Worker;\n\
              fn target(value: i32) -> i32 {\n\
              fn caller() {\n\
-             L6:     let password = \"[REDACTED]\"\n\
+             L6:     let password = \"[REDACTED]\";\n\
              L7:     let result = target(1);\n\
              L8:     let target_suffix = result;"
         );
@@ -2822,6 +2985,104 @@ mod tests {
     }
 
     #[test]
+    fn token_metrics_are_not_redacted_across_text_routes() {
+        let metrics = "total_tokens=11 max_output_tokens=12 token_count=13 tokens_per_second=14 input_tokens=15 output_tokens=16";
+        let code_policy = ReductionPolicy {
+            selected_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            ..ReductionPolicy::default()
+        };
+        let cases = [
+            (
+                ContextContentKind::Log,
+                format!("$ report {metrics}\n"),
+                ReductionPolicy::default(),
+            ),
+            (
+                ContextContentKind::Diff,
+                format!("diff --git a/a b/a\n@@ -1 +1 @@\n+{metrics}\n"),
+                ReductionPolicy::default(),
+            ),
+            (
+                ContextContentKind::Code,
+                format!("let metrics = ({metrics});\n"),
+                code_policy,
+            ),
+            (
+                ContextContentKind::Text,
+                format!("decision: metrics {metrics}\n"),
+                ReductionPolicy::default(),
+            ),
+        ];
+
+        for (kind, input, policy) in cases {
+            let view = reduce(kind, input.as_bytes(), &policy).unwrap();
+
+            for metric in metrics.split_ascii_whitespace() {
+                assert!(view.content.contains(metric), "{kind:?}: {metric}");
+            }
+            assert!(!view.content.contains("[REDACTED]"), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn sensitive_assignments_redact_only_values_and_keep_suffix_context() {
+        let code_policy = ReductionPolicy {
+            selected_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            ..ReductionPolicy::default()
+        };
+        let cases = [
+            (
+                ContextContentKind::Log,
+                "ERROR auth_token=log-secret at src/lib.rs:9 retryable\n".to_string(),
+                ReductionPolicy::default(),
+                "auth_token=[REDACTED] at src/lib.rs:9 retryable",
+                "log-secret",
+            ),
+            (
+                ContextContentKind::Diff,
+                "diff --git a/.env b/.env\n@@ -1 +1 @@\n+api-token=diff-secret --retry=2\n"
+                    .to_string(),
+                ReductionPolicy::default(),
+                "+api-token=[REDACTED] --retry=2",
+                "diff-secret",
+            ),
+            (
+                ContextContentKind::Code,
+                "let api_token = \"code-secret\"; call();\n".to_string(),
+                code_policy,
+                "api_token = \"[REDACTED]\"; call();",
+                "code-secret",
+            ),
+            (
+                ContextContentKind::Text,
+                "decision: credentials='text-secret' continue=yes\n".to_string(),
+                ReductionPolicy::default(),
+                "credentials='[REDACTED]' continue=yes",
+                "text-secret",
+            ),
+            (
+                ContextContentKind::Log,
+                "ERROR Authorization: Bearer bearer-secret at src/auth.rs:4\n".to_string(),
+                ReductionPolicy::default(),
+                "Authorization: Bearer [REDACTED] at src/auth.rs:4",
+                "bearer-secret",
+            ),
+        ];
+
+        for (kind, input, policy, expected, raw_secret) in cases {
+            let view = reduce(kind, input.as_bytes(), &policy).unwrap();
+            let serialized = serde_json::to_string(&view).unwrap();
+
+            assert!(
+                view.content.contains(expected),
+                "{kind:?}: {}",
+                view.content
+            );
+            assert!(!serialized.contains(raw_secret), "{kind:?}");
+        }
+    }
+
+    #[test]
     fn json_resource_limits_are_deterministic_and_non_leaking() {
         let input_policy = ReductionPolicy {
             max_input_bytes: 8,
@@ -2931,7 +3192,7 @@ mod tests {
 
             assert_eq!(
                 view.content,
-                "$ cargo test -p demo --token= [REDACTED]\n\
+                "$ cargo test -p demo --token=[REDACTED]\n\
                  at src/lib.rs:42:17\n\
                  ERROR first failure\n\
                  error[E0308]: mismatched types\n\
