@@ -14,7 +14,7 @@ use viden_types::{
 };
 use viden_workflows::stores::WorkflowStore;
 
-use crate::{RuntimeSupervisor, SessionEngine};
+use crate::{RuntimeSupervisor, SessionEngine, runtime_contract::set_retrieve_context_test_hook};
 
 use super::{SequenceProvider, temp_dir};
 
@@ -215,6 +215,110 @@ fn runtime_supervisor_cancels_active_provider_turn_and_keeps_worker_alive() {
             RuntimeEventKind::SnapshotUpdated { snapshot }
                 if snapshot.work_mode == WorkMode::Plan
         )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_keeps_input_responsive_during_context_retrieval() {
+    let cwd = temp_dir("runtime_supervisor_context_retrieve_cwd");
+    let home = temp_dir("runtime_supervisor_context_retrieve_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .handle_runtime_command(
+            "cmd_build_context",
+            RuntimeCommand::SubmitUserInput {
+                content: "retrieval worker body".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let handle_id = engine
+        .runtime_view_state()
+        .context_handles
+        .first()
+        .unwrap()
+        .handle_id
+        .clone();
+    let entered = Arc::new(AtomicBool::new(false));
+    let entered_for_hook = Arc::clone(&entered);
+    set_retrieve_context_test_hook(Some(Arc::new(move |control| {
+        entered_for_hook.store(true, Ordering::SeqCst);
+        while control.check_cancelled().is_ok() {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    })));
+
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "cmd_retrieve_context",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate blocked worker".to_string(),
+            },
+        )
+        .unwrap();
+    wait_until(|| entered.load(Ordering::SeqCst));
+    supervisor
+        .send_command(
+            "cmd_follow_up",
+            RuntimeCommand::QueueFollowUp {
+                content: "queued while retrieval is blocked".to_string(),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command("cmd_cancel_retrieval", RuntimeCommand::CancelActiveTurn)
+        .unwrap();
+
+    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        let accepted_follow_up = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_follow_up"
+            )
+        });
+        let accepted_cancel = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_cancel_retrieval"
+            )
+        });
+        let cancelled = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::Error { error } if error.message.contains("Model request cancelled")
+            )
+        });
+        accepted_follow_up && accepted_cancel && cancelled
+    });
+    set_retrieve_context_test_hook(None);
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::InputQueued { input }
+                if input.content_preview.contains("queued while retrieval is blocked")
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_cancel_retrieval"
+        )
+    }));
+    assert!(events.iter().all(|event| match &event.kind {
+        RuntimeEventKind::ContextRetrieved { .. } => false,
+        RuntimeEventKind::ToolCallFinished { name, .. } if name == "context_read" => false,
+        _ => true,
     }));
 }
 

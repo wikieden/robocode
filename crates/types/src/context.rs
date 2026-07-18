@@ -59,9 +59,25 @@ pub struct ContextRetrievalRecord {
     pub handle_id: String,
     pub item_id: String,
     pub view_id: Option<String>,
+    #[serde(default = "default_context_retrieval_scope")]
+    pub scope: ContextScope,
+    #[serde(default)]
+    pub byte_count: u64,
+    #[serde(default)]
+    pub token_count: u64,
+    #[serde(default = "default_context_retrieval_reason_category")]
+    pub reason_category: String,
     pub reason: String,
     pub requester: String,
     pub retrieved_at: Option<u64>,
+}
+
+fn default_context_retrieval_scope() -> ContextScope {
+    ContextScope::Task("unknown".to_string())
+}
+
+fn default_context_retrieval_reason_category() -> String {
+    "retrieve".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

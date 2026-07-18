@@ -13,7 +13,10 @@ use viden_types::{
     RuntimeEvent, RuntimeEventKind, fresh_id,
 };
 
-use crate::{SessionEngine, runtime_contract::redacted_runtime_command_for_event};
+use crate::{
+    SessionEngine,
+    runtime_contract::{execute_context_retrieval_job, redacted_runtime_command_for_event},
+};
 
 enum SupervisorMessage {
     Command {
@@ -206,6 +209,17 @@ fn run_supervisor_worker(
                         &pending_approvals,
                     );
                 }
+                RuntimeCommand::RetrieveContext { handle_id, reason } => {
+                    run_supervised_context_retrieval(
+                        &mut engine,
+                        command_id,
+                        handle_id,
+                        reason,
+                        &event_sender,
+                        &sequence,
+                        &active_control,
+                    );
+                }
                 command => {
                     let mut approver = |_prompt: PermissionPrompt| ApprovalResponse {
                         approved: false,
@@ -222,6 +236,65 @@ fn run_supervisor_worker(
             },
         }
     }
+}
+
+fn run_supervised_context_retrieval(
+    engine: &mut SessionEngine,
+    command_id: String,
+    handle_id: String,
+    reason: String,
+    event_sender: &Sender<RuntimeEvent>,
+    sequence: &Arc<AtomicU64>,
+    active_control: &Arc<Mutex<Option<ModelRequestControl>>>,
+) {
+    emit_event(
+        event_sender,
+        sequence,
+        RuntimeEventKind::CommandAccepted {
+            command_id,
+            command: redacted_runtime_command_for_event(&RuntimeCommand::RetrieveContext {
+                handle_id: handle_id.clone(),
+                reason: reason.clone(),
+            }),
+        },
+    );
+    let mut approver = |_prompt: PermissionPrompt| ApprovalResponse {
+        approved: false,
+        feedback: Some("runtime supervisor context retrieval approval is pending".to_string()),
+    };
+    let prepared = match engine.prepare_context_retrieval(&handle_id, &reason, &mut approver) {
+        Ok(prepared) => prepared,
+        Err(err) => {
+            emit_event(
+                event_sender,
+                sequence,
+                RuntimeEventKind::CommandRejected {
+                    command_id: "retrieve_context".to_string(),
+                    reason: err,
+                },
+            );
+            return;
+        }
+    };
+    emit_events(event_sender, sequence, prepared.pre_events);
+
+    let control = ModelRequestControl::new();
+    if let Ok(mut slot) = active_control.lock() {
+        *slot = Some(control.clone());
+    }
+    let worker_event_sender = event_sender.clone();
+    let worker_sequence = Arc::clone(sequence);
+    let worker_active_control = Arc::clone(active_control);
+    thread::spawn(move || {
+        let result = execute_context_retrieval_job(prepared.job, &control);
+        if let Ok(mut slot) = worker_active_control.lock() {
+            *slot = None;
+        }
+        match result {
+            Ok(events) => emit_events(&worker_event_sender, &worker_sequence, events),
+            Err(err) => emit_error(&worker_event_sender, &worker_sequence, err),
+        }
+    });
 }
 
 fn run_supervised_agent_task(

@@ -36,6 +36,8 @@ use viden_permissions::PermissionEngine;
 use viden_provider::{ModelProvider, ProviderDescriptor, ProviderHost};
 use viden_session::SessionStore;
 use viden_tools::ToolRegistry;
+#[cfg(test)]
+use viden_types::PermissionRule;
 use viden_types::{
     AgentDagRecord, AgentTaskRecord, ContextBundleRecord, EvidenceView, MemoryEntry,
     MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode, RuntimeEvent,
@@ -282,6 +284,21 @@ impl SessionEngine {
 
     pub(crate) fn runtime_event_sink(&self) -> Option<RuntimeEventSink> {
         self.runtime_event_sink.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn add_permission_rule_for_test(&mut self, rule: PermissionRule) {
+        self.permissions.add_rule(rule);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn clear_permission_rules_for_test(&mut self) {
+        let mode = self.permissions.mode();
+        self.permissions
+            .restore_context(viden_permissions::PermissionContext {
+                mode,
+                ..viden_permissions::PermissionContext::default()
+            });
     }
 
     pub fn session_id(&self) -> &str {

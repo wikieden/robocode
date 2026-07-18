@@ -4,11 +4,13 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
+use viden_context::{ContextEngine, ContextPutRequest};
 use viden_provider::ModelProvider;
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, ApprovalResponse, EvidenceView, ModelEvent, ModelRequest,
-    PermissionLevel, RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall,
-    ToolInput, WorkMode,
+    AgentDagTaskSpec, AgentRole, ApprovalResponse, ContextContentKind, ContextHandleRecord,
+    ContextScope, EvidenceView, ModelEvent, ModelRequest, PermissionBehavior, PermissionLevel,
+    PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand, RuntimeEvent,
+    RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, WorkMode,
 };
 
 use crate::{EngineEvent, SessionEngine, context_bundle::ContextBuildMode};
@@ -706,51 +708,489 @@ fn command_accepted_redacts_start_agent_dag_secrets_and_paths() {
 }
 
 #[test]
-fn runtime_command_bus_rejects_retrieve_context_without_state_mutation() {
+fn retrieve_context_returns_safe_bytes_and_event_metadata() {
     let cwd = temp_dir("runtime_command_retrieve_context_cwd");
     let home = temp_dir("runtime_command_retrieve_context_home");
-    let provider = Box::new(SequenceProvider::new(vec![]));
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let initial_view = engine.runtime_view_state();
     let mut approver = |_prompt| ApprovalResponse {
         approved: true,
         feedback: None,
     };
+    let safe_content = "retrieve-context-safe-body";
+    engine
+        .handle_runtime_command(
+            "cmd_build_context",
+            RuntimeCommand::SubmitUserInput {
+                content: safe_content.to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let view = engine.runtime_view_state();
+    let context = view.context.as_ref().expect("runtime context bundle");
+    let handle = context
+        .sources
+        .iter()
+        .find(|source| source.name == "user-task")
+        .and_then(|source| {
+            context_handle_from_source(source, &ContextScope::Task(context.task_id.clone()))
+        })
+        .expect("user-task context handle");
 
     let events = engine
         .handle_runtime_command(
             "cmd_retrieve_context",
             RuntimeCommand::RetrieveContext {
-                handle_id: "ctxh-runtime-1".to_string(),
-                reason: "hydrate context for review".to_string(),
+                handle_id: handle.handle_id.clone(),
+                reason: "hydrate context for review with sk-test-secret in reason".to_string(),
             },
             &mut approver,
         )
         .unwrap();
 
-    assert_eq!(events.len(), 1);
-    assert!(matches!(
-        &events[0].kind,
-        RuntimeEventKind::CommandRejected { command_id, reason }
-            if command_id == "cmd_retrieve_context"
-                && reason == "runtime command is declared but not implemented in core yet"
-    ));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ToolCallFinished {
+                name,
+                success: true,
+                evidence: Some(evidence),
+                ..
+            } if name == "context_read" && evidence.summary.contains(safe_content)
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ContextRetrieved { retrieval }
+                if retrieval.handle_id == handle.handle_id
+                    && retrieval.item_id == handle.item_id
+                    && retrieval.scope == handle.scope
+                    && retrieval.byte_count == safe_content.len() as u64
+                    && retrieval.token_count > 0
+                    && retrieval.reason_category == "hydrate"
+                    && !retrieval.reason.contains("sk-test-secret")
+        )
+    }));
+    assert!(
+        !serde_json::to_string(&events)
+            .unwrap()
+            .contains("sk-test-secret")
+    );
 
-    let after_view = engine.runtime_view_state();
-    assert_eq!(after_view.snapshot, initial_view.snapshot);
-    assert!(after_view.queued_inputs.is_empty());
-    assert!(after_view.context_handles.is_empty());
-    assert!(after_view.context_retrievals.is_empty());
-    assert_eq!(after_view.cost_ledger.total_tokens, 0);
-
-    let mut projected = initial_view;
+    let mut projected = RuntimeViewState::new(engine.runtime_snapshot());
     for event in &events {
         projected.apply_event(event);
     }
-    assert!(projected.last_command.is_none());
-    assert_eq!(projected.errors.len(), 1);
-    assert!(projected.context_handles.is_empty());
-    assert!(projected.context_retrievals.is_empty());
+    assert_eq!(projected.context_retrievals.len(), 1);
+}
+
+#[test]
+fn retrieve_context_denies_unknown_and_cross_scope_handles_before_reading_bytes() {
+    let cwd = temp_dir("runtime_command_retrieve_context_scope_cwd");
+    let home = temp_dir("runtime_command_retrieve_context_scope_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let context_root = cwd.join(".viden/private-context-test");
+    engine.set_context_engine_root_for_test(context_root.clone());
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .handle_runtime_command(
+            "cmd_build_context",
+            RuntimeCommand::SubmitUserInput {
+                content: "owned task context".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let known_handle = engine
+        .runtime_view_state()
+        .context_handles
+        .first()
+        .cloned()
+        .expect("known runtime handle");
+    let mut unknown_cross_scope = known_handle;
+    unknown_cross_scope.handle_id = "ctxh-cross-scope".to_string();
+    unknown_cross_scope.scope = ContextScope::Task("task-other".to_string());
+    {
+        let mut store = ContextEngine::open(&context_root).unwrap();
+        let stored = store
+            .store(ContextPutRequest {
+                scope: unknown_cross_scope.scope.clone(),
+                kind: ContextContentKind::Text,
+                content: b"cross scope bytes must never be read",
+                evidence_id: None,
+            })
+            .unwrap();
+        unknown_cross_scope.item_id = stored.handle.item_id;
+        unknown_cross_scope.content_sha256 = stored.handle.content_sha256;
+    }
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_retrieve_cross",
+            RuntimeCommand::RetrieveContext {
+                handle_id: unknown_cross_scope.handle_id,
+                reason: "hydrate foreign task".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let json = serde_json::to_string(&events).unwrap();
+    assert!(!json.contains("cross scope bytes"));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { reason, .. }
+                if reason.contains("not known to the current runtime context")
+        )
+    }));
+    assert!(events.iter().all(|event| {
+        !matches!(
+            event.kind,
+            RuntimeEventKind::ContextRetrieved { .. } | RuntimeEventKind::ToolCallFinished { .. }
+        )
+    }));
+}
+
+#[test]
+fn retrieve_context_uses_permission_policy_for_deny_ask_approve_and_plan_read() {
+    let cwd = temp_dir("runtime_command_retrieve_context_permissions_cwd");
+    let home = temp_dir("runtime_command_retrieve_context_permissions_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut allow = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .handle_runtime_command(
+            "cmd_build_context",
+            RuntimeCommand::SubmitUserInput {
+                content: "permission gated context".to_string(),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    let handle_id = engine
+        .runtime_view_state()
+        .context_handles
+        .first()
+        .unwrap()
+        .handle_id
+        .clone();
+
+    engine.add_permission_rule_for_test(PermissionRule {
+        source: PermissionRuleSource::Session,
+        rule_behavior: PermissionBehavior::Deny,
+        rule_value: PermissionRuleValue {
+            tool_name: "context_read".to_string(),
+            rule_content: None,
+        },
+    });
+    let denied = engine
+        .handle_runtime_command(
+            "cmd_retrieve_denied",
+            RuntimeCommand::RetrieveContext {
+                handle_id: handle_id.clone(),
+                reason: "hydrate denied".to_string(),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    assert!(denied.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { reason, .. }
+                if reason.contains("Denied by permission rule")
+        )
+    }));
+    assert!(
+        denied
+            .iter()
+            .all(|event| !matches!(event.kind, RuntimeEventKind::ContextRetrieved { .. }))
+    );
+
+    engine.clear_permission_rules_for_test();
+    engine.add_permission_rule_for_test(PermissionRule {
+        source: PermissionRuleSource::Session,
+        rule_behavior: PermissionBehavior::Ask,
+        rule_value: PermissionRuleValue {
+            tool_name: "context_read".to_string(),
+            rule_content: None,
+        },
+    });
+    let mut saw_prompt = false;
+    let mut approve = |prompt: viden_types::PermissionPrompt| {
+        saw_prompt = prompt.tool_name == "context_read";
+        ApprovalResponse {
+            approved: true,
+            feedback: None,
+        }
+    };
+    let approved = engine
+        .handle_runtime_command(
+            "cmd_retrieve_approved",
+            RuntimeCommand::RetrieveContext {
+                handle_id: handle_id.clone(),
+                reason: "hydrate approved".to_string(),
+            },
+            &mut approve,
+        )
+        .unwrap();
+    assert!(saw_prompt);
+    assert!(
+        approved
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ContextRetrieved { .. }))
+    );
+
+    engine.clear_permission_rules_for_test();
+    engine
+        .handle_runtime_command(
+            "cmd_plan_mode",
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+            &mut allow,
+        )
+        .unwrap();
+    let plan_read = engine
+        .handle_runtime_command(
+            "cmd_retrieve_plan",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate plan read".to_string(),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    assert!(
+        plan_read
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ContextRetrieved { .. }))
+    );
+}
+
+#[test]
+fn retrieve_context_redacts_secret_content_before_tool_result_and_events() {
+    let cwd = temp_dir("runtime_command_retrieve_context_secret_cwd");
+    let home = temp_dir("runtime_command_retrieve_context_secret_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .handle_runtime_command(
+            "cmd_build_context",
+            RuntimeCommand::SubmitUserInput {
+                content: "api_key=raw-secret-value keep-safe-context".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let handle_id = engine
+        .runtime_view_state()
+        .context_handles
+        .first()
+        .unwrap()
+        .handle_id
+        .clone();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_retrieve_secret",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate secret-bearing context".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let json = serde_json::to_string(&events).unwrap();
+    assert!(!json.contains("raw-secret-value"));
+    assert!(json.contains("keep-safe-context"));
+}
+
+#[test]
+fn retrieve_context_reports_expired_missing_item_missing_blob_and_hash_mismatch_safely() {
+    let cwd = temp_dir("runtime_command_retrieve_context_errors_cwd");
+    let home = temp_dir("runtime_command_retrieve_context_errors_home");
+    let context_root = cwd.join(".viden/private-context-test");
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let mut expired = engine_with_single_context(&cwd, &home, &context_root, "expired bytes");
+    let expired_handle = expired.runtime_view_state().context_handles[0].clone();
+    expired.mutate_context_handle_for_test(&expired_handle.handle_id, |handle| {
+        handle.expires_at = Some(1);
+    });
+    let expired_events = expired
+        .handle_runtime_command(
+            "cmd_expired",
+            RuntimeCommand::RetrieveContext {
+                handle_id: expired_handle.handle_id.clone(),
+                reason: "hydrate expired".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert!(expired_events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { reason, .. } if reason.contains("expired")
+        )
+    }));
+
+    let mut dag_mismatch = engine_with_single_context(&cwd, &home, &context_root, "dag bytes");
+    let mismatch_handle = dag_mismatch.runtime_view_state().context_handles[0].clone();
+    dag_mismatch.mutate_context_handle_for_test(&mismatch_handle.handle_id, |handle| {
+        handle.scope = ContextScope::Dag("dag-other".to_string());
+    });
+    let mismatch_events = dag_mismatch
+        .handle_runtime_command(
+            "cmd_dag_mismatch",
+            RuntimeCommand::RetrieveContext {
+                handle_id: mismatch_handle.handle_id.clone(),
+                reason: "hydrate mismatch".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert!(mismatch_events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { reason, .. }
+                if reason.contains("outside the active context scope")
+        )
+    }));
+
+    let mut missing_item = engine_with_single_context(&cwd, &home, &context_root, "missing item");
+    let missing_item_handle = missing_item.runtime_view_state().context_handles[0].clone();
+    missing_item.remove_context_item_for_test(&missing_item_handle.item_id);
+    let missing_item_events = missing_item
+        .handle_runtime_command(
+            "cmd_missing_item",
+            RuntimeCommand::RetrieveContext {
+                handle_id: missing_item_handle.handle_id.clone(),
+                reason: "hydrate missing item".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert!(missing_item_events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { reason, .. }
+                if reason.contains("item") && reason.contains("missing")
+        )
+    }));
+
+    let mut missing_blob = engine_with_single_context(&cwd, &home, &context_root, "missing blob");
+    let missing_blob_handle = missing_blob.runtime_view_state().context_handles[0].clone();
+    fs::remove_file(context_blob_path(
+        &context_root,
+        &missing_blob_handle.content_sha256,
+    ))
+    .unwrap();
+    let missing_blob_events = missing_blob
+        .handle_runtime_command(
+            "cmd_missing_blob",
+            RuntimeCommand::RetrieveContext {
+                handle_id: missing_blob_handle.handle_id.clone(),
+                reason: "hydrate missing blob".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let missing_blob_json = serde_json::to_string(&missing_blob_events).unwrap();
+    assert!(!missing_blob_json.contains(context_root.to_string_lossy().as_ref()));
+    assert!(missing_blob_events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { reason, .. }
+                if reason.contains("blob") && reason.contains("not")
+        )
+    }));
+
+    let mut hash_mismatch = engine_with_single_context(&cwd, &home, &context_root, "hash before");
+    let hash_handle = hash_mismatch.runtime_view_state().context_handles[0].clone();
+    fs::write(
+        context_blob_path(&context_root, &hash_handle.content_sha256),
+        b"hash after",
+    )
+    .unwrap();
+    let hash_events = hash_mismatch
+        .handle_runtime_command(
+            "cmd_hash_mismatch",
+            RuntimeCommand::RetrieveContext {
+                handle_id: hash_handle.handle_id,
+                reason: "hydrate hash mismatch".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    assert!(hash_events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { reason, .. } if reason.contains("hash mismatch")
+        )
+    }));
+}
+
+fn context_handle_from_source(
+    source: &viden_types::ContextSourceRecord,
+    scope: &ContextScope,
+) -> Option<ContextHandleRecord> {
+    Some(ContextHandleRecord {
+        handle_id: source.handle_id.clone()?,
+        item_id: source.item_id.clone()?,
+        preferred_view_id: source.view_id.clone(),
+        content_sha256: source.content_sha256.clone()?,
+        scope: scope.clone(),
+        expires_at: None,
+    })
+}
+
+fn engine_with_single_context(
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+    context_root: &std::path::Path,
+    content: &str,
+) -> SessionEngine {
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
+    let mut engine = SessionEngine::new_with_home(cwd, provider, Some(home.to_path_buf())).unwrap();
+    engine.set_context_engine_root_for_test(context_root.to_path_buf());
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .handle_runtime_command(
+            "cmd_build_context",
+            RuntimeCommand::SubmitUserInput {
+                content: content.to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    engine
+}
+
+fn context_blob_path(root: &std::path::Path, content_sha256: &str) -> std::path::PathBuf {
+    root.join("blobs")
+        .join(&content_sha256[..2])
+        .join(content_sha256)
 }
 
 #[test]

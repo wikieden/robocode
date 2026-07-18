@@ -62,6 +62,17 @@ pub trait BuiltinTool: Send + Sync {
     ) -> Result<ToolExecutionOutput, String>;
 }
 
+pub fn context_read_tool_spec() -> ToolSpec {
+    ToolSpec {
+        name: "context_read".to_string(),
+        description: "Read a runtime-owned context handle after scope and permission checks"
+            .to_string(),
+        is_mutating: false,
+        input_schema_hint: "handle_id=<runtime handle>; reason_category=<bounded reason category>"
+            .to_string(),
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct ToolRegistry {
     tools: BTreeMap<String, Arc<dyn BuiltinTool>>,

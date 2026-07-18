@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::sync::{Arc, Mutex, OnceLock};
 use std::{
     collections::BTreeSet,
     fs,
@@ -9,17 +11,20 @@ use crate::context_bundle::{ContextBuildMode, redact_context_summary_for_event};
 use crate::lsp_tools::render_lsp_diagnostics;
 use crate::{EngineEvent, ProviderTelemetry, SessionEngine};
 use viden_config::ProviderConfigUpdate;
+use viden_context::{ContextEngine, ReductionPolicy, reduce};
 use viden_lsp::SemanticProvider;
 use viden_permissions::{PermissionContext, PermissionEngine};
 use viden_provider::ModelRequestControl;
+use viden_tools::context_read_tool_spec;
 use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
-    AgentTaskRecord, AgentTaskStatus, ApprovalRequestView, ApprovalResponse, ContextSourceRecord,
-    EvidenceView, MergeGateRecord, MergeGateStatus, PermissionBehavior, PermissionLevel,
-    PermissionMode, PermissionPrompt, PermissionRule, PermissionRuleSource, PermissionRuleValue,
-    ProviderHealthView, QueuedInputView, RuntimeCommand, RuntimeErrorView, RuntimeEvent,
-    RuntimeEventKind, RuntimeSnapshot, RuntimeViewState, TokenCostView, ToolCallId, WorkMode,
-    fresh_id, now_timestamp, truncate_for_preview,
+    AgentTaskRecord, AgentTaskStatus, ApprovalRequestView, ApprovalResponse, ContextContentKind,
+    ContextHandleRecord, ContextItemRecord, ContextRetrievalRecord, ContextScope,
+    ContextSourceRecord, EvidenceView, MergeGateRecord, MergeGateStatus, PermissionBehavior,
+    PermissionDecision, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
+    PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeSnapshot, RuntimeViewState,
+    TokenCostView, ToolCallId, ToolInput, WorkMode, fresh_id, now_timestamp, truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
@@ -37,6 +42,29 @@ struct RuntimePermissionScope {
     permission_level: PermissionLevel,
     permission_context: PermissionContext,
 }
+
+#[derive(Debug, Clone)]
+pub(crate) struct PreparedContextRetrieval {
+    pub(crate) pre_events: Vec<RuntimeEvent>,
+    pub(crate) job: ContextRetrievalJob,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ContextRetrievalJob {
+    pub(crate) handle: ContextHandleRecord,
+    pub(crate) item: ContextItemRecord,
+    pub(crate) scope: ContextScope,
+    pub(crate) root: PathBuf,
+    pub(crate) reason: String,
+    pub(crate) reason_category: String,
+}
+
+#[cfg(test)]
+type RetrieveContextTestHook = Arc<dyn Fn(&ModelRequestControl) + Send + Sync>;
+
+#[cfg(test)]
+static RETRIEVE_CONTEXT_TEST_HOOK: OnceLock<Mutex<Option<RetrieveContextTestHook>>> =
+    OnceLock::new();
 
 impl QueuedRuntimeInput {
     fn new(content: String) -> Self {
@@ -357,9 +385,13 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
-            RuntimeCommand::CancelActiveTurn
-            | RuntimeCommand::RespondToApproval { .. }
-            | RuntimeCommand::RetrieveContext { .. } => {
+            RuntimeCommand::RetrieveContext { handle_id, reason } => {
+                match self.retrieve_context_for_runtime(&handle_id, &reason, approver) {
+                    Ok(retrieval_events) => append_resequenced(&mut events, retrieval_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
+            RuntimeCommand::CancelActiveTurn | RuntimeCommand::RespondToApproval { .. } => {
                 return Ok(vec![command_rejected(
                     command_id,
                     "runtime command is declared but not implemented in core yet".to_string(),
@@ -383,6 +415,154 @@ impl SessionEngine {
             approver,
             &ModelRequestControl::new(),
         )
+    }
+
+    fn retrieve_context_for_runtime<F>(
+        &mut self,
+        handle_id: &str,
+        reason: &str,
+        approver: &mut F,
+    ) -> Result<Vec<RuntimeEvent>, String>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+    {
+        let prepared = self.prepare_context_retrieval(handle_id, reason, approver)?;
+        let mut events = prepared.pre_events;
+        append_resequenced(
+            &mut events,
+            execute_context_retrieval_job(prepared.job, &ModelRequestControl::new())?,
+        );
+        Ok(events)
+    }
+
+    pub(crate) fn prepare_context_retrieval<F>(
+        &mut self,
+        handle_id: &str,
+        reason: &str,
+        approver: &mut F,
+    ) -> Result<PreparedContextRetrieval, String>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+    {
+        let (handle, item, expected_scope) = self.resolve_current_context_handle(handle_id)?;
+        validate_context_retrieval_scope_and_expiry(&handle, &expected_scope)?;
+        let reason_category = context_retrieval_reason_category(reason);
+        let mut permission_input = ToolInput::new();
+        permission_input.insert("handle_id".to_string(), handle.handle_id.clone());
+        permission_input.insert("reason_category".to_string(), reason_category.clone());
+        let tool_spec = context_read_tool_spec();
+        let mut decision = self.permissions.decide(&tool_spec, &permission_input);
+        let mut events = Vec::new();
+        if let PermissionDecision::Ask(ask) = &decision {
+            let request_id = fresh_id("approval");
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::ApprovalRequested {
+                    approval: approval_request_view(
+                        &request_id,
+                        &PermissionEngine::prompt_for("context_read", ask, &permission_input),
+                    ),
+                },
+            ));
+            let approval = approver(PermissionEngine::prompt_for(
+                "context_read",
+                ask,
+                &permission_input,
+            ));
+            let approved = approval.approved;
+            decision = self.permissions.apply_approval(approval, ask);
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::ApprovalResolved {
+                    request_id,
+                    approved,
+                },
+            ));
+        }
+        match decision {
+            PermissionDecision::Deny(deny) => return Err(deny.message),
+            PermissionDecision::Ask(_) => unreachable!("ask decisions are resolved synchronously"),
+            PermissionDecision::Allow(_) => {}
+        }
+
+        Ok(PreparedContextRetrieval {
+            pre_events: events,
+            job: ContextRetrievalJob {
+                handle,
+                item,
+                scope: expected_scope,
+                root: self.context_engine_root.clone(),
+                reason: redact_command_text(reason),
+                reason_category,
+            },
+        })
+    }
+
+    fn resolve_current_context_handle(
+        &self,
+        handle_id: &str,
+    ) -> Result<(ContextHandleRecord, ContextItemRecord, ContextScope), String> {
+        let Some(context) = &self.last_context_bundle else {
+            return Err("no current runtime context bundle is available".to_string());
+        };
+        if !context
+            .sources
+            .iter()
+            .any(|source| source.handle_id.as_deref() == Some(handle_id))
+        {
+            return Err(format!(
+                "context handle `{}` is not known to the current runtime context",
+                redact_identifier_for_event(handle_id)
+            ));
+        }
+        let view = self.runtime_view_state();
+        let handle = view
+            .context_handles
+            .iter()
+            .find(|handle| handle.handle_id == handle_id)
+            .cloned()
+            .ok_or_else(|| {
+                format!(
+                    "context handle `{}` is missing from runtime view state",
+                    redact_identifier_for_event(handle_id)
+                )
+            })?;
+        let item = view
+            .context_items
+            .iter()
+            .find(|item| item.item_id == handle.item_id)
+            .cloned()
+            .ok_or_else(|| {
+                format!(
+                    "context item for handle `{}` is missing from runtime view state",
+                    redact_identifier_for_event(handle_id)
+                )
+            })?;
+        Ok((handle, item, ContextScope::Task(context.task_id.clone())))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mutate_context_handle_for_test<F>(&mut self, handle_id: &str, mut mutate: F)
+    where
+        F: FnMut(&mut ContextHandleRecord),
+    {
+        for event in &mut self.last_context_runtime_events {
+            if let RuntimeEventKind::ContextViewDerived { handle, .. } = &mut event.kind
+                && handle.handle_id == handle_id
+            {
+                mutate(handle);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn remove_context_item_for_test(&mut self, item_id: &str) {
+        self.last_context_runtime_events.retain(|event| {
+            !matches!(
+                &event.kind,
+                RuntimeEventKind::ContextItemStored { item } if item.item_id == item_id
+            )
+        });
     }
 
     pub(crate) fn process_runtime_input_with_approval_and_control<F>(
@@ -2926,6 +3106,159 @@ fn command_rejected(command_id: String, reason: String) -> RuntimeEvent {
     RuntimeEvent::new(1, RuntimeEventKind::CommandRejected { command_id, reason })
 }
 
+pub(crate) fn execute_context_retrieval_job(
+    job: ContextRetrievalJob,
+    control: &ModelRequestControl,
+) -> Result<Vec<RuntimeEvent>, String> {
+    control.check_cancelled()?;
+    #[cfg(test)]
+    if let Some(hook) = retrieve_context_test_hook() {
+        hook(control);
+    }
+    control.check_cancelled()?;
+    let mut events = Vec::new();
+    events.push(RuntimeEvent::new(
+        next_sequence(&events),
+        RuntimeEventKind::ToolCallStarted {
+            tool_call_id: format!("context-read-{}", job.handle.handle_id),
+            name: "context_read".to_string(),
+            input_preview: format!(
+                "handle_id={} reason_category={}",
+                redact_identifier_for_event(&job.handle.handle_id),
+                job.reason_category
+            ),
+        },
+    ));
+    let bytes = ContextEngine::open(&job.root)
+        .map_err(|err| sanitize_context_error(&err.to_string()))?
+        .retrieve(&job.handle, &job.scope)
+        .map_err(|err| sanitize_context_error(&err.to_string()))?;
+    control.check_cancelled()?;
+    let output = bounded_context_output(job.item.kind, &bytes)?;
+    control.check_cancelled()?;
+    let byte_count = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    let token_count = output.chars().count().div_ceil(4).max(1) as u64;
+    events.push(RuntimeEvent::new(
+        next_sequence(&events),
+        RuntimeEventKind::ToolCallFinished {
+            tool_call_id: format!("context-read-{}", job.handle.handle_id),
+            name: "context_read".to_string(),
+            success: true,
+            exit_code: None,
+            evidence: Some(EvidenceView {
+                id: fresh_id("ctx-read"),
+                kind: "context_result".to_string(),
+                summary: output,
+                path: None,
+                source: Some("runtime".to_string()),
+                metadata: None,
+                timestamp: Some(now_timestamp()),
+            }),
+        },
+    ));
+    events.push(RuntimeEvent::new(
+        next_sequence(&events),
+        RuntimeEventKind::ContextRetrieved {
+            retrieval: ContextRetrievalRecord {
+                retrieval_id: fresh_id("ctxr"),
+                handle_id: job.handle.handle_id,
+                item_id: job.handle.item_id,
+                view_id: job.handle.preferred_view_id,
+                scope: job.scope,
+                byte_count,
+                token_count,
+                reason_category: job.reason_category,
+                reason: job.reason,
+                requester: "runtime".to_string(),
+                retrieved_at: Some(now_timestamp()),
+            },
+        },
+    ));
+    Ok(events)
+}
+
+fn validate_context_retrieval_scope_and_expiry(
+    handle: &ContextHandleRecord,
+    expected_scope: &ContextScope,
+) -> Result<(), String> {
+    if &handle.scope != expected_scope {
+        return Err(format!(
+            "context handle `{}` is outside the active context scope",
+            redact_identifier_for_event(&handle.handle_id)
+        ));
+    }
+    if handle
+        .expires_at
+        .is_some_and(|expires_at| expires_at <= now_timestamp())
+    {
+        return Err(format!(
+            "context handle `{}` is expired",
+            redact_identifier_for_event(&handle.handle_id)
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn set_retrieve_context_test_hook(hook: Option<RetrieveContextTestHook>) {
+    let slot = RETRIEVE_CONTEXT_TEST_HOOK.get_or_init(|| Mutex::new(None));
+    *slot.lock().expect("retrieve context test hook lock") = hook;
+}
+
+#[cfg(test)]
+fn retrieve_context_test_hook() -> Option<RetrieveContextTestHook> {
+    RETRIEVE_CONTEXT_TEST_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .expect("retrieve context test hook lock")
+        .clone()
+}
+
+fn bounded_context_output(kind: ContextContentKind, bytes: &[u8]) -> Result<String, String> {
+    const MAX_CONTEXT_RESULT_BYTES: usize = 16 * 1024;
+    let policy = ReductionPolicy {
+        max_input_bytes: 2 * 1024 * 1024,
+        max_output_bytes: MAX_CONTEXT_RESULT_BYTES,
+        max_output_tokens: 4_096,
+        ..ReductionPolicy::default()
+    };
+    let reduced = reduce(kind, bytes, &policy)
+        .map_err(|err| sanitize_context_error(&format!("context reduction failed: {err}")))?;
+    Ok(truncate_for_preview(
+        &redact_command_text(&reduced.content),
+        MAX_CONTEXT_RESULT_BYTES,
+    ))
+}
+
+fn context_retrieval_reason_category(reason: &str) -> String {
+    let normalized = reason
+        .split_whitespace()
+        .next()
+        .unwrap_or("retrieve")
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '-')
+        .take(32)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if normalized.is_empty() {
+        "retrieve".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn sanitize_context_error(message: &str) -> String {
+    redact_command_text(message)
+}
+
+fn redact_identifier_for_event(input: &str) -> String {
+    input
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
+        .take(96)
+        .collect()
+}
+
 pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> RuntimeCommand {
     match command {
         RuntimeCommand::SubmitUserInput { content } => RuntimeCommand::SubmitUserInput {
@@ -2955,6 +3288,10 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
                     permission_policy: task.permission_policy.clone(),
                 })
                 .collect(),
+        },
+        RuntimeCommand::RetrieveContext { handle_id, reason } => RuntimeCommand::RetrieveContext {
+            handle_id: redact_identifier_for_event(handle_id),
+            reason: redact_command_text(reason),
         },
         other => other.clone(),
     }

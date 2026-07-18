@@ -490,6 +490,10 @@ fn context_contracts_round_trip_without_exposing_storage_paths() {
         handle_id: "ctxh-1".into(),
         item_id: "ctxi-1".into(),
         view_id: Some("ctxv-1".into()),
+        scope: ContextScope::Task("task-1".into()),
+        byte_count: 256,
+        token_count: 64,
+        reason_category: "hydrate".into(),
         reason: "answer follow-up".into(),
         requester: "runtime".into(),
         retrieved_at: Some(102),
@@ -546,6 +550,9 @@ fn context_contracts_round_trip_without_exposing_storage_paths() {
     assert_eq!(records["item"]["kind"], "diff");
     assert_eq!(records["view"]["kind"], "text");
     assert_eq!(records["retrieval"]["reason"], "answer follow-up");
+    assert_eq!(records["retrieval"]["scope"]["type"], "task");
+    assert_eq!(records["retrieval"]["byte_count"], 256);
+    assert_eq!(records["retrieval"]["reason_category"], "hydrate");
     assert_eq!(records["quality"]["score_microunits"], 920_000);
     assert_eq!(records["budget"]["scope"]["type"], "workflow");
     assert_eq!(
@@ -595,6 +602,10 @@ fn context_and_cost_runtime_events_project_bounded_summaries() {
         handle_id: "ctxh-1".into(),
         item_id: "ctxi-1".into(),
         view_id: Some("ctxv-1".into()),
+        scope: ContextScope::Task("task-1".into()),
+        byte_count: 512,
+        token_count: 80,
+        reason_category: "hydrate".into(),
         reason: "hydrate evidence".into(),
         requester: "runtime".into(),
         retrieved_at: Some(202),
@@ -710,6 +721,10 @@ fn context_and_cost_runtime_events_project_bounded_summaries() {
                     handle_id: "ctxh-1".into(),
                     item_id: "ctxi-1".into(),
                     view_id: Some("ctxv-1".into()),
+                    scope: ContextScope::Task("task-1".into()),
+                    byte_count: 64,
+                    token_count: 16,
+                    reason_category: "replay".into(),
                     reason: "bounded replay".into(),
                     requester: "runtime".into(),
                     retrieved_at: Some(300 + index),
