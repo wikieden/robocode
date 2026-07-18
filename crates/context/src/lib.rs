@@ -19,6 +19,10 @@ pub enum ContextError {
         missing_markers: Vec<String>,
         quality: Box<viden_types::ContextQualityRecord>,
     },
+    InvalidReductionPolicy {
+        field: &'static str,
+        reason: &'static str,
+    },
 }
 
 impl Display for ContextError {
@@ -33,6 +37,9 @@ impl Display for ContextError {
                     "context quality failed: missing required markers {missing_markers:?}"
                 )
             }
+            Self::InvalidReductionPolicy { field, reason } => {
+                write!(formatter, "invalid reduction policy: {field} {reason}")
+            }
         }
     }
 }
@@ -41,7 +48,7 @@ impl Error for ContextError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Store(err) => Some(err),
-            Self::QualityFailed { .. } => None,
+            Self::QualityFailed { .. } | Self::InvalidReductionPolicy { .. } => None,
         }
     }
 }

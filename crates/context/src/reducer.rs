@@ -64,6 +64,8 @@ pub fn reduce(
     input: &[u8],
     policy: &ReductionPolicy,
 ) -> Result<ReductionResult, crate::ContextError> {
+    validate_policy(policy)?;
+
     let original = estimate_bytes(input);
     let mut view = match kind {
         ContextContentKind::Json => reduce_json(input, policy),
@@ -141,6 +143,11 @@ fn bounded_json_content(
         serde_json::to_string_pretty(&candidate).expect("serializing JSON value");
     if candidate_content.len() <= limit {
         return candidate_content;
+    }
+
+    if "0".len() <= limit {
+        omissions.push(omission("minimal_json_fallback", 1));
+        return "0".to_string();
     }
 
     "null".to_string()
@@ -539,6 +546,22 @@ fn token_byte_limit(policy: &ReductionPolicy) -> usize {
     (policy.max_output_tokens as usize).saturating_mul(4)
 }
 
+fn validate_policy(policy: &ReductionPolicy) -> Result<(), crate::ContextError> {
+    if policy.max_output_bytes == 0 {
+        return Err(crate::ContextError::InvalidReductionPolicy {
+            field: "max_output_bytes",
+            reason: "must be at least 1",
+        });
+    }
+    if policy.max_output_tokens == 0 {
+        return Err(crate::ContextError::InvalidReductionPolicy {
+            field: "max_output_tokens",
+            reason: "must be at least 1",
+        });
+    }
+    Ok(())
+}
+
 fn push_unique(lines: &mut Vec<String>, seen: &mut HashSet<String>, line: String) {
     if seen.insert(line.clone()) {
         lines.push(line);
@@ -918,6 +941,12 @@ mod tests {
                 r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":3}],"retained_markers":["first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_a242b2a84535c876","target_id":"viden-context-native:native-v1:Log","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
+                ContextContentKind::Diagnostic,
+                b"running tests\nERROR src/a.rs:1 boom\nERROR src/a.rs:1 boom\nwarning\nfinal tail\n",
+                ReductionPolicy::default(),
+                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":3}],"retained_markers":["first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_78dfd578c8672422","target_id":"viden-context-native:native-v1:Diagnostic","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+            ),
+            (
                 ContextContentKind::Transcript,
                 b"User: constraint: keep scope\nAssistant: old\nUser: decision: native\nUser: unresolved question: retry?\nAssistant: recent\n",
                 ReductionPolicy::default(),
@@ -942,6 +971,66 @@ mod tests {
                 serde_json::to_string(&again).unwrap(),
                 "{kind:?}"
             );
+        }
+    }
+
+    #[test]
+    fn tiny_json_bounds_return_parseable_minimal_values_or_typed_errors() {
+        let input = br#"{"long":"value","items":[1,2,3]}"#;
+        for byte_limit in [1, 2, 3] {
+            let policy = ReductionPolicy {
+                max_output_bytes: byte_limit,
+                max_output_tokens: 1,
+                ..ReductionPolicy::default()
+            };
+
+            let view = reduce(ContextContentKind::Json, input, &policy).unwrap();
+
+            assert_eq!(view.content, "0");
+            assert!(view.content.len() <= byte_limit);
+            assert!(view.reduced.token_count <= 1);
+            serde_json::from_str::<serde_json::Value>(&view.content).unwrap();
+            assert!(
+                view.omissions
+                    .iter()
+                    .any(|omission| omission.reason == "minimal_json_fallback")
+            );
+        }
+    }
+
+    #[test]
+    fn zero_bounds_return_typed_invalid_policy_for_every_reducer() {
+        for kind in [
+            ContextContentKind::Json,
+            ContextContentKind::Code,
+            ContextContentKind::Diff,
+            ContextContentKind::Log,
+            ContextContentKind::Diagnostic,
+            ContextContentKind::Transcript,
+            ContextContentKind::Text,
+        ] {
+            for policy in [
+                ReductionPolicy {
+                    max_output_bytes: 0,
+                    max_output_tokens: 1,
+                    ..ReductionPolicy::default()
+                },
+                ReductionPolicy {
+                    max_output_bytes: 8,
+                    max_output_tokens: 0,
+                    ..ReductionPolicy::default()
+                },
+            ] {
+                let err = reduce(kind, b"{\"a\":1}\nERROR boom\nconstraint: x", &policy)
+                    .expect_err("zero bounds must be invalid policy");
+
+                assert!(matches!(
+                    err,
+                    crate::ContextError::InvalidReductionPolicy { .. }
+                ));
+                assert!(!err.to_string().contains("{\"a\":1}"));
+                assert!(!err.to_string().contains("ERROR boom"));
+            }
         }
     }
 }
