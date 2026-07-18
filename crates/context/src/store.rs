@@ -24,6 +24,9 @@ pub enum ContextError {
         byte_len: usize,
         category: Sha256ValidationCategory,
     },
+    MetadataInvariantViolation {
+        invariant: MetadataInvariant,
+    },
     InvalidMetadataUtf8 {
         line: usize,
     },
@@ -48,6 +51,8 @@ pub enum ContextError {
     ScopeDenied {
         handle_id: String,
     },
+    #[cfg(test)]
+    InjectedBlobWriteFailure,
 }
 
 impl Display for ContextError {
@@ -59,6 +64,12 @@ impl Display for ContextError {
                 write!(
                     formatter,
                     "invalid context content sha256: byte_len={byte_len}, category={category}"
+                )
+            }
+            Self::MetadataInvariantViolation { invariant } => {
+                write!(
+                    formatter,
+                    "context metadata invariant violation: {invariant}"
                 )
             }
             Self::InvalidMetadataUtf8 { line } => {
@@ -92,6 +103,8 @@ impl Display for ContextError {
             Self::ScopeDenied { handle_id } => {
                 write!(formatter, "context scope denied for handle: {handle_id}")
             }
+            #[cfg(test)]
+            Self::InjectedBlobWriteFailure => write!(formatter, "injected blob write failure"),
         }
     }
 }
@@ -109,6 +122,43 @@ pub enum Sha256ValidationCategory {
     Empty,
     WrongLength,
     NonAsciiHex,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetadataInvariant {
+    HandleItemIdMatchesItem,
+    HandleScopeMatchesItem,
+    HandleHashMatchesItem,
+}
+
+impl Display for MetadataInvariant {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::HandleItemIdMatchesItem => write!(formatter, "handle_item_id_matches_item"),
+            Self::HandleScopeMatchesItem => write!(formatter, "handle_scope_matches_item"),
+            Self::HandleHashMatchesItem => write!(formatter, "handle_hash_matches_item"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum BlobWriteFailurePoint {
+    TempAlreadyExists,
+    AfterTempCreate,
+    AfterWrite,
+    AfterSync,
+}
+
+impl Display for BlobWriteFailurePoint {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TempAlreadyExists => write!(formatter, "temp_already_exists"),
+            Self::AfterTempCreate => write!(formatter, "after_temp_create"),
+            Self::AfterWrite => write!(formatter, "after_write"),
+            Self::AfterSync => write!(formatter, "after_sync"),
+        }
+    }
 }
 
 impl Display for Sha256ValidationCategory {
@@ -298,6 +348,15 @@ impl ContextStore {
         content_sha256: &str,
         content: &[u8],
     ) -> Result<(), ContextError> {
+        self.write_blob_if_absent_with_failure(content_sha256, content, None)
+    }
+
+    fn write_blob_if_absent_with_failure(
+        &self,
+        content_sha256: &str,
+        content: &[u8],
+        #[cfg_attr(not(test), allow(unused_variables))] failure: Option<BlobWriteFailurePoint>,
+    ) -> Result<(), ContextError> {
         validate_content_sha256(content_sha256)?;
         let blob_path = self.blob_path(content_sha256);
         let parent = blob_path.parent().expect("blob path has parent");
@@ -310,27 +369,89 @@ impl ContextStore {
             ".{content_sha256}.{}.tmp",
             unique_context_id("write")
         ));
+        let mut tmp_guard = TempFileCleanup::new(tmp_path.clone());
+        #[cfg(test)]
+        if failure == Some(BlobWriteFailurePoint::TempAlreadyExists) {
+            fs::write(&tmp_path, b"preexisting temp placeholder")?;
+        }
         {
-            let mut tmp = fs::OpenOptions::new()
+            let mut tmp = match fs::OpenOptions::new()
                 .create_new(true)
                 .write(true)
-                .open(&tmp_path)?;
+                .open(&tmp_path)
+            {
+                Ok(tmp) => tmp,
+                Err(err) => {
+                    #[cfg(test)]
+                    if failure == Some(BlobWriteFailurePoint::TempAlreadyExists) {
+                        return Err(ContextError::InjectedBlobWriteFailure);
+                    }
+                    return Err(ContextError::Io(err));
+                }
+            };
+            #[cfg(test)]
+            if failure == Some(BlobWriteFailurePoint::AfterTempCreate) {
+                return Err(ContextError::InjectedBlobWriteFailure);
+            }
             tmp.write_all(content)?;
+            #[cfg(test)]
+            if failure == Some(BlobWriteFailurePoint::AfterWrite) {
+                return Err(ContextError::InjectedBlobWriteFailure);
+            }
             tmp.sync_all()?;
+            #[cfg(test)]
+            if failure == Some(BlobWriteFailurePoint::AfterSync) {
+                return Err(ContextError::InjectedBlobWriteFailure);
+            }
         }
         match fs::rename(&tmp_path, &blob_path) {
             Ok(()) => {
+                tmp_guard.disarm();
                 sync_directory(parent)?;
                 Ok(())
             }
             Err(_) if blob_path.exists() => {
                 let _ = fs::remove_file(&tmp_path);
+                tmp_guard.disarm();
                 verify_blob_hash(&blob_path, content_sha256)
             }
             Err(err) => {
                 let _ = fs::remove_file(&tmp_path);
                 Err(ContextError::Io(err))
             }
+        }
+    }
+
+    #[cfg(test)]
+    fn write_blob_with_injected_failure(
+        &self,
+        content: &[u8],
+        failure: BlobWriteFailurePoint,
+    ) -> Result<(), ContextError> {
+        let content_sha256 = sha256_hex(content);
+        self.write_blob_if_absent_with_failure(&content_sha256, content, Some(failure))
+    }
+}
+
+struct TempFileCleanup {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TempFileCleanup {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TempFileCleanup {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_file(&self.path);
         }
     }
 }
@@ -419,10 +540,19 @@ fn unique_context_id(prefix: &str) -> String {
 fn validate_metadata_record(record: &MetadataRecord) -> Result<(), ContextError> {
     validate_content_sha256(&record.item.content_sha256)?;
     validate_content_sha256(&record.handle.content_sha256)?;
+    if record.item.item_id != record.handle.item_id {
+        return Err(ContextError::MetadataInvariantViolation {
+            invariant: MetadataInvariant::HandleItemIdMatchesItem,
+        });
+    }
+    if record.item.scope != record.handle.scope {
+        return Err(ContextError::MetadataInvariantViolation {
+            invariant: MetadataInvariant::HandleScopeMatchesItem,
+        });
+    }
     if record.item.content_sha256 != record.handle.content_sha256 {
-        return Err(ContextError::HashMismatch {
-            expected: record.item.content_sha256.clone(),
-            actual: record.handle.content_sha256.clone(),
+        return Err(ContextError::MetadataInvariantViolation {
+            invariant: MetadataInvariant::HandleHashMatchesItem,
         });
     }
     Ok(())
@@ -511,6 +641,29 @@ mod tests {
             .unwrap()
             .lines()
             .count()
+    }
+
+    fn temp_blob_paths(root: &Path) -> Vec<PathBuf> {
+        let blobs = root.join("blobs");
+        if !blobs.exists() {
+            return Vec::new();
+        }
+        let mut paths = Vec::new();
+        for prefix in fs::read_dir(blobs).unwrap() {
+            let prefix = prefix.unwrap();
+            if !prefix.file_type().unwrap().is_dir() {
+                continue;
+            }
+            for entry in fs::read_dir(prefix.path()).unwrap() {
+                let entry = entry.unwrap();
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with('.') && name.ends_with(".tmp") {
+                    paths.push(entry.path());
+                }
+            }
+        }
+        paths
     }
 
     #[test]
@@ -844,6 +997,105 @@ mod tests {
     }
 
     #[test]
+    fn replay_rejects_handle_item_id_mismatch() {
+        let root = temp_dir("item-id-mismatch");
+        let stored = {
+            let mut store = ContextStore::open(&root).unwrap();
+            store
+                .put(ContextPutRequest::task(
+                    "task-1",
+                    ContextContentKind::Text,
+                    b"valid",
+                ))
+                .unwrap()
+        };
+        let mut record = MetadataRecord {
+            item: stored.item,
+            handle: stored.handle,
+        };
+        record.handle.item_id = "ctxi-other".into();
+        let line = serde_json::to_string(&record).unwrap();
+        fs::write(root.join("context-items.jsonl"), format!("{line}\n")).unwrap();
+
+        assert!(matches!(
+            ContextStore::open(&root),
+            Err(ContextError::MetadataInvariantViolation { .. })
+        ));
+    }
+
+    #[test]
+    fn replay_rejects_handle_scope_mismatch() {
+        let root = temp_dir("scope-mismatch");
+        let stored = {
+            let mut store = ContextStore::open(&root).unwrap();
+            store
+                .put(ContextPutRequest::task(
+                    "task-1",
+                    ContextContentKind::Text,
+                    b"valid",
+                ))
+                .unwrap()
+        };
+        let mut record = MetadataRecord {
+            item: stored.item,
+            handle: stored.handle,
+        };
+        record.handle.scope = ContextScope::Task("task-2".into());
+        let line = serde_json::to_string(&record).unwrap();
+        fs::write(root.join("context-items.jsonl"), format!("{line}\n")).unwrap();
+
+        assert!(matches!(
+            ContextStore::open(&root),
+            Err(ContextError::MetadataInvariantViolation { .. })
+        ));
+    }
+
+    #[test]
+    fn injected_prerename_blob_write_failures_remove_temp_bytes() {
+        let root = temp_dir("injected-temp-cleanup");
+        let store = ContextStore::open(&root).unwrap();
+        let content = b"raw context bytes that must not remain in temp files";
+
+        for failure in [
+            BlobWriteFailurePoint::TempAlreadyExists,
+            BlobWriteFailurePoint::AfterTempCreate,
+            BlobWriteFailurePoint::AfterWrite,
+            BlobWriteFailurePoint::AfterSync,
+        ] {
+            assert!(matches!(
+                store.write_blob_with_injected_failure(content, failure),
+                Err(ContextError::InjectedBlobWriteFailure)
+            ));
+            assert!(temp_blob_paths(&root).is_empty());
+            assert!(!find_file_containing(&root, content));
+        }
+    }
+
+    #[test]
+    fn failed_existing_corrupt_blob_path_leaves_no_temp_files() {
+        let root = temp_dir("corrupt-existing-no-temp");
+        let mut store = ContextStore::open(&root).unwrap();
+        let stored = store
+            .put(ContextPutRequest::task(
+                "task-1",
+                ContextContentKind::Text,
+                b"same",
+            ))
+            .unwrap();
+        fs::write(store.blob_path(&stored.item.content_sha256), b"corrupt").unwrap();
+
+        assert!(matches!(
+            store.put(ContextPutRequest::task(
+                "task-1",
+                ContextContentKind::Text,
+                b"same",
+            )),
+            Err(ContextError::HashMismatch { .. })
+        ));
+        assert!(temp_blob_paths(&root).is_empty());
+    }
+
+    #[test]
     fn concurrent_independent_writers_append_replayable_metadata() {
         let root = temp_dir("concurrent-writers");
         let writers = 16;
@@ -886,5 +1138,31 @@ mod tests {
             source = next.source();
         }
         formats
+    }
+
+    fn find_file_containing(root: &Path, needle: &[u8]) -> bool {
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(path) = stack.pop() {
+            if path.is_dir() {
+                for entry in fs::read_dir(path).unwrap() {
+                    stack.push(entry.unwrap().path());
+                }
+                continue;
+            }
+            if fs::read(&path)
+                .map(|bytes| contains_bytes(&bytes, needle))
+                .unwrap_or(false)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+        !needle.is_empty()
+            && haystack
+                .windows(needle.len())
+                .any(|window| window == needle)
     }
 }
