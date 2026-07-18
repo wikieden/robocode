@@ -72,7 +72,9 @@ pub fn reduce(
         ContextContentKind::Log | ContextContentKind::Diagnostic => reduce_log(input, policy),
         ContextContentKind::Transcript | ContextContentKind::Text => reduce_text(input, policy),
     };
-    bound_output(&mut view.content, policy, &mut view.omissions);
+    if kind != ContextContentKind::Json || view.fallback_raw {
+        bound_output(&mut view.content, policy, &mut view.omissions);
+    }
     view.retained_markers.sort();
     view.retained_markers.dedup();
     view.original = original;
@@ -108,12 +110,79 @@ pub fn reduce(
 fn reduce_json(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
     match serde_json::from_slice::<serde_json::Value>(input) {
         Ok(value) => {
-            let content = serde_json::to_string_pretty(&value).expect("serializing JSON value");
             let mut retained_markers = Vec::new();
             collect_json_markers(&value, &mut retained_markers);
-            result(content, retained_markers, false)
+            let mut omissions = Vec::new();
+            let content = bounded_json_content(&value, policy, &mut omissions);
+            let mut view = result(content, retained_markers, false);
+            view.omissions = omissions;
+            view
         }
         Err(_) => raw_fallback(input, policy, "parse_failure"),
+    }
+}
+
+fn bounded_json_content(
+    value: &serde_json::Value,
+    policy: &ReductionPolicy,
+    omissions: &mut Vec<ReductionOmission>,
+) -> String {
+    let limit = effective_max_bytes(policy);
+    let content = serde_json::to_string_pretty(value).expect("serializing JSON value");
+    if content.len() <= limit {
+        return content;
+    }
+
+    omissions.push(omission("json_values_pruned", count_json_values(value)));
+    omissions.push(omission("size_bound", content.len().saturating_sub(limit)));
+
+    let candidate = pruned_json_value(value, limit);
+    let candidate_content =
+        serde_json::to_string_pretty(&candidate).expect("serializing JSON value");
+    if candidate_content.len() <= limit {
+        return candidate_content;
+    }
+
+    "null".to_string()
+}
+
+fn pruned_json_value(value: &serde_json::Value, limit: usize) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut pruned = serde_json::Map::new();
+            for (key, _) in map {
+                let mut candidate = pruned.clone();
+                candidate.insert(key.clone(), serde_json::Value::Null);
+                if serde_json::to_string_pretty(&serde_json::Value::Object(candidate.clone()))
+                    .expect("serializing JSON value")
+                    .len()
+                    <= limit
+                {
+                    pruned = candidate;
+                }
+            }
+            if pruned.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::Value::Object(pruned)
+            }
+        }
+        serde_json::Value::Array(values) => {
+            if values.is_empty() || "[\n  null\n]".len() > limit {
+                serde_json::Value::Array(Vec::new())
+            } else {
+                serde_json::Value::Array(vec![serde_json::Value::Null])
+            }
+        }
+        _ => serde_json::Value::Null,
+    }
+}
+
+fn count_json_values(value: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::Object(map) => 1 + map.values().map(count_json_values).sum::<usize>(),
+        serde_json::Value::Array(values) => 1 + values.iter().map(count_json_values).sum::<usize>(),
+        _ => 1,
     }
 }
 
@@ -136,12 +205,15 @@ fn collect_json_markers(value: &serde_json::Value, markers: &mut Vec<String>) {
 
 fn reduce_code(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
     let text = String::from_utf8_lossy(input);
+    let all_lines = text.lines().collect::<Vec<_>>();
     let mut lines = Vec::new();
     let mut omitted = 0;
     let mut retained_markers = Vec::new();
     let mut seen = HashSet::new();
+    let mut index = 0;
 
-    for (index, line) in text.lines().enumerate() {
+    while index < all_lines.len() {
+        let line = all_lines[index];
         let line_number = index + 1;
         let trimmed = line.trim_start();
         let declaration = code_declaration_marker(trimmed);
@@ -154,11 +226,16 @@ fn reduce_code(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
             || trimmed.starts_with("pub use ")
             || trimmed.starts_with("mod ")
         {
-            push_unique(&mut lines, &mut seen, line.to_string());
+            let (block, end_index) = scan_code_statement(&all_lines, index, CodeScanKind::Import);
+            push_unique(&mut lines, &mut seen, block);
             retained_markers.push("import_or_module".to_string());
+            index = end_index;
         } else if let Some(marker) = declaration.as_ref() {
-            push_unique(&mut lines, &mut seen, line.to_string());
+            let (block, end_index) =
+                scan_code_statement(&all_lines, index, CodeScanKind::Declaration);
+            push_unique(&mut lines, &mut seen, block);
             retained_markers.push(marker.clone());
+            index = end_index;
         }
 
         if selected {
@@ -172,6 +249,7 @@ fn reduce_code(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
         {
             omitted += 1;
         }
+        index += 1;
     }
 
     let mut view = result(lines.join("\n"), retained_markers, false);
@@ -179,6 +257,49 @@ fn reduce_code(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
         view.omissions.push(omission("code_body_omitted", omitted));
     }
     view
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CodeScanKind {
+    Import,
+    Declaration,
+}
+
+fn scan_code_statement(lines: &[&str], start: usize, kind: CodeScanKind) -> (String, usize) {
+    let mut captured = Vec::new();
+    let mut balance = 0_i64;
+    let mut end = start;
+
+    for (offset, line) in lines[start..].iter().enumerate() {
+        captured.push((*line).to_string());
+        balance += delimiter_delta(line);
+        end = start + offset;
+
+        let trimmed = line.trim_end();
+        let complete = match kind {
+            CodeScanKind::Import => trimmed.ends_with(';') && balance <= 0,
+            CodeScanKind::Declaration => {
+                (trimmed.ends_with(';') && balance <= 0) || trimmed.ends_with('{')
+            }
+        };
+        if complete {
+            break;
+        }
+    }
+
+    (captured.join("\n"), end)
+}
+
+fn delimiter_delta(line: &str) -> i64 {
+    let mut delta = 0;
+    for character in line.chars() {
+        match character {
+            '(' | '[' | '{' => delta += 1,
+            ')' | ']' | '}' => delta -= 1,
+            _ => {}
+        }
+    }
+    delta
 }
 
 fn code_declaration_marker(trimmed: &str) -> Option<String> {
@@ -381,8 +502,8 @@ fn bound_output(
     policy: &ReductionPolicy,
     omissions: &mut Vec<ReductionOmission>,
 ) {
-    let token_byte_limit = (policy.max_output_tokens as usize).saturating_mul(4);
-    let effective_max_bytes = policy.max_output_bytes.min(token_byte_limit);
+    let token_byte_limit = token_byte_limit(policy);
+    let effective_max_bytes = effective_max_bytes(policy);
     let bound_reason = if token_byte_limit < policy.max_output_bytes {
         "token_bound"
     } else {
@@ -408,6 +529,14 @@ fn bound_output(
     }
     content.truncate(end);
     omissions.push(omission(bound_reason, original_len - end));
+}
+
+fn effective_max_bytes(policy: &ReductionPolicy) -> usize {
+    policy.max_output_bytes.min(token_byte_limit(policy))
+}
+
+fn token_byte_limit(policy: &ReductionPolicy) -> usize {
+    (policy.max_output_tokens as usize).saturating_mul(4)
 }
 
 fn push_unique(lines: &mut Vec<String>, seen: &mut HashSet<String>, line: String) {
@@ -717,5 +846,102 @@ mod tests {
                 .iter()
                 .any(|omission| omission.reason == "token_bound")
         );
+    }
+
+    #[test]
+    fn json_output_remains_valid_when_bounded() {
+        let input = br#"{"z":[1,2,3],"a":{"b":"long value that must be pruned","c":true}}"#;
+        let policy = tight_policy(48);
+
+        let view = reduce(ContextContentKind::Json, input, &policy).unwrap();
+        let again = reduce(ContextContentKind::Json, input, &policy).unwrap();
+
+        assert_eq!(
+            serde_json::to_string(&view).unwrap(),
+            serde_json::to_string(&again).unwrap()
+        );
+        assert!(view.content.len() <= 48);
+        serde_json::from_str::<serde_json::Value>(&view.content).unwrap();
+        assert!(
+            view.omissions
+                .iter()
+                .any(|omission| omission.reason == "json_values_pruned")
+        );
+    }
+
+    #[test]
+    fn rust_source_reducer_preserves_multiline_imports_and_signatures() {
+        let input = b"use crate::{\n    alpha::Alpha,\n    beta::Beta,\n};\n\npub fn build_engine(\n    alpha: Alpha,\n    beta: Beta,\n) -> Result<Engine, Error> {\n    Engine::new(alpha, beta)\n}\n";
+
+        let view = reduce(ContextContentKind::Code, input, &tight_policy(512)).unwrap();
+        let again = reduce(ContextContentKind::Code, input, &tight_policy(512)).unwrap();
+
+        assert_eq!(
+            serde_json::to_string(&view).unwrap(),
+            serde_json::to_string(&again).unwrap()
+        );
+        assert!(
+            view.content
+                .contains("use crate::{\n    alpha::Alpha,\n    beta::Beta,\n};")
+        );
+        assert!(view.content.contains(
+            "pub fn build_engine(\n    alpha: Alpha,\n    beta: Beta,\n) -> Result<Engine, Error> {"
+        ));
+        assert!(!view.content.contains("Engine::new(alpha, beta)"));
+    }
+
+    #[test]
+    fn reducers_have_exact_golden_outputs_and_serialized_determinism() {
+        let cases = [
+            (
+                ContextContentKind::Json,
+                br#"{"b":2,"a":1}"#.as_slice(),
+                ReductionPolicy::default(),
+                r#"{"content":"{\n  \"a\": 1,\n  \"b\": 2\n}","original":{"byte_count":13,"token_count":4},"reduced":{"byte_count":22,"token_count":6},"omissions":[],"retained_markers":["key:a","key:b"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_24608f0e4e5e478c","target_id":"viden-context-native:native-v1:Json","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+            ),
+            (
+                ContextContentKind::Code,
+                b"use crate::{\n    a::A,\n    b::B,\n};\n\npub fn run(\n    value: A,\n) -> B {\n    convert(value)\n}\n",
+                ReductionPolicy::default(),
+                r#"{"content":"use crate::{\n    a::A,\n    b::B,\n};\npub fn run(\n    value: A,\n) -> B {","original":{"byte_count":93,"token_count":24},"reduced":{"byte_count":70,"token_count":18},"omissions":[{"reason":"code_body_omitted","omitted_count":2}],"retained_markers":["declaration:fn","import_or_module"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_339dfa093b3ffce7","target_id":"viden-context-native:native-v1:Code","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+            ),
+            (
+                ContextContentKind::Diff,
+                b"diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n unchanged\n",
+                ReductionPolicy::default(),
+                r#"{"content":"diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new","original":{"byte_count":98,"token_count":25},"reduced":{"byte_count":86,"token_count":22},"omissions":[{"reason":"diff_context_omitted","omitted_count":1}],"retained_markers":["changed_line","diff_file","diff_hunk"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_d36fa53297fb7676","target_id":"viden-context-native:native-v1:Diff","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+            ),
+            (
+                ContextContentKind::Log,
+                b"running tests\nERROR src/a.rs:1 boom\nERROR src/a.rs:1 boom\nwarning\nfinal tail\n",
+                ReductionPolicy::default(),
+                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":3}],"retained_markers":["first_failure","tail"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_a242b2a84535c876","target_id":"viden-context-native:native-v1:Log","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+            ),
+            (
+                ContextContentKind::Transcript,
+                b"User: constraint: keep scope\nAssistant: old\nUser: decision: native\nUser: unresolved question: retry?\nAssistant: recent\n",
+                ReductionPolicy::default(),
+                r#"{"content":"User: constraint: keep scope\nUser: decision: native\nUser: unresolved question: retry?\nAssistant: old\nAssistant: recent","original":{"byte_count":119,"token_count":30},"reduced":{"byte_count":118,"token_count":30},"omissions":[],"retained_markers":["constraint","decision","question","recent_turn"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_1931e50bf52c15ee","target_id":"viden-context-native:native-v1:Transcript","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+            ),
+            (
+                ContextContentKind::Text,
+                b"constraint: keep scope\ndecision: native\nunresolved question: retry?\nplain old\nplain recent\n",
+                ReductionPolicy::default(),
+                r#"{"content":"constraint: keep scope\ndecision: native\nunresolved question: retry?\nplain old\nplain recent","original":{"byte_count":91,"token_count":23},"reduced":{"byte_count":90,"token_count":23},"omissions":[],"retained_markers":["constraint","decision","question","recent_turn"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_6664ad4544b62071","target_id":"viden-context-native:native-v1:Text","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+            ),
+        ];
+
+        for (kind, input, policy, expected_serialized) in cases {
+            let view = reduce(kind, input, &policy).unwrap();
+            let again = reduce(kind, input, &policy).unwrap();
+            let serialized = serde_json::to_string(&view).unwrap();
+
+            assert_eq!(serialized, expected_serialized, "{kind:?}");
+            assert_eq!(
+                serialized,
+                serde_json::to_string(&again).unwrap(),
+                "{kind:?}"
+            );
+        }
     }
 }
