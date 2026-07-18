@@ -345,7 +345,9 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
-            RuntimeCommand::CancelActiveTurn | RuntimeCommand::RespondToApproval { .. } => {
+            RuntimeCommand::CancelActiveTurn
+            | RuntimeCommand::RespondToApproval { .. }
+            | RuntimeCommand::RetrieveContext { .. } => {
                 return Ok(vec![command_rejected(
                     command_id,
                     "runtime command is declared but not implemented in core yet".to_string(),

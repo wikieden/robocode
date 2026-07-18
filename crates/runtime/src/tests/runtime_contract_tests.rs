@@ -387,6 +387,54 @@ fn runtime_command_bus_queues_follow_up_input() {
 }
 
 #[test]
+fn runtime_command_bus_rejects_retrieve_context_without_state_mutation() {
+    let cwd = temp_dir("runtime_command_retrieve_context_cwd");
+    let home = temp_dir("runtime_command_retrieve_context_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let initial_view = engine.runtime_view_state();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_retrieve_context",
+            RuntimeCommand::RetrieveContext {
+                handle_id: "ctxh-runtime-1".to_string(),
+                reason: "hydrate context for review".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        &events[0].kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_retrieve_context"
+                && reason == "runtime command is declared but not implemented in core yet"
+    ));
+
+    let after_view = engine.runtime_view_state();
+    assert_eq!(after_view.snapshot, initial_view.snapshot);
+    assert!(after_view.queued_inputs.is_empty());
+    assert!(after_view.context_handles.is_empty());
+    assert!(after_view.context_retrievals.is_empty());
+    assert_eq!(after_view.cost_ledger.total_tokens, 0);
+
+    let mut projected = initial_view;
+    for event in &events {
+        projected.apply_event(event);
+    }
+    assert!(projected.last_command.is_none());
+    assert_eq!(projected.errors.len(), 1);
+    assert!(projected.context_handles.is_empty());
+    assert!(projected.context_retrievals.is_empty());
+}
+
+#[test]
 fn runtime_command_bus_configures_provider_and_active_models() {
     let cwd = temp_dir("runtime_command_provider_cwd");
     let home = temp_dir("runtime_command_provider_home");
