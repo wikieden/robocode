@@ -4,7 +4,9 @@ use std::fmt::{Display, Formatter};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use viden_types::{
@@ -12,11 +14,16 @@ use viden_types::{
     now_timestamp,
 };
 
+static CONTEXT_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 #[derive(Debug)]
 pub enum ContextError {
     Io(std::io::Error),
     MetadataEncode(serde_json::Error),
+    InvalidContentSha256 { value: String },
+    InvalidMetadataUtf8 { line: usize },
     MalformedMetadata { line: usize, message: String },
+    DivergentDuplicateHandle { handle_id: String, line: usize },
     MissingHandle { handle_id: String },
     MissingBlob { content_sha256: String },
     HashMismatch { expected: String, actual: String },
@@ -28,12 +35,22 @@ impl Display for ContextError {
         match self {
             Self::Io(err) => write!(formatter, "context store I/O failed: {err}"),
             Self::MetadataEncode(err) => write!(formatter, "context metadata encode failed: {err}"),
+            Self::InvalidContentSha256 { value } => {
+                write!(formatter, "invalid context content sha256: {value}")
+            }
+            Self::InvalidMetadataUtf8 { line } => {
+                write!(formatter, "context metadata line {line} is not valid UTF-8")
+            }
             Self::MalformedMetadata { line, message } => {
                 write!(
                     formatter,
                     "context metadata line {line} is malformed: {message}"
                 )
             }
+            Self::DivergentDuplicateHandle { handle_id, line } => write!(
+                formatter,
+                "context metadata line {line} diverges for duplicate handle: {handle_id}"
+            ),
             Self::MissingHandle { handle_id } => {
                 write!(formatter, "context handle not found: {handle_id}")
             }
@@ -89,7 +106,7 @@ pub struct StoredContext {
     pub handle: ContextHandleRecord,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct MetadataRecord {
     item: ContextItemRecord,
     handle: ContextHandleRecord,
@@ -121,7 +138,7 @@ impl ContextStore {
 
         let now = now_timestamp();
         let item = ContextItemRecord {
-            item_id: fresh_id("ctxi"),
+            item_id: unique_context_id("ctxi"),
             scope: request.scope.clone(),
             kind: request.kind,
             content_sha256: content_sha256.clone(),
@@ -132,7 +149,7 @@ impl ContextStore {
             created_at: Some(now),
         };
         let handle = ContextHandleRecord {
-            handle_id: fresh_id("ctxh"),
+            handle_id: unique_context_id("ctxh"),
             item_id: item.item_id.clone(),
             preferred_view_id: None,
             content_sha256,
@@ -153,6 +170,7 @@ impl ContextStore {
         handle: &ContextHandleRecord,
         scope: &ContextScope,
     ) -> Result<Vec<u8>, ContextError> {
+        validate_content_sha256(&handle.content_sha256)?;
         if &handle.scope != scope {
             return Err(ContextError::ScopeDenied {
                 handle_id: handle.handle_id.clone(),
@@ -208,7 +226,14 @@ impl ContextStore {
                 continue;
             }
             for blob in fs::read_dir(prefix.path())? {
-                if blob?.file_type()?.is_file() {
+                let blob = blob?;
+                if blob.file_type()?.is_file()
+                    && blob
+                        .file_name()
+                        .to_str()
+                        .map(is_valid_content_sha256)
+                        .unwrap_or(false)
+                {
                     count += 1;
                 }
             }
@@ -216,7 +241,12 @@ impl ContextStore {
         Ok(count)
     }
 
+    pub fn handle_count(&self) -> usize {
+        self.handles.len()
+    }
+
     fn blob_path(&self, content_sha256: &str) -> PathBuf {
+        debug_assert!(is_valid_content_sha256(content_sha256));
         self.root
             .join("blobs")
             .join(&content_sha256[..2])
@@ -228,22 +258,34 @@ impl ContextStore {
         content_sha256: &str,
         content: &[u8],
     ) -> Result<(), ContextError> {
+        validate_content_sha256(content_sha256)?;
         let blob_path = self.blob_path(content_sha256);
-        if blob_path.exists() {
-            return Ok(());
-        }
         let parent = blob_path.parent().expect("blob path has parent");
         fs::create_dir_all(parent)?;
-        let tmp_path = parent.join(format!(".{content_sha256}.{}.tmp", fresh_id("write")));
-        fs::write(&tmp_path, content)?;
+        let _blob_lock = lock_file(&parent.join("blob-write.lock"))?;
+        if blob_path.exists() {
+            return verify_blob_hash(&blob_path, content_sha256);
+        }
+        let tmp_path = parent.join(format!(
+            ".{content_sha256}.{}.tmp",
+            unique_context_id("write")
+        ));
+        {
+            let mut tmp = fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&tmp_path)?;
+            tmp.write_all(content)?;
+            tmp.sync_all()?;
+        }
         match fs::rename(&tmp_path, &blob_path) {
-            Ok(()) => Ok(()),
-            Err(err) if blob_path.exists() => {
-                let _ = fs::remove_file(&tmp_path);
-                if err.kind() == std::io::ErrorKind::AlreadyExists {
-                    return Ok(());
-                }
+            Ok(()) => {
+                sync_directory(parent)?;
                 Ok(())
+            }
+            Err(_) if blob_path.exists() => {
+                let _ = fs::remove_file(&tmp_path);
+                verify_blob_hash(&blob_path, content_sha256)
             }
             Err(err) => {
                 let _ = fs::remove_file(&tmp_path);
@@ -256,12 +298,28 @@ impl ContextStore {
 fn append_metadata(path: &Path, record: &MetadataRecord) -> Result<(), ContextError> {
     let mut payload = serde_json::to_string(record).map_err(ContextError::MetadataEncode)?;
     payload.push('\n');
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let _lock = lock_file(&parent.join("context-items.lock"))?;
     let mut file = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)?;
     file.write_all(payload.as_bytes())?;
+    file.flush()?;
+    file.sync_all()?;
+    sync_directory(parent)?;
     Ok(())
+}
+
+fn lock_file(path: &Path) -> Result<fs::File, ContextError> {
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(path)?;
+    lock.lock_exclusive()?;
+    Ok(lock)
 }
 
 fn load_metadata(path: &Path) -> Result<HashMap<String, MetadataRecord>, ContextError> {
@@ -278,7 +336,11 @@ fn load_metadata(path: &Path) -> Result<HashMap<String, MetadataRecord>, Context
         return Ok(HashMap::new());
     }
 
-    let complete = String::from_utf8_lossy(&bytes[..complete_len]);
+    let complete = std::str::from_utf8(&bytes[..complete_len]).map_err(|err| {
+        ContextError::InvalidMetadataUtf8 {
+            line: byte_offset_to_line(&bytes[..complete_len], err.valid_up_to()),
+        }
+    })?;
     let mut handles = HashMap::new();
     for (index, line) in complete.lines().enumerate() {
         if line.trim().is_empty() {
@@ -289,6 +351,16 @@ fn load_metadata(path: &Path) -> Result<HashMap<String, MetadataRecord>, Context
                 line: index + 1,
                 message: err.to_string(),
             })?;
+        validate_metadata_record(&record)?;
+        if let Some(existing) = handles.get(&record.handle.handle_id) {
+            if existing != &record {
+                return Err(ContextError::DivergentDuplicateHandle {
+                    handle_id: record.handle.handle_id,
+                    line: index + 1,
+                });
+            }
+            continue;
+        }
         handles.insert(record.handle.handle_id.clone(), record);
     }
     Ok(handles)
@@ -299,10 +371,78 @@ fn sha256_hex(content: &[u8]) -> String {
     format!("{digest:x}")
 }
 
+fn unique_context_id(prefix: &str) -> String {
+    let sequence = CONTEXT_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("{}_{sequence}", fresh_id(prefix))
+}
+
+fn validate_metadata_record(record: &MetadataRecord) -> Result<(), ContextError> {
+    validate_content_sha256(&record.item.content_sha256)?;
+    validate_content_sha256(&record.handle.content_sha256)?;
+    if record.item.content_sha256 != record.handle.content_sha256 {
+        return Err(ContextError::HashMismatch {
+            expected: record.item.content_sha256.clone(),
+            actual: record.handle.content_sha256.clone(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_content_sha256(value: &str) -> Result<(), ContextError> {
+    if is_valid_content_sha256(value) {
+        Ok(())
+    } else {
+        Err(ContextError::InvalidContentSha256 {
+            value: value.to_string(),
+        })
+    }
+}
+
+fn is_valid_content_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn verify_blob_hash(path: &Path, expected: &str) -> Result<(), ContextError> {
+    let bytes = fs::read(path)?;
+    let actual = sha256_hex(&bytes);
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(ContextError::HashMismatch {
+            expected: expected.to_string(),
+            actual,
+        })
+    }
+}
+
+fn sync_directory(path: &Path) -> Result<(), ContextError> {
+    match fs::File::open(path).and_then(|dir| dir.sync_all()) {
+        Ok(()) => Ok(()),
+        Err(err)
+            if matches!(
+                err.kind(),
+                std::io::ErrorKind::InvalidInput | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            Ok(())
+        }
+        Err(err) => Err(ContextError::Io(err)),
+    }
+}
+
+fn byte_offset_to_line(bytes: &[u8], offset: usize) -> usize {
+    bytes[..offset.min(bytes.len())]
+        .iter()
+        .filter(|byte| **byte == b'\n')
+        .count()
+        + 1
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::path::PathBuf;
+    use std::thread;
 
     use viden_types::{ContextContentKind, ContextScope, fresh_id};
 
@@ -312,6 +452,13 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("viden_context_{name}_{}", fresh_id("tmp")));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    fn metadata_line_count(root: &Path) -> usize {
+        fs::read_to_string(root.join("context-items.jsonl"))
+            .unwrap()
+            .lines()
+            .count()
     }
 
     #[test]
@@ -461,5 +608,185 @@ mod tests {
             ContextStore::open(&root),
             Err(ContextError::MalformedMetadata { .. })
         ));
+    }
+
+    #[test]
+    fn retrieve_rejects_invalid_caller_supplied_hashes_without_panicking() {
+        let root = temp_dir("retrieve-invalid-hashes");
+        let mut store = ContextStore::open(&root).unwrap();
+        let stored = store
+            .put(ContextPutRequest::task(
+                "task-1",
+                ContextContentKind::Text,
+                b"valid",
+            ))
+            .unwrap();
+
+        for invalid_hash in ["", "abc", "../outside", &format!("{}z", "a".repeat(63))] {
+            let mut handle = stored.handle.clone();
+            handle.content_sha256 = invalid_hash.to_string();
+
+            assert!(matches!(
+                store.retrieve(&handle, &ContextScope::Task("task-1".into())),
+                Err(ContextError::InvalidContentSha256 { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn replay_rejects_invalid_hashes_without_constructing_blob_paths() {
+        let root = temp_dir("replay-invalid-hashes");
+        let mut store = ContextStore::open(&root).unwrap();
+        let stored = store
+            .put(ContextPutRequest::task(
+                "task-1",
+                ContextContentKind::Text,
+                b"valid",
+            ))
+            .unwrap();
+
+        for (index, invalid_hash) in ["", "abc", "../outside", &format!("{}z", "a".repeat(63))]
+            .into_iter()
+            .enumerate()
+        {
+            for field in ["item", "handle"] {
+                let case_root = root.join(format!("case-{index}-{field}"));
+                fs::create_dir_all(&case_root).unwrap();
+                let mut record = MetadataRecord {
+                    item: stored.item.clone(),
+                    handle: stored.handle.clone(),
+                };
+                if field == "item" {
+                    record.item.content_sha256 = invalid_hash.to_string();
+                } else {
+                    record.handle.content_sha256 = invalid_hash.to_string();
+                }
+                let line = serde_json::to_string(&record).unwrap();
+                fs::write(case_root.join("context-items.jsonl"), format!("{line}\n")).unwrap();
+
+                assert!(matches!(
+                    ContextStore::open(&case_root),
+                    Err(ContextError::InvalidContentSha256 { .. })
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn existing_canonical_blob_is_verified_before_metadata_append() {
+        let root = temp_dir("existing-corrupt-blob");
+        let mut store = ContextStore::open(&root).unwrap();
+        let stored = store
+            .put(ContextPutRequest::task(
+                "task-1",
+                ContextContentKind::Text,
+                b"same",
+            ))
+            .unwrap();
+        fs::write(store.blob_path(&stored.item.content_sha256), b"corrupt").unwrap();
+
+        assert!(matches!(
+            store.put(ContextPutRequest::task(
+                "task-1",
+                ContextContentKind::Text,
+                b"same",
+            )),
+            Err(ContextError::HashMismatch { .. })
+        ));
+        assert_eq!(metadata_line_count(&root), 1);
+    }
+
+    #[test]
+    fn replay_rejects_invalid_utf8_in_complete_metadata_line() {
+        let root = temp_dir("invalid-utf8");
+        fs::write(root.join("context-items.jsonl"), [0xff, b'\n']).unwrap();
+
+        assert!(matches!(
+            ContextStore::open(&root),
+            Err(ContextError::InvalidMetadataUtf8 { .. })
+        ));
+    }
+
+    #[test]
+    fn replay_allows_exact_duplicate_handle_records() {
+        let root = temp_dir("exact-duplicate");
+        {
+            let mut store = ContextStore::open(&root).unwrap();
+            store
+                .put(ContextPutRequest::task(
+                    "task-1",
+                    ContextContentKind::Text,
+                    b"valid",
+                ))
+                .unwrap();
+        }
+        let line = fs::read_to_string(root.join("context-items.jsonl")).unwrap();
+        fs::write(root.join("context-items.jsonl"), format!("{line}{line}")).unwrap();
+
+        assert!(ContextStore::open(&root).is_ok());
+    }
+
+    #[test]
+    fn replay_rejects_divergent_duplicate_handle_records() {
+        let root = temp_dir("divergent-duplicate");
+        let stored = {
+            let mut store = ContextStore::open(&root).unwrap();
+            store
+                .put(ContextPutRequest::task(
+                    "task-1",
+                    ContextContentKind::Text,
+                    b"valid",
+                ))
+                .unwrap()
+        };
+        let mut divergent = MetadataRecord {
+            item: stored.item,
+            handle: stored.handle,
+        };
+        divergent.item.title = "different".into();
+        let line = serde_json::to_string(&divergent).unwrap();
+        let mut metadata = fs::read_to_string(root.join("context-items.jsonl")).unwrap();
+        metadata.push_str(&line);
+        metadata.push('\n');
+        fs::write(root.join("context-items.jsonl"), metadata).unwrap();
+
+        assert!(matches!(
+            ContextStore::open(&root),
+            Err(ContextError::DivergentDuplicateHandle { .. })
+        ));
+    }
+
+    #[test]
+    fn concurrent_independent_writers_append_replayable_metadata() {
+        let root = temp_dir("concurrent-writers");
+        let writers = 16;
+        let writes_per_thread = 20;
+        let threads: Vec<_> = (0..writers)
+            .map(|writer| {
+                let root = root.clone();
+                thread::spawn(move || {
+                    let mut store = ContextStore::open(&root).unwrap();
+                    for index in 0..writes_per_thread {
+                        let content = format!("writer-{writer}-content-{index}");
+                        store
+                            .put(ContextPutRequest::task(
+                                format!("task-{writer}"),
+                                ContextContentKind::Log,
+                                content.as_bytes(),
+                            ))
+                            .unwrap();
+                    }
+                })
+            })
+            .collect();
+
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        let store = ContextStore::open(&root).unwrap();
+
+        assert_eq!(store.handle_count(), writers * writes_per_thread);
+        assert_eq!(metadata_line_count(&root), writers * writes_per_thread);
     }
 }
