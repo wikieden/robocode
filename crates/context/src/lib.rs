@@ -1,10 +1,56 @@
+pub mod reducer;
 pub mod store;
 
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::path::Path;
 
-pub use store::{ContextError, ContextPutRequest, ContextStore, StoredContext};
+pub use reducer::{
+    LineRange, ReductionEstimate, ReductionOmission, ReductionPolicy, ReductionResult, reduce,
+};
+pub use store::{ContextPutRequest, ContextStore, StoredContext};
 
 use viden_types::{ContextHandleRecord, ContextScope};
+
+#[derive(Debug)]
+pub enum ContextError {
+    Store(store::ContextError),
+    QualityFailed {
+        missing_markers: Vec<String>,
+        quality: Box<viden_types::ContextQualityRecord>,
+    },
+}
+
+impl Display for ContextError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Store(err) => write!(formatter, "{err}"),
+            Self::QualityFailed {
+                missing_markers, ..
+            } => {
+                write!(
+                    formatter,
+                    "context quality failed: missing required markers {missing_markers:?}"
+                )
+            }
+        }
+    }
+}
+
+impl Error for ContextError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Store(err) => Some(err),
+            Self::QualityFailed { .. } => None,
+        }
+    }
+}
+
+impl From<store::ContextError> for ContextError {
+    fn from(err: store::ContextError) -> Self {
+        Self::Store(err)
+    }
+}
 
 pub struct ContextEngine {
     store: ContextStore,
@@ -18,7 +64,7 @@ impl ContextEngine {
     }
 
     pub fn store(&mut self, request: ContextPutRequest<'_>) -> Result<StoredContext, ContextError> {
-        self.store.put(request)
+        Ok(self.store.put(request)?)
     }
 
     pub fn retrieve(
@@ -26,6 +72,6 @@ impl ContextEngine {
         handle: &ContextHandleRecord,
         scope: &ContextScope,
     ) -> Result<Vec<u8>, ContextError> {
-        self.store.retrieve(handle, scope)
+        Ok(self.store.retrieve(handle, scope)?)
     }
 }
