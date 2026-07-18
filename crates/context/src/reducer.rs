@@ -13,6 +13,11 @@ const SYMBOL_CONTEXT_RADIUS: usize = 1;
 const MAX_SELECTED_JSON_PATHS: usize = 64;
 const MAX_SELECTED_JSON_PATH_BYTES: usize = 256;
 const MAX_JSON_PATH_SEGMENTS: usize = 32;
+const MAX_REQUIRED_MARKERS: usize = 64;
+const MAX_REQUIRED_MARKER_BYTES: usize = 256;
+const MAX_SELECTED_LINE_RANGES: usize = 128;
+const MAX_SELECTED_LINE_NUMBER: usize = 1_000_000;
+const MAX_SELECTED_LINE_RANGE_SPAN: usize = 100_000;
 const MAX_JSON_PRIORITY_CANDIDATES: usize = 256;
 const MAX_COMPACT_JSON_VALUES: usize = 16;
 const MAX_DIFF_HUNK_LINES_LIMIT: usize = 4_096;
@@ -280,8 +285,8 @@ fn json_priority_candidates(
 ) -> Vec<JsonCandidate> {
     let mut candidates = Vec::new();
     for path in &policy.selected_json_paths {
-        let segments = parse_json_path(path).expect("validated selected JSON path");
-        if let Some(selected) = json_value_at_segments(value, &segments) {
+        let tokens = parse_json_path(path).expect("validated selected JSON path");
+        if let Some((segments, selected)) = resolve_json_path(value, &tokens) {
             candidates.push(JsonCandidate {
                 priority: 0,
                 sort_key: path.clone(),
@@ -510,13 +515,13 @@ fn selected_json_path_markers(content: &str, policy: &ReductionPolicy) -> Vec<St
         .filter(|path| {
             parse_json_path(path)
                 .as_ref()
-                .is_some_and(|segments| json_value_at_segments(&value, segments).is_some())
+                .is_some_and(|tokens| resolve_json_path(&value, tokens).is_some())
         })
         .map(|path| format!("path:{path}"))
         .collect()
 }
 
-fn parse_json_path(path: &str) -> Option<Vec<JsonPathSegment>> {
+fn parse_json_path(path: &str) -> Option<Vec<String>> {
     if path.starts_with('/') {
         let mut segments = Vec::new();
         for encoded in path.split('/').skip(1) {
@@ -533,7 +538,7 @@ fn parse_json_path(path: &str) -> Option<Vec<JsonPathSegment>> {
                     decoded.push(character);
                 }
             }
-            segments.push(json_path_segment(decoded));
+            segments.push(decoded);
         }
         Some(segments)
     } else {
@@ -546,30 +551,46 @@ fn parse_json_path(path: &str) -> Option<Vec<JsonPathSegment>> {
                 {
                     None
                 } else {
-                    Some(json_path_segment(segment.to_string()))
+                    Some(segment.to_string())
                 }
             })
             .collect()
     }
 }
 
-fn json_path_segment(segment: String) -> JsonPathSegment {
-    segment
-        .parse::<usize>()
-        .map_or(JsonPathSegment::Key(segment), JsonPathSegment::Index)
-}
-
-fn json_value_at_segments<'a>(
+fn resolve_json_path<'a>(
     mut value: &'a serde_json::Value,
-    segments: &[JsonPathSegment],
-) -> Option<&'a serde_json::Value> {
-    for segment in segments {
-        value = match segment {
-            JsonPathSegment::Key(key) => value.get(key)?,
-            JsonPathSegment::Index(index) => value.get(*index)?,
+    tokens: &[String],
+) -> Option<(Vec<JsonPathSegment>, &'a serde_json::Value)> {
+    let mut resolved = Vec::with_capacity(tokens.len());
+    for token in tokens {
+        value = match value {
+            serde_json::Value::Object(map) => {
+                resolved.push(JsonPathSegment::Key(token.clone()));
+                map.get(token)?
+            }
+            serde_json::Value::Array(values) => {
+                let index = parse_json_array_index(token)?;
+                resolved.push(JsonPathSegment::Index(index));
+                values.get(index)?
+            }
+            _ => return None,
         };
     }
-    Some(value)
+    Some((resolved, value))
+}
+
+fn parse_json_array_index(token: &str) -> Option<usize> {
+    if token == "0" {
+        return Some(0);
+    }
+    if token.starts_with('0')
+        || token.is_empty()
+        || !token.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    token.parse().ok()
 }
 
 fn json_limit_reason(value: &serde_json::Value, policy: &ReductionPolicy) -> Option<&'static str> {
@@ -675,12 +696,18 @@ fn reduce_code(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
         index += 1;
     }
 
+    let selected_ranges = normalized_line_ranges(&policy.selected_line_ranges);
+    let mut selected_range_index = 0;
     for (index, line) in all_lines.iter().enumerate() {
         let line_number = index + 1;
-        if policy
-            .selected_line_ranges
-            .iter()
-            .any(|range| line_number >= range.start && line_number <= range.end)
+        while selected_range_index < selected_ranges.len()
+            && selected_ranges[selected_range_index].end < line_number
+        {
+            selected_range_index += 1;
+        }
+        if selected_ranges
+            .get(selected_range_index)
+            .is_some_and(|range| line_number >= range.start && line_number <= range.end)
         {
             push_unique(&mut lines, &mut seen, format!("L{line_number}: {line}"));
             retained_source_indices.insert(index);
@@ -1084,12 +1111,22 @@ fn reduce_log(input: &[u8], _policy: &ReductionPolicy) -> ReductionResult {
         .collect::<HashSet<_>>();
     let tail_start = all_lines.len().saturating_sub(3);
     for (index, line) in all_lines.iter().enumerate().skip(tail_start) {
-        if !kept_values.contains(line) {
+        if index == all_lines.len() - 1 || !kept_values.contains(line) {
             kept_indices.insert(index);
         }
     }
     if let Some(last_line) = all_lines.last() {
-        retained_markers.push(evidence_line_marker("tail", last_line));
+        let normalized_last_line = normalized_evidence_line(last_line);
+        for (index, line) in all_lines.iter().enumerate() {
+            if normalized_evidence_line(line) == normalized_last_line {
+                kept_indices.insert(index);
+            }
+        }
+        let ordinal = all_lines
+            .iter()
+            .filter(|line| normalized_evidence_line(line) == normalized_last_line)
+            .count();
+        retained_markers.push(evidence_line_marker("tail", last_line, ordinal));
     }
 
     let lines = all_lines
@@ -1189,41 +1226,77 @@ fn reduce_text(input: &[u8], policy: &ReductionPolicy) -> ReductionResult {
     let all_lines = text.lines().collect::<Vec<_>>();
     let mut lines = Vec::new();
     let mut seen = HashSet::new();
+    let mut retained_indices = HashSet::new();
     let mut retained_markers = Vec::new();
 
-    for line in &all_lines {
+    for (index, line) in all_lines.iter().enumerate() {
         let lower = line.to_ascii_lowercase();
         if lower.contains("constraint:") || lower.contains("must ") || lower.contains("do not ") {
-            push_unique(&mut lines, &mut seen, (*line).to_string());
+            if push_unique_if_new(&mut lines, &mut seen, (*line).to_string()) {
+                retained_indices.insert(index);
+            }
             retained_markers.push("constraint".to_string());
         } else if lower.contains("decision:") || lower.contains("decided") {
-            push_unique(&mut lines, &mut seen, (*line).to_string());
+            if push_unique_if_new(&mut lines, &mut seen, (*line).to_string()) {
+                retained_indices.insert(index);
+            }
             retained_markers.push("decision".to_string());
         } else if lower.contains("unresolved")
             || lower.contains("question:")
             || lower.ends_with('?')
         {
-            push_unique(&mut lines, &mut seen, (*line).to_string());
+            if push_unique_if_new(&mut lines, &mut seen, (*line).to_string()) {
+                retained_indices.insert(index);
+            }
             retained_markers.push("question".to_string());
         }
     }
 
     let recent_count = policy.recent_turns.min(all_lines.len());
-    for line in all_lines
+    if recent_count > 0 {
+        let normalized_last_line = normalized_evidence_line(all_lines[all_lines.len() - 1]);
+        for (index, line) in all_lines
+            .iter()
+            .enumerate()
+            .take(all_lines.len().saturating_sub(1))
+        {
+            if !retained_indices.contains(&index)
+                && normalized_evidence_line(line) == normalized_last_line
+            {
+                lines.push((*line).to_string());
+                seen.insert((*line).to_string());
+                retained_indices.insert(index);
+            }
+        }
+    }
+    for (index, line) in all_lines
         .iter()
+        .enumerate()
         .skip(all_lines.len().saturating_sub(recent_count))
     {
-        push_unique(&mut lines, &mut seen, (*line).to_string());
+        if retained_indices.contains(&index) {
+            continue;
+        }
+        if index == all_lines.len() - 1 {
+            lines.push((*line).to_string());
+            seen.insert((*line).to_string());
+            retained_indices.insert(index);
+        } else if push_unique_if_new(&mut lines, &mut seen, (*line).to_string()) {
+            retained_indices.insert(index);
+        }
     }
     if recent_count > 0 {
-        retained_markers.push(evidence_line_marker(
-            "recent_turn",
-            all_lines[all_lines.len() - 1],
-        ));
+        let last_line = all_lines[all_lines.len() - 1];
+        let normalized_last_line = normalized_evidence_line(last_line);
+        let ordinal = all_lines
+            .iter()
+            .filter(|line| normalized_evidence_line(line) == normalized_last_line)
+            .count();
+        retained_markers.push(evidence_line_marker("recent_turn", last_line, ordinal));
     }
 
     let mut view = result(lines.join("\n"), retained_markers, false);
-    let omitted = all_lines.len().saturating_sub(lines.len());
+    let omitted = all_lines.len().saturating_sub(retained_indices.len());
     if omitted > 0 {
         view.omissions.push(omission("text_lines_omitted", omitted));
     }
@@ -1354,14 +1427,28 @@ fn validate_policy(policy: &ReductionPolicy) -> Result<(), crate::ContextError> 
             reason: "entries must be bounded JSON pointers or dot paths",
         });
     }
-    if policy
-        .required_markers
-        .iter()
-        .any(|marker| marker.is_empty())
+    if policy.required_markers.len() > MAX_REQUIRED_MARKERS
+        || policy
+            .required_markers
+            .iter()
+            .any(|marker| marker.is_empty() || marker.len() > MAX_REQUIRED_MARKER_BYTES)
     {
         return Err(crate::ContextError::InvalidReductionPolicy {
             field: "required_markers",
-            reason: "must not contain empty marker ids",
+            reason: "entries must be non-empty and bounded",
+        });
+    }
+    if policy.selected_line_ranges.len() > MAX_SELECTED_LINE_RANGES
+        || policy.selected_line_ranges.iter().any(|range| {
+            range.start == 0
+                || range.start > range.end
+                || range.end > MAX_SELECTED_LINE_NUMBER
+                || range.end - range.start + 1 > MAX_SELECTED_LINE_RANGE_SPAN
+        })
+    {
+        return Err(crate::ContextError::InvalidReductionPolicy {
+            field: "selected_line_ranges",
+            reason: "entries must be ordered, positive, and bounded",
         });
     }
     if policy.referenced_symbols.len() > MAX_REFERENCED_SYMBOLS {
@@ -1382,6 +1469,23 @@ fn validate_policy(policy: &ReductionPolicy) -> Result<(), crate::ContextError> 
         });
     }
     Ok(())
+}
+
+fn normalized_line_ranges(ranges: &[LineRange]) -> Vec<LineRange> {
+    let mut normalized = ranges.to_vec();
+    normalized.sort_by_key(|range| (range.start, range.end));
+
+    let mut merged: Vec<LineRange> = Vec::with_capacity(normalized.len());
+    for range in normalized {
+        if let Some(previous) = merged.last_mut()
+            && range.start <= previous.end.saturating_add(1)
+        {
+            previous.end = previous.end.max(range.end);
+            continue;
+        }
+        merged.push(range);
+    }
+    merged
 }
 
 fn is_valid_identifier(identifier: &str) -> bool {
@@ -1444,9 +1548,9 @@ fn final_retained_markers(kind: ContextContentKind, view: &ReductionResult) -> V
                             else {
                                 return false;
                             };
-                            parse_json_path(path).as_ref().is_some_and(|segments| {
-                                json_value_at_segments(&value, segments).is_some()
-                            })
+                            parse_json_path(path)
+                                .as_ref()
+                                .is_some_and(|tokens| resolve_json_path(&value, tokens).is_some())
                         })
                     })
                     .cloned(),
@@ -1522,20 +1626,37 @@ fn final_marker_supported(marker: &str, content: &str) -> bool {
     }
 }
 
-fn evidence_line_marker(prefix: &str, line: &str) -> String {
-    let normalized = redact_line(line).trim().to_string();
+fn normalized_evidence_line(line: &str) -> String {
+    redact_line(line).trim().to_string()
+}
+
+fn evidence_line_marker(prefix: &str, line: &str, ordinal: usize) -> String {
+    let hash = evidence_line_hash(line);
+    format!("{prefix}:{ordinal}:{hash}")
+}
+
+fn evidence_line_hash(line: &str) -> String {
+    let normalized = normalized_evidence_line(line);
     let mut hasher = Sha256::new();
     hasher.update(normalized.as_bytes());
-    format!("{prefix}:{}", hex_prefix(&hasher.finalize(), 16))
+    hex_prefix(&hasher.finalize(), 16)
 }
 
 fn evidence_line_marker_supported(marker: &str, content: &str) -> bool {
-    let Some((prefix, _)) = marker.split_once(':') else {
+    let mut parts = marker.split(':');
+    let (Some(_prefix), Some(ordinal), Some(hash), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+    let Ok(ordinal) = ordinal.parse::<usize>() else {
         return false;
     };
     content
         .lines()
-        .any(|line| evidence_line_marker(prefix, line) == marker)
+        .filter(|line| evidence_line_hash(line) == hash)
+        .count()
+        >= ordinal
 }
 
 fn final_symbol_supported(content: &str, symbol: &str) -> bool {
@@ -1620,8 +1741,15 @@ fn is_secret_label(label: &str) -> bool {
 }
 
 fn push_unique(lines: &mut Vec<String>, seen: &mut HashSet<String>, line: String) {
+    let _ = push_unique_if_new(lines, seen, line);
+}
+
+fn push_unique_if_new(lines: &mut Vec<String>, seen: &mut HashSet<String>, line: String) -> bool {
     if seen.insert(line.clone()) {
         lines.push(line);
+        true
+    } else {
+        false
     }
 }
 
@@ -1840,6 +1968,8 @@ mod tests {
         let invalid_paths = [
             vec![String::new()],
             vec!["/bad/~2escape".to_string()],
+            vec!["/bad/~".to_string()],
+            vec![format!("/bad/~{}", "raw-secret".repeat(32))],
             vec!["bad..path".to_string()],
             vec!["x".repeat(257)],
             vec!["field".to_string(); 65],
@@ -1850,14 +1980,125 @@ mod tests {
                 selected_json_paths,
                 ..ReductionPolicy::default()
             };
+            let error = reduce(ContextContentKind::Json, br#"{"field":1}"#, &policy)
+                .expect_err("invalid JSON paths must fail policy validation");
             assert!(matches!(
-                reduce(ContextContentKind::Json, br#"{"field":1}"#, &policy),
-                Err(crate::ContextError::InvalidReductionPolicy {
+                error,
+                crate::ContextError::InvalidReductionPolicy {
                     field: "selected_json_paths",
                     ..
-                })
+                }
             ));
+            assert!(!error.to_string().contains("raw-secret"));
         }
+    }
+
+    #[test]
+    fn json_pointer_resolves_numeric_object_keys_and_array_indices_at_runtime() {
+        let input = br#"{
+            "0":{"a/b":{"~key":"object-zero"}},
+            "items":[{"name":"zero"},{"name":"one"}],
+            "noise":"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+        }"#;
+        let policy = ReductionPolicy {
+            max_output_bytes: 112,
+            selected_json_paths: vec!["/0/a~1b/~0key".to_string(), "/items/1/name".to_string()],
+            ..ReductionPolicy::default()
+        };
+
+        let view = reduce(ContextContentKind::Json, input, &policy).unwrap();
+        let parsed = serde_json::from_str::<serde_json::Value>(&view.content).unwrap();
+
+        assert_eq!(parsed["0"]["a/b"]["~key"], "object-zero");
+        assert_eq!(parsed["items"][1]["name"], "one");
+        assert!(parsed.get("noise").is_none());
+        assert!(
+            view.retained_markers
+                .iter()
+                .any(|marker| marker == "path:/0/a~1b/~0key")
+        );
+        assert!(
+            view.retained_markers
+                .iter()
+                .any(|marker| marker == "path:/items/1/name")
+        );
+    }
+
+    #[test]
+    fn required_marker_and_line_range_caps_are_non_leaking() {
+        let policies = [
+            ReductionPolicy {
+                required_markers: vec!["marker".to_string(); 65],
+                ..ReductionPolicy::default()
+            },
+            ReductionPolicy {
+                required_markers: vec![format!("literal:{}", "raw-secret".repeat(32))],
+                ..ReductionPolicy::default()
+            },
+            ReductionPolicy {
+                selected_line_ranges: vec![LineRange { start: 1, end: 1 }; 129],
+                ..ReductionPolicy::default()
+            },
+            ReductionPolicy {
+                selected_line_ranges: vec![LineRange { start: 0, end: 1 }],
+                ..ReductionPolicy::default()
+            },
+            ReductionPolicy {
+                selected_line_ranges: vec![LineRange { start: 8, end: 7 }],
+                ..ReductionPolicy::default()
+            },
+            ReductionPolicy {
+                selected_line_ranges: vec![LineRange {
+                    start: 1,
+                    end: 1_000_001,
+                }],
+                ..ReductionPolicy::default()
+            },
+            ReductionPolicy {
+                selected_line_ranges: vec![LineRange {
+                    start: 1,
+                    end: 100_002,
+                }],
+                ..ReductionPolicy::default()
+            },
+        ];
+
+        for policy in policies {
+            let error = reduce(ContextContentKind::Code, b"fn ok() {}", &policy)
+                .expect_err("invalid bounded policy must fail");
+            assert!(matches!(
+                error,
+                crate::ContextError::InvalidReductionPolicy { .. }
+            ));
+            assert!(!error.to_string().contains("raw-secret"));
+        }
+    }
+
+    #[test]
+    fn selected_line_ranges_are_sorted_and_merged_deterministically() {
+        let input = b"one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\n";
+        let policy = ReductionPolicy {
+            selected_line_ranges: vec![
+                LineRange { start: 5, end: 6 },
+                LineRange { start: 2, end: 3 },
+                LineRange { start: 3, end: 4 },
+                LineRange { start: 8, end: 8 },
+                LineRange { start: 7, end: 7 },
+            ],
+            ..ReductionPolicy::default()
+        };
+
+        let first = reduce(ContextContentKind::Code, input, &policy).unwrap();
+        let second = reduce(ContextContentKind::Code, input, &policy).unwrap();
+
+        assert_eq!(
+            first.content,
+            "L2: two\nL3: three\nL4: four\nL5: five\nL6: six\nL7: seven\nL8: eight"
+        );
+        assert_eq!(
+            serde_json::to_string(&first).unwrap(),
+            serde_json::to_string(&second).unwrap()
+        );
     }
 
     #[test]
@@ -2381,25 +2622,25 @@ mod tests {
                 ContextContentKind::Log,
                 b"running tests\nERROR src/a.rs:1 boom\nERROR src/a.rs:1 boom\nwarning\nfinal tail\n",
                 ReductionPolicy::default(),
-                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["failing_location","first_failure","tail","tail:35cf3d46823685e9"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_a242b2a84535c876","target_id":"viden-context-native:native-v1:Log","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["failing_location","first_failure","tail","tail:1:35cf3d46823685e9"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_a242b2a84535c876","target_id":"viden-context-native:native-v1:Log","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
                 ContextContentKind::Diagnostic,
                 b"running tests\nERROR src/a.rs:1 boom\nERROR src/a.rs:1 boom\nwarning\nfinal tail\n",
                 ReductionPolicy::default(),
-                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["failing_location","first_failure","tail","tail:35cf3d46823685e9"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_78dfd578c8672422","target_id":"viden-context-native:native-v1:Diagnostic","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"ERROR src/a.rs:1 boom\nwarning\nfinal tail","original":{"byte_count":77,"token_count":20},"reduced":{"byte_count":40,"token_count":10},"omissions":[{"reason":"log_lines_omitted_or_deduplicated","omitted_count":2}],"retained_markers":["failing_location","first_failure","tail","tail:1:35cf3d46823685e9"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_78dfd578c8672422","target_id":"viden-context-native:native-v1:Diagnostic","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
                 ContextContentKind::Transcript,
                 b"User: constraint: keep scope\nAssistant: old\nUser: decision: native\nUser: unresolved question: retry?\nAssistant: recent\n",
                 ReductionPolicy::default(),
-                r#"{"content":"User: constraint: keep scope\nUser: decision: native\nUser: unresolved question: retry?\nAssistant: old\nAssistant: recent","original":{"byte_count":119,"token_count":30},"reduced":{"byte_count":118,"token_count":30},"omissions":[],"retained_markers":["constraint","decision","question","recent_turn","recent_turn:6fee5befdca71649"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_1931e50bf52c15ee","target_id":"viden-context-native:native-v1:Transcript","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"User: constraint: keep scope\nUser: decision: native\nUser: unresolved question: retry?\nAssistant: old\nAssistant: recent","original":{"byte_count":119,"token_count":30},"reduced":{"byte_count":118,"token_count":30},"omissions":[],"retained_markers":["constraint","decision","question","recent_turn","recent_turn:1:6fee5befdca71649"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_1931e50bf52c15ee","target_id":"viden-context-native:native-v1:Transcript","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
             (
                 ContextContentKind::Text,
                 b"constraint: keep scope\ndecision: native\nunresolved question: retry?\nplain old\nplain recent\n",
                 ReductionPolicy::default(),
-                r#"{"content":"constraint: keep scope\ndecision: native\nunresolved question: retry?\nplain old\nplain recent","original":{"byte_count":91,"token_count":23},"reduced":{"byte_count":90,"token_count":23},"omissions":[],"retained_markers":["constraint","decision","question","recent_turn","recent_turn:01ab832cb9769a9b"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_6664ad4544b62071","target_id":"viden-context-native:native-v1:Text","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
+                r#"{"content":"constraint: keep scope\ndecision: native\nunresolved question: retry?\nplain old\nplain recent","original":{"byte_count":91,"token_count":23},"reduced":{"byte_count":90,"token_count":23},"omissions":[],"retained_markers":["constraint","decision","question","recent_turn","recent_turn:1:01ab832cb9769a9b"],"reducer_id":"viden-context-native","reducer_version":"native-v1","quality":{"quality_id":"ctxq_6664ad4544b62071","target_id":"viden-context-native:native-v1:Text","passed":true,"score_microunits":1000000,"checks":[],"failure_reason":null,"checked_at":null},"fallback_raw":false}"#,
             ),
         ];
 
@@ -2706,7 +2947,7 @@ mod tests {
                     "failing_location",
                     "first_failure",
                     "tail",
-                    "tail:1a8c37b26b0d1f12",
+                    "tail:1:1a8c37b26b0d1f12",
                     "unique_error",
                 ]
             );
@@ -2741,7 +2982,7 @@ mod tests {
         );
         assert_eq!(
             view.retained_markers,
-            vec!["command", "exit_status", "tail", "tail:3547cb112ac4489a"]
+            vec!["command", "exit_status", "tail", "tail:1:3547cb112ac4489a"]
         );
         assert_eq!(
             view.omissions,
@@ -2756,7 +2997,12 @@ mod tests {
 
         assert_eq!(
             view.retained_markers,
-            vec!["command", "first_failure", "tail", "tail:361e48d0308f20e3"]
+            vec![
+                "command",
+                "first_failure",
+                "tail",
+                "tail:1:361e48d0308f20e3"
+            ]
         );
 
         let tight = ReductionPolicy {
@@ -2855,6 +3101,96 @@ mod tests {
             reduce(ContextContentKind::Transcript, input, &required_policy),
             Err(crate::ContextError::QualityFailed { .. })
         ));
+    }
+
+    #[test]
+    fn duplicate_final_log_occurrence_has_distinct_tail_provenance() {
+        let input = b"ERROR SAME\nnoise one\nnoise two\nERROR SAME\n";
+        let full = reduce(ContextContentKind::Log, input, &ReductionPolicy::default()).unwrap();
+        assert_eq!(full.content.matches("ERROR SAME").count(), 2);
+        assert!(
+            full.retained_markers
+                .iter()
+                .any(|marker| marker.starts_with("tail:2:"))
+        );
+
+        let bounded_policy = ReductionPolicy {
+            max_output_bytes: 20,
+            ..ReductionPolicy::default()
+        };
+        let bounded = reduce(ContextContentKind::Log, input, &bounded_policy).unwrap();
+        assert_eq!(bounded.content.matches("ERROR SAME").count(), 1);
+        assert!(
+            !bounded
+                .retained_markers
+                .iter()
+                .any(|marker| marker == "tail")
+        );
+
+        let required_policy = ReductionPolicy {
+            required_markers: vec!["tail".to_string()],
+            ..bounded_policy
+        };
+        assert!(matches!(
+            reduce(ContextContentKind::Log, input, &required_policy),
+            Err(crate::ContextError::QualityFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn duplicate_recent_turn_occurrence_has_distinct_provenance() {
+        let input = b"constraint: SAME\nAssistant: filler\nconstraint: SAME\n";
+        let policy = ReductionPolicy {
+            recent_turns: 1,
+            ..ReductionPolicy::default()
+        };
+        let full = reduce(ContextContentKind::Transcript, input, &policy).unwrap();
+        assert_eq!(full.content.matches("constraint: SAME").count(), 2);
+        assert!(
+            full.retained_markers
+                .iter()
+                .any(|marker| marker.starts_with("recent_turn:2:"))
+        );
+
+        let bounded_policy = ReductionPolicy {
+            max_output_bytes: 20,
+            ..policy
+        };
+        let bounded = reduce(ContextContentKind::Transcript, input, &bounded_policy).unwrap();
+        assert_eq!(bounded.content.matches("constraint: SAME").count(), 1);
+        assert!(
+            !bounded
+                .retained_markers
+                .iter()
+                .any(|marker| marker == "recent_turn")
+        );
+
+        let required_policy = ReductionPolicy {
+            required_markers: vec!["recent_turn".to_string()],
+            ..bounded_policy
+        };
+        assert!(matches!(
+            reduce(ContextContentKind::Transcript, input, &required_policy),
+            Err(crate::ContextError::QualityFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn recent_semantic_turn_is_not_duplicated_as_the_same_source_occurrence() {
+        let input = b"Assistant: filler\nconstraint: final unique\n";
+        let policy = ReductionPolicy {
+            recent_turns: 1,
+            ..ReductionPolicy::default()
+        };
+
+        let view = reduce(ContextContentKind::Transcript, input, &policy).unwrap();
+
+        assert_eq!(view.content.matches("constraint: final unique").count(), 1);
+        assert!(
+            view.retained_markers
+                .iter()
+                .any(|marker| marker.starts_with("recent_turn:1:"))
+        );
     }
 
     #[test]
