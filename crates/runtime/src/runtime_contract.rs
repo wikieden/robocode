@@ -572,6 +572,26 @@ impl SessionEngine {
         }
     }
 
+    pub(crate) fn validate_context_retrieval_job_for_supervisor(
+        &self,
+        job: &ContextRetrievalJob,
+    ) -> Result<(), String> {
+        let (handle, item, expected_scope) =
+            self.resolve_current_context_handle(&job.handle.handle_id)?;
+        validate_context_retrieval_scope_and_expiry(&handle, &expected_scope)?;
+        if expected_scope != job.scope
+            || handle.item_id != job.handle.item_id
+            || handle.content_sha256 != job.handle.content_sha256
+            || item.item_id != job.item.item_id
+        {
+            return Err(format!(
+                "context handle `{}` changed before approval completed",
+                redact_identifier_for_event(&job.handle.handle_id)
+            ));
+        }
+        Ok(())
+    }
+
     fn resolve_current_context_handle(
         &self,
         handle_id: &str,

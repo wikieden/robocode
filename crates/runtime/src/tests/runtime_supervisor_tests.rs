@@ -784,6 +784,534 @@ fn runtime_supervisor_serializes_overlapping_context_retrieval_jobs() {
 }
 
 #[test]
+fn runtime_supervisor_rejects_input_and_agent_start_while_retrieval_owns_active_turn() {
+    let _guard = RETRIEVE_CONTEXT_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("retrieve context hook lock");
+    let (engine, handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_context_reject_active_starts",
+        "active retrieval owner body",
+    );
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let entered_for_hook = Arc::clone(&entered);
+    let release_for_hook = Arc::clone(&release);
+    set_retrieve_context_test_hook(Some(Arc::new(move |control| {
+        entered_for_hook.store(true, Ordering::SeqCst);
+        while !release_for_hook.load(Ordering::SeqCst) && control.check_cancelled().is_ok() {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    })));
+
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "cmd_active_retrieve_owner",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate active owner".to_string(),
+            },
+        )
+        .unwrap();
+    wait_until(|| entered.load(Ordering::SeqCst));
+
+    supervisor
+        .send_command(
+            "cmd_input_while_retrieve",
+            RuntimeCommand::SubmitUserInput {
+                content: "must not replace retrieval owner".to_string(),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command(
+            "cmd_agent_while_retrieve",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_missing_but_should_not_prepare".to_string(),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command(
+            "cmd_followup_while_retrieve",
+            RuntimeCommand::QueueFollowUp {
+                content: "follow-up remains queueable".to_string(),
+            },
+        )
+        .unwrap();
+
+    let rejected = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        let input_rejected = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_input_while_retrieve"
+                        && reason.contains("cmd_active_retrieve_owner")
+            )
+        });
+        let agent_rejected = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_agent_while_retrieve"
+                        && reason.contains("cmd_active_retrieve_owner")
+            )
+        });
+        let followup_queued = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::InputQueued { input }
+                    if input.content_preview.contains("follow-up remains queueable")
+            )
+        });
+        input_rejected && agent_rejected && followup_queued
+    });
+    assert!(rejected.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_input_while_retrieve"
+                    || command_id == "cmd_agent_while_retrieve"
+        )
+    }));
+
+    supervisor
+        .send_command(
+            "cmd_cancel_retrieve_owner",
+            RuntimeCommand::CancelActiveTurn,
+        )
+        .unwrap();
+    release.store(true, Ordering::SeqCst);
+    let cancelled = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::Error { error }
+                    if error.message.contains("Model request cancelled")
+            )
+        })
+    });
+    set_retrieve_context_test_hook(None);
+    assert!(cancelled.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_cancel_retrieve_owner"
+        )
+    }));
+    assert!(cancelled.iter().all(|event| {
+        match &event.kind {
+            RuntimeEventKind::ContextRetrieved { .. } => false,
+            RuntimeEventKind::ToolCallFinished {
+                name,
+                success: true,
+                ..
+            } if name == "context_read" => false,
+            _ => true,
+        }
+    }));
+}
+
+#[test]
+fn runtime_supervisor_pending_retrieval_approval_reserves_owner_until_resolution() {
+    let _guard = RETRIEVE_CONTEXT_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("retrieve context hook lock");
+    let (mut engine, handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_context_pending_reserves_owner",
+        "original pending approval body",
+    );
+    engine.add_permission_rule_for_test(context_read_rule(PermissionBehavior::Ask));
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command(
+            "cmd_pending_retrieve",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate pending owner".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let request_id = approval_id(&events);
+
+    supervisor
+        .send_command(
+            "cmd_replace_context_while_pending",
+            RuntimeCommand::SubmitUserInput {
+                content: "replacement context must be rejected".to_string(),
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { command_id, reason }
+                        if command_id == "cmd_replace_context_while_pending"
+                            && reason.contains("cmd_pending_retrieve")
+                )
+            })
+        },
+    ));
+
+    supervisor
+        .send_command(
+            "cmd_approve_pending_retrieve",
+            RuntimeCommand::RespondToApproval {
+                request_id,
+                response: ApprovalResponse {
+                    approved: true,
+                    feedback: None,
+                },
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ToolCallFinished {
+                        name,
+                        success: true,
+                        evidence: Some(evidence),
+                        ..
+                    } if name == "context_read"
+                        && evidence.summary.contains("original pending approval body")
+                )
+            })
+        },
+    ));
+    let serialized = serde_json::to_string(&events).unwrap();
+    assert!(!serialized.contains("replacement context must be rejected"));
+}
+
+#[test]
+fn runtime_supervisor_pending_retrieval_deny_and_cancel_release_active_owner() {
+    let (mut denied_engine, denied_handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_context_pending_deny_releases",
+        "deny releases body",
+    );
+    denied_engine.add_permission_rule_for_test(context_read_rule(PermissionBehavior::Ask));
+    let denied_supervisor = RuntimeSupervisor::start(denied_engine);
+    denied_supervisor
+        .send_command(
+            "cmd_pending_deny_retrieve",
+            RuntimeCommand::RetrieveContext {
+                handle_id: denied_handle_id,
+                reason: "hydrate pending deny".to_string(),
+            },
+        )
+        .unwrap();
+    let deny_request_events =
+        collect_events_until(&denied_supervisor, Duration::from_secs(2), |events| {
+            events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+        });
+    denied_supervisor
+        .send_command(
+            "cmd_deny_pending_retrieve",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval_id(&deny_request_events),
+                response: ApprovalResponse {
+                    approved: false,
+                    feedback: Some("deny".to_string()),
+                },
+            },
+        )
+        .unwrap();
+    let denied = collect_events_until(&denied_supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::Error { error }
+                    if error.message.contains("User denied the permission request")
+            )
+        })
+    });
+    assert!(denied.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                approved: false,
+                ..
+            }
+        )
+    }));
+    denied_supervisor
+        .send_command(
+            "cmd_input_after_denied_pending",
+            RuntimeCommand::SubmitUserInput {
+                content: "input starts after denied pending retrieval".to_string(),
+            },
+        )
+        .unwrap();
+    let after_deny = collect_events_until(&denied_supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_input_after_denied_pending"
+            )
+        })
+    });
+    assert!(after_deny.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, .. }
+                if command_id == "cmd_input_after_denied_pending"
+        )
+    }));
+
+    let (mut cancelled_engine, cancelled_handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_context_pending_cancel_releases",
+        "cancel releases body",
+    );
+    cancelled_engine.add_permission_rule_for_test(context_read_rule(PermissionBehavior::Ask));
+    let cancelled_supervisor = RuntimeSupervisor::start(cancelled_engine);
+    cancelled_supervisor
+        .send_command(
+            "cmd_pending_cancel_retrieve",
+            RuntimeCommand::RetrieveContext {
+                handle_id: cancelled_handle_id,
+                reason: "hydrate pending cancel".to_string(),
+            },
+        )
+        .unwrap();
+    let cancel_request_events =
+        collect_events_until(&cancelled_supervisor, Duration::from_secs(2), |events| {
+            events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+        });
+    assert!(!approval_id(&cancel_request_events).is_empty());
+    cancelled_supervisor
+        .send_command(
+            "cmd_cancel_pending_retrieve",
+            RuntimeCommand::CancelActiveTurn,
+        )
+        .unwrap();
+    let cancelled = collect_events_until(&cancelled_supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_cancel_pending_retrieve"
+            )
+        })
+    });
+    assert!(cancelled.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                approved: false,
+                ..
+            }
+        )
+    }));
+    cancelled_supervisor
+        .send_command(
+            "cmd_input_after_cancelled_pending",
+            RuntimeCommand::SubmitUserInput {
+                content: "input starts after cancelled pending retrieval".to_string(),
+            },
+        )
+        .unwrap();
+    let after_cancel =
+        collect_events_until(&cancelled_supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandAccepted { command_id, .. }
+                        if command_id == "cmd_input_after_cancelled_pending"
+                )
+            })
+        });
+    assert!(after_cancel.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, .. }
+                if command_id == "cmd_input_after_cancelled_pending"
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_provider_and_agent_active_turns_reject_retrieve_context() {
+    let cwd = temp_dir("runtime_supervisor_provider_active_rejects_retrieve_cwd");
+    let home = temp_dir("runtime_supervisor_provider_active_rejects_retrieve_home");
+    let provider_entered = Arc::new(AtomicBool::new(false));
+    let provider = Box::new(BlockingProvider {
+        entered: Arc::clone(&provider_entered),
+    });
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let provider_supervisor = RuntimeSupervisor::start(engine);
+    provider_supervisor
+        .send_command(
+            "cmd_blocking_provider_input",
+            RuntimeCommand::SubmitUserInput {
+                content: "block provider turn".to_string(),
+            },
+        )
+        .unwrap();
+    wait_until(|| provider_entered.load(Ordering::SeqCst));
+    provider_supervisor
+        .send_command(
+            "cmd_retrieve_during_provider",
+            RuntimeCommand::RetrieveContext {
+                handle_id: "ctxh-provider-active".to_string(),
+                reason: "hydrate during provider".to_string(),
+            },
+        )
+        .unwrap();
+    let provider_rejected =
+        collect_events_until(&provider_supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { command_id, reason }
+                        if command_id == "cmd_retrieve_during_provider"
+                            && reason.contains("cmd_blocking_provider_input")
+                )
+            })
+        });
+    assert!(provider_rejected.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == "cmd_retrieve_during_provider"
+                    && reason.contains("cmd_blocking_provider_input")
+        )
+    }));
+    assert!(provider_rejected.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_retrieve_during_provider"
+        )
+    }));
+    provider_supervisor
+        .send_command(
+            "cmd_cancel_provider_owner",
+            RuntimeCommand::CancelActiveTurn,
+        )
+        .unwrap();
+    let _ = collect_events_until(&provider_supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::Error { error }
+                    if error.message.contains("Model request cancelled")
+            )
+        })
+    });
+
+    let cwd = temp_dir("runtime_supervisor_agent_active_rejects_retrieve_cwd");
+    let home = temp_dir("runtime_supervisor_agent_active_rejects_retrieve_home");
+    let agent_entered = Arc::new(AtomicBool::new(false));
+    let provider = Box::new(BlockingProvider {
+        entered: Arc::clone(&agent_entered),
+    });
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let agent_supervisor = RuntimeSupervisor::start(engine);
+    agent_supervisor
+        .send_command(
+            "cmd_agent_dag_for_active_owner",
+            RuntimeCommand::StartAgentDag {
+                goal: "Block agent active owner".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_active_owner".to_string(),
+                    role: AgentRole::Planner,
+                    title: "Block active owner".to_string(),
+                    objective: "Enter provider turn".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: Vec::new(),
+                    context_bundle_id: None,
+                    required_evidence: vec!["plan".to_string()],
+                    permission_policy: "read_only".to_string(),
+                }],
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&agent_supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentDagUpdated { .. }))
+    });
+    agent_supervisor
+        .send_command(
+            "cmd_blocking_agent_start",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_active_owner".to_string(),
+            },
+        )
+        .unwrap();
+    wait_until(|| agent_entered.load(Ordering::SeqCst));
+    agent_supervisor
+        .send_command(
+            "cmd_retrieve_during_agent",
+            RuntimeCommand::RetrieveContext {
+                handle_id: "ctxh-agent-active".to_string(),
+                reason: "hydrate during agent".to_string(),
+            },
+        )
+        .unwrap();
+    let agent_rejected =
+        collect_events_until(&agent_supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { command_id, reason }
+                        if command_id == "cmd_retrieve_during_agent"
+                            && reason.contains("cmd_blocking_agent_start")
+                )
+            })
+        });
+    assert!(agent_rejected.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == "cmd_retrieve_during_agent"
+                    && reason.contains("cmd_blocking_agent_start")
+        )
+    }));
+    assert!(agent_rejected.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_retrieve_during_agent"
+        )
+    }));
+    agent_supervisor
+        .send_command("cmd_cancel_agent_owner", RuntimeCommand::CancelActiveTurn)
+        .unwrap();
+    let _ = collect_events_until(&agent_supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::Error { error }
+                    if error.message.contains("Model request cancelled")
+            )
+        })
+    });
+}
+
+#[test]
 fn runtime_supervisor_redacts_fast_path_command_accepted_events() {
     let cwd = temp_dir("runtime_supervisor_fast_path_redaction_cwd");
     let home = temp_dir("runtime_supervisor_fast_path_redaction_home");
