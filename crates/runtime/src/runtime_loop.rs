@@ -145,14 +145,14 @@ impl SessionEngine {
                 Ok(events) => {
                     let usage = aggregate_model_usage(&events);
                     let usage_id = provider_attempt_usage_id(&provider_task.id, attempt_index);
-                    self.provider_cost_usage.push(provider_attempt_cost_record(
+                    self.record_cost_usage(provider_attempt_cost_record(
                         self.provider_name(),
                         self.model_name(),
                         attempt_index,
                         usage.as_ref(),
                         CostUsageOutcome::Success,
                         self.cost_attribution_for_request(&usage_id, Some(&provider_task.id)),
-                    ));
+                    ))?;
                     self.provider_telemetry.record_success(
                         request_started.elapsed(),
                         events.len(),
@@ -162,14 +162,14 @@ impl SessionEngine {
                 }
                 Err(err) => {
                     let usage_id = provider_attempt_usage_id(&provider_task.id, attempt_index);
-                    self.provider_cost_usage.push(provider_attempt_cost_record(
+                    self.record_cost_usage(provider_attempt_cost_record(
                         self.provider_name(),
                         self.model_name(),
                         attempt_index,
                         None,
                         CostUsageOutcome::Failure,
                         self.cost_attribution_for_request(&usage_id, Some(&provider_task.id)),
-                    ));
+                    ))?;
                     self.provider_telemetry
                         .record_failure(request_started.elapsed(), &err);
                     if crate::provider_commands::is_request_too_large_provider_failure(&err)

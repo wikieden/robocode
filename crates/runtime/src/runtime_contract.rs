@@ -245,6 +245,7 @@ impl SessionEngine {
                     ));
                 }
             }
+            self.persist_cost_usage_events(&events)?;
             return Ok(events);
         }
 
@@ -441,6 +442,20 @@ impl SessionEngine {
         }
 
         Ok(events)
+    }
+
+    fn persist_cost_usage_events(&mut self, events: &[RuntimeEvent]) -> Result<(), String> {
+        let costs = events
+            .iter()
+            .filter_map(|event| match &event.kind {
+                RuntimeEventKind::CostUsageRecorded { cost } => Some(cost.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for cost in costs {
+            self.record_cost_usage(cost)?;
+        }
+        Ok(())
     }
 
     pub fn process_runtime_input_with_approval<F>(

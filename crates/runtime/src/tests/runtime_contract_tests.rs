@@ -991,6 +991,76 @@ fn retrieve_context_returns_safe_bytes_and_event_metadata() {
 }
 
 #[test]
+fn retrieved_context_cost_survives_session_resume() {
+    let cwd = temp_dir("runtime_command_retrieve_resume_cwd");
+    let home = temp_dir("runtime_command_retrieve_resume_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .handle_runtime_command(
+            "cmd_build_context",
+            RuntimeCommand::SubmitUserInput {
+                content: "resume-safe-retrieval-body".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+    let view = engine.runtime_view_state();
+    let context = view.context.as_ref().expect("runtime context bundle");
+    let handle = context
+        .sources
+        .iter()
+        .find(|source| source.name == "user-task")
+        .and_then(|source| {
+            context_handle_from_source(source, &ContextScope::Task(context.task_id.clone()))
+        })
+        .expect("user-task context handle");
+    let session_id = engine.session_id().to_string();
+
+    engine
+        .handle_runtime_command(
+            "cmd_retrieve_context",
+            RuntimeCommand::RetrieveContext {
+                handle_id: handle.handle_id,
+                reason: "hydrate resume-safe context".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let resumed_provider = Box::new(SequenceProvider::new(vec![]));
+    let mut resumed =
+        SessionEngine::new_with_home(&cwd, resumed_provider, Some(home.clone())).unwrap();
+    let resume_engine_events = resumed
+        .process_input_with_approval(&format!("/resume {session_id}"), &mut approver)
+        .unwrap();
+    let resume_runtime_events = resumed.runtime_events_for_engine_events(&resume_engine_events);
+    let mut resumed_view = RuntimeViewState::new(resumed.runtime_snapshot());
+    for event in &resume_runtime_events {
+        resumed_view.apply_event(event);
+    }
+    let retrieval_cost = resumed_view
+        .cost_usage
+        .iter()
+        .find(|cost| cost.provider_id == "context" && cost.model == "retrieval")
+        .expect("retrieval cost survives resume");
+
+    assert_eq!(
+        retrieval_cost.tokens.retrieval_tokens,
+        retrieval_cost.tokens.total_tokens
+    );
+    assert!(retrieval_cost.tokens.retrieval_tokens.unwrap_or(0) > 0);
+    assert_eq!(
+        resumed_view.cost_ledger.retrieval_tokens,
+        retrieval_cost.tokens.retrieval_tokens.unwrap()
+    );
+}
+
+#[test]
 fn retrieve_context_bounds_long_secret_and_path_reason_before_recording_event() {
     let cwd = temp_dir("runtime_command_retrieve_context_reason_cwd");
     let home = temp_dir("runtime_command_retrieve_context_reason_home");

@@ -352,6 +352,55 @@ fn transcript_tool_result_preserves_exit_code() {
     assert_eq!(TranscriptEntry::from_json_line(&line).unwrap(), entry);
 }
 
+#[test]
+fn transcript_cost_usage_roundtrips_canonical_and_legacy_shapes() {
+    let cost = CostUsageRecord {
+        usage_id: "usage-canonical-1".to_string(),
+        provider_id: "deepseek".to_string(),
+        model: "deepseek-v4-flash".to_string(),
+        scopes: vec![CostScope::Request("req-1".to_string())],
+        tokens: TokenUsage {
+            input_tokens: Some(11),
+            output_tokens: Some(3),
+            cached_input_tokens: Some(2),
+            retrieval_tokens: None,
+            total_tokens: Some(14),
+        },
+        estimate: None,
+        actual_cost: None,
+        attempt_index: 0,
+        outcome: CostUsageOutcome::Success,
+        recorded_at: Some(123),
+    };
+    let entry = TranscriptEntry::CostUsage {
+        cost: Box::new(cost.clone()),
+    };
+    let line = entry.to_json_line();
+
+    assert_eq!(TranscriptEntry::from_json_line(&line).unwrap(), entry);
+
+    let legacy = r#"{"type":"cost_usage","request_id":"req-legacy-1","provider_id":"legacy-provider","model":"legacy-model","scope":{"type":"task","id":"task-legacy-1"},"input_tokens":5,"output_tokens":7,"estimated_cost_micro_usd":9}"#;
+    let TranscriptEntry::CostUsage { cost: legacy_cost } =
+        TranscriptEntry::from_json_line(legacy).unwrap()
+    else {
+        panic!("expected cost usage entry");
+    };
+    assert_eq!(legacy_cost.tokens.input_tokens, Some(5));
+    assert_eq!(legacy_cost.tokens.output_tokens, Some(7));
+    assert_eq!(legacy_cost.tokens.cached_input_tokens, Some(0));
+    assert_eq!(legacy_cost.actual_cost, None);
+    assert!(
+        legacy_cost
+            .scopes
+            .contains(&CostScope::Request("req-legacy-1".to_string()))
+    );
+    assert!(
+        legacy_cost
+            .scopes
+            .contains(&CostScope::AgentTask("task-legacy-1".to_string()))
+    );
+}
+
 fn runtime_snapshot_for_contract() -> RuntimeSnapshot {
     RuntimeSnapshot {
         cwd: PathBuf::from("/tmp/viden"),

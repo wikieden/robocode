@@ -1,4 +1,6 @@
-use crate::{Message, Role, ToolCall, ToolResult, decode_tool_input, encode_tool_input};
+use crate::{
+    CostUsageRecord, Message, Role, ToolCall, ToolResult, decode_tool_input, encode_tool_input,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PermissionLogEntry {
@@ -32,6 +34,7 @@ pub enum TranscriptEntry {
     Permission { entry: PermissionLogEntry },
     Command { entry: CommandLogEntry },
     SessionMeta { entry: SessionMetaEntry },
+    CostUsage { cost: Box<CostUsageRecord> },
 }
 
 impl TranscriptEntry {
@@ -82,11 +85,17 @@ impl TranscriptEntry {
                 escape_json(&entry.key),
                 escape_json(&entry.value)
             ),
+            TranscriptEntry::CostUsage { cost } => serde_json::json!({
+                "type": "cost_usage",
+                "cost": cost,
+            })
+            .to_string(),
         }
     }
 
     pub fn from_json_line(line: &str) -> Result<Self, String> {
-        let kind = extract_string_field(line, "type")?;
+        let kind =
+            extract_top_level_type_field(line).or_else(|_| extract_string_field(line, "type"))?;
         match kind.as_str() {
             "message" => Ok(TranscriptEntry::Message {
                 message: Message {
@@ -144,9 +153,31 @@ impl TranscriptEntry {
                     value: extract_string_field(line, "value")?,
                 },
             }),
+            "cost_usage" => cost_usage_entry_from_json_line(line),
             _ => Err("Unknown transcript entry type".to_string()),
         }
     }
+}
+
+fn extract_top_level_type_field(line: &str) -> Result<String, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(line).map_err(|_| "Malformed transcript entry")?;
+    value
+        .get("type")
+        .and_then(|kind| kind.as_str())
+        .map(ToString::to_string)
+        .ok_or_else(|| "Missing field `type`".to_string())
+}
+
+fn cost_usage_entry_from_json_line(line: &str) -> Result<TranscriptEntry, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(line).map_err(|_| "Malformed cost usage transcript entry")?;
+    let cost_value = value.get("cost").cloned().unwrap_or_else(|| value.clone());
+    let cost =
+        serde_json::from_value(cost_value).map_err(|_| "Malformed cost usage transcript entry")?;
+    Ok(TranscriptEntry::CostUsage {
+        cost: Box::new(cost),
+    })
 }
 
 fn optional_json_string(value: Option<&str>) -> String {

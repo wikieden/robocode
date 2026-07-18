@@ -1,6 +1,10 @@
 use crate::{EngineEvent, SessionEngine};
 use viden_provider::ProviderHost;
-use viden_types::{ApprovalResponse, ModelEvent};
+use viden_session::SessionStore;
+use viden_types::{
+    ApprovalResponse, Message, ModelEvent, ModelUsage, Role, RuntimeEventKind, RuntimeViewState,
+    TranscriptEntry,
+};
 
 use super::{SequenceProvider, temp_dir};
 
@@ -31,6 +35,160 @@ fn resume_restores_previous_session() {
     assert!(output.iter().any(
         |event| matches!(event, EngineEvent::Command(text) if text.contains("Resumed session"))
     ));
+}
+
+#[test]
+fn resume_replays_provider_cost_usage_from_session_log() {
+    let home = temp_dir("resume_provider_cost_home");
+    let cwd = temp_dir("resume_provider_cost_cwd");
+    let provider_a = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "priced reply".to_string(),
+        },
+        ModelEvent::Usage(ModelUsage {
+            input_tokens: Some(19),
+            output_tokens: Some(7),
+            cached_input_tokens: Some(5),
+            retrieval_tokens: None,
+            total_tokens: Some(26),
+            cost_micro_usd: None,
+            actual_cost_micro_usd: None,
+        }),
+    ]]));
+    let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine_a.session_id().to_string();
+    let live_engine_events = engine_a
+        .process_input_with_approval("track provider cost", &mut approver)
+        .unwrap();
+    let live_runtime_events = engine_a.runtime_events_for_engine_events(&live_engine_events);
+    let live_usage_id = live_runtime_events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::CostUsageRecorded { cost } if cost.provider_id == "sequence" => {
+                Some(cost.usage_id.clone())
+            }
+            _ => None,
+        })
+        .expect("live provider cost");
+
+    let provider_b = Box::new(SequenceProvider::new(vec![]));
+    let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
+    let resume_events = engine_b
+        .process_input_with_approval(&format!("/resume {session_id}"), &mut approver)
+        .unwrap();
+    let resumed_runtime_events = engine_b.runtime_events_for_engine_events(&resume_events);
+    let mut view = RuntimeViewState::new(engine_b.runtime_snapshot());
+    for event in &resumed_runtime_events {
+        view.apply_event(event);
+    }
+
+    assert!(resumed_runtime_events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CostUsageRecorded { cost }
+                if cost.usage_id == live_usage_id && cost.tokens.input_tokens == Some(19)
+        )
+    }));
+    assert_eq!(view.cost_usage.len(), 1);
+    assert_eq!(view.cost_ledger.input_tokens, 19);
+    assert_eq!(view.cost_ledger.output_tokens, 7);
+    assert_eq!(view.cost_ledger.cached_input_tokens, 5);
+}
+
+#[test]
+fn resume_replays_duplicate_cost_usage_id_once() {
+    let home = temp_dir("resume_duplicate_cost_home");
+    let cwd = temp_dir("resume_duplicate_cost_cwd");
+    let provider_a = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "duplicate priced reply".to_string(),
+        },
+        ModelEvent::Usage(ModelUsage {
+            input_tokens: Some(31),
+            output_tokens: Some(11),
+            cached_input_tokens: None,
+            retrieval_tokens: None,
+            total_tokens: Some(42),
+            cost_micro_usd: None,
+            actual_cost_micro_usd: None,
+        }),
+    ]]));
+    let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    let session_id = engine_a.session_id().to_string();
+    engine_a
+        .process_input_with_approval("track duplicate cost", &mut approver)
+        .unwrap();
+    let store = SessionStore::new_with_home(&home, &cwd, Some(session_id.clone())).unwrap();
+    let duplicate_cost = store
+        .load_entries()
+        .unwrap()
+        .into_iter()
+        .find_map(|entry| match entry {
+            viden_types::TranscriptEntry::CostUsage { cost } => Some(*cost),
+            _ => None,
+        })
+        .expect("persisted cost usage");
+    store
+        .append_entry(&viden_types::TranscriptEntry::CostUsage {
+            cost: Box::new(duplicate_cost.clone()),
+        })
+        .unwrap();
+
+    let provider_b = Box::new(SequenceProvider::new(vec![]));
+    let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
+    let resume_events = engine_b
+        .process_input_with_approval(&format!("/resume {session_id}"), &mut approver)
+        .unwrap();
+    let runtime_events = engine_b.runtime_events_for_engine_events(&resume_events);
+    let mut view = RuntimeViewState::new(engine_b.runtime_snapshot());
+    for event in &runtime_events {
+        view.apply_event(event);
+    }
+
+    assert_eq!(view.cost_usage.len(), 1);
+    assert_eq!(view.cost_usage[0].usage_id, duplicate_cost.usage_id);
+    assert_eq!(view.cost_ledger.input_tokens, 31);
+    assert_eq!(view.cost_ledger.output_tokens, 11);
+}
+
+#[test]
+fn resume_session_without_cost_usage_keeps_empty_cost_ledger() {
+    let home = temp_dir("resume_without_cost_home");
+    let cwd = temp_dir("resume_without_cost_cwd");
+    let session_id = "legacy_no_cost_session".to_string();
+    let store = SessionStore::new_with_home(&home, &cwd, Some(session_id.clone())).unwrap();
+    store
+        .append_entry(&TranscriptEntry::Message {
+            message: Message::new(Role::User, "old session before costs"),
+        })
+        .unwrap();
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    let provider_b = Box::new(SequenceProvider::new(vec![]));
+    let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
+    let resume_events = engine_b
+        .process_input_with_approval(&format!("/resume {session_id}"), &mut approver)
+        .unwrap();
+    let runtime_events = engine_b.runtime_events_for_engine_events(&resume_events);
+    let mut view = RuntimeViewState::new(engine_b.runtime_snapshot());
+    for event in &runtime_events {
+        view.apply_event(event);
+    }
+
+    assert!(view.cost_usage.is_empty());
+    assert_eq!(view.cost_ledger.input_tokens, 0);
+    assert_eq!(view.cost_ledger.output_tokens, 0);
 }
 
 #[test]

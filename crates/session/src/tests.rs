@@ -1,5 +1,8 @@
 use super::*;
-use viden_types::{CommandLogEntry, Message, ToolCall, TranscriptEntry};
+use viden_types::{
+    CommandLogEntry, CostScope, CostUsageOutcome, CostUsageRecord, Message, TokenUsage, ToolCall,
+    TranscriptEntry,
+};
 
 fn temp_home(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("viden_test_{name}_{}", fresh_id("tmp")));
@@ -20,6 +23,46 @@ fn jsonl_round_trip_works() {
         .unwrap();
     let entries = store.load_entries().unwrap();
     assert_eq!(entries.len(), 1);
+}
+
+#[test]
+fn jsonl_round_trip_preserves_cost_usage_entries() {
+    let home = temp_home("jsonl_cost_usage");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store =
+        SessionStore::new_with_home(&home, &cwd, Some("session_cost_roundtrip".into())).unwrap();
+    let cost = CostUsageRecord {
+        usage_id: "usage-session-1".to_string(),
+        provider_id: "context".to_string(),
+        model: "retrieval".to_string(),
+        scopes: vec![CostScope::Request("req-session-1".to_string())],
+        tokens: TokenUsage {
+            input_tokens: None,
+            output_tokens: None,
+            cached_input_tokens: None,
+            retrieval_tokens: Some(42),
+            total_tokens: Some(42),
+        },
+        estimate: None,
+        actual_cost: None,
+        attempt_index: 0,
+        outcome: CostUsageOutcome::Success,
+        recorded_at: Some(now_timestamp()),
+    };
+    store
+        .append_entry(&TranscriptEntry::CostUsage {
+            cost: Box::new(cost.clone()),
+        })
+        .unwrap();
+
+    let entries = store.load_entries().unwrap();
+    assert_eq!(
+        entries,
+        vec![TranscriptEntry::CostUsage {
+            cost: Box::new(cost)
+        }]
+    );
 }
 
 #[test]

@@ -1,8 +1,8 @@
 use viden_permissions::PermissionEngine;
 use viden_session::SessionStore;
 use viden_types::{
-    Message, PermissionLevel, PermissionMode, Role, SessionMetaEntry, SessionSummary,
-    TranscriptEntry, WorkMode, fresh_id, now_timestamp,
+    CostUsageRecord, Message, PermissionLevel, PermissionMode, Role, SessionMetaEntry,
+    SessionSummary, TranscriptEntry, WorkMode, fresh_id, now_timestamp,
 };
 
 use crate::SessionEngine;
@@ -36,6 +36,7 @@ impl SessionEngine {
         self.messages.clear();
         self.last_diff = None;
         self.last_test = None;
+        self.provider_cost_usage.clear();
         self.permissions = PermissionEngine::new(&self.cwd);
         self.hydrate(entries)?;
         Ok(format!(
@@ -150,6 +151,7 @@ impl SessionEngine {
                     }
                     _ => {}
                 },
+                TranscriptEntry::CostUsage { cost } => self.remember_cost_usage(*cost),
                 _ => {}
             }
         }
@@ -191,5 +193,24 @@ impl SessionEngine {
 
     pub(super) fn store_entry(&self, entry: TranscriptEntry) -> Result<(), String> {
         self.store.append_entry(&entry)
+    }
+
+    pub(super) fn record_cost_usage(&mut self, cost: CostUsageRecord) -> Result<(), String> {
+        self.store_entry(TranscriptEntry::CostUsage {
+            cost: Box::new(cost.clone()),
+        })?;
+        self.remember_cost_usage(cost);
+        Ok(())
+    }
+
+    pub(super) fn remember_cost_usage(&mut self, cost: CostUsageRecord) {
+        if self
+            .provider_cost_usage
+            .iter()
+            .any(|existing| existing.usage_id == cost.usage_id)
+        {
+            return;
+        }
+        self.provider_cost_usage.push(cost);
     }
 }
