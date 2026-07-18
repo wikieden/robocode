@@ -673,7 +673,7 @@ fn context_and_cost_runtime_events_project_bounded_summaries() {
     assert_eq!(view.context_views[0].view_id, "ctxv-1");
     assert_eq!(view.context_retrievals[0].handle_id, "ctxh-1");
     assert_eq!(view.context_budgets[0].used_tokens, 1_300);
-    assert_eq!(view.context_quality[0].passed, false);
+    assert!(!view.context_quality[0].passed);
     assert_eq!(view.cost_ledger.total_tokens, 1_000);
     assert_eq!(view.cost_ledger.total_estimated_cost_micro_usd, 900);
     assert_eq!(view.cost_ledger.total_actual_cost_micro_usd, Some(950));

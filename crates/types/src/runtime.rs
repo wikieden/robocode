@@ -202,6 +202,9 @@ impl RuntimeEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+// This is a stable serialized runtime protocol enum. Boxing large payloads
+// would churn public construction semantics without changing wire format.
+#[allow(clippy::large_enum_variant)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum RuntimeEventKind {
     SnapshotUpdated {
