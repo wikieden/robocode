@@ -1,8 +1,18 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, VecDeque},
+    time::Duration,
+};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use viden_core::{RuntimeEventEnvelope, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent};
+use viden_core::{
+    CoreClientError, CoreHandshake, CoreTransport, EventCursor, FRONTEND_SCHEMA_V1, ReplayBatch,
+    ReplayRequest, RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeSnapshot,
+    RuntimeSnapshotEnvelope, RuntimeViewState, TranscriptPage, TranscriptPageRequest,
+    frontend_capabilities,
+};
+
+use crate::GuiCoreAdapter;
 
 const D1_FIXTURE: &str = include_str!(
     "../../../../../crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json"
@@ -13,6 +23,54 @@ struct Fixture {
     initial_snapshot: RuntimeSnapshot,
     events: Vec<RuntimeEventEnvelope>,
     expected_view_sha256: String,
+}
+
+struct FixtureTransport {
+    snapshot: Option<RuntimeSnapshotEnvelope>,
+    events: VecDeque<RuntimeEventEnvelope>,
+}
+
+impl CoreTransport for FixtureTransport {
+    fn discover(&mut self) -> Result<CoreHandshake, CoreClientError> {
+        Ok(CoreHandshake {
+            core_version: "0.3.0-fixture".to_string(),
+            supported_schema_versions: vec![FRONTEND_SCHEMA_V1],
+            active_schema_version: FRONTEND_SCHEMA_V1,
+            capabilities: frontend_capabilities(),
+        })
+    }
+
+    fn send(&mut self, _command: RuntimeCommandEnvelope) -> Result<(), CoreClientError> {
+        Ok(())
+    }
+
+    fn recv(
+        &mut self,
+        _timeout: Duration,
+    ) -> Result<Option<RuntimeEventEnvelope>, CoreClientError> {
+        Ok(self.events.pop_front())
+    }
+
+    fn snapshot(&mut self) -> Result<RuntimeSnapshotEnvelope, CoreClientError> {
+        self.snapshot.take().ok_or_else(|| {
+            CoreClientError::Transport("D1 fixture snapshot already consumed".into())
+        })
+    }
+
+    fn replay(&mut self, _request: ReplayRequest) -> Result<ReplayBatch, CoreClientError> {
+        Err(CoreClientError::Transport(
+            "committed D1 fixture should not require replay".into(),
+        ))
+    }
+
+    fn transcript_page(
+        &mut self,
+        _request: TranscriptPageRequest,
+    ) -> Result<TranscriptPage, CoreClientError> {
+        Err(CoreClientError::Transport(
+            "committed D1 fixture projection does not page transcript rows".into(),
+        ))
+    }
 }
 
 /// Identity and digest derived from the canonical D1 fixture through Core's reducer.
@@ -36,18 +94,34 @@ impl D1FixtureProjection {
             .ok_or_else(|| "canonical D1 fixture has no events".to_string())?
             .owner
             .clone();
-        let mut view = RuntimeViewState::new(fixture.initial_snapshot);
-        for envelope in fixture.events {
-            match &envelope.event {
-                RuntimeWireEvent::Known(event) => view.apply_event(event),
-                RuntimeWireEvent::Unknown { event_type, .. } => {
-                    return Err(format!(
-                        "canonical D1 fixture contains unknown event `{event_type}`"
-                    ));
-                }
-            }
+        let event_count = fixture.events.len();
+        let snapshot = RuntimeSnapshotEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            capabilities: frontend_capabilities(),
+            cursor: EventCursor {
+                stream_id: "fixture:d1-vertical-slice".to_string(),
+                sequence: 0,
+            },
+            snapshot: fixture.initial_snapshot.clone(),
+            view: RuntimeViewState::new(fixture.initial_snapshot),
+        };
+        let mut adapter = GuiCoreAdapter::new(FixtureTransport {
+            snapshot: Some(snapshot),
+            events: fixture.events.into(),
+        });
+        adapter
+            .connect()
+            .map_err(|error| format!("connect committed D1 fixture adapter: {error}"))?;
+        for _ in 0..event_count {
+            adapter
+                .pump(Duration::ZERO)
+                .map_err(|error| format!("replay committed D1 fixture through adapter: {error}"))?;
         }
-        let view_hash = canonical_view_sha256(&view)?;
+        let view = adapter
+            .projection()
+            .view()
+            .ok_or_else(|| "committed D1 fixture adapter published no view".to_string())?;
+        let view_hash = canonical_view_sha256(view)?;
         if view_hash != fixture.expected_view_sha256 {
             return Err(format!(
                 "canonical D1 projection digest mismatch: expected {}, received {view_hash}",
