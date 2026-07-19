@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use viden_core::{
-    CoreClient, CoreClientError, CoreHandshake, CoreTransport, EventCursor, RuntimeCommand,
-    RuntimeCommandEnvelope, RuntimeViewState, StatefulCoreClient,
+    CoreClient, CoreClientError, CoreHandshake, EventCursor, ReplayRequest, RuntimeCommand,
+    RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeSnapshotEnvelope, RuntimeViewState,
+    RuntimeWireEvent, validate_handshake, validate_schema_version,
 };
 use viden_types::{FRONTEND_SCHEMA_V1, RuntimeOwner};
 
@@ -34,46 +35,45 @@ impl From<CoreClientError> for TuiClientError {
     }
 }
 
-pub(super) struct TuiClientDriver<T: CoreTransport> {
-    client: StatefulCoreClient<T>,
+pub(super) struct TuiClientDriver<C: CoreClient> {
+    client: C,
     handshake: CoreHandshake,
+    confirmed: RuntimeSnapshotEnvelope,
     next_command: u64,
     owner: RuntimeOwner,
 }
 
-impl<T: CoreTransport> std::fmt::Debug for TuiClientDriver<T> {
+impl<C: CoreClient> std::fmt::Debug for TuiClientDriver<C> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("TuiClientDriver")
             .field("handshake", &self.handshake)
-            .field("cursor", &self.client.confirmed_cursor())
+            .field("cursor", &self.confirmed.cursor)
             .field("next_command", &self.next_command)
             .finish_non_exhaustive()
     }
 }
 
-impl<T: CoreTransport> TuiClientDriver<T> {
-    pub(super) fn connect(mut client: StatefulCoreClient<T>) -> Result<Self, TuiClientError> {
+impl<C: CoreClient> TuiClientDriver<C> {
+    pub(super) fn connect(mut client: C) -> Result<Self, TuiClientError> {
         let handshake = client.discover()?;
-        client.snapshot()?;
+        validate_handshake(&handshake).map_err(CoreClientError::Compatibility)?;
+        let confirmed = client.snapshot()?;
         Ok(Self {
             client,
             handshake,
+            confirmed,
             next_command: 1,
             owner: RuntimeOwner::default(),
         })
     }
 
     pub(super) fn view(&self) -> &RuntimeViewState {
-        self.client
-            .confirmed_view()
-            .expect("TuiClientDriver loads a snapshot before construction")
+        &self.confirmed.view
     }
 
     pub(super) fn cursor(&self) -> &EventCursor {
-        self.client
-            .confirmed_cursor()
-            .expect("TuiClientDriver loads a snapshot before construction")
+        &self.confirmed.cursor
     }
 
     pub(super) fn send(&mut self, command: RuntimeCommand) -> Result<String, TuiClientError> {
@@ -95,26 +95,135 @@ impl<T: CoreTransport> TuiClientDriver<T> {
 
     fn pump_with_timeout(&mut self, timeout: Duration) -> Result<PumpOutcome, TuiClientError> {
         let before = self.cursor().clone();
-        let delivered = self.client.recv(timeout)?;
-        let after = self.cursor().clone();
-        if delivered.is_none() && after == before {
+        let Some(delivered) = self.client.recv(timeout)? else {
+            return Ok(PumpOutcome::Idle);
+        };
+        validate_event_envelope(&delivered)?;
+
+        if delivered.cursor.stream_id != before.stream_id {
+            self.confirmed = self.client.snapshot()?;
+            return Ok(PumpOutcome::Recovered(self.confirmed.cursor.clone()));
+        }
+        if delivered.cursor.sequence <= before.sequence {
             return Ok(PumpOutcome::Idle);
         }
-        if before.stream_id == after.stream_id
-            && after.sequence == before.sequence.saturating_add(1)
-        {
-            Ok(PumpOutcome::Applied(after))
-        } else {
-            Ok(PumpOutcome::Recovered(after))
+        if delivered.cursor.sequence > before.sequence.saturating_add(1) {
+            return self.recover_gap(delivered);
         }
+
+        let mut staged = self.confirmed.clone();
+        apply_event_envelope(&mut staged, &delivered)?;
+        self.confirmed = staged;
+        Ok(PumpOutcome::Applied(delivered.cursor))
     }
+
+    fn recover_gap(
+        &mut self,
+        incoming: RuntimeEventEnvelope,
+    ) -> Result<PumpOutcome, TuiClientError> {
+        let mut staged = self.confirmed.clone();
+        let mut request = ReplayRequest {
+            after: staged.cursor.clone(),
+            limit: 500,
+        };
+        let mut delivered = false;
+        loop {
+            let batch = match self.client.replay(request.clone()) {
+                Ok(batch) => batch,
+                Err(CoreClientError::SnapshotRequired { .. }) => {
+                    self.confirmed = self.client.snapshot()?;
+                    return Ok(PumpOutcome::Recovered(self.confirmed.cursor.clone()));
+                }
+                Err(error) => return Err(error.into()),
+            };
+            if batch.events.is_empty() && !batch.complete {
+                return Err(CoreClientError::Protocol(
+                    "runtime replay made no progress".to_string(),
+                )
+                .into());
+            }
+            for envelope in &batch.events {
+                validate_event_envelope(envelope)?;
+                if envelope.cursor.stream_id != staged.cursor.stream_id
+                    || envelope.cursor.sequence != staged.cursor.sequence.saturating_add(1)
+                {
+                    return Err(CoreClientError::Protocol(format!(
+                        "non-contiguous replay after {}:{}: received {}:{}",
+                        request.after.stream_id,
+                        request.after.sequence,
+                        envelope.cursor.stream_id,
+                        envelope.cursor.sequence
+                    ))
+                    .into());
+                }
+                apply_event_envelope(&mut staged, envelope)?;
+                delivered |= envelope.cursor == incoming.cursor;
+            }
+            if batch.next != staged.cursor {
+                return Err(CoreClientError::Protocol(format!(
+                    "replay next cursor {}:{} does not match applied cursor {}:{}",
+                    batch.next.stream_id,
+                    batch.next.sequence,
+                    staged.cursor.stream_id,
+                    staged.cursor.sequence
+                ))
+                .into());
+            }
+            if batch.complete {
+                break;
+            }
+            request = ReplayRequest {
+                after: batch.next,
+                limit: 500,
+            };
+        }
+        if staged.cursor.sequence < incoming.cursor.sequence || !delivered {
+            return Err(CoreClientError::Protocol(format!(
+                "complete replay ended at {}:{} before incoming cursor {}:{}",
+                staged.cursor.stream_id,
+                staged.cursor.sequence,
+                incoming.cursor.stream_id,
+                incoming.cursor.sequence
+            ))
+            .into());
+        }
+        self.confirmed = staged;
+        Ok(PumpOutcome::Recovered(self.confirmed.cursor.clone()))
+    }
+}
+
+fn validate_event_envelope(envelope: &RuntimeEventEnvelope) -> Result<(), TuiClientError> {
+    validate_schema_version(envelope.schema_version).map_err(CoreClientError::Compatibility)?;
+    if let RuntimeWireEvent::Known(event) = &envelope.event
+        && event.sequence != envelope.cursor.sequence
+    {
+        return Err(CoreClientError::Protocol(format!(
+            "runtime event sequence {} does not match cursor sequence {}",
+            event.sequence, envelope.cursor.sequence
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+fn apply_event_envelope(
+    confirmed: &mut RuntimeSnapshotEnvelope,
+    envelope: &RuntimeEventEnvelope,
+) -> Result<(), TuiClientError> {
+    validate_event_envelope(envelope)?;
+    if let RuntimeWireEvent::Known(event) = &envelope.event {
+        confirmed.view.apply_event(event);
+    }
+    confirmed.cursor = envelope.cursor.clone();
+    confirmed.snapshot = confirmed.view.snapshot.clone();
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::{collections::VecDeque, path::PathBuf, time::Duration};
-    use viden_core::{CoreClientError, CoreTransport, frontend_capabilities, local_core_handshake};
+    use viden_core::{CoreClientError, frontend_capabilities, local_core_handshake};
     use viden_types::{
         PermissionLevel, PermissionMode, ReplayBatch, ReplayRequest, RuntimeEvent,
         RuntimeEventEnvelope, RuntimeEventKind, RuntimeSnapshot, RuntimeSnapshotEnvelope,
@@ -122,7 +231,7 @@ mod tests {
     };
 
     #[derive(Default)]
-    struct FakeCoreTransport {
+    struct FakeCoreClient {
         handshake: Option<CoreHandshake>,
         snapshot: Option<RuntimeSnapshotEnvelope>,
         events: VecDeque<RuntimeEventEnvelope>,
@@ -130,7 +239,7 @@ mod tests {
         sent: Vec<RuntimeCommandEnvelope>,
     }
 
-    impl FakeCoreTransport {
+    impl FakeCoreClient {
         fn compatible() -> Self {
             let snapshot = runtime_snapshot();
             let cursor = EventCursor {
@@ -151,7 +260,7 @@ mod tests {
         }
     }
 
-    impl CoreTransport for FakeCoreTransport {
+    impl CoreClient for FakeCoreClient {
         fn discover(&mut self) -> Result<CoreHandshake, CoreClientError> {
             self.handshake
                 .clone()
@@ -209,7 +318,7 @@ mod tests {
             sequence: 0,
         };
         let snapshot = fixture.initial_snapshot;
-        let fake = FakeCoreTransport {
+        let fake = FakeCoreClient {
             handshake: Some(local_core_handshake()),
             snapshot: Some(RuntimeSnapshotEnvelope {
                 schema_version: FRONTEND_SCHEMA_V1,
@@ -219,11 +328,11 @@ mod tests {
                 snapshot,
             }),
             events: fixture.events.into(),
-            ..FakeCoreTransport::default()
+            ..FakeCoreClient::default()
         };
         let event_count = fake.events.len();
 
-        let mut driver = TuiClientDriver::connect(StatefulCoreClient::new(fake)).expect("connect");
+        let mut driver = TuiClientDriver::connect(fake).expect("connect");
 
         for _ in 0..event_count {
             assert!(matches!(driver.pump().unwrap(), PumpOutcome::Applied(_)));
@@ -237,12 +346,12 @@ mod tests {
 
     #[test]
     fn incompatible_schema_fails_before_any_command_is_sent() {
-        let mut fake = FakeCoreTransport::compatible();
+        let mut fake = FakeCoreClient::compatible();
         let mut handshake = local_core_handshake();
         handshake.active_schema_version = viden_types::SchemaVersion(2);
         fake.handshake = Some(handshake);
 
-        let error = TuiClientDriver::connect(StatefulCoreClient::new(fake)).unwrap_err();
+        let error = TuiClientDriver::connect(fake).unwrap_err();
 
         assert!(matches!(
             error,
@@ -252,7 +361,7 @@ mod tests {
 
     #[test]
     fn sequence_gap_requests_replay_before_success_is_visible() {
-        let mut fake = FakeCoreTransport::compatible();
+        let mut fake = FakeCoreClient::compatible();
         fake.events.push_back(event(
             3,
             RuntimeEventKind::AssistantDelta {
@@ -295,7 +404,7 @@ mod tests {
             complete: true,
         });
 
-        let mut driver = TuiClientDriver::connect(StatefulCoreClient::new(fake)).expect("connect");
+        let mut driver = TuiClientDriver::connect(fake).expect("connect");
 
         assert!(matches!(driver.pump().unwrap(), PumpOutcome::Recovered(_)));
         assert_eq!(driver.view().assistant_stream, "abc");
@@ -303,7 +412,7 @@ mod tests {
 
     #[test]
     fn duplicate_events_do_not_duplicate_view_facts() {
-        let mut fake = FakeCoreTransport::compatible();
+        let mut fake = FakeCoreClient::compatible();
         fake.events.push_back(event(
             1,
             RuntimeEventKind::AssistantDelta {
@@ -321,7 +430,7 @@ mod tests {
             },
         ));
 
-        let mut driver = TuiClientDriver::connect(StatefulCoreClient::new(fake)).expect("connect");
+        let mut driver = TuiClientDriver::connect(fake).expect("connect");
 
         assert!(matches!(driver.pump().unwrap(), PumpOutcome::Applied(_)));
         assert!(matches!(driver.pump().unwrap(), PumpOutcome::Idle));
@@ -330,7 +439,7 @@ mod tests {
 
     #[test]
     fn failed_replay_does_not_publish_partial_view_or_cursor() {
-        let mut fake = FakeCoreTransport::compatible();
+        let mut fake = FakeCoreClient::compatible();
         fake.events.push_back(event(
             3,
             RuntimeEventKind::AssistantDelta {
@@ -365,7 +474,7 @@ mod tests {
             complete: true,
         });
 
-        let mut driver = TuiClientDriver::connect(StatefulCoreClient::new(fake)).expect("connect");
+        let mut driver = TuiClientDriver::connect(fake).expect("connect");
         let error = driver.pump().expect_err("replay must fail");
 
         assert!(matches!(
@@ -378,7 +487,7 @@ mod tests {
 
     #[test]
     fn complete_replay_without_incoming_rolls_back_all_staged_events() {
-        let mut fake = FakeCoreTransport::compatible();
+        let mut fake = FakeCoreClient::compatible();
         fake.events.push_back(event(
             3,
             RuntimeEventKind::AssistantDelta {
@@ -413,7 +522,7 @@ mod tests {
             complete: true,
         });
 
-        let mut driver = TuiClientDriver::connect(StatefulCoreClient::new(fake)).expect("connect");
+        let mut driver = TuiClientDriver::connect(fake).expect("connect");
         let error = driver.pump().expect_err("incoming must be present");
 
         assert!(matches!(

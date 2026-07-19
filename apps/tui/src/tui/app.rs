@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use viden_core::{
-    AgentLaneRecord, AgentRoute, ApprovalResponse, CoreTransport, EventCursor, ExecutionTarget,
-    GateStrength, LaneStatus, RuntimeCommand, RuntimeViewState, StatefulCoreClient, TuiColorDepth,
+    AgentLaneRecord, AgentRoute, ApprovalResponse, CoreClient, EventCursor, ExecutionTarget,
+    GateStrength, LaneStatus, RuntimeCommand, RuntimeViewState, TuiColorDepth,
 };
 
 use super::client::{PumpOutcome, TuiClientDriver, TuiClientError};
@@ -68,10 +68,7 @@ impl From<TuiClientError> for TuiError {
     }
 }
 
-pub fn run_tui<T: CoreTransport>(
-    client: StatefulCoreClient<T>,
-    options: TuiOptions,
-) -> Result<(), TuiError> {
+pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiError> {
     let mut driver = TuiClientDriver::connect(client)?;
     if options.startup_check {
         let _state = state_from_driver(&driver, &options);
@@ -124,10 +121,7 @@ fn detect_color_depth() -> TuiColorDepth {
     }
 }
 
-fn state_from_driver<T: CoreTransport>(
-    driver: &TuiClientDriver<T>,
-    options: &TuiOptions,
-) -> TuiState {
+fn state_from_driver<C: CoreClient>(driver: &TuiClientDriver<C>, options: &TuiOptions) -> TuiState {
     let snapshot = &driver.view().snapshot;
     let mut state = TuiState {
         session_id: driver.cursor().stream_id.clone(),
@@ -400,8 +394,8 @@ fn agent_task_from_core(task: &viden_core::AgentTaskRecord) -> AgentTask {
     }
 }
 
-pub(super) fn dispatch_intent<T: CoreTransport>(
-    driver: &mut TuiClientDriver<T>,
+pub(super) fn dispatch_intent<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
     command: RuntimeCommand,
 ) -> Result<String, TuiClientError> {
     driver.send(command)
@@ -444,8 +438,8 @@ fn effective_input_mode(controller: &TuiInputController, state: &TuiState) -> In
     }
 }
 
-fn handle_ui_event<T: CoreTransport>(
-    driver: &mut TuiClientDriver<T>,
+fn handle_ui_event<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
     controller: &mut TuiInputController,
     event: Event,
@@ -480,8 +474,8 @@ fn handle_ui_event<T: CoreTransport>(
     }
 }
 
-fn handle_ui_key<T: CoreTransport>(
-    driver: &mut TuiClientDriver<T>,
+fn handle_ui_key<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
     controller: &mut TuiInputController,
     key: KeyEvent,
@@ -527,8 +521,8 @@ fn handle_ui_key<T: CoreTransport>(
     apply_input_intent(driver, state, controller, key, intent)
 }
 
-fn apply_input_intent<T: CoreTransport>(
-    driver: &mut TuiClientDriver<T>,
+fn apply_input_intent<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
     controller: &mut TuiInputController,
     key: KeyEvent,
@@ -605,8 +599,8 @@ fn apply_input_intent<T: CoreTransport>(
     Ok(UiEventOutcome::Redraw)
 }
 
-fn submit_composer<T: CoreTransport>(
-    driver: &mut TuiClientDriver<T>,
+fn submit_composer<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
 ) -> Result<(), TuiError> {
     let content = state.input.trim().to_string();
@@ -805,10 +799,16 @@ fn apply_pump_outcome(state: &mut TuiState, outcome: PumpOutcome) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{collections::VecDeque, path::PathBuf, time::Duration};
+    use std::{
+        collections::VecDeque,
+        path::PathBuf,
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
     use viden_core::{
-        CoreClientError, CoreHandshake, CoreTransport, EventCursor, RuntimeCommandEnvelope,
-        RuntimeEventEnvelope, RuntimeSnapshotEnvelope, RuntimeViewState, StatefulCoreClient,
+        CoreClient, CoreClientError, CoreHandshake, CoreTransport, EventCursor,
+        RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+        RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, StatefulCoreClient,
         frontend_capabilities, local_core_handshake,
     };
     use viden_types::{
@@ -819,6 +819,7 @@ mod tests {
     #[derive(Default)]
     struct FakeCoreTransport {
         sent: Vec<RuntimeCommandEnvelope>,
+        events: VecDeque<RuntimeEventEnvelope>,
         view: Option<RuntimeViewState>,
     }
 
@@ -836,7 +837,7 @@ mod tests {
             &mut self,
             _timeout: Duration,
         ) -> Result<Option<RuntimeEventEnvelope>, CoreClientError> {
-            Ok(None)
+            Ok(self.events.pop_front())
         }
 
         fn snapshot(&mut self) -> Result<RuntimeSnapshotEnvelope, CoreClientError> {
@@ -888,53 +889,181 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeCoreClient {
+        transport: FakeCoreTransport,
+        sent: Arc<Mutex<Vec<RuntimeCommandEnvelope>>>,
+    }
+
+    impl CoreClient for FakeCoreClient {
+        fn discover(&mut self) -> Result<CoreHandshake, CoreClientError> {
+            CoreTransport::discover(&mut self.transport)
+        }
+
+        fn send(&mut self, command: RuntimeCommandEnvelope) -> Result<(), CoreClientError> {
+            self.sent.lock().expect("sent commands").push(command);
+            Ok(())
+        }
+
+        fn recv(
+            &mut self,
+            timeout: Duration,
+        ) -> Result<Option<RuntimeEventEnvelope>, CoreClientError> {
+            CoreTransport::recv(&mut self.transport, timeout)
+        }
+
+        fn snapshot(&mut self) -> Result<RuntimeSnapshotEnvelope, CoreClientError> {
+            CoreTransport::snapshot(&mut self.transport)
+        }
+
+        fn replay(&mut self, request: ReplayRequest) -> Result<ReplayBatch, CoreClientError> {
+            CoreTransport::replay(&mut self.transport, request)
+        }
+
+        fn transcript_page(
+            &mut self,
+            request: TranscriptPageRequest,
+        ) -> Result<TranscriptPage, CoreClientError> {
+            CoreTransport::transcript_page(&mut self.transport, request)
+        }
+    }
+
     #[test]
     fn submit_queue_cancel_and_approval_use_runtime_commands() {
-        let mut driver =
-            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
-                .expect("connect");
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
 
-        let id = dispatch_intent(
+        let submit_id = dispatch_intent(
+            &mut driver,
+            RuntimeCommand::SubmitUserInput {
+                content: "first".to_string(),
+            },
+        )
+        .expect("submit");
+        let queue_id = dispatch_intent(
             &mut driver,
             RuntimeCommand::QueueFollowUp {
                 content: "next".to_string(),
             },
         )
-        .expect("send");
+        .expect("queue");
+        let cancel_id =
+            dispatch_intent(&mut driver, RuntimeCommand::CancelActiveTurn).expect("cancel");
+        let approval_id = dispatch_intent(
+            &mut driver,
+            RuntimeCommand::RespondToApproval {
+                request_id: "approval-1".to_string(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .expect("approval");
 
-        assert_eq!(id, "tui-1");
+        assert_eq!(
+            [submit_id, queue_id, cancel_id, approval_id],
+            ["tui-1", "tui-2", "tui-3", "tui-4"]
+        );
+        let sent = sent.lock().expect("sent commands");
+        assert!(matches!(
+            sent[0].command,
+            RuntimeCommand::SubmitUserInput { .. }
+        ));
+        assert!(matches!(
+            sent[1].command,
+            RuntimeCommand::QueueFollowUp { .. }
+        ));
+        assert!(matches!(sent[2].command, RuntimeCommand::CancelActiveTurn));
+        assert!(matches!(
+            sent[3].command,
+            RuntimeCommand::RespondToApproval { .. }
+        ));
+    }
+
+    #[test]
+    fn bootstrap_accepts_direct_core_client() {
+        let options = TuiOptions::new("startup").with_startup_check();
+
+        run_tui(FakeCoreClient::default(), options).expect("direct CoreClient bootstrap");
     }
 
     #[test]
     fn command_accepted_does_not_synthesize_success() {
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events: VecDeque::from([event(
+                    1,
+                    RuntimeEventKind::CommandAccepted {
+                        command_id: "command-1".to_string(),
+                        command: RuntimeCommand::SubmitUserInput {
+                            content: "hello".to_string(),
+                        },
+                    },
+                )]),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
         let mut state = TuiState {
             pending_turn: Some(PendingTurn::for_input("hello")),
             ..TuiState::default()
         };
 
-        apply_pump_outcome(&mut state, PumpOutcome::Idle);
+        let outcome = driver.pump().expect("command receipt");
+        apply_pump_outcome(&mut state, outcome);
 
         assert!(state.pending_turn.is_some());
+        assert!(driver.view().last_command.is_some());
     }
 
     #[test]
     fn command_rejected_reason_is_rendered() {
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events: VecDeque::from([event(
+                    1,
+                    RuntimeEventKind::CommandRejected {
+                        command_id: "command-1".to_string(),
+                        reason: "forbidden".to_string(),
+                    },
+                )]),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        driver.pump().expect("command rejection");
         let mut state = TuiState::default();
+        project_runtime_view(&mut state, driver.view(), driver.cursor());
 
-        state.entries.push(TuiEntry {
-            label: "error".to_string(),
-            body: "command rejected: forbidden".to_string(),
-        });
-
-        assert!(state.entries[0].body.contains("forbidden"));
+        assert!(
+            state
+                .entries
+                .iter()
+                .any(|entry| entry.body.contains("forbidden"))
+        );
     }
 
     #[test]
     fn composer_stays_editable_while_events_stream() {
-        let mut driver =
-            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
-                .expect("connect");
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events: VecDeque::from([event(
+                    1,
+                    RuntimeEventKind::AssistantDelta {
+                        message_id: "assistant-1".to_string(),
+                        task_id: None,
+                        content: "working".to_string(),
+                    },
+                )]),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
         let mut state = TuiState::default();
+        driver.pump().expect("stream event");
+        project_runtime_view(&mut state, driver.view(), driver.cursor());
 
         let mut controller = TuiInputController {
             mode: InputMode::Insert,
@@ -949,6 +1078,23 @@ mod tests {
         .expect("key");
 
         assert_eq!(state.input, "你");
+        assert_eq!(driver.view().assistant_stream, "working");
+    }
+
+    fn event(sequence: u64, kind: RuntimeEventKind) -> RuntimeEventEnvelope {
+        RuntimeEventEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            owner: Default::default(),
+            cursor: EventCursor {
+                stream_id: "fixture".to_string(),
+                sequence,
+            },
+            event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                sequence,
+                Some(sequence),
+                kind,
+            )),
+        }
     }
 
     #[test]

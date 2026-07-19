@@ -2,7 +2,7 @@ mod app;
 mod canvas;
 mod client;
 // Deterministic design previews still exercise the richer selector surface;
-// the CoreClient loop adopts those interactions incrementally.
+// production runtime facts enter through the CoreClient loop in `app`.
 #[allow(dead_code)]
 mod command_palette;
 mod composer;
