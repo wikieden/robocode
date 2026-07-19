@@ -25,13 +25,16 @@ use crate::{
 struct PendingApproval {
     owner: RuntimeOwner,
     audit_id: String,
-    #[cfg_attr(not(test), allow(dead_code))]
     expires_at: u64,
+    allowed_scopes: Vec<ApprovalScope>,
     target: PendingApprovalTarget,
 }
 
 enum PendingApprovalTarget {
-    Channel(Sender<ApprovalResponse>),
+    Channel {
+        owner_id: String,
+        sender: Sender<ApprovalResponse>,
+    },
     ContextRetrieval {
         owner_id: String,
         job: Box<ContextRetrievalJob>,
@@ -90,7 +93,11 @@ pub struct RuntimeSupervisor {
 }
 
 impl RuntimeSupervisor {
-    pub fn start(mut engine: SessionEngine) -> Self {
+    pub fn start(engine: SessionEngine) -> Self {
+        Self::start_with_approval_ttl(engine, 300)
+    }
+
+    fn start_with_approval_ttl(mut engine: SessionEngine, approval_ttl_secs: u64) -> Self {
         let (command_sender, command_receiver) = mpsc::channel();
         let (event_sender, event_receiver) = mpsc::channel();
         let sequence = Arc::new(AtomicU64::new(1));
@@ -115,6 +122,7 @@ impl RuntimeSupervisor {
                 worker_sequence,
                 worker_active_control,
                 worker_pending_approvals,
+                approval_ttl_secs,
             );
         });
 
@@ -127,6 +135,14 @@ impl RuntimeSupervisor {
             pending_approvals,
             _worker: worker,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_with_approval_ttl_for_test(
+        engine: SessionEngine,
+        approval_ttl_secs: u64,
+    ) -> Self {
+        Self::start_with_approval_ttl(engine, approval_ttl_secs)
     }
 
     pub fn send_command(
@@ -173,19 +189,14 @@ impl RuntimeSupervisor {
                 };
                 control.control.cancel();
                 if let ActiveJobState::PendingApproval { request_id } = &control.state {
-                    if let Ok(mut approvals) = self.pending_approvals.lock() {
-                        approvals.remove(request_id);
-                    }
-                    clear_active_control(&self.active_control, &control.owner_id);
-                    emit_event(
+                    resolve_pending_approval_by_id(
+                        request_id,
+                        ApprovalDecision::Deny,
                         &self.event_sender,
                         &self.sequence,
-                        approval_resolved_event(
-                            request_id,
-                            ApprovalDecision::Deny,
-                            RuntimeOwner::default(),
-                            fresh_id("audit"),
-                        ),
+                        &self.active_control,
+                        &self.pending_approvals,
+                        None,
                     );
                 }
                 emit_event(
@@ -231,6 +242,19 @@ impl RuntimeSupervisor {
                         );
                         return Ok(());
                     }
+                    if !approval_decision_is_allowed_by_request(&response.decision, pending) {
+                        emit_event(
+                            &self.event_sender,
+                            &self.sequence,
+                            RuntimeEventKind::CommandRejected {
+                                command_id,
+                                reason: format!(
+                                    "approval request `{request_id}` scope is not allowed"
+                                ),
+                            },
+                        );
+                        return Ok(());
+                    }
                     approvals.remove(&request_id).expect("pending approval")
                 };
                 emit_event(
@@ -246,8 +270,23 @@ impl RuntimeSupervisor {
                         ),
                     },
                 );
+                let pending_owner = pending.owner.clone();
+                let pending_audit_id = pending.audit_id.clone();
                 match pending.target {
-                    PendingApprovalTarget::Channel(sender) => {
+                    PendingApprovalTarget::Channel { owner_id, sender } => {
+                        if response.is_allowed() {
+                            let _ = mark_active_running(&self.active_control, &owner_id);
+                        }
+                        emit_event(
+                            &self.event_sender,
+                            &self.sequence,
+                            approval_resolved_event(
+                                &request_id,
+                                response.decision.clone(),
+                                pending_owner,
+                                pending_audit_id,
+                            ),
+                        );
                         sender
                             .send(response.clone())
                             .map_err(|err| format!("failed to send approval response: {err}"))?;
@@ -260,8 +299,8 @@ impl RuntimeSupervisor {
                                 .send(SupervisorMessage::ResumeContextRetrieval {
                                     owner_id,
                                     request_id,
-                                    owner: pending.owner,
-                                    audit_id: pending.audit_id,
+                                    owner: pending_owner,
+                                    audit_id: pending_audit_id,
                                     decision: response.decision.clone(),
                                     job: Box::new(job),
                                 })
@@ -273,8 +312,8 @@ impl RuntimeSupervisor {
                                 approval_resolved_event(
                                     &request_id,
                                     response.decision.clone(),
-                                    pending.owner,
-                                    pending.audit_id,
+                                    pending_owner,
+                                    pending_audit_id,
                                 ),
                             );
                             emit_error(
@@ -327,47 +366,13 @@ impl RuntimeSupervisor {
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn expire_pending_approvals_for_test(&self, now: u64) {
-        let expired = match self.pending_approvals.lock() {
-            Ok(mut approvals) => {
-                let expired_ids = approvals
-                    .iter()
-                    .filter(|(_, approval)| approval.expires_at <= now)
-                    .map(|(id, _)| id.clone())
-                    .collect::<Vec<_>>();
-                expired_ids
-                    .into_iter()
-                    .filter_map(|id| approvals.remove(&id).map(|approval| (id, approval)))
-                    .collect::<Vec<_>>()
-            }
-            Err(_) => Vec::new(),
-        };
-        for (request_id, pending) in expired {
-            match pending.target {
-                PendingApprovalTarget::Channel(sender) => {
-                    let _ = sender.send(ApprovalResponse::deny(Some(
-                        "approval expired; default action deny".to_string(),
-                    )));
-                }
-                PendingApprovalTarget::ContextRetrieval { owner_id, .. } => {
-                    emit_event(
-                        &self.event_sender,
-                        &self.sequence,
-                        approval_resolved_event(
-                            &request_id,
-                            ApprovalDecision::Deny,
-                            pending.owner,
-                            pending.audit_id,
-                        ),
-                    );
-                    emit_error(
-                        &self.event_sender,
-                        &self.sequence,
-                        "Approval expired; default action deny".to_string(),
-                    );
-                    clear_active_control(&self.active_control, &owner_id);
-                }
-            }
-        }
+        expire_pending_approvals_at(
+            now,
+            &self.event_sender,
+            &self.sequence,
+            &self.active_control,
+            &self.pending_approvals,
+        );
     }
 }
 
@@ -384,6 +389,7 @@ fn run_supervisor_worker(
     sequence: Arc<AtomicU64>,
     active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_ttl_secs: u64,
 ) {
     while let Ok(message) = command_receiver.recv() {
         match message {
@@ -403,6 +409,7 @@ fn run_supervisor_worker(
                         &sequence,
                         &active_control,
                         &pending_approvals,
+                        approval_ttl_secs,
                     );
                 }
                 RuntimeCommand::StartAgentTask { task_id } => {
@@ -415,6 +422,7 @@ fn run_supervisor_worker(
                         &sequence,
                         &active_control,
                         &pending_approvals,
+                        approval_ttl_secs,
                     );
                 }
                 RuntimeCommand::RetrieveContext { handle_id, reason } => {
@@ -430,6 +438,7 @@ fn run_supervisor_worker(
                             active_control: &active_control,
                             pending_approvals: &pending_approvals,
                         },
+                        approval_ttl_secs,
                     );
                 }
                 command => {
@@ -477,6 +486,7 @@ fn run_supervised_context_retrieval(
     handle_id: String,
     reason: String,
     shared: SupervisorShared<'_>,
+    approval_ttl_secs: u64,
 ) {
     if let Some(owner_id) = active_owner_id(shared.active_control) {
         emit_event(
@@ -546,7 +556,8 @@ fn run_supervised_context_retrieval(
         SupervisorContextRetrievalPreparation::PendingApproval { mut approval, job } => {
             approval.owner = owner;
             approval.audit_id = fresh_id("audit");
-            approval.expires_at = now_timestamp().saturating_add(300);
+            approval.expires_at = now_timestamp().saturating_add(approval_ttl_secs);
+            approval.allowed_scopes = allowed_approval_scopes(&approval.owner);
             let control = ModelRequestControl::new();
             if let Err(err) = acquire_active_job(
                 shared.active_control,
@@ -577,20 +588,23 @@ fn run_supervised_context_retrieval(
                     }),
                 },
             );
-            if let Ok(mut approvals) = shared.pending_approvals.lock() {
-                approvals.insert(
-                    approval.id.clone(),
-                    PendingApproval {
-                        owner: approval.owner.clone(),
-                        audit_id: approval.audit_id.clone(),
-                        expires_at: approval.expires_at,
-                        target: PendingApprovalTarget::ContextRetrieval {
-                            owner_id: command_id,
-                            job: Box::new(job),
-                        },
+            insert_pending_approval(
+                shared.pending_approvals,
+                shared.event_sender,
+                shared.sequence,
+                shared.active_control,
+                approval.id.clone(),
+                PendingApproval {
+                    owner: approval.owner.clone(),
+                    audit_id: approval.audit_id.clone(),
+                    expires_at: approval.expires_at,
+                    allowed_scopes: approval.allowed_scopes.clone(),
+                    target: PendingApprovalTarget::ContextRetrieval {
+                        owner_id: command_id,
+                        job: Box::new(job),
                     },
-                );
-            }
+                },
+            );
             emit_event(
                 shared.event_sender,
                 shared.sequence,
@@ -681,6 +695,184 @@ fn mark_active_running(
     Ok(())
 }
 
+fn mark_active_pending(
+    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    owner_id: &str,
+    request_id: String,
+) -> Result<(), String> {
+    let mut slot = active_control
+        .lock()
+        .map_err(|_| "active turn lock poisoned".to_string())?;
+    let Some(active) = slot.as_mut().filter(|active| active.owner_id == owner_id) else {
+        return Err(format!(
+            "active runtime job `{owner_id}` is no longer running"
+        ));
+    };
+    active.state = ActiveJobState::PendingApproval { request_id };
+    Ok(())
+}
+
+fn insert_pending_approval(
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    event_sender: &Sender<RuntimeEvent>,
+    sequence: &Arc<AtomicU64>,
+    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    request_id: String,
+    pending: PendingApproval,
+) {
+    let expires_at = pending.expires_at;
+    if let Ok(mut approvals) = pending_approvals.lock() {
+        approvals.insert(request_id.clone(), pending);
+    }
+    schedule_approval_expiry(
+        request_id,
+        expires_at,
+        event_sender,
+        sequence,
+        active_control,
+        pending_approvals,
+    );
+}
+
+fn schedule_approval_expiry(
+    request_id: String,
+    expires_at: u64,
+    event_sender: &Sender<RuntimeEvent>,
+    sequence: &Arc<AtomicU64>,
+    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+) {
+    let event_sender = event_sender.clone();
+    let sequence = Arc::clone(sequence);
+    let active_control = Arc::clone(active_control);
+    let pending_approvals = Arc::clone(pending_approvals);
+    thread::spawn(move || {
+        let now = now_timestamp();
+        if expires_at > now {
+            thread::sleep(Duration::from_secs(expires_at - now));
+        }
+        resolve_pending_approval_by_id(
+            &request_id,
+            ApprovalDecision::Deny,
+            &event_sender,
+            &sequence,
+            &active_control,
+            &pending_approvals,
+            Some("Approval expired; default action deny".to_string()),
+        );
+    });
+}
+
+fn expire_pending_approvals_at(
+    now: u64,
+    event_sender: &Sender<RuntimeEvent>,
+    sequence: &Arc<AtomicU64>,
+    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+) {
+    let expired_ids = pending_approvals
+        .lock()
+        .map(|approvals| {
+            approvals
+                .iter()
+                .filter(|(_, approval)| approval.expires_at <= now)
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for request_id in expired_ids {
+        resolve_pending_approval_by_id(
+            &request_id,
+            ApprovalDecision::Deny,
+            event_sender,
+            sequence,
+            active_control,
+            pending_approvals,
+            Some("Approval expired; default action deny".to_string()),
+        );
+    }
+}
+
+fn resolve_pending_approval_by_id(
+    request_id: &str,
+    decision: ApprovalDecision,
+    event_sender: &Sender<RuntimeEvent>,
+    sequence: &Arc<AtomicU64>,
+    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    error_message: Option<String>,
+) {
+    let pending = pending_approvals
+        .lock()
+        .ok()
+        .and_then(|mut approvals| approvals.remove(request_id));
+    if let Some(pending) = pending {
+        resolve_removed_pending_approval(
+            request_id,
+            pending,
+            decision,
+            event_sender,
+            sequence,
+            active_control,
+            error_message,
+        );
+    }
+}
+
+fn resolve_removed_pending_approval(
+    request_id: &str,
+    pending: PendingApproval,
+    decision: ApprovalDecision,
+    event_sender: &Sender<RuntimeEvent>,
+    sequence: &Arc<AtomicU64>,
+    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    error_message: Option<String>,
+) {
+    let owner_id = match &pending.target {
+        PendingApprovalTarget::Channel { owner_id, .. } => owner_id.clone(),
+        PendingApprovalTarget::ContextRetrieval { owner_id, .. } => owner_id.clone(),
+    };
+    emit_event(
+        event_sender,
+        sequence,
+        approval_resolved_event(
+            request_id,
+            decision.clone(),
+            pending.owner,
+            pending.audit_id,
+        ),
+    );
+    if !matches!(decision, ApprovalDecision::Allow { .. }) {
+        clear_active_control(active_control, &owner_id);
+    }
+    match pending.target {
+        PendingApprovalTarget::Channel { sender, .. } => {
+            let _ = sender.send(ApprovalResponse {
+                decision,
+                feedback: error_message,
+            });
+        }
+        PendingApprovalTarget::ContextRetrieval { .. } => {
+            if let Some(message) = error_message {
+                emit_error(event_sender, sequence, message);
+            }
+        }
+    }
+}
+
+fn approval_decision_is_allowed_by_request(
+    decision: &ApprovalDecision,
+    pending: &PendingApproval,
+) -> bool {
+    match decision {
+        ApprovalDecision::Deny => true,
+        ApprovalDecision::Allow { scope } => pending
+            .allowed_scopes
+            .iter()
+            .any(|allowed| allowed == scope),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn resume_context_retrieval_after_approval(
     engine: &mut SessionEngine,
@@ -763,6 +955,7 @@ fn run_supervised_agent_task(
     sequence: &Arc<AtomicU64>,
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_ttl_secs: u64,
 ) {
     let control = ModelRequestControl::new();
     if let Err(err) = acquire_active_job(
@@ -795,18 +988,26 @@ fn run_supervised_agent_task(
     let mut approver = |prompt: PermissionPrompt| {
         let request_id = fresh_id("approval");
         let (approval_sender, approval_receiver) = mpsc::channel();
-        let approval = approval_request_view(&request_id, &prompt, owner.clone());
-        if let Ok(mut approvals) = pending_approvals.lock() {
-            approvals.insert(
-                request_id.clone(),
-                PendingApproval {
-                    owner: approval.owner.clone(),
-                    audit_id: approval.audit_id.clone(),
-                    expires_at: approval.expires_at,
-                    target: PendingApprovalTarget::Channel(approval_sender),
+        let approval =
+            approval_request_view(&request_id, &prompt, owner.clone(), approval_ttl_secs);
+        let _ = mark_active_pending(active_control, &command_id, request_id.clone());
+        insert_pending_approval(
+            pending_approvals,
+            event_sender,
+            sequence,
+            active_control,
+            request_id.clone(),
+            PendingApproval {
+                owner: approval.owner.clone(),
+                audit_id: approval.audit_id.clone(),
+                expires_at: approval.expires_at,
+                allowed_scopes: approval.allowed_scopes.clone(),
+                target: PendingApprovalTarget::Channel {
+                    owner_id: command_id.clone(),
+                    sender: approval_sender,
                 },
-            );
-        }
+            },
+        );
         emit_event(
             event_sender,
             sequence,
@@ -814,22 +1015,11 @@ fn run_supervised_agent_task(
                 approval: approval.clone(),
             },
         );
-        let response = approval_receiver
+        approval_receiver
             .recv()
             .unwrap_or(ApprovalResponse::deny(Some(
                 "approval response channel closed".to_string(),
-            )));
-        emit_event(
-            event_sender,
-            sequence,
-            approval_resolved_event(
-                &request_id,
-                response.decision.clone(),
-                approval.owner,
-                approval.audit_id,
-            ),
-        );
-        response
+            )))
     };
 
     let result = engine.run_agent_task_with_control(&task_id, &mut approver, &control);
@@ -850,6 +1040,7 @@ fn run_supervised_input(
     sequence: &Arc<AtomicU64>,
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_ttl_secs: u64,
 ) {
     let control = ModelRequestControl::new();
     if let Err(err) = acquire_active_job(
@@ -882,18 +1073,26 @@ fn run_supervised_input(
     let mut approver = |prompt: PermissionPrompt| {
         let request_id = fresh_id("approval");
         let (approval_sender, approval_receiver) = mpsc::channel();
-        let approval = approval_request_view(&request_id, &prompt, owner.clone());
-        if let Ok(mut approvals) = pending_approvals.lock() {
-            approvals.insert(
-                request_id.clone(),
-                PendingApproval {
-                    owner: approval.owner.clone(),
-                    audit_id: approval.audit_id.clone(),
-                    expires_at: approval.expires_at,
-                    target: PendingApprovalTarget::Channel(approval_sender),
+        let approval =
+            approval_request_view(&request_id, &prompt, owner.clone(), approval_ttl_secs);
+        let _ = mark_active_pending(active_control, &command_id, request_id.clone());
+        insert_pending_approval(
+            pending_approvals,
+            event_sender,
+            sequence,
+            active_control,
+            request_id.clone(),
+            PendingApproval {
+                owner: approval.owner.clone(),
+                audit_id: approval.audit_id.clone(),
+                expires_at: approval.expires_at,
+                allowed_scopes: approval.allowed_scopes.clone(),
+                target: PendingApprovalTarget::Channel {
+                    owner_id: command_id.clone(),
+                    sender: approval_sender,
                 },
-            );
-        }
+            },
+        );
         emit_event(
             event_sender,
             sequence,
@@ -901,22 +1100,11 @@ fn run_supervised_input(
                 approval: approval.clone(),
             },
         );
-        let response = approval_receiver
+        approval_receiver
             .recv()
             .unwrap_or(ApprovalResponse::deny(Some(
                 "approval response channel closed".to_string(),
-            )));
-        emit_event(
-            event_sender,
-            sequence,
-            approval_resolved_event(
-                &request_id,
-                response.decision.clone(),
-                approval.owner,
-                approval.audit_id,
-            ),
-        );
-        response
+            )))
     };
 
     let result = engine.process_input_with_approval_and_control(&content, &mut approver, &control);
@@ -935,7 +1123,9 @@ fn approval_request_view(
     request_id: &str,
     prompt: &PermissionPrompt,
     owner: RuntimeOwner,
+    approval_ttl_secs: u64,
 ) -> ApprovalRequestView {
+    let allowed_scopes = allowed_approval_scopes(&owner);
     ApprovalRequestView {
         id: request_id.to_string(),
         tool_name: prompt.tool_name.clone(),
@@ -951,13 +1141,23 @@ fn approval_request_view(
             display: prompt.input_preview.clone(),
             canonical_ref: None,
         },
-        allowed_scopes: vec![ApprovalScope::Once],
+        allowed_scopes,
         policy_reason_key: "permission.requires_approval".to_string(),
         policy_reason_args: BTreeMap::new(),
-        expires_at: now_timestamp().saturating_add(300),
+        expires_at: now_timestamp().saturating_add(approval_ttl_secs),
         default_action: ApprovalDefaultAction::Deny,
         audit_id: fresh_id("audit"),
     }
+}
+
+fn allowed_approval_scopes(owner: &RuntimeOwner) -> Vec<ApprovalScope> {
+    let mut scopes = vec![ApprovalScope::Once];
+    if let Some(session_id) = owner.session_id.clone()
+        && !session_id.is_empty()
+    {
+        scopes.push(ApprovalScope::Session { session_id });
+    }
+    scopes
 }
 
 fn approval_resolved_event(

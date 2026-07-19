@@ -1027,9 +1027,10 @@ fn prompt_for_approval(prompt: PermissionPrompt, stdin: &mut impl BufRead) -> Ap
         return ApprovalResponse::deny(None);
     };
     let approved = matches!(response.trim(), "y" | "Y" | "yes" | "YES");
-    ApprovalResponse {
-        approved,
-        feedback: None,
+    if approved {
+        ApprovalResponse::allow_once(None)
+    } else {
+        ApprovalResponse::deny(None)
     }
 }
 
