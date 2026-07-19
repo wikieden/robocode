@@ -15,12 +15,19 @@ pub use compatibility::{
 };
 pub use local_transport::LocalCoreTransport;
 pub use viden_types::{
-    ApprovalRequestView, ApprovalResponse, CommandAction, CoreHandshake, EventCursor, EvidenceView,
-    FRONTEND_SCHEMA_V1, GapRecovery, ProviderHealthView, QueuedInputView, ReplayBatch,
-    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent,
-    RuntimeEventEnvelope, RuntimeEventKind, RuntimeSnapshot, RuntimeSnapshotEnvelope,
-    RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView, ToolCallView, TranscriptPage,
-    TranscriptPageRequest,
+    AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentRole, AgentRoute,
+    AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
+    ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
+    CommandAction, ContextBundleRecord, ContextOmittedSourceRecord, ContextSourceRecord,
+    CoreHandshake, CostLedgerTotals, CostUsageRecord, DataEgressPolicy, EventCursor, EvidenceView,
+    ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget, LaneStatus,
+    LocaleId, MergeGateRecord, MergeGateStatus, MutationPolicy, PermissionLevel, PermissionMode,
+    ProviderHealthView, QueuedInputView, ReplayBatch, ReplayRequest, ResolvedUiPreferences,
+    RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
+    RuntimeEventKind, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent,
+    SchemaVersion, TokenCostView, ToolCallView, TranscriptPage, TranscriptPageRequest,
+    TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity,
+    UiMotion, UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -51,5 +58,11 @@ mod tests {
         assert!(std::any::type_name::<ApprovalRequestView>().contains("ApprovalRequestView"));
         assert!(std::any::type_name::<EvidenceView>().contains("EvidenceView"));
         assert!(std::any::type_name::<QueuedInputView>().contains("QueuedInputView"));
+        assert!(std::any::type_name::<AgentLaneRecord>().contains("AgentLaneRecord"));
+        assert!(std::any::type_name::<AgentTaskStatus>().contains("AgentTaskStatus"));
+        assert!(std::any::type_name::<MergeGateStatus>().contains("MergeGateStatus"));
+        assert!(std::any::type_name::<ResolvedUiPreferences>().contains("ResolvedUiPreferences"));
+        assert!(std::any::type_name::<UiSkin>().contains("UiSkin"));
+        assert!(std::any::type_name::<WorkMode>().contains("WorkMode"));
     }
 }
