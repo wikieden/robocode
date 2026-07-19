@@ -1,0 +1,20 @@
+[package]
+name = "viden-gui-spike-gpui"
+version = "0.1.0-alpha.1"
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["desktop"]
+desktop = ["dep:gpui"]
+
+[dependencies]
+gpui = { version = "0.2.2", optional = true, features = ["runtime_shaders"] }
+
+[dev-dependencies]
+viden-gui-spike-common = { path = "../common" }
+
+[[bin]]
+name = "viden-gui-spike-gpui"
+path = "src/main.rs"
+required-features = ["desktop"]

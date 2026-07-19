@@ -1,0 +1,21 @@
+[package]
+name = "viden-gui-spike-tauri"
+version = "0.1.0-alpha.1"
+edition = "2024"
+license = "MIT"
+
+[lib]
+name = "viden_gui_spike_tauri"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "viden-gui-spike-tauri"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.5", features = [] }
+
+[workspace]

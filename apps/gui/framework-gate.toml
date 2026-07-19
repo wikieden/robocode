@@ -9,6 +9,18 @@ projection_source = "confirmed_core_view"
 private_runtime_reducer = false
 framework_code = false
 
+[task3]
+status = "equal-d1-slices"
+tauri_shell = true
+gpui_shell = true
+shared_action_log = true
+shared_projection_hash = "e849d08e7c57e3a4"
+required_roles = ["composer", "tool-row", "approval-dock", "queue-action", "cancel-action", "history-viewport", "new-output-count"]
+tauri_tokens = "source-css"
+gpui_tokens = "generated-from-source-css"
+gpui_shader_mode = "runtime_shaders"
+framework_selection_deferred_to_task4 = true
+
 [thresholds]
 ordered_event_count = 10000
 transcript_row_count = 50000
