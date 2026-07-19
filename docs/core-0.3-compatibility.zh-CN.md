@@ -52,7 +52,8 @@ fixture 会在兼容性验证中失败；malformed 或 ambiguous legacy input �
 上面的 Core 0.3.0 冻结 capability 集合与 fixture digest 保持不变。Core 0.3.1 候选
 通过 `FRONTEND_V1_EXTENSION_CAPABILITIES` 和
 `crates/core/frontend-contract-extensions.toml` 单独公布增量 capability
-`runtime.lane_lifecycle`。
+`runtime.lane_lifecycle`、`runtime.project_onboarding` 与
+`runtime.credential_handles`。
 
 基于 Core 0.3.0 编写的客户端仍然只要求冻结集合，并把不支持的 schema-1 事件保留为
 `RuntimeWireEvent::Unknown`。新客户端只有在协商到 `runtime.lane_lifecycle` 后，才启用
@@ -68,6 +69,13 @@ Core 负责 Lane 权限判定，并在每个 Lane 命令前从当前 runtime mod
 解析，拒绝 symlink parent 与 `..`，并在本地 effect 前再次校验。审批预览会红写 command、
 arguments、environment、input 和 diff payload。重启时，处于 starting、running 或等待审批
 状态的 Lane 会恢复为 blocked recovery fact，并继续绑定其持久化 session owner。
+
+项目接入对当前目录执行只读探测。`PreviewProjectConfig` 校验仓库根
+`viden.toml` policy，并返回可审阅的精确 UTF-8 内容及 SHA-256，不写文件；
+`ConfirmProjectConfig` 只接受已缓存的 preview id/hash，重新核对目标文件的 base hash，
+并在 Build 模式权限批准后写入同一组精确字节。Credential command 只携带 provider、
+backend 与一次性 ingress 标识；secret bytes 始终留在注入的 backend 中，replay/audit
+只记录 `CredentialHandle` 安全元数据。
 
 普通 tool 与 Lane 的审批响应都会按 supervisor 中 permission/mode 变更的命令顺序判定。
 但两者刻意采用不同的 generation 语义：普通 tool 读取已提交的 permission control

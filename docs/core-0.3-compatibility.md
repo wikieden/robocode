@@ -55,7 +55,8 @@ ambiguous legacy input is rejected rather than guessed.
 
 The Core 0.3.0 frozen capability set and fixture digests above remain unchanged.
 The Core 0.3.1 candidate advertises the additive
-`runtime.lane_lifecycle` capability separately through
+`runtime.lane_lifecycle`, `runtime.project_onboarding`, and
+`runtime.credential_handles` capabilities separately through
 `FRONTEND_V1_EXTENSION_CAPABILITIES` and
 `crates/core/frontend-contract-extensions.toml`.
 
@@ -79,6 +80,15 @@ parents and `..`, and are revalidated immediately before local effects.
 Approval previews redact command, argument, environment, input, and diff
 payloads. Interrupted starting, running, or approval-waiting lanes hydrate as
 blocked recovery facts and remain bound to their durable session owner.
+
+Project onboarding probes the current directory without mutation.
+`PreviewProjectConfig` validates repository-root `viden.toml` policy and
+returns the exact reviewable UTF-8 contents plus its SHA-256 without writing.
+`ConfirmProjectConfig` accepts only the cached preview id and hash, rechecks
+the destination base hash, and writes those exact bytes after a Build-mode
+permission approval. Credential commands carry only provider, backend, and
+one-use ingress identifiers; secret bytes remain in the injected backend,
+while replay and audit contain only `CredentialHandle` metadata.
 
 Ordinary tool and lane approval responses observe supervisor command ordering
 with permission and mode changes, but use two deliberately different generation

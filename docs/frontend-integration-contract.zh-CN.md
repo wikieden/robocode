@@ -105,6 +105,9 @@ flowchart LR
 - `InputQueued` 和 `InputDequeued` 维护 follow-up input state。
 - `ProviderHealthUpdated`、`TokenCostUpdated` 和 `Error` 更新侧栏或状态区，不能阻塞
   composer input。
+- `ProjectProbed`、`ProjectConfigPreviewed`、`ProjectConfigConfirmed` 与
+  `CredentialHandleStored` 更新项目接入状态；client 不能只凭 command acceptance
+  推断文件已经写入成功。
 - 每个 command、snapshot 和 event envelope 都使用 schema `1`。已知 event 的
   sequence 必须等于 cursor sequence。
 - client 必须先调用 `discover`，才能发送 command 或消费状态。缺少 required
@@ -127,6 +130,13 @@ flowchart LR
 | 记录 gate evidence | `RecordAgentEvidence` | evidence validation、`EvidenceRecorded`、gate reducer、workflow event |
 | 审核 merge gate | merge/artifact commands | gate state、workflow events、patch application |
 | 配置 provider/model | provider/model commands | config persistence、registry validation、health |
+| 探测并接入项目 | `ProbeProject`、`PreviewProjectConfig`、`ConfirmProjectConfig` | Git/config probe、精确审阅字节/hash、权限控制写入与 replay |
+| 保存 credential 引用 | 带 opaque ingress id 的 `StoreCredentialHandle` | 注入 backend、安全 handle fact、provider health 与 secret 隔离 |
+
+`PreviewProjectConfig` 是只读命令。有效 preview 包含其 SHA-256 所描述的精确 UTF-8
+内容；无效或携带 secret 字段的候选不返回这些内容，也不能 confirm。序列化后的
+credential commands、events、transcript rows 与 workflow audit 都不得包含 credential
+secret bytes。
 
 前端发送 command 后不能自行合成成功状态。必须等待 `CommandAccepted` 和后续状态事件。
 如果 command 被拒绝，渲染 `CommandRejected.reason`。

@@ -112,7 +112,14 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
             .all(|pair| pair[0] < pair[1])
     );
     let advertised = frontend_capabilities();
-    assert_eq!(CORE_EXTENSION_CAPABILITIES, ["runtime.lane_lifecycle"]);
+    assert_eq!(
+        CORE_EXTENSION_CAPABILITIES,
+        [
+            "runtime.credential_handles",
+            "runtime.lane_lifecycle",
+            "runtime.project_onboarding",
+        ]
+    );
     assert_eq!(
         advertised.len(),
         expected.len() + CORE_EXTENSION_CAPABILITIES.len()
@@ -121,6 +128,8 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
         assert!(advertised.contains(&CapabilityId(capability.to_string())));
     }
     assert!(advertised.contains(&CapabilityId("runtime.lane_lifecycle".to_string())));
+    assert!(advertised.contains(&CapabilityId("runtime.project_onboarding".to_string())));
+    assert!(advertised.contains(&CapabilityId("runtime.credential_handles".to_string())));
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
     assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
     assert!(extension_manifest.contains("candidate_component_version = \"0.3.1\""));

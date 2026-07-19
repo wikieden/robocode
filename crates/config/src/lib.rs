@@ -9,6 +9,10 @@ use viden_types::{
     UiPreferenceDiagnostic, UiPreferences, UiSkin, resolve_ui_preferences,
 };
 
+mod project;
+
+pub use project::{ProjectFileConfig, parse_project_config};
+
 #[derive(Debug, Clone, Default)]
 pub struct CliOverrides {
     pub provider: Option<String>,

@@ -27,7 +27,11 @@ pub const FRONTEND_V1_CAPABILITIES: &[&str] = &[
 /// Compatible schema-1 additions shipped after the immutable Core 0.3.0
 /// checkpoint. They are advertised separately so the frozen capability
 /// evidence remains byte-for-byte stable.
-pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &["runtime.lane_lifecycle"];
+pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
+    "runtime.credential_handles",
+    "runtime.lane_lifecycle",
+    "runtime.project_onboarding",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -269,6 +273,10 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "lane_output_appended"
             | "lane_conflict_detected"
             | "lane_recovery_required"
+            | "project_probed"
+            | "project_config_previewed"
+            | "project_config_confirmed"
+            | "credential_handle_stored"
             | "evidence_recorded"
             | "context_updated"
             | "context_bundle_built"

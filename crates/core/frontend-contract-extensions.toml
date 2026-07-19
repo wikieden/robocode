@@ -3,7 +3,12 @@ base_component_version = "0.3.0"
 candidate_component_version = "0.3.1"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
-capabilities = ["runtime.lane_lifecycle"]
+capabilities = ["runtime.credential_handles", "runtime.lane_lifecycle", "runtime.project_onboarding"]
+
+[runtime_project_onboarding]
+command_count = 4
+events = ["project_probed", "project_config_previewed", "project_config_confirmed", "credential_handle_stored", "provider_health_updated"]
+credential_secret_boundary = "secret bytes stay in the injected backend; wire and audit facts contain opaque ids and safe handles only"
 
 [runtime_lane_lifecycle]
 command_count = 13

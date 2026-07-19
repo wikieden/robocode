@@ -10,6 +10,7 @@ mod lane_supervisor_tests;
 mod live_deepseek_tests;
 mod lsp_command_tests;
 mod lsp_render_tests;
+mod project_runtime_tests;
 mod runtime_command_tests;
 mod runtime_contract_tests;
 mod runtime_loop_tests;
