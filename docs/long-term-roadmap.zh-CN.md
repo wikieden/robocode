@@ -22,6 +22,13 @@ runtime/UI contract freeze 后，TUI 与 GUI 可以按
 [Viden 并发开发计划](parallel-development-plan.zh-CN.md) 并行开发。GUI 产品契约记录在
 [GUI 版本功能设计](gui-version-functional-design.zh-CN.md)。
 
+Context、evidence 与 cost 的单一事实源是 [Context、Evidence 与 Cost Engine
+设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)。Viden 在
+`0.2.1` 持有原生引擎，`0.2.3` 校验 canonical evidence，`0.2.4` 保持 adapter
+可选，`0.2.5` 用 DeepSeek A/B 质量 gate 阻断回归。Summary 不能替代 Merge Gate
+的 canonical evidence。TUI/GUI 只消费 `viden-core` facade 和 shared contracts，
+不能直接依赖 runtime、context、provider、tool 或 workflow internals。
+
 接受的 TUI / GUI 视觉源现在是 `docs/viden-design/Viden/`，由
 [Viden 设计接入决策](viden-design-adoption.zh-CN.md) 约束。Viden 只作为 legacy
 implementation 和 compatibility 名称保留，直到 rename migration 被明确规划。

@@ -9,6 +9,13 @@
 更长期的产品战略见 [Viden 长期路线图](long-term-roadmap.zh-CN.md)。这份阶段路线图是
 交付地图；长期路线图是产品和市场地图。
 
+Context/evidence/cost 的单一事实源是 [Context、Evidence 与 Cost Engine
+设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)。Viden 在
+`0.2.1` 交付原生引擎，在 `0.2.3` 校验 canonical evidence，在 `0.2.4` 保持 adapter
+可选，并在 `0.2.5` 用 DeepSeek A/B 质量 gate 阻断回归。Compact view 不能替代
+Merge Gate 的 canonical evidence。TUI/GUI 只消费 `viden-core` contracts，不能直接
+依赖 runtime、context、provider、tool 或 workflow internals。
+
 ## 长期定位
 
 Viden 的长期定位不是单一 TUI，也不是又一个 coding agent CLI，而是：

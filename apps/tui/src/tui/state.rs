@@ -7,8 +7,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use viden_provider::{ProviderAuthMode, ProviderDescriptor};
-use viden_runtime::{EngineEvent, ProviderTelemetry};
+use viden_core::{EngineEvent, ProviderAuthMode, ProviderDescriptor, ProviderTelemetry};
 use viden_types::{
     AgentLaneRecord, AgentNextAction, AgentTaskRecord, MemoryEntry, PermissionLevel, TaskRecord,
     WorkMode,
@@ -2658,7 +2657,7 @@ fn json_number_field(value: &str, field: &str) -> Option<String> {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use viden_runtime::EngineEvent;
+    use viden_core::EngineEvent;
 
     static TEMP_STATE_COUNTER: AtomicU64 = AtomicU64::new(0);
 

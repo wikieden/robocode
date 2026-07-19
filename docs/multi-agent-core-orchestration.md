@@ -4,6 +4,14 @@ Chinese version: [multi-agent-core-orchestration.zh-CN.md](multi-agent-core-orch
 
 Status: future core architecture plan.
 
+Context, evidence, and cost follow [Context, Evidence, And Cost Engine
+Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md).
+Viden owns the `0.2.1` native engine; `0.2.3` verifies canonical evidence,
+`0.2.4` keeps adapters optional, and `0.2.5` gates DeepSeek A/B quality.
+Compact views cannot satisfy Merge Gates without canonical verification.
+TUI/GUI consume `viden-core` contracts and never depend directly on runtime,
+context, provider, tool, or workflow internals.
+
 Implementation checkpoint:
 
 - Landed: shared Agent DAG, role, evidence, and merge-gate contract types in

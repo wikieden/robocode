@@ -465,6 +465,7 @@ dependencies = [
 name = "viden-core"
 version = "0.1.30"
 dependencies = [
+ "viden-provider",
  "viden-runtime",
  "viden-types",
 ]
@@ -560,8 +561,7 @@ version = "0.1.30"
 dependencies = [
  "crossterm",
  "viden-config",
- "viden-provider",
- "viden-runtime",
+ "viden-core",
  "viden-types",
 ]
 

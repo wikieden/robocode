@@ -168,6 +168,11 @@ reducers、scoped retrieval、quality checks 和精确 cost aggregation。只有
 Merge Gate 校验 canonical evidence，不能只信 compact summary。可选 external reducer
 通过 plugin/MCP adapter contract 接入并具备 native fallback，不能成为强制 provider path。
 
+版本归属为：`0.2.1` 原生 context/cost、`0.2.3` canonical evidence、`0.2.4`
+可选 adapter、`0.2.5` DeepSeek A/B gate。TUI/GUI app 只通过 `viden-core` 和
+shared contracts 消费状态，不能直接依赖 context、runtime、provider、tool 或 workflow
+internals；CLI 可以保留 bootstrap 所需的直接依赖。
+
 ## 终端展示
 
 `viden-runtime` 负责 plain-text terminal presentation helpers，让 slash-command

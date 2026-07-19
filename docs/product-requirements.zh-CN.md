@@ -74,10 +74,18 @@ Viden 是一个面向软件开发的本地优先 Agent Orchestration workspace�
 - 在编排 Agent 的同时编排 context、canonical evidence 和 cost，让多 Agent 复用事实，
   而不是成倍复制完整 prompt
 
-已批准的原生 context/evidence/cost 需求与验收标准见
-[Context、Evidence 与 Cost Engine 设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)。
-Headroom 可以作为可选 benchmark 或 adapter，但核心 contracts 由 Viden 持有，并始终
-保留原生执行路径。
+### Context、Evidence 与 Cost 单一事实源
+
+已批准的需求和验收标准见 [Context、Evidence 与 Cost Engine
+设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)：
+
+- Viden 持有原生引擎；Headroom 只作为可选 adapter 或 benchmark，不能成为执行依赖。
+- `0.2.1` 交付原生 context/cost，`0.2.3` 交付 canonical evidence，`0.2.4`
+  交付可选 adapter，`0.2.5` 交付 DeepSeek A/B release gate。
+- Canonical content 必须保持可审计；compact summary 未经 canonical source 校验，
+  不能满足 Merge Gate。
+- TUI/GUI 只消费 `viden-core` 和 shared contracts，不能直接依赖 context、runtime、
+  provider、tool 或 workflow internals。
 
 ### 非目标
 

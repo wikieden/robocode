@@ -186,6 +186,12 @@ validate canonical evidence rather than compact summaries. Optional external
 reducers use plugin/MCP adapter contracts with native fallback; they never
 become a mandatory provider path.
 
+Version ownership is `0.2.1` for native context/cost, `0.2.3` for canonical
+evidence, `0.2.4` for optional adapters, and `0.2.5` for the DeepSeek A/B gate.
+TUI/GUI apps consume this state through `viden-core` and shared contracts; they
+must not depend directly on context, runtime, provider, tool, or workflow
+internals. CLI may retain direct bootstrap dependencies.
+
 ## Terminal Presentation
 
 `viden-runtime` owns plain-text terminal presentation helpers so slash-command

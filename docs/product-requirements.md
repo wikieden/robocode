@@ -83,10 +83,20 @@ Product naming boundary:
 - Orchestrate context, canonical evidence, and cost together with agents so
   multi-agent work reuses facts instead of multiplying full prompts
 
-The approved native context/evidence/cost requirements and acceptance criteria
-are defined in [Context, Evidence, And Cost Engine Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md).
-Headroom may be used as an optional benchmark or adapter, but Viden owns the
-core contracts and always retains a native execution path.
+### Context, Evidence, And Cost Source Of Truth
+
+The approved requirements and acceptance criteria are defined in [Context,
+Evidence, And Cost Engine
+Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md):
+
+- Viden owns the native engine; Headroom remains an optional adapter or
+  benchmark and is never required for execution.
+- Delivery is allocated across `0.2.1` native context/cost, `0.2.3` canonical
+  evidence, `0.2.4` optional adapters, and `0.2.5` DeepSeek A/B release gates.
+- Canonical content remains auditable, and compact summaries cannot satisfy a
+  Merge Gate without canonical source verification.
+- TUI/GUI clients consume `viden-core` and shared contracts, with no direct
+  context, runtime, provider, tool, or workflow-internal dependencies.
 
 ### Product Non-Goals
 

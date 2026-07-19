@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use viden_provider::ProviderAuthMode;
+use viden_core::ProviderAuthMode;
 use viden_types::MemoryStatus;
 
 use super::{
@@ -3392,7 +3392,7 @@ mod tests {
         CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot,
     };
     use crate::tui::text::char_width;
-    use viden_provider::ProviderAuthMode;
+    use viden_core::ProviderAuthMode;
     use viden_types::{
         MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskPriority, TaskRecord,
         TaskStatus,

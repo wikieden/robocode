@@ -29,6 +29,8 @@ flowchart LR
 - [architecture.zh-CN.md](architecture.zh-CN.md)：模块边界和核心架构。
 - [gui-version-functional-design.zh-CN.md](gui-version-functional-design.zh-CN.md)：GUI 功能设计。
 - [docs/viden-design/Viden/docs/DESIGN-REF.md](viden-design/Viden/docs/DESIGN-REF.md)：Viden 视觉设计源。
+- [Context、Evidence 与 Cost Engine 设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)：
+  canonical context、evidence、cost 与 client projection 规则。
 
 如果这些文档和代码冲突，以当前代码、`frontend-integration-contract.*`、`AGENTS.md`
 为优先级最高的开发依据。发现冲突时，不要绕过，先提交文档或 contract 修正。
@@ -45,6 +47,7 @@ flowchart LR
 | `apps/tui` | 终端 UI 渲染、输入编排、面板、预览和 TUI-only state |
 | `crates/core` | 稳定 runtime facade 和共享 contract re-export |
 | `crates/runtime` | session engine、command bus、provider/tool loop、workflow routing |
+| `crates/context` | canonical context storage、reduction、retrieval、quality 和 cost |
 | `crates/types` | `RuntimeCommand`、`RuntimeEvent`、`RuntimeSnapshot`、`RuntimeViewState` 等共享类型 |
 | `crates/provider` | provider abstraction、registry、protocol adapters |
 | `crates/tools` | shell/file/search/web/Git 工具实现 |
@@ -56,6 +59,11 @@ flowchart LR
 UI 开发默认只改 `apps/tui` 或未来 `apps/gui`，必要时改 `crates/types` 的 UI contract。
 如果要改 `crates/runtime`、`crates/provider`、`crates/tools`、`crates/permissions`、
 `crates/session` 或 `crates/workflows`，必须明确说明原因，并优先放在 core/runtime 分支完成。
+
+Frontend manifest 只允许直接依赖 `viden-core`、`viden-types`、configuration 和
+UI-only crates；不得直接依赖 `viden-context`、`viden-provider`、`viden-runtime`、
+`viden-tools` 或 `viden-workflows`。Frontend source 从 `viden-core` 导入对应 public
+contracts。`apps/cli` 可以保留 bootstrap 所需的直接依赖。
 
 ## 分支策略
 
@@ -153,6 +161,7 @@ UI 发送：
 - `RuntimeCommand::AcceptAgentArtifact`
 - `RuntimeCommand::RejectAgentArtifact`
 - `RuntimeCommand::MergeAgentPatch`
+- `RuntimeCommand::RetrieveContext { handle_id, reason }`
 
 UI 不能在发送 command 后自行假设成功。必须等待：
 
@@ -160,6 +169,29 @@ UI 不能在发送 command 后自行假设成功。必须等待：
 2. 后续 `SnapshotUpdated` / `TaskUpdated` / `EvidenceRecorded` / `MergeGateUpdated` 等状态事件
 
 如果收到 `CommandRejected`，UI 只展示 `reason` 和可恢复动作，不要本地回滚业务状态。
+
+## Context、Evidence 与 Cost Projection
+
+原生引擎决策和版本归属见 [Context、Evidence 与 Cost Engine
+设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)。Compact
+view 是 derived data；只有经过 canonical verification 的 evidence 才能满足 Merge Gate。
+
+UI 消费以下可 replay events：
+
+- `ContextBundleBuilt`、`ContextItemStored`、`ContextViewDerived`；
+- `ContextReductionRecorded`、`ContextRetrieved`；
+- `ContextBudgetExceeded`、`ContextQualityFailed`；
+- `CostUsageRecorded`、`ProviderCacheObserved`；
+- `EvidenceCanonicalized`。
+
+`RuntimeViewState` 提供有界 client projections：`context_bundles`、
+`context_handles`、`context_items`、`context_views`、`context_reductions`、
+`context_retrievals`、`context_budgets`、`context_quality`、`cost_usage`、
+`cost_ledger`、`provider_cache_observations` 和 `canonical_evidence`。
+
+UI 可以渲染、过滤、分组这些事实并发送 retrieval command，但不能直接读取 context
+store、计算 authoritative cost、运行 reducer、解析 storage path、推断 canonical
+verification 或修改 Merge Gate。Secret-bearing raw content 不得投影到 view state。
 
 ## Evidence / Merge Gate 规则
 
@@ -315,6 +347,16 @@ cargo fmt --all --check
 git diff --check
 cargo test --workspace --quiet
 ```
+
+同时运行：
+
+```bash
+scripts/check-task10-guards-test.sh
+scripts/check-dependency-boundaries.sh
+```
+
+长期文档有改动时，还要用编辑过的 Markdown 路径运行 `scripts/check-doc-pairs.sh` 和
+`scripts/check-doc-links.sh`。
 
 发布前还必须跑真实 DeepSeek development smoke，并记录 token、费用、耗时、失败分类。GitHub Release 和 Homebrew tap 必须作为同一个发版单元验证。
 

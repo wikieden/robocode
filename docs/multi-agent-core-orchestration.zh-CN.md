@@ -4,6 +4,13 @@
 
 状态：未来核心架构规划。
 
+Context、evidence 与 cost 遵循 [Context、Evidence 与 Cost Engine
+设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)。Viden
+持有 `0.2.1` 原生引擎；`0.2.3` 校验 canonical evidence，`0.2.4` 保持 adapter
+可选，`0.2.5` 用 DeepSeek A/B 质量 gate 阻断回归。Compact view 未经 canonical
+校验不能满足 Merge Gate。TUI/GUI 只消费 `viden-core` contracts，不能直接依赖
+runtime、context、provider、tool 或 workflow internals。
+
 实现检查点：
 
 - 已落地：`crates/types` 中的共享 Agent DAG、role、evidence、merge-gate

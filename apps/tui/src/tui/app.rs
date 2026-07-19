@@ -7,8 +7,7 @@ use std::{
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use viden_provider::ModelRequestControl;
-use viden_runtime::SessionEngine;
+use viden_core::{ModelRequestControl, SessionEngine};
 use viden_types::{ApprovalResponse, PermissionLevel, PermissionPrompt, WorkMode};
 
 use super::command_palette::{
@@ -88,7 +87,7 @@ impl TuiRuntimeSnapshot {
 }
 
 struct TuiRuntimeOutput {
-    events: Vec<viden_runtime::EngineEvent>,
+    events: Vec<viden_core::EngineEvent>,
     snapshot: TuiRuntimeSnapshot,
 }
 
@@ -1805,8 +1804,7 @@ mod tests {
         thread,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
-    use viden_provider::{ModelProvider, ModelRequestControl, ProviderAuthMode};
-    use viden_runtime::SessionEngine;
+    use viden_core::{ModelProvider, ModelRequestControl, ProviderAuthMode, SessionEngine};
     use viden_types::{
         ModelEvent, ModelRequest, PermissionLevel, PermissionPrompt, ToolCall, ToolInput, WorkMode,
     };
@@ -2068,7 +2066,7 @@ mod tests {
             output
                 .events
                 .iter()
-                .any(|event| matches!(event, viden_runtime::EngineEvent::Assistant(content) if content.contains("slow provider done")))
+                .any(|event| matches!(event, viden_core::EngineEvent::Assistant(content) if content.contains("slow provider done")))
         );
         assert!(!runtime.is_turn_active());
     }

@@ -26,6 +26,15 @@ contract freeze, TUI and GUI can be developed in parallel under
 product contract is tracked in
 [GUI Version Functional Design](gui-version-functional-design.md).
 
+The source of truth for context, evidence, and cost is [Context, Evidence, And
+Cost Engine
+Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md).
+Viden owns the native engine in `0.2.1`; `0.2.3` verifies canonical evidence,
+`0.2.4` keeps adapters optional, and `0.2.5` gates DeepSeek A/B quality.
+Summaries never replace canonical Merge Gate evidence. TUI/GUI consume the
+`viden-core` facade and shared contracts without direct runtime, context,
+provider, tool, or workflow-internal dependencies.
+
 The accepted TUI / GUI visual source is now
 `docs/viden-design/Viden/`, governed by
 [Viden Design Adoption](viden-design-adoption.md). Viden remains a legacy

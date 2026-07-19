@@ -10,6 +10,20 @@
 > `docs/parallel-development-plan.md` and
 > `docs/parallel-development-plan.zh-CN.md`.
 
+## Context, Evidence, And Cost Source Of Truth
+
+The approved contract is [Context, Evidence, And Cost Engine
+Design](docs/superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md):
+
+- Viden owns the native engine; Headroom is optional adapter and benchmark
+  infrastructure, never a required execution dependency.
+- `0.2.1` owns context and cost, `0.2.3` canonical evidence verification,
+  `0.2.4` optional adapters, and `0.2.5` the DeepSeek A/B release gate.
+- Canonical content remains immutable and auditable; compact views alone cannot
+  satisfy a Merge Gate.
+- TUI/GUI clients consume `viden-core` and shared contracts. They must not
+  depend directly on context, runtime, provider, tool, or workflow internals.
+
 ## Current Planning Revision
 
 As of the 0.1.24 planning line, the next release is upgraded from a

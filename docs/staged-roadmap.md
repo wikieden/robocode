@@ -10,6 +10,14 @@ For the longer product strategy behind these delivery stages, see
 [Viden Long-Term Roadmap](long-term-roadmap.md). This staged roadmap is the
 delivery map; the long-term roadmap is the product and market map.
 
+The context/evidence/cost source of truth is [Context, Evidence, And Cost
+Engine Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md).
+Viden keeps a native engine (`0.2.1`), verifies canonical evidence in `0.2.3`,
+keeps adapters optional in `0.2.4`, and gates DeepSeek A/B quality in `0.2.5`.
+Compact views never replace canonical Merge Gate evidence. TUI/GUI consume
+`viden-core` contracts and do not directly depend on runtime, context,
+provider, tool, or workflow internals.
+
 ## Long-Term Positioning
 
 Viden is not only a TUI and not only another coding-agent CLI. The long-term

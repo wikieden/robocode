@@ -7,7 +7,6 @@ authors.workspace = true
 
 [dependencies]
 viden-config = { path = "../../crates/config" }
-viden-provider = { path = "../../crates/provider" }
-viden-runtime = { path = "../../crates/runtime" }
+viden-core = { path = "../../crates/core" }
 viden-types = { path = "../../crates/types" }
 crossterm = "0.28"

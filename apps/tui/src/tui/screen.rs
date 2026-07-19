@@ -6,7 +6,7 @@ use std::{
 };
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
-use viden_runtime::SessionEngine;
+use viden_core::SessionEngine;
 
 use super::input::should_exit;
 use super::state::{

@@ -605,7 +605,7 @@ mod tests {
         },
         text::char_width,
     };
-    use viden_runtime::ProviderTelemetry;
+    use viden_core::ProviderTelemetry;
     use viden_types::{TaskPriority, TaskRecord, TaskStatus};
 
     fn render_state() -> TuiState {
