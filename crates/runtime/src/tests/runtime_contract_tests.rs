@@ -4296,6 +4296,87 @@ fn runtime_view_state_emits_lane_facts_from_core_store_legacy_lane_statuses() {
 }
 
 #[test]
+fn legacy_lane_migration_runs_once_at_resume_and_runtime_replays_typed_state() {
+    let cwd = temp_dir("runtime_contract_lane_resume_cwd");
+    let home = temp_dir("runtime_contract_lane_resume_home");
+    let provider_a = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "seed resumable session".to_string(),
+        },
+        ModelEvent::Done,
+    ]]));
+    let mut original = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+    let original_session_id = original.session_id().to_string();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    original
+        .process_input_with_approval("seed the session", &mut approver)
+        .unwrap();
+    drop(original);
+
+    let provider_b = Box::new(SequenceProvider::new(vec![]));
+    let mut resumed = SessionEngine::new_with_home(&cwd, provider_b, Some(home.clone())).unwrap();
+    let legacy_path = cwd.join(".viden").join("lanes.tsv");
+    fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
+    fs::write(
+        &legacy_path,
+        include_str!("../../../types/tests/fixtures/frontend-contract-v1/legacy-lanes.tsv"),
+    )
+    .unwrap();
+
+    let resume_events = resumed
+        .process_input_with_approval(&format!("/resume {original_session_id}"), &mut approver)
+        .unwrap();
+    assert!(resume_events.iter().any(
+        |event| matches!(event, crate::EngineEvent::Command(text) if text.contains("Resumed session"))
+    ));
+
+    let workflow_store = WorkflowStore::new(&home, &cwd).unwrap();
+    let imported = workflow_store.load_lane_state().unwrap();
+    assert_eq!(imported.lanes().len(), 4);
+    let audit = imported
+        .migration(viden_workflows::lanes::LEGACY_LANES_MIGRATION_ID)
+        .unwrap();
+    assert_eq!(
+        audit.origin_session_id.as_deref(),
+        Some(original_session_id.as_str())
+    );
+    assert_eq!(workflow_store.load_lane_events().unwrap().len(), 1);
+
+    workflow_store
+        .append_lane_event_checked(&LaneEvent::status_changed(
+            "evt_runtime_typed_lane_replay",
+            "L-start",
+            LaneStatus::Done,
+            "typed replay wins",
+            20,
+            Some(original_session_id.clone()),
+        ))
+        .unwrap();
+    fs::write(
+        &legacy_path,
+        "malformed legacy state that runtime must not read\n",
+    )
+    .unwrap();
+
+    let projected = resumed.runtime_view_state();
+    let lane = projected
+        .lanes
+        .iter()
+        .find(|lane| lane.id == "L-start")
+        .unwrap();
+    assert_eq!(lane.status, LaneStatus::Done);
+    assert_eq!(lane.summary, "typed replay wins");
+
+    resumed
+        .process_input_with_approval(&format!("/resume {original_session_id}"), &mut approver)
+        .unwrap();
+    let replayed = workflow_store.load_lane_state().unwrap();
+    assert_eq!(replayed.lanes().len(), 4);
+    assert_eq!(replayed.migrations().len(), 1);
+    assert_eq!(workflow_store.load_lane_events().unwrap().len(), 2);
+}
+
+#[test]
 fn runtime_view_state_reports_corrupt_lane_store() {
     let cwd = temp_dir("runtime_contract_corrupt_lane_cwd");
     let home = temp_dir("runtime_contract_corrupt_lane_home");

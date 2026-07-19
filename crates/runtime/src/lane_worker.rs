@@ -1,5 +1,3 @@
-#[cfg(test)]
-use std::sync::OnceLock;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -29,38 +27,6 @@ struct LanePermissionState {
     engine: PermissionEngine,
     epoch: u64,
 }
-
-#[cfg(test)]
-type BeforeLaneApprovalResumeHook = Arc<dyn Fn(&str) + Send + Sync>;
-
-#[cfg(test)]
-static BEFORE_LANE_APPROVAL_RESUME_HOOK: OnceLock<Mutex<Option<BeforeLaneApprovalResumeHook>>> =
-    OnceLock::new();
-
-#[cfg(test)]
-pub(crate) fn set_before_lane_approval_resume_hook(hook: Option<BeforeLaneApprovalResumeHook>) {
-    if let Ok(mut slot) = BEFORE_LANE_APPROVAL_RESUME_HOOK
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-    {
-        *slot = hook;
-    }
-}
-
-#[cfg(test)]
-fn before_lane_approval_resume_for_test(request_id: &str) {
-    let hook = BEFORE_LANE_APPROVAL_RESUME_HOOK
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .ok()
-        .and_then(|slot| slot.clone());
-    if let Some(hook) = hook {
-        hook(request_id);
-    }
-}
-
-#[cfg(not(test))]
-fn before_lane_approval_resume_for_test(_request_id: &str) {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LaneTerminalKind {
@@ -313,7 +279,6 @@ impl LaneWorker {
                 permission_epoch,
                 completion,
             } => {
-                before_lane_approval_resume_for_test(&request_id);
                 self.resume_approval(request_id, response, permissions, permission_epoch);
                 let _ = completion.send(());
             }

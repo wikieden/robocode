@@ -4,9 +4,10 @@ use crate::{
     ApprovalTarget, ContextBudgetRecord, ContextBundleRecord, ContextBundleSummaryRecord,
     ContextHandleRecord, ContextItemRecord, ContextQualityRecord, ContextReductionRecord,
     ContextRetrievalRecord, ContextScope, ContextViewRecord, CostLedgerTotals, CostUsageRecord,
-    EvidenceCanonicalizationRecord, EvidenceId, MergeGateId, MergeGateRecord, MessageId,
-    PermissionLevel, ProviderCacheObservationRecord, RuntimeOwner, RuntimeSnapshot, ToolCallId,
-    TranscriptPage, TranscriptPageRequest, WorkMode, now_timestamp,
+    CredentialHandle, EvidenceCanonicalizationRecord, EvidenceId, MergeGateId, MergeGateRecord,
+    MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
+    RuntimeOwner, RuntimeSnapshot, ToolCallId, TranscriptPage, TranscriptPageRequest, WorkMode,
+    now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -19,6 +20,19 @@ const RUNTIME_VIEW_COLLECTION_LIMIT: usize = 50;
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuntimeCommand {
+    ProbeProject,
+    PreviewProjectConfig {
+        contents: String,
+    },
+    ConfirmProjectConfig {
+        preview_id: String,
+        content_sha256: String,
+    },
+    StoreCredentialHandle {
+        provider_id: String,
+        backend_id: String,
+        credential_request_id: String,
+    },
     SubmitUserInput {
         content: String,
     },
@@ -332,6 +346,8 @@ pub struct ProviderHealthView {
     pub last_latency_ms: Option<u64>,
     pub average_latency_ms: Option<u64>,
     pub tokens_per_second: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<CredentialHandle>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -417,6 +433,18 @@ impl RuntimeEvent {
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum RuntimeEventKind {
+    ProjectProbed {
+        probe: ProjectProbe,
+    },
+    ProjectConfigPreviewed {
+        preview: ProjectConfigPreview,
+    },
+    ProjectConfigConfirmed {
+        preview: ProjectConfigPreview,
+    },
+    CredentialHandleStored {
+        handle: CredentialHandle,
+    },
     SnapshotUpdated {
         snapshot: RuntimeSnapshot,
     },
@@ -553,6 +581,14 @@ pub enum RuntimeEventKind {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeViewState {
     pub snapshot: RuntimeSnapshot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_probe: Option<ProjectProbe>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_config_preview: Option<ProjectConfigPreview>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed_project_config: Option<ProjectConfigPreview>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub credential_handles: Vec<CredentialHandle>,
     pub pending_approvals: Vec<ApprovalRequestView>,
     pub queued_inputs: Vec<QueuedInputView>,
     pub active_tool_calls: Vec<ToolCallView>,
@@ -605,6 +641,10 @@ impl RuntimeViewState {
     pub fn new(snapshot: RuntimeSnapshot) -> Self {
         Self {
             snapshot,
+            project_probe: None,
+            project_config_preview: None,
+            confirmed_project_config: None,
+            credential_handles: Vec::new(),
             pending_approvals: Vec::new(),
             queued_inputs: Vec::new(),
             active_tool_calls: Vec::new(),
@@ -640,6 +680,22 @@ impl RuntimeViewState {
 
     pub fn apply_event(&mut self, event: &RuntimeEvent) {
         match &event.kind {
+            RuntimeEventKind::ProjectProbed { probe } => {
+                self.project_probe = Some(probe.clone());
+            }
+            RuntimeEventKind::ProjectConfigPreviewed { preview } => {
+                self.project_config_preview = Some(preview.clone());
+            }
+            RuntimeEventKind::ProjectConfigConfirmed { preview } => {
+                self.confirmed_project_config = Some(preview.clone());
+                self.project_config_preview = None;
+            }
+            RuntimeEventKind::CredentialHandleStored { handle } => {
+                upsert_by_id(&mut self.credential_handles, handle.clone(), |existing| {
+                    existing.provider_id == handle.provider_id
+                        && existing.backend_id == handle.backend_id
+                });
+            }
             RuntimeEventKind::SnapshotUpdated { snapshot } => {
                 self.snapshot = snapshot.clone();
             }

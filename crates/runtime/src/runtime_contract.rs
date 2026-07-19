@@ -66,6 +66,10 @@ struct RuntimeDomainSnapshot {
     agent_dags: Vec<AgentDagRecord>,
     merge_gates: Vec<MergeGateRecord>,
     evidence: Vec<EvidenceView>,
+    pending_project_previews:
+        std::collections::BTreeMap<String, crate::project_runtime::PendingProjectConfig>,
+    confirmed_project_config: Option<viden_types::ProjectConfigPreview>,
+    credential_handles: Vec<viden_types::CredentialHandle>,
     provider_telemetry: ProviderTelemetry,
     provider_cost_usage: Vec<CostUsageRecord>,
     last_context_bundle: Option<viden_types::ContextBundleRecord>,
@@ -315,6 +319,47 @@ impl SessionEngine {
 
         let mut events = vec![accepted];
         match command {
+            RuntimeCommand::ProbeProject => {
+                append_resequenced(&mut events, self.project_probe_events());
+            }
+            RuntimeCommand::PreviewProjectConfig { contents } => {
+                match self.preview_project_config_events(contents) {
+                    Ok(project_events) => append_resequenced(&mut events, project_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
+            RuntimeCommand::ConfirmProjectConfig {
+                preview_id,
+                content_sha256,
+            } => match self.confirm_project_config(&preview_id, &content_sha256, approver) {
+                Ok(project_events) => append_resequenced(&mut events, project_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
+            RuntimeCommand::StoreCredentialHandle {
+                provider_id,
+                backend_id,
+                credential_request_id,
+            } => match self.store_credential_handle(
+                &provider_id,
+                &backend_id,
+                &credential_request_id,
+                approver,
+            ) {
+                Ok(credential_events) => append_resequenced(&mut events, credential_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
             RuntimeCommand::SubmitUserInput { content } => {
                 match self.process_runtime_input_with_approval(&content, approver) {
                     Ok(input_events) => append_resequenced(&mut events, input_events),
@@ -618,6 +663,9 @@ impl SessionEngine {
             agent_dags: self.runtime_agent_dags.clone(),
             merge_gates: self.runtime_merge_gates.clone(),
             evidence: self.runtime_evidence.clone(),
+            pending_project_previews: self.pending_project_previews.clone(),
+            confirmed_project_config: self.confirmed_project_config.clone(),
+            credential_handles: self.credential_handles.clone(),
             provider_telemetry: self.provider_telemetry.clone(),
             provider_cost_usage: self.provider_cost_usage.clone(),
             last_context_bundle: self.last_context_bundle.clone(),
@@ -637,6 +685,9 @@ impl SessionEngine {
         self.runtime_agent_dags = snapshot.agent_dags;
         self.runtime_merge_gates = snapshot.merge_gates;
         self.runtime_evidence = snapshot.evidence;
+        self.pending_project_previews = snapshot.pending_project_previews;
+        self.confirmed_project_config = snapshot.confirmed_project_config;
+        self.credential_handles = snapshot.credential_handles;
         self.provider_telemetry = snapshot.provider_telemetry;
         self.provider_cost_usage = snapshot.provider_cost_usage;
         self.last_context_bundle = snapshot.last_context_bundle;
@@ -1069,6 +1120,22 @@ impl SessionEngine {
                 snapshot: self.runtime_snapshot(),
             },
         )];
+        if let Some(preview) = &self.confirmed_project_config {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::ProjectConfigConfirmed {
+                    preview: preview.clone(),
+                },
+            ));
+        }
+        for handle in &self.credential_handles {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::CredentialHandleStored {
+                    handle: handle.clone(),
+                },
+            ));
+        }
         if let Some(context) = &self.last_context_bundle {
             for event in &self.last_context_runtime_events {
                 events.push(RuntimeEvent::new(
@@ -1086,11 +1153,7 @@ impl SessionEngine {
         events.push(RuntimeEvent::new(
             next_sequence(&events),
             RuntimeEventKind::ProviderHealthUpdated {
-                provider: provider_health_view(
-                    self.provider_name(),
-                    self.model_name(),
-                    &self.provider_telemetry,
-                ),
+                provider: self.project_provider_health(),
             },
         ));
         if let Some(cost) = token_cost_view(&self.provider_telemetry) {
@@ -3152,7 +3215,9 @@ fn missing_transaction_parent_dirs(root: &Path, path: &Path) -> Result<Vec<PathB
 fn transactional_runtime_command(command: &RuntimeCommand) -> bool {
     matches!(
         command,
-        RuntimeCommand::StartAgentDag { .. }
+        RuntimeCommand::ConfirmProjectConfig { .. }
+            | RuntimeCommand::StoreCredentialHandle { .. }
+            | RuntimeCommand::StartAgentDag { .. }
             | RuntimeCommand::StartAgentTask { .. }
             | RuntimeCommand::CancelAgentTask { .. }
             | RuntimeCommand::AcceptMergeGate { .. }
@@ -4209,6 +4274,26 @@ fn redact_identifier_for_event(input: &str) -> String {
 
 pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> RuntimeCommand {
     match command {
+        RuntimeCommand::ProbeProject => RuntimeCommand::ProbeProject,
+        RuntimeCommand::PreviewProjectConfig { .. } => RuntimeCommand::PreviewProjectConfig {
+            contents: "[REDACTED]".to_string(),
+        },
+        RuntimeCommand::ConfirmProjectConfig {
+            preview_id,
+            content_sha256,
+        } => RuntimeCommand::ConfirmProjectConfig {
+            preview_id: redact_identifier_for_event(preview_id),
+            content_sha256: redact_identifier_for_event(content_sha256),
+        },
+        RuntimeCommand::StoreCredentialHandle {
+            provider_id,
+            backend_id,
+            credential_request_id,
+        } => RuntimeCommand::StoreCredentialHandle {
+            provider_id: redact_identifier_for_event(provider_id),
+            backend_id: redact_identifier_for_event(backend_id),
+            credential_request_id: redact_identifier_for_event(credential_request_id),
+        },
         RuntimeCommand::SubmitUserInput { content } => RuntimeCommand::SubmitUserInput {
             content: redact_command_text(content),
         },
@@ -4651,7 +4736,7 @@ fn merge_approval_events(
     merged
 }
 
-fn provider_health_view(
+pub(crate) fn provider_health_view(
     provider_id: &str,
     model: &str,
     telemetry: &ProviderTelemetry,
@@ -4670,6 +4755,7 @@ fn provider_health_view(
         last_latency_ms: telemetry.last_latency_ms.and_then(clamp_u128_to_u64),
         average_latency_ms: telemetry.average_latency_ms.and_then(clamp_u128_to_u64),
         tokens_per_second: telemetry.last_tokens_per_second,
+        credential: None,
     }
 }
 

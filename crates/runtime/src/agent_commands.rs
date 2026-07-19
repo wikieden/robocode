@@ -8066,13 +8066,22 @@ mod tests {
             .expect("job id in output")
             .to_string();
 
-        let live_events = wait_for_channel_events(&receiver, Duration::from_secs(1), |events| {
-            events.iter().any(|event| {
+        let live_events = wait_for_channel_events(&receiver, Duration::from_secs(10), |events| {
+            let has_proposed_gate = events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::MergeGateUpdated { gate }
+                        if gate.gate_id == "gate-acp-session-session_live"
+                            && gate.status == MergeGateStatus::Proposed
+                )
+            });
+            let has_assistant_delta = events.iter().any(|event| {
                 matches!(
                     &event.kind,
                     RuntimeEventKind::AssistantDelta { content, .. } if content == "live sink delta"
                 )
-            })
+            });
+            has_proposed_gate && has_assistant_delta
         });
         assert!(live_events.iter().any(|event| {
             matches!(
@@ -8401,23 +8410,36 @@ mod tests {
         }
     }
 
+    #[test]
+    #[should_panic(expected = "timed out waiting for runtime event condition")]
+    fn channel_event_wait_fails_at_unmet_condition_boundary() {
+        let (_sender, receiver) = mpsc::channel::<RuntimeEvent>();
+
+        let _ = wait_for_channel_events(&receiver, Duration::ZERO, |_| false);
+    }
+
     fn wait_for_channel_events(
         receiver: &mpsc::Receiver<RuntimeEvent>,
         timeout: Duration,
         predicate: impl Fn(&[RuntimeEvent]) -> bool,
     ) -> Vec<RuntimeEvent> {
-        let start = SystemTime::now();
+        let deadline = Instant::now() + timeout;
         let mut events = Vec::new();
-        while start.elapsed().unwrap_or_default() < timeout {
+        while Instant::now() < deadline {
             if predicate(&events) {
                 return events;
             }
-            match receiver.recv_timeout(Duration::from_millis(20)) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match receiver.recv_timeout(remaining.min(Duration::from_millis(20))) {
                 Ok(event) => events.push(event),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
+        assert!(
+            predicate(&events),
+            "timed out waiting for runtime event condition; observed events: {events:#?}"
+        );
         events
     }
 

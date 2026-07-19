@@ -382,8 +382,9 @@ CLI 当前也通过 slash commands 暴露这些工具面：
   包含一个小 parser，用于提取常见 Rust/cargo 和 pytest failure-summary / file
   模式。
 - `/status` 也是只读 cockpit 快照：它会采集 git dirty files、active workflow
-  tasks，以及 `.viden/lanes.tsv` 中的 lane state；某个来源不可用时只降级该
-  collector，不让整个命令失败。
+  tasks，以及 `viden-workflows` `lanes.jsonl` 中的 typed lane state；某个来源
+  不可用时只降级该 collector，不让整个命令失败。旧 `.viden/lanes.tsv` 只作为
+  幂等的 session 启动或 resume activation 迁移输入。
 - 成功的 `write_file` 和 `edit_file` result 会结构化为 `path`、`size` 和 `effect`
   行，让 transcript 和 TUI surface 不必解析自由文本也能总结文件变更。
 - Lane inspect / apply / recovery 命令会把可审计 artifacts 存到

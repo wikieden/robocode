@@ -40,6 +40,17 @@ impl SessionEngine {
             self.cwd.clone(),
             Some(summary.session_id.clone()),
         )?;
+        let legacy_lanes_path = self.cwd.join(".viden").join("lanes.tsv");
+        if legacy_lanes_path.is_file() {
+            // A legacy TUI can write the TSV after this engine was created.
+            // Import before activating the resumed session so migration failure
+            // cannot leave the in-memory session boundary half-switched.
+            self.workflows.import_legacy_lanes_tsv_once(
+                &legacy_lanes_path,
+                now_timestamp(),
+                Some(summary.session_id.clone()),
+            )?;
+        }
         self.store = resumed_store;
         self.messages.clear();
         self.last_diff = None;
@@ -602,6 +613,19 @@ impl SessionEngine {
                     self.runtime_merge_gates.push(gate);
                 }
             }
+            RuntimeEventKind::ProjectConfigConfirmed { preview } => {
+                self.confirmed_project_config = Some(preview);
+            }
+            RuntimeEventKind::CredentialHandleStored { handle } => {
+                if let Some(existing) = self.credential_handles.iter_mut().find(|existing| {
+                    existing.provider_id == handle.provider_id
+                        && existing.backend_id == handle.backend_id
+                }) {
+                    *existing = handle;
+                } else {
+                    self.credential_handles.push(handle);
+                }
+            }
             RuntimeEventKind::EvidenceCanonicalized { .. } => {}
             _ => {}
         }
@@ -639,6 +663,8 @@ fn runtime_projection_kind_name(kind: &RuntimeEventKind) -> &'static str {
         RuntimeEventKind::EvidenceRecorded { .. } => "evidence_recorded",
         RuntimeEventKind::EvidenceCanonicalized { .. } => "evidence_canonicalized",
         RuntimeEventKind::MergeGateUpdated { .. } => "merge_gate_updated",
+        RuntimeEventKind::ProjectConfigConfirmed { .. } => "project_config_confirmed",
+        RuntimeEventKind::CredentialHandleStored { .. } => "credential_handle_stored",
         _ => "runtime_event",
     }
 }
@@ -916,5 +942,7 @@ fn is_durable_runtime_domain_event(kind: &RuntimeEventKind) -> bool {
             | RuntimeEventKind::EvidenceRecorded { .. }
             | RuntimeEventKind::EvidenceCanonicalized { .. }
             | RuntimeEventKind::MergeGateUpdated { .. }
+            | RuntimeEventKind::ProjectConfigConfirmed { .. }
+            | RuntimeEventKind::CredentialHandleStored { .. }
     )
 }

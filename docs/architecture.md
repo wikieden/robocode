@@ -422,8 +422,10 @@ Current workflow/LSP notes:
   without creating a second execution path. The command output also includes a
   small parser for common Rust/cargo and pytest failure-summary/file patterns.
 - `/status` also acts as a read-only cockpit snapshot: it collects git dirty
-  files, active workflow tasks, and lane state from `.viden/lanes.tsv`, with
-  each collector degrading independently if that source is unavailable.
+  files, active workflow tasks, and typed lane state from the
+  `viden-workflows` `lanes.jsonl` log, with each collector degrading
+  independently if that source is unavailable. Legacy `.viden/lanes.tsv` is
+  only an idempotent session-start or resume-activation migration input.
 - Successful `write_file` and `edit_file` results are structured as `path`,
   `size`, and `effect` lines so transcript and TUI surfaces can summarize file
   changes without parsing free-form prose.

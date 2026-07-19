@@ -108,6 +108,9 @@ flowchart LR
 - `InputQueued` and `InputDequeued` maintain follow-up input state.
 - `ProviderHealthUpdated`, `TokenCostUpdated`, and `Error` update side panels
   without blocking composer input.
+- `ProjectProbed`, `ProjectConfigPreviewed`, `ProjectConfigConfirmed`, and
+  `CredentialHandleStored` update onboarding state; clients must not infer a
+  successful write from command acceptance alone.
 - Every command, snapshot, and event envelope uses schema `1`. A known event's
   sequence must equal its cursor sequence.
 - Clients call `discover` before sending commands or consuming state. Missing
@@ -132,6 +135,17 @@ flowchart LR
 | Record evidence for a gate | `RecordAgentEvidence` | evidence validation, `EvidenceRecorded`, gate reducer, workflow event |
 | Review a merge gate | merge/artifact commands | gate state, workflow events, patch application |
 | Configure provider/model | provider/model commands | config persistence, registry validation, health |
+| Probe and onboard a project | `ProbeProject`, `PreviewProjectConfig`, `ConfirmProjectConfig` | Git/config probe, exact reviewed bytes/hash, permission-gated write and replay |
+| Store a credential reference | `StoreCredentialHandle` with opaque ingress id | injected backend access, safe handle fact, provider health and secret exclusion |
+
+`PreviewProjectConfig` is read-only. A valid preview includes the exact UTF-8
+contents that its SHA-256 describes; invalid or secret-bearing candidates omit
+those contents and cannot be confirmed. Root `viden.toml` accepts only the D11
+`project`, `gates`, `runner`, `budget`, and `targets` schema; unknown root or
+nested fields are rejected. Provider, backend, and ingress identifiers must be
+bounded opaque ASCII identifiers, not paths or secret-like labels. Serialized credential commands,
+events, transcript rows, and workflow audit never contain credential secret
+bytes.
 
 Frontends must not synthesize successful state after sending a command. They
 should wait for `CommandAccepted` plus subsequent state events. If the command

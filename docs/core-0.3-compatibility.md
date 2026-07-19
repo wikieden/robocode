@@ -55,7 +55,8 @@ ambiguous legacy input is rejected rather than guessed.
 
 The Core 0.3.0 frozen capability set and fixture digests above remain unchanged.
 The Core 0.3.1 candidate advertises the additive
-`runtime.lane_lifecycle` capability separately through
+`runtime.lane_lifecycle`, `runtime.project_onboarding`, and
+`runtime.credential_handles` capabilities separately through
 `FRONTEND_V1_EXTENSION_CAPABILITIES` and
 `crates/core/frontend-contract-extensions.toml`.
 
@@ -80,17 +81,33 @@ Approval previews redact command, argument, environment, input, and diff
 payloads. Interrupted starting, running, or approval-waiting lanes hydrate as
 blocked recovery facts and remain bound to their durable session owner.
 
+Project onboarding probes the current directory without mutation.
+`PreviewProjectConfig` validates repository-root `viden.toml` policy and
+returns the exact reviewable UTF-8 contents plus its SHA-256 without writing.
+The D11 parser accepts only the documented `project`, `gates`, `runner`,
+`budget`, and `targets` schema, rejects unknown nested fields, and withholds
+exact contents from candidates containing secret fields or credential-shaped
+values.
+`ConfirmProjectConfig` accepts only the cached preview id and hash, rechecks
+the destination base hash, and writes those exact bytes after a Build-mode
+permission approval. Credential commands carry only provider, backend, and
+one-use ingress identifiers. Those identifiers use a bounded ASCII opaque-id
+grammar and reject secret-like markers and path syntax. Secret bytes remain in the injected backend,
+while replay and audit contain only `CredentialHandle` metadata.
+
 Ordinary tool and lane approval responses observe supervisor command ordering
 with permission and mode changes, but use two deliberately different generation
 semantics. Ordinary tools consult submitted permission-control reservations, so
 a queued permission or work-mode command invalidates a blocked approval
-immediately, before the worker applies that command. A reservation commits only
-after its complete SessionMeta batch persists. A failed reservation is removed,
-so it does not invalidate an approval that predates it; its monotonic generation
-is never decremented or reused, which keeps later queued controls paired with
-their own generations. Lane requests instead capture the worker's applied
-generation atomically with the permission engine it describes; that generation
-advances only after the queued control command is successfully applied.
+immediately and permanently, before the worker applies that command. Its
+submitted generation is never decremented or reused, even when the control's
+SessionMeta batch later fails to persist. The stale ordinary request resolves as
+`Deny` and cannot be restored; the user must retrigger the tool to obtain a new
+request. A failed reservation is still removed from the projected applied-state
+queue so it cannot leak policy into later controls. Lane requests instead
+capture the worker's applied generation atomically with the permission engine it
+describes; that generation advances only after the queued control command is
+successfully applied, so a lane approval may survive a failed control.
 Permission and work-mode controls persist their complete session-metadata batch
 before publishing the new live snapshot or permission engine; a failed batch
 leaves the engine, snapshot, lane pair, and applied generation unchanged. Any

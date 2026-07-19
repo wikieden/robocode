@@ -25,6 +25,7 @@ use crate::{
     event_journal::RuntimeEventJournal,
     lane_runtime::{LaneEffectExecutor, LocalLaneEffectExecutor},
     lane_supervisor::{LanePersistence, LaneSupervisor, WorkflowLanePersistence},
+    project_runtime::SupervisorProjectMutationPreparation,
     runtime_contract::{
         ContextRetrievalJob, SupervisorContextRetrievalPreparation, execute_context_retrieval_job,
         redacted_runtime_command_for_event,
@@ -35,7 +36,7 @@ struct PendingApproval {
     owner: RuntimeOwner,
     audit_id: String,
     expires_at: u64,
-    // An approval cannot survive any permission/work-mode generation change.
+    // An ordinary approval cannot survive any permission-control reservation.
     permission_epoch: u64,
     allowed_scopes: Vec<ApprovalScope>,
     target: PendingApprovalTarget,
@@ -49,6 +50,10 @@ enum PendingApprovalTarget {
     ContextRetrieval {
         owner_id: String,
         job: Box<ContextRetrievalJob>,
+    },
+    ProjectMutation {
+        owner_id: String,
+        command: Box<RuntimeCommand>,
     },
 }
 
@@ -127,29 +132,25 @@ impl PermissionControlState {
         }
     }
 
-    fn projected(&self) -> (PermissionControlValues, u64) {
+    fn projected(&self) -> PermissionControlValues {
         let mut values = self.applied;
         for submitted in &self.submitted {
             values.apply(&submitted.command);
         }
-        let epoch = self
-            .submitted
-            .last()
-            .map(|submitted| submitted.epoch)
-            .unwrap_or(self.applied_epoch);
-        (values, epoch)
+        values
     }
 
     fn blocks_mutation(&self) -> bool {
-        self.projected().0.blocks_mutation()
+        self.projected().blocks_mutation()
     }
 
     fn epoch(&self) -> u64 {
-        self.projected().1
+        self.next_epoch
     }
 
-    // A generation is reserved at submission. Failure removes only that
-    // reservation: decrementing/reusing it can mispair a later queued control.
+    // Ordinary approvals fail closed at reservation time. A failed control is
+    // removed from the applied-state projection, but its generation is never
+    // rolled back or reused; lane approvals remain tied to applied_epoch.
     fn reserve(&mut self, command: &RuntimeCommand) -> u64 {
         self.next_epoch = self.next_epoch.saturating_add(1);
         let epoch = self.next_epoch;
@@ -324,6 +325,38 @@ fn before_supervisor_command_for_test(command_id: &str) {
 #[cfg(not(test))]
 fn before_supervisor_command_for_test(_command_id: &str) {}
 
+#[cfg(test)]
+type BeforePermissionControlHook = Arc<dyn Fn(&str, &SessionEngine) + Send + Sync>;
+
+#[cfg(test)]
+static BEFORE_PERMISSION_CONTROL_HOOK: OnceLock<Mutex<Option<BeforePermissionControlHook>>> =
+    OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn set_before_permission_control_hook(hook: Option<BeforePermissionControlHook>) {
+    if let Ok(mut slot) = BEFORE_PERMISSION_CONTROL_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+    {
+        *slot = hook;
+    }
+}
+
+#[cfg(test)]
+fn before_permission_control_for_test(command_id: &str, engine: &SessionEngine) {
+    let hook = BEFORE_PERMISSION_CONTROL_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone());
+    if let Some(hook) = hook {
+        hook(command_id, engine);
+    }
+}
+
+#[cfg(not(test))]
+fn before_permission_control_for_test(_command_id: &str, _engine: &SessionEngine) {}
+
 // Internal channel payload mirrors RuntimeCommand construction. Boxing command
 // variants would add indirection at every supervisor send site without changing
 // the protocol boundary.
@@ -341,6 +374,12 @@ enum SupervisorMessage {
         owner: RuntimeOwner,
         audit_id: String,
         job: Box<ContextRetrievalJob>,
+    },
+    ResumeProjectMutation {
+        owner_id: String,
+        owner: RuntimeOwner,
+        command: RuntimeCommand,
+        response: ApprovalResponse,
     },
     LaneApprovalResponse {
         owner: RuntimeOwner,
@@ -560,33 +599,32 @@ impl RuntimeSupervisor {
     }
 
     #[cfg(test)]
-    pub(crate) fn insert_pending_tool_approval_for_test(
+    pub(crate) fn lane_permission_template_snapshot_for_test(
         &self,
-        request_id: String,
-        owner: RuntimeOwner,
-    ) -> Receiver<ApprovalResponse> {
-        let (sender, receiver) = mpsc::channel();
-        let permission_epoch = self
+    ) -> Result<(viden_types::PermissionMode, u64), String> {
+        self.lane_supervisor.permission_template_snapshot_for_test()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn permission_control_state_for_test(
+        &self,
+    ) -> (u64, u64, u64, Vec<u64>, WorkMode, PermissionLevel) {
+        let control = self
             .permission_control
             .lock()
-            .expect("permission control state")
-            .epoch();
-        insert_pending_approval(
-            &self.pending_approvals,
-            request_id,
-            PendingApproval {
-                owner: owner.clone(),
-                audit_id: "test-tool-approval".to_string(),
-                expires_at: u64::MAX,
-                permission_epoch,
-                allowed_scopes: allowed_approval_scopes(&owner, &[]),
-                target: PendingApprovalTarget::Channel {
-                    owner_id: "test-tool-approval".to_string(),
-                    sender,
-                },
-            },
-        );
-        receiver
+            .expect("permission control state");
+        (
+            control.applied_epoch,
+            control.epoch(),
+            control.next_epoch,
+            control
+                .submitted
+                .iter()
+                .map(|submitted| submitted.epoch)
+                .collect(),
+            control.applied.work_mode,
+            control.applied.permission_level,
+        )
     }
 
     pub fn send_command(
@@ -773,8 +811,11 @@ impl RuntimeSupervisor {
                 let stale_permission_epoch = pending.permission_epoch != permission_control.epoch();
                 let response = if response.is_allowed()
                     && (stale_permission_epoch
-                        || (matches!(&pending.target, PendingApprovalTarget::Channel { .. })
-                            && permission_control.blocks_mutation()))
+                        || (matches!(
+                            &pending.target,
+                            PendingApprovalTarget::Channel { .. }
+                                | PendingApprovalTarget::ProjectMutation { .. }
+                        ) && permission_control.blocks_mutation()))
                 {
                     ApprovalResponse::deny(Some(
                         if stale_permission_epoch {
@@ -881,6 +922,47 @@ impl RuntimeSupervisor {
                             emit_error(
                                 &self.event_bus,
                                 pending_owner.clone(),
+                                "User denied the permission request".to_string(),
+                            );
+                            clear_active_control(&self.active_control, &owner_id);
+                        }
+                    }
+                    PendingApprovalTarget::ProjectMutation { owner_id, command } => {
+                        emit_event(
+                            &self.event_bus,
+                            pending_owner.clone(),
+                            approval_resolved_event(
+                                &request_id,
+                                response.decision.clone(),
+                                pending_owner.clone(),
+                                pending_audit_id,
+                            ),
+                        );
+                        if response.is_allowed() {
+                            if let Err(err) = mark_active_running(&self.active_control, &owner_id) {
+                                emit_error(&self.event_bus, pending_owner, err);
+                                return Ok(());
+                            }
+                            if let Err(err) =
+                                self.commands
+                                    .send(SupervisorMessage::ResumeProjectMutation {
+                                        owner_id: owner_id.clone(),
+                                        owner: pending_owner.clone(),
+                                        command: *command,
+                                        response,
+                                    })
+                            {
+                                clear_active_control(&self.active_control, &owner_id);
+                                emit_error(
+                                    &self.event_bus,
+                                    pending_owner,
+                                    format!("runtime supervisor stopped: {err}"),
+                                );
+                            }
+                        } else {
+                            emit_error(
+                                &self.event_bus,
+                                pending_owner,
                                 "User denied the permission request".to_string(),
                             );
                             clear_active_control(&self.active_control, &owner_id);
@@ -1165,7 +1247,27 @@ fn run_supervisor_worker(
                             approval_ttl_secs,
                         );
                     }
+                    command @ (RuntimeCommand::ConfirmProjectConfig { .. }
+                    | RuntimeCommand::StoreCredentialHandle { .. }) => {
+                        run_supervised_project_mutation(
+                            &mut engine,
+                            owner,
+                            command_id,
+                            command,
+                            SupervisorShared {
+                                event_bus: &event_bus,
+                                active_control: &active_control,
+                                pending_approvals: &pending_approvals,
+                                approval_timers: &approval_timers,
+                                permission_control: &permission_control,
+                            },
+                            approval_ttl_secs,
+                        );
+                    }
                     command => {
+                        if submitted_permission_epoch.is_some() {
+                            before_permission_control_for_test(&command_id, &engine);
+                        }
                         let mut approver = |_prompt: PermissionPrompt| {
                             ApprovalResponse::deny(Some(
                                 "runtime supervisor command path does not own this approval"
@@ -1267,6 +1369,22 @@ fn run_supervisor_worker(
                     &active_control,
                 );
             }
+            SupervisorMessage::ResumeProjectMutation {
+                owner_id,
+                owner,
+                command,
+                response,
+            } => {
+                resume_project_mutation_after_approval(
+                    &mut engine,
+                    owner_id,
+                    owner,
+                    command,
+                    response,
+                    &event_bus,
+                    &active_control,
+                );
+            }
             SupervisorMessage::Snapshot { response } => {
                 let envelope = match event_bus.state.lock() {
                     Ok(state) => {
@@ -1324,6 +1442,140 @@ fn runtime_frontend_capabilities() -> BTreeSet<CapabilityId> {
         .chain(FRONTEND_V1_EXTENSION_CAPABILITIES)
         .map(|capability| CapabilityId(capability.to_string()))
         .collect()
+}
+
+fn run_supervised_project_mutation(
+    engine: &mut SessionEngine,
+    owner: RuntimeOwner,
+    command_id: String,
+    command: RuntimeCommand,
+    shared: SupervisorShared<'_>,
+    approval_ttl_secs: u64,
+) {
+    if let Some(owner_id) = active_owner_id(shared.active_control, &owner) {
+        emit_event(
+            shared.event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: format!("active runtime job `{owner_id}` is already running"),
+            },
+        );
+        return;
+    }
+    match engine.prepare_project_mutation_for_supervisor(&command) {
+        Ok(SupervisorProjectMutationPreparation::Ready) => {
+            let mut approver = |_prompt: PermissionPrompt| {
+                ApprovalResponse::deny(Some("unexpected project mutation approval".to_string()))
+            };
+            match engine.handle_runtime_command(command_id, command, &mut approver) {
+                Ok(events) => emit_events(shared.event_bus, owner, events),
+                Err(error) => emit_error(shared.event_bus, owner, error),
+            }
+        }
+        Ok(SupervisorProjectMutationPreparation::Pending(prompt)) => {
+            let request_id = fresh_id("approval");
+            let approval =
+                approval_request_view(&request_id, &prompt, owner.clone(), approval_ttl_secs);
+            let control = ModelRequestControl::new();
+            if let Err(error) = acquire_active_job(
+                shared.active_control,
+                command_id.clone(),
+                owner.clone(),
+                control,
+                ActiveJobState::PendingApproval {
+                    request_id: request_id.clone(),
+                },
+            ) {
+                emit_event(
+                    shared.event_bus,
+                    owner,
+                    RuntimeEventKind::CommandRejected {
+                        command_id,
+                        reason: error,
+                    },
+                );
+                return;
+            }
+            emit_event(
+                shared.event_bus,
+                owner.clone(),
+                RuntimeEventKind::CommandAccepted {
+                    command_id: command_id.clone(),
+                    command: redacted_runtime_command_for_event(&command),
+                },
+            );
+            let permission_epoch = shared
+                .permission_control
+                .lock()
+                .map(|control| control.epoch())
+                .unwrap_or(u64::MAX);
+            insert_pending_approval(
+                shared.pending_approvals,
+                request_id.clone(),
+                PendingApproval {
+                    owner: owner.clone(),
+                    audit_id: approval.audit_id.clone(),
+                    expires_at: approval.expires_at,
+                    permission_epoch,
+                    allowed_scopes: approval.allowed_scopes.clone(),
+                    target: PendingApprovalTarget::ProjectMutation {
+                        owner_id: command_id,
+                        command: Box::new(command),
+                    },
+                },
+            );
+            emit_event(
+                shared.event_bus,
+                owner,
+                RuntimeEventKind::ApprovalRequested {
+                    approval: approval.clone(),
+                },
+            );
+            schedule_approval_expiry(
+                request_id,
+                approval.expires_at,
+                shared.event_bus,
+                shared.active_control,
+                shared.pending_approvals,
+                shared.approval_timers,
+            );
+        }
+        Err(reason) => emit_event(
+            shared.event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected { command_id, reason },
+        ),
+    }
+}
+
+fn resume_project_mutation_after_approval(
+    engine: &mut SessionEngine,
+    owner_id: String,
+    owner: RuntimeOwner,
+    command: RuntimeCommand,
+    response: ApprovalResponse,
+    event_bus: &RuntimeEventBus,
+    active_control: &ActiveControlRegistry,
+) {
+    let mut response = Some(response);
+    let mut approver = |_prompt: PermissionPrompt| {
+        response.take().unwrap_or_else(|| {
+            ApprovalResponse::deny(Some("approval response was already consumed".to_string()))
+        })
+    };
+    let result = engine.handle_runtime_command(owner_id.clone(), command, &mut approver);
+    clear_active_control(active_control, &owner_id);
+    match result {
+        Ok(events) => {
+            let events = events
+                .into_iter()
+                .filter(|event| !matches!(event.kind, RuntimeEventKind::CommandAccepted { .. }))
+                .collect::<Vec<_>>();
+            emit_events(event_bus, owner, events);
+        }
+        Err(error) => emit_error(event_bus, owner, error),
+    }
 }
 
 fn run_supervised_context_retrieval(
@@ -1694,6 +1946,7 @@ fn resolve_removed_pending_approval(
     let owner_id = match &pending.target {
         PendingApprovalTarget::Channel { owner_id, .. } => owner_id.clone(),
         PendingApprovalTarget::ContextRetrieval { owner_id, .. } => owner_id.clone(),
+        PendingApprovalTarget::ProjectMutation { owner_id, .. } => owner_id.clone(),
     };
     let owner = pending.owner.clone();
     emit_event(
@@ -1716,7 +1969,8 @@ fn resolve_removed_pending_approval(
                 feedback: error_message,
             });
         }
-        PendingApprovalTarget::ContextRetrieval { .. } => {
+        PendingApprovalTarget::ContextRetrieval { .. }
+        | PendingApprovalTarget::ProjectMutation { .. } => {
             if let Some(message) = error_message {
                 emit_error(event_bus, owner, message);
             }

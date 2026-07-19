@@ -21,13 +21,11 @@ use crate::{
         resolve_lane_output_log,
     },
     lane_supervisor::{LanePersistence, WorkflowLanePersistence},
-    lane_worker::set_before_lane_approval_resume_hook,
     runtime_supervisor::set_before_supervisor_command_hook,
 };
 
 use super::{SequenceProvider, temp_dir};
 
-static LANE_APPROVAL_RESUME_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static SUPERVISOR_COMMAND_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[test]
@@ -1053,7 +1051,7 @@ fn lane_supervisor_permission_downgrade_precedes_queued_approval_response() {
 
 #[test]
 fn lane_supervisor_approval_uses_permission_snapshot_before_later_build() {
-    let _guard = LANE_APPROVAL_RESUME_HOOK_TEST_LOCK
+    let _guard = SUPERVISOR_COMMAND_HOOK_TEST_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap();
@@ -1097,9 +1095,8 @@ fn lane_supervisor_approval_uses_permission_snapshot_before_later_build() {
     let (entered_sender, entered_receiver) = mpsc::channel();
     let (release_sender, release_receiver) = mpsc::channel();
     let release_receiver = Arc::new(Mutex::new(release_receiver));
-    let expected_request = request_id.clone();
-    set_before_lane_approval_resume_hook(Some(Arc::new(move |resumed_request| {
-        if resumed_request == expected_request {
+    set_before_supervisor_command_hook(Some(Arc::new(move |command_id| {
+        if command_id == "set_snapshot_read_only" {
             let _ = entered_sender.send(());
             let _ = release_receiver.lock().unwrap().recv();
         }
@@ -1126,7 +1123,7 @@ fn lane_supervisor_approval_uses_permission_snapshot_before_later_build() {
         .unwrap();
     entered_receiver
         .recv_timeout(Duration::from_secs(2))
-        .expect("lane worker reached approval resume barrier");
+        .expect("supervisor reached the read-only command barrier");
     supervisor
         .send_command_from_owner(
             lane_owner,
@@ -1141,7 +1138,7 @@ fn lane_supervisor_approval_uses_permission_snapshot_before_later_build() {
         events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalResolved { request_id: resolved, decision: viden_types::ApprovalDecision::Deny, .. }, .. }) if resolved == &request_id))
             && events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::SnapshotUpdated { snapshot }, .. }) if snapshot.permission_level == PermissionLevel::Ask))
     });
-    set_before_lane_approval_resume_hook(None);
+    set_before_supervisor_command_hook(None);
 
     assert!(resolved.iter().any(|envelope| matches!(
         &envelope.event,
@@ -1599,7 +1596,7 @@ fn failed_permission_controls_leave_lane_engine_and_epoch_unchanged() {
                 },
             )
             .unwrap();
-        collect_envelopes_until(&supervisor, |events| {
+        let completed = collect_envelopes_until(&supervisor, |events| {
             events.iter().any(|envelope| {
                 matches!(
                     &envelope.event,
@@ -1612,8 +1609,25 @@ fn failed_permission_controls_leave_lane_engine_and_epoch_unchanged() {
                         ..
                     }) if resolved == &request_id
                 )
+            }) && events.iter().any(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::CommandAccepted { command_id, .. },
+                        ..
+                    }) if command_id == &format!("allow_after_failed_{case}")
+                )
             })
         });
+        assert!(completed.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandAccepted { command_id, .. },
+                    ..
+                }) if command_id == &format!("allow_after_failed_{case}")
+            )
+        }));
         assert!(
             effects.calls.lock().unwrap().contains(&"apply".to_string()),
             "{case} AllowOnce must retain the lane approval epoch from before the failed control"

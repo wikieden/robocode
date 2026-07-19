@@ -19,15 +19,16 @@ pub use viden_types::{
     AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
     ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
     CommandAction, ContextBundleRecord, ContextOmittedSourceRecord, ContextSourceRecord,
-    CoreHandshake, CostLedgerTotals, CostUsageRecord, DataEgressPolicy, EventCursor, EvidenceView,
-    ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget, LaneStatus,
-    LocaleId, MergeGateRecord, MergeGateStatus, MutationPolicy, PermissionLevel, PermissionMode,
-    ProviderHealthView, QueuedInputView, ReplayBatch, ReplayRequest, ResolvedUiPreferences,
-    RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
-    RuntimeEventKind, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent,
-    SchemaVersion, TokenCostView, ToolCallView, TranscriptPage, TranscriptPageRequest,
-    TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity,
-    UiMotion, UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode,
+    CoreHandshake, CostLedgerTotals, CostUsageRecord, CredentialHandle, CredentialStatus,
+    DataEgressPolicy, EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery,
+    GateStrength, LaneBudget, LaneStatus, LocaleId, MergeGateRecord, MergeGateStatus,
+    MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState,
+    ProjectProbe, ProviderHealthView, QueuedInputView, ReplayBatch, ReplayRequest,
+    ResolvedUiPreferences, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent,
+    RuntimeEventEnvelope, RuntimeEventKind, RuntimeSnapshot, RuntimeSnapshotEnvelope,
+    RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView, ToolCallView, TranscriptPage,
+    TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
+    UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -64,5 +65,8 @@ mod tests {
         assert!(std::any::type_name::<ResolvedUiPreferences>().contains("ResolvedUiPreferences"));
         assert!(std::any::type_name::<UiSkin>().contains("UiSkin"));
         assert!(std::any::type_name::<WorkMode>().contains("WorkMode"));
+        assert!(std::any::type_name::<ProjectProbe>().contains("ProjectProbe"));
+        assert!(std::any::type_name::<ProjectConfigPreview>().contains("ProjectConfigPreview"));
+        assert!(std::any::type_name::<CredentialHandle>().contains("CredentialHandle"));
     }
 }

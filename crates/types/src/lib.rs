@@ -7,6 +7,7 @@ mod agent;
 mod approval;
 mod context;
 mod lsp;
+mod project;
 mod protocol;
 mod runtime;
 mod transcript;
@@ -21,6 +22,9 @@ pub use context::{
     ProviderCacheObservationRecord, TokenUsage,
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
+pub use project::{
+    CredentialHandle, CredentialStatus, ProjectConfigPreview, ProjectConfigState, ProjectProbe,
+};
 pub use protocol::{
     CapabilityId, CoreHandshake, EventCursor, EventCursorOrder, FRONTEND_SCHEMA_V1,
     FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, ReplayBatch,

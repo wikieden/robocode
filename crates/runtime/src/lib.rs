@@ -22,6 +22,7 @@ mod lane_supervisor;
 mod lane_worker;
 mod lsp_tools;
 mod presentation;
+mod project_runtime;
 mod provider_commands;
 mod runtime_contract;
 mod runtime_loop;
@@ -37,6 +38,7 @@ mod workflow_commands;
 pub(crate) use doctor::DependencyStatus;
 pub(crate) use doctor::{DoctorReport, system_dependency_status};
 use formatting::{format_relative_age, render_resume_context, render_task_detail};
+pub use project_runtime::CredentialBackend;
 pub use runtime_supervisor::RuntimeSupervisor;
 use viden_lsp::{LspRuntime, LspServerRegistry};
 use viden_permissions::PermissionEngine;
@@ -295,6 +297,10 @@ pub struct SessionEngine {
     runtime_agent_dags: Vec<AgentDagRecord>,
     runtime_merge_gates: Vec<MergeGateRecord>,
     runtime_evidence: Vec<EvidenceView>,
+    pending_project_previews: BTreeMap<String, project_runtime::PendingProjectConfig>,
+    confirmed_project_config: Option<viden_types::ProjectConfigPreview>,
+    credential_handles: Vec<viden_types::CredentialHandle>,
+    credential_backend: Arc<dyn CredentialBackend>,
     queued_runtime_inputs: Vec<runtime_contract::QueuedRuntimeInput>,
     runtime_event_sink: Option<RuntimeEventSink>,
     provider_telemetry: ProviderTelemetry,
@@ -418,6 +424,10 @@ impl SessionEngine {
             runtime_agent_dags: Vec::new(),
             runtime_merge_gates: Vec::new(),
             runtime_evidence: Vec::new(),
+            pending_project_previews: BTreeMap::new(),
+            confirmed_project_config: None,
+            credential_handles: Vec::new(),
+            credential_backend: Arc::new(project_runtime::UnavailableCredentialBackend),
             queued_runtime_inputs: Vec::new(),
             runtime_event_sink: None,
             provider_telemetry: ProviderTelemetry::default(),

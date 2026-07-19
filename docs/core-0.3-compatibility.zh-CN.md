@@ -52,7 +52,8 @@ fixture 会在兼容性验证中失败；malformed 或 ambiguous legacy input �
 上面的 Core 0.3.0 冻结 capability 集合与 fixture digest 保持不变。Core 0.3.1 候选
 通过 `FRONTEND_V1_EXTENSION_CAPABILITIES` 和
 `crates/core/frontend-contract-extensions.toml` 单独公布增量 capability
-`runtime.lane_lifecycle`。
+`runtime.lane_lifecycle`、`runtime.project_onboarding` 与
+`runtime.credential_handles`。
 
 基于 Core 0.3.0 编写的客户端仍然只要求冻结集合，并把不支持的 schema-1 事件保留为
 `RuntimeWireEvent::Unknown`。新客户端只有在协商到 `runtime.lane_lifecycle` 后，才启用
@@ -69,14 +70,26 @@ Core 负责 Lane 权限判定，并在每个 Lane 命令前从当前 runtime mod
 arguments、environment、input 和 diff payload。重启时，处于 starting、running 或等待审批
 状态的 Lane 会恢复为 blocked recovery fact，并继续绑定其持久化 session owner。
 
+项目接入对当前目录执行只读探测。`PreviewProjectConfig` 校验仓库根
+`viden.toml` policy，并返回可审阅的精确 UTF-8 内容及 SHA-256，不写文件；
+该 D11 parser 只接受已登记的 `project`、`gates`、`runner`、`budget`、`targets`
+schema，拒绝未知 nested field；候选包含 secret field 或 credential-shaped value 时，
+不会返回 exact contents。
+`ConfirmProjectConfig` 只接受已缓存的 preview id/hash，重新核对目标文件的 base hash，
+并在 Build 模式权限批准后写入同一组精确字节。Credential command 只携带 provider、
+backend 与一次性 ingress 标识；这些标识采用有长度上限的 ASCII opaque-id grammar，
+并拒绝 secret-like marker 与 path syntax。secret bytes 始终留在注入的 backend 中，replay/audit
+只记录 `CredentialHandle` 安全元数据。
+
 普通 tool 与 Lane 的审批响应都会按 supervisor 中 permission/mode 变更的命令顺序判定。
 但两者刻意采用不同的 generation 语义：普通 tool 读取已提交的 permission control
 reservation，因此 permission 或 work-mode 命令一经入队，即使 worker 尚未应用，也会立即
-使阻塞中的审批失效。reservation 只有在完整的 SessionMeta batch 持久化成功后才会提交。
-失败的 reservation 会被移除，因此不会让早于它的审批失效；其单调 generation 不会递减或
-复用，从而保证后续排队控制命令仍与自己的 generation 配对。Lane 请求则原子冻结 worker
-已应用的 generation 及其所描述的 permission engine；只有队列中的控制命令成功应用后，
-这一 generation 才会推进。permission 与 work-mode 控制命令会先原子持久化完整的
+且永久地使阻塞中的审批失效。即使控制命令的 SessionMeta batch 随后持久化失败，已提交的
+generation 也不会递减或复用；旧普通审批以 `Deny` 终结，不能恢复，用户必须重新触发 tool
+以取得新审批。失败的 reservation 仍会从应用状态投影队列移除，避免其 policy 泄漏到后续
+控制命令。Lane 请求则原子冻结 worker 已应用的 generation 及其所描述的 permission
+engine；只有队列中的控制命令成功应用后，这一 generation 才会推进，因此 Lane 审批可以
+在一次控制命令失败后继续有效。permission 与 work-mode 控制命令会先原子持久化完整的
 session metadata batch，再发布新的 live snapshot 与 permission engine；batch 失败时，
 engine、snapshot、Lane 配对和已应用 generation 都保持不变。审批等待期间只要已应用的
 permission 或 work mode 代际发生过变化，即使可见 flags 随后恢复原值，
