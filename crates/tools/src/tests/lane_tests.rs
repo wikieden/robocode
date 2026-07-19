@@ -316,6 +316,24 @@ fn lane_patch_new_file_rolls_back_after_persistence_failure() {
 }
 
 #[test]
+fn lane_patch_new_file_rollback_removes_created_parent_directories() {
+    let cwd = temp_dir("lane_patch_nested_create_rollback");
+    let patch = LocalPatchBackend;
+    let request = PatchRequest {
+        cwd: cwd.clone(),
+        unified_diff: "diff --git a/generated/nested/new.txt b/generated/nested/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/generated/nested/new.txt\n@@ -0,0 +1 @@\n+created\n"
+            .into(),
+    };
+
+    let err = patch
+        .apply_transactionally(&request, || Err("injected nested create failure".into()))
+        .unwrap_err();
+
+    assert!(err.to_string().contains("injected nested create failure"));
+    assert!(!cwd.join("generated").exists());
+}
+
+#[test]
 fn lane_patch_deleted_file_rolls_back_after_persistence_failure() {
     let cwd = temp_dir("lane_patch_delete_rollback");
     fs::write(cwd.join("old.txt"), "restore me\n").unwrap();
@@ -335,6 +353,50 @@ fn lane_patch_deleted_file_rolls_back_after_persistence_failure() {
         fs::read_to_string(cwd.join("old.txt")).unwrap(),
         "restore me\n"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn lane_patch_rejects_parent_symlink_escape() {
+    use std::os::unix::fs::symlink;
+
+    let cwd = temp_dir("lane_patch_parent_symlink_cwd");
+    let outside = temp_dir("lane_patch_parent_symlink_outside");
+    symlink(&outside, cwd.join("linked")).unwrap();
+    let patch = LocalPatchBackend;
+    let request = PatchRequest {
+        cwd,
+        unified_diff: "diff --git a/linked/escaped.txt b/linked/escaped.txt\nnew file mode 100644\n--- /dev/null\n+++ b/linked/escaped.txt\n@@ -0,0 +1 @@\n+escaped\n"
+            .into(),
+    };
+
+    let error = patch.apply(&request).unwrap_err();
+
+    assert!(matches!(error, LaneEffectError::UnsafePath { .. }));
+    assert!(!outside.join("escaped.txt").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn lane_patch_rejects_target_symlink_escape() {
+    use std::os::unix::fs::symlink;
+
+    let cwd = temp_dir("lane_patch_target_symlink_cwd");
+    let outside = temp_dir("lane_patch_target_symlink_outside");
+    let outside_file = outside.join("outside.txt");
+    fs::write(&outside_file, "outside\n").unwrap();
+    symlink(&outside_file, cwd.join("tracked.txt")).unwrap();
+    let patch = LocalPatchBackend;
+    let request = PatchRequest {
+        cwd,
+        unified_diff: "diff --git a/tracked.txt b/tracked.txt\n--- a/tracked.txt\n+++ b/tracked.txt\n@@ -1 +1 @@\n-outside\n+overwritten\n"
+            .into(),
+    };
+
+    let error = patch.apply(&request).unwrap_err();
+
+    assert!(matches!(error, LaneEffectError::UnsafePath { .. }));
+    assert_eq!(fs::read_to_string(outside_file).unwrap(), "outside\n");
 }
 
 #[test]

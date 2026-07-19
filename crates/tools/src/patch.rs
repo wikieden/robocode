@@ -46,6 +46,7 @@ impl PatchChange {
 
 #[derive(Debug, Clone)]
 pub struct PatchApplication {
+    root: PathBuf,
     changes: Vec<PatchChange>,
 }
 
@@ -59,6 +60,14 @@ impl PatchApplication {
 
 impl LocalPatchBackend {
     pub fn prepare(&self, request: &PatchRequest) -> Result<PatchApplication, LaneEffectError> {
+        let root = fs::canonicalize(&request.cwd)
+            .map_err(|error| LaneEffectError::Io(format!("{}: {error}", request.cwd.display())))?;
+        if !root.is_dir() {
+            return Err(LaneEffectError::Io(format!(
+                "{} is not a directory",
+                request.cwd.display()
+            )));
+        }
         let patch_files = parse_unified_diff(&request.unified_diff)?;
         if patch_files.is_empty() {
             return Err(patch_conflict(
@@ -71,10 +80,10 @@ impl LocalPatchBackend {
         // This keeps creates, writes, and deletes inside one rollback boundary.
         let mut changes = Vec::new();
         for patch_file in patch_files {
-            changes.push(prepare_patch_file(&request.cwd, &patch_file)?);
+            changes.push(prepare_patch_file(&root, &patch_file)?);
         }
 
-        Ok(PatchApplication { changes })
+        Ok(PatchApplication { root, changes })
     }
 
     pub fn write_application(
@@ -190,8 +199,8 @@ fn prepare_patch_file(cwd: &Path, patch_file: &PatchFile) -> Result<PatchChange,
         )),
         (true, false) => {
             let relative_path = validate_patch_path(&patch_file.new_path)?;
-            let full_path = cwd.join(&relative_path);
-            if full_path.exists() {
+            let full_path = resolve_patch_target(cwd, &relative_path)?;
+            if fs::symlink_metadata(&full_path).is_ok() {
                 return Err(patch_conflict(
                     relative_path,
                     "new-file patch target already exists",
@@ -206,7 +215,7 @@ fn prepare_patch_file(cwd: &Path, patch_file: &PatchFile) -> Result<PatchChange,
         }
         (false, true) => {
             let relative_path = validate_patch_path(&patch_file.old_path)?;
-            let full_path = cwd.join(&relative_path);
+            let full_path = resolve_patch_target(cwd, &relative_path)?;
             let current = read_patch_target(&full_path, &relative_path)?;
             let remaining = apply_patch_file(&current, patch_file)
                 .map_err(|message| patch_conflict(relative_path.clone(), message))?;
@@ -227,7 +236,7 @@ fn prepare_patch_file(cwd: &Path, patch_file: &PatchFile) -> Result<PatchChange,
                     "rename patches are not supported by this adapter",
                 ));
             }
-            let full_path = cwd.join(&new_path);
+            let full_path = resolve_patch_target(cwd, &new_path)?;
             let current = read_patch_target(&full_path, &new_path)?;
             let contents = apply_patch_file(&current, patch_file)
                 .map_err(|message| patch_conflict(new_path.clone(), message))?;
@@ -246,6 +255,7 @@ fn read_patch_target(path: &Path, relative_path: &Path) -> Result<String, LaneEf
 
 fn write_patch_application(application: &PatchApplication) -> Result<(), LaneEffectError> {
     for change in &application.changes {
+        ensure_patch_target_still_safe(&application.root, change.path())?;
         match change {
             PatchChange::Write { path, contents } => {
                 if let Some(parent) = path.parent() {
@@ -267,19 +277,24 @@ fn write_patch_application(application: &PatchApplication) -> Result<(), LaneEff
 
 #[derive(Debug)]
 struct FileRollback {
+    root: PathBuf,
     path: PathBuf,
     contents: Option<Vec<u8>>,
     permissions: Option<fs::Permissions>,
+    created_parent_dirs: Vec<PathBuf>,
 }
 
 fn stage_rollback(application: &PatchApplication) -> Result<Vec<FileRollback>, LaneEffectError> {
     let mut rollback = Vec::new();
     for path in application.write_paths() {
-        let metadata = fs::metadata(path).ok();
+        ensure_patch_target_still_safe(&application.root, path)?;
+        let metadata = fs::symlink_metadata(path).ok();
         rollback.push(FileRollback {
+            root: application.root.clone(),
             path: path.to_path_buf(),
             contents: fs::read(path).ok(),
             permissions: metadata.map(|metadata| metadata.permissions()),
+            created_parent_dirs: missing_parent_dirs(&application.root, path)?,
         });
     }
     Ok(rollback)
@@ -287,6 +302,7 @@ fn stage_rollback(application: &PatchApplication) -> Result<Vec<FileRollback>, L
 
 fn restore_rollback(files: &[FileRollback]) -> Result<(), LaneEffectError> {
     for file in files.iter().rev() {
+        ensure_patch_target_still_safe(&file.root, &file.path)?;
         match &file.contents {
             Some(contents) => {
                 if let Some(parent) = file.path.parent() {
@@ -312,7 +328,51 @@ fn restore_rollback(files: &[FileRollback]) -> Result<(), LaneEffectError> {
             }
         }
     }
+    for file in files.iter().rev() {
+        for directory in &file.created_parent_dirs {
+            ensure_patch_target_still_safe(&file.root, directory)?;
+            match fs::remove_dir(directory) {
+                Ok(()) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
+                    ) => {}
+                Err(error) => {
+                    return Err(LaneEffectError::Io(format!(
+                        "{}: {error}",
+                        directory.display()
+                    )));
+                }
+            }
+        }
+    }
     Ok(())
+}
+
+fn missing_parent_dirs(root: &Path, path: &Path) -> Result<Vec<PathBuf>, LaneEffectError> {
+    let mut missing = Vec::new();
+    let mut parent = path.parent();
+    while let Some(directory) = parent {
+        if directory == root {
+            break;
+        }
+        ensure_patch_target_still_safe(root, directory)?;
+        match fs::symlink_metadata(directory) {
+            Ok(_) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(directory.to_path_buf());
+                parent = directory.parent();
+            }
+            Err(error) => {
+                return Err(LaneEffectError::Io(format!(
+                    "{}: {error}",
+                    directory.display()
+                )));
+            }
+        }
+    }
+    Ok(missing)
 }
 
 fn parse_unified_diff(diff: &str) -> Result<Vec<PatchFile>, LaneEffectError> {
@@ -489,4 +549,51 @@ fn validate_patch_path(path: &str) -> Result<PathBuf, LaneEffectError> {
         });
     }
     Ok(candidate.to_path_buf())
+}
+
+fn resolve_patch_target(root: &Path, relative: &Path) -> Result<PathBuf, LaneEffectError> {
+    let mut target = root.to_path_buf();
+    for component in relative.components() {
+        match component {
+            Component::Normal(segment) => target.push(segment),
+            Component::CurDir => continue,
+            _ => {
+                return Err(LaneEffectError::UnsafePath {
+                    path: relative.display().to_string(),
+                });
+            }
+        }
+        match fs::symlink_metadata(&target) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(LaneEffectError::UnsafePath {
+                    path: relative.display().to_string(),
+                });
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(LaneEffectError::Io(format!(
+                    "{}: {error}",
+                    relative.display()
+                )));
+            }
+        }
+    }
+    Ok(target)
+}
+
+fn ensure_patch_target_still_safe(root: &Path, target: &Path) -> Result<(), LaneEffectError> {
+    let relative = target
+        .strip_prefix(root)
+        .map_err(|_| LaneEffectError::UnsafePath {
+            path: target.display().to_string(),
+        })?;
+    let resolved = resolve_patch_target(root, relative)?;
+    if resolved == target {
+        Ok(())
+    } else {
+        Err(LaneEffectError::UnsafePath {
+            path: relative.display().to_string(),
+        })
+    }
 }

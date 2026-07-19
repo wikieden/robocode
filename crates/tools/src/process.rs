@@ -41,6 +41,7 @@ pub struct LocalProcessBackend {
 
 impl ProcessBackend for LocalProcessBackend {
     fn spawn(&self, request: &SpawnProcess) -> Result<LaneProcessHandle, LaneEffectError> {
+        validate_environment(&request.env)?;
         let mut command = Command::new(&request.command);
         command
             .args(&request.args)
@@ -88,17 +89,16 @@ impl ProcessBackend for LocalProcessBackend {
             .ok_or_else(|| {
                 LaneEffectError::Io(format!("unknown process handle `{}`", handle.id))
             })?;
-        if child
+        let leader_exited = child
             .try_wait()
             .map_err(|err| LaneEffectError::Io(err.to_string()))?
-            .is_some()
-        {
-            return Ok(());
+            .is_some();
+        stop_process_group(&mut child, leader_exited)?;
+        if !leader_exited {
+            child
+                .wait()
+                .map_err(|err| LaneEffectError::Io(err.to_string()))?;
         }
-        stop_process_group(&mut child)?;
-        child
-            .wait()
-            .map_err(|err| LaneEffectError::Io(err.to_string()))?;
         Ok(())
     }
 }
@@ -138,19 +138,25 @@ fn configure_process_group(command: &mut Command) {
 fn configure_process_group(_command: &mut Command) {}
 
 #[cfg(unix)]
-fn stop_process_group(child: &mut Child) -> Result<(), LaneEffectError> {
+fn stop_process_group(child: &mut Child, leader_exited: bool) -> Result<(), LaneEffectError> {
     let process_group = format!("-{}", child.id());
     let term = Command::new("kill")
-        .args(["-TERM", &process_group])
+        .args(["-TERM", "--", &process_group])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .map_err(|err| LaneEffectError::Io(err.to_string()))?;
     if !term.success() {
+        if leader_exited {
+            return Ok(());
+        }
         child
             .kill()
             .map_err(|err| LaneEffectError::Io(err.to_string()))?;
+        return Ok(());
+    }
+    if leader_exited {
         return Ok(());
     }
     for _ in 0..10 {
@@ -164,7 +170,7 @@ fn stop_process_group(child: &mut Child) -> Result<(), LaneEffectError> {
         thread::sleep(Duration::from_millis(10));
     }
     let _ = Command::new("kill")
-        .args(["-KILL", &process_group])
+        .args(["-KILL", "--", &process_group])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -173,7 +179,10 @@ fn stop_process_group(child: &mut Child) -> Result<(), LaneEffectError> {
 }
 
 #[cfg(not(unix))]
-fn stop_process_group(child: &mut Child) -> Result<(), LaneEffectError> {
+fn stop_process_group(child: &mut Child, leader_exited: bool) -> Result<(), LaneEffectError> {
+    if leader_exited {
+        return Ok(());
+    }
     child
         .kill()
         .map_err(|err| LaneEffectError::Io(err.to_string()))
@@ -226,6 +235,7 @@ pub struct LocalTerminalBackend {
 
 impl TerminalBackend for LocalTerminalBackend {
     fn spawn(&self, request: &SpawnTerminal) -> Result<LaneTerminalHandle, LaneEffectError> {
+        validate_environment(&request.env)?;
         let session = match request.kind {
             TerminalKind::Tmux => self.spawn_tmux(request)?,
             TerminalKind::Pty => self.spawn_pty(request)?,
@@ -302,25 +312,41 @@ impl LocalTerminalBackend {
             "-c".to_string(),
             request.cwd.to_string_lossy().to_string(),
         ])?;
-        run_tmux([
-            "pipe-pane".to_string(),
-            "-o".to_string(),
-            "-t".to_string(),
-            session_name.to_string(),
-            format!(
-                "cat >> {}",
-                shell_quote(&request.output_log.to_string_lossy())
-            ),
-        ])?;
-        let command = shell_command_line(&request.command, &request.args);
-        run_tmux([
-            "send-keys".to_string(),
-            "-t".to_string(),
-            session_name.to_string(),
-            "--".to_string(),
-            command,
-            "Enter".to_string(),
-        ])?;
+        let configure = (|| {
+            run_tmux([
+                "pipe-pane".to_string(),
+                "-o".to_string(),
+                "-t".to_string(),
+                session_name.to_string(),
+                format!(
+                    "cat >> {}",
+                    shell_quote(&request.output_log.to_string_lossy())
+                ),
+            ])?;
+            let command =
+                shell_command_line_with_env(&request.env, &request.command, &request.args)?;
+            run_tmux([
+                "send-keys".to_string(),
+                "-t".to_string(),
+                session_name.to_string(),
+                "--".to_string(),
+                command,
+                "Enter".to_string(),
+            ])
+        })();
+        if let Err(error) = configure {
+            let cleanup = run_tmux([
+                "kill-session".to_string(),
+                "-t".to_string(),
+                session_name.to_string(),
+            ]);
+            return match cleanup {
+                Ok(()) => Err(error),
+                Err(cleanup_error) => Err(LaneEffectError::Io(format!(
+                    "{error}; tmux cleanup failed: {cleanup_error}"
+                ))),
+            };
+        }
         Ok(LocalTerminalSession {
             handle: LaneTerminalHandle {
                 id: format!("tmux-{session_name}"),
@@ -399,6 +425,8 @@ fn send_tmux_input(session_name: &str, input: &[u8]) -> Result<(), LaneEffectErr
 fn platform_pty_process(request: &SpawnTerminal) -> Result<SpawnProcess, LaneEffectError> {
     let mut args = vec![
         "-q".to_string(),
+        "-a".to_string(),
+        "-F".to_string(),
         request.output_log.to_string_lossy().to_string(),
     ];
     args.push(request.command.clone());
@@ -418,6 +446,7 @@ fn platform_pty_process(request: &SpawnTerminal) -> Result<SpawnProcess, LaneEff
         command: "script".to_string(),
         args: vec![
             "-q".to_string(),
+            "-a".to_string(),
             "-f".to_string(),
             "-c".to_string(),
             shell_command_line(&request.command, &request.args),
@@ -444,8 +473,171 @@ fn shell_command_line(command: &str, args: &[String]) -> String {
         .join(" ")
 }
 
+fn shell_command_line_with_env(
+    environment: &[(String, String)],
+    command: &str,
+    args: &[String],
+) -> Result<String, LaneEffectError> {
+    validate_environment(environment)?;
+    if environment.is_empty() {
+        return Ok(shell_command_line(command, args));
+    }
+    let assignments = environment
+        .iter()
+        .map(|(key, value)| shell_quote(&format!("{key}={value}")))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Ok(format!(
+        "env {assignments} {}",
+        shell_command_line(command, args)
+    ))
+}
+
+fn validate_environment(environment: &[(String, String)]) -> Result<(), LaneEffectError> {
+    for (key, value) in environment {
+        if key.is_empty() || key.contains(['=', '\0']) || value.contains('\0') {
+            return Err(LaneEffectError::Io(format!(
+                "invalid environment entry `{key}`"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(test)]
+mod process_tests {
+    use super::*;
+
+    #[test]
+    fn tmux_command_line_carries_validated_environment() {
+        let command = shell_command_line_with_env(
+            &[("VIDEN_LANE".into(), "lane a".into())],
+            "worker",
+            &["--arg".into(), "value with space".into()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            command,
+            "env 'VIDEN_LANE=lane a' 'worker' '--arg' 'value with space'"
+        );
+        assert!(shell_command_line_with_env(&[("BAD=KEY".into(), "x".into())], "w", &[]).is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pty_script_appends_and_flushes_on_macos() {
+        let request = terminal_fixture();
+        let process = platform_pty_process(&request).unwrap();
+
+        assert_eq!(&process.args[..3], ["-q", "-a", "-F"]);
+        assert_eq!(process.env, request.env);
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn pty_script_appends_and_flushes_on_linux() {
+        let request = terminal_fixture();
+        let process = platform_pty_process(&request).unwrap();
+
+        assert_eq!(&process.args[..3], ["-q", "-a", "-f"]);
+        assert_eq!(process.env, request.env);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_terminates_process_group_after_leader_exits() {
+        let cwd = std::env::temp_dir().join(format!(
+            "viden-process-group-stop-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&cwd).unwrap();
+        let background_pid_path = cwd.join("background.pid");
+        let backend = LocalProcessBackend::default();
+        let handle = backend
+            .spawn(&SpawnProcess {
+                command: "sh".into(),
+                args: vec![
+                    "-c".into(),
+                    format!(
+                        "sleep 30 & echo $! > {}",
+                        shell_quote(&background_pid_path.to_string_lossy())
+                    ),
+                ],
+                cwd: cwd.clone(),
+                env: Vec::new(),
+                output_log: None,
+            })
+            .unwrap();
+
+        let leader_exited = (0..100).any(|_| {
+            let exited = backend
+                .children
+                .lock()
+                .unwrap()
+                .get_mut(&handle.id)
+                .unwrap()
+                .try_wait()
+                .unwrap()
+                .is_some();
+            if !exited {
+                thread::sleep(Duration::from_millis(10));
+            }
+            exited
+        });
+        assert!(leader_exited, "shell leader did not exit in time");
+        let background_pid = fs::read_to_string(&background_pid_path).unwrap();
+        let background_pid = background_pid.trim();
+        assert!(
+            Command::new("kill")
+                .args(["-0", background_pid])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success(),
+            "background process should be alive before stop"
+        );
+
+        backend.stop(&handle).unwrap();
+
+        let stopped = (0..100).any(|_| {
+            let stopped = !Command::new("kill")
+                .args(["-0", background_pid])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success();
+            if !stopped {
+                thread::sleep(Duration::from_millis(10));
+            }
+            stopped
+        });
+        assert!(stopped, "background process survived process-group stop");
+        fs::remove_dir_all(cwd).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn terminal_fixture() -> SpawnTerminal {
+        SpawnTerminal {
+            kind: TerminalKind::Pty,
+            session_name: None,
+            command: "worker".into(),
+            args: vec!["--lane".into()],
+            cwd: std::env::temp_dir(),
+            env: vec![("VIDEN_LANE".into(), "lane-a".into())],
+            output_log: std::env::temp_dir().join("viden-process-test.log"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
