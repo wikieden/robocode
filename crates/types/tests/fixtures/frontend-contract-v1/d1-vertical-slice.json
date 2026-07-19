@@ -1,0 +1,579 @@
+{
+  "fixture_id": "d1-vertical-slice",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.agent_dag",
+    "runtime.approvals",
+    "runtime.context",
+    "runtime.cost",
+    "runtime.events",
+    "runtime.evidence",
+    "runtime.merge_gate",
+    "runtime.typed_lanes",
+    "runtime.typed_tasks",
+    "ui.preferences"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000001,
+        "kind": {
+          "type": "assistant_delta",
+          "payload": {
+            "message_id": "msg_d1",
+            "task_id": null,
+            "content": "D1 cockpit state"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000002,
+        "kind": {
+          "type": "tool_call_started",
+          "payload": {
+            "tool_call_id": "tool_d1",
+            "name": "cargo",
+            "input_preview": "cargo test -p viden-core"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000003,
+        "kind": {
+          "type": "tool_call_finished",
+          "payload": {
+            "tool_call_id": "tool_d1",
+            "name": "cargo",
+            "success": true,
+            "exit_code": 0,
+            "evidence": {
+              "id": "ev_d1_test",
+              "kind": "test_result",
+              "summary": "core tests passed",
+              "path": "artifacts/ev_d1_test.txt",
+              "source": "core",
+              "timestamp": 1700000070
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000004,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane_d1_core",
+              "task_id": "task_d1_core",
+              "role": "coder",
+              "route": "terminal",
+              "gate_strength": "containment",
+              "mutation_policy": "propose_only",
+              "worktree": ".worktrees/lane_d1_core",
+              "branch": "codex/lane_d1_core",
+              "target": "local",
+              "data_egress": {
+                "allow_listed": {
+                  "domains": [
+                    "docs.example.test"
+                  ]
+                }
+              },
+              "status": "running",
+              "budget": {
+                "token_limit": 16000,
+                "cost_limit_micro_usd": 500000,
+                "wall_time_limit_secs": 1800
+              },
+              "active_session_ids": [
+                "session_lane_d1_core"
+              ],
+              "summary": "lane_d1_core active",
+              "evidence": [
+                "evidence_lane_d1_core"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000005,
+        "kind": {
+          "type": "task_updated",
+          "payload": {
+            "task": {
+              "id": "task_d1_core",
+              "parent_id": null,
+              "agent": "coder",
+              "kind": "agent",
+              "transport": "terminal",
+              "title": "task_d1_core title",
+              "status": "running",
+              "activity": "Core contract freeze",
+              "summary": "task_d1_core summary",
+              "progress": 40,
+              "started_at": 1700000000,
+              "updated_at": 1700000040,
+              "workspace": ".worktrees/v3-core-runtime",
+              "evidence": [
+                "evidence_task_d1_core"
+              ],
+              "permissions": [
+                "ask"
+              ],
+              "decision": null,
+              "result": null,
+              "resume_handle": "resume_task_d1_core",
+              "pid": null,
+              "next_action": {
+                "label": "Run parity fixtures",
+                "command": "retry",
+                "reason": "blocked dependency recovered"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700000006,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_d1",
+              "tool_name": "shell",
+              "title": "Allow fixture write",
+              "message": "Core requests scoped permission",
+              "input_preview": "cargo test",
+              "is_mutating": true,
+              "reason": "contract fixture coverage",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_core",
+                "session_id": "session_contract",
+                "task_id": "task_contract",
+                "turn_id": "turn_contract"
+              },
+              "risk": "high",
+              "target": {
+                "kind": "repo_path",
+                "display": "crates/core",
+                "canonical_ref": "repo://crates/core"
+              },
+              "allowed_scopes": [
+                "once"
+              ],
+              "policy_reason_key": "approval.contract_fixture",
+              "policy_reason_args": {},
+              "expires_at": 1700003600,
+              "default_action": "deny",
+              "audit_id": "audit_approval_d1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700000007,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_d1",
+            "decision": {
+              "allow": {
+                "scope": "once"
+              }
+            },
+            "owner": {
+              "workspace_id": "",
+              "project_id": "",
+              "lane_id": null,
+              "session_id": null,
+              "task_id": null,
+              "turn_id": null
+            },
+            "audit_id": "audit_approval_d1"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700000008,
+        "kind": {
+          "type": "evidence_recorded",
+          "payload": {
+            "evidence": {
+              "id": "ev_d1_review",
+              "kind": "review",
+              "summary": "contract review passed",
+              "path": "artifacts/ev_d1_review.txt",
+              "source": "core",
+              "timestamp": 1700000070
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700000009,
+        "kind": {
+          "type": "merge_gate_updated",
+          "payload": {
+            "gate": {
+              "gate_id": "gate_d1",
+              "task_id": "task_d1_core",
+              "status": "collecting_evidence",
+              "required_evidence": [
+                "patch",
+                "test_result",
+                "review"
+              ],
+              "evidence_ids": [
+                "ev_d1_test",
+                "ev_d1_review"
+              ],
+              "decision": "core facts satisfied gate",
+              "updated_at": 1700000050
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700000010,
+        "kind": {
+          "type": "context_updated",
+          "payload": {
+            "context": {
+              "bundle_id": "ctx_bundle_pressure",
+              "task_id": "task_context",
+              "policy": "pressure-aware",
+              "sources": [
+                {
+                  "name": "contract-spec",
+                  "kind": "doc",
+                  "priority": 1,
+                  "estimated_tokens": 23000,
+                  "summary": "frontend contract spec",
+                  "include_reason": "required by contract freeze",
+                  "handle_id": "ctxh_contract_spec",
+                  "item_id": "ctxi_contract_spec",
+                  "view_id": "ctxv_contract_spec",
+                  "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "view_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "quality_id": "ctxq_contract_spec"
+                }
+              ],
+              "omitted_sources": [
+                {
+                  "name": "large-history",
+                  "kind": "transcript",
+                  "estimated_tokens": 9000,
+                  "reason": "hard_token_limit"
+                }
+              ],
+              "estimated_tokens": 92000,
+              "largest_sources": [
+                "contract-spec"
+              ],
+              "compaction_notes": [
+                "omitted large-history"
+              ],
+              "soft_token_budget": 80000,
+              "hard_token_limit": 100000
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 11
+      },
+      "event": {
+        "sequence": 11,
+        "timestamp": 1700000011,
+        "kind": {
+          "type": "cost_usage_recorded",
+          "payload": {
+            "cost": {
+              "usage_id": "usage_unknown_actual",
+              "provider_id": "deepseek",
+              "model": "deepseek-v4-flash",
+              "scopes": [
+                {
+                  "type": "agent_task",
+                  "id": "task_context"
+                }
+              ],
+              "tokens": {
+                "input_tokens": 100,
+                "output_tokens": 25,
+                "cached_input_tokens": 10,
+                "retrieval_tokens": 5,
+                "total_tokens": 125
+              },
+              "estimate": null,
+              "actual_cost": null,
+              "attempt_index": 1,
+              "outcome": "success",
+              "recorded_at": 1700000060
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 12
+      },
+      "event": {
+        "sequence": 12,
+        "timestamp": 1700000012,
+        "kind": {
+          "type": "error",
+          "payload": {
+            "error": {
+              "message": "recovered from missing optional GUI panel state",
+              "recoverable": true,
+              "hint": "retry after resolving contract request"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_d1-vertical-slice",
+        "task_id": null,
+        "turn_id": "turn_d1-vertical-slice"
+      },
+      "cursor": {
+        "stream_id": "fixture:d1-vertical-slice",
+        "sequence": 13
+      },
+      "event": {
+        "sequence": 13,
+        "timestamp": 1700000013,
+        "kind": {
+          "type": "token_cost_updated",
+          "payload": {
+            "cost": {
+              "input_tokens": 100,
+              "output_tokens": 25,
+              "total_tokens": 125,
+              "cost_micro_usd": null
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:d1-vertical-slice",
+    "sequence": 13
+  },
+  "expected_view_sha256": "7dd8faf04cca9f3013198e25823894eae91c2869e27087aa1eb0a34890cdf804"
+}

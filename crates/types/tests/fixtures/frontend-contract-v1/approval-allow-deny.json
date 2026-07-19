@@ -1,0 +1,253 @@
+{
+  "fixture_id": "approval-allow-deny",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.approvals",
+    "runtime.commands",
+    "runtime.events",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_approval-allow-deny",
+        "task_id": null,
+        "turn_id": "turn_approval-allow-deny"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-allow-deny",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000001,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_allow",
+              "tool_name": "shell",
+              "title": "Edit docs",
+              "message": "Core requests scoped permission",
+              "input_preview": "cargo test",
+              "is_mutating": true,
+              "reason": "contract fixture coverage",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_core",
+                "session_id": "session_contract",
+                "task_id": "task_contract",
+                "turn_id": "turn_contract"
+              },
+              "risk": "high",
+              "target": {
+                "kind": "repo_path",
+                "display": "crates/core",
+                "canonical_ref": "repo://crates/core"
+              },
+              "allowed_scopes": [
+                "once"
+              ],
+              "policy_reason_key": "approval.contract_fixture",
+              "policy_reason_args": {},
+              "expires_at": 1700003600,
+              "default_action": "deny",
+              "audit_id": "audit_approval_allow"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_approval-allow-deny",
+        "task_id": null,
+        "turn_id": "turn_approval-allow-deny"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-allow-deny",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000002,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_allow",
+            "decision": {
+              "allow": {
+                "scope": "once"
+              }
+            },
+            "owner": {
+              "workspace_id": "",
+              "project_id": "",
+              "lane_id": null,
+              "session_id": null,
+              "task_id": null,
+              "turn_id": null
+            },
+            "audit_id": "audit_approval_allow"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_approval-allow-deny",
+        "task_id": null,
+        "turn_id": "turn_approval-allow-deny"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-allow-deny",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000003,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_deny",
+              "tool_name": "shell",
+              "title": "Delete file",
+              "message": "Core requests scoped permission",
+              "input_preview": "cargo test",
+              "is_mutating": true,
+              "reason": "contract fixture coverage",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_core",
+                "session_id": "session_contract",
+                "task_id": "task_contract",
+                "turn_id": "turn_contract"
+              },
+              "risk": "high",
+              "target": {
+                "kind": "repo_path",
+                "display": "crates/core",
+                "canonical_ref": "repo://crates/core"
+              },
+              "allowed_scopes": [
+                "once"
+              ],
+              "policy_reason_key": "approval.contract_fixture",
+              "policy_reason_args": {},
+              "expires_at": 1700003600,
+              "default_action": "deny",
+              "audit_id": "audit_approval_deny"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_approval-allow-deny",
+        "task_id": null,
+        "turn_id": "turn_approval-allow-deny"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-allow-deny",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000004,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_deny",
+            "decision": "deny",
+            "owner": {
+              "workspace_id": "",
+              "project_id": "",
+              "lane_id": null,
+              "session_id": null,
+              "task_id": null,
+              "turn_id": null
+            },
+            "audit_id": "audit_approval_deny"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_approval-allow-deny",
+        "task_id": null,
+        "turn_id": "turn_approval-allow-deny"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-allow-deny",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000005,
+        "kind": {
+          "type": "error",
+          "payload": {
+            "error": {
+              "message": "approval denied before effect execution",
+              "recoverable": true,
+              "hint": "retry after resolving contract request"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:approval-allow-deny",
+    "sequence": 5
+  },
+  "expected_view_sha256": "7788f2f4b34ce54893ab8ed41beb6e37958ff5fda95642d045ef2d1dedbf7b39"
+}

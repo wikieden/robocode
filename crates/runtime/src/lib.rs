@@ -47,7 +47,7 @@ use viden_types::PermissionRule;
 use viden_types::{
     AgentDagRecord, AgentTaskRecord, ContextBundleRecord, CostScope, CostUsageRecord, EvidenceView,
     MemoryEntry, MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode,
-    RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode,
+    ResolvedUiPreferences, RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -361,6 +361,7 @@ impl SessionEngine {
             ),
             loaded_config_files: Vec::new(),
             startup_overrides: Vec::new(),
+            ui_preferences: ResolvedUiPreferences::default(),
         };
         Self::new_with_home_and_snapshot(cwd, provider, home_override, default_snapshot)
     }

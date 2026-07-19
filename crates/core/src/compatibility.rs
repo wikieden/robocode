@@ -1,14 +1,10 @@
 use std::collections::BTreeSet;
 
-use viden_types::{CapabilityId, CoreHandshake, FRONTEND_SCHEMA_V1, SchemaVersion};
+use viden_types::{
+    CapabilityId, CoreHandshake, FRONTEND_SCHEMA_V1, FRONTEND_V1_CAPABILITIES, SchemaVersion,
+};
 
-pub const CORE_CLIENT_CAPABILITIES: &[&str] = &[
-    "runtime.commands",
-    "runtime.events",
-    "runtime.snapshot",
-    "runtime.replay",
-    "runtime.transcript_page",
-];
+pub const CORE_CLIENT_CAPABILITIES: &[&str] = FRONTEND_V1_CAPABILITIES;
 
 pub const CORE_CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 

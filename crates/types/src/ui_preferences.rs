@@ -155,6 +155,15 @@ pub struct ResolvedUiPreferences {
     pub diagnostics: Vec<UiPreferenceDiagnostic>,
 }
 
+impl Default for ResolvedUiPreferences {
+    fn default() -> Self {
+        // A snapshot must be deterministic even when it predates UI preferences.
+        // Resolve the client defaults without host input to produce the built-in
+        // English Aurora dark profile while preserving system motion behavior.
+        resolve_ui_preferences(None, None, None, UiPreferences::client_default())
+    }
+}
+
 pub fn resolve_ui_preferences(
     cli: Option<UiPreferences>,
     user: Option<UiPreferences>,

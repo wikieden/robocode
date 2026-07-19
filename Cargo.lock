@@ -463,8 +463,11 @@ dependencies = [
 
 [[package]]
 name = "viden-core"
-version = "0.1.30"
+version = "0.3.0"
 dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
  "viden-provider",
  "viden-runtime",
  "viden-types",

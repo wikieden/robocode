@@ -6,10 +6,52 @@ English version: [frontend-integration-contract.md](frontend-integration-contrac
 clients。这是契约文档，不是 UI 布局规范。TUI 和 GUI 实现必须消费这些事实，不能自己
 拥有 provider loop、tool execution、permission decisions 或 workflow state。
 
+## 冻结契约标识
+
+Core `0.3.0` 将 `frontend-contract-v1` 冻结为前端 schema `1`。完整的兼容清单、
+migration gate、fixture corpus 和 post-commit 证据字段记录在
+[Core 0.3 兼容性](core-0.3-compatibility.zh-CN.md)。
+
+| 字段 | 冻结值 |
+| --- | --- |
+| Component | `viden-core` |
+| Component version | `0.3.0` |
+| Active schema | `1` |
+| Supported schemas | `[1]` |
+| Client boundary | `CoreClient` 和 `viden-core` 重导出的 protocol/view contracts |
+| Contract payload | `contract_payload_sha: pending-post-commit` |
+
+Core handshake 公布以下精确且按字典序排列的 capability 集合：
+
+```text
+runtime.agent_dag
+runtime.approvals
+runtime.commands
+runtime.context
+runtime.cost
+runtime.events
+runtime.evidence
+runtime.merge_gate
+runtime.queued_input
+runtime.replay
+runtime.snapshot
+runtime.transcript_page
+runtime.typed_lanes
+runtime.typed_tasks
+ui.preferences
+```
+
+在后续 evidence commit 用真实 payload commit SHA 替换
+`pending-post-commit` 前，该 payload 还不是不可变的分支基线。不得在 payload commit
+内猜测 SHA，也不能写入自引用 SHA。
+
 ## 对接原则
 
 - 核心模块通过 `RuntimeSnapshot`、有序 `RuntimeEvent` 和 `RuntimeViewState`
   发布事实。
+- 前端代码只从 `viden-core` 导入 transport-neutral `CoreClient` 边界和公共
+  protocol/view contracts。不能导入 runtime、provider、tool、permission、session
+  或 workflow 内部模块。
 - 前端通过 `RuntimeCommand` 发送意图；不能直接调用 tools、providers 或
   permission engines。
 - `RuntimeViewState::apply_event` 是 client-visible state 的标准 reducer。TUI、
@@ -18,11 +60,14 @@ clients。这是契约文档，不是 UI 布局规范。TUI 和 GUI 实现必须
   保存在 `viden-session`。前端只渲染，不能直接修改。
 - UI-only state 只包括布局、选择、焦点、过滤、排序、本地面板展开和 scrollback
   位置。
+- `viden_core::legacy` 只是 pre-v3 TUI 的临时兼容 bootstrap，且已 deprecated。
+  新的 TUI、GUI、CLI 和 API client 禁止使用它。
 
 ## 核心模块映射
 
 | 核心模块 | 前端区域 | 主要事实 | Commands / actions | 状态 |
 | --- | --- | --- | --- | --- |
+| Compatibility and transport | client bootstrap、reconnect、compatibility error | `CoreHandshake`、schema version、capability set、`EventCursor`、snapshot/replay envelopes | `CoreClient::discover`、`snapshot`、`replay`、`recv`、`transcript_page` | Core `0.3.0` 已冻结 |
 | Runtime supervisor | activity rail、live work indicator、cancel 操作 | `RuntimeEvent`、`RuntimeViewState`、`RuntimeErrorView` | `SubmitUserInput`、`QueueFollowUp`、`CancelActiveTurn` | 已落地 |
 | Mode and permissions | top bar、approval panel、permission picker | `RuntimeSnapshot.work_mode`、`RuntimeSnapshot.permission_level`、`ApprovalRequestView` | `SetWorkMode`、`SetPermissionLevel`、`RespondToApproval` | 已落地 |
 | Provider/model setup | provider panel、model picker、health strip | `RuntimeSnapshot.provider_id`、`ProviderHealthView`、active model config | `ConfigureProvider`、`SelectModel`、`ActivateModel`、`DeactivateModel` | 已落地 |
@@ -34,6 +79,7 @@ clients。这是契约文档，不是 UI 布局规范。TUI 和 GUI 实现必须
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、task/evidence events | 后续 lane commands | 部分落地 |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
+| UI preferences | locale、skin/mode、density、motion | `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`、preference diagnostics | 通过 Core-owned config path 配置 | schema `1` 已冻结 |
 
 ## Event 消费规则
 
@@ -59,6 +105,14 @@ flowchart LR
 - `InputQueued` 和 `InputDequeued` 维护 follow-up input state。
 - `ProviderHealthUpdated`、`TokenCostUpdated` 和 `Error` 更新侧栏或状态区，不能阻塞
   composer input。
+- 每个 command、snapshot 和 event envelope 都使用 schema `1`。已知 event 的
+  sequence 必须等于 cursor sequence。
+- client 必须先调用 `discover`，才能发送 command 或消费状态。缺少 required
+  capability 或使用不支持的 schema 都属于 compatibility error。
+- duplicate/older cursor 不修改已确认状态；连续 next event 正常归约；gap 触发
+  replay；stream mismatch 或 replay 要求 snapshot 时，只能在验证通过后替换状态。
+- 未知 optional event payload 可以保留供检查，但不能生成本地业务状态。未知 mandatory
+  fixture capability 和 malformed legacy input 必须拒绝。
 
 ## Command 归属
 
@@ -174,6 +228,39 @@ Approval 使用 `ApprovalRequestView` 和 `RespondToApproval`。
 前端不能在用户 approval 后直接调用底层 tool。只能发送 `RespondToApproval`；runtime
 负责继续或拒绝执行。
 
+## UI 偏好与设计入口契约
+
+Schema `1` 暴露两端都需要的配置值，但不规定布局：
+
+- 前端消费的 effective fact 是
+  `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`；前端只渲染该值，不能在
+  本地重新解析偏好优先级；
+
+- 内置 effective locale：`en`、`zh-CN`；`system` 是解析输入，不是第三套内置翻译；
+- skin：`aurora`、`ice`、`mono`、`amber`、`phosphor`；
+- 八组有效 effective skin/mode：`aurora/dark`、`aurora/light`、`ice/dark`、
+  `ice/light`、`mono/dark`、`mono/light`、`amber/dark`、`phosphor/dark`；
+- density：`compact`、`regular`、`comfy`；
+- motion policy：`system`、`reduced`、`full`。
+
+`amber` 与 `phosphor` 仅支持 dark。无效 effective pair 回退到安全的
+`aurora/dark` + regular density，并发出 `ui.invalid_skin_mode_pair` diagnostic。
+偏好优先级是 CLI、user、project、client default。
+
+设计入口层级是规范，不得被旧截图或生成式截图替代：
+
+1. 全局设计索引：`docs/viden-design/Viden/index.html`；
+2. client 索引：`TUI/Viden - 设计稿索引 (TUI).html` 或
+   `GUI/Viden - 设计稿索引 (GUI).html`；
+3. 组件库：`TUI/Viden - 组件库 (TUI).html` 或
+   `GUI/Viden - 组件库 (GUI).html`；
+4. canonical 产品入口：`TUI/Viden - 统一原型 (TUI).html` 或
+   `GUI/Viden - 桌面驾驶舱 (GUI).html`（D1）。
+
+GUI `pages/Viden - D11 首启与项目接入 (GUI).html` 是下级的首次接入流程，不是 GUI
+驾驶舱，也不能替代 D1 作为桌面视觉目标。本列表中所有相对路径均从
+`docs/viden-design/Viden/` 起算。
+
 ## TUI 要求
 
 - 只从 `RuntimeViewState` 和本地 terminal layout state 渲染。
@@ -190,17 +277,29 @@ Approval 使用 `ApprovalRequestView` 和 `RespondToApproval`。
 - 每个展示 runtime facts 的 GUI screen 必须声明自己读取哪些字段。
 - GUI 关闭或崩溃不能修改 session、workflow、provider 或 permission state。
 
-## Parity Fixtures
+## 冻结 Parity Corpus
 
-开始 TUI/GUI 并行实现前，应增加共享 fixtures，让两端 replay 同一条 event stream：
+Core `0.3.0` 在 `crates/types/tests/fixtures/frontend-contract-v1/` 下冻结恰好九个
+schema-1 fixture：
 
-- provider turn with streaming text and tool call；
-- approval request and approval denial；
-- queued follow-up while a turn is active；
-- Agent DAG with dependency blocker and retry next action；
-- Evidence/MergeGate accept、reject、conflict、merge；
-- provider failure with recovery hint；
-- context pressure with omitted sources；
-- scoped Git denial and release-gate denial。
+1. `stream-tool.json`
+2. `approval-allow-deny.json`
+3. `queued-follow-up.json`
+4. `dag-blocker.json`
+5. `multi-lane.json`
+6. `merge-gate.json`
+7. `context-pressure-cost-blind.json`
+8. `plan-denial.json`
+9. `d1-vertical-slice.json`
 
-这些 fixtures 是 `0.3.x` TUI/GUI parity 的验收契约。
+每个 fixture 包含 id、schema version、排序后的 required capabilities、initial snapshot、
+连续的 event envelopes、expected final cursor 和 final view digest。只有 v0 migration
+gate 通过后才能开始 replay。每个 fixture 从同一 initial snapshot replay 两次，必须得到
+相同的 `RuntimeViewState`、cursor、canonical bytes 和 SHA-256 digest。
+
+Canonical digest 输入是 final `RuntimeViewState` 递归排序 object key 后的 compact JSON；
+array 顺序保留语义。[Core 0.3 兼容性](core-0.3-compatibility.zh-CN.md) 中的 digest
+表与经过测试的 fixture 值保持同步。
+
+TUI 和 GUI 分支必须从同一个已解析的 contract payload commit 创建，并在不拥有 effect、
+不推断成功状态的前提下 replay 这套 corpus。

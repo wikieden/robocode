@@ -41,6 +41,7 @@ fn run() -> Result<(), String> {
         request_timeout_secs: startup.request_timeout_secs,
         max_retries: startup.max_retries,
         config_path: startup.config_path.clone(),
+        ui: None,
     };
     let resolved_config = load_config(&cwd, &cli_config)?;
     let preview_provider = resolved_config.provider.as_str();
@@ -325,6 +326,7 @@ fn run() -> Result<(), String> {
         config_summary: resolved_config.summary(),
         loaded_config_files: resolved_config.loaded_files.clone(),
         startup_overrides: startup.summary_overrides(),
+        ui_preferences: resolved_config.ui.clone(),
     };
     let mut engine = SessionEngine::new_with_home_and_snapshot(
         &cwd,

@@ -1,6 +1,65 @@
 use super::*;
 use std::collections::BTreeSet;
 
+fn runtime_snapshot_json() -> serde_json::Value {
+    serde_json::json!({
+        "cwd": "/tmp/viden",
+        "provider_family": "deepseek",
+        "model_label": "deepseek-v4-flash",
+        "work_mode": "build",
+        "permission_mode": "default",
+        "permission_level": "ask",
+        "config_summary": "provider=deepseek model=deepseek-v4-flash",
+        "loaded_config_files": [],
+        "startup_overrides": []
+    })
+}
+
+#[test]
+fn runtime_snapshot_without_ui_preferences_uses_safe_resolved_default() {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+
+    assert_eq!(
+        snapshot.ui_preferences,
+        ResolvedUiPreferences {
+            locale: LocaleId::En,
+            skin: UiSkin::Aurora,
+            mode: UiColorMode::Dark,
+            density: UiDensity::Regular,
+            motion: UiMotion::System,
+            diagnostics: Vec::new(),
+        }
+    );
+}
+
+#[test]
+fn runtime_snapshot_serializes_exact_resolved_ui_preferences() {
+    let mut encoded = runtime_snapshot_json();
+    encoded["ui_preferences"] = serde_json::json!({
+        "locale": "zh-CN",
+        "skin": "aurora",
+        "mode": "dark",
+        "density": "regular",
+        "motion": "reduced",
+        "diagnostics": []
+    });
+
+    let snapshot: RuntimeSnapshot = serde_json::from_value(encoded).unwrap();
+    let serialized = serde_json::to_value(snapshot).unwrap();
+
+    assert_eq!(
+        serialized["ui_preferences"],
+        serde_json::json!({
+            "locale": "zh-CN",
+            "skin": "aurora",
+            "mode": "dark",
+            "density": "regular",
+            "motion": "reduced",
+            "diagnostics": []
+        })
+    );
+}
+
 #[test]
 fn ui_preferences_serde_names_are_stable() {
     let cases = [
@@ -562,10 +621,15 @@ fn typed_lane_fixture_replays_as_the_frozen_v1_record() {
         "../tests/fixtures/frontend-contract-v1/typed-lanes.json"
     ))
     .unwrap();
-    assert_eq!(lanes.len(), 1);
-    assert_eq!(lanes[0].role, AgentRole::Researcher);
-    assert_eq!(lanes[0].route, AgentRoute::Acp);
-    assert_eq!(lanes[0].status, LaneStatus::WaitingApproval);
+    assert_eq!(lanes.len(), 4);
+    assert_eq!(lanes[0].id, "L-start");
+    assert_eq!(lanes[0].role, AgentRole::Coder);
+    assert_eq!(lanes[0].route, AgentRoute::Terminal);
+    assert_eq!(lanes[0].status, LaneStatus::Starting);
+    assert_eq!(lanes[1].status, LaneStatus::Blocked);
+    assert_eq!(lanes[2].route, AgentRoute::Tmux);
+    assert_eq!(lanes[2].status, LaneStatus::Detached);
+    assert_eq!(lanes[3].status, LaneStatus::Detached);
 }
 
 #[test]
@@ -1112,6 +1176,7 @@ fn runtime_snapshot_for_contract() -> RuntimeSnapshot {
         config_summary: "provider=deepseek model=deepseek-v4-flash".to_string(),
         loaded_config_files: vec![PathBuf::from("/tmp/viden/config.toml")],
         startup_overrides: vec!["--provider=deepseek".to_string()],
+        ui_preferences: ResolvedUiPreferences::default(),
     }
 }
 

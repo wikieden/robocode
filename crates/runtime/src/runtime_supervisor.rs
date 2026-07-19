@@ -12,11 +12,11 @@ use std::time::Duration;
 use viden_provider::ModelRequestControl;
 use viden_types::{
     ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk,
-    ApprovalScope, ApprovalTarget, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1, GapRecovery,
-    PermissionPrompt, ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
-    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, TranscriptPage,
-    TranscriptPageRequest, fresh_id, now_timestamp,
+    ApprovalScope, ApprovalTarget, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1,
+    FRONTEND_V1_CAPABILITIES, GapRecovery, PermissionPrompt, ReplayBatch, ReplayRequest,
+    RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
+    RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent,
+    TranscriptPage, TranscriptPageRequest, fresh_id, now_timestamp,
 };
 
 use crate::{
@@ -723,16 +723,10 @@ fn install_runtime_event_sink(
 }
 
 fn runtime_frontend_capabilities() -> BTreeSet<CapabilityId> {
-    [
-        "runtime.commands",
-        "runtime.events",
-        "runtime.snapshot",
-        "runtime.replay",
-        "runtime.transcript_page",
-    ]
-    .into_iter()
-    .map(|capability| CapabilityId(capability.to_string()))
-    .collect()
+    FRONTEND_V1_CAPABILITIES
+        .iter()
+        .map(|capability| CapabilityId(capability.to_string()))
+        .collect()
 }
 
 fn run_supervised_context_retrieval(

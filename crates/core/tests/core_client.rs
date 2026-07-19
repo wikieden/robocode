@@ -11,10 +11,10 @@ use viden_provider::ModelProvider;
 use viden_runtime::{RuntimeSupervisor, SessionEngine};
 use viden_types::{
     CapabilityId, CoreHandshake, EventCursor, FRONTEND_SCHEMA_V1, ModelEvent, ModelRequest,
-    PermissionLevel, PermissionMode, ReplayBatch, ReplayRequest, RuntimeCommand,
-    RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
-    RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, SchemaVersion,
-    TranscriptPage, TranscriptPageRequest, WorkMode,
+    PermissionLevel, PermissionMode, ReplayBatch, ReplayRequest, ResolvedUiPreferences,
+    RuntimeCommand, RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+    RuntimeOwner, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent,
+    SchemaVersion, TranscriptPage, TranscriptPageRequest, WorkMode,
 };
 
 #[derive(Clone)]
@@ -138,6 +138,7 @@ fn runtime_snapshot() -> RuntimeSnapshot {
         config_summary: "test".to_string(),
         loaded_config_files: Vec::new(),
         startup_overrides: Vec::new(),
+        ui_preferences: ResolvedUiPreferences::default(),
     }
 }
 

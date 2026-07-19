@@ -7,10 +7,52 @@ GUI, CLI automation, and future clients. It is a contract document, not a UI
 layout spec. TUI and GUI implementations must consume these facts instead of
 owning provider loops, tool execution, permission decisions, or workflow state.
 
+## Frozen Contract Identity
+
+Core `0.3.0` freezes `frontend-contract-v1` as frontend schema `1`. The complete
+compatibility manifest, migration gate, fixture corpus, and post-commit evidence
+field are recorded in [Core 0.3 Compatibility](core-0.3-compatibility.md).
+
+| Field | Frozen value |
+| --- | --- |
+| Component | `viden-core` |
+| Component version | `0.3.0` |
+| Active schema | `1` |
+| Supported schemas | `[1]` |
+| Client boundary | `CoreClient` and protocol/view contracts re-exported by `viden-core` |
+| Contract payload | `contract_payload_sha: pending-post-commit` |
+
+The Core handshake advertises this exact lexically sorted capability set:
+
+```text
+runtime.agent_dag
+runtime.approvals
+runtime.commands
+runtime.context
+runtime.cost
+runtime.events
+runtime.evidence
+runtime.merge_gate
+runtime.queued_input
+runtime.replay
+runtime.snapshot
+runtime.transcript_page
+runtime.typed_lanes
+runtime.typed_tasks
+ui.preferences
+```
+
+The payload is not an immutable branch base until a follow-up evidence commit
+replaces `pending-post-commit` with the real payload commit SHA. No SHA may be
+guessed or made self-referential inside the payload commit.
+
 ## Integration Principles
 
 - Core modules publish facts through `RuntimeSnapshot`, ordered
   `RuntimeEvent` values, and `RuntimeViewState`.
+- Frontend code imports the transport-neutral `CoreClient` boundary and public
+  protocol/view contracts from `viden-core`. It must not import runtime,
+  provider, tool, permission, session, or workflow internals.
 - Frontends send intent through `RuntimeCommand`; they do not call tools,
   providers, or permission engines directly.
 - `RuntimeViewState::apply_event` is the canonical reducer for client-visible
@@ -20,11 +62,14 @@ owning provider loops, tool execution, permission decisions, or workflow state.
   directly.
 - UI-only state is limited to layout, selection, focus, filters, sort order,
   local panel expansion, and scrollback position.
+- `viden_core::legacy` is a deprecated, temporary bootstrap bridge for the
+  pre-v3 TUI. New TUI, GUI, CLI, and API clients must not use it.
 
 ## Core Module Map
 
 | Core module | Frontend surface | Primary facts | Commands / actions | Status |
 | --- | --- | --- | --- | --- |
+| Compatibility and transport | client bootstrap, reconnect, compatibility error | `CoreHandshake`, schema version, capability set, `EventCursor`, snapshot/replay envelopes | `CoreClient::discover`, `snapshot`, `replay`, `recv`, `transcript_page` | frozen in Core `0.3.0` |
 | Runtime supervisor | activity rail, live work indicator, cancellation affordance | `RuntimeEvent`, `RuntimeViewState`, `RuntimeErrorView` | `SubmitUserInput`, `QueueFollowUp`, `CancelActiveTurn` | landed |
 | Mode and permissions | top bar, approval panel, permission picker | `RuntimeSnapshot.work_mode`, `RuntimeSnapshot.permission_level`, `ApprovalRequestView` | `SetWorkMode`, `SetPermissionLevel`, `RespondToApproval` | landed |
 | Provider/model setup | provider panel, model picker, health strip | `RuntimeSnapshot.provider_id`, `ProviderHealthView`, active model config | `ConfigureProvider`, `SelectModel`, `ActivateModel`, `DeactivateModel` | landed |
@@ -36,6 +81,7 @@ owning provider loops, tool execution, permission decisions, or workflow state.
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, task/evidence events | future lane commands | partial |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
+| UI preferences | locale, skin/mode, density, motion | `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`, preference diagnostics | configuration through Core-owned config path | frozen in schema `1` |
 
 ## Event Consumption Rules
 
@@ -61,6 +107,16 @@ flowchart LR
 - `InputQueued` and `InputDequeued` maintain follow-up input state.
 - `ProviderHealthUpdated`, `TokenCostUpdated`, and `Error` update side panels
   without blocking composer input.
+- Every command, snapshot, and event envelope uses schema `1`. A known event's
+  sequence must equal its cursor sequence.
+- Clients call `discover` before sending commands or consuming state. Missing
+  required capabilities and unsupported schemas are compatibility errors.
+- Duplicate or older cursors do not change confirmed state. A contiguous next
+  event is reduced normally; a gap triggers replay; a stream mismatch or replay
+  boundary that requires a snapshot replaces state only after validation.
+- Unknown optional event payloads remain inspectable but do not create local
+  business state. Unknown mandatory fixture capabilities and malformed legacy
+  input are rejected.
 
 ## Command Ownership
 
@@ -186,6 +242,45 @@ Frontends must show:
 Frontends must not call the underlying tool after approval. They send
 `RespondToApproval`; the runtime resumes or denies execution.
 
+## UI Preference And Design Entry Contract
+
+Schema `1` exposes configuration values needed by both frontends without
+prescribing their layout:
+
+- the effective frontend fact is
+  `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`; frontends render it
+  and do not re-resolve preference precedence locally;
+
+- built-in effective locales: `en` and `zh-CN`; `system` is a resolver input,
+  not a third built-in translation catalog;
+- skins: `aurora`, `ice`, `mono`, `amber`, and `phosphor`;
+- eight valid effective skin/mode pairs: `aurora/dark`, `aurora/light`,
+  `ice/dark`, `ice/light`, `mono/dark`, `mono/light`, `amber/dark`, and
+  `phosphor/dark`;
+- densities: `compact`, `regular`, and `comfy`;
+- motion policies: `system`, `reduced`, and `full`.
+
+`amber` and `phosphor` are dark-only. An invalid effective pair falls back to
+the safe `aurora/dark`, regular-density combination and emits a
+`ui.invalid_skin_mode_pair` diagnostic. Preference precedence is CLI, user,
+project, then client default.
+
+The design entry hierarchy is normative and must not be replaced by old or
+generated screenshots:
+
+1. global design index: `docs/viden-design/Viden/index.html`;
+2. client index: `TUI/Viden - 设计稿索引 (TUI).html` or
+   `GUI/Viden - 设计稿索引 (GUI).html`;
+3. component library: `TUI/Viden - 组件库 (TUI).html` or
+   `GUI/Viden - 组件库 (GUI).html`;
+4. canonical product entry: `TUI/Viden - 统一原型 (TUI).html` or
+   `GUI/Viden - 桌面驾驶舱 (GUI).html` (D1).
+
+GUI `pages/Viden - D11 首启与项目接入 (GUI).html` is subordinate first-run
+onboarding. It is not the GUI cockpit and must not replace D1 as the desktop
+visual target. All relative paths in this list start at
+`docs/viden-design/Viden/`.
+
 ## TUI Requirements
 
 - Render only from `RuntimeViewState` plus local terminal layout state.
@@ -206,18 +301,31 @@ Frontends must not call the underlying tool after approval. They send
 - GUI shutdown must not mutate session, workflow, provider, or permission
   state.
 
-## Parity Fixtures
+## Frozen Parity Corpus
 
-Before parallel TUI/GUI implementation, add shared fixtures that replay the same
-event stream into both frontends:
+Core `0.3.0` freezes exactly nine schema-1 fixtures under
+`crates/types/tests/fixtures/frontend-contract-v1/`:
 
-- provider turn with streaming text and tool call;
-- approval request and approval denial;
-- queued follow-up while a turn is active;
-- Agent DAG with dependency blocker and retry next action;
-- Evidence/MergeGate accept, reject, conflict, and merge;
-- provider failure with recovery hint;
-- context pressure with omitted sources;
-- scoped Git denial and release-gate denial.
+1. `stream-tool.json`
+2. `approval-allow-deny.json`
+3. `queued-follow-up.json`
+4. `dag-blocker.json`
+5. `multi-lane.json`
+6. `merge-gate.json`
+7. `context-pressure-cost-blind.json`
+8. `plan-denial.json`
+9. `d1-vertical-slice.json`
 
-These fixtures are the acceptance contract for `0.3.x` TUI/GUI parity.
+Each fixture contains its id, schema version, sorted required capabilities,
+initial snapshot, contiguous event envelopes, expected final cursor, and final
+view digest. Replay starts only after the v0 migration gate succeeds. Each
+fixture is replayed twice from the same initial snapshot and must produce the
+same `RuntimeViewState`, cursor, canonical bytes, and SHA-256 digest.
+
+Canonical digest input is compact JSON for the final `RuntimeViewState` after
+recursively sorting object keys. Array order remains semantic. The digest table
+is synchronized with the tested fixture values in
+[Core 0.3 Compatibility](core-0.3-compatibility.md).
+
+TUI and GUI branches must start from the same resolved contract payload commit
+and replay this corpus without frontend-owned effects or inferred success.

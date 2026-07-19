@@ -22,9 +22,9 @@ pub use context::{
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use protocol::{
-    CapabilityId, CoreHandshake, EventCursor, EventCursorOrder, FRONTEND_SCHEMA_V1, GapRecovery,
-    ReplayBatch, ReplayRequest, RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeOwner,
-    RuntimeSnapshotEnvelope, RuntimeWireEvent, SchemaVersion,
+    CapabilityId, CoreHandshake, EventCursor, EventCursorOrder, FRONTEND_SCHEMA_V1,
+    FRONTEND_V1_CAPABILITIES, GapRecovery, ReplayBatch, ReplayRequest, RuntimeCommandEnvelope,
+    RuntimeEventEnvelope, RuntimeOwner, RuntimeSnapshotEnvelope, RuntimeWireEvent, SchemaVersion,
 };
 pub use runtime::{
     ApprovalRequestView, CanonicalEvidenceReference, CommandAction, EvidenceCanonicalReasonCode,
@@ -805,6 +805,8 @@ pub struct RuntimeSnapshot {
     pub config_summary: String,
     pub loaded_config_files: Vec<PathBuf>,
     pub startup_overrides: Vec<String>,
+    #[serde(default)]
+    pub ui_preferences: ResolvedUiPreferences,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

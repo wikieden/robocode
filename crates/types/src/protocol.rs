@@ -6,6 +6,23 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeSet;
 
 pub const FRONTEND_SCHEMA_V1: SchemaVersion = SchemaVersion(1);
+pub const FRONTEND_V1_CAPABILITIES: &[&str] = &[
+    "runtime.agent_dag",
+    "runtime.approvals",
+    "runtime.commands",
+    "runtime.context",
+    "runtime.cost",
+    "runtime.events",
+    "runtime.evidence",
+    "runtime.merge_gate",
+    "runtime.queued_input",
+    "runtime.replay",
+    "runtime.snapshot",
+    "runtime.transcript_page",
+    "runtime.typed_lanes",
+    "runtime.typed_tasks",
+    "ui.preferences",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
