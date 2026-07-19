@@ -810,9 +810,13 @@ fn is_project_config_path(cwd: &Path, path: &Path) -> bool {
     // Resolve every existing prefix before applying later parent components.
     // This preserves filesystem symlink semantics even when the final target
     // is missing, while unresolved components remain a lexical suffix.
-    resolve_existing_components(&candidate_raw)
-        .zip(resolve_existing_components(&project_raw))
-        .is_some_and(|(candidate, project)| candidate == project)
+    match (
+        resolve_existing_components(&candidate_raw),
+        resolve_existing_components(&project_raw),
+    ) {
+        (Some(candidate), Some(project)) => candidate == project,
+        _ => true,
+    }
 }
 
 fn absolute_path(cwd: &Path, path: &Path) -> Option<PathBuf> {

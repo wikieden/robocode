@@ -523,6 +523,63 @@ fn ui_preferences_symlink_parent_traversal_cannot_hide_missing_project_target() 
     assert!(!cwd.join(".viden").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn ui_preferences_indeterminate_symlink_loop_falls_back_without_unsafe_write() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_indeterminate_symlink_loop_{}",
+        std::process::id()
+    ));
+    let cwd = root.join("project");
+    let loop_path = cwd.join("loop");
+    let unsafe_path = loop_path.join("user").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&cwd).unwrap();
+    symlink("loop", &loop_path).unwrap();
+    let cwd_mtime = fs::metadata(&cwd).unwrap().modified().unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let expected = default_config_path_for_test(&root);
+
+    let selected =
+        user_ui_config_path_with_env(&cwd, Some(&unsafe_path), &|key| env_map.get(key).cloned())
+            .unwrap();
+    assert_eq!(selected, expected);
+
+    save_user_ui_preferences_at(
+        &selected,
+        &UiPreferencePatch {
+            locale: Some(LocaleId::ZhCn),
+            ..UiPreferencePatch::default()
+        },
+        UiPreferences::client_default(),
+    )
+    .unwrap();
+    assert_eq!(fs::read_link(&loop_path).unwrap(), PathBuf::from("loop"));
+    assert_eq!(fs::metadata(&cwd).unwrap().modified().unwrap(), cwd_mtime);
+}
+
+#[test]
+fn ui_preferences_normal_missing_user_path_remains_an_explicit_write_target() {
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_normal_missing_user_target_{}",
+        std::process::id()
+    ));
+    let cwd = root.join("project");
+    let explicit = root.join("user-config").join("nested").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&cwd).unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    let selected =
+        user_ui_config_path_with_env(&cwd, Some(&explicit), &|key| env_map.get(key).cloned())
+            .unwrap();
+
+    assert_eq!(selected, explicit);
+    assert!(!selected.exists());
+}
+
 #[test]
 fn ui_preferences_corrupt_table_preserves_file_and_returns_one_diagnostic() {
     let root = std::env::temp_dir().join(format!("viden_ui_corrupt_{}", std::process::id()));
