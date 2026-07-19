@@ -581,6 +581,7 @@ name = "viden-workflows"
 version = "0.1.30"
 dependencies = [
  "fs2",
+ "libc",
  "serde",
  "serde_json",
  "sha2",

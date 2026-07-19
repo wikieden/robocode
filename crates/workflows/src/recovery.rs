@@ -93,7 +93,7 @@ impl WorkflowStore {
                 if let (Some(bytes), Some(hash)) = (&entry.preimage, &preimage_sha256) {
                     let prefix_dir = temp_dir.join("blobs").join(&hash[..2]);
                     create_private_dir(&prefix_dir)?;
-                    write_private_new(&prefix_dir.join(hash), bytes)?;
+                    write_private_content_addressed(&prefix_dir.join(hash), bytes)?;
                 }
                 manifest_entries.push(RecoveryManifestEntry {
                     relative_path,
@@ -260,7 +260,7 @@ fn open_private_file(path: &Path, create_new: bool) -> Result<fs::File, String> 
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
     let file = options.open(path).map_err(|error| error.to_string())?;
     #[cfg(unix)]
@@ -276,6 +276,22 @@ fn write_private_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut file = open_private_file(path, true)?;
     file.write_all(bytes).map_err(|error| error.to_string())?;
     file.sync_all().map_err(|error| error.to_string())
+}
+
+fn write_private_content_addressed(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    match write_private_new(path, bytes) {
+        Ok(()) => Ok(()),
+        Err(_) if path.exists() => {
+            require_plain_file(path)?;
+            let existing = fs::read(path).map_err(|read_error| read_error.to_string())?;
+            if existing == bytes {
+                Ok(())
+            } else {
+                Err("recovery content-addressed blob collision".to_string())
+            }
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn require_plain_directory(path: &Path) -> Result<(), String> {
@@ -410,6 +426,54 @@ mod tests {
         );
     }
 
+    #[test]
+    fn recovery_snapshot_reuses_identical_preimage_blobs_for_multiple_paths() {
+        let home = temp_dir("dedupe_home");
+        let cwd = temp_dir("dedupe_cwd");
+        let store = WorkflowStore::new(&home, &cwd).unwrap();
+        let shared_preimage = b"same private bytes".to_vec();
+
+        let reference = store
+            .write_recovery_snapshot(
+                "recovery-dedupe",
+                &[
+                    RecoverySnapshotEntry {
+                        relative_path: PathBuf::from("src/lib.rs"),
+                        preimage: Some(shared_preimage.clone()),
+                        unix_mode: Some(0o644),
+                        expected_postimage_sha256: None,
+                        created_parent_dirs: vec![],
+                    },
+                    RecoverySnapshotEntry {
+                        relative_path: PathBuf::from("src/main.rs"),
+                        preimage: Some(shared_preimage.clone()),
+                        unix_mode: Some(0o644),
+                        expected_postimage_sha256: None,
+                        created_parent_dirs: vec![],
+                    },
+                ],
+            )
+            .unwrap();
+
+        let loaded = store.load_recovery_snapshot(&reference).unwrap();
+        assert_eq!(loaded.entries.len(), 2);
+        assert!(
+            loaded
+                .entries
+                .iter()
+                .all(|entry| entry.preimage.as_ref() == Some(&shared_preimage))
+        );
+        let blob_root = store
+            .paths()
+            .project_dir
+            .join("recovery/recovery-dedupe/blobs");
+        let blob_count = fs::read_dir(blob_root)
+            .unwrap()
+            .map(|prefix| fs::read_dir(prefix.unwrap().path()).unwrap().count())
+            .sum::<usize>();
+        assert_eq!(blob_count, 1);
+    }
+
     #[cfg(unix)]
     #[test]
     fn recovery_snapshot_rejects_symlinked_private_store_paths() {
@@ -434,5 +498,39 @@ mod tests {
 
         assert!(result.is_err());
         assert!(!redirected.join("recovery-symlink").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recovery_snapshot_rejects_symlinked_lock_without_chmoding_target() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let home = temp_dir("lock_symlink_home");
+        let cwd = temp_dir("lock_symlink_cwd");
+        let store = WorkflowStore::new(&home, &cwd).unwrap();
+        let recovery_root = store.paths().project_dir.join("recovery");
+        fs::create_dir_all(&recovery_root).unwrap();
+        let redirected_lock = temp_dir("lock_symlink_redirect").join("external.lock");
+        fs::write(&redirected_lock, b"external").unwrap();
+        fs::set_permissions(&redirected_lock, fs::Permissions::from_mode(0o644)).unwrap();
+        symlink(&redirected_lock, recovery_root.join("recovery.lock")).unwrap();
+
+        let result = store.write_recovery_snapshot(
+            "recovery-lock-symlink",
+            &[RecoverySnapshotEntry {
+                relative_path: PathBuf::from("src/lib.rs"),
+                preimage: Some(b"secret".to_vec()),
+                unix_mode: None,
+                expected_postimage_sha256: None,
+                created_parent_dirs: vec![],
+            }],
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            fs::metadata(&redirected_lock).unwrap().permissions().mode() & 0o777,
+            0o644,
+            "opening recovery.lock must not follow symlinks or chmod the target"
+        );
     }
 }

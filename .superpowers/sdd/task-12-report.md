@@ -152,3 +152,47 @@ supervisor/session/workflow projection, Core extension compatibility tests,
 paired Core/frontend/orchestration documentation, and this SDD evidence. Task
 13+, frontend migration, live-provider, push, merge, tag, release, and fixture
 refresh work were not performed.
+
+## Second Review Follow-up
+
+The second independent-review follow-up tightened remaining trust-loop
+boundaries:
+
+- `RequestReview` is requester/gate-owner authorized; reviewer identity is
+  derived only as validator lane ownership, preventing reviewer self-authorization.
+- `dependency_id` cannot be rebound across different task endpoints.
+- Conflict bounce requires the gate owner origin lane and a validated canonical
+  baseline; canonical baseline errors no longer collapse to an empty baseline.
+- `RejectAgentArtifact` rejects only evidence bound to the selected gate, and
+  this check runs before permission.
+- Recovery snapshots reuse identical preimage blobs and reject symlinked
+  `recovery.lock` without chmoding the target.
+
+Additional focused RED/GREEN tests now pass:
+
+- `trust_loop_request_review_requires_gate_owner_as_requester`;
+- `trust_loop_dependency_id_cannot_be_rebound_to_different_endpoints`;
+- `trust_loop_bounce_requires_gate_owner_and_valid_canonical_baseline`;
+- `trust_loop_reject_agent_artifact_requires_gate_bound_evidence_before_permission`;
+- `recovery_snapshot_reuses_identical_preimage_blobs_for_multiple_paths`;
+- `recovery_snapshot_rejects_symlinked_lock_without_chmoding_target`.
+
+Second follow-up verification:
+
+- `cargo test -p viden-runtime trust_loop_ --quiet`: 17 passed;
+- `cargo test -p viden-workflows recovery_snapshot_ --quiet`: 5 passed;
+- `cargo fmt --all -- --check`;
+- `cargo test -p viden-types --quiet`: 52 passed;
+- `cargo test -p viden-session --quiet`: 19 passed;
+- `cargo test -p viden-workflows --quiet`: 29 passed;
+- `cargo test -p viden-runtime --quiet`: 374 passed, 1 ignored;
+- `cargo test -p viden-core --quiet`: unit, 12 CoreClient,
+  3 frontend-contract, and 5 workspace-identity tests passed; 1 manual fixture
+  refresh ignored;
+- `cargo clippy -p viden-types -p viden-workflows -p viden-tools -p viden-runtime -p viden-core --all-targets -- -D warnings`;
+- `scripts/check-dependency-boundaries.sh`;
+- `git diff --check`.
+
+`cargo test --workspace --quiet` was attempted after the second follow-up and
+still fails compiling the separately owned `viden-tui` crate with the known 104
+Core API drift errors. No TUI or GUI files were changed.

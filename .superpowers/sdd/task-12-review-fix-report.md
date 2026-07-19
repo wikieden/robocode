@@ -87,3 +87,57 @@ Passed:
 legacy TUI/Core migration mismatch (104 compile errors, led by removed Core
 re-exports and legacy string/field forms). No TUI or GUI file is in this change
 set.
+
+## Second Review Follow-up
+
+The second review found additional trust-loop hardening gaps. This follow-up
+closes them without changing the frozen schema:
+
+- `RequestReview` is now authorized by the requesting gate owner lane. Core
+  derives the independent validator owner from `reviewer_lane_id`, so a reviewer
+  cannot submit a self-authorizing review request.
+- Supervisor and direct command preflight now reject `dependency_id` rebinding
+  across different `(task_id, depends_on_task_id)` endpoints before permission.
+- Manual `BounceMergeConflict` now requires the gate owner origin lane and a
+  verified canonical baseline before permission. Automatic patch-conflict
+  bounce uses the same validation path and no longer falls back to an empty
+  baseline on canonical evidence errors.
+- `RejectAgentArtifact` preflight now matches apply semantics: the evidence id
+  must exist and be bound to the selected gate before approval is requested.
+- Recovery snapshots reuse identical content-addressed preimage blobs across
+  multiple files, and Unix private-file opens use no-follow semantics so a
+  symlinked `recovery.lock` is rejected without chmoding the external target.
+
+Additional RED/GREEN coverage:
+
+- `trust_loop_request_review_requires_gate_owner_as_requester`;
+- `trust_loop_dependency_id_cannot_be_rebound_to_different_endpoints`;
+- `trust_loop_bounce_requires_gate_owner_and_valid_canonical_baseline`;
+- `trust_loop_reject_agent_artifact_requires_gate_bound_evidence_before_permission`;
+- `recovery_snapshot_reuses_identical_preimage_blobs_for_multiple_paths`; and
+- `recovery_snapshot_rejects_symlinked_lock_without_chmoding_target`.
+
+Second follow-up verification passed:
+
+- `cargo test -p viden-runtime trust_loop_ --quiet`: 17 passed;
+- `cargo test -p viden-workflows recovery_snapshot_ --quiet`: 5 passed;
+- `cargo fmt --all -- --check`;
+- `cargo test -p viden-types --quiet`: 52 passed;
+- `cargo test -p viden-session --quiet`: 19 passed;
+- `cargo test -p viden-workflows --quiet`: 29 passed;
+- `cargo test -p viden-runtime --quiet`: 374 passed, 1 ignored live-provider
+  test;
+- `cargo test -p viden-core --quiet`: unit, 12 CoreClient,
+  3 frontend-contract, and 5 workspace-identity tests passed; 1 manual fixture
+  refresh ignored;
+- `cargo clippy -p viden-types -p viden-workflows -p viden-tools -p viden-runtime -p viden-core --all-targets -- -D warnings`;
+- `scripts/check-dependency-boundaries.sh`; and
+- `git diff --check`.
+
+Attempted after the second follow-up:
+
+- `cargo test --workspace --quiet` still fails compiling the separately owned
+  `viden-tui` crate with the known 104 Core API drift errors, including removed
+  root `viden_core::{SessionEngine, ModelRequestControl, ProviderAuthMode}`
+  re-exports and legacy string fields on typed `AgentTaskRecord` /
+  `AgentLaneRecord`. No TUI or GUI files were changed.

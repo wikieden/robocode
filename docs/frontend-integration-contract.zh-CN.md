@@ -215,14 +215,20 @@ secret bytes。
 - canonical evidence 全部满足后，基础 gate 可以进入 `accepted`。要求 independent review
   的 gate 或 conflict 后重新验证的 gate，必须由指定 validator 对当前精确 evidence
   id/hash 集再次显式 typed accept，之后才能 merge。
+- `RequestReview.owner` 是发起请求的 gate owner，而不是 validator。Core 从
+  `reviewer_lane_id` 派生 validator lane，因此 reviewer 不能创建自我授权的 review
+  request。`dependency_id` 绑定唯一 `(task_id, depends_on_task_id)` edge，不能重绑到
+  另一条 edge。
 - evidence 被 reject 后 gate 进入 `needs_changes`，并从 gate/task evidence 列表移除该
   evidence id。
 - `AcceptAgentArtifact` 只接受已记录的 evidence id。未知 evidence id 会被拒绝，前端不能
-  把该命令当成隐式创建 evidence 的入口。
+  把该命令当成隐式创建 evidence 的入口。`RejectAgentArtifact` 只能 reject 已绑定到当前
+  gate 的 evidence。
 - Trust-loop mutation 使用正常 supervisor approval flow。Owner、dependency、decision、
   receipt 与 canonical bytes 的纯 preflight 必须在 `ApprovalRequested` 前完成。Merge 在
   文件 effect 前发布私有 content-addressed recovery snapshot 和 durable precommit；
-  revert 在 approval 前验证 snapshot 与当前 postimage，重启后同样适用。
+  conflict bounce 必须绑定 gate owner 原 Lane 和已验证 canonical baseline。revert 在
+  approval 前验证 snapshot 与当前 postimage，重启后同样适用。
 
 第一批一等 required evidence kind 是 `patch`、`test_result`、`review`、`doc_update`
 和 `release_artifact`。客户端可以显示其他 runtime kind，但 checklist 分组应优先覆盖这组

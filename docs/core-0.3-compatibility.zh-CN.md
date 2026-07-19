@@ -71,8 +71,10 @@ record fields 提供默认值，未知字段可忽略；扩展前的 string merg
 `legacy` decision，新写入则始终序列化 typed decision。只有绑定真实 ContextStore bytes
 与 Core 签发 permission receipt 的 evidence 才能产生 canonical acceptance；展示摘要不能
 替代 evidence。指定 validator 必须绑定精确 id/hash 集，且所有 trust 纯 preflight 在
-approval 前完成。Merge 在改动文件前持久化私有 content-addressed recovery snapshot 与
-workflow precommit，从而在不把 raw preimage 写入 event log 的前提下支持重启后 audited revert。
+approval 前完成；`RequestReview` 本身由发起请求的 gate owner 授权。Dependency id 是稳定
+edge id，不能重绑到不同端点。Merge 在改动文件前持久化私有 content-addressed recovery
+snapshot 与 workflow precommit；重复 preimage blob 会复用，私有 recovery lock 拒绝
+symlink traversal，从而在不把 raw preimage 写入 event log 的前提下支持重启后 audited revert。
 
 Core 负责 Lane 权限判定，并在每个 Lane 命令前从当前 runtime mode 刷新权限状态。
 所有有副作用的命令都使用 permission check 与 effect executor 共享的 canonical worktree

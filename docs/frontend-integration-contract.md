@@ -232,16 +232,22 @@ Current `0.2.3` reducer behavior:
   an independent review policy, or a gate revalidated after conflict, requires
   an explicit typed acceptance by the assigned validator over the exact current
   evidence id/hash set before merge.
+- `RequestReview.owner` is the requesting gate owner, not the validator. Core
+  derives the validator lane from `reviewer_lane_id`, so a reviewer cannot
+  create a self-authorizing review request. `dependency_id` is bound to one
+  `(task_id, depends_on_task_id)` edge and cannot be rebound to another edge.
 - Rejected evidence moves the gate to `needs_changes` and removes that evidence
   id from the gate/task evidence lists.
 - `AcceptAgentArtifact` only accepts an already recorded evidence id. Unknown
   evidence ids are rejected and must not be used by frontends as implicit
-  evidence creation.
+  evidence creation. `RejectAgentArtifact` only rejects evidence already bound
+  to the selected gate.
 - Trust-loop mutations use the normal supervisor approval flow. Pure owner,
   dependency, decision, receipt, and canonical-byte preflight completes before
   `ApprovalRequested`. Merge publishes a private, content-addressed recovery
-  snapshot and durable precommit before file effects; revert verifies the
-  snapshot and current postimage before approval, including after restart.
+  snapshot and durable precommit before file effects; conflict bounce requires
+  the gate owner origin lane plus a verified canonical baseline. Revert verifies
+  the snapshot and current postimage before approval, including after restart.
 
 The first supported required evidence kinds are `patch`, `test_result`,
 `review`, `doc_update`, and `release_artifact`. Clients may display other

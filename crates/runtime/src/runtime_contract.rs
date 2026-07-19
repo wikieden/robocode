@@ -2202,7 +2202,7 @@ impl SessionEngine {
                     "merge gate `{gate_id}` requires an independent validator"
                 ));
             }
-            if actor != &validator.owner {
+            if !runtime_owner_matches_validator_lane(actor, &validator.owner) {
                 return Err(
                     "merge gate acceptance actor does not match validator owner".to_string()
                 );
@@ -2270,6 +2270,40 @@ impl SessionEngine {
                 source_hash: source_hash.to_string(),
             }],
         )
+    }
+
+    pub(crate) fn preflight_reject_agent_artifact(
+        &self,
+        gate_id: &str,
+        evidence_id: &str,
+    ) -> Result<(), String> {
+        if evidence_id.trim().is_empty() {
+            return Err("agent artifact evidence id cannot be empty".to_string());
+        }
+        let gate_index = self
+            .runtime_merge_gates
+            .iter()
+            .position(|gate| gate.gate_id == gate_id)
+            .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
+        if !self
+            .runtime_evidence
+            .iter()
+            .any(|evidence| evidence.id == evidence_id)
+        {
+            return Err(format!(
+                "agent artifact evidence `{evidence_id}` does not exist"
+            ));
+        }
+        if !self.runtime_merge_gates[gate_index]
+            .evidence_ids
+            .iter()
+            .any(|id| id == evidence_id)
+        {
+            return Err(format!(
+                "agent artifact evidence `{evidence_id}` is not bound to the gate evidence set"
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn preflight_merge_agent_patch(
@@ -2475,7 +2509,7 @@ impl SessionEngine {
             reviewed_evidence.sort();
             reviewed_evidence.dedup();
             if let Some(validator) = &gate.validator {
-                if actor != &validator.owner {
+                if !runtime_owner_matches_validator_lane(actor, &validator.owner) {
                     return Err(
                         "merge gate acceptance actor does not match validator owner".to_string()
                     );
@@ -2868,9 +2902,7 @@ impl SessionEngine {
         if reason.trim().is_empty() {
             return Err("agent artifact rejection reason cannot be empty".to_string());
         }
-        if evidence_id.trim().is_empty() {
-            return Err("agent artifact evidence id cannot be empty".to_string());
-        }
+        self.preflight_reject_agent_artifact(gate_id, evidence_id)?;
         let gate_index = self
             .runtime_merge_gates
             .iter()
@@ -2878,15 +2910,6 @@ impl SessionEngine {
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
         let _dag_id = self.dag_id_for_task(&task_id)?;
-        if !self
-            .runtime_evidence
-            .iter()
-            .any(|evidence| evidence.id == evidence_id)
-        {
-            return Err(format!(
-                "agent artifact evidence `{evidence_id}` does not exist"
-            ));
-        }
         self.require_trust_permission(
             "reject_agent_artifact",
             &format!("gate={gate_id} evidence={evidence_id}"),
@@ -3302,7 +3325,7 @@ impl SessionEngine {
             .lane_id
             .clone()
             .unwrap_or_else(|| format!("lane-{task_id}"));
-        Ok(self.record_conflict_bounce(gate_index, original_lane_id, gate_owner, reason))
+        self.record_conflict_bounce(gate_index, original_lane_id, gate_owner, reason)
     }
 
     fn dag_id_for_task(&self, task_id: &str) -> Result<String, String> {
@@ -5713,6 +5736,14 @@ fn append_resequenced(target: &mut Vec<RuntimeEvent>, source: Vec<RuntimeEvent>)
         event.sequence = next_sequence(target);
         target.push(event);
     }
+}
+
+fn runtime_owner_matches_validator_lane(actor: &RuntimeOwner, validator: &RuntimeOwner) -> bool {
+    actor.workspace_id == validator.workspace_id
+        && actor.project_id == validator.project_id
+        && actor.task_id == validator.task_id
+        && actor.lane_id.is_some()
+        && actor.lane_id == validator.lane_id
 }
 
 fn merge_approval_events(

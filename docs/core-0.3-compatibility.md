@@ -80,10 +80,13 @@ fields remain ignorable, and a pre-extension string merge decision deserializes
 as a read-only `legacy` decision. New writes always serialize a typed decision.
 Only real ContextStore bytes with a Core-issued permission receipt can produce
 canonical acceptance; display summaries never substitute for evidence. Assigned
-validators bind the exact id/hash set. Pure trust preflight completes before
+validators bind the exact id/hash set, while `RequestReview` itself is
+authorized by the requesting gate owner. Dependency ids are stable edge ids and
+cannot be rebound to different endpoints. Pure trust preflight completes before
 approval. Merge persists a private content-addressed recovery snapshot and
-workflow precommit before changing files, so audited revert remains available
-after restart without placing raw preimages in event logs.
+workflow precommit before changing files; duplicate preimage blobs are reused,
+and the private recovery lock refuses symlink traversal. Audited revert remains
+available after restart without placing raw preimages in event logs.
 
 Core owns lane permission evaluation and refreshes it from the current runtime
 mode before every lane command. Side-effecting commands are evaluated against

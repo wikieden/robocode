@@ -51,9 +51,12 @@ impl SessionEngine {
                 )?;
                 validate_owner(
                     owner,
-                    Some(reviewer_lane_id),
+                    Some(requester_lane_id),
                     &self.runtime_merge_gates[gate_index].task_id,
-                )?;
+                )
+                .map_err(|_| {
+                    "review request owner must match the requesting gate owner lane".to_string()
+                })?;
                 for evidence_id in evidence_ids {
                     validate_trust_id("evidence_id", evidence_id)?;
                     if !self
@@ -155,17 +158,7 @@ impl SessionEngine {
                 evidence_id,
                 ..
             } => {
-                self.require_merge_gate_index(gate_id)?;
-                validate_trust_id("evidence_id", evidence_id)?;
-                if !self
-                    .runtime_evidence
-                    .iter()
-                    .any(|evidence| evidence.id == *evidence_id)
-                {
-                    return Err(format!(
-                        "agent artifact evidence `{evidence_id}` does not exist"
-                    ));
-                }
+                self.preflight_reject_agent_artifact(gate_id, evidence_id)?;
                 (
                     "reject_agent_artifact",
                     format!("gate={gate_id} evidence={evidence_id}"),
@@ -346,7 +339,9 @@ impl SessionEngine {
         let gate_index = self.require_merge_gate_index(&gate_id)?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
         validate_review_requester(&self.runtime_merge_gates[gate_index], &requester_lane_id)?;
-        validate_owner(&owner, Some(&reviewer_lane_id), &task_id)?;
+        validate_owner(&owner, Some(&requester_lane_id), &task_id).map_err(|_| {
+            "review request owner must match the requesting gate owner lane".to_string()
+        })?;
         if evidence_ids.is_empty() {
             return Err("review request requires canonical evidence bindings".to_string());
         }
@@ -375,7 +370,7 @@ impl SessionEngine {
             gate_id,
             task_id,
             requester_lane_id,
-            reviewer_lane_id,
+            reviewer_lane_id: reviewer_lane_id.clone(),
             owner: owner.clone(),
             evidence_ids,
             evidence_bindings,
@@ -386,7 +381,7 @@ impl SessionEngine {
         self.runtime_review_requests.push(review.clone());
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.validator = Some(MergeGateValidator {
-            owner,
+            owner: reviewer_owner_from_requester(&owner, &reviewer_lane_id),
             review_request_id: review_id,
             independent: true,
             validated_at: None,
@@ -543,6 +538,14 @@ impl SessionEngine {
             }
         }
         for dependency in &self.runtime_dependencies {
+            if dependency.dependency_id == dependency_id
+                && (dependency.task_id != task_id
+                    || dependency.depends_on_task_id != depends_on_task_id)
+            {
+                return Err(format!(
+                    "dependency id `{dependency_id}` is already bound to different endpoints"
+                ));
+            }
             if dependency.dependency_id != dependency_id
                 && dependency.state == DependencyState::Blocked
             {
@@ -606,12 +609,29 @@ impl SessionEngine {
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
         validate_owner(&owner, owner.lane_id.as_deref(), &task_id)?;
         let reason = validate_trust_text("conflict reason", reason, 500)?;
+        self.validate_conflict_bounce(gate_index, &original_lane_id, &owner)?;
         self.require_trust_permission(
             "bounce_merge_conflict",
             &format!("gate={gate_id} origin={original_lane_id}"),
             approver,
         )?;
-        Ok(self.record_conflict_bounce(gate_index, original_lane_id, owner, reason))
+        self.record_conflict_bounce(gate_index, original_lane_id, owner, reason)
+    }
+
+    pub(crate) fn validate_conflict_bounce(
+        &self,
+        gate_index: usize,
+        original_lane_id: &str,
+        owner: &RuntimeOwner,
+    ) -> Result<Vec<viden_types::ReviewedEvidenceBinding>, String> {
+        let gate = &self.runtime_merge_gates[gate_index];
+        if gate.owner.lane_id.as_deref() != Some(original_lane_id) || owner != &gate.owner {
+            return Err("merge conflict bounce must target the gate owner origin lane".to_string());
+        }
+        self.validated_evidence_bindings_for_ids(gate_index, &gate.evidence_ids)
+            .map_err(|error| {
+                format!("merge conflict bounce requires valid canonical evidence baseline: {error}")
+            })
     }
 
     pub(crate) fn record_conflict_bounce(
@@ -620,16 +640,12 @@ impl SessionEngine {
         original_lane_id: String,
         owner: RuntimeOwner,
         reason: String,
-    ) -> Vec<RuntimeEvent> {
+    ) -> Result<Vec<RuntimeEvent>, String> {
         let now = now_timestamp();
         let gate_id = self.runtime_merge_gates[gate_index].gate_id.clone();
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
-        let baseline_evidence = self
-            .validated_evidence_bindings_for_ids(
-                gate_index,
-                &self.runtime_merge_gates[gate_index].evidence_ids,
-            )
-            .unwrap_or_default();
+        let baseline_evidence =
+            self.validate_conflict_bounce(gate_index, &original_lane_id, &owner)?;
         let audit_id = fresh_id("audit");
         let conflict = ConflictBounce {
             bounce_id: fresh_id("conflict"),
@@ -686,7 +702,7 @@ impl SessionEngine {
             self.upsert_agent_task(task.clone());
             events.push(RuntimeEvent::new(3, RuntimeEventKind::TaskUpdated { task }));
         }
-        events
+        Ok(events)
     }
 
     pub(crate) fn revalidate_merge_conflict<F>(
@@ -1002,6 +1018,17 @@ fn validate_review_requester(
         return Err("review requester does not own the merge gate".to_string());
     }
     Ok(())
+}
+
+fn reviewer_owner_from_requester(requester: &RuntimeOwner, reviewer_lane_id: &str) -> RuntimeOwner {
+    let mut reviewer = requester.clone();
+    reviewer.lane_id = Some(reviewer_lane_id.to_string());
+    // The request command is authorized by the gate owner/requester; the
+    // validator owner stores the independent reviewer lane and intentionally
+    // leaves session identity unclaimed until that reviewer accepts.
+    reviewer.session_id = None;
+    reviewer.turn_id = None;
+    reviewer
 }
 
 fn validate_trust_id(name: &str, value: &str) -> Result<(), String> {
