@@ -28,7 +28,8 @@ pub(super) fn render_welcome(frame: &mut Frame, state: &TuiState) {
     let height = frame.height;
     let box_width = welcome_box_width(width);
     let box_left = width.saturating_sub(box_width) / 2;
-    let composer_top = welcome_composer_top(width, height);
+    let input_rows = welcome_input_rows(state, box_width);
+    let composer_top = welcome_composer_top(width, height, input_rows.len());
     let logo_top = composer_top.saturating_sub(if width >= 100 { 8 } else { 4 });
 
     let logo = welcome_logo(width);
@@ -36,20 +37,23 @@ pub(super) fn render_welcome(frame: &mut Frame, state: &TuiState) {
         frame.write_line(logo_top + offset, &centered_line(width, line));
     }
 
+    for (offset, row) in input_rows.iter().enumerate() {
+        frame.write_line(
+            composer_top + 1 + offset,
+            &positioned_line(width, box_left, row),
+        );
+    }
+    let after_input = composer_top + 1 + input_rows.len();
     frame.write_line(
-        composer_top + 1,
-        &positioned_line(width, box_left, &welcome_input_row(state, box_width)),
-    );
-    frame.write_line(
-        composer_top + 2,
+        after_input,
         &positioned_line(width, box_left, &welcome_spacer_row(box_width)),
     );
     frame.write_line(
-        composer_top + 3,
+        after_input + 1,
         &positioned_line(width, box_left, &welcome_context_row(state, box_width)),
     );
     frame.write_line(
-        composer_top + 5,
+        after_input + 3,
         &positioned_line(width, box_left, &welcome_hint_row(box_width)),
     );
 
@@ -174,7 +178,11 @@ pub(super) fn composer_anchor(
         let box_left = width.saturating_sub(box_width) / 2;
         return ComposerAnchor {
             left: box_left,
-            input_row: welcome_composer_top(width, height) + 1,
+            input_row: welcome_composer_top(
+                width,
+                height,
+                welcome_input_rows(state, box_width).len(),
+            ) + 1,
             width: box_width,
         };
     }
@@ -249,13 +257,15 @@ fn welcome_box_width(width: usize) -> usize {
         .max(WELCOME_BOX_MIN_WIDTH.min(width))
 }
 
-fn welcome_composer_top(width: usize, height: usize) -> usize {
+fn welcome_composer_top(width: usize, height: usize, input_rows: usize) -> usize {
     let target = if width >= 100 {
         height.saturating_mul(55) / 100
     } else {
         height.saturating_mul(45) / 100
     };
-    target.min(height.saturating_sub(8)).max(6)
+    target
+        .min(height.saturating_sub(input_rows.saturating_add(7)))
+        .max(6)
 }
 
 fn welcome_logo(width: usize) -> Vec<&'static str> {
@@ -276,27 +286,40 @@ fn welcome_logo(width: usize) -> Vec<&'static str> {
 fn welcome_cursor_position(state: &TuiState, width: usize, height: usize) -> (u16, u16) {
     let box_width = welcome_box_width(width);
     let box_left = width.saturating_sub(box_width) / 2;
-    let input_width = box_width.saturating_sub(6);
-    let input_len = char_width(state.ui.input.as_str()).min(input_width);
-    let column = box_left + 2 + input_len;
-    let row = welcome_composer_top(width, height) + 1;
+    let input_width = welcome_content_width(box_width);
+    let cell = state.ui.input.cursor_cell(input_width);
+    let column = box_left + 2 + cell.column;
+    let row = welcome_composer_top(width, height, welcome_input_rows(state, box_width).len())
+        + 1
+        + cell.row;
     (column as u16, row as u16)
 }
 
-fn welcome_input_row(state: &TuiState, box_width: usize) -> String {
-    let (value, left_pad) = if state.ui.input.is_empty() {
-        ("Ask anything... \"Fix broken tests\"", " ")
-    } else {
-        (state.ui.input.as_str(), "")
-    };
-    let value_width = box_width.saturating_sub(4 + char_width(left_pad));
-    format!(
-        "▌ {left_pad}{}",
-        pad(
-            &truncate(value, value_width),
-            box_width - 2 - char_width(left_pad)
-        )
-    )
+fn welcome_content_width(box_width: usize) -> usize {
+    box_width.saturating_sub(2).max(1)
+}
+
+fn welcome_input_rows(state: &TuiState, box_width: usize) -> Vec<String> {
+    if state.ui.input.is_empty() {
+        return vec![format!(
+            "▌  {}",
+            pad(
+                &truncate(
+                    "Ask anything... \"Fix broken tests\"",
+                    box_width.saturating_sub(3)
+                ),
+                box_width.saturating_sub(3)
+            )
+        )];
+    }
+
+    state
+        .ui
+        .input
+        .visible_rows(welcome_content_width(box_width))
+        .into_iter()
+        .map(|row| format!("▌ {}", pad(&row, box_width.saturating_sub(2))))
+        .collect()
 }
 
 fn welcome_spacer_row(box_width: usize) -> String {
@@ -513,6 +536,24 @@ mod tests {
 
         assert!(column > 20);
         assert_eq!(row, 23);
+    }
+
+    #[test]
+    fn fresh_welcome_uses_eight_row_multiline_viewport_and_cursor_geometry() {
+        let mut state = TuiState::default();
+        state.ui.input = "一\n二\n三\n四\n五\n六\n七\n八\n九\n十".into();
+        assert!(should_render_welcome(&state));
+        let mut frame = Frame::new(120, 40);
+
+        render_welcome(&mut frame, &state);
+        let rendered = frame.to_string();
+        let lines = rendered.lines().collect::<Vec<_>>();
+
+        assert_eq!(lines.len(), 40);
+        assert!(lines[23].contains("▌ 三"));
+        assert!(lines[30].contains("▌ 十"));
+        assert!(!rendered.contains("▌ 一"));
+        assert_eq!(composer_cursor_position(&state, 120, 40, 1), (16, 30));
     }
 
     #[test]

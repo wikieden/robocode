@@ -118,6 +118,18 @@ pub(super) fn reduce_input(
     if key.code == KeyCode::Tab && mode != InputMode::Overlay {
         return InputIntent::CycleAgentFocus;
     }
+    if key.code == KeyCode::Enter
+        && key
+            .modifiers
+            .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT)
+    {
+        return match focus.overlay {
+            Some(OverlayKind::Approval) => InputIntent::InsertNewline,
+            Some(_) => InputIntent::None,
+            None if mode == InputMode::Insert => InputIntent::InsertNewline,
+            None => InputIntent::None,
+        };
+    }
     match key.code {
         KeyCode::PageUp => return InputIntent::Scroll(12),
         KeyCode::PageDown => return InputIntent::Scroll(-12),
@@ -132,13 +144,6 @@ pub(super) fn reduce_input(
 
     match (mode, key.code) {
         (InputMode::Normal, KeyCode::Char('i')) => InputIntent::EnterInsert,
-        (InputMode::Insert, KeyCode::Enter)
-            if key
-                .modifiers
-                .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT) =>
-        {
-            InputIntent::InsertNewline
-        }
         (InputMode::Insert, KeyCode::Enter) | (InputMode::Insert, KeyCode::Char('j'))
             if key.modifiers.contains(KeyModifiers::CONTROL) || key.code == KeyCode::Enter =>
         {

@@ -49,6 +49,7 @@ impl ComposerBuffer {
     pub(super) fn insert(&mut self, value: &str) {
         self.text.insert_str(self.cursor, value);
         self.cursor += value.len();
+        self.normalize_cursor_forward();
         self.desired_column = None;
     }
 
@@ -135,6 +136,16 @@ impl ComposerBuffer {
             UnicodeWidthStr::width(&self.text[row.start..self.cursor.min(row.end)])
         });
         self.cursor = self.boundary_at_column(rows[target], column);
+    }
+
+    fn normalize_cursor_forward(&mut self) {
+        self.cursor = self
+            .text
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .chain(std::iter::once(self.text.len()))
+            .find(|index| *index >= self.cursor)
+            .unwrap_or(self.text.len());
     }
 
     fn boundary_at_column(&self, row: VisualRow, desired: usize) -> usize {
@@ -305,6 +316,38 @@ mod tests {
 
         assert_eq!(buffer.as_str(), "aX\nY\nZb");
         assert_eq!(buffer.cursor_cell(20), CursorCell { column: 1, row: 2 });
+    }
+
+    #[test]
+    fn insert_resegments_cursor_after_zwj_regional_and_combining_merges() {
+        let cases = [
+            ("👨👩", "\u{200d}", "", 1),
+            ("X🇸", "🇺", "X", 1),
+            ("\u{301}X", "a", "X", 2),
+        ];
+
+        for (initial, inserted, after_backspace, moves) in cases {
+            let mut buffer = ComposerBuffer::from(initial);
+            for _ in 0..moves {
+                buffer.move_left();
+            }
+            buffer.insert(inserted);
+            buffer.backspace();
+
+            assert_eq!(buffer.as_str(), after_backspace, "case {initial:?}");
+        }
+    }
+
+    #[test]
+    fn paste_resegments_cursor_before_backspace_removes_the_new_cluster() {
+        let mut buffer = ComposerBuffer::from("👨👩X");
+        buffer.move_left();
+        buffer.move_left();
+
+        buffer.paste("\u{200d}");
+        buffer.backspace();
+
+        assert_eq!(buffer.as_str(), "X");
     }
 
     #[test]

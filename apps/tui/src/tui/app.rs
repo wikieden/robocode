@@ -1036,6 +1036,97 @@ mod tests {
     }
 
     #[test]
+    fn modified_enter_does_not_complete_command_palette_or_interaction_filter() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "/con".into();
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT)),
+            (120, 40),
+        )
+        .expect("command palette modified enter");
+
+        assert_eq!(state.ui.input, "/con");
+        assert!(state.ui.interaction_panel.is_none());
+
+        state.ui.provider_catalog = crate::tui::state::ProviderOption::fixture();
+        state.ui.interaction_panel = Some(InteractionPanel::ConnectProvider {
+            search: "deep".to_string(),
+            selected: 0,
+        });
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT)),
+            (120, 40),
+        )
+        .expect("interaction modified enter");
+
+        assert!(matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::ConnectProvider { ref search, selected })
+                if search == "deep" && selected == 0
+        ));
+        assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
+    fn modified_enter_edits_approval_composer_without_resolving_approval() {
+        let mut view = RuntimeViewState::new(RuntimeSnapshot {
+            cwd: PathBuf::from("/workspace"),
+            provider_family: "fallback".to_string(),
+            model_label: "test-local".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: "fixture".to_string(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: Default::default(),
+        });
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/approval-allow-deny.json"
+        ))
+        .expect("approval fixture");
+        let envelope: RuntimeEventEnvelope =
+            serde_json::from_value(fixture["events"][0].clone()).expect("approval event");
+        if let viden_types::RuntimeWireEvent::Known(event) = envelope.event {
+            view.apply_event(&event);
+        }
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                view: Some(view),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        project_runtime_view(&mut state, driver.view(), driver.cursor());
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "explain".into();
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT)),
+            (120, 40),
+        )
+        .expect("approval modified enter");
+
+        assert_eq!(state.ui.input, "explain\n");
+        assert_eq!(driver.view().pending_approvals.len(), 1);
+        assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
     fn plain_enter_submits_a_closed_composer() {
         let client = FakeCoreClient::default();
         let sent = Arc::clone(&client.sent);
