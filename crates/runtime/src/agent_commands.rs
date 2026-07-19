@@ -4192,6 +4192,7 @@ fn acp_session_merge_gate(
         },
         conflict: None,
         applied_change_id: None,
+        recovery_snapshot: None,
         audit_ids: Vec::new(),
         updated_at: Some(now),
     }

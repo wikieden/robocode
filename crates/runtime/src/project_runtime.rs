@@ -212,8 +212,14 @@ impl SessionEngine {
 
     pub(crate) fn prepare_project_mutation_for_supervisor(
         &self,
+        envelope_owner: &viden_types::RuntimeOwner,
         command: &RuntimeCommand,
     ) -> Result<SupervisorProjectMutationPreparation, String> {
+        if let Some(command_actor) = supervised_command_actor(command)
+            && command_actor != envelope_owner
+        {
+            return Err("runtime command actor does not match envelope owner".to_string());
+        }
         let (action, preview) = match command {
             RuntimeCommand::ConfirmProjectConfig {
                 preview_id,
@@ -379,6 +385,22 @@ impl SessionEngine {
             return Err("project config preview is invalid".to_string());
         }
         Ok(())
+    }
+}
+
+fn supervised_command_actor(command: &RuntimeCommand) -> Option<&viden_types::RuntimeOwner> {
+    match command {
+        RuntimeCommand::CreateHandoff { owner, .. }
+        | RuntimeCommand::RequestReview { owner, .. }
+        | RuntimeCommand::ConfirmContract { owner, .. }
+        | RuntimeCommand::SetDependency { owner, .. }
+        | RuntimeCommand::BounceMergeConflict { owner, .. }
+        | RuntimeCommand::RevertAppliedChange { owner, .. } => Some(owner),
+        RuntimeCommand::AcceptMergeGate { actor, .. }
+        | RuntimeCommand::AcceptAgentArtifact { actor, .. }
+        | RuntimeCommand::MergeAgentPatch { actor, .. }
+        | RuntimeCommand::RevalidateMergeConflict { actor, .. } => Some(actor),
+        _ => None,
     }
 }
 

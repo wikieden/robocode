@@ -76,7 +76,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Agent workflow visibility | Mission Control board、workflow strip、plan/now/done/acceptance/blocked columns | `AgentDagRecord`、`AgentTaskRecord`、`EvidenceView`、`MergeGateRecord`、`RuntimeErrorView` | 现有 workflow/task/evidence/merge commands | 提案 |
 | ContextBundle | context panel、token pressure meter、omitted-source list | `ContextBundleRecord`、`ContextSourceRecord`、token budgets | 当前无直接 mutation；后续增加 context-policy commands | 部分落地 |
 | Evidence and merge gate | evidence center、diff/test/review checklist、merge gate card | `EvidenceView`、`MergeGateRecord` | `RecordAgentEvidence`、`AcceptMergeGate`、`RejectMergeGate`、`AcceptAgentArtifact`、`RejectAgentArtifact`、`MergeAgentPatch` | `0.2.3` reducer 第一刀已落地 |
-| 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevertAppliedChange` | 增量 `runtime.trust_loop` 候选 |
+| 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevalidateMergeConflict`、`RevertAppliedChange` | 增量 `runtime.trust_loop` 候选 |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.1` 增量候选 |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
@@ -193,11 +193,12 @@ secret bytes。
 - `status` 控制 action surface。
 - `gate_type`、`owner`、`validator` 与 `policy_snapshot` 保存 decision 使用的
   authority 和 policy。
-- `decision` 是包含 reason、owner、evidence ids、audit id 和 timestamp 的 typed
-  outcome。Schema-1 的旧 string decision 只作为 migration fact 读取；新写入不再
-  序列化 string。
-- `conflict`、`applied_change_id` 与 `audit_ids` 连接 bounce、apply 与 revert
-  recovery，前端不能自行推断。
+- `decision` 是包含 reason、实际 actor、精确 reviewed evidence id/hash 绑定、review
+  request id、audit id 和 timestamp 的 typed outcome。Schema-1 的旧 string decision
+  只作为 migration fact 读取；新写入不再序列化 string。
+- `conflict`、`applied_change_id`、`recovery_snapshot` 与 `audit_ids` 连接 bounce、
+  apply、跨重启 revert recovery 与 audit，前端不能自行推断。`recovery_snapshot`
+  只暴露安全 snapshot id 与 manifest hash；恢复 bytes 保留在 workflow 私有存储中。
 
 当前 `0.2.3` reducer 行为：
 
@@ -208,15 +209,20 @@ secret bytes。
   状态或 evidence id 后缀推断。
 - 缺少 required evidence 或只有 summary 时 gate 保持 `collecting_evidence`；只有已验证的
   canonical reference 能满足 required evidence。
+- Provider/assistant task output 始终只是展示用 `task_summary` evidence，即使内容包含
+  diff，或声称 hash、verification、test、permission 状态也不例外。Canonical evidence
+  必须绑定真实 ContextStore bytes 与 Core 签发的 permission receipt。
 - canonical evidence 全部满足后，基础 gate 可以进入 `accepted`。要求 independent review
-  的 gate 或 conflict 后重新验证的 gate，必须再次显式 typed accept 才能 merge。
+  的 gate 或 conflict 后重新验证的 gate，必须由指定 validator 对当前精确 evidence
+  id/hash 集再次显式 typed accept，之后才能 merge。
 - evidence 被 reject 后 gate 进入 `needs_changes`，并从 gate/task evidence 列表移除该
   evidence id。
 - `AcceptAgentArtifact` 只接受已记录的 evidence id。未知 evidence id 会被拒绝，前端不能
   把该命令当成隐式创建 evidence 的入口。
-- Trust-loop mutation 使用正常 supervisor approval flow。Merge 与 revert 在文件 effect
-  前写入 durable precommit；后续持久化或 apply 失败时恢复 bytes/state，并发出可恢复的
-  structured error。
+- Trust-loop mutation 使用正常 supervisor approval flow。Owner、dependency、decision、
+  receipt 与 canonical bytes 的纯 preflight 必须在 `ApprovalRequested` 前完成。Merge 在
+  文件 effect 前发布私有 content-addressed recovery snapshot 和 durable precommit；
+  revert 在 approval 前验证 snapshot 与当前 postimage，重启后同样适用。
 
 第一批一等 required evidence kind 是 `patch`、`test_result`、`review`、`doc_update`
 和 `release_artifact`。客户端可以显示其他 runtime kind，但 checklist 分组应优先覆盖这组

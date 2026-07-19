@@ -64,13 +64,15 @@ fixture 会在兼容性验证中失败；malformed 或 ambiguous legacy input �
 因此重放冻结的 0.3.0 corpus 仍保持已记录的 canonical bytes 与 digest。
 
 `runtime.trust_loop` 新增 typed handoff、review request、contract、dependency、
-merge-gate policy/validator/decision、conflict bounce 与 revert facts。六个新增跨 Lane
-command 及其 events 均经过权限门禁，并由共享 reducer 重放。Schema 仍为 `1`：新增
+merge-gate policy/validator/decision、conflict bounce 与 revert facts。七个新增跨 Lane
+command（含显式 `RevalidateMergeConflict`）及其 events 均经过权限门禁并由共享
+reducer 重放。Schema 仍为 `1`：新增
 record fields 提供默认值，未知字段可忽略；扩展前的 string merge decision 会读取为只读
-`legacy` decision，新写入则始终序列化 typed decision。只有 canonical evidence 能产生
-acceptance，展示摘要不能替代其引用的 evidence bytes。Merge 与 revert 在改动文件前先
-追加 workflow precommit；随后要么提交 typed facts，要么恢复 bytes/state 并发出可恢复的
-structured error。
+`legacy` decision，新写入则始终序列化 typed decision。只有绑定真实 ContextStore bytes
+与 Core 签发 permission receipt 的 evidence 才能产生 canonical acceptance；展示摘要不能
+替代 evidence。指定 validator 必须绑定精确 id/hash 集，且所有 trust 纯 preflight 在
+approval 前完成。Merge 在改动文件前持久化私有 content-addressed recovery snapshot 与
+workflow precommit，从而在不把 raw preimage 写入 event log 的前提下支持重启后 audited revert。
 
 Core 负责 Lane 权限判定，并在每个 Lane 命令前从当前 runtime mode 刷新权限状态。
 所有有副作用的命令都使用 permission check 与 effect executor 共享的 canonical worktree

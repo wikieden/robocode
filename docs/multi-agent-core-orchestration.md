@@ -58,11 +58,14 @@ Implementation checkpoint:
 - Landed trust-loop slice: handoff acceptance, review requests, contract
   confirmation, and dependency block/unblock are typed owner-bound facts.
   Merge gates carry typed policy, validator, decision, conflict, applied-change,
-  and audit fields. Summary-only evidence cannot pass. Conflicts bounce to the
-  originating lane, revalidated changes require explicit acceptance, and
-  applied changes support permission-gated audited revert. Trust mutations use
-  resumable supervisor approvals; merge/revert write a workflow precommit
-  before file effects and compensate bytes/state on later failure.
+  recovery-snapshot, and audit fields. Provider summaries are display-only;
+  canonical evidence binds real ContextStore bytes to a Core-issued permission
+  receipt. Independent validators accept the exact evidence id/hash set.
+  Conflicts bounce to the originating lane, and only that lane can submit a
+  changed receipt for explicit bounce-linked revalidation before a fresh
+  acceptance. Trust mutations complete pure preflight before approval;
+  merge/revert use a private content-addressed recovery snapshot and durable
+  precommit so audited revert remains available after restart.
 - Remaining: live LSP references enrichment for role-specific ContextBundle
   selection, release/publish Git rules, evidence collection reducers, richer
   patch formats such as rename/delete/binary and three-way conflict handling,
@@ -244,6 +247,7 @@ Proposed `RuntimeCommand` additions:
 | `ConfirmContract` | Record typed contract confirmation/rejection for a task. |
 | `SetDependency` | Persist deterministic dependency block/unblock state. |
 | `BounceMergeConflict` | Return a structured conflict to its originating lane. |
+| `RevalidateMergeConflict` | Bind a changed canonical receipt from the originating lane to the exact conflict bounce. |
 | `RevertAppliedChange` | Restore pre-apply bytes and record a typed audited revert. |
 
 Proposed `RuntimeEvent` additions:

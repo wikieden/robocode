@@ -95,24 +95,43 @@ impl SessionEngine {
                 validate_trust_id("task_id", task_id)?;
                 validate_trust_id("depends_on_task_id", depends_on_task_id)?;
                 validate_owner(owner, owner.lane_id.as_deref(), task_id)?;
+                self.validate_dependency_mutation(
+                    dependency_id,
+                    task_id,
+                    depends_on_task_id,
+                    *state,
+                )?;
                 (
                     "set_dependency",
                     format!("task={task_id} dependency={depends_on_task_id} state={state:?}"),
                 )
             }
-            viden_types::RuntimeCommand::AcceptMergeGate { gate_id, .. } => {
-                self.require_merge_gate_index(gate_id)?;
+            viden_types::RuntimeCommand::AcceptMergeGate {
+                gate_id,
+                actor,
+                reviewed_evidence,
+                ..
+            } => {
+                self.preflight_accept_merge_gate(gate_id, actor, reviewed_evidence)?;
                 ("accept_merge_gate", format!("gate={gate_id}"))
             }
             viden_types::RuntimeCommand::RejectMergeGate { gate_id, .. } => {
                 self.require_merge_gate_index(gate_id)?;
                 ("reject_merge_gate", format!("gate={gate_id}"))
             }
-            viden_types::RuntimeCommand::RecordAgentEvidence { gate_id, kind, .. } => {
-                self.require_merge_gate_index(gate_id)?;
-                if kind.trim().is_empty() {
-                    return Err("agent evidence kind cannot be empty".to_string());
-                }
+            viden_types::RuntimeCommand::RecordAgentEvidence {
+                gate_id,
+                evidence_id,
+                kind,
+                canonical,
+                ..
+            } => {
+                self.preflight_record_agent_evidence(
+                    gate_id,
+                    evidence_id.as_deref(),
+                    kind,
+                    canonical.as_ref(),
+                )?;
                 (
                     "record_agent_evidence",
                     format!("gate={gate_id} kind={}", kind.trim()),
@@ -121,19 +140,11 @@ impl SessionEngine {
             viden_types::RuntimeCommand::AcceptAgentArtifact {
                 gate_id,
                 evidence_id,
+                actor,
+                source_hash,
                 ..
             } => {
-                self.require_merge_gate_index(gate_id)?;
-                validate_trust_id("evidence_id", evidence_id)?;
-                if !self
-                    .runtime_evidence
-                    .iter()
-                    .any(|evidence| evidence.id == *evidence_id)
-                {
-                    return Err(format!(
-                        "agent artifact evidence `{evidence_id}` does not exist"
-                    ));
-                }
+                self.preflight_accept_agent_artifact(gate_id, evidence_id, actor, source_hash)?;
                 (
                     "accept_agent_artifact",
                     format!("gate={gate_id} evidence={evidence_id}"),
@@ -160,9 +171,21 @@ impl SessionEngine {
                     format!("gate={gate_id} evidence={evidence_id}"),
                 )
             }
-            viden_types::RuntimeCommand::MergeAgentPatch { gate_id, .. } => {
-                self.require_merge_gate_index(gate_id)?;
+            viden_types::RuntimeCommand::MergeAgentPatch { gate_id, actor, .. } => {
+                self.preflight_merge_agent_patch(gate_id, actor)?;
                 ("merge_agent_patch", format!("gate={gate_id}"))
+            }
+            viden_types::RuntimeCommand::RevalidateMergeConflict {
+                gate_id,
+                bounce_id,
+                actor,
+                evidence,
+            } => {
+                self.validate_conflict_revalidation(gate_id, bounce_id, actor, evidence)?;
+                (
+                    "revalidate_merge_conflict",
+                    format!("gate={gate_id} bounce={bounce_id}"),
+                )
             }
             viden_types::RuntimeCommand::BounceMergeConflict {
                 gate_id,
@@ -195,6 +218,16 @@ impl SessionEngine {
                     .ok_or_else(|| {
                         format!("merge gate `{gate_id}` is missing applied change identity")
                     })?;
+                if self.runtime_merge_gates[gate_index]
+                    .recovery_snapshot
+                    .is_some()
+                {
+                    self.load_recovery_rollbacks_for_gate(gate_index)?;
+                } else if !self.applied_change_rollbacks.contains_key(change_id) {
+                    return Err(format!(
+                        "applied change `{change_id}` has no recovery snapshot"
+                    ));
+                }
                 (
                     "revert_applied_change",
                     format!("gate={gate_id} change={change_id}"),
@@ -314,6 +347,9 @@ impl SessionEngine {
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
         validate_review_requester(&self.runtime_merge_gates[gate_index], &requester_lane_id)?;
         validate_owner(&owner, Some(&reviewer_lane_id), &task_id)?;
+        if evidence_ids.is_empty() {
+            return Err("review request requires canonical evidence bindings".to_string());
+        }
         for evidence_id in &evidence_ids {
             validate_trust_id("evidence_id", evidence_id)?;
             if !self
@@ -324,6 +360,8 @@ impl SessionEngine {
                 return Err(format!("review evidence `{evidence_id}` does not exist"));
             }
         }
+        let evidence_bindings =
+            self.validated_evidence_bindings_for_ids(gate_index, &evidence_ids)?;
         self.require_trust_permission(
             "request_review",
             &format!("gate={gate_id} reviewer={reviewer_lane_id}"),
@@ -340,6 +378,7 @@ impl SessionEngine {
             reviewer_lane_id,
             owner: owner.clone(),
             evidence_ids,
+            evidence_bindings,
             status: ReviewRequestStatus::Pending,
             audit_id: audit_id.clone(),
             updated_at: now,
@@ -353,6 +392,14 @@ impl SessionEngine {
             validated_at: None,
         });
         gate.policy_snapshot.requires_independent_validator = true;
+        gate.status = viden_types::MergeGateStatus::CollectingEvidence;
+        gate.decision = Some(merge_gate_decision(
+            MergeGateDecisionOutcome::AwaitingEvidence,
+            "independent_review_required".to_string(),
+            gate.owner.clone(),
+            gate.evidence_ids.clone(),
+            fresh_id("audit"),
+        ));
         gate.audit_ids.push(audit_id);
         gate.updated_at = Some(now);
         Ok(vec![
@@ -425,7 +472,7 @@ impl SessionEngine {
         validate_trust_id("task_id", &task_id)?;
         validate_trust_id("depends_on_task_id", &depends_on_task_id)?;
         validate_owner(&owner, owner.lane_id.as_deref(), &task_id)?;
-        self.require_runtime_task(&task_id)?;
+        self.validate_dependency_mutation(&dependency_id, &task_id, &depends_on_task_id, state)?;
         let reason = validate_trust_text("dependency reason", reason, 240)?;
         self.require_trust_permission(
             "set_dependency",
@@ -455,22 +502,91 @@ impl SessionEngine {
             .find(|task| task.id == task_id)
             .cloned()
         {
-            match state {
-                DependencyState::Blocked => {
-                    task.status = AgentTaskStatus::Blocked;
-                    task.activity = format!("dependency blocked: {reason}");
-                }
-                DependencyState::Unblocked if task.status == AgentTaskStatus::Blocked => {
-                    task.status = AgentTaskStatus::Queued;
-                    task.activity = format!("dependency unblocked: {reason}");
-                }
-                DependencyState::Unblocked => {}
+            if let Some(blocker) = self.blocking_dependency_for_task(&task_id) {
+                task.status = AgentTaskStatus::Blocked;
+                task.activity = format!("dependency blocked: {blocker}");
+            } else if task.status == AgentTaskStatus::Blocked {
+                task.status = AgentTaskStatus::Queued;
+                task.activity = format!("dependency unblocked: {reason}");
             }
             task.updated_at = Some(now.saturating_mul(1000));
             self.upsert_agent_task(task.clone());
             events.push(RuntimeEvent::new(2, RuntimeEventKind::TaskUpdated { task }));
         }
         Ok(events)
+    }
+
+    fn validate_dependency_mutation(
+        &self,
+        dependency_id: &str,
+        task_id: &str,
+        depends_on_task_id: &str,
+        state: DependencyState,
+    ) -> Result<(), String> {
+        self.require_runtime_task(task_id)?;
+        self.require_runtime_task(depends_on_task_id)
+            .map_err(|_| format!("dependency task `{depends_on_task_id}` does not exist"))?;
+        if task_id == depends_on_task_id {
+            return Err(format!("agent task `{task_id}` cannot depend on itself"));
+        }
+        if state == DependencyState::Unblocked {
+            return Ok(());
+        }
+
+        let mut edges = std::collections::BTreeMap::<String, Vec<String>>::new();
+        for dag in &self.runtime_agent_dags {
+            for task in &dag.tasks {
+                edges
+                    .entry(task.task_id.clone())
+                    .or_default()
+                    .extend(task.dependencies.iter().cloned());
+            }
+        }
+        for dependency in &self.runtime_dependencies {
+            if dependency.dependency_id != dependency_id
+                && dependency.state == DependencyState::Blocked
+            {
+                edges
+                    .entry(dependency.task_id.clone())
+                    .or_default()
+                    .push(dependency.depends_on_task_id.clone());
+            }
+        }
+        edges
+            .entry(task_id.to_string())
+            .or_default()
+            .push(depends_on_task_id.to_string());
+        if dependency_path_exists(&edges, depends_on_task_id, task_id) {
+            return Err(format!(
+                "dependency cycle would connect `{task_id}` and `{depends_on_task_id}`"
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn blocking_dependency_for_task(&self, task_id: &str) -> Option<String> {
+        let static_blocker = self.runtime_agent_dags.iter().find_map(|dag| {
+            let spec = dag.tasks.iter().find(|task| task.task_id == task_id)?;
+            spec.dependencies.iter().find_map(|dependency| {
+                let task = self
+                    .runtime_tasks
+                    .iter()
+                    .find(|task| task.id == *dependency)?;
+                (!matches!(
+                    task.status,
+                    AgentTaskStatus::Done | AgentTaskStatus::Applied | AgentTaskStatus::Archived
+                ))
+                .then(|| dependency.clone())
+            })
+        });
+        static_blocker.or_else(|| {
+            self.runtime_dependencies
+                .iter()
+                .find(|dependency| {
+                    dependency.task_id == task_id && dependency.state == DependencyState::Blocked
+                })
+                .map(|dependency| dependency.depends_on_task_id.clone())
+        })
     }
 
     pub(crate) fn bounce_merge_conflict<F>(
@@ -508,6 +624,12 @@ impl SessionEngine {
         let now = now_timestamp();
         let gate_id = self.runtime_merge_gates[gate_index].gate_id.clone();
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
+        let baseline_evidence = self
+            .validated_evidence_bindings_for_ids(
+                gate_index,
+                &self.runtime_merge_gates[gate_index].evidence_ids,
+            )
+            .unwrap_or_default();
         let audit_id = fresh_id("audit");
         let conflict = ConflictBounce {
             bounce_id: fresh_id("conflict"),
@@ -518,6 +640,8 @@ impl SessionEngine {
             reason: reason.clone(),
             status: ConflictBounceStatus::Pending,
             evidence_ids: self.runtime_merge_gates[gate_index].evidence_ids.clone(),
+            baseline_evidence,
+            revalidation_evidence: Vec::new(),
             audit_id: audit_id.clone(),
             created_at: now,
             revalidated_at: None,
@@ -565,17 +689,112 @@ impl SessionEngine {
         events
     }
 
-    pub(crate) fn mark_conflict_revalidated(
+    pub(crate) fn revalidate_merge_conflict<F>(
         &mut self,
-        gate_index: usize,
-    ) -> Option<ConflictBounce> {
+        gate_id: String,
+        bounce_id: String,
+        actor: RuntimeOwner,
+        evidence: viden_types::ReviewedEvidenceBinding,
+        approver: &mut F,
+    ) -> Result<Vec<RuntimeEvent>, String>
+    where
+        F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    {
+        let (gate_index, conflict) =
+            self.validate_conflict_revalidation(&gate_id, &bounce_id, &actor, &evidence)?;
+        self.require_trust_permission(
+            "revalidate_merge_conflict",
+            &format!("gate={gate_id} bounce={bounce_id}"),
+            approver,
+        )?;
+
         let now = now_timestamp();
-        let conflict = self.runtime_merge_gates[gate_index].conflict.as_mut()?;
+        let conflict = &mut self.runtime_conflict_bounces[conflict];
         conflict.status = ConflictBounceStatus::Revalidated;
         conflict.revalidated_at = Some(now);
+        conflict.revalidation_evidence = vec![evidence];
         let conflict = conflict.clone();
-        upsert_conflict(&mut self.runtime_conflict_bounces, conflict.clone());
-        Some(conflict)
+        let gate = &mut self.runtime_merge_gates[gate_index];
+        gate.conflict = Some(conflict.clone());
+        gate.status = viden_types::MergeGateStatus::CollectingEvidence;
+        gate.decision = Some(merge_gate_decision(
+            MergeGateDecisionOutcome::AwaitingEvidence,
+            "revalidated_conflict_requires_review".to_string(),
+            actor,
+            gate.evidence_ids.clone(),
+            fresh_id("audit"),
+        ));
+        gate.updated_at = Some(now);
+        Ok(vec![
+            RuntimeEvent::new(
+                1,
+                RuntimeEventKind::MergeConflictBounced {
+                    conflict: conflict.clone(),
+                },
+            ),
+            RuntimeEvent::new(2, RuntimeEventKind::MergeGateUpdated { gate: gate.clone() }),
+        ])
+    }
+
+    fn validate_conflict_revalidation(
+        &self,
+        gate_id: &str,
+        bounce_id: &str,
+        actor: &RuntimeOwner,
+        evidence: &viden_types::ReviewedEvidenceBinding,
+    ) -> Result<(usize, usize), String> {
+        validate_trust_id("gate_id", gate_id)?;
+        validate_trust_id("bounce_id", bounce_id)?;
+        validate_trust_id("evidence_id", &evidence.evidence_id)?;
+        let gate_index = self.require_merge_gate_index(gate_id)?;
+        let gate = &self.runtime_merge_gates[gate_index];
+        validate_owner(actor, actor.lane_id.as_deref(), &gate.task_id)?;
+        let gate_conflict = gate
+            .conflict
+            .as_ref()
+            .ok_or_else(|| format!("merge gate `{gate_id}` has no conflict to revalidate"))?;
+        if gate_conflict.bounce_id != bounce_id {
+            return Err("merge conflict bounce identity mismatch".to_string());
+        }
+        if gate_conflict.status != ConflictBounceStatus::Pending {
+            return Err("merge conflict is not pending revalidation".to_string());
+        }
+        if actor.lane_id.as_deref() != Some(gate_conflict.original_lane_id.as_str())
+            || actor != &gate_conflict.owner
+        {
+            return Err("merge conflict revalidation must come from the origin lane".to_string());
+        }
+        let current = self.validated_evidence_bindings_for_ids(
+            gate_index,
+            std::slice::from_ref(&evidence.evidence_id),
+        )?;
+        if current.as_slice() != std::slice::from_ref(evidence) {
+            return Err("merge conflict evidence hash does not match canonical bytes".to_string());
+        }
+        if gate_conflict
+            .baseline_evidence
+            .iter()
+            .any(|baseline| baseline.source_hash == evidence.source_hash)
+        {
+            return Err(
+                "merge conflict revalidation requires a changed canonical receipt".to_string(),
+            );
+        }
+        let stored = self
+            .runtime_evidence
+            .iter()
+            .find(|stored| stored.id == evidence.evidence_id)
+            .and_then(|stored| stored.canonical.as_ref())
+            .ok_or_else(|| "merge conflict evidence is not canonical".to_string())?;
+        if stored.producer.identity != gate_conflict.original_lane_id {
+            return Err("merge conflict evidence producer is not the origin lane".to_string());
+        }
+        let conflict_index = self
+            .runtime_conflict_bounces
+            .iter()
+            .position(|conflict| conflict.bounce_id == bounce_id)
+            .ok_or_else(|| "merge conflict bounce fact does not exist".to_string())?;
+        Ok((gate_index, conflict_index))
     }
 
     pub(crate) fn mark_conflict_resolved(&mut self, gate_index: usize) -> Option<ConflictBounce> {
@@ -609,13 +828,19 @@ impl SessionEngine {
             .applied_change_id
             .clone()
             .ok_or_else(|| format!("merge gate `{gate_id}` is missing applied change identity"))?;
-        let original = self
-            .applied_change_rollbacks
-            .get(&applied_change_id)
-            .cloned()
-            .ok_or_else(|| {
-                format!("applied change `{applied_change_id}` has no local recovery snapshot")
-            })?;
+        let original = if self.runtime_merge_gates[gate_index]
+            .recovery_snapshot
+            .is_some()
+        {
+            self.load_recovery_rollbacks_for_gate(gate_index)?
+        } else {
+            self.applied_change_rollbacks
+                .get(&applied_change_id)
+                .cloned()
+                .ok_or_else(|| {
+                    format!("applied change `{applied_change_id}` has no recovery snapshot")
+                })?
+        };
         let reason = validate_trust_text("revert reason", reason, 500)?;
         self.require_trust_permission(
             "revert_applied_change",
@@ -730,6 +955,8 @@ pub(crate) fn merge_gate_decision(
         reason,
         owner,
         evidence_ids,
+        reviewed_evidence: Vec::new(),
+        review_request_id: None,
         audit_id,
         decided_at: now_timestamp(),
     }
@@ -809,6 +1036,27 @@ fn ensure_unique(exists: bool, kind: &str, id: &str) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+fn dependency_path_exists(
+    edges: &std::collections::BTreeMap<String, Vec<String>>,
+    start: &str,
+    target: &str,
+) -> bool {
+    let mut pending = vec![start];
+    let mut visited = std::collections::BTreeSet::new();
+    while let Some(node) = pending.pop() {
+        if node == target {
+            return true;
+        }
+        if !visited.insert(node) {
+            continue;
+        }
+        if let Some(dependencies) = edges.get(node) {
+            pending.extend(dependencies.iter().map(String::as_str));
+        }
+    }
+    false
 }
 
 fn upsert_dependency(records: &mut Vec<DependencyRecord>, record: DependencyRecord) {

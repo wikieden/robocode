@@ -8,8 +8,8 @@ use crate::{
     DependencyRecord, DependencyState, EvidenceCanonicalizationRecord, EvidenceId,
     HandoffAcceptance, HandoffRecord, MergeGateId, MergeGateRecord, MessageId, PermissionLevel,
     ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord, RevertRecord,
-    ReviewRequestRecord, RuntimeOwner, RuntimeSnapshot, ToolCallId, TranscriptPage,
-    TranscriptPageRequest, WorkMode, now_timestamp,
+    ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot, ToolCallId,
+    TranscriptPage, TranscriptPageRequest, WorkMode, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -165,6 +165,10 @@ pub enum RuntimeCommand {
     },
     AcceptMergeGate {
         gate_id: MergeGateId,
+        #[serde(default)]
+        actor: RuntimeOwner,
+        #[serde(default)]
+        reviewed_evidence: Vec<ReviewedEvidenceBinding>,
         decision: Option<String>,
     },
     RejectMergeGate {
@@ -184,6 +188,10 @@ pub enum RuntimeCommand {
     AcceptAgentArtifact {
         gate_id: MergeGateId,
         evidence_id: EvidenceId,
+        #[serde(default)]
+        actor: RuntimeOwner,
+        #[serde(default)]
+        source_hash: String,
         decision: Option<String>,
     },
     RejectAgentArtifact {
@@ -193,7 +201,15 @@ pub enum RuntimeCommand {
     },
     MergeAgentPatch {
         gate_id: MergeGateId,
+        #[serde(default)]
+        actor: RuntimeOwner,
         decision: Option<String>,
+    },
+    RevalidateMergeConflict {
+        gate_id: MergeGateId,
+        bounce_id: String,
+        actor: RuntimeOwner,
+        evidence: ReviewedEvidenceBinding,
     },
     BounceMergeConflict {
         gate_id: MergeGateId,

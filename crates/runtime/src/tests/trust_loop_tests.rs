@@ -6,8 +6,8 @@ use viden_types::{
     AgentDagTaskSpec, AgentRole, ApprovalResponse, CanonicalEvidenceReference,
     ConflictBounceStatus, ContextContentKind, ContextScope, ContractDecision, DependencyState,
     EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
-    HandoffAcceptance, MergeGateDecisionOutcome, MergeGateStatus, RuntimeCommand, RuntimeEvent,
-    RuntimeEventKind, RuntimeOwner, RuntimeViewState,
+    HandoffAcceptance, MergeGateDecisionOutcome, MergeGateStatus, ReviewedEvidenceBinding,
+    RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeViewState,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -54,6 +54,36 @@ fn start_gate(
         .unwrap()
 }
 
+fn start_dependency_tasks(
+    engine: &mut SessionEngine,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+) {
+    engine
+        .handle_runtime_command(
+            "start-dependency-tasks",
+            RuntimeCommand::StartAgentDag {
+                goal: "dynamic dependency aggregation".to_string(),
+                tasks: ["task-a", "task-b", "task-c"]
+                    .into_iter()
+                    .map(|task_id| AgentDagTaskSpec {
+                        task_id: task_id.to_string(),
+                        role: AgentRole::Coder,
+                        title: task_id.to_string(),
+                        objective: format!("execute {task_id}"),
+                        dependencies: Vec::new(),
+                        workspace: None,
+                        file_scope: vec!["src".to_string()],
+                        context_bundle_id: None,
+                        required_evidence: vec!["patch".to_string()],
+                        permission_policy: "scoped_mutation".to_string(),
+                    })
+                    .collect(),
+            },
+            approver,
+        )
+        .unwrap();
+}
+
 #[test]
 fn trust_loop_cross_lane_records_preserve_owner_and_dependency_state_through_replay() {
     let cwd = temp_dir("trust_loop_cross_lane_records_cwd");
@@ -72,6 +102,12 @@ fn trust_loop_cross_lane_records_preserve_owner_and_dependency_state_through_rep
         task_id,
         vec!["patch".to_string()],
     );
+    events.extend(start_gate(
+        &mut engine,
+        &mut approver,
+        "task-contract",
+        vec!["review".to_string()],
+    ));
 
     let handoff_events = engine
         .handle_runtime_command(
@@ -120,6 +156,13 @@ fn trust_loop_cross_lane_records_preserve_owner_and_dependency_state_through_rep
             if gate.owner == owner("lane-docs", task_id)
     )));
     events.extend(rejected_handoff);
+    let review_binding = record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut approver,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    );
 
     for (command_id, command) in [
         (
@@ -130,7 +173,7 @@ fn trust_loop_cross_lane_records_preserve_owner_and_dependency_state_through_rep
                 requester_lane_id: "lane-coder".to_string(),
                 reviewer_lane_id: "lane-reviewer".to_string(),
                 owner: owner("lane-reviewer", task_id),
-                evidence_ids: Vec::new(),
+                evidence_ids: vec![review_binding.evidence_id],
             },
         ),
         (
@@ -196,6 +239,168 @@ fn trust_loop_cross_lane_records_preserve_owner_and_dependency_state_through_rep
 }
 
 #[test]
+fn trust_loop_dynamic_dependencies_reject_invalid_edges_before_permission() {
+    let cwd = temp_dir("trust_loop_invalid_dependency_cwd");
+    let home = temp_dir("trust_loop_invalid_dependency_home");
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    start_dependency_tasks(&mut engine, &mut allow);
+
+    for (command_id, target, expected) in [
+        ("missing-dependency", "task-missing", "does not exist"),
+        ("self-dependency", "task-a", "cannot depend on itself"),
+    ] {
+        let mut approval_calls = 0;
+        let events = engine
+            .handle_runtime_command(
+                command_id,
+                RuntimeCommand::SetDependency {
+                    dependency_id: command_id.to_string(),
+                    task_id: "task-a".to_string(),
+                    depends_on_task_id: target.to_string(),
+                    owner: owner("lane-a", "task-a"),
+                    state: DependencyState::Blocked,
+                    reason: "invalid edge".to_string(),
+                },
+                &mut |_prompt| {
+                    approval_calls += 1;
+                    ApprovalResponse::allow_once(None)
+                },
+            )
+            .unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { reason, .. } if reason.contains(expected)
+        )));
+        assert_eq!(approval_calls, 0);
+    }
+
+    engine
+        .handle_runtime_command(
+            "dependency-b-a",
+            RuntimeCommand::SetDependency {
+                dependency_id: "dependency-b-a".to_string(),
+                task_id: "task-b".to_string(),
+                depends_on_task_id: "task-a".to_string(),
+                owner: owner("lane-b", "task-b"),
+                state: DependencyState::Blocked,
+                reason: "B waits for A".to_string(),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    let cycle = engine
+        .handle_runtime_command(
+            "dependency-a-b",
+            RuntimeCommand::SetDependency {
+                dependency_id: "dependency-a-b".to_string(),
+                task_id: "task-a".to_string(),
+                depends_on_task_id: "task-b".to_string(),
+                owner: owner("lane-a", "task-a"),
+                state: DependencyState::Blocked,
+                reason: "A cannot wait for B".to_string(),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    assert!(cycle.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("dependency cycle")
+    )));
+}
+
+#[test]
+fn trust_loop_dynamic_dependencies_block_start_and_unblock_in_aggregate() {
+    let cwd = temp_dir("trust_loop_dependency_aggregate_cwd");
+    let home = temp_dir("trust_loop_dependency_aggregate_home");
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    start_dependency_tasks(&mut engine, &mut allow);
+    for (id, target) in [("dependency-a-b", "task-b"), ("dependency-a-c", "task-c")] {
+        engine
+            .handle_runtime_command(
+                format!("block-{id}"),
+                RuntimeCommand::SetDependency {
+                    dependency_id: id.to_string(),
+                    task_id: "task-a".to_string(),
+                    depends_on_task_id: target.to_string(),
+                    owner: owner("lane-a", "task-a"),
+                    state: DependencyState::Blocked,
+                    reason: format!("wait for {target}"),
+                },
+                &mut allow,
+            )
+            .unwrap();
+    }
+
+    engine
+        .handle_runtime_command(
+            "start-blocked-a",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task-a".to_string(),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    assert_eq!(
+        engine
+            .runtime_view_state()
+            .tasks
+            .iter()
+            .find(|task| task.id == "task-a")
+            .unwrap()
+            .status,
+        viden_types::AgentTaskStatus::Blocked
+    );
+
+    for (index, (id, target)) in [("dependency-a-b", "task-b"), ("dependency-a-c", "task-c")]
+        .into_iter()
+        .enumerate()
+    {
+        engine
+            .handle_runtime_command(
+                format!("unblock-{id}"),
+                RuntimeCommand::SetDependency {
+                    dependency_id: id.to_string(),
+                    task_id: "task-a".to_string(),
+                    depends_on_task_id: target.to_string(),
+                    owner: owner("lane-a", "task-a"),
+                    state: DependencyState::Unblocked,
+                    reason: format!("{target} ready"),
+                },
+                &mut allow,
+            )
+            .unwrap();
+        let status = engine
+            .runtime_view_state()
+            .tasks
+            .iter()
+            .find(|task| task.id == "task-a")
+            .unwrap()
+            .status;
+        assert_eq!(
+            status,
+            if index == 0 {
+                viden_types::AgentTaskStatus::Blocked
+            } else {
+                viden_types::AgentTaskStatus::Queued
+            }
+        );
+    }
+}
+
+#[test]
 fn trust_loop_summary_only_evidence_never_produces_typed_acceptance() {
     let cwd = temp_dir("trust_loop_summary_only_cwd");
     let home = temp_dir("trust_loop_summary_only_home");
@@ -243,6 +448,8 @@ fn trust_loop_summary_only_evidence_never_produces_typed_acceptance() {
             "accept-summary-only",
             RuntimeCommand::AcceptMergeGate {
                 gate_id: format!("gate-{task_id}"),
+                actor: RuntimeOwner::default(),
+                reviewed_evidence: Vec::new(),
                 decision: Some("summary is sufficient".to_string()),
             },
             &mut approver,
@@ -260,6 +467,576 @@ fn trust_loop_summary_only_evidence_never_produces_typed_acceptance() {
             .map(|decision| decision.outcome),
         Some(MergeGateDecisionOutcome::Accepted)
     );
+}
+
+#[test]
+fn trust_loop_canonical_artifact_uses_core_permission_receipt_not_claimed_status() {
+    let cwd = temp_dir("trust_loop_core_receipt_cwd");
+    let home = temp_dir("trust_loop_core_receipt_home");
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    let task_id = "task-core-receipt";
+    start_gate(&mut engine, &mut allow, task_id, vec!["patch".to_string()]);
+    record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    );
+
+    let canonical = engine.runtime_view_state().latest_evidence[0]
+        .canonical
+        .clone()
+        .expect("artifact bytes should receive a canonical reference");
+    assert!(
+        canonical
+            .permission_snapshot_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with("permission-receipt"))
+    );
+    assert_eq!(canonical.verification, EvidenceVerificationState::Verified);
+    assert_eq!(canonical.quality.status, EvidenceQualityStatus::Pass);
+}
+
+#[test]
+fn trust_loop_merge_rejects_stale_canonical_bytes_before_permission() {
+    let cwd = temp_dir("trust_loop_merge_preflight_cwd");
+    let home = temp_dir("trust_loop_merge_preflight_home");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    fs::write(cwd.join("src/lib.rs"), "old\n").unwrap();
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    let task_id = "task-merge-preflight";
+    start_gate(&mut engine, &mut allow, task_id, vec!["patch".to_string()]);
+    let binding = record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    );
+    let merge_actor = engine.runtime_view_state().merge_gates[0].owner.clone();
+    engine
+        .handle_runtime_command(
+            "accept-merge-preflight",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor: merge_actor.clone(),
+                reviewed_evidence: vec![binding.clone()],
+                decision: Some("accept exact patch".to_string()),
+            },
+            &mut allow,
+        )
+        .unwrap();
+
+    let blob_path = cwd
+        .join(".viden/context-engine/blobs")
+        .join(&binding.source_hash[..2])
+        .join(&binding.source_hash);
+    fs::write(blob_path, b"tampered").unwrap();
+    let mut approval_calls = 0;
+    let events = engine
+        .handle_runtime_command(
+            "merge-stale-canonical",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: format!("gate-{task_id}"),
+                actor: merge_actor,
+                decision: Some("must not merge stale bytes".to_string()),
+            },
+            &mut |_prompt| {
+                approval_calls += 1;
+                ApprovalResponse::allow_once(None)
+            },
+        )
+        .unwrap();
+
+    assert!(
+        events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { reason, .. }
+                if reason.contains("canonical") || reason.contains("hash")
+        )),
+        "unexpected events: {events:#?}"
+    );
+    assert_eq!(approval_calls, 0);
+    assert_eq!(
+        engine.runtime_view_state().merge_gates[0].status,
+        MergeGateStatus::Accepted
+    );
+    assert_eq!(fs::read_to_string(cwd.join("src/lib.rs")).unwrap(), "old\n");
+}
+
+#[test]
+fn trust_loop_restart_revert_uses_durable_recovery_snapshot() {
+    let cwd = temp_dir("trust_loop_restart_recovery_cwd");
+    let home = temp_dir("trust_loop_restart_recovery_home");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    let private_preimage = "private-preimage-42\n";
+    fs::write(cwd.join("src/lib.rs"), private_preimage).unwrap();
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let session_id = engine.session_id().to_string();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    let task_id = "task-restart-recovery";
+    start_gate(&mut engine, &mut allow, task_id, vec!["patch".to_string()]);
+    let binding = record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-private-preimage-42\n+new\n",
+    );
+    let actor = engine.runtime_view_state().merge_gates[0].owner.clone();
+    engine
+        .handle_runtime_command(
+            "accept-restart-recovery",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor: actor.clone(),
+                reviewed_evidence: vec![binding],
+                decision: Some("accept durable patch".to_string()),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    engine
+        .handle_runtime_command(
+            "merge-restart-recovery",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: format!("gate-{task_id}"),
+                actor: actor.clone(),
+                decision: Some("merge with durable rollback".to_string()),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    let merged_gate = engine.runtime_view_state().merge_gates[0].clone();
+    assert_eq!(merged_gate.status, MergeGateStatus::Merged);
+    assert!(merged_gate.recovery_snapshot.is_some());
+    assert_eq!(fs::read_to_string(cwd.join("src/lib.rs")).unwrap(), "new\n");
+    let workflow_log = fs::read_to_string(
+        WorkflowStore::new(&home, &cwd)
+            .unwrap()
+            .paths()
+            .agent_log
+            .clone(),
+    )
+    .unwrap();
+    assert!(!workflow_log.contains(private_preimage));
+    drop(engine);
+
+    let mut resumed = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    resumed
+        .process_input_with_approval(&format!("/resume {session_id}"), &mut allow)
+        .unwrap();
+    let reverted = resumed
+        .handle_runtime_command(
+            "revert-after-restart",
+            RuntimeCommand::RevertAppliedChange {
+                gate_id: format!("gate-{task_id}"),
+                owner: owner("lane-origin", task_id),
+                reason: "restart verification failed".to_string(),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    assert!(
+        reverted.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::MergeGateUpdated { gate }
+                if gate.status == MergeGateStatus::Reverted
+        )),
+        "unexpected revert events: {reverted:#?}"
+    );
+    assert_eq!(
+        fs::read_to_string(cwd.join("src/lib.rs")).unwrap(),
+        private_preimage
+    );
+}
+
+#[test]
+fn trust_loop_accept_requires_validator_actor_and_exact_reviewed_hashes() {
+    let cwd = temp_dir("trust_loop_exact_reviewer_binding_cwd");
+    let home = temp_dir("trust_loop_exact_reviewer_binding_home");
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    let task_id = "task-exact-review";
+    start_gate(&mut engine, &mut allow, task_id, vec!["patch".to_string()]);
+    engine
+        .handle_runtime_command(
+            "handoff-exact-review",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-exact-review".to_string(),
+                task_id: task_id.to_string(),
+                from_lane_id: "lane-planner".to_string(),
+                to_lane_id: "lane-origin".to_string(),
+                owner: owner("lane-origin", task_id),
+                summary: "origin owns reviewed patch".to_string(),
+                acceptance: HandoffAcceptance::Accepted,
+            },
+            &mut allow,
+        )
+        .unwrap();
+    let first = record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+first\n",
+    );
+    engine
+        .handle_runtime_command(
+            "request-exact-review",
+            RuntimeCommand::RequestReview {
+                review_id: "review-exact".to_string(),
+                gate_id: format!("gate-{task_id}"),
+                requester_lane_id: "lane-origin".to_string(),
+                reviewer_lane_id: "lane-reviewer".to_string(),
+                owner: owner("lane-reviewer", task_id),
+                evidence_ids: vec![first.evidence_id.clone()],
+            },
+            &mut allow,
+        )
+        .unwrap();
+
+    let mut approval_calls = 0;
+    let wrong_actor = engine
+        .handle_runtime_command(
+            "wrong-reviewer",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-intruder", task_id),
+                reviewed_evidence: vec![first.clone()],
+                decision: Some("intruder cannot approve".to_string()),
+            },
+            &mut |_prompt| {
+                approval_calls += 1;
+                ApprovalResponse::allow_once(None)
+            },
+        )
+        .unwrap();
+    assert!(wrong_actor.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("validator owner")
+    )));
+    assert_eq!(approval_calls, 0);
+
+    let second = record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+second\n",
+    );
+    assert_ne!(first.source_hash, second.source_hash);
+    let drifted = engine
+        .handle_runtime_command(
+            "drifted-review",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-reviewer", task_id),
+                reviewed_evidence: vec![first],
+                decision: Some("old reviewed bytes cannot approve new patch".to_string()),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    assert!(drifted.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("reviewed evidence changed")
+    )));
+    let view = engine.runtime_view_state();
+    assert_eq!(
+        view.review_requests[0].status,
+        viden_types::ReviewRequestStatus::Pending
+    );
+    assert_eq!(
+        view.review_requests[0].evidence_ids,
+        vec![second.evidence_id]
+    );
+    assert_ne!(view.merge_gates[0].status, MergeGateStatus::Accepted);
+}
+
+#[test]
+fn trust_loop_artifact_shortcut_cannot_bypass_independent_review_policy() {
+    let cwd = temp_dir("trust_loop_artifact_policy_cwd");
+    let home = temp_dir("trust_loop_artifact_policy_home");
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    let task_id = "task-artifact-policy";
+    start_gate(&mut engine, &mut allow, task_id, vec!["patch".to_string()]);
+    engine
+        .handle_runtime_command(
+            "handoff-artifact-policy",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-artifact-policy".to_string(),
+                task_id: task_id.to_string(),
+                from_lane_id: "lane-planner".to_string(),
+                to_lane_id: "lane-origin".to_string(),
+                owner: owner("lane-origin", task_id),
+                summary: "origin owns artifact".to_string(),
+                acceptance: HandoffAcceptance::Accepted,
+            },
+            &mut allow,
+        )
+        .unwrap();
+    let binding = record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    );
+    engine
+        .handle_runtime_command(
+            "request-artifact-review",
+            RuntimeCommand::RequestReview {
+                review_id: "review-artifact-policy".to_string(),
+                gate_id: format!("gate-{task_id}"),
+                requester_lane_id: "lane-origin".to_string(),
+                reviewer_lane_id: "lane-reviewer".to_string(),
+                owner: owner("lane-reviewer", task_id),
+                evidence_ids: vec![binding.evidence_id.clone()],
+            },
+            &mut allow,
+        )
+        .unwrap();
+
+    let mut approval_calls = 0;
+    let events = engine
+        .handle_runtime_command(
+            "artifact-shortcut",
+            RuntimeCommand::AcceptAgentArtifact {
+                gate_id: format!("gate-{task_id}"),
+                evidence_id: binding.evidence_id,
+                actor: owner("lane-reviewer", task_id),
+                source_hash: binding.source_hash,
+                decision: Some("legacy artifact shortcut".to_string()),
+            },
+            &mut |_prompt| {
+                approval_calls += 1;
+                ApprovalResponse::allow_once(None)
+            },
+        )
+        .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("independent review")
+    )));
+    assert_eq!(approval_calls, 0);
+    assert_ne!(
+        engine.runtime_view_state().merge_gates[0].status,
+        MergeGateStatus::Accepted
+    );
+}
+
+#[test]
+fn trust_loop_conflict_revalidation_requires_origin_lane_and_changed_receipt() {
+    let cwd = temp_dir("trust_loop_origin_revalidation_cwd");
+    let home = temp_dir("trust_loop_origin_revalidation_home");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    fs::write(cwd.join("src/lib.rs"), "current\n").unwrap();
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    let task_id = "task-origin-revalidation";
+    start_gate(&mut engine, &mut allow, task_id, vec!["patch".to_string()]);
+    engine
+        .handle_runtime_command(
+            "handoff-origin-revalidation",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-origin-revalidation".to_string(),
+                task_id: task_id.to_string(),
+                from_lane_id: "lane-planner".to_string(),
+                to_lane_id: "lane-origin".to_string(),
+                owner: owner("lane-origin", task_id),
+                summary: "origin owns recovery".to_string(),
+                acceptance: HandoffAcceptance::Accepted,
+            },
+            &mut allow,
+        )
+        .unwrap();
+    let original = record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+merged\n",
+    );
+    engine
+        .handle_runtime_command(
+            "request-origin-review",
+            RuntimeCommand::RequestReview {
+                review_id: "review-origin-1".to_string(),
+                gate_id: format!("gate-{task_id}"),
+                requester_lane_id: "lane-origin".to_string(),
+                reviewer_lane_id: "lane-reviewer".to_string(),
+                owner: owner("lane-reviewer", task_id),
+                evidence_ids: vec![original.evidence_id.clone()],
+            },
+            &mut allow,
+        )
+        .unwrap();
+    engine
+        .handle_runtime_command(
+            "accept-origin-review",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-reviewer", task_id),
+                reviewed_evidence: vec![original.clone()],
+                decision: Some("review exact original patch".to_string()),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    engine
+        .handle_runtime_command(
+            "merge-origin-conflict",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-origin", task_id),
+                decision: Some("apply reviewed original patch".to_string()),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    let pending = engine.runtime_view_state().merge_gates[0]
+        .conflict
+        .clone()
+        .expect("merge mismatch must create a conflict bounce");
+    assert_eq!(pending.status, ConflictBounceStatus::Pending);
+
+    let immediate = engine
+        .handle_runtime_command(
+            "accept-pending-conflict",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-reviewer", task_id),
+                reviewed_evidence: vec![original.clone()],
+                decision: Some("cannot accept pending conflict".to_string()),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    assert!(immediate.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("pending conflict")
+    )));
+
+    let unchanged = record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+merged\n",
+    );
+    assert_eq!(unchanged.source_hash, original.source_hash);
+    assert_eq!(
+        engine.runtime_view_state().merge_gates[0]
+            .conflict
+            .as_ref()
+            .map(|conflict| conflict.status),
+        Some(ConflictBounceStatus::Pending)
+    );
+    let unchanged_revalidation = engine
+        .handle_runtime_command(
+            "unchanged-revalidation",
+            RuntimeCommand::RevalidateMergeConflict {
+                gate_id: format!("gate-{task_id}"),
+                bounce_id: pending.bounce_id.clone(),
+                actor: owner("lane-origin", task_id),
+                evidence: unchanged,
+            },
+            &mut allow,
+        )
+        .unwrap();
+    assert!(unchanged_revalidation.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("changed canonical receipt")
+    )));
+
+    let changed = record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-current\n+merged\n",
+    );
+    assert_ne!(changed.source_hash, original.source_hash);
+    let wrong_lane = engine
+        .handle_runtime_command(
+            "wrong-lane-revalidation",
+            RuntimeCommand::RevalidateMergeConflict {
+                gate_id: format!("gate-{task_id}"),
+                bounce_id: pending.bounce_id.clone(),
+                actor: owner("lane-intruder", task_id),
+                evidence: changed.clone(),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    assert!(wrong_lane.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("origin lane")
+    )));
+    let revalidated = engine
+        .handle_runtime_command(
+            "origin-revalidation",
+            RuntimeCommand::RevalidateMergeConflict {
+                gate_id: format!("gate-{task_id}"),
+                bounce_id: pending.bounce_id,
+                actor: owner("lane-origin", task_id),
+                evidence: changed.clone(),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    assert!(revalidated.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::MergeConflictBounced { conflict }
+            if conflict.status == ConflictBounceStatus::Revalidated
+                && conflict.revalidation_evidence == vec![changed.clone()]
+    )));
 }
 
 #[test]
@@ -297,6 +1074,8 @@ fn trust_loop_conflict_bounces_to_origin_then_revalidates_merges_and_reverts() {
             &mut approver,
         )
         .unwrap();
+    let patch = b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+merged\n";
+    let original = record_canonical_patch(&cwd, &mut engine, &mut approver, task_id, patch);
     engine
         .handle_runtime_command(
             "review-conflict",
@@ -306,13 +1085,11 @@ fn trust_loop_conflict_bounces_to_origin_then_revalidates_merges_and_reverts() {
                 requester_lane_id: "lane-origin".to_string(),
                 reviewer_lane_id: "lane-reviewer".to_string(),
                 owner: owner("lane-reviewer", task_id),
-                evidence_ids: Vec::new(),
+                evidence_ids: vec![original.evidence_id.clone()],
             },
             &mut approver,
         )
         .unwrap();
-    let patch = b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+merged\n";
-    record_canonical_patch(&cwd, &mut engine, &mut approver, task_id, patch);
     let pending_review = engine.runtime_view_state().merge_gates[0].clone();
     assert_eq!(pending_review.status, MergeGateStatus::CollectingEvidence);
     assert!(pending_review.decision.as_ref().is_some_and(|decision| {
@@ -324,6 +1101,8 @@ fn trust_loop_conflict_bounces_to_origin_then_revalidates_merges_and_reverts() {
             "accept-before-conflict",
             RuntimeCommand::AcceptMergeGate {
                 gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-reviewer", task_id),
+                reviewed_evidence: vec![original.clone()],
                 decision: Some("independent reviewer accepted initial patch".to_string()),
             },
             &mut approver,
@@ -335,6 +1114,7 @@ fn trust_loop_conflict_bounces_to_origin_then_revalidates_merges_and_reverts() {
             "merge-conflict",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-origin", task_id),
                 decision: Some("apply reviewed patch".to_string()),
             },
             &mut approver,
@@ -350,20 +1130,53 @@ fn trust_loop_conflict_bounces_to_origin_then_revalidates_merges_and_reverts() {
         fs::read_to_string(cwd.join("src/lib.rs")).unwrap(),
         "current\n"
     );
+    let pending = engine.runtime_view_state().merge_gates[0]
+        .conflict
+        .clone()
+        .expect("conflict bounce should be durable");
 
     fs::write(cwd.join("src/lib.rs"), "old\n").unwrap();
-    record_canonical_patch(&cwd, &mut engine, &mut approver, task_id, patch);
+    let revised_patch = b"diff --git a/src/lib.rs b/src/lib.rs\nindex 1111111..2222222 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+merged\n";
+    let revised = record_canonical_patch(&cwd, &mut engine, &mut approver, task_id, revised_patch);
+    engine
+        .handle_runtime_command(
+            "revalidate-conflict",
+            RuntimeCommand::RevalidateMergeConflict {
+                gate_id: format!("gate-{task_id}"),
+                bounce_id: pending.bounce_id,
+                actor: owner("lane-origin", task_id),
+                evidence: revised.clone(),
+            },
+            &mut approver,
+        )
+        .unwrap();
     let gate = engine.runtime_view_state().merge_gates[0].clone();
     assert_eq!(
         gate.conflict.as_ref().map(|conflict| conflict.status),
         Some(ConflictBounceStatus::Revalidated)
     );
+    engine
+        .handle_runtime_command(
+            "review-revalidated-conflict",
+            RuntimeCommand::RequestReview {
+                review_id: "review-conflict-2".to_string(),
+                gate_id: format!("gate-{task_id}"),
+                requester_lane_id: "lane-origin".to_string(),
+                reviewer_lane_id: "lane-reviewer".to_string(),
+                owner: owner("lane-reviewer", task_id),
+                evidence_ids: vec![revised.evidence_id.clone()],
+            },
+            &mut approver,
+        )
+        .unwrap();
 
     let accepted = engine
         .handle_runtime_command(
             "accept-revalidated",
             RuntimeCommand::AcceptMergeGate {
                 gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-reviewer", task_id),
+                reviewed_evidence: vec![revised],
                 decision: Some("independent reviewer accepted revalidation".to_string()),
             },
             &mut approver,
@@ -372,12 +1185,12 @@ fn trust_loop_conflict_bounces_to_origin_then_revalidates_merges_and_reverts() {
     assert!(accepted.iter().any(|event| matches!(
         &event.kind,
         RuntimeEventKind::ReviewRequestUpdated { review }
-            if review.review_id == "review-conflict"
+            if review.review_id == "review-conflict-2"
                 && review.status == viden_types::ReviewRequestStatus::Accepted
                 && review.evidence_ids.iter().any(|id| id == "evidence-task-conflict")
     )));
     assert_eq!(
-        engine.runtime_view_state().review_requests[0].status,
+        engine.runtime_view_state().review_requests[1].status,
         viden_types::ReviewRequestStatus::Accepted
     );
     let merged = engine
@@ -385,6 +1198,7 @@ fn trust_loop_conflict_bounces_to_origin_then_revalidates_merges_and_reverts() {
             "merge-revalidated",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-origin", task_id),
                 decision: Some("apply revalidated patch".to_string()),
             },
             &mut approver,
@@ -453,12 +1267,26 @@ fn trust_loop_revert_audit_failure_restores_applied_bytes_and_facts() {
         vec!["patch".to_string()],
     );
     let patch = b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+merged\n";
-    record_canonical_patch(&cwd, &mut engine, &mut approver, task_id, patch);
+    let binding = record_canonical_patch(&cwd, &mut engine, &mut approver, task_id, patch);
+    let actor = engine.runtime_view_state().merge_gates[0].owner.clone();
+    engine
+        .handle_runtime_command(
+            "accept-before-revert-failure",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor: actor.clone(),
+                reviewed_evidence: vec![binding],
+                decision: Some("accept patch before revert test".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
     engine
         .handle_runtime_command(
             "merge-before-revert-failure",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: format!("gate-{task_id}"),
+                actor,
                 decision: Some("merge before revert".to_string()),
             },
             &mut approver,
@@ -689,7 +1517,7 @@ fn record_canonical_patch(
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     task_id: &str,
     patch: &[u8],
-) {
+) -> ReviewedEvidenceBinding {
     let evidence_id = format!("evidence-{task_id}");
     let bundle_id = format!("bundle-{task_id}");
     let mut store = ContextEngine::open(cwd.join(".viden/context-engine")).unwrap();
@@ -719,6 +1547,10 @@ fn record_canonical_patch(
             reason_codes: Vec::new(),
         },
     };
+    let binding = ReviewedEvidenceBinding {
+        evidence_id: evidence_id.clone(),
+        source_hash: canonical.source_hash.clone(),
+    };
     engine.set_merge_gate_context_facts_for_test(&bundle_id, stored.item);
     let events = engine
         .handle_runtime_command(
@@ -740,4 +1572,5 @@ fn record_canonical_patch(
             .iter()
             .any(|event| matches!(event.kind, RuntimeEventKind::MergeGateUpdated { .. }))
     );
+    binding
 }

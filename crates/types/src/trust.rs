@@ -32,6 +32,12 @@ pub enum ReviewRequestStatus {
     Rejected,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ReviewedEvidenceBinding {
+    pub evidence_id: EvidenceId,
+    pub source_hash: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewRequestRecord {
     pub review_id: String,
@@ -41,6 +47,8 @@ pub struct ReviewRequestRecord {
     pub reviewer_lane_id: AgentLaneId,
     pub owner: RuntimeOwner,
     pub evidence_ids: Vec<EvidenceId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence_bindings: Vec<ReviewedEvidenceBinding>,
     pub status: ReviewRequestStatus,
     pub audit_id: String,
     pub updated_at: u64,
@@ -136,6 +144,10 @@ pub struct MergeGateDecision {
     pub owner: RuntimeOwner,
     #[serde(default)]
     pub evidence_ids: Vec<EvidenceId>,
+    #[serde(default)]
+    pub reviewed_evidence: Vec<ReviewedEvidenceBinding>,
+    #[serde(default)]
+    pub review_request_id: Option<String>,
     pub audit_id: String,
     pub decided_at: u64,
 }
@@ -148,11 +160,17 @@ impl Serialize for MergeGateDecision {
         if self.outcome == MergeGateDecisionOutcome::Legacy {
             return serializer.serialize_str(&self.reason);
         }
-        let mut state = serializer.serialize_struct("MergeGateDecision", 6)?;
+        let mut state = serializer.serialize_struct("MergeGateDecision", 8)?;
         state.serialize_field("outcome", &self.outcome)?;
         state.serialize_field("reason", &self.reason)?;
         state.serialize_field("owner", &self.owner)?;
         state.serialize_field("evidence_ids", &self.evidence_ids)?;
+        if !self.reviewed_evidence.is_empty() {
+            state.serialize_field("reviewed_evidence", &self.reviewed_evidence)?;
+        }
+        if self.review_request_id.is_some() {
+            state.serialize_field("review_request_id", &self.review_request_id)?;
+        }
         state.serialize_field("audit_id", &self.audit_id)?;
         state.serialize_field("decided_at", &self.decided_at)?;
         state.end()
@@ -188,6 +206,8 @@ where
             reason,
             owner: RuntimeOwner::default(),
             evidence_ids: Vec::new(),
+            reviewed_evidence: Vec::new(),
+            review_request_id: None,
             audit_id: "legacy".to_string(),
             decided_at: 0,
         },
@@ -213,9 +233,19 @@ pub struct ConflictBounce {
     pub status: ConflictBounceStatus,
     #[serde(default)]
     pub evidence_ids: Vec<EvidenceId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub baseline_evidence: Vec<ReviewedEvidenceBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub revalidation_evidence: Vec<ReviewedEvidenceBinding>,
     pub audit_id: String,
     pub created_at: u64,
     pub revalidated_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecoverySnapshotReference {
+    pub snapshot_id: String,
+    pub manifest_sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -45,10 +45,13 @@ runtime、context、provider、tool 或 workflow internals。
   scope 内 `git_add`，并拒绝越界 staging 和高风险 Git mutation。
 - 已落地 trust-loop slice：handoff acceptance、review request、contract confirmation 与
   dependency block/unblock 都是绑定 owner 的 typed facts。Merge gate 携带 typed
-  policy、validator、decision、conflict、applied-change 与 audit 字段；summary-only
-  evidence 不能通过。Conflict 会回到原 Lane，revalidated change 必须再次显式 accept，
-  applied change 支持权限门禁下的 audited revert。Trust mutation 使用可恢复 supervisor
-  approval；merge/revert 在文件 effect 前写 workflow precommit，后续失败会补偿 bytes/state。
+  policy、validator、decision、conflict、applied-change、recovery-snapshot 与 audit 字段。
+  Provider summary 只用于展示；canonical evidence 将真实 ContextStore bytes 绑定到 Core
+  签发的 permission receipt。Independent validator 必须接受精确 evidence id/hash 集。
+  Conflict 会回到原 Lane，只有该 Lane 能为精确 bounce 提交 changed receipt 并显式
+  revalidate，之后还需 fresh acceptance。Trust mutation 在 approval 前完成纯 preflight；
+  merge/revert 使用私有 content-addressed recovery snapshot 与 durable precommit，确保
+  重启后仍能执行 audited revert。
 - 未完成：基于 live LSP references 的 role-specific ContextBundle enrichment、
   release/publish Git rules、evidence collection reducers、rename/delete/binary
   等更完整 patch 格式、三方冲突处理，以及面向 Claude、Codex、Kiro CLI 的
@@ -212,6 +215,7 @@ session 或 workflow state 时有 durable log 支撑。
 | `ConfirmContract` | 记录 task 的 typed contract confirmation/rejection。 |
 | `SetDependency` | 持久化确定性的 dependency block/unblock state。 |
 | `BounceMergeConflict` | 把 structured conflict 返回原 Lane。 |
+| `RevalidateMergeConflict` | 将原 Lane 的 changed canonical receipt 绑定到精确 conflict bounce。 |
 | `RevertAppliedChange` | 恢复 apply 前 bytes，并记录 typed audited revert。 |
 
 建议新增的 `RuntimeEvent`：

@@ -72,15 +72,18 @@ projection vectors are omitted during serialization, so replaying the frozen
 0.3.0 corpus retains its recorded canonical bytes and digests.
 
 `runtime.trust_loop` adds typed handoff, review request, contract, dependency,
-merge-gate policy/validator/decision, conflict-bounce, and revert facts. The six
-new cross-lane commands and their events are permission-gated and replay through
+merge-gate policy/validator/decision, conflict-bounce, and revert facts. The
+seven new cross-lane commands, including explicit `RevalidateMergeConflict`,
+and their events are permission-gated and replay through
 the shared reducer. Schema remains `1`: new record fields use defaults, unknown
 fields remain ignorable, and a pre-extension string merge decision deserializes
 as a read-only `legacy` decision. New writes always serialize a typed decision.
-Only canonical evidence can produce acceptance; display summaries never
-substitute for the referenced evidence bytes. Merge and revert mutations append
-a workflow precommit before changing files, then either commit typed facts or
-restore bytes/state and emit a recoverable structured error.
+Only real ContextStore bytes with a Core-issued permission receipt can produce
+canonical acceptance; display summaries never substitute for evidence. Assigned
+validators bind the exact id/hash set. Pure trust preflight completes before
+approval. Merge persists a private content-addressed recovery snapshot and
+workflow precommit before changing files, so audited revert remains available
+after restart without placing raw preimages in event logs.
 
 Core owns lane permission evaluation and refreshes it from the current runtime
 mode before every lane command. Side-effecting commands are evaluated against

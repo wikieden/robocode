@@ -834,6 +834,7 @@ fn agent_dag_context_evidence_and_merge_gate_roundtrip_json() {
         decision: None,
         conflict: None,
         applied_change_id: None,
+        recovery_snapshot: None,
         audit_ids: Vec::new(),
         updated_at: Some(13),
     };
@@ -904,11 +905,14 @@ fn schema_one_merge_gate_accepts_legacy_decisions_and_unknown_fields() {
             reason: "typed acceptance".to_string(),
             owner: RuntimeOwner::default(),
             evidence_ids: vec!["evidence_patch".to_string()],
+            reviewed_evidence: Vec::new(),
+            review_request_id: None,
             audit_id: "audit_typed".to_string(),
             decided_at: 14,
         }),
         conflict: None,
         applied_change_id: None,
+        recovery_snapshot: None,
         audit_ids: vec!["audit_typed".to_string()],
         updated_at: Some(14),
     })
@@ -967,6 +971,15 @@ fn schema_one_trust_loop_commands_roundtrip_as_additive_typed_variants() {
             owner: owner.clone(),
             reason: "context mismatch".to_string(),
         },
+        RuntimeCommand::RevalidateMergeConflict {
+            gate_id: "gate-trust".to_string(),
+            bounce_id: "bounce-trust".to_string(),
+            actor: owner.clone(),
+            evidence: ReviewedEvidenceBinding {
+                evidence_id: "evidence-trust".to_string(),
+                source_hash: "ab".repeat(32),
+            },
+        },
         RuntimeCommand::RevertAppliedChange {
             gate_id: "gate-trust".to_string(),
             owner,
@@ -983,10 +996,55 @@ fn schema_one_trust_loop_commands_roundtrip_as_additive_typed_variants() {
         "confirm_contract",
         "set_dependency",
         "bounce_merge_conflict",
+        "revalidate_merge_conflict",
         "revert_applied_change",
     ] {
         assert!(encoded.contains(command_type));
     }
+}
+
+#[test]
+fn trust_decisions_bind_actor_reviewed_hashes_and_durable_recovery_reference() {
+    let actor = RuntimeOwner {
+        workspace_id: "workspace-trust".to_string(),
+        project_id: "project-trust".to_string(),
+        lane_id: Some("lane-reviewer".to_string()),
+        session_id: Some("session-reviewer".to_string()),
+        task_id: Some("task-trust".to_string()),
+        turn_id: None,
+    };
+    let binding = ReviewedEvidenceBinding {
+        evidence_id: "evidence-patch".to_string(),
+        source_hash: "ab".repeat(32),
+    };
+    let command = RuntimeCommand::AcceptMergeGate {
+        gate_id: "gate-trust".to_string(),
+        actor: actor.clone(),
+        reviewed_evidence: vec![binding.clone()],
+        decision: Some("reviewed exact patch bytes".to_string()),
+    };
+    let recovery = RecoverySnapshotReference {
+        snapshot_id: "recovery-change-1".to_string(),
+        manifest_sha256: "cd".repeat(32),
+    };
+
+    let command_json = serde_json::to_value(&command).unwrap();
+    assert_eq!(command_json["actor"]["lane_id"], "lane-reviewer");
+    assert_eq!(
+        command_json["reviewed_evidence"][0]["source_hash"],
+        "ab".repeat(32)
+    );
+    assert_eq!(
+        serde_json::from_value::<RuntimeCommand>(command_json).unwrap(),
+        command
+    );
+    assert_eq!(
+        serde_json::from_value::<RecoverySnapshotReference>(
+            serde_json::to_value(&recovery).unwrap()
+        )
+        .unwrap(),
+        recovery
+    );
 }
 
 #[test]
@@ -1623,6 +1681,8 @@ fn agent_dag_runtime_command_roundtrips_json() {
         },
         RuntimeCommand::AcceptMergeGate {
             gate_id: "gate-task_planner".to_string(),
+            actor: RuntimeOwner::default(),
+            reviewed_evidence: Vec::new(),
             decision: Some("required evidence complete".to_string()),
         },
         RuntimeCommand::RejectMergeGate {
@@ -1641,6 +1701,8 @@ fn agent_dag_runtime_command_roundtrips_json() {
         RuntimeCommand::AcceptAgentArtifact {
             gate_id: "gate-task_planner".to_string(),
             evidence_id: "evidence-task_planner-plan".to_string(),
+            actor: RuntimeOwner::default(),
+            source_hash: String::new(),
             decision: Some("artifact evidence accepted".to_string()),
         },
         RuntimeCommand::RejectAgentArtifact {
@@ -1650,6 +1712,7 @@ fn agent_dag_runtime_command_roundtrips_json() {
         },
         RuntimeCommand::MergeAgentPatch {
             gate_id: "gate-task_planner".to_string(),
+            actor: RuntimeOwner::default(),
             decision: Some("merge accepted artifact".to_string()),
         },
     ];
@@ -2304,6 +2367,7 @@ fn runtime_view_state_replays_agent_dag_and_merge_gate_events() {
         decision: None,
         conflict: None,
         applied_change_id: None,
+        recovery_snapshot: None,
         audit_ids: Vec::new(),
         updated_at: Some(2),
     };

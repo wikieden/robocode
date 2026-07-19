@@ -79,7 +79,7 @@ self-referential inside the payload commit.
 | Agent workflow visibility | Mission Control board, workflow strip, plan/now/done/acceptance/blocked columns | `AgentDagRecord`, `AgentTaskRecord`, `EvidenceView`, `MergeGateRecord`, `RuntimeErrorView` | existing workflow/task/evidence/merge commands | proposed |
 | ContextBundle | context panel, token pressure meter, omitted-source list | `ContextBundleRecord`, `ContextSourceRecord`, token budgets | no direct mutation; future context-policy commands | partial |
 | Evidence and merge gate | evidence center, diff/test/review checklist, merge gate card | `EvidenceView`, `MergeGateRecord` | `RecordAgentEvidence`, `AcceptMergeGate`, `RejectMergeGate`, `AcceptAgentArtifact`, `RejectAgentArtifact`, `MergeAgentPatch` | reducer first slice landed in `0.2.3` |
-| Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevertAppliedChange` | additive `runtime.trust_loop` candidate |
+| Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | additive `runtime.trust_loop` candidate |
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | additive Core `0.3.1` candidate |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
@@ -205,11 +205,14 @@ Evidence is append-only from the frontend point of view.
 - `status` controls the action surface.
 - `gate_type`, `owner`, `validator`, and `policy_snapshot` preserve the
   authority and policy used for a decision.
-- `decision` is a typed outcome with reason, owner, evidence ids, audit id, and
-  timestamp. Legacy schema-1 string decisions are read-only migration facts;
-  new writes never serialize strings.
-- `conflict`, `applied_change_id`, and `audit_ids` connect bounce, apply, and
-  revert recovery without frontend inference.
+- `decision` is a typed outcome with reason, actual actor, exact reviewed
+  evidence id/hash bindings, review-request id, audit id, and timestamp. Legacy
+  schema-1 string decisions are read-only migration facts; new writes never
+  serialize strings.
+- `conflict`, `applied_change_id`, `recovery_snapshot`, and `audit_ids` connect
+  bounce, apply, restart-safe revert recovery, and audit without frontend
+  inference. `recovery_snapshot` exposes only a safe snapshot id and manifest
+  hash; recovery bytes remain in the workflow-owned private store.
 
 Current `0.2.3` reducer behavior:
 
@@ -221,17 +224,24 @@ Current `0.2.3` reducer behavior:
 - Missing required evidence or summary-only evidence keeps the gate in
   `collecting_evidence`; only verified canonical references satisfy required
   evidence.
+- Provider/assistant task output is always display-only `task_summary`
+  evidence, even when it contains a diff or claims hashes, verification, test,
+  or permission status. Canonical evidence requires real ContextStore bytes and
+  a Core-issued permission receipt.
 - Complete canonical evidence may move a basic gate to `accepted`. A gate with
   an independent review policy, or a gate revalidated after conflict, requires
-  an explicit typed acceptance before merge.
+  an explicit typed acceptance by the assigned validator over the exact current
+  evidence id/hash set before merge.
 - Rejected evidence moves the gate to `needs_changes` and removes that evidence
   id from the gate/task evidence lists.
 - `AcceptAgentArtifact` only accepts an already recorded evidence id. Unknown
   evidence ids are rejected and must not be used by frontends as implicit
   evidence creation.
-- Trust-loop mutations use the normal supervisor approval flow. Merge and
-  revert write a durable precommit before file effects; a later persistence or
-  apply failure restores bytes/state and emits a recoverable structured error.
+- Trust-loop mutations use the normal supervisor approval flow. Pure owner,
+  dependency, decision, receipt, and canonical-byte preflight completes before
+  `ApprovalRequested`. Merge publishes a private, content-addressed recovery
+  snapshot and durable precommit before file effects; revert verifies the
+  snapshot and current postimage before approval, including after restart.
 
 The first supported required evidence kinds are `patch`, `test_result`,
 `review`, `doc_update`, and `release_artifact`. Clients may display other

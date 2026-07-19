@@ -15,7 +15,7 @@ Baseline: `aba8b05c5d334cf1a8424c8dc899819b4ecae0bb`
 - Task 9: complete (storage `0af55fcc`, runtime integration `7873dc4e`; append-only typed Lane store, idempotent legacy import, resume activation, and typed-only runtime projection independently re-reviewed PASS/APPROVED with no findings)
 - Task 10: complete (historical Lane implementation through `e81718f1`, evidence checkpoint `31bf6c5f`; exact owner-routing/non-blocking/Plan-before-effect acceptance independently re-reviewed PASS/APPROVED with no findings)
 - Task 11: complete (implementation `1fd3e59c`; strict D11 schema/value and opaque credential-id hardening follow-up complete)
-- Task 12: complete (typed cross-lane trust loop, canonical-evidence MergeGate recovery, conflict revalidation, and audited revert complete; Core gates green, legacy TUI integration gate remains)
+- Task 12: complete (independent-review trust invariants, dynamic dependency validation, Core-issued canonical receipts, bounce-linked origin-lane revalidation, pure supervisor preflight, and restart-safe audited recovery complete; Core gates green, legacy TUI integration gate remains)
 - Task 13: pending
 - Task 14: pending
 

@@ -136,6 +136,7 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
     assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
     assert!(extension_manifest.contains("candidate_component_version = \"0.3.1\""));
     assert!(extension_manifest.contains("compatibility = \"additive_capability_gated\""));
+    assert!(extension_manifest.contains("[runtime_trust_loop]\ncommand_count = 7"));
     assert_eq!(CORE_CLIENT_VERSION, "0.3.1");
     assert_eq!(local_core_handshake().core_version, "0.3.1");
 }
@@ -977,11 +978,14 @@ fn to_runtime_event_kind(kind: RuntimeEventKindExt) -> viden_types::RuntimeEvent
                         reason: "core facts satisfied gate".to_string(),
                         owner: RuntimeOwner::default(),
                         evidence_ids: Vec::new(),
+                        reviewed_evidence: Vec::new(),
+                        review_request_id: None,
                         audit_id: "legacy".to_string(),
                         decided_at: 0,
                     }),
                     conflict: None,
                     applied_change_id: None,
+                    recovery_snapshot: None,
                     audit_ids: Vec::new(),
                     updated_at: Some(1_700_000_050),
                 },

@@ -47,8 +47,8 @@ pub use transcript::{
 pub use trust::{
     ConflictBounce, ConflictBounceStatus, ContractDecision, ContractRecord, DependencyRecord,
     DependencyState, HandoffAcceptance, HandoffRecord, MergeGateDecision, MergeGateDecisionOutcome,
-    MergeGatePolicySnapshot, MergeGateType, MergeGateValidator, RevertRecord, ReviewRequestRecord,
-    ReviewRequestStatus,
+    MergeGatePolicySnapshot, MergeGateType, MergeGateValidator, RecoverySnapshotReference,
+    RevertRecord, ReviewRequestRecord, ReviewRequestStatus, ReviewedEvidenceBinding,
 };
 pub use ui_preferences::{
     LocaleId, ResolvedUiPreferences, TuiColorDepth, UiColorMode, UiDensity, UiMotion,
@@ -352,6 +352,8 @@ pub struct MergeGateRecord {
     pub conflict: Option<ConflictBounce>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub applied_change_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_snapshot: Option<RecoverySnapshotReference>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub audit_ids: Vec<String>,
     pub updated_at: Option<u64>,

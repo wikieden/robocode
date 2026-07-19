@@ -1259,6 +1259,7 @@ fn run_supervisor_worker(
                     | RuntimeCommand::AcceptAgentArtifact { .. }
                     | RuntimeCommand::RejectAgentArtifact { .. }
                     | RuntimeCommand::MergeAgentPatch { .. }
+                    | RuntimeCommand::RevalidateMergeConflict { .. }
                     | RuntimeCommand::BounceMergeConflict { .. }
                     | RuntimeCommand::RevertAppliedChange { .. }) => {
                         run_supervised_project_mutation(
@@ -1475,7 +1476,7 @@ fn run_supervised_project_mutation(
         );
         return;
     }
-    match engine.prepare_project_mutation_for_supervisor(&command) {
+    match engine.prepare_project_mutation_for_supervisor(&owner, &command) {
         Ok(SupervisorProjectMutationPreparation::Ready) => {
             let mut approver = |_prompt: PermissionPrompt| {
                 ApprovalResponse::deny(Some("unexpected project mutation approval".to_string()))
