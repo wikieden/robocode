@@ -58,7 +58,12 @@ pub(super) enum InputIntent {
     CycleAgentFocus,
     Exit,
     InsertChar(char),
+    InsertNewline,
     Backspace,
+    MoveCursorLeft,
+    MoveCursorRight,
+    MoveCursorUp,
+    MoveCursorDown,
     Submit,
     MoveSelection(i8),
     CompleteSelection,
@@ -127,12 +132,23 @@ pub(super) fn reduce_input(
 
     match (mode, key.code) {
         (InputMode::Normal, KeyCode::Char('i')) => InputIntent::EnterInsert,
+        (InputMode::Insert, KeyCode::Enter)
+            if key
+                .modifiers
+                .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT) =>
+        {
+            InputIntent::InsertNewline
+        }
         (InputMode::Insert, KeyCode::Enter) | (InputMode::Insert, KeyCode::Char('j'))
             if key.modifiers.contains(KeyModifiers::CONTROL) || key.code == KeyCode::Enter =>
         {
             InputIntent::Submit
         }
         (InputMode::Insert, KeyCode::Backspace) => InputIntent::Backspace,
+        (InputMode::Insert, KeyCode::Left) => InputIntent::MoveCursorLeft,
+        (InputMode::Insert, KeyCode::Right) => InputIntent::MoveCursorRight,
+        (InputMode::Insert, KeyCode::Up) => InputIntent::MoveCursorUp,
+        (InputMode::Insert, KeyCode::Down) => InputIntent::MoveCursorDown,
         (InputMode::Insert, KeyCode::Char(value))
             if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
         {
@@ -348,6 +364,28 @@ mod tests {
         assert_eq!(
             reduce(InputMode::Overlay, key(KeyCode::Enter)),
             InputIntent::CompleteOrSubmit
+        );
+    }
+
+    #[test]
+    fn insert_mode_owns_cursor_motion_and_explicit_newline_chords() {
+        for (code, expected) in [
+            (KeyCode::Left, InputIntent::MoveCursorLeft),
+            (KeyCode::Right, InputIntent::MoveCursorRight),
+            (KeyCode::Up, InputIntent::MoveCursorUp),
+            (KeyCode::Down, InputIntent::MoveCursorDown),
+        ] {
+            assert_eq!(reduce(InputMode::Insert, key(code)), expected);
+        }
+        for modifiers in [KeyModifiers::SHIFT, KeyModifiers::ALT] {
+            assert_eq!(
+                reduce(InputMode::Insert, KeyEvent::new(KeyCode::Enter, modifiers)),
+                InputIntent::InsertNewline
+            );
+        }
+        assert_eq!(
+            reduce(InputMode::Insert, key(KeyCode::Enter)),
+            InputIntent::Submit
         );
     }
 }

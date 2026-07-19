@@ -6,6 +6,7 @@ mod client;
 #[allow(dead_code)]
 mod command_palette;
 mod composer;
+mod composer_buffer;
 mod indicators;
 #[allow(dead_code)]
 mod input;

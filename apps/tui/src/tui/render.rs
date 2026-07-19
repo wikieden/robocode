@@ -1,6 +1,6 @@
 use super::{
     canvas::Frame,
-    composer::{COMPOSER_HEIGHT, render_composer, render_welcome, should_render_welcome},
+    composer::{composer_height, render_composer, render_welcome, should_render_welcome},
     modal::render_overlays,
     ops_screen::render_ops_body,
     panel::panel,
@@ -69,7 +69,7 @@ pub(super) fn render_ops_frame(state: &TuiState, width: u16, height: u16) -> Str
 
 fn render_landscape_body(frame: &mut Frame, state: &TuiState) {
     let body_top = 3;
-    let body_bottom = frame.height - COMPOSER_HEIGHT - BOTTOM_BAR_HEIGHT - 1;
+    let body_bottom = frame.height - composer_height(state, frame.width) - BOTTOM_BAR_HEIGHT - 1;
     let body_height = body_bottom.saturating_sub(body_top) + 1;
     let rail_left = frame.width - RIGHT_RAIL_WIDTH;
     let transcript_width = rail_left.saturating_sub(1);
@@ -95,7 +95,7 @@ fn render_landscape_body(frame: &mut Frame, state: &TuiState) {
 
 fn render_compact_body(frame: &mut Frame, state: &TuiState) {
     let body_top = 3;
-    let body_bottom = frame.height - COMPOSER_HEIGHT - BOTTOM_BAR_HEIGHT - 1;
+    let body_bottom = frame.height - composer_height(state, frame.width) - BOTTOM_BAR_HEIGHT - 1;
     let body_height = body_bottom.saturating_sub(body_top) + 1;
     let transcript_rows = main_transcript_rows(
         state,
@@ -680,7 +680,7 @@ mod structured_runtime_tests {
     fn rendered_rows_keep_terminal_cell_width_with_unicode() {
         let mut state = state();
         state.runtime.snapshot.model_label = "模型-👋🏻".to_string();
-        state.ui.input = "检查中文输入宽度".to_string();
+        state.ui.input = "检查中文输入宽度".into();
         let width = 140usize;
 
         let rendered = render_frame(&state, width as u16, 36);
@@ -693,7 +693,7 @@ mod structured_runtime_tests {
     #[test]
     fn slash_commands_render_above_composer() {
         let mut state = state();
-        state.ui.input = "/p".to_string();
+        state.ui.input = "/p".into();
 
         let rendered = render_frame(&state, 140, 36);
 

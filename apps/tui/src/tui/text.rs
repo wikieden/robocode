@@ -1,3 +1,6 @@
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
 const HORIZONTAL: char = '─';
 
 #[allow(dead_code)]
@@ -18,7 +21,7 @@ fn full_border(width: usize, left: char, right: char) -> String {
 }
 
 pub(super) fn char_width(value: &str) -> usize {
-    value.chars().map(display_width).sum()
+    UnicodeWidthStr::width(value)
 }
 
 pub(super) fn pad(value: &str, width: usize) -> String {
@@ -30,12 +33,12 @@ pub(super) fn pad(value: &str, width: usize) -> String {
 pub(super) fn truncate(value: &str, width: usize) -> String {
     let mut used = 0usize;
     let mut output = String::new();
-    for value in value.chars() {
-        let next = display_width(value);
+    for value in value.graphemes(true) {
+        let next = UnicodeWidthStr::width(value);
         if used + next > width {
             break;
         }
-        output.push(value);
+        output.push_str(value);
         used += next;
     }
     output
@@ -54,16 +57,6 @@ pub(super) fn compact_middle(value: &str, width: usize) -> String {
     let prefix = truncate(value, head);
     let suffix = suffix_by_width(value, tail);
     format!("{prefix}~{suffix}")
-}
-
-pub(super) fn display_width(value: char) -> usize {
-    if value == '\0' || value.is_control() || is_zero_width(value) {
-        0
-    } else if is_wide(value) {
-        2
-    } else {
-        1
-    }
 }
 
 pub(super) fn wrap_words(content: &str, width: usize) -> Vec<String> {
@@ -112,21 +105,21 @@ pub(super) fn wrap_words(content: &str, width: usize) -> Vec<String> {
 
 fn push_wrapped_token(rows: &mut Vec<String>, current: &mut String, token: &str, width: usize) {
     let mut used = 0usize;
-    for ch in token.chars() {
-        let ch_width = display_width(ch);
-        if ch_width == 0 {
-            current.push(ch);
+    for grapheme in token.graphemes(true) {
+        let grapheme_width = UnicodeWidthStr::width(grapheme);
+        if grapheme_width == 0 {
+            current.push_str(grapheme);
             continue;
         }
-        if used + ch_width > width && !current.is_empty() {
+        if used + grapheme_width > width && !current.is_empty() {
             rows.push(std::mem::take(current));
             used = 0;
         }
-        if ch_width > width {
+        if grapheme_width > width {
             continue;
         }
-        current.push(ch);
-        used += ch_width;
+        current.push_str(grapheme);
+        used += grapheme_width;
     }
     if used == width && !current.is_empty() {
         rows.push(std::mem::take(current));
@@ -136,49 +129,16 @@ fn push_wrapped_token(rows: &mut Vec<String>, current: &mut String, token: &str,
 #[allow(dead_code)]
 fn suffix_by_width(value: &str, width: usize) -> String {
     let mut used = 0usize;
-    let mut chars = Vec::new();
-    for ch in value.chars().rev() {
-        let next = display_width(ch);
+    let mut graphemes = Vec::new();
+    for grapheme in value.graphemes(true).rev() {
+        let next = UnicodeWidthStr::width(grapheme);
         if used + next > width {
             break;
         }
-        chars.push(ch);
+        graphemes.push(grapheme);
         used += next;
     }
-    chars.into_iter().rev().collect()
-}
-
-fn is_zero_width(value: char) -> bool {
-    matches!(
-        value as u32,
-        0x0300..=0x036F
-            | 0x1AB0..=0x1AFF
-            | 0x1DC0..=0x1DFF
-            | 0x200B..=0x200F
-            | 0x202A..=0x202E
-            | 0x2060..=0x206F
-            | 0x20D0..=0x20FF
-            | 0xFE00..=0xFE0F
-            | 0x1F3FB..=0x1F3FF
-            | 0xE0100..=0xE01EF
-    )
-}
-
-fn is_wide(value: char) -> bool {
-    matches!(
-        value as u32,
-        0x1100..=0x115F
-            | 0x2329..=0x232A
-            | 0x2E80..=0xA4CF
-            | 0xAC00..=0xD7A3
-            | 0xF900..=0xFAFF
-            | 0xFE10..=0xFE19
-            | 0xFE30..=0xFE6F
-            | 0xFF00..=0xFF60
-            | 0xFFE0..=0xFFE6
-            | 0x1F300..=0x1FAFF
-            | 0x20000..=0x3FFFD
-    )
+    graphemes.into_iter().rev().collect()
 }
 
 #[cfg(test)]

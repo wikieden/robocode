@@ -13,7 +13,7 @@ pub(super) fn is_command_palette_query(input: &str) -> bool {
 }
 
 pub(super) fn is_command_palette_visible(state: &TuiState) -> bool {
-    is_command_palette_query(&state.ui.input)
+    is_command_palette_query(state.ui.input.as_str())
         && state.ui.command_palette_hidden_for.as_deref() != Some(state.ui.input.as_str())
         && !suggestions(state).is_empty()
 }
@@ -44,7 +44,7 @@ pub(super) fn close_on_escape(key: KeyEvent, state: &mut TuiState) -> bool {
     if key.code != KeyCode::Esc || !is_command_palette_visible(state) {
         return false;
     }
-    state.ui.command_palette_hidden_for = Some(state.ui.input.clone());
+    state.ui.command_palette_hidden_for = Some(state.ui.input.as_str().to_string());
     true
 }
 
@@ -52,7 +52,7 @@ pub(super) fn complete_selected(state: &mut TuiState) -> bool {
     let Some(selected) = selected_command(state) else {
         return false;
     };
-    state.ui.input = selected.command;
+    state.ui.input.replace(selected.command);
     reset_for_input_change(state);
     true
 }
@@ -78,7 +78,7 @@ pub(super) fn command_suggestion_index_at(
 }
 
 pub(super) fn should_complete_on_enter(state: &TuiState) -> bool {
-    selected_command(state).is_some_and(|selected| selected.command != state.ui.input)
+    selected_command(state).is_some_and(|selected| selected.command != state.ui.input.as_str())
 }
 
 pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {
@@ -102,9 +102,9 @@ pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {
             )
         })
         .collect::<Vec<_>>();
-    let title = if state.ui.input == "/setup" {
+    let title = if state.ui.input.as_str() == "/setup" {
         "SETUP WIZARD"
-    } else if state.ui.input.starts_with("/lane") {
+    } else if state.ui.input.as_str().starts_with("/lane") {
         "LANE ACTIONS"
     } else {
         "COMMANDS"
@@ -166,14 +166,14 @@ mod tests {
     #[test]
     fn palette_uses_runtime_lanes() {
         let mut state = TuiState::default();
-        state.ui.input = "/lane".to_string();
+        state.ui.input = "/lane".into();
         assert!(suggestions(&state).is_empty());
     }
 
     #[test]
     fn completion_never_executes_an_effect() {
         let mut state = TuiState::default();
-        state.ui.input = "/con".to_string();
+        state.ui.input = "/con".into();
         assert!(complete_selected(&mut state));
         assert_eq!(state.ui.input, "/connect");
     }

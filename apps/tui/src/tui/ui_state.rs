@@ -192,7 +192,7 @@ pub(super) struct TuiUiState {
     pub(super) session_id: String,
     pub(super) provider_catalog: Vec<ProviderOption>,
     pub(super) theme_name: String,
-    pub(super) input: String,
+    pub(super) input: ComposerBuffer,
     pub(super) command_selection: usize,
     pub(super) command_palette_hidden_for: Option<String>,
     pub(super) approval_focus: usize,
@@ -212,7 +212,7 @@ impl Default for TuiUiState {
             session_id: String::new(),
             provider_catalog: Vec::new(),
             theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
+            input: ComposerBuffer::default(),
             command_selection: 0,
             command_palette_hidden_for: None,
             approval_focus: 0,
@@ -227,4 +227,7 @@ impl Default for TuiUiState {
         }
     }
 }
-use super::keymap::{InputMode, OverlayKind};
+use super::{
+    composer_buffer::ComposerBuffer,
+    keymap::{InputMode, OverlayKind},
+};

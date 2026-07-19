@@ -8,6 +8,7 @@ use super::command_palette::{
     close_on_escape, complete_selected, move_selection, reset_for_input_change,
     should_complete_on_enter,
 };
+use super::composer::composer_content_width;
 use super::input::{
     ApprovalKeyEffect, apply_approval_key, close_focus_on_escape, effective_input_mode, input_focus,
 };
@@ -183,7 +184,7 @@ fn handle_ui_event<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
     event: Event,
-    _terminal_size: (u16, u16),
+    terminal_size: (u16, u16),
 ) -> Result<UiEventOutcome, TuiError> {
     match event {
         Event::Resize(_, _) | Event::FocusGained | Event::FocusLost => Ok(UiEventOutcome::Redraw),
@@ -195,7 +196,7 @@ fn handle_ui_event<C: CoreClient>(
             } else if approval_pending {
                 // Approval remains pinned while the composer stays editable;
                 // pasted content must never resolve the approval.
-                state.ui.input.push_str(&text);
+                state.ui.input.paste(&text);
                 reset_for_input_change(state);
             } else if state.ui.interaction_panel.is_some() {
                 for value in text.chars() {
@@ -205,13 +206,13 @@ fn handle_ui_event<C: CoreClient>(
                 effective_input_mode(state),
                 InputMode::Insert | InputMode::Overlay
             ) {
-                state.ui.input.push_str(&text);
+                state.ui.input.paste(&text);
                 reset_for_input_change(state);
             }
             Ok(UiEventOutcome::Redraw)
         }
         Event::Mouse(_) => Ok(UiEventOutcome::Redraw),
-        Event::Key(key) => handle_ui_key(driver, state, key),
+        Event::Key(key) => handle_ui_key(driver, state, key, terminal_size),
     }
 }
 
@@ -219,6 +220,7 @@ fn handle_ui_key<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
     key: KeyEvent,
+    terminal_size: (u16, u16),
 ) -> Result<UiEventOutcome, TuiError> {
     let mode = effective_input_mode(state);
     let focus = input_focus(state);
@@ -229,7 +231,7 @@ fn handle_ui_key<C: CoreClient>(
         state.ui.idle_ctrl_c_armed = false;
     }
     let intent = reduce_input(mode, focus, key, facts);
-    apply_input_intent(driver, state, key, intent)
+    apply_input_intent(driver, state, key, intent, terminal_size)
 }
 
 fn apply_input_intent<C: CoreClient>(
@@ -237,6 +239,7 @@ fn apply_input_intent<C: CoreClient>(
     state: &mut TuiState,
     key: KeyEvent,
     intent: InputIntent,
+    terminal_size: (u16, u16),
 ) -> Result<UiEventOutcome, TuiError> {
     if let Some(outcome) = apply_pending_approval_intent(driver, state, key, &intent)? {
         return Ok(outcome);
@@ -278,6 +281,10 @@ fn apply_input_intent<C: CoreClient>(
                 push_composer_char(state, value);
             }
         }
+        InputIntent::InsertNewline => {
+            state.ui.input.insert_newline();
+            reset_for_input_change(state);
+        }
         InputIntent::Backspace => {
             if let Some(overlay) = state.ui.overlay.as_mut() {
                 overlay.filter.pop();
@@ -285,9 +292,23 @@ fn apply_input_intent<C: CoreClient>(
             } else if state.ui.interaction_panel.is_some() {
                 edit_interaction_panel_text(state, None);
             } else {
-                state.ui.input.pop();
+                state.ui.input.backspace();
                 reset_for_input_change(state);
             }
+        }
+        InputIntent::MoveCursorLeft => state.ui.input.move_left(),
+        InputIntent::MoveCursorRight => state.ui.input.move_right(),
+        InputIntent::MoveCursorUp => state
+            .ui
+            .input
+            .move_up(composer_content_width(usize::from(terminal_size.0))),
+        InputIntent::MoveCursorDown => state
+            .ui
+            .input
+            .move_down(composer_content_width(usize::from(terminal_size.0))),
+        InputIntent::Submit if state.ui.input.has_unclosed_code_fence() => {
+            state.ui.input.insert_newline();
+            reset_for_input_change(state);
         }
         InputIntent::Submit => submit_composer(driver, state)?,
         InputIntent::MoveSelection(delta) => {
@@ -391,7 +412,7 @@ fn submit_composer<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
 ) -> Result<(), TuiError> {
-    let content = state.ui.input.trim().to_string();
+    let content = state.ui.input.as_str().trim().to_string();
     if content.is_empty() || open_local_picker_command(&content, state) {
         return Ok(());
     }
@@ -512,7 +533,7 @@ fn apply_interaction_panel_selection(state: &mut TuiState) -> bool {
     if let Some(command) = command {
         // Provider/model activation remains a Core command. The overlay only
         // selects the command; it never mutates provider authority directly.
-        state.ui.input = command;
+        state.ui.input.replace(command);
         reset_for_input_change(state);
         true
     } else {
@@ -532,8 +553,9 @@ fn scroll_transcript(state: &mut TuiState, delta: isize) {
 }
 
 fn push_composer_char(state: &mut TuiState, value: char) {
-    state.ui.input.push(value);
-    if looks_like_terminal_escape_residue(&state.ui.input) {
+    let mut encoded = [0; 4];
+    state.ui.input.insert(value.encode_utf8(&mut encoded));
+    if looks_like_terminal_escape_residue(state.ui.input.as_str()) {
         state.ui.input.clear();
     }
     reset_for_input_change(state);
@@ -948,6 +970,97 @@ mod tests {
     }
 
     #[test]
+    fn paste_normalizes_crlf_preserves_leading_slash_and_never_submits() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input_mode = InputMode::Insert;
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Paste("/status\r\nnext\rline".to_string()),
+            (120, 40),
+        )
+        .expect("paste");
+
+        assert_eq!(state.ui.input, "/status\nnext\nline");
+        assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
+    fn enter_inside_unclosed_code_fence_inserts_newline_without_scrollback_effects() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "```rust\nfn main() {}".into();
+        state.ui.transcript_scroll = 17;
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("enter");
+
+        assert_eq!(state.ui.input, "```rust\nfn main() {}\n");
+        assert_eq!(state.ui.transcript_scroll, 17);
+        assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
+    fn shift_and_alt_enter_insert_newlines_without_submitting() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "first".into();
+
+        for modifiers in [KeyModifiers::SHIFT, KeyModifiers::ALT] {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(KeyCode::Enter, modifiers)),
+                (120, 40),
+            )
+            .expect("modified enter");
+        }
+
+        assert_eq!(state.ui.input, "first\n\n");
+        assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
+    fn plain_enter_submits_a_closed_composer() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "review this".into();
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("submit");
+
+        assert!(state.ui.input.is_empty());
+        let sent = sent.lock().expect("sent commands");
+        assert!(matches!(
+            sent.first().map(|command| &command.command),
+            Some(RuntimeCommand::SubmitUserInput { content }) if content == "review this"
+        ));
+    }
+
+    #[test]
     fn composer_discards_terminal_escape_residue_instead_of_rendering_it() {
         let mut driver =
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
@@ -1289,7 +1402,7 @@ mod tests {
                 .expect("connect");
         let mut state = TuiState::default();
         state.ui.input_mode = InputMode::Insert;
-        state.ui.input = "keep this draft".to_string();
+        state.ui.input = "keep this draft".into();
         state.ui.focused_lane = Some("lane-selected".to_string());
         state.ui.overlay = Some(OverlayState::new(OverlayKind::ContextHelp));
         let escape = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -1316,7 +1429,7 @@ mod tests {
                 .expect("connect");
         let mut state = TuiState::default();
         state.ui.input_mode = InputMode::Insert;
-        state.ui.input = "draft stays".to_string();
+        state.ui.input = "draft stays".into();
 
         for event in [
             Event::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
@@ -1351,7 +1464,7 @@ mod tests {
                 .expect("connect");
         let mut state = TuiState::default();
         state.ui.input_mode = InputMode::Insert;
-        state.ui.input = "hidden draft".to_string();
+        state.ui.input = "hidden draft".into();
         state.ui.overlay = Some(OverlayState::new(OverlayKind::Lane));
 
         handle_ui_event(
@@ -1374,7 +1487,7 @@ mod tests {
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
                 .expect("connect");
         let mut state = TuiState::default();
-        state.ui.input = "hidden draft".to_string();
+        state.ui.input = "hidden draft".into();
         state.ui.interaction_panel = Some(InteractionPanel::ConnectProvider {
             search: String::new(),
             selected: 3,
@@ -1410,7 +1523,7 @@ mod tests {
             (120, 40),
         )
         .expect("insert mode");
-        state.ui.input = "/models".to_string();
+        state.ui.input = "/models".into();
 
         handle_ui_event(
             &mut driver,
@@ -1435,7 +1548,7 @@ mod tests {
         assert!(state.ui.interaction_panel.is_none());
         assert_eq!(state.ui.input_mode, InputMode::Insert);
 
-        state.ui.input = "/models".to_string();
+        state.ui.input = "/models".into();
         for _ in 0..2 {
             handle_ui_event(
                 &mut driver,

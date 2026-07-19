@@ -10,6 +10,8 @@ viden-config = { path = "../../crates/config" }
 viden-core = { path = "../../crates/core" }
 viden-types = { path = "../../crates/types" }
 crossterm = "0.28"
+unicode-segmentation = "1.12"
+unicode-width = "0.2"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

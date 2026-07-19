@@ -5,7 +5,7 @@ use super::{
     text::{bottom_border, char_width, pad, truncate},
 };
 
-pub(super) const COMPOSER_HEIGHT: usize = 6;
+pub(super) const MIN_COMPOSER_HEIGHT: usize = 6;
 const WELCOME_BOX_MAX_WIDTH: usize = 96;
 const WELCOME_BOX_MIN_WIDTH: usize = 48;
 
@@ -58,42 +58,62 @@ pub(super) fn render_welcome(frame: &mut Frame, state: &TuiState) {
 }
 
 pub(super) fn render_composer(frame: &mut Frame, state: &TuiState, bottom_bar_height: usize) {
-    let top = frame.height - COMPOSER_HEIGHT - bottom_bar_height;
+    let rows = composer_rows(state, frame.width);
+    let height = rows.len() + 5;
+    let top = frame.height - height - bottom_bar_height;
     frame.write_line(top, &panel_top("Viden >_", frame.width, None));
     frame.write_line(top + 1, &composer_input_spacer_row(frame.width));
-    frame.write_line(top + 2, &composer_input_row(state, frame.width));
-    frame.write_line(top + 3, &composer_input_spacer_row(frame.width));
+    for (index, row) in rows.iter().enumerate() {
+        frame.write_line(
+            top + 2 + index,
+            &composer_input_row(state, frame.width, row, index == 0),
+        );
+    }
+    let after_input = top + 2 + rows.len();
+    frame.write_line(after_input, &composer_input_spacer_row(frame.width));
     frame.write_line(
-        top + 4,
+        after_input + 1,
         &bordered_row(
             &composer_actions(state, frame.width.saturating_sub(4)),
             frame.width,
         ),
     );
-    frame.write_line(top + 5, &bottom_border(frame.width));
+    frame.write_line(after_input + 2, &bottom_border(frame.width));
 }
 
-fn composer_input_row(state: &TuiState, width: usize) -> String {
-    let value = if !state.ui.input.is_empty() {
-        state.ui.input.clone()
+pub(super) fn composer_height(state: &TuiState, width: usize) -> usize {
+    (composer_rows(state, width).len() + 5).max(MIN_COMPOSER_HEIGHT)
+}
+
+fn composer_rows(state: &TuiState, width: usize) -> Vec<String> {
+    if !state.ui.input.is_empty() {
+        state.ui.input.visible_rows(composer_content_width(width))
     } else if super::state::has_active_work(state) {
         let count = state.runtime.queued_inputs.len();
         if count == 0 {
-            "Type next prompt while Viden works...".to_string()
+            vec!["Type next prompt while Viden works...".to_string()]
         } else {
-            format!(
+            vec![format!(
                 "{} queued; type another prompt...",
                 queued_prompt_count_label(count)
-            )
+            )]
         }
     } else {
-        "Type your instruction...".to_string()
-    };
+        vec!["Type your instruction...".to_string()]
+    }
+}
+
+pub(super) fn composer_content_width(width: usize) -> usize {
+    width.saturating_sub(32).max(1)
+}
+
+fn composer_input_row(state: &TuiState, width: usize, value: &str, first: bool) -> String {
     let content_width = width.saturating_sub(26);
     let input = format!(
-        "› {}",
+        "{}{}",
+        if first { "› " } else { "  " },
         pad(
-            &truncate(&value, content_width.saturating_sub(6)),
+            &truncate(value, content_width.saturating_sub(2)),
             content_width.saturating_sub(6)
         )
     );
@@ -131,14 +151,14 @@ pub(super) fn composer_cursor_position(
     if should_render_welcome(state) {
         return welcome_cursor_position(state, width, height);
     }
-    let input_width = width.saturating_sub(24);
-    let visible_input_width = input_width.saturating_sub(4);
-    let input_len = char_width(&state.ui.input).min(visible_input_width);
-    let column = 4 + input_len;
+    let cell = state.ui.input.cursor_cell(composer_content_width(width));
+    let column = 4 + cell.column;
+    let composer_height = composer_height(state, width);
     let row = height
         .saturating_sub(bottom_bar_height)
-        .saturating_sub(COMPOSER_HEIGHT)
-        + 2;
+        .saturating_sub(composer_height)
+        + 2
+        + cell.row;
     (column as u16, row as u16)
 }
 
@@ -163,7 +183,7 @@ pub(super) fn composer_anchor(
         left: 0,
         input_row: height
             .saturating_sub(bottom_bar_height)
-            .saturating_sub(COMPOSER_HEIGHT)
+            .saturating_sub(composer_height(state, width))
             + 2,
         width,
     }
@@ -257,7 +277,7 @@ fn welcome_cursor_position(state: &TuiState, width: usize, height: usize) -> (u1
     let box_width = welcome_box_width(width);
     let box_left = width.saturating_sub(box_width) / 2;
     let input_width = box_width.saturating_sub(6);
-    let input_len = char_width(&state.ui.input).min(input_width);
+    let input_len = char_width(state.ui.input.as_str()).min(input_width);
     let column = box_left + 2 + input_len;
     let row = welcome_composer_top(width, height) + 1;
     (column as u16, row as u16)
@@ -361,7 +381,7 @@ mod tests {
         state.runtime.snapshot.model_label = "test-local".to_string();
         state.ui.provider_catalog = crate::tui::state::ProviderOption::fixture();
         state.ui.theme_name = "aurora-cyan".to_string();
-        state.ui.input = input.to_string();
+        state.ui.input = input.into();
         state.ui.entries = vec![super::super::state::TuiEntry {
             label: "assistant".to_string(),
             body: "hello".to_string(),
@@ -396,7 +416,7 @@ mod tests {
         let rendered = frame.to_string();
         let lines = rendered.lines().collect::<Vec<_>>();
 
-        assert_eq!(COMPOSER_HEIGHT, 6);
+        assert_eq!(composer_height(&state_with_input("hello"), 120), 6);
         assert!(lines[33].contains("Viden >_"));
         assert!(lines[34].contains("│"));
         assert!(lines[35].contains("› hello"));
@@ -464,6 +484,21 @@ mod tests {
             composer_cursor_position(&state_with_input("你好"), 120, 40, 1),
             (8, 35)
         );
+    }
+
+    #[test]
+    fn multiline_composer_grows_to_eight_content_rows_then_scrolls_internally() {
+        let state = state_with_input("一\n二\n三\n四\n五\n六\n七\n八\n九\n十");
+        let mut frame = Frame::new(120, 40);
+
+        render_composer(&mut frame, &state, 1);
+        let rendered = frame.to_string();
+
+        assert_eq!(composer_height(&state, 120), 13);
+        assert!(!rendered.contains("› 一"));
+        assert!(rendered.contains("› 三"));
+        assert!(rendered.contains("  十"));
+        assert_eq!(composer_cursor_position(&state, 120, 40, 1), (6, 35));
     }
 
     #[test]
