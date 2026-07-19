@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { JSDOM } from "jsdom";
-import { D1Slice, fixtureProjection, renderD1Slice, themeAttributes } from "../src/app";
+import {
+  createFixtureD1Slice,
+  D1Slice,
+  fixtureProjection,
+  renderD1Slice,
+  themeAttributes,
+} from "../src/app";
 import { ApprovalChoice } from "../src/approval";
 import { Density, Skin } from "../src/theme";
 import parityEvidence from "../../common/d1-slice-evidence.json";
@@ -81,7 +87,7 @@ describe("equal D1 slice", () => {
   test("routes real DOM composition, buttons, scroll, theme, and focus into the slice", () => {
     const dom = new JSDOM('<div id="app"></div>');
     const root = dom.window.document.querySelector<HTMLElement>("#app")!;
-    const app = new D1Slice(fixtureProjection());
+    const app = createFixtureD1Slice(fixtureProjection());
     renderD1Slice(root, app);
 
     const composer = root.querySelector<HTMLTextAreaElement>('[data-role="composer"]')!;
@@ -100,14 +106,12 @@ describe("equal D1 slice", () => {
       value: { getData: () => "第一行\n第二行" },
     });
     composer.dispatchEvent(paste);
-    app.startStream();
     root.querySelector<HTMLButtonElement>('[data-role="queue-action"]')!.click();
     root.querySelector<HTMLButtonElement>('[data-role="cancel-action"]')!.click();
     root.querySelector<HTMLButtonElement>('[data-choice="allow-once"]')!.click();
     root.querySelector<HTMLButtonElement>('[data-choice="deny"]')!.click();
 
     const history = root.querySelector<HTMLElement>('[data-role="history-viewport"]')!;
-    history.dataset.anchor = "row-120";
     history.dispatchEvent(new dom.window.Event("scroll"));
     history.dispatchEvent(new dom.window.CustomEvent("viden:new-output", { detail: "row-50001" }));
 
@@ -121,7 +125,7 @@ describe("equal D1 slice", () => {
 
     expect(app.composer.draft).toBe("你好第一行\n第二行");
     expect(app.approval.lastChoice).toBe(ApprovalChoice.Deny);
-    expect(app.transcript.anchor).toBe("row-120");
+    expect(app.transcript.anchor).toBe("event-1");
     expect(app.transcript.newOutputCount).toBe(1);
     expect(app.theme.skin).toBe(Skin.IceLight);
     expect(app.theme.density).toBe(Density.Comfy);
@@ -130,16 +134,16 @@ describe("equal D1 slice", () => {
       "true",
     );
     expect(app.actionLog).toEqual([
+      "stream:start",
       "composition:start",
       "composition:update:你好",
       "composition:commit:你好",
       "paste:第一行\\n第二行",
-      "stream:start",
       "queue:你好第一行\\n第二行",
       "stream:cancel",
       "approval:allow-once",
       "approval:deny",
-      "history:row-120",
+      "history:event-1",
       "output:row-50001",
       "theme:ice-light:regular",
       "theme:ice-light:comfy",

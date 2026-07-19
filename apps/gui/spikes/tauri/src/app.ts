@@ -12,6 +12,16 @@ export interface ProjectionState {
   viewHash: string;
 }
 
+export interface HistoryRow {
+  id: string;
+  label: string;
+}
+
+interface FixtureUiState {
+  streaming: boolean;
+  historyRows: HistoryRow[];
+}
+
 export function fixtureProjection(): ProjectionState {
   const owner = d1Fixture.events[0].owner;
   const laneEvent = d1Fixture.events.find((event) => event.event.kind.type === "lane_updated");
@@ -26,6 +36,28 @@ export function fixtureProjection(): ProjectionState {
     taskId: taskEvent.event.kind.payload.task!.id,
     viewHash: d1Fixture.expected_view_sha256,
   };
+}
+
+function fixtureUiState(projection: ProjectionState): FixtureUiState {
+  // Runtime state is only initialized after the Rust adapter's projection is
+  // proven to describe the same committed Core fixture rendered below.
+  if (projection.viewHash !== d1Fixture.expected_view_sha256) {
+    throw new Error("Tauri projection does not match the committed D1 fixture");
+  }
+  const streaming = d1Fixture.events.some((event) => {
+    if (event.event.kind.type === "lane_updated") {
+      return event.event.kind.payload.lane?.status === "running";
+    }
+    if (event.event.kind.type === "task_updated") {
+      return event.event.kind.payload.task?.status === "running";
+    }
+    return false;
+  });
+  const historyRows = d1Fixture.events.map((event) => ({
+    id: `event-${event.cursor.sequence}`,
+    label: event.event.kind.type.replaceAll("_", " "),
+  }));
+  return { streaming, historyRows };
 }
 
 export function themeAttributes(skin: Skin): { skin: "aurora" | "ice"; mode: "dark" | "light" } {
@@ -55,7 +87,10 @@ export class D1Slice {
   visibleFocus = false;
   private streaming = false;
 
-  constructor(private readonly projection: ProjectionState) {}
+  constructor(
+    private readonly projection: ProjectionState,
+    readonly historyRows: readonly HistoryRow[] = [],
+  ) {}
 
   startStream(): void {
     this.streaming = true;
@@ -112,12 +147,27 @@ export class D1Slice {
   }
 }
 
+export function createFixtureD1Slice(projection: ProjectionState): D1Slice {
+  const state = fixtureUiState(projection);
+  const app = new D1Slice(projection, state.historyRows);
+  if (state.streaming) {
+    app.startStream();
+  }
+  return app;
+}
+
 export function renderD1Slice(root: HTMLElement, app: D1Slice): void {
   const theme = themeAttributes(app.theme.skin);
   root.innerHTML = `
     <main class="d1-shell" data-skin="${theme.skin}" data-mode="${theme.mode}" data-density="${app.theme.density}">
       <header><strong>Viden</strong><span>${app.projectLabel()}</span></header>
       <section data-role="history-viewport" aria-label="Conversation history" tabindex="1">
+        ${app.historyRows
+          .map(
+            (row) =>
+              `<article data-history-row="${row.id}" aria-label="Core event ${row.id}">${row.label}</article>`,
+          )
+          .join("")}
         <article data-role="tool-row" aria-label="Tool activity">Core fixture ready</article>
         <output data-role="new-output-count" aria-live="polite">${app.transcript.newOutputCount}</output>
       </section>
@@ -214,8 +264,11 @@ export function renderD1Slice(root: HTMLElement, app: D1Slice): void {
     app.approval.respond(ApprovalChoice.Deny),
   );
   history.addEventListener("scroll", () => {
-    if (history.dataset.anchor) {
-      app.transcript.openHistoryAt(history.dataset.anchor);
+    const row = [...history.querySelectorAll<HTMLElement>("[data-history-row]")].find(
+      (candidate) => candidate.offsetTop >= history.scrollTop,
+    );
+    if (row?.dataset.historyRow) {
+      app.transcript.openHistoryAt(row.dataset.historyRow);
     }
   });
   history.addEventListener("viden:new-output", (event) => {
