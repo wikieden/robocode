@@ -8,6 +8,10 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 use viden_session::project_key_for_path;
 
+use crate::lanes::{
+    LEGACY_LANES_MIGRATION_ID, LaneEvent, LaneState, LegacyLaneImportOutcome,
+    parse_legacy_lanes_tsv, reduce_lane_events,
+};
 use crate::memory::{MemoryEvent, MemoryState, reduce_memory_events};
 use crate::tasks::{TaskEvent, TaskState, reduce_task_events};
 
@@ -19,6 +23,7 @@ pub struct WorkflowPaths {
     pub tasks_log: PathBuf,
     pub memory_log: PathBuf,
     pub agent_log: PathBuf,
+    pub lanes_log: PathBuf,
     pub index_db_path: PathBuf,
 }
 
@@ -67,6 +72,7 @@ impl WorkflowStore {
             tasks_log: project_dir.join("tasks.jsonl"),
             memory_log: project_dir.join("memory.jsonl"),
             agent_log: project_dir.join("agents.jsonl"),
+            lanes_log: project_dir.join("lanes.jsonl"),
             index_db_path: project_dir.join("workflow.sqlite3"),
             home_dir,
             projects_dir,
@@ -140,6 +146,63 @@ impl WorkflowStore {
 
     pub fn load_memory_state(&self) -> Result<MemoryState, String> {
         reduce_memory_events(&self.load_memory_domain_events()?)
+    }
+
+    pub fn append_lane_event(&self, event: &LaneEvent) -> Result<(), String> {
+        append_json_line(&self.paths.lanes_log, event)
+    }
+
+    pub fn append_lane_event_checked(&self, event: &LaneEvent) -> Result<(), String> {
+        let mut events = self.load_lane_events()?;
+        events.push(event.clone());
+        reduce_lane_events(&events)?;
+        self.append_lane_event(event)
+    }
+
+    pub fn load_lane_events(&self) -> Result<Vec<LaneEvent>, String> {
+        load_json_lines(&self.paths.lanes_log)
+    }
+
+    pub fn load_lane_state(&self) -> Result<LaneState, String> {
+        reduce_lane_events(&self.load_lane_events()?)
+    }
+
+    pub fn import_legacy_lanes_tsv_once(
+        &self,
+        legacy_path: impl AsRef<Path>,
+        timestamp: u64,
+        origin_session_id: Option<String>,
+    ) -> Result<LegacyLaneImportOutcome, String> {
+        let state = self.load_lane_state()?;
+        if let Some(audit) = state.migration(LEGACY_LANES_MIGRATION_ID) {
+            return Ok(LegacyLaneImportOutcome {
+                imported: false,
+                lane_count: audit.imported_lane_ids.len(),
+            });
+        }
+
+        let raw = fs::read_to_string(legacy_path.as_ref()).map_err(|error| {
+            format!(
+                "failed to read legacy lanes {}: {error}",
+                legacy_path.as_ref().display()
+            )
+        })?;
+        let lanes = parse_legacy_lanes_tsv(&raw)?;
+        let lane_count = lanes.len();
+        // One event contains the entire validated import so the JSONL boundary
+        // never publishes only a prefix of the legacy lane set.
+        let event = LaneEvent::legacy_imported(
+            "evt_legacy_lanes_tsv_v0",
+            "project:.viden/lanes.tsv",
+            lanes,
+            timestamp,
+            origin_session_id,
+        );
+        self.append_lane_event_checked(&event)?;
+        Ok(LegacyLaneImportOutcome {
+            imported: true,
+            lane_count,
+        })
     }
 
     pub fn rebuild_index(&self) -> Result<(), String> {
@@ -249,6 +312,7 @@ mod tests {
             "memory.jsonl"
         );
         assert_eq!(store.paths().agent_log.file_name().unwrap(), "agents.jsonl");
+        assert_eq!(store.paths().lanes_log.file_name().unwrap(), "lanes.jsonl");
         assert_eq!(
             store.paths().index_db_path.file_name().unwrap(),
             "workflow.sqlite3"
