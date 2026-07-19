@@ -1,6 +1,7 @@
 use super::{
     canvas::Frame,
     composer::{composer_height, render_composer, render_welcome, should_render_welcome},
+    geometry::effective_layout_width,
     modal::render_overlays,
     ops_screen::render_ops_body,
     panel::panel,
@@ -14,11 +15,10 @@ use super::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const MIN_WIDTH: usize = 80;
 const MIN_HEIGHT: usize = 24;
 const RIGHT_RAIL_WIDTH: usize = 38;
 pub(super) fn render_frame(state: &TuiState, width: u16, height: u16) -> String {
-    let width = (width as usize).max(MIN_WIDTH);
+    let width = effective_layout_width(width);
     let height = (height as usize).max(MIN_HEIGHT);
     let mut frame = Frame::new(width, height);
 
@@ -44,7 +44,7 @@ pub(super) fn render_frame(state: &TuiState, width: u16, height: u16) -> String 
 }
 
 pub(super) fn render_side_frame(state: &TuiState, width: u16, height: u16) -> String {
-    let width = (width as usize).max(MIN_WIDTH);
+    let width = effective_layout_width(width);
     let height = (height as usize).max(MIN_HEIGHT);
     let mut frame = Frame::new(width, height);
 
@@ -56,7 +56,7 @@ pub(super) fn render_side_frame(state: &TuiState, width: u16, height: u16) -> St
 }
 
 pub(super) fn render_ops_frame(state: &TuiState, width: u16, height: u16) -> String {
-    let width = (width as usize).max(MIN_WIDTH);
+    let width = effective_layout_width(width);
     let height = (height as usize).max(MIN_HEIGHT);
     let mut frame = Frame::new(width, height);
 

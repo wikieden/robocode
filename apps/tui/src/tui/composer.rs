@@ -1,5 +1,6 @@
 use super::{
     canvas::Frame,
+    geometry::effective_layout_width,
     panel::{bordered_row, panel_top},
     state::TuiState,
     text::{bottom_border, char_width, pad, truncate},
@@ -91,7 +92,10 @@ pub(super) fn composer_height(state: &TuiState, width: usize) -> usize {
 
 fn composer_rows(state: &TuiState, width: usize) -> Vec<String> {
     if !state.ui.input.is_empty() {
-        state.ui.input.visible_rows(composer_content_width(width))
+        state
+            .ui
+            .input
+            .visible_rows(composer_content_width(state, width))
     } else if super::state::has_active_work(state) {
         let count = state.runtime.queued_inputs.len();
         if count == 0 {
@@ -107,8 +111,12 @@ fn composer_rows(state: &TuiState, width: usize) -> Vec<String> {
     }
 }
 
-pub(super) fn composer_content_width(width: usize) -> usize {
-    width.saturating_sub(32).max(1)
+pub(super) fn composer_content_width(state: &TuiState, layout_width: usize) -> usize {
+    if should_render_welcome(state) {
+        welcome_content_width(welcome_box_width(layout_width))
+    } else {
+        layout_width.saturating_sub(32).max(1)
+    }
 }
 
 fn composer_input_row(state: &TuiState, width: usize, value: &str, first: bool) -> String {
@@ -150,12 +158,15 @@ pub(super) fn composer_cursor_position(
     terminal_height: u16,
     bottom_bar_height: usize,
 ) -> (u16, u16) {
-    let width = usize::from(terminal_width);
+    let width = effective_layout_width(terminal_width);
     let height = usize::from(terminal_height);
     if should_render_welcome(state) {
         return welcome_cursor_position(state, width, height);
     }
-    let cell = state.ui.input.cursor_cell(composer_content_width(width));
+    let cell = state
+        .ui
+        .input
+        .cursor_cell(composer_content_width(state, width));
     let column = 4 + cell.column;
     let composer_height = composer_height(state, width);
     let row = height
@@ -296,7 +307,10 @@ fn welcome_cursor_position(state: &TuiState, width: usize, height: usize) -> (u1
 }
 
 fn welcome_content_width(box_width: usize) -> usize {
-    box_width.saturating_sub(2).max(1)
+    // Keep one physical cell available for the terminal cursor when the row
+    // is otherwise full; exact-width input wraps instead of placing it past
+    // the right edge.
+    box_width.saturating_sub(3).max(1)
 }
 
 fn welcome_input_rows(state: &TuiState, box_width: usize) -> Vec<String> {
@@ -554,6 +568,63 @@ mod tests {
         assert!(lines[30].contains("▌ 十"));
         assert!(!rendered.contains("▌ 一"));
         assert_eq!(composer_cursor_position(&state, 120, 40, 1), (16, 30));
+    }
+
+    #[test]
+    fn narrow_render_and_cursor_use_the_same_actual_width_and_viewport() {
+        for width in [40_u16, 60, 79] {
+            let mut welcome = TuiState::default();
+            welcome.ui.input = "一\n二\n三\n四\n五\n六\n七\n八\n九\n终".into();
+            let rendered = super::super::render::render_frame(&welcome, width, 40);
+            let lines = rendered.lines().collect::<Vec<_>>();
+            let (column, row) = composer_cursor_position(
+                &welcome,
+                width,
+                40,
+                super::super::statusbar::BOTTOM_BAR_HEIGHT,
+            );
+
+            assert!(
+                lines
+                    .iter()
+                    .all(|line| char_width(line) == usize::from(width)),
+                "welcome frame must use physical width {width}"
+            );
+            assert!(lines[usize::from(row)].contains("▌ 终"));
+            assert!(usize::from(column) < usize::from(width));
+
+            let normal = state_with_input("一\n二\n三\n四\n五\n六\n七\n八\n九\n终");
+            let rendered = super::super::render::render_frame(&normal, width, 40);
+            let lines = rendered.lines().collect::<Vec<_>>();
+            let (column, row) = composer_cursor_position(
+                &normal,
+                width,
+                40,
+                super::super::statusbar::BOTTOM_BAR_HEIGHT,
+            );
+
+            assert!(
+                lines
+                    .iter()
+                    .all(|line| char_width(line) == usize::from(width)),
+                "session frame must use physical width {width}"
+            );
+            assert!(
+                lines[usize::from(row)].contains("终"),
+                "width {width}, cursor ({column}, {row}), line {:?}",
+                lines[usize::from(row)]
+            );
+            assert!(usize::from(column) < usize::from(width));
+        }
+
+        let mut edge = TuiState::default();
+        edge.ui.input = "x".repeat(38).into();
+        let (column, row) =
+            composer_cursor_position(&edge, 40, 40, super::super::statusbar::BOTTOM_BAR_HEIGHT);
+        let rendered = super::super::render::render_frame(&edge, 40, 40);
+
+        assert!(column < 40, "cursor must remain physically visible");
+        assert!(rendered.lines().nth(usize::from(row)).is_some());
     }
 
     #[test]

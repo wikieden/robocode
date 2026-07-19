@@ -7,6 +7,7 @@ mod client;
 mod command_palette;
 mod composer;
 mod composer_buffer;
+mod geometry;
 mod indicators;
 #[allow(dead_code)]
 mod input;

@@ -9,6 +9,7 @@ use super::command_palette::{
     should_complete_on_enter,
 };
 use super::composer::composer_content_width;
+use super::geometry::effective_layout_width;
 use super::input::{
     ApprovalKeyEffect, apply_approval_key, close_focus_on_escape, effective_input_mode, input_focus,
 };
@@ -298,14 +299,14 @@ fn apply_input_intent<C: CoreClient>(
         }
         InputIntent::MoveCursorLeft => state.ui.input.move_left(),
         InputIntent::MoveCursorRight => state.ui.input.move_right(),
-        InputIntent::MoveCursorUp => state
-            .ui
-            .input
-            .move_up(composer_content_width(usize::from(terminal_size.0))),
-        InputIntent::MoveCursorDown => state
-            .ui
-            .input
-            .move_down(composer_content_width(usize::from(terminal_size.0))),
+        InputIntent::MoveCursorUp => {
+            let width = composer_content_width(state, effective_layout_width(terminal_size.0));
+            state.ui.input.move_up(width);
+        }
+        InputIntent::MoveCursorDown => {
+            let width = composer_content_width(state, effective_layout_width(terminal_size.0));
+            state.ui.input.move_down(width);
+        }
         InputIntent::Submit if state.ui.input.has_unclosed_code_fence() => {
             state.ui.input.insert_newline();
             reset_for_input_change(state);
@@ -1124,6 +1125,59 @@ mod tests {
         assert_eq!(state.ui.input, "explain\n");
         assert_eq!(driver.view().pending_approvals.len(), 1);
         assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
+    fn narrow_welcome_vertical_motion_uses_rendered_cjk_emoji_width() {
+        for (width, repeats) in [(40_u16, 5), (60, 10), (79, 14)] {
+            let client = FakeCoreClient::default();
+            let mut driver = TuiClientDriver::connect(client).expect("connect");
+            let mut state = TuiState::default();
+            state.ui.input_mode = InputMode::Insert;
+            let line = "你👨‍👩‍👧‍👦".repeat(repeats);
+            state.ui.input = format!("{line}\n{line}\n{line}").into();
+            let before = super::super::composer::composer_cursor_position(
+                &state,
+                width,
+                40,
+                super::super::statusbar::BOTTOM_BAR_HEIGHT,
+            );
+
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
+                (width, 40),
+            )
+            .expect("narrow up");
+            let after = super::super::composer::composer_cursor_position(
+                &state,
+                width,
+                40,
+                super::super::statusbar::BOTTOM_BAR_HEIGHT,
+            );
+
+            assert_eq!(after.1 + 1, before.1, "width {width}");
+            assert_eq!(after.0, before.0, "width {width}");
+
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+                (width, 40),
+            )
+            .expect("narrow down");
+            assert_eq!(
+                super::super::composer::composer_cursor_position(
+                    &state,
+                    width,
+                    40,
+                    super::super::statusbar::BOTTOM_BAR_HEIGHT,
+                ),
+                before,
+                "width {width}"
+            );
+        }
     }
 
     #[test]
