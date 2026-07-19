@@ -3095,21 +3095,27 @@ fn runtime_supervisor_applies_extended_agent_role_policy_matrix_to_tools() {
         )
         .unwrap();
     let external_events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
-        events
-            .iter()
-            .filter(|event| {
-                matches!(
-                    &event.kind,
-                    RuntimeEventKind::ToolCallFinished {
-                        success: false,
-                        evidence: Some(evidence),
-                        ..
-                    } if evidence.summary.contains("reason: RuleDeny")
-                )
-            })
-            .count()
-            >= 2
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::TaskUpdated { task }
+                    if task.id == "task_external_policy" && task.status == AgentTaskStatus::Done
+            )
+        })
     });
+    // Plan mode's stable denial contract is structured permission evidence;
+    // do not make this policy assertion depend on ToolCallFinished projection.
+    for tool_name in ["write_file", "shell"] {
+        assert!(external_events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::EvidenceRecorded { evidence }
+                    if evidence.summary.contains("Summary: decision=deny")
+                        && evidence.summary.contains(&format!("tool: {tool_name}"))
+                        && evidence.summary.contains("reason: PlanMode")
+            )
+        }));
+    }
     assert!(
         !external_events
             .iter()

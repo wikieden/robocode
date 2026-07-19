@@ -356,6 +356,8 @@ fn legacy_task_role(value: Option<&str>, kind: AgentTaskKind) -> Result<AgentRol
 fn legacy_task_route(value: Option<&str>, kind: AgentTaskKind) -> Result<AgentRoute, String> {
     let value = value.ok_or_else(|| "legacy task is missing transport/route".to_string())?;
     let normalized = value.trim().to_ascii_lowercase();
+    // A v0 provider task stored its provider identifier in `transport`; only
+    // provider tasks may treat arbitrary identifiers as the built-in route.
     if kind == AgentTaskKind::Provider || matches!(normalized.as_str(), "runtime" | "core") {
         return Ok(AgentRoute::BuiltIn);
     }
@@ -574,7 +576,7 @@ pub fn legacy_lane_route(value: &str) -> Result<AgentRoute, String> {
         "built_in" | "runtime" | "core" => Ok(AgentRoute::BuiltIn),
         "acp" | "acp-session" => Ok(AgentRoute::Acp),
         "tmux" => Ok(AgentRoute::Tmux),
-        "shell" | "local" | "pty" | "app-server" | "main" => Ok(AgentRoute::Terminal),
+        "shell" | "local" | "pty" | "terminal" | "app-server" | "main" => Ok(AgentRoute::Terminal),
         value if value.starts_with("tmux") => Ok(AgentRoute::Tmux),
         value if value.starts_with("codex") || value.starts_with("claude") => {
             Ok(AgentRoute::Terminal)

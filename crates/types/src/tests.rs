@@ -418,6 +418,11 @@ fn legacy_lane_json_migrates_only_at_the_record_input_edge() {
 }
 
 #[test]
+fn legacy_lane_route_accepts_terminal_alias() {
+    assert_eq!(legacy_lane_route("terminal").unwrap(), AgentRoute::Terminal);
+}
+
+#[test]
 fn typed_task_records_preserve_v0_names_and_migrate_legacy_values() {
     let legacy = serde_json::json!({
         "id": "task_test",
@@ -456,6 +461,98 @@ fn typed_task_records_preserve_v0_names_and_migrate_legacy_values() {
     let mut external = encoded;
     external["agent"] = serde_json::json!("external");
     assert!(serde_json::from_value::<AgentTaskRecord>(external).is_err());
+}
+
+#[test]
+fn legacy_task_transport_values_migrate_by_task_kind_not_key_renaming() {
+    let cases = [
+        (
+            "viden",
+            "provider",
+            "deepseek",
+            AgentTaskKind::Provider,
+            AgentRoute::BuiltIn,
+        ),
+        (
+            "viden",
+            "provider",
+            "anthropic",
+            AgentTaskKind::Provider,
+            AgentRoute::BuiltIn,
+        ),
+        (
+            "shell",
+            "shell",
+            "terminal",
+            AgentTaskKind::Shell,
+            AgentRoute::Terminal,
+        ),
+        (
+            "viden",
+            "tool",
+            "local",
+            AgentTaskKind::Tool,
+            AgentRoute::Terminal,
+        ),
+        (
+            "acp",
+            "job",
+            "acp-session",
+            AgentTaskKind::Job,
+            AgentRoute::Acp,
+        ),
+    ];
+
+    for (agent, kind, transport, expected_kind, expected_route) in cases {
+        let task: AgentTaskRecord =
+            serde_json::from_value(legacy_task_json(agent, kind, transport)).unwrap();
+        assert_eq!(task.kind, expected_kind);
+        assert_eq!(task.route, expected_route);
+
+        let encoded = serde_json::to_value(task).unwrap();
+        // v0 names remain, but their values are the v1 typed classifications.
+        assert!(encoded.get("role").is_none());
+        assert!(encoded.get("route").is_none());
+        assert_eq!(encoded["agent"], "coder");
+        assert_eq!(
+            encoded["transport"],
+            serde_json::to_value(expected_route).unwrap()
+        );
+    }
+
+    assert!(
+        serde_json::from_value::<AgentTaskRecord>(legacy_task_json(
+            "viden",
+            "tool",
+            "unrecognized-transport",
+        ))
+        .is_err()
+    );
+}
+
+fn legacy_task_json(agent: &str, kind: &str, transport: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": "task_legacy",
+        "parent_id": null,
+        "agent": agent,
+        "kind": kind,
+        "transport": transport,
+        "title": "legacy task",
+        "status": "queued",
+        "activity": "queued",
+        "summary": "legacy task",
+        "progress": 0,
+        "started_at": null,
+        "updated_at": null,
+        "workspace": null,
+        "evidence": [],
+        "permissions": [],
+        "decision": null,
+        "result": null,
+        "resume_handle": null,
+        "pid": null,
+        "next_action": null
+    })
 }
 
 #[test]
