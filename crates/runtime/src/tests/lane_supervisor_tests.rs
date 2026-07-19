@@ -1134,12 +1134,10 @@ fn lane_supervisor_approval_uses_permission_snapshot_before_later_build() {
             },
         )
         .unwrap();
-    collect_envelopes_until(&supervisor, |events| {
-        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::SnapshotUpdated { snapshot }, .. }) if snapshot.permission_level == PermissionLevel::Ask))
-    });
     release_sender.send(()).unwrap();
     let resolved = collect_envelopes_until(&supervisor, |events| {
         events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalResolved { request_id: resolved, decision: viden_types::ApprovalDecision::Deny, .. }, .. }) if resolved == &request_id))
+            && events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::SnapshotUpdated { snapshot }, .. }) if snapshot.permission_level == PermissionLevel::Ask))
     });
     set_before_lane_approval_resume_hook(None);
 
@@ -1153,15 +1151,39 @@ fn lane_supervisor_approval_uses_permission_snapshot_before_later_build() {
             ..
         })
     )));
+    let deny_sequence = resolved
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind:
+                    RuntimeEventKind::ApprovalResolved {
+                        request_id: resolved,
+                        decision: viden_types::ApprovalDecision::Deny,
+                        ..
+                    },
+                ..
+            }) if resolved == &request_id => Some(envelope.cursor.sequence),
+            _ => None,
+        })
+        .unwrap();
+    let build_sequence = resolved
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::SnapshotUpdated { snapshot },
+                ..
+            }) if snapshot.permission_level == PermissionLevel::Ask => {
+                Some(envelope.cursor.sequence)
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(deny_sequence < build_sequence);
     assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
 }
 
 #[test]
 fn lane_supervisor_approval_uses_build_snapshot_before_later_read_only() {
-    let _guard = LANE_APPROVAL_RESUME_HOOK_TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap();
     let cwd = temp_dir("lane_build_snapshot_cwd");
     let home = temp_dir("lane_build_snapshot_home");
     persist_done_propose_lane(&home, &cwd, "lane-build-snapshot");
@@ -1170,7 +1192,8 @@ fn lane_supervisor_approval_uses_build_snapshot_before_later_read_only() {
     engine
         .set_permission_mode(viden_types::PermissionMode::DontAsk)
         .unwrap();
-    let effects = Arc::new(RecordingLaneEffects::default());
+    let (effects, effect_entered, release_effect) = BlockingApplyLaneEffects::new();
+    let effects = Arc::new(effects);
     let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
         engine,
         effects.clone() as Arc<dyn LaneEffectExecutor>,
@@ -1199,17 +1222,6 @@ fn lane_supervisor_approval_uses_build_snapshot_before_later_read_only() {
             _ => None,
         })
         .unwrap();
-    let (entered_sender, entered_receiver) = mpsc::channel();
-    let (release_sender, release_receiver) = mpsc::channel();
-    let release_receiver = Arc::new(Mutex::new(release_receiver));
-    let expected_request = request_id.clone();
-    set_before_lane_approval_resume_hook(Some(Arc::new(move |resumed_request| {
-        if resumed_request == expected_request {
-            let _ = entered_sender.send(());
-            let _ = release_receiver.lock().unwrap().recv();
-        }
-    })));
-
     supervisor
         .send_command_from_owner(
             lane_owner.clone(),
@@ -1220,9 +1232,9 @@ fn lane_supervisor_approval_uses_build_snapshot_before_later_read_only() {
             },
         )
         .unwrap();
-    entered_receiver
+    effect_entered
         .recv_timeout(Duration::from_secs(2))
-        .expect("lane worker reached approval resume barrier");
+        .expect("lane worker entered the approved effect");
     supervisor
         .send_command_from_owner(
             lane_owner,
@@ -1232,26 +1244,136 @@ fn lane_supervisor_approval_uses_build_snapshot_before_later_read_only() {
             },
         )
         .unwrap();
-    collect_envelopes_until(&supervisor, |events| {
-        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::SnapshotUpdated { snapshot }, .. }) if snapshot.permission_level == PermissionLevel::ReadOnly))
+    let started = Instant::now();
+    let mut events = Vec::new();
+    while started.elapsed() < Duration::from_millis(250) {
+        if let Some(event) = supervisor.recv_event_envelope_timeout(Duration::from_millis(25)) {
+            events.push(event);
+        }
+    }
+    let snapshot_before_effect_completed = events.iter().any(|envelope| {
+        matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::SnapshotUpdated { snapshot }, .. }) if snapshot.permission_level == PermissionLevel::ReadOnly)
     });
-    release_sender.send(()).unwrap();
-    let resolved = collect_envelopes_until(&supervisor, |events| {
-        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalResolved { request_id: resolved, decision: viden_types::ApprovalDecision::Allow { .. }, .. }, .. }) if resolved == &request_id))
-    });
-    set_before_lane_approval_resume_hook(None);
+    release_effect.send(()).unwrap();
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(5)
+        && !(events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalResolved { request_id: resolved, decision: viden_types::ApprovalDecision::Allow { .. }, .. }, .. }) if resolved == &request_id))
+            && events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::SnapshotUpdated { snapshot }, .. }) if snapshot.permission_level == PermissionLevel::ReadOnly)))
+    {
+        if let Some(event) =
+            supervisor.recv_event_envelope_timeout(Duration::from_millis(50))
+        {
+            events.push(event);
+        }
+    }
 
-    assert!(resolved.iter().any(|envelope| matches!(
-        &envelope.event,
-        RuntimeWireEvent::Known(RuntimeEvent {
-            kind: RuntimeEventKind::ApprovalResolved {
-                decision: viden_types::ApprovalDecision::Allow { .. },
+    assert!(
+        !snapshot_before_effect_completed,
+        "a later permission snapshot must wait for the approved effect barrier"
+    );
+    let resolved_sequence = events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind:
+                    RuntimeEventKind::ApprovalResolved {
+                        request_id: resolved,
+                        decision: viden_types::ApprovalDecision::Allow { .. },
+                        ..
+                    },
                 ..
-            },
-            ..
+            }) if resolved == &request_id => Some(envelope.cursor.sequence),
+            _ => None,
         })
-    )));
+        .expect("approval resolved before the later snapshot");
+    let snapshot_sequence = events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::SnapshotUpdated { snapshot },
+                ..
+            }) if snapshot.permission_level == PermissionLevel::ReadOnly => {
+                Some(envelope.cursor.sequence)
+            }
+            _ => None,
+        })
+        .expect("later ReadOnly snapshot was published");
+    assert!(resolved_sequence < snapshot_sequence);
     assert!(effects.calls.lock().unwrap().contains(&"apply".to_string()));
+}
+
+#[test]
+fn lane_supervisor_rejects_approval_after_permission_epoch_round_trip() {
+    let cwd = temp_dir("lane_permission_epoch_round_trip_cwd");
+    let home = temp_dir("lane_permission_epoch_round_trip_home");
+    persist_done_propose_lane(&home, &cwd, "lane-epoch-round-trip");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let lane_owner = owner("lane-epoch-round-trip");
+    supervisor
+        .send_command_from_owner(
+            lane_owner.clone(),
+            "apply_before_epoch_round_trip",
+            RuntimeCommand::ApplyLaneChanges {
+                lane_id: "lane-epoch-round-trip".to_string(),
+                unified_diff: "diff --git a/a b/a\n".to_string(),
+            },
+        )
+        .unwrap();
+    let requested = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalRequested { approval }, .. }) if approval.tool_name == "lane_apply"))
+    });
+    let request_id = requested
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ApprovalRequested { approval },
+                ..
+            }) => Some(approval.id.clone()),
+            _ => None,
+        })
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            lane_owner.clone(),
+            "epoch_round_trip_read_only",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::ReadOnly,
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            lane_owner.clone(),
+            "epoch_round_trip_build",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Ask,
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            lane_owner,
+            "allow_after_epoch_round_trip",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: viden_types::ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalResolved { request_id: resolved, decision: viden_types::ApprovalDecision::Deny, .. }, .. }) if resolved == &request_id))
+    });
+
+    assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
 }
 
 #[test]
@@ -2575,6 +2697,40 @@ struct CountingLaneEffects {
 #[derive(Default)]
 struct RecordingLaneEffects {
     calls: Mutex<Vec<String>>,
+}
+
+struct BlockingApplyLaneEffects {
+    calls: Mutex<Vec<String>>,
+    entered: Mutex<Option<mpsc::Sender<()>>>,
+    release: Mutex<mpsc::Receiver<()>>,
+}
+
+impl BlockingApplyLaneEffects {
+    fn new() -> (Self, mpsc::Receiver<()>, mpsc::Sender<()>) {
+        let (entered_sender, entered_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        (
+            Self {
+                calls: Mutex::new(Vec::new()),
+                entered: Mutex::new(Some(entered_sender)),
+                release: Mutex::new(release_receiver),
+            },
+            entered_receiver,
+            release_sender,
+        )
+    }
+}
+
+impl LaneEffectExecutor for BlockingApplyLaneEffects {
+    fn execute(&self, request: LaneEffectRequest) -> Result<LaneEffectResult, String> {
+        assert!(matches!(request, LaneEffectRequest::Apply { .. }));
+        if let Some(entered) = self.entered.lock().unwrap().take() {
+            let _ = entered.send(());
+        }
+        let _ = self.release.lock().unwrap().recv();
+        self.calls.lock().unwrap().push("apply".to_string());
+        Ok(LaneEffectResult::success("effect completed"))
+    }
 }
 
 impl LaneEffectExecutor for RecordingLaneEffects {

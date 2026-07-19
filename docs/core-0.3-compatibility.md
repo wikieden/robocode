@@ -82,10 +82,13 @@ blocked recovery facts and remain bound to their durable session owner.
 
 Ordinary tool and lane approval responses observe supervisor command ordering
 with permission and mode changes. Ordinary tools consult the ordered permission
-control state, while each lane response captures a permission decision snapshot:
-an earlier downgrade denies the mutation even if Build is restored before the
-worker resumes, while an earlier Build decision completes before a later
-downgrade. Lane approval-derived session/repository allow rules are kept
+control generation, while each lane request captures the same generation with
+its permission snapshot. Any intervening permission or work-mode generation
+change invalidates the pending approval even if the visible flags later return
+to their original values. Once a lane response is accepted, the supervisor waits
+for its terminal `ApprovalResolved` and effect/persistence completion before it
+processes or publishes a later permission snapshot. Lane approval-derived
+session/repository allow rules are kept
 inside the owning lane worker, so they survive normal authoritative permission
 refreshes for that lane without authorizing another lane or owner; Plan/ReadOnly
 refreshes discard them immediately.

@@ -35,6 +35,8 @@ struct PendingApproval {
     owner: RuntimeOwner,
     audit_id: String,
     expires_at: u64,
+    // An approval cannot survive any permission/work-mode generation change.
+    permission_epoch: u64,
     allowed_scopes: Vec<ApprovalScope>,
     target: PendingApprovalTarget,
 }
@@ -74,6 +76,10 @@ struct PermissionControlState {
 impl PermissionControlState {
     fn blocks_mutation(self) -> bool {
         self.work_mode != WorkMode::Build || self.permission_level == PermissionLevel::ReadOnly
+    }
+
+    fn epoch(self) -> u64 {
+        self.epoch
     }
 
     fn apply(&mut self, command: &RuntimeCommand) {
@@ -131,6 +137,7 @@ struct SupervisorShared<'a> {
     active_control: &'a ActiveControlRegistry,
     pending_approvals: &'a Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_timers: &'a Arc<ApprovalTimerRegistry>,
+    permission_control: &'a Arc<Mutex<PermissionControlState>>,
 }
 
 #[derive(Default)]
@@ -353,6 +360,7 @@ impl RuntimeSupervisor {
         let worker_pending_approvals = Arc::clone(&pending_approvals);
         let worker_approval_timers = Arc::clone(&approval_timers);
         let worker_lane_supervisor = Arc::clone(&lane_supervisor);
+        let worker_permission_control = Arc::clone(&permission_control);
         let worker_liveness = Arc::clone(&worker_alive);
         let worker = thread::spawn(move || {
             run_supervisor_worker(
@@ -363,6 +371,7 @@ impl RuntimeSupervisor {
                 worker_pending_approvals,
                 worker_approval_timers,
                 worker_lane_supervisor,
+                worker_permission_control,
                 approval_ttl_secs,
                 worker_liveness,
             );
@@ -599,16 +608,23 @@ impl RuntimeSupervisor {
                     }
                     approvals.remove(&request_id).expect("pending approval")
                 };
-                let response = if matches!(&pending.target, PendingApprovalTarget::Channel { .. })
-                    && response.is_allowed()
-                    && self
-                        .permission_control
-                        .lock()
-                        .map_err(|_| "permission control state poisoned".to_string())?
-                        .blocks_mutation()
+                let permission_control = *self
+                    .permission_control
+                    .lock()
+                    .map_err(|_| "permission control state poisoned".to_string())?;
+                let stale_permission_epoch = pending.permission_epoch != permission_control.epoch();
+                let response = if response.is_allowed()
+                    && (stale_permission_epoch
+                        || (matches!(&pending.target, PendingApprovalTarget::Channel { .. })
+                            && permission_control.blocks_mutation()))
                 {
                     ApprovalResponse::deny(Some(
-                        "permission or work mode changed before approval resumed".to_string(),
+                        if stale_permission_epoch {
+                            "permission or work mode changed after approval was requested"
+                        } else {
+                            "permission or work mode changed before approval resumed"
+                        }
+                        .to_string(),
                     ))
                 } else {
                     response
@@ -895,6 +911,7 @@ fn run_supervisor_worker(
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_timers: Arc<ApprovalTimerRegistry>,
     lane_supervisor: Arc<LaneSupervisor>,
+    permission_control: Arc<Mutex<PermissionControlState>>,
     approval_ttl_secs: u64,
     worker_alive: Arc<AtomicBool>,
 ) {
@@ -915,7 +932,7 @@ fn run_supervisor_worker(
             } => {
                 if LaneSupervisor::handles(&command) {
                     if let Err(error) =
-                        lane_supervisor.sync_permissions(engine.lane_permission_engine())
+                        sync_lane_permissions(&lane_supervisor, &engine, &permission_control)
                     {
                         emit_error(&event_bus, owner, error);
                         continue;
@@ -940,6 +957,7 @@ fn run_supervisor_worker(
                             &active_control,
                             &pending_approvals,
                             &approval_timers,
+                            &permission_control,
                             approval_ttl_secs,
                         );
                     }
@@ -953,6 +971,7 @@ fn run_supervisor_worker(
                             &active_control,
                             &pending_approvals,
                             &approval_timers,
+                            &permission_control,
                             approval_ttl_secs,
                         );
                     }
@@ -968,6 +987,7 @@ fn run_supervisor_worker(
                                 active_control: &active_control,
                                 pending_approvals: &pending_approvals,
                                 approval_timers: &approval_timers,
+                                permission_control: &permission_control,
                             },
                             approval_ttl_secs,
                         );
@@ -986,7 +1006,7 @@ fn run_supervisor_worker(
                     }
                 }
                 if let Err(error) =
-                    lane_supervisor.sync_permissions(engine.lane_permission_engine())
+                    sync_lane_permissions(&lane_supervisor, &engine, &permission_control)
                 {
                     emit_error(&event_bus, RuntimeOwner::default(), error);
                 }
@@ -998,7 +1018,7 @@ fn run_supervisor_worker(
                 response,
             } => {
                 if let Err(error) =
-                    lane_supervisor.sync_permissions(engine.lane_permission_engine())
+                    sync_lane_permissions(&lane_supervisor, &engine, &permission_control)
                 {
                     emit_error(&event_bus, owner, error);
                     continue;
@@ -1075,6 +1095,18 @@ fn run_supervisor_worker(
             }
         }
     }
+}
+
+fn sync_lane_permissions(
+    lane_supervisor: &LaneSupervisor,
+    engine: &SessionEngine,
+    permission_control: &Arc<Mutex<PermissionControlState>>,
+) -> Result<(), String> {
+    let permission_epoch = permission_control
+        .lock()
+        .map_err(|_| "permission control state poisoned".to_string())?
+        .epoch();
+    lane_supervisor.sync_permissions(engine.lane_permission_engine(), permission_epoch)
 }
 
 struct WorkerLivenessGuard(Arc<AtomicBool>);
@@ -1179,6 +1211,11 @@ fn run_supervised_context_retrieval(
             );
         }
         SupervisorContextRetrievalPreparation::PendingApproval { mut approval, job } => {
+            let permission_epoch = shared
+                .permission_control
+                .lock()
+                .map(|control| control.epoch())
+                .unwrap_or(u64::MAX);
             approval.owner = owner.clone();
             approval.audit_id = fresh_id("audit");
             approval.expires_at = now_timestamp().saturating_add(approval_ttl_secs);
@@ -1221,6 +1258,7 @@ fn run_supervised_context_retrieval(
                     owner: approval.owner.clone(),
                     audit_id: approval.audit_id.clone(),
                     expires_at: approval.expires_at,
+                    permission_epoch,
                     allowed_scopes: approval.allowed_scopes.clone(),
                     target: PendingApprovalTarget::ContextRetrieval {
                         owner_id: command_id,
@@ -1563,6 +1601,7 @@ fn run_supervised_agent_task(
     active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_timers: &Arc<ApprovalTimerRegistry>,
+    permission_control: &Arc<Mutex<PermissionControlState>>,
     approval_ttl_secs: u64,
 ) {
     let control = ModelRequestControl::new();
@@ -1595,6 +1634,10 @@ fn run_supervised_agent_task(
     );
 
     let mut approver = |prompt: PermissionPrompt| {
+        let permission_epoch = permission_control
+            .lock()
+            .map(|control| control.epoch())
+            .unwrap_or(u64::MAX);
         let request_id = fresh_id("approval");
         let (approval_sender, approval_receiver) = mpsc::channel();
         let approval =
@@ -1607,6 +1650,7 @@ fn run_supervised_agent_task(
                 owner: approval.owner.clone(),
                 audit_id: approval.audit_id.clone(),
                 expires_at: approval.expires_at,
+                permission_epoch,
                 allowed_scopes: approval.allowed_scopes.clone(),
                 target: PendingApprovalTarget::Channel {
                     owner_id: command_id.clone(),
@@ -1654,6 +1698,7 @@ fn run_supervised_input(
     active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_timers: &Arc<ApprovalTimerRegistry>,
+    permission_control: &Arc<Mutex<PermissionControlState>>,
     approval_ttl_secs: u64,
 ) {
     let control = ModelRequestControl::new();
@@ -1686,6 +1731,10 @@ fn run_supervised_input(
     );
 
     let mut approver = |prompt: PermissionPrompt| {
+        let permission_epoch = permission_control
+            .lock()
+            .map(|control| control.epoch())
+            .unwrap_or(u64::MAX);
         let request_id = fresh_id("approval");
         let (approval_sender, approval_receiver) = mpsc::channel();
         let approval =
@@ -1698,6 +1747,7 @@ fn run_supervised_input(
                 owner: approval.owner.clone(),
                 audit_id: approval.audit_id.clone(),
                 expires_at: approval.expires_at,
+                permission_epoch,
                 allowed_scopes: approval.allowed_scopes.clone(),
                 target: PendingApprovalTarget::Channel {
                     owner_id: command_id.clone(),

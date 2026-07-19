@@ -457,6 +457,13 @@ fn runtime_supervisor_keeps_input_responsive_during_context_retrieval() {
         .unwrap();
 
     let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        let queued_follow_up = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::InputQueued { input }
+                    if input.content_preview.contains("queued while retrieval is blocked")
+            )
+        });
         let accepted_follow_up = events.iter().any(|event| {
             matches!(
                 &event.kind,
@@ -477,7 +484,7 @@ fn runtime_supervisor_keeps_input_responsive_during_context_retrieval() {
                 RuntimeEventKind::Error { error } if error.message.contains("Model request cancelled")
             )
         });
-        accepted_follow_up && accepted_cancel && cancelled
+        queued_follow_up && accepted_follow_up && accepted_cancel && cancelled
     });
     set_retrieve_context_test_hook(None);
 
@@ -2208,6 +2215,99 @@ fn runtime_supervisor_permission_downgrade_precedes_pending_tool_allow() {
             RuntimeEventKind::ToolCallFinished { success: true, .. }
         )
     }));
+}
+
+#[test]
+fn runtime_supervisor_rejects_tool_approval_after_permission_epoch_round_trip() {
+    for (case, downgrade, restore) in [
+        (
+            "permission",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::ReadOnly,
+            },
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Ask,
+            },
+        ),
+        (
+            "work_mode",
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Build,
+            },
+        ),
+    ] {
+        let cwd = temp_dir(&format!("runtime_supervisor_{case}_epoch_cwd"));
+        let home = temp_dir(&format!("runtime_supervisor_{case}_epoch_home"));
+        let output = cwd.join("should-not-run.txt");
+        let mut input = ToolInput::new();
+        input.insert(
+            "command".to_string(),
+            format!("printf blocked > {}", output.display()),
+        );
+        let provider = Box::new(SequenceProvider::new(vec![vec![
+            ModelEvent::ToolCall(ToolCall {
+                id: format!("tool_shell_{case}_epoch"),
+                name: "shell".to_string(),
+                input,
+            }),
+            ModelEvent::Done,
+        ]]));
+        let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let supervisor = RuntimeSupervisor::start(engine);
+        let owner = owner_for_lane(&format!("lane-{case}-epoch"));
+
+        supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                format!("cmd_input_{case}_epoch"),
+                RuntimeCommand::SubmitUserInput {
+                    content: "run one mutating tool".to_string(),
+                },
+            )
+            .unwrap();
+        let requested = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+        });
+        let request_id = approval_id(&requested);
+        supervisor
+            .send_command_from_owner(owner.clone(), format!("cmd_{case}_downgrade"), downgrade)
+            .unwrap();
+        supervisor
+            .send_command_from_owner(owner.clone(), format!("cmd_{case}_restore"), restore)
+            .unwrap();
+        supervisor
+            .send_command_from_owner(
+                owner,
+                format!("cmd_{case}_allow_stale"),
+                RuntimeCommand::RespondToApproval {
+                    request_id: request_id.clone(),
+                    response: ApprovalResponse::allow_once(None),
+                },
+            )
+            .unwrap();
+        collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved {
+                        request_id: resolved,
+                        decision: ApprovalDecision::Deny,
+                        ..
+                    } if resolved == &request_id
+                )
+            })
+        });
+
+        assert!(
+            !output.exists(),
+            "{case} epoch round trip must invalidate the stale approval"
+        );
+    }
 }
 
 #[test]

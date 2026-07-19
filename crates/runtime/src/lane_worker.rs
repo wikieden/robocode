@@ -23,6 +23,13 @@ use crate::lane_supervisor::LanePersistence;
 
 pub(crate) type LaneEventSink = Arc<dyn Fn(RuntimeOwner, RuntimeEventKind) + Send + Sync>;
 
+struct LanePermissionState {
+    // Keep the decision engine and its generation under one lock so a request
+    // never observes a new policy with an old epoch (or the reverse).
+    engine: PermissionEngine,
+    epoch: u64,
+}
+
 #[cfg(test)]
 type BeforeLaneApprovalResumeHook = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -76,6 +83,8 @@ pub(crate) enum LaneWorkerMessage {
         request_id: String,
         response: ApprovalResponse,
         permissions: PermissionEngine,
+        permission_epoch: u64,
+        completion: Sender<()>,
     },
     Cancel {
         command_id: String,
@@ -87,7 +96,7 @@ pub(crate) struct LaneWorkerHandle {
     pub(crate) owner: RuntimeOwner,
     pending_approval: Arc<Mutex<Option<String>>>,
     terminal_completion: Arc<Mutex<Option<LaneTerminalCompletion>>>,
-    permissions: Arc<Mutex<PermissionEngine>>,
+    permissions: Arc<Mutex<LanePermissionState>>,
     registered: Arc<AtomicBool>,
     sender: Sender<LaneWorkerMessage>,
     worker: Option<JoinHandle<()>>,
@@ -101,6 +110,7 @@ impl LaneWorkerHandle {
         repo: std::path::PathBuf,
         persistence: Arc<dyn LanePersistence>,
         permissions: PermissionEngine,
+        permission_epoch: u64,
         effects: Arc<dyn LaneEffectExecutor>,
         events: LaneEventSink,
         approval_ttl_secs: u64,
@@ -110,7 +120,10 @@ impl LaneWorkerHandle {
         let (sender, receiver) = mpsc::channel();
         let pending_approval = Arc::new(Mutex::new(None));
         let terminal_completion = Arc::new(Mutex::new(None));
-        let permissions = Arc::new(Mutex::new(permissions));
+        let permissions = Arc::new(Mutex::new(LanePermissionState {
+            engine: permissions,
+            epoch: permission_epoch,
+        }));
         let registered = Arc::new(AtomicBool::new(registered));
         let worker_pending_approval = Arc::clone(&pending_approval);
         let worker_terminal_completion = Arc::clone(&terminal_completion);
@@ -191,12 +204,14 @@ impl LaneWorkerHandle {
     pub(crate) fn sync_permissions(
         &self,
         mut authoritative: PermissionEngine,
+        permission_epoch: u64,
     ) -> Result<(), String> {
         let mut installed = self
             .permissions
             .lock()
             .map_err(|_| "lane permission state poisoned".to_string())?;
         let approved_rules = installed
+            .engine
             .context_snapshot()
             .allow_rules
             .into_iter()
@@ -210,14 +225,15 @@ impl LaneWorkerHandle {
             }
         }
         authoritative.restore_context(context);
-        *installed = authoritative;
+        installed.engine = authoritative;
+        installed.epoch = permission_epoch;
         Ok(())
     }
 
-    pub(crate) fn permission_snapshot(&self) -> Result<PermissionEngine, String> {
+    pub(crate) fn permission_snapshot(&self) -> Result<(PermissionEngine, u64), String> {
         self.permissions
             .lock()
-            .map(|permissions| permissions.clone())
+            .map(|permissions| (permissions.engine.clone(), permissions.epoch))
             .map_err(|_| "lane permission state poisoned".to_string())
     }
 
@@ -241,6 +257,7 @@ struct PendingMutation {
     command_id: String,
     audit_id: String,
     expires_at: u64,
+    permission_epoch: u64,
     allowed_scopes: Vec<ApprovalScope>,
     tool: ToolSpec,
     input: ToolInput,
@@ -264,7 +281,7 @@ struct LaneWorker {
     lane: AgentLaneRecord,
     repo: std::path::PathBuf,
     persistence: Arc<dyn LanePersistence>,
-    permissions: Arc<Mutex<PermissionEngine>>,
+    permissions: Arc<Mutex<LanePermissionState>>,
     effects: Arc<dyn LaneEffectExecutor>,
     events: LaneEventSink,
     pending_mutation: Option<PendingMutation>,
@@ -293,9 +310,12 @@ impl LaneWorker {
                 request_id,
                 response,
                 permissions,
+                permission_epoch,
+                completion,
             } => {
                 before_lane_approval_resume_for_test(&request_id);
-                self.resume_approval(request_id, response, permissions);
+                self.resume_approval(request_id, response, permissions, permission_epoch);
+                let _ = completion.send(());
             }
             LaneWorkerMessage::Cancel { command_id } => self.cancel(command_id),
             LaneWorkerMessage::Shutdown => {}
@@ -308,7 +328,10 @@ impl LaneWorker {
             | LaneWorkerMessage::Cancel { command_id } => {
                 self.reject(command_id, "lane already reached a durable terminal state")
             }
-            LaneWorkerMessage::ResumeApproval { .. } | LaneWorkerMessage::Shutdown => {}
+            LaneWorkerMessage::ResumeApproval { completion, .. } => {
+                let _ = completion.send(());
+            }
+            LaneWorkerMessage::Shutdown => {}
         }
     }
 
@@ -519,8 +542,8 @@ impl LaneWorker {
                 return;
             }
         };
-        let permission = match self.permissions.lock() {
-            Ok(permissions) => permissions.decide(&tool, &input),
+        let (permission, permission_epoch) = match self.permissions.lock() {
+            Ok(permissions) => (permissions.engine.decide(&tool, &input), permissions.epoch),
             Err(_) => {
                 self.reject(command_id, "lane permission registry poisoned");
                 return;
@@ -534,10 +557,10 @@ impl LaneWorker {
                 self.execute_pending_operation(operation);
             }
             PermissionDecision::Allow(_) => {
-                self.queue_mutation_approval(command_id, tool, input, operation)
+                self.queue_mutation_approval(command_id, tool, input, operation, permission_epoch)
             }
             PermissionDecision::Ask(_) => {
-                self.queue_mutation_approval(command_id, tool, input, operation)
+                self.queue_mutation_approval(command_id, tool, input, operation, permission_epoch)
             }
         }
     }
@@ -548,6 +571,7 @@ impl LaneWorker {
         tool: ToolSpec,
         input: ToolInput,
         operation: PendingOperation,
+        permission_epoch: u64,
     ) {
         let previous_status = self.lane.status;
         let request_id = fresh_id("lane-approval");
@@ -584,6 +608,7 @@ impl LaneWorker {
             command_id,
             audit_id,
             expires_at,
+            permission_epoch,
             allowed_scopes,
             tool,
             input,
@@ -741,6 +766,7 @@ impl LaneWorker {
         request_id: String,
         response: ApprovalResponse,
         mut permissions: PermissionEngine,
+        permission_epoch: u64,
     ) {
         let Some(pending) = self.pending_mutation.take() else {
             return;
@@ -757,23 +783,25 @@ impl LaneWorker {
             ApprovalDecision::Allow { scope } => pending.allowed_scopes.contains(scope),
         };
         let unexpired = now_timestamp() < pending.expires_at;
-        let permission_allowed = if valid_scope && unexpired && response.is_allowed() {
-            match permissions.decide(&pending.tool, &pending.input) {
-                PermissionDecision::Deny(_) => false,
-                PermissionDecision::Allow(_) => true,
-                PermissionDecision::Ask(ask) => matches!(
-                    permissions.apply_approval(
-                        response.clone(),
-                        &ask,
-                        &pending.tool,
-                        &pending.input,
+        let current_epoch = permission_epoch == pending.permission_epoch;
+        let permission_allowed =
+            if valid_scope && unexpired && current_epoch && response.is_allowed() {
+                match permissions.decide(&pending.tool, &pending.input) {
+                    PermissionDecision::Deny(_) => false,
+                    PermissionDecision::Allow(_) => true,
+                    PermissionDecision::Ask(ask) => matches!(
+                        permissions.apply_approval(
+                            response.clone(),
+                            &ask,
+                            &pending.tool,
+                            &pending.input,
+                        ),
+                        PermissionDecision::Allow(_)
                     ),
-                    PermissionDecision::Allow(_)
-                ),
-            }
-        } else {
-            false
-        };
+                }
+            } else {
+                false
+            };
         let decision = if permission_allowed {
             response.decision.clone()
         } else {
@@ -787,9 +815,9 @@ impl LaneWorker {
         });
         if permission_allowed {
             if let Ok(mut installed) = self.permissions.lock()
-                && installed.mode() != PermissionMode::Plan
+                && installed.engine.mode() != PermissionMode::Plan
             {
-                let mut context = installed.context_snapshot();
+                let mut context = installed.engine.context_snapshot();
                 for rule in permissions
                     .context_snapshot()
                     .allow_rules
@@ -800,7 +828,7 @@ impl LaneWorker {
                         context.allow_rules.push(rule);
                     }
                 }
-                installed.restore_context(context);
+                installed.engine.restore_context(context);
             }
             self.execute_pending_operation(pending.operation);
         } else {
@@ -810,6 +838,8 @@ impl LaneWorker {
             }
             let reason = if !unexpired {
                 "lane mutation approval expired"
+            } else if !current_epoch {
+                "lane mutation permission epoch changed"
             } else if !valid_scope {
                 "lane mutation approval scope is not allowed"
             } else {

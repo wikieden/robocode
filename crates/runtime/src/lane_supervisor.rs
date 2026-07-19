@@ -1,6 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
+    mpsc,
+};
 use std::thread::{self, JoinHandle};
 
 use viden_permissions::PermissionEngine;
@@ -60,6 +64,7 @@ pub(crate) struct LaneSupervisor {
     repo: PathBuf,
     persistence: Arc<dyn LanePersistence>,
     permissions: Arc<Mutex<PermissionEngine>>,
+    permission_epoch: AtomicU64,
     effects: Arc<dyn LaneEffectExecutor>,
     events: LaneEventSink,
     work_mode: Arc<dyn Fn() -> WorkMode + Send + Sync>,
@@ -169,6 +174,7 @@ impl LaneSupervisor {
             repo,
             persistence,
             permissions,
+            permission_epoch: AtomicU64::new(0),
             effects,
             events,
             work_mode,
@@ -206,7 +212,11 @@ impl LaneSupervisor {
         &self.hydration_recoveries
     }
 
-    pub(crate) fn sync_permissions(&self, permissions: PermissionEngine) -> Result<(), String> {
+    pub(crate) fn sync_permissions(
+        &self,
+        permissions: PermissionEngine,
+        permission_epoch: u64,
+    ) -> Result<(), String> {
         let mut scoped = PermissionEngine::new(self.repo.clone());
         scoped.restore_context(permissions.context_snapshot());
         *self
@@ -218,8 +228,10 @@ impl LaneSupervisor {
             .lock()
             .map_err(|_| "lane registry poisoned".to_string())?;
         for worker in lanes.values() {
-            worker.sync_permissions(scoped.clone())?;
+            worker.sync_permissions(scoped.clone(), permission_epoch)?;
         }
+        self.permission_epoch
+            .store(permission_epoch, Ordering::Release);
         Ok(())
     }
 
@@ -228,6 +240,10 @@ impl LaneSupervisor {
             .lock()
             .map(|permissions| permissions.clone())
             .map_err(|_| "lane permission registry poisoned".to_string())
+    }
+
+    fn permission_epoch(&self) -> u64 {
+        self.permission_epoch.load(Ordering::Acquire)
     }
 
     #[cfg(test)]
@@ -337,6 +353,7 @@ impl LaneSupervisor {
                         self.repo.clone(),
                         Arc::clone(&self.persistence),
                         self.permission_template()?,
+                        self.permission_epoch(),
                         Arc::clone(&self.effects),
                         Arc::clone(&self.events),
                         self.approval_ttl_secs,
@@ -404,12 +421,21 @@ impl LaneSupervisor {
             );
             return Ok(Some(false));
         }
-        let permissions = worker.permission_snapshot()?;
+        let (permissions, permission_epoch) = worker.permission_snapshot()?;
+        let (completion, completed) = mpsc::channel();
         worker.send(LaneWorkerMessage::ResumeApproval {
             request_id: request_id.to_string(),
             response,
             permissions,
+            permission_epoch,
+            completion,
         })?;
+        // This is the lane mutation linearization barrier: later supervisor
+        // commands cannot publish state until the worker has resolved and
+        // completed (or safely rejected) the approved effect.
+        completed
+            .recv()
+            .map_err(|_| "lane approval worker terminated before completion".to_string())?;
         Ok(Some(true))
     }
 
@@ -515,6 +541,7 @@ impl LaneSupervisor {
             self.repo.clone(),
             Arc::clone(&self.persistence),
             self.permission_template()?,
+            self.permission_epoch(),
             Arc::clone(&self.effects),
             Arc::clone(&self.events),
             self.approval_ttl_secs,

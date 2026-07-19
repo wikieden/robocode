@@ -70,10 +70,12 @@ arguments、environment、input 和 diff payload。重启时，处于 starting�
 状态的 Lane 会恢复为 blocked recovery fact，并继续绑定其持久化 session owner。
 
 普通 tool 与 Lane 的审批响应都会按 supervisor 中 permission/mode 变更的命令顺序判定。
-普通 tool 读取有序的 permission control state；每条 Lane 响应还会冻结一份 permission
-decision snapshot：较早的降级即使在 worker 恢复前切回 Build 也会拒绝 mutation；较早的
-Build 决策则先于后续降级完成。审批产生的 session/repository allow rule 只保存在所属 Lane
-worker 内，因此会在该 Lane 的常规权威权限刷新后保留，但不会授权另一条 Lane 或 owner；
+普通 tool 读取有序的 permission control generation；每条 Lane 请求也会同时冻结这一
+generation 与 permission snapshot。审批等待期间只要 permission 或 work mode 的代际发生
+过变化，即使可见 flags 随后恢复原值，旧审批也会失效。Lane 响应被接受后，supervisor
+必须等待终态 `ApprovalResolved` 以及 effect/persistence 完成，才能处理或发布后续 permission
+snapshot。审批产生的 session/repository allow rule 只保存在所属 Lane worker 内，因此会在
+该 Lane 的常规权威权限刷新后保留，但不会授权另一条 Lane 或 owner；
 Plan/ReadOnly 刷新会立即丢弃这些 rule。Create 与 Lane 状态迁移和其他持久化 effect 使用
 同一 permission 与 mutation-policy gate。终态 worker 通过 completion reaper 自动注销并
 join，不需要等待下一条 Lane 命令。
