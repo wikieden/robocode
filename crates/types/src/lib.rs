@@ -19,8 +19,8 @@ pub use context::{
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use protocol::{
-    CapabilityId, CoreHandshake, EventCursor, FRONTEND_SCHEMA_V1, GapRecovery, ReplayBatch,
-    ReplayRequest, RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeOwner,
+    CapabilityId, CoreHandshake, EventCursor, EventCursorOrder, FRONTEND_SCHEMA_V1, GapRecovery,
+    ReplayBatch, ReplayRequest, RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeOwner,
     RuntimeSnapshotEnvelope, RuntimeWireEvent, SchemaVersion,
 };
 pub use runtime::{

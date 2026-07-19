@@ -590,6 +590,93 @@ fn runtime_v1_unknown_event_is_preserved() {
 }
 
 #[test]
+fn runtime_v1_known_event_sequence_mismatch_is_rejected_at_wire_boundary() {
+    let mismatched = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: RuntimeOwner::default(),
+        cursor: EventCursor {
+            stream_id: "stream-a".to_string(),
+            sequence: 7,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+            8,
+            None,
+            RuntimeEventKind::InputDequeued {
+                input_id: "input-a".to_string(),
+            },
+        )),
+    };
+    assert!(serde_json::to_string(&mismatched).is_err());
+
+    let raw_known = r#"{
+        "schema_version": 1,
+        "owner": {
+            "workspace_id": "workspace-a",
+            "project_id": "project-a",
+            "lane_id": null,
+            "session_id": null,
+            "task_id": null,
+            "turn_id": null
+        },
+        "cursor": {"stream_id": "stream-a", "sequence": 7},
+        "event": {
+            "sequence": 8,
+            "timestamp": null,
+            "kind": {"type": "input_dequeued", "payload": {"input_id": "input-a"}}
+        }
+    }"#;
+    assert!(serde_json::from_str::<RuntimeEventEnvelope>(raw_known).is_err());
+
+    let raw_unknown = raw_known.replace("input_dequeued", "future_event");
+    let unknown: RuntimeEventEnvelope = serde_json::from_str(&raw_unknown).unwrap();
+    assert!(matches!(unknown.event, RuntimeWireEvent::Unknown { .. }));
+}
+
+#[test]
+fn event_cursor_classifies_incoming_stream_order() {
+    let current = EventCursor {
+        stream_id: "stream-a".to_string(),
+        sequence: 7,
+    };
+
+    assert_eq!(
+        current.classify_incoming(&EventCursor {
+            stream_id: "stream-a".to_string(),
+            sequence: 7,
+        }),
+        EventCursorOrder::DuplicateOrOld
+    );
+    assert_eq!(
+        current.classify_incoming(&EventCursor {
+            stream_id: "stream-a".to_string(),
+            sequence: 6,
+        }),
+        EventCursorOrder::DuplicateOrOld
+    );
+    assert_eq!(
+        current.classify_incoming(&EventCursor {
+            stream_id: "stream-a".to_string(),
+            sequence: 8,
+        }),
+        EventCursorOrder::Next
+    );
+    assert_eq!(
+        current.classify_incoming(&EventCursor {
+            stream_id: "stream-a".to_string(),
+            sequence: 9,
+        }),
+        EventCursorOrder::Gap
+    );
+    assert_eq!(
+        current.classify_incoming(&EventCursor {
+            stream_id: "stream-b".to_string(),
+            sequence: 8,
+        }),
+        EventCursorOrder::StreamMismatch
+    );
+}
+
+#[test]
 fn runtime_commands_and_actions_roundtrip_json_without_ui_state() {
     let action = CommandAction {
         id: "mode.plan".to_string(),

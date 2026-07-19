@@ -31,6 +31,29 @@ pub struct EventCursor {
     pub sequence: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventCursorOrder {
+    DuplicateOrOld,
+    Next,
+    Gap,
+    StreamMismatch,
+}
+
+impl EventCursor {
+    pub fn classify_incoming(&self, incoming: &Self) -> EventCursorOrder {
+        // Different streams are distinct logs and must never look contiguous to a client.
+        if self.stream_id != incoming.stream_id {
+            return EventCursorOrder::StreamMismatch;
+        }
+
+        match incoming.sequence {
+            sequence if sequence <= self.sequence => EventCursorOrder::DuplicateOrOld,
+            sequence if sequence == self.sequence.saturating_add(1) => EventCursorOrder::Next,
+            _ => EventCursorOrder::Gap,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeCommandEnvelope {
     pub schema_version: SchemaVersion,
@@ -40,12 +63,80 @@ pub struct RuntimeCommandEnvelope {
     pub command: RuntimeCommand,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeEventEnvelope {
     pub schema_version: SchemaVersion,
     pub owner: RuntimeOwner,
     pub cursor: EventCursor,
     pub event: RuntimeWireEvent,
+}
+
+impl RuntimeEventEnvelope {
+    fn validate_known_event_sequence(&self) -> Result<(), String> {
+        let RuntimeWireEvent::Known(event) = &self.event else {
+            return Ok(());
+        };
+        if self.cursor.sequence == event.sequence {
+            return Ok(());
+        }
+
+        Err(format!(
+            "runtime event cursor sequence {} does not match event sequence {}",
+            self.cursor.sequence, event.sequence
+        ))
+    }
+}
+
+impl Serialize for RuntimeEventEnvelope {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.validate_known_event_sequence()
+            .map_err(serde::ser::Error::custom)?;
+        RuntimeEventEnvelopeRef {
+            schema_version: &self.schema_version,
+            owner: &self.owner,
+            cursor: &self.cursor,
+            event: &self.event,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for RuntimeEventEnvelope {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let envelope = RuntimeEventEnvelopeWire::deserialize(deserializer)?;
+        let envelope = Self {
+            schema_version: envelope.schema_version,
+            owner: envelope.owner,
+            cursor: envelope.cursor,
+            event: envelope.event,
+        };
+        envelope
+            .validate_known_event_sequence()
+            .map_err(serde::de::Error::custom)?;
+        Ok(envelope)
+    }
+}
+
+#[derive(Serialize)]
+struct RuntimeEventEnvelopeRef<'a> {
+    schema_version: &'a SchemaVersion,
+    owner: &'a RuntimeOwner,
+    cursor: &'a EventCursor,
+    event: &'a RuntimeWireEvent,
+}
+
+#[derive(Deserialize)]
+struct RuntimeEventEnvelopeWire {
+    schema_version: SchemaVersion,
+    owner: RuntimeOwner,
+    cursor: EventCursor,
+    event: RuntimeWireEvent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
