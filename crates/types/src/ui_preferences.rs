@@ -10,13 +10,11 @@ pub enum LocaleId {
 
 impl LocaleId {
     pub fn from_system_locale(raw: &str) -> Self {
-        let normalized = raw.trim().replace('-', "_").to_ascii_lowercase();
-        if normalized.starts_with("zh_cn")
-            || normalized.starts_with("zh_hans_cn")
-            || normalized == "zh"
-        {
+        let normalized = raw.trim().to_ascii_lowercase();
+        let language = normalized.split(['_', '-', '.']).next().unwrap_or_default();
+        if language == "zh" {
             Self::ZhCn
-        } else if normalized.is_empty() {
+        } else if language.is_empty() {
             Self::System
         } else {
             Self::En

@@ -149,6 +149,30 @@ fn ui_preferences_project_cannot_override_user_profile() {
 }
 
 #[test]
+fn ui_preferences_chinese_locale_identifiers_map_to_builtin_zh_cn() {
+    for raw in [
+        "zh",
+        "zh_CN",
+        "zh-CN",
+        "zh_CN.UTF-8",
+        "zh-CN.UTF-8",
+        "zh_TW",
+        "zh-HK",
+        "zh_Hant_TW.UTF-8",
+        "zh.Hans",
+    ] {
+        assert_eq!(LocaleId::from_system_locale(raw), LocaleId::ZhCn, "{raw}");
+    }
+}
+
+#[test]
+fn ui_preferences_locale_detection_does_not_match_arbitrary_words() {
+    for raw in ["zhuang", "zhfake", "english_zh", "en_US.UTF-8", ""] {
+        assert_ne!(LocaleId::from_system_locale(raw), LocaleId::ZhCn, "{raw}");
+    }
+}
+
+#[test]
 fn work_modes_and_permission_levels_parse_cli_names() {
     assert_eq!(WorkMode::parse_cli("plan"), Some(WorkMode::Plan));
     assert_eq!(WorkMode::parse_cli("build"), Some(WorkMode::Build));

@@ -164,6 +164,175 @@ motion = "reduced"
 }
 
 #[test]
+fn ui_preferences_valid_cli_ignores_invalid_lower_priority_sources() {
+    let root = write_ui_source_pair(
+        "viden_ui_cli_ignores_invalid",
+        r#"
+[ui]
+locale = "en"
+skin = "amber"
+mode = "light"
+density = "compact"
+motion = "full"
+"#,
+        r#"
+[ui]
+locale = "zh-CN"
+skin = "phosphor"
+mode = "light"
+density = "comfy"
+motion = "reduced"
+"#,
+    );
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let cli = CliOverrides {
+        ui: Some(UiPreferences {
+            locale: LocaleId::ZhCn,
+            skin: UiSkin::Ice,
+            mode: UiColorMode::Light,
+            density: UiDensity::Regular,
+            motion: UiMotion::Reduced,
+        }),
+        ..CliOverrides::default()
+    };
+
+    let config = load_config_with_env(&root.join("project"), &cli, &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.ui.skin, UiSkin::Ice);
+    assert_eq!(config.ui.mode, UiColorMode::Light);
+    assert!(config.ui_diagnostics.is_empty());
+}
+
+#[test]
+fn ui_preferences_valid_user_ignores_invalid_project_source() {
+    let root = write_ui_source_pair(
+        "viden_ui_user_ignores_project",
+        r#"
+[ui]
+locale = "en"
+skin = "mono"
+mode = "light"
+density = "compact"
+motion = "full"
+"#,
+        r#"
+[ui]
+locale = "zh-CN"
+skin = "amber"
+mode = "light"
+density = "comfy"
+motion = "reduced"
+"#,
+    );
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    let config = load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.ui.locale, LocaleId::En);
+    assert_eq!(config.ui.skin, UiSkin::Mono);
+    assert_eq!(config.ui.mode, UiColorMode::Light);
+    assert_eq!(config.ui.density, UiDensity::Compact);
+    assert_eq!(config.ui.motion, UiMotion::Full);
+    assert!(config.ui_diagnostics.is_empty());
+}
+
+#[test]
+fn ui_preferences_invalid_user_beats_invalid_project_with_one_user_diagnostic() {
+    let root = write_ui_source_pair(
+        "viden_ui_invalid_user_beats_project",
+        r#"
+[ui]
+locale = "en"
+skin = "amber"
+mode = "light"
+density = "compact"
+motion = "full"
+"#,
+        r#"
+[ui]
+locale = "zh-CN"
+skin = "phosphor"
+mode = "light"
+density = "comfy"
+motion = "reduced"
+"#,
+    );
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    let config = load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.ui.locale, LocaleId::En);
+    assert_eq!(config.ui.skin, UiSkin::Aurora);
+    assert_eq!(config.ui.mode, UiColorMode::Dark);
+    assert_eq!(config.ui.density, UiDensity::Regular);
+    assert_eq!(config.ui.motion, UiMotion::Full);
+    assert_eq!(config.ui_diagnostics.len(), 1);
+    assert_eq!(
+        config.ui_diagnostics[0].rejected_value.as_deref(),
+        Some("amber/light")
+    );
+}
+
+#[test]
+fn ui_preferences_absent_user_invalid_project_returns_one_project_diagnostic() {
+    let root =
+        std::env::temp_dir().join(format!("viden_ui_invalid_project_{}", std::process::id()));
+    let project_config_path = root.join("project").join(".viden").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(project_config_path.parent().unwrap()).unwrap();
+    fs::write(
+        &project_config_path,
+        r#"
+[ui]
+locale = "zh-CN"
+skin = "phosphor"
+mode = "light"
+density = "comfy"
+motion = "reduced"
+"#,
+    )
+    .unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    let config = load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.ui.locale, LocaleId::ZhCn);
+    assert_eq!(config.ui.skin, UiSkin::Aurora);
+    assert_eq!(config.ui.mode, UiColorMode::Dark);
+    assert_eq!(config.ui.density, UiDensity::Regular);
+    assert_eq!(config.ui.motion, UiMotion::Reduced);
+    assert_eq!(config.ui_diagnostics.len(), 1);
+    assert_eq!(
+        config.ui_diagnostics[0].rejected_value.as_deref(),
+        Some("phosphor/light")
+    );
+}
+
+fn write_ui_source_pair(slug: &str, user: &str, project: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("{slug}_{}", std::process::id()));
+    let global_config_path = default_config_path_for_test(&root);
+    let project_config_path = root.join("project").join(".viden").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
+    fs::create_dir_all(project_config_path.parent().unwrap()).unwrap();
+    fs::write(&global_config_path, user).unwrap();
+    fs::write(&project_config_path, project).unwrap();
+    root
+}
+
+#[test]
 fn default_config_uses_deepseek_as_online_provider() {
     let cwd = std::env::temp_dir().join(format!("viden_default_deepseek_{}", std::process::id()));
     let _ = fs::remove_dir_all(&cwd);

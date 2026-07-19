@@ -108,6 +108,12 @@ struct ProviderScopedFileConfig {
 
 type ProvidersFileConfig = BTreeMap<String, ProviderScopedFileConfig>;
 
+#[derive(Debug, Clone)]
+struct UiPreferenceSource {
+    profile: UiPreferences,
+    diagnostic: Option<UiPreferenceDiagnostic>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct FileConfig {
     provider: Option<String>,
@@ -422,20 +428,16 @@ where
     let mut merged_providers = ProvidersFileConfig::default();
     let mut user_ui = None;
     let mut project_ui = None;
-    let mut ui_diagnostics = Vec::new();
 
     // UI preferences are personal state: project config may provide a default,
     // but it must never participate in the normal project-over-user merge.
     for path in config_paths(cwd, cli, env_lookup)? {
         if let Some(file_config) = read_config_file(&path, env_lookup)? {
-            let (ui_profile, ui_diagnostic) = ui_profile_from_file_config(&file_config);
-            if let Some(diagnostic) = ui_diagnostic {
-                ui_diagnostics.push(diagnostic);
-            }
+            let ui_source = ui_source_from_file_config(&file_config);
             if is_project_config_path(cwd, &path) {
-                project_ui = ui_profile;
+                project_ui = ui_source;
             } else {
-                user_ui = ui_profile;
+                user_ui = ui_source;
             }
             if let Some(providers) = file_config.providers.clone() {
                 merge_provider_configs(&mut merged_providers, providers);
@@ -458,21 +460,30 @@ where
         density: UiDensity::Regular,
         motion: UiMotion::System,
     };
-    resolved.ui = resolve_ui_preferences(cli.ui, user_ui, project_ui, client_ui);
-    if ui_diagnostics.is_empty() {
-        resolved.ui_diagnostics = resolved.ui.diagnostics.clone();
-    } else {
+    let selected_ui = cli
+        .ui
+        .map(|profile| UiPreferenceSource {
+            profile,
+            diagnostic: None,
+        })
+        .or(user_ui)
+        .or(project_ui)
+        .unwrap_or(UiPreferenceSource {
+            profile: client_ui,
+            diagnostic: None,
+        });
+    resolved.ui = resolve_ui_preferences(Some(selected_ui.profile), None, None, client_ui);
+    if let Some(diagnostic) = selected_ui.diagnostic {
         resolved.ui = ResolvedUiPreferences {
             locale: resolved.ui.locale,
             skin: UiSkin::Aurora,
             mode: UiColorMode::Dark,
             density: UiDensity::Regular,
             motion: resolved.ui.motion,
-            diagnostics: ui_diagnostics.clone(),
+            diagnostics: vec![diagnostic],
         };
-        resolved.ui_diagnostics = ui_diagnostics;
-        resolved.ui.diagnostics = resolved.ui_diagnostics.clone();
     }
+    resolved.ui_diagnostics = resolved.ui.diagnostics.clone();
     resolved.loaded_files = loaded_files;
     Ok(resolved)
 }
@@ -542,27 +553,21 @@ where
     Ok(Some(config))
 }
 
-fn ui_profile_from_file_config(
-    file_config: &FileConfig,
-) -> (Option<UiPreferences>, Option<UiPreferenceDiagnostic>) {
-    file_config
-        .ui_raw
-        .as_ref()
-        .map(parse_ui_preferences)
-        .unwrap_or((None, None))
+fn ui_source_from_file_config(file_config: &FileConfig) -> Option<UiPreferenceSource> {
+    file_config.ui_raw.as_ref().map(parse_ui_preferences)
 }
 
-fn parse_ui_preferences(raw: &Value) -> (Option<UiPreferences>, Option<UiPreferenceDiagnostic>) {
+fn parse_ui_preferences(raw: &Value) -> UiPreferenceSource {
     let Some(table) = raw.as_table() else {
-        return (
-            Some(UiPreferences::client_default()),
-            Some(UiPreferenceDiagnostic::new(
+        return UiPreferenceSource {
+            profile: UiPreferences::client_default(),
+            diagnostic: Some(UiPreferenceDiagnostic::new(
                 "ui.invalid_type",
                 "ui",
                 "ui",
                 Some(value_kind(raw).to_string()),
             )),
-        );
+        };
     };
 
     let mut diagnostic = None;
@@ -572,16 +577,16 @@ fn parse_ui_preferences(raw: &Value) -> (Option<UiPreferences>, Option<UiPrefere
     let density = parse_density_field(table, "density", &mut diagnostic);
     let motion = parse_motion_field(table, "motion", &mut diagnostic);
 
-    (
-        Some(UiPreferences {
+    UiPreferenceSource {
+        profile: UiPreferences {
             locale,
             skin,
             mode,
             density,
             motion,
-        }),
+        },
         diagnostic,
-    )
+    }
 }
 
 fn parse_locale_field(
