@@ -20,7 +20,7 @@ field are recorded in [Core 0.3 Compatibility](core-0.3-compatibility.md).
 | Active schema | `1` |
 | Supported schemas | `[1]` |
 | Client boundary | `CoreClient` and protocol/view contracts re-exported by `viden-core` |
-| Contract payload | `contract_payload_sha: pending-post-commit` |
+| Contract payload | `contract_payload_sha: 5bd2b80b0953f4194d082940a7b9164c7231ca2d` |
 
 The Core handshake advertises this exact lexically sorted capability set:
 
@@ -42,9 +42,10 @@ runtime.typed_tasks
 ui.preferences
 ```
 
-The payload is not an immutable branch base until a follow-up evidence commit
-replaces `pending-post-commit` with the real payload commit SHA. No SHA may be
-guessed or made self-referential inside the payload commit.
+The recorded SHA is the reviewed payload commit. This document is stored in a
+separate evidence commit, which is the exact common TUI/GUI branch base; its
+parent must equal the recorded payload SHA. No SHA is guessed or made
+self-referential inside the payload commit.
 
 ## Integration Principles
 

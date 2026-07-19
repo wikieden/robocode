@@ -14,14 +14,14 @@ component = viden-core
 component_version = 0.3.0
 supported_schema_versions = [1]
 active_schema_version = 1
-contract_payload_sha: pending-post-commit
+contract_payload_sha: 5bd2b80b0953f4194d082940a7b9164c7231ca2d
 ```
 
-The contract payload is not complete while `contract_payload_sha` is pending.
-After the payload commit exists, the integration owner must record its real
-40-character commit SHA in a separate evidence commit. TUI and GUI branches are
-created from that exact resolved commit only after the evidence step. This
-document does not authorize a tag, push, publish, or Homebrew change.
+The recorded 40-character SHA identifies the reviewed contract payload commit.
+This document is committed separately as evidence, and that evidence commit is
+the exact common branch base for TUI and GUI; its parent must equal the recorded
+payload SHA. This document does not authorize a tag, push, publish, or Homebrew
+change.
 
 ## Frozen Capability Set
 

@@ -13,13 +13,13 @@ component = viden-core
 component_version = 0.3.0
 supported_schema_versions = [1]
 active_schema_version = 1
-contract_payload_sha: pending-post-commit
+contract_payload_sha: 5bd2b80b0953f4194d082940a7b9164c7231ca2d
 ```
 
-只要 `contract_payload_sha` 仍是 pending，contract payload 就没有完成。Payload commit
-存在后，integration owner 必须在单独的 evidence commit 中写入真实 40 字符 commit SHA。
-只有完成该步骤后，TUI 与 GUI 分支才能从完全相同的已解析 commit 创建。本文不授权 tag、
-push、publish 或 Homebrew 变更。
+这里记录的 40 字符 SHA 标识评审通过的 contract payload commit。本文通过单独的
+evidence commit 落盘；该 evidence commit 是 TUI 与 GUI 的共同精确分支基线，并且它的
+parent 必须等于这里记录的 payload SHA。本文不授权 tag、push、publish 或 Homebrew
+变更。
 
 ## 冻结 Capability 集合
 

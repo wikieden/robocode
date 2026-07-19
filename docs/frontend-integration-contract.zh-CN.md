@@ -19,7 +19,7 @@ migration gate、fixture corpus 和 post-commit 证据字段记录在
 | Active schema | `1` |
 | Supported schemas | `[1]` |
 | Client boundary | `CoreClient` 和 `viden-core` 重导出的 protocol/view contracts |
-| Contract payload | `contract_payload_sha: pending-post-commit` |
+| Contract payload | `contract_payload_sha: 5bd2b80b0953f4194d082940a7b9164c7231ca2d` |
 
 Core handshake 公布以下精确且按字典序排列的 capability 集合：
 
@@ -41,9 +41,9 @@ runtime.typed_tasks
 ui.preferences
 ```
 
-在后续 evidence commit 用真实 payload commit SHA 替换
-`pending-post-commit` 前，该 payload 还不是不可变的分支基线。不得在 payload commit
-内猜测 SHA，也不能写入自引用 SHA。
+这里记录的是评审通过的 payload commit SHA。本文位于单独的 evidence commit 中；该
+evidence commit 是 TUI/GUI 的共同精确分支基线，并且它的 parent 必须等于这里记录的
+payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 
 ## 对接原则
 
