@@ -289,7 +289,7 @@ pub fn parse_legacy_lanes_tsv(raw: &str) -> Result<Vec<AgentLaneRecord>, String>
 mod tests {
     use std::env;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::{Child, Command, Stdio};
     use std::sync::{Arc, Barrier};
     use std::thread;
@@ -398,16 +398,16 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(index, result)| {
-                spawn_lane_store_helper(
-                    "import",
-                    &home,
-                    &cwd,
-                    Some(&legacy_path),
-                    None,
-                    result,
-                    &start_gate,
+                spawn_lane_store_helper(LaneStoreHelperRequest {
+                    case: "import",
+                    home: &home,
+                    cwd: &cwd,
+                    legacy_path: Some(&legacy_path),
+                    lane_id: None,
+                    result_path: result,
+                    start_gate: &start_gate,
                     index,
-                )
+                })
             })
             .collect::<Vec<_>>();
 
@@ -444,16 +444,16 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(index, result)| {
-                spawn_lane_store_helper(
-                    "create",
-                    &home,
-                    &cwd,
-                    None,
-                    Some("lane_duplicate"),
-                    result,
-                    &start_gate,
+                spawn_lane_store_helper(LaneStoreHelperRequest {
+                    case: "create",
+                    home: &home,
+                    cwd: &cwd,
+                    legacy_path: None,
+                    lane_id: Some("lane_duplicate"),
+                    result_path: result,
+                    start_gate: &start_gate,
                     index,
-                )
+                })
             })
             .collect::<Vec<_>>();
 
@@ -492,16 +492,16 @@ mod tests {
             .zip(lane_ids)
             .enumerate()
             .map(|(index, (result, lane_id))| {
-                spawn_lane_store_helper(
-                    "create",
-                    &home,
-                    &cwd,
-                    None,
-                    Some(lane_id),
-                    result,
-                    &start_gate,
+                spawn_lane_store_helper(LaneStoreHelperRequest {
+                    case: "create",
+                    home: &home,
+                    cwd: &cwd,
+                    legacy_path: None,
+                    lane_id: Some(lane_id),
+                    result_path: result,
+                    start_gate: &start_gate,
                     index,
-                )
+                })
             })
             .collect::<Vec<_>>();
 
@@ -580,35 +580,37 @@ mod tests {
         fs::write(result_path, result).unwrap();
     }
 
-    fn spawn_lane_store_helper(
-        case: &str,
-        home: &PathBuf,
-        cwd: &PathBuf,
-        legacy_path: Option<&PathBuf>,
-        lane_id: Option<&str>,
-        result_path: &PathBuf,
-        start_gate: &PathBuf,
+    struct LaneStoreHelperRequest<'a> {
+        case: &'a str,
+        home: &'a Path,
+        cwd: &'a Path,
+        legacy_path: Option<&'a Path>,
+        lane_id: Option<&'a str>,
+        result_path: &'a Path,
+        start_gate: &'a Path,
         index: usize,
-    ) -> Child {
-        let ready_path = result_path.with_extension("ready");
+    }
+
+    fn spawn_lane_store_helper(request: LaneStoreHelperRequest<'_>) -> Child {
+        let ready_path = request.result_path.with_extension("ready");
         let mut command = Command::new(env::current_exe().unwrap());
         command
             .arg("--exact")
             .arg("lanes::tests::lane_store_process_helper")
             .arg("--nocapture")
-            .env("VIDEN_LANE_STORE_HELPER", case)
-            .env("VIDEN_LANE_HOME", home)
-            .env("VIDEN_LANE_CWD", cwd)
-            .env("VIDEN_LANE_RESULT", result_path)
+            .env("VIDEN_LANE_STORE_HELPER", request.case)
+            .env("VIDEN_LANE_HOME", request.home)
+            .env("VIDEN_LANE_CWD", request.cwd)
+            .env("VIDEN_LANE_RESULT", request.result_path)
             .env("VIDEN_LANE_READY", ready_path)
-            .env("VIDEN_LANE_START_GATE", start_gate)
-            .env("VIDEN_LANE_INDEX", index.to_string())
+            .env("VIDEN_LANE_START_GATE", request.start_gate)
+            .env("VIDEN_LANE_INDEX", request.index.to_string())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        if let Some(path) = legacy_path {
+        if let Some(path) = request.legacy_path {
             command.env("VIDEN_LANE_LEGACY", path);
         }
-        if let Some(lane_id) = lane_id {
+        if let Some(lane_id) = request.lane_id {
             command.env("VIDEN_LANE_ID", lane_id);
         }
         command.spawn().unwrap()
