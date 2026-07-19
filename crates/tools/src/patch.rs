@@ -31,13 +31,29 @@ pub trait PatchBackend: Send + Sync {
 pub struct LocalPatchBackend;
 
 #[derive(Debug, Clone)]
+enum PatchChange {
+    Write { path: PathBuf, contents: String },
+    Delete { path: PathBuf },
+}
+
+impl PatchChange {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Write { path, .. } | Self::Delete { path } => path,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct PatchApplication {
-    writes: Vec<(PathBuf, String)>,
+    changes: Vec<PatchChange>,
 }
 
 impl PatchApplication {
+    /// Includes both file writes and deletions so transaction rollback can
+    /// snapshot every path affected by a patch.
     pub fn write_paths(&self) -> impl Iterator<Item = &Path> {
-        self.writes.iter().map(|(path, _)| path.as_path())
+        self.changes.iter().map(PatchChange::path)
     }
 }
 
@@ -45,28 +61,20 @@ impl LocalPatchBackend {
     pub fn prepare(&self, request: &PatchRequest) -> Result<PatchApplication, LaneEffectError> {
         let patch_files = parse_unified_diff(&request.unified_diff)?;
         if patch_files.is_empty() {
-            return Err(LaneEffectError::PatchConflict(
-                "no unified diff patch found".to_string(),
+            return Err(patch_conflict(
+                PathBuf::new(),
+                "no unified diff patch found",
             ));
         }
 
-        // Prepare every target byte buffer before writing any file. Runtime
-        // transactions can then stage rollback once and keep conflict handling
-        // free of partial writes.
-        let mut writes = Vec::new();
+        // Resolve and validate every target before touching the filesystem.
+        // This keeps creates, writes, and deletes inside one rollback boundary.
+        let mut changes = Vec::new();
         for patch_file in patch_files {
-            let relative_path = validate_patch_path(&patch_file.path)?;
-            let full_path = request.cwd.join(&relative_path);
-            let current = fs::read_to_string(&full_path).map_err(|err| {
-                LaneEffectError::Io(format!("{}: {err}", relative_path.display()))
-            })?;
-            let updated = apply_patch_file(&current, &patch_file).map_err(|err| {
-                LaneEffectError::PatchConflict(format!("{}: {err}", relative_path.display()))
-            })?;
-            writes.push((full_path, updated));
+            changes.push(prepare_patch_file(&request.cwd, &patch_file)?);
         }
 
-        Ok(PatchApplication { writes })
+        Ok(PatchApplication { changes })
     }
 
     pub fn write_application(
@@ -78,11 +86,7 @@ impl LocalPatchBackend {
             restore_rollback(&rollback)?;
             return Err(err);
         }
-        Ok(PatchApplyOutcome {
-            applied: true,
-            writes: application.write_paths().map(Path::to_path_buf).collect(),
-            conflicts: Vec::new(),
-        })
+        Ok(success_outcome(application))
     }
 
     pub fn apply_transactionally<F>(
@@ -95,8 +99,8 @@ impl LocalPatchBackend {
     {
         let application = match self.prepare(request) {
             Ok(application) => application,
-            Err(LaneEffectError::PatchConflict(err)) => {
-                return Ok(conflict_outcome(err));
+            Err(LaneEffectError::PatchConflict { path, message }) => {
+                return Ok(conflict_outcome(path, message));
             }
             Err(err) => return Err(err),
         };
@@ -109,11 +113,7 @@ impl LocalPatchBackend {
             restore_rollback(&rollback)?;
             return Err(LaneEffectError::Io(err));
         }
-        Ok(PatchApplyOutcome {
-            applied: true,
-            writes: application.write_paths().map(Path::to_path_buf).collect(),
-            conflicts: Vec::new(),
-        })
+        Ok(success_outcome(&application))
     }
 }
 
@@ -125,7 +125,9 @@ impl PatchBackend for LocalPatchBackend {
                 writes: application.write_paths().map(Path::to_path_buf).collect(),
                 conflicts: Vec::new(),
             }),
-            Err(LaneEffectError::PatchConflict(err)) => Ok(conflict_outcome(err)),
+            Err(LaneEffectError::PatchConflict { path, message }) => {
+                Ok(conflict_outcome(path, message))
+            }
             Err(err) => Err(err),
         }
     }
@@ -133,26 +135,41 @@ impl PatchBackend for LocalPatchBackend {
     fn apply(&self, request: &PatchRequest) -> Result<PatchApplyOutcome, LaneEffectError> {
         match self.prepare(request) {
             Ok(application) => self.write_application(&application),
-            Err(LaneEffectError::PatchConflict(err)) => Ok(conflict_outcome(err)),
+            Err(LaneEffectError::PatchConflict { path, message }) => {
+                Ok(conflict_outcome(path, message))
+            }
             Err(err) => Err(err),
         }
     }
 }
 
-fn conflict_outcome(message: String) -> PatchApplyOutcome {
+fn success_outcome(application: &PatchApplication) -> PatchApplyOutcome {
+    PatchApplyOutcome {
+        applied: true,
+        writes: application.write_paths().map(Path::to_path_buf).collect(),
+        conflicts: Vec::new(),
+    }
+}
+
+fn conflict_outcome(path: PathBuf, message: String) -> PatchApplyOutcome {
     PatchApplyOutcome {
         applied: false,
         writes: Vec::new(),
-        conflicts: vec![PatchConflictReport {
-            path: PathBuf::new(),
-            message,
-        }],
+        conflicts: vec![PatchConflictReport { path, message }],
+    }
+}
+
+fn patch_conflict(path: PathBuf, message: impl Into<String>) -> LaneEffectError {
+    LaneEffectError::PatchConflict {
+        path,
+        message: message.into(),
     }
 }
 
 #[derive(Debug)]
 struct PatchFile {
-    path: String,
+    old_path: String,
+    new_path: String,
     hunks: Vec<PatchHunk>,
 }
 
@@ -162,14 +179,88 @@ struct PatchHunk {
     new_lines: Vec<String>,
 }
 
-fn write_patch_application(application: &PatchApplication) -> Result<(), LaneEffectError> {
-    for (path, contents) in &application.writes {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|err| LaneEffectError::Io(format!("{}: {err}", parent.display())))?;
+fn prepare_patch_file(cwd: &Path, patch_file: &PatchFile) -> Result<PatchChange, LaneEffectError> {
+    match (
+        patch_file.old_path.as_str() == "/dev/null",
+        patch_file.new_path.as_str() == "/dev/null",
+    ) {
+        (true, true) => Err(patch_conflict(
+            PathBuf::new(),
+            "patch cannot create and delete /dev/null",
+        )),
+        (true, false) => {
+            let relative_path = validate_patch_path(&patch_file.new_path)?;
+            let full_path = cwd.join(&relative_path);
+            if full_path.exists() {
+                return Err(patch_conflict(
+                    relative_path,
+                    "new-file patch target already exists",
+                ));
+            }
+            let contents = apply_patch_file("", patch_file)
+                .map_err(|message| patch_conflict(relative_path.clone(), message))?;
+            Ok(PatchChange::Write {
+                path: full_path,
+                contents,
+            })
         }
-        fs::write(path, contents)
-            .map_err(|err| LaneEffectError::Io(format!("{}: {err}", path.display())))?;
+        (false, true) => {
+            let relative_path = validate_patch_path(&patch_file.old_path)?;
+            let full_path = cwd.join(&relative_path);
+            let current = read_patch_target(&full_path, &relative_path)?;
+            let remaining = apply_patch_file(&current, patch_file)
+                .map_err(|message| patch_conflict(relative_path.clone(), message))?;
+            if !remaining.is_empty() {
+                return Err(patch_conflict(
+                    relative_path,
+                    "deleted-file patch did not remove the complete file",
+                ));
+            }
+            Ok(PatchChange::Delete { path: full_path })
+        }
+        (false, false) => {
+            let old_path = validate_patch_path(&patch_file.old_path)?;
+            let new_path = validate_patch_path(&patch_file.new_path)?;
+            if old_path != new_path {
+                return Err(patch_conflict(
+                    new_path,
+                    "rename patches are not supported by this adapter",
+                ));
+            }
+            let full_path = cwd.join(&new_path);
+            let current = read_patch_target(&full_path, &new_path)?;
+            let contents = apply_patch_file(&current, patch_file)
+                .map_err(|message| patch_conflict(new_path.clone(), message))?;
+            Ok(PatchChange::Write {
+                path: full_path,
+                contents,
+            })
+        }
+    }
+}
+
+fn read_patch_target(path: &Path, relative_path: &Path) -> Result<String, LaneEffectError> {
+    fs::read_to_string(path)
+        .map_err(|err| LaneEffectError::Io(format!("{}: {err}", relative_path.display())))
+}
+
+fn write_patch_application(application: &PatchApplication) -> Result<(), LaneEffectError> {
+    for change in &application.changes {
+        match change {
+            PatchChange::Write { path, contents } => {
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent).map_err(|err| {
+                        LaneEffectError::Io(format!("{}: {err}", parent.display()))
+                    })?;
+                }
+                fs::write(path, contents)
+                    .map_err(|err| LaneEffectError::Io(format!("{}: {err}", path.display())))?;
+            }
+            PatchChange::Delete { path } => {
+                fs::remove_file(path)
+                    .map_err(|err| LaneEffectError::Io(format!("{}: {err}", path.display())))?;
+            }
+        }
     }
     Ok(())
 }
@@ -236,33 +327,44 @@ fn parse_unified_diff(diff: &str) -> Result<Vec<PatchFile>, LaneEffectError> {
             if let Some(file) = current_file.take() {
                 files.push(file);
             }
-            let path = rest
-                .split_whitespace()
-                .find_map(|part| part.strip_prefix("b/"))
-                .or_else(|| rest.split_whitespace().nth(1))
-                .ok_or_else(|| {
-                    LaneEffectError::PatchConflict(format!("invalid diff header `{line}`"))
-                })?;
+            let mut paths = rest.split_whitespace();
+            let old_path = paths.next().ok_or_else(|| {
+                patch_conflict(PathBuf::new(), format!("invalid diff header `{line}`"))
+            })?;
+            let new_path = paths.next().ok_or_else(|| {
+                patch_conflict(PathBuf::new(), format!("invalid diff header `{line}`"))
+            })?;
             current_file = Some(PatchFile {
-                path: path.to_string(),
+                old_path: old_path.to_string(),
+                new_path: new_path.to_string(),
                 hunks: Vec::new(),
             });
             continue;
         }
 
-        if let Some(path) = line.strip_prefix("+++ ") {
-            if let Some(file) = current_file.as_mut()
-                && let Some(path) = path.trim().strip_prefix("b/")
-            {
-                file.path = path.to_string();
+        if current_hunk.is_none()
+            && let Some(path) = line.strip_prefix("--- ")
+        {
+            if let Some(file) = current_file.as_mut() {
+                file.old_path = header_path(path).to_string();
+            }
+            continue;
+        }
+
+        if current_hunk.is_none()
+            && let Some(path) = line.strip_prefix("+++ ")
+        {
+            if let Some(file) = current_file.as_mut() {
+                file.new_path = header_path(path).to_string();
             }
             continue;
         }
 
         if line.starts_with("@@") {
             let Some(file) = current_file.as_mut() else {
-                return Err(LaneEffectError::PatchConflict(
-                    "hunk appeared before file header".to_string(),
+                return Err(patch_conflict(
+                    PathBuf::new(),
+                    "hunk appeared before file header",
                 ));
             };
             if let Some(hunk) = current_hunk.take() {
@@ -301,6 +403,13 @@ fn parse_unified_diff(diff: &str) -> Result<Vec<PatchFile>, LaneEffectError> {
     }
     files.retain(|file| !file.hunks.is_empty());
     Ok(files)
+}
+
+fn header_path(value: &str) -> &str {
+    value.trim().split_once('\t').map_or_else(
+        || value.split_whitespace().next().unwrap_or(""),
+        |(path, _)| path,
+    )
 }
 
 fn finish_patch_hunk(file: &mut Option<PatchFile>, hunk: &mut Option<PatchHunk>) {
@@ -358,8 +467,9 @@ fn validate_patch_path(path: &str) -> Result<PathBuf, LaneEffectError> {
         .trim_start_matches("a/")
         .trim_start_matches("b/");
     if normalized.is_empty() || normalized == "/dev/null" {
-        return Err(LaneEffectError::PatchConflict(
-            "patch path is empty or unsupported".to_string(),
+        return Err(patch_conflict(
+            PathBuf::new(),
+            "patch path is empty or unsupported",
         ));
     }
     let candidate = Path::new(normalized);

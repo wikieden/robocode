@@ -6,14 +6,20 @@ pub enum LaneEffectError {
     UnsafePath { path: String },
     Io(String),
     Git(String),
-    PatchConflict(String),
+    PatchConflict { path: PathBuf, message: String },
 }
 
 impl std::fmt::Display for LaneEffectError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnsafePath { path } => write!(f, "unsafe worktree path `{path}`"),
-            Self::Io(err) | Self::Git(err) | Self::PatchConflict(err) => f.write_str(err),
+            Self::Io(err) | Self::Git(err) => f.write_str(err),
+            Self::PatchConflict { path, message } if path.as_os_str().is_empty() => {
+                f.write_str(message)
+            }
+            Self::PatchConflict { path, message } => {
+                write!(f, "{}: {message}", path.display())
+            }
         }
     }
 }

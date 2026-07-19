@@ -1,8 +1,14 @@
 use std::collections::BTreeMap;
+use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 
 use crate::lane::LaneEffectError;
 
@@ -12,6 +18,9 @@ pub struct SpawnProcess {
     pub args: Vec<String>,
     pub cwd: PathBuf,
     pub env: Vec<(String, String)>,
+    /// When present, both stdout and stderr append to this durable lane log.
+    /// When absent, they are sent to the null device rather than unread pipes.
+    pub output_log: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,9 +45,9 @@ impl ProcessBackend for LocalProcessBackend {
         command
             .args(&request.args)
             .current_dir(&request.cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdin(Stdio::piped());
+        configure_process_output(&mut command, request.output_log.as_deref())?;
+        configure_process_group(&mut command);
         for (key, value) in &request.env {
             command.env(key, value);
         }
@@ -71,28 +80,378 @@ impl ProcessBackend for LocalProcessBackend {
     }
 
     fn stop(&self, handle: &LaneProcessHandle) -> Result<(), LaneEffectError> {
-        let mut children = self
+        let mut child = self
             .children
             .lock()
-            .map_err(|_| LaneEffectError::Io("process registry poisoned".to_string()))?;
-        let Some(mut child) = children.remove(&handle.id) else {
-            return Err(LaneEffectError::Io(format!(
-                "unknown process handle `{}`",
-                handle.id
-            )));
-        };
+            .map_err(|_| LaneEffectError::Io("process registry poisoned".to_string()))?
+            .remove(&handle.id)
+            .ok_or_else(|| {
+                LaneEffectError::Io(format!("unknown process handle `{}`", handle.id))
+            })?;
+        if child
+            .try_wait()
+            .map_err(|err| LaneEffectError::Io(err.to_string()))?
+            .is_some()
+        {
+            return Ok(());
+        }
+        stop_process_group(&mut child)?;
         child
-            .kill()
+            .wait()
             .map_err(|err| LaneEffectError::Io(err.to_string()))?;
-        let _ = child.wait();
         Ok(())
     }
 }
 
+fn configure_process_output(
+    command: &mut Command,
+    output_log: Option<&Path>,
+) -> Result<(), LaneEffectError> {
+    let Some(output_log) = output_log else {
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+        return Ok(());
+    };
+    if let Some(parent) = output_log.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| LaneEffectError::Io(format!("{}: {err}", parent.display())))?;
+    }
+    let output = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(output_log)
+        .map_err(|err| LaneEffectError::Io(format!("{}: {err}", output_log.display())))?;
+    let stderr = output
+        .try_clone()
+        .map_err(|err| LaneEffectError::Io(format!("{}: {err}", output_log.display())))?;
+    command
+        .stdout(Stdio::from(output))
+        .stderr(Stdio::from(stderr));
+    Ok(())
+}
+
+#[cfg(unix)]
+fn configure_process_group(command: &mut Command) {
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_process_group(_command: &mut Command) {}
+
+#[cfg(unix)]
+fn stop_process_group(child: &mut Child) -> Result<(), LaneEffectError> {
+    let process_group = format!("-{}", child.id());
+    let term = Command::new("kill")
+        .args(["-TERM", &process_group])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|err| LaneEffectError::Io(err.to_string()))?;
+    if !term.success() {
+        child
+            .kill()
+            .map_err(|err| LaneEffectError::Io(err.to_string()))?;
+        return Ok(());
+    }
+    for _ in 0..10 {
+        if child
+            .try_wait()
+            .map_err(|err| LaneEffectError::Io(err.to_string()))?
+            .is_some()
+        {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let _ = Command::new("kill")
+        .args(["-KILL", &process_group])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn stop_process_group(child: &mut Child) -> Result<(), LaneEffectError> {
+    child
+        .kill()
+        .map_err(|err| LaneEffectError::Io(err.to_string()))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalKind {
+    Tmux,
+    Pty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpawnTerminal {
+    pub kind: TerminalKind,
+    pub session_name: Option<String>,
+    pub command: String,
+    pub args: Vec<String>,
+    pub cwd: PathBuf,
+    pub env: Vec<(String, String)>,
+    pub output_log: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaneTerminalHandle {
+    pub id: String,
+    pub kind: TerminalKind,
+    pub attach_command: Option<String>,
+}
+
+/// Terminal effects are distinct from plain child processes because tmux and
+/// PTY sessions have route-specific launch, input, attachment, and stop rules.
+pub trait TerminalBackend: Send + Sync {
+    fn spawn(&self, request: &SpawnTerminal) -> Result<LaneTerminalHandle, LaneEffectError>;
+    fn send(&self, handle: &LaneTerminalHandle, input: &[u8]) -> Result<(), LaneEffectError>;
+    fn stop(&self, handle: &LaneTerminalHandle) -> Result<(), LaneEffectError>;
+}
+
+#[derive(Debug)]
+struct LocalTerminalSession {
+    handle: LaneTerminalHandle,
+    process: Option<LaneProcessHandle>,
+    tmux_session: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct LocalTerminalBackend {
+    processes: LocalProcessBackend,
+    sessions: Mutex<BTreeMap<String, LocalTerminalSession>>,
+}
+
+impl TerminalBackend for LocalTerminalBackend {
+    fn spawn(&self, request: &SpawnTerminal) -> Result<LaneTerminalHandle, LaneEffectError> {
+        let session = match request.kind {
+            TerminalKind::Tmux => self.spawn_tmux(request)?,
+            TerminalKind::Pty => self.spawn_pty(request)?,
+        };
+        let handle = session.handle.clone();
+        self.sessions
+            .lock()
+            .map_err(|_| LaneEffectError::Io("terminal registry poisoned".to_string()))?
+            .insert(handle.id.clone(), session);
+        Ok(handle)
+    }
+
+    fn send(&self, handle: &LaneTerminalHandle, input: &[u8]) -> Result<(), LaneEffectError> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| LaneEffectError::Io("terminal registry poisoned".to_string()))?;
+        let session = sessions.get(&handle.id).ok_or_else(|| {
+            LaneEffectError::Io(format!("unknown terminal handle `{}`", handle.id))
+        })?;
+        match session.handle.kind {
+            TerminalKind::Tmux => send_tmux_input(
+                session
+                    .tmux_session
+                    .as_deref()
+                    .expect("tmux session invariant"),
+                input,
+            ),
+            TerminalKind::Pty => self.processes.send(
+                session.process.as_ref().expect("pty process invariant"),
+                input,
+            ),
+        }
+    }
+
+    fn stop(&self, handle: &LaneTerminalHandle) -> Result<(), LaneEffectError> {
+        let session = self
+            .sessions
+            .lock()
+            .map_err(|_| LaneEffectError::Io("terminal registry poisoned".to_string()))?
+            .remove(&handle.id)
+            .ok_or_else(|| {
+                LaneEffectError::Io(format!("unknown terminal handle `{}`", handle.id))
+            })?;
+        match session.handle.kind {
+            TerminalKind::Tmux => run_tmux([
+                "kill-session".to_string(),
+                "-t".to_string(),
+                session.tmux_session.expect("tmux session invariant"),
+            ]),
+            TerminalKind::Pty => self
+                .processes
+                .stop(&session.process.expect("pty process invariant")),
+        }
+    }
+}
+
+impl LocalTerminalBackend {
+    fn spawn_tmux(&self, request: &SpawnTerminal) -> Result<LocalTerminalSession, LaneEffectError> {
+        let session_name = request
+            .session_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .ok_or_else(|| LaneEffectError::Io("tmux requires a session name".to_string()))?;
+        if let Some(parent) = request.output_log.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| LaneEffectError::Io(format!("{}: {err}", parent.display())))?;
+        }
+        run_tmux([
+            "new-session".to_string(),
+            "-d".to_string(),
+            "-s".to_string(),
+            session_name.to_string(),
+            "-c".to_string(),
+            request.cwd.to_string_lossy().to_string(),
+        ])?;
+        run_tmux([
+            "pipe-pane".to_string(),
+            "-o".to_string(),
+            "-t".to_string(),
+            session_name.to_string(),
+            format!(
+                "cat >> {}",
+                shell_quote(&request.output_log.to_string_lossy())
+            ),
+        ])?;
+        let command = shell_command_line(&request.command, &request.args);
+        run_tmux([
+            "send-keys".to_string(),
+            "-t".to_string(),
+            session_name.to_string(),
+            "--".to_string(),
+            command,
+            "Enter".to_string(),
+        ])?;
+        Ok(LocalTerminalSession {
+            handle: LaneTerminalHandle {
+                id: format!("tmux-{session_name}"),
+                kind: TerminalKind::Tmux,
+                attach_command: Some(format!("tmux attach -t {}", shell_quote(session_name))),
+            },
+            process: None,
+            tmux_session: Some(session_name.to_string()),
+        })
+    }
+
+    fn spawn_pty(&self, request: &SpawnTerminal) -> Result<LocalTerminalSession, LaneEffectError> {
+        let process_request = platform_pty_process(request)?;
+        let process = self.processes.spawn(&process_request)?;
+        Ok(LocalTerminalSession {
+            handle: LaneTerminalHandle {
+                id: format!("pty-{}", process.id),
+                kind: TerminalKind::Pty,
+                attach_command: None,
+            },
+            process: Some(process),
+            tmux_session: None,
+        })
+    }
+}
+
+fn run_tmux(args: impl IntoIterator<Item = String>) -> Result<(), LaneEffectError> {
+    let args = args.into_iter().collect::<Vec<_>>();
+    let status = Command::new("tmux")
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|err| LaneEffectError::Io(format!("failed to run tmux: {err}")))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(LaneEffectError::Io(format!(
+            "tmux {} exited with {status}",
+            args.join(" ")
+        )))
+    }
+}
+
+fn send_tmux_input(session_name: &str, input: &[u8]) -> Result<(), LaneEffectError> {
+    let mut load = Command::new("tmux")
+        .args(["load-buffer", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|err| LaneEffectError::Io(format!("failed to run tmux: {err}")))?;
+    load.stdin
+        .take()
+        .expect("piped tmux stdin invariant")
+        .write_all(input)
+        .map_err(|err| LaneEffectError::Io(err.to_string()))?;
+    let status = load
+        .wait()
+        .map_err(|err| LaneEffectError::Io(err.to_string()))?;
+    if !status.success() {
+        return Err(LaneEffectError::Io(format!(
+            "tmux load-buffer exited with {status}"
+        )));
+    }
+    run_tmux([
+        "paste-buffer".to_string(),
+        "-d".to_string(),
+        "-t".to_string(),
+        session_name.to_string(),
+    ])
+}
+
+#[cfg(target_os = "macos")]
+fn platform_pty_process(request: &SpawnTerminal) -> Result<SpawnProcess, LaneEffectError> {
+    let mut args = vec![
+        "-q".to_string(),
+        request.output_log.to_string_lossy().to_string(),
+    ];
+    args.push(request.command.clone());
+    args.extend(request.args.clone());
+    Ok(SpawnProcess {
+        command: "script".to_string(),
+        args,
+        cwd: request.cwd.clone(),
+        env: request.env.clone(),
+        output_log: None,
+    })
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn platform_pty_process(request: &SpawnTerminal) -> Result<SpawnProcess, LaneEffectError> {
+    Ok(SpawnProcess {
+        command: "script".to_string(),
+        args: vec![
+            "-q".to_string(),
+            "-f".to_string(),
+            "-c".to_string(),
+            shell_command_line(&request.command, &request.args),
+            request.output_log.to_string_lossy().to_string(),
+        ],
+        cwd: request.cwd.clone(),
+        env: request.env.clone(),
+        output_log: None,
+    })
+}
+
+#[cfg(not(unix))]
+fn platform_pty_process(_request: &SpawnTerminal) -> Result<SpawnProcess, LaneEffectError> {
+    Err(LaneEffectError::Io(
+        "PTY terminal backend is unsupported on this platform".to_string(),
+    ))
+}
+
+fn shell_command_line(command: &str, args: &[String]) -> String {
+    std::iter::once(command)
+        .chain(args.iter().map(String::as_str))
+        .map(shell_quote)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FakeTerminalSession {
-    pub handle: LaneProcessHandle,
-    pub request: SpawnProcess,
+    pub handle: LaneTerminalHandle,
+    pub request: SpawnTerminal,
     pub inputs: Vec<Vec<u8>>,
     pub stopped: bool,
 }
@@ -111,14 +470,19 @@ impl FakeTerminalBackend {
     }
 }
 
-impl ProcessBackend for FakeTerminalBackend {
-    fn spawn(&self, request: &SpawnProcess) -> Result<LaneProcessHandle, LaneEffectError> {
+impl TerminalBackend for FakeTerminalBackend {
+    fn spawn(&self, request: &SpawnTerminal) -> Result<LaneTerminalHandle, LaneEffectError> {
         let mut sessions = self
             .sessions
             .lock()
             .map_err(|_| LaneEffectError::Io("fake terminal poisoned".to_string()))?;
-        let handle = LaneProcessHandle {
+        let handle = LaneTerminalHandle {
             id: format!("fake-terminal-{}", sessions.len() + 1),
+            kind: request.kind,
+            attach_command: request
+                .session_name
+                .as_ref()
+                .map(|session| format!("tmux attach -t {}", shell_quote(session))),
         };
         sessions.push(FakeTerminalSession {
             handle: handle.clone(),
@@ -129,7 +493,7 @@ impl ProcessBackend for FakeTerminalBackend {
         Ok(handle)
     }
 
-    fn send(&self, handle: &LaneProcessHandle, input: &[u8]) -> Result<(), LaneEffectError> {
+    fn send(&self, handle: &LaneTerminalHandle, input: &[u8]) -> Result<(), LaneEffectError> {
         let mut sessions = self
             .sessions
             .lock()
@@ -139,7 +503,7 @@ impl ProcessBackend for FakeTerminalBackend {
             .find(|session| session.handle == *handle)
         else {
             return Err(LaneEffectError::Io(format!(
-                "unknown process handle `{}`",
+                "unknown terminal handle `{}`",
                 handle.id
             )));
         };
@@ -147,7 +511,7 @@ impl ProcessBackend for FakeTerminalBackend {
         Ok(())
     }
 
-    fn stop(&self, handle: &LaneProcessHandle) -> Result<(), LaneEffectError> {
+    fn stop(&self, handle: &LaneTerminalHandle) -> Result<(), LaneEffectError> {
         let mut sessions = self
             .sessions
             .lock()
@@ -157,7 +521,7 @@ impl ProcessBackend for FakeTerminalBackend {
             .find(|session| session.handle == *handle)
         else {
             return Err(LaneEffectError::Io(format!(
-                "unknown process handle `{}`",
+                "unknown terminal handle `{}`",
                 handle.id
             )));
         };

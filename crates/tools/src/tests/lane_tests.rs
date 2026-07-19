@@ -7,7 +7,10 @@ use crate::lane::{
     WorktreeRemoveRequest,
 };
 use crate::patch::{LocalPatchBackend, PatchBackend, PatchRequest};
-use crate::process::{FakeTerminalBackend, LocalProcessBackend, ProcessBackend, SpawnProcess};
+use crate::process::{
+    FakeTerminalBackend, LocalProcessBackend, ProcessBackend, SpawnProcess, SpawnTerminal,
+    TerminalBackend, TerminalKind,
+};
 
 use super::temp_dir;
 
@@ -39,11 +42,14 @@ fn lane_worktree_rejects_path_traversal_before_effects() {
 fn lane_fake_terminal_records_send_and_stop_without_process_side_effects() {
     let terminal = FakeTerminalBackend::default();
     let handle = terminal
-        .spawn(&SpawnProcess {
+        .spawn(&SpawnTerminal {
+            kind: TerminalKind::Tmux,
+            session_name: Some("viden-lane-a".into()),
             command: "worker".into(),
             args: vec!["--lane".into(), "lane-a".into()],
             cwd: temp_dir("lane_fake_terminal"),
             env: vec![("VIDEN_LANE".into(), "lane-a".into())],
+            output_log: temp_dir("lane_fake_terminal_log").join("lane.log"),
         })
         .unwrap();
 
@@ -53,8 +59,32 @@ fn lane_fake_terminal_records_send_and_stop_without_process_side_effects() {
     let sessions = terminal.sessions();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].handle, handle);
+    assert_eq!(sessions[0].request.kind, TerminalKind::Tmux);
+    assert_eq!(
+        sessions[0].request.session_name.as_deref(),
+        Some("viden-lane-a")
+    );
     assert_eq!(sessions[0].inputs, vec![b"hello\n".to_vec()]);
     assert!(sessions[0].stopped);
+}
+
+#[test]
+fn lane_fake_terminal_preserves_typed_pty_route() {
+    let terminal = FakeTerminalBackend::default();
+    let handle = terminal
+        .spawn(&SpawnTerminal {
+            kind: TerminalKind::Pty,
+            session_name: None,
+            command: "worker".into(),
+            args: Vec::new(),
+            cwd: temp_dir("lane_fake_pty"),
+            env: Vec::new(),
+            output_log: temp_dir("lane_fake_pty_log").join("lane.log"),
+        })
+        .unwrap();
+
+    assert_eq!(handle.kind, TerminalKind::Pty);
+    assert_eq!(terminal.sessions()[0].request.kind, TerminalKind::Pty);
 }
 
 #[test]
@@ -66,6 +96,7 @@ fn lane_local_process_stop_cancels_spawned_child() {
             args: vec!["-c".into(), "sleep 30".into()],
             cwd: temp_dir("lane_local_process_stop"),
             env: Vec::new(),
+            output_log: None,
         })
         .unwrap();
 
@@ -87,6 +118,7 @@ fn lane_local_process_forwards_stdin_before_stop() {
             ],
             cwd: cwd.clone(),
             env: Vec::new(),
+            output_log: None,
         })
         .unwrap();
 
@@ -102,6 +134,42 @@ fn lane_local_process_forwards_stdin_before_stop() {
         fs::read_to_string(cwd.join("received.txt")).unwrap(),
         "hello lane"
     );
+    backend.stop(&handle).unwrap();
+}
+
+#[test]
+fn lane_local_process_drains_large_stdout_and_stderr_to_log() {
+    let cwd = temp_dir("lane_local_process_output_log");
+    let output_log = cwd.join("process.log");
+    let backend = LocalProcessBackend::default();
+    let handle = backend
+        .spawn(&SpawnProcess {
+            command: "sh".into(),
+            args: vec![
+                "-c".into(),
+                "dd if=/dev/zero bs=65536 count=4 2>/dev/null; dd if=/dev/zero bs=65536 count=4 2>&1 >/dev/stderr; printf done > completed.txt".into(),
+            ],
+            cwd: cwd.clone(),
+            env: Vec::new(),
+            output_log: Some(output_log.clone()),
+        })
+        .unwrap();
+
+    for _ in 0..500 {
+        if matches!(
+            fs::read_to_string(cwd.join("completed.txt")),
+            Ok(contents) if contents == "done"
+        ) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    assert_eq!(
+        fs::read_to_string(cwd.join("completed.txt")).unwrap(),
+        "done"
+    );
+    assert!(fs::metadata(output_log).unwrap().len() >= 512 * 1024);
     backend.stop(&handle).unwrap();
 }
 
@@ -153,6 +221,120 @@ fn lane_patch_apply_rolls_back_after_injected_persistence_failure() {
 
     assert!(err.to_string().contains("injected persistence failure"));
     assert_eq!(fs::read_to_string(cwd.join("src/lib.rs")).unwrap(), "old\n");
+}
+
+#[test]
+fn lane_patch_applies_standard_new_file_diff() {
+    let cwd = temp_dir("lane_patch_create_file");
+    let patch = LocalPatchBackend;
+    let request = PatchRequest {
+        cwd: cwd.clone(),
+        unified_diff: "diff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+first\n+second\n"
+            .into(),
+    };
+
+    let outcome = patch.apply(&request).unwrap();
+
+    assert!(outcome.applied);
+    assert_eq!(
+        fs::read_to_string(cwd.join("new.txt")).unwrap(),
+        "first\nsecond\n"
+    );
+}
+
+#[test]
+fn lane_patch_applies_standard_deleted_file_diff() {
+    let cwd = temp_dir("lane_patch_delete_file");
+    fs::write(cwd.join("old.txt"), "first\nsecond\n").unwrap();
+    let patch = LocalPatchBackend;
+    let request = PatchRequest {
+        cwd: cwd.clone(),
+        unified_diff: "diff --git a/old.txt b/old.txt\ndeleted file mode 100644\n--- a/old.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-first\n-second\n"
+            .into(),
+    };
+
+    let outcome = patch.apply(&request).unwrap();
+
+    assert!(outcome.applied);
+    assert!(!cwd.join("old.txt").exists());
+}
+
+#[test]
+fn lane_patch_new_file_conflicts_when_target_exists() {
+    let cwd = temp_dir("lane_patch_create_conflict");
+    fs::write(cwd.join("new.txt"), "keep\n").unwrap();
+    let patch = LocalPatchBackend;
+    let request = PatchRequest {
+        cwd: cwd.clone(),
+        unified_diff: "diff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+created\n"
+            .into(),
+    };
+
+    let outcome = patch.apply(&request).unwrap();
+
+    assert!(!outcome.applied);
+    assert!(outcome.conflicts[0].message.contains("already exists"));
+    assert_eq!(fs::read_to_string(cwd.join("new.txt")).unwrap(), "keep\n");
+}
+
+#[test]
+fn lane_patch_deleted_file_conflicts_when_content_changed() {
+    let cwd = temp_dir("lane_patch_delete_conflict");
+    fs::write(cwd.join("old.txt"), "changed\n").unwrap();
+    let patch = LocalPatchBackend;
+    let request = PatchRequest {
+        cwd: cwd.clone(),
+        unified_diff: "diff --git a/old.txt b/old.txt\ndeleted file mode 100644\n--- a/old.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-original\n"
+            .into(),
+    };
+
+    let outcome = patch.apply(&request).unwrap();
+
+    assert!(!outcome.applied);
+    assert_eq!(
+        fs::read_to_string(cwd.join("old.txt")).unwrap(),
+        "changed\n"
+    );
+}
+
+#[test]
+fn lane_patch_new_file_rolls_back_after_persistence_failure() {
+    let cwd = temp_dir("lane_patch_create_rollback");
+    let patch = LocalPatchBackend;
+    let request = PatchRequest {
+        cwd: cwd.clone(),
+        unified_diff: "diff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+created\n"
+            .into(),
+    };
+
+    let err = patch
+        .apply_transactionally(&request, || Err("injected create failure".into()))
+        .unwrap_err();
+
+    assert!(err.to_string().contains("injected create failure"));
+    assert!(!cwd.join("new.txt").exists());
+}
+
+#[test]
+fn lane_patch_deleted_file_rolls_back_after_persistence_failure() {
+    let cwd = temp_dir("lane_patch_delete_rollback");
+    fs::write(cwd.join("old.txt"), "restore me\n").unwrap();
+    let patch = LocalPatchBackend;
+    let request = PatchRequest {
+        cwd: cwd.clone(),
+        unified_diff: "diff --git a/old.txt b/old.txt\ndeleted file mode 100644\n--- a/old.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-restore me\n"
+            .into(),
+    };
+
+    let err = patch
+        .apply_transactionally(&request, || Err("injected delete failure".into()))
+        .unwrap_err();
+
+    assert!(err.to_string().contains("injected delete failure"));
+    assert_eq!(
+        fs::read_to_string(cwd.join("old.txt")).unwrap(),
+        "restore me\n"
+    );
 }
 
 #[test]
