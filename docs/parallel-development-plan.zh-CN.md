@@ -205,9 +205,10 @@ GUI 是同一 runtime 的桌面客户端。它不能直接依赖 provider、tool
 
 ## GUI 框架选型门禁
 
-`codex/v3-gui-client` 不在分支名绑定 Tauri 或 GPUI。G0 在同一 Core fixture 上实现同一组 D1/D11 垂直切片：theme、composer、streaming、tool row、approval、queue、cancel 和 history scroll。
+`codex/v3-gui-client` 没有在分支名绑定 Tauri 或 GPUI。G0 已在同一 Core fixture 上实现同一组 D1 垂直切片：theme、composer、streaming、tool row、approval、queue、cancel 和 history scroll。
 
-Tauri 是当前设计资产可直接复用的基线。GPUI 只有同时通过以下门禁才可以成为正式框架：
+`0.1.0-alpha.1` 门禁已选择 **Tauri** 作为唯一正式框架。完整结果与复现命令见
+[GUI 框架选型决策](gui-framework-decision.zh-CN.md)。GPUI 只有同时通过以下门禁才可以成为正式框架：
 
 - composer input p95 小于 50 ms；
 - event-to-visible p95 小于 100 ms；
@@ -219,7 +220,11 @@ Tauri 是当前设计资产可直接复用的基线。GPUI 只有同时通过以
 - signing、updater、credential storage 和 crash recovery 有可信路径；
 - 与 D1 reference 的视觉差异可重复并有解释。
 
-IME、可访问性、三平台打包、无界 transcript 或长期 framework fork 任一失败，GPUI 即 no-go，选择 Tauri。选型后必须先同步双语 GUI 功能设计、路线图和设计包中的框架声明，再创建正式 `apps/gui`。
+两个候选都通过了功能 parity、10,000-event 有序 replay、共享 50,000-row paging
+与本机 macOS build/launch smoke；但都没有 p95 timing、原生 IME/可访问性、
+Linux/Windows launch、framework rendering、soak/CPU、视觉、signing/updater/credential
+或 crash-recovery 证据。因此 GPUI hard gate 未通过，确定性规则选择 Tauri。这些 Tauri
+缺口仍是 release blocker；Task 5 只能创建 Tauri production client。
 
 ## 分支拓扑与创建顺序
 
@@ -366,7 +371,8 @@ cargo test --workspace --quiet
 
 ### GUI
 
-GUI 框架选定后，在 GUI 分支记录精确 build/test/screenshot 命令。无论选择哪一框架，都必须证明：
+Alpha 选型的精确命令与当前缺失证据已记录在
+[GUI 框架选型决策](gui-framework-decision.zh-CN.md)。Task 5 及后续 Tauri 工作还必须证明：
 
 - 依赖边界只允许 `viden-core` 和 frontend-neutral contracts；
 - mutation 全部发送 `RuntimeCommand` 并等待事件确认；

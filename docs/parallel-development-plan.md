@@ -236,9 +236,12 @@ The GUI is a desktop client of the same runtime. It may not directly depend on p
 
 ## GUI Framework Selection Gate
 
-`codex/v3-gui-client` does not bind Tauri or GPUI in its branch name. G0 implements the same D1/D11 vertical slice against the same Core fixture: theme, composer, streaming, tool row, approval, queue, cancel, and history scroll.
+`codex/v3-gui-client` did not bind Tauri or GPUI in its branch name. G0 implemented the same D1 vertical slice against the same Core fixture: theme, composer, streaming, tool row, approval, queue, cancel, and history scroll.
 
-Tauri is the baseline because it can reuse the accepted design assets directly. GPUI becomes the production framework only if it passes all of these gates:
+The `0.1.0-alpha.1` gate selected **Tauri** as the single production framework.
+The full result and reproduction commands are recorded in the
+[GUI Framework Decision](gui-framework-decision.md). GPUI remained eligible
+only if it passed all of these gates:
 
 - composer input p95 below 50 ms;
 - event-to-visible p95 below 100 ms;
@@ -250,7 +253,13 @@ Tauri is the baseline because it can reuse the accepted design assets directly. 
 - credible signing, updater, credential storage, and crash recovery paths;
 - repeatable and explained visual differences from the D1 reference.
 
-Any failure in IME, accessibility, three-platform packaging, bounded transcript rendering, or a requirement for a long-lived framework fork makes GPUI a no-go and selects Tauri. After selection, update the bilingual GUI design, roadmap, and framework statements in the design package before creating the production `apps/gui`.
+Both candidates passed functional parity, ordered 10,000-event replay, shared
+50,000-row paging, and a local macOS build/launch smoke. Neither candidate had
+p95 timing, native IME/accessibility, Linux/Windows launch, framework-rendering,
+soak/CPU, visual, signing/updater/credential, or crash-recovery evidence. The
+GPUI hard gate therefore did not pass and the deterministic rule selected
+Tauri. These missing Tauri results remain release blockers; Task 5 may create
+only the Tauri production client.
 
 ## Branch Topology And Creation Order
 
@@ -416,7 +425,9 @@ Also prove that all shared fixtures replay; the composer remains editable during
 
 ### GUI
 
-Record exact build, test, and screenshot commands in the GUI branch after framework selection. Regardless of framework, prove that:
+The exact alpha selection commands and current missing evidence are recorded in
+the [GUI Framework Decision](gui-framework-decision.md). Task 5 and later Tauri
+work must additionally prove that:
 
 - dependency boundaries permit only `viden-core` and frontend-neutral contracts;
 - every mutation sends `RuntimeCommand` and waits for event confirmation;

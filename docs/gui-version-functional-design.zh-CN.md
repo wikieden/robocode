@@ -2,9 +2,11 @@
 
 English version: [gui-version-functional-design.md](gui-version-functional-design.md)
 
-最后更新：2026-07-19
-GUI 框架选型由 [GPUI GUI 可行性调研](gpui-gui-feasibility-research.zh-CN.md)
-单独评估。在 GPUI/Tauri 垂直切片门禁完成前，本文的产品与 runtime 契约保持框架无关。
+最后更新：2026-07-20
+`0.1.0-alpha.1` 证据门禁已选择 **Tauri** 作为唯一正式框架，详见
+[GUI 框架选型决策](gui-framework-decision.zh-CN.md)。GPUI 保留为对比 spike。产品与
+runtime 契约继续保持 framework-neutral，本次选型不豁免 Tauri 尚未验证的 release gate。
+背景调研仍保留在 [GPUI GUI 可行性调研](gpui-gui-feasibility-research.zh-CN.md)。
 
 ## 目的
 
@@ -48,7 +50,7 @@ TUI 按 [Viden 并发开发计划](parallel-development-plan.zh-CN.md) 拆到独
 | `0.2.2` | 受监督 Agent 执行闭环 | GUI 展示 planner、coder、reviewer、tester、doc-writer、researcher、release-operator 的任务状态 |
 | `0.2.3` | Plugin runtime 和真实开发 gate | GUI 显示 plugin health、release gate、smoke、token/cost 和失败分类证据 |
 | `0.3.0` | Runtime/UI contract freeze 与 Viden migration plan | GUI 获得稳定 API/event/command schema 和迁移约束 |
-| `0.3.1` | TUI 与 GUI 并行实现 | 在 `codex/v3-gui-client` 开发 framework-neutral GUI client |
+| `0.3.1` | TUI 与 GUI 并行实现 | Alpha 证据门禁已选择 Tauri；正式壳在 Task 5 启动 |
 | `0.3.2` | 集成候选版 | GUI 和 TUI 基于同一 runtime facts 通过 parity fixtures |
 | `0.3.3` | 可操作 GUI beta 与 compatibility hardening | composer、approval、provider/model、context recovery、Viden/Viden migration |
 | `0.3.4` | Visual fidelity gate | component gallery、screenshot harness、TUI regression evidence 和 accepted target deviations |
@@ -491,7 +493,6 @@ GUI 版本成功不是“有一个漂亮窗口”，而是：
 
 ## 开放问题
 
-- GUI 首版是 Tauri desktop、local web app，还是先做 runtime API + web prototype？
 - 是否需要内置轻量 diff viewer，还是调用外部编辑器？
 - 是否支持多 project 同时打开？
 - GUI 是否需要 team sharing，还是先保持 local-first 单用户？

@@ -2,11 +2,13 @@
 
 Chinese version: [gui-version-functional-design.zh-CN.md](gui-version-functional-design.zh-CN.md)
 
-Last updated: 2026-07-19
-Framework selection is evaluated separately in
-[GPUI GUI Feasibility Research](gpui-gui-feasibility-research.md). The product
-and runtime contracts in this document remain framework-neutral until the
-GPUI/Tauri vertical-slice gate is complete.
+Last updated: 2026-07-20
+The `0.1.0-alpha.1` evidence gate selected **Tauri** as the single production
+framework; see the [GUI Framework Decision](gui-framework-decision.md). GPUI
+remains a comparison spike. The product and runtime contracts remain
+framework-neutral, and the selection does not waive any unverified Tauri
+release gate. Background research remains in
+[GPUI GUI Feasibility Research](gpui-gui-feasibility-research.md).
 
 ## Purpose
 
@@ -56,7 +58,7 @@ defined in [Viden Parallel Development Plan](parallel-development-plan.md).
 | `0.2.2` | Supervised agent execution loop | GUI can show planner, coder, reviewer, tester, doc-writer, researcher, and release-operator task states |
 | `0.2.3` | Plugin runtime and real development gate | GUI can show plugin health, release gate, smoke, token/cost, and failure-classification evidence |
 | `0.3.0` | Runtime/UI contract freeze and Viden migration plan | GUI receives stable API/event/command schemas and migration constraints |
-| `0.3.1` | Parallel TUI and GUI implementation | A framework-neutral GUI client is developed on `codex/v3-gui-client` |
+| `0.3.1` | Parallel TUI and GUI implementation | Tauri is selected by the alpha evidence gate; the production shell starts in Task 5 |
 | `0.3.2` | Integration release candidate | GUI and TUI pass parity fixtures against the same runtime facts |
 | `0.3.3` | Operable GUI beta and compatibility hardening | Composer, approval, provider/model, context recovery, and Viden/Viden migration |
 | `0.3.4` | Visual fidelity gate | Component gallery, screenshot harness, TUI regression evidence, and accepted target deviations |
@@ -547,8 +549,6 @@ The GUI version succeeds when:
 
 ## Open Questions
 
-- Should the first GUI be Tauri desktop, local web app, or runtime API plus web
-  prototype?
 - Does the GUI need a built-in lightweight diff viewer, or should it call out to
   the user's editor?
 - Should multiple projects be open at once?

@@ -1,0 +1,41 @@
+schema_version = 1
+status = "framework-selected"
+selected_framework = "tauri"
+core_fixture = "crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json"
+
+[task2]
+core_client = "StatefulCoreClient"
+projection_source = "confirmed_core_view"
+private_runtime_reducer = false
+framework_code = false
+
+[task3]
+status = "equal-d1-slices"
+tauri_shell = true
+gpui_shell = true
+shared_action_log = true
+shared_projection_hash = "7dd8faf04cca9f3013198e25823894eae91c2869e27087aa1eb0a34890cdf804"
+projection_source = "Core RuntimeViewState replay of committed D1 fixture"
+shared_evidence = "apps/gui/spikes/common/d1-slice-evidence.json"
+required_roles = ["composer", "tool-row", "approval-dock", "queue-action", "cancel-action", "history-viewport", "new-output-count"]
+tauri_tokens = "source-css"
+gpui_tokens = "generated-from-source-css"
+tauri_input = "DOM composition/input/paste/focus event binding"
+gpui_input = "gpui-component InputState IME and focus binding"
+gpui_shader_mode = "runtime_shaders"
+framework_selection_deferred_to_task4 = true
+
+[thresholds]
+ordered_event_count = 10000
+transcript_row_count = 50000
+composer_input_p95_ms = 50
+event_to_visible_p95_ms = 100
+frame_work_p95_ms = 16
+
+[task4]
+selected_framework = "tauri"
+decision_evidence = "apps/gui/evidence/framework-gate/decision.md"
+tauri_evidence = "apps/gui/evidence/framework-gate/tauri.json"
+gpui_evidence = "apps/gui/evidence/framework-gate/gpui.json"
+gpui_blocker_count = 16
+production_bootstrap_deferred_to_task5 = true
