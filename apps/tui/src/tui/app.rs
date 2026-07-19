@@ -189,23 +189,24 @@ fn handle_ui_event<C: CoreClient>(
         Event::Resize(_, _) | Event::FocusGained | Event::FocusLost => Ok(UiEventOutcome::Redraw),
         Event::Paste(text) => {
             let approval_pending = !driver.view().pending_approvals.is_empty();
-            if approval_pending
-                || matches!(
-                    effective_input_mode(state),
-                    InputMode::Insert | InputMode::Overlay
-                )
-            {
-                if approval_pending {
-                    state.ui.input.push_str(&text);
-                    reset_for_input_change(state);
-                } else if state.ui.interaction_panel.is_some() {
-                    for value in text.chars() {
-                        edit_interaction_panel_text(state, Some(value));
-                    }
-                } else {
-                    state.ui.input.push_str(&text);
-                    reset_for_input_change(state);
+            if let Some(overlay) = state.ui.overlay.as_mut() {
+                overlay.filter.push_str(&text);
+                overlay.selected = 0;
+            } else if approval_pending {
+                // Approval remains pinned while the composer stays editable;
+                // pasted content must never resolve the approval.
+                state.ui.input.push_str(&text);
+                reset_for_input_change(state);
+            } else if state.ui.interaction_panel.is_some() {
+                for value in text.chars() {
+                    edit_interaction_panel_text(state, Some(value));
                 }
+            } else if matches!(
+                effective_input_mode(state),
+                InputMode::Insert | InputMode::Overlay
+            ) {
+                state.ui.input.push_str(&text);
+                reset_for_input_change(state);
             }
             Ok(UiEventOutcome::Redraw)
         }
@@ -258,6 +259,7 @@ fn apply_input_intent<C: CoreClient>(
         }
         InputIntent::ArmExitConfirmation => state.ui.idle_ctrl_c_armed = true,
         InputIntent::CancelCurrentWork { owner } => {
+            state.ui.idle_ctrl_c_armed = false;
             driver.send_for_owner(owner, RuntimeCommand::CancelActiveTurn)?;
             state.ui.entries.push(TuiEntry {
                 label: "command".to_string(),
@@ -313,6 +315,11 @@ fn apply_input_intent<C: CoreClient>(
                 .as_ref()
                 .is_some_and(|overlay| overlay.kind == OverlayKind::ExitConfirm)
             {
+                if current_work_owner(driver, state).is_some() {
+                    state.ui.overlay = None;
+                    state.ui.idle_ctrl_c_armed = false;
+                    return Ok(UiEventOutcome::Redraw);
+                }
                 return Ok(UiEventOutcome::Exit);
             } else if state.ui.overlay.take().is_some() {
                 // Task 4 owns navigation and filtering. Core-backed actions for
@@ -1209,6 +1216,73 @@ mod tests {
     }
 
     #[test]
+    fn active_work_cancel_clears_stale_idle_ctrl_c_arm() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+
+        handle_ui_event(&mut driver, &mut state, ctrl_c.clone(), (120, 40))
+            .expect("arm idle Ctrl-C");
+        assert!(state.ui.idle_ctrl_c_armed);
+
+        state.runtime.active_tool_calls.push(ToolCallView {
+            tool_call_id: "tool-active".to_string(),
+            name: "shell".to_string(),
+            input_preview: "cargo test".to_string(),
+        });
+        handle_ui_event(&mut driver, &mut state, ctrl_c.clone(), (120, 40))
+            .expect("cancel active work");
+        assert!(
+            !state.ui.idle_ctrl_c_armed,
+            "active-work Ctrl-C must invalidate an earlier idle arm"
+        );
+        assert_eq!(sent.lock().expect("sent commands").len(), 1);
+
+        state.runtime.active_tool_calls.clear();
+        handle_ui_event(&mut driver, &mut state, ctrl_c, (120, 40)).expect("new first idle Ctrl-C");
+        assert!(state.ui.idle_ctrl_c_armed);
+        assert!(
+            state.ui.overlay.is_none(),
+            "one idle Ctrl-C after cancellation must not open exit confirmation"
+        );
+    }
+
+    #[test]
+    fn exit_confirmation_rechecks_work_that_arrived_before_enter() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState::default();
+        let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        for event in [ctrl_c.clone(), ctrl_c] {
+            handle_ui_event(&mut driver, &mut state, event, (120, 40))
+                .expect("open exit confirmation");
+        }
+        assert!(matches!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::ExitConfirm)
+        ));
+
+        state.runtime.active_tool_calls.push(ToolCallView {
+            tool_call_id: "tool-arrived".to_string(),
+            name: "shell".to_string(),
+            input_preview: "cargo test".to_string(),
+        });
+        let outcome = handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("reject stale exit confirmation");
+
+        assert_eq!(outcome, UiEventOutcome::Redraw);
+        assert!(state.ui.overlay.is_none());
+    }
+
+    #[test]
     fn escape_closes_overlay_then_selection_then_insert_and_preserves_draft() {
         let mut driver =
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
@@ -1268,6 +1342,58 @@ mod tests {
         assert!(state.ui.overlay.is_none());
         assert_eq!(state.ui.input_mode, InputMode::Insert);
         assert_eq!(state.ui.input, "draft stays");
+    }
+
+    #[test]
+    fn paste_in_global_overlay_updates_filter_without_touching_hidden_draft() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "hidden draft".to_string();
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::Lane));
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Paste("review".to_string()),
+            (120, 40),
+        )
+        .expect("overlay paste");
+
+        let overlay = state.ui.overlay.as_ref().expect("lane overlay");
+        assert_eq!(overlay.filter, "review");
+        assert_eq!(overlay.selected, 0);
+        assert_eq!(state.ui.input, "hidden draft");
+    }
+
+    #[test]
+    fn paste_in_interaction_overlay_updates_its_filter_not_composer() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input = "hidden draft".to_string();
+        state.ui.interaction_panel = Some(InteractionPanel::ConnectProvider {
+            search: String::new(),
+            selected: 3,
+        });
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Paste("deep".to_string()),
+            (120, 40),
+        )
+        .expect("interaction paste");
+
+        assert!(matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::ConnectProvider { ref search, selected })
+                if search == "deep" && selected == 0
+        ));
+        assert_eq!(state.ui.input, "hidden draft");
     }
 
     #[test]
