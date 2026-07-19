@@ -1,11 +1,25 @@
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use viden_core::{
-    ApprovalResponse, CoreTransport, EventCursor, RuntimeCommand, RuntimeViewState,
-    StatefulCoreClient, TuiColorDepth,
+    AgentLaneRecord, AgentRoute, ApprovalResponse, CoreTransport, EventCursor, ExecutionTarget,
+    GateStrength, LaneStatus, RuntimeCommand, RuntimeViewState, StatefulCoreClient, TuiColorDepth,
 };
 
 use super::client::{PumpOutcome, TuiClientDriver, TuiClientError};
-use super::state::{AgentTask, PendingTurn, ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot};
+use super::command_palette::{
+    close_on_escape, command_suggestion_index_at, complete_selected, is_command_palette_visible,
+    move_selection, reset_for_input_change, select_suggestion_at, should_complete_on_enter,
+};
+use super::input::{ApprovalKeyEffect, apply_approval_key, close_focus_on_escape};
+use super::keymap::{InputIntent, InputMode, reduce_input};
+use super::modal::{
+    interaction_panel_choice_count, interaction_panel_index_at, selected_interaction_command,
+};
+use super::state::{
+    AgentTask, InteractionPanel, PendingTurn, ProviderStatus, TerminalLane, TuiEntry, TuiState,
+    WorkspaceSnapshot,
+};
 use super::terminal::TerminalGuard;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +87,7 @@ pub fn run_tui<T: CoreTransport>(
     )
     .map_err(TuiError::Terminal)?;
     let mut state = state_from_driver(&driver, &options);
+    let mut input = TuiInputController::default();
     terminal.draw(&state).map_err(TuiError::Terminal)?;
 
     loop {
@@ -87,10 +102,10 @@ pub fn run_tui<T: CoreTransport>(
         }
 
         let event = event::read().map_err(|err| TuiError::Terminal(err.to_string()))?;
-        let Event::Key(key) = event else {
-            continue;
-        };
-        if handle_key(&mut driver, &mut state, key)? {
+        let size = crossterm::terminal::size().unwrap_or((80, 24));
+        if handle_ui_event(&mut driver, &mut state, &mut input, event, size)?
+            == UiEventOutcome::Exit
+        {
             break;
         }
     }
@@ -214,6 +229,7 @@ fn project_runtime_view(state: &mut TuiState, view: &RuntimeViewState, cursor: &
     state.streaming_assistant =
         (!view.assistant_stream.is_empty()).then(|| view.assistant_stream.clone());
     state.runtime_tasks = view.tasks.iter().map(agent_task_from_core).collect();
+    state.lanes = view.lanes.iter().map(terminal_lane_from_core).collect();
 
     state.entries.retain(|entry| {
         matches!(entry.label.as_str(), "system" | "user") && !entry.body.starts_with("runtime:")
@@ -266,6 +282,7 @@ fn project_runtime_view(state: &mut TuiState, view: &RuntimeViewState, cursor: &
     let has_active_runtime = !view.active_tool_calls.is_empty()
         || !view.pending_approvals.is_empty()
         || view.tasks.iter().any(|task| task.is_active())
+        || view.lanes.iter().any(AgentLaneRecord::is_active)
         || !view.queued_inputs.is_empty()
         || !view.assistant_stream.is_empty();
     if has_active_runtime {
@@ -296,6 +313,69 @@ fn project_runtime_view(state: &mut TuiState, view: &RuntimeViewState, cursor: &
         state.pending_turn = Some(turn);
     } else {
         state.pending_turn = None;
+    }
+}
+
+fn terminal_lane_from_core(lane: &AgentLaneRecord) -> TerminalLane {
+    TerminalLane {
+        id: lane.id.clone(),
+        tool: lane.role.to_string(),
+        title: lane
+            .task_id
+            .clone()
+            .unwrap_or_else(|| format!("{} lane", lane.role)),
+        status: lane_status_name(lane.status).to_string(),
+        target: format!(
+            "{}/{} · {}",
+            lane_route_name(lane.route),
+            execution_target_name(&lane.target),
+            gate_strength_name(lane.gate_strength)
+        ),
+        progress: u8::from(matches!(lane.status, LaneStatus::Done)) * 100,
+        summary: lane.summary.clone(),
+        worktree: lane.worktree.as_deref().map(std::path::PathBuf::from),
+    }
+}
+
+fn lane_status_name(status: LaneStatus) -> &'static str {
+    match status {
+        LaneStatus::Draft => "draft",
+        LaneStatus::Queued => "queued",
+        LaneStatus::Starting => "starting",
+        LaneStatus::Running => "running",
+        LaneStatus::WaitingApproval => "waiting_approval",
+        LaneStatus::NeedsInput => "needs_input",
+        LaneStatus::Blocked => "blocked",
+        LaneStatus::Attached => "attached",
+        LaneStatus::Detached => "detached",
+        LaneStatus::Done => "done",
+        LaneStatus::Failed => "failed",
+        LaneStatus::Cancelled => "cancelled",
+        LaneStatus::Archived => "archived",
+    }
+}
+
+fn lane_route_name(route: AgentRoute) -> &'static str {
+    match route {
+        AgentRoute::BuiltIn => "built_in",
+        AgentRoute::Acp => "acp",
+        AgentRoute::Terminal => "terminal",
+        AgentRoute::Tmux => "tmux",
+    }
+}
+
+fn execution_target_name(target: &ExecutionTarget) -> String {
+    match target {
+        ExecutionTarget::Local => "local".to_string(),
+        ExecutionTarget::Ssh { host } => format!("ssh:{host}"),
+    }
+}
+
+fn gate_strength_name(gate: GateStrength) -> &'static str {
+    match gate {
+        GateStrength::Full => "full",
+        GateStrength::Cooperative => "cooperative",
+        GateStrength::Containment => "containment",
     }
 }
 
@@ -331,51 +411,387 @@ pub(super) fn dispatch_intent<T: CoreTransport>(
     driver.send(command)
 }
 
-fn handle_key<T: CoreTransport>(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UiEventOutcome {
+    Redraw,
+    Exit,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TuiInputController {
+    mode: InputMode,
+}
+
+impl Default for TuiInputController {
+    fn default() -> Self {
+        Self {
+            mode: InputMode::Normal,
+        }
+    }
+}
+
+impl TuiInputController {
+    #[cfg(test)]
+    fn mode(self) -> InputMode {
+        self.mode
+    }
+}
+
+fn effective_input_mode(controller: &TuiInputController, state: &TuiState) -> InputMode {
+    if state.interaction_panel.is_some()
+        || state.focused_lane.is_some()
+        || is_command_palette_visible(state)
+    {
+        InputMode::Overlay
+    } else {
+        controller.mode
+    }
+}
+
+fn handle_ui_event<T: CoreTransport>(
     driver: &mut TuiClientDriver<T>,
     state: &mut TuiState,
-    key: KeyEvent,
-) -> Result<bool, TuiError> {
-    if let KeyCode::Char(decision @ ('y' | 'n')) = key.code
-        && let Some(command) = approval_command(driver.view(), decision == 'y')
-    {
-        dispatch_intent(driver, command)?;
-        return Ok(false);
-    }
-    match (key.code, key.modifiers) {
-        (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-            dispatch_intent(driver, RuntimeCommand::CancelActiveTurn)?;
-            state.entries.push(TuiEntry {
-                label: "command".to_string(),
-                body: "cancel requested".to_string(),
-            });
-            Ok(false)
-        }
-        (KeyCode::Enter, _) if !state.input.trim().is_empty() => {
-            let content = state.input.trim().to_string();
-            let command = command_for_composer(state, &content);
-            if state.pending_turn.is_none() {
-                state.pending_turn = Some(PendingTurn::for_input(&content));
+    controller: &mut TuiInputController,
+    event: Event,
+    terminal_size: (u16, u16),
+) -> Result<UiEventOutcome, TuiError> {
+    match event {
+        Event::Resize(_, _) | Event::FocusGained | Event::FocusLost => Ok(UiEventOutcome::Redraw),
+        Event::Paste(text) => {
+            if driver.view().pending_approvals.is_empty()
+                && matches!(
+                    effective_input_mode(controller, state),
+                    InputMode::Insert | InputMode::Overlay
+                )
+            {
+                if state.interaction_panel.is_some() {
+                    for value in text.chars() {
+                        edit_interaction_panel_text(state, Some(value));
+                    }
+                } else {
+                    state.input.push_str(&text);
+                    reset_for_input_change(state);
+                }
             }
-            state.entries.push(TuiEntry {
-                label: "user".to_string(),
-                body: content,
-            });
-            dispatch_intent(driver, command)?;
-            state.input.clear();
-            Ok(false)
+            Ok(UiEventOutcome::Redraw)
         }
-        (KeyCode::Esc, _) => Ok(true),
-        (KeyCode::Char(ch), _) => {
-            state.input.push(ch);
-            Ok(false)
+        Event::Mouse(mouse) => {
+            handle_mouse(mouse, state, terminal_size);
+            Ok(UiEventOutcome::Redraw)
         }
-        (KeyCode::Backspace, _) => {
-            state.input.pop();
-            Ok(false)
-        }
-        _ => Ok(false),
+        Event::Key(key) => handle_ui_key(driver, state, controller, key),
     }
+}
+
+fn handle_ui_key<T: CoreTransport>(
+    driver: &mut TuiClientDriver<T>,
+    state: &mut TuiState,
+    controller: &mut TuiInputController,
+    key: KeyEvent,
+) -> Result<UiEventOutcome, TuiError> {
+    let has_active_work = state.pending_turn.is_some();
+    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        dispatch_intent(driver, RuntimeCommand::CancelActiveTurn)?;
+        state.entries.push(TuiEntry {
+            label: "command".to_string(),
+            body: "cancel requested".to_string(),
+        });
+        return Ok(UiEventOutcome::Redraw);
+    }
+
+    if !driver.view().pending_approvals.is_empty() {
+        match apply_approval_key(key, state) {
+            ApprovalKeyEffect::Resolve(allow) => {
+                if let Some(command) = approval_command(driver.view(), allow) {
+                    dispatch_intent(driver, command)?;
+                }
+                return Ok(UiEventOutcome::Redraw);
+            }
+            ApprovalKeyEffect::Redraw => return Ok(UiEventOutcome::Redraw),
+            ApprovalKeyEffect::None => {}
+        }
+    }
+
+    let mode = if driver.view().pending_approvals.is_empty() {
+        effective_input_mode(controller, state)
+    } else {
+        InputMode::Overlay
+    };
+    let intent = reduce_input(mode, key, has_active_work);
+    apply_input_intent(driver, state, controller, key, intent)
+}
+
+fn apply_input_intent<T: CoreTransport>(
+    driver: &mut TuiClientDriver<T>,
+    state: &mut TuiState,
+    controller: &mut TuiInputController,
+    key: KeyEvent,
+    intent: InputIntent,
+) -> Result<UiEventOutcome, TuiError> {
+    match intent {
+        InputIntent::None => {}
+        InputIntent::EnterInsert => controller.mode = InputMode::Insert,
+        InputIntent::LeaveInsert => controller.mode = InputMode::Normal,
+        InputIntent::CloseOverlay => {
+            if state.interaction_panel.take().is_none()
+                && !close_focus_on_escape(key, state)
+                && !close_on_escape(key, state)
+            {
+                controller.mode = InputMode::Normal;
+            }
+        }
+        InputIntent::CancelCurrentWork => unreachable!("global cancel is handled first"),
+        InputIntent::OpenCommandPalette => {
+            controller.mode = InputMode::Insert;
+            state.input = "/".to_string();
+            reset_for_input_change(state);
+        }
+        InputIntent::ContextHelp => {
+            controller.mode = InputMode::Insert;
+            state.input = "/help ".to_string();
+            reset_for_input_change(state);
+        }
+        InputIntent::Exit => return Ok(UiEventOutcome::Exit),
+        InputIntent::InsertChar(value) => {
+            if state.interaction_panel.is_some() {
+                edit_interaction_panel_text(state, Some(value));
+            } else {
+                push_composer_char(state, value);
+            }
+        }
+        InputIntent::Backspace => {
+            if state.interaction_panel.is_some() {
+                edit_interaction_panel_text(state, None);
+            } else {
+                state.input.pop();
+                reset_for_input_change(state);
+            }
+        }
+        InputIntent::Submit => submit_composer(driver, state)?,
+        InputIntent::MoveSelection(delta) => {
+            if state.interaction_panel.is_some() {
+                move_interaction_selection(state, delta);
+            } else {
+                move_selection(state, delta);
+            }
+        }
+        InputIntent::CompleteSelection => {
+            if state.interaction_panel.is_none() {
+                complete_selected(state);
+            }
+        }
+        InputIntent::CompleteOrSubmit => {
+            if state.interaction_panel.is_some() {
+                if apply_interaction_panel_selection(state) {
+                    submit_composer(driver, state)?;
+                }
+            } else if should_complete_on_enter(state) {
+                complete_selected(state);
+            } else {
+                submit_composer(driver, state)?;
+            }
+        }
+        InputIntent::Scroll(delta) => scroll_transcript(state, delta),
+        InputIntent::ScrollToStart => state.transcript_scroll = usize::MAX / 2,
+        InputIntent::ScrollToEnd => state.transcript_scroll = 0,
+    }
+    Ok(UiEventOutcome::Redraw)
+}
+
+fn handle_mouse(mouse: MouseEvent, state: &mut TuiState, terminal_size: (u16, u16)) -> bool {
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            scroll_transcript(state, 4);
+            return true;
+        }
+        MouseEventKind::ScrollDown => {
+            scroll_transcript(state, -4);
+            return true;
+        }
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left) => {}
+        _ => return false,
+    }
+    if state.interaction_panel.is_some() {
+        let Some(index) = interaction_panel_index_at(
+            state,
+            mouse.column,
+            mouse.row,
+            terminal_size.0,
+            terminal_size.1,
+            38,
+        ) else {
+            return false;
+        };
+        set_interaction_panel_selected(state, index);
+        if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left)) {
+            apply_interaction_panel_selection(state);
+        }
+        return true;
+    }
+    let Some(index) = command_suggestion_index_at(
+        state,
+        mouse.column,
+        mouse.row,
+        terminal_size.0,
+        terminal_size.1,
+    ) else {
+        return false;
+    };
+    let selected = select_suggestion_at(state, index);
+    if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left)) {
+        complete_selected(state);
+    }
+    selected
+}
+
+fn submit_composer<T: CoreTransport>(
+    driver: &mut TuiClientDriver<T>,
+    state: &mut TuiState,
+) -> Result<(), TuiError> {
+    let content = state.input.trim().to_string();
+    if content.is_empty() || open_local_picker_command(&content, state) {
+        return Ok(());
+    }
+    let command = command_for_composer(state, &content);
+    if state.pending_turn.is_none() {
+        state.pending_turn = Some(PendingTurn::for_input(&content));
+    }
+    state.entries.push(TuiEntry {
+        label: "user".to_string(),
+        body: content,
+    });
+    dispatch_intent(driver, command)?;
+    state.input.clear();
+    reset_for_input_change(state);
+    Ok(())
+}
+
+fn open_local_picker_command(input: &str, state: &mut TuiState) -> bool {
+    state.interaction_panel = match input.trim() {
+        "/connect" | "/provider" | "/settings provider" | "/setup provider" => {
+            Some(InteractionPanel::ConnectProvider {
+                search: String::new(),
+                selected: 0,
+            })
+        }
+        "/models" | "/model" | "/settings model" | "/setup model" => {
+            Some(InteractionPanel::ModelPicker {
+                provider_id: None,
+                search: String::new(),
+                selected: 0,
+            })
+        }
+        _ => return false,
+    };
+    state.input.clear();
+    reset_for_input_change(state);
+    true
+}
+
+fn move_interaction_selection(state: &mut TuiState, delta: i8) {
+    let count = interaction_panel_choice_count(state);
+    if count == 0 {
+        set_interaction_panel_selected(state, 0);
+        return;
+    }
+    let current = interaction_selected(state).min(count.saturating_sub(1));
+    let next = if delta < 0 {
+        current.saturating_sub(1)
+    } else {
+        (current + 1).min(count - 1)
+    };
+    set_interaction_panel_selected(state, next);
+}
+
+fn interaction_selected(state: &TuiState) -> usize {
+    match state.interaction_panel.as_ref() {
+        Some(InteractionPanel::ConnectProvider { selected, .. })
+        | Some(InteractionPanel::ProviderConfig { selected, .. })
+        | Some(InteractionPanel::ModelPicker { selected, .. }) => *selected,
+        _ => 0,
+    }
+}
+
+fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
+    match state.interaction_panel.as_mut() {
+        Some(InteractionPanel::ConnectProvider { selected, .. })
+        | Some(InteractionPanel::ProviderConfig { selected, .. })
+        | Some(InteractionPanel::ModelPicker { selected, .. }) => *selected = index,
+        _ => {}
+    }
+}
+
+fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
+    match state.interaction_panel.as_mut() {
+        Some(InteractionPanel::ConnectProvider { search, selected })
+        | Some(InteractionPanel::ModelPicker {
+            search, selected, ..
+        }) => {
+            match value {
+                Some(value) => search.push(value),
+                None => {
+                    search.pop();
+                }
+            }
+            *selected = 0;
+        }
+        Some(InteractionPanel::ProviderApiKey { input, .. }) => match value {
+            Some(value) => input.push(value),
+            None => {
+                input.pop();
+            }
+        },
+        Some(InteractionPanel::ProviderConfig { .. }) | None => {}
+    }
+}
+
+fn apply_interaction_panel_selection(state: &mut TuiState) -> bool {
+    let command = selected_interaction_command(state);
+    state.interaction_panel = None;
+    if let Some(command) = command {
+        // Provider/model activation remains a Core command. The overlay only
+        // selects the command; it never mutates provider authority directly.
+        state.input = command;
+        reset_for_input_change(state);
+        true
+    } else {
+        false
+    }
+}
+
+fn scroll_transcript(state: &mut TuiState, delta: isize) {
+    if delta > 0 {
+        state.transcript_scroll = state.transcript_scroll.saturating_add(delta as usize);
+    } else {
+        state.transcript_scroll = state.transcript_scroll.saturating_sub(delta.unsigned_abs());
+    }
+}
+
+fn push_composer_char(state: &mut TuiState, value: char) {
+    state.input.push(value);
+    if looks_like_terminal_escape_residue(&state.input) {
+        state.input.clear();
+    }
+    reset_for_input_change(state);
+}
+
+fn looks_like_terminal_escape_residue(input: &str) -> bool {
+    let trimmed = input.trim();
+    if trimmed.len() < 6 || !(trimmed.ends_with('m') || trimmed.ends_with('M')) {
+        return false;
+    }
+    let body = trimmed[..trimmed.len() - 1].trim_start_matches(['\u{1b}', '[', '<', '?']);
+    let mut parts = body.split(';').collect::<Vec<_>>();
+    if parts.len() < 3 || parts.len() > 5 {
+        return false;
+    }
+    if parts[0].is_empty() {
+        parts.remove(0);
+    }
+    parts
+        .iter()
+        .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+        && parts.len() >= 3
 }
 
 fn command_for_composer(state: &TuiState, content: &str) -> RuntimeCommand {
@@ -414,6 +830,7 @@ fn apply_pump_outcome(state: &mut TuiState, outcome: PumpOutcome) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::{MouseEvent, MouseEventKind};
     use std::{collections::VecDeque, path::PathBuf, time::Duration};
     use viden_core::{
         CoreClientError, CoreHandshake, CoreTransport, EventCursor, RuntimeCommandEnvelope,
@@ -421,8 +838,8 @@ mod tests {
         frontend_capabilities, local_core_handshake,
     };
     use viden_types::{
-        FRONTEND_SCHEMA_V1, PermissionLevel, PermissionMode, ReplayBatch, ReplayRequest,
-        RuntimeSnapshot, TranscriptPage, TranscriptPageRequest, WorkMode,
+        AgentLaneRecord, FRONTEND_SCHEMA_V1, PermissionLevel, PermissionMode, ReplayBatch,
+        ReplayRequest, RuntimeSnapshot, TranscriptPage, TranscriptPageRequest, WorkMode,
     };
 
     #[derive(Default)]
@@ -545,14 +962,330 @@ mod tests {
                 .expect("connect");
         let mut state = TuiState::default();
 
-        handle_key(
+        let mut controller = TuiInputController {
+            mode: InputMode::Insert,
+        };
+        handle_ui_event(
             &mut driver,
             &mut state,
-            KeyEvent::new(KeyCode::Char('你'), KeyModifiers::NONE),
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Char('你'), KeyModifiers::NONE)),
+            (120, 40),
         )
         .expect("key");
 
         assert_eq!(state.input, "你");
+    }
+
+    #[test]
+    fn focus_and_paste_events_force_repaint_without_becoming_input() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState::default();
+        let mut controller = TuiInputController::default();
+
+        assert_eq!(
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                &mut controller,
+                Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("insert mode"),
+            UiEventOutcome::Redraw
+        );
+        assert_eq!(controller.mode(), InputMode::Insert);
+        assert_eq!(
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                &mut controller,
+                Event::Paste("first\nsecond".to_string()),
+                (120, 40),
+            )
+            .expect("paste"),
+            UiEventOutcome::Redraw
+        );
+        assert_eq!(state.input, "first\nsecond");
+        assert!(state.pending_turn.is_none(), "paste must never submit");
+
+        for event in [Event::FocusLost, Event::FocusGained, Event::Resize(100, 30)] {
+            assert_eq!(
+                handle_ui_event(&mut driver, &mut state, &mut controller, event, (100, 30),)
+                    .expect("repaint event"),
+                UiEventOutcome::Redraw
+            );
+        }
+        assert_eq!(state.input, "first\nsecond");
+    }
+
+    #[test]
+    fn composer_discards_terminal_escape_residue_instead_of_rendering_it() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState::default();
+        let mut controller = TuiInputController::default();
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("insert mode");
+
+        for value in "2;28;95;132m".chars() {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                &mut controller,
+                Event::Key(KeyEvent::new(KeyCode::Char(value), KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("composer key");
+        }
+
+        assert!(state.input.is_empty());
+    }
+
+    #[test]
+    fn transcript_scroll_and_normal_insert_escape_survive_core_projection() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState::default();
+        let mut controller = TuiInputController::default();
+        state.transcript_scroll = 18;
+
+        let scroll = MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        };
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Mouse(scroll),
+            (120, 40),
+        )
+        .expect("scroll");
+        assert_eq!(state.transcript_scroll, 22);
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("insert mode");
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Char('草'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("draft");
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("leave insert");
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("normal key");
+
+        assert_eq!(controller.mode(), InputMode::Normal);
+        assert_eq!(
+            state.input, "草",
+            "Esc preserves the draft and Normal ignores x"
+        );
+        project_runtime_view(&mut state, driver.view(), driver.cursor());
+        assert_eq!(
+            state.transcript_scroll, 22,
+            "Core projection keeps scrollback"
+        );
+    }
+
+    #[test]
+    fn streaming_delta_does_not_steal_scrollback_when_user_scrolled_up() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState::default();
+        let mut controller = TuiInputController::default();
+        state.transcript_scroll = 18;
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("insert mode");
+
+        project_runtime_view(&mut state, driver.view(), driver.cursor());
+
+        assert_eq!(state.transcript_scroll, 18);
+        assert_eq!(controller.mode(), InputMode::Insert);
+    }
+
+    #[test]
+    fn runtime_provider_turn_starts_without_blocking_ui_thread() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState {
+            pending_turn: Some(PendingTurn::for_input("slow request")),
+            ..TuiState::default()
+        };
+        let mut controller = TuiInputController {
+            mode: InputMode::Insert,
+        };
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Char('继'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("composer remains responsive");
+
+        assert_eq!(state.input, "继");
+        assert!(state.pending_turn.is_some());
+    }
+
+    #[test]
+    fn active_approval_does_not_swallow_composer_typing() {
+        let mut view = RuntimeViewState::new(RuntimeSnapshot {
+            cwd: PathBuf::from("/workspace"),
+            provider_family: "fallback".to_string(),
+            model_label: "test-local".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: "fixture".to_string(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: Default::default(),
+        });
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/approval-allow-deny.json"
+        ))
+        .expect("approval fixture");
+        let envelope: RuntimeEventEnvelope =
+            serde_json::from_value(fixture["events"][0].clone()).expect("approval event");
+        if let viden_types::RuntimeWireEvent::Known(event) = envelope.event {
+            view.apply_event(&event);
+        }
+        let mut driver = TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport {
+            view: Some(view),
+            ..FakeCoreTransport::default()
+        }))
+        .expect("connect");
+        let mut state = TuiState::default();
+        let mut controller = TuiInputController {
+            mode: InputMode::Insert,
+        };
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("approval-time typing");
+
+        assert_eq!(state.input, "x");
+        assert_eq!(driver.view().pending_approvals.len(), 1);
+    }
+
+    #[test]
+    fn provider_and_model_selector_paths_are_reachable_from_core_client_loop() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState {
+            provider_catalog: crate::tui::state::ProviderOption::fixture(),
+            ..TuiState::default()
+        };
+        let mut controller = TuiInputController::default();
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("insert mode");
+        state.input = "/models".to_string();
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("open models");
+
+        assert!(matches!(
+            state.interaction_panel,
+            Some(InteractionPanel::ModelPicker { .. })
+        ));
+        assert_eq!(
+            effective_input_mode(&controller, &state),
+            InputMode::Overlay
+        );
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("close selector");
+        assert!(state.interaction_panel.is_none());
+        assert_eq!(controller.mode(), InputMode::Insert);
+
+        state.input = "/models".to_string();
+        for _ in 0..2 {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                &mut controller,
+                Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("open and select model");
+        }
+        assert!(state.interaction_panel.is_none());
+        assert!(
+            state
+                .entries
+                .iter()
+                .any(|entry| { entry.label == "user" && entry.body.starts_with("/models ") })
+        );
+        assert!(
+            state.pending_turn.is_some(),
+            "selection dispatches through Core"
+        );
     }
 
     #[test]
@@ -612,6 +1345,118 @@ mod tests {
         assert_eq!(state.runtime_tasks.len(), 1);
         assert!(state.provider_status.total_tokens > 0);
         assert!(state.provider_status.total_cost_micro_usd.is_some());
+    }
+
+    #[test]
+    fn runtime_view_projects_multi_lane_fixture_facts() {
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            initial_snapshot: RuntimeSnapshot,
+            events: Vec<RuntimeEventEnvelope>,
+        }
+
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/multi-lane.json"
+        ))
+        .expect("multi-lane shared fixture");
+        let mut view = RuntimeViewState::new(fixture.initial_snapshot);
+        for envelope in fixture.events {
+            if let viden_types::RuntimeWireEvent::Known(event) = envelope.event {
+                view.apply_event(&event);
+            }
+        }
+        let driver = TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport {
+            view: Some(view),
+            ..FakeCoreTransport::default()
+        }))
+        .expect("connect");
+
+        let state = state_from_driver(&driver, &TuiOptions::new("startup"));
+
+        assert_eq!(state.lanes.len(), 2);
+        let core = state
+            .lanes
+            .iter()
+            .find(|lane| lane.id == "lane_core")
+            .expect("core lane");
+        assert_eq!(core.status, "running");
+        assert_eq!(core.tool, "coder", "role is the visible lane owner");
+        assert_eq!(core.title, "task_core");
+        assert_eq!(core.target, "terminal/local · containment");
+        assert_eq!(
+            core.worktree.as_deref(),
+            Some(std::path::Path::new(".worktrees/lane_core"))
+        );
+
+        let review = state
+            .lanes
+            .iter()
+            .find(|lane| lane.id == "lane_review")
+            .expect("review lane");
+        assert_eq!(review.status, "waiting_approval");
+        assert_eq!(review.tool, "reviewer");
+        assert_eq!(review.target, "acp/ssh:review.example.test · cooperative");
+    }
+
+    #[test]
+    fn runtime_view_projects_representative_typed_lane_fixture() {
+        let lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed-lanes shared fixture");
+        let snapshot = RuntimeSnapshot {
+            cwd: PathBuf::from("workspace/viden"),
+            provider_family: "fallback".to_string(),
+            model_label: "test-local".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: "typed lanes".to_string(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: Default::default(),
+        };
+        let mut view = RuntimeViewState::new(snapshot);
+        view.lanes = lanes;
+        let driver = TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport {
+            view: Some(view),
+            ..FakeCoreTransport::default()
+        }))
+        .expect("connect");
+
+        let state = state_from_driver(&driver, &TuiOptions::new("startup"));
+
+        assert_eq!(state.lanes.len(), 4);
+        let detached = state
+            .lanes
+            .iter()
+            .find(|lane| lane.id == "L-detached")
+            .expect("detached lane");
+        assert_eq!(detached.status, "detached");
+        assert_eq!(detached.tool, "coder", "role is the visible lane owner");
+        assert_eq!(detached.title, "task_detached");
+        assert_eq!(detached.target, "tmux/local · containment");
+        assert_eq!(detached.summary, "legacy detached lane");
+    }
+
+    #[test]
+    fn release_manifest_declares_requested_and_effective_presentation_inputs() {
+        let manifest = include_str!("../../release-manifest.toml");
+
+        assert!(manifest.contains("locales = [\"system\", \"en\", \"zh-CN\"]"));
+        assert!(manifest.contains("effective_locales = [\"en\", \"zh-CN\"]"));
+        assert!(manifest.contains("modes = [\"system\", \"dark\", \"light\"]"));
+        assert!(manifest.contains("effective_modes = [\"dark\", \"light\"]"));
+        assert!(manifest.contains("densities = [\"compact\", \"regular\", \"comfy\"]"));
+        assert!(manifest.contains("motion = [\"system\", \"reduced\", \"full\"]"));
+        assert!(
+            manifest
+                .contains("tui_color_depth = [\"auto\", \"truecolor\", \"ansi256\", \"ansi16\"]")
+        );
+        assert!(
+            manifest
+                .contains("effective_tui_color_depth = [\"truecolor\", \"ansi256\", \"ansi16\"]")
+        );
     }
 
     #[test]

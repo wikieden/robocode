@@ -49,7 +49,24 @@ run_step() {
 run_cargo_test() {
   local name="$1"
   shift
-  run_step "$name" cargo test -p viden-tui "$@" -- --nocapture
+  run_step "$name" cargo_test_with_match "$@"
+}
+
+cargo_test_with_match() {
+  local output
+  local rc
+  set +e
+  output="$(cargo test -p viden-tui "$@" -- --nocapture 2>&1)"
+  rc=$?
+  set -e
+  printf '%s\n' "$output"
+  if [[ "$rc" -ne 0 ]]; then
+    return "$rc"
+  fi
+  if ! grep -Eq 'test result: ok\. [1-9][0-9]* passed' <<<"$output"; then
+    printf 'test filter matched no passing tests: %s\n' "$*" >&2
+    return 1
+  fi
 }
 
 record "# Viden RC TUI Stability Smoke"
@@ -59,6 +76,15 @@ record ""
 record "## Guardrail Results"
 
 run_step "terminal-redraw-and-residue-tests" cargo test -p viden-tui tui::terminal::tests -- --nocapture
+run_cargo_test "fake-slow-provider-nonblocking" runtime_provider_turn_starts_without_blocking_ui_thread
+run_cargo_test "approval-nonblocking" active_approval_does_not_swallow_composer_typing
+run_cargo_test "streaming-scrollback" streaming_delta_does_not_steal_scrollback_when_user_scrolled_up
+run_cargo_test "focus-paste-repaint-policy" focus_and_paste_events_force_repaint_without_becoming_input
+run_cargo_test "composer-residue-filter" composer_discards_terminal_escape_residue_instead_of_rendering_it
+run_cargo_test "provider-model-picker-setup" provider_and_model_selector_paths_are_reachable_from_core_client_loop
+run_cargo_test "configured-model-picker-scope" models_selector_filters_unconfigured_providers
+run_cargo_test "welcome-missing-key-clean-start" render_frame_uses_welcome_layout_for_first_empty_session
+run_cargo_test "live-work-preview-contract" render_frame_keeps_live_activity_visible_for_lanes_and_tool_calls
 run_cargo_test "core-client-startup" startup_check_connects_core_client_without_entering_terminal
 run_cargo_test "runtime-view-projection" runtime_view_projects_authoritative_frontend_facts_without_workspace_fixture
 run_cargo_test "approval-core-command" approval_shortcut_builds_response_for_core_request_id
@@ -73,11 +99,10 @@ run_cargo_test "synthetic-planning-clears-after-result" agent_tasks_do_not_keep_
 run_step "tui-regression-preview" scripts/tui-regression.sh "$OUT_DIR/tui-regression"
 
 record ""
-record "## P0/P1 TUI Backlog"
+record "## Automated Gate Scope"
 record ""
-record "- Known open P0: \`0\` from the automated RC gate."
-record "- Known open P1: \`0\` from the automated RC gate."
-record "- Failing cases: none observed in this smoke run."
+record "- Every named gate above matched at least one passing test."
+record "- This smoke does not claim that the complete P0/P1 backlog is empty."
 record ""
 record "## Manual Terminal Acceptance"
 record ""

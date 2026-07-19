@@ -9,6 +9,7 @@ mod composer;
 mod indicators;
 #[allow(dead_code)]
 mod input;
+mod keymap;
 #[cfg(test)]
 #[allow(dead_code)]
 mod lane;

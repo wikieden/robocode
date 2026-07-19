@@ -29,9 +29,12 @@ required_capabilities = [
 ]
 
 [presentation]
+# Resolver inputs may contain `system`/`auto`; effective values never do.
 locales = ["system", "en", "zh-CN"]
+effective_locales = ["en", "zh-CN"]
 skins = ["aurora", "ice", "mono", "amber", "phosphor"]
 modes = ["system", "dark", "light"]
+effective_modes = ["dark", "light"]
 valid_skin_modes = [
   "aurora:dark",
   "aurora:light",
@@ -44,4 +47,5 @@ valid_skin_modes = [
 ]
 densities = ["compact", "regular", "comfy"]
 motion = ["system", "reduced", "full"]
-tui_color_depth = ["truecolor", "ansi256", "ansi16"]
+tui_color_depth = ["auto", "truecolor", "ansi256", "ansi16"]
+effective_tui_color_depth = ["truecolor", "ansi256", "ansi16"]

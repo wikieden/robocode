@@ -5,7 +5,10 @@ use std::{
 
 use crossterm::{
     SynchronizedUpdate, cursor,
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{
+        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+        EnableFocusChange, EnableMouseCapture,
+    },
     execute, queue,
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
@@ -60,6 +63,8 @@ impl TerminalGuard {
             stdout,
             EnterAlternateScreen,
             EnableMouseCapture,
+            EnableBracketedPaste,
+            EnableFocusChange,
             cursor_style(motion),
             cursor::Show
         ) {
@@ -220,6 +225,8 @@ impl TerminalGuard {
             stdout,
             cursor::SetCursorStyle::DefaultUserShape,
             cursor::Show,
+            DisableFocusChange,
+            DisableBracketedPaste,
             DisableMouseCapture,
             LeaveAlternateScreen
         )

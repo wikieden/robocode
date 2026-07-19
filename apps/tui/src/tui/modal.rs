@@ -307,6 +307,30 @@ fn interaction_panel_selectable_rows(state: &TuiState) -> Vec<(usize, usize)> {
     }
 }
 
+pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
+    interaction_panel_selectable_rows(state).len()
+}
+
+pub(super) fn selected_interaction_command(state: &TuiState) -> Option<String> {
+    match state.interaction_panel.as_ref()? {
+        InteractionPanel::ConnectProvider { search, selected } => {
+            let providers = filtered_providers(state, search);
+            let provider = providers.get((*selected).min(providers.len().saturating_sub(1)))?;
+            Some(format!("/connect {}", provider.provider_id))
+        }
+        InteractionPanel::ModelPicker {
+            provider_id,
+            search,
+            selected,
+        } => {
+            let choices = filtered_models(state, provider_id.as_deref(), search);
+            let choice = choices.get((*selected).min(choices.len().saturating_sub(1)))?;
+            Some(format!("/models {} {}", choice.provider_id, choice.model))
+        }
+        InteractionPanel::ProviderConfig { .. } | InteractionPanel::ProviderApiKey { .. } => None,
+    }
+}
+
 fn filtered_providers<'a>(state: &'a TuiState, search: &str) -> Vec<&'a ProviderOption> {
     let needle = search.trim().to_ascii_lowercase();
     let mut providers = state
