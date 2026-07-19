@@ -1,15 +1,48 @@
 use std::path::PathBuf;
 
 use viden_config::CliOverrides;
-use viden_runtime::{RuntimeBootstrapRequest, RuntimeSupervisor, bootstrap_runtime};
+use viden_runtime::{
+    RuntimeBootstrapRequest, RuntimeResumeRequest, RuntimeSupervisor, bootstrap_runtime,
+};
+use viden_types::{PermissionMode, UiPreferences};
 
 use crate::{CoreClient, LocalCoreTransport, StatefulCoreClient};
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkspaceOpenOverrides {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub permission_mode: Option<PermissionMode>,
+    pub session_home: Option<PathBuf>,
+    pub request_timeout_secs: Option<u64>,
+    pub max_retries: Option<u32>,
+    pub config_path: Option<PathBuf>,
+    pub ui: Option<UiPreferences>,
+}
+
+impl From<WorkspaceOpenOverrides> for CliOverrides {
+    fn from(overrides: WorkspaceOpenOverrides) -> Self {
+        Self {
+            provider: overrides.provider,
+            model: overrides.model,
+            api_base: None,
+            api_key: None,
+            provider_plugin_dirs: Vec::new(),
+            permission_mode: overrides.permission_mode,
+            session_home: overrides.session_home,
+            request_timeout_secs: overrides.request_timeout_secs,
+            max_retries: overrides.max_retries,
+            config_path: overrides.config_path,
+            ui: overrides.ui,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct WorkspaceOpenRequest {
     pub root: PathBuf,
     pub resume_session_id: Option<String>,
-    pub cli_overrides: CliOverrides,
+    pub overrides: WorkspaceOpenOverrides,
 }
 
 impl WorkspaceOpenRequest {
@@ -17,12 +50,12 @@ impl WorkspaceOpenRequest {
         Self {
             root: root.into(),
             resume_session_id: None,
-            cli_overrides: CliOverrides::default(),
+            overrides: WorkspaceOpenOverrides::default(),
         }
     }
 
-    pub fn with_cli_overrides(mut self, cli_overrides: CliOverrides) -> Self {
-        self.cli_overrides = cli_overrides;
+    pub fn with_overrides(mut self, overrides: WorkspaceOpenOverrides) -> Self {
+        self.overrides = overrides;
         self
     }
 
@@ -102,23 +135,18 @@ impl LocalCoreHost {
             });
         }
 
-        let mut cli_overrides = request.cli_overrides;
+        let mut cli_overrides = CliOverrides::from(request.overrides);
         if cli_overrides.session_home.is_none() {
             cli_overrides.session_home = self.session_home.clone();
         }
-        let resume_session_id = request.resume_session_id;
-        let bootstrap = bootstrap_runtime(RuntimeBootstrapRequest::new(
-            canonical_root.clone(),
-            cli_overrides,
-        ))
-        .map_err(CoreHostError::Bootstrap)?;
-        let mut engine = bootstrap.engine;
-        if let Some(session_id) = resume_session_id {
-            let mut deny = |_prompt| viden_types::ApprovalResponse::deny(None);
-            engine
-                .process_input_with_approval(&format!("/resume {session_id}"), &mut deny)
-                .map_err(CoreHostError::Bootstrap)?;
+        let mut bootstrap_request =
+            RuntimeBootstrapRequest::new(canonical_root.clone(), cli_overrides);
+        if let Some(session_id) = request.resume_session_id {
+            bootstrap_request =
+                bootstrap_request.with_resume(RuntimeResumeRequest::exact_session_id(session_id));
         }
+        let bootstrap = bootstrap_runtime(bootstrap_request).map_err(CoreHostError::Bootstrap)?;
+        let engine = bootstrap.engine;
         let session_id = engine.session_id().to_string();
         let supervisor = RuntimeSupervisor::start(engine);
         let snapshot = supervisor

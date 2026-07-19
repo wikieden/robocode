@@ -51,9 +51,10 @@ flowchart TB
 - `apps/cli`: executable entrypoint, flags, preview commands, and current CLI/TUI launcher.
 - `apps/tui`: terminal frontend app boundary. The full TUI render/input
   loop should move here over follow-up slices.
-- `crates/core`: stable runtime facade for clients; owns the production
-  `LocalCoreHost` workspace binding and re-exports the shared client/contract
-  types without TUI or GUI dependencies.
+- `crates/core`: stable runtime facade for clients; owns the internal
+  pre-release `LocalCoreHost` workspace binding and re-exports the shared
+  client/contract types without TUI or GUI dependencies. The host is not
+  advertised as a frontend handshake capability until the Core 0.3.2 gate.
 - `crates/config`: config loading, merge precedence, and startup defaults.
 - `crates/runtime`: shared startup bootstrap, session engine, and turn
   orchestration.

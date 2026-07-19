@@ -46,6 +46,7 @@ pub(crate) use doctor::{DoctorReport, system_dependency_status};
 use formatting::{format_relative_age, render_resume_context, render_task_detail};
 pub use project_runtime::CredentialBackend;
 pub use runtime_supervisor::RuntimeSupervisor;
+pub use session_lifecycle::{RuntimeResumeError, RuntimeResumeRequest, RuntimeResumeResult};
 use viden_lsp::{LspRuntime, LspServerRegistry};
 use viden_permissions::PermissionEngine;
 use viden_plugin_api::{ContextReducerAdapterConfig, ContextReducerDescriptor};
@@ -399,10 +400,26 @@ impl SessionEngine {
         home_override: Option<PathBuf>,
         runtime_snapshot: RuntimeSnapshot,
     ) -> Result<Self, String> {
+        Self::new_with_home_session_and_snapshot(
+            cwd,
+            provider,
+            home_override,
+            None,
+            runtime_snapshot,
+        )
+    }
+
+    pub fn new_with_home_session_and_snapshot(
+        cwd: impl Into<PathBuf>,
+        provider: Box<dyn ModelProvider>,
+        home_override: Option<PathBuf>,
+        session_id: Option<String>,
+        runtime_snapshot: RuntimeSnapshot,
+    ) -> Result<Self, String> {
         let cwd = cwd.into();
         let store = match home_override {
-            Some(home) => SessionStore::new_with_home(home, &cwd, None)?,
-            None => SessionStore::new(&cwd, None)?,
+            Some(home) => SessionStore::new_with_home(home, &cwd, session_id)?,
+            None => SessionStore::new(&cwd, session_id)?,
         };
         let workflows = WorkflowStore::new(store.home_dir().to_path_buf(), &cwd)?;
         let legacy_lanes_path = cwd.join(".viden").join("lanes.tsv");

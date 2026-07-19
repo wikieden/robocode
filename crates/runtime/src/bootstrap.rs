@@ -4,15 +4,17 @@ use viden_config::{CliOverrides, ResolvedConfig, load_config};
 use viden_provider::{
     ModelProvider, ProviderConfig, ProviderHost, ProviderPluginError, ProviderRegistry,
 };
-use viden_types::{PermissionLevel, RuntimeSnapshot, WorkMode};
+use viden_session::SessionStore;
+use viden_types::{PermissionLevel, RuntimeSnapshot, SessionSummary, TranscriptEntry, WorkMode};
 
-use crate::SessionEngine;
+use crate::{RuntimeResumeError, RuntimeResumeRequest, SessionEngine};
 
 #[derive(Clone)]
 pub struct RuntimeBootstrapRequest {
     pub cwd: PathBuf,
     pub cli_overrides: CliOverrides,
     pub startup_overrides: Vec<String>,
+    pub resume: Option<RuntimeResumeRequest>,
 }
 
 impl RuntimeBootstrapRequest {
@@ -21,11 +23,17 @@ impl RuntimeBootstrapRequest {
             cwd: cwd.into(),
             cli_overrides,
             startup_overrides: Vec::new(),
+            resume: None,
         }
     }
 
     pub fn with_startup_overrides(mut self, startup_overrides: Vec<String>) -> Self {
         self.startup_overrides = startup_overrides;
+        self
+    }
+
+    pub fn with_resume(mut self, resume: RuntimeResumeRequest) -> Self {
+        self.resume = Some(resume);
         self
     }
 }
@@ -43,7 +51,12 @@ pub struct RuntimeBootstrap {
 /// snapshot construction stay on the shared Core/runtime path.
 pub fn bootstrap_runtime(request: RuntimeBootstrapRequest) -> Result<RuntimeBootstrap, String> {
     let resolved_config = load_config(&request.cwd, &request.cli_overrides)?;
-    bootstrap_runtime_with_resolved_config(&request.cwd, resolved_config, request.startup_overrides)
+    bootstrap_runtime_with_resolved_config_and_resume(
+        &request.cwd,
+        resolved_config,
+        request.startup_overrides,
+        request.resume,
+    )
 }
 
 pub fn bootstrap_runtime_with_resolved_config(
@@ -51,6 +64,19 @@ pub fn bootstrap_runtime_with_resolved_config(
     resolved_config: ResolvedConfig,
     startup_overrides: Vec<String>,
 ) -> Result<RuntimeBootstrap, String> {
+    bootstrap_runtime_with_resolved_config_and_resume(cwd, resolved_config, startup_overrides, None)
+}
+
+pub fn bootstrap_runtime_with_resolved_config_and_resume(
+    cwd: &Path,
+    resolved_config: ResolvedConfig,
+    startup_overrides: Vec<String>,
+    resume: Option<RuntimeResumeRequest>,
+) -> Result<RuntimeBootstrap, String> {
+    let resolved_resume = match resume {
+        Some(request) => Some(resolve_bootstrap_resume(cwd, &resolved_config, request)?),
+        None => None,
+    };
     let provider_host = load_startup_provider_host(&resolved_config)?;
     let provider_selection = create_startup_provider(&provider_host, &resolved_config)?;
     let provider_summary = format!(
@@ -84,12 +110,21 @@ pub fn bootstrap_runtime_with_resolved_config(
         startup_overrides,
         ui_preferences: resolved_config.ui.clone(),
     };
-    let mut engine = SessionEngine::new_with_home_and_snapshot(
+    let resume_session_id = resolved_resume
+        .as_ref()
+        .map(|(summary, _)| summary.session_id.clone());
+    let mut engine = SessionEngine::new_with_home_session_and_snapshot(
         cwd,
         provider_selection.provider,
         resolved_config.session_home.clone(),
+        resume_session_id,
         runtime_snapshot,
     )?;
+    if let Some((summary, entries)) = resolved_resume {
+        engine
+            .activate_resolved_session(summary, entries)
+            .map_err(|err| err.to_string())?;
+    }
     engine.set_provider_runtime(
         provider_host,
         resolved_config.provider_plugin_dirs.clone(),
@@ -105,6 +140,87 @@ pub fn bootstrap_runtime_with_resolved_config(
         provider_summary,
         resolved_config,
     })
+}
+
+fn resolve_bootstrap_resume(
+    cwd: &Path,
+    resolved_config: &ResolvedConfig,
+    request: RuntimeResumeRequest,
+) -> Result<(SessionSummary, Vec<TranscriptEntry>), String> {
+    let store = match &resolved_config.session_home {
+        Some(home) => SessionStore::new_with_home(home, cwd, None)?,
+        None => SessionStore::new(cwd, None)?,
+    };
+    match request {
+        RuntimeResumeRequest::ExactSessionId(session_id) => {
+            store.load_by_id_for_cwd(&session_id)?.ok_or_else(|| {
+                RuntimeResumeError::NotFound {
+                    selector: session_id,
+                }
+                .to_string()
+            })
+        }
+        RuntimeResumeRequest::Latest => store.load_latest_for_cwd()?.ok_or_else(|| {
+            RuntimeResumeError::NotFound {
+                selector: "latest".to_string(),
+            }
+            .to_string()
+        }),
+        RuntimeResumeRequest::Selector(selector) => resolve_bootstrap_selector(&store, &selector),
+    }
+}
+
+fn resolve_bootstrap_selector(
+    store: &SessionStore,
+    selector: &str,
+) -> Result<(SessionSummary, Vec<TranscriptEntry>), String> {
+    let sessions = store.list_sessions_for_cwd()?;
+    if sessions.is_empty() {
+        return Err(RuntimeResumeError::NotFound {
+            selector: selector.to_string(),
+        }
+        .to_string());
+    }
+    if let Some(loaded) = store.load_by_id_for_cwd(selector)? {
+        return Ok(loaded);
+    }
+    let matches = sessions
+        .iter()
+        .filter(|summary| {
+            summary.session_id.starts_with(selector)
+                || summary
+                    .session_id
+                    .trim_start_matches("session_")
+                    .starts_with(selector)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [summary] => {
+            let entries = SessionStore::load_entries_from_path(std::path::Path::new(
+                &summary.transcript_path,
+            ))?;
+            Ok((summary.clone(), entries))
+        }
+        [] => Err(RuntimeResumeError::NotFound {
+            selector: selector.to_string(),
+        }
+        .to_string()),
+        _ => Err(RuntimeResumeError::Ambiguous {
+            selector: selector.to_string(),
+            sessions: render_bootstrap_session_ids(&matches),
+        }
+        .to_string()),
+    }
+}
+
+fn render_bootstrap_session_ids(sessions: &[SessionSummary]) -> String {
+    let ids = sessions
+        .iter()
+        .map(|summary| summary.session_id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("matching sessions: {ids}")
 }
 
 fn load_startup_provider_host(

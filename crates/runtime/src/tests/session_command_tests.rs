@@ -1,4 +1,4 @@
-use crate::{EngineEvent, SessionEngine};
+use crate::{EngineEvent, RuntimeResumeRequest, SessionEngine};
 use viden_provider::ProviderHost;
 use viden_session::SessionStore;
 use viden_types::{
@@ -407,4 +407,75 @@ fn resume_by_prefix_restores_matching_session() {
         event,
         EngineEvent::Command(text) if text.contains(&session_id)
     )));
+}
+
+#[test]
+fn typed_resume_exact_session_restores_requested_id() {
+    let home = temp_dir("typed_resume_exact_home");
+    let cwd = temp_dir("typed_resume_exact_cwd");
+    let provider_a = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "reply a".to_string(),
+        },
+    ]]));
+    let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    engine_a
+        .process_input_with_approval("session alpha", &mut approver)
+        .unwrap();
+    let session_id = engine_a.session_id().to_string();
+
+    let provider_b = Box::new(SequenceProvider::new(vec![]));
+    let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
+    let resumed = engine_b
+        .resume_session(RuntimeResumeRequest::exact_session_id(session_id.clone()))
+        .unwrap();
+
+    assert_eq!(resumed.session_id, session_id);
+    assert_eq!(engine_b.session_id(), session_id);
+}
+
+#[test]
+fn typed_resume_missing_session_errors_without_switching_current_session() {
+    let home = temp_dir("typed_resume_missing_home");
+    let cwd = temp_dir("typed_resume_missing_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let original = engine.session_id().to_string();
+
+    let error = engine
+        .resume_session(RuntimeResumeRequest::exact_session_id("session_missing"))
+        .unwrap_err();
+
+    assert!(error.to_string().contains("session_missing"));
+    assert!(error.to_string().contains("not found"));
+    assert_eq!(engine.session_id(), original);
+}
+
+#[test]
+fn typed_resume_ambiguous_selector_errors_without_switching_current_session() {
+    let home = temp_dir("typed_resume_ambiguous_home");
+    let cwd = temp_dir("typed_resume_ambiguous_cwd");
+    let store_a = SessionStore::new_with_home(&home, &cwd, Some("session_same_a".into())).unwrap();
+    store_a
+        .append_entry(&TranscriptEntry::Message {
+            message: Message::new(Role::User, "alpha".to_string()),
+        })
+        .unwrap();
+    let store_b = SessionStore::new_with_home(&home, &cwd, Some("session_same_b".into())).unwrap();
+    store_b
+        .append_entry(&TranscriptEntry::Message {
+            message: Message::new(Role::User, "beta".to_string()),
+        })
+        .unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let original = engine.session_id().to_string();
+
+    let error = engine
+        .resume_session(RuntimeResumeRequest::selector("session_same"))
+        .unwrap_err();
+
+    assert!(error.to_string().contains("ambiguous"));
+    assert_eq!(engine.session_id(), original);
 }

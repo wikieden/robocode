@@ -51,8 +51,10 @@ flowchart TB
 
 - `apps/cli`：可执行入口、flags、preview commands，以及当前 CLI/TUI launcher
 - `apps/tui`：终端 frontend app 边界；完整 TUI render/input loop 后续应迁移到这里
-- `crates/core`：稳定 runtime facade，供客户端导入；拥有生产 `LocalCoreHost`
-  workspace binding，并重导出共享 client/contract 类型，不引入 TUI 或 GUI 依赖
+- `crates/core`：稳定 runtime facade，供客户端导入；拥有内部 pre-release
+  `LocalCoreHost` workspace binding，并重导出共享 client/contract 类型，不引入
+  TUI 或 GUI 依赖；Core 0.3.2 gate 前不把 host 作为 frontend handshake capability
+  对外公布
 - `crates/config`：配置加载、优先级合并和启动默认值
 - `crates/runtime`：共享启动 bootstrap、会话引擎和 turn 编排
 - `crates/provider`：provider host/runtime、HTTP 适配、provider registry，以及 tool-calling 协议转换

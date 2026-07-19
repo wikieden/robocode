@@ -15,10 +15,10 @@ pub use compatibility::{
     frontend_capabilities, local_core_handshake, validate_handshake, validate_schema_version,
 };
 pub use host::{
-    BoundCoreClient, CoreHostError, LocalCoreHost, WorkspaceBinding, WorkspaceOpenRequest,
+    BoundCoreClient, CoreHostError, LocalCoreHost, WorkspaceBinding, WorkspaceOpenOverrides,
+    WorkspaceOpenRequest,
 };
 pub use local_transport::LocalCoreTransport;
-pub use viden_config::CliOverrides;
 pub use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentRole, AgentRoute,
     AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
