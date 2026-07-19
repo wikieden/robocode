@@ -1,0 +1,232 @@
+use std::ops::Deref;
+
+use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeStruct};
+
+use crate::{AgentLaneId, AgentTaskId, EvidenceId, MergeGateId, RuntimeOwner};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HandoffAcceptance {
+    Accepted,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HandoffRecord {
+    pub handoff_id: String,
+    pub task_id: AgentTaskId,
+    pub from_lane_id: AgentLaneId,
+    pub to_lane_id: AgentLaneId,
+    pub owner: RuntimeOwner,
+    pub summary: String,
+    pub acceptance: HandoffAcceptance,
+    pub audit_id: String,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewRequestStatus {
+    Pending,
+    Accepted,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRequestRecord {
+    pub review_id: String,
+    pub gate_id: MergeGateId,
+    pub task_id: AgentTaskId,
+    pub requester_lane_id: AgentLaneId,
+    pub reviewer_lane_id: AgentLaneId,
+    pub owner: RuntimeOwner,
+    pub evidence_ids: Vec<EvidenceId>,
+    pub status: ReviewRequestStatus,
+    pub audit_id: String,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContractDecision {
+    Confirmed,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractRecord {
+    pub contract_id: String,
+    pub task_id: AgentTaskId,
+    pub owner: RuntimeOwner,
+    pub summary: String,
+    pub decision: ContractDecision,
+    pub audit_id: String,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyState {
+    Blocked,
+    Unblocked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DependencyRecord {
+    pub dependency_id: String,
+    pub task_id: AgentTaskId,
+    pub depends_on_task_id: AgentTaskId,
+    pub owner: RuntimeOwner,
+    pub state: DependencyState,
+    pub reason: String,
+    pub audit_id: String,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeGateType {
+    Patch,
+    Review,
+    Contract,
+    Handoff,
+    #[default]
+    Artifact,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct MergeGatePolicySnapshot {
+    #[serde(default)]
+    pub required_evidence: Vec<String>,
+    #[serde(default)]
+    pub permission_snapshot_id: Option<String>,
+    #[serde(default)]
+    pub requires_independent_validator: bool,
+    #[serde(default)]
+    pub captured_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergeGateValidator {
+    pub owner: RuntimeOwner,
+    pub review_request_id: String,
+    pub independent: bool,
+    pub validated_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeGateDecisionOutcome {
+    AwaitingEvidence,
+    Accepted,
+    Rejected,
+    Conflict,
+    Merged,
+    Reverted,
+    /// Read-only migration value for schema-1 records written before decisions
+    /// became typed. New runtime commands never emit this outcome.
+    Legacy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct MergeGateDecision {
+    pub outcome: MergeGateDecisionOutcome,
+    pub reason: String,
+    #[serde(default)]
+    pub owner: RuntimeOwner,
+    #[serde(default)]
+    pub evidence_ids: Vec<EvidenceId>,
+    pub audit_id: String,
+    pub decided_at: u64,
+}
+
+impl Serialize for MergeGateDecision {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if self.outcome == MergeGateDecisionOutcome::Legacy {
+            return serializer.serialize_str(&self.reason);
+        }
+        let mut state = serializer.serialize_struct("MergeGateDecision", 6)?;
+        state.serialize_field("outcome", &self.outcome)?;
+        state.serialize_field("reason", &self.reason)?;
+        state.serialize_field("owner", &self.owner)?;
+        state.serialize_field("evidence_ids", &self.evidence_ids)?;
+        state.serialize_field("audit_id", &self.audit_id)?;
+        state.serialize_field("decided_at", &self.decided_at)?;
+        state.end()
+    }
+}
+
+impl Deref for MergeGateDecision {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.reason
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum MergeGateDecisionWire {
+    Typed(Box<MergeGateDecision>),
+    Legacy(String),
+}
+
+pub(crate) fn deserialize_merge_gate_decision<'de, D>(
+    deserializer: D,
+) -> Result<Option<MergeGateDecision>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let wire = Option::<MergeGateDecisionWire>::deserialize(deserializer)?;
+    Ok(wire.map(|wire| match wire {
+        MergeGateDecisionWire::Typed(decision) => *decision,
+        MergeGateDecisionWire::Legacy(reason) => MergeGateDecision {
+            outcome: MergeGateDecisionOutcome::Legacy,
+            reason,
+            owner: RuntimeOwner::default(),
+            evidence_ids: Vec::new(),
+            audit_id: "legacy".to_string(),
+            decided_at: 0,
+        },
+    }))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictBounceStatus {
+    Pending,
+    Revalidated,
+    Resolved,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflictBounce {
+    pub bounce_id: String,
+    pub gate_id: MergeGateId,
+    pub task_id: AgentTaskId,
+    pub original_lane_id: AgentLaneId,
+    pub owner: RuntimeOwner,
+    pub reason: String,
+    pub status: ConflictBounceStatus,
+    #[serde(default)]
+    pub evidence_ids: Vec<EvidenceId>,
+    pub audit_id: String,
+    pub created_at: u64,
+    pub revalidated_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RevertRecord {
+    pub revert_id: String,
+    pub gate_id: MergeGateId,
+    pub applied_change_id: String,
+    pub owner: RuntimeOwner,
+    pub reason: String,
+    #[serde(default)]
+    pub restored_paths: Vec<String>,
+    pub audit_id: String,
+    pub reverted_at: u64,
+}

@@ -10,7 +10,7 @@ use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
     AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalDecision, ApprovalResponse,
     ApprovalScope, ContextBundleRecord, EventCursor, FRONTEND_SCHEMA_V1, MergeGateStatus,
-    ModelEvent, ModelRequest, PermissionBehavior, PermissionLevel, PermissionRule,
+    ModelEvent, ModelRequest, PermissionBehavior, PermissionLevel, PermissionMode, PermissionRule,
     PermissionRuleSource, PermissionRuleValue, ReplayRequest, RuntimeCommand,
     RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeWireEvent,
     ToolCall, ToolInput, TranscriptPageRequest, WorkMode,
@@ -4785,7 +4785,10 @@ fn runtime_supervisor_accepts_and_rejects_merge_gate_decisions() {
         },
         ModelEvent::Done,
     ]]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
 
     supervisor
@@ -5030,7 +5033,10 @@ fn runtime_supervisor_reduces_merge_gate_from_required_evidence_kinds() {
     let cwd = temp_dir("runtime_supervisor_evidence_reducer_cwd");
     let home = temp_dir("runtime_supervisor_evidence_reducer_home");
     let provider = Box::new(SequenceProvider::new(Vec::new()));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
 
     supervisor
@@ -5167,7 +5173,10 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
         },
         ModelEvent::Done,
     ]]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
 
     supervisor
@@ -5427,7 +5436,10 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
         },
         ModelEvent::Done,
     ]]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
 
     supervisor
@@ -5566,7 +5578,10 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
         },
         ModelEvent::Done,
     ]]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
 
     supervisor
@@ -5666,7 +5681,8 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
                     if task.id == "task_coder_conflict"
                         && task.status == AgentTaskStatus::NeedsInput
                         && task.next_action.as_ref().is_some_and(|action| {
-                            action.command.as_deref() == Some("/agent start task_coder_conflict")
+                            action.command.as_deref()
+                                == Some("/lane attach lane-task_coder_conflict")
                         })
             )
         })
@@ -5678,7 +5694,8 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
                 if task.id == "task_coder_conflict"
                     && task.status == AgentTaskStatus::NeedsInput
                     && task.next_action.as_ref().is_some_and(|action| {
-                        action.command.as_deref() == Some("/agent start task_coder_conflict")
+                        action.command.as_deref()
+                            == Some("/lane attach lane-task_coder_conflict")
                     })
         )
     }));

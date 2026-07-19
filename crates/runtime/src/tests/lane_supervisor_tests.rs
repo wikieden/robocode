@@ -1596,6 +1596,9 @@ fn failed_permission_controls_leave_lane_engine_and_epoch_unchanged() {
                 },
             )
             .unwrap();
+        // ApprovalResolved is emitted before the approved effect runs. The
+        // response command is accepted only after LaneSupervisor's completion
+        // barrier, so wait for both before observing the effect recorder.
         let completed = collect_envelopes_until(&supervisor, |events| {
             events.iter().any(|envelope| {
                 matches!(

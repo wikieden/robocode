@@ -238,7 +238,9 @@ impl SessionEngine {
                     format!("provider={provider_id} backend={backend_id}"),
                 )
             }
-            _ => return Err("command is not a project onboarding mutation".to_string()),
+            _ => self
+                .trust_mutation_permission_descriptor(command)?
+                .ok_or_else(|| "command is not a supervised runtime mutation".to_string())?,
         };
         let tool_name = format!("workflow_{action}");
         let tool = ToolSpec {

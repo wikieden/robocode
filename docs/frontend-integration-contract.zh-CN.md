@@ -76,6 +76,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Agent workflow visibility | Mission Control board、workflow strip、plan/now/done/acceptance/blocked columns | `AgentDagRecord`、`AgentTaskRecord`、`EvidenceView`、`MergeGateRecord`、`RuntimeErrorView` | 现有 workflow/task/evidence/merge commands | 提案 |
 | ContextBundle | context panel、token pressure meter、omitted-source list | `ContextBundleRecord`、`ContextSourceRecord`、token budgets | 当前无直接 mutation；后续增加 context-policy commands | 部分落地 |
 | Evidence and merge gate | evidence center、diff/test/review checklist、merge gate card | `EvidenceView`、`MergeGateRecord` | `RecordAgentEvidence`、`AcceptMergeGate`、`RejectMergeGate`、`AcceptAgentArtifact`、`RejectAgentArtifact`、`MergeAgentPatch` | `0.2.3` reducer 第一刀已落地 |
+| 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevertAppliedChange` | 增量 `runtime.trust_loop` 候选 |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.1` 增量候选 |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
@@ -100,7 +101,9 @@ flowchart LR
 - `ToolCallStarted` 插入 active tool call；`ToolCallFinished` 移除 active tool
   call，并可能追加 evidence。
 - `TaskUpdated`、`AgentDagUpdated`、`LaneUpdated`、`EvidenceRecorded`、
-  `ContextUpdated` 和 `MergeGateUpdated` 按 id upsert records。
+  `ContextUpdated`、`MergeGateUpdated`、`HandoffUpdated`、
+  `ReviewRequestUpdated`、`ContractUpdated`、`DependencyUpdated`、
+  `MergeConflictBounced` 和 `RevertRecorded` 按 id upsert records。
 - `ApprovalRequested` 和 `ApprovalResolved` 维护 pending approvals。
 - `InputQueued` 和 `InputDequeued` 维护 follow-up input state。
 - `ProviderHealthUpdated`、`TokenCostUpdated` 和 `Error` 更新侧栏或状态区，不能阻塞
@@ -129,15 +132,17 @@ flowchart LR
 | 批准或拒绝 tool | `RespondToApproval` | decision recording 和 gated execution |
 | 记录 gate evidence | `RecordAgentEvidence` | evidence validation、`EvidenceRecorded`、gate reducer、workflow event |
 | 审核 merge gate | merge/artifact commands | gate state、workflow events、patch application |
+| 协调跨 Lane trust | handoff/review/contract/dependency commands | typed owner/audit facts、dependency state、validator policy 与 replay |
+| 恢复 apply | `BounceMergeConflict`、revalidated evidence、`RevertAppliedChange` | 回到原 Lane、workflow write-ahead fact、byte rollback 与 typed recovery |
 | 配置 provider/model | provider/model commands | config persistence、registry validation、health |
 | 探测并接入项目 | `ProbeProject`、`PreviewProjectConfig`、`ConfirmProjectConfig` | Git/config probe、精确审阅字节/hash、权限控制写入与 replay |
 | 保存 credential 引用 | 带 opaque ingress id 的 `StoreCredentialHandle` | 注入 backend、安全 handle fact、provider health 与 secret 隔离 |
 
 `PreviewProjectConfig` 是只读命令。有效 preview 包含其 SHA-256 所描述的精确 UTF-8
-内容；无效或携带 secret 字段的候选不返回这些内容，也不能 confirm。序列化后的
+内容；无效或携带 secret 字段的候选不返回这些内容，也不能 confirm。此类
 仓库根 `viden.toml` 只接受 D11 的 `project`、`gates`、`runner`、`budget`、`targets`
 schema，未知 root/nested field 一律拒绝。Provider、backend 与 ingress 标识必须是有长度
-上限的 opaque ASCII id，不能是 path 或 secret-like label。序列化后的 credential
+上限的 opaque ASCII id，不能是 path 或 secret-like label。序列化的 credential
 commands、events、transcript rows 与 workflow audit 都不得包含 credential
 secret bytes。
 
@@ -186,7 +191,13 @@ secret bytes。
 - `required_evidence` 声明 checklist。
 - `evidence_ids` 记录已收集 evidence。
 - `status` 控制 action surface。
-- `decision` 存储最新 operator 或 runtime decision。
+- `gate_type`、`owner`、`validator` 与 `policy_snapshot` 保存 decision 使用的
+  authority 和 policy。
+- `decision` 是包含 reason、owner、evidence ids、audit id 和 timestamp 的 typed
+  outcome。Schema-1 的旧 string decision 只作为 migration fact 读取；新写入不再
+  序列化 string。
+- `conflict`、`applied_change_id` 与 `audit_ids` 连接 bounce、apply 与 revert
+  recovery，前端不能自行推断。
 
 当前 `0.2.3` reducer 行为：
 
@@ -195,12 +206,17 @@ secret bytes。
   `agent_evidence_recorded` workflow event。
 - `MergeGateRecord.status` 由已记录 evidence 的 kind 归约，不由前端本地 checklist
   状态或 evidence id 后缀推断。
-- 缺少 required evidence 时 gate 保持 `collecting_evidence`。
-- required evidence 全部满足后 gate 自动进入 `accepted`。
+- 缺少 required evidence 或只有 summary 时 gate 保持 `collecting_evidence`；只有已验证的
+  canonical reference 能满足 required evidence。
+- canonical evidence 全部满足后，基础 gate 可以进入 `accepted`。要求 independent review
+  的 gate 或 conflict 后重新验证的 gate，必须再次显式 typed accept 才能 merge。
 - evidence 被 reject 后 gate 进入 `needs_changes`，并从 gate/task evidence 列表移除该
   evidence id。
 - `AcceptAgentArtifact` 只接受已记录的 evidence id。未知 evidence id 会被拒绝，前端不能
   把该命令当成隐式创建 evidence 的入口。
+- Trust-loop mutation 使用正常 supervisor approval flow。Merge 与 revert 在文件 effect
+  前写入 durable precommit；后续持久化或 apply 失败时恢复 bytes/state，并发出可恢复的
+  structured error。
 
 第一批一等 required evidence kind 是 `patch`、`test_result`、`review`、`doc_update`
 和 `release_artifact`。客户端可以显示其他 runtime kind，但 checklist 分组应优先覆盖这组

@@ -52,8 +52,8 @@ fixture 会在兼容性验证中失败；malformed 或 ambiguous legacy input �
 上面的 Core 0.3.0 冻结 capability 集合与 fixture digest 保持不变。Core 0.3.1 候选
 通过 `FRONTEND_V1_EXTENSION_CAPABILITIES` 和
 `crates/core/frontend-contract-extensions.toml` 单独公布增量 capability
-`runtime.lane_lifecycle`、`runtime.project_onboarding` 与
-`runtime.credential_handles`。
+`runtime.lane_lifecycle`、`runtime.project_onboarding`、
+`runtime.credential_handles` 与 `runtime.trust_loop`。
 
 基于 Core 0.3.0 编写的客户端仍然只要求冻结集合，并把不支持的 schema-1 事件保留为
 `RuntimeWireEvent::Unknown`。新客户端只有在协商到 `runtime.lane_lifecycle` 后，才启用
@@ -62,6 +62,15 @@ fixture 会在兼容性验证中失败；malformed 或 ambiguous legacy input �
 使用扩展专属的顶层事件，因此 0.3.0 客户端会把整个 payload 保留为 unknown，而不会因
 内嵌的新命令变体导致解码失败。扩展投影为空时不会参与序列化，
 因此重放冻结的 0.3.0 corpus 仍保持已记录的 canonical bytes 与 digest。
+
+`runtime.trust_loop` 新增 typed handoff、review request、contract、dependency、
+merge-gate policy/validator/decision、conflict bounce 与 revert facts。六个新增跨 Lane
+command 及其 events 均经过权限门禁，并由共享 reducer 重放。Schema 仍为 `1`：新增
+record fields 提供默认值，未知字段可忽略；扩展前的 string merge decision 会读取为只读
+`legacy` decision，新写入则始终序列化 typed decision。只有 canonical evidence 能产生
+acceptance，展示摘要不能替代其引用的 evidence bytes。Merge 与 revert 在改动文件前先
+追加 workflow precommit；随后要么提交 typed facts，要么恢复 bytes/state 并发出可恢复的
+structured error。
 
 Core 负责 Lane 权限判定，并在每个 Lane 命令前从当前 runtime mode 刷新权限状态。
 所有有副作用的命令都使用 permission check 与 effect executor 共享的 canonical worktree

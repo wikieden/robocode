@@ -55,6 +55,14 @@ Implementation checkpoint:
   conflict events and leave files unchanged. Scoped role Git staging now allows
   in-scope `git_add` while denying unscoped staging and high-risk Git
   mutations.
+- Landed trust-loop slice: handoff acceptance, review requests, contract
+  confirmation, and dependency block/unblock are typed owner-bound facts.
+  Merge gates carry typed policy, validator, decision, conflict, applied-change,
+  and audit fields. Summary-only evidence cannot pass. Conflicts bounce to the
+  originating lane, revalidated changes require explicit acceptance, and
+  applied changes support permission-gated audited revert. Trust mutations use
+  resumable supervisor approvals; merge/revert write a workflow precommit
+  before file effects and compensate bytes/state on later failure.
 - Remaining: live LSP references enrichment for role-specific ContextBundle
   selection, release/publish Git rules, evidence collection reducers, richer
   patch formats such as rename/delete/binary and three-way conflict handling,
@@ -231,6 +239,12 @@ Proposed `RuntimeCommand` additions:
 | `AcceptAgentArtifact` | Accept an artifact/evidence id into the merge-gate candidate set. |
 | `RejectAgentArtifact` | Reject an artifact/evidence id with reason and requested follow-up. |
 | `MergeAgentPatch` | Apply accepted unified-diff patch evidence, mark it merged on success, or return the gate to needs-changes on conflict. |
+| `CreateHandoff` | Record typed accepted/rejected ownership transfer between distinct lanes. |
+| `RequestReview` | Bind an independent reviewer and evidence set to a merge gate. |
+| `ConfirmContract` | Record typed contract confirmation/rejection for a task. |
+| `SetDependency` | Persist deterministic dependency block/unblock state. |
+| `BounceMergeConflict` | Return a structured conflict to its originating lane. |
+| `RevertAppliedChange` | Restore pre-apply bytes and record a typed audited revert. |
 
 Proposed `RuntimeEvent` additions:
 
@@ -247,6 +261,12 @@ Proposed `RuntimeEvent` additions:
 | `AgentTaskFailed` | yes | Records failure class and recovery suggestion. |
 | `EvidenceGateUpdated` | yes | Records verification state changes. |
 | `MergeGateUpdated` | yes | Records accept/reject/request-change/merge decisions. |
+| `HandoffUpdated` | yes | Records typed cross-lane acceptance and owner identity. |
+| `ReviewRequestUpdated` | yes | Records pending/accepted/rejected independent review. |
+| `ContractUpdated` | yes | Records typed task contract decisions. |
+| `DependencyUpdated` | yes | Records task dependency block/unblock state. |
+| `MergeConflictBounced` | yes | Records originating-lane conflict and revalidation state. |
+| `RevertRecorded` | yes | Records rollback, restored paths, owner, and audit id. |
 
 Live progress events should be coalesced by the runtime supervisor. UI clients
 must not infer business state from animation-only events.
@@ -356,6 +376,12 @@ Merge rules:
 - Docs and tests are first-class evidence, not optional release polish.
 - If multiple agents edit overlapping files, the merge gate must serialize,
   rebase, or reject the conflicting artifact explicitly.
+- Evidence summaries are display-only. Acceptance requires canonical content
+  verification, and a conflict-bounced change must be revalidated and accepted
+  again before merge.
+- Merge and revert use `validate -> permission -> prepare -> durable precommit
+  -> file effect -> typed fact commit`; failures restore transaction bytes and
+  projections and expose structured recovery.
 
 ## Version Plan
 

@@ -1,13 +1,15 @@
 use crate::{
     AgentDagRecord, AgentDagTaskSpec, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
     ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, ContextBudgetRecord, ContextBundleRecord, ContextBundleSummaryRecord,
-    ContextHandleRecord, ContextItemRecord, ContextQualityRecord, ContextReductionRecord,
-    ContextRetrievalRecord, ContextScope, ContextViewRecord, CostLedgerTotals, CostUsageRecord,
-    CredentialHandle, EvidenceCanonicalizationRecord, EvidenceId, MergeGateId, MergeGateRecord,
-    MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
-    RuntimeOwner, RuntimeSnapshot, ToolCallId, TranscriptPage, TranscriptPageRequest, WorkMode,
-    now_timestamp,
+    ApprovalTarget, ConflictBounce, ContextBudgetRecord, ContextBundleRecord,
+    ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord, ContextQualityRecord,
+    ContextReductionRecord, ContextRetrievalRecord, ContextScope, ContextViewRecord,
+    ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord, CredentialHandle,
+    DependencyRecord, DependencyState, EvidenceCanonicalizationRecord, EvidenceId,
+    HandoffAcceptance, HandoffRecord, MergeGateId, MergeGateRecord, MessageId, PermissionLevel,
+    ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord, RevertRecord,
+    ReviewRequestRecord, RuntimeOwner, RuntimeSnapshot, ToolCallId, TranscriptPage,
+    TranscriptPageRequest, WorkMode, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -129,6 +131,38 @@ pub enum RuntimeCommand {
     CancelAgentTask {
         task_id: AgentTaskId,
     },
+    CreateHandoff {
+        handoff_id: String,
+        task_id: AgentTaskId,
+        from_lane_id: crate::AgentLaneId,
+        to_lane_id: crate::AgentLaneId,
+        owner: RuntimeOwner,
+        summary: String,
+        acceptance: HandoffAcceptance,
+    },
+    RequestReview {
+        review_id: String,
+        gate_id: MergeGateId,
+        requester_lane_id: crate::AgentLaneId,
+        reviewer_lane_id: crate::AgentLaneId,
+        owner: RuntimeOwner,
+        evidence_ids: Vec<EvidenceId>,
+    },
+    ConfirmContract {
+        contract_id: String,
+        task_id: AgentTaskId,
+        owner: RuntimeOwner,
+        summary: String,
+        decision: ContractDecision,
+    },
+    SetDependency {
+        dependency_id: String,
+        task_id: AgentTaskId,
+        depends_on_task_id: AgentTaskId,
+        owner: RuntimeOwner,
+        state: DependencyState,
+        reason: String,
+    },
     AcceptMergeGate {
         gate_id: MergeGateId,
         decision: Option<String>,
@@ -160,6 +194,17 @@ pub enum RuntimeCommand {
     MergeAgentPatch {
         gate_id: MergeGateId,
         decision: Option<String>,
+    },
+    BounceMergeConflict {
+        gate_id: MergeGateId,
+        original_lane_id: crate::AgentLaneId,
+        owner: RuntimeOwner,
+        reason: String,
+    },
+    RevertAppliedChange {
+        gate_id: MergeGateId,
+        owner: RuntimeOwner,
+        reason: String,
     },
     RetrieveContext {
         handle_id: String,
@@ -567,6 +612,24 @@ pub enum RuntimeEventKind {
     MergeGateUpdated {
         gate: MergeGateRecord,
     },
+    HandoffUpdated {
+        handoff: HandoffRecord,
+    },
+    ReviewRequestUpdated {
+        review: ReviewRequestRecord,
+    },
+    ContractUpdated {
+        contract: ContractRecord,
+    },
+    DependencyUpdated {
+        dependency: DependencyRecord,
+    },
+    MergeConflictBounced {
+        conflict: ConflictBounce,
+    },
+    RevertRecorded {
+        revert: RevertRecord,
+    },
     ProviderHealthUpdated {
         provider: ProviderHealthView,
     },
@@ -633,6 +696,18 @@ pub struct RuntimeViewState {
     pub provider: Option<ProviderHealthView>,
     pub token_cost: Option<TokenCostView>,
     pub merge_gates: Vec<MergeGateRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub handoffs: Vec<HandoffRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub review_requests: Vec<ReviewRequestRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contracts: Vec<ContractRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<DependencyRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflict_bounces: Vec<ConflictBounce>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reverts: Vec<RevertRecord>,
     pub errors: Vec<RuntimeErrorView>,
     pub last_command: Option<RuntimeCommandReceipt>,
 }
@@ -673,6 +748,12 @@ impl RuntimeViewState {
             provider: None,
             token_cost: None,
             merge_gates: Vec::new(),
+            handoffs: Vec::new(),
+            review_requests: Vec::new(),
+            contracts: Vec::new(),
+            dependencies: Vec::new(),
+            conflict_bounces: Vec::new(),
+            reverts: Vec::new(),
             errors: Vec::new(),
             last_command: None,
         }
@@ -947,6 +1028,36 @@ impl RuntimeViewState {
             RuntimeEventKind::MergeGateUpdated { gate } => {
                 upsert_by_id(&mut self.merge_gates, gate.clone(), |existing| {
                     existing.gate_id == gate.gate_id
+                });
+            }
+            RuntimeEventKind::HandoffUpdated { handoff } => {
+                upsert_by_id(&mut self.handoffs, handoff.clone(), |existing| {
+                    existing.handoff_id == handoff.handoff_id
+                });
+            }
+            RuntimeEventKind::ReviewRequestUpdated { review } => {
+                upsert_by_id(&mut self.review_requests, review.clone(), |existing| {
+                    existing.review_id == review.review_id
+                });
+            }
+            RuntimeEventKind::ContractUpdated { contract } => {
+                upsert_by_id(&mut self.contracts, contract.clone(), |existing| {
+                    existing.contract_id == contract.contract_id
+                });
+            }
+            RuntimeEventKind::DependencyUpdated { dependency } => {
+                upsert_by_id(&mut self.dependencies, dependency.clone(), |existing| {
+                    existing.dependency_id == dependency.dependency_id
+                });
+            }
+            RuntimeEventKind::MergeConflictBounced { conflict } => {
+                upsert_by_id(&mut self.conflict_bounces, conflict.clone(), |existing| {
+                    existing.bounce_id == conflict.bounce_id
+                });
+            }
+            RuntimeEventKind::RevertRecorded { revert } => {
+                upsert_by_id(&mut self.reverts, revert.clone(), |existing| {
+                    existing.revert_id == revert.revert_id
                 });
             }
             RuntimeEventKind::ProviderHealthUpdated { provider } => {

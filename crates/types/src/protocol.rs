@@ -31,6 +31,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.credential_handles",
     "runtime.lane_lifecycle",
     "runtime.project_onboarding",
+    "runtime.trust_loop",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -290,6 +291,12 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "provider_cache_observed"
             | "evidence_canonicalized"
             | "merge_gate_updated"
+            | "handoff_updated"
+            | "review_request_updated"
+            | "contract_updated"
+            | "dependency_updated"
+            | "merge_conflict_bounced"
+            | "revert_recorded"
             | "provider_health_updated"
             | "token_cost_updated"
             | "error"

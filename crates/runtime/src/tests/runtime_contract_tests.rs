@@ -3364,6 +3364,39 @@ fn merge_agent_patch_revalidates_non_patch_required_evidence_before_writing() {
     )));
 
     std::fs::remove_file(blob_path_for_hash(&cwd, &test_hash)).unwrap();
+    let gate_before_denial = engine
+        .runtime_view_state()
+        .merge_gates
+        .into_iter()
+        .find(|gate| gate.gate_id == "gate-task_merge_revalidate")
+        .unwrap();
+    let mut deny_merge = |_prompt| ApprovalResponse::deny(None);
+    let denied = engine
+        .handle_runtime_command(
+            "cmd_merge_after_test_tamper_denied",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_merge_revalidate".to_string(),
+                decision: Some("deny stale evidence recovery mutation".to_string()),
+            },
+            &mut deny_merge,
+        )
+        .unwrap();
+    assert!(
+        denied
+            .iter()
+            .any(|event| matches!(&event.kind, RuntimeEventKind::CommandRejected { .. })),
+        "denied merge must not produce recovery mutations: {denied:#?}"
+    );
+    assert_eq!(
+        engine
+            .runtime_view_state()
+            .merge_gates
+            .into_iter()
+            .find(|gate| gate.gate_id == "gate-task_merge_revalidate")
+            .unwrap(),
+        gate_before_denial
+    );
+
     let events = engine
         .handle_runtime_command(
             "cmd_merge_after_test_tamper",
@@ -3803,7 +3836,14 @@ fn workflow_replay_keeps_legacy_single_runtime_projection_compatible() {
         .unwrap()
         .clone();
     gate.status = MergeGateStatus::NeedsChanges;
-    gate.decision = Some("legacy projection replay".to_string());
+    gate.decision = Some(viden_types::MergeGateDecision {
+        outcome: viden_types::MergeGateDecisionOutcome::Legacy,
+        reason: "legacy projection replay".to_string(),
+        owner: viden_types::RuntimeOwner::default(),
+        evidence_ids: Vec::new(),
+        audit_id: "legacy".to_string(),
+        decided_at: 0,
+    });
     let runtime_event = RuntimeEvent::new(1, RuntimeEventKind::MergeGateUpdated { gate });
     let mut payload = BTreeMap::new();
     payload.insert(

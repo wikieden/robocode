@@ -55,8 +55,8 @@ ambiguous legacy input is rejected rather than guessed.
 
 The Core 0.3.0 frozen capability set and fixture digests above remain unchanged.
 The Core 0.3.1 candidate advertises the additive
-`runtime.lane_lifecycle`, `runtime.project_onboarding`, and
-`runtime.credential_handles` capabilities separately through
+`runtime.lane_lifecycle`, `runtime.project_onboarding`,
+`runtime.credential_handles`, and `runtime.trust_loop` capabilities separately through
 `FRONTEND_V1_EXTENSION_CAPABILITIES` and
 `crates/core/frontend-contract-extensions.toml`.
 
@@ -70,6 +70,17 @@ top-level event so a 0.3.0 client preserves the whole payload as unknown rather
 than failing on a nested command variant. Empty extension
 projection vectors are omitted during serialization, so replaying the frozen
 0.3.0 corpus retains its recorded canonical bytes and digests.
+
+`runtime.trust_loop` adds typed handoff, review request, contract, dependency,
+merge-gate policy/validator/decision, conflict-bounce, and revert facts. The six
+new cross-lane commands and their events are permission-gated and replay through
+the shared reducer. Schema remains `1`: new record fields use defaults, unknown
+fields remain ignorable, and a pre-extension string merge decision deserializes
+as a read-only `legacy` decision. New writes always serialize a typed decision.
+Only canonical evidence can produce acceptance; display summaries never
+substitute for the referenced evidence bytes. Merge and revert mutations append
+a workflow precommit before changing files, then either commit typed facts or
+restore bytes/state and emit a recoverable structured error.
 
 Core owns lane permission evaluation and refreshes it from the current runtime
 mode before every lane command. Side-effecting commands are evaluated against

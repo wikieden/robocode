@@ -1,9 +1,10 @@
 use viden_permissions::PermissionEngine;
 use viden_session::SessionStore;
 use viden_types::{
-    AgentDagTaskSpec, AgentNextAction, CanonicalEvidenceReference, ContextBundleRecord,
-    ContextItemRecord, ContextOmittedSourceRecord, ContextScope, ContextSourceRecord,
-    CostUsageRecord, Message, PermissionLevel, PermissionMode, Role, RuntimeEvent,
+    AgentDagTaskSpec, AgentNextAction, CanonicalEvidenceReference, ConflictBounce,
+    ContextBundleRecord, ContextItemRecord, ContextOmittedSourceRecord, ContextScope,
+    ContextSourceRecord, ContractRecord, CostUsageRecord, DependencyRecord, HandoffRecord, Message,
+    PermissionLevel, PermissionMode, RevertRecord, ReviewRequestRecord, Role, RuntimeEvent,
     RuntimeEventKind, SessionMetaEntry, SessionSummary, TranscriptEntry, WorkMode, fresh_id,
     now_timestamp, truncate_for_preview,
 };
@@ -439,6 +440,45 @@ impl SessionEngine {
                     .unwrap_or_else(|| "project-agent-runtime".to_string()),
                 Some(gate.task_id.clone()),
             )),
+            RuntimeEventKind::HandoffUpdated { handoff } => Some((
+                self.dag_id_for_task_projection(&handoff.task_id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(handoff.task_id.clone()),
+            )),
+            RuntimeEventKind::ReviewRequestUpdated { review } => Some((
+                self.dag_id_for_task_projection(&review.task_id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(review.task_id.clone()),
+            )),
+            RuntimeEventKind::ContractUpdated { contract } => Some((
+                self.dag_id_for_task_projection(&contract.task_id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(contract.task_id.clone()),
+            )),
+            RuntimeEventKind::DependencyUpdated { dependency } => Some((
+                self.dag_id_for_task_projection(&dependency.task_id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(dependency.task_id.clone()),
+            )),
+            RuntimeEventKind::MergeConflictBounced { conflict } => Some((
+                self.dag_id_for_task_projection(&conflict.task_id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(conflict.task_id.clone()),
+            )),
+            RuntimeEventKind::RevertRecorded { revert } => {
+                let task_id = self
+                    .runtime_merge_gates
+                    .iter()
+                    .find(|gate| gate.gate_id == revert.gate_id)
+                    .map(|gate| gate.task_id.clone());
+                Some((
+                    task_id
+                        .as_deref()
+                        .and_then(|id| self.dag_id_for_task_projection(id))
+                        .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                    task_id,
+                ))
+            }
             RuntimeEventKind::ContextBundleBuilt { scope, .. } => {
                 let task_id = task_id_for_context_scope(scope);
                 Some((
@@ -613,6 +653,24 @@ impl SessionEngine {
                     self.runtime_merge_gates.push(gate);
                 }
             }
+            RuntimeEventKind::HandoffUpdated { handoff } => {
+                upsert_handoff(&mut self.runtime_handoffs, handoff)
+            }
+            RuntimeEventKind::ReviewRequestUpdated { review } => {
+                upsert_review(&mut self.runtime_review_requests, review)
+            }
+            RuntimeEventKind::ContractUpdated { contract } => {
+                upsert_contract(&mut self.runtime_contracts, contract)
+            }
+            RuntimeEventKind::DependencyUpdated { dependency } => {
+                upsert_dependency(&mut self.runtime_dependencies, dependency)
+            }
+            RuntimeEventKind::MergeConflictBounced { conflict } => {
+                upsert_conflict(&mut self.runtime_conflict_bounces, conflict)
+            }
+            RuntimeEventKind::RevertRecorded { revert } => {
+                upsert_revert(&mut self.runtime_reverts, revert)
+            }
             RuntimeEventKind::ProjectConfigConfirmed { preview } => {
                 self.confirmed_project_config = Some(preview);
             }
@@ -663,6 +721,12 @@ fn runtime_projection_kind_name(kind: &RuntimeEventKind) -> &'static str {
         RuntimeEventKind::EvidenceRecorded { .. } => "evidence_recorded",
         RuntimeEventKind::EvidenceCanonicalized { .. } => "evidence_canonicalized",
         RuntimeEventKind::MergeGateUpdated { .. } => "merge_gate_updated",
+        RuntimeEventKind::HandoffUpdated { .. } => "handoff_updated",
+        RuntimeEventKind::ReviewRequestUpdated { .. } => "review_request_updated",
+        RuntimeEventKind::ContractUpdated { .. } => "contract_updated",
+        RuntimeEventKind::DependencyUpdated { .. } => "dependency_updated",
+        RuntimeEventKind::MergeConflictBounced { .. } => "merge_conflict_bounced",
+        RuntimeEventKind::RevertRecorded { .. } => "revert_recorded",
         RuntimeEventKind::ProjectConfigConfirmed { .. } => "project_config_confirmed",
         RuntimeEventKind::CredentialHandleStored { .. } => "credential_handle_stored",
         _ => "runtime_event",
@@ -724,11 +788,27 @@ fn sanitized_runtime_event_for_workflow_projection(event: &RuntimeEvent) -> Runt
             *content_sha256 = sanitize_projection_hash(content_sha256);
         }
         RuntimeEventKind::MergeGateUpdated { gate } => {
-            gate.decision = gate
-                .decision
-                .as_deref()
-                .map(|decision| sanitize_projection_text(decision, 240))
-                .filter(|decision| !decision.is_empty());
+            if let Some(decision) = &mut gate.decision {
+                decision.reason = sanitize_projection_text(&decision.reason, 240);
+            }
+            if let Some(conflict) = &mut gate.conflict {
+                conflict.reason = sanitize_projection_text(&conflict.reason, 500);
+            }
+        }
+        RuntimeEventKind::HandoffUpdated { handoff } => {
+            handoff.summary = sanitize_projection_text(&handoff.summary, 500);
+        }
+        RuntimeEventKind::ContractUpdated { contract } => {
+            contract.summary = sanitize_projection_text(&contract.summary, 500);
+        }
+        RuntimeEventKind::DependencyUpdated { dependency } => {
+            dependency.reason = sanitize_projection_text(&dependency.reason, 240);
+        }
+        RuntimeEventKind::MergeConflictBounced { conflict } => {
+            conflict.reason = sanitize_projection_text(&conflict.reason, 500);
+        }
+        RuntimeEventKind::RevertRecorded { revert } => {
+            revert.reason = sanitize_projection_text(&revert.reason, 500);
         }
         RuntimeEventKind::ContextUpdated { context } => sanitize_projection_context(context),
         RuntimeEventKind::ContextItemStored { item } => sanitize_projection_context_item(item),
@@ -925,6 +1005,72 @@ fn safe_project_relative_projection_path(path: &str) -> Option<String> {
     )
 }
 
+fn upsert_handoff(records: &mut Vec<HandoffRecord>, record: HandoffRecord) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.handoff_id == record.handoff_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_review(records: &mut Vec<ReviewRequestRecord>, record: ReviewRequestRecord) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.review_id == record.review_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_contract(records: &mut Vec<ContractRecord>, record: ContractRecord) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.contract_id == record.contract_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_dependency(records: &mut Vec<DependencyRecord>, record: DependencyRecord) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.dependency_id == record.dependency_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_conflict(records: &mut Vec<ConflictBounce>, record: ConflictBounce) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.bounce_id == record.bounce_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_revert(records: &mut Vec<RevertRecord>, record: RevertRecord) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.revert_id == record.revert_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
 fn is_durable_runtime_domain_event(kind: &RuntimeEventKind) -> bool {
     // These facts rebuild runtime DAG/evidence/gate state. Transient command
     // acknowledgements stay out of JSONL so replay remains append-only domain state.
@@ -942,6 +1088,12 @@ fn is_durable_runtime_domain_event(kind: &RuntimeEventKind) -> bool {
             | RuntimeEventKind::EvidenceRecorded { .. }
             | RuntimeEventKind::EvidenceCanonicalized { .. }
             | RuntimeEventKind::MergeGateUpdated { .. }
+            | RuntimeEventKind::HandoffUpdated { .. }
+            | RuntimeEventKind::ReviewRequestUpdated { .. }
+            | RuntimeEventKind::ContractUpdated { .. }
+            | RuntimeEventKind::DependencyUpdated { .. }
+            | RuntimeEventKind::MergeConflictBounced { .. }
+            | RuntimeEventKind::RevertRecorded { .. }
             | RuntimeEventKind::ProjectConfigConfirmed { .. }
             | RuntimeEventKind::CredentialHandleStored { .. }
     )

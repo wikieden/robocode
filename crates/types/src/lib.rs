@@ -11,6 +11,7 @@ mod project;
 mod protocol;
 mod runtime;
 mod transcript;
+mod trust;
 mod ui_preferences;
 mod workflow;
 
@@ -42,6 +43,12 @@ pub use runtime::{
 pub use transcript::{
     CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptCursor, TranscriptEntry,
     TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind,
+};
+pub use trust::{
+    ConflictBounce, ConflictBounceStatus, ContractDecision, ContractRecord, DependencyRecord,
+    DependencyState, HandoffAcceptance, HandoffRecord, MergeGateDecision, MergeGateDecisionOutcome,
+    MergeGatePolicySnapshot, MergeGateType, MergeGateValidator, RevertRecord, ReviewRequestRecord,
+    ReviewRequestStatus,
 };
 pub use ui_preferences::{
     LocaleId, ResolvedUiPreferences, TuiColorDepth, UiColorMode, UiDensity, UiMotion,
@@ -331,8 +338,35 @@ pub struct MergeGateRecord {
     pub status: MergeGateStatus,
     pub required_evidence: Vec<String>,
     pub evidence_ids: Vec<EvidenceId>,
-    pub decision: Option<String>,
+    #[serde(default, skip_serializing_if = "merge_gate_type_is_default")]
+    pub gate_type: MergeGateType,
+    #[serde(default, skip_serializing_if = "runtime_owner_is_default")]
+    pub owner: RuntimeOwner,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validator: Option<MergeGateValidator>,
+    #[serde(default, skip_serializing_if = "merge_gate_policy_is_default")]
+    pub policy_snapshot: MergeGatePolicySnapshot,
+    #[serde(default, deserialize_with = "trust::deserialize_merge_gate_decision")]
+    pub decision: Option<MergeGateDecision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<ConflictBounce>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied_change_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audit_ids: Vec<String>,
     pub updated_at: Option<u64>,
+}
+
+fn merge_gate_type_is_default(gate_type: &MergeGateType) -> bool {
+    *gate_type == MergeGateType::default()
+}
+
+fn runtime_owner_is_default(owner: &RuntimeOwner) -> bool {
+    owner == &RuntimeOwner::default()
+}
+
+fn merge_gate_policy_is_default(policy: &MergeGatePolicySnapshot) -> bool {
+    policy == &MergeGatePolicySnapshot::default()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

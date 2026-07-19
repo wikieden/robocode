@@ -14,8 +14,9 @@ use viden_types::{
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
     ApprovalTarget, CapabilityId, ContextBundleRecord, ContextOmittedSourceRecord,
     ContextSourceRecord, CostScope, CostUsageOutcome, CostUsageRecord, EventCursor, EvidenceView,
-    ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneStatus, MergeGateRecord,
-    MergeGateStatus, MutationPolicy, PermissionLevel, PermissionMode, QueuedInputView,
+    ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneStatus, MergeGateDecision,
+    MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus,
+    MergeGateType, MutationPolicy, PermissionLevel, PermissionMode, QueuedInputView,
     ResolvedUiPreferences, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeOwner,
     RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView, TokenUsage,
     UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
@@ -118,6 +119,7 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
             "runtime.credential_handles",
             "runtime.lane_lifecycle",
             "runtime.project_onboarding",
+            "runtime.trust_loop",
         ]
     );
     assert_eq!(
@@ -966,7 +968,21 @@ fn to_runtime_event_kind(kind: RuntimeEventKindExt) -> viden_types::RuntimeEvent
                         "review".to_string(),
                     ],
                     evidence_ids: evidence_ids.into_iter().map(str::to_string).collect(),
-                    decision: Some("core facts satisfied gate".to_string()),
+                    gate_type: MergeGateType::Artifact,
+                    owner: RuntimeOwner::default(),
+                    validator: None,
+                    policy_snapshot: MergeGatePolicySnapshot::default(),
+                    decision: Some(MergeGateDecision {
+                        outcome: MergeGateDecisionOutcome::Legacy,
+                        reason: "core facts satisfied gate".to_string(),
+                        owner: RuntimeOwner::default(),
+                        evidence_ids: Vec::new(),
+                        audit_id: "legacy".to_string(),
+                        decided_at: 0,
+                    }),
+                    conflict: None,
+                    applied_change_id: None,
+                    audit_ids: Vec::new(),
                     updated_at: Some(1_700_000_050),
                 },
             }

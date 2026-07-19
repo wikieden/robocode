@@ -827,7 +827,14 @@ fn agent_dag_context_evidence_and_merge_gate_roundtrip_json() {
         status: MergeGateStatus::CollectingEvidence,
         required_evidence: vec!["plan".to_string(), "review".to_string()],
         evidence_ids: vec![evidence.evidence_id.clone()],
+        gate_type: MergeGateType::Artifact,
+        owner: RuntimeOwner::default(),
+        validator: None,
+        policy_snapshot: MergeGatePolicySnapshot::default(),
         decision: None,
+        conflict: None,
+        applied_change_id: None,
+        audit_ids: Vec::new(),
         updated_at: Some(13),
     };
 
@@ -845,6 +852,141 @@ fn agent_dag_context_evidence_and_merge_gate_roundtrip_json() {
     assert_eq!(decoded_dag.tasks[0].role, AgentRole::Planner);
     assert_eq!(decoded_evidence.kind, EvidenceKind::Plan);
     assert_eq!(decoded_gate.status, MergeGateStatus::CollectingEvidence);
+}
+
+#[test]
+fn schema_one_merge_gate_accepts_legacy_decisions_and_unknown_fields() {
+    let gate: MergeGateRecord = serde_json::from_value(serde_json::json!({
+        "gate_id": "gate_legacy",
+        "task_id": "task_legacy",
+        "status": "accepted",
+        "required_evidence": ["patch"],
+        "evidence_ids": ["evidence_patch"],
+        "decision": "accepted before typed trust records",
+        "updated_at": 13,
+        "future_schema_one_field": {"ignored": true}
+    }))
+    .unwrap();
+
+    let decision = gate
+        .decision
+        .clone()
+        .expect("legacy decision should migrate");
+    assert_eq!(decision.outcome, MergeGateDecisionOutcome::Legacy);
+    assert_eq!(decision.reason, "accepted before typed trust records");
+    assert_eq!(gate.gate_type, MergeGateType::Artifact);
+    assert_eq!(gate.owner, RuntimeOwner::default());
+    let legacy_encoded = serde_json::to_value(&gate).unwrap();
+    assert_eq!(
+        legacy_encoded["decision"],
+        "accepted before typed trust records"
+    );
+    assert!(legacy_encoded.get("gate_type").is_none());
+    assert!(legacy_encoded.get("owner").is_none());
+
+    let encoded = serde_json::to_value(MergeGateRecord {
+        gate_id: "gate_typed".to_string(),
+        task_id: "task_typed".to_string(),
+        status: MergeGateStatus::Accepted,
+        required_evidence: vec!["patch".to_string()],
+        evidence_ids: vec!["evidence_patch".to_string()],
+        gate_type: MergeGateType::Patch,
+        owner: RuntimeOwner {
+            workspace_id: "workspace".to_string(),
+            project_id: "project".to_string(),
+            task_id: Some("task_typed".to_string()),
+            ..RuntimeOwner::default()
+        },
+        validator: None,
+        policy_snapshot: MergeGatePolicySnapshot::default(),
+        decision: Some(MergeGateDecision {
+            outcome: MergeGateDecisionOutcome::Accepted,
+            reason: "typed acceptance".to_string(),
+            owner: RuntimeOwner::default(),
+            evidence_ids: vec!["evidence_patch".to_string()],
+            audit_id: "audit_typed".to_string(),
+            decided_at: 14,
+        }),
+        conflict: None,
+        applied_change_id: None,
+        audit_ids: vec!["audit_typed".to_string()],
+        updated_at: Some(14),
+    })
+    .unwrap();
+
+    assert_eq!(encoded["decision"]["outcome"], "accepted");
+    assert!(encoded["decision"].is_object());
+}
+
+#[test]
+fn schema_one_trust_loop_commands_roundtrip_as_additive_typed_variants() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-trust".to_string(),
+        project_id: "project-trust".to_string(),
+        lane_id: Some("lane-reviewer".to_string()),
+        session_id: Some("session-reviewer".to_string()),
+        task_id: Some("task-trust".to_string()),
+        turn_id: None,
+    };
+    let commands = vec![
+        RuntimeCommand::CreateHandoff {
+            handoff_id: "handoff-trust".to_string(),
+            task_id: "task-trust".to_string(),
+            from_lane_id: "lane-coder".to_string(),
+            to_lane_id: "lane-reviewer".to_string(),
+            owner: owner.clone(),
+            summary: "ready for review".to_string(),
+            acceptance: HandoffAcceptance::Accepted,
+        },
+        RuntimeCommand::RequestReview {
+            review_id: "review-trust".to_string(),
+            gate_id: "gate-trust".to_string(),
+            requester_lane_id: "lane-coder".to_string(),
+            reviewer_lane_id: "lane-reviewer".to_string(),
+            owner: owner.clone(),
+            evidence_ids: vec!["evidence-trust".to_string()],
+        },
+        RuntimeCommand::ConfirmContract {
+            contract_id: "contract-trust".to_string(),
+            task_id: "task-trust".to_string(),
+            owner: owner.clone(),
+            summary: "contract confirmed".to_string(),
+            decision: ContractDecision::Confirmed,
+        },
+        RuntimeCommand::SetDependency {
+            dependency_id: "dependency-trust".to_string(),
+            task_id: "task-trust".to_string(),
+            depends_on_task_id: "task-base".to_string(),
+            owner: owner.clone(),
+            state: DependencyState::Blocked,
+            reason: "waiting for base".to_string(),
+        },
+        RuntimeCommand::BounceMergeConflict {
+            gate_id: "gate-trust".to_string(),
+            original_lane_id: "lane-coder".to_string(),
+            owner: owner.clone(),
+            reason: "context mismatch".to_string(),
+        },
+        RuntimeCommand::RevertAppliedChange {
+            gate_id: "gate-trust".to_string(),
+            owner,
+            reason: "verification failed".to_string(),
+        },
+    ];
+
+    let encoded = serde_json::to_string(&commands).unwrap();
+    let decoded: Vec<RuntimeCommand> = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, commands);
+    for command_type in [
+        "create_handoff",
+        "request_review",
+        "confirm_contract",
+        "set_dependency",
+        "bounce_merge_conflict",
+        "revert_applied_change",
+    ] {
+        assert!(encoded.contains(command_type));
+    }
 }
 
 #[test]
@@ -2155,7 +2297,14 @@ fn runtime_view_state_replays_agent_dag_and_merge_gate_events() {
         status: MergeGateStatus::Proposed,
         required_evidence: vec!["plan".to_string()],
         evidence_ids: Vec::new(),
+        gate_type: MergeGateType::Artifact,
+        owner: RuntimeOwner::default(),
+        validator: None,
+        policy_snapshot: MergeGatePolicySnapshot::default(),
         decision: None,
+        conflict: None,
+        applied_change_id: None,
+        audit_ids: Vec::new(),
         updated_at: Some(2),
     };
     let mut view = RuntimeViewState::new(snapshot);

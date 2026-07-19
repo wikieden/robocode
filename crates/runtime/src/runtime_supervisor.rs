@@ -1248,7 +1248,19 @@ fn run_supervisor_worker(
                         );
                     }
                     command @ (RuntimeCommand::ConfirmProjectConfig { .. }
-                    | RuntimeCommand::StoreCredentialHandle { .. }) => {
+                    | RuntimeCommand::StoreCredentialHandle { .. }
+                    | RuntimeCommand::CreateHandoff { .. }
+                    | RuntimeCommand::RequestReview { .. }
+                    | RuntimeCommand::ConfirmContract { .. }
+                    | RuntimeCommand::SetDependency { .. }
+                    | RuntimeCommand::AcceptMergeGate { .. }
+                    | RuntimeCommand::RejectMergeGate { .. }
+                    | RuntimeCommand::RecordAgentEvidence { .. }
+                    | RuntimeCommand::AcceptAgentArtifact { .. }
+                    | RuntimeCommand::RejectAgentArtifact { .. }
+                    | RuntimeCommand::MergeAgentPatch { .. }
+                    | RuntimeCommand::BounceMergeConflict { .. }
+                    | RuntimeCommand::RevertAppliedChange { .. }) => {
                         run_supervised_project_mutation(
                             &mut engine,
                             owner,

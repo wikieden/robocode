@@ -31,6 +31,7 @@ mod runtime_tasks;
 mod runtime_views;
 mod session_lifecycle;
 mod test_commands;
+mod trust_loop;
 mod web_commands;
 mod workflow_commands;
 
@@ -50,9 +51,11 @@ use viden_tools::ToolRegistry;
 #[cfg(test)]
 use viden_types::PermissionRule;
 use viden_types::{
-    AgentDagRecord, AgentTaskRecord, ContextBundleRecord, CostScope, CostUsageRecord, EvidenceView,
-    MemoryEntry, MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode,
-    ResolvedUiPreferences, RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode, now_timestamp,
+    AgentDagRecord, AgentTaskRecord, ConflictBounce, ContextBundleRecord, ContractRecord,
+    CostScope, CostUsageRecord, DependencyRecord, EvidenceView, HandoffRecord, MemoryEntry,
+    MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode, ResolvedUiPreferences,
+    RevertRecord, ReviewRequestRecord, RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode,
+    now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -297,6 +300,12 @@ pub struct SessionEngine {
     runtime_agent_dags: Vec<AgentDagRecord>,
     runtime_merge_gates: Vec<MergeGateRecord>,
     runtime_evidence: Vec<EvidenceView>,
+    runtime_handoffs: Vec<HandoffRecord>,
+    runtime_review_requests: Vec<ReviewRequestRecord>,
+    runtime_contracts: Vec<ContractRecord>,
+    runtime_dependencies: Vec<DependencyRecord>,
+    runtime_conflict_bounces: Vec<ConflictBounce>,
+    runtime_reverts: Vec<RevertRecord>,
     pending_project_previews: BTreeMap<String, project_runtime::PendingProjectConfig>,
     confirmed_project_config: Option<viden_types::ProjectConfigPreview>,
     credential_handles: Vec<viden_types::CredentialHandle>,
@@ -306,6 +315,7 @@ pub struct SessionEngine {
     provider_telemetry: ProviderTelemetry,
     provider_cost_usage: Vec<CostUsageRecord>,
     transaction_file_rollback: RefCell<Vec<FileRollback>>,
+    applied_change_rollbacks: BTreeMap<String, Vec<FileRollback>>,
     cost_workflow_id: Option<String>,
     cost_smoke_run_id: Option<String>,
     active_cost_attribution: Option<CostAttribution>,
@@ -424,6 +434,12 @@ impl SessionEngine {
             runtime_agent_dags: Vec::new(),
             runtime_merge_gates: Vec::new(),
             runtime_evidence: Vec::new(),
+            runtime_handoffs: Vec::new(),
+            runtime_review_requests: Vec::new(),
+            runtime_contracts: Vec::new(),
+            runtime_dependencies: Vec::new(),
+            runtime_conflict_bounces: Vec::new(),
+            runtime_reverts: Vec::new(),
             pending_project_previews: BTreeMap::new(),
             confirmed_project_config: None,
             credential_handles: Vec::new(),
@@ -433,6 +449,7 @@ impl SessionEngine {
             provider_telemetry: ProviderTelemetry::default(),
             provider_cost_usage: Vec::new(),
             transaction_file_rollback: RefCell::new(Vec::new()),
+            applied_change_rollbacks: BTreeMap::new(),
             cost_workflow_id,
             cost_smoke_run_id: None,
             active_cost_attribution: None,

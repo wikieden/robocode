@@ -3,7 +3,7 @@ base_component_version = "0.3.0"
 candidate_component_version = "0.3.1"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
-capabilities = ["runtime.credential_handles", "runtime.lane_lifecycle", "runtime.project_onboarding"]
+capabilities = ["runtime.credential_handles", "runtime.lane_lifecycle", "runtime.project_onboarding", "runtime.trust_loop"]
 
 [runtime_project_onboarding]
 command_count = 4
@@ -14,3 +14,9 @@ credential_secret_boundary = "secret bytes stay in the injected backend; wire an
 command_count = 13
 events = ["lane_command_accepted", "lane_updated", "lane_output_appended", "lane_conflict_detected", "lane_recovery_required"]
 legacy_clients = "require frozen capabilities only; preserve unsupported event payloads as unknown"
+
+[runtime_trust_loop]
+command_count = 6
+events = ["handoff_updated", "review_request_updated", "contract_updated", "dependency_updated", "merge_conflict_bounced", "revert_recorded", "merge_gate_updated"]
+decision_compatibility = "schema-1 legacy string decisions deserialize as read-only legacy facts; new writes are typed"
+evidence_boundary = "canonical evidence is required for acceptance; summary-only evidence never satisfies a merge gate"
