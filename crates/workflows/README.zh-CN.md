@@ -34,7 +34,7 @@
 
 ### `lanes`
 
-负责 `LaneEvent`、`LaneState` 和 `reduce_lane_events`。Lane 生命周期事实写入 `lanes.jsonl`。旧项目的 `.viden/lanes.tsv` 只作为幂等的启动迁移输入；此后 runtime projection 与状态视图都读取 typed event log。
+负责 `LaneEvent`、`LaneState` 和 `reduce_lane_events`。Lane 生命周期事实写入 `lanes.jsonl`。旧项目的 `.viden/lanes.tsv` 只作为幂等的 session 启动或 resume activation 迁移输入；此后 runtime projection 与状态视图都读取 typed event log。
 
 ### `stores`
 

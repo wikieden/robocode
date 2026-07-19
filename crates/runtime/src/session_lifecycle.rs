@@ -40,6 +40,17 @@ impl SessionEngine {
             self.cwd.clone(),
             Some(summary.session_id.clone()),
         )?;
+        let legacy_lanes_path = self.cwd.join(".viden").join("lanes.tsv");
+        if legacy_lanes_path.is_file() {
+            // A legacy TUI can write the TSV after this engine was created.
+            // Import before activating the resumed session so migration failure
+            // cannot leave the in-memory session boundary half-switched.
+            self.workflows.import_legacy_lanes_tsv_once(
+                &legacy_lanes_path,
+                now_timestamp(),
+                Some(summary.session_id.clone()),
+            )?;
+        }
         self.store = resumed_store;
         self.messages.clear();
         self.last_diff = None;

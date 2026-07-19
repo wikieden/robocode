@@ -34,7 +34,7 @@ Owns `ResumeContextInput`, `ResumeContextBuild`, and `build_resume_context`. Pro
 
 ### `lanes`
 
-Owns `LaneEvent`, `LaneState`, and `reduce_lane_events`. Lane lifecycle facts are stored in `lanes.jsonl`. A legacy project `.viden/lanes.tsv` is accepted only as idempotent startup migration input; runtime projection and status views read the typed event log afterwards.
+Owns `LaneEvent`, `LaneState`, and `reduce_lane_events`. Lane lifecycle facts are stored in `lanes.jsonl`. A legacy project `.viden/lanes.tsv` is accepted only as idempotent session-start or resume-activation migration input; runtime projection and status views read the typed event log afterwards.
 
 ### `stores`
 
