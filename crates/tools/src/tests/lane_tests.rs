@@ -1,4 +1,6 @@
 use std::fs;
+use std::thread;
+use std::time::Duration;
 
 use crate::lane::{
     LaneEffectError, LocalLaneEffects, WorktreeBackend, WorktreeCreateRequest,
@@ -70,6 +72,37 @@ fn lane_local_process_stop_cancels_spawned_child() {
     backend.stop(&handle).unwrap();
     let err = backend.stop(&handle).unwrap_err();
     assert!(err.to_string().contains("unknown process handle"));
+}
+
+#[test]
+fn lane_local_process_forwards_stdin_before_stop() {
+    let cwd = temp_dir("lane_local_process_send");
+    let backend = LocalProcessBackend::default();
+    let handle = backend
+        .spawn(&SpawnProcess {
+            command: "sh".into(),
+            args: vec![
+                "-c".into(),
+                "read line; printf '%s' \"$line\" > received.txt; sleep 30".into(),
+            ],
+            cwd: cwd.clone(),
+            env: Vec::new(),
+        })
+        .unwrap();
+
+    backend.send(&handle, b"hello lane\n").unwrap();
+    for _ in 0..100 {
+        if cwd.join("received.txt").exists() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    assert_eq!(
+        fs::read_to_string(cwd.join("received.txt")).unwrap(),
+        "hello lane"
+    );
+    backend.stop(&handle).unwrap();
 }
 
 #[test]

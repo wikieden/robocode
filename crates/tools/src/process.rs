@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -52,10 +53,21 @@ impl ProcessBackend for LocalProcessBackend {
         Ok(LaneProcessHandle { id })
     }
 
-    fn send(&self, _handle: &LaneProcessHandle, _input: &[u8]) -> Result<(), LaneEffectError> {
-        Err(LaneEffectError::Io(
-            "local process stdin streaming is not enabled yet".to_string(),
-        ))
+    fn send(&self, handle: &LaneProcessHandle, input: &[u8]) -> Result<(), LaneEffectError> {
+        let mut children = self
+            .children
+            .lock()
+            .map_err(|_| LaneEffectError::Io("process registry poisoned".to_string()))?;
+        let child = children.get_mut(&handle.id).ok_or_else(|| {
+            LaneEffectError::Io(format!("unknown process handle `{}`", handle.id))
+        })?;
+        let stdin = child.stdin.as_mut().ok_or_else(|| {
+            LaneEffectError::Io(format!("process handle `{}` has no stdin", handle.id))
+        })?;
+        stdin
+            .write_all(input)
+            .and_then(|_| stdin.flush())
+            .map_err(|err| LaneEffectError::Io(err.to_string()))
     }
 
     fn stop(&self, handle: &LaneProcessHandle) -> Result<(), LaneEffectError> {
