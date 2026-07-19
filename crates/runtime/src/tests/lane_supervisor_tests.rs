@@ -14,7 +14,9 @@ use viden_types::{
 
 use crate::{
     RuntimeSupervisor, SessionEngine,
-    lane_runtime::{LaneEffectExecutor, LaneEffectRequest, LaneEffectResult},
+    lane_runtime::{
+        LaneEffectExecutor, LaneEffectRequest, LaneEffectResult, resolve_lane_output_log,
+    },
 };
 
 use super::{SequenceProvider, temp_dir};
@@ -242,11 +244,300 @@ fn lane_supervisor_plan_mode_rejects_effectful_commands_before_effects() {
 }
 
 #[test]
+fn lane_supervisor_output_log_is_confined_to_canonical_lane_root() {
+    let root = temp_dir("lane_output_log_scope");
+    let lane_root = root.join("lane");
+    std::fs::create_dir_all(lane_root.join("logs")).unwrap();
+    let resolved = resolve_lane_output_log(&lane_root, Some("logs/worker.log"), "lane-a")
+        .expect("scoped relative log");
+    assert_eq!(
+        resolved,
+        lane_root.canonicalize().unwrap().join("logs/worker.log")
+    );
+    assert!(resolve_lane_output_log(&lane_root, Some("../escape.log"), "lane-a").is_err());
+    assert!(resolve_lane_output_log(&lane_root, Some("/tmp/escape.log"), "lane-a").is_err());
+
+    #[cfg(unix)]
+    {
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, lane_root.join("logs/link")).unwrap();
+        assert!(
+            resolve_lane_output_log(&lane_root, Some("logs/link/escape.log"), "lane-a").is_err()
+        );
+    }
+}
+
+#[test]
+fn lane_supervisor_apply_enforces_state_and_mutation_policy_before_effect() {
+    let cwd = temp_dir("lane_apply_policy_cwd");
+    let home = temp_dir("lane_apply_policy_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let owner = owner("lane-policy");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "create_policy",
+            RuntimeCommand::CreateLane {
+                lane: lane("lane-policy"),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "apply_wrong_state",
+            RuntimeCommand::ApplyLaneChanges {
+                lane_id: "lane-policy".to_string(),
+                unified_diff: "diff --git a/a b/a\n".to_string(),
+            },
+        )
+        .unwrap();
+    let wrong_state = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { command_id, .. },
+                    ..
+                }) if command_id == "apply_wrong_state"
+            )
+        })
+    });
+    assert!(wrong_state.iter().any(|envelope| envelope.owner == owner));
+    assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "accept_policy",
+            RuntimeCommand::AcceptLaneOutput {
+                lane_id: "lane-policy".to_string(),
+                summary: "ready to apply".to_string(),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "apply_propose_only",
+            RuntimeCommand::ApplyLaneChanges {
+                lane_id: "lane-policy".to_string(),
+                unified_diff: "diff --git a/a b/a\n".to_string(),
+            },
+        )
+        .unwrap();
+    let approval = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalRequested { approval },
+                    ..
+                }) if approval.tool_name == "lane_apply"
+            )
+        })
+    });
+    assert!(approval.iter().any(|envelope| envelope.owner == owner));
+    assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
+}
+
+#[test]
+fn lane_supervisor_expired_approval_reuses_audit_and_never_applies() {
+    let cwd = temp_dir("lane_approval_expiry_cwd");
+    let home = temp_dir("lane_approval_expiry_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_and_approval_ttl_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+        0,
+    );
+    let owner = owner("lane-expired");
+    create_and_mark_done(&supervisor, &owner, "lane-expired");
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "apply_expired",
+            RuntimeCommand::ApplyLaneChanges {
+                lane_id: "lane-expired".to_string(),
+                unified_diff: "diff --git a/a b/a\n".to_string(),
+            },
+        )
+        .unwrap();
+    let requested = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalRequested { .. },
+                    ..
+                })
+            )
+        })
+    });
+    let approval = requested
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ApprovalRequested { approval },
+                ..
+            }) => Some(approval.clone()),
+            _ => None,
+        })
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "respond_expired",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval.id.clone(),
+                response: viden_types::ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    let resolved = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { reason, .. },
+                    ..
+                }) if reason.contains("expired")
+            )
+        })
+    });
+    assert!(resolved.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ApprovalResolved { audit_id, decision: viden_types::ApprovalDecision::Deny, .. },
+                ..
+            }) if audit_id == &approval.audit_id
+        )
+    }));
+    assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
+}
+
+#[test]
+fn lane_supervisor_plan_transition_precedes_queued_apply_effect() {
+    let cwd = temp_dir("lane_plan_order_cwd");
+    let home = temp_dir("lane_plan_order_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let owner = owner("lane-plan-order");
+    let mut autonomous = lane("lane-plan-order");
+    autonomous.mutation_policy = MutationPolicy::Autonomous;
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "create_plan_order",
+            RuntimeCommand::CreateLane { lane: autonomous },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "accept_plan_order",
+            RuntimeCommand::AcceptLaneOutput {
+                lane_id: "lane-plan-order".to_string(),
+                summary: "ready".to_string(),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "set_plan_order",
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "apply_after_plan",
+            RuntimeCommand::ApplyLaneChanges {
+                lane_id: "lane-plan-order".to_string(),
+                unified_diff: "diff --git a/a b/a\n".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { command_id, reason },
+                    ..
+                }) if command_id == "apply_after_plan" && reason.contains("Plan mode")
+            )
+        })
+    });
+    let plan_sequence = events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::SnapshotUpdated { snapshot },
+                    ..
+                }) if snapshot.work_mode == WorkMode::Plan
+            )
+        })
+        .unwrap()
+        .cursor
+        .sequence;
+    let rejection_sequence = events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { command_id, .. },
+                    ..
+                }) if command_id == "apply_after_plan"
+            )
+        })
+        .unwrap()
+        .cursor
+        .sequence;
+    assert!(plan_sequence < rejection_sequence);
+    assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
+}
+
+#[test]
 fn lane_supervisor_keeps_waiting_lane_isolated_and_routes_owner_events() {
     let cwd = temp_dir("lane_supervisor_owner_routing_cwd");
     let home = temp_dir("lane_supervisor_owner_routing_home");
     let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
     let effects = Arc::new(RecordingLaneEffects::default());
     let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
         engine,
@@ -402,6 +693,54 @@ fn lane_supervisor_keeps_waiting_lane_isolated_and_routes_owner_events() {
                 }) if command_id == "cmd_wrong_owner_approval" && reason.contains("owner mismatch")
             )
     }));
+    assert!(!envelopes.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandAccepted { command_id, .. },
+                ..
+            }) if command_id == "cmd_wrong_owner_approval"
+        )
+    }));
+    let queued_sequence = envelopes
+        .iter()
+        .find(|envelope| {
+            envelope.owner == owner_b
+                && matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::InputQueued { .. },
+                        ..
+                    })
+                )
+        })
+        .unwrap()
+        .cursor
+        .sequence;
+    let dequeued_sequence = envelopes
+        .iter()
+        .find(|envelope| {
+            envelope.owner == owner_b
+                && matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::InputDequeued { .. },
+                        ..
+                    })
+                )
+        })
+        .unwrap()
+        .cursor
+        .sequence;
+    assert!(queued_sequence < dequeued_sequence);
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .queued_inputs
+            .is_empty()
+    );
     assert!(envelopes.iter().any(|envelope| {
         envelope.owner == owner_b
             && matches!(
@@ -539,4 +878,26 @@ fn snapshot() -> RuntimeSnapshot {
         startup_overrides: Vec::new(),
         ui_preferences: viden_types::ResolvedUiPreferences::default(),
     }
+}
+
+fn create_and_mark_done(supervisor: &RuntimeSupervisor, owner: &RuntimeOwner, lane_id: &str) {
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            format!("create_{lane_id}"),
+            RuntimeCommand::CreateLane {
+                lane: lane(lane_id),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            format!("accept_{lane_id}"),
+            RuntimeCommand::AcceptLaneOutput {
+                lane_id: lane_id.to_string(),
+                summary: "ready".to_string(),
+            },
+        )
+        .unwrap();
 }

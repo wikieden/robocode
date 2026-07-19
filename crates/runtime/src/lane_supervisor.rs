@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use viden_permissions::PermissionEngine;
 use viden_types::{
     AgentLaneRecord, ApprovalResponse, RuntimeCommand, RuntimeEventKind, RuntimeOwner, WorkMode,
     fresh_id, now_timestamp,
@@ -15,27 +16,39 @@ use crate::runtime_contract::redacted_runtime_command_for_event;
 pub(crate) struct LaneSupervisor {
     repo: PathBuf,
     workflows: WorkflowStore,
+    permissions: Arc<Mutex<PermissionEngine>>,
     effects: Arc<dyn LaneEffectExecutor>,
     events: LaneEventSink,
     work_mode: Arc<dyn Fn() -> WorkMode + Send + Sync>,
+    approval_ttl_secs: u64,
     lanes: Mutex<BTreeMap<String, LaneWorkerHandle>>,
+    hydrated_lanes: Mutex<BTreeMap<String, AgentLaneRecord>>,
 }
 
 impl LaneSupervisor {
     pub(crate) fn new(
         repo: PathBuf,
         workflows: WorkflowStore,
+        permissions: Arc<Mutex<PermissionEngine>>,
         effects: Arc<dyn LaneEffectExecutor>,
         events: LaneEventSink,
         work_mode: Arc<dyn Fn() -> WorkMode + Send + Sync>,
+        approval_ttl_secs: u64,
     ) -> Self {
+        let hydrated_lanes = workflows
+            .load_lane_state()
+            .map(|state| state.lanes().clone())
+            .unwrap_or_default();
         Self {
             repo,
             workflows,
+            permissions,
             effects,
             events,
             work_mode,
+            approval_ttl_secs,
             lanes: Mutex::new(BTreeMap::new()),
+            hydrated_lanes: Mutex::new(hydrated_lanes),
         }
     }
 
@@ -85,10 +98,37 @@ impl LaneSupervisor {
         if let RuntimeCommand::CreateLane { lane } = command {
             return self.create(owner, command_id, lane);
         }
-        let lanes = self
+        let mut lanes = self
             .lanes
             .lock()
             .map_err(|_| "lane registry poisoned".to_string())?;
+        let terminal = matches!(
+            command,
+            RuntimeCommand::ArchiveLane { .. } | RuntimeCommand::CleanupLane { .. }
+        );
+        if !lanes.contains_key(&lane_id) {
+            let hydrated = self
+                .hydrated_lanes
+                .lock()
+                .map_err(|_| "hydrated lane registry poisoned".to_string())?
+                .get(&lane_id)
+                .cloned();
+            if let Some(lane) = hydrated {
+                lanes.insert(
+                    lane_id.clone(),
+                    LaneWorkerHandle::spawn(
+                        owner.clone(),
+                        lane,
+                        self.repo.clone(),
+                        self.workflows.clone(),
+                        Arc::clone(&self.permissions),
+                        Arc::clone(&self.effects),
+                        Arc::clone(&self.events),
+                        self.approval_ttl_secs,
+                    ),
+                );
+            }
+        }
         let Some(worker) = lanes.get(&lane_id) else {
             self.reject(
                 owner,
@@ -115,7 +155,15 @@ impl LaneSupervisor {
         worker.send(LaneWorkerMessage::Command {
             command_id,
             command,
-        })
+        })?;
+        if terminal {
+            lanes.remove(&lane_id);
+            self.hydrated_lanes
+                .lock()
+                .map_err(|_| "hydrated lane registry poisoned".to_string())?
+                .remove(&lane_id);
+        }
+        Ok(())
     }
 
     pub(crate) fn respond_to_approval(
@@ -124,7 +172,7 @@ impl LaneSupervisor {
         command_id: &str,
         request_id: &str,
         response: ApprovalResponse,
-    ) -> Result<bool, String> {
+    ) -> Result<Option<bool>, String> {
         let lanes = self
             .lanes
             .lock()
@@ -133,7 +181,7 @@ impl LaneSupervisor {
             .iter()
             .find(|(_, worker)| worker.owns_pending_approval(request_id))
         else {
-            return Ok(false);
+            return Ok(None);
         };
         if &worker.owner != owner {
             self.reject(
@@ -141,13 +189,13 @@ impl LaneSupervisor {
                 command_id.to_string(),
                 format!("approval request `{request_id}` owner mismatch for lane `{lane_id}`"),
             );
-            return Ok(true);
+            return Ok(Some(false));
         }
         worker.send(LaneWorkerMessage::ResumeApproval {
             request_id: request_id.to_string(),
             response,
         })?;
-        Ok(true)
+        Ok(Some(true))
     }
 
     pub(crate) fn cancel(&self, owner: &RuntimeOwner, command_id: String) -> Result<bool, String> {
@@ -179,6 +227,11 @@ impl LaneSupervisor {
             .lock()
             .map_err(|_| "lane registry poisoned".to_string())?
             .contains_key(&lane.id)
+            || self
+                .hydrated_lanes
+                .lock()
+                .map_err(|_| "hydrated lane registry poisoned".to_string())?
+                .contains_key(&lane.id)
         {
             self.reject(
                 owner,
@@ -231,13 +284,19 @@ impl LaneSupervisor {
             lane.clone(),
             self.repo.clone(),
             self.workflows.clone(),
+            Arc::clone(&self.permissions),
             Arc::clone(&self.effects),
             Arc::clone(&self.events),
+            self.approval_ttl_secs,
         );
         self.lanes
             .lock()
             .map_err(|_| "lane registry poisoned".to_string())?
             .insert(lane.id.clone(), worker);
+        self.hydrated_lanes
+            .lock()
+            .map_err(|_| "hydrated lane registry poisoned".to_string())?
+            .insert(lane.id.clone(), lane.clone());
         self.emit(
             owner.clone(),
             RuntimeEventKind::LaneOutputAppended {

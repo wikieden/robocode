@@ -210,6 +210,7 @@ impl RuntimeSupervisor {
 
         let lane_repo = engine.cwd().to_path_buf();
         let lane_workflows = engine.workflow_store();
+        let lane_permissions = Arc::new(Mutex::new(engine.lane_permission_engine()));
         let lane_event_bus = event_bus.clone();
         let lane_events = Arc::new(move |owner, kind| {
             emit_event(&lane_event_bus, owner, kind);
@@ -224,9 +225,11 @@ impl RuntimeSupervisor {
         let lane_supervisor = Arc::new(LaneSupervisor::new(
             lane_repo,
             lane_workflows,
+            lane_permissions,
             lane_effects,
             lane_events,
             lane_mode,
+            approval_ttl_secs,
         ));
 
         install_runtime_event_sink(&mut engine, event_bus.clone(), RuntimeOwner::default());
@@ -234,6 +237,7 @@ impl RuntimeSupervisor {
         let worker_event_bus = event_bus.clone();
         let worker_active_control = Arc::clone(&active_control);
         let worker_pending_approvals = Arc::clone(&pending_approvals);
+        let worker_lane_supervisor = Arc::clone(&lane_supervisor);
         let worker_liveness = Arc::clone(&worker_alive);
         let worker = thread::spawn(move || {
             run_supervisor_worker(
@@ -242,6 +246,7 @@ impl RuntimeSupervisor {
                 worker_event_bus,
                 worker_active_control,
                 worker_pending_approvals,
+                worker_lane_supervisor,
                 approval_ttl_secs,
                 worker_liveness,
             );
@@ -275,6 +280,15 @@ impl RuntimeSupervisor {
         Self::start_with_effects(engine, 300, lane_effects)
     }
 
+    #[cfg(test)]
+    pub(crate) fn start_with_lane_effects_and_approval_ttl_for_test(
+        engine: SessionEngine,
+        lane_effects: Arc<dyn LaneEffectExecutor>,
+        approval_ttl_secs: u64,
+    ) -> Self {
+        Self::start_with_effects(engine, approval_ttl_secs, lane_effects)
+    }
+
     pub fn send_command(
         &self,
         command_id: impl Into<String>,
@@ -299,21 +313,29 @@ impl RuntimeSupervisor {
         command_id: String,
         command: RuntimeCommand,
     ) -> Result<(), String> {
-        if LaneSupervisor::handles(&command) {
-            return self.lane_supervisor.send(owner, command_id, command);
-        }
         match command {
             RuntimeCommand::CancelActiveTurn => {
                 if self.lane_supervisor.cancel(&owner, command_id.clone())? {
                     return Ok(());
                 }
-                let Some(control) = self
+                let controls = self
                     .active_control
                     .lock()
-                    .map_err(|_| "active turn lock poisoned".to_string())?
-                    .get(&RuntimeOwnerKey::from(&owner))
-                    .cloned()
-                else {
+                    .map_err(|_| "active turn lock poisoned".to_string())?;
+                let control = controls.get(&RuntimeOwnerKey::from(&owner)).cloned();
+                if control.is_none() && !controls.is_empty() {
+                    emit_event(
+                        &self.event_bus,
+                        owner.clone(),
+                        RuntimeEventKind::CommandRejected {
+                            command_id,
+                            reason: "active runtime job owner mismatch".to_string(),
+                        },
+                    );
+                    return Ok(());
+                }
+                drop(controls);
+                let Some(control) = control else {
                     emit_event(
                         &self.event_bus,
                         owner.clone(),
@@ -365,12 +387,15 @@ impl RuntimeSupervisor {
                 request_id,
                 response,
             } => {
-                if self.lane_supervisor.respond_to_approval(
+                if let Some(accepted) = self.lane_supervisor.respond_to_approval(
                     &owner,
                     &command_id,
                     &request_id,
                     response.clone(),
                 )? {
+                    if !accepted {
+                        return Ok(());
+                    }
                     emit_event(
                         &self.event_bus,
                         owner.clone(),
@@ -683,6 +708,7 @@ fn run_supervisor_worker(
     event_bus: RuntimeEventBus,
     active_control: ActiveControlRegistry,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    lane_supervisor: Arc<LaneSupervisor>,
     approval_ttl_secs: u64,
     worker_alive: Arc<AtomicBool>,
 ) {
@@ -701,6 +727,12 @@ fn run_supervisor_worker(
                 command_id,
                 command,
             } => {
+                if LaneSupervisor::handles(&command) {
+                    if let Err(error) = lane_supervisor.send(owner.clone(), command_id, command) {
+                        emit_error(&event_bus, owner, error);
+                    }
+                    continue;
+                }
                 // Background engine work clones the installed sink, so bind
                 // owner identity at command dispatch rather than consulting a
                 // later active-owner value when the event finally arrives.

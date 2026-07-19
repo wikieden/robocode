@@ -620,6 +620,10 @@ impl SessionEngine {
         self.workflows.clone()
     }
 
+    pub(crate) fn lane_permission_engine(&self) -> PermissionEngine {
+        self.permissions.clone()
+    }
+
     pub fn provider_name(&self) -> &str {
         self.provider.provider_name()
     }

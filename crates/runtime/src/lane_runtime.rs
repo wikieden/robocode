@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
 use viden_tools::lane::{
@@ -61,6 +61,13 @@ impl LaneEffectResult {
 
 pub(crate) trait LaneEffectExecutor: Send + Sync {
     fn execute(&self, request: LaneEffectRequest) -> Result<LaneEffectResult, String>;
+
+    fn shutdown_lane(&self, lane_id: &str) -> Result<(), String> {
+        self.execute(LaneEffectRequest::Stop {
+            lane_id: lane_id.to_string(),
+        })
+        .map(|_| ())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -109,7 +116,16 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
                 env,
                 output_log,
             } => {
-                let cwd = lane_working_directory(&repo, &lane);
+                if self
+                    .handles
+                    .lock()
+                    .map_err(|_| "lane effect handle registry poisoned".to_string())?
+                    .contains_key(&lane.id)
+                {
+                    return Err(format!("lane `{}` already has an active runtime", lane.id));
+                }
+                let cwd = lane_working_directory(&repo, &lane)?;
+                let output_log = resolve_lane_output_log(&cwd, output_log.as_deref(), &lane.id)?;
                 let handle = match lane.route {
                     AgentRoute::BuiltIn | AgentRoute::Acp => ActiveLaneHandle::Process(
                         self.processes
@@ -118,32 +134,27 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
                                 args,
                                 cwd,
                                 env,
-                                output_log: output_log.map(PathBuf::from),
+                                output_log: Some(output_log),
                             })
                             .map_err(|error| error.to_string())?,
                     ),
-                    AgentRoute::Terminal | AgentRoute::Tmux => {
-                        let log = output_log.map(PathBuf::from).unwrap_or_else(|| {
-                            repo.join(".viden/lanes").join(format!("{}.log", lane.id))
-                        });
-                        ActiveLaneHandle::Terminal(
-                            self.terminals
-                                .spawn(&SpawnTerminal {
-                                    kind: if lane.route == AgentRoute::Tmux {
-                                        TerminalKind::Tmux
-                                    } else {
-                                        TerminalKind::Pty
-                                    },
-                                    session_name: Some(format!("viden-{}", lane.id)),
-                                    command,
-                                    args,
-                                    cwd,
-                                    env,
-                                    output_log: log,
-                                })
-                                .map_err(|error| error.to_string())?,
-                        )
-                    }
+                    AgentRoute::Terminal | AgentRoute::Tmux => ActiveLaneHandle::Terminal(
+                        self.terminals
+                            .spawn(&SpawnTerminal {
+                                kind: if lane.route == AgentRoute::Tmux {
+                                    TerminalKind::Tmux
+                                } else {
+                                    TerminalKind::Pty
+                                },
+                                session_name: Some(format!("viden-{}", lane.id)),
+                                command,
+                                args,
+                                cwd,
+                                env,
+                                output_log,
+                            })
+                            .map_err(|error| error.to_string())?,
+                    ),
                 };
                 let id = match &handle {
                     ActiveLaneHandle::Process(handle) => handle.id.clone(),
@@ -228,10 +239,27 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
             }
         }
     }
+
+    fn shutdown_lane(&self, lane_id: &str) -> Result<(), String> {
+        let handle = self
+            .handles
+            .lock()
+            .map_err(|_| "lane effect handle registry poisoned".to_string())?
+            .remove(lane_id);
+        let Some(handle) = handle else {
+            return Ok(());
+        };
+        match handle {
+            ActiveLaneHandle::Process(handle) => self.processes.stop(&handle),
+            ActiveLaneHandle::Terminal(handle) => self.terminals.stop(&handle),
+        }
+        .map_err(|error| error.to_string())
+    }
 }
 
-fn lane_working_directory(repo: &Path, lane: &AgentLaneRecord) -> PathBuf {
-    lane.worktree
+fn lane_working_directory(repo: &Path, lane: &AgentLaneRecord) -> Result<PathBuf, String> {
+    let configured = lane
+        .worktree
         .as_deref()
         .map(PathBuf::from)
         .map(|path| {
@@ -241,5 +269,48 @@ fn lane_working_directory(repo: &Path, lane: &AgentLaneRecord) -> PathBuf {
                 repo.join(path)
             }
         })
-        .unwrap_or_else(|| repo.to_path_buf())
+        .unwrap_or_else(|| repo.to_path_buf());
+    configured
+        .canonicalize()
+        .map_err(|error| format!("invalid lane root `{}`: {error}", configured.display()))
+}
+
+/// Resolve one output path for every local lane route. The nearest existing
+/// ancestor is canonicalized so a symlink cannot redirect a not-yet-created
+/// log outside the lane root.
+pub(crate) fn resolve_lane_output_log(
+    lane_root: &Path,
+    requested: Option<&str>,
+    lane_id: &str,
+) -> Result<PathBuf, String> {
+    let root = lane_root
+        .canonicalize()
+        .map_err(|error| format!("invalid lane root `{}`: {error}", lane_root.display()))?;
+    let default_log = format!(".viden/lanes/{lane_id}.log");
+    let raw = requested.unwrap_or(&default_log);
+    let relative = Path::new(raw);
+    if relative.is_absolute()
+        || relative.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err(format!("lane output log `{raw}` escapes the lane root"));
+    }
+    let candidate = root.join(relative);
+    let mut ancestor = candidate.as_path();
+    while !ancestor.exists() {
+        ancestor = ancestor
+            .parent()
+            .ok_or_else(|| format!("lane output log `{raw}` has no scoped parent"))?;
+    }
+    let canonical_ancestor = ancestor
+        .canonicalize()
+        .map_err(|error| format!("invalid lane output log `{raw}`: {error}"))?;
+    if !canonical_ancestor.starts_with(&root) {
+        return Err(format!("lane output log `{raw}` escapes the lane root"));
+    }
+    Ok(candidate)
 }

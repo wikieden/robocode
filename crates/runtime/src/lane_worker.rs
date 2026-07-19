@@ -4,9 +4,11 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 
+use viden_permissions::PermissionEngine;
 use viden_types::{
-    AgentLaneRecord, ApprovalDecision, ApprovalRequestView, ApprovalResponse, LaneStatus,
-    RuntimeCommand, RuntimeErrorView, RuntimeEventKind, RuntimeOwner, fresh_id, now_timestamp,
+    AgentLaneRecord, ApprovalDecision, ApprovalRequestView, ApprovalResponse, ApprovalScope,
+    LaneStatus, PermissionAskDecision, PermissionDecision, RuntimeCommand, RuntimeErrorView,
+    RuntimeEventKind, RuntimeOwner, ToolInput, ToolSpec, fresh_id, now_timestamp,
 };
 use viden_workflows::{lanes::LaneEvent, stores::WorkflowStore};
 
@@ -33,7 +35,7 @@ pub(crate) struct LaneWorkerHandle {
     pub(crate) owner: RuntimeOwner,
     pending_approval: Arc<Mutex<Option<String>>>,
     sender: Sender<LaneWorkerMessage>,
-    _worker: JoinHandle<()>,
+    worker: Option<JoinHandle<()>>,
 }
 
 impl LaneWorkerHandle {
@@ -42,8 +44,10 @@ impl LaneWorkerHandle {
         lane: AgentLaneRecord,
         repo: std::path::PathBuf,
         workflows: WorkflowStore,
+        permissions: Arc<Mutex<PermissionEngine>>,
         effects: Arc<dyn LaneEffectExecutor>,
         events: LaneEventSink,
+        approval_ttl_secs: u64,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
         let pending_approval = Arc::new(Mutex::new(None));
@@ -56,10 +60,12 @@ impl LaneWorkerHandle {
                 lane: worker_lane,
                 repo,
                 workflows,
+                permissions,
                 effects,
                 events,
-                pending_start: None,
+                pending_mutation: None,
                 pending_approval: worker_pending_approval,
+                approval_ttl_secs,
             };
             while let Ok(message) = receiver.recv() {
                 if matches!(message, LaneWorkerMessage::Shutdown) {
@@ -67,12 +73,13 @@ impl LaneWorkerHandle {
                 }
                 runtime.handle(message);
             }
+            let _ = runtime.effects.shutdown_lane(&runtime.lane.id);
         });
         Self {
             owner,
             pending_approval,
             sender,
-            _worker: worker,
+            worker: Some(worker),
         }
     }
 
@@ -92,13 +99,28 @@ impl LaneWorkerHandle {
 impl Drop for LaneWorkerHandle {
     fn drop(&mut self) {
         let _ = self.sender.send(LaneWorkerMessage::Shutdown);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 
-struct PendingStart {
+struct PendingMutation {
     request_id: String,
     command_id: String,
-    request: LaneEffectRequest,
+    audit_id: String,
+    expires_at: u64,
+    allowed_scopes: Vec<ApprovalScope>,
+    permission_ask: Option<PermissionAskDecision>,
+    tool: ToolSpec,
+    input: ToolInput,
+    previous_status: LaneStatus,
+    operation: PendingOperation,
+}
+
+enum PendingOperation {
+    Start(LaneEffectRequest),
+    Apply(LaneEffectRequest),
 }
 
 struct LaneWorker {
@@ -106,10 +128,12 @@ struct LaneWorker {
     lane: AgentLaneRecord,
     repo: std::path::PathBuf,
     workflows: WorkflowStore,
+    permissions: Arc<Mutex<PermissionEngine>>,
     effects: Arc<dyn LaneEffectExecutor>,
     events: LaneEventSink,
-    pending_start: Option<PendingStart>,
+    pending_mutation: Option<PendingMutation>,
     pending_approval: Arc<Mutex<Option<String>>>,
+    approval_ttl_secs: u64,
 }
 
 impl LaneWorker {
@@ -145,34 +169,17 @@ impl LaneWorker {
                     env,
                     output_log,
                 };
-                match self.lane.mutation_policy {
-                    viden_types::MutationPolicy::Autonomous => self.start(request),
-                    viden_types::MutationPolicy::ProposeOnly => {
-                        let request_id = fresh_id("lane-approval");
-                        if self
-                            .change_status(
-                                LaneStatus::WaitingApproval,
-                                "lane start awaits approval",
-                            )
-                            .is_err()
-                        {
-                            return;
-                        }
-                        let approval = lane_approval(&request_id, &self.owner, &self.lane);
-                        self.pending_start = Some(PendingStart {
-                            request_id: request_id.clone(),
-                            command_id,
-                            request,
-                        });
-                        if let Ok(mut pending) = self.pending_approval.lock() {
-                            *pending = Some(request_id);
-                        }
-                        self.emit(RuntimeEventKind::ApprovalRequested { approval });
-                    }
-                    viden_types::MutationPolicy::ReadOnly => {
-                        self.reject(command_id, "read-only lane cannot start a mutating runtime")
-                    }
+                if !matches!(
+                    self.lane.status,
+                    LaneStatus::Draft | LaneStatus::Queued | LaneStatus::Detached
+                ) {
+                    self.reject(
+                        command_id,
+                        format!("lane cannot start while status is {:?}", self.lane.status),
+                    );
+                    return;
                 }
+                self.dispatch_mutation(command_id, "lane_start", PendingOperation::Start(request));
             }
             RuntimeCommand::StopLane { .. } => {
                 self.execute_effect(
@@ -190,21 +197,26 @@ impl LaneWorker {
                 let _ = self.change_status(LaneStatus::Detached, "lane detached");
             }
             RuntimeCommand::SendLaneInput { input, .. } => {
+                let input_id = fresh_id("lane-input");
                 self.emit(RuntimeEventKind::InputQueued {
                     input: viden_types::QueuedInputView {
-                        id: fresh_id("lane-input"),
+                        id: input_id.clone(),
                         content_preview: input.chars().take(160).collect(),
                         created_at: Some(now_timestamp()),
                     },
                 });
-                self.execute_effect(
-                    LaneEffectRequest::SendInput {
-                        lane_id: self.lane.id.clone(),
-                        input,
-                    },
-                    self.lane.status,
-                    "lane input delivered",
-                );
+                let result = self.effects.execute(LaneEffectRequest::SendInput {
+                    lane_id: self.lane.id.clone(),
+                    input,
+                });
+                self.emit(RuntimeEventKind::InputDequeued { input_id });
+                match result {
+                    Ok(result) => {
+                        self.output("receipt", result.output);
+                        let _ = self.change_status(self.lane.status, "lane input delivered");
+                    }
+                    Err(error) => self.fail(error),
+                }
             }
             RuntimeCommand::AcceptLaneOutput { summary, .. } => {
                 let _ = self.change_status(LaneStatus::Done, summary);
@@ -215,14 +227,58 @@ impl LaneWorker {
             RuntimeCommand::DiscardLaneOutput { reason, .. } => {
                 let _ = self.change_status(LaneStatus::Cancelled, reason);
             }
-            RuntimeCommand::ApplyLaneChanges { unified_diff, .. }
-            | RuntimeCommand::ResolveLaneConflict { unified_diff, .. } => {
-                self.apply(unified_diff);
+            RuntimeCommand::ApplyLaneChanges { unified_diff, .. } => {
+                if self.lane.status != LaneStatus::Done {
+                    self.reject(
+                        command_id,
+                        format!(
+                            "lane changes require done status, found {:?}",
+                            self.lane.status
+                        ),
+                    );
+                    return;
+                }
+                self.dispatch_mutation(
+                    command_id,
+                    "lane_apply",
+                    PendingOperation::Apply(LaneEffectRequest::Apply {
+                        cwd: self.repo.clone(),
+                        unified_diff,
+                    }),
+                );
+            }
+            RuntimeCommand::ResolveLaneConflict { unified_diff, .. } => {
+                if self.lane.status != LaneStatus::Blocked {
+                    self.reject(
+                        command_id,
+                        format!(
+                            "lane conflict resolution requires blocked status, found {:?}",
+                            self.lane.status
+                        ),
+                    );
+                    return;
+                }
+                self.dispatch_mutation(
+                    command_id,
+                    "lane_resolve_conflict",
+                    PendingOperation::Apply(LaneEffectRequest::Apply {
+                        cwd: self.repo.clone(),
+                        unified_diff,
+                    }),
+                );
             }
             RuntimeCommand::ArchiveLane { summary, .. } => {
+                if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
+                    self.fail(error);
+                    return;
+                }
                 let _ = self.change_status(LaneStatus::Archived, summary);
             }
             RuntimeCommand::CleanupLane { force, .. } => {
+                if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
+                    self.fail(error);
+                    return;
+                }
                 self.execute_effect(
                     LaneEffectRequest::Cleanup {
                         repo: self.repo.clone(),
@@ -237,33 +293,176 @@ impl LaneWorker {
         }
     }
 
+    fn dispatch_mutation(
+        &mut self,
+        command_id: String,
+        tool_name: &str,
+        operation: PendingOperation,
+    ) {
+        if self.lane.mutation_policy == viden_types::MutationPolicy::ReadOnly {
+            self.reject(
+                command_id,
+                format!("read-only lane cannot execute `{tool_name}`"),
+            );
+            return;
+        }
+        let tool = ToolSpec {
+            name: tool_name.to_string(),
+            description: format!("Core-owned mutation for lane `{}`", self.lane.id),
+            is_mutating: true,
+            input_schema_hint: "path=<canonical lane scope>".to_string(),
+        };
+        let mut input = ToolInput::new();
+        input.insert("path".to_string(), self.repo.to_string_lossy().to_string());
+        let permission = match self.permissions.lock() {
+            Ok(permissions) => permissions.decide(&tool, &input),
+            Err(_) => {
+                self.reject(command_id, "lane permission registry poisoned");
+                return;
+            }
+        };
+        match permission {
+            PermissionDecision::Deny(denial) => self.reject(command_id, denial.message),
+            PermissionDecision::Allow(_)
+                if self.lane.mutation_policy == viden_types::MutationPolicy::Autonomous =>
+            {
+                self.execute_pending_operation(operation);
+            }
+            PermissionDecision::Allow(_) => {
+                self.queue_mutation_approval(command_id, tool, input, None, operation)
+            }
+            PermissionDecision::Ask(ask) => {
+                self.queue_mutation_approval(command_id, tool, input, Some(ask), operation)
+            }
+        }
+    }
+
+    fn queue_mutation_approval(
+        &mut self,
+        command_id: String,
+        tool: ToolSpec,
+        input: ToolInput,
+        permission_ask: Option<PermissionAskDecision>,
+        operation: PendingOperation,
+    ) {
+        let previous_status = self.lane.status;
+        let request_id = fresh_id("lane-approval");
+        let audit_id = fresh_id("audit");
+        let expires_at = now_timestamp().saturating_add(self.approval_ttl_secs);
+        let mut allowed_scopes = vec![ApprovalScope::Once];
+        if let Some(session_id) = self.owner.session_id.clone() {
+            allowed_scopes.push(ApprovalScope::Session { session_id });
+        }
+        allowed_scopes.push(ApprovalScope::RepoAllowlist {
+            paths: vec![self.repo.to_string_lossy().to_string()],
+        });
+        if self
+            .change_status(LaneStatus::WaitingApproval, "lane mutation awaits approval")
+            .is_err()
+        {
+            return;
+        }
+        let approval = lane_approval(
+            &request_id,
+            &audit_id,
+            expires_at,
+            allowed_scopes.clone(),
+            &self.owner,
+            &self.lane,
+            &tool,
+            &input,
+        );
+        self.pending_mutation = Some(PendingMutation {
+            request_id: request_id.clone(),
+            command_id,
+            audit_id,
+            expires_at,
+            allowed_scopes,
+            permission_ask,
+            tool,
+            input,
+            previous_status,
+            operation,
+        });
+        if let Ok(mut pending) = self.pending_approval.lock() {
+            *pending = Some(request_id);
+        }
+        self.emit(RuntimeEventKind::ApprovalRequested { approval });
+    }
+
+    fn execute_pending_operation(&mut self, operation: PendingOperation) {
+        match operation {
+            PendingOperation::Start(request) => self.start(request),
+            PendingOperation::Apply(request) => self.apply(request),
+        }
+    }
+
     fn resume_approval(&mut self, request_id: String, response: ApprovalResponse) {
-        let Some(pending) = self.pending_start.take() else {
+        let Some(pending) = self.pending_mutation.take() else {
             return;
         };
         if pending.request_id != request_id {
-            self.pending_start = Some(pending);
+            self.pending_mutation = Some(pending);
             return;
         }
         if let Ok(mut approval) = self.pending_approval.lock() {
             *approval = None;
         }
+        let valid_scope = match &response.decision {
+            ApprovalDecision::Deny => true,
+            ApprovalDecision::Allow { scope } => pending.allowed_scopes.contains(scope),
+        };
+        let unexpired = now_timestamp() < pending.expires_at;
+        let permission_allowed = if valid_scope && unexpired && response.is_allowed() {
+            if let Some(ask) = &pending.permission_ask {
+                self.permissions
+                    .lock()
+                    .map(|mut permissions| {
+                        matches!(
+                            permissions.apply_approval(
+                                response.clone(),
+                                ask,
+                                &pending.tool,
+                                &pending.input,
+                            ),
+                            PermissionDecision::Allow(_)
+                        )
+                    })
+                    .unwrap_or(false)
+            } else {
+                true
+            }
+        } else {
+            false
+        };
+        let decision = if permission_allowed {
+            response.decision.clone()
+        } else {
+            ApprovalDecision::Deny
+        };
         self.emit(RuntimeEventKind::ApprovalResolved {
             request_id,
-            decision: response.decision.clone(),
+            decision,
             owner: self.owner.clone(),
-            audit_id: fresh_id("audit"),
+            audit_id: pending.audit_id.clone(),
         });
-        if response.is_allowed() {
-            self.start(pending.request);
+        if permission_allowed {
+            self.execute_pending_operation(pending.operation);
         } else {
-            let _ = self.change_status(LaneStatus::Cancelled, "lane start denied");
-            self.reject(pending.command_id, "lane start approval denied");
+            let _ = self.change_status(pending.previous_status, "lane mutation approval denied");
+            let reason = if !unexpired {
+                "lane mutation approval expired"
+            } else if !valid_scope {
+                "lane mutation approval scope is not allowed"
+            } else {
+                "lane mutation approval denied"
+            };
+            self.reject(pending.command_id, reason);
         }
     }
 
     fn cancel(&mut self, command_id: String) {
-        if let Some(pending) = self.pending_start.take() {
+        if let Some(pending) = self.pending_mutation.take() {
             if let Ok(mut approval) = self.pending_approval.lock() {
                 *approval = None;
             }
@@ -271,12 +470,9 @@ impl LaneWorker {
                 request_id: pending.request_id,
                 decision: ApprovalDecision::Deny,
                 owner: self.owner.clone(),
-                audit_id: fresh_id("audit"),
+                audit_id: pending.audit_id,
             });
-            let _ = self.change_status(
-                LaneStatus::Cancelled,
-                "lane cancelled while awaiting approval",
-            );
+            let _ = self.change_status(LaneStatus::Cancelled, "lane mutation cancelled");
         } else {
             self.execute_effect(
                 LaneEffectRequest::Stop {
@@ -302,11 +498,8 @@ impl LaneWorker {
         self.execute_effect(request, LaneStatus::Running, "lane running");
     }
 
-    fn apply(&mut self, unified_diff: String) {
-        match self.effects.execute(LaneEffectRequest::Apply {
-            cwd: self.repo.clone(),
-            unified_diff,
-        }) {
+    fn apply(&mut self, request: LaneEffectRequest) {
+        match self.effects.execute(request) {
             Ok(result) if result.conflict_paths.is_empty() => {
                 self.output("receipt", result.output);
                 let _ = self.change_status(LaneStatus::Done, "lane changes applied");
@@ -397,15 +590,24 @@ impl LaneWorker {
 
 fn lane_approval(
     request_id: &str,
+    audit_id: &str,
+    expires_at: u64,
+    allowed_scopes: Vec<ApprovalScope>,
     owner: &RuntimeOwner,
     lane: &AgentLaneRecord,
+    tool: &ToolSpec,
+    input: &ToolInput,
 ) -> ApprovalRequestView {
     ApprovalRequestView {
         id: request_id.to_string(),
-        tool_name: "lane_start".to_string(),
-        title: "Approve lane start".to_string(),
-        message: format!("Start lane `{}`", lane.id),
-        input_preview: lane.summary.clone(),
+        tool_name: tool.name.clone(),
+        title: format!("Approve {}", tool.name),
+        message: format!("Approve `{}` for lane `{}`", tool.name, lane.id),
+        input_preview: input
+            .iter()
+            .map(|(key, value)| format!("{key}: {value}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
         is_mutating: true,
         reason: Some("lane mutation policy requires approval".to_string()),
         owner: owner.clone(),
@@ -415,11 +617,11 @@ fn lane_approval(
             display: lane.id.clone(),
             canonical_ref: lane.worktree.clone(),
         },
-        allowed_scopes: vec![viden_types::ApprovalScope::Once],
+        allowed_scopes,
         policy_reason_key: "lane.requires_approval".to_string(),
         policy_reason_args: Default::default(),
-        expires_at: now_timestamp().saturating_add(300),
+        expires_at,
         default_action: viden_types::ApprovalDefaultAction::Deny,
-        audit_id: fresh_id("audit"),
+        audit_id: audit_id.to_string(),
     }
 }
