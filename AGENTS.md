@@ -111,12 +111,36 @@ Do not copy:
 - Product analytics and managed settings before core workflows mature.
 - Remote/bridge/MCP/multi-agent complexity before the local CLI model is stable.
 
+## V3 Parallel Development Coordination
+
+The controlling plan for Core, TUI, and GUI parallel work is
+`docs/parallel-development-plan.md` and its Chinese counterpart. Treat the
+following as execution rules for that plan:
+
+- Use at most three concurrent implementation owners: Core, TUI, and GUI. A
+  read-only coordination task does not own an implementation scope.
+- Start `codex/v3-core-runtime` from synchronized `origin/main`. Core must
+  publish an immutable `frontend-contract-v1` checkpoint before production
+  TUI or GUI implementation begins.
+- Start `codex/v3-tui-client` and `codex/v3-gui-client` from the exact Core
+  checkpoint, not from an older UI branch or an unverified local checkout.
+- Keep each implementation branch in its own `.worktrees/<branch-name>`
+  worktree. Overlapping write scopes must be serialized.
+- Core owns authoritative state and side effects. TUI and GUI may maintain
+  local presentation state only and must use the shared command, event,
+  snapshot, and replay contracts.
+- A missing frontend capability is a Core contract request. Do not bypass it
+  with a frontend-private reducer, direct runtime access, or inferred success.
+- Integrate in the fixed order Core -> TUI -> GUI. Run parity fixtures and the
+  relevant branch gate after each step.
+- Every handoff must report the branch, worktree, HEAD, changed ownership
+  scope, tests, contract requests, blockers, and next safe parallel work.
+- Do not merge or push `main` unless the user explicitly asks for that action.
+
 ## Current Branch Context
 
-At time of writing, active development is `V2-C Memory and Task Workflows` on
-`codex/v2-memory-task-workflows`. This branch adds `viden-workflows`, task
-and memory shared types, project workflow event logs, task/memory reducers,
-resume context derivation, and initial `/task` / `/memory` command integration.
-
-If this branch has already merged, treat `PLAN.md` and `docs/staged-roadmap.md`
-as the current roadmap source.
+The current planning line is V3 multi-frontend development. Treat `PLAN.md`,
+`docs/parallel-development-plan.md`, and
+`docs/parallel-development-plan.zh-CN.md` as the roadmap and branch-topology
+sources. Historical branch descriptions in older documents are not authority
+for current branch creation.
