@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 const CONTEXT_REDUCER_PROCESS_STDOUT_HARD_CAP_BYTES: usize = 1024 * 1024;
 const CONTEXT_REDUCER_PROCESS_STDERR_HARD_CAP_BYTES: usize = 4 * 1024;
+const CONTEXT_REDUCER_PROCESS_REQUEST_HARD_CAP_BYTES: usize = 64 * 1024;
 
 use viden_plugin_api::{
     AgentAuthMode, AgentCommandSpec, AgentEnvRef, AgentPermissionProfile, AgentPluginCapability,
@@ -659,6 +660,11 @@ fn execute_process_adapter(
     validate_process_authorization(reducer_id, reducer_version, config)?;
     let request_json =
         serde_json::to_vec(&request).map_err(|_| ContextReducerHostError::MalformedResponse)?;
+    if request_json.len() > CONTEXT_REDUCER_PROCESS_REQUEST_HARD_CAP_BYTES {
+        return Err(ContextReducerHostError::PolicyRejected(
+            "context reducer request exceeds byte limit".to_string(),
+        ));
+    }
     let io =
         ProcessAdapterIo::new(&request_json).map_err(|_| ContextReducerHostError::AdapterCrash)?;
     let stdin = io
@@ -1484,6 +1490,11 @@ fn main() {
     let _ = io::stdin().read_to_string(&mut stdin);
     match mode.as_str() {
         "success" => print!("{}", success_json()),
+        "mark_success" => {
+            let marker = env::args().nth(2).expect("marker path");
+            fs::write(marker, "spawned").unwrap();
+            print!("{}", success_json());
+        }
         "stdin_file" => {
             #[cfg(unix)]
             {
@@ -2260,6 +2271,39 @@ fn main() {
         assert_eq!(
             outcome.health.message.as_deref(),
             Some("context reducer response exceeds byte limit")
+        );
+    }
+
+    #[test]
+    fn context_reducer_process_rejects_oversize_request_envelope_before_spawn() {
+        let helper = compile_context_reducer_helper();
+        let marker = helper.with_file_name("oversize-request-spawned");
+        let mut process = process_descriptor(&helper, "mark_success");
+        process.args.push(marker.display().to_string());
+        let mut request = process_request_with_limit(4096);
+        request.policy.required_markers =
+            vec!["x".repeat(CONTEXT_REDUCER_PROCESS_REQUEST_HARD_CAP_BYTES)];
+
+        let outcome = execute_context_reducer(
+            &ContextReducerAdapterConfig {
+                enabled: true,
+                timeout_ms: 10_000,
+                ..ContextReducerAdapterConfig::default()
+            },
+            &context_reducer_descriptor("adapter"),
+            request,
+            Some(ContextReducerExecutor::process(process)),
+            native_response,
+        );
+
+        assert!(outcome.used_native_fallback);
+        assert_eq!(
+            outcome.health.status,
+            ContextReducerHealthStatus::PolicyRejected
+        );
+        assert!(
+            !marker.exists(),
+            "oversize request must be rejected before spawn"
         );
     }
 
