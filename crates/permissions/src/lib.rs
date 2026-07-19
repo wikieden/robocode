@@ -174,6 +174,7 @@ impl PermissionEngine {
             tool_name: tool_name.to_string(),
             message: decision.message.clone(),
             input_preview: render_prompt_input(input),
+            candidate_paths: candidate_paths(input),
         }
     }
 
@@ -271,26 +272,34 @@ impl PermissionEngine {
 
     fn matches_rule(&self, rules: &[PermissionRule], tool: &ToolSpec, input: &ToolInput) -> bool {
         let rendered = viden_types::encode_tool_input(input);
-        rules.iter().any(|rule| {
-            rule.rule_value.tool_name == tool.name
-                && match &rule.rule_value.rule_content {
-                    Some(expected) if expected.starts_with(EXACT_PATH_RULE_PREFIX) => self
-                        .matches_exact_path_rule(
-                            expected.trim_start_matches(EXACT_PATH_RULE_PREFIX),
-                            input,
-                        ),
-                    Some(expected) => rendered.contains(expected),
-                    None => true,
-                }
-        })
-    }
-
-    fn matches_exact_path_rule(&self, expected: &str, input: &ToolInput) -> bool {
-        let expected = PathBuf::from(expected);
-        extract_paths(input)
+        let mut exact_paths = Vec::new();
+        let mut matched_non_path_rule = false;
+        for rule in rules
             .iter()
-            .map(|path| normalize_path(&self.cwd, path))
-            .any(|path| path == expected)
+            .filter(|rule| rule.rule_value.tool_name == tool.name)
+        {
+            match &rule.rule_value.rule_content {
+                Some(expected) if expected.starts_with(EXACT_PATH_RULE_PREFIX) => {
+                    exact_paths.push(PathBuf::from(
+                        expected.trim_start_matches(EXACT_PATH_RULE_PREFIX),
+                    ));
+                }
+                Some(expected) if rendered.contains(expected) => matched_non_path_rule = true,
+                None => matched_non_path_rule = true,
+                Some(_) => {}
+            }
+        }
+        if matched_non_path_rule {
+            return true;
+        }
+        let current_paths = extract_paths(input)
+            .into_iter()
+            .map(|path| normalize_path(&self.cwd, &path))
+            .collect::<Vec<_>>();
+        !current_paths.is_empty()
+            && current_paths
+                .iter()
+                .all(|path| exact_paths.iter().any(|allowed| allowed == path))
     }
 
     fn is_path_in_scope(&self, raw: &str) -> bool {
@@ -338,6 +347,11 @@ fn extract_paths(input: &ToolInput) -> Vec<String> {
         .iter()
         .filter_map(|key| input.get(*key).cloned())
         .collect()
+}
+
+// Keep path candidates structural so approval UIs do not scrape display text.
+fn candidate_paths(input: &ToolInput) -> Vec<String> {
+    extract_paths(input)
 }
 
 fn normalize_path(cwd: &Path, raw: &str) -> PathBuf {
@@ -463,6 +477,7 @@ mod tests {
             prompt.input_preview,
             "  content: print('Hello')\n  path: hello.py"
         );
+        assert_eq!(prompt.candidate_paths, vec!["hello.py"]);
     }
 
     #[test]
@@ -609,6 +624,46 @@ mod tests {
         unrelated.insert("content".to_string(), "src/lib.rs".to_string());
         assert!(matches!(
             engine.decide(&tool, &unrelated),
+            PermissionDecision::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn approval_scope_repo_allowlist_requires_all_current_paths_to_match_exact_rules() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("move_file", true);
+        let mut move_input = ToolInput::new();
+        move_input.insert("from".to_string(), "src/from.rs".to_string());
+        move_input.insert("to".to_string(), "src/to.rs".to_string());
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &move_input) else {
+            panic!("move_file should require approval before repo allowlist response");
+        };
+
+        let allow = engine.apply_approval(
+            ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::RepoAllowlist {
+                        paths: vec!["src/from.rs".into(), "src/to.rs".into()],
+                    },
+                },
+                feedback: None,
+            },
+            &ask,
+            &tool,
+            &move_input,
+        );
+        assert!(matches!(allow, PermissionDecision::Allow(_)));
+
+        assert!(matches!(
+            engine.decide(&tool, &move_input),
+            PermissionDecision::Allow(_)
+        ));
+
+        let mut partial = ToolInput::new();
+        partial.insert("from".to_string(), "src/from.rs".to_string());
+        partial.insert("to".to_string(), "src/other.rs".to_string());
+        assert!(matches!(
+            engine.decide(&tool, &partial),
             PermissionDecision::Ask(_)
         ));
     }

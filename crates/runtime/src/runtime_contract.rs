@@ -3956,7 +3956,7 @@ fn approval_request_view(request_id: &str, prompt: &PermissionPrompt) -> Approva
         target: ApprovalTarget {
             kind: prompt.tool_name.clone(),
             display: prompt.input_preview.clone(),
-            canonical_ref: None,
+            canonical_ref: prompt.candidate_paths.first().cloned(),
         },
         allowed_scopes: vec![ApprovalScope::Once],
         policy_reason_key: "permission.requires_approval".to_string(),

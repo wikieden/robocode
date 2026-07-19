@@ -4397,6 +4397,7 @@ fn acp_permission_prompt(request: &Value) -> viden_types::PermissionPrompt {
             .pointer("/params")
             .map(Value::to_string)
             .unwrap_or_else(|| "{}".to_string()),
+        candidate_paths: acp_request_path(request).into_iter().collect(),
     }
 }
 

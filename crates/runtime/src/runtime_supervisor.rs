@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+#[cfg(test)]
+use std::sync::OnceLock;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU64, Ordering},
@@ -50,6 +52,7 @@ enum ActiveJobState {
 #[derive(Clone)]
 struct ActiveRuntimeControl {
     owner_id: String,
+    owner: RuntimeOwner,
     control: ModelRequestControl,
     state: ActiveJobState,
 }
@@ -60,6 +63,38 @@ struct SupervisorShared<'a> {
     active_control: &'a Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &'a Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 }
+
+#[cfg(test)]
+type BeforeContextResumeHook = Arc<dyn Fn(&ModelRequestControl) + Send + Sync>;
+
+#[cfg(test)]
+static BEFORE_CONTEXT_RESUME_ENQUEUE_HOOK: OnceLock<Mutex<Option<BeforeContextResumeHook>>> =
+    OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn set_before_context_resume_enqueue_hook(hook: Option<BeforeContextResumeHook>) {
+    if let Ok(mut slot) = BEFORE_CONTEXT_RESUME_ENQUEUE_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+    {
+        *slot = hook;
+    }
+}
+
+#[cfg(test)]
+fn before_context_resume_enqueue_for_test(control: &ModelRequestControl) {
+    let hook = BEFORE_CONTEXT_RESUME_ENQUEUE_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone());
+    if let Some(hook) = hook {
+        hook(control);
+    }
+}
+
+#[cfg(not(test))]
+fn before_context_resume_enqueue_for_test(_control: &ModelRequestControl) {}
 
 // Internal channel payload mirrors RuntimeCommand construction. Boxing command
 // variants would add indirection at every supervisor send site without changing
@@ -76,7 +111,6 @@ enum SupervisorMessage {
         request_id: String,
         owner: RuntimeOwner,
         audit_id: String,
-        decision: ApprovalDecision,
         job: Box<ContextRetrievalJob>,
     },
     Shutdown,
@@ -187,6 +221,20 @@ impl RuntimeSupervisor {
                     );
                     return Ok(());
                 };
+                if control.owner != owner {
+                    emit_event(
+                        &self.event_sender,
+                        &self.sequence,
+                        RuntimeEventKind::CommandRejected {
+                            command_id,
+                            reason: format!(
+                                "active runtime job `{}` owner mismatch",
+                                control.owner_id
+                            ),
+                        },
+                    );
+                    return Ok(());
+                }
                 control.control.cancel();
                 if let ActiveJobState::PendingApproval { request_id } = &control.state {
                     resolve_pending_approval_by_id(
@@ -295,16 +343,48 @@ impl RuntimeSupervisor {
                         if response.is_allowed() {
                             let mut job = *job;
                             job.permission_decision = "approved".to_string();
-                            self.commands
-                                .send(SupervisorMessage::ResumeContextRetrieval {
-                                    owner_id,
-                                    request_id,
-                                    owner: pending_owner,
-                                    audit_id: pending_audit_id,
-                                    decision: response.decision.clone(),
-                                    job: Box::new(job),
-                                })
-                                .map_err(|err| format!("runtime supervisor stopped: {err}"))?;
+                            if let Err(err) = mark_active_running(&self.active_control, &owner_id) {
+                                emit_error(&self.event_sender, &self.sequence, err);
+                                return Ok(());
+                            }
+                            let Some(control) =
+                                active_control_for_owner(&self.active_control, &owner_id)
+                            else {
+                                emit_error(
+                                    &self.event_sender,
+                                    &self.sequence,
+                                    format!("active runtime job `{owner_id}` is no longer running"),
+                                );
+                                return Ok(());
+                            };
+                            emit_event(
+                                &self.event_sender,
+                                &self.sequence,
+                                approval_resolved_event(
+                                    &request_id,
+                                    response.decision.clone(),
+                                    pending_owner.clone(),
+                                    pending_audit_id.clone(),
+                                ),
+                            );
+                            before_context_resume_enqueue_for_test(&control);
+                            if let Err(err) =
+                                self.commands
+                                    .send(SupervisorMessage::ResumeContextRetrieval {
+                                        owner_id: owner_id.clone(),
+                                        request_id,
+                                        owner: pending_owner,
+                                        audit_id: pending_audit_id,
+                                        job: Box::new(job),
+                                    })
+                            {
+                                clear_active_control(&self.active_control, &owner_id);
+                                emit_error(
+                                    &self.event_sender,
+                                    &self.sequence,
+                                    format!("runtime supervisor stopped: {err}"),
+                                );
+                            }
                         } else {
                             emit_event(
                                 &self.event_sender,
@@ -459,7 +539,6 @@ fn run_supervisor_worker(
                 request_id,
                 owner,
                 audit_id,
-                decision,
                 job,
             } => {
                 resume_context_retrieval_after_approval(
@@ -468,7 +547,6 @@ fn run_supervisor_worker(
                     request_id,
                     owner,
                     audit_id,
-                    decision,
                     *job,
                     &event_sender,
                     &sequence,
@@ -519,6 +597,7 @@ fn run_supervised_context_retrieval(
             if let Err(err) = acquire_active_job(
                 shared.active_control,
                 command_id.clone(),
+                owner.clone(),
                 control.clone(),
                 ActiveJobState::Running,
             ) {
@@ -554,14 +633,15 @@ fn run_supervised_context_retrieval(
             );
         }
         SupervisorContextRetrievalPreparation::PendingApproval { mut approval, job } => {
-            approval.owner = owner;
+            approval.owner = owner.clone();
             approval.audit_id = fresh_id("audit");
             approval.expires_at = now_timestamp().saturating_add(approval_ttl_secs);
-            approval.allowed_scopes = allowed_approval_scopes(&approval.owner);
+            approval.allowed_scopes = allowed_approval_scopes(&approval.owner, &[]);
             let control = ModelRequestControl::new();
             if let Err(err) = acquire_active_job(
                 shared.active_control,
                 command_id.clone(),
+                owner.clone(),
                 control,
                 ActiveJobState::PendingApproval {
                     request_id: approval.id.clone(),
@@ -648,6 +728,7 @@ fn start_context_retrieval_worker(
 fn acquire_active_job(
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     owner_id: String,
+    owner: RuntimeOwner,
     control: ModelRequestControl,
     state: ActiveJobState,
 ) -> Result<(), String> {
@@ -662,6 +743,7 @@ fn acquire_active_job(
     }
     *slot = Some(ActiveRuntimeControl {
         owner_id,
+        owner,
         control,
         state,
     });
@@ -877,10 +959,9 @@ fn approval_decision_is_allowed_by_request(
 fn resume_context_retrieval_after_approval(
     engine: &mut SessionEngine,
     owner_id: String,
-    request_id: String,
-    owner: RuntimeOwner,
-    audit_id: String,
-    decision: ApprovalDecision,
+    _request_id: String,
+    _owner: RuntimeOwner,
+    _audit_id: String,
     job: ContextRetrievalJob,
     event_sender: &Sender<RuntimeEvent>,
     sequence: &Arc<AtomicU64>,
@@ -896,16 +977,6 @@ fn resume_context_retrieval_after_approval(
     };
     if let Err(err) = engine.validate_context_retrieval_job_for_supervisor(&job) {
         clear_active_control(active_control, &owner_id);
-        emit_event(
-            event_sender,
-            sequence,
-            approval_resolved_event(
-                &request_id,
-                ApprovalDecision::Deny,
-                owner.clone(),
-                audit_id.clone(),
-            ),
-        );
         emit_error(event_sender, sequence, err);
         return;
     }
@@ -913,11 +984,6 @@ fn resume_context_retrieval_after_approval(
         emit_error(event_sender, sequence, err);
         return;
     }
-    emit_event(
-        event_sender,
-        sequence,
-        approval_resolved_event(&request_id, decision, owner, audit_id),
-    );
     start_context_retrieval_worker(
         owner_id,
         job,
@@ -961,6 +1027,7 @@ fn run_supervised_agent_task(
     if let Err(err) = acquire_active_job(
         active_control,
         command_id.clone(),
+        owner.clone(),
         control.clone(),
         ActiveJobState::Running,
     ) {
@@ -1046,6 +1113,7 @@ fn run_supervised_input(
     if let Err(err) = acquire_active_job(
         active_control,
         command_id.clone(),
+        owner.clone(),
         control.clone(),
         ActiveJobState::Running,
     ) {
@@ -1125,7 +1193,7 @@ fn approval_request_view(
     owner: RuntimeOwner,
     approval_ttl_secs: u64,
 ) -> ApprovalRequestView {
-    let allowed_scopes = allowed_approval_scopes(&owner);
+    let allowed_scopes = allowed_approval_scopes(&owner, &prompt.candidate_paths);
     ApprovalRequestView {
         id: request_id.to_string(),
         tool_name: prompt.tool_name.clone(),
@@ -1139,7 +1207,7 @@ fn approval_request_view(
         target: ApprovalTarget {
             kind: prompt.tool_name.clone(),
             display: prompt.input_preview.clone(),
-            canonical_ref: None,
+            canonical_ref: prompt.candidate_paths.first().cloned(),
         },
         allowed_scopes,
         policy_reason_key: "permission.requires_approval".to_string(),
@@ -1150,12 +1218,17 @@ fn approval_request_view(
     }
 }
 
-fn allowed_approval_scopes(owner: &RuntimeOwner) -> Vec<ApprovalScope> {
+fn allowed_approval_scopes(owner: &RuntimeOwner, candidate_paths: &[String]) -> Vec<ApprovalScope> {
     let mut scopes = vec![ApprovalScope::Once];
     if let Some(session_id) = owner.session_id.clone()
         && !session_id.is_empty()
     {
         scopes.push(ApprovalScope::Session { session_id });
+    }
+    if !candidate_paths.is_empty() {
+        scopes.push(ApprovalScope::RepoAllowlist {
+            paths: candidate_paths.to_vec(),
+        });
     }
     scopes
 }

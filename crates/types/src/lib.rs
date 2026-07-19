@@ -803,6 +803,7 @@ pub struct PermissionPrompt {
     pub tool_name: String,
     pub message: String,
     pub input_preview: String,
+    pub candidate_paths: Vec<String>,
 }
 
 pub fn parse_tool_input(input: &str) -> ToolInput {
