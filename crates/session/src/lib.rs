@@ -53,16 +53,8 @@ impl SessionStore {
     ) -> Result<Self, String> {
         let cwd = cwd.into();
         let home_dir = home_dir.into();
-        let projects_dir = home_dir.join("projects");
-        let project_dir = projects_dir.join(project_key(&cwd));
         let session_id = session_id.unwrap_or_else(|| fresh_id("session"));
-        let paths = SessionPaths {
-            index_db_path: home_dir.join("index.sqlite3"),
-            transcript_path: project_dir.join(format!("{session_id}.jsonl")),
-            home_dir,
-            projects_dir,
-            project_dir,
-        };
+        let paths = session_paths(home_dir, &cwd, &session_id);
         fs::create_dir_all(&paths.project_dir).map_err(|err| err.to_string())?;
         let store = Self {
             cwd,
@@ -71,6 +63,45 @@ impl SessionStore {
         };
         let _ = store.ensure_index();
         Ok(store)
+    }
+
+    /// Opens an existing default session store for lookup only.
+    ///
+    /// This path must not allocate a fresh session id, create project
+    /// directories, create the SQLite index, or chmod files. Use `new*` for
+    /// mutation-capable stores.
+    pub fn open_default_existing_for_query(
+        cwd: impl Into<PathBuf>,
+    ) -> Result<Option<Self>, String> {
+        let cwd = cwd.into();
+        let local_home = cwd.join(".viden");
+        if let Some(store) = Self::open_existing_for_query(&local_home, &cwd)? {
+            return Ok(Some(store));
+        }
+        let home = default_home_dir()?;
+        Self::open_existing_for_query(home, cwd)
+    }
+
+    /// Opens an existing session store rooted at `home_dir` for lookup only.
+    ///
+    /// Returns `Ok(None)` when neither the index nor the project transcript
+    /// directory exists; this preserves pristine homes during failed resume
+    /// lookup.
+    pub fn open_existing_for_query(
+        home_dir: impl Into<PathBuf>,
+        cwd: impl Into<PathBuf>,
+    ) -> Result<Option<Self>, String> {
+        let cwd = cwd.into();
+        let home_dir = home_dir.into();
+        let paths = session_paths(home_dir, &cwd, "__query__");
+        if !paths.index_db_path.exists() && !paths.project_dir.exists() {
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            cwd,
+            session_id: "__query__".to_string(),
+            paths,
+        }))
     }
 
     pub fn session_id(&self) -> &str {
@@ -647,6 +678,18 @@ fn project_key(path: &Path) -> String {
     let mut hasher = DefaultHasher::new();
     path.display().to_string().hash(&mut hasher);
     format!("{:x}", hasher.finish())
+}
+
+fn session_paths(home_dir: PathBuf, cwd: &Path, session_id: &str) -> SessionPaths {
+    let projects_dir = home_dir.join("projects");
+    let project_dir = projects_dir.join(project_key(cwd));
+    SessionPaths {
+        index_db_path: home_dir.join("index.sqlite3"),
+        transcript_path: project_dir.join(format!("{session_id}.jsonl")),
+        home_dir,
+        projects_dir,
+        project_dir,
+    }
 }
 
 pub fn project_key_for_path(path: &Path) -> String {

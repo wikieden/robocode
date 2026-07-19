@@ -147,9 +147,14 @@ fn resolve_bootstrap_resume(
     resolved_config: &ResolvedConfig,
     request: RuntimeResumeRequest,
 ) -> Result<(SessionSummary, Vec<TranscriptEntry>), String> {
-    let store = match &resolved_config.session_home {
-        Some(home) => SessionStore::new_with_home(home, cwd, None)?,
-        None => SessionStore::new(cwd, None)?,
+    let Some(store) = (match &resolved_config.session_home {
+        Some(home) => SessionStore::open_existing_for_query(home, cwd)?,
+        None => SessionStore::open_default_existing_for_query(cwd)?,
+    }) else {
+        return Err(RuntimeResumeError::NotFound {
+            selector: resume_selector(&request),
+        }
+        .to_string());
     };
     match request {
         RuntimeResumeRequest::ExactSessionId(session_id) => {
@@ -167,6 +172,14 @@ fn resolve_bootstrap_resume(
             .to_string()
         }),
         RuntimeResumeRequest::Selector(selector) => resolve_bootstrap_selector(&store, &selector),
+    }
+}
+
+fn resume_selector(request: &RuntimeResumeRequest) -> String {
+    match request {
+        RuntimeResumeRequest::ExactSessionId(session_id) => session_id.clone(),
+        RuntimeResumeRequest::Selector(selector) => selector.clone(),
+        RuntimeResumeRequest::Latest => "latest".to_string(),
     }
 }
 
