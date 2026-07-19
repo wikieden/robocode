@@ -4,6 +4,18 @@ use viden_gui_spike_gpui::{
     theme::{Density, Skin},
 };
 
+#[derive(serde::Deserialize)]
+struct ParityEvidence {
+    required_roles: Vec<String>,
+    action_log: Vec<String>,
+    projection_hash: String,
+}
+
+fn parity_evidence() -> ParityEvidence {
+    serde_json::from_str(include_str!("../../common/d1-slice-evidence.json"))
+        .expect("shared D1 slice evidence contract")
+}
+
 fn exercise_slice(mut app: D1Slice) -> D1Slice {
     app.composer.begin_composition();
     app.composer.update_composition("你好");
@@ -35,26 +47,22 @@ fn d1_slice_supports_cjk_streaming_approval_history_and_accessible_focus() {
 
 #[test]
 fn d1_slice_action_log_and_projection_hash_match_the_shared_contract() {
-    let app = exercise_slice(D1Slice::new(ProjectionState::fixture()));
-
+    let evidence = parity_evidence();
+    let projection = ProjectionState::fixture();
+    assert_eq!(projection.project_id, "project_viden");
+    assert_eq!(projection.lane_id, "lane_d1_core");
+    assert_eq!(projection.session_id, "session_d1-vertical-slice");
+    assert_eq!(projection.task_id, "task_d1_core");
     assert_eq!(
-        app.action_log(),
-        [
-            "composition:start",
-            "composition:update:你好",
-            "composition:commit:你好",
-            "paste:第一行\\n第二行",
-            "stream:start",
-            "queue:你好第一行\\n第二行",
-            "stream:cancel",
-            "approval:allow-once",
-            "history:row-120",
-            "output:row-50001",
-            "theme:ice-light:comfy",
-            "focus:composer",
-        ]
+        projection.view_hash,
+        "7dd8faf04cca9f3013198e25823894eae91c2869e27087aa1eb0a34890cdf804"
     );
-    assert_eq!(app.projection_hash(), "e849d08e7c57e3a4");
+    let app = exercise_slice(D1Slice::new(projection));
+
+    assert_eq!(app.exposed_roles(), D1Slice::REQUIRED_ROLES);
+    assert_eq!(evidence.required_roles, D1Slice::REQUIRED_ROLES);
+    assert_eq!(app.action_log(), evidence.action_log);
+    assert_eq!(app.projection_hash(), evidence.projection_hash);
 }
 
 #[test]
@@ -99,4 +107,13 @@ fn d1_slice_exposes_both_skins_and_all_density_choices() {
             assert_eq!(app.theme.density(), density);
         }
     }
+}
+
+#[test]
+fn d1_slice_accepts_committed_framework_input_without_replaying_composition_state() {
+    let mut app = D1Slice::new(ProjectionState::fixture());
+
+    app.sync_composer_from_framework("你好\nframework");
+
+    assert_eq!(app.composer.draft(), "你好\nframework");
 }

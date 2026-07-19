@@ -14,6 +14,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4",
+    "@types/jsdom": "^21.1.7",
     "@types/node": "24.10.1",
     "jsdom": "26.1.0",
     "typescript": "5.9.3",

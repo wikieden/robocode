@@ -46,6 +46,10 @@ impl ComposerModel {
             .record(format!("paste:{}", value.replace('\n', "\\n")));
     }
 
+    pub fn sync_from_framework(&mut self, value: &str) {
+        value.clone_into(&mut self.value);
+    }
+
     pub fn submit(&mut self) -> bool {
         if self.composing {
             return false;

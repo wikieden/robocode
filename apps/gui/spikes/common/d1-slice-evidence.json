@@ -1,0 +1,26 @@
+{
+  "required_roles": [
+    "composer",
+    "tool-row",
+    "approval-dock",
+    "queue-action",
+    "cancel-action",
+    "history-viewport",
+    "new-output-count"
+  ],
+  "action_log": [
+    "composition:start",
+    "composition:update:你好",
+    "composition:commit:你好",
+    "paste:第一行\\n第二行",
+    "stream:start",
+    "queue:你好第一行\\n第二行",
+    "stream:cancel",
+    "approval:allow-once",
+    "history:row-120",
+    "output:row-50001",
+    "theme:ice-light:comfy",
+    "focus:composer"
+  ],
+  "projection_hash": "7dd8faf04cca9f3013198e25823894eae91c2869e27087aa1eb0a34890cdf804"
+}

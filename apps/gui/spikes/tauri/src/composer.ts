@@ -34,6 +34,10 @@ export class ComposerModel {
     this.record(`paste:${value.replaceAll("\n", "\\n")}`);
   }
 
+  syncFromFramework(value: string): void {
+    this.value = value;
+  }
+
   submit(): boolean {
     if (this.composing) {
       return false;

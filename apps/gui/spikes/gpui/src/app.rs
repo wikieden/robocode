@@ -24,15 +24,19 @@ pub struct ProjectionState {
     pub lane_id: String,
     pub session_id: String,
     pub task_id: String,
+    pub view_hash: String,
 }
 
 impl ProjectionState {
     pub fn fixture() -> Self {
+        let projection = viden_gui_spike_common::D1FixtureProjection::from_committed_fixture()
+            .expect("canonical D1 fixture projection");
         Self {
-            project_id: "project-1".into(),
-            lane_id: "lane-1".into(),
-            session_id: "session-1".into(),
-            task_id: "task-1".into(),
+            project_id: projection.project_id,
+            lane_id: projection.lane_id,
+            session_id: projection.session_id,
+            task_id: projection.task_id,
+            view_hash: projection.view_hash,
         }
     }
 }
@@ -78,6 +82,10 @@ impl D1Slice {
     pub fn start_stream(&mut self) {
         self.streaming = true;
         self.recorder.record("stream:start");
+    }
+
+    pub fn sync_composer_from_framework(&mut self, value: &str) {
+        self.composer.sync_from_framework(value);
     }
 
     pub fn queue_current_draft(&mut self) {
@@ -131,39 +139,100 @@ impl D1Slice {
     }
 
     pub fn projection_hash(&self) -> String {
-        let canonical = format!(
-            "{}|{}|{}|{}\n{}",
-            self.projection.project_id,
-            self.projection.lane_id,
-            self.projection.session_id,
-            self.projection.task_id,
-            self.action_log().join("\n")
-        );
-        let hash = canonical
-            .bytes()
-            .fold(0xcbf29ce484222325_u64, |hash, byte| {
-                (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-            });
-        format!("{hash:016x}")
+        self.projection.view_hash.clone()
     }
 }
 
 #[cfg(feature = "desktop")]
 pub mod desktop {
     use gpui::{
-        App, Application, Bounds, Context, Render, Window, WindowBounds, WindowOptions, div,
-        prelude::*, px, rgb, size,
+        App, Application, Bounds, Context, Entity, Render, Subscription, Window, WindowBounds,
+        WindowOptions, div, prelude::*, px, rgb, size,
+    };
+    use gpui_component::{
+        Root,
+        button::Button,
+        input::{Input, InputEvent, InputState},
+    };
+
+    use crate::{
+        approval::ApprovalChoice,
+        theme::{Density, Skin},
     };
 
     use super::{D1Slice, ProjectionState};
 
     pub struct D1Desktop {
         slice: D1Slice,
+        composer: Entity<InputState>,
+        _subscriptions: Vec<Subscription>,
+    }
+
+    impl D1Desktop {
+        fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+            let composer = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .multi_line(true)
+                    .placeholder("Message composer")
+            });
+            let _subscriptions = vec![cx.subscribe_in(
+                &composer,
+                window,
+                |this, input, event: &InputEvent, _window, cx| match event {
+                    InputEvent::Change => {
+                        let value = input.read(cx).value();
+                        this.slice.sync_composer_from_framework(value.as_ref());
+                        cx.notify();
+                    }
+                    InputEvent::PressEnter { .. } => {
+                        let value = input.read(cx).value();
+                        this.slice.sync_composer_from_framework(value.as_ref());
+                        this.slice.composer.submit();
+                        cx.notify();
+                    }
+                    InputEvent::Focus => {
+                        this.slice.focus("composer");
+                        cx.notify();
+                    }
+                    InputEvent::Blur => {}
+                },
+            )];
+            let mut slice = D1Slice::new(ProjectionState::fixture());
+            slice.start_stream();
+            Self {
+                slice,
+                composer,
+                _subscriptions,
+            }
+        }
+
+        fn action_button(
+            &self,
+            id: &'static str,
+            label: &'static str,
+            cx: &Context<Self>,
+            action: impl Fn(&mut D1Slice) + 'static,
+        ) -> Button {
+            let view = cx.entity();
+            Button::new(id)
+                .label(label)
+                .tab_stop(true)
+                .on_click(move |_, _window, cx| {
+                    view.update(cx, |this, cx| {
+                        if D1Slice::REQUIRED_ROLES.contains(&id) {
+                            this.slice.focus(id);
+                        }
+                        action(&mut this.slice);
+                        cx.notify();
+                    });
+                })
+        }
     }
 
     impl Render for D1Desktop {
-        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let tokens = self.slice.theme.skin().tokens();
+            let history_view = cx.entity();
             div()
                 .id("d1-shell")
                 .size_full()
@@ -173,14 +242,27 @@ pub mod desktop {
                 .p_4()
                 .bg(rgb(tokens.bg_base))
                 .text_color(rgb(tokens.fg_primary))
-                .child(div().child("Viden · project-1 / lane-1"))
+                .child(div().child(format!(
+                    "Viden · {} / {}",
+                    self.slice.projection.project_id, self.slice.projection.lane_id
+                )))
                 .child(
                     div()
                         .id("history-viewport")
                         .flex_1()
                         .overflow_scroll()
+                        .on_scroll_wheel(move |_, _window, cx| {
+                            history_view.update(cx, |this, cx| {
+                                this.slice.transcript.open_history_at("row-120");
+                                this.slice.focus("history-viewport");
+                                cx.notify();
+                            });
+                        })
                         .child(div().id("tool-row").child("Core fixture ready"))
-                        .child(div().id("new-output-count").child("0 new outputs")),
+                        .child(div().id("new-output-count").child(format!(
+                            "{} new outputs",
+                            self.slice.transcript.new_output_count()
+                        ))),
                 )
                 .child(
                     div()
@@ -188,31 +270,60 @@ pub mod desktop {
                         .border_1()
                         .border_color(rgb(tokens.gold))
                         .p_2()
-                        .child("Permission request · Allow once · Deny"),
+                        .flex()
+                        .gap_2()
+                        .child(
+                            self.action_button("approval-dock", "Allow once", cx, |slice| {
+                                slice.approval.respond(ApprovalChoice::AllowOnce)
+                            }),
+                        )
+                        .child(self.action_button("approval-deny", "Deny", cx, |slice| {
+                            slice.approval.respond(ApprovalChoice::Deny)
+                        })),
                 )
                 .child(
                     div()
                         .flex()
                         .gap_2()
-                        .child(div().id("composer").flex_1().child("Message composer"))
-                        .child(div().id("queue-action").child("Queue"))
-                        .child(div().id("cancel-action").child("Cancel")),
+                        .child(
+                            div()
+                                .id("composer")
+                                .flex_1()
+                                .child(Input::new(&self.composer).h(px(84.0))),
+                        )
+                        .child(self.action_button("queue-action", "Queue", cx, |slice| {
+                            slice.queue_current_draft()
+                        }))
+                        .child(self.action_button("cancel-action", "Cancel", cx, |slice| {
+                            slice.cancel_stream()
+                        })),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(self.action_button("theme-ice", "Ice light", cx, |slice| {
+                            slice.theme.select(Skin::IceLight, slice.theme.density())
+                        }))
+                        .child(self.action_button("density-comfy", "Comfy", cx, |slice| {
+                            slice.theme.select(slice.theme.skin(), Density::Comfy)
+                        })),
                 )
         }
     }
 
     pub fn run() {
         Application::new().run(|cx: &mut App| {
+            gpui_component::init(cx);
             let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     ..Default::default()
                 },
-                |_, cx| {
-                    cx.new(|_| D1Desktop {
-                        slice: D1Slice::new(ProjectionState::fixture()),
-                    })
+                |window, cx| {
+                    let view = cx.new(|cx| D1Desktop::new(window, cx));
+                    cx.new(|cx| Root::new(view, window, cx))
                 },
             )
             .expect("open Viden GPUI D1 spike window");
