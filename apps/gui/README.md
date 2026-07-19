@@ -39,6 +39,13 @@ D11 first-run intake, D4 lane creation, and D6 recovery/empty states are
 subordinate screens under `docs/viden-design/Viden/GUI/pages/`. They inform the
 operator loop but do not replace D1 as the desktop cockpit baseline.
 
+The deterministic design revision also includes the registered component
+semantics and the local sources actually consumed by these screens:
+`docs/DESIGN-REF.md`, `GUI/gui-kit.css`, `GUI/gui-icons.jsx`,
+`GUI/gui-titlebar.jsx`, `GUI/gui-statusbar.jsx`, `GUI/gui-inbox.jsx`, and
+`GUI/gui-settings.jsx`. The manifest records the exact ordered list; archived
+or mock sources are excluded.
+
 ## Core boundary
 
 GUI code may depend on `viden-core` and GUI-owned framework/platform code only.
@@ -59,20 +66,25 @@ subsequent ordered state events.
 
 | GUI area | Design intent | Core `0.3.0` status | GUI handling |
 | --- | --- | --- | --- |
-| D11 project intake | project probe, recent project/session, provider health, config preview/confirm, starter lanes | Provider/model configuration and provider health exist; project probe/config preview/recent project/starter-lane commands are missing | Block production D11 until Core request `GUI-CORE-001` lands |
+| D11 project intake | project probe, recent project/session, provider health, config preview/confirm, starter lanes | Provider/model configuration and provider health exist; typed intake, recent-history discovery, and starter-lane creation remain separate gaps | Block production D11 until `GUI-CORE-001`, `GUI-CORE-002`, and `GUI-CORE-007` land |
 | D4 lane creation | typed role, route, gate strength, mutation policy, target, budget, worktree preview, lane receipt | Typed lane records exist; no create-lane/worktree-preview/lane-created command is exported | Block production D4 until `GUI-CORE-002` lands |
-| D1 cockpit | activity rail, lane rail, streaming transcript/tool rows, permission dock, worktree board, evidence/gate/context/cost panels, settings entry | Stream/tool/approval/queue/task/lane/evidence/merge/context/cost/preferences facts exist; worktree board, lane lifecycle, diff/apply file facts, and stable audit timeline are incomplete | Task 2/3 may replay fixtures; production D1 waits on `GUI-CORE-002`, `GUI-CORE-003`, and `GUI-CORE-004` |
+| D1 cockpit | activity rail, lane rail, streaming transcript/tool rows, permission dock, worktree board, evidence/gate/context/cost panels, settings entry | Stream/tool/approval/queue/task/lane/evidence/merge/context/cost/preferences facts exist; worktree/lane lifecycle, diff/apply facts, and stable audit timeline are incomplete | Tasks 2-3 may replay fixtures; production D1 waits on `GUI-CORE-002`, `GUI-CORE-003`, `GUI-CORE-004`, and `GUI-CORE-006` |
 | Permission dock | scoped approve/deny, risk, target, expiry, default action, audit id | `ApprovalRequestView` and `RespondToApproval` exist | Usable through Core; GUI cannot execute tools directly |
 | D6 recovery | empty cockpit, connecting, disconnected, agent stopped, budget exhausted, gate queue clear, reconnect/restart/close actions | Runtime errors, CoreClient recovery, context budget facts, queue/gate facts exist; structured connection/lane lifecycle recovery commands are missing | Read-only/error rendering can start; actionable recovery waits on `GUI-CORE-003` |
-| Locale and skin system | `en`/`zh-CN`, Aurora/Ice/Mono/Amber/Phosphor, dark/light constraints, density, motion | `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences` exists with safe fallback diagnostics | GUI renders resolved Core preferences and keeps only local display state |
+| Locale and skin system | `en`/`zh-CN`, Aurora/Ice/Mono/Amber/Phosphor, dark/light constraints, density, motion | `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences` exists with safe fallback diagnostics; mutation and persistence commands do not | GUI renders resolved Core preferences; ephemeral spike controls are allowed, while production controls wait on `GUI-CORE-005` |
 
 Open requests are recorded in [contract-requests.md](contract-requests.md) and
 [contract-requests.zh-CN.md](contract-requests.zh-CN.md). GUI must not close
 those gaps with private reducers or direct runtime access.
+
+The seven open requests block only the production screens named in their
+rows. They do not block the framework-neutral, fixture-only Tasks 2-3 or their
+evidence; no spike result authorizes production mutation or persistence.
 
 ## Next implementation gate
 
 Task 2 builds a framework-neutral replay harness over `CoreClient` and the
 shared `d1-vertical-slice` fixture. It must prove ordered replay, snapshot
 recovery, transcript paging anchors, and projection parity before either Tauri
-or GPUI production code is introduced.
+or GPUI production code is introduced. Task 3 may compare equal candidates on
+the same fixture while Core requests remain open.

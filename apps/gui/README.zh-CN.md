@@ -37,6 +37,11 @@ D11 首启接入、D4 Lane 创建、D6 恢复/空态都是
 `docs/viden-design/Viden/GUI/pages/` 下的从属屏。它们定义操作闭环，但不能替代 D1
 作为桌面驾驶舱基线。
 
+可复现的 design revision 还必须覆盖已登记的组件语义和这些屏幕实际消费的本地源：
+`docs/DESIGN-REF.md`、`GUI/gui-kit.css`、`GUI/gui-icons.jsx`、
+`GUI/gui-titlebar.jsx`、`GUI/gui-statusbar.jsx`、`GUI/gui-inbox.jsx`、
+`GUI/gui-settings.jsx`。Manifest 记录精确有序列表；archive 和 mock 源不计入。
+
 ## Core 边界
 
 GUI 代码只能依赖 `viden-core` 和 GUI 自有框架/平台代码。允许使用的 Core 入口是：
@@ -55,19 +60,23 @@ GUI 禁止导入 `viden_core::legacy`、`viden-runtime`、`viden-provider`、
 
 | GUI 区域 | 设计意图 | Core `0.3.0` 状态 | GUI 处理 |
 | --- | --- | --- | --- |
-| D11 项目接入 | project probe、recent project/session、provider health、config preview/confirm、starter lanes | provider/model 配置和 provider health 已有；project probe/config preview/recent project/starter-lane commands 缺失 | 阻塞生产 D11，等待 Core request `GUI-CORE-001` |
+| D11 项目接入 | project probe、recent project/session、provider health、config preview/confirm、starter lanes | provider/model 配置和 provider health 已有；typed intake、recent-history discovery、starter-lane creation 是三个独立缺口 | 阻塞生产 D11，等待 `GUI-CORE-001`、`GUI-CORE-002`、`GUI-CORE-007` |
 | D4 Lane 创建 | typed role、route、gate strength、mutation policy、target、budget、worktree preview、lane receipt | typed lane records 已有；未导出 create-lane/worktree-preview/lane-created command | 阻塞生产 D4，等待 `GUI-CORE-002` |
-| D1 驾驶舱 | activity rail、lane rail、streaming transcript/tool rows、permission dock、worktree board、evidence/gate/context/cost panels、settings entry | stream/tool/approval/queue/task/lane/evidence/merge/context/cost/preferences facts 已有；worktree board、lane lifecycle、diff/apply file facts、稳定 audit timeline 不完整 | Task 2/3 可做 fixture replay；生产 D1 等待 `GUI-CORE-002`、`GUI-CORE-003`、`GUI-CORE-004` |
+| D1 驾驶舱 | activity rail、lane rail、streaming transcript/tool rows、permission dock、worktree board、evidence/gate/context/cost panels、settings entry | stream/tool/approval/queue/task/lane/evidence/merge/context/cost/preferences facts 已有；worktree/lane lifecycle、diff/apply facts、稳定 audit timeline 不完整 | Task 2-3 可做 fixture replay；生产 D1 等待 `GUI-CORE-002`、`GUI-CORE-003`、`GUI-CORE-004`、`GUI-CORE-006` |
 | Permission dock | scoped approve/deny、risk、target、expiry、default action、audit id | `ApprovalRequestView` 和 `RespondToApproval` 已有 | 可经 Core 使用；GUI 不得直接执行 tool |
 | D6 恢复 | 空 cockpit、连接中、断连、agent stopped、budget exhausted、gate queue clear、reconnect/restart/close actions | Runtime errors、CoreClient recovery、context budget facts、queue/gate facts 已有；结构化 connection/lane lifecycle recovery commands 缺失 | 可先做只读/错误呈现；可操作恢复等待 `GUI-CORE-003` |
-| Locale 与换肤 | `en`/`zh-CN`、Aurora/Ice/Mono/Amber/Phosphor、明暗约束、density、motion | 已有 `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences` 和安全回退诊断 | GUI 渲染 Core resolved preferences，仅保留本地显示状态 |
+| Locale 与换肤 | `en`/`zh-CN`、Aurora/Ice/Mono/Amber/Phosphor、明暗约束、density、motion | 已有 `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences` 和安全回退诊断；缺 mutation/persistence commands | GUI 渲染 Core resolved preferences；spike 可用 ephemeral 控件，生产控件等待 `GUI-CORE-005` |
 
 开放请求记录在 [contract-requests.md](contract-requests.md) 和
 [contract-requests.zh-CN.md](contract-requests.zh-CN.md)。GUI 不得用私有 reducer 或直接访问
 runtime 来绕开这些缺口。
 
+当前 7 个开放请求只阻塞各自点名的生产屏，不阻塞 framework-neutral、fixture-only 的
+Task 2-3 及其证据；spike 结果不能授权生产 mutation 或 persistence。
+
 ## 下一实施门
 
 Task 2 会在 `CoreClient` 和共享 `d1-vertical-slice` fixture 之上建立 framework-neutral
 replay harness。它必须先证明有序 replay、snapshot recovery、transcript paging anchor
-和 projection parity，之后才能引入 Tauri 或 GPUI 的生产代码。
+和 projection parity，之后才能引入 Tauri 或 GPUI 的生产代码。Core 请求未关闭时，Task 3
+仍可在同一 fixture 上比较等价候选。

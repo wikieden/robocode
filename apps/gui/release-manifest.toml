@@ -81,9 +81,18 @@ subordinate_pages = [
   "docs/viden-design/Viden/GUI/pages/Viden - D4 Lane创建流程 (GUI).html",
   "docs/viden-design/Viden/GUI/pages/Viden - D6 空态与错误态 (GUI).html",
 ]
-design_source_revision_sha256 = "2693198cefb5760e0f892c448ab9499076d8821554a986f7581862dfebeacdcb"
-revision_algorithm = "sha256(path + NUL + bytes + NUL for hierarchy and subordinate_pages in order)"
+semantic_sources = [
+  "docs/viden-design/Viden/docs/DESIGN-REF.md",
+  "docs/viden-design/Viden/GUI/gui-kit.css",
+  "docs/viden-design/Viden/GUI/gui-icons.jsx",
+  "docs/viden-design/Viden/GUI/gui-titlebar.jsx",
+  "docs/viden-design/Viden/GUI/gui-statusbar.jsx",
+  "docs/viden-design/Viden/GUI/gui-inbox.jsx",
+  "docs/viden-design/Viden/GUI/gui-settings.jsx",
+]
+design_source_revision_sha256 = "5f7a39d10762eaf7c6433599812a6d20c38aa8a1d66c5e0bde3a8bdd0d9fd0f6"
+revision_algorithm = "sha256(path + NUL + bytes + NUL for hierarchy, subordinate_pages, and semantic_sources in order)"
 
 [contract_requests]
-open_count = 4
+open_count = 7
 source = "apps/gui/contract-requests.md"
