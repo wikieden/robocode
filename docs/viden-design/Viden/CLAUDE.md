@@ -23,6 +23,9 @@
 - **GUI** —— 桌面客户端版本(Rust + Tauri,多栏窗口)。
 
 技术栈:核心 **Rust**;GUI **Rust + Tauri**。UI 设计阶段,以 HTML 高保真稿沉淀规范。
+`0.1.0-alpha.1` framework gate 已用同一 Core fixture 的 Tauri/GPUI spike 证据选择
+**Tauri** 作为唯一 production baseline;GPUI 仅保留为对比 spike。该选择不豁免 Tauri
+后续真实 IME/可访问性、三平台、性能、交付与恢复门禁。
 
 核心场景:
 - **会话主屏 / 多 lane**:在一个驾驶舱里编排多个 agent,看转录、实时工作(LIVE WORK)、活动任务。

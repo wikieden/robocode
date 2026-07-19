@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "framework": "gpui",
+  "component_version": "0.1.0-alpha.1",
+  "generated_at_utc": "2026-07-19T19:36:32.901852+00:00",
+  "fixture": {
+    "path": "crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json",
+    "sha256": "d8dc7a14d2f4a16ff6ebbab27a6760fbf0a22bce3a3dc74e98d46c248a71df5e",
+    "projection_sha256": "7dd8faf04cca9f3013198e25823894eae91c2869e27087aa1eb0a34890cdf804"
+  },
+  "host": {
+    "os": "Darwin",
+    "arch": "arm64",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14) (Homebrew)",
+    "node": "v22.23.1",
+    "python": "Python 3.9.6"
+  },
+  "commands": [
+    {
+      "name": "shared-ordered-events",
+      "command": "python3 /Users/wiki/Documents/GitHub/viden/.worktrees/v3-gui-client/apps/gui/tools/verify-framework-fixture.py /Users/wiki/Documents/GitHub/viden/.worktrees/v3-gui-client/crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json /Users/wiki/Documents/GitHub/viden/.worktrees/v3-gui-client/crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json && cargo test --manifest-path apps/gui/spikes/Cargo.toml -p viden-gui-spike-common --test replay ten_thousand_fixture_events_preserve_cursor_and_content_identity -- --exact",
+      "status": "pass",
+      "exit_code": 0,
+      "output_tail": [
+        "verified fixture_id=d1-vertical-slice sha256=d8dc7a14d2f4a16ff6ebbab27a6760fbf0a22bce3a3dc74e98d46c248a71df5e projection_sha256=7dd8faf04cca9f3013198e25823894eae91c2869e27087aa1eb0a34890cdf804",
+        "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s",
+        "     Running tests/replay.rs (apps/gui/spikes/target/debug/deps/replay-3755397f82d7c6b3)",
+        "",
+        "running 1 test",
+        "test ten_thousand_fixture_events_preserve_cursor_and_content_identity ... ok",
+        "",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.03s",
+        ""
+      ]
+    },
+    {
+      "name": "shared-transcript-rows",
+      "command": "python3 /Users/wiki/Documents/GitHub/viden/.worktrees/v3-gui-client/apps/gui/tools/verify-framework-fixture.py /Users/wiki/Documents/GitHub/viden/.worktrees/v3-gui-client/crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json /Users/wiki/Documents/GitHub/viden/.worktrees/v3-gui-client/crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json && cargo test --manifest-path apps/gui/spikes/Cargo.toml -p viden-gui-spike-common --test replay fifty_thousand_rows_round_trip_every_page_without_caching_row_history -- --exact",
+      "status": "pass",
+      "exit_code": 0,
+      "output_tail": [
+        "verified fixture_id=d1-vertical-slice sha256=d8dc7a14d2f4a16ff6ebbab27a6760fbf0a22bce3a3dc74e98d46c248a71df5e projection_sha256=7dd8faf04cca9f3013198e25823894eae91c2869e27087aa1eb0a34890cdf804",
+        "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s",
+        "     Running tests/replay.rs (apps/gui/spikes/target/debug/deps/replay-3755397f82d7c6b3)",
+        "",
+        "running 1 test",
+        "test fifty_thousand_rows_round_trip_every_page_without_caching_row_history ... ok",
+        "",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 1.14s",
+        ""
+      ]
+    },
+    {
+      "name": "candidate-tests",
+      "command": "python3 /Users/wiki/Documents/GitHub/viden/.worktrees/v3-gui-client/apps/gui/tools/verify-framework-fixture.py /Users/wiki/Documents/GitHub/viden/.worktrees/v3-gui-client/crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json /Users/wiki/Documents/GitHub/viden/.worktrees/v3-gui-client/crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json && cargo test --manifest-path apps/gui/spikes/Cargo.toml -p viden-gui-spike-gpui",
+      "status": "pass",
+      "exit_code": 0,
+      "output_tail": [
+        "verified fixture_id=d1-vertical-slice sha256=d8dc7a14d2f4a16ff6ebbab27a6760fbf0a22bce3a3dc74e98d46c248a71df5e projection_sha256=7dd8faf04cca9f3013198e25823894eae91c2869e27087aa1eb0a34890cdf804",
+        "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s",
+        "     Running unittests src/lib.rs (apps/gui/spikes/target/debug/deps/viden_gui_spike_gpui-da824a357450998c)",
+        "",
+        "running 0 tests",
+        "",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "",
+        "     Running unittests src/main.rs (apps/gui/spikes/target/debug/deps/viden_gui_spike_gpui-bcceab8e5120b86b)",
+        "",
+        "running 0 tests",
+        "",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "",
+        "     Running tests/d1_slice.rs (apps/gui/spikes/target/debug/deps/d1_slice-7534be0c0b918d7f)",
+        "",
+        "running 6 tests",
+        "test theme_tokens_are_generated_from_the_design_source ... ok",
+        "test d1_slice_action_log_and_projection_hash_match_the_shared_contract ... ok",
+        "test d1_slice_exposes_both_skins_and_all_density_choices ... ok",
+        "test d1_slice_supports_denial_and_keyboard_only_focus_traversal ... ok",
+        "test d1_slice_accepts_committed_framework_input_without_replaying_composition_state ... ok",
+        "test d1_slice_supports_cjk_streaming_approval_history_and_accessible_focus ... ok",
+        "",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "",
+        "   Doc-tests viden_gui_spike_gpui",
+        "",
+        "running 0 tests",
+        "",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        ""
+      ]
+    },
+    {
+      "name": "native-build",
+      "command": "cargo build --manifest-path apps/gui/spikes/Cargo.toml -p viden-gui-spike-gpui",
+      "status": "pass",
+      "exit_code": 0,
+      "output_tail": [
+        "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s"
+      ]
+    },
+    {
+      "name": "native-launch",
+      "command": "python3 /Users/wiki/Documents/GitHub/viden/.worktrees/v3-gui-client/apps/gui/tools/check-process-survival.py 5 /Users/wiki/Documents/GitHub/viden/.worktrees/v3-gui-client/apps/gui/spikes/target/debug/viden-gui-spike-gpui",
+      "status": "pass",
+      "exit_code": 0,
+      "output_tail": [
+        "process remained alive for the required 5.000s (5.010s observed)"
+      ]
+    }
+  ],
+  "measurements": {
+    "composer_input_p95_ms": {
+      "status": "unavailable",
+      "value": null,
+      "unit": "ms",
+      "threshold": {
+        "operator": "lt",
+        "value": 50,
+        "unit": "ms"
+      },
+      "evidence": []
+    },
+    "event_to_visible_p95_ms": {
+      "status": "unavailable",
+      "value": null,
+      "unit": "ms",
+      "threshold": {
+        "operator": "lt",
+        "value": 100,
+        "unit": "ms"
+      },
+      "evidence": []
+    },
+    "frame_work_p95_ms": {
+      "status": "unavailable",
+      "value": null,
+      "unit": "ms",
+      "threshold": {
+        "operator": "lt",
+        "value": 16,
+        "unit": "ms"
+      },
+      "evidence": []
+    },
+    "ordered_event_count": {
+      "status": "pass",
+      "value": 10000,
+      "unit": "events",
+      "threshold": {
+        "operator": "gte",
+        "value": 10000,
+        "unit": "events"
+      },
+      "evidence": [
+        "command:shared-ordered-events"
+      ]
+    },
+    "transcript_row_count": {
+      "status": "pass",
+      "value": 50000,
+      "unit": "rows",
+      "threshold": {
+        "operator": "gte",
+        "value": 50000,
+        "unit": "rows"
+      },
+      "evidence": [
+        "command:shared-transcript-rows"
+      ]
+    }
+  },
+  "hard_gates": {
+    "d1_slice_parity": {
+      "status": "pass",
+      "summary": "The candidate reproduces the shared D1 projection and interaction contract.",
+      "evidence": [
+        "command:candidate-tests"
+      ]
+    },
+    "cjk_ime": {
+      "status": "partial",
+      "summary": "Framework composition tests pass, but no native operating-system IME injection was captured.",
+      "evidence": [
+        "command:candidate-tests"
+      ]
+    },
+    "keyboard_only": {
+      "status": "partial",
+      "summary": "Framework focus traversal tests pass, but no full native-window keyboard run was captured.",
+      "evidence": [
+        "command:candidate-tests"
+      ]
+    },
+    "screen_reader": {
+      "status": "unavailable",
+      "summary": "No screen-reader semantics run was captured.",
+      "evidence": []
+    },
+    "macos_build_launch": {
+      "status": "pass",
+      "summary": "The debug desktop binary built and remained alive for a five-second macOS launch smoke.",
+      "evidence": [
+        "command:native-build",
+        "command:native-launch"
+      ]
+    },
+    "linux_build_launch": {
+      "status": "unavailable",
+      "summary": "No Linux build and launch run was captured.",
+      "evidence": []
+    },
+    "windows_build_launch": {
+      "status": "unavailable",
+      "summary": "No Windows build and launch run was captured.",
+      "evidence": []
+    },
+    "bounded_transcript_rendering": {
+      "status": "partial",
+      "summary": "Shared Core paging stays bounded at 50,000 rows; framework rendering was not instrumented.",
+      "evidence": [
+        "command:shared-transcript-rows"
+      ]
+    },
+    "bounded_soak": {
+      "status": "unavailable",
+      "summary": "No bounded-duration native soak was captured.",
+      "evidence": []
+    },
+    "idle_cpu_near_zero": {
+      "status": "unavailable",
+      "summary": "No native idle CPU sample was captured.",
+      "evidence": []
+    },
+    "no_long_lived_framework_fork": {
+      "status": "pass",
+      "summary": "The spike uses released framework packages and carries no repository patch or fork.",
+      "evidence": [
+        "file:apps/gui/spikes/gpui/Cargo.toml"
+      ]
+    },
+    "visual_parity": {
+      "status": "unavailable",
+      "summary": "No repeatable live D1 screenshot comparison was captured.",
+      "evidence": []
+    },
+    "signing": {
+      "status": "unavailable",
+      "summary": "No signed artifact was produced.",
+      "evidence": []
+    },
+    "updater": {
+      "status": "unavailable",
+      "summary": "No updater path was exercised.",
+      "evidence": []
+    },
+    "credential_storage": {
+      "status": "unavailable",
+      "summary": "No OS credential-store path was exercised.",
+      "evidence": []
+    },
+    "crash_recovery": {
+      "status": "unavailable",
+      "summary": "No native crash/restart recovery run was captured.",
+      "evidence": []
+    }
+  }
+}

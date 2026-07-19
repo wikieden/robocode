@@ -20,6 +20,12 @@
 
 ---
 
+## 2026-07-20
+- [GUI][文档] **`0.1.0-alpha.1` framework gate 定档 Tauri 为唯一 production baseline**:
+  - Tauri/GPUI 均通过同一 D1 fixture 功能 parity、10k event 顺序、共享 50k paging 与本机 macOS build/launch smoke;fixture 身份/摘要绑定到实际 test command，launch 须完整存活 5 秒，机读 JSON 保留精确命令、exit code 与 host/tool version。
+  - GPUI 因 p95、真实 IME/可访问性、Linux/Windows、framework rendering、soak/CPU、视觉与交付恢复证据缺失触发 hard rule no-go;缺失项未用估算伪造。
+  - GPUI 仅保留 comparison spike;Task 5 只启动 Tauri production shell,Tauri 同类缺口继续作为后续 release blocker。
+
 ## 2026-07-06
 - [GUI][文档] **对齐 robocode 最新 runtime 契约(0.2.2 收口 + frontend-integration-contract + 2026-07-04 编排评审)——GUI 稿 6 项调整**:
   - **gate_strength 门控硬度**(D-GATESTR·新):lane 契约一等事实常显 `●full/◐coop/○containment`——D1 `.viab .gs`(route chip 内前缀)、D10 `.lc .gsb`、D13 fleet GNode(glyph+FULL/COOP/CTN);gui-kit `.wslane .viab .gs` 登记。
