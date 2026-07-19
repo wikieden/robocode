@@ -67,6 +67,12 @@ Core 负责 Lane 权限判定，并在每个 Lane 命令前从当前 runtime mod
 arguments、environment、input 和 diff payload。重启时，处于 starting、running 或等待
 审批状态的 Lane 会恢复为 blocked recovery fact，并继续绑定其持久化 session owner。
 
+审批响应与 permission/mode 变更共用 supervisor command queue，因此排队中的权限降级会
+先于 Lane mutation 恢复生效。审批产生的 session/repository allow rule 会在常规权威权限
+刷新后保留，但 Plan/ReadOnly 刷新会立即丢弃这些 rule。Create 与 Lane 状态迁移和其他
+持久化 effect 使用同一 permission 与 mutation-policy gate。终态 worker 通过 completion
+reaper 自动注销并 join，不需要等待下一条 Lane 命令。
+
 ## Client 边界
 
 前端 client 只能使用 `CoreClient` 和 `viden-core` 重导出的 protocol/view contracts。

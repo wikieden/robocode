@@ -77,6 +77,14 @@ argument, environment, input, and diff payloads. Interrupted starting, running,
 or approval-waiting lanes hydrate as blocked recovery facts and remain bound to
 their durable session owner.
 
+Approval responses share the supervisor command queue with permission and mode
+changes, so a queued downgrade takes effect before a lane mutation resumes.
+Approval-derived session/repository allow rules survive normal authoritative
+permission refreshes, but Plan/ReadOnly refreshes discard them immediately.
+Create and lane status transitions follow the same permission and mutation-policy
+gate as other durable effects. Terminal workers unregister and join through the
+completion reaper without waiting for another lane command.
+
 ## Client Boundary
 
 Frontend clients use only `CoreClient` and protocol/view contracts re-exported

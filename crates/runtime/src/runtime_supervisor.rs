@@ -182,6 +182,12 @@ enum SupervisorMessage {
         audit_id: String,
         job: Box<ContextRetrievalJob>,
     },
+    LaneApprovalResponse {
+        owner: RuntimeOwner,
+        command_id: String,
+        request_id: String,
+        response: ApprovalResponse,
+    },
     Snapshot {
         response: Sender<Result<RuntimeSnapshotEnvelope, String>>,
     },
@@ -371,6 +377,11 @@ impl RuntimeSupervisor {
         self.lane_supervisor.worker_finished_for_test(lane_id)
     }
 
+    #[cfg(test)]
+    pub(crate) fn active_lane_worker_count_for_test(&self) -> usize {
+        self.lane_supervisor.active_worker_count_for_test()
+    }
+
     pub fn send_command(
         &self,
         command_id: impl Into<String>,
@@ -469,28 +480,28 @@ impl RuntimeSupervisor {
                 request_id,
                 response,
             } => {
-                if let Some(accepted) = self.lane_supervisor.respond_to_approval(
-                    &owner,
-                    &command_id,
-                    &request_id,
-                    response.clone(),
-                )? {
-                    if !accepted {
+                if let Some(pending_owner) =
+                    self.lane_supervisor.pending_approval_owner(&request_id)?
+                {
+                    if pending_owner != owner {
+                        emit_event(
+                            &self.event_bus,
+                            owner,
+                            RuntimeEventKind::CommandRejected {
+                                command_id,
+                                reason: format!("approval request `{request_id}` owner mismatch"),
+                            },
+                        );
                         return Ok(());
                     }
-                    emit_event(
-                        &self.event_bus,
-                        owner.clone(),
-                        RuntimeEventKind::CommandAccepted {
+                    self.commands
+                        .send(SupervisorMessage::LaneApprovalResponse {
+                            owner,
                             command_id,
-                            command: redacted_runtime_command_for_event(
-                                &RuntimeCommand::RespondToApproval {
-                                    request_id,
-                                    response,
-                                },
-                            ),
-                        },
-                    );
+                            request_id,
+                            response,
+                        })
+                        .map_err(|err| format!("runtime supervisor stopped: {err}"))?;
                     return Ok(());
                 }
                 let pending = {
@@ -913,6 +924,49 @@ fn run_supervisor_worker(
                     emit_error(&event_bus, RuntimeOwner::default(), error);
                 }
             }
+            SupervisorMessage::LaneApprovalResponse {
+                owner,
+                command_id,
+                request_id,
+                response,
+            } => {
+                if let Err(error) =
+                    lane_supervisor.sync_permissions(engine.lane_permission_engine())
+                {
+                    emit_error(&event_bus, owner, error);
+                    continue;
+                }
+                match lane_supervisor.respond_to_approval(
+                    &owner,
+                    &command_id,
+                    &request_id,
+                    response.clone(),
+                ) {
+                    Ok(Some(true)) => emit_event(
+                        &event_bus,
+                        owner,
+                        RuntimeEventKind::CommandAccepted {
+                            command_id,
+                            command: redacted_runtime_command_for_event(
+                                &RuntimeCommand::RespondToApproval {
+                                    request_id,
+                                    response,
+                                },
+                            ),
+                        },
+                    ),
+                    Ok(Some(false)) => {}
+                    Ok(None) => emit_event(
+                        &event_bus,
+                        owner,
+                        RuntimeEventKind::CommandRejected {
+                            command_id,
+                            reason: format!("approval request `{request_id}` is not pending"),
+                        },
+                    ),
+                    Err(error) => emit_error(&event_bus, owner, error),
+                }
+            }
             SupervisorMessage::ResumeContextRetrieval {
                 owner_id,
                 request_id,
@@ -1095,9 +1149,6 @@ fn run_supervised_context_retrieval(
             );
             insert_pending_approval(
                 shared.pending_approvals,
-                shared.event_bus,
-                shared.active_control,
-                shared.approval_timers,
                 approval.id.clone(),
                 PendingApproval {
                     owner: approval.owner.clone(),
@@ -1113,7 +1164,17 @@ fn run_supervised_context_retrieval(
             emit_event(
                 shared.event_bus,
                 owner,
-                RuntimeEventKind::ApprovalRequested { approval },
+                RuntimeEventKind::ApprovalRequested {
+                    approval: approval.clone(),
+                },
+            );
+            schedule_approval_expiry(
+                approval.id,
+                approval.expires_at,
+                shared.event_bus,
+                shared.active_control,
+                shared.pending_approvals,
+                shared.approval_timers,
             );
         }
     }
@@ -1231,24 +1292,12 @@ fn mark_active_pending(
 
 fn insert_pending_approval(
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
-    event_bus: &RuntimeEventBus,
-    active_control: &ActiveControlRegistry,
-    approval_timers: &Arc<ApprovalTimerRegistry>,
     request_id: String,
     pending: PendingApproval,
 ) {
-    let expires_at = pending.expires_at;
     if let Ok(mut approvals) = pending_approvals.lock() {
-        approvals.insert(request_id.clone(), pending);
+        approvals.insert(request_id, pending);
     }
-    schedule_approval_expiry(
-        request_id,
-        expires_at,
-        event_bus,
-        active_control,
-        pending_approvals,
-        approval_timers,
-    );
 }
 
 fn schedule_approval_expiry(
@@ -1486,9 +1535,6 @@ fn run_supervised_agent_task(
         let _ = mark_active_pending(active_control, &command_id, request_id.clone());
         insert_pending_approval(
             pending_approvals,
-            event_bus,
-            active_control,
-            approval_timers,
             request_id.clone(),
             PendingApproval {
                 owner: approval.owner.clone(),
@@ -1507,6 +1553,14 @@ fn run_supervised_agent_task(
             RuntimeEventKind::ApprovalRequested {
                 approval: approval.clone(),
             },
+        );
+        schedule_approval_expiry(
+            request_id.clone(),
+            approval.expires_at,
+            event_bus,
+            active_control,
+            pending_approvals,
+            approval_timers,
         );
         approval_receiver
             .recv()
@@ -1572,9 +1626,6 @@ fn run_supervised_input(
         let _ = mark_active_pending(active_control, &command_id, request_id.clone());
         insert_pending_approval(
             pending_approvals,
-            event_bus,
-            active_control,
-            approval_timers,
             request_id.clone(),
             PendingApproval {
                 owner: approval.owner.clone(),
@@ -1593,6 +1644,14 @@ fn run_supervised_input(
             RuntimeEventKind::ApprovalRequested {
                 approval: approval.clone(),
             },
+        );
+        schedule_approval_expiry(
+            request_id.clone(),
+            approval.expires_at,
+            event_bus,
+            active_control,
+            pending_approvals,
+            approval_timers,
         );
         approval_receiver
             .recv()

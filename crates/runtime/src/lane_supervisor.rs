@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread::{self, JoinHandle};
 
 use viden_permissions::PermissionEngine;
 use viden_types::{
-    AgentLaneRecord, ApprovalResponse, RuntimeCommand, RuntimeEventKind, RuntimeOwner, WorkMode,
-    fresh_id, now_timestamp,
+    AgentLaneRecord, ApprovalResponse, PermissionMode, PermissionRuleSource, RuntimeCommand,
+    RuntimeEventKind, RuntimeOwner, WorkMode, fresh_id, now_timestamp,
 };
 use viden_workflows::{
     lanes::{LaneEvent, LaneEventKind},
@@ -63,9 +64,11 @@ pub(crate) struct LaneSupervisor {
     events: LaneEventSink,
     work_mode: Arc<dyn Fn() -> WorkMode + Send + Sync>,
     approval_ttl_secs: u64,
-    lanes: Mutex<BTreeMap<String, LaneWorkerHandle>>,
-    hydrated_lanes: Mutex<BTreeMap<String, AgentLaneRecord>>,
-    terminal_lanes: Mutex<BTreeMap<String, LaneTerminalKind>>,
+    lanes: Arc<Mutex<BTreeMap<String, LaneWorkerHandle>>>,
+    hydrated_lanes: Arc<Mutex<BTreeMap<String, AgentLaneRecord>>>,
+    terminal_lanes: Arc<Mutex<BTreeMap<String, LaneTerminalKind>>>,
+    terminal_sender: Option<mpsc::Sender<crate::lane_worker::LaneTerminalCompletion>>,
+    terminal_reaper: Option<JoinHandle<()>>,
     hydration_recoveries: Vec<AgentLaneRecord>,
     hydration_error: Option<String>,
 }
@@ -118,7 +121,7 @@ impl LaneSupervisor {
                 hydration_recoveries.push(lane.clone());
             }
         }
-        let terminal_lanes = hydrated_lanes
+        let terminal_lanes: BTreeMap<String, LaneTerminalKind> = hydrated_lanes
             .iter()
             .filter(|(_, lane)| lane.status == viden_types::LaneStatus::Archived)
             .map(|(lane_id, lane)| {
@@ -130,6 +133,28 @@ impl LaneSupervisor {
                 (lane_id.clone(), kind)
             })
             .collect();
+        let lanes = Arc::new(Mutex::new(BTreeMap::new()));
+        let hydrated_lanes = Arc::new(Mutex::new(hydrated_lanes));
+        let terminal_lanes = Arc::new(Mutex::new(terminal_lanes));
+        let (terminal_sender, terminal_receiver) =
+            mpsc::channel::<crate::lane_worker::LaneTerminalCompletion>();
+        let reaper_lanes = Arc::clone(&lanes);
+        let reaper_hydrated = Arc::clone(&hydrated_lanes);
+        let reaper_terminal = Arc::clone(&terminal_lanes);
+        let terminal_reaper = thread::spawn(move || {
+            while let Ok(completion) = terminal_receiver.recv() {
+                let lane_id = completion.lane.id.clone();
+                if let Ok(mut hydrated) = reaper_hydrated.lock() {
+                    hydrated.insert(lane_id.clone(), completion.lane);
+                }
+                if let Ok(mut terminal) = reaper_terminal.lock() {
+                    terminal.insert(lane_id.clone(), completion.kind);
+                }
+                if let Ok(mut lanes) = reaper_lanes.lock() {
+                    lanes.remove(&lane_id);
+                }
+            }
+        });
         Self {
             repo,
             persistence,
@@ -138,9 +163,11 @@ impl LaneSupervisor {
             events,
             work_mode,
             approval_ttl_secs,
-            lanes: Mutex::new(BTreeMap::new()),
-            hydrated_lanes: Mutex::new(hydrated_lanes),
-            terminal_lanes: Mutex::new(terminal_lanes),
+            lanes,
+            hydrated_lanes,
+            terminal_lanes,
+            terminal_sender: Some(terminal_sender),
+            terminal_reaper: Some(terminal_reaper),
             hydration_recoveries,
             hydration_error,
         }
@@ -169,11 +196,28 @@ impl LaneSupervisor {
         &self.hydration_recoveries
     }
 
-    pub(crate) fn sync_permissions(&self, permissions: PermissionEngine) -> Result<(), String> {
-        *self
+    pub(crate) fn sync_permissions(&self, mut permissions: PermissionEngine) -> Result<(), String> {
+        let mut installed = self
             .permissions
             .lock()
-            .map_err(|_| "lane permission registry poisoned".to_string())? = permissions;
+            .map_err(|_| "lane permission registry poisoned".to_string())?;
+        let approved_rules = installed
+            .context_snapshot()
+            .allow_rules
+            .into_iter()
+            .filter(|rule| rule.source == PermissionRuleSource::Session);
+        let mut context = permissions.context_snapshot();
+        // Approval-derived allow rules belong to the lane permission session, while a
+        // fresh Plan/ReadOnly snapshot must tighten immediately and discard them.
+        if context.mode != PermissionMode::Plan {
+            for rule in approved_rules {
+                if !context.allow_rules.contains(&rule) {
+                    context.allow_rules.push(rule);
+                }
+            }
+        }
+        permissions.restore_context(context);
+        *installed = permissions;
         Ok(())
     }
 
@@ -184,6 +228,14 @@ impl LaneSupervisor {
             .ok()
             .and_then(|lanes| lanes.get(lane_id).map(LaneWorkerHandle::is_finished))
             .unwrap_or(true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_worker_count_for_test(&self) -> usize {
+        self.lanes
+            .lock()
+            .map(|lanes| lanes.len())
+            .unwrap_or_default()
     }
 
     pub(crate) fn send(
@@ -280,6 +332,10 @@ impl LaneSupervisor {
                         Arc::clone(&self.events),
                         self.approval_ttl_secs,
                         true,
+                        self.terminal_sender
+                            .as_ref()
+                            .expect("lane terminal reaper sender")
+                            .clone(),
                     ),
                 );
             }
@@ -344,6 +400,19 @@ impl LaneSupervisor {
             response,
         })?;
         Ok(Some(true))
+    }
+
+    pub(crate) fn pending_approval_owner(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<RuntimeOwner>, String> {
+        Ok(self
+            .lanes
+            .lock()
+            .map_err(|_| "lane registry poisoned".to_string())?
+            .values()
+            .find(|worker| worker.owns_pending_approval(request_id))
+            .map(|worker| worker.owner.clone()))
     }
 
     pub(crate) fn cancel(&self, owner: &RuntimeOwner, command_id: String) -> Result<bool, String> {
@@ -439,6 +508,10 @@ impl LaneSupervisor {
             Arc::clone(&self.events),
             self.approval_ttl_secs,
             false,
+            self.terminal_sender
+                .as_ref()
+                .expect("lane terminal reaper sender")
+                .clone(),
         );
         worker.send(LaneWorkerMessage::Command {
             command_id,
@@ -499,6 +572,18 @@ impl LaneSupervisor {
             lanes.remove(&lane_id);
         }
         Ok(())
+    }
+}
+
+impl Drop for LaneSupervisor {
+    fn drop(&mut self) {
+        if let Ok(mut lanes) = self.lanes.lock() {
+            lanes.clear();
+        }
+        self.terminal_sender.take();
+        if let Some(reaper) = self.terminal_reaper.take() {
+            let _ = reaper.join();
+        }
     }
 }
 

@@ -211,7 +211,9 @@ impl<'de> Deserialize<'de> for RuntimeWireEvent {
         if is_known_runtime_event_type(event_type) {
             match serde_json::from_value(raw.clone()) {
                 Ok(event) => return Ok(Self::Known(event)),
-                Err(error) if event_type != "command_accepted" => {
+                Err(error)
+                    if !matches!(event_type, "command_accepted" | "lane_command_accepted") =>
+                {
                     return Err(serde::de::Error::custom(error));
                 }
                 Err(_) => {
