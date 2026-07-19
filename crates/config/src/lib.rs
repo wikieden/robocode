@@ -10,8 +10,17 @@ use viden_types::{
 };
 
 mod project;
+mod ui_preferences;
 
 pub use project::{ProjectFileConfig, parse_project_config};
+pub use ui_preferences::{
+    UiPreferenceFileState, preview_reset_user_ui_preferences_at, preview_user_ui_preferences_at,
+    reset_user_ui_preferences_at, resolve_user_ui_preferences_at, save_user_ui_preferences_at,
+};
+#[cfg(test)]
+pub(crate) use ui_preferences::{
+    UiPreferenceWriteFailure, save_user_ui_preferences_at_with_failure,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct CliOverrides {
@@ -144,6 +153,38 @@ pub fn default_user_config_path() -> Result<PathBuf, String> {
         "Cannot determine Viden config path; set VIDEN_CONFIG or HOME/APPDATA/XDG_CONFIG_HOME"
             .to_string()
     })
+}
+
+pub fn user_ui_config_path(
+    cwd: &Path,
+    config_path_override: Option<&Path>,
+) -> Result<PathBuf, String> {
+    user_ui_config_path_with_env(cwd, config_path_override, &|key| std::env::var(key).ok())
+}
+
+fn user_ui_config_path_with_env<F>(
+    cwd: &Path,
+    config_path_override: Option<&Path>,
+    env_lookup: &F,
+) -> Result<PathBuf, String>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let selected = config_path_override
+        .map(Path::to_path_buf)
+        .or_else(|| env_lookup("VIDEN_CONFIG").map(PathBuf::from));
+    if let Some(path) = selected
+        && !is_project_config_path(cwd, &path)
+    {
+        return Ok(path);
+    }
+    default_config_path(env_lookup).ok_or_else(|| {
+        "Cannot determine Viden UI config path; set HOME/APPDATA/XDG_CONFIG_HOME".to_string()
+    })
+}
+
+pub fn system_ui_preferences() -> UiPreferences {
+    system_ui_preferences_with_env(&|key| std::env::var(key).ok())
 }
 
 pub fn save_user_provider_model_defaults(provider: &str, model: &str) -> Result<PathBuf, String> {
@@ -431,16 +472,13 @@ where
     let mut loaded_files = Vec::new();
     let mut merged_providers = ProvidersFileConfig::default();
     let mut user_ui = None;
-    let mut project_ui = None;
 
-    // UI preferences are personal state: project config may provide a default,
-    // but it must never participate in the normal project-over-user merge.
+    // UI preferences are personal state. Project config remains available for
+    // project/provider policy, but its `[ui]` table never enters this chain.
     for path in config_paths(cwd, cli, env_lookup)? {
         if let Some(file_config) = read_config_file(&path, env_lookup)? {
             let ui_source = ui_source_from_file_config(&file_config);
-            if is_project_config_path(cwd, &path) {
-                project_ui = ui_source;
-            } else {
+            if !is_project_config_path(cwd, &path) {
                 user_ui = ui_source;
             }
             if let Some(providers) = file_config.providers.clone() {
@@ -457,13 +495,7 @@ where
     apply_provider_specific_env_config(&mut resolved, env_lookup);
     apply_provider_scoped_config(&mut resolved, &provider, &merged_providers, env_lookup);
     apply_cli_config(&mut resolved, cli);
-    let client_ui = UiPreferences {
-        locale: detect_system_locale(env_lookup),
-        skin: UiSkin::Aurora,
-        mode: UiColorMode::System,
-        density: UiDensity::Regular,
-        motion: UiMotion::System,
-    };
+    let client_ui = system_ui_preferences_with_env(env_lookup);
     let selected_ui = cli
         .ui
         .map(|profile| UiPreferenceSource {
@@ -471,7 +503,6 @@ where
             diagnostic: None,
         })
         .or(user_ui)
-        .or(project_ui)
         .unwrap_or(UiPreferenceSource {
             profile: client_ui,
             diagnostic: None,
@@ -490,6 +521,19 @@ where
     resolved.ui_diagnostics = resolved.ui.diagnostics.clone();
     resolved.loaded_files = loaded_files;
     Ok(resolved)
+}
+
+fn system_ui_preferences_with_env<F>(env_lookup: &F) -> UiPreferences
+where
+    F: Fn(&str) -> Option<String>,
+{
+    UiPreferences {
+        locale: detect_system_locale(env_lookup),
+        skin: UiSkin::Aurora,
+        mode: UiColorMode::System,
+        density: UiDensity::Regular,
+        motion: UiMotion::System,
+    }
 }
 
 fn config_paths<F>(cwd: &Path, cli: &CliOverrides, env_lookup: &F) -> Result<Vec<PathBuf>, String>
@@ -751,7 +795,17 @@ where
 }
 
 fn is_project_config_path(cwd: &Path, path: &Path) -> bool {
-    path == cwd.join(".viden").join("config.toml")
+    let project_path = cwd.join(".viden").join("config.toml");
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    };
+    candidate == project_path
+        || fs::canonicalize(&candidate)
+            .ok()
+            .zip(fs::canonicalize(project_path).ok())
+            .is_some_and(|(candidate, project)| candidate == project)
 }
 
 fn apply_file_config(

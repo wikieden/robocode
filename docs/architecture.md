@@ -57,7 +57,8 @@ flowchart TB
   trusted one-use credential staging so secret bytes never enter serialized
   commands, events, transcripts, or workflow audit. These host services are not
   advertised as frontend handshake capabilities until the Core 0.3.2 gate.
-- `crates/config`: config loading, merge precedence, and startup defaults.
+- `crates/config`: config loading, merge precedence, startup defaults, and
+  preservation-safe atomic user UI preference persistence.
 - `crates/runtime`: shared startup bootstrap, session engine, and turn
   orchestration.
 - `crates/provider`: provider host/runtime, HTTP adapters, provider registry, and tool-calling protocol translation.
@@ -84,6 +85,12 @@ Startup config is resolved through a fixed precedence chain:
 3. Project-local `.viden/config.toml`
 4. Global config file
 5. Built-in defaults
+
+That general chain governs provider and runtime configuration. Personal UI
+preferences deliberately use a separate chain: safe CLI UI override, stored
+user `[ui]`, system resolution, then built-in English. Project-local
+`.viden/config.toml` cannot select or persist a person's locale, skin/mode,
+density, or motion.
 
 The resolved config currently covers:
 
@@ -204,6 +211,13 @@ only through the bound host client, receive an opaque request id, and then send
 `StoreCredentialHandle` through the runtime command path. Runtime persists only
 safe `CredentialHandle` metadata; the platform credential sink receives the
 secret after workspace/provider/backend binding, TTL, and one-use checks.
+
+Personal UI preference mutation follows the runtime boundary as well.
+`SetUiPreferences` and `ResetUiPreferences` validate before supervised
+permission, recheck permission at execution, atomically update the user config,
+then emit `UiPreferencesUpdated`. The reducer updates both the top-level view
+fact and snapshot copy. User config remains the recovery authority; the event
+is not added to project workflow JSONL as a second persistence authority.
 
 ## Terminal Presentation
 

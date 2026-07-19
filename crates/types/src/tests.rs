@@ -126,6 +126,81 @@ fn ui_preferences_valid_skin_mode_pairs_are_exactly_eight() {
 }
 
 #[test]
+fn ui_preferences_patch_serializes_as_schema_one_safe_values() {
+    let patch = UiPreferencePatch {
+        locale: Some(LocaleId::ZhCn),
+        skin: Some(UiSkin::Ice),
+        mode: Some(UiColorMode::Light),
+        density: Some(UiDensity::Compact),
+        motion: Some(UiMotion::Reduced),
+    };
+
+    assert_eq!(
+        serde_json::to_value(patch).unwrap(),
+        serde_json::json!({
+            "locale": "zh-CN",
+            "skin": "ice",
+            "mode": "light",
+            "density": "compact",
+            "motion": "reduced"
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<UiPreferencePatch>(serde_json::json!({})).unwrap(),
+        UiPreferencePatch::default()
+    );
+}
+
+#[test]
+fn ui_preferences_runtime_protocol_is_backward_compatible_schema_one_extension() {
+    let command = RuntimeCommand::SetUiPreferences {
+        patch: UiPreferencePatch {
+            skin: Some(UiSkin::Mono),
+            mode: Some(UiColorMode::Light),
+            ..UiPreferencePatch::default()
+        },
+    };
+    let encoded_command = serde_json::to_value(&command).unwrap();
+    assert_eq!(encoded_command["type"], "set_ui_preferences");
+    assert_eq!(encoded_command["patch"]["skin"], "mono");
+    assert!(!encoded_command.to_string().contains("api_key"));
+
+    let resolved = ResolvedUiPreferences {
+        locale: LocaleId::En,
+        skin: UiSkin::Mono,
+        mode: UiColorMode::Light,
+        density: UiDensity::Regular,
+        motion: UiMotion::Reduced,
+        diagnostics: Vec::new(),
+    };
+    let event = RuntimeEventKind::UiPreferencesUpdated {
+        resolved: resolved.clone(),
+        persisted: Some(UiPreferences {
+            locale: LocaleId::En,
+            skin: UiSkin::Mono,
+            mode: UiColorMode::Light,
+            density: UiDensity::Regular,
+            motion: UiMotion::Reduced,
+        }),
+        diagnostics: Vec::new(),
+    };
+    let encoded_event = serde_json::to_value(&event).unwrap();
+    assert_eq!(encoded_event["type"], "ui_preferences_updated");
+    assert_eq!(
+        serde_json::from_value::<RuntimeEventKind>(encoded_event).unwrap(),
+        event
+    );
+
+    let snapshot = runtime_snapshot_for_contract();
+    let live_view = RuntimeViewState::new(snapshot);
+    assert_eq!(live_view.ui_preferences, live_view.snapshot.ui_preferences);
+    let legacy_view = serde_json::to_value(live_view).unwrap();
+    assert!(legacy_view.get("ui_preferences").is_none());
+    let decoded: RuntimeViewState = serde_json::from_value(legacy_view).unwrap();
+    assert_eq!(decoded.ui_preferences, ResolvedUiPreferences::default());
+}
+
+#[test]
 fn ui_preferences_resolve_system_locale_density_and_reduced_motion() {
     let resolved = resolve_ui_preferences(
         None,

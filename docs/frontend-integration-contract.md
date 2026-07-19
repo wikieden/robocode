@@ -93,7 +93,7 @@ self-referential inside the payload commit.
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | additive Core `0.3.1` candidate |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
-| UI preferences | locale, skin/mode, density, motion | `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`, preference diagnostics | configuration through Core-owned config path | frozen in schema `1` |
+| UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | internal Core `0.3.2` candidate on schema `1`; not a handshake capability until Task 6 |
 
 ## Event Consumption Rules
 
@@ -326,9 +326,16 @@ Frontends must not call the underlying tool after approval. They send
 Schema `1` exposes configuration values needed by both frontends without
 prescribing their layout:
 
-- the effective frontend fact is
+- the effective frontend fact is the synchronized
+  `RuntimeViewState.ui_preferences` and
   `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`; frontends render it
   and do not re-resolve preference precedence locally;
+- clients send a typed `UiPreferencePatch` through `SetUiPreferences`, or send
+  `ResetUiPreferences` to delete the complete user `[ui]` table. A local visual
+  preview is not persistence confirmation;
+- only a successful `UiPreferencesUpdated { resolved, persisted, diagnostics }`
+  confirms the write. `persisted` is `None` after reset, while `resolved` still
+  reflects a safe CLI override or the system/built-in fallback;
 
 - built-in effective locales: `en` and `zh-CN`; `system` is a resolver input,
   not a third built-in translation catalog;
@@ -339,10 +346,24 @@ prescribing their layout:
 - densities: `compact`, `regular`, and `comfy`;
 - motion policies: `system`, `reduced`, and `full`.
 
-`amber` and `phosphor` are dark-only. An invalid effective pair falls back to
-the safe `aurora/dark`, regular-density combination and emits a
-`ui.invalid_skin_mode_pair` diagnostic. Preference precedence is CLI, user,
-project, then client default.
+`amber` and `phosphor` are dark-only. Persisted preference mutations validate
+the complete resulting profile before any approval prompt or filesystem
+effect; an invalid pair such as `amber/light` is rejected. Startup fallback for
+legacy invalid input remains the safe `aurora/dark`, regular-density profile
+with a stable `ui.invalid_skin_mode_pair` diagnostic.
+
+Personal preference precedence is safe CLI UI override, stored user `[ui]`,
+system resolution, then built-in English. Project `.viden/config.toml` never
+selects personal locale, appearance, density, or motion and is never the
+personal preference write target. Core writes only the five known `[ui]` keys,
+preserves unrelated top-level and future `[ui]` keys, and uses a same-directory
+`0600` temporary file, file sync, atomic replacement, and directory sync.
+Corrupt TOML, invalid profiles, and Plan/Review/Explore denial leave bytes,
+mtime, and temporary-file state unchanged.
+
+The user config is the recovery authority. `UiPreferencesUpdated` is a current
+runtime/frontend journal projection and is intentionally not duplicated into
+the project workflow JSONL log.
 
 The design entry hierarchy is normative and must not be replaced by old or
 generated screenshots:

@@ -7,9 +7,10 @@ use crate::{
     ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord, CredentialHandle,
     DependencyRecord, DependencyState, EvidenceCanonicalizationRecord, EvidenceId,
     HandoffAcceptance, HandoffRecord, MergeGateId, MergeGateRecord, MessageId, PermissionLevel,
-    ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord, RevertRecord,
-    ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot, ToolCallId,
-    TranscriptPage, TranscriptPageRequest, WorkMode, now_timestamp,
+    ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord, ResolvedUiPreferences,
+    RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot,
+    ToolCallId, TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic, UiPreferencePatch,
+    UiPreferences, WorkMode, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -35,6 +36,10 @@ pub enum RuntimeCommand {
         backend_id: String,
         credential_request_id: String,
     },
+    SetUiPreferences {
+        patch: UiPreferencePatch,
+    },
+    ResetUiPreferences,
     SubmitUserInput {
         content: String,
     },
@@ -510,6 +515,11 @@ pub enum RuntimeEventKind {
     CredentialHandleStored {
         handle: CredentialHandle,
     },
+    UiPreferencesUpdated {
+        resolved: ResolvedUiPreferences,
+        persisted: Option<UiPreferences>,
+        diagnostics: Vec<UiPreferenceDiagnostic>,
+    },
     SnapshotUpdated {
         snapshot: RuntimeSnapshot,
     },
@@ -664,6 +674,10 @@ pub enum RuntimeEventKind {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeViewState {
     pub snapshot: RuntimeSnapshot,
+    // The live reducer mirrors this projection for in-process consumers. The
+    // frozen v1 wire view continues to carry the same fact in `snapshot`.
+    #[serde(skip)]
+    pub ui_preferences: ResolvedUiPreferences,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_probe: Option<ProjectProbe>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -734,8 +748,10 @@ pub struct RuntimeViewState {
 
 impl RuntimeViewState {
     pub fn new(snapshot: RuntimeSnapshot) -> Self {
+        let ui_preferences = snapshot.ui_preferences.clone();
         Self {
             snapshot,
+            ui_preferences,
             project_probe: None,
             project_config_preview: None,
             confirmed_project_config: None,
@@ -797,8 +813,13 @@ impl RuntimeViewState {
                         && existing.backend_id == handle.backend_id
                 });
             }
+            RuntimeEventKind::UiPreferencesUpdated { resolved, .. } => {
+                self.ui_preferences = resolved.clone();
+                self.snapshot.ui_preferences = resolved.clone();
+            }
             RuntimeEventKind::SnapshotUpdated { snapshot } => {
                 self.snapshot = snapshot.clone();
+                self.ui_preferences = snapshot.ui_preferences.clone();
             }
             RuntimeEventKind::AssistantDelta { content, .. } => {
                 self.assistant_stream.push_str(content);
