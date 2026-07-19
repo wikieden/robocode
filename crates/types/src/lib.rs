@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod agent;
 mod context;
 mod lsp;
 mod protocol;
@@ -79,21 +80,29 @@ pub fn truncate_for_preview(input: &str, max_chars: usize) -> String {
 #[serde(rename_all = "snake_case")]
 pub enum AgentTaskStatus {
     Queued,
+    #[serde(alias = "starting")]
     Thinking,
     Streaming,
     Editing,
+    #[serde(alias = "tool")]
     RunningTool,
     Testing,
+    #[serde(alias = "approval")]
     WaitingApproval,
+    #[serde(alias = "input")]
     NeedsInput,
+    #[serde(alias = "apply_conflict")]
     Blocked,
     Reviewing,
     Running,
     Attached,
+    #[serde(alias = "completed", alias = "accepted")]
     Done,
     Applied,
+    #[serde(alias = "detached", alias = "stopped")]
     Discarded,
     Failed,
+    #[serde(alias = "canceled")]
     Cancelled,
     Archived,
 }
@@ -183,57 +192,18 @@ impl AgentTaskStatus {
     }
 }
 
+impl Display for AgentTaskStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AgentTaskEvidence {
     pub kind: String,
     pub summary: String,
     pub path: Option<String>,
     pub timestamp: Option<u64>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentRole {
-    Planner,
-    Coder,
-    Reviewer,
-    Tester,
-    DocWriter,
-    ReleaseOperator,
-    External,
-}
-
-impl AgentRole {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Planner => "planner",
-            Self::Coder => "coder",
-            Self::Reviewer => "reviewer",
-            Self::Tester => "tester",
-            Self::DocWriter => "doc_writer",
-            Self::ReleaseOperator => "release_operator",
-            Self::External => "external",
-        }
-    }
-
-    pub fn parse(input: &str) -> Option<Self> {
-        match input.trim().replace('-', "_").as_str() {
-            "planner" => Some(Self::Planner),
-            "coder" => Some(Self::Coder),
-            "reviewer" => Some(Self::Reviewer),
-            "tester" => Some(Self::Tester),
-            "doc_writer" | "documenter" => Some(Self::DocWriter),
-            "release_operator" | "release" => Some(Self::ReleaseOperator),
-            "external" => Some(Self::External),
-            _ => None,
-        }
-    }
-}
-
-impl Display for AgentRole {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -355,64 +325,6 @@ pub struct AgentNextAction {
     pub label: String,
     pub command: Option<String>,
     pub reason: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct AgentTaskRecord {
-    pub id: AgentTaskId,
-    pub parent_id: Option<AgentTaskId>,
-    pub agent: String,
-    pub kind: String,
-    pub transport: String,
-    pub title: String,
-    pub status: String,
-    pub activity: String,
-    pub summary: String,
-    pub progress: u8,
-    pub started_at: Option<u64>,
-    pub updated_at: Option<u64>,
-    pub workspace: Option<String>,
-    pub evidence: Vec<String>,
-    pub permissions: Vec<String>,
-    pub decision: Option<String>,
-    pub result: Option<String>,
-    pub resume_handle: Option<String>,
-    pub pid: Option<u32>,
-    pub next_action: Option<AgentNextAction>,
-}
-
-impl AgentTaskRecord {
-    pub fn status_kind(&self) -> AgentTaskStatus {
-        AgentTaskStatus::parse(&self.status).unwrap_or(AgentTaskStatus::Done)
-    }
-
-    pub fn is_active(&self) -> bool {
-        self.status_kind().is_active()
-    }
-
-    pub fn priority(&self) -> u8 {
-        self.status_kind().priority()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct AgentLaneRecord {
-    pub id: AgentLaneId,
-    pub task_id: AgentTaskId,
-    pub agent: String,
-    pub screen: String,
-    pub transport: String,
-    pub status: String,
-    pub summary: String,
-    pub evidence: Vec<String>,
-}
-
-impl AgentLaneRecord {
-    pub fn is_active(&self) -> bool {
-        AgentTaskStatus::parse(&self.status)
-            .map(AgentTaskStatus::is_active)
-            .unwrap_or(false)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -929,3 +841,8 @@ pub fn decode_tool_input(input: &str) -> ToolInput {
 
 #[cfg(test)]
 mod tests;
+pub use agent::{
+    AgentLaneRecord, AgentRole, AgentRoute, AgentTaskKind, AgentTaskRecord, DataEgressPolicy,
+    ExecutionTarget, GateStrength, LaneBudget, LaneStatus, MutationPolicy, default_gate_strength,
+    legacy_lane_role, legacy_lane_route,
+};

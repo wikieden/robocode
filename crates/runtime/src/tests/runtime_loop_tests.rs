@@ -8,8 +8,8 @@ use crate::{ContextBenchmarkProjectionMode, EngineEvent, SessionEngine};
 use viden_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
-    AgentTaskStatus, ApprovalResponse, CostScope, ModelEvent, ModelRequest, ModelUsage,
-    PermissionMode, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, WorkMode,
+    AgentTaskKind, AgentTaskStatus, ApprovalResponse, CostScope, ModelEvent, ModelRequest,
+    ModelUsage, PermissionMode, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, WorkMode,
 };
 
 use super::{SequenceProvider, temp_dir};
@@ -233,8 +233,8 @@ fn single_turn_text_response_is_recorded() {
     );
     let snapshot = engine.agent_task_snapshot();
     assert!(snapshot.iter().any(|task| {
-        task.kind == "provider"
-            && task.status == AgentTaskStatus::Done.as_str()
+        task.kind == AgentTaskKind::Provider
+            && task.status == AgentTaskStatus::Done
             && task.title == "hi"
     }));
 }
@@ -448,7 +448,7 @@ fn provider_turn_uses_ephemeral_context_bundle_without_transcript_mutation() {
     assert_eq!(bundle.policy, "v1-priority-budget");
     assert!(bundle.sources.iter().all(|source| source.priority > 0));
     assert!(engine.agent_task_snapshot().iter().any(|task| {
-        task.kind == "provider"
+        task.kind == AgentTaskKind::Provider
             && task
                 .evidence
                 .iter()
@@ -968,8 +968,8 @@ fn tool_loop_executes_and_reinjects_result() {
     let snapshot = engine.agent_task_snapshot();
     assert!(snapshot.iter().any(|task| {
         task.id == "tool-tool_read"
-            && task.kind == "tool"
-            && task.status == AgentTaskStatus::Done.as_str()
+            && task.kind == AgentTaskKind::Tool
+            && task.status == AgentTaskStatus::Done
             && task.evidence.iter().any(|item| item == "success true")
     }));
 }

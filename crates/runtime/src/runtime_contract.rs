@@ -21,17 +21,19 @@ use viden_provider::ModelRequestControl;
 use viden_tools::context_read_tool_spec;
 use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
-    AgentTaskRecord, AgentTaskStatus, ApprovalRequestView, ApprovalResponse,
-    CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord, ContextItemRecord,
-    ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome, CostUsageRecord,
-    EvidenceCanonicalReasonCode, EvidenceCanonicalStatus, EvidenceCanonicalStatusReport,
-    EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
-    EvidenceView, MergeGateRecord, MergeGateStatus, PermissionBehavior, PermissionDecision,
+    AgentRoute, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalRequestView,
+    ApprovalResponse, CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord,
+    ContextItemRecord, ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome,
+    CostUsageRecord, DataEgressPolicy, EvidenceCanonicalReasonCode, EvidenceCanonicalStatus,
+    EvidenceCanonicalStatusReport, EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus,
+    EvidenceVerificationState, EvidenceView, ExecutionTarget, LaneBudget, MergeGateRecord,
+    MergeGateStatus, MutationPolicy, PermissionBehavior, PermissionDecision,
     PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
     PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand,
     RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeSnapshot, RuntimeViewState,
     TokenCostView, TokenUsage, ToolCallId, ToolInput, WorkMode, canonical_evidence_status,
-    fresh_id, now_timestamp, truncate_for_preview,
+    default_gate_strength, fresh_id, legacy_lane_role, legacy_lane_route, now_timestamp,
+    truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
@@ -1270,7 +1272,7 @@ impl SessionEngine {
         else {
             return Err(format!("agent task `{task_id}` does not exist"));
         };
-        task.status = status.as_str().to_string();
+        task.status = status;
         task.activity = activity.to_string();
         task.progress = progress;
         task.updated_at = Some(now_timestamp().saturating_mul(1000));
@@ -1312,7 +1314,7 @@ impl SessionEngine {
         else {
             return Err(format!("agent task `{task_id}` does not exist"));
         };
-        task.status = AgentTaskStatus::Failed.as_str().to_string();
+        task.status = AgentTaskStatus::Failed;
         task.activity = activity.to_string();
         task.progress = 100;
         task.result = Some(format!("failed:{failure_class}"));
@@ -1548,7 +1550,7 @@ impl SessionEngine {
         else {
             return Err(format!("agent task `{task_id}` does not exist"));
         };
-        task.status = AgentTaskStatus::Done.as_str().to_string();
+        task.status = AgentTaskStatus::Done;
         task.activity = "supervised role task complete".to_string();
         task.progress = 100;
         task.result = Some(truncate_for_preview(&summary, 500));
@@ -1721,12 +1723,10 @@ impl SessionEngine {
                 .find(|task| task.id == **dependency)
                 .map(|task| {
                     !matches!(
-                        AgentTaskStatus::parse(&task.status),
-                        Some(
-                            AgentTaskStatus::Done
-                                | AgentTaskStatus::Applied
-                                | AgentTaskStatus::Archived
-                        )
+                        task.status,
+                        AgentTaskStatus::Done
+                            | AgentTaskStatus::Applied
+                            | AgentTaskStatus::Archived
                     )
                 })
                 .unwrap_or(true)
@@ -1740,7 +1740,7 @@ impl SessionEngine {
             .find(|task| task.id == spec.task_id)
             .cloned()
             .ok_or_else(|| format!("agent task `{}` does not exist", spec.task_id))?;
-        task.status = AgentTaskStatus::Blocked.as_str().to_string();
+        task.status = AgentTaskStatus::Blocked;
         task.activity = format!("waiting for dependency `{blocking_dependency}`");
         task.progress = 0;
         task.updated_at = Some(now_timestamp().saturating_mul(1000));
@@ -1807,7 +1807,7 @@ impl SessionEngine {
             task.decision = Some(decision.clone());
             task.updated_at = Some(now.saturating_mul(1000));
             if status == MergeGateStatus::NeedsChanges {
-                task.status = AgentTaskStatus::NeedsInput.as_str().to_string();
+                task.status = AgentTaskStatus::NeedsInput;
                 task.activity = format!("merge gate requested changes: {decision}");
                 task.next_action = Some(AgentNextAction {
                     label: "revise task".to_string(),
@@ -2051,7 +2051,7 @@ impl SessionEngine {
             .cloned()
         {
             task.evidence.retain(|id| id != evidence_id);
-            task.status = AgentTaskStatus::NeedsInput.as_str().to_string();
+            task.status = AgentTaskStatus::NeedsInput;
             task.activity = format!("artifact rejected: {reason}");
             task.decision = Some(reason.clone());
             task.next_action = Some(AgentNextAction {
@@ -2164,7 +2164,7 @@ impl SessionEngine {
             .find(|task| task.id == task_id)
             .cloned()
         {
-            task.status = AgentTaskStatus::Applied.as_str().to_string();
+            task.status = AgentTaskStatus::Applied;
             task.activity = format!("patch merged: {decision}");
             task.decision = Some(decision.clone());
             task.next_action = None;
@@ -2270,7 +2270,7 @@ impl SessionEngine {
             .find(|task| task.id == task_id)
             .cloned()
         {
-            task.status = AgentTaskStatus::NeedsInput.as_str().to_string();
+            task.status = AgentTaskStatus::NeedsInput;
             task.activity = reason.clone();
             task.decision = Some(reason.clone());
             task.next_action = Some(AgentNextAction {
@@ -2426,8 +2426,8 @@ fn evidence_kind_for_role(role: AgentRole) -> &'static str {
         AgentRole::Reviewer => "review",
         AgentRole::Tester => "test_result",
         AgentRole::DocWriter => "doc_update",
+        AgentRole::Researcher => "research",
         AgentRole::ReleaseOperator => "release_artifact",
-        AgentRole::External => "agent_output",
     }
 }
 
@@ -2453,13 +2453,13 @@ fn role_guidance_context_source(role: AgentRole) -> ContextSourceRecord {
             "role-documentation-context",
             "Focus on user-visible behavior, architecture contracts, bilingual docs, and keeping roadmap status current.",
         ),
+        AgentRole::Researcher => (
+            "role-research-context",
+            "Focus on verified sources, evidence boundaries, uncertainty, and concise findings for downstream decisions.",
+        ),
         AgentRole::ReleaseOperator => (
             "role-release-context",
             "Focus on release gates, artifacts, version consistency, Homebrew sync, and post-publish validation.",
-        ),
-        AgentRole::External => (
-            "role-external-agent-context",
-            "Focus on adapter boundaries, evidence import, permission scope, and durable task handoff records.",
         ),
     };
     ContextSourceRecord {
@@ -2709,9 +2709,9 @@ fn role_symbol_score(role: AgentRole, symbol: &str) -> u8 {
             }
         }
         AgentRole::Planner
+        | AgentRole::Researcher
         | AgentRole::DocWriter
-        | AgentRole::ReleaseOperator
-        | AgentRole::External => {
+        | AgentRole::ReleaseOperator => {
             if is_type {
                 78
             } else {
@@ -2877,18 +2877,18 @@ fn role_file_score(role: AgentRole, file: &str) -> u8 {
                 25
             }
         }
+        AgentRole::Researcher => {
+            if is_doc || is_source || is_manifest {
+                82
+            } else {
+                40
+            }
+        }
         AgentRole::ReleaseOperator => {
             if lower.contains("release") || lower.contains("changelog") {
                 96
             } else if is_manifest || is_doc {
                 78
-            } else {
-                30
-            }
-        }
-        AgentRole::External => {
-            if is_source || is_test || is_doc || is_manifest {
-                70
             } else {
                 30
             }
@@ -3488,11 +3488,11 @@ fn agent_task_record_from_spec(
     AgentTaskRecord {
         id: spec.task_id.clone(),
         parent_id: spec.dependencies.first().cloned(),
-        agent: spec.role.as_str().to_string(),
-        kind: "agent".to_string(),
-        transport: "runtime".to_string(),
+        role: spec.role,
+        kind: AgentTaskKind::Agent,
+        route: AgentRoute::BuiltIn,
         title: spec.title.clone(),
-        status: AgentTaskStatus::Queued.as_str().to_string(),
+        status: AgentTaskStatus::Queued,
         activity: "queued for supervised execution".to_string(),
         summary: spec.objective.clone(),
         progress: 0,
@@ -3527,8 +3527,8 @@ fn role_next_action_label(role: AgentRole) -> &'static str {
         AgentRole::Reviewer => "start review",
         AgentRole::Tester => "start testing",
         AgentRole::DocWriter => "start docs",
+        AgentRole::Researcher => "start research",
         AgentRole::ReleaseOperator => "start release gate",
-        AgentRole::External => "start external agent",
     }
 }
 
@@ -4613,20 +4613,28 @@ fn parse_runtime_lane(line: &str) -> Option<AgentLaneRecord> {
     let id = fields[0].clone();
     let tool = fields[1].clone();
     let title = fields[2].clone();
-    let status = fields[3].clone();
+    let status = serde_json::from_value(serde_json::Value::String(fields[3].clone())).ok()?;
     let target = fields[4].clone();
     let summary = fields
         .get(6)
         .filter(|summary| !summary.trim().is_empty())
         .cloned()
         .unwrap_or(title);
+    let route = legacy_lane_route(&target).ok()?;
     Some(AgentLaneRecord {
         id: id.clone(),
-        task_id: id,
-        agent: tool,
-        screen: "lane".to_string(),
-        transport: target,
+        task_id: Some(id),
+        role: legacy_lane_role(&tool).ok()?,
+        route,
+        gate_strength: default_gate_strength(route),
+        mutation_policy: MutationPolicy::ProposeOnly,
+        worktree: None,
+        branch: None,
+        target: ExecutionTarget::Local,
+        data_egress: DataEgressPolicy::Deny,
         status,
+        budget: LaneBudget::default(),
+        active_session_ids: Vec::new(),
         summary,
         evidence: Vec::new(),
     })

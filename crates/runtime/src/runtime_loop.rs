@@ -126,7 +126,7 @@ impl SessionEngine {
         let mut retried_request_too_large = false;
         let mut provider_retry_count = 0_u64;
         for attempt_index in 0..8 {
-            provider_task.status = AgentTaskStatus::Thinking.as_str().to_string();
+            provider_task.status = AgentTaskStatus::Thinking;
             provider_task.activity = "waiting for provider response".to_string();
             provider_task.progress = provider_task.progress.max(20);
             provider_task.updated_at = Some(now_millis());
@@ -209,7 +209,7 @@ impl SessionEngine {
                             message: system_message,
                         })?;
                         events.push(EngineEvent::System(note.to_string()));
-                        provider_task.status = AgentTaskStatus::Thinking.as_str().to_string();
+                        provider_task.status = AgentTaskStatus::Thinking;
                         provider_task.activity =
                             "compacting provider context after request-too-large".to_string();
                         provider_task.progress = provider_task.progress.max(35);
@@ -224,7 +224,7 @@ impl SessionEngine {
                         .provider_model_recovery_prompt(&err)
                         .map(|hint| format!("{err}\n\n{hint}"))
                         .unwrap_or_else(|| err.clone());
-                    provider_task.status = AgentTaskStatus::Failed.as_str().to_string();
+                    provider_task.status = AgentTaskStatus::Failed;
                     provider_task.activity = format!("provider error: {err}");
                     provider_task.progress = 100;
                     provider_task.updated_at = Some(now_millis());
@@ -241,7 +241,7 @@ impl SessionEngine {
                         if content.trim().is_empty() {
                             continue;
                         }
-                        provider_task.status = AgentTaskStatus::Streaming.as_str().to_string();
+                        provider_task.status = AgentTaskStatus::Streaming;
                         provider_task.activity = "streaming assistant response".to_string();
                         provider_task.progress = provider_task.progress.max(65);
                         provider_task.updated_at = Some(now_millis());
@@ -254,7 +254,7 @@ impl SessionEngine {
                     }
                     ModelEvent::ToolCall(call) => {
                         observed_tool_call = true;
-                        provider_task.status = AgentTaskStatus::RunningTool.as_str().to_string();
+                        provider_task.status = AgentTaskStatus::RunningTool;
                         provider_task.activity = format!("requested tool `{}`", call.name);
                         provider_task.progress = provider_task.progress.max(75);
                         provider_task.updated_at = Some(now_millis());
@@ -269,7 +269,7 @@ impl SessionEngine {
                 break;
             }
         }
-        provider_task.status = AgentTaskStatus::Done.as_str().to_string();
+        provider_task.status = AgentTaskStatus::Done;
         provider_task.activity = "provider turn complete".to_string();
         provider_task.progress = 100;
         provider_task.updated_at = Some(now_millis());
@@ -331,7 +331,7 @@ impl SessionEngine {
 
         let mut decision = self.permissions.decide(&tool_spec, &call.input);
         if let PermissionDecision::Ask(ask) = &decision {
-            task.status = AgentTaskStatus::WaitingApproval.as_str().to_string();
+            task.status = AgentTaskStatus::WaitingApproval;
             task.activity = format!("waiting for approval: `{}`", call.name);
             task.progress = 35;
             task.permissions
@@ -354,7 +354,7 @@ impl SessionEngine {
                         message: allow.accept_feedback.clone(),
                     },
                 })?;
-                task.status = AgentTaskStatus::RunningTool.as_str().to_string();
+                task.status = AgentTaskStatus::RunningTool;
                 task.activity = format!("running `{}`", call.name);
                 task.progress = 55;
                 task.decision = Some("allow".to_string());
@@ -386,9 +386,9 @@ impl SessionEngine {
                 };
                 self.persist_tool_result(&result)?;
                 task.status = if result.success {
-                    AgentTaskStatus::Done.as_str().to_string()
+                    AgentTaskStatus::Done
                 } else {
-                    AgentTaskStatus::Failed.as_str().to_string()
+                    AgentTaskStatus::Failed
                 };
                 task.activity = if result.success {
                     format!("`{}` completed", call.name)
@@ -432,7 +432,7 @@ impl SessionEngine {
                         message: Some(deny.message.clone()),
                     },
                 })?;
-                task.status = AgentTaskStatus::Cancelled.as_str().to_string();
+                task.status = AgentTaskStatus::Cancelled;
                 task.activity = format!("denied `{}`", call.name);
                 task.progress = 100;
                 task.decision = Some("deny".to_string());

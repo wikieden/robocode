@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 
 use crate::{DependencyStatus, DoctorReport, EngineEvent, SessionEngine};
 use viden_provider::ProviderHost;
-use viden_types::{AgentTaskStatus, ApprovalResponse, PermissionMode, WorkMode};
+use viden_types::{AgentTaskKind, AgentTaskStatus, ApprovalResponse, PermissionMode, WorkMode};
 
 use super::{SequenceProvider, temp_dir};
 
@@ -579,8 +579,8 @@ fn test_command_records_last_test_evidence_in_status() {
     )));
     let snapshot = engine.agent_task_snapshot();
     assert!(snapshot.iter().any(|task| {
-        task.kind == "test"
-            && task.status == AgentTaskStatus::Done.as_str()
+        task.kind == AgentTaskKind::Test
+            && task.status == AgentTaskStatus::Done
             && task
                 .evidence
                 .iter()

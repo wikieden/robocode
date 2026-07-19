@@ -1440,7 +1440,7 @@ fn runtime_supervisor_cancels_active_agent_task_and_keeps_worker_alive() {
             matches!(
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
-                    if task.id == "task_planner" && task.status == "cancelled"
+                    if task.id == "task_planner" && task.status == AgentTaskStatus::Cancelled
             )
         })
     });
@@ -1461,7 +1461,7 @@ fn runtime_supervisor_cancels_active_agent_task_and_keeps_worker_alive() {
         matches!(
             &event.kind,
             RuntimeEventKind::TaskUpdated { task }
-                if task.id == "task_planner" && task.status == "cancelled"
+                if task.id == "task_planner" && task.status == AgentTaskStatus::Cancelled
         )
     }));
 
@@ -1742,7 +1742,7 @@ fn runtime_supervisor_starts_agent_dag_without_provider_turn() {
             &event.kind,
             RuntimeEventKind::TaskUpdated { task }
                 if task.id == "task_coder"
-                    && task.agent == "coder"
+                    && task.role == AgentRole::Coder
                     && task.parent_id.as_deref() == Some("task_planner")
         )
     }));
@@ -1810,7 +1810,7 @@ fn runtime_supervisor_runs_agent_task_through_provider_and_merge_gate() {
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
                     if task.id == "task_planner"
-                        && task.status == "done"
+                        && task.status == AgentTaskStatus::Done
                         && task.result.as_deref().is_some_and(|result| {
                             result.contains("Plan: split runtime")
                         })
@@ -1861,7 +1861,7 @@ fn runtime_supervisor_runs_agent_task_through_provider_and_merge_gate() {
             &event.kind,
             RuntimeEventKind::TaskUpdated { task }
                 if task.id == "task_planner"
-                    && task.status == AgentTaskStatus::Done.as_str()
+                    && task.status == AgentTaskStatus::Done
                     && task.result.as_deref().is_some_and(|result| {
                         result.contains("Plan: split runtime")
                     })
@@ -2975,16 +2975,16 @@ fn runtime_supervisor_applies_extended_agent_role_policy_matrix_to_tools() {
                     },
                     AgentDagTaskSpec {
                         task_id: "task_external_policy".to_string(),
-                        role: AgentRole::External,
-                        title: "External matrix".to_string(),
-                        objective: "Keep external agents read-only until explicitly promoted"
+                        role: AgentRole::Researcher,
+                        title: "Research matrix".to_string(),
+                        objective: "Keep research work read-only until explicitly promoted"
                             .to_string(),
                         dependencies: Vec::new(),
                         workspace: None,
                         file_scope: vec!["docs".to_string()],
                         context_bundle_id: None,
-                        required_evidence: vec!["external_report".to_string()],
-                        permission_policy: "external_agent".to_string(),
+                        required_evidence: vec!["research".to_string()],
+                        permission_policy: "read_only".to_string(),
                     },
                 ],
             },
@@ -3868,7 +3868,7 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
                     if task.id == "task_coder"
-                        && task.status == AgentTaskStatus::Applied.as_str()
+                        && task.status == AgentTaskStatus::Applied
                         && task.decision.as_deref() == Some("merge accepted patch")
             )
         })
@@ -4156,7 +4156,7 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
                     if task.id == "task_coder_conflict"
-                        && task.status == AgentTaskStatus::NeedsInput.as_str()
+                        && task.status == AgentTaskStatus::NeedsInput
                         && task.next_action.as_ref().is_some_and(|action| {
                             action.command.as_deref() == Some("/agent start task_coder_conflict")
                         })
@@ -4168,7 +4168,7 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
             &event.kind,
             RuntimeEventKind::TaskUpdated { task }
                 if task.id == "task_coder_conflict"
-                    && task.status == AgentTaskStatus::NeedsInput.as_str()
+                    && task.status == AgentTaskStatus::NeedsInput
                     && task.next_action.as_ref().is_some_and(|action| {
                         action.command.as_deref() == Some("/agent start task_coder_conflict")
                     })
@@ -4244,7 +4244,7 @@ fn runtime_supervisor_classifies_agent_task_provider_failures() {
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
                     if task.id == "task_tester"
-                        && task.status == AgentTaskStatus::Failed.as_str()
+                        && task.status == AgentTaskStatus::Failed
                         && task.next_action.as_ref().is_some_and(|action| {
                             action.label == "retry agent task"
                                 && action.command.as_deref() == Some("/agent start task_tester")
@@ -4340,7 +4340,7 @@ fn runtime_supervisor_cancels_queued_agent_task_with_durable_event() {
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
                     if task.id == "task_docs"
-                        && task.status == AgentTaskStatus::Cancelled.as_str()
+                        && task.status == AgentTaskStatus::Cancelled
             )
         })
     });
@@ -4434,7 +4434,7 @@ fn runtime_supervisor_blocks_agent_task_until_dependencies_complete() {
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
                     if task.id == "task_coder"
-                        && task.status == "blocked"
+                        && task.status == AgentTaskStatus::Blocked
                         && task.activity.contains("waiting for dependency")
             )
         })

@@ -8,13 +8,13 @@ use viden_context::{ContextEngine, ContextPutRequest};
 use viden_provider::ModelProvider;
 use viden_session::SessionStore;
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalResponse, CanonicalEvidenceReference,
-    ContextContentKind, ContextHandleRecord, ContextItemRecord, ContextReductionRecord,
-    ContextScope, CostScope, EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus,
-    EvidenceVerificationState, EvidenceView, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage,
-    PermissionBehavior, PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue,
-    RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput,
-    TranscriptEntry, WorkMode,
+    AgentDagTaskSpec, AgentRole, AgentRoute, AgentTaskKind, AgentTaskStatus, ApprovalResponse,
+    CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord, ContextItemRecord,
+    ContextReductionRecord, ContextScope, CostScope, EvidenceProducer, EvidenceQualityFacts,
+    EvidenceQualityStatus, EvidenceVerificationState, EvidenceView, LaneStatus, MergeGateStatus,
+    ModelEvent, ModelRequest, ModelUsage, PermissionBehavior, PermissionLevel, PermissionRule,
+    PermissionRuleSource, PermissionRuleValue, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
+    RuntimeViewState, ToolCall, ToolInput, TranscriptEntry, WorkMode,
 };
 use viden_workflows::stores::{WorkflowAgentEvent, WorkflowStore};
 
@@ -258,7 +258,7 @@ fn core_exports_runtime_view_state_without_tui_dependencies() {
         )
     }));
     assert!(runtime_events.iter().any(|event| {
-        matches!(&event.kind, RuntimeEventKind::TaskUpdated { task } if task.kind == "provider")
+        matches!(&event.kind, RuntimeEventKind::TaskUpdated { task } if task.kind == AgentTaskKind::Provider)
     }));
     assert!(
         runtime_events
@@ -274,7 +274,11 @@ fn core_exports_runtime_view_state_without_tui_dependencies() {
     assert_eq!(view.snapshot.provider_family, "sequence");
     assert!(view.assistant_stream.contains("hello from runtime"));
     assert!(view.provider.is_some());
-    assert!(view.tasks.iter().any(|task| task.kind == "provider"));
+    assert!(
+        view.tasks
+            .iter()
+            .any(|task| task.kind == AgentTaskKind::Provider)
+    );
 }
 
 #[test]
@@ -2857,7 +2861,7 @@ fn start_agent_task_projects_state_to_workflow_not_transcript() {
         &event.kind,
         RuntimeEventKind::TaskUpdated { task }
             if task.id == "task_start_projection"
-                && task.status == AgentTaskStatus::Done.as_str()
+                && task.status == AgentTaskStatus::Done
     )));
     assert!(live.latest_evidence.iter().any(|evidence| {
         evidence
@@ -4221,14 +4225,14 @@ fn canonical_reference(
 }
 
 #[test]
-fn runtime_view_state_emits_lane_facts_from_core_store() {
+fn runtime_view_state_emits_lane_facts_from_core_store_legacy_lane_statuses() {
     let cwd = temp_dir("runtime_contract_lane_cwd");
     let home = temp_dir("runtime_contract_lane_home");
     let lane_dir = cwd.join(".viden");
     fs::create_dir_all(&lane_dir).unwrap();
     fs::write(
         lane_dir.join("lanes.tsv"),
-        "L1\tcodex\tfix tests\trunning\tmain\t64\tpatched tests\t\n",
+        include_str!("../../../types/tests/fixtures/frontend-contract-v1/legacy-lanes.tsv"),
     )
     .unwrap();
     let provider = Box::new(SequenceProvider::new(vec![]));
@@ -4236,11 +4240,12 @@ fn runtime_view_state_emits_lane_facts_from_core_store() {
 
     let view = engine.runtime_view_state();
 
-    assert_eq!(view.lanes.len(), 1);
-    assert_eq!(view.lanes[0].id, "L1");
-    assert_eq!(view.lanes[0].agent, "codex");
-    assert_eq!(view.lanes[0].status, "running");
-    assert_eq!(view.lanes[0].summary, "patched tests");
+    assert_eq!(view.lanes.len(), 4);
+    assert_eq!(view.lanes[0].id, "L-start");
+    assert_eq!(view.lanes[0].status, LaneStatus::Starting);
+    assert_eq!(view.lanes[1].status, LaneStatus::Blocked);
+    assert_eq!(view.lanes[2].status, LaneStatus::Detached);
+    assert_eq!(view.lanes[3].status, LaneStatus::Detached);
 }
 
 #[test]
@@ -4311,10 +4316,10 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
         .iter()
         .find(|task| task.id == "acp-1")
         .expect("tracked ACP session job should become a runtime task");
-    assert_eq!(task.agent, "acp");
-    assert_eq!(task.kind, "job");
-    assert_eq!(task.transport, "acp");
-    assert_eq!(task.status, "done");
+    assert_eq!(task.role, AgentRole::Coder);
+    assert_eq!(task.kind, AgentTaskKind::Job);
+    assert_eq!(task.route, AgentRoute::Acp);
+    assert_eq!(task.status, AgentTaskStatus::Done);
     assert_eq!(task.result, Some(result_path.display().to_string()));
     assert!(task.evidence.contains(&"session session_1".to_string()));
     assert_eq!(

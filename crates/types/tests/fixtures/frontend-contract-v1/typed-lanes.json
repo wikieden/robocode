@@ -1,0 +1,23 @@
+[
+  {
+    "id": "lane_research",
+    "task_id": "task_research",
+    "role": "researcher",
+    "route": "acp",
+    "gate_strength": "cooperative",
+    "mutation_policy": "read_only",
+    "worktree": ".worktrees/research",
+    "branch": "codex/research",
+    "target": {"ssh": {"host": "build.example.test"}},
+    "data_egress": {"allow_listed": {"domains": ["docs.example.test"]}},
+    "status": "waiting_approval",
+    "budget": {
+      "token_limit": 4096,
+      "cost_limit_micro_usd": 250000,
+      "wall_time_limit_secs": 300
+    },
+    "active_session_ids": ["session_research"],
+    "summary": "research is waiting for approval",
+    "evidence": ["evidence_research"]
+  }
+]

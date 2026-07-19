@@ -17,10 +17,10 @@ use viden_plugin_api::{
 };
 use viden_plugin_host::builtin_agent_descriptors;
 use viden_types::{
-    AgentCapabilityRecord, AgentNextAction, AgentTaskRecord, AgentTaskStatus, ApprovalResponse,
-    EvidenceView, MergeGateRecord, MergeGateStatus, PermissionDecision, PermissionLogEntry,
-    RuntimeEvent, RuntimeEventKind, ToolInput, ToolSpec, TranscriptEntry, now_timestamp,
-    truncate_for_preview,
+    AgentCapabilityRecord, AgentNextAction, AgentRole, AgentRoute, AgentTaskKind, AgentTaskRecord,
+    AgentTaskStatus, ApprovalResponse, EvidenceView, MergeGateRecord, MergeGateStatus,
+    PermissionDecision, PermissionLogEntry, RuntimeEvent, RuntimeEventKind, ToolInput, ToolSpec,
+    TranscriptEntry, now_timestamp, truncate_for_preview,
 };
 
 const SHELL_SCRIPT_THRESHOLD: usize = 32 * 1024;
@@ -1135,11 +1135,11 @@ fn agent_task_from_job_record(cwd: &Path, mut job: CodexJobRecord) -> AgentTaskR
     AgentTaskRecord {
         id: job.id.clone(),
         parent_id: None,
-        agent: agent_job_agent(&job).to_string(),
-        kind: "job".to_string(),
-        transport: agent_job_transport(&job).to_string(),
+        role: AgentRole::Coder,
+        kind: AgentTaskKind::Job,
+        route: agent_job_route(&job),
         title: job.task.clone(),
-        status: agent_job_task_status(&job.status).to_string(),
+        status: agent_job_task_status(&job.status),
         activity: agent_job_activity(&job, &evidence_lines),
         summary: job.task.clone(),
         progress: agent_job_progress(&job.status),
@@ -1160,30 +1160,22 @@ fn agent_task_from_job_record(cwd: &Path, mut job: CodexJobRecord) -> AgentTaskR
     }
 }
 
-fn agent_job_agent(job: &CodexJobRecord) -> &'static str {
+fn agent_job_route(job: &CodexJobRecord) -> AgentRoute {
     if job.kind == "acp-session" {
-        "acp"
+        AgentRoute::Acp
     } else {
-        "codex"
+        AgentRoute::Terminal
     }
 }
 
-fn agent_job_transport(job: &CodexJobRecord) -> &'static str {
-    if job.kind == "acp-session" {
-        "acp"
-    } else {
-        "app-server"
-    }
-}
-
-fn agent_job_task_status(status: &str) -> &'static str {
+fn agent_job_task_status(status: &str) -> AgentTaskStatus {
     match status {
-        "queued" => AgentTaskStatus::Queued.as_str(),
-        "running" => AgentTaskStatus::Thinking.as_str(),
-        "finished" | "observed" => AgentTaskStatus::Done.as_str(),
-        "failed" => AgentTaskStatus::Failed.as_str(),
-        "cancelled" | "canceled" => AgentTaskStatus::Cancelled.as_str(),
-        _ => AgentTaskStatus::Done.as_str(),
+        "queued" => AgentTaskStatus::Queued,
+        "running" => AgentTaskStatus::Thinking,
+        "finished" | "observed" => AgentTaskStatus::Done,
+        "failed" => AgentTaskStatus::Failed,
+        "cancelled" | "canceled" => AgentTaskStatus::Cancelled,
+        _ => AgentTaskStatus::Done,
     }
 }
 

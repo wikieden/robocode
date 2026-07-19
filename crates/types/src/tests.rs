@@ -129,11 +129,11 @@ fn agent_task_and_context_records_roundtrip_json() {
     let task = AgentTaskRecord {
         id: "lane-1".to_string(),
         parent_id: None,
-        agent: "shell".to_string(),
-        kind: "lane".to_string(),
-        transport: "template".to_string(),
+        role: AgentRole::Coder,
+        kind: AgentTaskKind::Agent,
+        route: AgentRoute::Terminal,
         title: "cargo test".to_string(),
-        status: AgentTaskStatus::Running.as_str().to_string(),
+        status: AgentTaskStatus::Running,
         activity: "running cargo test".to_string(),
         summary: "operator lane".to_string(),
         progress: 42,
@@ -185,7 +185,7 @@ fn agent_task_and_context_records_roundtrip_json() {
     let encoded = serde_json::to_string(&(task, bundle)).unwrap();
     let (decoded_task, decoded_bundle): (AgentTaskRecord, ContextBundleRecord) =
         serde_json::from_str(&encoded).unwrap();
-    assert_eq!(decoded_task.agent, "shell");
+    assert_eq!(decoded_task.role, AgentRole::Coder);
     assert_eq!(decoded_bundle.sources[0].kind, "test");
     assert_eq!(
         decoded_bundle.sources[0].handle_id.as_deref(),
@@ -251,6 +251,211 @@ fn agent_lane_trust_loop_records_roundtrip_json() {
     assert_eq!(decoded_event.kind, "lane.started");
     assert_eq!(decoded_isolation.risk_level, "medium");
     assert_eq!(decoded_capability.evidence_mode, "log+done+timeline");
+}
+
+#[test]
+fn typed_lane_records_use_the_frozen_v1_wire_names() {
+    let lane = AgentLaneRecord {
+        id: "lane_research".to_string(),
+        task_id: Some("task_research".to_string()),
+        role: AgentRole::Researcher,
+        route: AgentRoute::Acp,
+        gate_strength: GateStrength::Cooperative,
+        mutation_policy: MutationPolicy::ReadOnly,
+        worktree: Some(".worktrees/research".to_string()),
+        branch: Some("codex/research".to_string()),
+        target: ExecutionTarget::Ssh {
+            host: "build.example.test".to_string(),
+        },
+        data_egress: DataEgressPolicy::AllowListed {
+            domains: vec!["docs.example.test".to_string()],
+        },
+        status: LaneStatus::WaitingApproval,
+        budget: LaneBudget {
+            token_limit: Some(4_096),
+            cost_limit_micro_usd: Some(250_000),
+            wall_time_limit_secs: Some(300),
+        },
+        active_session_ids: vec!["session_research".to_string()],
+        summary: "research is waiting for approval".to_string(),
+        evidence: vec!["evidence_research".to_string()],
+    };
+
+    let encoded = serde_json::to_value(&lane).unwrap();
+    assert_eq!(encoded["role"], "researcher");
+    assert_eq!(encoded["route"], "acp");
+    assert_eq!(encoded["gate_strength"], "cooperative");
+    assert_eq!(encoded["mutation_policy"], "read_only");
+    assert_eq!(encoded["status"], "waiting_approval");
+    assert_eq!(
+        encoded["target"],
+        serde_json::json!({"ssh": {"host": "build.example.test"}})
+    );
+    assert_eq!(
+        encoded["data_egress"],
+        serde_json::json!({"allow_listed": {"domains": ["docs.example.test"]}})
+    );
+    assert_eq!(
+        serde_json::from_value::<AgentLaneRecord>(encoded).unwrap(),
+        lane
+    );
+}
+
+#[test]
+fn typed_lane_enums_use_explicit_v1_json_names() {
+    let roles = [
+        (AgentRole::Planner, "planner"),
+        (AgentRole::Coder, "coder"),
+        (AgentRole::Reviewer, "reviewer"),
+        (AgentRole::Tester, "tester"),
+        (AgentRole::DocWriter, "doc_writer"),
+        (AgentRole::Researcher, "researcher"),
+        (AgentRole::ReleaseOperator, "release_operator"),
+    ];
+    for (value, wire) in roles {
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    }
+    assert!(serde_json::from_str::<AgentRole>("\"external\"").is_err());
+
+    let routes = [
+        (AgentRoute::BuiltIn, "built_in"),
+        (AgentRoute::Acp, "acp"),
+        (AgentRoute::Terminal, "terminal"),
+        (AgentRoute::Tmux, "tmux"),
+    ];
+    for (value, wire) in routes {
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    }
+
+    let gates = [
+        (GateStrength::Full, "full"),
+        (GateStrength::Cooperative, "cooperative"),
+        (GateStrength::Containment, "containment"),
+    ];
+    for (value, wire) in gates {
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    }
+
+    let mutation_policies = [
+        (MutationPolicy::Autonomous, "autonomous"),
+        (MutationPolicy::ProposeOnly, "propose_only"),
+        (MutationPolicy::ReadOnly, "read_only"),
+    ];
+    for (value, wire) in mutation_policies {
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    }
+
+    let statuses = [
+        (LaneStatus::Draft, "draft"),
+        (LaneStatus::Queued, "queued"),
+        (LaneStatus::Starting, "starting"),
+        (LaneStatus::Running, "running"),
+        (LaneStatus::WaitingApproval, "waiting_approval"),
+        (LaneStatus::NeedsInput, "needs_input"),
+        (LaneStatus::Blocked, "blocked"),
+        (LaneStatus::Attached, "attached"),
+        (LaneStatus::Detached, "detached"),
+        (LaneStatus::Done, "done"),
+        (LaneStatus::Failed, "failed"),
+        (LaneStatus::Cancelled, "cancelled"),
+        (LaneStatus::Archived, "archived"),
+    ];
+    for (value, wire) in statuses {
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    }
+
+    let task_kinds = [
+        (AgentTaskKind::Provider, "provider"),
+        (AgentTaskKind::Tool, "tool"),
+        (AgentTaskKind::Shell, "shell"),
+        (AgentTaskKind::Test, "test"),
+        (AgentTaskKind::Job, "job"),
+        (AgentTaskKind::Agent, "agent"),
+    ];
+    for (value, wire) in task_kinds {
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    }
+    assert_eq!(
+        serde_json::to_value(ExecutionTarget::Local).unwrap(),
+        "local"
+    );
+    assert_eq!(
+        serde_json::to_value(DataEgressPolicy::AllowProvider).unwrap(),
+        "allow_provider"
+    );
+}
+
+#[test]
+fn typed_lane_fixture_replays_as_the_frozen_v1_record() {
+    let lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+        "../tests/fixtures/frontend-contract-v1/typed-lanes.json"
+    ))
+    .unwrap();
+    assert_eq!(lanes.len(), 1);
+    assert_eq!(lanes[0].role, AgentRole::Researcher);
+    assert_eq!(lanes[0].route, AgentRoute::Acp);
+    assert_eq!(lanes[0].status, LaneStatus::WaitingApproval);
+}
+
+#[test]
+fn legacy_lane_json_migrates_only_at_the_record_input_edge() {
+    let legacy = serde_json::json!({
+        "id": "lane_legacy",
+        "task_id": "task_legacy",
+        "agent": "codex",
+        "screen": "lane",
+        "transport": "tmux",
+        "status": "stopped",
+        "summary": "legacy lane stopped by operator",
+        "evidence": ["log lane_legacy.log"]
+    });
+    let lane: AgentLaneRecord = serde_json::from_value(legacy).unwrap();
+    assert_eq!(lane.role, AgentRole::Coder);
+    assert_eq!(lane.route, AgentRoute::Tmux);
+    assert_eq!(lane.status, LaneStatus::Detached);
+    assert_eq!(lane.mutation_policy, MutationPolicy::ProposeOnly);
+    assert_eq!(lane.target, ExecutionTarget::Local);
+}
+
+#[test]
+fn typed_task_records_preserve_v0_names_and_migrate_legacy_values() {
+    let legacy = serde_json::json!({
+        "id": "task_test",
+        "parent_id": null,
+        "agent": "shell",
+        "kind": "test",
+        "transport": "shell",
+        "title": "cargo test",
+        "status": "starting",
+        "activity": "starting test",
+        "summary": "test task",
+        "progress": 0,
+        "started_at": null,
+        "updated_at": null,
+        "workspace": null,
+        "evidence": [],
+        "permissions": [],
+        "decision": null,
+        "result": null,
+        "resume_handle": null,
+        "pid": null,
+        "next_action": null
+    });
+    let task: AgentTaskRecord = serde_json::from_value(legacy).unwrap();
+    assert_eq!(task.role, AgentRole::Tester);
+    assert_eq!(task.kind, AgentTaskKind::Test);
+    assert_eq!(task.route, AgentRoute::Terminal);
+    assert_eq!(task.status, AgentTaskStatus::Thinking);
+
+    let encoded = serde_json::to_value(&task).unwrap();
+    assert_eq!(encoded["agent"], "tester");
+    assert_eq!(encoded["transport"], "terminal");
+    assert!(encoded.get("role").is_none());
+    assert!(encoded.get("route").is_none());
+
+    let mut external = encoded;
+    external["agent"] = serde_json::json!("external");
+    assert!(serde_json::from_value::<AgentTaskRecord>(external).is_err());
 }
 
 #[test]
@@ -1268,11 +1473,11 @@ fn runtime_events_replay_into_ui_independent_view_state() {
     let task = AgentTaskRecord {
         id: "task_1".to_string(),
         parent_id: None,
-        agent: "planner".to_string(),
-        kind: "runtime".to_string(),
-        transport: "core".to_string(),
+        role: AgentRole::Planner,
+        kind: AgentTaskKind::Agent,
+        route: AgentRoute::BuiltIn,
         title: "Build runtime contract".to_string(),
-        status: AgentTaskStatus::Thinking.as_str().to_string(),
+        status: AgentTaskStatus::Thinking,
         activity: "designing contract".to_string(),
         summary: "phase 0 contract".to_string(),
         progress: 15,
