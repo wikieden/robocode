@@ -1,9 +1,8 @@
 use super::state::{
-    AgentJob, AgentTask, CompanionScreen, InteractionPanel, PendingTurn, ProviderOption,
-    ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
+    AgentJob, AgentTask, CompanionScreen, InteractionPanel, PendingTurn, ProviderAuthMode,
+    ProviderOption, ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
 };
 use super::{render, terminal};
-use viden_core::ProviderAuthMode;
 use viden_types::{
     MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskPriority, TaskRecord,
     TaskStatus,

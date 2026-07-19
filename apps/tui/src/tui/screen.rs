@@ -6,7 +6,6 @@ use std::{
 };
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
-use viden_core::SessionEngine;
 
 use super::input::should_exit;
 use super::state::{
@@ -19,7 +18,7 @@ use super::terminal::TerminalGuard;
 const SCREEN_SHELL_SCRIPT_THRESHOLD: usize = 32 * 1024;
 
 pub fn run_side_tui_with_theme(
-    engine: &SessionEngine,
+    _engine: &impl Send,
     startup_summary: &str,
     screen: SideScreen,
     theme_name: Option<&str>,
@@ -29,15 +28,11 @@ pub fn run_side_tui_with_theme(
     let lane_store = root.as_ref().map(|root| lane_store_path(root));
     let screen_store = root.as_ref().map(|root| screen_store_path(root));
     let mut state = TuiState {
-        session_id: engine.session_id().to_string(),
-        provider: engine.provider_name().to_string(),
-        model: engine.model_name().to_string(),
-        provider_catalog: engine
-            .provider_descriptors()
-            .iter()
-            .map(ProviderOption::from_descriptor)
-            .collect(),
-        provider_status: ProviderStatus::from_telemetry(&engine.provider_telemetry()),
+        session_id: "side-core-client-pending".to_string(),
+        provider: "core".to_string(),
+        model: "frontend-contract-v1".to_string(),
+        provider_catalog: ProviderOption::fixture(),
+        provider_status: ProviderStatus::configured(),
         theme_name: terminal.theme_name().to_string(),
         input: String::new(),
         command_selection: 0,
@@ -52,9 +47,9 @@ pub fn run_side_tui_with_theme(
             body: format!("Viden side monitor ready. Esc or Ctrl-C exits.\n{startup_summary}"),
         }],
         workspace: WorkspaceSnapshot::load_current(),
-        tasks: engine.active_task_snapshot().unwrap_or_default(),
-        runtime_tasks: engine.agent_task_snapshot(),
-        memory: engine.memory_snapshot().unwrap_or_default(),
+        tasks: Vec::new(),
+        runtime_tasks: Vec::new(),
+        memory: Vec::new(),
         screens: load_side_screens(screen_store.as_deref(), screen),
         lanes: load_side_lanes(lane_store.as_deref()),
         lane_store,
@@ -99,8 +94,6 @@ pub fn run_side_tui_with_theme(
             let _ = save_screens(path, &state.screens);
         }
         state.workspace = WorkspaceSnapshot::load_current();
-        state.tasks = engine.active_task_snapshot().unwrap_or_default();
-        state.memory = engine.memory_snapshot().unwrap_or_default();
         draw_side_screen(&mut terminal, &state, screen)?;
     }
 

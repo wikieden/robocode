@@ -1,0 +1,46 @@
+[release]
+component = "tui"
+version = "0.2.0-alpha.1"
+min_core_version = "0.3.0"
+base_core_checkpoint = "afd6fcc9aaf3039ba79bb4588ed33bf1547209f5"
+contract_payload_sha = "5bd2b80bcb0fb85ace8f7f5c8441d1f4723882a6"
+supported_schema_versions = [1]
+design_entry = "docs/viden-design/Viden/index.html"
+tui_design_entry = "docs/viden-design/Viden/TUI/Viden - 设计稿索引 (TUI).html"
+tui_reference = "docs/viden-design/Viden/TUI/Viden - 统一原型 (TUI).html"
+
+[compatibility]
+required_capabilities = [
+  "runtime.agent_dag",
+  "runtime.approvals",
+  "runtime.commands",
+  "runtime.context",
+  "runtime.cost",
+  "runtime.events",
+  "runtime.evidence",
+  "runtime.merge_gate",
+  "runtime.queued_input",
+  "runtime.replay",
+  "runtime.snapshot",
+  "runtime.transcript_page",
+  "runtime.typed_lanes",
+  "runtime.typed_tasks",
+  "ui.preferences",
+]
+
+[presentation]
+locales = ["en", "zh-CN"]
+skins = ["aurora", "ice", "mono", "amber", "phosphor"]
+valid_skin_modes = [
+  "aurora:dark",
+  "aurora:light",
+  "ice:dark",
+  "ice:light",
+  "mono:dark",
+  "mono:light",
+  "amber:dark",
+  "phosphor:dark",
+]
+densities = ["compact", "regular", "comfortable"]
+motion = ["full", "reduced", "none"]
+tui_color_depth = ["auto", "truecolor", "ansi256", "ansi16"]

@@ -224,7 +224,7 @@ fn ops_extension_rows(state: &TuiState) -> Vec<String> {
                 "{} {} {} {} {}",
                 lane.screen,
                 lane.agent,
-                lane.task_id,
+                lane.task_id.as_deref().unwrap_or("unassigned"),
                 truncate(&lane.summary, 18),
                 truncate(evidence, 28)
             )

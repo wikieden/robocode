@@ -598,6 +598,7 @@ fn is_loose_timeline_connector(row: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::state::ProviderTelemetry;
     use crate::tui::{
         state::{
             AgentJob, InteractionPanel, PendingTurn, ProviderStatus, TerminalLane, TuiEntry,
@@ -605,7 +606,6 @@ mod tests {
         },
         text::char_width,
     };
-    use viden_core::ProviderTelemetry;
     use viden_types::{TaskPriority, TaskRecord, TaskStatus};
 
     fn render_state() -> TuiState {

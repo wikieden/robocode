@@ -1,5 +1,6 @@
 mod app;
 mod canvas;
+mod client;
 mod command_palette;
 mod composer;
 mod indicators;
@@ -21,7 +22,8 @@ mod theme;
 mod topbar;
 mod transcript;
 
-pub use app::run_tui_with_theme;
+pub use app::{TuiError, TuiOptions, run_tui, run_tui_with_theme};
+pub use client::{PumpOutcome, TuiClientDriver, TuiClientError};
 pub use preview::{
     render_ansi_cjk_input_preview_with_theme, render_ansi_command_palette_preview_with_theme,
     render_ansi_idle_preview_with_theme, render_ansi_lane_preview_with_theme,

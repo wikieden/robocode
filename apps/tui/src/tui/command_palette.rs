@@ -1,12 +1,11 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use viden_core::ProviderAuthMode;
 use viden_types::MemoryStatus;
 
 use super::{
     canvas::Frame,
     composer::{ComposerAnchor, composer_anchor},
     panel::{bordered_row, panel_top},
-    state::TuiState,
+    state::{ProviderAuthMode, TuiState},
     statusbar::BOTTOM_BAR_HEIGHT,
     text::{bottom_border, pad, truncate},
     theme::TuiTheme,
@@ -3389,10 +3388,10 @@ fn command_suggestion_row(
 mod tests {
     use super::*;
     use crate::tui::state::{
-        CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot,
+        CompanionScreen, ProviderAuthMode, ProviderStatus, TerminalLane, TuiEntry,
+        WorkspaceSnapshot,
     };
     use crate::tui::text::char_width;
-    use viden_core::ProviderAuthMode;
     use viden_types::{
         MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskPriority, TaskRecord,
         TaskStatus,

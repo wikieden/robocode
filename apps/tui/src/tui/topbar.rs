@@ -259,9 +259,9 @@ fn active_lane_count(state: &TuiState) -> usize {
 mod tests {
     use super::telemetry_status;
     use crate::tui::state::{
-        PendingTurn, ProviderOption, ProviderStatus, TuiEntry, TuiState, WorkspaceSnapshot,
+        PendingTurn, ProviderOption, ProviderStatus, ProviderTelemetry, TuiEntry, TuiState,
+        WorkspaceSnapshot,
     };
-    use viden_core::ProviderTelemetry;
     use viden_types::{PermissionLevel, WorkMode};
 
     fn state_with_status(provider_status: ProviderStatus) -> TuiState {

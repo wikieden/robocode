@@ -4566,7 +4566,7 @@ mod tests {
     fn lane_decision_records_changed_files_and_inspect_evidence() {
         let root = temp_lane_root();
         fs::create_dir_all(&root).expect("temp root");
-        Command::new("git")
+        Command::new(test_git_binary())
             .arg("init")
             .current_dir(&root)
             .status()

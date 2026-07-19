@@ -7,11 +7,58 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use viden_core::{EngineEvent, ProviderAuthMode, ProviderDescriptor, ProviderTelemetry};
-use viden_types::{
-    AgentLaneRecord, AgentNextAction, AgentTaskRecord, MemoryEntry, PermissionLevel, TaskRecord,
-    WorkMode,
-};
+use viden_types::{AgentNextAction, MemoryEntry, PermissionLevel, TaskRecord, WorkMode};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ProviderAuthMode {
+    ApiKey,
+    WebLogin,
+    Local,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(super) struct ProviderEnvMappings {
+    pub(super) api_key_env: Option<String>,
+    pub(super) api_base_env: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(super) struct ProviderDescriptor {
+    pub(super) provider_id: String,
+    pub(super) display_name: String,
+    pub(super) default_api_base: Option<String>,
+    pub(super) default_model: Option<String>,
+    pub(super) known_models: Vec<String>,
+    pub(super) env_mappings: ProviderEnvMappings,
+    pub(super) auth_modes: Vec<ProviderAuthMode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(super) struct ProviderTelemetry {
+    pub(super) request_count: u64,
+    pub(super) success_count: u64,
+    pub(super) failure_count: u64,
+    pub(super) last_latency_ms: Option<u128>,
+    pub(super) average_latency_ms: Option<u128>,
+    pub(super) last_event_count: usize,
+    pub(super) last_error: Option<String>,
+    pub(super) last_input_tokens: Option<u64>,
+    pub(super) last_output_tokens: Option<u64>,
+    pub(super) last_total_tokens: Option<u64>,
+    pub(super) total_tokens: u64,
+    pub(super) last_tokens_per_second: Option<u64>,
+    pub(super) last_cost_micro_usd: Option<u64>,
+    pub(super) total_cost_micro_usd: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum EngineEvent {
+    System(String),
+    Assistant(String),
+    ToolCall(String),
+    ToolResult { output: String },
+    Command(String),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TuiEntry {
@@ -45,6 +92,37 @@ pub(super) struct TuiState {
     pub(super) lane_store: Option<PathBuf>,
     pub(super) focused_lane: Option<String>,
     pub(super) interaction_panel: Option<InteractionPanel>,
+}
+
+impl Default for TuiState {
+    fn default() -> Self {
+        Self {
+            session_id: String::new(),
+            provider: String::new(),
+            model: String::new(),
+            provider_catalog: Vec::new(),
+            provider_status: ProviderStatus::configured(),
+            theme_name: "aurora-cyan".to_string(),
+            input: String::new(),
+            command_selection: 0,
+            command_palette_hidden_for: None,
+            approval_focus: 0,
+            approval_apply_all: false,
+            pending_turn: None,
+            streaming_assistant: None,
+            transcript_scroll: 0,
+            entries: Vec::new(),
+            workspace: WorkspaceSnapshot::fixture(),
+            tasks: Vec::new(),
+            runtime_tasks: Vec::new(),
+            memory: Vec::new(),
+            screens: Vec::new(),
+            lanes: Vec::new(),
+            lane_store: None,
+            focused_lane: None,
+            interaction_panel: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +160,10 @@ pub(super) struct PendingTurn {
 }
 
 impl PendingTurn {
+    pub(super) fn for_input(prompt: &str) -> Self {
+        Self::new("core", "core", "frontend-contract-v1", prompt, "workspace")
+    }
+
     pub(super) fn new(
         session_id: &str,
         provider: &str,
@@ -104,13 +186,96 @@ impl PendingTurn {
     }
 }
 
-pub(super) type AgentTask = AgentTaskRecord;
-pub(super) type AgentLane = AgentLaneRecord;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct AgentTask {
+    pub(super) id: String,
+    pub(super) parent_id: Option<String>,
+    pub(super) agent: String,
+    pub(super) kind: String,
+    pub(super) transport: String,
+    pub(super) title: String,
+    pub(super) status: String,
+    pub(super) progress: u8,
+    pub(super) activity: String,
+    pub(super) summary: String,
+    pub(super) evidence: Vec<String>,
+    pub(super) next_action: Option<AgentNextAction>,
+    pub(super) started_at: Option<u64>,
+    pub(super) updated_at: Option<u64>,
+    pub(super) workspace: Option<String>,
+    pub(super) permissions: Vec<String>,
+    pub(super) decision: Option<String>,
+    pub(super) result: Option<String>,
+    pub(super) resume_handle: Option<String>,
+    pub(super) pid: Option<u32>,
+}
+
+impl AgentTask {
+    pub(super) fn is_active(&self) -> bool {
+        matches!(
+            self.status.as_str(),
+            "queued"
+                | "thinking"
+                | "streaming"
+                | "editing"
+                | "running_tool"
+                | "testing"
+                | "waiting_approval"
+                | "needs_input"
+                | "blocked"
+                | "reviewing"
+                | "running"
+                | "attached"
+        )
+    }
+
+    pub(super) fn priority(&self) -> u8 {
+        match self.status.as_str() {
+            "waiting_approval" | "needs_input" => 5,
+            "blocked" | "failed" => 4,
+            "running" | "attached" | "thinking" | "streaming" | "editing" | "testing" => 3,
+            "queued" => 2,
+            _ => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct AgentLane {
+    pub(super) id: String,
+    pub(super) task_id: Option<String>,
+    pub(super) agent: String,
+    pub(super) screen: String,
+    pub(super) transport: String,
+    pub(super) status: String,
+    pub(super) summary: String,
+    pub(super) evidence: Vec<String>,
+}
+
+impl AgentLane {
+    pub(super) fn is_active(&self) -> bool {
+        matches!(
+            self.status.as_str(),
+            "queued"
+                | "thinking"
+                | "streaming"
+                | "editing"
+                | "running_tool"
+                | "testing"
+                | "waiting_approval"
+                | "needs_input"
+                | "blocked"
+                | "reviewing"
+                | "running"
+                | "attached"
+        )
+    }
+}
 
 fn agent_lane_from_task(task: &AgentTask) -> AgentLane {
     AgentLane {
         id: format!("{}:{}", agent_screen(task), task.id),
-        task_id: task.id.clone(),
+        task_id: Some(task.id.clone()),
         agent: agent_lane_label(task),
         screen: agent_screen(task).to_string(),
         transport: task.transport.clone(),
@@ -2657,7 +2822,6 @@ fn json_number_field(value: &str, field: &str) -> Option<String> {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use viden_core::EngineEvent;
 
     static TEMP_STATE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
