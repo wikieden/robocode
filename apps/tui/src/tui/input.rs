@@ -1,5 +1,7 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 
+use super::command_palette::is_command_palette_visible;
+use super::keymap::{InputFocus, InputMode, OverlayKind};
 use super::modal::{
     ApprovalAction, focused_approval_action, move_approval_focus, set_approval_focus_for_action,
 };
@@ -10,6 +12,36 @@ pub(super) enum ApprovalKeyEffect {
     None,
     Redraw,
     Resolve(bool),
+}
+
+pub(super) fn effective_input_mode(state: &TuiState) -> InputMode {
+    if active_overlay_kind(state).is_some() {
+        InputMode::Overlay
+    } else {
+        state.ui.input_mode
+    }
+}
+
+pub(super) fn input_focus(state: &TuiState) -> InputFocus {
+    InputFocus {
+        overlay: active_overlay_kind(state),
+        selection_active: state.ui.focused_lane.is_some(),
+        idle_ctrl_c_armed: state.ui.idle_ctrl_c_armed,
+    }
+}
+
+fn active_overlay_kind(state: &TuiState) -> Option<OverlayKind> {
+    if let Some(overlay) = state.ui.overlay.as_ref() {
+        Some(overlay.kind)
+    } else if !state.runtime.pending_approvals.is_empty() {
+        Some(OverlayKind::Approval)
+    } else if state.ui.interaction_panel.is_some() {
+        Some(OverlayKind::InteractionPanel)
+    } else if is_command_palette_visible(state) {
+        Some(OverlayKind::ComposerCommands)
+    } else {
+        None
+    }
 }
 
 pub(super) fn close_focus_on_escape(key: KeyEvent, state: &mut TuiState) -> bool {
@@ -28,9 +60,6 @@ pub(super) fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> Approva
     match key.code {
         KeyCode::Char('y') | KeyCode::Char('Y') => ApprovalKeyEffect::Resolve(true),
         KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => ApprovalKeyEffect::Resolve(false),
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            ApprovalKeyEffect::Resolve(false)
-        }
         KeyCode::Char(' ') => {
             if focused_approval_action(state) != ApprovalAction::ToggleApplyAll {
                 return ApprovalKeyEffect::None;
@@ -70,13 +99,10 @@ pub(super) fn apply_approval_action(
     }
 }
 
-pub(super) fn should_exit(key: KeyEvent) -> bool {
-    key.code == KeyCode::Esc
-        || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
-}
-
 #[cfg(test)]
 mod tests {
+    use crossterm::event::KeyModifiers;
+
     use super::super::modal::DEFAULT_APPROVAL_FOCUS;
     use super::*;
 
@@ -108,12 +134,11 @@ mod tests {
     }
 
     #[test]
-    fn escape_without_focus_keeps_exit_behavior_available() {
+    fn escape_without_focus_leaves_selection_handler_idle() {
         let mut state = state_with_focus();
         state.ui.focused_lane = None;
 
         assert!(!close_focus_on_escape(key(KeyCode::Esc), &mut state));
-        assert!(should_exit(key(KeyCode::Esc)));
     }
 
     #[test]
@@ -202,7 +227,8 @@ mod tests {
                 KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
                 &mut state
             ),
-            ApprovalKeyEffect::Resolve(false)
+            ApprovalKeyEffect::None,
+            "Ctrl-C belongs to current-work cancellation and must never deny approval"
         );
     }
 }

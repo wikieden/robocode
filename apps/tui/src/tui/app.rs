@@ -5,13 +5,15 @@ use viden_core::{
 
 use super::client::{PumpOutcome, TuiClientDriver, TuiClientError};
 use super::command_palette::{
-    close_on_escape, complete_selected, is_command_palette_visible, move_selection,
-    reset_for_input_change, should_complete_on_enter,
+    close_on_escape, complete_selected, move_selection, reset_for_input_change,
+    should_complete_on_enter,
 };
-use super::input::{ApprovalKeyEffect, apply_approval_key, close_focus_on_escape};
-use super::keymap::{InputIntent, InputMode, reduce_input};
+use super::input::{
+    ApprovalKeyEffect, apply_approval_key, close_focus_on_escape, effective_input_mode, input_focus,
+};
+use super::keymap::{InputIntent, InputMode, OverlayKind, RuntimeFacts, reduce_input};
 use super::modal::{interaction_panel_choice_count, selected_interaction_command};
-use super::state::{InteractionPanel, TuiEntry, TuiState};
+use super::state::{InteractionPanel, OverlayState, TuiEntry, TuiState};
 use super::terminal::TerminalGuard;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,7 +78,6 @@ pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiE
     )
     .map_err(TuiError::Terminal)?;
     let mut state = state_from_driver(&driver, &options);
-    let mut input = TuiInputController::default();
     terminal.draw(&state).map_err(TuiError::Terminal)?;
 
     loop {
@@ -92,9 +93,7 @@ pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiE
 
         let event = event::read().map_err(|err| TuiError::Terminal(err.to_string()))?;
         let size = crossterm::terminal::size().unwrap_or((80, 24));
-        if handle_ui_event(&mut driver, &mut state, &mut input, event, size)?
-            == UiEventOutcome::Exit
-        {
+        if handle_ui_event(&mut driver, &mut state, event, size)? == UiEventOutcome::Exit {
             break;
         }
     }
@@ -180,41 +179,9 @@ enum UiEventOutcome {
     Exit,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct TuiInputController {
-    mode: InputMode,
-}
-
-impl Default for TuiInputController {
-    fn default() -> Self {
-        Self {
-            mode: InputMode::Normal,
-        }
-    }
-}
-
-impl TuiInputController {
-    #[cfg(test)]
-    fn mode(self) -> InputMode {
-        self.mode
-    }
-}
-
-fn effective_input_mode(controller: &TuiInputController, state: &TuiState) -> InputMode {
-    if state.ui.interaction_panel.is_some()
-        || state.ui.focused_lane.is_some()
-        || is_command_palette_visible(state)
-    {
-        InputMode::Overlay
-    } else {
-        controller.mode
-    }
-}
-
 fn handle_ui_event<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
-    controller: &mut TuiInputController,
     event: Event,
     _terminal_size: (u16, u16),
 ) -> Result<UiEventOutcome, TuiError> {
@@ -224,7 +191,7 @@ fn handle_ui_event<C: CoreClient>(
             let approval_pending = !driver.view().pending_approvals.is_empty();
             if approval_pending
                 || matches!(
-                    effective_input_mode(controller, state),
+                    effective_input_mode(state),
                     InputMode::Insert | InputMode::Overlay
                 )
             {
@@ -243,98 +210,77 @@ fn handle_ui_event<C: CoreClient>(
             Ok(UiEventOutcome::Redraw)
         }
         Event::Mouse(_) => Ok(UiEventOutcome::Redraw),
-        Event::Key(key) => handle_ui_key(driver, state, controller, key),
+        Event::Key(key) => handle_ui_key(driver, state, key),
     }
 }
 
 fn handle_ui_key<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
-    controller: &mut TuiInputController,
     key: KeyEvent,
 ) -> Result<UiEventOutcome, TuiError> {
-    let has_active_work = runtime_has_active_work(&state.runtime);
-    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        dispatch_intent(driver, RuntimeCommand::CancelActiveTurn)?;
-        state.ui.entries.push(TuiEntry {
-            label: "command".to_string(),
-            body: "cancel requested".to_string(),
-        });
-        return Ok(UiEventOutcome::Redraw);
-    }
-
-    if !driver.view().pending_approvals.is_empty() {
-        match apply_approval_key(key, state) {
-            ApprovalKeyEffect::Resolve(allow) => {
-                if let Some(command) = approval_command(driver.view(), allow) {
-                    dispatch_intent(driver, command)?;
-                }
-                return Ok(UiEventOutcome::Redraw);
-            }
-            ApprovalKeyEffect::Redraw => return Ok(UiEventOutcome::Redraw),
-            ApprovalKeyEffect::None => {}
-        }
-    }
-
-    if key.code == KeyCode::Tab
-        && state.ui.focused_lane.is_some()
-        && state.ui.interaction_panel.is_none()
-        && !is_command_palette_visible(state)
-    {
-        cycle_agent_focus(state);
-        return Ok(UiEventOutcome::Redraw);
-    }
-
-    let mode = if driver.view().pending_approvals.is_empty() {
-        effective_input_mode(controller, state)
-    } else {
-        InputMode::Overlay
+    let mode = effective_input_mode(state);
+    let focus = input_focus(state);
+    let facts = RuntimeFacts {
+        current_work_owner: current_work_owner(driver, state),
     };
-    let intent = reduce_input(mode, key, has_active_work);
-    apply_input_intent(driver, state, controller, key, intent)
+    if !(key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
+        state.ui.idle_ctrl_c_armed = false;
+    }
+    let intent = reduce_input(mode, focus, key, facts);
+    apply_input_intent(driver, state, key, intent)
 }
 
 fn apply_input_intent<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
-    controller: &mut TuiInputController,
     key: KeyEvent,
     intent: InputIntent,
 ) -> Result<UiEventOutcome, TuiError> {
+    if let Some(outcome) = apply_pending_approval_intent(driver, state, key, &intent)? {
+        return Ok(outcome);
+    }
     match intent {
         InputIntent::None => {}
-        InputIntent::EnterInsert => controller.mode = InputMode::Insert,
-        InputIntent::LeaveInsert => controller.mode = InputMode::Normal,
+        InputIntent::EnterInsert => state.ui.input_mode = InputMode::Insert,
+        InputIntent::LeaveInsert => state.ui.input_mode = InputMode::Normal,
+        InputIntent::OpenOverlay(kind) => {
+            state.ui.overlay = Some(OverlayState::new(kind));
+            state.ui.idle_ctrl_c_armed = false;
+        }
         InputIntent::CloseOverlay => {
-            if state.ui.interaction_panel.take().is_none()
-                && !close_focus_on_escape(key, state)
-                && !close_on_escape(key, state)
-            {
-                controller.mode = InputMode::Normal;
+            if state.ui.overlay.take().is_none() && state.ui.interaction_panel.take().is_none() {
+                close_on_escape(key, state);
             }
         }
-        InputIntent::CancelCurrentWork => unreachable!("global cancel is handled first"),
-        InputIntent::OpenCommandPalette => {
-            controller.mode = InputMode::Insert;
-            state.ui.input = "/".to_string();
-            reset_for_input_change(state);
+        InputIntent::ClearSelection => {
+            close_focus_on_escape(key, state);
+        }
+        InputIntent::ArmExitConfirmation => state.ui.idle_ctrl_c_armed = true,
+        InputIntent::CancelCurrentWork { owner } => {
+            driver.send_for_owner(owner, RuntimeCommand::CancelActiveTurn)?;
+            state.ui.entries.push(TuiEntry {
+                label: "command".to_string(),
+                body: "cancel requested".to_string(),
+            });
         }
         InputIntent::CycleAgentFocus => cycle_agent_focus(state),
-        InputIntent::ContextHelp => {
-            controller.mode = InputMode::Insert;
-            state.ui.input = "/help ".to_string();
-            reset_for_input_change(state);
-        }
         InputIntent::Exit => return Ok(UiEventOutcome::Exit),
         InputIntent::InsertChar(value) => {
-            if state.ui.interaction_panel.is_some() {
+            if let Some(overlay) = state.ui.overlay.as_mut() {
+                overlay.filter.push(value);
+                overlay.selected = 0;
+            } else if state.ui.interaction_panel.is_some() {
                 edit_interaction_panel_text(state, Some(value));
             } else {
                 push_composer_char(state, value);
             }
         }
         InputIntent::Backspace => {
-            if state.ui.interaction_panel.is_some() {
+            if let Some(overlay) = state.ui.overlay.as_mut() {
+                overlay.filter.pop();
+                overlay.selected = 0;
+            } else if state.ui.interaction_panel.is_some() {
                 edit_interaction_panel_text(state, None);
             } else {
                 state.ui.input.pop();
@@ -343,19 +289,35 @@ fn apply_input_intent<C: CoreClient>(
         }
         InputIntent::Submit => submit_composer(driver, state)?,
         InputIntent::MoveSelection(delta) => {
-            if state.ui.interaction_panel.is_some() {
+            if let Some(overlay) = state.ui.overlay.as_mut() {
+                overlay.selected = if delta < 0 {
+                    overlay.selected.saturating_sub(1)
+                } else {
+                    overlay.selected.saturating_add(1)
+                };
+            } else if state.ui.interaction_panel.is_some() {
                 move_interaction_selection(state, delta);
             } else {
                 move_selection(state, delta);
             }
         }
         InputIntent::CompleteSelection => {
-            if state.ui.interaction_panel.is_none() {
+            if state.ui.overlay.is_none() && state.ui.interaction_panel.is_none() {
                 complete_selected(state);
             }
         }
         InputIntent::CompleteOrSubmit => {
-            if state.ui.interaction_panel.is_some() {
+            if state
+                .ui
+                .overlay
+                .as_ref()
+                .is_some_and(|overlay| overlay.kind == OverlayKind::ExitConfirm)
+            {
+                return Ok(UiEventOutcome::Exit);
+            } else if state.ui.overlay.take().is_some() {
+                // Task 4 owns navigation and filtering. Core-backed actions for
+                // future screens remain contract requests rather than TUI effects.
+            } else if state.ui.interaction_panel.is_some() {
                 if apply_interaction_panel_selection(state) {
                     submit_composer(driver, state)?;
                 }
@@ -370,6 +332,52 @@ fn apply_input_intent<C: CoreClient>(
         InputIntent::ScrollToEnd => state.ui.transcript_scroll = 0,
     }
     Ok(UiEventOutcome::Redraw)
+}
+
+fn current_work_owner<C: CoreClient>(
+    driver: &TuiClientDriver<C>,
+    state: &TuiState,
+) -> Option<viden_types::RuntimeOwner> {
+    state
+        .runtime
+        .pending_approvals
+        .first()
+        .map(|approval| approval.owner.clone())
+        .or_else(|| runtime_has_active_work(&state.runtime).then(|| driver.owner().clone()))
+}
+
+fn apply_pending_approval_intent<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    key: KeyEvent,
+    intent: &InputIntent,
+) -> Result<Option<UiEventOutcome>, TuiError> {
+    if state.runtime.pending_approvals.is_empty()
+        || state.ui.overlay.is_some()
+        || !matches!(
+            intent,
+            InputIntent::CloseOverlay
+                | InputIntent::MoveSelection(_)
+                | InputIntent::CompleteSelection
+                | InputIntent::CompleteOrSubmit
+                | InputIntent::InsertChar(_)
+        )
+    {
+        return Ok(None);
+    }
+
+    match apply_approval_key(key, state) {
+        ApprovalKeyEffect::Resolve(allow) => {
+            if let Some(approval) = driver.view().pending_approvals.first()
+                && let Some(command) = approval_command(driver.view(), allow)
+            {
+                driver.send_for_owner(approval.owner.clone(), command)?;
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        ApprovalKeyEffect::Redraw => Ok(Some(UiEventOutcome::Redraw)),
+        ApprovalKeyEffect::None => Ok(None),
+    }
 }
 
 fn submit_composer<C: CoreClient>(
@@ -602,7 +610,7 @@ mod tests {
     };
     use viden_types::{
         AgentLaneRecord, FRONTEND_SCHEMA_V1, LaneStatus, PermissionLevel, PermissionMode,
-        ReplayBatch, ReplayRequest, RuntimeSnapshot, ToolCallView, TranscriptPage,
+        ReplayBatch, ReplayRequest, RuntimeOwner, RuntimeSnapshot, ToolCallView, TranscriptPage,
         TranscriptPageRequest, WorkMode,
     };
 
@@ -861,13 +869,10 @@ mod tests {
         driver.pump().expect("stream event");
         project_runtime_view(&mut state, driver.view(), driver.cursor());
 
-        let mut controller = TuiInputController {
-            mode: InputMode::Insert,
-        };
+        state.ui.input_mode = InputMode::Insert;
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Char('你'), KeyModifiers::NONE)),
             (120, 40),
         )
@@ -899,25 +904,21 @@ mod tests {
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
                 .expect("connect");
         let mut state = TuiState::default();
-        let mut controller = TuiInputController::default();
-
         assert_eq!(
             handle_ui_event(
                 &mut driver,
                 &mut state,
-                &mut controller,
                 Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
                 (120, 40),
             )
             .expect("insert mode"),
             UiEventOutcome::Redraw
         );
-        assert_eq!(controller.mode(), InputMode::Insert);
+        assert_eq!(state.ui.input_mode, InputMode::Insert);
         assert_eq!(
             handle_ui_event(
                 &mut driver,
                 &mut state,
-                &mut controller,
                 Event::Paste("first\nsecond".to_string()),
                 (120, 40),
             )
@@ -932,8 +933,7 @@ mod tests {
 
         for event in [Event::FocusLost, Event::FocusGained, Event::Resize(100, 30)] {
             assert_eq!(
-                handle_ui_event(&mut driver, &mut state, &mut controller, event, (100, 30),)
-                    .expect("repaint event"),
+                handle_ui_event(&mut driver, &mut state, event, (100, 30)).expect("repaint event"),
                 UiEventOutcome::Redraw
             );
         }
@@ -946,11 +946,9 @@ mod tests {
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
                 .expect("connect");
         let mut state = TuiState::default();
-        let mut controller = TuiInputController::default();
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
             (120, 40),
         )
@@ -960,7 +958,6 @@ mod tests {
             handle_ui_event(
                 &mut driver,
                 &mut state,
-                &mut controller,
                 Event::Key(KeyEvent::new(KeyCode::Char(value), KeyModifiers::NONE)),
                 (120, 40),
             )
@@ -976,13 +973,11 @@ mod tests {
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
                 .expect("connect");
         let mut state = TuiState::default();
-        let mut controller = TuiInputController::default();
         state.ui.transcript_scroll = 18;
 
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)),
             (120, 40),
         )
@@ -992,7 +987,6 @@ mod tests {
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
             (120, 40),
         )
@@ -1000,7 +994,6 @@ mod tests {
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Char('草'), KeyModifiers::NONE)),
             (120, 40),
         )
@@ -1008,7 +1001,6 @@ mod tests {
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
             (120, 40),
         )
@@ -1016,13 +1008,12 @@ mod tests {
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             (120, 40),
         )
         .expect("normal key");
 
-        assert_eq!(controller.mode(), InputMode::Normal);
+        assert_eq!(state.ui.input_mode, InputMode::Normal);
         assert_eq!(
             state.ui.input, "草",
             "Esc preserves the draft and Normal ignores x"
@@ -1040,12 +1031,10 @@ mod tests {
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
                 .expect("connect");
         let mut state = TuiState::default();
-        let mut controller = TuiInputController::default();
         state.ui.transcript_scroll = 18;
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
             (120, 40),
         )
@@ -1054,7 +1043,7 @@ mod tests {
         project_runtime_view(&mut state, driver.view(), driver.cursor());
 
         assert_eq!(state.ui.transcript_scroll, 18);
-        assert_eq!(controller.mode(), InputMode::Insert);
+        assert_eq!(state.ui.input_mode, InputMode::Insert);
     }
 
     #[test]
@@ -1068,14 +1057,11 @@ mod tests {
             name: "slow".to_string(),
             input_preview: "request".to_string(),
         });
-        let mut controller = TuiInputController {
-            mode: InputMode::Insert,
-        };
+        state.ui.input_mode = InputMode::Insert;
 
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Char('继'), KeyModifiers::NONE)),
             (120, 40),
         )
@@ -1114,14 +1100,11 @@ mod tests {
         }))
         .expect("connect");
         let mut state = TuiState::default();
-        let mut controller = TuiInputController {
-            mode: InputMode::Insert,
-        };
+        state.ui.input_mode = InputMode::Insert;
 
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             (120, 40),
         )
@@ -1133,7 +1116,6 @@ mod tests {
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Paste("\nsecond line".to_string()),
             (120, 40),
         )
@@ -1144,17 +1126,160 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_c_cancels_the_current_work_owner_without_denying_approval() {
+        let mut view = RuntimeViewState::new(RuntimeSnapshot {
+            cwd: PathBuf::from("/workspace"),
+            provider_family: "fallback".to_string(),
+            model_label: "test-local".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: "fixture".to_string(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: Default::default(),
+        });
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/approval-allow-deny.json"
+        ))
+        .expect("approval fixture");
+        let envelope: RuntimeEventEnvelope =
+            serde_json::from_value(fixture["events"][0].clone()).expect("approval event");
+        if let viden_types::RuntimeWireEvent::Known(event) = envelope.event {
+            view.apply_event(&event);
+        }
+        let owner = RuntimeOwner {
+            workspace_id: "workspace".to_string(),
+            project_id: "viden".to_string(),
+            lane_id: Some("lane-review".to_string()),
+            session_id: Some("session-review".to_string()),
+            task_id: Some("task-review".to_string()),
+            turn_id: Some("turn-review".to_string()),
+        };
+        view.pending_approvals[0].owner = owner.clone();
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                view: Some(view),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::new(driver.view().clone());
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            (120, 40),
+        )
+        .expect("cancel current work");
+
+        let sent = sent.lock().expect("sent commands");
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].owner, owner);
+        assert!(matches!(sent[0].command, RuntimeCommand::CancelActiveTurn));
+    }
+
+    #[test]
+    fn idle_ctrl_c_does_not_send_cancel_or_exit_directly() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(
+            handle_ui_event(&mut driver, &mut state, ctrl_c.clone(), (120, 40))
+                .expect("first idle Ctrl-C"),
+            UiEventOutcome::Redraw
+        );
+        assert!(state.ui.idle_ctrl_c_armed);
+        assert!(state.ui.overlay.is_none());
+        assert_eq!(
+            handle_ui_event(&mut driver, &mut state, ctrl_c, (120, 40))
+                .expect("second idle Ctrl-C"),
+            UiEventOutcome::Redraw
+        );
+        assert!(matches!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::ExitConfirm)
+        ));
+
+        assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
+    fn escape_closes_overlay_then_selection_then_insert_and_preserves_draft() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "keep this draft".to_string();
+        state.ui.focused_lane = Some("lane-selected".to_string());
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::ContextHelp));
+        let escape = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        handle_ui_event(&mut driver, &mut state, escape.clone(), (120, 40)).expect("close overlay");
+        assert!(state.ui.overlay.is_none());
+        assert_eq!(state.ui.focused_lane.as_deref(), Some("lane-selected"));
+        assert_eq!(state.ui.input_mode, InputMode::Insert);
+
+        handle_ui_event(&mut driver, &mut state, escape.clone(), (120, 40))
+            .expect("clear selection");
+        assert!(state.ui.focused_lane.is_none());
+        assert_eq!(state.ui.input_mode, InputMode::Insert);
+
+        handle_ui_event(&mut driver, &mut state, escape, (120, 40)).expect("leave insert");
+        assert_eq!(state.ui.input_mode, InputMode::Normal);
+        assert_eq!(state.ui.input, "keep this draft");
+    }
+
+    #[test]
+    fn overlay_owns_filter_navigation_and_enter_without_touching_insert_draft() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "draft stays".to_string();
+
+        for event in [
+            Event::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            Event::Key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+            Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+        ] {
+            handle_ui_event(&mut driver, &mut state, event, (120, 40)).expect("overlay input");
+        }
+
+        let overlay = state.ui.overlay.as_ref().expect("lane overlay");
+        assert_eq!(overlay.kind, OverlayKind::Lane);
+        assert_eq!(overlay.filter, "f");
+        assert_eq!(overlay.selected, 1);
+        assert_eq!(state.ui.input, "draft stays");
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("overlay enter");
+        assert!(state.ui.overlay.is_none());
+        assert_eq!(state.ui.input_mode, InputMode::Insert);
+        assert_eq!(state.ui.input, "draft stays");
+    }
+
+    #[test]
     fn provider_and_model_selector_paths_are_reachable_from_core_client_loop() {
         let mut driver =
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
                 .expect("connect");
         let mut state = TuiState::default();
         state.ui.provider_catalog = crate::tui::state::ProviderOption::fixture();
-        let mut controller = TuiInputController::default();
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
             (120, 40),
         )
@@ -1164,7 +1289,6 @@ mod tests {
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
             (120, 40),
         )
@@ -1174,27 +1298,22 @@ mod tests {
             state.ui.interaction_panel,
             Some(InteractionPanel::ModelPicker { .. })
         ));
-        assert_eq!(
-            effective_input_mode(&controller, &state),
-            InputMode::Overlay
-        );
+        assert_eq!(effective_input_mode(&state), InputMode::Overlay);
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
             (120, 40),
         )
         .expect("close selector");
         assert!(state.ui.interaction_panel.is_none());
-        assert_eq!(controller.mode(), InputMode::Insert);
+        assert_eq!(state.ui.input_mode, InputMode::Insert);
 
         state.ui.input = "/models".to_string();
         for _ in 0..2 {
             handle_ui_event(
                 &mut driver,
                 &mut state,
-                &mut controller,
                 Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
                 (120, 40),
             )
@@ -1221,25 +1340,24 @@ mod tests {
             "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
         ))
         .expect("typed lanes");
-        let mut controller = TuiInputController::default();
         handle_ui_event(
             &mut driver,
             &mut state,
-            &mut controller,
-            Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)),
+            Event::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL)),
             (140, 40),
         )
         .expect("command shortcut");
-        assert_eq!(state.ui.input, "/");
-        assert!(is_command_palette_visible(&state));
+        assert!(matches!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::CommandPalette)
+        ));
 
         let mut agent_state = state.clone();
         agent_state.ui.focused_lane = None;
-        agent_state.ui.input.clear();
+        agent_state.ui.overlay = None;
         handle_ui_event(
             &mut driver,
             &mut agent_state,
-            &mut controller,
             Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
             (140, 40),
         )

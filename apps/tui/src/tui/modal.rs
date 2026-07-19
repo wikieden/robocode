@@ -1,6 +1,7 @@
 use super::{
     canvas::Frame,
     command_palette::render_command_suggestions,
+    keymap::OverlayKind,
     panel::panel,
     state::{InteractionPanel, TuiState},
     text::truncate,
@@ -21,7 +22,33 @@ pub(super) enum ApprovalAction {
 }
 
 pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_width: usize) {
-    if let Some(approval) = state.runtime.pending_approvals.first() {
+    if let Some(overlay) = state.ui.overlay.as_ref() {
+        let title = match overlay.kind {
+            OverlayKind::Lane => "LANES",
+            OverlayKind::Session => "SESSIONS",
+            OverlayKind::NewSession => "NEW SESSION",
+            OverlayKind::CommandPalette => "COMMANDS",
+            OverlayKind::Board => "BOARD",
+            OverlayKind::Decisions => "DECISIONS",
+            OverlayKind::ContextHelp => "CONTEXT HELP",
+            OverlayKind::ExitConfirm => "EXIT CONFIRMATION",
+            OverlayKind::Approval => "APPROVAL",
+            OverlayKind::InteractionPanel => "SELECT",
+            OverlayKind::ComposerCommands => "COMMANDS",
+        };
+        let block = panel(
+            title,
+            global_overlay_rows(state, overlay.kind, &overlay.filter),
+            frame.width.min(76),
+            10,
+            Some("Esc close · arrows move · Enter open"),
+        );
+        frame.write_block(
+            4,
+            frame.width.saturating_sub(frame.width.min(76)) / 2,
+            &block,
+        );
+    } else if let Some(approval) = state.runtime.pending_approvals.first() {
         let rows = vec![
             format!("{} · {:?}", approval.title, approval.risk),
             truncate(&approval.message, 68),
@@ -83,6 +110,61 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
     } else {
         render_command_suggestions(frame, state);
     }
+}
+
+fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec<String> {
+    let mut rows = match kind {
+        OverlayKind::Lane => state
+            .runtime
+            .lanes
+            .iter()
+            .map(|lane| format!("{}  {}  {:?}", lane.id, lane.role, lane.status))
+            .collect(),
+        OverlayKind::Board => state
+            .runtime
+            .tasks
+            .iter()
+            .map(|task| format!("{}  {}  {}", task.id, task.role, task.status.as_str()))
+            .collect(),
+        OverlayKind::Decisions => state
+            .runtime
+            .pending_approvals
+            .iter()
+            .map(|approval| format!("{}  {}", approval.id, approval.title))
+            .collect(),
+        OverlayKind::ContextHelp => vec![
+            "i Insert · Esc back · ? help".to_string(),
+            "Ctrl-L lanes · Ctrl-S sessions · Ctrl-T new session".to_string(),
+            "Ctrl-K commands · Ctrl-B board · Ctrl-G decisions".to_string(),
+            "Ctrl-C cancel current work · double Ctrl-C exit confirm".to_string(),
+        ],
+        OverlayKind::ExitConfirm => vec![
+            "No current work is active.".to_string(),
+            "Press Enter to exit or Esc to stay.".to_string(),
+        ],
+        OverlayKind::Session => {
+            vec!["Session navigation awaits the Core session list.".to_string()]
+        }
+        OverlayKind::NewSession => {
+            vec!["New session awaits the Core command contract.".to_string()]
+        }
+        OverlayKind::CommandPalette | OverlayKind::ComposerCommands => vec![
+            "Ctrl-L lanes".to_string(),
+            "Ctrl-S sessions".to_string(),
+            "Ctrl-B board".to_string(),
+            "Ctrl-G decisions".to_string(),
+        ],
+        OverlayKind::Approval | OverlayKind::InteractionPanel => Vec::new(),
+    };
+    if !filter.is_empty() {
+        let needle = filter.to_ascii_lowercase();
+        rows.retain(|row| row.to_ascii_lowercase().contains(&needle));
+        rows.insert(0, format!("filter: {filter}"));
+    }
+    if rows.is_empty() {
+        rows.push("No matching items.".to_string());
+    }
+    rows
 }
 
 fn interaction_rows(state: &TuiState) -> Vec<String> {

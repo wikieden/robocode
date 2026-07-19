@@ -171,6 +171,23 @@ pub(super) struct TuiEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct OverlayState {
+    pub(super) kind: OverlayKind,
+    pub(super) filter: String,
+    pub(super) selected: usize,
+}
+
+impl OverlayState {
+    pub(super) fn new(kind: OverlayKind) -> Self {
+        Self {
+            kind,
+            filter: String::new(),
+            selected: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TuiUiState {
     pub(super) session_id: String,
     pub(super) provider_catalog: Vec<ProviderOption>,
@@ -184,6 +201,9 @@ pub(super) struct TuiUiState {
     pub(super) entries: Vec<TuiEntry>,
     pub(super) focused_lane: Option<String>,
     pub(super) interaction_panel: Option<InteractionPanel>,
+    pub(super) input_mode: InputMode,
+    pub(super) overlay: Option<OverlayState>,
+    pub(super) idle_ctrl_c_armed: bool,
 }
 
 impl Default for TuiUiState {
@@ -201,6 +221,10 @@ impl Default for TuiUiState {
             entries: Vec::new(),
             focused_lane: None,
             interaction_panel: None,
+            input_mode: InputMode::Normal,
+            overlay: None,
+            idle_ctrl_c_armed: false,
         }
     }
 }
+use super::keymap::{InputMode, OverlayKind};

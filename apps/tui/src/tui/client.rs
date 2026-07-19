@@ -77,14 +77,26 @@ impl<C: CoreClient> TuiClientDriver<C> {
         &self.confirmed.cursor
     }
 
+    pub(super) fn owner(&self) -> &RuntimeOwner {
+        &self.owner
+    }
+
     pub(super) fn send(&mut self, command: RuntimeCommand) -> Result<String, TuiClientError> {
+        self.send_for_owner(self.owner.clone(), command)
+    }
+
+    pub(super) fn send_for_owner(
+        &mut self,
+        owner: RuntimeOwner,
+        command: RuntimeCommand,
+    ) -> Result<String, TuiClientError> {
         let command_id = format!("tui-{}", self.next_command);
         self.next_command = self.next_command.saturating_add(1);
         self.client.send(RuntimeCommandEnvelope {
             schema_version: FRONTEND_SCHEMA_V1,
             client_id: "viden-tui".to_string(),
             command_id: command_id.clone(),
-            owner: self.owner.clone(),
+            owner,
             command,
         })?;
         Ok(command_id)

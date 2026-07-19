@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use viden_types::RuntimeOwner;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum InputMode {
@@ -7,16 +8,54 @@ pub(super) enum InputMode {
     Overlay,
 }
 
+impl InputMode {
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::Normal => "NORMAL",
+            Self::Insert => "INSERT",
+            Self::Overlay => "OVERLAY",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OverlayKind {
+    Lane,
+    Session,
+    NewSession,
+    CommandPalette,
+    Board,
+    Decisions,
+    ContextHelp,
+    ExitConfirm,
+    Approval,
+    InteractionPanel,
+    ComposerCommands,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) struct InputFocus {
+    pub(super) overlay: Option<OverlayKind>,
+    pub(super) selection_active: bool,
+    pub(super) idle_ctrl_c_armed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(super) struct RuntimeFacts {
+    pub(super) current_work_owner: Option<RuntimeOwner>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum InputIntent {
     None,
     EnterInsert,
     LeaveInsert,
+    OpenOverlay(OverlayKind),
     CloseOverlay,
-    CancelCurrentWork,
-    OpenCommandPalette,
+    ClearSelection,
+    ArmExitConfirmation,
+    CancelCurrentWork { owner: RuntimeOwner },
     CycleAgentFocus,
-    ContextHelp,
     Exit,
     InsertChar(char),
     Backspace,
@@ -29,14 +68,48 @@ pub(super) enum InputIntent {
     ScrollToEnd,
 }
 
-pub(super) fn reduce_input(mode: InputMode, key: KeyEvent, has_active_work: bool) -> InputIntent {
-    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        return InputIntent::CancelCurrentWork;
+/// Reduces terminal input into a UI intent without performing Core or local
+/// effects. Global chords are resolved before mode-owned keys so their
+/// behavior remains stable in Normal, Insert, and Overlay modes.
+pub(super) fn reduce_input(
+    mode: InputMode,
+    focus: InputFocus,
+    key: KeyEvent,
+    runtime_facts: RuntimeFacts,
+) -> InputIntent {
+    let has_current_work = runtime_facts.current_work_owner.is_some();
+    if is_control_char(key, 'c') {
+        return match runtime_facts.current_work_owner {
+            Some(owner) => InputIntent::CancelCurrentWork { owner },
+            None if focus.idle_ctrl_c_armed => InputIntent::OpenOverlay(OverlayKind::ExitConfirm),
+            None => InputIntent::ArmExitConfirmation,
+        };
     }
-    if matches!(key.code, KeyCode::Char('k' | 'p')) && key.modifiers.contains(KeyModifiers::CONTROL)
+
+    if let Some(kind) = global_overlay(key) {
+        return InputIntent::OpenOverlay(kind);
+    }
+    if key.code == KeyCode::Char('?')
+        && (key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT)
     {
-        return InputIntent::OpenCommandPalette;
+        return InputIntent::OpenOverlay(OverlayKind::ContextHelp);
     }
+
+    if key.code == KeyCode::Esc {
+        if focus.overlay.is_some() {
+            return InputIntent::CloseOverlay;
+        }
+        if focus.selection_active {
+            return InputIntent::ClearSelection;
+        }
+        return match mode {
+            InputMode::Insert => InputIntent::LeaveInsert,
+            InputMode::Normal if has_current_work => InputIntent::None,
+            InputMode::Normal => InputIntent::Exit,
+            InputMode::Overlay => InputIntent::None,
+        };
+    }
+
     if key.code == KeyCode::Tab && mode != InputMode::Overlay {
         return InputIntent::CycleAgentFocus;
     }
@@ -54,10 +127,6 @@ pub(super) fn reduce_input(mode: InputMode, key: KeyEvent, has_active_work: bool
 
     match (mode, key.code) {
         (InputMode::Normal, KeyCode::Char('i')) => InputIntent::EnterInsert,
-        (InputMode::Normal, KeyCode::Char('?')) => InputIntent::ContextHelp,
-        (InputMode::Normal, KeyCode::Esc) if has_active_work => InputIntent::None,
-        (InputMode::Normal, KeyCode::Esc) => InputIntent::Exit,
-        (InputMode::Insert, KeyCode::Esc) => InputIntent::LeaveInsert,
         (InputMode::Insert, KeyCode::Enter) | (InputMode::Insert, KeyCode::Char('j'))
             if key.modifiers.contains(KeyModifiers::CONTROL) || key.code == KeyCode::Enter =>
         {
@@ -69,7 +138,6 @@ pub(super) fn reduce_input(mode: InputMode, key: KeyEvent, has_active_work: bool
         {
             InputIntent::InsertChar(value)
         }
-        (InputMode::Overlay, KeyCode::Esc) => InputIntent::CloseOverlay,
         (InputMode::Overlay, KeyCode::Up | KeyCode::BackTab | KeyCode::Left) => {
             InputIntent::MoveSelection(-1)
         }
@@ -86,6 +154,25 @@ pub(super) fn reduce_input(mode: InputMode, key: KeyEvent, has_active_work: bool
     }
 }
 
+fn is_control_char(key: KeyEvent, value: char) -> bool {
+    key.code == KeyCode::Char(value) && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+fn global_overlay(key: KeyEvent) -> Option<OverlayKind> {
+    if !key.modifiers.contains(KeyModifiers::CONTROL) {
+        return None;
+    }
+    match key.code {
+        KeyCode::Char('l') => Some(OverlayKind::Lane),
+        KeyCode::Char('s') => Some(OverlayKind::Session),
+        KeyCode::Char('t') => Some(OverlayKind::NewSession),
+        KeyCode::Char('k') => Some(OverlayKind::CommandPalette),
+        KeyCode::Char('b') => Some(OverlayKind::Board),
+        KeyCode::Char('g') => Some(OverlayKind::Decisions),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,93 +181,173 @@ mod tests {
         KeyEvent::new(code, KeyModifiers::NONE)
     }
 
+    fn control(value: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(value), KeyModifiers::CONTROL)
+    }
+
+    fn reduce(mode: InputMode, key: KeyEvent) -> InputIntent {
+        reduce_input(mode, InputFocus::default(), key, RuntimeFacts::default())
+    }
+
     #[test]
-    fn normal_insert_overlay_mode_matrix_is_reversible() {
+    fn i_enters_insert_only_from_normal_and_printable_text_belongs_to_insert() {
         assert_eq!(
-            reduce_input(InputMode::Normal, key(KeyCode::Char('i')), false),
+            reduce(InputMode::Normal, key(KeyCode::Char('i'))),
             InputIntent::EnterInsert
         );
         assert_eq!(
-            reduce_input(InputMode::Normal, key(KeyCode::Char('x')), false),
-            InputIntent::None,
-            "printable characters are not composer text in Normal mode"
+            reduce(InputMode::Insert, key(KeyCode::Char('i'))),
+            InputIntent::InsertChar('i')
         );
         assert_eq!(
-            reduce_input(InputMode::Insert, key(KeyCode::Char('x')), false),
+            reduce(InputMode::Normal, key(KeyCode::Char('x'))),
+            InputIntent::None
+        );
+        assert_eq!(
+            reduce(InputMode::Insert, key(KeyCode::Char('x'))),
             InputIntent::InsertChar('x')
-        );
-        assert_eq!(
-            reduce_input(InputMode::Insert, key(KeyCode::Esc), false),
-            InputIntent::LeaveInsert
-        );
-        assert_eq!(
-            reduce_input(InputMode::Overlay, key(KeyCode::Esc), false),
-            InputIntent::CloseOverlay
         );
     }
 
     #[test]
-    fn global_cancel_and_navigation_pierce_all_modes() {
-        let cancel = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-        let palette = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL);
-        let advertised_palette = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL);
+    fn every_global_chord_and_context_help_pierces_all_modes() {
+        let cases = [
+            ('l', OverlayKind::Lane),
+            ('s', OverlayKind::Session),
+            ('t', OverlayKind::NewSession),
+            ('k', OverlayKind::CommandPalette),
+            ('b', OverlayKind::Board),
+            ('g', OverlayKind::Decisions),
+        ];
         for mode in [InputMode::Normal, InputMode::Insert, InputMode::Overlay] {
+            for (chord, kind) in cases {
+                assert_eq!(
+                    reduce(mode, control(chord)),
+                    InputIntent::OpenOverlay(kind),
+                    "Ctrl-{chord} must be global in {mode:?}"
+                );
+            }
             assert_eq!(
-                reduce_input(mode, cancel, true),
-                InputIntent::CancelCurrentWork
+                reduce(mode, key(KeyCode::Char('?'))),
+                InputIntent::OpenOverlay(OverlayKind::ContextHelp)
             );
             assert_eq!(
-                reduce_input(mode, palette, false),
-                InputIntent::OpenCommandPalette
-            );
-            assert_eq!(
-                reduce_input(mode, advertised_palette, false),
-                InputIntent::OpenCommandPalette
+                reduce_input(
+                    mode,
+                    InputFocus::default(),
+                    KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT),
+                    RuntimeFacts::default(),
+                ),
+                InputIntent::OpenOverlay(OverlayKind::ContextHelp),
+                "terminals may report ? with the Shift modifier"
             );
         }
     }
 
     #[test]
-    fn overlay_owns_selector_navigation_and_submit() {
+    fn escape_unwinds_overlay_then_selection_then_insert() {
+        let facts = RuntimeFacts::default();
         assert_eq!(
-            reduce_input(InputMode::Overlay, key(KeyCode::Down), false),
+            reduce_input(
+                InputMode::Overlay,
+                InputFocus {
+                    overlay: Some(OverlayKind::Lane),
+                    selection_active: true,
+                    ..InputFocus::default()
+                },
+                key(KeyCode::Esc),
+                facts.clone(),
+            ),
+            InputIntent::CloseOverlay
+        );
+        assert_eq!(
+            reduce_input(
+                InputMode::Insert,
+                InputFocus {
+                    selection_active: true,
+                    ..InputFocus::default()
+                },
+                key(KeyCode::Esc),
+                facts.clone(),
+            ),
+            InputIntent::ClearSelection
+        );
+        assert_eq!(
+            reduce_input(
+                InputMode::Insert,
+                InputFocus::default(),
+                key(KeyCode::Esc),
+                facts,
+            ),
+            InputIntent::LeaveInsert
+        );
+        assert_eq!(
+            reduce_input(
+                InputMode::Normal,
+                InputFocus::default(),
+                key(KeyCode::Esc),
+                RuntimeFacts {
+                    current_work_owner: Some(RuntimeOwner::default()),
+                },
+            ),
+            InputIntent::None,
+            "Normal Esc must not abandon current work"
+        );
+    }
+
+    #[test]
+    fn ctrl_c_cancels_only_the_current_owner_and_idle_double_press_opens_confirm() {
+        let owner = RuntimeOwner {
+            workspace_id: "workspace".to_string(),
+            project_id: "project".to_string(),
+            lane_id: Some("lane".to_string()),
+            session_id: Some("session".to_string()),
+            task_id: Some("task".to_string()),
+            turn_id: Some("turn".to_string()),
+        };
+        for mode in [InputMode::Normal, InputMode::Insert, InputMode::Overlay] {
+            assert_eq!(
+                reduce_input(
+                    mode,
+                    InputFocus::default(),
+                    control('c'),
+                    RuntimeFacts {
+                        current_work_owner: Some(owner.clone()),
+                    },
+                ),
+                InputIntent::CancelCurrentWork {
+                    owner: owner.clone(),
+                }
+            );
+            assert_eq!(reduce(mode, control('c')), InputIntent::ArmExitConfirmation);
+            assert_eq!(
+                reduce_input(
+                    mode,
+                    InputFocus {
+                        idle_ctrl_c_armed: true,
+                        ..InputFocus::default()
+                    },
+                    control('c'),
+                    RuntimeFacts::default(),
+                ),
+                InputIntent::OpenOverlay(OverlayKind::ExitConfirm)
+            );
+        }
+    }
+
+    #[test]
+    fn overlay_owns_arrows_filter_and_enter() {
+        assert_eq!(
+            reduce(InputMode::Overlay, key(KeyCode::Down)),
             InputIntent::MoveSelection(1)
         );
         assert_eq!(
-            reduce_input(InputMode::Overlay, key(KeyCode::Tab), false),
-            InputIntent::CompleteSelection
+            reduce(InputMode::Overlay, key(KeyCode::Char('f'))),
+            InputIntent::InsertChar('f')
         );
         assert_eq!(
-            reduce_input(InputMode::Overlay, key(KeyCode::Enter), false),
+            reduce(InputMode::Overlay, key(KeyCode::Enter)),
             InputIntent::CompleteOrSubmit
-        );
-    }
-
-    #[test]
-    fn active_work_keeps_normal_mode_escape_inside_the_cockpit() {
-        assert_eq!(
-            reduce_input(InputMode::Normal, key(KeyCode::Esc), true),
-            InputIntent::None
-        );
-        assert_eq!(
-            reduce_input(InputMode::Normal, key(KeyCode::Esc), false),
-            InputIntent::Exit
-        );
-    }
-
-    #[test]
-    fn tab_cycles_agents_until_an_overlay_owns_selection() {
-        assert_eq!(
-            reduce_input(InputMode::Normal, key(KeyCode::Tab), false),
-            InputIntent::CycleAgentFocus
-        );
-        assert_eq!(
-            reduce_input(InputMode::Insert, key(KeyCode::Tab), false),
-            InputIntent::CycleAgentFocus
-        );
-        assert_eq!(
-            reduce_input(InputMode::Overlay, key(KeyCode::Tab), false),
-            InputIntent::CompleteSelection
         );
     }
 }

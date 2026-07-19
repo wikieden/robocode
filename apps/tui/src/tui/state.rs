@@ -7,7 +7,7 @@ use viden_core::{
 use viden_types::AgentNextAction;
 
 pub(super) use super::ui_state::{
-    InteractionPanel, ProviderAuthMode, ProviderOption, TuiEntry, TuiUiState,
+    InteractionPanel, OverlayState, ProviderAuthMode, ProviderOption, TuiEntry, TuiUiState,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
