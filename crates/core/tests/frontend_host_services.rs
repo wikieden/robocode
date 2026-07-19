@@ -32,7 +32,7 @@ fn local_host_opens_two_workspaces_without_state_bleed() {
     let home = temp_dir("home");
     let project_a = temp_dir("project-a");
     let project_b = temp_dir("project-b");
-    let host = LocalCoreHost::for_test(home);
+    let host = LocalCoreHost::with_session_home(home);
 
     let mut a = host
         .open_workspace(WorkspaceOpenRequest::new(project_a.clone()))
@@ -60,7 +60,7 @@ fn local_host_rejects_missing_roots_and_files_before_bootstrap() {
     let project = temp_dir("reject-project");
     let file = project.join("not-a-directory.txt");
     std::fs::write(&file, "not a workspace").unwrap();
-    let host = LocalCoreHost::for_test(home);
+    let host = LocalCoreHost::with_session_home(home);
 
     assert!(
         host.open_workspace(WorkspaceOpenRequest::new(project.join("missing")))
@@ -77,7 +77,7 @@ fn local_host_resumes_exact_session_without_returning_a_fresh_binding() {
     let home = temp_dir("resume-home");
     let project = temp_dir("resume-project");
     let session_id = seed_session(&home, &project, "session_exact_resume", "existing work");
-    let host = LocalCoreHost::for_test(home);
+    let host = LocalCoreHost::with_session_home(home);
 
     let binding = host
         .open_workspace(
@@ -95,7 +95,7 @@ fn local_host_rejects_missing_resume_without_returning_a_fresh_binding() {
     let home = temp_dir("missing-resume-home");
     let project = temp_dir("missing-resume-project");
     seed_session(&home, &project, "session_existing", "existing work");
-    let host = LocalCoreHost::for_test(home);
+    let host = LocalCoreHost::with_session_home(home);
 
     let error = match host.open_workspace(
         WorkspaceOpenRequest::new(project).with_resume_session_id("session_missing"),
@@ -114,7 +114,7 @@ fn local_host_rejects_ambiguous_resume_without_returning_a_fresh_binding() {
     let project = temp_dir("ambiguous-resume-project");
     seed_session(&home, &project, "session_ambiguous_a", "existing work a");
     seed_session(&home, &project, "session_ambiguous_b", "existing work b");
-    let host = LocalCoreHost::for_test(home);
+    let host = LocalCoreHost::with_session_home(home);
 
     let error = match host.open_workspace(
         WorkspaceOpenRequest::new(project).with_resume_session_id("session_ambiguous"),
@@ -131,7 +131,7 @@ fn local_host_rejects_ambiguous_resume_without_returning_a_fresh_binding() {
 fn local_host_missing_resume_does_not_create_pristine_session_home() {
     let home = missing_temp_path("pristine-missing-resume-home");
     let project = temp_dir("pristine-missing-resume-project");
-    let host = LocalCoreHost::for_test(home.clone());
+    let host = LocalCoreHost::with_session_home(home.clone());
 
     let error = match host.open_workspace(
         WorkspaceOpenRequest::new(project).with_resume_session_id("session_missing"),
@@ -151,7 +151,7 @@ fn local_host_missing_resume_preserves_existing_empty_session_home() {
     let sentinel = home.join("sentinel.txt");
     std::fs::write(&sentinel, "unchanged").unwrap();
     let before = std::fs::metadata(&sentinel).unwrap();
-    let host = LocalCoreHost::for_test(home.clone());
+    let host = LocalCoreHost::with_session_home(home.clone());
 
     let error = match host.open_workspace(
         WorkspaceOpenRequest::new(project).with_resume_session_id("session_missing"),
@@ -201,73 +201,10 @@ fn workspace_open_request_debug_never_accepts_or_prints_raw_api_keys() {
 }
 
 #[test]
-fn staged_secret_is_one_use_bound_to_workspace_and_absent_from_serialized_surfaces() {
+fn production_staged_secret_uses_bound_client_and_unavailable_sink_is_one_use_and_redacted() {
     let home = temp_dir("credential-home");
-    let project_a = temp_dir("credential-project-a");
-    let project_b = temp_dir("credential-project-b");
-    let host = LocalCoreHost::for_test(home.clone());
-    let overrides = WorkspaceOpenOverrides {
-        permission_mode: Some(PermissionMode::DontAsk),
-        ..WorkspaceOpenOverrides::default()
-    };
-    let mut a = host
-        .open_workspace(WorkspaceOpenRequest::new(project_a).with_overrides(overrides.clone()))
-        .unwrap();
-    let mut b = host
-        .open_workspace(WorkspaceOpenRequest::new(project_b).with_overrides(overrides))
-        .unwrap();
-    let request = a
-        .stage_credential(
-            "sequence",
-            "test-keychain:item-1",
-            SecretBytes::new(b"sk-test".to_vec()),
-        )
-        .unwrap();
-
-    assert!(!format!("{request:?}").contains("sk-test"));
-    assert!(!serde_json::to_string(&request).unwrap().contains("sk-test"));
-
-    let cross_workspace = store_handle_command(
-        "cross-workspace",
-        "sequence",
-        "test-keychain:item-1",
-        request.id().to_string(),
-    );
-    b.client().send(cross_workspace).unwrap();
-    let rejected = snapshot_until_rejected(b.client(), "cross-workspace");
-    assert!(rejected.contains("credential request"));
-    assert!(!rejected.contains("sk-test"));
-
-    let command = store_handle_command(
-        "store-once",
-        "sequence",
-        "test-keychain:item-1",
-        request.id().to_string(),
-    );
-    assert!(!serde_json::to_string(&command).unwrap().contains("sk-test"));
-    a.client().send(command).unwrap();
-    snapshot_until_credential_stored(a.client(), "sequence", "test-keychain:item-1");
-
-    let replay = store_handle_command(
-        "store-replay",
-        "sequence",
-        "test-keychain:item-1",
-        request.id().to_string(),
-    );
-    a.client().send(replay).unwrap();
-    let replay_error = snapshot_until_rejected(a.client(), "store-replay");
-    assert!(replay_error.contains("credential request"));
-    assert!(!replay_error.contains("sk-test"));
-    assert!(!read_all_jsonl(&home).contains("sk-test"));
-}
-
-#[test]
-fn staged_secret_expiry_capacity_sink_failure_and_concurrency_are_fail_closed() {
-    let home = temp_dir("credential-policy-home");
-    let project = temp_dir("credential-policy-project");
-    let host = LocalCoreHost::for_test(home.clone())
-        .with_credential_capacity_for_test(2)
-        .with_credential_clock_for_test(100);
+    let project = temp_dir("credential-project");
+    let host = LocalCoreHost::with_session_home(home.clone());
     let mut client = host
         .open_workspace(
             WorkspaceOpenRequest::new(project).with_overrides(WorkspaceOpenOverrides {
@@ -277,127 +214,58 @@ fn staged_secret_expiry_capacity_sink_failure_and_concurrency_are_fail_closed() 
         )
         .unwrap();
 
-    let expired = client
+    let request = client
         .stage_credential(
             "sequence",
             "test-keychain:item-1",
-            SecretBytes::new(b"expired".to_vec()),
+            SecretBytes::new(b"sk-test".to_vec()),
         )
         .unwrap();
-    host.set_credential_clock_for_test(401);
-    client
-        .client()
-        .send(store_handle_command(
-            "expired",
-            "sequence",
-            "test-keychain:item-1",
-            expired.id().to_string(),
-        ))
-        .unwrap();
-    assert!(snapshot_until_rejected(client.client(), "expired").contains("expired"));
 
-    let first = client
-        .stage_credential(
-            "sequence",
-            "test-keychain:item-1",
-            SecretBytes::new(b"one".to_vec()),
-        )
-        .unwrap();
-    let second = client
-        .stage_credential(
-            "sequence",
-            "test-keychain:item-2",
-            SecretBytes::new(b"two".to_vec()),
-        )
-        .unwrap();
-    assert!(
-        client
-            .stage_credential(
-                "sequence",
-                "test-keychain:item-3",
-                SecretBytes::new(b"three".to_vec())
-            )
-            .is_err()
+    assert!(!format!("{request:?}").contains("sk-test"));
+    assert!(!serde_json::to_string(&request).unwrap().contains("sk-test"));
+    let command = store_handle_command(
+        "store-unavailable",
+        "sequence",
+        "test-keychain:item-1",
+        request.id().to_string(),
     );
+    assert!(!serde_json::to_string(&command).unwrap().contains("sk-test"));
+    client.client().send(command).unwrap();
+    let unavailable = snapshot_until_rejected(client.client(), "store-unavailable");
+    assert!(unavailable.contains("credential platform sink unavailable"));
+    assert!(!unavailable.contains("sk-test"));
 
     client
         .client()
         .send(store_handle_command(
-            "mismatch",
+            "store-replay",
             "sequence",
-            "test-keychain:item-2",
-            first.id().to_string(),
+            "test-keychain:item-1",
+            request.id().to_string(),
         ))
         .unwrap();
-    assert!(snapshot_until_rejected(client.client(), "mismatch").contains("credential request"));
-
-    host.fail_next_credential_sink_for_test("platform sink unavailable");
-    client
-        .client()
-        .send(store_handle_command(
-            "sink-failure",
-            "sequence",
-            "test-keychain:item-2",
-            second.id().to_string(),
-        ))
-        .unwrap();
-    assert!(
-        snapshot_until_rejected(client.client(), "sink-failure")
-            .contains("platform sink unavailable")
-    );
-    client
-        .client()
-        .send(store_handle_command(
-            "sink-replay",
-            "sequence",
-            "test-keychain:item-2",
-            second.id().to_string(),
-        ))
-        .unwrap();
-    assert!(snapshot_until_rejected(client.client(), "sink-replay").contains("credential request"));
-
-    let concurrent = client
-        .stage_credential(
-            "sequence",
-            "test-keychain:item-4",
-            SecretBytes::new(b"concurrent".to_vec()),
-        )
-        .unwrap();
-    let id = concurrent.id().to_string();
-    let binding = client.binding().clone();
-    let success_count = std::thread::scope(|scope| {
-        let first = scope.spawn(|| {
-            host.consume_staged_credential_for_test(
-                &binding,
-                "sequence",
-                "test-keychain:item-4",
-                &id,
-            )
-            .is_ok()
-        });
-        let second = scope.spawn(|| {
-            host.consume_staged_credential_for_test(
-                &binding,
-                "sequence",
-                "test-keychain:item-4",
-                &id,
-            )
-            .is_ok()
-        });
-        usize::from(first.join().unwrap()) + usize::from(second.join().unwrap())
-    });
-    assert_eq!(success_count, 1);
-    assert!(!read_all_jsonl(&home).contains("concurrent"));
+    let replay = snapshot_until_rejected(client.client(), "store-replay");
+    assert!(replay.contains("credential request"));
+    assert!(!read_all_jsonl(&home).contains("sk-test"));
 }
 
 #[test]
-fn secret_bytes_zeroizes_on_drop_and_has_no_serialized_trait_derives() {
-    let observed = SecretBytes::drop_probe_for_test(b"sk-zeroize".to_vec());
-    assert!(observed.iter().all(|byte| *byte == 0));
+fn production_core_host_api_exposes_no_test_sink_or_arbitrary_binding_staging() {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let core_host = std::fs::read_to_string(manifest_dir.join("src/host.rs")).unwrap();
+    let core_lib = std::fs::read_to_string(manifest_dir.join("src/lib.rs")).unwrap();
 
-    let core_host =
-        std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/host.rs"))
-            .unwrap();
+    assert!(!core_host.contains("pub fn for_test"));
+    assert!(!core_host.contains("pub fn stage_credential_for_binding"));
+    assert!(!core_host.contains("pub fn with_credential_capacity_for_test"));
+    assert!(!core_host.contains("pub fn with_credential_clock_for_test"));
+    assert!(!core_host.contains("pub fn fail_next_credential_sink_for_test"));
+    assert!(!core_lib.contains("stage_credential_for_binding"));
+    assert!(core_host.contains(
+        "pub fn stage_credential(
+        &self,"
+    ));
     for trait_name in ["Clone", "Debug", "serde::Serialize", "serde::Deserialize"] {
         assert!(!core_host.contains(&format!("SecretBytes, {trait_name}")));
     }
@@ -455,26 +323,6 @@ fn snapshot_until_rejected(client: &mut impl CoreClient, command_id: &str) -> St
         }
     }
     panic!("missing rejection for {command_id}; seen {seen:?}");
-}
-
-fn snapshot_until_credential_stored(
-    client: &mut impl CoreClient,
-    provider_id: &str,
-    backend_id: &str,
-) {
-    for _ in 0..16 {
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let snapshot = client.snapshot().expect("snapshot");
-        if snapshot
-            .view
-            .credential_handles
-            .iter()
-            .any(|handle| handle.provider_id == provider_id && handle.backend_id == backend_id)
-        {
-            return;
-        }
-    }
-    panic!("missing stored credential handle for {provider_id}/{backend_id}");
 }
 
 fn read_all_jsonl(root: &std::path::Path) -> String {

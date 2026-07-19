@@ -11,8 +11,7 @@ use viden_runtime::{
     bootstrap_runtime,
 };
 use viden_types::{
-    CredentialHandle, CredentialRequestId, CredentialStatus, PermissionMode, UiPreferences,
-    fresh_id, now_timestamp,
+    CredentialHandle, CredentialRequestId, PermissionMode, UiPreferences, fresh_id, now_timestamp,
 };
 
 use crate::{CoreClient, LocalCoreTransport, StatefulCoreClient};
@@ -127,13 +126,6 @@ impl SecretBytes {
             unsafe { std::ptr::write_volatile(byte, 0) };
         }
     }
-
-    #[doc(hidden)]
-    pub fn drop_probe_for_test(bytes: Vec<u8>) -> Vec<u8> {
-        let mut secret = Self::new(bytes);
-        secret.zeroize();
-        secret.0.clone()
-    }
 }
 
 impl Drop for SecretBytes {
@@ -169,55 +161,6 @@ impl LocalCoreHost {
             credential_capacity: DEFAULT_CREDENTIAL_STAGING_CAPACITY,
             credential_sink: Arc::new(UnavailableTrustedCredentialSink),
         }
-    }
-
-    pub fn for_test(session_home: impl Into<PathBuf>) -> Self {
-        Self::with_session_home(session_home).with_test_credential_sink()
-    }
-
-    #[doc(hidden)]
-    pub fn with_credential_capacity_for_test(mut self, capacity: usize) -> Self {
-        self.credential_capacity = capacity.max(1);
-        self
-    }
-
-    #[doc(hidden)]
-    pub fn with_credential_clock_for_test(self, now: u64) -> Self {
-        self.credential_clock.store(now, Ordering::Release);
-        self
-    }
-
-    #[doc(hidden)]
-    pub fn set_credential_clock_for_test(&self, now: u64) {
-        self.credential_clock.store(now, Ordering::Release);
-    }
-
-    #[doc(hidden)]
-    pub fn fail_next_credential_sink_for_test(&self, message: &str) {
-        if let Some(sink) = self
-            .credential_sink
-            .as_any()
-            .downcast_ref::<TestTrustedCredentialSink>()
-        {
-            *sink.fail_next.lock().expect("test sink lock") = Some(message.to_string());
-        }
-    }
-
-    #[doc(hidden)]
-    pub fn consume_staged_credential_for_test(
-        &self,
-        binding: &WorkspaceBinding,
-        provider_id: &str,
-        backend_id: &str,
-        credential_request_id: &str,
-    ) -> Result<CredentialHandle, String> {
-        let backend = BoundCredentialBackend {
-            staging: Arc::clone(&self.credential_staging),
-            sink: Arc::clone(&self.credential_sink),
-            binding: WorkspaceCredentialBinding::from(binding),
-            clock: Arc::clone(&self.credential_clock),
-        };
-        backend.store(provider_id, backend_id, credential_request_id)
     }
 
     pub fn open_workspace(
@@ -284,24 +227,6 @@ impl LocalCoreHost {
             credential_capacity: self.credential_capacity,
         })
     }
-
-    pub fn stage_credential_for_binding(
-        &self,
-        binding: &WorkspaceBinding,
-        provider_id: &str,
-        backend_id: &str,
-        secret: SecretBytes,
-    ) -> Result<CredentialRequestId, CoreHostError> {
-        stage_credential(
-            &self.credential_staging,
-            &self.credential_clock,
-            self.credential_capacity,
-            binding,
-            provider_id,
-            backend_id,
-            secret,
-        )
-    }
 }
 
 impl Default for LocalCoreHost {
@@ -355,8 +280,6 @@ trait TrustedCredentialSink: Send + Sync {
         backend_id: &str,
         secret: SecretBytes,
     ) -> Result<CredentialHandle, String>;
-
-    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 struct UnavailableTrustedCredentialSink;
@@ -369,45 +292,6 @@ impl TrustedCredentialSink for UnavailableTrustedCredentialSink {
         _secret: SecretBytes,
     ) -> Result<CredentialHandle, String> {
         Err("credential platform sink unavailable".to_string())
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
-
-struct TestTrustedCredentialSink {
-    fail_next: Mutex<Option<String>>,
-}
-
-impl TrustedCredentialSink for TestTrustedCredentialSink {
-    fn store(
-        &self,
-        provider_id: &str,
-        backend_id: &str,
-        _secret: SecretBytes,
-    ) -> Result<CredentialHandle, String> {
-        if let Some(message) = self.fail_next.lock().expect("test sink lock").take() {
-            return Err(message);
-        }
-        Ok(CredentialHandle {
-            provider_id: provider_id.to_string(),
-            backend_id: backend_id.to_string(),
-            status: CredentialStatus::Available,
-        })
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
-
-impl LocalCoreHost {
-    fn with_test_credential_sink(mut self) -> Self {
-        self.credential_sink = Arc::new(TestTrustedCredentialSink {
-            fail_next: Mutex::new(None),
-        });
-        self
     }
 }
 
@@ -548,5 +432,205 @@ fn validate_host_identifier(name: &str, value: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("invalid credential {name}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex, atomic::AtomicU64};
+
+    use viden_runtime::CredentialBackend;
+    use viden_types::{CredentialHandle, CredentialStatus};
+
+    use super::{
+        BoundCredentialBackend, CredentialStagingStore, SecretBytes, TrustedCredentialSink,
+        WorkspaceBinding, WorkspaceCredentialBinding, stage_credential,
+    };
+
+    #[derive(Default)]
+    struct TestTrustedCredentialSink {
+        fail_next: Mutex<Option<String>>,
+    }
+
+    impl TrustedCredentialSink for TestTrustedCredentialSink {
+        fn store(
+            &self,
+            provider_id: &str,
+            backend_id: &str,
+            _secret: SecretBytes,
+        ) -> Result<CredentialHandle, String> {
+            if let Some(message) = self.fail_next.lock().expect("test sink lock").take() {
+                return Err(message);
+            }
+            Ok(CredentialHandle {
+                provider_id: provider_id.to_string(),
+                backend_id: backend_id.to_string(),
+                status: CredentialStatus::Available,
+            })
+        }
+    }
+
+    #[test]
+    fn staged_secret_is_one_use_bound_to_workspace_and_provider_backend() {
+        let staging = Arc::new(CredentialStagingStore::default());
+        let clock = Arc::new(AtomicU64::new(100));
+        let sink = Arc::new(TestTrustedCredentialSink::default());
+        let binding_a = binding("/workspace/a", "session-a");
+        let binding_b = binding("/workspace/b", "session-b");
+        let request = stage_credential(
+            &staging,
+            &clock,
+            8,
+            &binding_a,
+            "sequence",
+            "test-keychain:item-1",
+            SecretBytes::new(b"sk-test".to_vec()),
+        )
+        .unwrap();
+
+        let wrong_workspace = backend(&staging, &clock, &sink, &binding_b)
+            .store("sequence", "test-keychain:item-1", request.id())
+            .unwrap_err();
+        assert!(wrong_workspace.contains("credential request"));
+        assert!(!wrong_workspace.contains("sk-test"));
+
+        let wrong_backend = backend(&staging, &clock, &sink, &binding_a)
+            .store("sequence", "test-keychain:item-2", request.id())
+            .unwrap_err();
+        assert!(wrong_backend.contains("credential request"));
+
+        let handle = backend(&staging, &clock, &sink, &binding_a)
+            .store("sequence", "test-keychain:item-1", request.id())
+            .unwrap();
+        assert_eq!(handle.provider_id, "sequence");
+        assert_eq!(handle.backend_id, "test-keychain:item-1");
+
+        let replay = backend(&staging, &clock, &sink, &binding_a)
+            .store("sequence", "test-keychain:item-1", request.id())
+            .unwrap_err();
+        assert!(replay.contains("missing or already consumed"));
+    }
+
+    #[test]
+    fn staged_secret_expiry_capacity_sink_failure_and_concurrency_are_fail_closed() {
+        let staging = Arc::new(CredentialStagingStore::default());
+        let clock = Arc::new(AtomicU64::new(100));
+        let sink = Arc::new(TestTrustedCredentialSink::default());
+        let binding = binding("/workspace/a", "session-a");
+        let expired = stage_credential(
+            &staging,
+            &clock,
+            2,
+            &binding,
+            "sequence",
+            "test-keychain:item-1",
+            SecretBytes::new(b"expired".to_vec()),
+        )
+        .unwrap();
+        clock.store(401, std::sync::atomic::Ordering::Release);
+        assert!(
+            backend(&staging, &clock, &sink, &binding)
+                .store("sequence", "test-keychain:item-1", expired.id())
+                .unwrap_err()
+                .contains("expired")
+        );
+
+        let first = stage_credential(
+            &staging,
+            &clock,
+            2,
+            &binding,
+            "sequence",
+            "test-keychain:item-1",
+            SecretBytes::new(b"one".to_vec()),
+        )
+        .unwrap();
+        let second = stage_credential(
+            &staging,
+            &clock,
+            2,
+            &binding,
+            "sequence",
+            "test-keychain:item-2",
+            SecretBytes::new(b"two".to_vec()),
+        )
+        .unwrap();
+        assert!(
+            stage_credential(
+                &staging,
+                &clock,
+                2,
+                &binding,
+                "sequence",
+                "test-keychain:item-3",
+                SecretBytes::new(b"three".to_vec()),
+            )
+            .is_err()
+        );
+
+        *sink.fail_next.lock().expect("test sink lock") =
+            Some("platform sink unavailable".to_string());
+        assert!(
+            backend(&staging, &clock, &sink, &binding)
+                .store("sequence", "test-keychain:item-2", second.id())
+                .unwrap_err()
+                .contains("platform sink unavailable")
+        );
+        assert!(
+            backend(&staging, &clock, &sink, &binding)
+                .store("sequence", "test-keychain:item-2", second.id())
+                .unwrap_err()
+                .contains("credential request")
+        );
+
+        let success_count = std::thread::scope(|scope| {
+            let first_try = scope.spawn(|| {
+                backend(&staging, &clock, &sink, &binding)
+                    .store("sequence", "test-keychain:item-1", first.id())
+                    .is_ok()
+            });
+            let second_try = scope.spawn(|| {
+                backend(&staging, &clock, &sink, &binding)
+                    .store("sequence", "test-keychain:item-1", first.id())
+                    .is_ok()
+            });
+            usize::from(first_try.join().unwrap()) + usize::from(second_try.join().unwrap())
+        });
+        assert_eq!(success_count, 1);
+    }
+
+    #[test]
+    fn secret_bytes_zeroizes_on_drop_and_has_no_serialized_trait_derives() {
+        let mut observed = SecretBytes::new(b"sk-zeroize".to_vec());
+        observed.zeroize();
+        assert!(observed.0.iter().all(|byte| *byte == 0));
+
+        let core_host = include_str!("host.rs");
+        for trait_name in ["Clone", "Debug", "serde::Serialize", "serde::Deserialize"] {
+            assert!(!core_host.contains(&format!("SecretBytes, {trait_name}")));
+        }
+    }
+
+    fn binding(root: &str, session_id: &str) -> WorkspaceBinding {
+        WorkspaceBinding {
+            canonical_root: root.into(),
+            session_id: session_id.to_string(),
+            stream_id: format!("stream-{session_id}"),
+        }
+    }
+
+    fn backend(
+        staging: &Arc<CredentialStagingStore>,
+        clock: &Arc<AtomicU64>,
+        sink: &Arc<TestTrustedCredentialSink>,
+        binding: &WorkspaceBinding,
+    ) -> BoundCredentialBackend {
+        let sink: Arc<dyn TrustedCredentialSink> = sink.clone();
+        BoundCredentialBackend {
+            staging: Arc::clone(staging),
+            sink,
+            binding: WorkspaceCredentialBinding::from(binding),
+            clock: Arc::clone(clock),
+        }
     }
 }
