@@ -99,6 +99,26 @@ if [[ "$rc" == "0" ]]; then
 fi
 grep -Fq "missing_evidence" "$OUT_ROOT/empty-evidence-out/failure-classification.json"
 
+cp -R "$FIXTURES/valid" "$OUT_ROOT/invalid-field-type"
+python3 - "$OUT_ROOT/invalid-field-type/runs/on-1.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8"))
+payload["task_success"] = "false"
+path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+set +e
+"$SCRIPT" --fixtures "$OUT_ROOT/invalid-field-type" --runs 3 --out-dir "$OUT_ROOT/invalid-field-type-out" >"$OUT_ROOT/invalid-field-type.stdout" 2>"$OUT_ROOT/invalid-field-type.stderr"
+rc=$?
+set -e
+if [[ "$rc" == "0" ]]; then
+  printf 'expected invalid-field-type fixture to fail\n' >&2
+  exit 1
+fi
+grep -Fq "invalid_field_type" "$OUT_ROOT/invalid-field-type-out/failure-classification.json"
+
 scripts/release-gate.sh --version 0.1.30 --phase prepublish --dry-run --out-dir "$OUT_ROOT/release-dry-run" >"$OUT_ROOT/release-dry-run.stdout"
 grep -Fq "scripts/check-task10-guards-test.sh" "$OUT_ROOT/release-dry-run.stdout"
 

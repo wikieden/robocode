@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURES=""
 PROVIDER=""
 MODEL="${VIDEN_LIVE_DEEPSEEK_MODEL:-deepseek-v4-flash}"
@@ -198,6 +197,39 @@ def percentile(values, percentile):
     index = max(0, math.ceil((percentile / 100.0) * len(values)) - 1)
     return values[index]
 
+def is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+def validate_types(payload, file_name):
+    string_fields = ("prompt_version", "provider", "model", "scenario", "engine_mode", "failure_class")
+    boolean_fields = ("task_success", "test_success", "provider_413", "permission_bypass")
+    integer_fields = (
+        "run_index", "input_tokens", "output_tokens", "cached_input_tokens", "total_tokens",
+        "total_latency_ms", "request_input_chars", "projection_chars", "raw_baseline_chars",
+        "retrieval_count", "context_event_count", "retry_count", "bundle_build_ms",
+    )
+    number_fields = ("compression_ratio",)
+    nullable_number_fields = ("estimated_cost_cny", "actual_cost_cny", "first_token_latency_ms")
+
+    for field in string_fields:
+        if not isinstance(payload[field], str) or not payload[field].strip():
+            fail("invalid_field_type", f"{file_name}: {field} must be a non-empty string")
+    for field in boolean_fields:
+        if not isinstance(payload[field], bool):
+            fail("invalid_field_type", f"{file_name}: {field} must be a boolean")
+    for field in integer_fields:
+        if not isinstance(payload[field], int) or isinstance(payload[field], bool) or payload[field] < 0:
+            fail("invalid_field_type", f"{file_name}: {field} must be a non-negative integer")
+    for field in number_fields:
+        if not is_number(payload[field]) or payload[field] < 0:
+            fail("invalid_field_type", f"{file_name}: {field} must be a non-negative finite number")
+    for field in nullable_number_fields:
+        if payload[field] is not None and (not is_number(payload[field]) or payload[field] < 0):
+            fail("invalid_field_type", f"{file_name}: {field} must be null or a non-negative finite number")
+    evidence = payload["evidence_hashes"]
+    if not isinstance(evidence, list) or any(not isinstance(value, str) or not value.strip() for value in evidence):
+        fail("invalid_field_type", f"{file_name}: evidence_hashes must be an array of non-empty strings")
+
 runs = []
 for path in sorted(runs_dir.glob("*.json")):
     try:
@@ -207,6 +239,7 @@ for path in sorted(runs_dir.glob("*.json")):
     missing = sorted(required - payload.keys())
     if missing:
         fail("missing_required_field", f"{path.name}: {', '.join(missing)}")
+    validate_types(payload, path.name)
     payload["_file"] = path.name
     runs.append(payload)
 
