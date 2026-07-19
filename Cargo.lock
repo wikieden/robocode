@@ -468,8 +468,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "viden-config",
  "viden-provider",
  "viden-runtime",
+ "viden-session",
  "viden-types",
 ]
 

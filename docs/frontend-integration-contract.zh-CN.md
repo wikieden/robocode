@@ -52,6 +52,12 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 - 前端代码只从 `viden-core` 导入 transport-neutral `CoreClient` 边界和公共
   protocol/view contracts。不能导入 runtime、provider、tool、permission、session
   或 workflow 内部模块。
+- pre-release 前端分支通过 `viden_core::LocalCoreHost` 打开项目。它会
+  canonicalize 已存在的 workspace 目录，运行共享 runtime bootstrap，启动
+  `RuntimeSupervisor`，并返回已绑定的 `CoreClient`。重新绑定到另一 workspace
+  会创建独立 binding 和 stream，不能改变已有 client 的 cursor 或 snapshot。
+  这是 Core `0.3.2` 的内部候选服务；在最终 Task 6 compatibility gate 之前，
+  它不会作为 handshake capability 对外公布，也不改变 `0.3.1` manifest。
 - 前端通过 `RuntimeCommand` 发送意图；不能直接调用 tools、providers 或
   permission engines。
 - `RuntimeViewState::apply_event` 是 client-visible state 的标准 reducer。TUI、
@@ -67,6 +73,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 
 | 核心模块 | 前端区域 | 主要事实 | Commands / actions | 状态 |
 | --- | --- | --- | --- | --- |
+| Workspace host | first-run project open、workspace rebind | `WorkspaceBinding.canonical_root`、`session_id`、`stream_id` | `LocalCoreHost::open_workspace` | 内部 pre-release service；Task 6 前不是 handshake capability |
 | Compatibility and transport | client bootstrap、reconnect、compatibility error | `CoreHandshake`、schema version、capability set、`EventCursor`、snapshot/replay envelopes | `CoreClient::discover`、`snapshot`、`replay`、`recv`、`transcript_page` | Core `0.3.0` 已冻结 |
 | Runtime supervisor | activity rail、live work indicator、cancel 操作 | `RuntimeEvent`、`RuntimeViewState`、`RuntimeErrorView` | `SubmitUserInput`、`QueueFollowUp`、`CancelActiveTurn` | 已落地 |
 | Mode and permissions | top bar、approval panel、permission picker | `RuntimeSnapshot.work_mode`、`RuntimeSnapshot.permission_level`、`ApprovalRequestView` | `SetWorkMode`、`SetPermissionLevel`、`RespondToApproval` | 已落地 |

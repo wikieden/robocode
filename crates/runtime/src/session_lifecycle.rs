@@ -16,6 +16,55 @@ const WORKFLOW_PROJECTION_SCHEMA_VERSION: &str = "1";
 const WORKFLOW_PROJECTION_EVENT_CAP: usize = 256;
 const WORKFLOW_PROJECTION_BYTES_CAP: usize = 512 * 1024;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeResumeRequest {
+    ExactSessionId(String),
+    Selector(String),
+    Latest,
+}
+
+impl RuntimeResumeRequest {
+    pub fn exact_session_id(session_id: impl Into<String>) -> Self {
+        Self::ExactSessionId(session_id.into())
+    }
+
+    pub fn selector(selector: impl Into<String>) -> Self {
+        Self::Selector(selector.into())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeResumeResult {
+    pub session_id: String,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeResumeError {
+    NotFound { selector: String },
+    Ambiguous { selector: String, sessions: String },
+    InvalidIndex { selector: String, message: String },
+    Load(String),
+}
+
+impl std::fmt::Display for RuntimeResumeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound { selector } => write!(formatter, "session `{selector}` not found"),
+            Self::Ambiguous { selector, sessions } => {
+                write!(
+                    formatter,
+                    "session selector `{selector}` is ambiguous.\n\n{sessions}"
+                )
+            }
+            Self::InvalidIndex { message, .. } => formatter.write_str(message),
+            Self::Load(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for RuntimeResumeError {}
+
 impl SessionEngine {
     pub(super) fn handle_sessions(&self) -> Result<String, String> {
         let sessions = self.store.list_sessions_for_cwd()?;
@@ -29,28 +78,78 @@ impl SessionEngine {
         if selector == "list" {
             return self.handle_sessions();
         }
-        let loaded = match selector {
-            "latest" => self.store.load_latest_for_cwd()?,
-            other => self.resolve_resume_selector(other)?,
+        let request = match selector {
+            "latest" => RuntimeResumeRequest::Latest,
+            other => RuntimeResumeRequest::Selector(other.to_string()),
         };
-        let Some((summary, entries)) = loaded else {
-            return Ok("No resumable sessions found for the current project.".to_string());
+        let resumed = match self.resume_session(request) {
+            Ok(resumed) => resumed,
+            Err(RuntimeResumeError::NotFound { .. }) => {
+                return Ok("No resumable sessions found for the current project.".to_string());
+            }
+            Err(err) => return Err(err.to_string()),
         };
+        Ok(format!(
+            "Resumed session {} ({})",
+            resumed.session_id,
+            resumed.title.unwrap_or_else(|| "untitled".to_string())
+        ))
+    }
+
+    pub fn resume_session(
+        &mut self,
+        request: RuntimeResumeRequest,
+    ) -> Result<RuntimeResumeResult, RuntimeResumeError> {
+        let (summary, entries) = self.resolve_typed_resume_request(request)?;
+        self.activate_resolved_session(summary, entries)
+    }
+
+    pub(crate) fn resolve_typed_resume_request(
+        &self,
+        request: RuntimeResumeRequest,
+    ) -> Result<(SessionSummary, Vec<TranscriptEntry>), RuntimeResumeError> {
+        match request {
+            RuntimeResumeRequest::ExactSessionId(session_id) => self
+                .store
+                .load_by_id_for_cwd(&session_id)
+                .map_err(RuntimeResumeError::Load)?
+                .ok_or(RuntimeResumeError::NotFound {
+                    selector: session_id,
+                }),
+            RuntimeResumeRequest::Latest => self
+                .store
+                .load_latest_for_cwd()
+                .map_err(RuntimeResumeError::Load)?
+                .ok_or(RuntimeResumeError::NotFound {
+                    selector: "latest".to_string(),
+                }),
+            RuntimeResumeRequest::Selector(selector) => self.resolve_resume_selector(&selector),
+        }
+    }
+
+    pub(crate) fn activate_resolved_session(
+        &mut self,
+        summary: SessionSummary,
+        entries: Vec<TranscriptEntry>,
+    ) -> Result<RuntimeResumeResult, RuntimeResumeError> {
         let resumed_store = SessionStore::new_with_home(
             self.store.home_dir().to_path_buf(),
             self.cwd.clone(),
             Some(summary.session_id.clone()),
-        )?;
+        )
+        .map_err(RuntimeResumeError::Load)?;
         let legacy_lanes_path = self.cwd.join(".viden").join("lanes.tsv");
         if legacy_lanes_path.is_file() {
             // A legacy TUI can write the TSV after this engine was created.
             // Import before activating the resumed session so migration failure
             // cannot leave the in-memory session boundary half-switched.
-            self.workflows.import_legacy_lanes_tsv_once(
-                &legacy_lanes_path,
-                now_timestamp(),
-                Some(summary.session_id.clone()),
-            )?;
+            self.workflows
+                .import_legacy_lanes_tsv_once(
+                    &legacy_lanes_path,
+                    now_timestamp(),
+                    Some(summary.session_id.clone()),
+                )
+                .map_err(RuntimeResumeError::Load)?;
         }
         self.store = resumed_store;
         self.messages.clear();
@@ -58,26 +157,35 @@ impl SessionEngine {
         self.last_test = None;
         self.provider_cost_usage.clear();
         self.permissions = PermissionEngine::new(&self.cwd);
-        self.hydrate(entries)?;
-        self.hydrate_workflow_agent_projection()?;
-        Ok(format!(
-            "Resumed session {} ({})",
-            summary.session_id,
-            summary.title.unwrap_or_else(|| "untitled".to_string())
-        ))
+        self.hydrate(entries).map_err(RuntimeResumeError::Load)?;
+        self.hydrate_workflow_agent_projection()
+            .map_err(RuntimeResumeError::Load)?;
+        Ok(RuntimeResumeResult {
+            session_id: summary.session_id,
+            title: summary.title,
+        })
     }
 
     fn resolve_resume_selector(
         &self,
         selector: &str,
-    ) -> Result<Option<(SessionSummary, Vec<TranscriptEntry>)>, String> {
-        let sessions = self.store.list_sessions_for_cwd()?;
+    ) -> Result<(SessionSummary, Vec<TranscriptEntry>), RuntimeResumeError> {
+        let sessions = self
+            .store
+            .list_sessions_for_cwd()
+            .map_err(RuntimeResumeError::Load)?;
         if sessions.is_empty() {
-            return Ok(None);
+            return Err(RuntimeResumeError::NotFound {
+                selector: selector.to_string(),
+            });
         }
 
-        if let Some(loaded) = self.store.load_by_id_for_cwd(selector)? {
-            return Ok(Some(loaded));
+        if let Some(loaded) = self
+            .store
+            .load_by_id_for_cwd(selector)
+            .map_err(RuntimeResumeError::Load)?
+        {
+            return Ok(loaded);
         }
 
         let matches: Vec<_> = sessions
@@ -97,13 +205,14 @@ impl SessionEngine {
             [summary] => {
                 let entries = SessionStore::load_entries_from_path(std::path::Path::new(
                     &summary.transcript_path,
-                ))?;
-                Ok(Some((summary.clone(), entries)))
+                ))
+                .map_err(RuntimeResumeError::Load)?;
+                Ok((summary.clone(), entries))
             }
-            _ => Err(format!(
-                "Session selector `{selector}` is ambiguous.\n\n{}",
-                self.render_session_list(matches.as_slice())
-            )),
+            _ => Err(RuntimeResumeError::Ambiguous {
+                selector: selector.to_string(),
+                sessions: self.render_session_list(matches.as_slice()),
+            }),
         }
     }
 
@@ -111,21 +220,30 @@ impl SessionEngine {
         &self,
         sessions: &[SessionSummary],
         selector: &str,
-    ) -> Result<Option<(SessionSummary, Vec<TranscriptEntry>)>, String> {
+    ) -> Result<(SessionSummary, Vec<TranscriptEntry>), RuntimeResumeError> {
         let index_selector = selector.strip_prefix('#').unwrap_or(selector);
         let Ok(index) = index_selector.parse::<usize>() else {
-            return Ok(None);
+            return Err(RuntimeResumeError::NotFound {
+                selector: selector.to_string(),
+            });
         };
         if index == 0 {
-            return Err("Session indexes start at 1.".to_string());
+            return Err(RuntimeResumeError::InvalidIndex {
+                selector: selector.to_string(),
+                message: "Session indexes start at 1.".to_string(),
+            });
         }
         if let Some(summary) = sessions.get(index - 1) {
             let entries = SessionStore::load_entries_from_path(std::path::Path::new(
                 &summary.transcript_path,
-            ))?;
-            return Ok(Some((summary.clone(), entries)));
+            ))
+            .map_err(RuntimeResumeError::Load)?;
+            return Ok((summary.clone(), entries));
         }
-        Err(format!("No session found at index {index}."))
+        Err(RuntimeResumeError::InvalidIndex {
+            selector: selector.to_string(),
+            message: format!("No session found at index {index}."),
+        })
     }
 
     fn hydrate(&mut self, entries: Vec<TranscriptEntry>) -> Result<(), String> {

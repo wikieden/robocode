@@ -49,12 +49,14 @@ flowchart TB
 
 ## Workspace 布局
 
-- `apps/cli`：可执行入口、flags、config bootstrap，以及当前 CLI/TUI launcher
+- `apps/cli`：可执行入口、flags、preview commands，以及当前 CLI/TUI launcher
 - `apps/tui`：终端 frontend app 边界；完整 TUI render/input loop 后续应迁移到这里
-- `crates/core`：稳定 runtime facade，供客户端导入；重导出 core runtime 和共享
-  contract 类型，不引入 TUI 或 GUI 依赖
+- `crates/core`：稳定 runtime facade，供客户端导入；拥有内部 pre-release
+  `LocalCoreHost` workspace binding，并重导出共享 client/contract 类型，不引入
+  TUI 或 GUI 依赖；Core 0.3.2 gate 前不把 host 作为 frontend handshake capability
+  对外公布
 - `crates/config`：配置加载、优先级合并和启动默认值
-- `crates/runtime`：会话引擎和 turn 编排
+- `crates/runtime`：共享启动 bootstrap、会话引擎和 turn 编排
 - `crates/provider`：provider host/runtime、HTTP 适配、provider registry，以及 tool-calling 协议转换
 - `crates/plugin-api`：共享 plugin manifest、capability、permission、provider descriptor 和 ABI symbol
 - `crates/plugin-host`：plugin discovery、registry、validation 和 lifecycle 边界
@@ -171,7 +173,8 @@ Merge Gate 校验 canonical evidence，不能只信 compact summary。可选 ext
 版本归属为：`0.2.1` 原生 context/cost、`0.2.3` canonical evidence、`0.2.4`
 可选 adapter、`0.2.5` DeepSeek A/B gate。TUI/GUI app 只通过 `viden-core` 和
 shared contracts 消费状态，不能直接依赖 context、runtime、provider、tool 或 workflow
-internals；CLI 可以保留 bootstrap 所需的直接依赖。
+internals；CLI 现在使用与 `LocalCoreHost` 相同的 `viden-runtime` bootstrap
+路径，再由 Core host 把 supervisor 包装为 transport-neutral Core client。
 
 ## 终端展示
 
