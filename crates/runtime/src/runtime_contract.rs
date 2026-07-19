@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::{
     collections::BTreeSet,
     fs,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 use crate::agent_commands::{tracked_agent_job_runtime_events, tracked_agent_job_tasks};
@@ -18,7 +18,10 @@ use viden_context::{
 use viden_lsp::SemanticProvider;
 use viden_permissions::{PermissionContext, PermissionEngine};
 use viden_provider::ModelRequestControl;
-use viden_tools::context_read_tool_spec;
+use viden_tools::{
+    context_read_tool_spec,
+    patch::{LocalPatchBackend, PatchApplication, PatchRequest},
+};
 use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
     AgentRoute, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
@@ -2163,25 +2166,29 @@ impl SessionEngine {
                 );
             }
         };
-        let patch_application = match prepare_unified_diff_application(&self.cwd, &patch_content) {
+        let patch_backend = LocalPatchBackend;
+        let patch_application = match patch_backend.prepare(&PatchRequest {
+            cwd: self.cwd.clone(),
+            unified_diff: patch_content,
+        }) {
             Ok(application) => application,
             Err(err) => {
                 return self.mark_agent_patch_conflict(
                     gate_index,
                     &dag_id,
                     &task_id,
-                    format!("patch conflict: {err}"),
+                    format!("patch conflict: {}", err),
                 );
             }
         };
         self.stage_patch_rollback(&patch_application)?;
-        if let Err(err) = write_patch_application(&patch_application) {
+        if let Err(err) = patch_backend.write_application(&patch_application) {
             self.restore_transaction_files()?;
             return self.mark_agent_patch_conflict(
                 gate_index,
                 &dag_id,
                 &task_id,
-                format!("patch conflict: {err}"),
+                format!("patch conflict: {}", err),
             );
         }
 
@@ -2220,10 +2227,10 @@ impl SessionEngine {
     fn stage_patch_rollback(&self, application: &PatchApplication) -> Result<(), String> {
         let mut rollback = self.transaction_file_rollback.borrow_mut();
         rollback.clear();
-        for (path, _) in &application.writes {
+        for path in application.write_paths() {
             let metadata = fs::metadata(path).ok();
             rollback.push(crate::FileRollback {
-                path: path.clone(),
+                path: path.to_path_buf(),
                 contents: fs::read(path).ok(),
                 permissions: metadata.map(|metadata| metadata.permissions()),
             });
@@ -3218,200 +3225,6 @@ fn canonical_evidence_summary(kind: &str, content: &str) -> String {
 
 fn normalize_evidence_kind(kind: &str) -> String {
     kind.trim().replace('-', "_").to_ascii_lowercase()
-}
-
-#[derive(Debug, Clone)]
-struct PatchApplication {
-    writes: Vec<(PathBuf, String)>,
-}
-
-#[derive(Debug)]
-struct PatchFile {
-    path: String,
-    hunks: Vec<PatchHunk>,
-}
-
-#[derive(Debug)]
-struct PatchHunk {
-    old_lines: Vec<String>,
-    new_lines: Vec<String>,
-}
-
-fn prepare_unified_diff_application(cwd: &Path, diff: &str) -> Result<PatchApplication, String> {
-    let patch_files = parse_unified_diff(diff)?;
-    if patch_files.is_empty() {
-        return Err("no unified diff patch found".to_string());
-    }
-
-    let mut writes = Vec::new();
-    for patch_file in patch_files {
-        let relative_path = validate_patch_path(&patch_file.path)?;
-        let full_path = cwd.join(&relative_path);
-        let current = fs::read_to_string(&full_path)
-            .map_err(|err| format!("{}: {err}", relative_path.display()))?;
-        let updated = apply_patch_file(&current, &patch_file)
-            .map_err(|err| format!("{}: {err}", relative_path.display()))?;
-        writes.push((full_path, updated));
-    }
-
-    Ok(PatchApplication { writes })
-}
-
-fn write_patch_application(application: &PatchApplication) -> Result<(), String> {
-    for (path, contents) in &application.writes {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
-        }
-        fs::write(path, contents).map_err(|err| format!("{}: {err}", path.display()))?;
-    }
-    Ok(())
-}
-
-fn parse_unified_diff(diff: &str) -> Result<Vec<PatchFile>, String> {
-    let mut files = Vec::new();
-    let mut current_file: Option<PatchFile> = None;
-    let mut current_hunk: Option<PatchHunk> = None;
-
-    for raw_line in diff.split_inclusive('\n') {
-        let line = raw_line.trim_end_matches('\n').trim_end_matches('\r');
-        if let Some(rest) = line.strip_prefix("diff --git ") {
-            finish_patch_hunk(&mut current_file, &mut current_hunk);
-            if let Some(file) = current_file.take() {
-                files.push(file);
-            }
-            let path = rest
-                .split_whitespace()
-                .find_map(|part| part.strip_prefix("b/"))
-                .or_else(|| rest.split_whitespace().nth(1))
-                .ok_or_else(|| format!("invalid diff header `{line}`"))?;
-            current_file = Some(PatchFile {
-                path: path.to_string(),
-                hunks: Vec::new(),
-            });
-            continue;
-        }
-
-        if let Some(path) = line.strip_prefix("+++ ") {
-            if let Some(file) = current_file.as_mut()
-                && let Some(path) = path.trim().strip_prefix("b/")
-            {
-                file.path = path.to_string();
-            }
-            continue;
-        }
-
-        if line.starts_with("@@") {
-            let Some(file) = current_file.as_mut() else {
-                return Err("hunk appeared before file header".to_string());
-            };
-            if let Some(hunk) = current_hunk.take() {
-                file.hunks.push(hunk);
-            }
-            current_hunk = Some(PatchHunk {
-                old_lines: Vec::new(),
-                new_lines: Vec::new(),
-            });
-            continue;
-        }
-
-        let Some(hunk) = current_hunk.as_mut() else {
-            continue;
-        };
-        if line.starts_with('\\') {
-            continue;
-        }
-        let Some((prefix, content)) = split_patch_line(raw_line) else {
-            continue;
-        };
-        match prefix {
-            ' ' => {
-                hunk.old_lines.push(content.clone());
-                hunk.new_lines.push(content);
-            }
-            '-' => hunk.old_lines.push(content),
-            '+' => hunk.new_lines.push(content),
-            _ => {}
-        }
-    }
-
-    finish_patch_hunk(&mut current_file, &mut current_hunk);
-    if let Some(file) = current_file {
-        files.push(file);
-    }
-    files.retain(|file| !file.hunks.is_empty());
-    Ok(files)
-}
-
-fn finish_patch_hunk(file: &mut Option<PatchFile>, hunk: &mut Option<PatchHunk>) {
-    if let (Some(file), Some(hunk)) = (file.as_mut(), hunk.take()) {
-        file.hunks.push(hunk);
-    }
-}
-
-fn split_patch_line(raw_line: &str) -> Option<(char, String)> {
-    let prefix = raw_line.chars().next()?;
-    if !matches!(prefix, ' ' | '-' | '+') {
-        return None;
-    }
-    Some((prefix, raw_line[prefix.len_utf8()..].to_string()))
-}
-
-fn apply_patch_file(current: &str, patch_file: &PatchFile) -> Result<String, String> {
-    let mut lines = split_preserving_newlines(current);
-    let mut cursor = 0usize;
-    for hunk in &patch_file.hunks {
-        let Some(index) = find_line_sequence(&lines, &hunk.old_lines, cursor) else {
-            return Err("patch conflict: expected hunk context was not found".to_string());
-        };
-        lines.splice(index..index + hunk.old_lines.len(), hunk.new_lines.clone());
-        cursor = index + hunk.new_lines.len();
-    }
-    Ok(lines.concat())
-}
-
-fn split_preserving_newlines(input: &str) -> Vec<String> {
-    if input.is_empty() {
-        Vec::new()
-    } else {
-        input
-            .split_inclusive('\n')
-            .map(ToString::to_string)
-            .collect()
-    }
-}
-
-fn find_line_sequence(lines: &[String], needle: &[String], start: usize) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(start.min(lines.len()));
-    }
-    if needle.len() > lines.len() {
-        return None;
-    }
-    (start..=lines.len() - needle.len())
-        .find(|&index| lines[index..index + needle.len()] == *needle)
-}
-
-fn validate_patch_path(path: &str) -> Result<PathBuf, String> {
-    let normalized = path
-        .trim()
-        .trim_start_matches("a/")
-        .trim_start_matches("b/");
-    if normalized.is_empty() || normalized == "/dev/null" {
-        return Err("patch path is empty or unsupported".to_string());
-    }
-    let candidate = Path::new(normalized);
-    if candidate.is_absolute() {
-        return Err(format!("absolute patch path `{normalized}` is not allowed"));
-    }
-    if candidate.components().any(|component| {
-        matches!(
-            component,
-            Component::ParentDir | Component::RootDir | Component::Prefix(_)
-        )
-    }) {
-        return Err(format!("unsafe patch path `{normalized}`"));
-    }
-    Ok(candidate.to_path_buf())
 }
 
 struct AgentTaskFailureClassification {
