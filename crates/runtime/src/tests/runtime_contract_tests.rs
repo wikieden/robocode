@@ -17,6 +17,7 @@ use viden_types::{
     RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, TranscriptEntry,
     TranscriptPageRequest, WorkMode,
 };
+use viden_workflows::lanes::LaneEvent;
 use viden_workflows::stores::{WorkflowAgentEvent, WorkflowStore};
 
 use crate::{
@@ -737,6 +738,55 @@ fn runtime_command_bus_switches_mode_and_submits_input() {
                 if content.contains("planned response")
         )
     }));
+}
+
+#[test]
+fn failed_permission_controls_do_not_mutate_live_runtime_state() {
+    for (case, successful_appends, command) in [
+        (
+            "permission",
+            0,
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Auto,
+            },
+        ),
+        (
+            "work-mode",
+            1,
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+        ),
+    ] {
+        let cwd = temp_dir(&format!("runtime_command_failed_{case}_cwd"));
+        let home = temp_dir(&format!("runtime_command_failed_{case}_home"));
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+        let before = engine.runtime_snapshot();
+        let before_permission_mode = engine.mode();
+        let session_id = engine.session_id().to_string();
+        let store = SessionStore::new_with_home(&home, &cwd, Some(session_id)).unwrap();
+        let transcript_before = store.load_entries().unwrap();
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+        engine.fail_after_transcript_appends_for_test(successful_appends);
+
+        let error = engine
+            .handle_runtime_command(format!("failed_{case}"), command, &mut approver)
+            .expect_err("injected transcript failure rejects the control command");
+
+        assert!(error.contains("injected transcript append failure"));
+        assert_eq!(engine.runtime_snapshot(), before, "{case} snapshot leaked");
+        assert_eq!(
+            engine.mode(),
+            before_permission_mode,
+            "{case} permission engine leaked"
+        );
+        assert_eq!(
+            store.load_entries().unwrap(),
+            transcript_before,
+            "{case} control left partial session metadata"
+        );
+    }
 }
 
 #[test]
@@ -3106,6 +3156,89 @@ fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
 }
 
 #[test]
+fn merge_agent_patch_workflow_precommit_failure_removes_created_file_and_empty_parents() {
+    let cwd = temp_dir("runtime_contract_merge_patch_create_rollback_cwd");
+    let home = temp_dir("runtime_contract_merge_patch_create_rollback_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    let patch = b"diff --git a/generated/deep/new.txt b/generated/deep/new.txt\n--- /dev/null\n+++ b/generated/deep/new.txt\n@@ -0,0 +1 @@\n+created\n";
+    prepare_patch_merge_gate(
+        &mut engine,
+        &mut approver,
+        &cwd,
+        "task_merge_create_rollback",
+        patch,
+    );
+    engine.fail_next_workflow_append_for_test();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_merge_create_rollback",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_merge_create_rollback".to_string(),
+                decision: Some("merge created file with rollback".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_merge_create_rollback"
+                && reason.contains("injected workflow append failure")
+    )));
+    assert!(!cwd.join("generated/deep/new.txt").exists());
+    assert!(
+        !cwd.join("generated").exists(),
+        "rollback must remove empty parent directories created by this transaction"
+    );
+}
+
+#[test]
+fn merge_agent_patch_workflow_precommit_failure_restores_deleted_file() {
+    let cwd = temp_dir("runtime_contract_merge_patch_delete_rollback_cwd");
+    let home = temp_dir("runtime_contract_merge_patch_delete_rollback_home");
+    std::fs::create_dir_all(cwd.join("src")).unwrap();
+    std::fs::write(cwd.join("src/obsolete.txt"), "old\n").unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    let patch = b"diff --git a/src/obsolete.txt b/src/obsolete.txt\n--- a/src/obsolete.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n";
+    prepare_patch_merge_gate(
+        &mut engine,
+        &mut approver,
+        &cwd,
+        "task_merge_delete_rollback",
+        patch,
+    );
+    engine.fail_next_workflow_append_for_test();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_merge_delete_rollback",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_merge_delete_rollback".to_string(),
+                decision: Some("merge deleted file with rollback".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_merge_delete_rollback"
+                && reason.contains("injected workflow append failure")
+    )));
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("src/obsolete.txt")).unwrap(),
+        "old\n"
+    );
+}
+
+#[test]
 fn record_agent_evidence_ignores_transcript_batch_failure_for_project_facts() {
     let cwd = temp_dir("runtime_contract_project_fact_transcript_batch_fail_cwd");
     let home = temp_dir("runtime_contract_project_fact_transcript_batch_fail_home");
@@ -3922,6 +4055,49 @@ fn start_single_patch_gate(
     let _ = start_gate_with_required(engine, approver, task_id, vec!["patch".to_string()]);
 }
 
+fn prepare_patch_merge_gate(
+    engine: &mut SessionEngine,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    cwd: &std::path::Path,
+    task_id: &str,
+    patch: &[u8],
+) {
+    start_single_patch_gate(engine, approver, task_id);
+    let evidence_id = format!("evidence-{task_id}");
+    let bundle_id = format!("bundle-{task_id}");
+    let (item, canonical) = stored_canonical_context(
+        cwd,
+        task_id,
+        &evidence_id,
+        &bundle_id,
+        ContextContentKind::Diff,
+        patch,
+    );
+    engine.set_merge_gate_context_facts_for_test(&bundle_id, item);
+
+    let events = engine
+        .handle_runtime_command(
+            format!("cmd_evidence_{task_id}"),
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: format!("gate-{task_id}"),
+                evidence_id: Some(evidence_id),
+                kind: "patch".to_string(),
+                summary: "canonical patch".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(canonical),
+            },
+            approver,
+        )
+        .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::MergeGateUpdated { gate }
+            if gate.gate_id == format!("gate-{task_id}")
+                && gate.status == MergeGateStatus::Accepted
+    )));
+}
+
 fn start_gate_with_required(
     engine: &mut SessionEngine,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
@@ -4072,16 +4248,87 @@ fn runtime_view_state_emits_lane_facts_from_core_store_legacy_lane_statuses() {
     )
     .unwrap();
     let provider = Box::new(SequenceProvider::new(vec![]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+
+    // The legacy file is migration input only. Runtime projection must remain
+    // available after the source disappears and must not import it twice.
+    fs::remove_file(lane_dir.join("lanes.tsv")).unwrap();
 
     let view = engine.runtime_view_state();
 
     assert_eq!(view.lanes.len(), 4);
-    assert_eq!(view.lanes[0].id, "L-start");
-    assert_eq!(view.lanes[0].status, LaneStatus::Starting);
-    assert_eq!(view.lanes[1].status, LaneStatus::Blocked);
-    assert_eq!(view.lanes[2].status, LaneStatus::Detached);
-    assert_eq!(view.lanes[3].status, LaneStatus::Detached);
+    assert_eq!(
+        view.lanes
+            .iter()
+            .find(|lane| lane.id == "L-start")
+            .unwrap()
+            .status,
+        LaneStatus::Starting
+    );
+    assert_eq!(
+        view.lanes
+            .iter()
+            .find(|lane| lane.id == "L-conflict")
+            .unwrap()
+            .status,
+        LaneStatus::Blocked
+    );
+    for lane_id in ["L-detached", "L-stopped"] {
+        assert_eq!(
+            view.lanes
+                .iter()
+                .find(|lane| lane.id == lane_id)
+                .unwrap()
+                .status,
+            LaneStatus::Detached
+        );
+    }
+
+    let workflow_store = WorkflowStore::new(&home, &cwd).unwrap();
+    assert_eq!(workflow_store.load_lane_events().unwrap().len(), 1);
+    assert!(workflow_store.paths().lanes_log.exists());
+
+    let second_provider = Box::new(SequenceProvider::new(vec![]));
+    let second_engine =
+        SessionEngine::new_with_home(&cwd, second_provider, Some(home.clone())).unwrap();
+    assert_eq!(second_engine.runtime_view_state().lanes.len(), 4);
+    assert_eq!(workflow_store.load_lane_events().unwrap().len(), 1);
+}
+
+#[test]
+fn runtime_view_state_reports_corrupt_lane_store() {
+    let cwd = temp_dir("runtime_contract_corrupt_lane_cwd");
+    let home = temp_dir("runtime_contract_corrupt_lane_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let workflow_store = WorkflowStore::new(&home, &cwd).unwrap();
+    let secret = "customer-secret-lane";
+    let invalid_event = LaneEvent::status_changed(
+        "evt_secret_lane",
+        secret,
+        LaneStatus::Running,
+        "must not leak",
+        10,
+        None,
+    );
+    fs::write(
+        &workflow_store.paths().lanes_log,
+        format!("{}\n", serde_json::to_string(&invalid_event).unwrap()),
+    )
+    .unwrap();
+
+    let view = engine.runtime_view_state();
+
+    assert!(view.errors.iter().any(|error| {
+        error.recoverable
+            && error.message.contains("lane_state_unavailable")
+            && error.hint.as_deref() == Some("Repair or restore the project's lanes.jsonl log.")
+    }));
+    assert!(
+        view.errors
+            .iter()
+            .all(|error| !error.message.contains(secret))
+    );
 }
 
 #[test]

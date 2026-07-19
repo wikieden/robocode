@@ -77,7 +77,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | ContextBundle | context panel、token pressure meter、omitted-source list | `ContextBundleRecord`、`ContextSourceRecord`、token budgets | 当前无直接 mutation；后续增加 context-policy commands | 部分落地 |
 | Evidence and merge gate | evidence center、diff/test/review checklist、merge gate card | `EvidenceView`、`MergeGateRecord` | `RecordAgentEvidence`、`AcceptMergeGate`、`RejectMergeGate`、`AcceptAgentArtifact`、`RejectAgentArtifact`、`MergeAgentPatch` | `0.2.3` reducer 第一刀已落地 |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
-| Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、task/evidence events | 后续 lane commands | 部分落地 |
+| Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.1` 增量候选 |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
 | UI preferences | locale、skin/mode、density、motion | `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`、preference diagnostics | 通过 Core-owned config path 配置 | schema `1` 已冻结 |
 

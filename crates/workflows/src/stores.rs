@@ -2,12 +2,18 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use viden_session::project_key_for_path;
 
+use crate::lanes::{
+    LEGACY_LANES_MIGRATION_ID, LaneEvent, LaneState, LegacyLaneImportOutcome,
+    parse_legacy_lanes_tsv, reduce_lane_events,
+};
 use crate::memory::{MemoryEvent, MemoryState, reduce_memory_events};
 use crate::tasks::{TaskEvent, TaskState, reduce_task_events};
 
@@ -19,6 +25,8 @@ pub struct WorkflowPaths {
     pub tasks_log: PathBuf,
     pub memory_log: PathBuf,
     pub agent_log: PathBuf,
+    pub lanes_log: PathBuf,
+    pub lanes_lock: PathBuf,
     pub index_db_path: PathBuf,
 }
 
@@ -67,6 +75,8 @@ impl WorkflowStore {
             tasks_log: project_dir.join("tasks.jsonl"),
             memory_log: project_dir.join("memory.jsonl"),
             agent_log: project_dir.join("agents.jsonl"),
+            lanes_log: project_dir.join("lanes.jsonl"),
+            lanes_lock: project_dir.join("lanes.lock"),
             index_db_path: project_dir.join("workflow.sqlite3"),
             home_dir,
             projects_dir,
@@ -142,6 +152,93 @@ impl WorkflowStore {
         reduce_memory_events(&self.load_memory_domain_events()?)
     }
 
+    pub fn append_lane_event(&self, event: &LaneEvent) -> Result<(), String> {
+        let _lock = self.lock_lanes_exclusive()?;
+        self.append_lane_event_unlocked(event)
+    }
+
+    pub fn append_lane_event_checked(&self, event: &LaneEvent) -> Result<(), String> {
+        let _lock = self.lock_lanes_exclusive()?;
+        let mut events = self.load_lane_events_unlocked()?;
+        events.push(event.clone());
+        reduce_lane_events(&events)?;
+        self.append_lane_event_unlocked(event)
+    }
+
+    pub fn load_lane_events(&self) -> Result<Vec<LaneEvent>, String> {
+        let _lock = self.lock_lanes_shared()?;
+        self.load_lane_events_unlocked()
+    }
+
+    pub fn load_lane_state(&self) -> Result<LaneState, String> {
+        reduce_lane_events(&self.load_lane_events()?)
+    }
+
+    pub fn import_legacy_lanes_tsv_once(
+        &self,
+        legacy_path: impl AsRef<Path>,
+        timestamp: u64,
+        origin_session_id: Option<String>,
+    ) -> Result<LegacyLaneImportOutcome, String> {
+        // Import check, parse validation, reducer validation, and append share
+        // one cross-process critical section so concurrent session startup can
+        // never publish duplicate migration events.
+        let _lock = self.lock_lanes_exclusive()?;
+        let mut events = self.load_lane_events_unlocked()?;
+        let state = reduce_lane_events(&events)?;
+        if let Some(audit) = state.migration(LEGACY_LANES_MIGRATION_ID) {
+            return Ok(LegacyLaneImportOutcome {
+                imported: false,
+                lane_count: audit.imported_lane_ids.len(),
+            });
+        }
+
+        let raw = fs::read_to_string(legacy_path.as_ref()).map_err(|error| {
+            format!(
+                "failed to read legacy lanes {}: {error}",
+                legacy_path.as_ref().display()
+            )
+        })?;
+        let lanes = parse_legacy_lanes_tsv(&raw)?;
+        let lane_count = lanes.len();
+        // One event contains the entire validated import so the JSONL boundary
+        // never publishes only a prefix of the legacy lane set.
+        let event = LaneEvent::legacy_imported(
+            "evt_legacy_lanes_tsv_v0",
+            "project:.viden/lanes.tsv",
+            lanes,
+            timestamp,
+            origin_session_id,
+        );
+        events.push(event.clone());
+        reduce_lane_events(&events)?;
+        self.append_lane_event_unlocked(&event)?;
+        Ok(LegacyLaneImportOutcome {
+            imported: true,
+            lane_count,
+        })
+    }
+
+    fn append_lane_event_unlocked(&self, event: &LaneEvent) -> Result<(), String> {
+        append_json_line(&self.paths.lanes_log, event)
+    }
+
+    fn load_lane_events_unlocked(&self) -> Result<Vec<LaneEvent>, String> {
+        load_json_lines(&self.paths.lanes_log)
+    }
+
+    fn lock_lanes_exclusive(&self) -> Result<fs::File, String> {
+        let lock = open_lock_file(&self.paths.lanes_lock)?;
+        lock.lock_exclusive().map_err(|error| error.to_string())?;
+        Ok(lock)
+    }
+
+    fn lock_lanes_shared(&self) -> Result<fs::File, String> {
+        let lock = open_lock_file(&self.paths.lanes_lock)?;
+        lock.lock_shared().map_err(|error| error.to_string())?;
+        Ok(lock)
+    }
+
     pub fn rebuild_index(&self) -> Result<(), String> {
         if sqlite_available() {
             let sql = "CREATE TABLE IF NOT EXISTS workflow_events (
@@ -165,17 +262,23 @@ where
 {
     let mut payload = serde_json::to_string(value).map_err(|err| err.to_string())?;
     payload.push('\n');
-    if path.exists() {
-        use std::io::Write;
-        let mut file = fs::OpenOptions::new()
-            .append(true)
-            .open(path)
-            .map_err(|err| err.to_string())?;
-        file.write_all(payload.as_bytes())
-            .map_err(|err| err.to_string())
-    } else {
-        fs::write(path, payload).map_err(|err| err.to_string())
-    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|err| err.to_string())?;
+    file.write_all(payload.as_bytes())
+        .map_err(|err| err.to_string())
+}
+
+fn open_lock_file(path: &Path) -> Result<fs::File, String> {
+    fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|error| error.to_string())
 }
 
 fn load_json_lines<T>(path: &Path) -> Result<Vec<T>, String>
@@ -249,6 +352,8 @@ mod tests {
             "memory.jsonl"
         );
         assert_eq!(store.paths().agent_log.file_name().unwrap(), "agents.jsonl");
+        assert_eq!(store.paths().lanes_log.file_name().unwrap(), "lanes.jsonl");
+        assert_eq!(store.paths().lanes_lock.file_name().unwrap(), "lanes.lock");
         assert_eq!(
             store.paths().index_db_path.file_name().unwrap(),
             "workflow.sqlite3"

@@ -17,6 +17,9 @@ mod event_journal;
 mod extension_commands;
 mod formatting;
 mod git_commands;
+mod lane_runtime;
+mod lane_supervisor;
+mod lane_worker;
 mod lsp_tools;
 mod presentation;
 mod provider_commands;
@@ -47,11 +50,12 @@ use viden_types::PermissionRule;
 use viden_types::{
     AgentDagRecord, AgentTaskRecord, ContextBundleRecord, CostScope, CostUsageRecord, EvidenceView,
     MemoryEntry, MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode,
-    ResolvedUiPreferences, RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode,
+    ResolvedUiPreferences, RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode, now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
 const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
+const LANE_STATE_UNAVAILABLE_MESSAGE: &str = "invalid or unreadable lane event log";
 
 pub(crate) type RuntimeEventSink = Arc<dyn Fn(Vec<RuntimeEvent>) + Send + Sync + 'static>;
 
@@ -322,9 +326,11 @@ pub struct SessionEngine {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileRollback {
+    pub(crate) root: PathBuf,
     pub(crate) path: PathBuf,
     pub(crate) contents: Option<Vec<u8>>,
     pub(crate) permissions: Option<std::fs::Permissions>,
+    pub(crate) created_parent_dirs: Vec<PathBuf>,
 }
 
 #[cfg(test)]
@@ -378,6 +384,14 @@ impl SessionEngine {
             None => SessionStore::new(&cwd, None)?,
         };
         let workflows = WorkflowStore::new(store.home_dir().to_path_buf(), &cwd)?;
+        let legacy_lanes_path = cwd.join(".viden").join("lanes.tsv");
+        if legacy_lanes_path.is_file() {
+            workflows.import_legacy_lanes_tsv_once(
+                &legacy_lanes_path,
+                now_timestamp(),
+                Some(store.session_id().to_string()),
+            )?;
+        }
         let context_engine_root = cwd.join(".viden").join("context-engine");
         let cost_workflow_id =
             Some(bounded_cost_id(store.session_id()).unwrap_or_else(|| "session".to_string()));
@@ -602,6 +616,14 @@ impl SessionEngine {
         &self.cwd
     }
 
+    pub(crate) fn workflow_store(&self) -> WorkflowStore {
+        self.workflows.clone()
+    }
+
+    pub(crate) fn lane_permission_engine(&self) -> PermissionEngine {
+        self.permissions.clone()
+    }
+
     pub fn provider_name(&self) -> &str {
         self.provider.provider_name()
     }
@@ -673,17 +695,27 @@ impl SessionEngine {
     }
 
     pub fn set_permission_mode(&mut self, mode: PermissionMode) -> Result<(), String> {
-        self.permissions.set_mode(mode);
-        self.runtime_snapshot.permission_mode = mode;
-        self.runtime_snapshot.permission_level = PermissionLevel::from_legacy_mode(mode);
+        let mut next_permissions = self.permissions.clone();
+        let mut next_snapshot = self.runtime_snapshot.clone();
+        next_permissions.set_mode(mode);
+        next_snapshot.permission_mode = mode;
+        next_snapshot.permission_level = PermissionLevel::from_legacy_mode(mode);
+        let mut metadata = Vec::with_capacity(2);
         if mode == PermissionMode::Plan {
-            self.runtime_snapshot.work_mode = WorkMode::Plan;
-            self.persist_meta("work_mode", WorkMode::Plan.cli_name())?;
-        } else if self.runtime_snapshot.work_mode == WorkMode::Plan {
-            self.runtime_snapshot.work_mode = WorkMode::Build;
-            self.persist_meta("work_mode", WorkMode::Build.cli_name())?;
+            next_snapshot.work_mode = WorkMode::Plan;
+            metadata.push(("work_mode", WorkMode::Plan.cli_name()));
+        } else if next_snapshot.work_mode == WorkMode::Plan {
+            next_snapshot.work_mode = WorkMode::Build;
+            metadata.push(("work_mode", WorkMode::Build.cli_name()));
         }
-        self.persist_meta("permission_mode", mode.cli_name())
+        metadata.push(("permission_mode", mode.cli_name()));
+
+        // Publish the PermissionEngine and snapshot only after their complete
+        // metadata batch is durable; failed control commands must remain invisible.
+        self.persist_meta_batch(&metadata)?;
+        self.permissions = next_permissions;
+        self.runtime_snapshot = next_snapshot;
+        Ok(())
     }
 
     pub fn work_mode(&self) -> WorkMode {
@@ -695,27 +727,33 @@ impl SessionEngine {
     }
 
     pub fn set_work_mode(&mut self, mode: WorkMode) -> Result<(), String> {
-        self.runtime_snapshot.work_mode = mode;
-        self.persist_meta("work_mode", mode.cli_name())?;
+        let mut next_permissions = self.permissions.clone();
+        let mut next_snapshot = self.runtime_snapshot.clone();
+        next_snapshot.work_mode = mode;
+        let mut metadata = vec![("work_mode", mode.cli_name())];
         match mode {
             WorkMode::Plan | WorkMode::Review | WorkMode::Explore => {
-                self.permissions.set_mode(PermissionMode::Plan);
-                self.runtime_snapshot.permission_mode = PermissionMode::Plan;
-                self.runtime_snapshot.permission_level = PermissionLevel::ReadOnly;
-                self.persist_meta("permission_mode", PermissionMode::Plan.cli_name())?;
+                next_permissions.set_mode(PermissionMode::Plan);
+                next_snapshot.permission_mode = PermissionMode::Plan;
+                next_snapshot.permission_level = PermissionLevel::ReadOnly;
+                metadata.push(("permission_mode", PermissionMode::Plan.cli_name()));
             }
             WorkMode::Build => {
-                if self.permissions.mode() == PermissionMode::Plan {
-                    self.permissions.set_mode(PermissionMode::Default);
-                    self.runtime_snapshot.permission_mode = PermissionMode::Default;
-                    self.runtime_snapshot.permission_level = PermissionLevel::Ask;
-                    self.persist_meta("permission_mode", PermissionMode::Default.cli_name())?;
+                if next_permissions.mode() == PermissionMode::Plan {
+                    next_permissions.set_mode(PermissionMode::Default);
+                    next_snapshot.permission_mode = PermissionMode::Default;
+                    next_snapshot.permission_level = PermissionLevel::Ask;
+                    metadata.push(("permission_mode", PermissionMode::Default.cli_name()));
                 } else {
-                    self.runtime_snapshot.permission_level =
-                        PermissionLevel::from_legacy_mode(self.permissions.mode());
+                    next_snapshot.permission_level =
+                        PermissionLevel::from_legacy_mode(next_permissions.mode());
                 }
             }
         }
+
+        self.persist_meta_batch(&metadata)?;
+        self.permissions = next_permissions;
+        self.runtime_snapshot = next_snapshot;
         Ok(())
     }
 }

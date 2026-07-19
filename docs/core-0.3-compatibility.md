@@ -51,6 +51,63 @@ Every fixture requirement must be present in this set. A fixture requiring an
 unknown mandatory capability fails compatibility validation; malformed or
 ambiguous legacy input is rejected rather than guessed.
 
+## Schema-1 Post-Freeze Extension Candidate
+
+The Core 0.3.0 frozen capability set and fixture digests above remain unchanged.
+The Core 0.3.1 candidate advertises the additive
+`runtime.lane_lifecycle` capability separately through
+`FRONTEND_V1_EXTENSION_CAPABILITIES` and
+`crates/core/frontend-contract-extensions.toml`.
+
+Clients written against Core 0.3.0 continue to require only the frozen set and
+must preserve unsupported schema-1 events as `RuntimeWireEvent::Unknown`. A
+client enables the 13 lane lifecycle commands and the `LaneUpdated`,
+`LaneCommandAccepted`, `LaneOutputAppended`, `LaneConflictDetected`, and
+`LaneRecoveryRequired` event projections only after negotiating
+`runtime.lane_lifecycle`. Lane command receipts use the extension-specific
+top-level event so a 0.3.0 client preserves the whole payload as unknown rather
+than failing on a nested command variant. Empty extension
+projection vectors are omitted during serialization, so replaying the frozen
+0.3.0 corpus retains its recorded canonical bytes and digests.
+
+Core owns lane permission evaluation and refreshes it from the current runtime
+mode before every lane command. Side-effecting commands are evaluated against
+one canonical worktree or repository target shared by permission checks and the
+effect executor. Existing symlinks may resolve only inside the repository;
+missing targets resolve through their nearest real parent, reject symlink
+parents and `..`, and are revalidated immediately before local effects.
+Approval previews redact command, argument, environment, input, and diff
+payloads. Interrupted starting, running, or approval-waiting lanes hydrate as
+blocked recovery facts and remain bound to their durable session owner.
+
+Ordinary tool and lane approval responses observe supervisor command ordering
+with permission and mode changes, but use two deliberately different generation
+semantics. Ordinary tools consult submitted permission-control reservations, so
+a queued permission or work-mode command invalidates a blocked approval
+immediately, before the worker applies that command. A reservation commits only
+after its complete SessionMeta batch persists. A failed reservation is removed,
+so it does not invalidate an approval that predates it; its monotonic generation
+is never decremented or reused, which keeps later queued controls paired with
+their own generations. Lane requests instead capture the worker's applied
+generation atomically with the permission engine it describes; that generation
+advances only after the queued control command is successfully applied.
+Permission and work-mode controls persist their complete session-metadata batch
+before publishing the new live snapshot or permission engine; a failed batch
+leaves the engine, snapshot, lane pair, and applied generation unchanged. Any
+intervening applied permission or work-mode generation change invalidates the
+pending lane approval even if the visible flags later return to their original
+values. Once a lane response is accepted, the
+supervisor waits
+for its terminal `ApprovalResolved` and effect/persistence completion before it
+processes or publishes a later permission snapshot. Lane approval-derived
+session/repository allow rules are kept
+inside the owning lane worker, so they survive normal authoritative permission
+refreshes for that lane without authorizing another lane or owner; Plan/ReadOnly
+refreshes discard them immediately.
+Create and lane status transitions follow the same permission and mutation-policy
+gate as other durable effects. Terminal workers unregister and join through the
+completion reaper without waiting for another lane command.
+
 ## Client Boundary
 
 Frontend clients use only `CoreClient` and protocol/view contracts re-exported

@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::{
     collections::BTreeSet,
     fs,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 use crate::agent_commands::{tracked_agent_job_runtime_events, tracked_agent_job_tasks};
@@ -18,23 +18,24 @@ use viden_context::{
 use viden_lsp::SemanticProvider;
 use viden_permissions::{PermissionContext, PermissionEngine};
 use viden_provider::ModelRequestControl;
-use viden_tools::context_read_tool_spec;
+use viden_tools::{
+    context_read_tool_spec,
+    patch::{LocalPatchBackend, PatchApplication, PatchRequest},
+};
 use viden_types::{
-    AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
-    AgentRoute, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
-    ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord,
-    ContextItemRecord, ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome,
-    CostUsageRecord, DataEgressPolicy, EvidenceCanonicalReasonCode, EvidenceCanonicalStatus,
-    EvidenceCanonicalStatusReport, EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus,
-    EvidenceVerificationState, EvidenceView, ExecutionTarget, LaneBudget, MergeGateRecord,
-    MergeGateStatus, MutationPolicy, PermissionBehavior, PermissionDecision,
+    AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentNextAction, AgentRole, AgentRoute,
+    AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
+    ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
+    CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord, ContextItemRecord,
+    ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome, CostUsageRecord,
+    EvidenceCanonicalReasonCode, EvidenceCanonicalStatus, EvidenceCanonicalStatusReport,
+    EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
+    EvidenceView, MergeGateRecord, MergeGateStatus, PermissionBehavior, PermissionDecision,
     PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
     PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand,
     RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
     RuntimeViewState, TokenCostView, TokenUsage, ToolCallId, ToolInput, TranscriptPageRequest,
-    WorkMode, canonical_evidence_status, default_gate_strength, fresh_id, legacy_lane_role,
-    legacy_lane_route, now_timestamp, truncate_for_preview,
+    WorkMode, canonical_evidence_status, fresh_id, now_timestamp, truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
@@ -566,6 +567,24 @@ impl SessionEngine {
                     )),
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
+            }
+            RuntimeCommand::CreateLane { .. }
+            | RuntimeCommand::StartLane { .. }
+            | RuntimeCommand::StopLane { .. }
+            | RuntimeCommand::AttachLane { .. }
+            | RuntimeCommand::DetachLane { .. }
+            | RuntimeCommand::SendLaneInput { .. }
+            | RuntimeCommand::AcceptLaneOutput { .. }
+            | RuntimeCommand::ReviseLaneOutput { .. }
+            | RuntimeCommand::DiscardLaneOutput { .. }
+            | RuntimeCommand::ApplyLaneChanges { .. }
+            | RuntimeCommand::ResolveLaneConflict { .. }
+            | RuntimeCommand::ArchiveLane { .. }
+            | RuntimeCommand::CleanupLane { .. } => {
+                return Ok(vec![command_rejected(
+                    command_id,
+                    "lane lifecycle commands must be routed through RuntimeSupervisor".to_string(),
+                )]);
             }
             RuntimeCommand::RetrieveContext { .. } => unreachable!("handled before acceptance"),
             RuntimeCommand::CancelActiveTurn | RuntimeCommand::RespondToApproval { .. } => {
@@ -1113,12 +1132,28 @@ impl SessionEngine {
                 RuntimeEventKind::AgentDagUpdated { dag: dag.clone() },
             ));
         }
-        for lane in load_runtime_lanes(&self.runtime_snapshot.cwd.join(".viden").join("lanes.tsv"))
-        {
-            events.push(RuntimeEvent::new(
+        match self.workflows.load_lane_state() {
+            Ok(lane_state) => {
+                for lane in lane_state.lanes().values() {
+                    events.push(RuntimeEvent::new(
+                        next_sequence(&events),
+                        RuntimeEventKind::LaneUpdated { lane: lane.clone() },
+                    ));
+                }
+            }
+            Err(_) => events.push(RuntimeEvent::new(
                 next_sequence(&events),
-                RuntimeEventKind::LaneUpdated { lane },
-            ));
+                RuntimeEventKind::Error {
+                    error: RuntimeErrorView {
+                        message: format!(
+                            "lane_state_unavailable: {}",
+                            crate::LANE_STATE_UNAVAILABLE_MESSAGE
+                        ),
+                        recoverable: true,
+                        hint: Some("Repair or restore the project's lanes.jsonl log.".to_string()),
+                    },
+                },
+            )),
         }
         for task in tracked_agent_job_tasks(&self.runtime_snapshot.cwd) {
             events.push(RuntimeEvent::new(
@@ -2163,25 +2198,29 @@ impl SessionEngine {
                 );
             }
         };
-        let patch_application = match prepare_unified_diff_application(&self.cwd, &patch_content) {
+        let patch_backend = LocalPatchBackend;
+        let patch_application = match patch_backend.prepare(&PatchRequest {
+            cwd: self.cwd.clone(),
+            unified_diff: patch_content,
+        }) {
             Ok(application) => application,
             Err(err) => {
                 return self.mark_agent_patch_conflict(
                     gate_index,
                     &dag_id,
                     &task_id,
-                    format!("patch conflict: {err}"),
+                    format!("patch conflict: {}", err),
                 );
             }
         };
         self.stage_patch_rollback(&patch_application)?;
-        if let Err(err) = write_patch_application(&patch_application) {
+        if let Err(err) = patch_backend.write_application(&patch_application) {
             self.restore_transaction_files()?;
             return self.mark_agent_patch_conflict(
                 gate_index,
                 &dag_id,
                 &task_id,
-                format!("patch conflict: {err}"),
+                format!("patch conflict: {}", err),
             );
         }
 
@@ -2220,12 +2259,34 @@ impl SessionEngine {
     fn stage_patch_rollback(&self, application: &PatchApplication) -> Result<(), String> {
         let mut rollback = self.transaction_file_rollback.borrow_mut();
         rollback.clear();
-        for (path, _) in &application.writes {
-            let metadata = fs::metadata(path).ok();
+        let root =
+            fs::canonicalize(&self.cwd).map_err(|err| format!("{}: {err}", self.cwd.display()))?;
+        for path in application.write_paths() {
+            // Capture only missing parents: rollback may remove transaction-created
+            // empty directories, but never a directory that predated the patch.
+            ensure_transaction_path_inside_root(&root, path)?;
+            let created_parent_dirs = missing_transaction_parent_dirs(&root, path)?;
+            let (contents, permissions) = match fs::symlink_metadata(path) {
+                Ok(metadata) => {
+                    if metadata.file_type().is_symlink() || !metadata.is_file() {
+                        return Err(format!(
+                            "unsafe transaction rollback target `{}`",
+                            path.display()
+                        ));
+                    }
+                    let contents =
+                        fs::read(path).map_err(|err| format!("{}: {err}", path.display()))?;
+                    (Some(contents), Some(metadata.permissions()))
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => (None, None),
+                Err(err) => return Err(format!("{}: {err}", path.display())),
+            };
             rollback.push(crate::FileRollback {
-                path: path.clone(),
-                contents: fs::read(path).ok(),
-                permissions: metadata.map(|metadata| metadata.permissions()),
+                root: root.clone(),
+                path: path.to_path_buf(),
+                contents,
+                permissions,
+                created_parent_dirs,
             });
         }
         Ok(())
@@ -2233,6 +2294,7 @@ impl SessionEngine {
 
     fn restore_transaction_files(&self) -> Result<(), String> {
         for file in self.transaction_file_rollback.borrow().iter().rev() {
+            ensure_transaction_path_inside_root(&file.root, &file.path)?;
             match &file.contents {
                 Some(contents) => {
                     if let Some(parent) = file.path.parent() {
@@ -2251,6 +2313,18 @@ impl SessionEngine {
                         fs::remove_file(&file.path)
                             .map_err(|err| format!("{}: {err}", file.path.display()))?;
                     }
+                }
+            }
+            for parent in file.created_parent_dirs.iter().rev() {
+                ensure_transaction_path_inside_root(&file.root, parent)?;
+                match fs::remove_dir(parent) {
+                    Ok(()) => {}
+                    Err(err)
+                        if matches!(
+                            err.kind(),
+                            std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
+                        ) => {}
+                    Err(err) => return Err(format!("{}: {err}", parent.display())),
                 }
             }
         }
@@ -2988,6 +3062,93 @@ fn reduce_merge_gate_status(
     }
 }
 
+fn ensure_transaction_path_inside_root(root: &Path, path: &Path) -> Result<(), String> {
+    // Revalidate at both staging and restore time so a symlink swap cannot
+    // redirect compensating writes or deletes outside the project root.
+    let current_root =
+        fs::canonicalize(root).map_err(|err| format!("{}: {err}", root.display()))?;
+    if current_root != root || !current_root.is_dir() {
+        return Err(format!(
+            "transaction rollback root is no longer safe: `{}`",
+            root.display()
+        ));
+    }
+    let relative = path.strip_prefix(root).map_err(|_| {
+        format!(
+            "transaction rollback target `{}` is outside `{}`",
+            path.display(),
+            root.display()
+        )
+    })?;
+    if relative.as_os_str().is_empty() {
+        return Err("transaction rollback target cannot be the workspace root".to_string());
+    }
+
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let std::path::Component::Normal(segment) = component else {
+            return Err(format!(
+                "unsafe transaction rollback target `{}`",
+                path.display()
+            ));
+        };
+        current.push(segment);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(format!(
+                    "transaction rollback target crosses symlink `{}`",
+                    current.display()
+                ));
+            }
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(format!("{}: {err}", current.display())),
+        }
+    }
+    Ok(())
+}
+
+fn missing_transaction_parent_dirs(root: &Path, path: &Path) -> Result<Vec<PathBuf>, String> {
+    let parent = path.parent().ok_or_else(|| {
+        format!(
+            "transaction rollback target has no parent: `{}`",
+            path.display()
+        )
+    })?;
+    let relative = parent.strip_prefix(root).map_err(|_| {
+        format!(
+            "transaction rollback parent `{}` is outside `{}`",
+            parent.display(),
+            root.display()
+        )
+    })?;
+    let mut current = root.to_path_buf();
+    let mut missing = Vec::new();
+    for component in relative.components() {
+        let std::path::Component::Normal(segment) = component else {
+            return Err(format!(
+                "unsafe transaction rollback parent `{}`",
+                parent.display()
+            ));
+        };
+        current.push(segment);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err(format!(
+                    "unsafe transaction rollback parent `{}`",
+                    current.display()
+                ));
+            }
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(current.clone());
+            }
+            Err(err) => return Err(format!("{}: {err}", current.display())),
+        }
+    }
+    Ok(missing)
+}
+
 fn transactional_runtime_command(command: &RuntimeCommand) -> bool {
     matches!(
         command,
@@ -3218,200 +3379,6 @@ fn canonical_evidence_summary(kind: &str, content: &str) -> String {
 
 fn normalize_evidence_kind(kind: &str) -> String {
     kind.trim().replace('-', "_").to_ascii_lowercase()
-}
-
-#[derive(Debug, Clone)]
-struct PatchApplication {
-    writes: Vec<(PathBuf, String)>,
-}
-
-#[derive(Debug)]
-struct PatchFile {
-    path: String,
-    hunks: Vec<PatchHunk>,
-}
-
-#[derive(Debug)]
-struct PatchHunk {
-    old_lines: Vec<String>,
-    new_lines: Vec<String>,
-}
-
-fn prepare_unified_diff_application(cwd: &Path, diff: &str) -> Result<PatchApplication, String> {
-    let patch_files = parse_unified_diff(diff)?;
-    if patch_files.is_empty() {
-        return Err("no unified diff patch found".to_string());
-    }
-
-    let mut writes = Vec::new();
-    for patch_file in patch_files {
-        let relative_path = validate_patch_path(&patch_file.path)?;
-        let full_path = cwd.join(&relative_path);
-        let current = fs::read_to_string(&full_path)
-            .map_err(|err| format!("{}: {err}", relative_path.display()))?;
-        let updated = apply_patch_file(&current, &patch_file)
-            .map_err(|err| format!("{}: {err}", relative_path.display()))?;
-        writes.push((full_path, updated));
-    }
-
-    Ok(PatchApplication { writes })
-}
-
-fn write_patch_application(application: &PatchApplication) -> Result<(), String> {
-    for (path, contents) in &application.writes {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
-        }
-        fs::write(path, contents).map_err(|err| format!("{}: {err}", path.display()))?;
-    }
-    Ok(())
-}
-
-fn parse_unified_diff(diff: &str) -> Result<Vec<PatchFile>, String> {
-    let mut files = Vec::new();
-    let mut current_file: Option<PatchFile> = None;
-    let mut current_hunk: Option<PatchHunk> = None;
-
-    for raw_line in diff.split_inclusive('\n') {
-        let line = raw_line.trim_end_matches('\n').trim_end_matches('\r');
-        if let Some(rest) = line.strip_prefix("diff --git ") {
-            finish_patch_hunk(&mut current_file, &mut current_hunk);
-            if let Some(file) = current_file.take() {
-                files.push(file);
-            }
-            let path = rest
-                .split_whitespace()
-                .find_map(|part| part.strip_prefix("b/"))
-                .or_else(|| rest.split_whitespace().nth(1))
-                .ok_or_else(|| format!("invalid diff header `{line}`"))?;
-            current_file = Some(PatchFile {
-                path: path.to_string(),
-                hunks: Vec::new(),
-            });
-            continue;
-        }
-
-        if let Some(path) = line.strip_prefix("+++ ") {
-            if let Some(file) = current_file.as_mut()
-                && let Some(path) = path.trim().strip_prefix("b/")
-            {
-                file.path = path.to_string();
-            }
-            continue;
-        }
-
-        if line.starts_with("@@") {
-            let Some(file) = current_file.as_mut() else {
-                return Err("hunk appeared before file header".to_string());
-            };
-            if let Some(hunk) = current_hunk.take() {
-                file.hunks.push(hunk);
-            }
-            current_hunk = Some(PatchHunk {
-                old_lines: Vec::new(),
-                new_lines: Vec::new(),
-            });
-            continue;
-        }
-
-        let Some(hunk) = current_hunk.as_mut() else {
-            continue;
-        };
-        if line.starts_with('\\') {
-            continue;
-        }
-        let Some((prefix, content)) = split_patch_line(raw_line) else {
-            continue;
-        };
-        match prefix {
-            ' ' => {
-                hunk.old_lines.push(content.clone());
-                hunk.new_lines.push(content);
-            }
-            '-' => hunk.old_lines.push(content),
-            '+' => hunk.new_lines.push(content),
-            _ => {}
-        }
-    }
-
-    finish_patch_hunk(&mut current_file, &mut current_hunk);
-    if let Some(file) = current_file {
-        files.push(file);
-    }
-    files.retain(|file| !file.hunks.is_empty());
-    Ok(files)
-}
-
-fn finish_patch_hunk(file: &mut Option<PatchFile>, hunk: &mut Option<PatchHunk>) {
-    if let (Some(file), Some(hunk)) = (file.as_mut(), hunk.take()) {
-        file.hunks.push(hunk);
-    }
-}
-
-fn split_patch_line(raw_line: &str) -> Option<(char, String)> {
-    let prefix = raw_line.chars().next()?;
-    if !matches!(prefix, ' ' | '-' | '+') {
-        return None;
-    }
-    Some((prefix, raw_line[prefix.len_utf8()..].to_string()))
-}
-
-fn apply_patch_file(current: &str, patch_file: &PatchFile) -> Result<String, String> {
-    let mut lines = split_preserving_newlines(current);
-    let mut cursor = 0usize;
-    for hunk in &patch_file.hunks {
-        let Some(index) = find_line_sequence(&lines, &hunk.old_lines, cursor) else {
-            return Err("patch conflict: expected hunk context was not found".to_string());
-        };
-        lines.splice(index..index + hunk.old_lines.len(), hunk.new_lines.clone());
-        cursor = index + hunk.new_lines.len();
-    }
-    Ok(lines.concat())
-}
-
-fn split_preserving_newlines(input: &str) -> Vec<String> {
-    if input.is_empty() {
-        Vec::new()
-    } else {
-        input
-            .split_inclusive('\n')
-            .map(ToString::to_string)
-            .collect()
-    }
-}
-
-fn find_line_sequence(lines: &[String], needle: &[String], start: usize) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(start.min(lines.len()));
-    }
-    if needle.len() > lines.len() {
-        return None;
-    }
-    (start..=lines.len() - needle.len())
-        .find(|&index| lines[index..index + needle.len()] == *needle)
-}
-
-fn validate_patch_path(path: &str) -> Result<PathBuf, String> {
-    let normalized = path
-        .trim()
-        .trim_start_matches("a/")
-        .trim_start_matches("b/");
-    if normalized.is_empty() || normalized == "/dev/null" {
-        return Err("patch path is empty or unsupported".to_string());
-    }
-    let candidate = Path::new(normalized);
-    if candidate.is_absolute() {
-        return Err(format!("absolute patch path `{normalized}` is not allowed"));
-    }
-    if candidate.components().any(|component| {
-        matches!(
-            component,
-            Component::ParentDir | Component::RootDir | Component::Prefix(_)
-        )
-    }) {
-        return Err(format!("unsafe patch path `{normalized}`"));
-    }
-    Ok(candidate.to_path_buf())
 }
 
 struct AgentTaskFailureClassification {
@@ -4315,6 +4282,86 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
             provider_id: redact_identifier_for_event(provider_id),
             model: redact_command_text(model),
         },
+        RuntimeCommand::CreateLane { lane } => {
+            let mut lane = lane.clone();
+            lane.worktree = lane.worktree.as_ref().map(|_| "[REDACTED]".to_string());
+            lane.branch = lane.branch.as_deref().map(redact_identifier_for_event);
+            lane.active_session_ids = lane
+                .active_session_ids
+                .iter()
+                .map(|id| redact_identifier_for_event(id))
+                .collect();
+            lane.summary = redact_command_text(&lane.summary);
+            lane.evidence = lane
+                .evidence
+                .iter()
+                .map(|id| redact_identifier_for_event(id))
+                .collect();
+            RuntimeCommand::CreateLane { lane }
+        }
+        RuntimeCommand::StartLane {
+            lane_id,
+            command,
+            args,
+            env,
+            output_log,
+        } => RuntimeCommand::StartLane {
+            lane_id: redact_identifier_for_event(lane_id),
+            command: redact_command_text(command),
+            args: args.iter().map(|arg| redact_command_text(arg)).collect(),
+            env: env
+                .iter()
+                .map(|(key, _)| (redact_identifier_for_event(key), "[REDACTED]".to_string()))
+                .collect(),
+            output_log: output_log.as_ref().map(|_| "[REDACTED]".to_string()),
+        },
+        RuntimeCommand::StopLane { lane_id } => RuntimeCommand::StopLane {
+            lane_id: redact_identifier_for_event(lane_id),
+        },
+        RuntimeCommand::AttachLane { lane_id } => RuntimeCommand::AttachLane {
+            lane_id: redact_identifier_for_event(lane_id),
+        },
+        RuntimeCommand::DetachLane { lane_id } => RuntimeCommand::DetachLane {
+            lane_id: redact_identifier_for_event(lane_id),
+        },
+        RuntimeCommand::SendLaneInput { lane_id, .. } => RuntimeCommand::SendLaneInput {
+            lane_id: redact_identifier_for_event(lane_id),
+            input: "[REDACTED]".to_string(),
+        },
+        RuntimeCommand::AcceptLaneOutput { lane_id, summary } => RuntimeCommand::AcceptLaneOutput {
+            lane_id: redact_identifier_for_event(lane_id),
+            summary: redact_command_text(summary),
+        },
+        RuntimeCommand::ReviseLaneOutput { lane_id, feedback } => {
+            RuntimeCommand::ReviseLaneOutput {
+                lane_id: redact_identifier_for_event(lane_id),
+                feedback: redact_command_text(feedback),
+            }
+        }
+        RuntimeCommand::DiscardLaneOutput { lane_id, reason } => {
+            RuntimeCommand::DiscardLaneOutput {
+                lane_id: redact_identifier_for_event(lane_id),
+                reason: redact_command_text(reason),
+            }
+        }
+        RuntimeCommand::ApplyLaneChanges { lane_id, .. } => RuntimeCommand::ApplyLaneChanges {
+            lane_id: redact_identifier_for_event(lane_id),
+            unified_diff: "[REDACTED]".to_string(),
+        },
+        RuntimeCommand::ResolveLaneConflict { lane_id, .. } => {
+            RuntimeCommand::ResolveLaneConflict {
+                lane_id: redact_identifier_for_event(lane_id),
+                unified_diff: "[REDACTED]".to_string(),
+            }
+        }
+        RuntimeCommand::ArchiveLane { lane_id, summary } => RuntimeCommand::ArchiveLane {
+            lane_id: redact_identifier_for_event(lane_id),
+            summary: redact_command_text(summary),
+        },
+        RuntimeCommand::CleanupLane { lane_id, force } => RuntimeCommand::CleanupLane {
+            lane_id: redact_identifier_for_event(lane_id),
+            force: *force,
+        },
         RuntimeCommand::StartAgentTask { task_id } => RuntimeCommand::StartAgentTask {
             task_id: redact_identifier_for_event(task_id),
         },
@@ -4648,53 +4695,4 @@ fn parse_legacy_tool_call(text: &str) -> (String, String) {
         Some((name, input)) => (name.to_string(), input.to_string()),
         None => (trimmed.to_string(), String::new()),
     }
-}
-
-fn load_runtime_lanes(path: &std::path::Path) -> Vec<AgentLaneRecord> {
-    let Ok(content) = fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    content.lines().filter_map(parse_runtime_lane).collect()
-}
-
-fn parse_runtime_lane(line: &str) -> Option<AgentLaneRecord> {
-    let fields = line
-        .split('\t')
-        .map(unescape_runtime_tsv)
-        .collect::<Vec<_>>();
-    if fields.len() != 5 && fields.len() != 7 && fields.len() != 8 {
-        return None;
-    }
-    let id = fields[0].clone();
-    let tool = fields[1].clone();
-    let title = fields[2].clone();
-    let status = serde_json::from_value(serde_json::Value::String(fields[3].clone())).ok()?;
-    let target = fields[4].clone();
-    let summary = fields
-        .get(6)
-        .filter(|summary| !summary.trim().is_empty())
-        .cloned()
-        .unwrap_or(title);
-    let route = legacy_lane_route(&target).ok()?;
-    Some(AgentLaneRecord {
-        id: id.clone(),
-        task_id: Some(id),
-        role: legacy_lane_role(&tool).ok()?,
-        route,
-        gate_strength: default_gate_strength(route),
-        mutation_policy: MutationPolicy::ProposeOnly,
-        worktree: None,
-        branch: None,
-        target: ExecutionTarget::Local,
-        data_egress: DataEgressPolicy::Deny,
-        status,
-        budget: LaneBudget::default(),
-        active_session_ids: Vec::new(),
-        summary,
-        evidence: Vec::new(),
-    })
-}
-
-fn unescape_runtime_tsv(value: &str) -> String {
-    value.replace("\\t", "\t").replace("\\n", "\n")
 }

@@ -10,10 +10,10 @@ use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
     AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalDecision, ApprovalResponse,
     ApprovalScope, ContextBundleRecord, EventCursor, FRONTEND_SCHEMA_V1, MergeGateStatus,
-    ModelEvent, ModelRequest, PermissionBehavior, PermissionRule, PermissionRuleSource,
-    PermissionRuleValue, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEvent,
-    RuntimeEventKind, RuntimeOwner, RuntimeWireEvent, ToolCall, ToolInput, TranscriptPageRequest,
-    WorkMode,
+    ModelEvent, ModelRequest, PermissionBehavior, PermissionLevel, PermissionRule,
+    PermissionRuleSource, PermissionRuleValue, ReplayRequest, RuntimeCommand,
+    RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeWireEvent,
+    ToolCall, ToolInput, TranscriptPageRequest, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -457,6 +457,13 @@ fn runtime_supervisor_keeps_input_responsive_during_context_retrieval() {
         .unwrap();
 
     let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        let queued_follow_up = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::InputQueued { input }
+                    if input.content_preview.contains("queued while retrieval is blocked")
+            )
+        });
         let accepted_follow_up = events.iter().any(|event| {
             matches!(
                 &event.kind,
@@ -477,7 +484,7 @@ fn runtime_supervisor_keeps_input_responsive_during_context_retrieval() {
                 RuntimeEventKind::Error { error } if error.message.contains("Model request cancelled")
             )
         });
-        accepted_follow_up && accepted_cancel && cancelled
+        queued_follow_up && accepted_follow_up && accepted_cancel && cancelled
     });
     set_retrieve_context_test_hook(None);
 
@@ -1878,6 +1885,43 @@ fn runtime_supervisor_approval_request_and_resolution_share_owner_and_audit_id()
 }
 
 #[test]
+fn runtime_supervisor_drop_joins_pending_approval_timer_and_worker() {
+    let cwd = temp_dir("runtime_supervisor_drop_join_cwd");
+    let home = temp_dir("runtime_supervisor_drop_join_home");
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "printf pending".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_pending_drop".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "cmd_pending_drop",
+            RuntimeCommand::SubmitUserInput {
+                content: "run pending command".to_string(),
+            },
+        )
+        .unwrap();
+    collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let started = Instant::now();
+    drop(supervisor);
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "supervisor drop left a worker or approval timer detached"
+    );
+}
+
+#[test]
 fn runtime_supervisor_approval_wrong_owner_is_rejected_without_resolving_pending_request() {
     let cwd = temp_dir("runtime_supervisor_approval_owner_cwd");
     let home = temp_dir("runtime_supervisor_approval_owner_home");
@@ -2090,6 +2134,269 @@ fn runtime_supervisor_approval_production_timer_auto_denies_pending_tool() {
             RuntimeEventKind::ToolCallFinished { success: true, .. }
         )
     }));
+}
+
+#[test]
+fn runtime_supervisor_permission_downgrade_precedes_pending_tool_allow() {
+    let cwd = temp_dir("runtime_supervisor_permission_epoch_cwd");
+    let home = temp_dir("runtime_supervisor_permission_epoch_home");
+    let output = cwd.join("should-not-run.txt");
+    let mut input = ToolInput::new();
+    input.insert(
+        "command".to_string(),
+        format!("printf blocked > {}", output.display()),
+    );
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_shell_permission_epoch".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-permission-epoch");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_input_permission_epoch",
+            RuntimeCommand::SubmitUserInput {
+                content: "run one mutating tool".to_string(),
+            },
+        )
+        .unwrap();
+    let requested = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let request_id = approval_id(&requested);
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_read_only_before_tool_allow",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::ReadOnly,
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_allow_after_read_only",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    request_id: resolved,
+                    decision: ApprovalDecision::Deny,
+                    ..
+                } if resolved == &request_id
+            )
+        })
+    });
+
+    assert!(
+        !output.exists(),
+        "permission downgrade must prevent tool mutation"
+    );
+    assert!(events.iter().all(|event| {
+        !matches!(
+            event.kind,
+            RuntimeEventKind::ToolCallFinished { success: true, .. }
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_failed_permission_control_preserves_pending_tool_approval_epoch() {
+    for (case, successful_control_appends, control) in [
+        (
+            "permission",
+            0,
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Auto,
+            },
+        ),
+        (
+            "work-mode",
+            1,
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+        ),
+    ] {
+        let cwd = temp_dir(&format!("runtime_supervisor_failed_{case}_epoch_cwd"));
+        let home = temp_dir(&format!("runtime_supervisor_failed_{case}_epoch_home"));
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        engine.fail_after_transcript_appends_for_test(successful_control_appends);
+        let supervisor = RuntimeSupervisor::start(engine);
+        let owner = owner_for_lane(&format!("lane-failed-{case}-epoch"));
+        let request_id = format!("tool-approval-before-failed-{case}-control");
+        let response_receiver =
+            supervisor.insert_pending_tool_approval_for_test(request_id.clone(), owner.clone());
+
+        supervisor
+            .send_command_from_owner(owner.clone(), format!("failed_{case}_control"), control)
+            .unwrap();
+        collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::Error { error }
+                        if error.message.contains("injected transcript append failure")
+                )
+            })
+        });
+
+        supervisor
+            .send_command_from_owner(
+                owner,
+                format!("allow_after_failed_{case}_control"),
+                RuntimeCommand::RespondToApproval {
+                    request_id: request_id.clone(),
+                    response: ApprovalResponse::allow_once(None),
+                },
+            )
+            .unwrap();
+        let resolved = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved {
+                        request_id: resolved,
+                        decision: ApprovalDecision::Allow { .. },
+                        ..
+                    } if resolved == &request_id
+                )
+            })
+        });
+
+        assert!(
+            resolved.iter().any(|event| matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    request_id: resolved,
+                    decision: ApprovalDecision::Allow { .. },
+                    ..
+                } if resolved == &request_id
+            )),
+            "{case} AllowOnce must preserve the outstanding ordinary tool approval"
+        );
+        assert!(
+            matches!(
+                response_receiver.recv_timeout(Duration::from_secs(2)),
+                Ok(ApprovalResponse {
+                    decision: ApprovalDecision::Allow { .. },
+                    ..
+                })
+            ),
+            "{case} failed control must not make the earlier tool approval stale"
+        );
+    }
+}
+
+#[test]
+fn runtime_supervisor_rejects_tool_approval_after_permission_epoch_round_trip() {
+    for (case, downgrade, restore) in [
+        (
+            "permission",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::ReadOnly,
+            },
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Ask,
+            },
+        ),
+        (
+            "work_mode",
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Build,
+            },
+        ),
+    ] {
+        let cwd = temp_dir(&format!("runtime_supervisor_{case}_epoch_cwd"));
+        let home = temp_dir(&format!("runtime_supervisor_{case}_epoch_home"));
+        let output = cwd.join("should-not-run.txt");
+        let mut input = ToolInput::new();
+        input.insert(
+            "command".to_string(),
+            format!("printf blocked > {}", output.display()),
+        );
+        let provider = Box::new(SequenceProvider::new(vec![vec![
+            ModelEvent::ToolCall(ToolCall {
+                id: format!("tool_shell_{case}_epoch"),
+                name: "shell".to_string(),
+                input,
+            }),
+            ModelEvent::Done,
+        ]]));
+        let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let supervisor = RuntimeSupervisor::start(engine);
+        let owner = owner_for_lane(&format!("lane-{case}-epoch"));
+
+        supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                format!("cmd_input_{case}_epoch"),
+                RuntimeCommand::SubmitUserInput {
+                    content: "run one mutating tool".to_string(),
+                },
+            )
+            .unwrap();
+        let requested = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+        });
+        let request_id = approval_id(&requested);
+        supervisor
+            .send_command_from_owner(owner.clone(), format!("cmd_{case}_downgrade"), downgrade)
+            .unwrap();
+        supervisor
+            .send_command_from_owner(owner.clone(), format!("cmd_{case}_restore"), restore)
+            .unwrap();
+        supervisor
+            .send_command_from_owner(
+                owner,
+                format!("cmd_{case}_allow_stale"),
+                RuntimeCommand::RespondToApproval {
+                    request_id: request_id.clone(),
+                    response: ApprovalResponse::allow_once(None),
+                },
+            )
+            .unwrap();
+        collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved {
+                        request_id: resolved,
+                        decision: ApprovalDecision::Deny,
+                        ..
+                    } if resolved == &request_id
+                )
+            })
+        });
+
+        assert!(
+            !output.exists(),
+            "{case} epoch round trip must invalidate the stale approval"
+        );
+    }
 }
 
 #[test]

@@ -1,3 +1,4 @@
+pub mod lanes;
 pub mod memory;
 pub mod resume_context;
 pub mod stores;

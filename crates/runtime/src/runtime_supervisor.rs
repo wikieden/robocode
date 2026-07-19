@@ -13,15 +13,18 @@ use viden_provider::ModelRequestControl;
 use viden_types::{
     ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk,
     ApprovalScope, ApprovalTarget, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1,
-    FRONTEND_V1_CAPABILITIES, GapRecovery, PermissionPrompt, ReplayBatch, ReplayRequest,
-    RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
-    RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent,
-    TranscriptPage, TranscriptPageRequest, fresh_id, now_timestamp,
+    FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, PermissionLevel,
+    PermissionPrompt, ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
+    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, TranscriptPage,
+    TranscriptPageRequest, WorkMode, fresh_id, now_timestamp,
 };
 
 use crate::{
     SessionEngine,
     event_journal::RuntimeEventJournal,
+    lane_runtime::{LaneEffectExecutor, LocalLaneEffectExecutor},
+    lane_supervisor::{LanePersistence, LaneSupervisor, WorkflowLanePersistence},
     runtime_contract::{
         ContextRetrievalJob, SupervisorContextRetrievalPreparation, execute_context_retrieval_job,
         redacted_runtime_command_for_event,
@@ -32,6 +35,8 @@ struct PendingApproval {
     owner: RuntimeOwner,
     audit_id: String,
     expires_at: u64,
+    // An approval cannot survive any permission/work-mode generation change.
+    permission_epoch: u64,
     allowed_scopes: Vec<ApprovalScope>,
     target: PendingApprovalTarget,
 }
@@ -61,10 +66,186 @@ struct ActiveRuntimeControl {
     state: ActiveJobState,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PermissionControlValues {
+    work_mode: WorkMode,
+    permission_level: PermissionLevel,
+}
+
+impl PermissionControlValues {
+    fn blocks_mutation(self) -> bool {
+        self.work_mode != WorkMode::Build || self.permission_level == PermissionLevel::ReadOnly
+    }
+
+    fn apply(&mut self, command: &RuntimeCommand) {
+        match command {
+            RuntimeCommand::SetWorkMode { mode } => {
+                self.work_mode = *mode;
+                if *mode == WorkMode::Build && self.permission_level == PermissionLevel::ReadOnly {
+                    self.permission_level = PermissionLevel::Ask;
+                } else if *mode != WorkMode::Build {
+                    self.permission_level = PermissionLevel::ReadOnly;
+                }
+            }
+            RuntimeCommand::SetPermissionLevel { level } => {
+                self.permission_level = *level;
+                if *level == PermissionLevel::ReadOnly {
+                    self.work_mode = WorkMode::Plan;
+                } else if self.work_mode == WorkMode::Plan {
+                    self.work_mode = WorkMode::Build;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SubmittedPermissionControl {
+    epoch: u64,
+    command: RuntimeCommand,
+}
+
+#[derive(Debug, Clone)]
+struct PermissionControlState {
+    applied: PermissionControlValues,
+    applied_epoch: u64,
+    submitted: Vec<SubmittedPermissionControl>,
+    next_epoch: u64,
+}
+
+impl PermissionControlState {
+    fn new(work_mode: WorkMode, permission_level: PermissionLevel) -> Self {
+        Self {
+            applied: PermissionControlValues {
+                work_mode,
+                permission_level,
+            },
+            applied_epoch: 0,
+            submitted: Vec::new(),
+            next_epoch: 0,
+        }
+    }
+
+    fn projected(&self) -> (PermissionControlValues, u64) {
+        let mut values = self.applied;
+        for submitted in &self.submitted {
+            values.apply(&submitted.command);
+        }
+        let epoch = self
+            .submitted
+            .last()
+            .map(|submitted| submitted.epoch)
+            .unwrap_or(self.applied_epoch);
+        (values, epoch)
+    }
+
+    fn blocks_mutation(&self) -> bool {
+        self.projected().0.blocks_mutation()
+    }
+
+    fn epoch(&self) -> u64 {
+        self.projected().1
+    }
+
+    // A generation is reserved at submission. Failure removes only that
+    // reservation: decrementing/reusing it can mispair a later queued control.
+    fn reserve(&mut self, command: &RuntimeCommand) -> u64 {
+        self.next_epoch = self.next_epoch.saturating_add(1);
+        let epoch = self.next_epoch;
+        self.submitted.push(SubmittedPermissionControl {
+            epoch,
+            command: command.clone(),
+        });
+        epoch
+    }
+
+    fn commit(&mut self, epoch: u64) -> Result<(), String> {
+        let Some(submitted) = self.submitted.first() else {
+            return Err(format!(
+                "permission control epoch `{epoch}` is not submitted"
+            ));
+        };
+        if submitted.epoch != epoch {
+            return Err(format!(
+                "permission control epoch `{epoch}` cannot commit before `{}`",
+                submitted.epoch
+            ));
+        }
+        let submitted = self.submitted.remove(0);
+        self.applied.apply(&submitted.command);
+        self.applied_epoch = epoch;
+        Ok(())
+    }
+
+    fn reject(&mut self, epoch: u64) {
+        if let Some(index) = self
+            .submitted
+            .iter()
+            .position(|submitted| submitted.epoch == epoch)
+        {
+            self.submitted.remove(index);
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct RuntimeOwnerKey {
+    workspace_id: String,
+    project_id: String,
+    lane_id: Option<String>,
+    session_id: Option<String>,
+    task_id: Option<String>,
+    turn_id: Option<String>,
+}
+
+impl From<&RuntimeOwner> for RuntimeOwnerKey {
+    fn from(owner: &RuntimeOwner) -> Self {
+        Self {
+            workspace_id: owner.workspace_id.clone(),
+            project_id: owner.project_id.clone(),
+            lane_id: owner.lane_id.clone(),
+            session_id: owner.session_id.clone(),
+            task_id: owner.task_id.clone(),
+            turn_id: owner.turn_id.clone(),
+        }
+    }
+}
+
+type ActiveControlRegistry = Arc<Mutex<BTreeMap<RuntimeOwnerKey, ActiveRuntimeControl>>>;
+
 struct SupervisorShared<'a> {
     event_bus: &'a RuntimeEventBus,
-    active_control: &'a Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &'a ActiveControlRegistry,
     pending_approvals: &'a Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &'a Arc<ApprovalTimerRegistry>,
+    permission_control: &'a Arc<Mutex<PermissionControlState>>,
+}
+
+#[derive(Default)]
+struct ApprovalTimerRegistry {
+    shutdown: AtomicBool,
+    workers: Mutex<Vec<JoinHandle<()>>>,
+}
+
+impl ApprovalTimerRegistry {
+    fn push(&self, worker: JoinHandle<()>) {
+        if let Ok(mut workers) = self.workers.lock() {
+            workers.push(worker);
+        }
+    }
+
+    fn shutdown_and_join(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        let workers = self
+            .workers
+            .lock()
+            .map(|mut workers| std::mem::take(&mut *workers))
+            .unwrap_or_default();
+        for worker in workers {
+            let _ = worker.join();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -110,6 +291,39 @@ fn before_context_resume_enqueue_for_test(control: &ModelRequestControl) {
 #[cfg(not(test))]
 fn before_context_resume_enqueue_for_test(_control: &ModelRequestControl) {}
 
+#[cfg(test)]
+type BeforeSupervisorCommandHook = Arc<dyn Fn(&str) + Send + Sync>;
+
+#[cfg(test)]
+static BEFORE_SUPERVISOR_COMMAND_HOOK: std::sync::OnceLock<
+    Mutex<Option<BeforeSupervisorCommandHook>>,
+> = std::sync::OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn set_before_supervisor_command_hook(hook: Option<BeforeSupervisorCommandHook>) {
+    if let Ok(mut slot) = BEFORE_SUPERVISOR_COMMAND_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+    {
+        *slot = hook;
+    }
+}
+
+#[cfg(test)]
+fn before_supervisor_command_for_test(command_id: &str) {
+    let hook = BEFORE_SUPERVISOR_COMMAND_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone());
+    if let Some(hook) = hook {
+        hook(command_id);
+    }
+}
+
+#[cfg(not(test))]
+fn before_supervisor_command_for_test(_command_id: &str) {}
+
 // Internal channel payload mirrors RuntimeCommand construction. Boxing command
 // variants would add indirection at every supervisor send site without changing
 // the protocol boundary.
@@ -119,6 +333,7 @@ enum SupervisorMessage {
         owner: RuntimeOwner,
         command_id: String,
         command: RuntimeCommand,
+        submitted_permission_epoch: Option<u64>,
     },
     ResumeContextRetrieval {
         owner_id: String,
@@ -126,6 +341,12 @@ enum SupervisorMessage {
         owner: RuntimeOwner,
         audit_id: String,
         job: Box<ContextRetrievalJob>,
+    },
+    LaneApprovalResponse {
+        owner: RuntimeOwner,
+        command_id: String,
+        request_id: String,
+        response: ApprovalResponse,
     },
     Snapshot {
         response: Sender<Result<RuntimeSnapshotEnvelope, String>>,
@@ -143,10 +364,13 @@ pub struct RuntimeSupervisor {
     commands: Sender<SupervisorMessage>,
     events: Receiver<RuntimeEventEnvelope>,
     event_bus: RuntimeEventBus,
-    active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: ActiveControlRegistry,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: Arc<ApprovalTimerRegistry>,
+    lane_supervisor: Arc<LaneSupervisor>,
+    permission_control: Arc<Mutex<PermissionControlState>>,
     worker_alive: Arc<AtomicBool>,
-    _worker: JoinHandle<()>,
+    worker: Option<JoinHandle<()>>,
 }
 
 impl RuntimeSupervisor {
@@ -154,11 +378,39 @@ impl RuntimeSupervisor {
         Self::start_with_approval_ttl(engine, 300)
     }
 
-    fn start_with_approval_ttl(mut engine: SessionEngine, approval_ttl_secs: u64) -> Self {
+    fn start_with_approval_ttl(engine: SessionEngine, approval_ttl_secs: u64) -> Self {
+        Self::start_with_effects_and_persistence(
+            engine,
+            approval_ttl_secs,
+            Arc::new(LocalLaneEffectExecutor::default()),
+            None,
+        )
+    }
+
+    #[cfg(test)]
+    fn start_with_effects(
+        engine: SessionEngine,
+        approval_ttl_secs: u64,
+        lane_effects: Arc<dyn LaneEffectExecutor>,
+    ) -> Self {
+        Self::start_with_effects_and_persistence(engine, approval_ttl_secs, lane_effects, None)
+    }
+
+    fn start_with_effects_and_persistence(
+        mut engine: SessionEngine,
+        approval_ttl_secs: u64,
+        lane_effects: Arc<dyn LaneEffectExecutor>,
+        lane_persistence: Option<Arc<dyn LanePersistence>>,
+    ) -> Self {
+        let permission_control = Arc::new(Mutex::new(PermissionControlState::new(
+            engine.work_mode(),
+            engine.permission_level(),
+        )));
         let (command_sender, command_receiver) = mpsc::channel();
         let (event_sender, event_receiver) = mpsc::channel();
-        let active_control: Arc<Mutex<Option<ActiveRuntimeControl>>> = Arc::new(Mutex::new(None));
+        let active_control: ActiveControlRegistry = Arc::new(Mutex::new(BTreeMap::new()));
         let pending_approvals = Arc::new(Mutex::new(BTreeMap::new()));
+        let approval_timers = Arc::new(ApprovalTimerRegistry::default());
         let worker_alive = Arc::new(AtomicBool::new(true));
         let event_bus = RuntimeEventBus {
             sender: event_sender,
@@ -168,11 +420,62 @@ impl RuntimeSupervisor {
             })),
         };
 
+        let lane_repo = engine.cwd().to_path_buf();
+        let lane_persistence = lane_persistence.unwrap_or_else(|| {
+            Arc::new(WorkflowLanePersistence(engine.workflow_store())) as Arc<dyn LanePersistence>
+        });
+        let lane_permissions = Arc::new(Mutex::new(engine.lane_permission_engine()));
+        let lane_event_bus = event_bus.clone();
+        let lane_events = Arc::new(move |owner, kind| {
+            emit_event(&lane_event_bus, owner, kind);
+        });
+        let lane_mode_state = Arc::clone(&event_bus.state);
+        let lane_mode = Arc::new(move || {
+            lane_mode_state
+                .lock()
+                .map(|state| state.live_view.snapshot.work_mode)
+                .unwrap_or(viden_types::WorkMode::Plan)
+        });
+        let lane_supervisor = Arc::new(LaneSupervisor::new(
+            lane_repo,
+            lane_persistence,
+            lane_permissions,
+            lane_effects,
+            lane_events,
+            lane_mode,
+            approval_ttl_secs,
+        ));
+        for lane in lane_supervisor.hydration_recoveries() {
+            let owner = RuntimeOwner {
+                lane_id: Some(lane.id.clone()),
+                session_id: lane.active_session_ids.first().cloned(),
+                ..RuntimeOwner::default()
+            };
+            emit_event(
+                &event_bus,
+                owner.clone(),
+                RuntimeEventKind::LaneUpdated { lane: lane.clone() },
+            );
+            emit_event(
+                &event_bus,
+                owner,
+                RuntimeEventKind::LaneRecoveryRequired {
+                    lane_id: lane.id.clone(),
+                    reason: lane.summary.clone(),
+                    next_action: "inspect the interrupted lane and explicitly resume or reconcile"
+                        .to_string(),
+                },
+            );
+        }
+
         install_runtime_event_sink(&mut engine, event_bus.clone(), RuntimeOwner::default());
 
         let worker_event_bus = event_bus.clone();
         let worker_active_control = Arc::clone(&active_control);
         let worker_pending_approvals = Arc::clone(&pending_approvals);
+        let worker_approval_timers = Arc::clone(&approval_timers);
+        let worker_lane_supervisor = Arc::clone(&lane_supervisor);
+        let worker_permission_control = Arc::clone(&permission_control);
         let worker_liveness = Arc::clone(&worker_alive);
         let worker = thread::spawn(move || {
             run_supervisor_worker(
@@ -181,6 +484,9 @@ impl RuntimeSupervisor {
                 worker_event_bus,
                 worker_active_control,
                 worker_pending_approvals,
+                worker_approval_timers,
+                worker_lane_supervisor,
+                worker_permission_control,
                 approval_ttl_secs,
                 worker_liveness,
             );
@@ -192,8 +498,11 @@ impl RuntimeSupervisor {
             event_bus,
             active_control,
             pending_approvals,
+            approval_timers,
+            lane_supervisor,
+            permission_control,
             worker_alive,
-            _worker: worker,
+            worker: Some(worker),
         }
     }
 
@@ -203,6 +512,81 @@ impl RuntimeSupervisor {
         approval_ttl_secs: u64,
     ) -> Self {
         Self::start_with_approval_ttl(engine, approval_ttl_secs)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_with_lane_effects_for_test(
+        engine: SessionEngine,
+        lane_effects: Arc<dyn LaneEffectExecutor>,
+    ) -> Self {
+        Self::start_with_effects(engine, 300, lane_effects)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_with_lane_effects_and_approval_ttl_for_test(
+        engine: SessionEngine,
+        lane_effects: Arc<dyn LaneEffectExecutor>,
+        approval_ttl_secs: u64,
+    ) -> Self {
+        Self::start_with_effects(engine, approval_ttl_secs, lane_effects)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_with_lane_effects_and_persistence_for_test(
+        engine: SessionEngine,
+        lane_effects: Arc<dyn LaneEffectExecutor>,
+        lane_persistence: Arc<dyn LanePersistence>,
+    ) -> Self {
+        Self::start_with_effects_and_persistence(engine, 300, lane_effects, Some(lane_persistence))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn lane_worker_finished_for_test(&self, lane_id: &str) -> bool {
+        self.lane_supervisor.worker_finished_for_test(lane_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_lane_worker_count_for_test(&self) -> usize {
+        self.lane_supervisor.active_worker_count_for_test()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn lane_permission_snapshot_for_test(
+        &self,
+        lane_id: &str,
+    ) -> Result<(viden_types::PermissionMode, u64), String> {
+        self.lane_supervisor
+            .lane_permission_snapshot_for_test(lane_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_pending_tool_approval_for_test(
+        &self,
+        request_id: String,
+        owner: RuntimeOwner,
+    ) -> Receiver<ApprovalResponse> {
+        let (sender, receiver) = mpsc::channel();
+        let permission_epoch = self
+            .permission_control
+            .lock()
+            .expect("permission control state")
+            .epoch();
+        insert_pending_approval(
+            &self.pending_approvals,
+            request_id,
+            PendingApproval {
+                owner: owner.clone(),
+                audit_id: "test-tool-approval".to_string(),
+                expires_at: u64::MAX,
+                permission_epoch,
+                allowed_scopes: allowed_approval_scopes(&owner, &[]),
+                target: PendingApprovalTarget::Channel {
+                    owner_id: "test-tool-approval".to_string(),
+                    sender,
+                },
+            },
+        );
+        receiver
     }
 
     pub fn send_command(
@@ -229,14 +613,42 @@ impl RuntimeSupervisor {
         command_id: String,
         command: RuntimeCommand,
     ) -> Result<(), String> {
-        match command {
+        let submitted_permission_epoch = if matches!(
+            command,
+            RuntimeCommand::SetWorkMode { .. } | RuntimeCommand::SetPermissionLevel { .. }
+        ) {
+            Some(
+                self.permission_control
+                    .lock()
+                    .map_err(|_| "permission control state poisoned".to_string())?
+                    .reserve(&command),
+            )
+        } else {
+            None
+        };
+        let result = match command {
             RuntimeCommand::CancelActiveTurn => {
-                let Some(control) = self
+                if self.lane_supervisor.cancel(&owner, command_id.clone())? {
+                    return Ok(());
+                }
+                let controls = self
                     .active_control
                     .lock()
-                    .map_err(|_| "active turn lock poisoned".to_string())?
-                    .clone()
-                else {
+                    .map_err(|_| "active turn lock poisoned".to_string())?;
+                let control = controls.get(&RuntimeOwnerKey::from(&owner)).cloned();
+                if control.is_none() && !controls.is_empty() {
+                    emit_event(
+                        &self.event_bus,
+                        owner.clone(),
+                        RuntimeEventKind::CommandRejected {
+                            command_id,
+                            reason: "active runtime job owner mismatch".to_string(),
+                        },
+                    );
+                    return Ok(());
+                }
+                drop(controls);
+                let Some(control) = control else {
                     emit_event(
                         &self.event_bus,
                         owner.clone(),
@@ -288,6 +700,30 @@ impl RuntimeSupervisor {
                 request_id,
                 response,
             } => {
+                if let Some(pending_owner) =
+                    self.lane_supervisor.pending_approval_owner(&request_id)?
+                {
+                    if pending_owner != owner {
+                        emit_event(
+                            &self.event_bus,
+                            owner,
+                            RuntimeEventKind::CommandRejected {
+                                command_id,
+                                reason: format!("approval request `{request_id}` owner mismatch"),
+                            },
+                        );
+                        return Ok(());
+                    }
+                    self.commands
+                        .send(SupervisorMessage::LaneApprovalResponse {
+                            owner,
+                            command_id,
+                            request_id,
+                            response,
+                        })
+                        .map_err(|err| format!("runtime supervisor stopped: {err}"))?;
+                    return Ok(());
+                }
                 let pending = {
                     let mut approvals = self
                         .pending_approvals
@@ -329,6 +765,27 @@ impl RuntimeSupervisor {
                         return Ok(());
                     }
                     approvals.remove(&request_id).expect("pending approval")
+                };
+                let permission_control = self
+                    .permission_control
+                    .lock()
+                    .map_err(|_| "permission control state poisoned".to_string())?;
+                let stale_permission_epoch = pending.permission_epoch != permission_control.epoch();
+                let response = if response.is_allowed()
+                    && (stale_permission_epoch
+                        || (matches!(&pending.target, PendingApprovalTarget::Channel { .. })
+                            && permission_control.blocks_mutation()))
+                {
+                    ApprovalResponse::deny(Some(
+                        if stale_permission_epoch {
+                            "permission or work mode changed after approval was requested"
+                        } else {
+                            "permission or work mode changed before approval resumed"
+                        }
+                        .to_string(),
+                    ))
+                } else {
+                    response
                 };
                 emit_event(
                     &self.event_bus,
@@ -435,7 +892,7 @@ impl RuntimeSupervisor {
             RuntimeCommand::SubmitUserInput { .. }
             | RuntimeCommand::StartAgentTask { .. }
             | RuntimeCommand::RetrieveContext { .. } => {
-                if let Some(owner_id) = active_owner_id(&self.active_control) {
+                if let Some(owner_id) = active_owner_id(&self.active_control, &owner) {
                     emit_event(
                         &self.event_bus,
                         owner.clone(),
@@ -451,6 +908,7 @@ impl RuntimeSupervisor {
                         owner,
                         command_id,
                         command,
+                        submitted_permission_epoch,
                     })
                     .map_err(|err| format!("runtime supervisor stopped: {err}"))
             }
@@ -460,9 +918,17 @@ impl RuntimeSupervisor {
                     owner,
                     command_id,
                     command,
+                    submitted_permission_epoch,
                 })
                 .map_err(|err| format!("runtime supervisor stopped: {err}")),
+        };
+        if result.is_err()
+            && let Some(epoch) = submitted_permission_epoch
+            && let Ok(mut control) = self.permission_control.lock()
+        {
+            control.reject(epoch);
         }
+        result
     }
 
     pub fn recv_event_timeout(&self, timeout: Duration) -> Option<RuntimeEvent> {
@@ -573,22 +1039,54 @@ impl RuntimeSupervisor {
 
 impl Drop for RuntimeSupervisor {
     fn drop(&mut self) {
+        if let Ok(controls) = self.active_control.lock() {
+            for active in controls.values() {
+                active.control.cancel();
+            }
+        }
+        let pending_ids = self
+            .pending_approvals
+            .lock()
+            .map(|pending| pending.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for request_id in pending_ids {
+            resolve_pending_approval_by_id(
+                &request_id,
+                ApprovalDecision::Deny,
+                &self.event_bus,
+                &self.active_control,
+                &self.pending_approvals,
+                Some("runtime supervisor shutting down".to_string()),
+            );
+        }
         let _ = self
             .commands
             .send(SupervisorMessage::Shutdown { response: None });
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        self.approval_timers.shutdown_and_join();
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_supervisor_worker(
     mut engine: SessionEngine,
     command_receiver: Receiver<SupervisorMessage>,
     event_bus: RuntimeEventBus,
-    active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: ActiveControlRegistry,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: Arc<ApprovalTimerRegistry>,
+    lane_supervisor: Arc<LaneSupervisor>,
+    permission_control: Arc<Mutex<PermissionControlState>>,
     approval_ttl_secs: u64,
     worker_alive: Arc<AtomicBool>,
 ) {
     let _liveness = WorkerLivenessGuard(Arc::clone(&worker_alive));
+    // Submitted permission generations invalidate ordinary pending approvals
+    // immediately. Lane approvals instead observe this worker-owned generation,
+    // which advances only with the SessionEngine state it describes.
+    let mut applied_permission_epoch = 0_u64;
     while let Ok(message) = command_receiver.recv() {
         match message {
             SupervisorMessage::Shutdown { response } => {
@@ -602,7 +1100,21 @@ fn run_supervisor_worker(
                 owner,
                 command_id,
                 command,
+                submitted_permission_epoch,
             } => {
+                before_supervisor_command_for_test(&command_id);
+                if LaneSupervisor::handles(&command) {
+                    if let Err(error) =
+                        sync_lane_permissions(&lane_supervisor, &engine, applied_permission_epoch)
+                    {
+                        emit_error(&event_bus, owner, error);
+                        continue;
+                    }
+                    if let Err(error) = lane_supervisor.send(owner.clone(), command_id, command) {
+                        emit_error(&event_bus, owner, error);
+                    }
+                    continue;
+                }
                 // Background engine work clones the installed sink, so bind
                 // owner identity at command dispatch rather than consulting a
                 // later active-owner value when the event finally arrives.
@@ -617,6 +1129,8 @@ fn run_supervisor_worker(
                             &event_bus,
                             &active_control,
                             &pending_approvals,
+                            &approval_timers,
+                            &permission_control,
                             approval_ttl_secs,
                         );
                     }
@@ -629,6 +1143,8 @@ fn run_supervisor_worker(
                             &event_bus,
                             &active_control,
                             &pending_approvals,
+                            &approval_timers,
+                            &permission_control,
                             approval_ttl_secs,
                         );
                     }
@@ -643,6 +1159,8 @@ fn run_supervisor_worker(
                                 event_bus: &event_bus,
                                 active_control: &active_control,
                                 pending_approvals: &pending_approvals,
+                                approval_timers: &approval_timers,
+                                permission_control: &permission_control,
                             },
                             approval_ttl_secs,
                         );
@@ -655,10 +1173,80 @@ fn run_supervisor_worker(
                             ))
                         };
                         match engine.handle_runtime_command(command_id, command, &mut approver) {
-                            Ok(events) => emit_events(&event_bus, owner, events),
-                            Err(err) => emit_error(&event_bus, owner, err),
+                            Ok(events) => {
+                                if let Some(epoch) = submitted_permission_epoch {
+                                    if let Err(error) = permission_control
+                                        .lock()
+                                        .map_err(|_| {
+                                            "permission control state poisoned".to_string()
+                                        })
+                                        .and_then(|mut control| control.commit(epoch))
+                                    {
+                                        emit_error(&event_bus, owner, error);
+                                        continue;
+                                    }
+                                    applied_permission_epoch = epoch;
+                                }
+                                emit_events(&event_bus, owner, events);
+                            }
+                            Err(err) => {
+                                if let Some(epoch) = submitted_permission_epoch
+                                    && let Ok(mut control) = permission_control.lock()
+                                {
+                                    control.reject(epoch);
+                                }
+                                emit_error(&event_bus, owner, err);
+                            }
                         }
                     }
+                }
+                if let Err(error) =
+                    sync_lane_permissions(&lane_supervisor, &engine, applied_permission_epoch)
+                {
+                    emit_error(&event_bus, RuntimeOwner::default(), error);
+                }
+            }
+            SupervisorMessage::LaneApprovalResponse {
+                owner,
+                command_id,
+                request_id,
+                response,
+            } => {
+                if let Err(error) =
+                    sync_lane_permissions(&lane_supervisor, &engine, applied_permission_epoch)
+                {
+                    emit_error(&event_bus, owner, error);
+                    continue;
+                }
+                match lane_supervisor.respond_to_approval(
+                    &owner,
+                    &command_id,
+                    &request_id,
+                    response.clone(),
+                ) {
+                    Ok(Some(true)) => emit_event(
+                        &event_bus,
+                        owner,
+                        RuntimeEventKind::CommandAccepted {
+                            command_id,
+                            command: redacted_runtime_command_for_event(
+                                &RuntimeCommand::RespondToApproval {
+                                    request_id,
+                                    response,
+                                },
+                            ),
+                        },
+                    ),
+                    Ok(Some(false)) => {}
+                    Ok(None) => emit_event(
+                        &event_bus,
+                        owner,
+                        RuntimeEventKind::CommandRejected {
+                            command_id,
+                            reason: format!("approval request `{request_id}` is not pending"),
+                        },
+                    ),
+                    Err(error) => emit_error(&event_bus, owner, error),
                 }
             }
             SupervisorMessage::ResumeContextRetrieval {
@@ -704,6 +1292,14 @@ fn run_supervisor_worker(
     }
 }
 
+fn sync_lane_permissions(
+    lane_supervisor: &LaneSupervisor,
+    engine: &SessionEngine,
+    applied_permission_epoch: u64,
+) -> Result<(), String> {
+    lane_supervisor.sync_permissions(engine.lane_permission_engine(), applied_permission_epoch)
+}
+
 struct WorkerLivenessGuard(Arc<AtomicBool>);
 
 impl Drop for WorkerLivenessGuard {
@@ -725,6 +1321,7 @@ fn install_runtime_event_sink(
 fn runtime_frontend_capabilities() -> BTreeSet<CapabilityId> {
     FRONTEND_V1_CAPABILITIES
         .iter()
+        .chain(FRONTEND_V1_EXTENSION_CAPABILITIES)
         .map(|capability| CapabilityId(capability.to_string()))
         .collect()
 }
@@ -738,7 +1335,7 @@ fn run_supervised_context_retrieval(
     shared: SupervisorShared<'_>,
     approval_ttl_secs: u64,
 ) {
-    if let Some(owner_id) = active_owner_id(shared.active_control) {
+    if let Some(owner_id) = active_owner_id(shared.active_control, &owner) {
         emit_event(
             shared.event_bus,
             owner.clone(),
@@ -805,6 +1402,11 @@ fn run_supervised_context_retrieval(
             );
         }
         SupervisorContextRetrievalPreparation::PendingApproval { mut approval, job } => {
+            let permission_epoch = shared
+                .permission_control
+                .lock()
+                .map(|control| control.epoch())
+                .unwrap_or(u64::MAX);
             approval.owner = owner.clone();
             approval.audit_id = fresh_id("audit");
             approval.expires_at = now_timestamp().saturating_add(approval_ttl_secs);
@@ -842,13 +1444,12 @@ fn run_supervised_context_retrieval(
             );
             insert_pending_approval(
                 shared.pending_approvals,
-                shared.event_bus,
-                shared.active_control,
                 approval.id.clone(),
                 PendingApproval {
                     owner: approval.owner.clone(),
                     audit_id: approval.audit_id.clone(),
                     expires_at: approval.expires_at,
+                    permission_epoch,
                     allowed_scopes: approval.allowed_scopes.clone(),
                     target: PendingApprovalTarget::ContextRetrieval {
                         owner_id: command_id,
@@ -859,7 +1460,17 @@ fn run_supervised_context_retrieval(
             emit_event(
                 shared.event_bus,
                 owner,
-                RuntimeEventKind::ApprovalRequested { approval },
+                RuntimeEventKind::ApprovalRequested {
+                    approval: approval.clone(),
+                },
+            );
+            schedule_approval_expiry(
+                approval.id,
+                approval.expires_at,
+                shared.event_bus,
+                shared.active_control,
+                shared.pending_approvals,
+                shared.approval_timers,
             );
         }
     }
@@ -871,7 +1482,7 @@ fn start_context_retrieval_worker(
     control: ModelRequestControl,
     owner: RuntimeOwner,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
 ) {
     let worker_event_bus = event_bus.clone();
     let worker_active_control = Arc::clone(active_control);
@@ -896,49 +1507,57 @@ fn start_context_retrieval_worker(
 }
 
 fn acquire_active_job(
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     owner_id: String,
     owner: RuntimeOwner,
     control: ModelRequestControl,
     state: ActiveJobState,
 ) -> Result<(), String> {
-    let mut slot = active_control
+    let mut controls = active_control
         .lock()
         .map_err(|_| "active turn lock poisoned".to_string())?;
-    if let Some(active) = slot.as_ref() {
+    let key = RuntimeOwnerKey::from(&owner);
+    if let Some(active) = controls.get(&key) {
         return Err(format!(
             "active runtime job `{}` is already running",
             active.owner_id
         ));
     }
-    *slot = Some(ActiveRuntimeControl {
-        owner_id,
-        owner,
-        control,
-        state,
-    });
+    controls.insert(
+        key,
+        ActiveRuntimeControl {
+            owner_id,
+            owner,
+            control,
+            state,
+        },
+    );
     Ok(())
 }
 
 fn active_control_for_owner(
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     owner_id: &str,
 ) -> Option<ModelRequestControl> {
-    active_control.lock().ok().and_then(|slot| {
-        slot.as_ref()
-            .filter(|active| active.owner_id == owner_id)
+    active_control.lock().ok().and_then(|controls| {
+        controls
+            .values()
+            .find(|active| active.owner_id == owner_id)
             .map(|active| active.control.clone())
     })
 }
 
 fn mark_active_running(
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     owner_id: &str,
 ) -> Result<(), String> {
-    let mut slot = active_control
+    let mut controls = active_control
         .lock()
         .map_err(|_| "active turn lock poisoned".to_string())?;
-    let Some(active) = slot.as_mut().filter(|active| active.owner_id == owner_id) else {
+    let Some(active) = controls
+        .values_mut()
+        .find(|active| active.owner_id == owner_id)
+    else {
         return Err(format!(
             "active runtime job `{owner_id}` is no longer pending"
         ));
@@ -948,14 +1567,17 @@ fn mark_active_running(
 }
 
 fn mark_active_pending(
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     owner_id: &str,
     request_id: String,
 ) -> Result<(), String> {
-    let mut slot = active_control
+    let mut controls = active_control
         .lock()
         .map_err(|_| "active turn lock poisoned".to_string())?;
-    let Some(active) = slot.as_mut().filter(|active| active.owner_id == owner_id) else {
+    let Some(active) = controls
+        .values_mut()
+        .find(|active| active.owner_id == owner_id)
+    else {
         return Err(format!(
             "active runtime job `{owner_id}` is no longer running"
         ));
@@ -966,38 +1588,36 @@ fn mark_active_pending(
 
 fn insert_pending_approval(
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
-    event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     request_id: String,
     pending: PendingApproval,
 ) {
-    let expires_at = pending.expires_at;
     if let Ok(mut approvals) = pending_approvals.lock() {
-        approvals.insert(request_id.clone(), pending);
+        approvals.insert(request_id, pending);
     }
-    schedule_approval_expiry(
-        request_id,
-        expires_at,
-        event_bus,
-        active_control,
-        pending_approvals,
-    );
 }
 
 fn schedule_approval_expiry(
     request_id: String,
     expires_at: u64,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
 ) {
     let event_bus = event_bus.clone();
     let active_control = Arc::clone(active_control);
     let pending_approvals = Arc::clone(pending_approvals);
-    thread::spawn(move || {
-        let now = now_timestamp();
-        if expires_at > now {
-            thread::sleep(Duration::from_secs(expires_at - now));
+    let timers = Arc::clone(approval_timers);
+    let timer_control = Arc::clone(approval_timers);
+    let worker = thread::spawn(move || {
+        while expires_at > now_timestamp() {
+            if timer_control.shutdown.load(Ordering::Acquire) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        if timer_control.shutdown.load(Ordering::Acquire) {
+            return;
         }
         resolve_pending_approval_by_id(
             &request_id,
@@ -1008,12 +1628,13 @@ fn schedule_approval_expiry(
             Some("Approval expired; default action deny".to_string()),
         );
     });
+    timers.push(worker);
 }
 
 fn expire_pending_approvals_at(
     now: u64,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 ) {
     let expired_ids = pending_approvals
@@ -1042,7 +1663,7 @@ fn resolve_pending_approval_by_id(
     request_id: &str,
     decision: ApprovalDecision,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     error_message: Option<String>,
 ) {
@@ -1067,7 +1688,7 @@ fn resolve_removed_pending_approval(
     pending: PendingApproval,
     decision: ApprovalDecision,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     error_message: Option<String>,
 ) {
     let owner_id = match &pending.target {
@@ -1125,7 +1746,7 @@ fn resume_context_retrieval_after_approval(
     _audit_id: String,
     job: ContextRetrievalJob,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
 ) {
     let Some(control) = active_control_for_owner(active_control, &owner_id) else {
         emit_error(
@@ -1147,20 +1768,17 @@ fn resume_context_retrieval_after_approval(
     start_context_retrieval_worker(owner_id, job, control, owner, event_bus, active_control);
 }
 
-fn active_owner_id(active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>) -> Option<String> {
-    active_control
-        .lock()
-        .ok()
-        .and_then(|slot| slot.as_ref().map(|active| active.owner_id.clone()))
+fn active_owner_id(active_control: &ActiveControlRegistry, owner: &RuntimeOwner) -> Option<String> {
+    active_control.lock().ok().and_then(|controls| {
+        controls
+            .get(&RuntimeOwnerKey::from(owner))
+            .map(|active| active.owner_id.clone())
+    })
 }
 
-fn clear_active_control(active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>, owner_id: &str) {
-    if let Ok(mut slot) = active_control.lock()
-        && slot
-            .as_ref()
-            .is_some_and(|active| active.owner_id == owner_id)
-    {
-        *slot = None;
+fn clear_active_control(active_control: &ActiveControlRegistry, owner_id: &str) {
+    if let Ok(mut controls) = active_control.lock() {
+        controls.retain(|_, active| active.owner_id != owner_id);
     }
 }
 
@@ -1171,8 +1789,10 @@ fn run_supervised_agent_task(
     command_id: String,
     task_id: String,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
+    permission_control: &Arc<Mutex<PermissionControlState>>,
     approval_ttl_secs: u64,
 ) {
     let control = ModelRequestControl::new();
@@ -1205,6 +1825,10 @@ fn run_supervised_agent_task(
     );
 
     let mut approver = |prompt: PermissionPrompt| {
+        let permission_epoch = permission_control
+            .lock()
+            .map(|control| control.epoch())
+            .unwrap_or(u64::MAX);
         let request_id = fresh_id("approval");
         let (approval_sender, approval_receiver) = mpsc::channel();
         let approval =
@@ -1212,13 +1836,12 @@ fn run_supervised_agent_task(
         let _ = mark_active_pending(active_control, &command_id, request_id.clone());
         insert_pending_approval(
             pending_approvals,
-            event_bus,
-            active_control,
             request_id.clone(),
             PendingApproval {
                 owner: approval.owner.clone(),
                 audit_id: approval.audit_id.clone(),
                 expires_at: approval.expires_at,
+                permission_epoch,
                 allowed_scopes: approval.allowed_scopes.clone(),
                 target: PendingApprovalTarget::Channel {
                     owner_id: command_id.clone(),
@@ -1232,6 +1855,14 @@ fn run_supervised_agent_task(
             RuntimeEventKind::ApprovalRequested {
                 approval: approval.clone(),
             },
+        );
+        schedule_approval_expiry(
+            request_id.clone(),
+            approval.expires_at,
+            event_bus,
+            active_control,
+            pending_approvals,
+            approval_timers,
         );
         approval_receiver
             .recv()
@@ -1255,8 +1886,10 @@ fn run_supervised_input(
     command_id: String,
     content: String,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
+    permission_control: &Arc<Mutex<PermissionControlState>>,
     approval_ttl_secs: u64,
 ) {
     let control = ModelRequestControl::new();
@@ -1289,6 +1922,10 @@ fn run_supervised_input(
     );
 
     let mut approver = |prompt: PermissionPrompt| {
+        let permission_epoch = permission_control
+            .lock()
+            .map(|control| control.epoch())
+            .unwrap_or(u64::MAX);
         let request_id = fresh_id("approval");
         let (approval_sender, approval_receiver) = mpsc::channel();
         let approval =
@@ -1296,13 +1933,12 @@ fn run_supervised_input(
         let _ = mark_active_pending(active_control, &command_id, request_id.clone());
         insert_pending_approval(
             pending_approvals,
-            event_bus,
-            active_control,
             request_id.clone(),
             PendingApproval {
                 owner: approval.owner.clone(),
                 audit_id: approval.audit_id.clone(),
                 expires_at: approval.expires_at,
+                permission_epoch,
                 allowed_scopes: approval.allowed_scopes.clone(),
                 target: PendingApprovalTarget::Channel {
                     owner_id: command_id.clone(),
@@ -1316,6 +1952,14 @@ fn run_supervised_input(
             RuntimeEventKind::ApprovalRequested {
                 approval: approval.clone(),
             },
+        );
+        schedule_approval_expiry(
+            request_id.clone(),
+            approval.expires_at,
+            event_bus,
+            active_control,
+            pending_approvals,
+            approval_timers,
         );
         approval_receiver
             .recv()

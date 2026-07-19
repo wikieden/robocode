@@ -54,6 +54,57 @@ pub enum RuntimeCommand {
         provider_id: String,
         model: String,
     },
+    CreateLane {
+        lane: AgentLaneRecord,
+    },
+    StartLane {
+        lane_id: crate::AgentLaneId,
+        command: String,
+        args: Vec<String>,
+        env: Vec<(String, String)>,
+        output_log: Option<String>,
+    },
+    StopLane {
+        lane_id: crate::AgentLaneId,
+    },
+    AttachLane {
+        lane_id: crate::AgentLaneId,
+    },
+    DetachLane {
+        lane_id: crate::AgentLaneId,
+    },
+    SendLaneInput {
+        lane_id: crate::AgentLaneId,
+        input: String,
+    },
+    AcceptLaneOutput {
+        lane_id: crate::AgentLaneId,
+        summary: String,
+    },
+    ReviseLaneOutput {
+        lane_id: crate::AgentLaneId,
+        feedback: String,
+    },
+    DiscardLaneOutput {
+        lane_id: crate::AgentLaneId,
+        reason: String,
+    },
+    ApplyLaneChanges {
+        lane_id: crate::AgentLaneId,
+        unified_diff: String,
+    },
+    ResolveLaneConflict {
+        lane_id: crate::AgentLaneId,
+        unified_diff: String,
+    },
+    ArchiveLane {
+        lane_id: crate::AgentLaneId,
+        summary: String,
+    },
+    CleanupLane {
+        lane_id: crate::AgentLaneId,
+        force: bool,
+    },
     StartAgentDag {
         goal: String,
         tasks: Vec<AgentDagTaskSpec>,
@@ -312,6 +363,30 @@ pub struct QueuedInputView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LaneOutputView {
+    pub lane_id: crate::AgentLaneId,
+    pub stream: String,
+    pub content: String,
+    pub timestamp: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LaneConflictView {
+    pub lane_id: crate::AgentLaneId,
+    pub summary: String,
+    pub paths: Vec<String>,
+    pub timestamp: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LaneRecoveryView {
+    pub lane_id: crate::AgentLaneId,
+    pub reason: String,
+    pub next_action: String,
+    pub timestamp: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeEvent {
     pub sequence: u64,
     pub timestamp: Option<u64>,
@@ -375,6 +450,10 @@ pub enum RuntimeEventKind {
         command_id: String,
         command: RuntimeCommand,
     },
+    LaneCommandAccepted {
+        command_id: String,
+        command: RuntimeCommand,
+    },
     CommandRejected {
         command_id: String,
         reason: String,
@@ -396,6 +475,21 @@ pub enum RuntimeEventKind {
     },
     LaneUpdated {
         lane: AgentLaneRecord,
+    },
+    LaneOutputAppended {
+        lane_id: crate::AgentLaneId,
+        stream: String,
+        content: String,
+    },
+    LaneConflictDetected {
+        lane_id: crate::AgentLaneId,
+        summary: String,
+        paths: Vec<String>,
+    },
+    LaneRecoveryRequired {
+        lane_id: crate::AgentLaneId,
+        reason: String,
+        next_action: String,
     },
     EvidenceRecorded {
         evidence: EvidenceView,
@@ -465,6 +559,12 @@ pub struct RuntimeViewState {
     pub tasks: Vec<AgentTaskRecord>,
     pub agent_dags: Vec<AgentDagRecord>,
     pub lanes: Vec<AgentLaneRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_outputs: Vec<LaneOutputView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_conflicts: Vec<LaneConflictView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_recoveries: Vec<LaneRecoveryView>,
     pub latest_evidence: Vec<EvidenceView>,
     pub assistant_stream: String,
     pub context: Option<ContextBundleRecord>,
@@ -511,6 +611,9 @@ impl RuntimeViewState {
             tasks: Vec::new(),
             agent_dags: Vec::new(),
             lanes: Vec::new(),
+            lane_outputs: Vec::new(),
+            lane_conflicts: Vec::new(),
+            lane_recoveries: Vec::new(),
             latest_evidence: Vec::new(),
             assistant_stream: String::new(),
             context: None,
@@ -581,6 +684,10 @@ impl RuntimeViewState {
             RuntimeEventKind::CommandAccepted {
                 command_id,
                 command,
+            }
+            | RuntimeEventKind::LaneCommandAccepted {
+                command_id,
+                command,
             } => {
                 self.last_command = Some(RuntimeCommandReceipt {
                     command_id: command_id.clone(),
@@ -621,6 +728,53 @@ impl RuntimeViewState {
                 upsert_by_id(&mut self.lanes, lane.clone(), |existing| {
                     existing.id == lane.id
                 });
+            }
+            RuntimeEventKind::LaneOutputAppended {
+                lane_id,
+                stream,
+                content,
+            } => {
+                self.lane_outputs.push(LaneOutputView {
+                    lane_id: lane_id.clone(),
+                    stream: stream.clone(),
+                    content: content.clone(),
+                    timestamp: event.timestamp,
+                });
+                cap_vec(&mut self.lane_outputs);
+            }
+            RuntimeEventKind::LaneConflictDetected {
+                lane_id,
+                summary,
+                paths,
+            } => {
+                upsert_by_id(
+                    &mut self.lane_conflicts,
+                    LaneConflictView {
+                        lane_id: lane_id.clone(),
+                        summary: summary.clone(),
+                        paths: paths.clone(),
+                        timestamp: event.timestamp,
+                    },
+                    |existing| existing.lane_id == *lane_id,
+                );
+                cap_vec(&mut self.lane_conflicts);
+            }
+            RuntimeEventKind::LaneRecoveryRequired {
+                lane_id,
+                reason,
+                next_action,
+            } => {
+                upsert_by_id(
+                    &mut self.lane_recoveries,
+                    LaneRecoveryView {
+                        lane_id: lane_id.clone(),
+                        reason: reason.clone(),
+                        next_action: next_action.clone(),
+                        timestamp: event.timestamp,
+                    },
+                    |existing| existing.lane_id == *lane_id,
+                );
+                cap_vec(&mut self.lane_recoveries);
             }
             RuntimeEventKind::EvidenceRecorded { evidence } => {
                 upsert_by_id(&mut self.latest_evidence, evidence.clone(), |existing| {
