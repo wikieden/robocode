@@ -6,6 +6,7 @@ use viden_provider::ModelProvider;
 use viden_types::{ModelEvent, ModelRequest, fresh_id};
 
 mod git_command_tests;
+mod lane_supervisor_tests;
 mod live_deepseek_tests;
 mod lsp_command_tests;
 mod lsp_render_tests;

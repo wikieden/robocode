@@ -22,6 +22,8 @@ use viden_types::{
 use crate::{
     SessionEngine,
     event_journal::RuntimeEventJournal,
+    lane_runtime::{LaneEffectExecutor, LocalLaneEffectExecutor},
+    lane_supervisor::LaneSupervisor,
     runtime_contract::{
         ContextRetrievalJob, SupervisorContextRetrievalPreparation, execute_context_retrieval_job,
         redacted_runtime_command_for_event,
@@ -145,6 +147,7 @@ pub struct RuntimeSupervisor {
     event_bus: RuntimeEventBus,
     active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    lane_supervisor: Arc<LaneSupervisor>,
     worker_alive: Arc<AtomicBool>,
     _worker: JoinHandle<()>,
 }
@@ -154,7 +157,19 @@ impl RuntimeSupervisor {
         Self::start_with_approval_ttl(engine, 300)
     }
 
-    fn start_with_approval_ttl(mut engine: SessionEngine, approval_ttl_secs: u64) -> Self {
+    fn start_with_approval_ttl(engine: SessionEngine, approval_ttl_secs: u64) -> Self {
+        Self::start_with_effects(
+            engine,
+            approval_ttl_secs,
+            Arc::new(LocalLaneEffectExecutor::default()),
+        )
+    }
+
+    fn start_with_effects(
+        mut engine: SessionEngine,
+        approval_ttl_secs: u64,
+        lane_effects: Arc<dyn LaneEffectExecutor>,
+    ) -> Self {
         let (command_sender, command_receiver) = mpsc::channel();
         let (event_sender, event_receiver) = mpsc::channel();
         let active_control: Arc<Mutex<Option<ActiveRuntimeControl>>> = Arc::new(Mutex::new(None));
@@ -167,6 +182,27 @@ impl RuntimeSupervisor {
                 live_view: engine.runtime_view_state(),
             })),
         };
+
+        let lane_repo = engine.cwd().to_path_buf();
+        let lane_workflows = engine.workflow_store();
+        let lane_event_bus = event_bus.clone();
+        let lane_events = Arc::new(move |owner, kind| {
+            emit_event(&lane_event_bus, owner, kind);
+        });
+        let lane_mode_state = Arc::clone(&event_bus.state);
+        let lane_mode = Arc::new(move || {
+            lane_mode_state
+                .lock()
+                .map(|state| state.live_view.snapshot.work_mode)
+                .unwrap_or(viden_types::WorkMode::Plan)
+        });
+        let lane_supervisor = Arc::new(LaneSupervisor::new(
+            lane_repo,
+            lane_workflows,
+            lane_effects,
+            lane_events,
+            lane_mode,
+        ));
 
         install_runtime_event_sink(&mut engine, event_bus.clone(), RuntimeOwner::default());
 
@@ -192,6 +228,7 @@ impl RuntimeSupervisor {
             event_bus,
             active_control,
             pending_approvals,
+            lane_supervisor,
             worker_alive,
             _worker: worker,
         }
@@ -203,6 +240,14 @@ impl RuntimeSupervisor {
         approval_ttl_secs: u64,
     ) -> Self {
         Self::start_with_approval_ttl(engine, approval_ttl_secs)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_with_lane_effects_for_test(
+        engine: SessionEngine,
+        lane_effects: Arc<dyn LaneEffectExecutor>,
+    ) -> Self {
+        Self::start_with_effects(engine, 300, lane_effects)
     }
 
     pub fn send_command(
@@ -229,8 +274,14 @@ impl RuntimeSupervisor {
         command_id: String,
         command: RuntimeCommand,
     ) -> Result<(), String> {
+        if LaneSupervisor::handles(&command) {
+            return self.lane_supervisor.send(owner, command_id, command);
+        }
         match command {
             RuntimeCommand::CancelActiveTurn => {
+                if self.lane_supervisor.cancel(&owner, command_id.clone())? {
+                    return Ok(());
+                }
                 let Some(control) = self
                     .active_control
                     .lock()
@@ -288,6 +339,26 @@ impl RuntimeSupervisor {
                 request_id,
                 response,
             } => {
+                if self.lane_supervisor.respond_to_approval(
+                    &owner,
+                    &request_id,
+                    response.clone(),
+                )? {
+                    emit_event(
+                        &self.event_bus,
+                        owner.clone(),
+                        RuntimeEventKind::CommandAccepted {
+                            command_id,
+                            command: redacted_runtime_command_for_event(
+                                &RuntimeCommand::RespondToApproval {
+                                    request_id,
+                                    response,
+                                },
+                            ),
+                        },
+                    );
+                    return Ok(());
+                }
                 let pending = {
                     let mut approvals = self
                         .pending_approvals

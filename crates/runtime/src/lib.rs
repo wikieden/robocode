@@ -17,6 +17,9 @@ mod event_journal;
 mod extension_commands;
 mod formatting;
 mod git_commands;
+mod lane_runtime;
+mod lane_supervisor;
+mod lane_worker;
 mod lsp_tools;
 mod presentation;
 mod provider_commands;
@@ -611,6 +614,10 @@ impl SessionEngine {
 
     pub fn cwd(&self) -> &Path {
         &self.cwd
+    }
+
+    pub(crate) fn workflow_store(&self) -> WorkflowStore {
+        self.workflows.clone()
     }
 
     pub fn provider_name(&self) -> &str {

@@ -568,6 +568,24 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
+            RuntimeCommand::CreateLane { .. }
+            | RuntimeCommand::StartLane { .. }
+            | RuntimeCommand::StopLane { .. }
+            | RuntimeCommand::AttachLane { .. }
+            | RuntimeCommand::DetachLane { .. }
+            | RuntimeCommand::SendLaneInput { .. }
+            | RuntimeCommand::AcceptLaneOutput { .. }
+            | RuntimeCommand::ReviseLaneOutput { .. }
+            | RuntimeCommand::DiscardLaneOutput { .. }
+            | RuntimeCommand::ApplyLaneChanges { .. }
+            | RuntimeCommand::ResolveLaneConflict { .. }
+            | RuntimeCommand::ArchiveLane { .. }
+            | RuntimeCommand::CleanupLane { .. } => {
+                return Ok(vec![command_rejected(
+                    command_id,
+                    "lane lifecycle commands must be routed through RuntimeSupervisor".to_string(),
+                )]);
+            }
             RuntimeCommand::RetrieveContext { .. } => unreachable!("handled before acceptance"),
             RuntimeCommand::CancelActiveTurn | RuntimeCommand::RespondToApproval { .. } => {
                 return Ok(vec![command_rejected(
@@ -4263,6 +4281,86 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         RuntimeCommand::DeactivateModel { provider_id, model } => RuntimeCommand::DeactivateModel {
             provider_id: redact_identifier_for_event(provider_id),
             model: redact_command_text(model),
+        },
+        RuntimeCommand::CreateLane { lane } => {
+            let mut lane = lane.clone();
+            lane.worktree = lane.worktree.as_ref().map(|_| "[REDACTED]".to_string());
+            lane.branch = lane.branch.as_deref().map(redact_identifier_for_event);
+            lane.active_session_ids = lane
+                .active_session_ids
+                .iter()
+                .map(|id| redact_identifier_for_event(id))
+                .collect();
+            lane.summary = redact_command_text(&lane.summary);
+            lane.evidence = lane
+                .evidence
+                .iter()
+                .map(|id| redact_identifier_for_event(id))
+                .collect();
+            RuntimeCommand::CreateLane { lane }
+        }
+        RuntimeCommand::StartLane {
+            lane_id,
+            command,
+            args,
+            env,
+            output_log,
+        } => RuntimeCommand::StartLane {
+            lane_id: redact_identifier_for_event(lane_id),
+            command: redact_command_text(command),
+            args: args.iter().map(|arg| redact_command_text(arg)).collect(),
+            env: env
+                .iter()
+                .map(|(key, _)| (redact_identifier_for_event(key), "[REDACTED]".to_string()))
+                .collect(),
+            output_log: output_log.as_ref().map(|_| "[REDACTED]".to_string()),
+        },
+        RuntimeCommand::StopLane { lane_id } => RuntimeCommand::StopLane {
+            lane_id: redact_identifier_for_event(lane_id),
+        },
+        RuntimeCommand::AttachLane { lane_id } => RuntimeCommand::AttachLane {
+            lane_id: redact_identifier_for_event(lane_id),
+        },
+        RuntimeCommand::DetachLane { lane_id } => RuntimeCommand::DetachLane {
+            lane_id: redact_identifier_for_event(lane_id),
+        },
+        RuntimeCommand::SendLaneInput { lane_id, .. } => RuntimeCommand::SendLaneInput {
+            lane_id: redact_identifier_for_event(lane_id),
+            input: "[REDACTED]".to_string(),
+        },
+        RuntimeCommand::AcceptLaneOutput { lane_id, summary } => RuntimeCommand::AcceptLaneOutput {
+            lane_id: redact_identifier_for_event(lane_id),
+            summary: redact_command_text(summary),
+        },
+        RuntimeCommand::ReviseLaneOutput { lane_id, feedback } => {
+            RuntimeCommand::ReviseLaneOutput {
+                lane_id: redact_identifier_for_event(lane_id),
+                feedback: redact_command_text(feedback),
+            }
+        }
+        RuntimeCommand::DiscardLaneOutput { lane_id, reason } => {
+            RuntimeCommand::DiscardLaneOutput {
+                lane_id: redact_identifier_for_event(lane_id),
+                reason: redact_command_text(reason),
+            }
+        }
+        RuntimeCommand::ApplyLaneChanges { lane_id, .. } => RuntimeCommand::ApplyLaneChanges {
+            lane_id: redact_identifier_for_event(lane_id),
+            unified_diff: "[REDACTED]".to_string(),
+        },
+        RuntimeCommand::ResolveLaneConflict { lane_id, .. } => {
+            RuntimeCommand::ResolveLaneConflict {
+                lane_id: redact_identifier_for_event(lane_id),
+                unified_diff: "[REDACTED]".to_string(),
+            }
+        }
+        RuntimeCommand::ArchiveLane { lane_id, summary } => RuntimeCommand::ArchiveLane {
+            lane_id: redact_identifier_for_event(lane_id),
+            summary: redact_command_text(summary),
+        },
+        RuntimeCommand::CleanupLane { lane_id, force } => RuntimeCommand::CleanupLane {
+            lane_id: redact_identifier_for_event(lane_id),
+            force: *force,
         },
         RuntimeCommand::StartAgentTask { task_id } => RuntimeCommand::StartAgentTask {
             task_id: redact_identifier_for_event(task_id),
