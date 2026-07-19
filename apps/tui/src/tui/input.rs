@@ -13,11 +13,11 @@ pub(super) enum ApprovalKeyEffect {
 }
 
 pub(super) fn close_focus_on_escape(key: KeyEvent, state: &mut TuiState) -> bool {
-    if key.code != KeyCode::Esc || state.focused_lane.is_none() {
+    if key.code != KeyCode::Esc || state.ui.focused_lane.is_none() {
         return false;
     }
-    state.focused_lane = None;
-    state.entries.push(TuiEntry {
+    state.ui.focused_lane = None;
+    state.ui.entries.push(TuiEntry {
         label: "system".to_string(),
         body: "Closed lane detail focus.".to_string(),
     });
@@ -35,7 +35,7 @@ pub(super) fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> Approva
             if focused_approval_action(state) != ApprovalAction::ToggleApplyAll {
                 return ApprovalKeyEffect::None;
             }
-            state.approval_apply_all = !state.approval_apply_all;
+            state.ui.approval_apply_all = !state.ui.approval_apply_all;
             ApprovalKeyEffect::Redraw
         }
         KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
@@ -61,7 +61,7 @@ pub(super) fn apply_approval_action(
 ) -> ApprovalKeyEffect {
     match action {
         ApprovalAction::ToggleApplyAll => {
-            state.approval_apply_all = !state.approval_apply_all;
+            state.ui.approval_apply_all = !state.ui.approval_apply_all;
             ApprovalKeyEffect::Redraw
         }
         ApprovalAction::Deny => ApprovalKeyEffect::Resolve(false),
@@ -99,14 +99,18 @@ mod tests {
 
         assert!(close_focus_on_escape(key(KeyCode::Esc), &mut state));
 
-        assert_eq!(state.focused_lane, None);
-        assert!(state.entries[0].body.contains("Closed lane detail focus"));
+        assert_eq!(state.ui.focused_lane, None);
+        assert!(
+            state.ui.entries[0]
+                .body
+                .contains("Closed lane detail focus")
+        );
     }
 
     #[test]
     fn escape_without_focus_keeps_exit_behavior_available() {
         let mut state = state_with_focus();
-        state.focused_lane = None;
+        state.ui.focused_lane = None;
 
         assert!(!close_focus_on_escape(key(KeyCode::Esc), &mut state));
         assert!(should_exit(key(KeyCode::Esc)));
@@ -115,13 +119,13 @@ mod tests {
     #[test]
     fn approval_space_toggles_apply_all_only_when_checkbox_is_focused() {
         let mut state = state_with_focus();
-        state.approval_focus = DEFAULT_APPROVAL_FOCUS;
+        state.ui.approval_focus = DEFAULT_APPROVAL_FOCUS;
 
         assert_eq!(
             apply_approval_key(key(KeyCode::Char(' ')), &mut state),
             ApprovalKeyEffect::None
         );
-        assert!(!state.approval_apply_all);
+        assert!(!state.ui.approval_apply_all);
 
         set_approval_focus_for_action(&mut state, ApprovalAction::ToggleApplyAll);
 
@@ -129,13 +133,13 @@ mod tests {
             apply_approval_key(key(KeyCode::Char(' ')), &mut state),
             ApprovalKeyEffect::Redraw
         );
-        assert!(state.approval_apply_all);
+        assert!(state.ui.approval_apply_all);
     }
 
     #[test]
     fn approval_enter_activates_default_approve_focus() {
         let mut state = state_with_focus();
-        state.approval_focus = DEFAULT_APPROVAL_FOCUS;
+        state.ui.approval_focus = DEFAULT_APPROVAL_FOCUS;
 
         assert_eq!(
             apply_approval_key(key(KeyCode::Enter), &mut state),
@@ -146,7 +150,7 @@ mod tests {
     #[test]
     fn approval_keyboard_focus_reaches_deny_diff_and_approve() {
         let mut state = state_with_focus();
-        state.approval_focus = DEFAULT_APPROVAL_FOCUS;
+        state.ui.approval_focus = DEFAULT_APPROVAL_FOCUS;
 
         assert_eq!(
             focused_approval_action(&state),

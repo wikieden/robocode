@@ -18,9 +18,9 @@ pub(super) struct ComposerAnchor {
 }
 
 pub(super) fn should_render_welcome(state: &TuiState) -> bool {
-    state.focused_lane.is_none()
+    state.ui.focused_lane.is_none()
         && !super::state::has_active_work(state)
-        && !state.entries.iter().any(is_session_entry)
+        && !state.ui.entries.iter().any(is_session_entry)
 }
 
 pub(super) fn render_welcome(frame: &mut Frame, state: &TuiState) {
@@ -74,8 +74,8 @@ pub(super) fn render_composer(frame: &mut Frame, state: &TuiState, bottom_bar_he
 }
 
 fn composer_input_row(state: &TuiState, width: usize) -> String {
-    let value = if !state.input.is_empty() {
-        state.input.clone()
+    let value = if !state.ui.input.is_empty() {
+        state.ui.input.clone()
     } else if super::state::has_active_work(state) {
         let count = state.runtime.queued_inputs.len();
         if count == 0 {
@@ -133,7 +133,7 @@ pub(super) fn composer_cursor_position(
     }
     let input_width = width.saturating_sub(24);
     let visible_input_width = input_width.saturating_sub(4);
-    let input_len = char_width(&state.input).min(visible_input_width);
+    let input_len = char_width(&state.ui.input).min(visible_input_width);
     let column = 4 + input_len;
     let row = height
         .saturating_sub(bottom_bar_height)
@@ -257,17 +257,17 @@ fn welcome_cursor_position(state: &TuiState, width: usize, height: usize) -> (u1
     let box_width = welcome_box_width(width);
     let box_left = width.saturating_sub(box_width) / 2;
     let input_width = box_width.saturating_sub(6);
-    let input_len = char_width(&state.input).min(input_width);
+    let input_len = char_width(&state.ui.input).min(input_width);
     let column = box_left + 2 + input_len;
     let row = welcome_composer_top(width, height) + 1;
     (column as u16, row as u16)
 }
 
 fn welcome_input_row(state: &TuiState, box_width: usize) -> String {
-    let (value, left_pad) = if state.input.is_empty() {
+    let (value, left_pad) = if state.ui.input.is_empty() {
         ("Ask anything... \"Fix broken tests\"", " ")
     } else {
-        (state.input.as_str(), "")
+        (state.ui.input.as_str(), "")
     };
     let value_width = box_width.saturating_sub(4 + char_width(left_pad));
     format!(
@@ -330,6 +330,7 @@ fn welcome_status_row(state: &TuiState, width: usize) -> String {
 
 fn provider_display_name(state: &TuiState) -> String {
     state
+        .ui
         .provider_catalog
         .iter()
         .find(|provider| provider.provider_id == state.runtime.snapshot.provider_family)
@@ -468,7 +469,7 @@ mod tests {
     #[test]
     fn welcome_cursor_tracks_centered_input() {
         let mut state = state_with_input("hello");
-        state.entries = vec![super::super::state::TuiEntry {
+        state.ui.entries = vec![super::super::state::TuiEntry {
             label: "system".to_string(),
             body: "Viden TUI ready. Enter submits.".to_string(),
         }];
@@ -482,7 +483,7 @@ mod tests {
     #[test]
     fn welcome_empty_placeholder_starts_after_cursor_cell() {
         let mut state = state_with_input("");
-        state.entries = vec![super::super::state::TuiEntry {
+        state.ui.entries = vec![super::super::state::TuiEntry {
             label: "system".to_string(),
             body: "Viden TUI ready. Enter submits.".to_string(),
         }];
@@ -499,7 +500,7 @@ mod tests {
     #[test]
     fn welcome_renders_mecha_logo_on_wide_terminals() {
         let mut state = state_with_input("");
-        state.entries = vec![super::super::state::TuiEntry {
+        state.ui.entries = vec![super::super::state::TuiEntry {
             label: "system".to_string(),
             body: "Viden TUI ready. Enter submits.".to_string(),
         }];
@@ -514,7 +515,7 @@ mod tests {
     #[test]
     fn welcome_survives_slash_setup_entries_until_user_starts_session() {
         let mut state = state_with_input("");
-        state.entries = vec![
+        state.ui.entries = vec![
             super::super::state::TuiEntry {
                 label: "system".to_string(),
                 body: "Viden TUI ready. Enter submits.".to_string(),
@@ -535,7 +536,7 @@ mod tests {
 
         assert!(should_render_welcome(&state));
 
-        state.entries.push(super::super::state::TuiEntry {
+        state.ui.entries.push(super::super::state::TuiEntry {
             label: "user".to_string(),
             body: "fix broken tests".to_string(),
         });

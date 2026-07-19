@@ -269,7 +269,7 @@ fn style_signature(state: &TuiState, theme: &TuiTheme) -> String {
             "cockpit"
         },
         has_pending_approval(state),
-        state.focused_lane.as_deref().unwrap_or(""),
+        state.ui.focused_lane.as_deref().unwrap_or(""),
         is_command_palette_visible(state)
     )
 }

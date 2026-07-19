@@ -366,22 +366,23 @@ fn structured_preview_lanes() -> Vec<AgentLaneRecord> {
 
 fn focused_lane_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = preview_state(provider, model, theme_name);
-    state.focused_lane = Some("L1".to_string());
+    state.ui.focused_lane = Some("L1".to_string());
     state
+        .ui
         .entries
         .retain(|entry| entry.label != "approval" && !entry.body.contains("Press y"));
-    state.input = "/lane inspect L1".to_string();
+    state.ui.input = "/lane inspect L1".to_string();
     state
 }
 
 fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = preview_state(provider, model, theme_name);
     state.runtime.lanes.clear();
-    state.entries = vec![TuiEntry {
+    state.ui.entries = vec![TuiEntry {
         label: "system".to_string(),
         body: "Viden TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
     }];
-    state.input = String::new();
+    state.ui.input = String::new();
     state
 }
 
@@ -389,22 +390,22 @@ fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) 
     let mut state = idle_preview_state(provider, model, theme_name);
     state.runtime.snapshot.provider_family = "deepseek".to_string();
     state.runtime.snapshot.model_label = "deepseek-v4-flash".to_string();
-    state.input = "/".to_string();
-    state.command_selection = 0;
+    state.ui.input = "/".to_string();
+    state.ui.command_selection = 0;
     state
 }
 
 fn setup_wizard_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
-    state.input = "/setup".to_string();
-    state.command_selection = 0;
+    state.ui.input = "/setup".to_string();
+    state.ui.command_selection = 0;
     state
 }
 
 fn provider_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
-    state.input.clear();
-    state.interaction_panel = Some(InteractionPanel::ConnectProvider {
+    state.ui.input.clear();
+    state.ui.interaction_panel = Some(InteractionPanel::ConnectProvider {
         search: String::new(),
         selected: 0,
     });
@@ -413,8 +414,8 @@ fn provider_selector_preview_state(provider: &str, model: &str, theme_name: &str
 
 fn provider_detail_preview_state(_provider: &str, _model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state("openai", "gpt-5.2", theme_name);
-    state.input.clear();
-    state.interaction_panel = Some(InteractionPanel::ProviderApiKey {
+    state.ui.input.clear();
+    state.ui.interaction_panel = Some(InteractionPanel::ProviderApiKey {
         provider_id: "openai".to_string(),
         input: String::new(),
     });
@@ -423,13 +424,13 @@ fn provider_detail_preview_state(_provider: &str, _model: &str, theme_name: &str
 
 fn model_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
-    state.input.clear();
-    state.interaction_panel = Some(InteractionPanel::ModelPicker {
+    state.ui.input.clear();
+    state.ui.interaction_panel = Some(InteractionPanel::ModelPicker {
         provider_id: None,
         search: String::new(),
         selected: 0,
     });
-    state.provider_catalog = configured_model_preview_catalog();
+    state.ui.provider_catalog = configured_model_preview_catalog();
     state
 }
 
@@ -458,14 +459,14 @@ fn configured_model_preview_catalog() -> Vec<ProviderOption> {
 fn lane_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
     state.runtime.lanes = structured_preview_lanes();
-    state.input = "/lane".to_string();
-    state.command_selection = 0;
+    state.ui.input = "/lane".to_string();
+    state.ui.command_selection = 0;
     state
 }
 
 fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.entries = vec![
+    state.ui.entries = vec![
         TuiEntry {
             label: "system".to_string(),
             body: "Viden TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
@@ -477,14 +478,14 @@ fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> Tui
     ];
     state.runtime.assistant_stream = "Working on the config loader...".to_string();
     state.runtime.lanes.clear();
-    state.input = "Add a note about the validation result".to_string();
+    state.ui.input = "Add a note about the validation result".to_string();
     state
 }
 
 fn resize_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = live_turn_preview_state(provider, model, theme_name);
-    state.input = "Resize-safe redraw check".to_string();
-    state.entries.push(TuiEntry {
+    state.ui.input = "Resize-safe redraw check".to_string();
+    state.ui.entries.push(TuiEntry {
         label: "system".to_string(),
         body: "Resize-safe redraw check: stale borders cleared; composer and panels reflow from one frame.".to_string(),
     });
@@ -493,8 +494,8 @@ fn resize_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiSta
 
 fn cjk_input_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.input = "你好，帮我检查当前变更".to_string();
-    state.entries.push(TuiEntry {
+    state.ui.input = "你好，帮我检查当前变更".to_string();
+    state.ui.entries.push(TuiEntry {
         label: "user".to_string(),
         body: "中文输入法候选窗应该靠近 composer 光标，输入区要保持足够高。".to_string(),
     });

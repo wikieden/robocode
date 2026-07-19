@@ -5,7 +5,7 @@ use super::{
 
 pub(super) fn transcript_rows(state: &TuiState, width: usize) -> Vec<String> {
     let mut rows = Vec::new();
-    for entry in &state.entries {
+    for entry in &state.ui.entries {
         append_entry(&mut rows, entry, width);
     }
     if !state.runtime.assistant_stream.is_empty() {
@@ -68,7 +68,7 @@ mod tests {
     #[test]
     fn transcript_copy_cannot_invent_runtime_errors() {
         let mut state = TuiState::default();
-        state.entries.push(TuiEntry {
+        state.ui.entries.push(TuiEntry {
             label: "assistant".to_string(),
             body: "ERROR fake".to_string(),
         });

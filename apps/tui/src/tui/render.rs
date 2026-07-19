@@ -121,18 +121,18 @@ fn main_transcript_rows(state: &TuiState, width: usize, max_rows: usize) -> Vec<
         }
         rows.extend(activity);
     }
-    recent_rows(rows, max_rows, state.transcript_scroll)
+    recent_rows(rows, max_rows, state.ui.transcript_scroll)
 }
 
 fn transcript_status_label(state: &TuiState) -> String {
-    if state.transcript_scroll > 0 {
+    if state.ui.transcript_scroll > 0 {
         let marker =
             if !state.runtime.assistant_stream.is_empty() || super::state::has_active_work(state) {
                 " · new output"
             } else {
                 ""
             };
-        format!("history {}{marker}", state.transcript_scroll)
+        format!("history {}{marker}", state.ui.transcript_scroll)
     } else {
         "live session".to_string()
     }
@@ -277,7 +277,7 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
         };
     }
 
-    if let Some(entry) = state.entries.last() {
+    if let Some(entry) = state.ui.entries.last() {
         return LiveActivityStatus {
             summary: compact_activity_label(entry.label.as_str()).to_string(),
             evidence: "latest transcript event".to_string(),

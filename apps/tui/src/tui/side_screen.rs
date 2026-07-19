@@ -71,7 +71,7 @@ pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
         ),
         format!("TELEMETRY {}", status.telemetry),
         format!("CONTEXT   {}", status.context_window),
-        format!("THEME     {}", state.theme_name),
+        format!("THEME     {}", state.ui.theme_name),
     ]
 }
 

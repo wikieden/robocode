@@ -121,7 +121,7 @@ fn state_from_driver<C: CoreClient>(driver: &TuiClientDriver<C>, options: &TuiOp
     let mut state = TuiState::new(driver.view().clone());
     state.ui.session_id = driver.cursor().stream_id.clone();
     state.ui.theme_name = ui_profile_label(&state.runtime.snapshot.ui_preferences);
-    state.entries.push(TuiEntry {
+    state.ui.entries.push(TuiEntry {
         label: "system".to_string(),
         body: options.startup_summary.clone(),
     });
@@ -201,8 +201,8 @@ impl TuiInputController {
 }
 
 fn effective_input_mode(controller: &TuiInputController, state: &TuiState) -> InputMode {
-    if state.interaction_panel.is_some()
-        || state.focused_lane.is_some()
+    if state.ui.interaction_panel.is_some()
+        || state.ui.focused_lane.is_some()
         || is_command_palette_visible(state)
     {
         InputMode::Overlay
@@ -229,14 +229,14 @@ fn handle_ui_event<C: CoreClient>(
                 )
             {
                 if approval_pending {
-                    state.input.push_str(&text);
+                    state.ui.input.push_str(&text);
                     reset_for_input_change(state);
-                } else if state.interaction_panel.is_some() {
+                } else if state.ui.interaction_panel.is_some() {
                     for value in text.chars() {
                         edit_interaction_panel_text(state, Some(value));
                     }
                 } else {
-                    state.input.push_str(&text);
+                    state.ui.input.push_str(&text);
                     reset_for_input_change(state);
                 }
             }
@@ -256,7 +256,7 @@ fn handle_ui_key<C: CoreClient>(
     let has_active_work = runtime_has_active_work(&state.runtime);
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         dispatch_intent(driver, RuntimeCommand::CancelActiveTurn)?;
-        state.entries.push(TuiEntry {
+        state.ui.entries.push(TuiEntry {
             label: "command".to_string(),
             body: "cancel requested".to_string(),
         });
@@ -277,8 +277,8 @@ fn handle_ui_key<C: CoreClient>(
     }
 
     if key.code == KeyCode::Tab
-        && state.focused_lane.is_some()
-        && state.interaction_panel.is_none()
+        && state.ui.focused_lane.is_some()
+        && state.ui.interaction_panel.is_none()
         && !is_command_palette_visible(state)
     {
         cycle_agent_focus(state);
@@ -306,7 +306,7 @@ fn apply_input_intent<C: CoreClient>(
         InputIntent::EnterInsert => controller.mode = InputMode::Insert,
         InputIntent::LeaveInsert => controller.mode = InputMode::Normal,
         InputIntent::CloseOverlay => {
-            if state.interaction_panel.take().is_none()
+            if state.ui.interaction_panel.take().is_none()
                 && !close_focus_on_escape(key, state)
                 && !close_on_escape(key, state)
             {
@@ -316,46 +316,46 @@ fn apply_input_intent<C: CoreClient>(
         InputIntent::CancelCurrentWork => unreachable!("global cancel is handled first"),
         InputIntent::OpenCommandPalette => {
             controller.mode = InputMode::Insert;
-            state.input = "/".to_string();
+            state.ui.input = "/".to_string();
             reset_for_input_change(state);
         }
         InputIntent::CycleAgentFocus => cycle_agent_focus(state),
         InputIntent::ContextHelp => {
             controller.mode = InputMode::Insert;
-            state.input = "/help ".to_string();
+            state.ui.input = "/help ".to_string();
             reset_for_input_change(state);
         }
         InputIntent::Exit => return Ok(UiEventOutcome::Exit),
         InputIntent::InsertChar(value) => {
-            if state.interaction_panel.is_some() {
+            if state.ui.interaction_panel.is_some() {
                 edit_interaction_panel_text(state, Some(value));
             } else {
                 push_composer_char(state, value);
             }
         }
         InputIntent::Backspace => {
-            if state.interaction_panel.is_some() {
+            if state.ui.interaction_panel.is_some() {
                 edit_interaction_panel_text(state, None);
             } else {
-                state.input.pop();
+                state.ui.input.pop();
                 reset_for_input_change(state);
             }
         }
         InputIntent::Submit => submit_composer(driver, state)?,
         InputIntent::MoveSelection(delta) => {
-            if state.interaction_panel.is_some() {
+            if state.ui.interaction_panel.is_some() {
                 move_interaction_selection(state, delta);
             } else {
                 move_selection(state, delta);
             }
         }
         InputIntent::CompleteSelection => {
-            if state.interaction_panel.is_none() {
+            if state.ui.interaction_panel.is_none() {
                 complete_selected(state);
             }
         }
         InputIntent::CompleteOrSubmit => {
-            if state.interaction_panel.is_some() {
+            if state.ui.interaction_panel.is_some() {
                 if apply_interaction_panel_selection(state) {
                     submit_composer(driver, state)?;
                 }
@@ -366,8 +366,8 @@ fn apply_input_intent<C: CoreClient>(
             }
         }
         InputIntent::Scroll(delta) => scroll_transcript(state, delta),
-        InputIntent::ScrollToStart => state.transcript_scroll = usize::MAX / 2,
-        InputIntent::ScrollToEnd => state.transcript_scroll = 0,
+        InputIntent::ScrollToStart => state.ui.transcript_scroll = usize::MAX / 2,
+        InputIntent::ScrollToEnd => state.ui.transcript_scroll = 0,
     }
     Ok(UiEventOutcome::Redraw)
 }
@@ -376,23 +376,23 @@ fn submit_composer<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
 ) -> Result<(), TuiError> {
-    let content = state.input.trim().to_string();
+    let content = state.ui.input.trim().to_string();
     if content.is_empty() || open_local_picker_command(&content, state) {
         return Ok(());
     }
     let command = command_for_composer(state, &content);
-    state.entries.push(TuiEntry {
+    state.ui.entries.push(TuiEntry {
         label: "user".to_string(),
         body: content,
     });
     dispatch_intent(driver, command)?;
-    state.input.clear();
+    state.ui.input.clear();
     reset_for_input_change(state);
     Ok(())
 }
 
 fn open_local_picker_command(input: &str, state: &mut TuiState) -> bool {
-    state.interaction_panel = match input.trim() {
+    state.ui.interaction_panel = match input.trim() {
         "/connect" | "/provider" | "/settings provider" | "/setup provider" => {
             Some(InteractionPanel::ConnectProvider {
                 search: String::new(),
@@ -408,7 +408,7 @@ fn open_local_picker_command(input: &str, state: &mut TuiState) -> bool {
         }
         _ => return false,
     };
-    state.input.clear();
+    state.ui.input.clear();
     reset_for_input_change(state);
     true
 }
@@ -429,7 +429,7 @@ fn move_interaction_selection(state: &mut TuiState, delta: i8) {
 }
 
 fn interaction_selected(state: &TuiState) -> usize {
-    match state.interaction_panel.as_ref() {
+    match state.ui.interaction_panel.as_ref() {
         Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
         | Some(InteractionPanel::ModelPicker { selected, .. }) => *selected,
@@ -439,10 +439,11 @@ fn interaction_selected(state: &TuiState) -> usize {
 
 fn cycle_agent_focus(state: &mut TuiState) {
     if state.runtime.lanes.is_empty() {
-        state.focused_lane = None;
+        state.ui.focused_lane = None;
         return;
     }
     let next = state
+        .ui
         .focused_lane
         .as_deref()
         .and_then(|focused| {
@@ -454,11 +455,11 @@ fn cycle_agent_focus(state: &mut TuiState) {
         })
         .map(|index| (index + 1) % state.runtime.lanes.len())
         .unwrap_or(0);
-    state.focused_lane = Some(state.runtime.lanes[next].id.clone());
+    state.ui.focused_lane = Some(state.runtime.lanes[next].id.clone());
 }
 
 fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
-    match state.interaction_panel.as_mut() {
+    match state.ui.interaction_panel.as_mut() {
         Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
         | Some(InteractionPanel::ModelPicker { selected, .. }) => *selected = index,
@@ -467,7 +468,7 @@ fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
 }
 
 fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
-    match state.interaction_panel.as_mut() {
+    match state.ui.interaction_panel.as_mut() {
         Some(InteractionPanel::ConnectProvider { search, selected })
         | Some(InteractionPanel::ModelPicker {
             search, selected, ..
@@ -492,11 +493,11 @@ fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
 
 fn apply_interaction_panel_selection(state: &mut TuiState) -> bool {
     let command = selected_interaction_command(state);
-    state.interaction_panel = None;
+    state.ui.interaction_panel = None;
     if let Some(command) = command {
         // Provider/model activation remains a Core command. The overlay only
         // selects the command; it never mutates provider authority directly.
-        state.input = command;
+        state.ui.input = command;
         reset_for_input_change(state);
         true
     } else {
@@ -506,16 +507,19 @@ fn apply_interaction_panel_selection(state: &mut TuiState) -> bool {
 
 fn scroll_transcript(state: &mut TuiState, delta: isize) {
     if delta > 0 {
-        state.transcript_scroll = state.transcript_scroll.saturating_add(delta as usize);
+        state.ui.transcript_scroll = state.ui.transcript_scroll.saturating_add(delta as usize);
     } else {
-        state.transcript_scroll = state.transcript_scroll.saturating_sub(delta.unsigned_abs());
+        state.ui.transcript_scroll = state
+            .ui
+            .transcript_scroll
+            .saturating_sub(delta.unsigned_abs());
     }
 }
 
 fn push_composer_char(state: &mut TuiState, value: char) {
-    state.input.push(value);
-    if looks_like_terminal_escape_residue(&state.input) {
-        state.input.clear();
+    state.ui.input.push(value);
+    if looks_like_terminal_escape_residue(&state.ui.input) {
+        state.ui.input.clear();
     }
     reset_for_input_change(state);
 }
@@ -576,7 +580,7 @@ fn apply_pump_outcome(state: &mut TuiState, outcome: PumpOutcome) {
     match outcome {
         PumpOutcome::Idle => {}
         PumpOutcome::Applied(cursor) | PumpOutcome::Recovered(cursor) => {
-            state.session_id = cursor.stream_id;
+            state.ui.session_id = cursor.stream_id;
         }
     }
 }
@@ -791,7 +795,7 @@ mod tests {
         };
         let mut driver = TuiClientDriver::connect(client).expect("connect");
         let mut state = TuiState::default();
-        state.entries.push(TuiEntry {
+        state.ui.entries.push(TuiEntry {
             label: "user".to_string(),
             body: "hello".to_string(),
         });
@@ -800,7 +804,7 @@ mod tests {
         apply_pump_outcome(&mut state, outcome);
 
         assert_eq!(
-            state.entries.len(),
+            state.ui.entries.len(),
             1,
             "receipt must not invent transcript facts"
         );
@@ -869,7 +873,7 @@ mod tests {
         )
         .expect("key");
 
-        assert_eq!(state.input, "你");
+        assert_eq!(state.ui.input, "你");
         assert_eq!(driver.view().assistant_stream, "working");
     }
 
@@ -920,7 +924,7 @@ mod tests {
             .expect("paste"),
             UiEventOutcome::Redraw
         );
-        assert_eq!(state.input, "first\nsecond");
+        assert_eq!(state.ui.input, "first\nsecond");
         assert!(
             !super::super::state::has_active_work(&state),
             "paste must never submit"
@@ -933,7 +937,7 @@ mod tests {
                 UiEventOutcome::Redraw
             );
         }
-        assert_eq!(state.input, "first\nsecond");
+        assert_eq!(state.ui.input, "first\nsecond");
     }
 
     #[test]
@@ -963,7 +967,7 @@ mod tests {
             .expect("composer key");
         }
 
-        assert!(state.input.is_empty());
+        assert!(state.ui.input.is_empty());
     }
 
     #[test]
@@ -973,7 +977,7 @@ mod tests {
                 .expect("connect");
         let mut state = TuiState::default();
         let mut controller = TuiInputController::default();
-        state.transcript_scroll = 18;
+        state.ui.transcript_scroll = 18;
 
         handle_ui_event(
             &mut driver,
@@ -983,7 +987,7 @@ mod tests {
             (120, 40),
         )
         .expect("scroll");
-        assert_eq!(state.transcript_scroll, 30);
+        assert_eq!(state.ui.transcript_scroll, 30);
 
         handle_ui_event(
             &mut driver,
@@ -1020,12 +1024,12 @@ mod tests {
 
         assert_eq!(controller.mode(), InputMode::Normal);
         assert_eq!(
-            state.input, "草",
+            state.ui.input, "草",
             "Esc preserves the draft and Normal ignores x"
         );
         project_runtime_view(&mut state, driver.view(), driver.cursor());
         assert_eq!(
-            state.transcript_scroll, 30,
+            state.ui.transcript_scroll, 30,
             "Core projection keeps scrollback"
         );
     }
@@ -1037,7 +1041,7 @@ mod tests {
                 .expect("connect");
         let mut state = TuiState::default();
         let mut controller = TuiInputController::default();
-        state.transcript_scroll = 18;
+        state.ui.transcript_scroll = 18;
         handle_ui_event(
             &mut driver,
             &mut state,
@@ -1049,7 +1053,7 @@ mod tests {
 
         project_runtime_view(&mut state, driver.view(), driver.cursor());
 
-        assert_eq!(state.transcript_scroll, 18);
+        assert_eq!(state.ui.transcript_scroll, 18);
         assert_eq!(controller.mode(), InputMode::Insert);
     }
 
@@ -1077,7 +1081,7 @@ mod tests {
         )
         .expect("composer remains responsive");
 
-        assert_eq!(state.input, "继");
+        assert_eq!(state.ui.input, "继");
         assert!(super::super::state::has_active_work(&state));
     }
 
@@ -1123,7 +1127,7 @@ mod tests {
         )
         .expect("approval-time typing");
 
-        assert_eq!(state.input, "x");
+        assert_eq!(state.ui.input, "x");
         assert_eq!(driver.view().pending_approvals.len(), 1);
 
         handle_ui_event(
@@ -1135,7 +1139,7 @@ mod tests {
         )
         .expect("approval-time bracketed paste");
 
-        assert_eq!(state.input, "x\nsecond line");
+        assert_eq!(state.ui.input, "x\nsecond line");
         assert_eq!(driver.view().pending_approvals.len(), 1);
     }
 
@@ -1155,7 +1159,7 @@ mod tests {
             (120, 40),
         )
         .expect("insert mode");
-        state.input = "/models".to_string();
+        state.ui.input = "/models".to_string();
 
         handle_ui_event(
             &mut driver,
@@ -1167,7 +1171,7 @@ mod tests {
         .expect("open models");
 
         assert!(matches!(
-            state.interaction_panel,
+            state.ui.interaction_panel,
             Some(InteractionPanel::ModelPicker { .. })
         ));
         assert_eq!(
@@ -1182,10 +1186,10 @@ mod tests {
             (120, 40),
         )
         .expect("close selector");
-        assert!(state.interaction_panel.is_none());
+        assert!(state.ui.interaction_panel.is_none());
         assert_eq!(controller.mode(), InputMode::Insert);
 
-        state.input = "/models".to_string();
+        state.ui.input = "/models".to_string();
         for _ in 0..2 {
             handle_ui_event(
                 &mut driver,
@@ -1196,9 +1200,15 @@ mod tests {
             )
             .expect("open and select model");
         }
-        assert!(state.interaction_panel.is_none());
-        assert!(state.interaction_panel.is_none());
-        assert!(state.entries.iter().all(|entry| entry.label != "assistant"));
+        assert!(state.ui.interaction_panel.is_none());
+        assert!(state.ui.interaction_panel.is_none());
+        assert!(
+            state
+                .ui
+                .entries
+                .iter()
+                .all(|entry| entry.label != "assistant")
+        );
     }
 
     #[test]
@@ -1220,7 +1230,7 @@ mod tests {
             (140, 40),
         )
         .expect("command shortcut");
-        assert_eq!(state.input, "/");
+        assert_eq!(state.ui.input, "/");
         assert!(is_command_palette_visible(&state));
 
         let mut agent_state = state.clone();
@@ -1234,7 +1244,7 @@ mod tests {
             (140, 40),
         )
         .expect("agent shortcut");
-        assert_eq!(agent_state.focused_lane.as_deref(), Some("L-start"));
+        assert_eq!(agent_state.ui.focused_lane.as_deref(), Some("L-start"));
     }
 
     #[test]

@@ -92,7 +92,7 @@ mod tests {
     fn ops_rows_ignore_transcript_copy() {
         let mut state = TuiState::default();
         state.runtime.cost_ledger.total_tokens = 42;
-        state.entries.push(super::super::state::TuiEntry {
+        state.ui.entries.push(super::super::state::TuiEntry {
             label: "assistant".to_string(),
             body: "cost zero".to_string(),
         });

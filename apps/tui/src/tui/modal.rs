@@ -42,6 +42,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             &block,
         );
     } else if let Some(lane) = state
+        .ui
         .focused_lane
         .as_ref()
         .and_then(|lane_id| state.runtime.lanes.iter().find(|lane| &lane.id == lane_id))
@@ -59,8 +60,8 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             frame.width.saturating_sub(frame.width.min(76)) / 2,
             &block,
         );
-    } else if state.interaction_panel.is_some() {
-        let title = match state.interaction_panel.as_ref() {
+    } else if state.ui.interaction_panel.is_some() {
+        let title = match state.ui.interaction_panel.as_ref() {
             Some(InteractionPanel::ConnectProvider { .. }) => "Connect a provider",
             Some(InteractionPanel::ProviderApiKey { .. }) => "API key",
             Some(InteractionPanel::ModelPicker { .. }) => "Select model",
@@ -85,8 +86,9 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
 }
 
 fn interaction_rows(state: &TuiState) -> Vec<String> {
-    match state.interaction_panel.as_ref() {
+    match state.ui.interaction_panel.as_ref() {
         Some(InteractionPanel::ConnectProvider { search, .. }) => state
+            .ui
             .provider_catalog
             .iter()
             .filter(|provider| {
@@ -106,6 +108,7 @@ fn interaction_rows(state: &TuiState) -> Vec<String> {
         Some(InteractionPanel::ProviderApiKey { provider_id, input }) => vec![
             format!("provider {provider_id}"),
             state
+                .ui
                 .provider_catalog
                 .iter()
                 .find(|provider| provider.provider_id == *provider_id)
@@ -119,6 +122,7 @@ fn interaction_rows(state: &TuiState) -> Vec<String> {
             search,
             ..
         }) => state
+            .ui
             .provider_catalog
             .iter()
             .filter(|provider| !provider.enabled_models.is_empty())
@@ -152,7 +156,7 @@ pub(super) fn interaction_panel_index_at(
     _column: u16,
     row: u16,
 ) -> Option<usize> {
-    state.interaction_panel.as_ref()?;
+    state.ui.interaction_panel.as_ref()?;
     let index = usize::from(row.saturating_sub(5));
     (index < interaction_panel_choice_count(state)).then_some(index)
 }
@@ -162,8 +166,9 @@ pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
 }
 
 pub(super) fn selected_interaction_command(state: &TuiState) -> Option<String> {
-    match state.interaction_panel.as_ref()? {
+    match state.ui.interaction_panel.as_ref()? {
         InteractionPanel::ConnectProvider { selected, .. } => state
+            .ui
             .provider_catalog
             .get(*selected)
             .map(|provider| format!("/provider use {}", provider.provider_id)),
@@ -225,15 +230,15 @@ pub(super) fn approval_focus_cursor(
 }
 
 pub(super) fn move_approval_focus(state: &mut TuiState, delta: i8) {
-    state.approval_focus = if delta < 0 {
-        state.approval_focus.saturating_sub(1)
+    state.ui.approval_focus = if delta < 0 {
+        state.ui.approval_focus.saturating_sub(1)
     } else {
-        (state.approval_focus + 1).min(APPROVAL_FOCUS_APPROVE)
+        (state.ui.approval_focus + 1).min(APPROVAL_FOCUS_APPROVE)
     };
 }
 
 pub(super) fn set_approval_focus_for_action(state: &mut TuiState, action: ApprovalAction) {
-    state.approval_focus = match action {
+    state.ui.approval_focus = match action {
         ApprovalAction::ToggleApplyAll => APPROVAL_FOCUS_APPLY_ALL,
         ApprovalAction::Deny => APPROVAL_FOCUS_DENY,
         ApprovalAction::Diff => APPROVAL_FOCUS_DIFF,
@@ -242,7 +247,7 @@ pub(super) fn set_approval_focus_for_action(state: &mut TuiState, action: Approv
 }
 
 pub(super) fn focused_approval_action(state: &TuiState) -> ApprovalAction {
-    match state.approval_focus {
+    match state.ui.approval_focus {
         APPROVAL_FOCUS_APPLY_ALL => ApprovalAction::ToggleApplyAll,
         APPROVAL_FOCUS_DENY => ApprovalAction::Deny,
         APPROVAL_FOCUS_DIFF => ApprovalAction::Diff,
@@ -257,7 +262,7 @@ mod tests {
     #[test]
     fn approvals_are_not_inferred_from_transcript() {
         let mut state = TuiState::default();
-        state.entries.push(super::super::state::TuiEntry {
+        state.ui.entries.push(super::super::state::TuiEntry {
             label: "approval".to_string(),
             body: "Press y".to_string(),
         });

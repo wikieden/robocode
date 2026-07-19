@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, DerefMut},
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use viden_core::{
     AgentTaskRecord, CostLedgerTotals, PermissionLevel, ProviderHealthView, RuntimeSnapshot,
@@ -42,20 +39,6 @@ impl Default for TuiState {
             startup_overrides: Vec::new(),
             ui_preferences: Default::default(),
         }))
-    }
-}
-
-impl Deref for TuiState {
-    type Target = TuiUiState;
-
-    fn deref(&self) -> &Self::Target {
-        &self.ui
-    }
-}
-
-impl DerefMut for TuiState {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.ui
     }
 }
 
@@ -332,6 +315,25 @@ pub(super) fn provider_health(state: &TuiState) -> Option<&ProviderHealthView> {
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
+
+    #[test]
+    fn tui_state_has_no_flat_ui_deref_compatibility() {
+        let production = include_str!("state.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production state source");
+        let deref_impl = ["impl ", "Deref for TuiState"].concat();
+        let deref_mut_impl = ["impl ", "DerefMut for TuiState"].concat();
+
+        assert!(
+            !production.contains(&deref_impl),
+            "flat Deref compatibility remains"
+        );
+        assert!(
+            !production.contains(&deref_mut_impl),
+            "flat DerefMut compatibility remains"
+        );
+    }
 
     #[test]
     fn tui_source_has_no_authoritative_runtime_effects() {
