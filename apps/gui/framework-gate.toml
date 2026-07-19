@@ -1,0 +1,17 @@
+schema_version = 1
+status = "framework-neutral-harness"
+selected_framework = "pending"
+core_fixture = "crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json"
+
+[task2]
+core_client = "StatefulCoreClient"
+projection_source = "confirmed_core_view"
+private_runtime_reducer = false
+framework_code = false
+
+[thresholds]
+ordered_event_count = 10000
+transcript_row_count = 50000
+composer_input_p95_ms = 50
+event_to_visible_p95_ms = 100
+frame_work_p95_ms = 16
