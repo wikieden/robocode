@@ -681,7 +681,7 @@ fn render_approval_modal(
         rows,
         bounds.width,
         bounds.height,
-        Some("tab/enter/click"),
+        Some("tab/enter"),
     );
     clear_overlay_bounds(frame, bounds.top, bounds.height, bounds.transcript_width);
     render_modal_shadow(frame, bounds.top, bounds.left, bounds.width, bounds.height);

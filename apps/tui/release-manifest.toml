@@ -49,3 +49,4 @@ densities = ["compact", "regular", "comfy"]
 motion = ["system", "reduced", "full"]
 tui_color_depth = ["auto", "truecolor", "ansi256", "ansi16"]
 effective_tui_color_depth = ["truecolor", "ansi256", "ansi16"]
+mouse_capture = false

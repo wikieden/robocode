@@ -1,6 +1,4 @@
-use crossterm::event::{
-    self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use viden_core::{
     AgentLaneRecord, AgentRoute, ApprovalResponse, CoreTransport, EventCursor, ExecutionTarget,
     GateStrength, LaneStatus, RuntimeCommand, RuntimeViewState, StatefulCoreClient, TuiColorDepth,
@@ -8,14 +6,12 @@ use viden_core::{
 
 use super::client::{PumpOutcome, TuiClientDriver, TuiClientError};
 use super::command_palette::{
-    close_on_escape, command_suggestion_index_at, complete_selected, is_command_palette_visible,
-    move_selection, reset_for_input_change, select_suggestion_at, should_complete_on_enter,
+    close_on_escape, complete_selected, is_command_palette_visible, move_selection,
+    reset_for_input_change, should_complete_on_enter,
 };
 use super::input::{ApprovalKeyEffect, apply_approval_key, close_focus_on_escape};
 use super::keymap::{InputIntent, InputMode, reduce_input};
-use super::modal::{
-    interaction_panel_choice_count, interaction_panel_index_at, selected_interaction_command,
-};
+use super::modal::{interaction_panel_choice_count, selected_interaction_command};
 use super::state::{
     AgentTask, InteractionPanel, PendingTurn, ProviderStatus, TerminalLane, TuiEntry, TuiState,
     WorkspaceSnapshot,
@@ -453,18 +449,22 @@ fn handle_ui_event<T: CoreTransport>(
     state: &mut TuiState,
     controller: &mut TuiInputController,
     event: Event,
-    terminal_size: (u16, u16),
+    _terminal_size: (u16, u16),
 ) -> Result<UiEventOutcome, TuiError> {
     match event {
         Event::Resize(_, _) | Event::FocusGained | Event::FocusLost => Ok(UiEventOutcome::Redraw),
         Event::Paste(text) => {
-            if driver.view().pending_approvals.is_empty()
-                && matches!(
+            let approval_pending = !driver.view().pending_approvals.is_empty();
+            if approval_pending
+                || matches!(
                     effective_input_mode(controller, state),
                     InputMode::Insert | InputMode::Overlay
                 )
             {
-                if state.interaction_panel.is_some() {
+                if approval_pending {
+                    state.input.push_str(&text);
+                    reset_for_input_change(state);
+                } else if state.interaction_panel.is_some() {
                     for value in text.chars() {
                         edit_interaction_panel_text(state, Some(value));
                     }
@@ -475,10 +475,7 @@ fn handle_ui_event<T: CoreTransport>(
             }
             Ok(UiEventOutcome::Redraw)
         }
-        Event::Mouse(mouse) => {
-            handle_mouse(mouse, state, terminal_size);
-            Ok(UiEventOutcome::Redraw)
-        }
+        Event::Mouse(_) => Ok(UiEventOutcome::Redraw),
         Event::Key(key) => handle_ui_key(driver, state, controller, key),
     }
 }
@@ -510,6 +507,15 @@ fn handle_ui_key<T: CoreTransport>(
             ApprovalKeyEffect::Redraw => return Ok(UiEventOutcome::Redraw),
             ApprovalKeyEffect::None => {}
         }
+    }
+
+    if key.code == KeyCode::Tab
+        && state.focused_lane.is_some()
+        && state.interaction_panel.is_none()
+        && !is_command_palette_visible(state)
+    {
+        cycle_agent_focus(state);
+        return Ok(UiEventOutcome::Redraw);
     }
 
     let mode = if driver.view().pending_approvals.is_empty() {
@@ -546,6 +552,7 @@ fn apply_input_intent<T: CoreTransport>(
             state.input = "/".to_string();
             reset_for_input_change(state);
         }
+        InputIntent::CycleAgentFocus => cycle_agent_focus(state),
         InputIntent::ContextHelp => {
             controller.mode = InputMode::Insert;
             state.input = "/help ".to_string();
@@ -596,52 +603,6 @@ fn apply_input_intent<T: CoreTransport>(
         InputIntent::ScrollToEnd => state.transcript_scroll = 0,
     }
     Ok(UiEventOutcome::Redraw)
-}
-
-fn handle_mouse(mouse: MouseEvent, state: &mut TuiState, terminal_size: (u16, u16)) -> bool {
-    match mouse.kind {
-        MouseEventKind::ScrollUp => {
-            scroll_transcript(state, 4);
-            return true;
-        }
-        MouseEventKind::ScrollDown => {
-            scroll_transcript(state, -4);
-            return true;
-        }
-        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left) => {}
-        _ => return false,
-    }
-    if state.interaction_panel.is_some() {
-        let Some(index) = interaction_panel_index_at(
-            state,
-            mouse.column,
-            mouse.row,
-            terminal_size.0,
-            terminal_size.1,
-            38,
-        ) else {
-            return false;
-        };
-        set_interaction_panel_selected(state, index);
-        if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left)) {
-            apply_interaction_panel_selection(state);
-        }
-        return true;
-    }
-    let Some(index) = command_suggestion_index_at(
-        state,
-        mouse.column,
-        mouse.row,
-        terminal_size.0,
-        terminal_size.1,
-    ) else {
-        return false;
-    };
-    let selected = select_suggestion_at(state, index);
-    if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left)) {
-        complete_selected(state);
-    }
-    selected
 }
 
 fn submit_composer<T: CoreTransport>(
@@ -710,6 +671,20 @@ fn interaction_selected(state: &TuiState) -> usize {
         | Some(InteractionPanel::ModelPicker { selected, .. }) => *selected,
         _ => 0,
     }
+}
+
+fn cycle_agent_focus(state: &mut TuiState) {
+    if state.lanes.is_empty() {
+        state.focused_lane = None;
+        return;
+    }
+    let next = state
+        .focused_lane
+        .as_deref()
+        .and_then(|focused| state.lanes.iter().position(|lane| lane.id == focused))
+        .map(|index| (index + 1) % state.lanes.len())
+        .unwrap_or(0);
+    state.focused_lane = Some(state.lanes[next].id.clone());
 }
 
 fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
@@ -830,7 +805,6 @@ fn apply_pump_outcome(state: &mut TuiState, outcome: PumpOutcome) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{MouseEvent, MouseEventKind};
     use std::{collections::VecDeque, path::PathBuf, time::Duration};
     use viden_core::{
         CoreClientError, CoreHandshake, CoreTransport, EventCursor, RuntimeCommandEnvelope,
@@ -1060,21 +1034,15 @@ mod tests {
         let mut controller = TuiInputController::default();
         state.transcript_scroll = 18;
 
-        let scroll = MouseEvent {
-            kind: MouseEventKind::ScrollUp,
-            column: 0,
-            row: 0,
-            modifiers: KeyModifiers::NONE,
-        };
         handle_ui_event(
             &mut driver,
             &mut state,
             &mut controller,
-            Event::Mouse(scroll),
+            Event::Key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)),
             (120, 40),
         )
         .expect("scroll");
-        assert_eq!(state.transcript_scroll, 22);
+        assert_eq!(state.transcript_scroll, 30);
 
         handle_ui_event(
             &mut driver,
@@ -1116,7 +1084,7 @@ mod tests {
         );
         project_runtime_view(&mut state, driver.view(), driver.cursor());
         assert_eq!(
-            state.transcript_scroll, 22,
+            state.transcript_scroll, 30,
             "Core projection keeps scrollback"
         );
     }
@@ -1214,6 +1182,18 @@ mod tests {
 
         assert_eq!(state.input, "x");
         assert_eq!(driver.view().pending_approvals.len(), 1);
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Paste("\nsecond line".to_string()),
+            (120, 40),
+        )
+        .expect("approval-time bracketed paste");
+
+        assert_eq!(state.input, "x\nsecond line");
+        assert_eq!(driver.view().pending_approvals.len(), 1);
     }
 
     #[test]
@@ -1286,6 +1266,46 @@ mod tests {
             state.pending_turn.is_some(),
             "selection dispatches through Core"
         );
+    }
+
+    #[test]
+    fn rendered_shortcut_hints_match_command_and_agent_handlers() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState {
+            lanes: TerminalLane::preview_lanes(),
+            ..TuiState::default()
+        };
+        let rendered = crate::tui::render::render_frame(&state, 140, 40);
+        assert!(rendered.contains("tab agents"));
+        assert!(rendered.contains("ctrl+p commands"));
+
+        let mut controller = TuiInputController::default();
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)),
+            (140, 40),
+        )
+        .expect("command shortcut");
+        assert_eq!(state.input, "/");
+        assert!(is_command_palette_visible(&state));
+
+        let mut agent_state = TuiState {
+            lanes: TerminalLane::preview_lanes(),
+            ..TuiState::default()
+        };
+        handle_ui_event(
+            &mut driver,
+            &mut agent_state,
+            &mut controller,
+            Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+            (140, 40),
+        )
+        .expect("agent shortcut");
+        assert_eq!(agent_state.focused_lane.as_deref(), Some("L1"));
     }
 
     #[test]
@@ -1440,6 +1460,56 @@ mod tests {
     }
 
     #[test]
+    fn typed_done_review_and_blocked_lanes_project_into_rendered_statuses() {
+        let mut lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed-lanes shared fixture");
+        lanes.truncate(3);
+        for (lane, (id, status, summary)) in lanes.iter_mut().zip([
+            ("L-done", LaneStatus::Done, "result ready"),
+            ("L-review", LaneStatus::WaitingApproval, "approval pending"),
+            ("L-blocked", LaneStatus::Blocked, "dependency blocker"),
+        ]) {
+            lane.id = id.to_string();
+            lane.status = status;
+            lane.summary = summary.to_string();
+            lane.worktree = None;
+        }
+        let snapshot = RuntimeSnapshot {
+            cwd: PathBuf::from("workspace/viden"),
+            provider_family: "fallback".to_string(),
+            model_label: "test-local".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: "typed lane rendering".to_string(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: Default::default(),
+        };
+        let mut view = RuntimeViewState::new(snapshot);
+        view.lanes = lanes;
+        let driver = TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport {
+            view: Some(view),
+            ..FakeCoreTransport::default()
+        }))
+        .expect("connect");
+        let state = state_from_driver(&driver, &TuiOptions::new("startup"));
+
+        let rendered = crate::tui::render::render_side_frame(&state, 100, 70);
+
+        assert!(rendered.contains("L-done"));
+        assert!(rendered.contains("[done]"));
+        assert!(rendered.contains("L-review"));
+        assert!(rendered.contains("[review]"));
+        assert!(rendered.contains("pending approval"));
+        assert!(rendered.contains("L-blocked"));
+        assert!(rendered.contains("[blocked]"));
+        assert!(rendered.contains("blocker"));
+    }
+
+    #[test]
     fn release_manifest_declares_requested_and_effective_presentation_inputs() {
         let manifest = include_str!("../../release-manifest.toml");
 
@@ -1457,6 +1527,7 @@ mod tests {
             manifest
                 .contains("effective_tui_color_depth = [\"truecolor\", \"ansi256\", \"ansi16\"]")
         );
+        assert!(manifest.contains("mouse_capture = false"));
     }
 
     #[test]

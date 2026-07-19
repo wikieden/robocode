@@ -1335,6 +1335,7 @@ mod tests {
         assert!(rendered.contains("[Approve (y)]"));
         assert!(rendered.contains("[Deny (n)]"));
         assert!(rendered.contains("[Diff]"));
+        assert!(!rendered.contains("click"));
         assert!(rendered.contains("MODE [Build]"));
         assert!(rendered.contains("PERM [Ask]"));
     }

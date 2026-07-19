@@ -15,6 +15,7 @@ pub(super) enum InputIntent {
     CloseOverlay,
     CancelCurrentWork,
     OpenCommandPalette,
+    CycleAgentFocus,
     ContextHelp,
     Exit,
     InsertChar(char),
@@ -32,8 +33,12 @@ pub(super) fn reduce_input(mode: InputMode, key: KeyEvent, has_active_work: bool
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         return InputIntent::CancelCurrentWork;
     }
-    if key.code == KeyCode::Char('k') && key.modifiers.contains(KeyModifiers::CONTROL) {
+    if matches!(key.code, KeyCode::Char('k' | 'p')) && key.modifiers.contains(KeyModifiers::CONTROL)
+    {
         return InputIntent::OpenCommandPalette;
+    }
+    if key.code == KeyCode::Tab && mode != InputMode::Overlay {
+        return InputIntent::CycleAgentFocus;
     }
     match key.code {
         KeyCode::PageUp => return InputIntent::Scroll(12),
@@ -118,6 +123,7 @@ mod tests {
     fn global_cancel_and_navigation_pierce_all_modes() {
         let cancel = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         let palette = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL);
+        let advertised_palette = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL);
         for mode in [InputMode::Normal, InputMode::Insert, InputMode::Overlay] {
             assert_eq!(
                 reduce_input(mode, cancel, true),
@@ -125,6 +131,10 @@ mod tests {
             );
             assert_eq!(
                 reduce_input(mode, palette, false),
+                InputIntent::OpenCommandPalette
+            );
+            assert_eq!(
+                reduce_input(mode, advertised_palette, false),
                 InputIntent::OpenCommandPalette
             );
         }
@@ -155,6 +165,22 @@ mod tests {
         assert_eq!(
             reduce_input(InputMode::Normal, key(KeyCode::Esc), false),
             InputIntent::Exit
+        );
+    }
+
+    #[test]
+    fn tab_cycles_agents_until_an_overlay_owns_selection() {
+        assert_eq!(
+            reduce_input(InputMode::Normal, key(KeyCode::Tab), false),
+            InputIntent::CycleAgentFocus
+        );
+        assert_eq!(
+            reduce_input(InputMode::Insert, key(KeyCode::Tab), false),
+            InputIntent::CycleAgentFocus
+        );
+        assert_eq!(
+            reduce_input(InputMode::Overlay, key(KeyCode::Tab), false),
+            InputIntent::CompleteSelection
         );
     }
 }

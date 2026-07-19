@@ -5,10 +5,7 @@ use std::{
 
 use crossterm::{
     SynchronizedUpdate, cursor,
-    event::{
-        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
-        EnableFocusChange, EnableMouseCapture,
-    },
+    event::{DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange},
     execute, queue,
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
@@ -62,7 +59,6 @@ impl TerminalGuard {
         if let Err(err) = execute!(
             stdout,
             EnterAlternateScreen,
-            EnableMouseCapture,
             EnableBracketedPaste,
             EnableFocusChange,
             cursor_style(motion),
@@ -227,7 +223,6 @@ impl TerminalGuard {
             cursor::Show,
             DisableFocusChange,
             DisableBracketedPaste,
-            DisableMouseCapture,
             LeaveAlternateScreen
         )
         .map_err(|err| err.to_string())?;

@@ -4,7 +4,10 @@ pub(super) fn status_badge(status: &str) -> &'static str {
     match status {
         "running" => "[in_prog]",
         "queued" => "[pending]",
-        "completed" => "[done]",
+        "completed" | "done" => "[done]",
+        "waiting_approval" => "[review]",
+        "needs_input" => "[input]",
+        "blocked" => "[blocked]",
         "failed" => "[failed]",
         "accepted" => "[accepted]",
         "revise" => "[revise]",
@@ -76,11 +79,24 @@ pub(super) fn lane_next_action(lane: &TerminalLane) -> String {
             interaction_hint(lane),
             lane.id
         ),
-        "completed" if lane.worktree.is_some() => format!(
+        "completed" | "done" if lane.worktree.is_some() => format!(
             "review changes, then `/lane accept {}` or `/lane revise {} <notes>`",
             lane.id, lane.id
         ),
-        "completed" => format!("review evidence, then `/lane archive {}`", lane.id),
+        "completed" | "done" => {
+            format!("review evidence, then `/lane archive {}`", lane.id)
+        }
+        "waiting_approval" => {
+            "review the pending approval and respond from the approval overlay".to_string()
+        }
+        "needs_input" => format!(
+            "provide requested input with `{}` or inspect the lane evidence",
+            interaction_hint(lane)
+        ),
+        "blocked" => format!(
+            "inspect the blocker and evidence, then revise or cancel lane `{}` from Core",
+            lane.id
+        ),
         "failed" => format!(
             "review the tail, then `/lane revise {} <notes>` or `/lane discard {} <reason>`",
             lane.id, lane.id
@@ -116,5 +132,38 @@ pub(super) fn lane_next_action(lane: &TerminalLane) -> String {
             "inspect artifacts, then decide with `/lane accept {}`",
             lane.id
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    fn lane(status: &str, worktree: Option<&str>) -> TerminalLane {
+        TerminalLane {
+            id: "L-core".to_string(),
+            tool: "coder".to_string(),
+            title: "typed lane".to_string(),
+            status: status.to_string(),
+            target: "terminal/local".to_string(),
+            progress: 0,
+            summary: "typed status".to_string(),
+            worktree: worktree.map(PathBuf::from),
+        }
+    }
+
+    #[test]
+    fn typed_lane_statuses_have_stable_badges_and_next_actions() {
+        assert_eq!(status_badge("done"), "[done]");
+        assert_eq!(status_badge("completed"), "[done]");
+        assert_eq!(status_badge("waiting_approval"), "[review]");
+        assert_eq!(status_badge("blocked"), "[blocked]");
+
+        assert!(lane_next_action(&lane("done", None)).contains("archive"));
+        assert!(lane_next_action(&lane("done", Some(".worktrees/L-core"))).contains("accept"));
+        assert!(lane_next_action(&lane("waiting_approval", None)).contains("approval"));
+        assert!(lane_next_action(&lane("blocked", None)).contains("blocker"));
     }
 }

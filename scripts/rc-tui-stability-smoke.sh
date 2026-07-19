@@ -69,6 +69,14 @@ cargo_test_with_match() {
   fi
 }
 
+mouse_capture_default_is_disabled() {
+  if rg -q 'EnableMouseCapture|DisableMouseCapture' apps/tui/src/tui/terminal.rs; then
+    printf 'terminal default path must not enable mouse capture\n' >&2
+    return 1
+  fi
+  rg -q '^mouse_capture = false$' apps/tui/release-manifest.toml
+}
+
 record "# Viden RC TUI Stability Smoke"
 record ""
 record "- Evidence directory: \`$OUT_DIR\`"
@@ -78,6 +86,9 @@ record "## Guardrail Results"
 run_step "terminal-redraw-and-residue-tests" cargo test -p viden-tui tui::terminal::tests -- --nocapture
 run_cargo_test "fake-slow-provider-nonblocking" runtime_provider_turn_starts_without_blocking_ui_thread
 run_cargo_test "approval-nonblocking" active_approval_does_not_swallow_composer_typing
+run_cargo_test "typed-lane-projection-render" typed_done_review_and_blocked_lanes_project_into_rendered_statuses
+run_cargo_test "shortcut-hint-consistency" rendered_shortcut_hints_match_command_and_agent_handlers
+run_step "mouse-capture-default-off" mouse_capture_default_is_disabled
 run_cargo_test "streaming-scrollback" streaming_delta_does_not_steal_scrollback_when_user_scrolled_up
 run_cargo_test "focus-paste-repaint-policy" focus_and_paste_events_force_repaint_without_becoming_input
 run_cargo_test "composer-residue-filter" composer_discards_terminal_escape_residue_instead_of_rendering_it
