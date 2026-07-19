@@ -287,8 +287,10 @@ pub fn parse_legacy_lanes_tsv(raw: &str) -> Result<Vec<AgentLaneRecord>, String>
 
 #[cfg(test)]
 mod tests {
+    use std::env;
     use std::fs;
     use std::path::PathBuf;
+    use std::process::{Child, Command, Stdio};
     use std::sync::{Arc, Barrier};
     use std::thread;
 
@@ -378,6 +380,207 @@ mod tests {
         );
         assert_eq!(store.load_lane_events().unwrap().len(), 1);
         assert_eq!(store.load_lane_state().unwrap().lanes().len(), 4);
+    }
+
+    #[test]
+    fn cross_process_legacy_import_publishes_one_valid_event() {
+        let home = temp_dir("process_migration_home");
+        let cwd = temp_dir("process_migration_cwd");
+        let legacy_path = cwd.join(".viden").join("lanes.tsv");
+        fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
+        fs::write(&legacy_path, LEGACY_LANES).unwrap();
+        let results = (0..4)
+            .map(|index| cwd.join(format!("import-{index}.result")))
+            .collect::<Vec<_>>();
+        let children = results
+            .iter()
+            .enumerate()
+            .map(|(index, result)| {
+                spawn_lane_store_helper(
+                    "import",
+                    &home,
+                    &cwd,
+                    Some(&legacy_path),
+                    None,
+                    result,
+                    index,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        wait_for_lane_helpers(children);
+
+        let outcomes = results
+            .iter()
+            .map(|path| fs::read_to_string(path).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            outcomes.iter().filter(|value| *value == "imported").count(),
+            1
+        );
+        assert_eq!(
+            outcomes.iter().filter(|value| *value == "existing").count(),
+            3
+        );
+        let store = WorkflowStore::new(&home, &cwd).unwrap();
+        assert_eq!(store.load_lane_events().unwrap().len(), 1);
+        assert_eq!(store.load_lane_state().unwrap().lanes().len(), 4);
+    }
+
+    #[test]
+    fn cross_process_checked_create_rejects_duplicate_lane_atomically() {
+        let home = temp_dir("process_duplicate_home");
+        let cwd = temp_dir("process_duplicate_cwd");
+        let results = [
+            cwd.join("duplicate-a.result"),
+            cwd.join("duplicate-b.result"),
+        ];
+        let children = results
+            .iter()
+            .enumerate()
+            .map(|(index, result)| {
+                spawn_lane_store_helper(
+                    "create",
+                    &home,
+                    &cwd,
+                    None,
+                    Some("lane_duplicate"),
+                    result,
+                    index,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        wait_for_lane_helpers(children);
+
+        let outcomes = results
+            .iter()
+            .map(|path| fs::read_to_string(path).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            outcomes.iter().filter(|value| *value == "created").count(),
+            1
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|value| value.starts_with("rejected:"))
+                .count(),
+            1
+        );
+        let store = WorkflowStore::new(&home, &cwd).unwrap();
+        assert_eq!(store.load_lane_events().unwrap().len(), 1);
+        assert_eq!(store.load_lane_state().unwrap().lanes().len(), 1);
+    }
+
+    #[test]
+    fn cross_process_first_checked_appends_preserve_both_events() {
+        let home = temp_dir("process_first_append_home");
+        let cwd = temp_dir("process_first_append_cwd");
+        let results = [cwd.join("first-a.result"), cwd.join("first-b.result")];
+        let lane_ids = ["lane_first_a", "lane_first_b"];
+        let children = results
+            .iter()
+            .zip(lane_ids)
+            .enumerate()
+            .map(|(index, (result, lane_id))| {
+                spawn_lane_store_helper("create", &home, &cwd, None, Some(lane_id), result, index)
+            })
+            .collect::<Vec<_>>();
+
+        wait_for_lane_helpers(children);
+
+        assert!(
+            results
+                .iter()
+                .all(|path| fs::read_to_string(path).unwrap() == "created")
+        );
+        let store = WorkflowStore::new(&home, &cwd).unwrap();
+        assert_eq!(store.load_lane_events().unwrap().len(), 2);
+        assert_eq!(store.load_lane_state().unwrap().lanes().len(), 2);
+    }
+
+    #[test]
+    fn lane_store_process_helper() {
+        let Ok(case) = env::var("VIDEN_LANE_STORE_HELPER") else {
+            return;
+        };
+        let home = PathBuf::from(env::var_os("VIDEN_LANE_HOME").unwrap());
+        let cwd = PathBuf::from(env::var_os("VIDEN_LANE_CWD").unwrap());
+        let result_path = PathBuf::from(env::var_os("VIDEN_LANE_RESULT").unwrap());
+        let index = env::var("VIDEN_LANE_INDEX")
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        let store = WorkflowStore::new(home, &cwd).unwrap();
+        let result = match case.as_str() {
+            "import" => {
+                let legacy_path = PathBuf::from(env::var_os("VIDEN_LANE_LEGACY").unwrap());
+                match store.import_legacy_lanes_tsv_once(
+                    legacy_path,
+                    100 + index,
+                    Some(format!("session_process_{index}")),
+                ) {
+                    Ok(outcome) if outcome.imported => "imported".to_string(),
+                    Ok(_) => "existing".to_string(),
+                    Err(error) => format!("error:{error}"),
+                }
+            }
+            "create" => {
+                let lane_id = env::var("VIDEN_LANE_ID").unwrap();
+                let mut lane = parse_legacy_lanes_tsv(LEGACY_LANES).unwrap()[0].clone();
+                lane.id = lane_id.clone();
+                lane.task_id = Some(format!("task_{lane_id}"));
+                let event = LaneEvent::created(
+                    format!("event_{lane_id}_{index}"),
+                    lane,
+                    100 + index,
+                    Some(format!("session_process_{index}")),
+                );
+                match store.append_lane_event_checked(&event) {
+                    Ok(()) => "created".to_string(),
+                    Err(error) => format!("rejected:{error}"),
+                }
+            }
+            other => panic!("unknown lane store helper case {other}"),
+        };
+        fs::write(result_path, result).unwrap();
+    }
+
+    fn spawn_lane_store_helper(
+        case: &str,
+        home: &PathBuf,
+        cwd: &PathBuf,
+        legacy_path: Option<&PathBuf>,
+        lane_id: Option<&str>,
+        result_path: &PathBuf,
+        index: usize,
+    ) -> Child {
+        let mut command = Command::new(env::current_exe().unwrap());
+        command
+            .arg("--exact")
+            .arg("lanes::tests::lane_store_process_helper")
+            .arg("--nocapture")
+            .env("VIDEN_LANE_STORE_HELPER", case)
+            .env("VIDEN_LANE_HOME", home)
+            .env("VIDEN_LANE_CWD", cwd)
+            .env("VIDEN_LANE_RESULT", result_path)
+            .env("VIDEN_LANE_INDEX", index.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Some(path) = legacy_path {
+            command.env("VIDEN_LANE_LEGACY", path);
+        }
+        if let Some(lane_id) = lane_id {
+            command.env("VIDEN_LANE_ID", lane_id);
+        }
+        command.spawn().unwrap()
+    }
+
+    fn wait_for_lane_helpers(children: Vec<Child>) {
+        for mut child in children {
+            assert!(child.wait().unwrap().success());
+        }
     }
 
     #[test]

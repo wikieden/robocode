@@ -4,7 +4,7 @@ use crate::presentation::{
 };
 use std::path::Path;
 use std::process::Command;
-use viden_types::{SessionSummary, truncate_for_preview};
+use viden_types::SessionSummary;
 
 impl SessionEngine {
     pub(super) fn render_help(&self) -> String {
@@ -365,12 +365,12 @@ fn render_workflow_status(workflows: &WorkflowStore) -> Vec<String> {
 fn render_lane_status(workflows: &WorkflowStore) -> Vec<String> {
     let state = match workflows.load_lane_state() {
         Ok(state) => state,
-        Err(error) => {
+        Err(_) => {
             return vec![
                 "Lanes:".to_string(),
                 format!(
                     "  Active lanes: <unavailable: {}>",
-                    truncate_for_preview(&error, 240)
+                    LANE_STATE_UNAVAILABLE_MESSAGE
                 ),
             ];
         }

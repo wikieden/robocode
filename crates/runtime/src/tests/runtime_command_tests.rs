@@ -3,7 +3,9 @@ use std::{fs, path::Path};
 
 use crate::{DependencyStatus, DoctorReport, EngineEvent, SessionEngine};
 use viden_provider::ProviderHost;
+use viden_types::LaneStatus;
 use viden_types::{AgentTaskKind, AgentTaskStatus, ApprovalResponse, PermissionMode, WorkMode};
+use viden_workflows::lanes::LaneEvent;
 use viden_workflows::stores::WorkflowStore;
 
 use super::{SequenceProvider, temp_dir};
@@ -192,7 +194,20 @@ fn status_command_reports_corrupt_lane_store_reason() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
     let store = WorkflowStore::new(&home, &cwd).unwrap();
-    fs::write(&store.paths().lanes_log, "{not-json}\n").unwrap();
+    let secret = "customer-secret-lane";
+    let invalid_event = LaneEvent::status_changed(
+        "evt_secret_lane",
+        secret,
+        LaneStatus::Running,
+        "must not leak",
+        10,
+        None,
+    );
+    fs::write(
+        &store.paths().lanes_log,
+        format!("{}\n", serde_json::to_string(&invalid_event).unwrap()),
+    )
+    .unwrap();
     let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
@@ -204,7 +219,8 @@ fn status_command_reports_corrupt_lane_store_reason() {
         EngineEvent::Command(text)
             if text.contains("Lanes:")
                 && text.contains("Active lanes: <unavailable:")
-                && text.contains("line 1 column")
+                && text.contains("invalid or unreadable lane event log")
+                && !text.contains(secret)
     )));
 }
 

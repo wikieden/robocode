@@ -52,6 +52,7 @@ use viden_types::{
 use viden_workflows::stores::WorkflowStore;
 
 const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
+const LANE_STATE_UNAVAILABLE_MESSAGE: &str = "invalid or unreadable lane event log";
 
 pub(crate) type RuntimeEventSink = Arc<dyn Fn(Vec<RuntimeEvent>) + Send + Sync + 'static>;
 

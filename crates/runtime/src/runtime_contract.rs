@@ -1123,13 +1123,13 @@ impl SessionEngine {
                     ));
                 }
             }
-            Err(error) => events.push(RuntimeEvent::new(
+            Err(_) => events.push(RuntimeEvent::new(
                 next_sequence(&events),
                 RuntimeEventKind::Error {
                     error: RuntimeErrorView {
                         message: format!(
                             "lane_state_unavailable: {}",
-                            truncate_for_preview(&error, 240)
+                            crate::LANE_STATE_UNAVAILABLE_MESSAGE
                         ),
                         recoverable: true,
                         hint: Some("Repair or restore the project's lanes.jsonl log.".to_string()),

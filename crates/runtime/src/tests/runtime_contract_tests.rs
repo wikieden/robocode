@@ -17,6 +17,7 @@ use viden_types::{
     RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, TranscriptEntry,
     TranscriptPageRequest, WorkMode,
 };
+use viden_workflows::lanes::LaneEvent;
 use viden_workflows::stores::{WorkflowAgentEvent, WorkflowStore};
 
 use crate::{
@@ -4126,7 +4127,20 @@ fn runtime_view_state_reports_corrupt_lane_store() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
     let workflow_store = WorkflowStore::new(&home, &cwd).unwrap();
-    fs::write(&workflow_store.paths().lanes_log, "{not-json}\n").unwrap();
+    let secret = "customer-secret-lane";
+    let invalid_event = LaneEvent::status_changed(
+        "evt_secret_lane",
+        secret,
+        LaneStatus::Running,
+        "must not leak",
+        10,
+        None,
+    );
+    fs::write(
+        &workflow_store.paths().lanes_log,
+        format!("{}\n", serde_json::to_string(&invalid_event).unwrap()),
+    )
+    .unwrap();
 
     let view = engine.runtime_view_state();
 
@@ -4135,6 +4149,11 @@ fn runtime_view_state_reports_corrupt_lane_store() {
             && error.message.contains("lane_state_unavailable")
             && error.hint.as_deref() == Some("Repair or restore the project's lanes.jsonl log.")
     }));
+    assert!(
+        view.errors
+            .iter()
+            .all(|error| !error.message.contains(secret))
+    );
 }
 
 #[test]
