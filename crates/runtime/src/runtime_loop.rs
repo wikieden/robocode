@@ -96,9 +96,13 @@ impl SessionEngine {
         self.store_entry(TranscriptEntry::Message {
             message: user_message,
         })?;
+        #[cfg(test)]
+        let context_build_started = Instant::now();
         let built_context_bundle = built_context_bundle.unwrap_or_else(|| {
             self.build_main_context_bundle_with_mode(trimmed, ContextBuildMode::Normal)
         });
+        #[cfg(test)]
+        let context_build_elapsed = context_build_started.elapsed();
         let mut context_bundle = built_context_bundle.bundle;
         self.last_context_runtime_events = built_context_bundle.events;
         self.last_context_bundle = Some(context_bundle.clone());
@@ -120,17 +124,24 @@ impl SessionEngine {
         self.upsert_agent_task(provider_task.clone());
 
         let mut retried_request_too_large = false;
+        let mut provider_retry_count = 0_u64;
         for attempt_index in 0..8 {
             provider_task.status = AgentTaskStatus::Thinking.as_str().to_string();
             provider_task.activity = "waiting for provider response".to_string();
             provider_task.progress = provider_task.progress.max(20);
             provider_task.updated_at = Some(now_millis());
             self.upsert_agent_task(provider_task.clone());
-            let request_messages = if retried_request_too_large {
-                build_provider_retry_request_messages(&self.messages, &context_bundle)
-            } else {
-                build_provider_request_messages(&self.messages, &context_bundle)
-            };
+            let request_messages = self.build_provider_request_messages_for_current_mode(
+                &context_bundle,
+                retried_request_too_large,
+            );
+            #[cfg(test)]
+            self.record_context_benchmark_metrics_for_test(
+                &request_messages,
+                &context_bundle,
+                context_build_elapsed,
+                provider_retry_count,
+            );
             let request = ModelRequest {
                 session_id: self.session_id().to_string(),
                 model: self.provider.model().to_string(),
@@ -176,6 +187,7 @@ impl SessionEngine {
                         && !retried_request_too_large
                     {
                         retried_request_too_large = true;
+                        provider_retry_count = provider_retry_count.saturating_add(1);
                         let retry_context = self.materialize_existing_context_bundle(
                             &context_bundle,
                             ContextBuildMode::RequestTooLargeRetry,
@@ -737,6 +749,70 @@ fn now_millis() -> u64 {
     now_timestamp().saturating_mul(1000)
 }
 
+impl SessionEngine {
+    fn build_provider_request_messages_for_current_mode(
+        &self,
+        context_bundle: &ContextBundleRecord,
+        retried_request_too_large: bool,
+    ) -> Vec<Message> {
+        #[cfg(test)]
+        if matches!(
+            self.context_benchmark_projection_mode,
+            Some(crate::ContextBenchmarkProjectionMode::Off)
+        ) {
+            return build_provider_benchmark_baseline_request_messages(&self.messages);
+        }
+
+        if retried_request_too_large {
+            build_provider_retry_request_messages(&self.messages, context_bundle)
+        } else {
+            build_provider_request_messages(&self.messages, context_bundle)
+        }
+    }
+
+    #[cfg(test)]
+    fn record_context_benchmark_metrics_for_test(
+        &mut self,
+        request_messages: &[Message],
+        context_bundle: &ContextBundleRecord,
+        context_build_elapsed: std::time::Duration,
+        retry_count: u64,
+    ) {
+        let Some(mode) = self.context_benchmark_projection_mode else {
+            return;
+        };
+        let request_input_chars = total_message_chars(request_messages);
+        let projection_chars = match mode {
+            crate::ContextBenchmarkProjectionMode::On => {
+                render_provider_context_message(context_bundle)
+                    .chars()
+                    .count()
+            }
+            crate::ContextBenchmarkProjectionMode::Off => 0,
+        };
+        let raw_baseline_chars = total_message_chars(
+            &build_provider_benchmark_baseline_request_messages(&self.messages),
+        )
+        .max(1);
+        let compression_ratio = match mode {
+            crate::ContextBenchmarkProjectionMode::Off => 1.0,
+            crate::ContextBenchmarkProjectionMode::On => {
+                request_input_chars as f64 / raw_baseline_chars as f64
+            }
+        };
+        self.last_context_benchmark_metrics = Some(crate::ContextBenchmarkMetrics {
+            request_input_chars,
+            projection_chars,
+            raw_baseline_chars,
+            context_event_count: self.last_context_runtime_events.len(),
+            retrieval_count: context_bundle.sources.len(),
+            retry_count,
+            compression_ratio,
+            bundle_build_ms: context_build_elapsed.as_millis(),
+        });
+    }
+}
+
 fn build_provider_request_messages(
     transcript: &[Message],
     context_bundle: &ContextBundleRecord,
@@ -747,6 +823,11 @@ fn build_provider_request_messages(
         ProviderRequestLimits::normal(),
         false,
     )
+}
+
+#[cfg(test)]
+fn build_provider_benchmark_baseline_request_messages(transcript: &[Message]) -> Vec<Message> {
+    fit_provider_request_budget(transcript.to_vec(), PROVIDER_REQUEST_CHAR_BUDGET)
 }
 
 fn build_provider_retry_request_messages(

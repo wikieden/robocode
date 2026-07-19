@@ -69,14 +69,17 @@ if [[ -z "$FIXTURES" && -z "$PROVIDER" ]]; then
   printf 'either --fixtures or --provider is required\n' >&2
   exit 2
 fi
-if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || [[ "$RUNS" -lt 1 ]]; then
-  printf '--runs must be a positive integer\n' >&2
+if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || [[ "$RUNS" -lt 3 ]]; then
+  printf '%s\n' '--runs must be an integer >= 3' >&2
   exit 2
 fi
 
 mkdir -p "$OUT_DIR/runs"
 
 if [[ -n "$FIXTURES" ]]; then
+  if [[ -d "$FIXTURES/valid/runs" ]]; then
+    FIXTURES="$FIXTURES/valid"
+  fi
   if [[ ! -d "$FIXTURES/runs" ]]; then
     printf 'fixture runs directory not found: %s/runs\n' "$FIXTURES" >&2
     exit 2
@@ -109,31 +112,16 @@ source = Path(sys.argv[1])
 target = Path(sys.argv[2])
 mode = sys.argv[3]
 run_index = int(sys.argv[4])
-duration = int(sys.argv[5])
 payload = json.loads(source.read_text(encoding="utf-8"))
-payload.setdefault("prompt_version", "context-benchmark-v1")
 payload["engine_mode"] = mode
 payload["run_index"] = run_index
-payload.setdefault("task_success", True)
-payload.setdefault("test_success", True)
-payload.setdefault("evidence_hashes", ["sha256:math-tools", "sha256:test-math-tools", "sha256:viden-dev-scenario-ok"])
-payload.setdefault("actual_cost_cny", None)
-payload["first_token_latency_ms"] = payload.get("first_token_latency_ms")
-payload["total_latency_ms"] = payload.get("total_latency_ms") or duration * 1000
-payload.setdefault("retrieval_count", 0 if mode == "off" else 1)
-payload.setdefault("retry_count", 0)
-payload.setdefault("compression_ratio", 1.0)
-payload.setdefault("failure_class", "none")
-payload.setdefault("bundle_build_ms", 0 if mode == "off" else 0)
-payload.setdefault("provider_413", False)
-payload.setdefault("permission_bypass", False)
 target.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
     done
   done
 fi
 
-python3 - "$OUT_DIR" <<'PY'
+python3 - "$OUT_DIR" "$RUNS" <<'PY'
 import json
 import math
 import shutil
@@ -141,6 +129,7 @@ import sys
 from pathlib import Path
 
 out_dir = Path(sys.argv[1])
+expected_runs = int(sys.argv[2])
 runs_dir = out_dir / "runs"
 comparison_path = out_dir / "comparison.json"
 summary_path = out_dir / "summary.md"
@@ -164,7 +153,11 @@ required = {
     "actual_cost_cny",
     "first_token_latency_ms",
     "total_latency_ms",
+    "request_input_chars",
+    "projection_chars",
+    "raw_baseline_chars",
     "retrieval_count",
+    "context_event_count",
     "retry_count",
     "compression_ratio",
     "failure_class",
@@ -228,6 +221,15 @@ for run in runs:
     modes[mode].append(run)
 if not modes["off"] or not modes["on"]:
     fail("missing_cohort", "both engine_mode off and on runs are required")
+if len(modes["off"]) != expected_runs or len(modes["on"]) != expected_runs:
+    fail(
+        "run_count_mismatch",
+        f"expected exactly {expected_runs} runs per cohort, got off={len(modes['off'])} on={len(modes['on'])}",
+    )
+for mode, mode_runs in modes.items():
+    indexes = sorted(int(run["run_index"]) for run in mode_runs)
+    if indexes != list(range(1, expected_runs + 1)):
+        fail("run_index_mismatch", f"{mode} run_index values must be 1..{expected_runs}, got {indexes}")
 
 scenario_keys = {(run["prompt_version"], run["provider"], run["model"], run["scenario"]) for run in runs}
 if len(scenario_keys) != 1:
@@ -250,6 +252,8 @@ if not all_test:
 
 off_evidence = {tuple(sorted(run["evidence_hashes"])) for run in modes["off"]}
 on_evidence = {tuple(sorted(run["evidence_hashes"])) for run in modes["on"]}
+if any(not run["evidence_hashes"] for run in runs):
+    fail("missing_evidence", "each run must include non-empty evidence_hashes")
 if len(off_evidence) != 1 or len(on_evidence) != 1 or off_evidence != on_evidence:
     fail("evidence_mismatch", "required evidence hashes must match across both cohorts")
 
@@ -263,6 +267,21 @@ for run in runs:
         fail("unclassified_failure", f"{run['_file']} reported unclassified failure")
     if failure not in {"", "none", "ok"}:
         fail("failure_class", f"{run['_file']} reported failure_class={run['failure_class']}")
+    if int(run["request_input_chars"]) <= 0:
+        fail("missing_request_metrics", f"{run['_file']} request_input_chars must be positive")
+    if int(run["raw_baseline_chars"]) <= 0:
+        fail("missing_request_metrics", f"{run['_file']} raw_baseline_chars must be positive")
+    if int(run["context_event_count"]) <= 0:
+        fail("missing_context_metrics", f"{run['_file']} context_event_count must be positive")
+    if run["engine_mode"] == "on" and int(run["projection_chars"]) <= 0:
+        fail("missing_projection_metrics", f"{run['_file']} engine-on projection_chars must be positive")
+    if run["engine_mode"] == "off" and int(run["projection_chars"]) != 0:
+        fail("projection_mode_mismatch", f"{run['_file']} engine-off projection_chars must be zero")
+
+off_request_median = median([int(run["request_input_chars"]) for run in modes["off"]])
+on_request_median = median([int(run["request_input_chars"]) for run in modes["on"]])
+if off_request_median == on_request_median:
+    fail("request_metrics_not_distinct", "engine off/on request_input_chars medians must differ")
 
 off_input_median = median([int(run["input_tokens"]) for run in modes["off"]])
 on_input_median = median([int(run["input_tokens"]) for run in modes["on"]])
@@ -277,6 +296,7 @@ comparison = {
     "model": runs[0]["model"],
     "scenario": runs[0]["scenario"],
     "median_input_tokens": {"off": off_input_median, "on": on_input_median},
+    "median_request_input_chars": {"off": off_request_median, "on": on_request_median},
     "median_input_token_reduction_ratio": round(reduction, 6),
     "p95_bundle_build_ms_on": on_bundle_p95,
     "total_tokens": sum(int(run["total_tokens"]) for run in runs),

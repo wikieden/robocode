@@ -127,8 +127,10 @@ run_prepublish() {
   fi
 
   local phase_dir="$OUT_DIR/prepublish"
+  run_or_print scripts/check-task10-guards-test.sh
   run_or_print scripts/context-engine-benchmark.sh \
     --fixtures crates/runtime/src/tests/fixtures/context-benchmark/valid \
+    --runs 3 \
     --out-dir "$phase_dir/context-engine-benchmark-deterministic"
   local -a args=(scripts/release-smoke.sh --version "$VERSION" --out-dir "$phase_dir")
   if [[ -n "$TARGET" ]]; then

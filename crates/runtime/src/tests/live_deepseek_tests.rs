@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-use crate::SessionEngine;
+use crate::{ContextBenchmarkProjectionMode, SessionEngine};
 use sha2::{Digest, Sha256};
 use viden_provider::{ProviderConfig, create_provider};
 use viden_types::{ApprovalResponse, CostScope, RuntimeEventKind, RuntimeViewState};
@@ -25,7 +25,12 @@ fn deepseek_live_development_scenario_creates_and_runs_program() {
         .or_else(|_| std::env::var("DEEPSEEK_API_BASE"))
         .ok();
     let context_engine_mode =
-        std::env::var("VIDEN_CONTEXT_ENGINE").unwrap_or_else(|_| "off".to_string());
+        std::env::var("VIDEN_CONTEXT_ENGINE").unwrap_or_else(|_| "on".to_string());
+    let projection_mode = match context_engine_mode.as_str() {
+        "off" => ContextBenchmarkProjectionMode::Off,
+        "on" => ContextBenchmarkProjectionMode::On,
+        other => panic!("VIDEN_CONTEXT_ENGINE must be off or on, got {other}"),
+    };
     let cwd = temp_dir("deepseek_live_development_workspace");
     let home = temp_dir("deepseek_live_development_home");
     fs::write(
@@ -48,6 +53,10 @@ fn deepseek_live_development_scenario_creates_and_runs_program() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     let smoke_run_id = safe_smoke_run_id();
     engine.set_cost_smoke_run_id_for_test(Some(&smoke_run_id));
+    engine.set_context_benchmark_projection_mode_for_test(projection_mode);
+    engine
+        .seed_context_benchmark_history_for_test("deepseek-live-context-benchmark")
+        .expect("seed benchmark history");
     let mut approver = |_prompt| ApprovalResponse {
         approved: true,
         feedback: None,
@@ -114,6 +123,9 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
     );
 
     let telemetry = engine.provider_telemetry();
+    let benchmark_metrics = engine
+        .context_benchmark_metrics_for_test()
+        .expect("context benchmark metrics");
     let input_tokens = telemetry.total_input_tokens;
     let output_tokens = telemetry.total_output_tokens;
     let cached_input_tokens = telemetry.total_cached_input_tokens;
@@ -160,6 +172,7 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
         price,
         estimated_cost_cny,
         evidence_hashes: &evidence_hashes,
+        benchmark_metrics: &benchmark_metrics,
     });
 
     println!("VIDEN_LIVE_USAGE_JSON={usage_json}");
@@ -226,6 +239,7 @@ struct LiveUsageRender<'a> {
     price: Option<DeepSeekPriceCny>,
     estimated_cost_cny: Option<f64>,
     evidence_hashes: &'a [String],
+    benchmark_metrics: &'a crate::ContextBenchmarkMetrics,
 }
 
 fn render_usage_json(input: LiveUsageRender<'_>) -> String {
@@ -248,7 +262,7 @@ fn render_usage_json(input: LiveUsageRender<'_>) -> String {
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        "{{\"prompt_version\":\"context-benchmark-v1\",\"provider\":\"deepseek\",\"model\":\"{}\",\"smoke_run_id\":\"{}\",\"scenario\":\"python_add_module_with_test\",\"engine_mode\":\"{}\",\"task_success\":true,\"test_success\":true,\"evidence_hashes\":[{}],\"request_count\":{},\"success_count\":{},\"failure_count\":{},\"input_tokens\":{},\"output_tokens\":{},\"cached_input_tokens\":{},\"total_tokens\":{},\"ledger_estimated_micro_usd\":{},\"ledger_actual_micro_usd\":{},\"estimated_cost_cny\":{},\"actual_cost_cny\":null,\"input_cny_per_million_cache_miss\":{},\"output_cny_per_million\":{},\"pricing_basis\":\"deepseek_cache_miss_estimate\",\"first_token_latency_ms\":null,\"total_latency_ms\":null,\"retrieval_count\":0,\"retry_count\":0,\"compression_ratio\":1.0,\"failure_class\":\"none\",\"bundle_build_ms\":0,\"provider_413\":false,\"permission_bypass\":false}}",
+        "{{\"prompt_version\":\"context-benchmark-v1\",\"provider\":\"deepseek\",\"model\":\"{}\",\"smoke_run_id\":\"{}\",\"scenario\":\"python_add_module_with_test\",\"engine_mode\":\"{}\",\"task_success\":true,\"test_success\":true,\"evidence_hashes\":[{}],\"request_count\":{},\"success_count\":{},\"failure_count\":{},\"input_tokens\":{},\"output_tokens\":{},\"cached_input_tokens\":{},\"total_tokens\":{},\"ledger_estimated_micro_usd\":{},\"ledger_actual_micro_usd\":{},\"estimated_cost_cny\":{},\"actual_cost_cny\":null,\"input_cny_per_million_cache_miss\":{},\"output_cny_per_million\":{},\"pricing_basis\":\"deepseek_cache_miss_estimate\",\"first_token_latency_ms\":null,\"total_latency_ms\":{},\"request_input_chars\":{},\"projection_chars\":{},\"raw_baseline_chars\":{},\"retrieval_count\":{},\"context_event_count\":{},\"retry_count\":{},\"compression_ratio\":{},\"failure_class\":\"none\",\"bundle_build_ms\":{},\"provider_413\":false,\"permission_bypass\":false}}",
         json_escape(input.model),
         json_escape(input.smoke_run_id),
         json_escape(input.context_engine_mode),
@@ -270,6 +284,15 @@ fn render_usage_json(input: LiveUsageRender<'_>) -> String {
         estimated_cost,
         input_price,
         output_price,
+        input.telemetry.last_latency_ms.unwrap_or(0),
+        input.benchmark_metrics.request_input_chars,
+        input.benchmark_metrics.projection_chars,
+        input.benchmark_metrics.raw_baseline_chars,
+        input.benchmark_metrics.retrieval_count,
+        input.benchmark_metrics.context_event_count,
+        input.benchmark_metrics.retry_count,
+        input.benchmark_metrics.compression_ratio,
+        input.benchmark_metrics.bundle_build_ms,
     )
 }
 

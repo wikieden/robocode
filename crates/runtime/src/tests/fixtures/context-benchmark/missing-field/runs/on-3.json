@@ -1,1 +1,29 @@
-{"prompt_version":"context-benchmark-v1","provider":"fixture","model":"deterministic","scenario":"python_add_module_with_test","engine_mode":"on","run_index":3,"task_success":true,"test_success":true,"evidence_hashes":["sha256:evidence-a","sha256:evidence-b"],"input_tokens":740,"output_tokens":195,"cached_input_tokens":0,"total_tokens":935,"estimated_cost_cny":0.00113,"actual_cost_cny":null,"first_token_latency_ms":95,"total_latency_ms":710,"retrieval_count":2,"retry_count":0,"compression_ratio":0.755,"failure_class":"none","bundle_build_ms":125,"provider_413":false,"permission_bypass":false}
+{
+  "prompt_version": "context-benchmark-v1",
+  "provider": "fixture",
+  "model": "deterministic",
+  "scenario": "python_add_module_with_test",
+  "engine_mode": "on",
+  "run_index": 3,
+  "task_success": true,
+  "test_success": true,
+  "evidence_hashes": [
+    "sha256:evidence-a",
+    "sha256:evidence-b"
+  ],
+  "input_tokens": 740,
+  "output_tokens": 195,
+  "cached_input_tokens": 0,
+  "total_tokens": 935,
+  "estimated_cost_cny": 0.00113,
+  "actual_cost_cny": null,
+  "first_token_latency_ms": 95,
+  "total_latency_ms": 710,
+  "retrieval_count": 2,
+  "retry_count": 0,
+  "compression_ratio": 0.755,
+  "failure_class": "none",
+  "bundle_build_ms": 125,
+  "provider_413": false,
+  "permission_bypass": false
+}

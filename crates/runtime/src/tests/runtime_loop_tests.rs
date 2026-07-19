@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::runtime_loop::{estimate_provider_cost, price_table};
-use crate::{EngineEvent, SessionEngine};
+use crate::{ContextBenchmarkProjectionMode, EngineEvent, SessionEngine};
 use viden_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
@@ -532,6 +532,76 @@ fn provider_turn_compacts_long_transcript_before_request() {
 }
 
 #[test]
+fn benchmark_projection_mode_materially_changes_provider_request_bytes() {
+    let task = "Use the large fixture history and answer with the current task marker.";
+    let off_request = benchmark_fixture_request_for_mode(ContextBenchmarkProjectionMode::Off);
+    let on_request = benchmark_fixture_request_for_mode(ContextBenchmarkProjectionMode::On);
+    let off_combined = request_text(&off_request);
+    let on_combined = request_text(&on_request);
+
+    assert!(off_combined.contains(task));
+    assert!(on_combined.contains(task));
+    assert!(
+        !off_combined.contains("Viden ContextBundle"),
+        "off cohort must be a raw-history provider request"
+    );
+    assert!(
+        on_combined.contains("Viden ContextBundle"),
+        "on cohort must use ContextBundle projection"
+    );
+    assert_ne!(
+        request_chars(&off_request),
+        request_chars(&on_request),
+        "benchmark cohorts must differ in actual provider request bytes, not just labels"
+    );
+}
+
+#[test]
+fn benchmark_projection_metrics_are_recorded_from_runtime_facts() {
+    let home = temp_dir("benchmark_projection_metrics_home");
+    let cwd = temp_dir("benchmark_projection_metrics_cwd");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingSequenceProvider::new(
+        vec![
+            vec![ModelEvent::AssistantText {
+                content: "seed".to_string(),
+            }],
+            vec![ModelEvent::AssistantText {
+                content: "measured".to_string(),
+            }],
+        ],
+        Arc::clone(&requests),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_context_benchmark_projection_mode_for_test(ContextBenchmarkProjectionMode::On);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+
+    engine
+        .process_input_with_approval("seed history for metrics", &mut approver)
+        .unwrap();
+    engine
+        .process_input_with_approval("measure benchmark metrics", &mut approver)
+        .unwrap();
+
+    let metrics = engine
+        .context_benchmark_metrics_for_test()
+        .expect("benchmark metrics");
+    let actual_request_chars = request_chars(requests.lock().unwrap().last().unwrap());
+    assert_eq!(metrics.request_input_chars, actual_request_chars);
+    assert!(metrics.projection_chars > 0);
+    assert!(metrics.context_event_count > 0);
+    assert!(metrics.retrieval_count > 0);
+    assert_eq!(metrics.retry_count, 0);
+    assert!(
+        metrics.compression_ratio > 0.0,
+        "compression ratio must be derived from request/projection char facts"
+    );
+}
+
+#[test]
 fn provider_turn_retries_request_too_large_with_smaller_context() {
     let home = temp_dir("retry_413_home");
     let cwd = temp_dir("retry_413_cwd");
@@ -719,6 +789,61 @@ fn request_chars(request: &ModelRequest) -> usize {
         .iter()
         .map(|message| message.content.chars().count())
         .sum()
+}
+
+fn request_text(request: &ModelRequest) -> String {
+    request
+        .messages
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn benchmark_fixture_request_for_mode(mode: ContextBenchmarkProjectionMode) -> ModelRequest {
+    let home = temp_dir(&format!("benchmark_projection_{mode:?}_home"));
+    let cwd = temp_dir(&format!("benchmark_projection_{mode:?}_cwd"));
+    fs::write(
+        cwd.join("large-history.md"),
+        (0..80)
+            .map(|index| format!("fixture-history-{index}: {}\n", "context ".repeat(80)))
+            .collect::<String>(),
+    )
+    .unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Box::new(RecordingSequenceProvider::new(
+        vec![
+            vec![ModelEvent::AssistantText {
+                content: format!("seeded {}", "assistant ".repeat(500)),
+            }],
+            vec![ModelEvent::AssistantText {
+                content: "done".to_string(),
+            }],
+        ],
+        Arc::clone(&requests),
+    ));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_context_benchmark_projection_mode_for_test(mode);
+    let mut approver = |_prompt| ApprovalResponse {
+        approved: true,
+        feedback: None,
+    };
+    engine
+        .process_input_with_approval(
+            &format!(
+                "Seed controlled large fixture history {}",
+                "older-request ".repeat(600)
+            ),
+            &mut approver,
+        )
+        .unwrap();
+    engine
+        .process_input_with_approval(
+            "Use the large fixture history and answer with the current task marker.",
+            &mut approver,
+        )
+        .unwrap();
+    requests.lock().unwrap().last().unwrap().clone()
 }
 
 #[test]

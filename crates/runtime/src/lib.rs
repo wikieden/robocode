@@ -158,6 +158,26 @@ pub struct ProviderTelemetry {
     pub total_cost_micro_usd: Option<u64>,
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContextBenchmarkProjectionMode {
+    Off,
+    On,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ContextBenchmarkMetrics {
+    pub(crate) request_input_chars: usize,
+    pub(crate) projection_chars: usize,
+    pub(crate) raw_baseline_chars: usize,
+    pub(crate) context_event_count: usize,
+    pub(crate) retrieval_count: usize,
+    pub(crate) retry_count: u64,
+    pub(crate) compression_ratio: f64,
+    pub(crate) bundle_build_ms: u128,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestEvidence {
     pub command: String,
@@ -286,6 +306,10 @@ pub struct SessionEngine {
     context_reducer_descriptor: Option<ContextReducerDescriptor>,
     context_reducer_breaker: RefCell<ContextReducerCircuitBreaker>,
     #[cfg(test)]
+    context_benchmark_projection_mode: Option<ContextBenchmarkProjectionMode>,
+    #[cfg(test)]
+    last_context_benchmark_metrics: Option<ContextBenchmarkMetrics>,
+    #[cfg(test)]
     context_reducer_test_behavior: Option<ContextReducerTestBehavior>,
     #[cfg(test)]
     fail_next_workflow_append: Cell<bool>,
@@ -394,6 +418,10 @@ impl SessionEngine {
             context_reducer_descriptor: None,
             context_reducer_breaker: RefCell::new(ContextReducerCircuitBreaker::default()),
             #[cfg(test)]
+            context_benchmark_projection_mode: None,
+            #[cfg(test)]
+            last_context_benchmark_metrics: None,
+            #[cfg(test)]
             context_reducer_test_behavior: None,
             #[cfg(test)]
             fail_next_workflow_append: Cell::new(false),
@@ -482,6 +510,47 @@ impl SessionEngine {
     #[cfg(test)]
     pub(crate) fn set_cost_smoke_run_id_for_test(&mut self, smoke_run_id: Option<&str>) {
         self.cost_smoke_run_id = smoke_run_id.and_then(bounded_cost_id);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_context_benchmark_projection_mode_for_test(
+        &mut self,
+        mode: ContextBenchmarkProjectionMode,
+    ) {
+        self.context_benchmark_projection_mode = Some(mode);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn context_benchmark_metrics_for_test(&self) -> Option<ContextBenchmarkMetrics> {
+        self.last_context_benchmark_metrics.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn seed_context_benchmark_history_for_test(
+        &mut self,
+        marker: &str,
+    ) -> Result<(), String> {
+        for index in 0..12 {
+            let user = Message::new(
+                viden_types::Role::User,
+                format!(
+                    "benchmark history user {index} {marker} {}",
+                    "raw-context ".repeat(240)
+                ),
+            );
+            self.messages.push(user.clone());
+            self.store_entry(viden_types::TranscriptEntry::Message { message: user })?;
+            let assistant = Message::new(
+                viden_types::Role::Assistant,
+                format!(
+                    "benchmark history assistant {index} {marker} {}",
+                    "projected-answer ".repeat(180)
+                ),
+            );
+            self.messages.push(assistant.clone());
+            self.store_entry(viden_types::TranscriptEntry::Message { message: assistant })?;
+        }
+        Ok(())
     }
 
     #[cfg(test)]
