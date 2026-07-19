@@ -2,6 +2,7 @@ use std::fs;
 use std::process::Command;
 
 use crate::SessionEngine;
+use sha2::{Digest, Sha256};
 use viden_provider::{ProviderConfig, create_provider};
 use viden_types::{ApprovalResponse, CostScope, RuntimeEventKind, RuntimeViewState};
 
@@ -23,6 +24,8 @@ fn deepseek_live_development_scenario_creates_and_runs_program() {
     let api_base = std::env::var("VIDEN_LIVE_DEEPSEEK_API_BASE")
         .or_else(|_| std::env::var("DEEPSEEK_API_BASE"))
         .ok();
+    let context_engine_mode =
+        std::env::var("VIDEN_CONTEXT_ENGINE").unwrap_or_else(|_| "off".to_string());
     let cwd = temp_dir("deepseek_live_development_workspace");
     let home = temp_dir("deepseek_live_development_home");
     fs::write(
@@ -79,6 +82,11 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
     let test_path = cwd.join("test_math_tools.py");
     let math_source = fs::read_to_string(&math_path).expect("math_tools.py should exist");
     let test_source = fs::read_to_string(&test_path).expect("test_math_tools.py should exist");
+    let evidence_hashes = vec![
+        sha256_evidence("math_tools.py", math_source.as_bytes()),
+        sha256_evidence("test_math_tools.py", test_source.as_bytes()),
+        sha256_evidence("test-output", b"viden-dev-scenario-ok"),
+    ];
     assert!(
         math_source.contains("def add") && math_source.contains("a + b"),
         "unexpected math_tools.py:\n{math_source}"
@@ -143,14 +151,16 @@ Use the available write_file tool for both files. Then run `python3 test_math_to
             price.output_per_million,
         )
     });
-    let usage_json = render_usage_json(
-        &model,
-        &smoke_run_id,
-        &telemetry,
-        &view,
+    let usage_json = render_usage_json(LiveUsageRender {
+        model: &model,
+        smoke_run_id: &smoke_run_id,
+        context_engine_mode: &context_engine_mode,
+        telemetry: &telemetry,
+        view: &view,
         price,
         estimated_cost_cny,
-    );
+        evidence_hashes: &evidence_hashes,
+    });
 
     println!("VIDEN_LIVE_USAGE_JSON={usage_json}");
     println!(
@@ -207,36 +217,53 @@ fn estimate_cost_cny(
         / 1_000_000.0
 }
 
-fn render_usage_json(
-    model: &str,
-    smoke_run_id: &str,
-    telemetry: &crate::ProviderTelemetry,
-    view: &RuntimeViewState,
+struct LiveUsageRender<'a> {
+    model: &'a str,
+    smoke_run_id: &'a str,
+    context_engine_mode: &'a str,
+    telemetry: &'a crate::ProviderTelemetry,
+    view: &'a RuntimeViewState,
     price: Option<DeepSeekPriceCny>,
     estimated_cost_cny: Option<f64>,
-) -> String {
-    let estimated_cost = estimated_cost_cny
+    evidence_hashes: &'a [String],
+}
+
+fn render_usage_json(input: LiveUsageRender<'_>) -> String {
+    let estimated_cost = input
+        .estimated_cost_cny
         .map(|cost| format!("{cost:.8}"))
         .unwrap_or_else(|| "null".to_string());
-    let input_price = price
+    let input_price = input
+        .price
         .map(|price| price.input_cache_miss_per_million.to_string())
         .unwrap_or_else(|| "null".to_string());
-    let output_price = price
+    let output_price = input
+        .price
         .map(|price| price.output_per_million.to_string())
         .unwrap_or_else(|| "null".to_string());
+    let evidence_json = input
+        .evidence_hashes
+        .iter()
+        .map(|hash| format!("\"{}\"", json_escape(hash)))
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
-        "{{\"provider\":\"deepseek\",\"model\":\"{}\",\"smoke_run_id\":\"{}\",\"scenario\":\"python_add_module_with_test\",\"request_count\":{},\"success_count\":{},\"failure_count\":{},\"input_tokens\":{},\"output_tokens\":{},\"cached_input_tokens\":{},\"total_tokens\":{},\"ledger_estimated_micro_usd\":{},\"ledger_actual_micro_usd\":{},\"estimated_cost_cny\":{},\"input_cny_per_million_cache_miss\":{},\"output_cny_per_million\":{},\"pricing_basis\":\"deepseek_cache_miss_estimate\"}}",
-        json_escape(model),
-        json_escape(smoke_run_id),
-        telemetry.request_count,
-        telemetry.success_count,
-        telemetry.failure_count,
-        telemetry.total_input_tokens,
-        telemetry.total_output_tokens,
-        telemetry.total_cached_input_tokens,
-        telemetry.total_tokens,
-        view.cost_ledger.total_estimated_cost_micro_usd,
-        view.cost_ledger
+        "{{\"prompt_version\":\"context-benchmark-v1\",\"provider\":\"deepseek\",\"model\":\"{}\",\"smoke_run_id\":\"{}\",\"scenario\":\"python_add_module_with_test\",\"engine_mode\":\"{}\",\"task_success\":true,\"test_success\":true,\"evidence_hashes\":[{}],\"request_count\":{},\"success_count\":{},\"failure_count\":{},\"input_tokens\":{},\"output_tokens\":{},\"cached_input_tokens\":{},\"total_tokens\":{},\"ledger_estimated_micro_usd\":{},\"ledger_actual_micro_usd\":{},\"estimated_cost_cny\":{},\"actual_cost_cny\":null,\"input_cny_per_million_cache_miss\":{},\"output_cny_per_million\":{},\"pricing_basis\":\"deepseek_cache_miss_estimate\",\"first_token_latency_ms\":null,\"total_latency_ms\":null,\"retrieval_count\":0,\"retry_count\":0,\"compression_ratio\":1.0,\"failure_class\":\"none\",\"bundle_build_ms\":0,\"provider_413\":false,\"permission_bypass\":false}}",
+        json_escape(input.model),
+        json_escape(input.smoke_run_id),
+        json_escape(input.context_engine_mode),
+        evidence_json,
+        input.telemetry.request_count,
+        input.telemetry.success_count,
+        input.telemetry.failure_count,
+        input.telemetry.total_input_tokens,
+        input.telemetry.total_output_tokens,
+        input.telemetry.total_cached_input_tokens,
+        input.telemetry.total_tokens,
+        input.view.cost_ledger.total_estimated_cost_micro_usd,
+        input
+            .view
+            .cost_ledger
             .total_actual_cost_micro_usd
             .map(|cost| cost.to_string())
             .unwrap_or_else(|| "null".to_string()),
@@ -244,6 +271,16 @@ fn render_usage_json(
         input_price,
         output_price,
     )
+}
+
+fn sha256_evidence(label: &str, bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("sha256:{label}:{}", hex_encode(&hasher.finalize()))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn safe_smoke_run_id() -> String {

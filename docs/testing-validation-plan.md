@@ -155,12 +155,34 @@ credentials and rate limits are available:
 ```bash
 scripts/release-smoke.sh --quick --deepseek
 scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
+scripts/context-engine-benchmark.sh --provider deepseek --model deepseek-v4-flash --runs 3 --out-dir /tmp/viden-context-live
 ```
 
 The DeepSeek smoke is a real development scenario, not an echo test. It creates
 and tests a generated Python module, then records token usage and estimated CNY
 cost in `usage.json` and `summary.md`. Live checks should prove provider
 compatibility, not replace deterministic fixtures.
+
+The context engine release benchmark runs the same disposable DeepSeek
+development scenario with `VIDEN_CONTEXT_ENGINE=off` and `on`, three runs per
+cohort by default. Each run records prompt version, provider/model,
+task/test result, evidence hashes, input/output/cached/total tokens,
+estimated/actual cost, first-token and total latency when available, retrieval
+count, retry count, compression ratio, bundle build latency, and failure class.
+The live benchmark is billable and requires `DEEPSEEK_API_KEY`.
+
+The offline deterministic gate is required before the billable gate:
+
+```bash
+scripts/context-engine-benchmark.sh --fixtures crates/runtime/src/tests/fixtures/context-benchmark/valid --out-dir /tmp/viden-context-benchmark
+scripts/context-engine-benchmark-contract-smoke.sh
+```
+
+It fails closed on missing fields, task/test success mismatch, evidence mismatch,
+median input-token reduction below 20%, permission bypass, provider
+413/context-overflow, unclassified failures, or engine-on p95 bundle build over
+200 ms. Passing runs produce `summary.md`, `comparison.json`,
+`failure-classification.json`, and copied per-run usage JSON under `runs/`.
 
 ### 8. Mandatory Release Checks
 
@@ -173,10 +195,11 @@ Before tagging or publishing a release candidate, run the prepublish gate:
 scripts/release-gate.sh --version <version>
 ```
 
-The prepublish gate wraps full `scripts/release-smoke.sh --deepseek`, so it
-requires `DEEPSEEK_API_KEY` and records the live DeepSeek development scenario
-token/cost summary. If the key is unavailable, the release is blocked; it can be
-called a local RC at most, not a completed release.
+The prepublish gate wraps the deterministic context-engine fixture benchmark,
+full `scripts/release-smoke.sh --deepseek`, and the billable DeepSeek
+context-engine A/B benchmark, so it requires `DEEPSEEK_API_KEY` and records live
+DeepSeek token/cost/duration summaries. If the key is unavailable, the release
+is blocked; it can be called a local RC at most, not a completed release.
 
 If you need the lower-level command for debugging, it is:
 

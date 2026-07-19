@@ -34,7 +34,8 @@ Options:
   -h, --help              Show this help.
 
 Prepublish requires DEEPSEEK_API_KEY because every release must include a real
-development scenario smoke with token and cost evidence.
+development scenario smoke and the context-engine DeepSeek A/B benchmark with
+token, cost, duration, latency, retrieval, retry, and evidence summaries.
 EOF
 }
 
@@ -126,6 +127,9 @@ run_prepublish() {
   fi
 
   local phase_dir="$OUT_DIR/prepublish"
+  run_or_print scripts/context-engine-benchmark.sh \
+    --fixtures crates/runtime/src/tests/fixtures/context-benchmark/valid \
+    --out-dir "$phase_dir/context-engine-benchmark-deterministic"
   local -a args=(scripts/release-smoke.sh --version "$VERSION" --out-dir "$phase_dir")
   if [[ -n "$TARGET" ]]; then
     args+=(--target "$TARGET")
@@ -138,7 +142,14 @@ run_prepublish() {
   if final_zero_bug_required; then
     run_or_print scripts/final-zero-bug-smoke.sh "$phase_dir/final-zero-bug"
   fi
+  run_or_print scripts/context-engine-benchmark.sh \
+    --provider deepseek \
+    --model "${VIDEN_LIVE_DEEPSEEK_MODEL:-deepseek-v4-flash}" \
+    --runs "${VIDEN_CONTEXT_ENGINE_LIVE_RUNS:-3}" \
+    --out-dir "$phase_dir/context-engine-benchmark-live"
   record "- prepublish: \`$phase_dir\`"
+  record "- context engine deterministic benchmark: \`$phase_dir/context-engine-benchmark-deterministic\`"
+  record "- context engine DeepSeek A/B benchmark: \`$phase_dir/context-engine-benchmark-live\`"
 }
 
 run_postpublish() {

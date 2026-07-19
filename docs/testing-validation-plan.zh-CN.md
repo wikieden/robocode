@@ -134,11 +134,32 @@ scripts/plan-mode-smoke.sh
 ```bash
 scripts/release-smoke.sh --quick --deepseek
 scripts/deepseek-dev-scenario-smoke.sh --model deepseek-v4-flash
+scripts/context-engine-benchmark.sh --provider deepseek --model deepseek-v4-flash --runs 3 --out-dir /tmp/viden-context-live
 ```
 
 DeepSeek smoke 是真实开发场景，不是 echo test。它会生成并测试一个 Python
 模块，然后在 `usage.json` 和 `summary.md` 里记录 token 使用量和 CNY 费用估算。
 真实 provider 检查用于证明兼容性，不能替代确定性 fixture。
+
+context engine release benchmark 会用同一个 disposable DeepSeek 开发场景分别跑
+`VIDEN_CONTEXT_ENGINE=off` 和 `on`，默认每组三次。每次记录 prompt version、
+provider/model、task/test result、evidence hashes、input/output/cached/total
+tokens、estimated/actual cost、可用时的 first-token/total latency、retrieval
+count、retry count、compression ratio、bundle build latency 和 failure class。
+live benchmark 是 billable gate，必须有 `DEEPSEEK_API_KEY`。
+
+billable gate 前必须先跑离线 deterministic gate：
+
+```bash
+scripts/context-engine-benchmark.sh --fixtures crates/runtime/src/tests/fixtures/context-benchmark/valid --out-dir /tmp/viden-context-benchmark
+scripts/context-engine-benchmark-contract-smoke.sh
+```
+
+它会对缺字段、task/test success mismatch、evidence mismatch、median input-token
+reduction 小于 20%、permission bypass、provider 413/context-overflow、
+unclassified failure、engine-on p95 bundle build 超过 200 ms 执行 fail-closed。
+通过后会生成 `summary.md`、`comparison.json`、`failure-classification.json` 和
+`runs/` 下的 per-run usage JSON。
 
 ### 8. 强制发布检查
 
@@ -150,9 +171,10 @@ DeepSeek smoke 是真实开发场景，不是 echo test。它会生成并测试�
 scripts/release-gate.sh --version <version>
 ```
 
-prepublish gate 会封装完整的 `scripts/release-smoke.sh --deepseek`，因此必须有
-`DEEPSEEK_API_KEY`，并记录真实 DeepSeek 开发场景的 token/费用 summary。如果 key
-不可用，发布就是 blocked；最多只能称为本地 RC，不能算已完成发布。
+prepublish gate 会封装 deterministic context-engine fixture benchmark、完整的
+`scripts/release-smoke.sh --deepseek` 和 billable DeepSeek context-engine A/B
+benchmark，因此必须有 `DEEPSEEK_API_KEY`，并记录真实 DeepSeek token/费用/耗时
+summary。如果 key 不可用，发布就是 blocked；最多只能称为本地 RC，不能算已完成发布。
 
 需要排查底层问题时，可以直接跑：
 

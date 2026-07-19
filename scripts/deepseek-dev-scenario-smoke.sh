@@ -4,10 +4,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL="${VIDEN_DEEPSEEK_SMOKE_MODEL:-deepseek-v4-flash}"
 OUT_DIR=""
+CONTEXT_ENGINE="${VIDEN_CONTEXT_ENGINE:-off}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/deepseek-dev-scenario-smoke.sh [--model <model>] [--out-dir <dir>]
+Usage: scripts/deepseek-dev-scenario-smoke.sh [--model <model>] [--out-dir <dir>] [--context-engine off|on]
 
 Runs a billable, live DeepSeek development scenario:
   prompt -> provider turn -> write_file tools -> generated Python test -> token/cost summary
@@ -32,6 +33,10 @@ while [[ $# -gt 0 ]]; do
       OUT_DIR="${2:-}"
       shift 2
       ;;
+    --context-engine)
+      CONTEXT_ENGINE="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -53,6 +58,13 @@ if [[ -z "$MODEL" ]]; then
   printf 'model is required\n' >&2
   exit 2
 fi
+case "$CONTEXT_ENGINE" in
+  off|on) ;;
+  *)
+    printf 'context engine mode must be off or on, got: %s\n' "$CONTEXT_ENGINE" >&2
+    exit 2
+    ;;
+esac
 
 if [[ -z "$OUT_DIR" ]]; then
   OUT_DIR="$(mktemp -d "/tmp/viden-deepseek-dev-scenario.XXXXXX")"
@@ -69,6 +81,7 @@ set +e
 (
   cd "$ROOT"
   VIDEN_LIVE_DEEPSEEK_MODEL="$MODEL" \
+    VIDEN_CONTEXT_ENGINE="$CONTEXT_ENGINE" \
     cargo test -p viden-runtime \
       deepseek_live_development_scenario_creates_and_runs_program \
       -- --ignored --nocapture --test-threads=1
@@ -146,10 +159,14 @@ summary = f"""# DeepSeek Development Scenario Smoke
 
 - Provider: `deepseek`
 - Model: `{payload.get("model")}`
+- Context engine: `{payload.get("engine_mode")}`
 - Scenario: `{payload.get("scenario")}`
 - Workspace: `{payload.get("workspace")}`
 - Requests: `{payload.get("request_count")}` ok=`{payload.get("success_count")}` err=`{payload.get("failure_count")}`
 - Tokens: input=`{payload.get("input_tokens")}` output=`{payload.get("output_tokens")}` total=`{payload.get("total_tokens")}`
+- Latency: first-token-ms=`{payload.get("first_token_latency_ms")}` total-ms=`{payload.get("total_latency_ms")}`
+- Retrieval/retry/compression: retrieval=`{payload.get("retrieval_count")}` retry=`{payload.get("retry_count")}` compression=`{payload.get("compression_ratio")}`
+- Evidence hashes: `{", ".join(payload.get("evidence_hashes", []))}`
 - Elapsed seconds: `{payload.get("elapsed_seconds")}`
 - Estimated cost: `{cost_text}`
 - Pricing basis: `{payload.get("pricing_basis")}`; input cache-miss `¥{payload.get("input_cny_per_million_cache_miss")}/1M`, output `¥{payload.get("output_cny_per_million")}/1M`
