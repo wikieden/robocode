@@ -593,7 +593,10 @@ fn benchmark_projection_metrics_are_recorded_from_runtime_facts() {
     assert_eq!(metrics.request_input_chars, actual_request_chars);
     assert!(metrics.projection_chars > 0);
     assert!(metrics.context_event_count > 0);
-    assert!(metrics.retrieval_count > 0);
+    assert_eq!(
+        metrics.retrieval_count, 0,
+        "bundle source selection is not a canonical retrieval event"
+    );
     assert_eq!(metrics.retry_count, 0);
     assert!(
         metrics.compression_ratio > 0.0,

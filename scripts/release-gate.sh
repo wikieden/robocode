@@ -128,6 +128,19 @@ run_prepublish() {
 
   local phase_dir="$OUT_DIR/prepublish"
   run_or_print scripts/check-task10-guards-test.sh
+  run_or_print scripts/check-dependency-boundaries.sh
+  run_or_print scripts/check-doc-pairs.sh \
+    docs/product-requirements.md docs/product-requirements.zh-CN.md \
+    docs/architecture.md docs/architecture.zh-CN.md \
+    docs/staged-roadmap.md docs/staged-roadmap.zh-CN.md \
+    docs/long-term-roadmap.md docs/long-term-roadmap.zh-CN.md \
+    docs/multi-agent-core-orchestration.md docs/multi-agent-core-orchestration.zh-CN.md \
+    docs/ui-collaboration-guide.md docs/ui-collaboration-guide.zh-CN.md
+  run_or_print scripts/check-doc-links.sh \
+    docs/superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md \
+    docs/superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md \
+    docs/superpowers/plans/2026-07-18-context-evidence-cost-engine.md \
+    docs/superpowers/plans/2026-07-18-context-evidence-cost-engine.zh-CN.md
   run_or_print scripts/context-engine-benchmark.sh \
     --fixtures crates/runtime/src/tests/fixtures/context-benchmark/valid \
     --runs 3 \

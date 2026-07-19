@@ -805,7 +805,16 @@ impl SessionEngine {
             projection_chars,
             raw_baseline_chars,
             context_event_count: self.last_context_runtime_events.len(),
-            retrieval_count: context_bundle.sources.len(),
+            retrieval_count: self
+                .last_context_runtime_events
+                .iter()
+                .filter(|event| {
+                    matches!(
+                        event.kind,
+                        viden_types::RuntimeEventKind::ContextRetrieved { .. }
+                    )
+                })
+                .count(),
             retry_count,
             compression_ratio,
             bundle_build_ms: context_build_elapsed.as_millis(),
