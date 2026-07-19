@@ -1,7 +1,10 @@
 use viden_types::{ToolInput, ToolSpec};
 
-use crate::git::common::{resolve_git_base_by_key, run_git_capture, run_git_capture_owned};
-use crate::{BuiltinTool, ToolExecutionContext, ToolExecutionOutput, resolve_path};
+use crate::git::common::{resolve_git_base_by_key, run_git_capture};
+use crate::lane::{
+    LocalLaneEffects, WorktreeBackend, WorktreeCreateRequest, WorktreeRemoveRequest,
+};
+use crate::{BuiltinTool, ToolExecutionContext, ToolExecutionOutput};
 
 pub(crate) struct GitWorktreeListTool;
 pub(crate) struct GitWorktreeAddTool;
@@ -53,27 +56,21 @@ impl BuiltinTool for GitWorktreeAddTool {
         let target = input
             .get("path")
             .ok_or_else(|| "git_worktree_add requires `path`".to_string())?;
-        let target_path = resolve_path(&ctx.cwd, target);
         let branch = input.get("branch").cloned();
         let create = input
             .get("create")
             .map(|value| value == "true")
             .unwrap_or(false);
-        let mut args = vec!["worktree".to_string(), "add".to_string()];
-        if create {
-            let branch = branch.clone().ok_or_else(|| {
-                "git_worktree_add with `create=true` requires `branch`".to_string()
-            })?;
-            args.push("-b".to_string());
-            args.push(branch);
-        }
-        args.push(target_path.to_string_lossy().to_string());
-        if let Some(branch) = branch.filter(|_| !create) {
-            args.push(branch);
-        }
-        let output = run_git_capture_owned(&repo, &args)?;
+        let outcome = LocalLaneEffects
+            .create_worktree(&WorktreeCreateRequest {
+                repo,
+                path: target.clone(),
+                branch,
+                create_branch: create,
+            })
+            .map_err(|err| err.to_string())?;
         Ok(ToolExecutionOutput {
-            output,
+            output: outcome.output,
             diff: None,
             success: true,
             exit_code: None,
@@ -100,19 +97,19 @@ impl BuiltinTool for GitWorktreeRemoveTool {
         let target = input
             .get("path")
             .ok_or_else(|| "git_worktree_remove requires `path`".to_string())?;
-        let target_path = resolve_path(&ctx.cwd, target);
         let force = input
             .get("force")
             .map(|value| value == "true")
             .unwrap_or(false);
-        let mut args = vec!["worktree".to_string(), "remove".to_string()];
-        if force {
-            args.push("--force".to_string());
-        }
-        args.push(target_path.to_string_lossy().to_string());
-        let output = run_git_capture_owned(&repo, &args)?;
+        let outcome = LocalLaneEffects
+            .remove_worktree(&WorktreeRemoveRequest {
+                repo,
+                path: target.clone(),
+                force,
+            })
+            .map_err(|err| err.to_string())?;
         Ok(ToolExecutionOutput {
-            output,
+            output: outcome.output,
             diff: None,
             success: true,
             exit_code: None,

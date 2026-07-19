@@ -23,15 +23,17 @@ pub use context::{
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use protocol::{
     CapabilityId, CoreHandshake, EventCursor, EventCursorOrder, FRONTEND_SCHEMA_V1,
-    FRONTEND_V1_CAPABILITIES, GapRecovery, ReplayBatch, ReplayRequest, RuntimeCommandEnvelope,
-    RuntimeEventEnvelope, RuntimeOwner, RuntimeSnapshotEnvelope, RuntimeWireEvent, SchemaVersion,
+    FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, ReplayBatch,
+    ReplayRequest, RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeOwner,
+    RuntimeSnapshotEnvelope, RuntimeWireEvent, SchemaVersion,
 };
 pub use runtime::{
     ApprovalRequestView, CanonicalEvidenceReference, CommandAction, EvidenceCanonicalReasonCode,
     EvidenceCanonicalStatus, EvidenceCanonicalStatusReport, EvidenceProducer, EvidenceQualityFacts,
-    EvidenceQualityStatus, EvidenceVerificationState, EvidenceView, ProviderHealthView,
-    QueuedInputView, RuntimeCommand, RuntimeCommandReceipt, RuntimeErrorView, RuntimeEvent,
-    RuntimeEventKind, RuntimeViewState, TokenCostView, ToolCallView, canonical_evidence_status,
+    EvidenceQualityStatus, EvidenceVerificationState, EvidenceView, LaneConflictView,
+    LaneOutputView, LaneRecoveryView, ProviderHealthView, QueuedInputView, RuntimeCommand,
+    RuntimeCommandReceipt, RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeViewState,
+    TokenCostView, ToolCallView, canonical_evidence_status,
 };
 pub use transcript::{
     CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptCursor, TranscriptEntry,

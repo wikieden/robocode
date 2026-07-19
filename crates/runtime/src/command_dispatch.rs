@@ -1,7 +1,6 @@
 use crate::{EngineEvent, SessionEngine, presentation::render_diff_view};
 use viden_types::{
-    ApprovalResponse, CommandLogEntry, PermissionLevel, PermissionMode, TranscriptEntry, WorkMode,
-    now_timestamp,
+    ApprovalResponse, CommandLogEntry, PermissionMode, TranscriptEntry, WorkMode, now_timestamp,
 };
 
 impl SessionEngine {
@@ -38,18 +37,7 @@ impl SessionEngine {
                 if let Some(mode) = args.first() {
                     let parsed = PermissionMode::parse_cli(mode)
                         .ok_or_else(|| format!("Unknown permission level `{mode}`"))?;
-                    self.permissions.set_mode(parsed);
-                    self.runtime_snapshot.permission_level =
-                        PermissionLevel::from_legacy_mode(parsed);
-                    if parsed == PermissionMode::Plan {
-                        self.runtime_snapshot.work_mode = WorkMode::Plan;
-                        self.persist_meta("work_mode", WorkMode::Plan.cli_name())?;
-                    } else if self.runtime_snapshot.work_mode == WorkMode::Plan {
-                        self.runtime_snapshot.work_mode = WorkMode::Build;
-                        self.persist_meta("work_mode", WorkMode::Build.cli_name())?;
-                    }
-                    self.persist_meta("permission_mode", parsed.cli_name())?;
-                    self.runtime_snapshot.permission_mode = parsed;
+                    self.set_permission_mode(parsed)?;
                     format!(
                         "Permission level set to {}",
                         self.permission_level().cli_name()

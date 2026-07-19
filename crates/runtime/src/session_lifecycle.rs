@@ -203,6 +203,34 @@ impl SessionEngine {
         })
     }
 
+    pub(super) fn persist_meta_batch(&self, entries: &[(&str, &str)]) -> Result<(), String> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        #[cfg(test)]
+        if let Some(remaining) = self.fail_transcript_append_after.get() {
+            if remaining < entries.len() {
+                self.fail_transcript_append_after.set(None);
+                return Err("injected transcript append failure".to_string());
+            }
+            self.fail_transcript_append_after
+                .set(Some(remaining - entries.len()));
+        }
+
+        let timestamp = now_timestamp();
+        let entries = entries
+            .iter()
+            .map(|(key, value)| TranscriptEntry::SessionMeta {
+                entry: SessionMetaEntry {
+                    timestamp,
+                    key: (*key).to_string(),
+                    value: (*value).to_string(),
+                },
+            })
+            .collect::<Vec<_>>();
+        self.store.append_entries_atomic(&entries)
+    }
+
     pub(super) fn store_entry(&self, entry: TranscriptEntry) -> Result<(), String> {
         #[cfg(test)]
         if let Some(remaining) = self.fail_transcript_append_after.get() {

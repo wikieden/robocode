@@ -1,16 +1,19 @@
 use std::collections::BTreeSet;
 
 use viden_types::{
-    CapabilityId, CoreHandshake, FRONTEND_SCHEMA_V1, FRONTEND_V1_CAPABILITIES, SchemaVersion,
+    CapabilityId, CoreHandshake, FRONTEND_SCHEMA_V1, FRONTEND_V1_CAPABILITIES,
+    FRONTEND_V1_EXTENSION_CAPABILITIES, SchemaVersion,
 };
 
 pub const CORE_CLIENT_CAPABILITIES: &[&str] = FRONTEND_V1_CAPABILITIES;
+pub const CORE_EXTENSION_CAPABILITIES: &[&str] = FRONTEND_V1_EXTENSION_CAPABILITIES;
 
 pub const CORE_CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn frontend_capabilities() -> BTreeSet<CapabilityId> {
     CORE_CLIENT_CAPABILITIES
         .iter()
+        .chain(CORE_EXTENSION_CAPABILITIES)
         .map(|capability| CapabilityId((*capability).to_string()))
         .collect()
 }

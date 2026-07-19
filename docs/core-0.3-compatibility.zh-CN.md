@@ -47,6 +47,47 @@ ui.preferences
 每个 fixture 的 requirement 都必须存在于该集合。要求未知 mandatory capability 的
 fixture 会在兼容性验证中失败；malformed 或 ambiguous legacy input 必须拒绝，不能猜测。
 
+## Schema-1 冻结后的扩展候选
+
+上面的 Core 0.3.0 冻结 capability 集合与 fixture digest 保持不变。Core 0.3.1 候选
+通过 `FRONTEND_V1_EXTENSION_CAPABILITIES` 和
+`crates/core/frontend-contract-extensions.toml` 单独公布增量 capability
+`runtime.lane_lifecycle`。
+
+基于 Core 0.3.0 编写的客户端仍然只要求冻结集合，并把不支持的 schema-1 事件保留为
+`RuntimeWireEvent::Unknown`。新客户端只有在协商到 `runtime.lane_lifecycle` 后，才启用
+13 个 Lane 生命周期命令以及 `LaneUpdated`、`LaneCommandAccepted`、
+`LaneOutputAppended`、`LaneConflictDetected`、`LaneRecoveryRequired` 投影。Lane 命令回执
+使用扩展专属的顶层事件，因此 0.3.0 客户端会把整个 payload 保留为 unknown，而不会因
+内嵌的新命令变体导致解码失败。扩展投影为空时不会参与序列化，
+因此重放冻结的 0.3.0 corpus 仍保持已记录的 canonical bytes 与 digest。
+
+Core 负责 Lane 权限判定，并在每个 Lane 命令前从当前 runtime mode 刷新权限状态。
+所有有副作用的命令都使用 permission check 与 effect executor 共享的 canonical worktree
+或 repository target 判定。已有 symlink 只能解析到仓库内；缺失 target 通过最近的真实父目录
+解析，拒绝 symlink parent 与 `..`，并在本地 effect 前再次校验。审批预览会红写 command、
+arguments、environment、input 和 diff payload。重启时，处于 starting、running 或等待审批
+状态的 Lane 会恢复为 blocked recovery fact，并继续绑定其持久化 session owner。
+
+普通 tool 与 Lane 的审批响应都会按 supervisor 中 permission/mode 变更的命令顺序判定。
+但两者刻意采用不同的 generation 语义：普通 tool 读取已提交的 permission control
+reservation，因此 permission 或 work-mode 命令一经入队，即使 worker 尚未应用，也会立即
+使阻塞中的审批失效。reservation 只有在完整的 SessionMeta batch 持久化成功后才会提交。
+失败的 reservation 会被移除，因此不会让早于它的审批失效；其单调 generation 不会递减或
+复用，从而保证后续排队控制命令仍与自己的 generation 配对。Lane 请求则原子冻结 worker
+已应用的 generation 及其所描述的 permission engine；只有队列中的控制命令成功应用后，
+这一 generation 才会推进。permission 与 work-mode 控制命令会先原子持久化完整的
+session metadata batch，再发布新的 live snapshot 与 permission engine；batch 失败时，
+engine、snapshot、Lane 配对和已应用 generation 都保持不变。审批等待期间只要已应用的
+permission 或 work mode 代际发生过变化，即使可见 flags 随后恢复原值，
+旧 Lane 审批也会失效。Lane 响应被接受后，supervisor
+必须等待终态 `ApprovalResolved` 以及 effect/persistence 完成，才能处理或发布后续 permission
+snapshot。审批产生的 session/repository allow rule 只保存在所属 Lane worker 内，因此会在
+该 Lane 的常规权威权限刷新后保留，但不会授权另一条 Lane 或 owner；
+Plan/ReadOnly 刷新会立即丢弃这些 rule。Create 与 Lane 状态迁移和其他持久化 effect 使用
+同一 permission 与 mutation-policy gate。终态 worker 通过 completion reaper 自动注销并
+join，不需要等待下一条 Lane 命令。
+
 ## Client 边界
 
 前端 client 只能使用 `CoreClient` 和 `viden-core` 重导出的 protocol/view contracts。

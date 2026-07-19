@@ -1,0 +1,11 @@
+schema_version = 1
+base_component_version = "0.3.0"
+candidate_component_version = "0.3.1"
+base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
+compatibility = "additive_capability_gated"
+capabilities = ["runtime.lane_lifecycle"]
+
+[runtime_lane_lifecycle]
+command_count = 13
+events = ["lane_command_accepted", "lane_updated", "lane_output_appended", "lane_conflict_detected", "lane_recovery_required"]
+legacy_clients = "require frozen capabilities only; preserve unsupported event payloads as unknown"

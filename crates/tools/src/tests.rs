@@ -5,6 +5,7 @@ use std::process::Command;
 
 mod file_tests;
 mod git_tests;
+mod lane_tests;
 mod lsp_tests;
 mod shell_tests;
 mod web_tests;
