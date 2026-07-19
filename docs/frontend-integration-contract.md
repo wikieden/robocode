@@ -140,7 +140,10 @@ flowchart LR
 
 `PreviewProjectConfig` is read-only. A valid preview includes the exact UTF-8
 contents that its SHA-256 describes; invalid or secret-bearing candidates omit
-those contents and cannot be confirmed. Serialized credential commands,
+those contents and cannot be confirmed. Root `viden.toml` accepts only the D11
+`project`, `gates`, `runner`, `budget`, and `targets` schema; unknown root or
+nested fields are rejected. Provider, backend, and ingress identifiers must be
+bounded opaque ASCII identifiers, not paths or secret-like labels. Serialized credential commands,
 events, transcript rows, and workflow audit never contain credential secret
 bytes.
 

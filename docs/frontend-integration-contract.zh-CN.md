@@ -135,7 +135,10 @@ flowchart LR
 
 `PreviewProjectConfig` 是只读命令。有效 preview 包含其 SHA-256 所描述的精确 UTF-8
 内容；无效或携带 secret 字段的候选不返回这些内容，也不能 confirm。序列化后的
-credential commands、events、transcript rows 与 workflow audit 都不得包含 credential
+仓库根 `viden.toml` 只接受 D11 的 `project`、`gates`、`runner`、`budget`、`targets`
+schema，未知 root/nested field 一律拒绝。Provider、backend 与 ingress 标识必须是有长度
+上限的 opaque ASCII id，不能是 path 或 secret-like label。序列化后的 credential
+commands、events、transcript rows 与 workflow audit 都不得包含 credential
 secret bytes。
 
 前端发送 command 后不能自行合成成功状态。必须等待 `CommandAccepted` 和后续状态事件。

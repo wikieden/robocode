@@ -84,10 +84,15 @@ blocked recovery facts and remain bound to their durable session owner.
 Project onboarding probes the current directory without mutation.
 `PreviewProjectConfig` validates repository-root `viden.toml` policy and
 returns the exact reviewable UTF-8 contents plus its SHA-256 without writing.
+The D11 parser accepts only the documented `project`, `gates`, `runner`,
+`budget`, and `targets` schema, rejects unknown nested fields, and withholds
+exact contents from candidates containing secret fields or credential-shaped
+values.
 `ConfirmProjectConfig` accepts only the cached preview id and hash, rechecks
 the destination base hash, and writes those exact bytes after a Build-mode
 permission approval. Credential commands carry only provider, backend, and
-one-use ingress identifiers; secret bytes remain in the injected backend,
+one-use ingress identifiers. Those identifiers use a bounded ASCII opaque-id
+grammar and reject secret-like markers and path syntax. Secret bytes remain in the injected backend,
 while replay and audit contain only `CredentialHandle` metadata.
 
 Ordinary tool and lane approval responses observe supervisor command ordering

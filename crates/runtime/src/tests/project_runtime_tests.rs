@@ -1,5 +1,8 @@
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use super::{SequenceProvider, temp_dir};
 use crate::{CredentialBackend, RuntimeSupervisor, SessionEngine};
@@ -158,6 +161,33 @@ fn project_runtime_invalid_preview_and_stale_confirm_never_write_reviewed_target
     assert!(invalid.exact_contents.is_none());
     assert!(!path.exists());
 
+    let secret_bearing = engine
+        .preview_project_config(
+            "[project]\nname = \"demo\"\npack = \"robot-pack\"\n[provider]\napi_token = \"sk-live-preview-secret\"\n"
+                .to_string(),
+        )
+        .expect("structured secret-bearing preview rejection");
+    assert!(!secret_bearing.is_valid());
+    assert!(
+        secret_bearing.exact_contents.is_none(),
+        "credential-shaped config must never enter preview facts"
+    );
+    let rejected = engine
+        .handle_runtime_command(
+            "confirm-secret-bearing",
+            RuntimeCommand::ConfirmProjectConfig {
+                preview_id: secret_bearing.preview_id,
+                content_sha256: secret_bearing.content_sha256,
+            },
+            &mut |_| ApprovalResponse::allow_once(None),
+        )
+        .unwrap();
+    assert!(rejected.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("missing or no longer confirmable")
+    )));
+
     let preview = engine
         .preview_project_config(
             "[project]\nname = \"reviewed\"\npack = \"robot-pack\"\n".to_string(),
@@ -299,6 +329,73 @@ fn project_runtime_supervisor_resumes_confirm_after_approval() {
 
 struct SeededCredentialBackend {
     secret: Vec<u8>,
+}
+
+struct CountingCredentialBackend {
+    calls: Arc<AtomicUsize>,
+}
+
+impl CredentialBackend for CountingCredentialBackend {
+    fn store(
+        &self,
+        provider_id: &str,
+        backend_id: &str,
+        _credential_request_id: &str,
+    ) -> Result<CredentialHandle, String> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(CredentialHandle {
+            provider_id: provider_id.to_string(),
+            backend_id: backend_id.to_string(),
+            status: CredentialStatus::Available,
+        })
+    }
+}
+
+#[test]
+fn project_runtime_rejects_secret_like_or_path_like_opaque_credential_ids() {
+    let invalid_ids = [
+        ("sk-live-provider", "keychain:item", "ingress-1"),
+        ("provider/token", "keychain:item", "ingress-1"),
+        ("api_key-provider", "keychain:item", "ingress-1"),
+        ("../provider", "keychain:item", "ingress-1"),
+        ("sequence", "sk-live-backend", "ingress-1"),
+        ("sequence", "vault-token-item", "ingress-1"),
+        ("sequence", "api_key:item", "ingress-1"),
+        ("sequence", "../keychain/item", "ingress-1"),
+        ("sequence", "keychain:item", "sk-live-request"),
+        ("sequence", "keychain:item", "token-request"),
+        ("sequence", "keychain:item", "api_key-request"),
+        ("sequence", "keychain:item", "../request"),
+    ];
+    for (index, (provider_id, backend_id, credential_request_id)) in
+        invalid_ids.into_iter().enumerate()
+    {
+        let root = temp_dir(&format!("project_unsafe_credential_id_{index}"));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let backend = Arc::new(CountingCredentialBackend {
+            calls: Arc::clone(&calls),
+        });
+        let mut engine = SessionEngine::new(&root, Box::new(SequenceProvider::new(Vec::new())))
+            .unwrap()
+            .with_credential_backend(backend);
+        let events = engine
+            .handle_runtime_command(
+                format!("unsafe-id-{index}"),
+                RuntimeCommand::StoreCredentialHandle {
+                    provider_id: provider_id.to_string(),
+                    backend_id: backend_id.to_string(),
+                    credential_request_id: credential_request_id.to_string(),
+                },
+                &mut |_| ApprovalResponse::allow_once(None),
+            )
+            .unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::CommandRejected { .. }))
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "case {index}");
+    }
 }
 
 impl CredentialBackend for SeededCredentialBackend {

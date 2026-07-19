@@ -28,9 +28,15 @@ pub fn parse_project_config(bytes: &[u8]) -> Result<ProjectFileConfig, String> {
         )
     })?;
     reject_secret_keys(&value, "")?;
+    reject_credential_shaped_values(&value, "")?;
     let root = value
         .as_table()
         .ok_or_else(|| "viden.toml must be a TOML table".to_string())?;
+    reject_unknown_keys(
+        root,
+        &["project", "gates", "runner", "budget", "targets"],
+        "root",
+    )?;
     let project = required_table(root, "project")?;
     reject_unknown_keys(project, &["name", "pack"], "project")?;
     let project_name = required_nonempty_string(project, "name", "project")?;
@@ -72,6 +78,25 @@ pub fn parse_project_config(bytes: &[u8]) -> Result<ProjectFileConfig, String> {
         }
     }
 
+    if let Some(runners) = optional_table(root, "runner")? {
+        if runners.is_empty() {
+            return Err("viden.toml [runner] cannot be empty".to_string());
+        }
+        for (name, runner) in runners {
+            let runner = runner
+                .as_table()
+                .ok_or_else(|| format!("viden.toml runner.{name} must be an inline table"))?;
+            reject_unknown_keys(
+                runner,
+                &[
+                    "bin", "headless", "version", "cmd", "gpus", "scene", "realtime",
+                ],
+                &format!("runner.{name}"),
+            )?;
+            validate_runner_fields(name, runner)?;
+        }
+    }
+
     if let Some(budget) = optional_table(root, "budget")? {
         reject_unknown_keys(budget, &["tokens_per_week", "warn_at"], "budget")?;
         if let Some(tokens) = budget.get("tokens_per_week")
@@ -94,11 +119,19 @@ pub fn parse_project_config(bytes: &[u8]) -> Result<ProjectFileConfig, String> {
         if targets.is_empty() {
             return Err("viden.toml [targets] cannot be empty".to_string());
         }
-        let defaults = targets
-            .values()
-            .filter_map(Value::as_table)
-            .filter(|target| target.get("default").and_then(Value::as_bool) == Some(true))
-            .count();
+        let mut defaults = 0;
+        for (name, target) in targets {
+            let target = target
+                .as_table()
+                .ok_or_else(|| format!("viden.toml targets.{name} must be an inline table"))?;
+            reject_unknown_keys(target, &["default"], &format!("targets.{name}"))?;
+            let is_default = target
+                .get("default")
+                .ok_or_else(|| format!("viden.toml targets.{name}.default is required"))?
+                .as_bool()
+                .ok_or_else(|| format!("viden.toml targets.{name}.default must be a boolean"))?;
+            defaults += usize::from(is_default);
+        }
         if defaults != 1 {
             return Err("viden.toml [targets] must declare exactly one default target".to_string());
         }
@@ -165,8 +198,13 @@ fn reject_unknown_keys(table: &toml::Table, allowed: &[&str], section: &str) -> 
 fn reject_secret_keys(value: &Value, prefix: &str) -> Result<(), String> {
     const SECRET_KEYS: &[&str] = &[
         "api_key",
+        "api_token",
+        "auth_token",
+        "bearer_token",
+        "client_secret",
         "secret",
         "password",
+        "token",
         "access_token",
         "refresh_token",
         "private_key",
@@ -191,6 +229,81 @@ fn reject_secret_keys(value: &Value, prefix: &str) -> Result<(), String> {
             }
         }
         _ => {}
+    }
+    Ok(())
+}
+
+fn reject_credential_shaped_values(value: &Value, prefix: &str) -> Result<(), String> {
+    match value {
+        Value::String(candidate) if looks_like_credential(candidate) => {
+            let path = if prefix.is_empty() { "root" } else { prefix };
+            Err(format!(
+                "viden.toml cannot contain credential-shaped value at `{path}`"
+            ))
+        }
+        Value::Table(table) => {
+            for (key, child) in table {
+                let path = if prefix.is_empty() {
+                    key.to_string()
+                } else {
+                    format!("{prefix}.{key}")
+                };
+                reject_credential_shaped_values(child, &path)?;
+            }
+            Ok(())
+        }
+        Value::Array(values) => {
+            for child in values {
+                reject_credential_shaped_values(child, prefix)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn looks_like_credential(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    [
+        "sk-",
+        "sk_",
+        "ghp_",
+        "github_pat_",
+        "xoxb-",
+        "xoxp-",
+        "akia",
+        "bearer ",
+        "-----begin private key-----",
+        "-----begin rsa private key-----",
+        "-----begin ec private key-----",
+    ]
+    .iter()
+    .any(|prefix| normalized.starts_with(prefix))
+}
+
+fn validate_runner_fields(name: &str, runner: &toml::Table) -> Result<(), String> {
+    for field in ["bin", "version", "cmd", "scene"] {
+        if runner.contains_key(field) {
+            required_nonempty_string(runner, field, &format!("runner.{name}"))?;
+        }
+    }
+    for field in ["headless", "realtime"] {
+        if runner
+            .get(field)
+            .is_some_and(|value| value.as_bool().is_none())
+        {
+            return Err(format!(
+                "viden.toml runner.{name}.{field} must be a boolean"
+            ));
+        }
+    }
+    if runner
+        .get("gpus")
+        .is_some_and(|value| value.as_integer().is_none_or(|count| count < 1))
+    {
+        return Err(format!(
+            "viden.toml runner.{name}.gpus must be a positive integer"
+        ));
     }
     Ok(())
 }
@@ -230,6 +343,10 @@ local = { default = true }
             "[project]\nname = \"\"\npack = \"robot-pack\"\n",
             "[project]\nname = \"arm\"\npack = \"robot-pack\"\napi_key = \"secret\"\n",
             "[project]\nname = \"arm\"\npack = \"robot-pack\"\n[gates]\nsim = { type = \"sim\", runner = \"missing\" }\n",
+            "[project]\nname = \"arm\"\npack = \"robot-pack\"\n[provider]\napi_token = \"sk-live-secret\"\n",
+            "[project]\nname = \"arm\"\npack = \"robot-pack\"\n[local]\npath = \"/tmp/secret\"\n",
+            "[project]\nname = \"sk-live-secret\"\npack = \"robot-pack\"\n",
+            "[project]\nname = \"arm\"\npack = \"robot-pack\"\n[targets]\nlocal = { default = true, token = \"plain-secret\" }\n",
             "[project\n",
         ] {
             assert!(

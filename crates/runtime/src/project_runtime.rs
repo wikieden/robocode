@@ -385,9 +385,45 @@ fn content_sha256(bytes: &[u8]) -> String {
 }
 
 fn validate_safe_identifier(name: &str, value: &str) -> Result<(), String> {
-    if value.is_empty()
-        || value.len() > 160
-        || value.chars().any(|character| character.is_control())
+    const MAX_OPAQUE_ID_BYTES: usize = 96;
+    const SECRET_MARKERS: &[&str] = &[
+        "sk-",
+        "sk_",
+        "token",
+        "api_key",
+        "apikey",
+        "secret",
+        "password",
+        "bearer",
+        "credential",
+        "private_key",
+        "access_key",
+        "refresh_key",
+    ];
+    let normalized = value.to_ascii_lowercase();
+    let grammar_is_safe = !value.is_empty()
+        && value.len() <= MAX_OPAQUE_ID_BYTES
+        && value.is_ascii()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+        && value
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphanumeric)
+        && value
+            .as_bytes()
+            .last()
+            .is_some_and(u8::is_ascii_alphanumeric)
+        && !value.contains("..")
+        && !value.contains("::")
+        && !(value.len() >= 2
+            && value.as_bytes()[0].is_ascii_alphabetic()
+            && value.as_bytes()[1] == b':');
+    if !grammar_is_safe
+        || SECRET_MARKERS
+            .iter()
+            .any(|marker| normalized.contains(marker))
     {
         return Err(format!("invalid credential {name}"));
     }

@@ -72,9 +72,13 @@ arguments、environment、input 和 diff payload。重启时，处于 starting�
 
 项目接入对当前目录执行只读探测。`PreviewProjectConfig` 校验仓库根
 `viden.toml` policy，并返回可审阅的精确 UTF-8 内容及 SHA-256，不写文件；
+该 D11 parser 只接受已登记的 `project`、`gates`、`runner`、`budget`、`targets`
+schema，拒绝未知 nested field；候选包含 secret field 或 credential-shaped value 时，
+不会返回 exact contents。
 `ConfirmProjectConfig` 只接受已缓存的 preview id/hash，重新核对目标文件的 base hash，
 并在 Build 模式权限批准后写入同一组精确字节。Credential command 只携带 provider、
-backend 与一次性 ingress 标识；secret bytes 始终留在注入的 backend 中，replay/audit
+backend 与一次性 ingress 标识；这些标识采用有长度上限的 ASCII opaque-id grammar，
+并拒绝 secret-like marker 与 path syntax。secret bytes 始终留在注入的 backend 中，replay/audit
 只记录 `CredentialHandle` 安全元数据。
 
 普通 tool 与 Lane 的审批响应都会按 supervisor 中 permission/mode 变更的命令顺序判定。

@@ -54,18 +54,41 @@ The implementation followed RED-GREEN checkpoints:
    preventing the generic supervisor's deny-only approver from blocking
    CoreClient usage.
 
-The seven focused runtime tests cover Git/non-Git, valid/missing/invalid config,
+The eight focused runtime tests cover Git/non-Git, valid/missing/invalid config,
 preview read-only behavior, exact confirmed bytes/hash, stale destination
 rejection, Plan denial before approval/write, audit rollback/retry, supervisor
 approval resume, provider/model health, and credential redaction across command,
 event, transcript-shaped JSON, and workflow audit JSON.
+
+### Independent review hardening follow-up
+
+An independent review of implementation commit `1fd3e59c` found that the first
+parser revision still allowed unknown root tables and relied on a small key
+denylist. It also found that opaque credential identifiers accepted path-like
+and secret-like labels. The follow-up used two new RED checkpoints:
+
+- the config regression failed because `[provider] api_token = "sk-..."`
+  parsed successfully;
+- the runtime regressions failed because that candidate produced valid exact
+  preview contents and `sk-*` credential identifiers reached the backend.
+
+The hardened parser now implements the strict D11 root/nested allowlist,
+validates runner/target records, rejects expanded secret field names, and scans
+string values for credential-shaped prefixes before exposing exact contents.
+Provider, backend, and credential-request identifiers now use a bounded ASCII
+opaque-id grammar that excludes path syntax, traversal, secret markers, and
+unsafe long labels. The regressions cover `api_token`, `token`, `sk-*`, unknown
+`provider`/`local` tables, plus field-specific `sk-`, `token`, `api_key`, and
+path-like values for all three identifiers.
 
 ## Security and transaction invariants
 
 - Root `viden.toml` policy is never parsed through layered
   `.viden/config.toml`, which may contain machine-local provider secrets.
 - The parser rejects known secret-bearing field names and does not echo source
-  snippets in syntax diagnostics.
+  snippets in syntax diagnostics. It accepts only the documented D11
+  `project`, `gates`, `runner`, `budget`, and `targets` schema and rejects
+  credential-shaped string values before preview publication.
 - Invalid candidates omit exact contents and are never inserted into the
   confirmable preview map.
 - `ConfirmProjectConfig` carries only preview id and SHA-256. Core rehashes the
@@ -74,7 +97,8 @@ event, transcript-shaped JSON, and workflow audit JSON.
 - A failed workflow audit append restores both the previous file bytes and the
   in-memory preview/state snapshot.
 - `StoreCredentialHandle` carries provider id, backend id, and an opaque ingress
-  id only. The injected backend owns secret bytes and returns a
+  id only. All three ids must satisfy the bounded, non-path, non-secret-like
+  opaque ASCII grammar. The injected backend owns secret bytes and returns a
   `CredentialHandle { provider_id, backend_id, status }`.
 - Command-accepted payloads redact config contents and bound credential
   identifiers. Durable audit stores only valid project policy and safe handle
@@ -100,8 +124,8 @@ Passed:
 
 - `cargo test -p viden-config`: 24 passed;
 - `cargo test -p viden-types`: 49 passed;
-- `cargo test -p viden-runtime project_runtime_`: 7 passed;
-- `cargo test -p viden-runtime`: 356 passed, 1 ignored live-provider test;
+- `cargo test -p viden-runtime project_runtime_`: 8 passed;
+- `cargo test -p viden-runtime`: 357 passed, 1 ignored live-provider test;
 - `cargo test -p viden-core`: unit, 12 CoreClient, 3 frontend-contract, and 5
   workspace-identity tests passed; 1 manual fixture refresh ignored;
 - `cargo clippy -p viden-config -p viden-types -p viden-runtime -p viden-core --all-targets -- -D warnings`;
