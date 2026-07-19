@@ -7,7 +7,8 @@ use std::process::Command;
 use std::time::Duration;
 
 use viden_types::{
-    Role, SessionSummary, TranscriptEntry, fresh_id, now_timestamp, truncate_for_preview,
+    Role, SessionSummary, TranscriptCursor, TranscriptEntry, TranscriptPage, TranscriptPageRequest,
+    TranscriptRow, TranscriptRowKind, fresh_id, now_timestamp, truncate_for_preview,
 };
 
 #[derive(Debug, Clone)]
@@ -205,6 +206,39 @@ impl SessionStore {
 
     pub fn load_entries(&self) -> Result<Vec<TranscriptEntry>, String> {
         Self::load_entries_from_path(&self.paths.transcript_path)
+    }
+
+    pub fn load_transcript_page(
+        &self,
+        request: &TranscriptPageRequest,
+    ) -> Result<TranscriptPage, String> {
+        if let Some(before) = &request.before
+            && before.session_id != request.session_id
+        {
+            return Err(format!(
+                "cursor session `{}` does not match request session `{}`",
+                before.session_id, request.session_id
+            ));
+        }
+        let entries = self.load_entries_for_exact_session(&request.session_id)?;
+        let rows = transcript_rows_from_entries(&request.session_id, &entries);
+        Ok(slice_transcript_rows(
+            rows,
+            request.before.as_ref(),
+            request.limit,
+        ))
+    }
+
+    fn load_entries_for_exact_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<TranscriptEntry>, String> {
+        if session_id == self.session_id {
+            return self.load_entries();
+        }
+        self.load_by_id_for_cwd(session_id)?
+            .map(|(_, entries)| entries)
+            .ok_or_else(|| format!("session `{session_id}` not found for current project"))
     }
 
     pub fn load_entries_from_path(path: &Path) -> Result<Vec<TranscriptEntry>, String> {
@@ -501,6 +535,64 @@ fn summary_from_entries(
         created_at,
         last_updated_at,
     })
+}
+
+fn transcript_rows_from_entries(
+    session_id: &str,
+    entries: &[TranscriptEntry],
+) -> Vec<TranscriptRow> {
+    let mut rows: Vec<TranscriptRow> = Vec::new();
+    let mut message_rows: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    for (ordinal, entry) in entries.iter().enumerate() {
+        if let Some(message_id) = entry.coalescing_message_id()
+            && let Some(row_index) = message_rows.get(message_id).copied()
+        {
+            // Streaming assistant updates reuse a message id. Keep the first
+            // committed ordinal as the stable scroll anchor and replace only
+            // the displayed row payload with the latest committed content.
+            rows[row_index].timestamp = entry.timestamp();
+            rows[row_index].kind = TranscriptRowKind::from(entry);
+            continue;
+        }
+        let row = TranscriptRow::from_entry(session_id, ordinal as u64, entry);
+        if let Some(message_id) = entry.coalescing_message_id() {
+            message_rows.insert(message_id.to_string(), rows.len());
+        }
+        rows.push(row);
+    }
+    rows
+}
+
+fn slice_transcript_rows(
+    rows: Vec<TranscriptRow>,
+    before: Option<&TranscriptCursor>,
+    limit: u16,
+) -> TranscriptPage {
+    let limit = usize::from(limit.clamp(1, 500));
+    let end = before
+        .and_then(|cursor| {
+            rows.iter()
+                .position(|row| row.cursor.ordinal >= cursor.ordinal)
+        })
+        .unwrap_or(rows.len());
+    let start = end.saturating_sub(limit);
+    let selected = rows[start..end].to_vec();
+    let has_more = start > 0;
+    // `older` is a stable next-page anchor; it must be the first returned row
+    // only when rows exist before the selected page.
+    let older = has_more
+        .then(|| selected.first().map(|row| row.cursor.clone()))
+        .flatten();
+    let newer = (end < rows.len())
+        .then(|| selected.last().map(|row| row.cursor.clone()))
+        .flatten();
+    TranscriptPage {
+        rows: selected,
+        older,
+        newer,
+        has_more,
+    }
 }
 
 fn single_line_preview(input: &str, max_chars: usize) -> String {

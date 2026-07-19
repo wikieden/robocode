@@ -6,7 +6,7 @@ use crate::{
     ContextRetrievalRecord, ContextScope, ContextViewRecord, CostLedgerTotals, CostUsageRecord,
     EvidenceCanonicalizationRecord, EvidenceId, MergeGateId, MergeGateRecord, MessageId,
     PermissionLevel, ProviderCacheObservationRecord, RuntimeOwner, RuntimeSnapshot, ToolCallId,
-    WorkMode, now_timestamp,
+    TranscriptPage, TranscriptPageRequest, WorkMode, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -99,6 +99,9 @@ pub enum RuntimeCommand {
     RetrieveContext {
         handle_id: String,
         reason: String,
+    },
+    LoadTranscriptPage {
+        request: TranscriptPageRequest,
     },
 }
 
@@ -376,6 +379,9 @@ pub enum RuntimeEventKind {
         command_id: String,
         reason: String,
     },
+    TranscriptPageLoaded {
+        page: Box<TranscriptPage>,
+    },
     InputQueued {
         input: QueuedInputView,
     },
@@ -588,6 +594,10 @@ impl RuntimeViewState {
                     recoverable: true,
                     hint: None,
                 });
+            }
+            RuntimeEventKind::TranscriptPageLoaded { .. } => {
+                // Transcript pages are transient fetch results. They do not
+                // mutate the long-lived runtime projection.
             }
             RuntimeEventKind::InputQueued { input } => {
                 upsert_by_id(&mut self.queued_inputs, input.clone(), |existing| {

@@ -33,7 +33,10 @@ pub use runtime::{
     QueuedInputView, RuntimeCommand, RuntimeCommandReceipt, RuntimeErrorView, RuntimeEvent,
     RuntimeEventKind, RuntimeViewState, TokenCostView, ToolCallView, canonical_evidence_status,
 };
-pub use transcript::{CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptEntry};
+pub use transcript::{
+    CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptCursor, TranscriptEntry,
+    TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind,
+};
 pub use ui_preferences::{
     LocaleId, ResolvedUiPreferences, TuiColorDepth, UiColorMode, UiDensity, UiMotion,
     UiPreferenceDiagnostic, UiPreferences, UiSkin, resolve_ui_preferences,
@@ -431,7 +434,8 @@ impl ContextBundleRecord {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Role {
     User,
     Assistant,
@@ -460,7 +464,7 @@ impl Role {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Message {
     pub id: MessageId,
     pub role: Role,
@@ -720,14 +724,14 @@ pub struct ToolSpec {
     pub input_schema_hint: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ToolCall {
     pub id: ToolCallId,
     pub name: String,
     pub input: ToolInput,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ToolResult {
     pub tool_call_id: ToolCallId,
     pub name: String,

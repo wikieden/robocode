@@ -227,6 +227,7 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "approval_resolved"
             | "command_accepted"
             | "command_rejected"
+            | "transcript_page_loaded"
             | "input_queued"
             | "input_dequeued"
             | "task_updated"

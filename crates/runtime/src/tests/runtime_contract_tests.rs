@@ -15,7 +15,7 @@ use viden_types::{
     LaneStatus, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage, PermissionBehavior,
     PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand,
     RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, TranscriptEntry,
-    WorkMode,
+    TranscriptPageRequest, WorkMode,
 };
 use viden_workflows::stores::{WorkflowAgentEvent, WorkflowStore};
 
@@ -4168,4 +4168,63 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
     assert!(view.latest_evidence.iter().any(|evidence| {
         evidence.kind == "acp_turn_end" && evidence.summary.contains("completed")
     }));
+}
+
+#[test]
+fn transcript_page_runtime_command_emits_transient_page_loaded_event() {
+    let home = temp_dir("transcript_page_runtime_home");
+    let cwd = temp_dir("transcript_page_runtime_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let session_id = engine.session_id().to_string();
+    let store = SessionStore::new_with_home(&home, &cwd, Some(session_id.clone())).unwrap();
+    store
+        .append_entry(&TranscriptEntry::Message {
+            message: viden_types::Message {
+                id: "msg-runtime-page".to_string(),
+                role: viden_types::Role::User,
+                content: "page me".to_string(),
+                timestamp: 1,
+                tool_name: None,
+                tool_call_id: None,
+            },
+        })
+        .unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_page",
+            RuntimeCommand::LoadTranscriptPage {
+                request: TranscriptPageRequest {
+                    session_id: session_id.clone(),
+                    before: None,
+                    limit: 20,
+                },
+            },
+            &mut |_| ApprovalResponse::deny(None),
+        )
+        .unwrap();
+    let loaded_events = events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::TranscriptPageLoaded { page } => Some(page),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(loaded_events.len(), 1);
+    let loaded = loaded_events[0];
+    assert!(loaded.rows.iter().any(|row| {
+        matches!(
+            &row.kind,
+            viden_types::TranscriptRowKind::Message { message }
+                if message.id == "msg-runtime-page"
+        )
+    }));
+
+    let persisted = store.load_entries().unwrap();
+    assert!(!persisted.iter().any(|entry| matches!(
+        entry,
+        TranscriptEntry::RuntimeEvent { event }
+            if matches!(event.kind, RuntimeEventKind::TranscriptPageLoaded { .. })
+    )));
 }

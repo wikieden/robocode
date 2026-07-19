@@ -549,6 +549,17 @@ impl SessionEngine {
                     }
                 }
             }
+            RuntimeCommand::LoadTranscriptPage { request } => {
+                match self.store.load_transcript_page(&request) {
+                    Ok(page) => events.push(RuntimeEvent::new(
+                        next_sequence(&events),
+                        RuntimeEventKind::TranscriptPageLoaded {
+                            page: Box::new(page),
+                        },
+                    )),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
             RuntimeCommand::RetrieveContext { .. } => unreachable!("handled before acceptance"),
             RuntimeCommand::CancelActiveTurn | RuntimeCommand::RespondToApproval { .. } => {
                 return Ok(vec![command_rejected(
@@ -4255,6 +4266,9 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         RuntimeCommand::RetrieveContext { handle_id, reason } => RuntimeCommand::RetrieveContext {
             handle_id: redact_identifier_for_event(handle_id),
             reason: bound_redacted_context_reason(reason),
+        },
+        RuntimeCommand::LoadTranscriptPage { request } => RuntimeCommand::LoadTranscriptPage {
+            request: request.clone(),
         },
         RuntimeCommand::CancelActiveTurn => RuntimeCommand::CancelActiveTurn,
         RuntimeCommand::SetWorkMode { mode } => RuntimeCommand::SetWorkMode { mode: *mode },

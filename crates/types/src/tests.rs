@@ -943,6 +943,164 @@ fn transcript_cost_usage_roundtrips_canonical_and_legacy_shapes() {
     );
 }
 
+#[test]
+fn transcript_row_kinds_roundtrip_with_stable_serde_names() {
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "cargo test".to_string());
+    let cost = CostUsageRecord {
+        usage_id: "usage-row".to_string(),
+        provider_id: "deepseek".to_string(),
+        model: "deepseek-v4-flash".to_string(),
+        scopes: vec![CostScope::Request("request-row".to_string())],
+        tokens: TokenUsage {
+            input_tokens: Some(10),
+            output_tokens: Some(2),
+            cached_input_tokens: Some(1),
+            retrieval_tokens: None,
+            total_tokens: Some(12),
+        },
+        estimate: None,
+        actual_cost: None,
+        attempt_index: 0,
+        outcome: CostUsageOutcome::Success,
+        recorded_at: Some(44),
+    };
+    let runtime_event = RuntimeEvent::with_timestamp(
+        7,
+        Some(55),
+        RuntimeEventKind::CostUsageRecorded { cost: cost.clone() },
+    );
+    let kinds = vec![
+        TranscriptRowKind::Message {
+            message: Message {
+                id: "msg-row".to_string(),
+                role: Role::Assistant,
+                content: "hello".to_string(),
+                timestamp: 11,
+                tool_name: None,
+                tool_call_id: None,
+            },
+        },
+        TranscriptRowKind::ToolCall {
+            call: ToolCall {
+                id: "tool-call-row".to_string(),
+                name: "shell".to_string(),
+                input,
+            },
+        },
+        TranscriptRowKind::ToolResult {
+            result: ToolResult {
+                tool_call_id: "tool-call-row".to_string(),
+                name: "shell".to_string(),
+                output: "ok".to_string(),
+                diff: None,
+                success: true,
+                exit_code: Some(0),
+            },
+        },
+        TranscriptRowKind::Permission {
+            entry: PermissionLogEntry {
+                timestamp: 12,
+                tool_name: "shell".to_string(),
+                decision: "allow".to_string(),
+                reason: "test".to_string(),
+                message: None,
+            },
+        },
+        TranscriptRowKind::Command {
+            entry: CommandLogEntry {
+                timestamp: 13,
+                name: "status".to_string(),
+                args: vec!["--json".to_string()],
+                output: "{}".to_string(),
+            },
+        },
+        TranscriptRowKind::SessionMeta {
+            entry: SessionMetaEntry {
+                timestamp: 14,
+                key: "model".to_string(),
+                value: "deepseek".to_string(),
+            },
+        },
+        TranscriptRowKind::CostUsage {
+            cost: Box::new(cost),
+        },
+        TranscriptRowKind::RuntimeEvent {
+            event: Box::new(runtime_event),
+        },
+    ];
+
+    let encoded = serde_json::to_value(&kinds).unwrap();
+    let names = encoded
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value["type"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        vec![
+            "message",
+            "tool_call",
+            "tool_result",
+            "permission",
+            "command",
+            "session_meta",
+            "cost_usage",
+            "runtime_event"
+        ]
+    );
+    let decoded: Vec<TranscriptRowKind> = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded, kinds);
+}
+
+#[test]
+fn transcript_row_page_request_and_loaded_event_roundtrip_json() {
+    let page = TranscriptPage {
+        rows: vec![TranscriptRow {
+            id: TranscriptRowId("session-a:0".to_string()),
+            cursor: TranscriptCursor {
+                session_id: "session-a".to_string(),
+                ordinal: 0,
+            },
+            timestamp: Some(1),
+            kind: TranscriptRowKind::Message {
+                message: Message {
+                    id: "msg-a".to_string(),
+                    role: Role::User,
+                    content: "hello".to_string(),
+                    timestamp: 1,
+                    tool_name: None,
+                    tool_call_id: None,
+                },
+            },
+        }],
+        older: None,
+        newer: None,
+        has_more: false,
+    };
+    let command = RuntimeCommand::LoadTranscriptPage {
+        request: TranscriptPageRequest {
+            session_id: "session-a".to_string(),
+            before: None,
+            limit: 25,
+        },
+    };
+    let event = RuntimeEventKind::TranscriptPageLoaded {
+        page: Box::new(page),
+    };
+
+    assert_eq!(
+        serde_json::to_value(&command).unwrap()["type"],
+        "load_transcript_page"
+    );
+    assert_eq!(
+        serde_json::to_value(&event).unwrap()["type"],
+        "transcript_page_loaded"
+    );
+    assert!(serde_json::to_string(&event).unwrap().contains("\"rows\""));
+}
+
 fn runtime_snapshot_for_contract() -> RuntimeSnapshot {
     RuntimeSnapshot {
         cwd: PathBuf::from("/tmp/viden"),
