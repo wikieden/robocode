@@ -23,21 +23,19 @@ use viden_tools::{
     patch::{LocalPatchBackend, PatchApplication, PatchRequest},
 };
 use viden_types::{
-    AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
-    AgentRoute, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
-    ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord,
-    ContextItemRecord, ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome,
-    CostUsageRecord, DataEgressPolicy, EvidenceCanonicalReasonCode, EvidenceCanonicalStatus,
-    EvidenceCanonicalStatusReport, EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus,
-    EvidenceVerificationState, EvidenceView, ExecutionTarget, LaneBudget, MergeGateRecord,
-    MergeGateStatus, MutationPolicy, PermissionBehavior, PermissionDecision,
+    AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentNextAction, AgentRole, AgentRoute,
+    AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
+    ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
+    CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord, ContextItemRecord,
+    ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome, CostUsageRecord,
+    EvidenceCanonicalReasonCode, EvidenceCanonicalStatus, EvidenceCanonicalStatusReport,
+    EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
+    EvidenceView, MergeGateRecord, MergeGateStatus, PermissionBehavior, PermissionDecision,
     PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
     PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand,
     RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
     RuntimeViewState, TokenCostView, TokenUsage, ToolCallId, ToolInput, TranscriptPageRequest,
-    WorkMode, canonical_evidence_status, default_gate_strength, fresh_id, legacy_lane_role,
-    legacy_lane_route, now_timestamp, truncate_for_preview,
+    WorkMode, canonical_evidence_status, fresh_id, now_timestamp, truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
@@ -1116,12 +1114,13 @@ impl SessionEngine {
                 RuntimeEventKind::AgentDagUpdated { dag: dag.clone() },
             ));
         }
-        for lane in load_runtime_lanes(&self.runtime_snapshot.cwd.join(".viden").join("lanes.tsv"))
-        {
-            events.push(RuntimeEvent::new(
-                next_sequence(&events),
-                RuntimeEventKind::LaneUpdated { lane },
-            ));
+        if let Ok(lane_state) = self.workflows.load_lane_state() {
+            for lane in lane_state.lanes().values() {
+                events.push(RuntimeEvent::new(
+                    next_sequence(&events),
+                    RuntimeEventKind::LaneUpdated { lane: lane.clone() },
+                ));
+            }
         }
         for task in tracked_agent_job_tasks(&self.runtime_snapshot.cwd) {
             events.push(RuntimeEvent::new(
@@ -4461,53 +4460,4 @@ fn parse_legacy_tool_call(text: &str) -> (String, String) {
         Some((name, input)) => (name.to_string(), input.to_string()),
         None => (trimmed.to_string(), String::new()),
     }
-}
-
-fn load_runtime_lanes(path: &std::path::Path) -> Vec<AgentLaneRecord> {
-    let Ok(content) = fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    content.lines().filter_map(parse_runtime_lane).collect()
-}
-
-fn parse_runtime_lane(line: &str) -> Option<AgentLaneRecord> {
-    let fields = line
-        .split('\t')
-        .map(unescape_runtime_tsv)
-        .collect::<Vec<_>>();
-    if fields.len() != 5 && fields.len() != 7 && fields.len() != 8 {
-        return None;
-    }
-    let id = fields[0].clone();
-    let tool = fields[1].clone();
-    let title = fields[2].clone();
-    let status = serde_json::from_value(serde_json::Value::String(fields[3].clone())).ok()?;
-    let target = fields[4].clone();
-    let summary = fields
-        .get(6)
-        .filter(|summary| !summary.trim().is_empty())
-        .cloned()
-        .unwrap_or(title);
-    let route = legacy_lane_route(&target).ok()?;
-    Some(AgentLaneRecord {
-        id: id.clone(),
-        task_id: Some(id),
-        role: legacy_lane_role(&tool).ok()?,
-        route,
-        gate_strength: default_gate_strength(route),
-        mutation_policy: MutationPolicy::ProposeOnly,
-        worktree: None,
-        branch: None,
-        target: ExecutionTarget::Local,
-        data_egress: DataEgressPolicy::Deny,
-        status,
-        budget: LaneBudget::default(),
-        active_session_ids: Vec::new(),
-        summary,
-        evidence: Vec::new(),
-    })
-}
-
-fn unescape_runtime_tsv(value: &str) -> String {
-    value.replace("\\t", "\t").replace("\\n", "\n")
 }

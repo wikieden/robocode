@@ -4072,16 +4072,51 @@ fn runtime_view_state_emits_lane_facts_from_core_store_legacy_lane_statuses() {
     )
     .unwrap();
     let provider = Box::new(SequenceProvider::new(vec![]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+
+    // The legacy file is migration input only. Runtime projection must remain
+    // available after the source disappears and must not import it twice.
+    fs::remove_file(lane_dir.join("lanes.tsv")).unwrap();
 
     let view = engine.runtime_view_state();
 
     assert_eq!(view.lanes.len(), 4);
-    assert_eq!(view.lanes[0].id, "L-start");
-    assert_eq!(view.lanes[0].status, LaneStatus::Starting);
-    assert_eq!(view.lanes[1].status, LaneStatus::Blocked);
-    assert_eq!(view.lanes[2].status, LaneStatus::Detached);
-    assert_eq!(view.lanes[3].status, LaneStatus::Detached);
+    assert_eq!(
+        view.lanes
+            .iter()
+            .find(|lane| lane.id == "L-start")
+            .unwrap()
+            .status,
+        LaneStatus::Starting
+    );
+    assert_eq!(
+        view.lanes
+            .iter()
+            .find(|lane| lane.id == "L-conflict")
+            .unwrap()
+            .status,
+        LaneStatus::Blocked
+    );
+    for lane_id in ["L-detached", "L-stopped"] {
+        assert_eq!(
+            view.lanes
+                .iter()
+                .find(|lane| lane.id == lane_id)
+                .unwrap()
+                .status,
+            LaneStatus::Detached
+        );
+    }
+
+    let workflow_store = WorkflowStore::new(&home, &cwd).unwrap();
+    assert_eq!(workflow_store.load_lane_events().unwrap().len(), 1);
+    assert!(workflow_store.paths().lanes_log.exists());
+
+    let second_provider = Box::new(SequenceProvider::new(vec![]));
+    let second_engine =
+        SessionEngine::new_with_home(&cwd, second_provider, Some(home.clone())).unwrap();
+    assert_eq!(second_engine.runtime_view_state().lanes.len(), 4);
+    assert_eq!(workflow_store.load_lane_events().unwrap().len(), 1);
 }
 
 #[test]

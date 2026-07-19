@@ -2,7 +2,6 @@ use super::*;
 use crate::presentation::{
     join_lines, render_field, render_section_title, render_subsection_title, render_summary_fields,
 };
-use std::fs;
 use std::path::Path;
 use std::process::Command;
 use viden_types::SessionSummary;
@@ -128,7 +127,7 @@ impl SessionEngine {
             lines.push(format!("  Path: {}", brief.path.display()));
         }
         lines.extend(render_workflow_status(&self.workflows));
-        lines.extend(render_lane_status(&self.cwd));
+        lines.extend(render_lane_status(&self.workflows));
         lines.join("\n")
     }
 
@@ -363,55 +362,30 @@ fn render_workflow_status(workflows: &WorkflowStore) -> Vec<String> {
     lines
 }
 
-#[derive(Debug, Clone)]
-struct StatusLane {
-    id: String,
-    tool: String,
-    title: String,
-    status: String,
-    progress: String,
-}
-
-fn render_lane_status(cwd: &Path) -> Vec<String> {
-    let lanes = load_status_lanes(&cwd.join(".viden").join("lanes.tsv"));
-    let active = lanes
-        .iter()
-        .filter(|lane| matches!(lane.status.as_str(), "running" | "queued" | "attached"))
-        .count();
+fn render_lane_status(workflows: &WorkflowStore) -> Vec<String> {
+    let Ok(state) = workflows.load_lane_state() else {
+        return vec![
+            "Lanes:".to_string(),
+            "  Active lanes: <unavailable>".to_string(),
+        ];
+    };
+    let lanes = state.lanes().values().collect::<Vec<_>>();
+    let active = lanes.iter().filter(|lane| lane.is_active()).count();
     let mut lines = vec![
         "Lanes:".to_string(),
         format!("  Active lanes: {active}/{}", lanes.len()),
     ];
     lines.extend(lanes.into_iter().take(3).map(|lane| {
         format!(
-            "    {} {} {} {}% {}",
-            lane.id, lane.tool, lane.status, lane.progress, lane.title
+            "    {} {} {} {}",
+            lane.id,
+            lane.role,
+            serde_json::to_value(lane.status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToString::to_string))
+                .unwrap_or_else(|| "unknown".to_string()),
+            lane.summary
         )
     }));
     lines
-}
-
-fn load_status_lanes(path: &Path) -> Vec<StatusLane> {
-    let Ok(content) = fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    content.lines().filter_map(parse_status_lane).collect()
-}
-
-fn parse_status_lane(line: &str) -> Option<StatusLane> {
-    let fields = line.split('\t').collect::<Vec<_>>();
-    if fields.len() < 6 {
-        return None;
-    }
-    Some(StatusLane {
-        id: unescape_status_tsv(fields[0]),
-        tool: unescape_status_tsv(fields[1]),
-        title: unescape_status_tsv(fields[2]),
-        status: unescape_status_tsv(fields[3]),
-        progress: fields[5].parse::<u8>().unwrap_or(0).to_string(),
-    })
-}
-
-fn unescape_status_tsv(value: &str) -> String {
-    value.replace("\\t", "\t").replace("\\n", "\n")
 }

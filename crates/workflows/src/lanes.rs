@@ -244,25 +244,32 @@ pub fn parse_legacy_lanes_tsv(raw: &str) -> Result<Vec<AgentLaneRecord>, String>
         .filter(|(_, line)| !line.trim().is_empty())
         .map(|(index, line)| {
             let parts = line.split('\t').collect::<Vec<_>>();
-            if parts.len() != 7 {
+            if !matches!(parts.len(), 5 | 7 | 8) {
                 return Err(format!(
-                    "legacy lane line {} must contain seven tab-separated columns",
+                    "legacy lane line {} must contain five, seven, or eight tab-separated columns",
                     index + 1
                 ));
             }
             if parts[0].trim().is_empty() {
                 return Err(format!("legacy lane line {} has an empty id", index + 1));
             }
-            let progress = parts[5]
-                .parse::<u8>()
-                .map_err(|_| format!("legacy lane line {} has invalid progress", index + 1))?;
-            if progress > 100 {
-                return Err(format!(
-                    "legacy lane line {} has progress above 100",
-                    index + 1
-                ));
+            if let Some(raw_progress) = parts.get(5) {
+                let progress = raw_progress
+                    .parse::<u8>()
+                    .map_err(|_| format!("legacy lane line {} has invalid progress", index + 1))?;
+                if progress > 100 {
+                    return Err(format!(
+                        "legacy lane line {} has progress above 100",
+                        index + 1
+                    ));
+                }
             }
             let stable_id = parts[0].trim_start_matches("L-").replace('-', "_");
+            let summary = parts
+                .get(6)
+                .filter(|summary| !summary.trim().is_empty())
+                .copied()
+                .unwrap_or(parts[2]);
             serde_json::from_value(serde_json::json!({
                 "id": parts[0],
                 "task_id": format!("task_{stable_id}"),
@@ -270,7 +277,7 @@ pub fn parse_legacy_lanes_tsv(raw: &str) -> Result<Vec<AgentLaneRecord>, String>
                 "screen": parts[2],
                 "transport": parts[4],
                 "status": parts[3],
-                "summary": parts[6],
+                "summary": summary,
                 "evidence": [format!("evidence_{stable_id}")],
             }))
             .map_err(|error| format!("legacy lane line {}: {error}", index + 1))
@@ -386,7 +393,7 @@ mod tests {
             .import_legacy_lanes_tsv_once(&legacy_path, 10, None)
             .unwrap_err();
 
-        assert!(error.contains("seven tab-separated columns"));
+        assert!(error.contains("five, seven, or eight tab-separated columns"));
         assert!(store.load_lane_events().unwrap().is_empty());
         assert!(!store.paths().lanes_log.exists());
     }

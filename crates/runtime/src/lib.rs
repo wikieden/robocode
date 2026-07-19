@@ -47,7 +47,7 @@ use viden_types::PermissionRule;
 use viden_types::{
     AgentDagRecord, AgentTaskRecord, ContextBundleRecord, CostScope, CostUsageRecord, EvidenceView,
     MemoryEntry, MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode,
-    ResolvedUiPreferences, RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode,
+    ResolvedUiPreferences, RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode, now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -378,6 +378,14 @@ impl SessionEngine {
             None => SessionStore::new(&cwd, None)?,
         };
         let workflows = WorkflowStore::new(store.home_dir().to_path_buf(), &cwd)?;
+        let legacy_lanes_path = cwd.join(".viden").join("lanes.tsv");
+        if legacy_lanes_path.is_file() {
+            workflows.import_legacy_lanes_tsv_once(
+                &legacy_lanes_path,
+                now_timestamp(),
+                Some(store.session_id().to_string()),
+            )?;
+        }
         let context_engine_root = cwd.join(".viden").join("context-engine");
         let cost_workflow_id =
             Some(bounded_cost_id(store.session_id()).unwrap_or_else(|| "session".to_string()));

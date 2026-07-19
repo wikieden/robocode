@@ -180,7 +180,7 @@ fn status_command_reports_dirty_files_active_tasks_and_lanes() {
                 && text.contains("Improve status cockpit")
                 && text.contains("Lanes:")
                 && text.contains("Active lanes: 1/1")
-                && text.contains("L1 codex running 42%")
+                && text.contains("L1 coder running checking status output")
     )));
 }
 
