@@ -24,7 +24,8 @@ pub use context::{
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use project::{
-    CredentialHandle, CredentialStatus, ProjectConfigPreview, ProjectConfigState, ProjectProbe,
+    CredentialHandle, CredentialRequestId, CredentialStatus, ProjectConfigPreview,
+    ProjectConfigState, ProjectProbe,
 };
 pub use protocol::{
     CapabilityId, CoreHandshake, EventCursor, EventCursorOrder, FRONTEND_SCHEMA_V1,

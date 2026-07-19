@@ -53,8 +53,10 @@ flowchart TB
   loop should move here over follow-up slices.
 - `crates/core`: stable runtime facade for clients; owns the internal
   pre-release `LocalCoreHost` workspace binding and re-exports the shared
-  client/contract types without TUI or GUI dependencies. The host is not
-  advertised as a frontend handshake capability until the Core 0.3.2 gate.
+  client/contract types without TUI or GUI dependencies. The host also owns
+  trusted one-use credential staging so secret bytes never enter serialized
+  commands, events, transcripts, or workflow audit. These host services are not
+  advertised as frontend handshake capabilities until the Core 0.3.2 gate.
 - `crates/config`: config loading, merge precedence, and startup defaults.
 - `crates/runtime`: shared startup bootstrap, session engine, and turn
   orchestration.
@@ -196,6 +198,12 @@ must not depend directly on context, runtime, provider, tool, or workflow
 internals. CLI now uses the same `viden-runtime` bootstrap path that
 `LocalCoreHost` uses before wrapping the supervisor in the transport-neutral
 Core client.
+
+Credential ingress follows the same boundary. Local frontends stage raw bytes
+only through the bound host client, receive an opaque request id, and then send
+`StoreCredentialHandle` through the runtime command path. Runtime persists only
+safe `CredentialHandle` metadata; the platform credential sink receives the
+secret after workspace/provider/backend binding, TTL, and one-use checks.
 
 ## Terminal Presentation
 

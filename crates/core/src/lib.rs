@@ -15,8 +15,8 @@ pub use compatibility::{
     frontend_capabilities, local_core_handshake, validate_handshake, validate_schema_version,
 };
 pub use host::{
-    BoundCoreClient, CoreHostError, LocalCoreHost, WorkspaceBinding, WorkspaceOpenOverrides,
-    WorkspaceOpenRequest,
+    BoundCoreClient, CoreHostError, LocalCoreHost, SecretBytes, WorkspaceBinding,
+    WorkspaceOpenOverrides, WorkspaceOpenRequest,
 };
 pub use local_transport::LocalCoreTransport;
 pub use viden_types::{
@@ -24,16 +24,17 @@ pub use viden_types::{
     AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
     ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
     CommandAction, ContextBundleRecord, ContextOmittedSourceRecord, ContextSourceRecord,
-    CoreHandshake, CostLedgerTotals, CostUsageRecord, CredentialHandle, CredentialStatus,
-    DataEgressPolicy, EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery,
-    GateStrength, LaneBudget, LaneStatus, LocaleId, MergeGateRecord, MergeGateStatus,
-    MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState,
-    ProjectProbe, ProviderHealthView, QueuedInputView, ReplayBatch, ReplayRequest,
-    ResolvedUiPreferences, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent,
-    RuntimeEventEnvelope, RuntimeEventKind, RuntimeSnapshot, RuntimeSnapshotEnvelope,
-    RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView, ToolCallView, TranscriptPage,
-    TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
-    UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode,
+    CoreHandshake, CostLedgerTotals, CostUsageRecord, CredentialHandle, CredentialRequestId,
+    CredentialStatus, DataEgressPolicy, EventCursor, EvidenceView, ExecutionTarget,
+    FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget, LaneStatus, LocaleId,
+    MergeGateRecord, MergeGateStatus, MutationPolicy, PermissionLevel, PermissionMode,
+    ProjectConfigPreview, ProjectConfigState, ProjectProbe, ProviderHealthView, QueuedInputView,
+    ReplayBatch, ReplayRequest, ResolvedUiPreferences, RuntimeCommand, RuntimeCommandEnvelope,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeSnapshot,
+    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView,
+    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
+    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
+    UiPreferences, UiSkin, WorkMode,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
