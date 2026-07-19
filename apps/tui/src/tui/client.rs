@@ -1,10 +1,10 @@
 use std::time::Duration;
 
 use viden_core::{
-    CORE_CLIENT_CAPABILITIES, CoreClient, CoreClientError, CoreHandshake, EventCursor,
-    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventEnvelope,
-    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, validate_handshake,
-    validate_schema_version,
+    CORE_CLIENT_CAPABILITIES, CORE_EXTENSION_CAPABILITIES, CoreClient, CoreClientError,
+    CoreHandshake, EventCursor, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope,
+    RuntimeEventEnvelope, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent,
+    validate_handshake, validate_schema_version,
 };
 use viden_types::{CapabilityId, FRONTEND_SCHEMA_V1, RuntimeOwner};
 
@@ -59,6 +59,8 @@ impl<C: CoreClient> TuiClientDriver<C> {
     pub(super) fn connect(mut client: C) -> Result<Self, TuiClientError> {
         let handshake = client.discover()?;
         validate_handshake(&handshake).map_err(CoreClientError::Compatibility)?;
+        validate_task6_capabilities(&handshake.capabilities)
+            .map_err(CoreClientError::Compatibility)?;
         let confirmed = acquire_validated_snapshot(&mut client)?;
         Ok(Self {
             client,
@@ -215,7 +217,10 @@ fn acquire_validated_snapshot<C: CoreClient>(
 
 fn validate_snapshot_envelope(snapshot: &RuntimeSnapshotEnvelope) -> Result<(), TuiClientError> {
     validate_schema_version(snapshot.schema_version).map_err(CoreClientError::Compatibility)?;
-    for required in CORE_CLIENT_CAPABILITIES {
+    for required in CORE_CLIENT_CAPABILITIES
+        .iter()
+        .chain(CORE_EXTENSION_CAPABILITIES)
+    {
         if !snapshot
             .capabilities
             .contains(&CapabilityId((*required).to_string()))
@@ -237,6 +242,17 @@ fn validate_snapshot_envelope(snapshot: &RuntimeSnapshotEnvelope) -> Result<(), 
             "runtime snapshot and projected view disagree".to_string(),
         )
         .into());
+    }
+    Ok(())
+}
+
+fn validate_task6_capabilities(
+    capabilities: &std::collections::BTreeSet<CapabilityId>,
+) -> Result<(), String> {
+    for required in CORE_EXTENSION_CAPABILITIES {
+        if !capabilities.contains(&CapabilityId((*required).to_string())) {
+            return Err(format!("missing core capability `{required}`"));
+        }
     }
     Ok(())
 }
@@ -444,6 +460,42 @@ mod tests {
 
         let error =
             TuiClientDriver::connect(fake).expect_err("snapshot capabilities must be validated");
+
+        assert!(matches!(
+            error,
+            TuiClientError::Core(CoreClientError::Compatibility(_))
+        ));
+    }
+
+    #[test]
+    fn missing_task6_extension_capability_is_rejected_during_handshake() {
+        let mut fake = FakeCoreClient::compatible();
+        fake.handshake
+            .as_mut()
+            .unwrap()
+            .capabilities
+            .remove(&CapabilityId("runtime.project_onboarding".to_string()));
+
+        let error = TuiClientDriver::connect(fake)
+            .expect_err("TUI 0.2.0 must require onboarding extensions");
+
+        assert!(matches!(
+            error,
+            TuiClientError::Core(CoreClientError::Compatibility(_))
+        ));
+    }
+
+    #[test]
+    fn missing_task6_extension_capability_is_rejected_in_snapshot() {
+        let mut fake = FakeCoreClient::compatible();
+        fake.snapshot
+            .as_mut()
+            .unwrap()
+            .capabilities
+            .remove(&CapabilityId("runtime.credential_handles".to_string()));
+
+        let error = TuiClientDriver::connect(fake)
+            .expect_err("TUI 0.2.0 snapshot must advertise Task 6 extensions");
 
         assert!(matches!(
             error,

@@ -1,16 +1,24 @@
 use super::{
     canvas::Frame,
-    state::{TuiState, provider_status},
+    state::{Lens, TuiState, provider_status},
     text::{pad, truncate},
 };
 
 pub(super) fn render_top_bar(frame: &mut Frame, state: &TuiState) {
     let status = provider_status(state);
+    let surface = match state.ui.lens {
+        Lens::Welcome => "",
+        Lens::Setup => " / SETUP",
+        Lens::Board => " / LANES",
+        Lens::Session => " / COCKPIT",
+        Lens::Decisions => " / DECISIONS",
+        Lens::Gallery => " / GALLERY",
+    };
     frame.write_line(
         0,
         &pad(
             &format!(
-                " VIDEN  {}  {}  {}",
+                " VIDEN{surface}  {}  {}  {}",
                 truncate(&state.runtime.snapshot.provider_family, 14),
                 truncate(&state.runtime.snapshot.model_label, 18),
                 status.connection
@@ -22,10 +30,14 @@ pub(super) fn render_top_bar(frame: &mut Frame, state: &TuiState) {
         1,
         &pad(
             &format!(
-                " {}  lanes {}  tasks {}  approvals {}",
+                " {}  lane {}  session {}  approvals {}",
                 truncate(&state.runtime.snapshot.cwd.display().to_string(), 32),
-                state.runtime.lanes.len(),
-                state.runtime.tasks.len(),
+                state.ui.focused_lane.as_deref().unwrap_or("-"),
+                if state.ui.session_id.is_empty() {
+                    "-"
+                } else {
+                    state.ui.session_id.as_str()
+                },
                 state.runtime.pending_approvals.len()
             ),
             frame.width,

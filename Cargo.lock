@@ -573,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "viden-tui"
-version = "0.2.0-alpha.1"
+version = "0.2.0"
 dependencies = [
  "crossterm",
  "serde",

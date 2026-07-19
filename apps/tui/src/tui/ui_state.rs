@@ -1,3 +1,8 @@
+use super::{
+    composer_buffer::ComposerBuffer,
+    keymap::{InputMode, OverlayKind},
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ProviderAuthMode {
     ApiKey,
@@ -144,6 +149,9 @@ impl ProviderOption {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum InteractionPanel {
+    Setup {
+        selected: usize,
+    },
     ConnectProvider {
         search: String,
         selected: usize,
@@ -170,6 +178,18 @@ pub(super) struct TuiEntry {
     pub(super) body: String,
 }
 
+/// Local navigation only. Runtime facts and side effects remain Core-owned;
+/// changing a lens never confirms project, lane, session, or approval state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Lens {
+    Welcome,
+    Setup,
+    Board,
+    Session,
+    Decisions,
+    Gallery,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct OverlayState {
     pub(super) kind: OverlayKind,
@@ -190,6 +210,8 @@ impl OverlayState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TuiUiState {
     pub(super) session_id: String,
+    pub(super) lens: Lens,
+    pub(super) right_rail_open: bool,
     pub(super) provider_catalog: Vec<ProviderOption>,
     pub(super) theme_name: String,
     pub(super) input: ComposerBuffer,
@@ -210,6 +232,8 @@ impl Default for TuiUiState {
     fn default() -> Self {
         Self {
             session_id: String::new(),
+            lens: Lens::Welcome,
+            right_rail_open: false,
             provider_catalog: Vec::new(),
             theme_name: "aurora-cyan".to_string(),
             input: ComposerBuffer::default(),
@@ -227,7 +251,16 @@ impl Default for TuiUiState {
         }
     }
 }
-use super::{
-    composer_buffer::ComposerBuffer,
-    keymap::{InputMode, OverlayKind},
-};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lens_defaults_to_welcome_and_right_rail_is_closed() {
+        let ui = TuiUiState::default();
+
+        assert_eq!(ui.lens, Lens::Welcome);
+        assert!(!ui.right_rail_open);
+    }
+}

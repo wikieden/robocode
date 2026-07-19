@@ -131,30 +131,35 @@ flowchart TD
 
 ## Welcome 与配置流程
 
-Welcome 不是会话。配置 provider/model 后不应该跳到 cockpit，除非用户开始真实任务或恢复历史。
+Welcome 不是会话。TUI 0.2.0 会先协商 Core 0.3.1 onboarding capability 并请求
+`ProbeProject`，但在操作者打开 Setup/Lanes 或开始真实任务之前仍停留在 Welcome。
+event cursor 不是 session id。
 
 ```mermaid
 flowchart TD
-    A["Launch Viden"] --> B{"Has visible session content?"}
-    B -->|no| C["Welcome surface<br/>logo + composer + context row"]
-    B -->|yes| D["Cockpit"]
+    A["Launch Viden"] --> B["协商 Core capabilities<br/>ProbeProject"]
+    B --> C{"已选择 Core lane/session<br/>或提交真实任务?"}
+    C -->|no| D["Welcome surface<br/>logo + composer + context row"]
+    C -->|yes| E["Unified cockpit"]
 
-    C --> E{"User action"}
-    E -->|/connect| F["Provider picker"]
-    E -->|/models| G["Configured model picker"]
-    E -->|/setup| H["Setup checklist"]
-    E -->|real prompt| I["Start session"]
+    D --> F{"User action"}
+    F -->|/setup| G["Setup selector<br/>Core probe/preview/provider/credential facts"]
+    F -->|/lanes| H["Core lane board"]
+    F -->|real prompt| E
 
-    F --> J["Provider setup form<br/>auth/key/endpoint/default model"]
-    J --> K{"Save?"}
-    K -->|save| C
-    K -->|cancel/esc| C
-
-    G --> L["Switch active provider/model"]
-    L --> C
-    H --> C
-    I --> D
+    G --> I{"Core event?"}
+    I -->|ProjectConfigPreviewed| G
+    I -->|ProjectConfigConfirmed| J["Setup complete"]
+    J --> D
+    H --> K["选择 lane"]
+    K --> L["多个 session 时选择 Core active_session_id"]
+    L --> E
 ```
+
+TUI 只投影 Core onboarding facts，并且只通过 `CoreClient` 发送 typed command。
+它不会自行扫描项目、写入或确认配置，也不接收原始 credential bytes。它可以用 immutable
+preview id/hash 请求 Core 确认，但 Setup 只从 `ProjectConfigConfirmed` 得出完成状态；
+command receipt 不代表成功。
 
 ## Provider Turn 与排队 Follow-Up
 

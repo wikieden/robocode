@@ -26,13 +26,15 @@ TUI 决策。
 
 - 使用 canonical component vocabulary，避免每个页面自造终端框、状态栏、lane 行、
   approval gate 和 overlay。
-- 状态栏采用 ticker：左侧固定 workspace/lane/provider，中央滚动大量状态指标，右侧固定帮助和
-  decision entry。
-- 右栏采用 Env / Lane / More tabs，可折叠，可隐藏；隐藏后 transcript 铺满。
+- 状态栏把 project/lane 身份与可操作的 permission/approval/gate/error facts 分别固定。
+  中央 ticker 只能承载 activity、event、token、provider-health 等 ambient facts，绝不放 action。
+- 右栏只在对应 Core facts 存在时显示 Env / Lane / More 分组。它是可选区域且默认关闭；
+  关闭时 transcript 铺满可用空间。
 - lane 行支持展开显示当前 lane 下的 subagents。
 - composer 行为跟随 canonical T1c 组件：多行编辑、bracketed paste、有限增高，随后内部
   滚动。本文不再单独定义另一套行数上限。
-- welcome screen 使用 Viden 身份和命令选择器，配置动作结束后回到 welcome，不自动进入会话。
+- welcome screen 使用 Viden 身份和命令选择器。`/setup` 打开 Core-backed onboarding，
+  `/lanes` 打开 Core lane board，普通输入进入 unified cockpit。
 - approval gate 使用 4 档决策：allow once、allow for session、加入 repo allowlist、deny，
   并支持倒计时自动拒绝。
 
@@ -71,18 +73,11 @@ Workspace -> Project -> Lane / Session -> Subagent
 - 运行时数据未接入时，显示 `unavailable`、`0` 或明确 setup 提示，不能编造
   health、latency、cost、task、diagnostic 等值。
 - demo 值只能出现在明确的 `--tui-preview*` fixture 路径。
-- 右栏数据源：
-  - workspace：`WorkspaceSnapshot::load_current`。
-  - active tasks：pending approval 加统一 `AgentTask` 视图中的 running/queued
-    terminal lanes 和 delegated Codex jobs。
-  - diagnostics：`WorkspaceSnapshot.diagnostics`；后台 LSP 检查、真实
-    `/lsp diagnostics <path>` 或 post-edit LSP 输出后会写入
-    `.viden/diagnostics.txt` cache；为空表示 unavailable/0。
-  - provider health：`ProviderStatus` 来源于 `SessionEngine` 的
-    `ProviderTelemetry`；request 数量、成功/失败数量、last/average latency、
-    last event count 和 last error 都是真实值。rate、token、cost 在有真实运行时
-    来源前保持隐藏。
-  - recent files：文件系统 metadata 修改时间。
+- 主 cockpit 与右栏的每项事实都通过 `CoreClient` 来自 `RuntimeViewState`。
+  TUI 不自行扫描 workspace 文件、不读取 lane artifacts、不修改配置，也不独立持久化 runtime facts。
+- Setup 消费 `ProjectProbe`、`ProjectConfigPreview`、`confirmed_project_config`、
+  active provider health 和安全 credential handle。Core 0.3.1 client 尚未提供 raw secret ingress，
+  TUI 不能把它重新包装成 slash command。
 - 新增 cockpit 指标必须在代码或文档里标明运行时数据来源。
 
 ## 命令提示列表
@@ -110,9 +105,13 @@ Workspace -> Project -> Lane / Session -> Subagent
   lane/agent 操作和多选项工作流也要沿用同一模式。除非是 `/config`、`/status`
   或 `/provider doctor` 这类明确诊断/详情命令，否则不要退化成只展示信息的页面。
 
-- `/setup` 是 first-run wizard，不是被动 help 页。每一行都必须是真实动作，包括
-  provider 配置、model 选择、permissions、theme、当前 provider doctor、fallback
-  smoke 和保存默认值。
+- `/setup` 打开 Core-backed Setup lens 并发送 `ProbeProject`。Core 发布合法 preview 后，
+  selector 可以使用 immutable preview id/hash 发送 `ConfirmProjectConfig`。在
+  `ProjectConfigConfirmed` 到达之前 UI 始终显示 pending；本地 command acceptance 不能标记完成。
+
+- `/lanes` 从 `RuntimeViewState.lanes` 打开 Board lens。选择 lane 时只使用其 Core-owned
+  `active_session_ids`；存在多个 id 时先打开第二级 selector，再进入 Session/Cockpit lens。
+  Core 0.3.1 没有全局 session list，因此 TUI 不得自行构造。
 
 - `/lane` 是编排动作 selector。它会列出 lane 启动命令；已有 lane 时，还会列出带
   lane id 的 inspect、timeline、diff 和 artifacts 动作，避免用户记 lane id。

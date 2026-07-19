@@ -1,3 +1,5 @@
+#[cfg(test)]
+use super::state::Lens;
 use super::state::{InteractionPanel, ProviderAuthMode, ProviderOption, TuiEntry, TuiState};
 use super::{render, terminal};
 use viden_core::{
@@ -503,8 +505,60 @@ fn cjk_input_preview_state(provider: &str, model: &str, theme_name: &str) -> Tui
 }
 
 #[cfg(test)]
+fn render_task6_lens_preview(lens: Lens, width: u16) -> String {
+    let mut state = if lens == Lens::Welcome {
+        idle_preview_state("fallback", "test-local", "aurora-cyan")
+    } else {
+        preview_state("fallback", "test-local", "aurora-cyan")
+    };
+    state.ui.lens = lens;
+    if lens == Lens::Session {
+        state.ui.focused_lane = Some("L1".to_string());
+        state.ui.session_id = "session-preview-L1".to_string();
+        if let Some(lane) = state.runtime.lanes.iter_mut().find(|lane| lane.id == "L1") {
+            lane.active_session_ids = vec![state.ui.session_id.clone()];
+        }
+    }
+    render::render_frame(&state, width, 40)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn all_lenses_have_deterministic_80_112_160_render_models() {
+        for lens in [
+            Lens::Welcome,
+            Lens::Setup,
+            Lens::Board,
+            Lens::Session,
+            Lens::Decisions,
+            Lens::Gallery,
+        ] {
+            for width in [80_u16, 112, 160] {
+                let first = render_task6_lens_preview(lens, width);
+                let second = render_task6_lens_preview(lens, width);
+
+                assert_eq!(first, second, "{lens:?} at {width}");
+                assert!(
+                    first
+                        .lines()
+                        .all(|line| { crate::tui::text::char_width(line) == usize::from(width) }),
+                    "{lens:?} physical width {width}"
+                );
+                let identity = match lens {
+                    Lens::Welcome => "Ask anything",
+                    Lens::Setup => "SETUP",
+                    Lens::Board => "LANE BOARD",
+                    Lens::Session => "COCKPIT",
+                    Lens::Decisions => "DECISIONS",
+                    Lens::Gallery => "GALLERY",
+                };
+                assert!(first.contains(identity), "{lens:?} at {width}");
+            }
+        }
+    }
 
     #[test]
     fn previews_use_stable_demo_workspace_snapshot() {

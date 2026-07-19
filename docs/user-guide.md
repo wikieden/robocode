@@ -35,14 +35,15 @@ viden --version
 viden --provider fallback --model test-local
 ```
 
-`viden` starts the main TUI by default. A clean session opens on the
-focused welcome composer first; it does not auto-submit or auto-open setup. Use
-`Ctrl-P` for commands, or submit one of these entries when you want
-provider/model setup. Slash setup commands keep the welcome surface active; the
-full cockpit appears after the first normal task prompt.
+`viden` starts the main TUI by default. TUI 0.2.0 negotiates the Core 0.3.1
+onboarding extensions and requests a project probe, but a clean session remains
+on the focused Welcome composer. `/setup` opens the Core-backed Setup selector;
+`/lanes` opens the Core lane board. The full cockpit appears after a normal task
+prompt or selection of a Core lane/session.
 
 ```text
 /setup
+/lanes
 /setup provider
 /connect
 /models
@@ -127,7 +128,15 @@ models = ["deepseek-v4-flash", "deepseek-v4-pro"]
 favorite_models = ["deepseek-v4-pro"]
 ```
 
-The TUI setup path is panel-first after you submit the command. `/connect`,
+The stable TUI 0.2.0 project-onboarding path is Core-backed. Setup renders the
+Core project probe, config preview, active provider health, and safe credential
+handle. It can confirm an existing valid preview by id/hash, but it does not
+scan the project, persist configuration, accept raw API-key bytes, or infer
+success locally. Only `ProjectConfigConfirmed` marks a new configuration
+complete. Core 0.3.1 does not expose global session enumeration; `/lanes`
+selects only session ids advertised on each Core lane.
+
+The legacy provider/model setup path is panel-first after you submit the command. `/connect`,
 `/provider`, `/setup provider`, and `/settings provider` open a provider picker;
 `Enter` selects the highlighted supplier, opens API-key entry when that supplier
 needs one, and then opens the provider config action panel. That panel can

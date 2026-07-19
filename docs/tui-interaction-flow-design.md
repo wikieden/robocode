@@ -139,31 +139,37 @@ flowchart TD
 
 ## Welcome And Configuration Flow
 
-Welcome is not a session. Configuration should not jump into the cockpit unless
-the user starts real work or resumes history.
+Welcome is not a session. TUI 0.2.0 negotiates the Core 0.3.1 onboarding
+capabilities and requests `ProbeProject`, but remains on Welcome until the
+operator opens Setup/Lanes or starts real work. The event cursor is not a
+session id.
 
 ```mermaid
 flowchart TD
-    A["Launch Viden"] --> B{"Has visible session content?"}
-    B -->|no| C["Welcome surface<br/>logo + composer + context row"]
-    B -->|yes| D["Cockpit"]
+    A["Launch Viden"] --> B["Negotiate Core capabilities<br/>ProbeProject"]
+    B --> C{"Selected Core lane/session<br/>or real prompt?"}
+    C -->|no| D["Welcome surface<br/>logo + composer + context row"]
+    C -->|yes| E["Unified cockpit"]
 
-    C --> E{"User action"}
-    E -->|/connect| F["Provider picker"]
-    E -->|/models| G["Configured model picker"]
-    E -->|/setup| H["Setup checklist"]
-    E -->|real prompt| I["Start session"]
+    D --> F{"User action"}
+    F -->|/setup| G["Setup selector<br/>Core probe/preview/provider/credential facts"]
+    F -->|/lanes| H["Core lane board"]
+    F -->|real prompt| E
 
-    F --> J["Provider setup form<br/>auth/key/endpoint/default model"]
-    J --> K{"Save?"}
-    K -->|save| C
-    K -->|cancel/esc| C
-
-    G --> L["Switch active provider/model"]
-    L --> C
-    H --> C
-    I --> D
+    G --> I{"Core event?"}
+    I -->|ProjectConfigPreviewed| G
+    I -->|ProjectConfigConfirmed| J["Setup complete"]
+    J --> D
+    H --> K["Select lane"]
+    K --> L["Select Core active_session_id<br/>when multiple exist"]
+    L --> E
 ```
+
+The TUI only projects Core onboarding facts and sends typed commands through
+`CoreClient`. It does not scan the project, write or confirm configuration by
+itself, or accept raw credential bytes locally. It may request confirmation by
+immutable preview id/hash, but completion is derived only from
+`ProjectConfigConfirmed`; a command receipt is not success.
 
 ## Provider Turn And Queued Follow-Up
 

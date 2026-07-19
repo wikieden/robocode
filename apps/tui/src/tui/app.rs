@@ -15,7 +15,7 @@ use super::input::{
 };
 use super::keymap::{InputIntent, InputMode, OverlayKind, RuntimeFacts, reduce_input};
 use super::modal::{interaction_panel_choice_count, selected_interaction_command};
-use super::state::{InteractionPanel, OverlayState, TuiEntry, TuiState};
+use super::state::{InteractionPanel, Lens, OverlayState, TuiEntry, TuiState};
 use super::terminal::TerminalGuard;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +70,7 @@ impl From<TuiClientError> for TuiError {
 
 pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiError> {
     let mut driver = TuiClientDriver::connect(client)?;
+    driver.send(RuntimeCommand::ProbeProject)?;
     if options.startup_check {
         let _state = state_from_driver(&driver, &options);
         return Ok(());
@@ -120,7 +121,6 @@ fn detect_color_depth() -> TuiColorDepth {
 
 fn state_from_driver<C: CoreClient>(driver: &TuiClientDriver<C>, options: &TuiOptions) -> TuiState {
     let mut state = TuiState::new(driver.view().clone());
-    state.ui.session_id = driver.cursor().stream_id.clone();
     state.ui.theme_name = ui_profile_label(&state.runtime.snapshot.ui_preferences);
     state.ui.entries.push(TuiEntry {
         label: "system".to_string(),
@@ -163,9 +163,8 @@ fn ui_profile_label(preferences: &viden_core::ResolvedUiPreferences) -> String {
 
 /// Replaces TUI runtime presentation from the Core-owned projection while
 /// preserving only local input/layout state and the startup/user transcript.
-fn project_runtime_view(state: &mut TuiState, view: &RuntimeViewState, cursor: &EventCursor) {
+fn project_runtime_view(state: &mut TuiState, view: &RuntimeViewState, _cursor: &EventCursor) {
     state.runtime = view.clone();
-    state.ui.session_id = cursor.stream_id.clone();
 }
 
 pub(super) fn dispatch_intent<C: CoreClient>(
@@ -343,11 +342,10 @@ fn apply_input_intent<C: CoreClient>(
                     return Ok(UiEventOutcome::Redraw);
                 }
                 return Ok(UiEventOutcome::Exit);
-            } else if state.ui.overlay.take().is_some() {
-                // Task 4 owns navigation and filtering. Core-backed actions for
-                // future screens remain contract requests rather than TUI effects.
+            } else if let Some(overlay) = state.ui.overlay.take() {
+                complete_overlay_selection(state, overlay);
             } else if state.ui.interaction_panel.is_some() {
-                if apply_interaction_panel_selection(state) {
+                if apply_interaction_panel_selection(driver, state)? {
                     submit_composer(driver, state)?;
                 }
             } else if should_complete_on_enter(state) {
@@ -414,7 +412,10 @@ fn submit_composer<C: CoreClient>(
     state: &mut TuiState,
 ) -> Result<(), TuiError> {
     let content = state.ui.input.as_str().trim().to_string();
-    if content.is_empty() || open_local_picker_command(&content, state) {
+    if content.is_empty()
+        || open_local_lens_command(driver, &content, state)?
+        || open_local_picker_command(&content, state)
+    {
         return Ok(());
     }
     let command = command_for_composer(state, &content);
@@ -423,9 +424,102 @@ fn submit_composer<C: CoreClient>(
         body: content,
     });
     dispatch_intent(driver, command)?;
+    state.ui.lens = Lens::Session;
     state.ui.input.clear();
     reset_for_input_change(state);
     Ok(())
+}
+
+fn open_local_lens_command<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    input: &str,
+    state: &mut TuiState,
+) -> Result<bool, TuiClientError> {
+    match input.trim() {
+        "/setup" => {
+            state.ui.lens = Lens::Setup;
+            state.ui.overlay = None;
+            state.ui.interaction_panel = Some(InteractionPanel::Setup { selected: 0 });
+            driver.send(RuntimeCommand::ProbeProject)?;
+        }
+        "/lanes" | "/board" => {
+            state.ui.lens = Lens::Board;
+            state.ui.overlay = Some(OverlayState::new(OverlayKind::Lane));
+            state.ui.interaction_panel = None;
+        }
+        "/decisions" => {
+            state.ui.lens = Lens::Decisions;
+            state.ui.overlay = Some(OverlayState::new(OverlayKind::Decisions));
+            state.ui.interaction_panel = None;
+        }
+        "/gallery" => {
+            state.ui.lens = Lens::Gallery;
+            state.ui.overlay = None;
+            state.ui.interaction_panel = None;
+        }
+        _ => return Ok(false),
+    }
+    state.ui.input.clear();
+    reset_for_input_change(state);
+    Ok(true)
+}
+
+fn complete_overlay_selection(state: &mut TuiState, overlay: OverlayState) {
+    match overlay.kind {
+        OverlayKind::Lane | OverlayKind::Board => {
+            let needle = overlay.filter.to_ascii_lowercase();
+            let selected = state
+                .runtime
+                .lanes
+                .iter()
+                .filter(|lane| {
+                    needle.is_empty()
+                        || format!("{} {} {:?}", lane.id, lane.role, lane.status)
+                            .to_ascii_lowercase()
+                            .contains(&needle)
+                })
+                .nth(overlay.selected)
+                .map(|lane| (lane.id.clone(), lane.active_session_ids.clone()));
+            if let Some((lane_id, session_ids)) = selected {
+                state.ui.focused_lane = Some(lane_id);
+                match session_ids.as_slice() {
+                    [] => {
+                        state.ui.session_id.clear();
+                        state.ui.lens = Lens::Session;
+                    }
+                    [session_id] => {
+                        state.ui.session_id = session_id.clone();
+                        state.ui.lens = Lens::Session;
+                    }
+                    _ => {
+                        state.ui.session_id.clear();
+                        state.ui.overlay = Some(OverlayState::new(OverlayKind::Session));
+                    }
+                }
+            }
+        }
+        OverlayKind::Session => {
+            let selected = state
+                .ui
+                .focused_lane
+                .as_ref()
+                .and_then(|lane_id| state.runtime.lanes.iter().find(|lane| &lane.id == lane_id))
+                .and_then(|lane| lane.active_session_ids.get(overlay.selected));
+            if let Some(session_id) = selected {
+                state.ui.session_id = session_id.clone();
+                state.ui.lens = Lens::Session;
+            }
+        }
+        OverlayKind::Decisions | OverlayKind::Approval => {
+            state.ui.lens = Lens::Decisions;
+        }
+        OverlayKind::CommandPalette
+        | OverlayKind::NewSession
+        | OverlayKind::ContextHelp
+        | OverlayKind::ExitConfirm
+        | OverlayKind::InteractionPanel
+        | OverlayKind::ComposerCommands => {}
+    }
 }
 
 fn open_local_picker_command(input: &str, state: &mut TuiState) -> bool {
@@ -467,7 +561,8 @@ fn move_interaction_selection(state: &mut TuiState, delta: i8) {
 
 fn interaction_selected(state: &TuiState) -> usize {
     match state.ui.interaction_panel.as_ref() {
-        Some(InteractionPanel::ConnectProvider { selected, .. })
+        Some(InteractionPanel::Setup { selected })
+        | Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
         | Some(InteractionPanel::ModelPicker { selected, .. }) => *selected,
         _ => 0,
@@ -497,7 +592,8 @@ fn cycle_agent_focus(state: &mut TuiState) {
 
 fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
     match state.ui.interaction_panel.as_mut() {
-        Some(InteractionPanel::ConnectProvider { selected, .. })
+        Some(InteractionPanel::Setup { selected })
+        | Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
         | Some(InteractionPanel::ModelPicker { selected, .. }) => *selected = index,
         _ => {}
@@ -524,11 +620,40 @@ fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
                 input.pop();
             }
         },
-        Some(InteractionPanel::ProviderConfig { .. }) | None => {}
+        Some(InteractionPanel::Setup { .. })
+        | Some(InteractionPanel::ProviderConfig { .. })
+        | None => {}
     }
 }
 
-fn apply_interaction_panel_selection(state: &mut TuiState) -> bool {
+fn apply_interaction_panel_selection<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+) -> Result<bool, TuiClientError> {
+    if let Some(InteractionPanel::Setup { selected }) = state.ui.interaction_panel.as_ref() {
+        let selected = *selected;
+        let command = if selected == 0 {
+            Some(RuntimeCommand::ProbeProject)
+        } else {
+            state
+                .runtime
+                .project_config_preview
+                .as_ref()
+                .and_then(|preview| {
+                    preview
+                        .is_valid()
+                        .then(|| RuntimeCommand::ConfirmProjectConfig {
+                            preview_id: preview.preview_id.clone(),
+                            content_sha256: preview.content_sha256.clone(),
+                        })
+                })
+        };
+        state.ui.interaction_panel = None;
+        if let Some(command) = command {
+            driver.send(command)?;
+        }
+        return Ok(false);
+    }
     let command = selected_interaction_command(state);
     state.ui.interaction_panel = None;
     if let Some(command) = command {
@@ -536,9 +661,9 @@ fn apply_interaction_panel_selection(state: &mut TuiState) -> bool {
         // selects the command; it never mutates provider authority directly.
         state.ui.input.replace(command);
         reset_for_input_change(state);
-        true
+        Ok(true)
     } else {
-        false
+        Ok(false)
     }
 }
 
@@ -614,17 +739,15 @@ fn approval_command(view: &RuntimeViewState, allow: bool) -> Option<RuntimeComma
     })
 }
 
-fn apply_pump_outcome(state: &mut TuiState, outcome: PumpOutcome) {
+fn apply_pump_outcome(_state: &mut TuiState, outcome: PumpOutcome) {
     match outcome {
-        PumpOutcome::Idle => {}
-        PumpOutcome::Applied(cursor) | PumpOutcome::Recovered(cursor) => {
-            state.ui.session_id = cursor.stream_id;
-        }
+        PumpOutcome::Idle | PumpOutcome::Applied(_) | PumpOutcome::Recovered(_) => {}
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::ui_state::Lens;
     use super::*;
     use std::{
         collections::VecDeque,
@@ -640,8 +763,8 @@ mod tests {
     };
     use viden_types::{
         AgentLaneRecord, FRONTEND_SCHEMA_V1, LaneStatus, PermissionLevel, PermissionMode,
-        ReplayBatch, ReplayRequest, RuntimeOwner, RuntimeSnapshot, ToolCallView, TranscriptPage,
-        TranscriptPageRequest, WorkMode,
+        ProjectConfigPreview, ReplayBatch, ReplayRequest, RuntimeOwner, RuntimeSnapshot,
+        ToolCallView, TranscriptPage, TranscriptPageRequest, WorkMode,
     };
 
     #[derive(Default)]
@@ -808,10 +931,198 @@ mod tests {
     }
 
     #[test]
+    fn setup_and_lanes_routes_change_lens_without_becoming_chat_input() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input = "/setup".into();
+
+        submit_composer(&mut driver, &mut state).expect("open setup");
+
+        assert_eq!(state.ui.lens, Lens::Setup);
+        assert!(state.ui.entries.is_empty());
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::ProbeProject,
+                ..
+            }]
+        ));
+
+        sent.lock().expect("sent commands").clear();
+        state.ui.input = "/lanes".into();
+        submit_composer(&mut driver, &mut state).expect("open lanes");
+
+        assert_eq!(state.ui.lens, Lens::Board);
+        assert!(
+            state
+                .ui
+                .overlay
+                .as_ref()
+                .is_some_and(|overlay| overlay.kind == OverlayKind::Lane)
+        );
+        assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
+    fn setup_confirm_selection_dispatches_typed_command_without_local_completion() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.lens = Lens::Setup;
+        state.runtime.project_config_preview = Some(ProjectConfigPreview {
+            preview_id: "preview-core".to_string(),
+            relative_path: "viden.toml".to_string(),
+            content_sha256: "b".repeat(64),
+            byte_len: 24,
+            exact_contents: Some("[project]\nname = \"demo\"\n".to_string()),
+            base_content_sha256: None,
+            project_name: Some("demo".to_string()),
+            pack: None,
+            diagnostics: Vec::new(),
+        });
+        state.ui.interaction_panel = Some(InteractionPanel::Setup { selected: 1 });
+
+        apply_input_intent(
+            &mut driver,
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            InputIntent::CompleteOrSubmit,
+            (112, 40),
+        )
+        .expect("confirm preview");
+
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::ConfirmProjectConfig {
+                    preview_id,
+                    content_sha256,
+                },
+                ..
+            }] if preview_id == "preview-core" && content_sha256 == &"b".repeat(64)
+        ));
+        assert!(state.runtime.confirmed_project_config.is_none());
+        assert_eq!(state.ui.lens, Lens::Setup);
+    }
+
+    #[test]
+    fn lane_overlay_selection_uses_core_lane_and_session_identity() {
+        let client = FakeCoreClient::default();
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        let mut lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        lanes.truncate(1);
+        lanes[0].active_session_ids = vec!["session-from-core".to_string()];
+        let lane_id = lanes[0].id.clone();
+        state.runtime.lanes = lanes;
+        state.ui.lens = Lens::Board;
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::Lane));
+
+        apply_input_intent(
+            &mut driver,
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            InputIntent::CompleteOrSubmit,
+            (112, 40),
+        )
+        .expect("select lane");
+
+        assert_eq!(state.ui.lens, Lens::Session);
+        assert_eq!(state.ui.focused_lane.as_deref(), Some(lane_id.as_str()));
+        assert_eq!(state.ui.session_id, "session-from-core");
+    }
+
+    #[test]
+    fn lane_with_multiple_core_sessions_requires_session_selection() {
+        let client = FakeCoreClient::default();
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        let mut lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        lanes.truncate(1);
+        lanes[0].active_session_ids = vec!["session-a".to_string(), "session-b".to_string()];
+        state.runtime.lanes = lanes;
+        state.ui.lens = Lens::Board;
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::Lane));
+
+        apply_input_intent(
+            &mut driver,
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            InputIntent::CompleteOrSubmit,
+            (112, 40),
+        )
+        .expect("select lane");
+
+        assert!(
+            state
+                .ui
+                .overlay
+                .as_ref()
+                .is_some_and(|overlay| overlay.kind == OverlayKind::Session)
+        );
+        state.ui.overlay.as_mut().unwrap().selected = 1;
+
+        apply_input_intent(
+            &mut driver,
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            InputIntent::CompleteOrSubmit,
+            (112, 40),
+        )
+        .expect("select session");
+
+        assert_eq!(state.ui.lens, Lens::Session);
+        assert_eq!(state.ui.session_id, "session-b");
+    }
+
+    #[test]
+    fn event_cursor_stream_never_overwrites_selected_session_identity() {
+        let mut state = TuiState::default();
+        state.ui.session_id = "session-from-lane".to_string();
+        let view = state.runtime.clone();
+
+        project_runtime_view(
+            &mut state,
+            &view,
+            &EventCursor {
+                stream_id: "event-log-stream".to_string(),
+                sequence: 7,
+            },
+        );
+
+        assert_eq!(state.ui.session_id, "session-from-lane");
+    }
+
+    #[test]
     fn bootstrap_accepts_direct_core_client() {
         let options = TuiOptions::new("startup").with_startup_check();
 
         run_tui(FakeCoreClient::default(), options).expect("direct CoreClient bootstrap");
+    }
+
+    #[test]
+    fn startup_requests_project_probe_after_capability_negotiation() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+
+        run_tui(client, TuiOptions::new("startup").with_startup_check()).expect("startup probe");
+
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::ProbeProject,
+                ..
+            }]
+        ));
     }
 
     #[test]
@@ -1198,6 +1509,7 @@ mod tests {
         .expect("submit");
 
         assert!(state.ui.input.is_empty());
+        assert_eq!(state.ui.lens, Lens::Session);
         let sent = sent.lock().expect("sent commands");
         assert!(matches!(
             sent.first().map(|command| &command.command),
@@ -1951,6 +2263,20 @@ mod tests {
     fn release_manifest_declares_requested_and_effective_presentation_inputs() {
         let manifest = include_str!("../../release-manifest.toml");
 
+        assert_eq!(env!("CARGO_PKG_VERSION"), "0.2.0");
+        assert!(manifest.contains("version = \"0.2.0\""));
+        assert!(manifest.contains("min_core_version = \"0.3.1\""));
+        assert!(
+            manifest
+                .contains("base_core_checkpoint = \"afd6fcc9aaf3039ba79bb4588ed33bf1547209f5\"")
+        );
+        for capability in [
+            "runtime.credential_handles",
+            "runtime.lane_lifecycle",
+            "runtime.project_onboarding",
+        ] {
+            assert!(manifest.contains(&format!("\"{capability}\"")));
+        }
         assert!(manifest.contains("locales = [\"system\", \"en\", \"zh-CN\"]"));
         assert!(manifest.contains("effective_locales = [\"en\", \"zh-CN\"]"));
         assert!(manifest.contains("modes = [\"system\", \"dark\", \"light\"]"));

@@ -34,16 +34,19 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
 
 - Use a canonical component vocabulary instead of each screen inventing its own
   terminal frame, status bar, lane row, approval gate, and overlay.
-- Status bar uses a ticker: fixed workspace/lane/provider on the left, scrolling
-  status metrics in the center, and fixed help/decision entry on the right.
-- Right rail uses Env / Lane / More tabs, is collapsible, and can be hidden;
-  when hidden, transcript fills the available space.
+- Status bar keeps project/lane identity fixed separately from actionable
+  permission/approval/gate/error facts. The center ticker is ambient-only and
+  may contain activity, event, token, or provider-health facts, never actions.
+- Right rail uses Env / Lane / More groups only when matching Core facts exist.
+  It is optional and closed by default; the transcript fills the available
+  space while it is closed.
 - Lane rows can expand to show subagents under the current lane.
 - Composer behavior follows the canonical T1c component: multiline editing,
   bracketed paste, bounded growth, then internal scroll. This document does not
   define a second row-count limit.
-- Welcome screen uses the Viden identity and command selector; configuration
-  actions return to welcome until real work starts.
+- Welcome screen uses the Viden identity and command selector. `/setup` opens
+  Core-backed onboarding, `/lanes` opens the Core lane board, and normal input
+  opens the unified cockpit.
 - Approval gate uses four decisions: allow once, allow for the session, add a
   repository allowlist rule, or deny, with timeout-deny support.
 
@@ -91,19 +94,13 @@ Requirements:
   setup hint instead of invented health, latency, cost, task, or diagnostic
   values.
 - Demo values are allowed only in explicit `--tui-preview*` fixture paths.
-- Right rail data sources:
-  - workspace: `WorkspaceSnapshot::load_current`.
-  - active tasks: pending approval plus the unified `AgentTask` view of running
-    or queued terminal lanes and delegated Codex jobs.
-  - diagnostics: `WorkspaceSnapshot.diagnostics`, populated from the persisted
-    `.viden/diagnostics.txt` cache after background LSP checks, real
-    `/lsp diagnostics <path>`, or post-edit LSP output; empty means
-    unavailable/0.
-  - provider health: `ProviderStatus` derived from `SessionEngine`
-    `ProviderTelemetry`; request count, success/failure count, last/average
-    latency, last event count, and last error are real values. Rate, token, and
-    cost stay hidden until their runtime sources exist.
-  - recent files: filesystem metadata modification time.
+- Every main-cockpit and right-rail fact comes from `RuntimeViewState` through
+  `CoreClient`. The TUI does not scan workspace files, read lane artifacts,
+  mutate configuration, or persist runtime facts independently.
+- Setup consumes `ProjectProbe`, `ProjectConfigPreview`,
+  `confirmed_project_config`, active provider health, and safe credential
+  handles. Raw secret ingress is unavailable through the Core 0.3.1 client and
+  must not be recreated as a slash command.
 - Any new cockpit metric must identify its runtime source in code or docs.
 
 ## Command Palette
@@ -123,9 +120,15 @@ They must not degrade into status-only pages unless the command is explicitly a
 diagnostic or details command such as `/config`, `/status`, or `/provider
 doctor`.
 
-`/setup` is the first-run wizard. It is not a passive help page: each row is a
-real next action, including provider config, model selection, permissions,
-theme, current-provider doctor, fallback smoke, and saving defaults.
+`/setup` opens the Core-backed Setup lens and sends `ProbeProject`. When Core
+publishes a valid preview, the selector may send `ConfirmProjectConfig` using
+its immutable preview id and hash. The UI stays pending until
+`ProjectConfigConfirmed`; local command acceptance cannot mark it complete.
+
+`/lanes` opens the Board lens from `RuntimeViewState.lanes`. Selecting a lane
+uses only its Core-owned `active_session_ids`; multiple ids open a second
+selector before entering the Session/Cockpit lens. Core 0.3.1 has no global
+session list, so the TUI does not invent one.
 
 `/lane` is the orchestration action selector. It lists lane launch commands and,
 when lanes are active, id-specific inspect, timeline, diff, and artifacts

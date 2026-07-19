@@ -30,13 +30,14 @@ viden --version
 viden --provider fallback --model test-local
 ```
 
-`viden` 默认启动主 TUI。干净会话会先进入聚焦的 welcome 输入界面，
-不会自动提交命令或自动打开 setup。需要配置 provider/model 时，用 `Ctrl-P`
-打开命令，或直接提交下面这些入口。slash 设置命令执行后仍停留在 welcome；
-提交第一个普通任务 prompt 后才进入完整 cockpit。
+`viden` 默认启动主 TUI。TUI 0.2.0 会协商 Core 0.3.1 onboarding extensions 并请求
+project probe，但干净会话仍停留在聚焦的 Welcome composer。`/setup` 打开
+Core-backed Setup selector；`/lanes` 打开 Core lane board。提交普通任务 prompt，
+或选择 Core lane/session 后进入完整 cockpit。
 
 ```text
 /setup
+/lanes
 /setup provider
 /connect
 /models
@@ -119,7 +120,13 @@ models = ["deepseek-v4-flash", "deepseek-v4-pro"]
 favorite_models = ["deepseek-v4-pro"]
 ```
 
-TUI 设置路径在提交命令后进入独立面板：`/connect`、`/provider`、`/setup provider`、`/settings provider` 会打开供应商选择面板；`Enter` 选择供应商，缺 key 时进入 API key 输入面板，然后进入 provider config 动作页。这个动作页可以更换 API key、清除当前进程里的 key、运行 provider doctor，或打开该 provider 的模型选择面板。在 provider-scoped 模型面板里选中模型后，会保存 provider/model、自动运行 provider doctor，并把 readiness 结果写回 transcript。`/models`、`/model`、`/setup model`、`/settings model` 会打开按供应商分组的模型选择面板，只显示已经配置过的 provider；对已配置 provider，会显示 active、favorite、default 和 known models。选中模型后会立即切换 provider/model。API key 在界面里脱敏展示，Viden 只保存环境变量名，不保存明文 key。直接命令 `/settings provider <provider-id> ...`、`/models <provider-id> <model>`、`/model <model>` 仍保留给脚本和高级用户。Provider 失败会被分类为 missing key、auth、rate limit、timeout、context overflow、compatibility 或 model unavailable 等 recovery class，并给出打开 doctor、切换 model/provider、稍后重试或使用 fallback 的具体命令。当 provider 因请求过大拒绝执行时，Viden 会记录压缩说明，用更小的 provider request view 自动重试一次，同时保留完整本地 transcript 作为审计记录。
+TUI 0.2.0 的稳定 project-onboarding 路径由 Core 驱动。Setup 展示 Core project probe、
+config preview、active provider health 和安全 credential handle；它可以用 preview id/hash
+确认已有合法 preview，但不会自行扫描项目、持久化配置、接收原始 API-key bytes 或在本地推断成功。
+只有 `ProjectConfigConfirmed` 能把新配置标记为完成。Core 0.3.1 没有全局 session 枚举；
+`/lanes` 只选择各 Core lane 公布的 session id。
+
+旧 provider/model 设置路径在提交命令后进入独立面板：`/connect`、`/provider`、`/setup provider`、`/settings provider` 会打开供应商选择面板；`Enter` 选择供应商，缺 key 时进入 API key 输入面板，然后进入 provider config 动作页。这个动作页可以更换 API key、清除当前进程里的 key、运行 provider doctor，或打开该 provider 的模型选择面板。在 provider-scoped 模型面板里选中模型后，会保存 provider/model、自动运行 provider doctor，并把 readiness 结果写回 transcript。`/models`、`/model`、`/setup model`、`/settings model` 会打开按供应商分组的模型选择面板，只显示已经配置过的 provider；对已配置 provider，会显示 active、favorite、default 和 known models。选中模型后会立即切换 provider/model。API key 在界面里脱敏展示，Viden 只保存环境变量名，不保存明文 key。直接命令 `/settings provider <provider-id> ...`、`/models <provider-id> <model>`、`/model <model>` 仍保留给脚本和高级用户。Provider 失败会被分类为 missing key、auth、rate limit、timeout、context overflow、compatibility 或 model unavailable 等 recovery class，并给出打开 doctor、切换 model/provider、稍后重试或使用 fallback 的具体命令。当 provider 因请求过大拒绝执行时，Viden 会记录压缩说明，用更小的 provider request view 自动重试一次，同时保留完整本地 transcript 作为审计记录。
 
 ```text
 /settings

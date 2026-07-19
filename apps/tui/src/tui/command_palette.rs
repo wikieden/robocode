@@ -131,6 +131,9 @@ fn suggestions(state: &TuiState) -> Vec<CommandSuggestion> {
     let mut values = [
         ("/help", "Show commands"),
         ("/setup", "Open first-run setup"),
+        ("/lanes", "Open the Core lane board"),
+        ("/decisions", "Open approvals, gates, and errors"),
+        ("/gallery", "Open Core evidence gallery"),
         ("/connect", "Configure a Core provider"),
         ("/models", "Select an available Core model"),
         ("/mode plan", "Request Plan work mode"),
@@ -167,7 +170,17 @@ mod tests {
     fn palette_uses_runtime_lanes() {
         let mut state = TuiState::default();
         state.ui.input = "/lane".into();
-        assert!(suggestions(&state).is_empty());
+        assert_eq!(suggestions(&state)[0].command, "/lanes");
+
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        assert!(
+            suggestions(&state)
+                .iter()
+                .any(|item| item.command.starts_with("/lane inspect "))
+        );
     }
 
     #[test]
@@ -176,5 +189,20 @@ mod tests {
         state.ui.input = "/con".into();
         assert!(complete_selected(&mut state));
         assert_eq!(state.ui.input, "/connect");
+    }
+
+    #[test]
+    fn palette_exposes_task6_lens_routes() {
+        let mut state = TuiState::default();
+        state.ui.input = "/".into();
+
+        let commands = suggestions(&state)
+            .into_iter()
+            .map(|item| item.command)
+            .collect::<Vec<_>>();
+
+        for route in ["/setup", "/lanes", "/decisions", "/gallery"] {
+            assert!(commands.iter().any(|command| command == route), "{route}");
+        }
     }
 }

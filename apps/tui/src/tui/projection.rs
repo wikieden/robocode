@@ -95,6 +95,7 @@ mod tests {
             last_latency_ms: Some(12),
             average_latency_ms: Some(10),
             tokens_per_second: Some(50),
+            credential: None,
         });
         runtime.pending_approvals.push(ApprovalRequestView {
             id: "approval-1".to_string(),
@@ -154,6 +155,7 @@ mod tests {
             last_latency_ms: None,
             average_latency_ms: None,
             tokens_per_second: None,
+            credential: None,
         });
         let first = CockpitProjection::from(
             &runtime,

@@ -422,9 +422,11 @@ assert_contains "$OUT_DIR/main.txt" "next wait for test result"
 assert_contains "$OUT_DIR/main-resize.txt" "LIVE WORK"
 assert_contains "$OUT_DIR/main-resize.txt" "Resize-safe redraw check"
 assert_contains "$OUT_DIR/main-cjk-input.txt" "你好，帮我检查当前变更"
-assert_contains "$OUT_DIR/main.txt" "TELEMETRY"
+assert_not_contains "$OUT_DIR/main.txt" "TELEMETRY"
+assert_contains "$OUT_DIR/main.txt" "P:viden L:"
+assert_contains "$OUT_DIR/main.txt" "PERM:Ask"
+assert_contains "$OUT_DIR/main.txt" "G:0 E:0"
 assert_contains "$OUT_DIR/main.txt" "EVENTS"
-assert_contains "$OUT_DIR/main.txt" "LANES"
 if grep -Fq "APPROVAL REQUIRED" "$OUT_DIR/main.txt" "$OUT_DIR/main-idle.txt"; then
   printf 'preview check failed: %s should not contain approval modal\n' "$OUT_DIR/main-idle.txt" >&2
   exit 1

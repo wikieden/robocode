@@ -89,6 +89,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
         );
     } else if state.ui.interaction_panel.is_some() {
         let title = match state.ui.interaction_panel.as_ref() {
+            Some(InteractionPanel::Setup { .. }) => "SETUP SELECTOR",
             Some(InteractionPanel::ConnectProvider { .. }) => "Connect a provider",
             Some(InteractionPanel::ProviderApiKey { .. }) => "API key",
             Some(InteractionPanel::ModelPicker { .. }) => "Select model",
@@ -142,9 +143,18 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
             "No current work is active.".to_string(),
             "Press Enter to exit or Esc to stay.".to_string(),
         ],
-        OverlayKind::Session => {
-            vec!["Session navigation awaits the Core session list.".to_string()]
-        }
+        OverlayKind::Session => state
+            .ui
+            .focused_lane
+            .as_ref()
+            .and_then(|lane_id| state.runtime.lanes.iter().find(|lane| &lane.id == lane_id))
+            .map(|lane| {
+                lane.active_session_ids
+                    .iter()
+                    .map(|session_id| format!("{}  {}", lane.id, session_id))
+                    .collect()
+            })
+            .unwrap_or_default(),
         OverlayKind::NewSession => {
             vec!["New session awaits the Core command contract.".to_string()]
         }
@@ -169,6 +179,13 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
 
 fn interaction_rows(state: &TuiState) -> Vec<String> {
     match state.ui.interaction_panel.as_ref() {
+        Some(InteractionPanel::Setup { .. }) => {
+            let mut rows = vec!["Probe project through Core".to_string()];
+            if let Some(preview) = state.runtime.project_config_preview.as_ref() {
+                rows.push(format!("Confirm {} through Core", preview.relative_path));
+            }
+            rows
+        }
         Some(InteractionPanel::ConnectProvider { search, .. }) => state
             .ui
             .provider_catalog
@@ -249,6 +266,7 @@ pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
 
 pub(super) fn selected_interaction_command(state: &TuiState) -> Option<String> {
     match state.ui.interaction_panel.as_ref()? {
+        InteractionPanel::Setup { .. } => None,
         InteractionPanel::ConnectProvider { selected, .. } => state
             .ui
             .provider_catalog

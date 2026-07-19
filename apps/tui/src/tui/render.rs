@@ -7,7 +7,7 @@ use super::{
     panel::panel,
     right_rail::right_rail,
     side_screen::render_side_body,
-    state::{AgentTask, TuiState, agent_tasks},
+    state::{AgentTask, Lens, TuiState, agent_tasks},
     statusbar::{BOTTOM_BAR_HEIGHT, render_bottom_bar},
     text::truncate,
     topbar::{render_ops_top_bar, render_side_top_bar, render_top_bar},
@@ -22,7 +22,7 @@ pub(super) fn render_frame(state: &TuiState, width: u16, height: u16) -> String 
     let height = (height as usize).max(MIN_HEIGHT);
     let mut frame = Frame::new(width, height);
 
-    if should_render_welcome(state) {
+    if state.ui.lens == Lens::Welcome && should_render_welcome(state) {
         render_welcome(&mut frame, state);
         // The welcome screen has no right rail; overlays must clear across the
         // full frame or setup hints can bleed through modal backgrounds.
@@ -30,8 +30,19 @@ pub(super) fn render_frame(state: &TuiState, width: u16, height: u16) -> String 
         return frame.to_string();
     }
 
+    if matches!(
+        state.ui.lens,
+        Lens::Setup | Lens::Board | Lens::Decisions | Lens::Gallery
+    ) {
+        render_top_bar(&mut frame, state);
+        render_lens_body(&mut frame, state);
+        render_bottom_bar(&mut frame, state);
+        render_overlays(&mut frame, state, 0);
+        return frame.to_string();
+    }
+
     render_top_bar(&mut frame, state);
-    if width >= 112 {
+    if width >= 112 && state.ui.right_rail_open {
         render_landscape_body(&mut frame, state);
     } else {
         render_compact_body(&mut frame, state);
@@ -41,6 +52,139 @@ pub(super) fn render_frame(state: &TuiState, width: u16, height: u16) -> String 
     render_overlays(&mut frame, state, RIGHT_RAIL_WIDTH);
 
     frame.to_string()
+}
+
+fn render_lens_body(frame: &mut Frame, state: &TuiState) {
+    let body_top = 3;
+    let body_height = frame.height.saturating_sub(body_top + BOTTOM_BAR_HEIGHT);
+    let (title, rows) = match state.ui.lens {
+        Lens::Setup => ("SETUP", setup_rows(state)),
+        Lens::Board => ("LANE BOARD", board_rows(state)),
+        Lens::Decisions => ("DECISIONS", decision_rows(state)),
+        Lens::Gallery => ("GALLERY", gallery_rows(state)),
+        Lens::Welcome | Lens::Session => return,
+    };
+    let block = panel(title, rows, frame.width, body_height, None);
+    frame.write_block(body_top, 0, &block);
+}
+
+fn setup_rows(state: &TuiState) -> Vec<String> {
+    let mut rows = Vec::new();
+    if let Some(probe) = state.runtime.project_probe.as_ref() {
+        rows.push(format!("PROJECT {}", probe.root));
+        rows.push(format!(
+            "GIT {} · CONFIG {}",
+            if probe.is_git_repository { "yes" } else { "no" },
+            format!("{:?}", probe.config_state).to_ascii_lowercase()
+        ));
+        rows.push(format!("PATH {}", probe.config_path));
+        if !probe.diagnostics.is_empty() {
+            rows.extend(
+                probe
+                    .diagnostics
+                    .iter()
+                    .map(|diagnostic| format!("DIAGNOSTIC {diagnostic}")),
+            );
+        }
+    } else {
+        rows.push("PROJECT probe pending from Core".to_string());
+    }
+
+    if let Some(preview) = state.runtime.project_config_preview.as_ref() {
+        rows.push(format!("PREVIEW {}", preview.relative_path));
+        if let Some(contents) = preview.exact_contents.as_deref() {
+            rows.extend(contents.lines().map(|line| format!("  {line}")));
+        }
+        rows.push("PENDING CORE CONFIRMATION".to_string());
+    } else if state.runtime.confirmed_project_config.is_some() {
+        rows.push("COMPLETE · CORE CONFIRMED".to_string());
+    }
+
+    if let Some(provider) = state.runtime.provider.as_ref() {
+        rows.push(format!(
+            "PROVIDER {} {} · {}",
+            provider.provider_id, provider.status, provider.model
+        ));
+        let credential = provider.credential.as_ref().or_else(|| {
+            state
+                .runtime
+                .credential_handles
+                .iter()
+                .find(|handle| handle.provider_id == provider.provider_id)
+        });
+        rows.push(match credential {
+            Some(handle) => format!(
+                "CREDENTIAL {} · {}",
+                format!("{:?}", handle.status).to_ascii_lowercase(),
+                handle.backend_id
+            ),
+            None => "CREDENTIAL unavailable · trusted ingress required".to_string(),
+        });
+    } else {
+        rows.push("PROVIDER awaiting Core health".to_string());
+    }
+    rows
+}
+
+fn board_rows(state: &TuiState) -> Vec<String> {
+    if state.runtime.lanes.is_empty() {
+        return vec!["No Core lanes available.".to_string()];
+    }
+    state
+        .runtime
+        .lanes
+        .iter()
+        .map(|lane| {
+            let sessions = if lane.active_session_ids.is_empty() {
+                "-".to_string()
+            } else {
+                lane.active_session_ids.join(",")
+            };
+            format!(
+                "{} · {} · {:?} · SESSION {}",
+                lane.id, lane.role, lane.status, sessions
+            )
+        })
+        .collect()
+}
+
+fn decision_rows(state: &TuiState) -> Vec<String> {
+    let mut rows = state
+        .runtime
+        .pending_approvals
+        .iter()
+        .map(|approval| format!("APPROVAL {} · {}", approval.id, approval.title))
+        .collect::<Vec<_>>();
+    rows.extend(
+        state
+            .runtime
+            .merge_gates
+            .iter()
+            .map(|gate| format!("GATE {} · {:?}", gate.gate_id, gate.status)),
+    );
+    rows.extend(
+        state
+            .runtime
+            .errors
+            .iter()
+            .map(|error| format!("ERROR {}", error.message)),
+    );
+    if rows.is_empty() {
+        rows.push("No Core decisions pending.".to_string());
+    }
+    rows
+}
+
+fn gallery_rows(state: &TuiState) -> Vec<String> {
+    if state.runtime.latest_evidence.is_empty() {
+        return vec!["No Core evidence available.".to_string()];
+    }
+    state
+        .runtime
+        .latest_evidence
+        .iter()
+        .map(|evidence| format!("{} · {} · {}", evidence.id, evidence.kind, evidence.summary))
+        .collect()
 }
 
 pub(super) fn render_side_frame(state: &TuiState, width: u16, height: u16) -> String {
@@ -166,11 +310,6 @@ fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
 fn live_work_strip_rows(status: &LiveActivityStatus, width: usize) -> Vec<String> {
     let header_rule = "─".repeat(width.saturating_sub(24).min(96));
     let footer_rule = "─".repeat(width.saturating_sub(7).min(112));
-    let detail = status
-        .details
-        .first()
-        .map(String::as_str)
-        .unwrap_or(status.evidence.as_str());
     let phase = status.phase.as_deref().unwrap_or("active");
     let signal = live_work_signal(status)
         .map(|value| format!(" · signal {value}"))
@@ -191,9 +330,20 @@ fn live_work_strip_rows(status: &LiveActivityStatus, width: usize) -> Vec<String
             &format!("     │ ◉ {}", live_work_headline(&status.summary)),
             width,
         ),
-        truncate(&format!("     │ phase {phase}{signal} · {detail}"), width),
-        truncate(&format!("     │ {guidance}"), width),
+        truncate(&format!("     │ phase {phase}{signal}"), width),
     ];
+    if status.details.is_empty() {
+        rows.push(truncate(&format!("     │ {}", status.evidence), width));
+    } else {
+        rows.extend(
+            status
+                .details
+                .iter()
+                .take(3)
+                .map(|detail| truncate(&format!("     │ {detail}"), width)),
+        );
+    }
+    rows.push(truncate(&format!("     │ {guidance}"), width));
     rows.push(truncate(&format!("     ╰{footer_rule}"), width));
     rows
 }
@@ -354,7 +504,8 @@ fn operator_summary(task: &AgentTask, delegated_count: usize) -> String {
 
 fn operator_detail(task: &AgentTask) -> String {
     let mut parts = vec![format!(
-        "{} {}",
+        "{} · {} {}",
+        task.id,
         operator_agent_label(task),
         operator_status_label(task)
     )];
@@ -613,8 +764,12 @@ fn is_loose_timeline_connector(row: &str) -> bool {
 #[cfg(test)]
 mod structured_runtime_tests {
     use super::*;
-    use crate::tui::state::{TuiEntry, TuiState};
-    use viden_types::{ProviderHealthView, RuntimeErrorView, ToolCallView};
+    use crate::tui::state::{Lens, TuiEntry, TuiState};
+    use viden_types::{
+        CredentialHandle, CredentialStatus, ProjectConfigPreview, ProjectConfigState, ProjectProbe,
+        ProviderHealthView, RuntimeErrorView, RuntimeEventEnvelope, RuntimeSnapshot,
+        RuntimeWireEvent, ToolCallView,
+    };
 
     fn state() -> TuiState {
         let mut state = TuiState::default();
@@ -642,6 +797,7 @@ mod structured_runtime_tests {
             last_latency_ms: Some(42),
             average_latency_ms: Some(30),
             tokens_per_second: Some(20),
+            credential: None,
         });
         state.runtime.active_tool_calls.push(ToolCallView {
             tool_call_id: "tool-1".to_string(),
@@ -654,6 +810,153 @@ mod structured_runtime_tests {
         assert!(rendered.contains("hello"));
         assert!(rendered.contains("search"));
         assert!(rendered.contains("PROVIDER healthy"));
+    }
+
+    #[test]
+    fn welcome_setup_lanes_and_cockpit_follow_core_facts() {
+        let welcome = TuiState::default();
+        let rendered = render_frame(&welcome, 112, 40);
+        assert!(rendered.contains("Ask anything"));
+        assert!(!rendered.contains("TRANSCRIPT"));
+
+        let mut setup = TuiState::default();
+        setup.ui.lens = Lens::Setup;
+        setup.runtime.project_probe = Some(ProjectProbe {
+            root: "/workspace/demo".to_string(),
+            is_git_repository: true,
+            git_root: Some("/workspace/demo".to_string()),
+            config_path: "/workspace/demo/viden.toml".to_string(),
+            config_state: ProjectConfigState::Missing,
+            project_name: Some("demo".to_string()),
+            pack: Some("rust".to_string()),
+            diagnostics: Vec::new(),
+        });
+        let preview = ProjectConfigPreview {
+            preview_id: "preview-core".to_string(),
+            relative_path: "viden.toml".to_string(),
+            content_sha256: "a".repeat(64),
+            byte_len: 31,
+            exact_contents: Some("[project]\nname = \"demo\"\n".to_string()),
+            base_content_sha256: None,
+            project_name: Some("demo".to_string()),
+            pack: Some("rust".to_string()),
+            diagnostics: Vec::new(),
+        };
+        setup.runtime.project_config_preview = Some(preview.clone());
+        setup.runtime.provider = Some(ProviderHealthView {
+            provider_id: "provider-1".to_string(),
+            model: "model-1".to_string(),
+            status: "healthy".to_string(),
+            request_count: 0,
+            error_count: 0,
+            last_latency_ms: None,
+            average_latency_ms: None,
+            tokens_per_second: None,
+            credential: Some(CredentialHandle {
+                provider_id: "provider-1".to_string(),
+                backend_id: "keychain:item".to_string(),
+                status: CredentialStatus::Available,
+            }),
+        });
+
+        let pending = render_frame(&setup, 112, 40);
+        assert!(pending.contains("SETUP"));
+        assert!(pending.contains("PROJECT /workspace/demo"));
+        assert!(pending.contains("CONFIG missing"));
+        assert!(pending.contains("PREVIEW viden.toml"));
+        assert!(pending.contains("PENDING CORE CONFIRMATION"));
+        assert!(pending.contains("PROVIDER provider-1 healthy"));
+        assert!(pending.contains("CREDENTIAL available"));
+        assert!(!pending.contains("COMPLETE · CORE CONFIRMED"));
+
+        setup.runtime.project_config_preview = None;
+        setup.runtime.confirmed_project_config = Some(preview);
+        let confirmed = render_frame(&setup, 112, 40);
+        assert!(confirmed.contains("COMPLETE · CORE CONFIRMED"));
+
+        let mut board = TuiState::default();
+        board.ui.lens = Lens::Board;
+        board.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        board.runtime.lanes.truncate(1);
+        board.runtime.lanes[0].active_session_ids = vec!["session-core".to_string()];
+        let lane_id = board.runtime.lanes[0].id.clone();
+        let board_rendered = render_frame(&board, 112, 40);
+        assert!(board_rendered.contains("LANE BOARD"));
+        assert!(board_rendered.contains(&lane_id));
+        assert!(board_rendered.contains("session-core"));
+
+        board.ui.lens = Lens::Session;
+        board.ui.focused_lane = Some(lane_id.clone());
+        board.ui.session_id = "session-core".to_string();
+        board.ui.input = "composer stays editable".into();
+        let cockpit = render_frame(&board, 112, 40);
+        assert!(cockpit.contains("COCKPIT"));
+        assert!(cockpit.contains(&lane_id));
+        assert!(cockpit.contains("session-core"));
+        assert!(cockpit.contains("composer stays editable"));
+    }
+
+    #[test]
+    fn active_cockpit_keeps_composer_and_pinned_actions_at_all_widths() {
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            initial_snapshot: RuntimeSnapshot,
+            events: Vec<RuntimeEventEnvelope>,
+        }
+
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json"
+        ))
+        .expect("D1 fixture");
+        let mut runtime = viden_types::RuntimeViewState::new(fixture.initial_snapshot);
+        let mut approval = None;
+        for envelope in fixture.events {
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                if let viden_types::RuntimeEventKind::ApprovalRequested {
+                    approval: requested,
+                } = &event.kind
+                {
+                    approval = Some(requested.clone());
+                }
+                runtime.apply_event(&event);
+            }
+        }
+        runtime.pending_approvals = vec![approval.expect("approval fixture")];
+        runtime.active_tool_calls.push(ToolCallView {
+            tool_call_id: "tool-active".to_string(),
+            name: "search".to_string(),
+            input_preview: "src".to_string(),
+        });
+        runtime.assistant_stream = "streaming".to_string();
+        let mut state = TuiState::new(runtime);
+        state.ui.lens = Lens::Session;
+        state.ui.focused_lane = Some("lane_d1_core".to_string());
+        state.ui.session_id = "session_lane_d1_core".to_string();
+        state.ui.input = "edit me".into();
+
+        for width in [40_u16, 80, 112, 160] {
+            let rendered = render_frame(&state, width, 40);
+
+            assert!(
+                rendered
+                    .lines()
+                    .all(|line| super::super::text::char_width(line) == usize::from(width)),
+                "physical frame width {width}"
+            );
+            assert!(rendered.contains("edit me"), "composer width {width}");
+            assert!(rendered.contains("P:viden"), "project identity {width}");
+            assert!(rendered.contains("L:lane_d1_core"), "lane identity {width}");
+            assert!(rendered.contains("PERM:Ask"), "permission action {width}");
+            assert!(rendered.contains("G:1"), "gate action {width}");
+            assert!(rendered.contains("E:1"), "error action {width}");
+            assert!(
+                !rendered.contains("RUNTIME"),
+                "right rail must default closed at {width}"
+            );
+        }
     }
 
     #[test]
@@ -729,7 +1032,6 @@ mod structured_runtime_tests {
         });
 
         let rendered = render_frame(&state, 140, 40);
-
         assert!(rendered.contains("LIVE WORK"));
         assert!(rendered.contains("L-start"));
         assert!(rendered.contains("search"));
