@@ -293,6 +293,7 @@ mod tests {
     use std::process::{Child, Command, Stdio};
     use std::sync::{Arc, Barrier};
     use std::thread;
+    use std::time::{Duration, Instant};
 
     use viden_types::{LaneStatus, fresh_id};
 
@@ -389,10 +390,11 @@ mod tests {
         let legacy_path = cwd.join(".viden").join("lanes.tsv");
         fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
         fs::write(&legacy_path, LEGACY_LANES).unwrap();
+        let start_gate = cwd.join("import.start");
         let results = (0..4)
             .map(|index| cwd.join(format!("import-{index}.result")))
             .collect::<Vec<_>>();
-        let children = results
+        let mut children = results
             .iter()
             .enumerate()
             .map(|(index, result)| {
@@ -403,11 +405,13 @@ mod tests {
                     Some(&legacy_path),
                     None,
                     result,
+                    &start_gate,
                     index,
                 )
             })
             .collect::<Vec<_>>();
 
+        release_lane_helpers_when_ready(&mut children, &results, &start_gate);
         wait_for_lane_helpers(children);
 
         let outcomes = results
@@ -435,7 +439,8 @@ mod tests {
             cwd.join("duplicate-a.result"),
             cwd.join("duplicate-b.result"),
         ];
-        let children = results
+        let start_gate = cwd.join("duplicate.start");
+        let mut children = results
             .iter()
             .enumerate()
             .map(|(index, result)| {
@@ -446,11 +451,13 @@ mod tests {
                     None,
                     Some("lane_duplicate"),
                     result,
+                    &start_gate,
                     index,
                 )
             })
             .collect::<Vec<_>>();
 
+        release_lane_helpers_when_ready(&mut children, &results, &start_gate);
         wait_for_lane_helpers(children);
 
         let outcomes = results
@@ -479,15 +486,26 @@ mod tests {
         let cwd = temp_dir("process_first_append_cwd");
         let results = [cwd.join("first-a.result"), cwd.join("first-b.result")];
         let lane_ids = ["lane_first_a", "lane_first_b"];
-        let children = results
+        let start_gate = cwd.join("first-append.start");
+        let mut children = results
             .iter()
             .zip(lane_ids)
             .enumerate()
             .map(|(index, (result, lane_id))| {
-                spawn_lane_store_helper("create", &home, &cwd, None, Some(lane_id), result, index)
+                spawn_lane_store_helper(
+                    "create",
+                    &home,
+                    &cwd,
+                    None,
+                    Some(lane_id),
+                    result,
+                    &start_gate,
+                    index,
+                )
             })
             .collect::<Vec<_>>();
 
+        release_lane_helpers_when_ready(&mut children, &results, &start_gate);
         wait_for_lane_helpers(children);
 
         assert!(
@@ -508,10 +526,25 @@ mod tests {
         let home = PathBuf::from(env::var_os("VIDEN_LANE_HOME").unwrap());
         let cwd = PathBuf::from(env::var_os("VIDEN_LANE_CWD").unwrap());
         let result_path = PathBuf::from(env::var_os("VIDEN_LANE_RESULT").unwrap());
+        let ready_path = PathBuf::from(env::var_os("VIDEN_LANE_READY").unwrap());
+        let start_gate = PathBuf::from(env::var_os("VIDEN_LANE_START_GATE").unwrap());
         let index = env::var("VIDEN_LANE_INDEX")
             .unwrap()
             .parse::<u64>()
             .unwrap();
+
+        // Publish readiness before opening the store so every contender reaches the
+        // same pre-lock boundary and the parent can release them together.
+        fs::write(&ready_path, b"ready").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !start_gate.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "lane store helper timed out waiting for start gate"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+
         let store = WorkflowStore::new(home, &cwd).unwrap();
         let result = match case.as_str() {
             "import" => {
@@ -554,8 +587,10 @@ mod tests {
         legacy_path: Option<&PathBuf>,
         lane_id: Option<&str>,
         result_path: &PathBuf,
+        start_gate: &PathBuf,
         index: usize,
     ) -> Child {
+        let ready_path = result_path.with_extension("ready");
         let mut command = Command::new(env::current_exe().unwrap());
         command
             .arg("--exact")
@@ -565,6 +600,8 @@ mod tests {
             .env("VIDEN_LANE_HOME", home)
             .env("VIDEN_LANE_CWD", cwd)
             .env("VIDEN_LANE_RESULT", result_path)
+            .env("VIDEN_LANE_READY", ready_path)
+            .env("VIDEN_LANE_START_GATE", start_gate)
             .env("VIDEN_LANE_INDEX", index.to_string())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -575,6 +612,36 @@ mod tests {
             command.env("VIDEN_LANE_ID", lane_id);
         }
         command.spawn().unwrap()
+    }
+
+    fn release_lane_helpers_when_ready(
+        children: &mut [Child],
+        result_paths: &[PathBuf],
+        start_gate: &PathBuf,
+    ) {
+        let ready_paths = result_paths
+            .iter()
+            .map(|path| path.with_extension("ready"))
+            .collect::<Vec<_>>();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ready_paths.iter().all(|path| path.exists()) {
+            for child in children.iter_mut() {
+                if let Some(status) = child.try_wait().unwrap() {
+                    panic!("lane store helper exited before ready: {status}");
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for lane store helpers to become ready"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        assert!(
+            result_paths.iter().all(|path| !path.exists()),
+            "lane store helper ran before the shared start gate opened"
+        );
+        fs::write(start_gate, b"start").unwrap();
     }
 
     fn wait_for_lane_helpers(children: Vec<Child>) {
