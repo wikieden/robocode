@@ -1,8 +1,9 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use viden_core::{
     CoreClientError, CoreHandshake, CoreTransport, EventCursor, FRONTEND_SCHEMA_V1, ReplayBatch,
     ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventEnvelope,
@@ -10,7 +11,7 @@ use viden_core::{
     SchemaVersion, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
     frontend_capabilities,
 };
-use viden_gui_spike_common::{GuiConnectionState, GuiCoreAdapter, TranscriptViewport};
+use viden_gui_spike_common::{GuiConnectionState, GuiCoreAdapter};
 
 const D1_FIXTURE: &str = include_str!(
     "../../../../../crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json"
@@ -21,6 +22,7 @@ struct D1Fixture {
     initial_snapshot: RuntimeSnapshot,
     events: Vec<RuntimeEventEnvelope>,
     expected_final_cursor: EventCursor,
+    expected_view_sha256: String,
 }
 
 #[derive(Clone)]
@@ -35,6 +37,9 @@ struct FixtureTransportState {
     snapshots: VecDeque<Result<RuntimeSnapshotEnvelope, CoreClientError>>,
     replays: VecDeque<Result<ReplayBatch, CoreClientError>>,
     replay_requests: Vec<ReplayRequest>,
+    transcript_total_rows: u64,
+    transcript_requests: Vec<TranscriptPageRequest>,
+    transcript_max_returned: usize,
 }
 
 impl FixtureTransport {
@@ -51,6 +56,9 @@ impl FixtureTransport {
             snapshots: VecDeque::new(),
             replays: VecDeque::new(),
             replay_requests: Vec::new(),
+            transcript_total_rows: 0,
+            transcript_requests: Vec::new(),
+            transcript_max_returned: 0,
         }));
         (
             Self {
@@ -107,11 +115,13 @@ impl CoreTransport for FixtureTransport {
 
     fn transcript_page(
         &mut self,
-        _request: TranscriptPageRequest,
+        request: TranscriptPageRequest,
     ) -> Result<TranscriptPage, CoreClientError> {
-        Err(CoreClientError::Transport(
-            "fixture transport has no transcript page".into(),
-        ))
+        let mut state = self.state.lock().unwrap();
+        state.transcript_requests.push(request.clone());
+        let page = transcript_page(&request, state.transcript_total_rows);
+        state.transcript_max_returned = state.transcript_max_returned.max(page.rows.len());
+        Ok(page)
     }
 }
 
@@ -350,6 +360,45 @@ fn multi_batch_gap_replay_syncs_every_intermediate_fact_from_confirmed_core_view
 }
 
 #[test]
+fn second_replay_batch_failure_keeps_projection_and_cursor_atomically_unchanged() {
+    let fixture = fixture();
+    let (transport, state) = FixtureTransport::new();
+    {
+        let mut state = state.lock().unwrap();
+        state
+            .receives
+            .push_back(Ok(Some(fixture.events[3].clone())));
+        state.replays.push_back(Ok(ReplayBatch {
+            events: fixture.events[0..2].to_vec(),
+            next: fixture.events[1].cursor.clone(),
+            complete: false,
+        }));
+        state.replays.push_back(Err(CoreClientError::Transport(
+            "second replay batch failed".to_string(),
+        )));
+    }
+    let mut adapter = connected_adapter(&fixture, transport, &state);
+    let initial = adapter.projection().clone();
+
+    let error = adapter.pump(Duration::ZERO).unwrap_err();
+
+    assert!(matches!(error, CoreClientError::Transport(_)));
+    assert_eq!(adapter.projection(), &initial);
+    assert_eq!(adapter.projection().cursor(), initial.cursor());
+    assert_eq!(adapter.metrics().replay_batches_observed, 2);
+    assert_eq!(
+        adapter.connection_state(),
+        &GuiConnectionState::Recovering {
+            expected: EventCursor {
+                stream_id: "fixture:d1-vertical-slice".to_string(),
+                sequence: 1,
+            },
+            received: fixture.events[3].cursor.clone(),
+        }
+    );
+}
+
+#[test]
 fn command_rejection_is_rendered_only_from_the_core_confirmed_view() {
     let fixture = fixture();
     let (transport, state) = FixtureTransport::new();
@@ -429,7 +478,7 @@ fn ten_thousand_fixture_events_preserve_cursor_and_content_identity() {
 }
 
 #[test]
-fn full_d1_fixture_reaches_the_committed_final_cursor() {
+fn full_d1_fixture_matches_the_committed_runtime_view_digest() {
     let fixture = fixture();
     let (transport, state) = FixtureTransport::new();
     state
@@ -448,33 +497,78 @@ fn full_d1_fixture_reaches_the_committed_final_cursor() {
         Some(&fixture.expected_final_cursor)
     );
     let view = adapter.projection().view().unwrap();
-    assert_eq!(view.assistant_stream, "D1 cockpit state");
-    assert_eq!(view.lanes.len(), 1);
-    assert_eq!(view.tasks.len(), 1);
-    assert_eq!(view.merge_gates.len(), 1);
+    assert_eq!(canonical_view_sha256(view), fixture.expected_view_sha256);
 }
 
 #[test]
-fn fifty_thousand_rows_keep_a_stable_bounded_scroll_anchor() {
-    let rows = transcript_rows(50_000);
-    let anchor = TranscriptRowId("session-d1:25000".to_string());
-    let mut viewport = TranscriptViewport::new(240);
+fn fifty_thousand_rows_page_through_core_with_a_bounded_stable_anchor() {
+    let fixture = fixture();
+    let (transport, state) = FixtureTransport::new();
+    state.lock().unwrap().transcript_total_rows = 50_000;
+    let mut adapter = connected_adapter(&fixture, transport, &state);
+    let anchor = TranscriptRowId("session-d1:49880".to_string());
 
-    viewport.replace_rows(rows, Some(&anchor));
+    adapter
+        .open_transcript_page(
+            TranscriptPageRequest {
+                session_id: "session-d1".to_string(),
+                before: None,
+                limit: 500,
+            },
+            Some(&anchor),
+        )
+        .unwrap();
+    assert_eq!(adapter.transcript_viewport().anchor(), Some(&anchor));
+    assert_eq!(adapter.transcript_viewport().anchor_offset(), Some(120));
+    assert_eq!(adapter.transcript_viewport().rows().len(), 240);
 
-    assert_eq!(viewport.anchor(), Some(&anchor));
-    assert_eq!(viewport.anchor_offset(), Some(120));
-    assert_eq!(viewport.rows().len(), 240);
-    assert_eq!(viewport.rows()[120].id, anchor);
+    assert!(adapter.load_older_transcript_page().unwrap());
+    assert_eq!(adapter.transcript_viewport().rows().len(), 240);
+    assert_eq!(
+        adapter.transcript_viewport().rows().last().unwrap().id.0,
+        "session-d1:49759"
+    );
+
+    assert!(adapter.load_newer_transcript_page().unwrap());
+    assert_eq!(adapter.transcript_viewport().anchor(), Some(&anchor));
+    assert_eq!(adapter.transcript_viewport().anchor_offset(), Some(120));
+    assert_eq!(adapter.transcript_viewport().rows().len(), 240);
+
+    let state = state.lock().unwrap();
+    assert_eq!(state.transcript_requests.len(), 3);
+    assert!(state.transcript_requests[0].before.is_none());
+    assert_eq!(
+        state.transcript_requests[1]
+            .before
+            .as_ref()
+            .unwrap()
+            .ordinal,
+        49_760
+    );
+    assert_eq!(state.transcript_requests[2], state.transcript_requests[0]);
+    assert!(
+        state
+            .transcript_requests
+            .iter()
+            .all(|request| request.limit <= 240)
+    );
+    assert!(state.transcript_max_returned <= 240);
 }
 
-fn transcript_rows(count: u64) -> Vec<TranscriptRow> {
-    (0..count)
+fn transcript_page(request: &TranscriptPageRequest, count: u64) -> TranscriptPage {
+    let limit = u64::from(request.limit.clamp(1, 500));
+    let end = request
+        .before
+        .as_ref()
+        .map(|cursor| cursor.ordinal.min(count))
+        .unwrap_or(count);
+    let start = end.saturating_sub(limit);
+    let rows = (start..end)
         .map(|ordinal| {
             serde_json::from_value(serde_json::json!({
-                "id": format!("session-d1:{ordinal}"),
+                "id": format!("{}:{ordinal}", request.session_id),
                 "cursor": {
-                    "session_id": "session-d1",
+                    "session_id": request.session_id,
                     "ordinal": ordinal,
                 },
                 "timestamp": ordinal,
@@ -489,5 +583,40 @@ fn transcript_rows(count: u64) -> Vec<TranscriptRow> {
             }))
             .expect("generated transcript row should match the Core contract")
         })
-        .collect()
+        .collect::<Vec<TranscriptRow>>();
+    serde_json::from_value(serde_json::json!({
+        "rows": rows,
+        "older": (start > 0).then(|| serde_json::json!({
+            "session_id": request.session_id,
+            "ordinal": start,
+        })),
+        "newer": (end < count).then(|| serde_json::json!({
+            "session_id": request.session_id,
+            "ordinal": end.saturating_sub(1),
+        })),
+        "has_more": start > 0,
+    }))
+    .expect("generated transcript page should match the Core contract")
+}
+
+fn canonical_view_sha256(view: &RuntimeViewState) -> String {
+    let value = serde_json::to_value(view).expect("runtime view must serialize");
+    let bytes = serde_json::to_vec(&sort_json(value)).expect("canonical json must serialize");
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn sort_json(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.into_iter()
+                .map(|(key, value)| (key, sort_json(value)))
+                .collect::<BTreeMap<_, _>>()
+                .into_iter()
+                .collect(),
+        ),
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(sort_json).collect())
+        }
+        other => other,
+    }
 }

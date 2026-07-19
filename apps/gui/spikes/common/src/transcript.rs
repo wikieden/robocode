@@ -1,23 +1,112 @@
-use viden_core::{TranscriptRow, TranscriptRowId};
+use std::collections::VecDeque;
 
-/// A bounded materialized window around one stable Core transcript row id.
+use viden_core::{TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId};
+
+const MAX_NAVIGATION_HISTORY: usize = 64;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PageLocation {
+    request: TranscriptPageRequest,
+    anchor: Option<TranscriptRowId>,
+}
+
+/// A bounded materialized window backed exclusively by Core transcript pages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranscriptViewport {
     capacity: usize,
     rows: Vec<TranscriptRow>,
     anchor: Option<TranscriptRowId>,
+    current_request: Option<TranscriptPageRequest>,
+    older_request: Option<TranscriptPageRequest>,
+    // Core pages backward with `before`; retain only bounded request/anchor
+    // breadcrumbs so forward navigation never caches transcript row pages.
+    newer_history: VecDeque<PageLocation>,
 }
 
 impl TranscriptViewport {
     pub fn new(capacity: usize) -> Self {
         Self {
-            capacity: capacity.max(1),
+            capacity: capacity.clamp(1, 500),
             rows: Vec::new(),
             anchor: None,
+            current_request: None,
+            older_request: None,
+            newer_history: VecDeque::new(),
         }
     }
 
-    pub fn replace_rows(
+    pub(crate) fn bounded_request(
+        &self,
+        mut request: TranscriptPageRequest,
+    ) -> TranscriptPageRequest {
+        request.limit = request.limit.clamp(1, self.capacity as u16);
+        request
+    }
+
+    pub(crate) fn open_page(
+        &mut self,
+        request: TranscriptPageRequest,
+        page: TranscriptPage,
+        preferred_anchor: Option<&TranscriptRowId>,
+    ) {
+        self.newer_history.clear();
+        self.current_request = Some(request.clone());
+        self.older_request = page.older.clone().map(|before| TranscriptPageRequest {
+            session_id: request.session_id,
+            before: Some(before),
+            limit: request.limit,
+        });
+        self.materialize(page.rows, preferred_anchor);
+    }
+
+    pub(crate) fn older_request(&self) -> Option<TranscriptPageRequest> {
+        self.older_request.clone()
+    }
+
+    pub(crate) fn commit_older_page(
+        &mut self,
+        request: TranscriptPageRequest,
+        page: TranscriptPage,
+    ) {
+        if let Some(current_request) = self.current_request.clone() {
+            if self.newer_history.len() == MAX_NAVIGATION_HISTORY {
+                self.newer_history.pop_front();
+            }
+            self.newer_history.push_back(PageLocation {
+                request: current_request,
+                anchor: self.anchor.clone(),
+            });
+        }
+        self.current_request = Some(request.clone());
+        self.older_request = page.older.clone().map(|before| TranscriptPageRequest {
+            session_id: request.session_id,
+            before: Some(before),
+            limit: request.limit,
+        });
+        self.materialize(page.rows, None);
+    }
+
+    pub(crate) fn newer_request(&self) -> Option<TranscriptPageRequest> {
+        self.newer_history
+            .back()
+            .map(|location| location.request.clone())
+    }
+
+    pub(crate) fn commit_newer_page(&mut self, page: TranscriptPage) {
+        let Some(location) = self.newer_history.pop_back() else {
+            return;
+        };
+        let request = location.request;
+        self.current_request = Some(request.clone());
+        self.older_request = page.older.clone().map(|before| TranscriptPageRequest {
+            session_id: request.session_id,
+            before: Some(before),
+            limit: request.limit,
+        });
+        self.materialize(page.rows, location.anchor.as_ref());
+    }
+
+    fn materialize(
         &mut self,
         rows: Vec<TranscriptRow>,
         preferred_anchor: Option<&TranscriptRowId>,

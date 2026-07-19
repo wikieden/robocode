@@ -4,10 +4,12 @@ use std::time::Duration;
 use viden_core::{
     CoreClient, CoreClientError, CoreHandshake, CoreTransport, EventCursor, ReplayBatch,
     ReplayRequest, RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeSnapshotEnvelope,
-    StatefulCoreClient, TranscriptPage, TranscriptPageRequest,
+    StatefulCoreClient, TranscriptPage, TranscriptPageRequest, TranscriptRowId,
 };
 
-use crate::{ConfirmedState, GateMetrics, GuiProjection};
+use crate::{ConfirmedState, GateMetrics, GuiProjection, TranscriptViewport};
+
+const DEFAULT_TRANSCRIPT_CAPACITY: usize = 240;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GuiConnectionState {
@@ -86,6 +88,7 @@ where
     observation: Arc<Mutex<TransportObservation>>,
     connection: GuiConnectionState,
     projection: GuiProjection,
+    transcript: TranscriptViewport,
     metrics: GateMetrics,
 }
 
@@ -104,6 +107,7 @@ where
             observation,
             connection: GuiConnectionState::Disconnected,
             projection: GuiProjection::default(),
+            transcript: TranscriptViewport::new(DEFAULT_TRANSCRIPT_CAPACITY),
             metrics: GateMetrics::default(),
         }
     }
@@ -179,6 +183,39 @@ where
 
     pub fn projection(&self) -> &GuiProjection {
         &self.projection
+    }
+
+    pub fn open_transcript_page(
+        &mut self,
+        request: TranscriptPageRequest,
+        preferred_anchor: Option<&TranscriptRowId>,
+    ) -> Result<(), CoreClientError> {
+        let request = self.transcript.bounded_request(request);
+        let page = self.client.transcript_page(request.clone())?;
+        self.transcript.open_page(request, page, preferred_anchor);
+        Ok(())
+    }
+
+    pub fn load_older_transcript_page(&mut self) -> Result<bool, CoreClientError> {
+        let Some(request) = self.transcript.older_request() else {
+            return Ok(false);
+        };
+        let page = self.client.transcript_page(request.clone())?;
+        self.transcript.commit_older_page(request, page);
+        Ok(true)
+    }
+
+    pub fn load_newer_transcript_page(&mut self) -> Result<bool, CoreClientError> {
+        let Some(request) = self.transcript.newer_request() else {
+            return Ok(false);
+        };
+        let page = self.client.transcript_page(request)?;
+        self.transcript.commit_newer_page(page);
+        Ok(true)
+    }
+
+    pub fn transcript_viewport(&self) -> &TranscriptViewport {
+        &self.transcript
     }
 
     pub fn metrics(&self) -> &GateMetrics {
