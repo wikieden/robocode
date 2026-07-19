@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · TUI Side Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../i18n.js"></script>
+<script src="../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="tui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1300px;margin:0 auto;padding:26px 24px 80px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:27px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:13.5px;color:var(--fg-secondary);margin:0 0 16px;max-width:980px;line-height:1.65;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;} .plead kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;padding:1px 6px;color:var(--accent-bright);background:var(--bg-panel);}
+
+.ctrl{display:flex;align-items:center;gap:10px;margin:6px 0 12px;flex-wrap:wrap;}
+.tgl{font-family:var(--mono);font-size:12px;border:1px solid var(--border);border-radius:8px;padding:6px 13px;cursor:pointer;color:var(--fg-secondary);background:transparent;display:flex;align-items:center;gap:8px;}
+.tgl.on{color:var(--accent-bright);border-color:var(--accent-dim);background:var(--bg-sel);}
+.tgl kbd{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);border:1px solid var(--border);border-radius:3px;padding:0 4px;}
+.ctrl .hint{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);}
+
+.term{font-family:var(--mono);background:var(--bg-void);border:1px solid var(--term-edge);border-radius:9px;overflow:hidden;box-shadow:0 22px 56px -30px rgba(0,0,0,.8);}
+.term .vterm-chrome{opacity:.5;}
+
+
+.tscreen{height:520px;display:flex;flex-direction:column;}
+.bodyrow{flex:1;display:flex;min-height:0;}
+.convo{flex:1;min-width:0;overflow:auto;padding:12px 15px;display:flex;flex-direction:column;gap:10px;font-size:13px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.t-acc{color:var(--accent);}.t-br{color:var(--accent-bright);}.t-gold{color:var(--gold-bright);}.t-suc{color:var(--success);}.t-warn{color:var(--warning);}.t-err{color:var(--error);}.t-prog{color:var(--progress);}.t-mut{color:var(--fg-muted);}.t-fnt{color:var(--fg-faint);}.t-sec{color:var(--fg-secondary);}.t-pri{color:var(--fg-primary);}.bld{font-weight:700;}
+.umsg{display:flex;gap:9px;align-items:baseline;background:var(--bg-base);border-left:2px solid var(--accent-dim);border-radius:0 6px 6px 0;padding:6px 11px;}
+.umsg .p{color:var(--accent-bright);font-weight:700;}
+.ahdr{color:var(--gold-bright);font-weight:700;display:flex;gap:8px;align-items:center;}
+.ahdr .m{color:var(--fg-faint);font-weight:400;font-size:11px;}
+.atext{color:var(--fg-secondary);line-height:1.55;} .atext b{color:var(--fg-primary);}
+.tool{border-left:2px solid var(--border);padding:2px 0 2px 11px;display:flex;flex-direction:column;gap:2px;}
+.tool .g{color:var(--accent);font-weight:700;} .add{color:var(--success);} .del{color:var(--error);}
+.gatemsg{border:1px solid color-mix(in srgb,var(--gold) 30%,transparent);background:color-mix(in srgb,var(--gold) 7%,var(--bg-void));border-radius:6px;padding:7px 11px;color:var(--gold-bright);line-height:1.5;font-size:12px;}
+
+.dock{width:300px;flex:none;border-left:1px solid var(--border-soft);background:var(--term-chrome);display:flex;flex-direction:column;min-height:0;}
+.docktabs{flex:none;display:flex;border-bottom:1px solid var(--border-soft);overflow:hidden;}
+.dtab{flex:1;text-align:center;padding:7px 0;font-size:10.5px;color:var(--fg-muted);cursor:pointer;border-bottom:2px solid transparent;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative;}
+.dtab:hover{color:var(--fg-secondary);} .dtab.on{color:var(--accent-bright);border-bottom-color:var(--accent);background:color-mix(in srgb,var(--bg-sel) 30%,transparent);}
+.dtab .ky{font-size:8px;color:var(--fg-faint);} .dtab.on .ky{color:var(--accent);}
+.dtab .bd{font-size:7.5px;color:#fff;background:var(--error);border-radius:7px;padding:0 4px;position:absolute;top:3px;right:10px;}
+.dbody{flex:1;overflow:auto;padding:11px 13px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;font-size:12px;}
+.dsec{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-faint);margin:2px 0 8px;}
+.drow{display:flex;align-items:baseline;gap:8px;padding:4px 0;color:var(--fg-secondary);}
+.dfile{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;}
+.dfile:hover{background:var(--bg-base);}
+.dfile .nm{color:var(--fg-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dfile .sp{flex:1;} .dfile .pm{font-size:10.5px;}
+.evbox{background:var(--bg-void);border:1px solid var(--border);border-radius:7px;padding:8px 10px;margin-bottom:9px;}
+.evbox .t{font-size:10.5px;color:var(--fg-muted);margin-bottom:5px;}
+.evbox .a{display:flex;gap:7px;align-items:baseline;padding:2px 0;color:var(--fg-secondary);font-size:11.5px;}
+.evbox .a .mk.ok{color:var(--success);} .evbox .a .mk.wn{color:var(--warning);}
+.spark{font-size:14px;letter-spacing:-1px;}
+.dlink{color:var(--accent);font-size:10.5px;cursor:pointer;} .dlink:hover{color:var(--accent-bright);}
+.ctxrow{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;}
+.ctxrow:hover{background:var(--bg-base);} .ctxrow .i{color:var(--fg-faint);width:14px;text-align:center;} .ctxrow .nm{color:var(--fg-secondary);} .ctxrow .sp{flex:1;} .ctxrow .lk{font-size:8.5px;color:var(--fg-faint);border:1px solid var(--border);border-radius:4px;padding:0 5px;}
+.qrow2{display:flex;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer;background:var(--bg-base);margin-bottom:6px;}
+.qrow2:hover{box-shadow:inset 0 0 0 1px var(--accent-dim);}
+.qrow2 .ic{flex:none;} .qrow2 .t1{color:var(--fg-primary);font-size:11.5px;} .qrow2 .t2{color:var(--fg-muted);font-size:10px;margin-top:2px;}
+.mini{display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:11px;}
+.mini .led{width:7px;height:7px;border-radius:50%;flex:none;} .mini .lid{color:var(--accent);font-weight:700;} .mini .sp{flex:1;} .mini .s{color:var(--fg-muted);font-size:10px;}
+
+.composer{flex:none;border-top:1px solid var(--border-soft);background:rgba(5,9,15,.4);padding:8px 14px;}
+.cline{display:flex;align-items:center;gap:9px;background:var(--bg-base);border:1px solid var(--border);border-radius:7px;padding:7px 11px;}
+.cline .pr{color:var(--accent-bright);font-weight:700;} .cline input{flex:1;background:transparent;border:none;outline:none;color:var(--fg-primary);font-family:var(--mono);font-size:13px;}
+.cline input::placeholder{color:var(--fg-faint);}
+.statusbar{flex:none;display:flex;align-items:center;height:25px;background:var(--term-bar);border-top:1px solid var(--border-soft);font-size:11px;white-space:nowrap;overflow:hidden;}
+.statusbar .seg{padding:0 10px;display:flex;align-items:center;gap:6px;height:100%;}
+.statusbar .seg.proj{background:var(--accent);color:var(--bg-void);font-weight:800;}
+.statusbar .seg.lane{color:var(--fg-primary);} .statusbar .seg.be{color:var(--accent);font-weight:700;}
+.statusbar .sp{flex:1;}
+.statusbar .dind{padding:0 10px;color:var(--fg-muted);cursor:pointer;} .statusbar .dind.on{color:var(--accent-bright);}
+.statusbar .r{padding:0 8px;color:var(--fg-muted);}
+
+.sech{display:flex;align-items:baseline;gap:11px;margin:30px 0 13px;}
+.sech .no{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:700;} .sech h2{font-size:17px;margin:0;} .sech .en{font-family:var(--mono);font-size:10px;color:var(--fg-faint);letter-spacing:1px;text-transform:uppercase;} .sech .sp{flex:1;height:1px;background:var(--border-soft);align-self:center;}
+.subl{font-size:13px;color:var(--fg-muted);margin:-4px 0 14px;line-height:1.6;}
+.vtbl{width:100%;border-collapse:collapse;font-size:13px;}
+.vtbl th{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--fg-muted);text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);}
+.vtbl td{padding:9px 12px;border-bottom:1px solid var(--border-soft);color:var(--fg-secondary);vertical-align:top;line-height:1.5;}
+.vtbl .nm{color:var(--fg-primary);font-weight:600;} .vtbl .nm .k{font-family:var(--mono);font-size:10px;color:var(--accent-bright);margin-left:6px;}
+.v{font-family:var(--mono);font-size:10px;font-weight:700;border-radius:4px;padding:1px 7px;white-space:nowrap;border:1px solid;}
+.v.core{color:var(--success);border-color:color-mix(in srgb,var(--success) 40%,transparent);background:color-mix(in srgb,var(--success) 7%,transparent);}
+.v.peek{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 40%,transparent);background:color-mix(in srgb,var(--gold) 6%,transparent);}
+.v.no{color:var(--fg-muted);border-color:var(--border);}
+.divnote{font-size:13px;color:var(--fg-secondary);line-height:1.65;background:var(--bg-panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:13px 17px;margin-top:14px;text-wrap:pretty;}
+.divnote b{color:var(--fg-primary);} .divnote .c{color:var(--accent-bright);font-family:var(--mono);font-size:12px;}
+@media (max-width:760px){.dock{display:none;}}
+</style>
+</head>
+<body>
+<div class="pwrap"><div id="root"></div></div>
+
+<script type="text/babel">
+const {useState,useEffect} = React;
+const t = window.t || ((en,zh)=>en);
+
+const TABS=[
+  {k:'changes',ky:'1',nm:t('Changes','变更')},
+  {k:'evidence',ky:'2',nm:t('Evidence','证据')},
+  {k:'context',ky:'3',nm:t('Context','上下文')},
+  {k:'inbox',ky:'4',nm:t('Inbox','待办'),bd:2},
+  {k:'fleet',ky:'5',nm:t('Fleet','Fleet')},
+];
+
+function Dock({tab,setTab}){
+  return (
+    <div className="dock">
+      <div className="docktabs">
+        {TABS.map(x=>(
+          <div key={x.k} className={"dtab "+(tab===x.k?'on':'')} onClick={()=>setTab(x.k)}>
+            {x.bd&&<span className="bd">{x.bd}</span>}<span>{x.nm}</span><span className="ky">{x.ky}</span>
+          </div>
+        ))}
+      </div>
+      <div className="dbody">
+        {tab==='changes' && <React.Fragment>
+          <div className="dsec">{t('Working set','本会话工作集')} · vd/stagger</div>
+          <div className="dfile"><span className="t-acc">⚙</span><span className="nm">src/enemy/stagger.gd</span><span className="sp"></span><span className="pm"><span className="add">+1</span> <span className="del">−1</span></span></div>
+          <div className="dfile"><span className="t-acc">⚙</span><span className="nm">replay/stagger-combo.vseq</span><span className="sp"></span><span className="pm"><span className="add">+12</span></span></div>
+          <div className="dfile"><span className="t-fnt">·</span><span className="nm t-mut">src/player/dash.gd</span><span className="sp"></span><span className="pm t-fnt">{t('unchanged','未改')}</span></div>
+          <div className="dsec" style={{marginTop:'12px'}}>{t('Total','合计')}</div>
+          <div className="drow"><span className="t-sec">{t('2 files','2 文件')} · <span className="add">+13</span> <span className="del">−1</span> · 1 hunk</span></div>
+          <div className="dlink" style={{marginTop:'8px'}}>{t('↵ open file diff · d full diff','↵ 打开文件 diff · d 全量 diff')}</div>
+        </React.Fragment>}
+        {tab==='evidence' && <React.Fragment>
+          <div className="dsec">{t('Latest evidence · this session','当前 session 最新证据')}</div>
+          <div className="evbox">
+            <div className="t">{t('Replay','回放')} <span className="t-acc">stagger-combo.vseq</span> · 240f · {t('deterministic','确定性')} ✓</div>
+            <div className="a"><span className="mk ok">✓</span><span>{t('no double-stun','连段不卡')} <span className="t-fnt">@38f</span></span></div>
+            <div className="a"><span className="mk ok">✓</span><span>{t('counter window 7f','反击窗口 7 帧')}</span></div>
+            <div className="a"><span className="mk wn">⚠</span><span>stunlock 28f <span className="t-fnt">{t('thr 30','阈值30')}</span></span></div>
+          </div>
+          <div className="dsec">{t('Behavior metrics','行为指标')}</div>
+          <div className="evbox">
+            <div className="a"><span className="t-mut" style={{width:'80px',display:'inline-block'}}>{t('break rate','中断率')}</span> <span className="spark t-err">⣿⣷⣦⣄⣀</span> <span className="t-suc">31→12%</span></div>
+            <div className="a"><span className="t-mut" style={{width:'80px',display:'inline-block'}}>{t('save rate','救场率')}</span> <span className="spark t-suc">⣀⣄⣦⣶⣿</span> <span className="t-suc">44→68%</span></div>
+          </div>
+          <div className="dlink">{t('o · open replay video ↗','o 在浏览器看回放 ↗')}</div>
+        </React.Fragment>}
+        {tab==='context' && <React.Fragment>
+          <div className="dsec">{t('Injected context · this lane','注入上下文 · 本 lane')}</div>
+          <div className="ctxrow"><span className="i">§</span><span className="nm">contracts/design-spec.md</span><span className="sp"></span><span className="lk">v1.1</span></div>
+          <div className="ctxrow"><span className="i">✉</span><span className="nm">memos/ · feel v1.1</span><span className="sp"></span><span className="lk t-gold">{t('ack','待ack')}</span></div>
+          <div className="ctxrow"><span className="i">¶</span><span className="nm">AGENTS.md</span><span className="sp"></span><span className="lk">{t('pinned','固定')}</span></div>
+          <div className="dsec" style={{marginTop:'12px'}}>{t('skills','skills')} · MuseGameWorkshop</div>
+          <div className="ctxrow"><span className="i">◆</span><span className="nm">replay-harness</span></div>
+          <div className="ctxrow"><span className="i">◆</span><span className="nm">feel-tuning</span></div>
+        </React.Fragment>}
+        {tab==='inbox' && <React.Fragment>
+          <div className="dsec">{t('This lane · peek','本 lane 待办 · peek')}</div>
+          <div className="qrow2"><span className="ic t-gold">⏸</span><div><div className="t1">{t('Stagger · replay-regression gate','受击硬直 · 回放回归闸')}</div><div className="t2">{t('just generated · awaiting you','本会话刚生成 · 等你批')}</div></div></div>
+          <div className="qrow2"><span className="ic t-warn">?</span><div><div className="t1">{t('L1 contract ack','L1 契约确认待 ack')}</div><div className="t2">{t('feel params v1.1','手感参数 v1.1')}</div></div></div>
+          <div className="dlink" style={{marginTop:'4px'}}>{t('⌃G · all in Decision Center →','⌃G 全部待办进决策中心 →')}</div>
+        </React.Fragment>}
+        {tab==='fleet' && <React.Fragment>
+          <div className="dsec">{t('Other lanes · ambient','其它 lane · 余光')}</div>
+          {[['L1',t('Designer','策划'),'var(--gold)',t('⏸ contract','⏸ 契约闸')],['L3','Gameplay','var(--progress)','▶ run 38s'],['L4',t('Content','内容'),'var(--gold)',t('⏸ gallery','⏸ 画廊闸')],['L5',t('Train','训练'),'var(--progress)','▶ gpu-01'],['L6',t('Render','渲染'),'var(--fg-faint)',t('○ offline','○ 离线')]].map((l,i)=>(
+            <div key={i} className="mini"><span className="led" style={{background:l[2]}}></span><span className="lid">{l[0]}</span><span className="t-sec">{l[1]}</span><span className="sp"></span><span className="s">{l[3]}</span></div>
+          ))}
+          <div className="dlink" style={{marginTop:'8px'}}>{t('⌃B · full lane board →','⌃B 全 lane board →')}</div>
+        </React.Fragment>}
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const [open,setOpen]=useState(true);
+  const [tab,setTab]=useState('changes');
+  useEffect(()=>{
+    const h=(e)=>{
+      if(e.target.tagName==='INPUT')return;
+      if((e.ctrlKey||e.metaKey)&&e.key===']'){setOpen(o=>!o);e.preventDefault();return;}
+      if(open){const ix='12345'.indexOf(e.key);if(ix>=0)setTab(TABS[ix].k);}
+    };
+    window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);
+  },[open]);
+  const cur=TABS.find(x=>x.k===tab);
+  return (
+    <React.Fragment>
+      <div className="pkicker">{t('viden · TUI · collapsible side panel','viden · TUI · 可隐藏侧栏')}</div>
+      <h1 className="ph1">{t('TUI Side Panel','TUI 侧栏')} <span className="ac">{t('⌃] toggle · what\u2019s worth showing','⌃] 开关 · 看哪些值得放')}</span></h1>
+      <p className="plead">{t('The session screen is content-first (chrome = 2 lines). The panel is ','会话主屏默认内容吃满(chrome 只 2 行)。侧栏是 ')}<b>opt-in</b>{t(': ','的:')}<kbd>⌃]</kbd>{t(' toggles it (content reflows to make room); ','开/关,开了内容 reflow 让出宽度;')}<kbd>1</kbd>–<kbd>5</kbd>{t(' or click a tab to switch. Section 02 is the verdict: core / peek / skip.',' 或点 tab 切。第 02 节是「哪些值得放」的取舍 —— 核心 / peek / 不放。')}</p>
+
+      <div className="ctrl">
+        <button className={"tgl "+(open?'on':'')} onClick={()=>setOpen(o=>!o)}>{open?t('▣ panel open','▣ 侧栏开'):t('▢ panel closed','▢ 侧栏关')} <kbd>⌃]</kbd></button>
+        <span className="hint">{open?t('now: ','当前:')+cur.nm+t(' · press 1–5 / click tab',' · 按 1–5 切 / 点 tab'):t('press ⌃] or button to open','按 ⌃] 或点上面开侧栏')}</span>
+      </div>
+
+      <div className="term">
+        <div className="vterm-chrome"><span className="vlights"><i className="a"></i><i className="b"></i><i className="c"></i></span><span className="vtitle">{t('your terminal','你的终端')} · L2 · S1 stagger</span></div>
+        <div className="tscreen">
+          <div className="bodyrow">
+            <div className="convo">
+              <div className="umsg"><span className="p">❯</span><span className="t-pri">{t('Bump hitstun 0.18 → 0.24, run replay-regression to confirm combos don\u2019t lock.','把受击硬直从 0.18 提到 0.24,跑回放回归确认连段不卡。')}</span></div>
+              <div><div className="ahdr">⡾ codex <span className="m">· gpt-5-codex · local</span></div></div>
+              <div className="atext">{t('Plan: edit ','计划:改 ')}<b>HITSTUN</b> → {t('run ','跑 ')}<b>stagger-combo</b> → {t('check assertions.','看断言。')}</div>
+              <div className="tool"><div className="t-mut"><span className="g">⚙ edit</span> · src/enemy/stagger.gd <span className="t-fnt">+1 −1</span></div><div className="del">{'- const HITSTUN := 0.18'}</div><div className="add">{'+ const HITSTUN := 0.24'}</div></div>
+              <div className="tool"><div className="t-mut"><span className="g">⚙ run</span> · godot --headless replay/stagger-combo.vseq · 240f</div><div className="t-sec"><span className="t-suc">✓</span> {t('no lock','连段不卡')} · <span className="t-suc">✓</span> {t('counter 7f','反击 7 帧')} · <span className="t-warn">⚠</span> stunlock 28f</div></div>
+              <div className="gatemsg">⏸ {t('touches src/enemy/** → replay-regression gate generated · /gate','触及 src/enemy/** → 已生成回放回归闸 · /gate 查看')}</div>
+              <div className="atext">{t('Done. Clamp stunlock to 26f for safety?','完成。要把 stunlock 钳到 26f 更稳吗?')}</div>
+            </div>
+            {open && <Dock tab={tab} setTab={setTab}/>}
+          </div>
+          <div className="composer"><div className="cline"><span className="pr">❯</span><input placeholder={t('Ask codex, or / for commands…','问 codex,或 / 调命令…')}/></div></div>
+          <div className="statusbar">
+            <span className="seg proj">◉ boss-rush</span>
+            <span className="seg lane">L2 · S1</span>
+            <span className="seg be">ACP:codex</span>
+            <span className="sp"></span>
+            <span className={"dind "+(open?'on':'')} onClick={()=>setOpen(o=>!o)}>{open?'▣ '+cur.nm:t('▢ panel','▢ 侧栏')} ⌃]</span>
+            <span className="r">⊨ local</span><span className="r t-gold">⏸ 2</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="sech"><span className="no">02</span><h2>{t('What\u2019s worth putting in the panel','哪些值得放进侧栏')}</h2><span className="en">core · peek · skip</span><span className="sp"></span></div>
+      <p className="subl">{t('Test: need it while working AND text can express it → put it. Glance occasionally → light peek (go full-screen to dig in). Already in the status bar / belongs full-screen → skip.','判据:边干活边要看、且文字能表达 → 放;偶尔瞄一眼 → 轻量 peek(深入去全屏);已在状态栏 / 该是全屏 → 不放。')}</p>
+      <table className="vtbl">
+        <thead><tr><th style={{width:'20%'}}>{t('Content','内容')}</th><th style={{width:'14%'}}>{t('Verdict','判定')}</th><th>{t('Why','理由')}</th></tr></thead>
+        <tbody>
+          <tr><td className="nm">{t('Changes / diff','变更 / diff')}<span className="k">1</span></td><td><span className="v core">{t('CORE','核心')}</span></td><td>{t('You\u2019re coding — the session\u2019s changed files + diff stat is the top reference; ↵ opens file diff.','你在写代码,本会话改了哪些文件 + diff stat 是最高频参照;↵ 打开文件 diff。')}</td></tr>
+          <tr><td className="nm">{t('Evidence','证据')}<span className="k">2</span></td><td><span className="v core">{t('CORE','核心')}</span></td><td>{t('Evidence-driven product: latest replay assertions ✓/⚠ + braille metrics in place; heavy video via o → browser.','产品是证据驱动:最新回放断言 ✓/⚠ + braille 指标就地看;复杂录像 o 弹浏览器。')}</td></tr>
+          <tr><td className="nm">{t('Context','上下文')}<span className="k">3</span></td><td><span className="v core">{t('CORE','核心')}</span></td><td>{t('Injected contracts / memos (ack) / skills for this lane — reference without switching away.','本 lane 注入的契约 / memo(待ack)/ skills,边做边对照,避免切走。')}</td></tr>
+          <tr><td className="nm">{t('Inbox peek','待办 peek')}<span className="k">4</span></td><td><span className="v peek">{t('PEEK','轻量')}</span></td><td>{t('Glance at this lane\u2019s gates/asks; all to-dos still live in ⌃G Decision Center — no reviewing in the panel.','本 lane 相关的闸 / 问询瞄一眼;全部待办仍是 ⌃G 决策中心,不在侧栏做评审。')}</td></tr>
+          <tr><td className="nm">{t('Fleet peek','Fleet peek')}<span className="k">5</span></td><td><span className="v peek">{t('PEEK','轻量')}</span></td><td>{t('Ambient on other lanes (running/stuck); full board is ⌃B. Adds a sense of parallelism.','其它 lane 余光(谁跑/谁卡);全 board 是 ⌃B。给"并行感"补一笔。')}</td></tr>
+          <tr><td className="nm">{t('Outline / tool history','大纲 / 工具历史')}</td><td><span className="v peek">{t('OPT','备选')}</span></td><td>{t('Jump across tool-calls / anchors in long sessions; useless in short ones — optional 6th tab.','长会话里跳转 tool-call / 锚点;短会话用不上 —— 可选第 6 tab。')}</td></tr>
+          <tr><td className="nm">{t('token / target / budget','token / target / 预算')}</td><td><span className="v no">{t('SKIP','不放')}</span></td><td>{t('Already always-on in the status bar — a second panel is redundant.','已在状态栏常显,再开一栏是冗余。')}</td></tr>
+          <tr><td className="nm">{t('Full diff review / gate approval','全量 diff 评审 / 闸审批')}</td><td><span className="v no">{t('SKIP','不放')}</span></td><td>{t('That\u2019s the Decision Center (full-screen) job; the panel only references + jumps, never decides.','那是决策中心(全屏)的活;侧栏只做参照 + 跳转,不做拍板。')}</td></tr>
+        </tbody>
+      </table>
+      <div className="divnote"><b>{t('Verdict','结论')}</b>{t(': the panel = an ',':侧栏 = ')}<span className="c">{t('opt-in reference pane','opt-in 的"参照面板"')}</span>{t(', closed by default (keeps content-first). Three cores worth keeping: ',',默认关(守住内容吃满)。值得常驻的就三个核心:')}<span className="c">{t('Changes · Evidence · Context','变更 · 证据 · 上下文')}</span>{t('; Inbox / Fleet as light peeks (dig in via ⌃G / ⌃B). ','; 待办 / Fleet 作轻量 peek(深入仍走 ⌃G / ⌃B)。')}<kbd>⌃]</kbd>{t(' toggle, ',' 开关、')}<kbd>1–5</kbd>{t(' switch, status bar shows current tab — reusing the list & chord contracts from the interaction rules (T4), not a new system.',' 切、状态栏显当前 tab —— 套用交互规则(T4)的列表与和弦契约,不另造一套。')}</div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

@@ -1,565 +1,655 @@
 {
   "note": "已认证保留的 token 违规清单。新增违规需修代码或显式加到这里。",
-  "generatedAt": "2026-06-15",
-  "reason": "resync after Core/TUI/GUI de-hex pass (semantic tints→color-mix, i18n/tui-screens tokenized)",
-  "totalEntries": 170,
+  "generatedAt": "2026-07-02",
+  "reason": "resync after coding-side re-review: pruned 7 stale D1 entries (backend colors → tokens), 0 new",
+  "totalEntries": 214,
   "files": {
-    "Core/i18n.js": [
+    "Core/Viden - 品牌资产 (Core).html": [
       {
-        "line": 12,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.4)"
+        "line": 33,
+        "kind": "bare-hex",
+        "match": "#e8edf2"
       }
     ],
-    "Core/tweaks-panel.jsx": [
+    "Core/Viden - Logo & TUI 品牌 (Core).html": [
       {
-        "line": 64,
+        "line": 53,
         "kind": "bare-hex",
-        "match": "#29261b"
+        "match": "#eef3f7"
       },
       {
         "line": 64,
-        "kind": "bare-rgba",
-        "match": "rgba(250,249,247,.78)"
+        "kind": "bare-hex",
+        "match": "#a9750f"
+      },
+      {
+        "line": 65,
+        "kind": "bare-hex",
+        "match": "#0c87a4"
       },
       {
         "line": 66,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.6)"
-      },
-      {
-        "line": 67,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.18)"
-      },
-      {
-        "line": 67,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.5)"
-      },
-      {
-        "line": 72,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.55)"
-      },
-      {
-        "line": 74,
         "kind": "bare-hex",
-        "match": "#29261b"
+        "match": "#0aa6c6"
       },
       {
-        "line": 74,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
+        "line": 67,
+        "kind": "bare-hex",
+        "match": "#0aa6c6"
+      }
+    ],
+    "GUI/pages/Viden - D13 Fleet 编排与 Workflow (GUI).html": [
+      {
+        "line": 125,
+        "kind": "bare-hex",
+        "match": "#0a1019"
       },
       {
-        "line": 77,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
+        "line": 125,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
       },
       {
-        "line": 80,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
+        "line": 190,
+        "kind": "bare-hex",
+        "match": "#0412"
       },
       {
-        "line": 82,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.25)"
+        "line": 191,
+        "kind": "bare-hex",
+        "match": "#0088"
       },
       {
-        "line": 87,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.72)"
+        "line": 194,
+        "kind": "bare-hex",
+        "match": "#1207"
+      }
+    ],
+    "Core/Viden - Aurora 主题 (Core).html": [
+      {
+        "line": 513,
+        "kind": "bare-hex",
+        "match": "#006"
       },
       {
-        "line": 89,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.5)"
+        "line": 521,
+        "kind": "bare-hex",
+        "match": "#007"
       },
       {
-        "line": 92,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.45)"
+        "line": 952,
+        "kind": "bare-hex",
+        "match": "#05090f"
       },
       {
-        "line": 96,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
+        "line": 952,
+        "kind": "bare-hex",
+        "match": "#dde6ec"
       },
       {
-        "line": 97,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.6)"
+        "line": 953,
+        "kind": "bare-hex",
+        "match": "#0a1019"
       },
       {
-        "line": 98,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.25)"
+        "line": 953,
+        "kind": "bare-hex",
+        "match": "#f5f8fb"
       },
       {
-        "line": 98,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.85)"
+        "line": 954,
+        "kind": "bare-hex",
+        "match": "#0c1521"
       },
       {
-        "line": 104,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
+        "line": 954,
+        "kind": "bare-hex",
+        "match": "#ebf1f6"
       },
+      {
+        "line": 955,
+        "kind": "bare-hex",
+        "match": "#10202f"
+      },
+      {
+        "line": 955,
+        "kind": "bare-hex",
+        "match": "#ffffff"
+      },
+      {
+        "line": 956,
+        "kind": "bare-hex",
+        "match": "#143049"
+      },
+      {
+        "line": 956,
+        "kind": "bare-hex",
+        "match": "#d2e7f2"
+      },
+      {
+        "line": 959,
+        "kind": "bare-hex",
+        "match": "#14242f"
+      },
+      {
+        "line": 959,
+        "kind": "bare-hex",
+        "match": "#d4e6f1"
+      },
+      {
+        "line": 960,
+        "kind": "bare-hex",
+        "match": "#41606f"
+      },
+      {
+        "line": 960,
+        "kind": "bare-hex",
+        "match": "#8aa9bf"
+      },
+      {
+        "line": 961,
+        "kind": "bare-hex",
+        "match": "#5a7384"
+      },
+      {
+        "line": 961,
+        "kind": "bare-hex",
+        "match": "#6d8693"
+      },
+      {
+        "line": 962,
+        "kind": "bare-hex",
+        "match": "#3a4d5e"
+      },
+      {
+        "line": 962,
+        "kind": "bare-hex",
+        "match": "#a3b5c0"
+      },
+      {
+        "line": 965,
+        "kind": "bare-hex",
+        "match": "#0c87a4"
+      },
+      {
+        "line": 965,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      },
+      {
+        "line": 966,
+        "kind": "bare-hex",
+        "match": "#0aa6c6"
+      },
+      {
+        "line": 966,
+        "kind": "bare-hex",
+        "match": "#74e4f2"
+      },
+      {
+        "line": 967,
+        "kind": "bare-hex",
+        "match": "#1f5366"
+      },
+      {
+        "line": 967,
+        "kind": "bare-hex",
+        "match": "#9cc4d2"
+      },
+      {
+        "line": 968,
+        "kind": "bare-hex",
+        "match": "#a9750f"
+      },
+      {
+        "line": 968,
+        "kind": "bare-hex",
+        "match": "#e3ab44"
+      },
+      {
+        "line": 969,
+        "kind": "bare-hex",
+        "match": "#c08a18"
+      },
+      {
+        "line": 969,
+        "kind": "bare-hex",
+        "match": "#f6cb63"
+      },
+      {
+        "line": 972,
+        "kind": "bare-hex",
+        "match": "#2c8c46"
+      },
+      {
+        "line": 972,
+        "kind": "bare-hex",
+        "match": "#54c06a"
+      },
+      {
+        "line": 973,
+        "kind": "bare-hex",
+        "match": "#a87a12"
+      },
+      {
+        "line": 973,
+        "kind": "bare-hex",
+        "match": "#e6b53f"
+      },
+      {
+        "line": 974,
+        "kind": "bare-hex",
+        "match": "#c0403a"
+      },
+      {
+        "line": 974,
+        "kind": "bare-hex",
+        "match": "#e0564f"
+      },
+      {
+        "line": 975,
+        "kind": "bare-hex",
+        "match": "#1d7cbd"
+      },
+      {
+        "line": 975,
+        "kind": "bare-hex",
+        "match": "#3fa6e6"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#1c5630"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#1f5366"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#243f6b"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#41d97a"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#4a3470"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#5b8def"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#6b4a1c"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#74e4f2"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#74f2a0"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#86b0ff"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#a07ae0"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#c3a6ff"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#e09a3e"
+      },
+      {
+        "line": 1040,
+        "kind": "bare-hex",
+        "match": "#ffc266"
+      },
+      {
+        "line": 1066,
+        "kind": "bare-hex",
+        "match": "#5a7384"
+      }
+    ],
+    "GUI/pages/Viden - 宠物 Pip (GUI).html": [
+      {
+        "line": 58,
+        "kind": "bare-hex",
+        "match": "#0a1f2c"
+      },
+      {
+        "line": 58,
+        "kind": "bare-hex",
+        "match": "#14384a"
+      },
+      {
+        "line": 85,
+        "kind": "bare-hex",
+        "match": "#fff"
+      },
+      {
+        "line": 108,
+        "kind": "bare-hex",
+        "match": "#fff"
+      }
+    ],
+    "GUI/Viden - 组件库 (GUI).html": [
       {
         "line": 106,
         "kind": "bare-hex",
-        "match": "#fff"
+        "match": "#10a37f"
       },
       {
-        "line": 107,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 107,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.2)"
-      },
-      {
-        "line": 109,
+        "line": 111,
         "kind": "bare-hex",
-        "match": "#fff"
+        "match": "#d97757"
       },
       {
-        "line": 109,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 109,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.2)"
-      },
-      {
-        "line": 112,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
-      },
-      {
-        "line": 114,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 114,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.9)"
-      },
-      {
-        "line": 123,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
-      },
-      {
-        "line": 124,
+        "line": 116,
         "kind": "bare-hex",
-        "match": "#34c759"
-      },
+        "match": "#8b5cf6"
+      }
+    ],
+    "GUI/pages/Viden - D5 画廊评审 (GUI).html": [
       {
-        "line": 126,
+        "line": 140,
         "kind": "bare-hex",
-        "match": "#fff"
+        "match": "#3e6a85"
       },
       {
-        "line": 126,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.25)"
+        "line": 140,
+        "kind": "bare-hex",
+        "match": "#74a8c9"
       },
       {
-        "line": 130,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 130,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.6)"
-      },
-      {
-        "line": 131,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.6)"
-      },
-      {
-        "line": 138,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.45)"
+        "line": 140,
+        "kind": "bare-hex",
+        "match": "#9cc8e0"
       },
       {
         "line": 141,
         "kind": "bare-hex",
-        "match": "#fff"
+        "match": "#4a3f78"
       },
       {
         "line": 141,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.78)"
+        "kind": "bare-hex",
+        "match": "#9b87d4"
+      },
+      {
+        "line": 141,
+        "kind": "bare-hex",
+        "match": "#b8a8ec"
       },
       {
         "line": 142,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.88)"
+        "kind": "bare-hex",
+        "match": "#7a4424"
+      },
+      {
+        "line": 142,
+        "kind": "bare-hex",
+        "match": "#e0884f"
+      },
+      {
+        "line": 142,
+        "kind": "bare-hex",
+        "match": "#f0a868"
       },
       {
         "line": 143,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
+        "kind": "bare-hex",
+        "match": "#2c6856"
       },
       {
-        "line": 144,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
+        "line": 143,
+        "kind": "bare-hex",
+        "match": "#54c0a0"
       },
       {
-        "line": 147,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
+        "line": 143,
+        "kind": "bare-hex",
+        "match": "#7fdcc0"
       },
       {
-        "line": 156,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
+        "line": 189,
+        "kind": "bare-hex",
+        "match": "#e0564f"
       },
       {
-        "line": 156,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
+        "line": 190,
+        "kind": "bare-hex",
+        "match": "#54c06a"
       },
       {
-        "line": 159,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
+        "line": 191,
+        "kind": "bare-hex",
+        "match": "#e3ab44"
       },
       {
-        "line": 159,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.18)"
+        "line": 192,
+        "kind": "bare-hex",
+        "match": "#e6b53f"
+      }
+    ],
+    "GUI/pages/Viden - D2 行为Diff评审 存档 (GUI).html": [
+      {
+        "line": 161,
+        "kind": "bare-hex",
+        "match": "#122936"
       },
       {
-        "line": 160,
+        "line": 180,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      },
+      {
+        "line": 180,
+        "kind": "bare-hex",
+        "match": "#5a7384"
+      },
+      {
+        "line": 181,
+        "kind": "bare-hex",
+        "match": "#5a7384"
+      },
+      {
+        "line": 182,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      },
+      {
+        "line": 192,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      },
+      {
+        "line": 192,
+        "kind": "bare-hex",
+        "match": "#5a7384"
+      },
+      {
+        "line": 193,
+        "kind": "bare-hex",
+        "match": "#5a7384"
+      },
+      {
+        "line": 194,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      },
+      {
+        "line": 206,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      },
+      {
+        "line": 206,
+        "kind": "bare-hex",
+        "match": "#3a4d5e"
+      },
+      {
+        "line": 206,
+        "kind": "bare-hex",
+        "match": "#5a7384"
+      },
+      {
+        "line": 207,
+        "kind": "bare-hex",
+        "match": "#3a4d5e"
+      },
+      {
+        "line": 208,
+        "kind": "bare-hex",
+        "match": "#5a7384"
+      },
+      {
+        "line": 209,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      }
+    ],
+    "GUI/gui-icons.jsx": [
+      {
+        "line": 80,
+        "kind": "bare-hex",
+        "match": "#10a37f"
+      },
+      {
+        "line": 86,
+        "kind": "bare-hex",
+        "match": "#d97757"
+      },
+      {
+        "line": 90,
+        "kind": "bare-hex",
+        "match": "#8b5cf6"
+      },
+      {
+        "line": 94,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      },
+      {
+        "line": 94,
+        "kind": "bare-hex",
+        "match": "#74e4f2"
+      },
+      {
+        "line": 94,
+        "kind": "bare-hex",
+        "match": "#e3ab44"
+      }
+    ],
+    "GUI/Viden - 桌面驾驶舱 (GUI).html": [
+      {
+        "line": 63,
         "kind": "bare-rgba",
         "match": "rgba(0,0,0,.85)"
       },
       {
-        "line": 161,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
-      },
-      {
-        "line": 163,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 164,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 167,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.3)"
-      },
-      {
-        "line": 477,
-        "kind": "bare-hex",
-        "match": "#fff"
-      },
-      {
-        "line": 477,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.78)"
-      }
-    ],
-    "GUI/i18n.js": [
-      {
-        "line": 12,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.4)"
-      }
-    ],
-    "GUI/tweaks-panel.jsx": [
-      {
-        "line": 64,
-        "kind": "bare-hex",
-        "match": "#29261b"
-      },
-      {
-        "line": 64,
-        "kind": "bare-rgba",
-        "match": "rgba(250,249,247,.78)"
-      },
-      {
-        "line": 66,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.6)"
-      },
-      {
-        "line": 67,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.18)"
-      },
-      {
-        "line": 67,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.5)"
-      },
-      {
-        "line": 72,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.55)"
-      },
-      {
-        "line": 74,
-        "kind": "bare-hex",
-        "match": "#29261b"
-      },
-      {
-        "line": 74,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
-      },
-      {
-        "line": 77,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
-      },
-      {
-        "line": 80,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
-      },
-      {
-        "line": 82,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.25)"
-      },
-      {
-        "line": 87,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.72)"
-      },
-      {
-        "line": 89,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.5)"
-      },
-      {
-        "line": 92,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.45)"
-      },
-      {
-        "line": 96,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 97,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.6)"
-      },
-      {
-        "line": 98,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.25)"
-      },
-      {
-        "line": 98,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.85)"
-      },
-      {
         "line": 104,
         "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
+        "match": "rgba(0,0,0,.9)"
       },
       {
-        "line": 106,
-        "kind": "bare-hex",
-        "match": "#fff"
-      },
-      {
-        "line": 107,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 107,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.2)"
-      },
-      {
-        "line": 109,
-        "kind": "bare-hex",
-        "match": "#fff"
-      },
-      {
-        "line": 109,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 109,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.2)"
-      },
-      {
-        "line": 112,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
-      },
-      {
-        "line": 114,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 114,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.9)"
-      },
-      {
-        "line": 123,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
-      },
-      {
-        "line": 124,
-        "kind": "bare-hex",
-        "match": "#34c759"
-      },
-      {
-        "line": 126,
-        "kind": "bare-hex",
-        "match": "#fff"
-      },
-      {
-        "line": 126,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.25)"
-      },
-      {
-        "line": 130,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 130,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.6)"
-      },
-      {
-        "line": 131,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.6)"
-      },
-      {
-        "line": 138,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.45)"
-      },
-      {
-        "line": 141,
-        "kind": "bare-hex",
-        "match": "#fff"
-      },
-      {
-        "line": 141,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.78)"
-      },
-      {
-        "line": 142,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.88)"
-      },
-      {
-        "line": 143,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
-      },
-      {
-        "line": 144,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 147,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 156,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
-      },
-      {
-        "line": 156,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 159,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 159,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.18)"
-      },
-      {
-        "line": 160,
+        "line": 63,
         "kind": "bare-rgba",
         "match": "rgba(0,0,0,.85)"
       },
       {
-        "line": 161,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
-      },
-      {
-        "line": 163,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 164,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 167,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.3)"
-      },
-      {
-        "line": 477,
-        "kind": "bare-hex",
-        "match": "#fff"
-      },
-      {
-        "line": 477,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.78)"
-      }
-    ],
-    "TUI/i18n.js": [
-      {
-        "line": 12,
+        "line": 245,
         "kind": "bare-rgba",
         "match": "rgba(0,0,0,.4)"
+      },
+      {
+        "line": 245,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.88)"
+      },
+      {
+        "line": 245,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.4)"
+      },
+      {
+        "line": 245,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.88)"
+      },
+      {
+        "line": 384,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.8)"
+      },
+      {
+        "line": 598,
+        "kind": "bare-hex",
+        "match": "#04140a"
+      },
+      {
+        "line": 744,
+        "kind": "bare-hex",
+        "match": "#000"
+      },
+      {
+        "line": 744,
+        "kind": "bare-hex",
+        "match": "#000"
+      },
+      {
+        "line": 744,
+        "kind": "bare-hex",
+        "match": "#000"
+      },
+      {
+        "line": 744,
+        "kind": "bare-hex",
+        "match": "#000"
+      },
+      {
+        "line": 63,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.85)"
+      },
+      {
+        "line": 764,
+        "kind": "bare-rgba",
+        "match": "rgba(4,8,13,.62)"
+      },
+      {
+        "line": 104,
+        "kind": "bare-rgba",
+        "match": "rgba(0,0,0,.9)"
       }
     ],
-    "TUI/tui-screens.jsx": [
+    "TUI/pages/assets/tui-screens.jsx": [
       {
         "line": 7,
         "kind": "bare-hex",
@@ -601,271 +691,417 @@
         "match": "#e0884f"
       }
     ],
-    "TUI/tweaks-panel.jsx": [
+    "TUI/pages/Viden - T5 真终端保真对比 (TUI).html": [
       {
-        "line": 64,
+        "line": 112,
         "kind": "bare-hex",
-        "match": "#29261b"
-      },
-      {
-        "line": 64,
-        "kind": "bare-rgba",
-        "match": "rgba(250,249,247,.78)"
-      },
-      {
-        "line": 66,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.6)"
-      },
-      {
-        "line": 67,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.18)"
-      },
-      {
-        "line": 67,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.5)"
-      },
-      {
-        "line": 72,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.55)"
-      },
-      {
-        "line": 74,
-        "kind": "bare-hex",
-        "match": "#29261b"
-      },
-      {
-        "line": 74,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
-      },
-      {
-        "line": 77,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
-      },
-      {
-        "line": 80,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
-      },
-      {
-        "line": 82,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.25)"
-      },
-      {
-        "line": 87,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.72)"
-      },
-      {
-        "line": 89,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.5)"
-      },
-      {
-        "line": 92,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.45)"
-      },
-      {
-        "line": 96,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 97,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.6)"
-      },
-      {
-        "line": 98,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.25)"
-      },
-      {
-        "line": 98,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.85)"
-      },
-      {
-        "line": 104,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 106,
-        "kind": "bare-hex",
-        "match": "#fff"
-      },
-      {
-        "line": 107,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 107,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.2)"
-      },
-      {
-        "line": 109,
-        "kind": "bare-hex",
-        "match": "#fff"
-      },
-      {
-        "line": 109,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 109,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.2)"
+        "match": "#005f5f"
       },
       {
         "line": 112,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
+        "kind": "bare-hex",
+        "match": "#080808"
+      },
+      {
+        "line": 112,
+        "kind": "bare-hex",
+        "match": "#121212"
+      },
+      {
+        "line": 112,
+        "kind": "bare-hex",
+        "match": "#1c1c1c"
+      },
+      {
+        "line": 113,
+        "kind": "bare-hex",
+        "match": "#585858"
+      },
+      {
+        "line": 113,
+        "kind": "bare-hex",
+        "match": "#767676"
+      },
+      {
+        "line": 113,
+        "kind": "bare-hex",
+        "match": "#afafaf"
+      },
+      {
+        "line": 113,
+        "kind": "bare-hex",
+        "match": "#d7d7d7"
       },
       {
         "line": 114,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
+        "kind": "bare-hex",
+        "match": "#005f87"
       },
       {
         "line": 114,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.9)"
-      },
-      {
-        "line": 123,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
-      },
-      {
-        "line": 124,
         "kind": "bare-hex",
-        "match": "#34c759"
+        "match": "#00afd7"
       },
       {
-        "line": 126,
+        "line": 114,
         "kind": "bare-hex",
-        "match": "#fff"
+        "match": "#5fd7ff"
       },
       {
-        "line": 126,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.25)"
-      },
-      {
-        "line": 130,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 130,
-        "kind": "bare-rgba",
-        "match": "rgba(255,255,255,.6)"
-      },
-      {
-        "line": 131,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.6)"
-      },
-      {
-        "line": 138,
-        "kind": "bare-rgba",
-        "match": "rgba(41,38,27,.45)"
-      },
-      {
-        "line": 141,
+        "line": 115,
         "kind": "bare-hex",
-        "match": "#fff"
+        "match": "#5fafd7"
       },
       {
-        "line": 141,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.78)"
-      },
-      {
-        "line": 142,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.88)"
-      },
-      {
-        "line": 143,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
-      },
-      {
-        "line": 144,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 147,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 156,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.06)"
-      },
-      {
-        "line": 156,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 159,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.12)"
-      },
-      {
-        "line": 159,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.18)"
-      },
-      {
-        "line": 160,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.85)"
-      },
-      {
-        "line": 161,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.15)"
-      },
-      {
-        "line": 163,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 164,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.1)"
-      },
-      {
-        "line": 167,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.3)"
-      },
-      {
-        "line": 477,
+        "line": 115,
         "kind": "bare-hex",
-        "match": "#fff"
+        "match": "#5fd787"
       },
       {
-        "line": 477,
-        "kind": "bare-rgba",
-        "match": "rgba(0,0,0,.78)"
+        "line": 115,
+        "kind": "bare-hex",
+        "match": "#d75f5f"
+      },
+      {
+        "line": 115,
+        "kind": "bare-hex",
+        "match": "#d7af00"
+      },
+      {
+        "line": 115,
+        "kind": "bare-hex",
+        "match": "#d7af5f"
+      },
+      {
+        "line": 115,
+        "kind": "bare-hex",
+        "match": "#ffd75f"
+      },
+      {
+        "line": 116,
+        "kind": "bare-hex",
+        "match": "#303030"
+      },
+      {
+        "line": 116,
+        "kind": "bare-hex",
+        "match": "#444444"
+      },
+      {
+        "line": 117,
+        "kind": "bare-hex",
+        "match": "#080808"
+      },
+      {
+        "line": 117,
+        "kind": "bare-hex",
+        "match": "#080808"
+      },
+      {
+        "line": 117,
+        "kind": "bare-hex",
+        "match": "#303030"
+      },
+      {
+        "line": 311,
+        "kind": "bare-hex",
+        "match": "#00afd7"
+      },
+      {
+        "line": 311,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      },
+      {
+        "line": 311,
+        "kind": "bare-hex",
+        "match": "#3fa6e6"
+      },
+      {
+        "line": 311,
+        "kind": "bare-hex",
+        "match": "#54c06a"
+      },
+      {
+        "line": 311,
+        "kind": "bare-hex",
+        "match": "#5fafd7"
+      },
+      {
+        "line": 311,
+        "kind": "bare-hex",
+        "match": "#5fd787"
+      },
+      {
+        "line": 311,
+        "kind": "bare-hex",
+        "match": "#d75f5f"
+      },
+      {
+        "line": 311,
+        "kind": "bare-hex",
+        "match": "#e0564f"
+      },
+      {
+        "line": 311,
+        "kind": "bare-hex",
+        "match": "#f6cb63"
+      },
+      {
+        "line": 311,
+        "kind": "bare-hex",
+        "match": "#ffd75f"
+      }
+    ],
+    "TUI/pages/Viden - T1 会话主屏与多lane (TUI).html": [
+      {
+        "line": 114,
+        "kind": "bare-hex",
+        "match": "#04070c"
+      },
+      {
+        "line": 145,
+        "kind": "bare-hex",
+        "match": "#000"
+      },
+      {
+        "line": 145,
+        "kind": "bare-hex",
+        "match": "#000"
+      },
+      {
+        "line": 145,
+        "kind": "bare-hex",
+        "match": "#000"
+      },
+      {
+        "line": 145,
+        "kind": "bare-hex",
+        "match": "#000"
+      },
+      {
+        "line": 149,
+        "kind": "bare-hex",
+        "match": "#1d3645"
+      },
+      {
+        "line": 250,
+        "kind": "bare-hex",
+        "match": "#15222e"
+      },
+      {
+        "line": 254,
+        "kind": "bare-hex",
+        "match": "#1d3645"
+      }
+    ],
+    "TUI/pages/Viden - T0 设计总览 (TUI).html": [
+      {
+        "line": 60,
+        "kind": "bare-hex",
+        "match": "#005f5f"
+      },
+      {
+        "line": 60,
+        "kind": "bare-hex",
+        "match": "#080808"
+      },
+      {
+        "line": 60,
+        "kind": "bare-hex",
+        "match": "#121212"
+      },
+      {
+        "line": 60,
+        "kind": "bare-hex",
+        "match": "#1c1c1c"
+      },
+      {
+        "line": 61,
+        "kind": "bare-hex",
+        "match": "#585858"
+      },
+      {
+        "line": 61,
+        "kind": "bare-hex",
+        "match": "#767676"
+      },
+      {
+        "line": 61,
+        "kind": "bare-hex",
+        "match": "#afafaf"
+      },
+      {
+        "line": 61,
+        "kind": "bare-hex",
+        "match": "#d7d7d7"
+      },
+      {
+        "line": 62,
+        "kind": "bare-hex",
+        "match": "#005f87"
+      },
+      {
+        "line": 62,
+        "kind": "bare-hex",
+        "match": "#00afd7"
+      },
+      {
+        "line": 62,
+        "kind": "bare-hex",
+        "match": "#5fd7ff"
+      },
+      {
+        "line": 63,
+        "kind": "bare-hex",
+        "match": "#5fafd7"
+      },
+      {
+        "line": 63,
+        "kind": "bare-hex",
+        "match": "#5fd787"
+      },
+      {
+        "line": 63,
+        "kind": "bare-hex",
+        "match": "#d75f5f"
+      },
+      {
+        "line": 63,
+        "kind": "bare-hex",
+        "match": "#d7af00"
+      },
+      {
+        "line": 63,
+        "kind": "bare-hex",
+        "match": "#d7af5f"
+      },
+      {
+        "line": 63,
+        "kind": "bare-hex",
+        "match": "#ffd75f"
+      },
+      {
+        "line": 64,
+        "kind": "bare-hex",
+        "match": "#303030"
+      },
+      {
+        "line": 64,
+        "kind": "bare-hex",
+        "match": "#444444"
+      },
+      {
+        "line": 65,
+        "kind": "bare-hex",
+        "match": "#080808"
+      },
+      {
+        "line": 65,
+        "kind": "bare-hex",
+        "match": "#080808"
+      },
+      {
+        "line": 65,
+        "kind": "bare-hex",
+        "match": "#303030"
+      },
+      {
+        "line": 68,
+        "kind": "bare-hex",
+        "match": "#303030"
+      },
+      {
+        "line": 197,
+        "kind": "bare-hex",
+        "match": "#121212"
+      },
+      {
+        "line": 216,
+        "kind": "bare-hex",
+        "match": "#121212"
+      }
+    ],
+    "TUI/Viden - 统一原型 (TUI).html": [
+      {
+        "line": 190,
+        "kind": "bare-hex",
+        "match": "#ffffff"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#04140a"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#080d17"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#0a1019"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#0d1013"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#14100a"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#34bdd9"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#41d97a"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#5b8def"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#9aa7c4"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#c9b485"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#c9d94a"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#e09a3e"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#e0b24a"
+      },
+      {
+        "line": 359,
+        "kind": "bare-hex",
+        "match": "#e3ab44"
       }
     ]
   }

@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D8 · Team Identity & Permissions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../gui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1560px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:960px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+
+.frame{height:860px;min-width:1180px;position:relative;}
+.inner{flex:1;display:grid;grid-template-columns:var(--rail-act) 214px 1fr;min-height:0;}
+
+/* settings sub-nav */
+.snav{background:var(--bg-panel);border-right:1px solid var(--border-soft);display:flex;flex-direction:column;min-height:0;padding:12px 10px;}
+.snav .sh{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--fg-muted);padding:6px 8px 9px;}
+.snav .nb{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--fg-secondary);padding:8px 10px;border-radius:8px;cursor:pointer;transition:all .12s;}
+.snav .nb:hover{background:var(--bg-sel);color:var(--fg-primary);}
+.snav .nb.on{background:var(--bg-sel);color:var(--accent-bright);box-shadow:inset 3px 0 0 var(--accent);}
+.snav .nb .gl{font-family:var(--mono);width:16px;text-align:center;flex:none;color:var(--fg-faint);}
+.snav .nb.on .gl{color:var(--accent);}
+.snav .nb .n{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+.snav .team{margin-top:auto;padding:11px 10px 4px;border-top:1px solid var(--border-soft);}
+.snav .team .tl{font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+.snav .team .tn{font-size:13px;font-weight:700;margin-top:2px;}
+.snav .team .ts{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-top:2px;}
+
+/* main */
+.main{min-width:0;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;padding:20px 24px 28px;}
+.head{display:flex;align-items:flex-start;gap:12px;margin-bottom:6px;}
+.head .t{font-size:17px;font-weight:700;}
+.head .d{font-size:12.5px;color:var(--fg-secondary);line-height:1.55;margin-top:3px;max-width:640px;}
+.head .sp{flex:1;}
+.abtn{flex:none;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--on-accent);background:var(--accent);border:1px solid var(--accent);border-radius:8px;padding:8px 14px;cursor:pointer;}
+.abtn:hover{background:var(--accent-bright);}
+.abtn.ghost{color:var(--fg-secondary);background:transparent;border-color:var(--border);}
+.abtn.ghost:hover{color:var(--fg-primary);border-color:var(--border-active);}
+
+.sec{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);display:flex;align-items:center;gap:9px;margin:22px 0 12px;}
+.sec::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.sec .hint{font-weight:400;letter-spacing:0;text-transform:none;color:var(--fg-faint);}
+
+/* member rows */
+.mrow{display:flex;align-items:center;gap:13px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:calc(var(--card-pad-y) + 3px) 15px;margin-bottom:calc(var(--list-gap) + 7px);}
+.mrow .av{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;flex:none;color:var(--on-accent);}
+.mrow .av.agent{border-radius:9px;background:var(--bg-void);border:1px solid var(--border);}
+.mrow .bd{min-width:0;flex:1;}
+.mrow .r1{display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:700;}
+.mrow .r1 .you{font-family:var(--mono);font-size:9px;font-weight:700;color:var(--accent);border:1px solid var(--accent-dim);border-radius:4px;padding:1px 6px;}
+.mrow .r1 .st{width:7px;height:7px;border-radius:50%;flex:none;}
+.mrow .r1 .st.on{background:var(--success);} .mrow .r1 .st.off{background:var(--fg-faint);}
+.mrow .r2{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);margin-top:4px;display:flex;flex-wrap:wrap;gap:5px 12px;}
+.mrow .r2 .own{color:var(--accent-bright);}
+.mrow .r2 .via{font-weight:700;border:1px solid;border-radius:3px;padding:0 4px;font-size:8.5px;letter-spacing:.3px;}
+.mrow .sp{flex:1;}
+.rolepill{flex:none;display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--fg-secondary);background:var(--bg-base);border:1px solid var(--border);border-radius:8px;padding:6px 11px;cursor:pointer;}
+.rolepill:hover{border-color:var(--border-active);}
+.rolepill .dot{width:8px;height:8px;border-radius:50%;flex:none;}
+.rolepill .cv{color:var(--fg-faint);font-size:10px;}
+
+/* permission matrix */
+.mx{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;}
+.mx th,.mx td{padding:10px 11px;text-align:center;border-bottom:1px solid var(--border-soft);}
+.mx thead th{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--fg-muted);vertical-align:bottom;background:var(--bg-void);position:sticky;top:0;z-index:2;}
+.mx thead th .sub{display:block;font-weight:400;letter-spacing:0;text-transform:none;color:var(--fg-faint);font-size:9px;margin-top:3px;}
+.mx th.rolecol,.mx td.rolecol{text-align:left;width:184px;}
+.mx tbody .rolecol{font-weight:700;font-size:13px;color:var(--fg-primary);font-family:var(--sans);}
+.mx tbody .rolecol .rd{display:flex;align-items:center;gap:8px;}
+.mx tbody .rolecol .rd .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+.mx tbody .rolecol .sub{display:block;font-weight:400;font-size:10px;color:var(--fg-muted);font-family:var(--mono);margin-top:3px;padding-left:17px;}
+.mx tbody tr:hover td{background:color-mix(in srgb,var(--accent) 4%,transparent);}
+.cell{font-family:var(--mono);font-weight:700;font-size:13px;}
+.cell.y{color:var(--success);}
+.cell.n{color:var(--fg-faint);}
+.cell.c{color:var(--gold-bright);font-size:10px;font-weight:700;line-height:1.3;}
+.cell.p{color:var(--fg-muted);font-size:10px;}
+.mxnote{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);margin-top:12px;line-height:1.7;}
+.mxnote b{color:var(--fg-muted);}
+.mxnote .y{color:var(--success);} .mxnote .c{color:var(--gold-bright);} .mxnote .n{color:var(--fg-faint);}
+
+/* invite */
+.invgrid{display:grid;grid-template-columns:1fr 340px;gap:22px;align-items:start;}
+.card{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:12px;padding:16px 17px;}
+.field{margin-bottom:14px;}
+.field label{display:block;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--fg-muted);margin-bottom:6px;}
+.field input{width:100%;background:var(--bg-void);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--fg-primary);font-family:var(--sans);font-size:13px;outline:none;}
+.field input:focus{border-color:var(--accent-dim);}
+.field .rc{display:flex;flex-wrap:wrap;gap:8px;}
+.rchip{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--fg-secondary);background:var(--bg-void);border:1px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer;}
+.rchip:hover{border-color:var(--border-active);}
+.rchip.on{background:var(--bg-sel);border-color:var(--accent-dim);color:var(--accent-bright);}
+.rchip .dot{width:8px;height:8px;border-radius:50%;flex:none;}
+.field .ro{font-family:var(--mono);font-size:12px;color:var(--fg-secondary);background:var(--bg-void);border:1px solid var(--border);border-radius:8px;padding:9px 12px;}
+.field .ro .a{color:var(--accent-bright);}
+.invfoot{display:flex;align-items:center;gap:11px;margin-top:4px;}
+.invfoot .note{font-family:var(--mono);font-size:10px;color:var(--fg-faint);line-height:1.5;}
+
+.pend{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--border-soft);}
+.pend:last-child{border-bottom:none;}
+.pend .av{width:30px;height:30px;border-radius:8px;background:var(--bg-void);border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:var(--fg-muted);flex:none;}
+.pend .bd{min-width:0;flex:1;}
+.pend .p1{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pend .p2{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-top:2px;}
+.pend .tag{flex:none;font-family:var(--mono);font-size:9px;font-weight:700;color:var(--gold-bright);border:1px solid color-mix(in srgb,var(--gold) 40%,transparent);border-radius:5px;padding:2px 8px;}
+.cardh{font-size:13.5px;font-weight:700;margin-bottom:4px;}
+.cardsub{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);margin-bottom:13px;}
+
+/* toast */
+.toast{position:absolute;bottom:44px;left:50%;transform:translateX(-50%);background:var(--bg-elev);border:1px solid var(--accent-dim);border-radius:10px;padding:9px 16px;font-size:12px;color:var(--fg-primary);box-shadow:var(--shadow-pop-gui);z-index:60;display:flex;align-items:center;gap:9px;}
+.toast .mono{font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+</style>
+</head>
+<body>
+<div class="pwrap"><div id="root"></div></div>
+
+<script type="text/babel" src="../../tweaks-panel.jsx"></script>
+<script type="text/babel" src="../gui-icons.jsx"></script>
+<script type="text/babel" src="../gui-statusbar.jsx"></script>
+<script type="text/babel" src="../gui-titlebar.jsx"></script>
+<script type="text/babel">
+const {useState} = React;
+const t = window.t || ((en,zh)=>en);
+
+/* roles (shared vocabulary · row order = privilege) */
+const ROLES={
+  owner:      {dot:'var(--accent)',    nm:t('Owner','Owner'),          sub:t('full control · billing','完全控制 · 计费')},
+  maintainer: {dot:'var(--progress)',  nm:t('Maintainer','Maintainer'),sub:t('policy + integration','策略 + 集成')},
+  contributor:{dot:'var(--success)',   nm:t('Contributor','Contributor'),sub:t('own-area gates','本域闸')},
+  reviewer:   {dot:'var(--gold)',      nm:t('Reviewer','Reviewer'),    sub:t('review, no merge','评审,不合入')},
+  agent:      {dot:'var(--builtin)',   nm:t('Agent','Agent'),          sub:t('propose only','仅提议')},
+};
+
+const MEMBERS=[
+  {av:'ZL',bg:'var(--accent)',nm:t('Zhou Le','周乐'),you:true,on:true,role:'owner',
+   own:'owner: contracts/**',watch:t('balance · design-spec','数值 · design-spec'),kind:'human'},
+  {av:'CW',bg:'var(--progress)',nm:t('Chen Wei','陈未'),on:true,role:'maintainer',
+   own:'owner: src/player/**',watch:t('gameplay · integration','玩法 · 集成'),kind:'human'},
+  {av:'QH',bg:'var(--gold)',nm:t('Qin Hao','秦昊'),on:false,role:'contributor',
+   own:'owner: shaders/**',watch:t('render / VFX · offline','渲染 / VFX · 离线'),kind:'human'},
+  {av:'codex',nm:'codex',on:true,role:'agent',via:'ACP',viac:'var(--accent)',
+   own:t('lane L1 · propose patches','lane L1 · 提交补丁'),watch:'codex-cli · gpt-5.1',kind:'agent'},
+  {av:'viden',nm:t('built-in agent','内置 agent'),on:true,role:'agent',via:'built-in',viac:'var(--builtin)',
+   own:t('lane L4 · propose patches','lane L4 · 提交补丁'),watch:'deepseek-v4',kind:'agent'},
+];
+
+/* permission matrix · capabilities (columns) × roles (rows) */
+const CAPS=[
+  {k:'gate',   nm:t('Approve gates','批准闸'),        sub:t('own area','本域')},
+  {k:'field',  nm:t('Field / hardware gate','实机 / 分级闸'), sub:t('irreversible','不可逆')},
+  {k:'merge',  nm:t('Merge to main','合入 main'),      sub:t('integration gate','集成闸')},
+  {k:'toml',   nm:t('Edit viden.toml','改 viden.toml'), sub:t('gates · ownership','闸 · ownership')},
+  {k:'members',nm:t('Manage members','管理成员'),      sub:t('roles · invites','角色 · 邀请')},
+  {k:'budget', nm:t('Set budget','设预算'),            sub:t('quotas','配额')},
+];
+/* cell: ['y'|'n'|'c'|'p', text?] */
+const MATRIX={
+  owner:      {gate:['y'],field:['y'],merge:['y'],toml:['y'],members:['y'],budget:['y']},
+  maintainer: {gate:['y'],field:['c',t('1 of 2','2 选 1')],merge:['y'],toml:['y'],members:['n'],budget:['n']},
+  contributor:{gate:['c',t('own area','本域')],field:['n'],merge:['p',t('via gate','走闸')],toml:['n'],members:['n'],budget:['n']},
+  reviewer:   {gate:['c',t('review','评审')],field:['n'],merge:['n'],toml:['n'],members:['n'],budget:['n']},
+  agent:      {gate:['p',t('propose','提议')],field:['n'],merge:['p',t('via gate','走闸')],toml:['n'],members:['n'],budget:['n']},
+};
+const CELLGL={y:'✓',n:'—'};
+
+function VRail(){
+  const order=[['chat','Conversation'],['worktree','Worktrees'],['lanes','Lane monitor'],['review','Diff review'],['inbox','Team inbox']];
+  return (
+    <div className="act">
+      {order.map(([k,lbl])=><div key={k} className="actbtn" title={lbl}>{ICONS[k]}</div>)}
+      <div className="actspacer"></div>
+      <div className="actbtn on" title="Team & permissions">{ICONS.settings}</div>
+    </div>
+  );
+}
+
+function Members({fire}){
+  return (
+    <div>
+      <div className="head">
+        <div><div className="t">{t('Members','成员')}</div>
+          <div className="d">{t('People and agents on this workspace. A member’s ','这个工作区里的人与 agent。成员的 ')}<b>{t('ownership','ownership')}</b>{t(' (from viden.toml) routes which gates reach them; the ',' (来自 viden.toml)决定哪些闸路由给谁;')}<b>{t('role','角色')}</b>{t(' sets what they’re allowed to do.',' 决定他们能做什么。')}</div>
+        </div>
+        <div className="sp"></div>
+        <button className="abtn" onClick={()=>fire(t('Invite by handle or email','按 handle 或邮箱邀请'))}>＋ {t('Invite','邀请')}</button>
+      </div>
+      <div className="sec">{t('People','人')} <span className="hint">· 3</span></div>
+      {MEMBERS.filter(m=>m.kind==='human').map((m,i)=>(
+        <div key={i} className="mrow">
+          <span className="av" style={{background:m.bg}}>{m.av}</span>
+          <div className="bd">
+            <div className="r1">{m.nm}{m.you&&<span className="you">YOU</span>}<span className={"st "+(m.on?'on':'off')}></span></div>
+            <div className="r2"><span className="own">{m.own}</span><span>watch: {m.watch}</span></div>
+          </div>
+          <div className="sp"></div>
+          <div className="rolepill" onClick={()=>fire(t('Change role','更改角色'))}><span className="dot" style={{background:ROLES[m.role].dot}}></span>{ROLES[m.role].nm}<span className="cv">▾</span></div>
+        </div>
+      ))}
+      <div className="sec">{t('Agent identities','Agent 身份')} <span className="hint">{t('· agents propose, never approve','· agent 只提议,永不批准')}</span></div>
+      {MEMBERS.filter(m=>m.kind==='agent').map((m,i)=>(
+        <div key={i} className="mrow">
+          <span className="av agent"><AgentLogo agent={m.av}/></span>
+          <div className="bd">
+            <div className="r1">{m.nm}<span className="via" style={{color:m.viac,borderColor:m.viac}}>{m.via}</span><span className={"st "+(m.on?'on':'off')}></span></div>
+            <div className="r2"><span>{m.own}</span><span>{m.watch}</span></div>
+          </div>
+          <div className="sp"></div>
+          <div className="rolepill" style={{cursor:'default'}}><span className="dot" style={{background:ROLES.agent.dot}}></span>{ROLES.agent.nm}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Matrix(){
+  return (
+    <div>
+      <div className="head">
+        <div><div className="t">{t('Permissions','权限')}</div>
+          <div className="d">{t('What each role can do. Approvals are always ','每个角色能做什么。批准始终')}<b>{t('scoped by ownership','受 ownership 约束')}</b>{t(' — a Contributor approves gates only in the area they own. Irreversible ',' —— Contributor 只能批自己 owner 的域内闸。不可逆的')}<b>{t('field / hardware gates','实机 / 分级闸')}</b>{t(' need two approvers.',' 需要两人批准。')}</div>
+        </div>
+      </div>
+      <table className="mx">
+        <thead>
+          <tr>
+            <th className="rolecol">{t('Role','角色')}</th>
+            {CAPS.map(c=><th key={c.k}>{c.nm}<span className="sub">{c.sub}</span></th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {Object.keys(ROLES).map(rk=>(
+            <tr key={rk}>
+              <td className="rolecol"><div className="rd"><span className="dot" style={{background:ROLES[rk].dot}}></span>{ROLES[rk].nm}</div><span className="sub">{ROLES[rk].sub}</span></td>
+              {CAPS.map(c=>{
+                const cell=MATRIX[rk][c.k];
+                const cls=cell[0];
+                return <td key={c.k}><span className={"cell "+cls}>{cls==='y'||cls==='n'?CELLGL[cls]:cell[1]}</span></td>;
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="mxnote">
+        <span className="y">✓</span> {t('allowed','允许')} &nbsp;·&nbsp; <span className="c">{t('scoped','受限')}</span> {t('conditional (own area / N-of-M / via gate)','有条件(本域 / N 选 M / 走闸)')} &nbsp;·&nbsp; <span className="n">—</span> {t('denied','拒绝')}<br/>
+        <b>{t('Everyone commits through gates.','人人都经闸提交。')}</b> {t('Merge to main always passes the integration gate — a role never bypasses it, it only decides who may approve.','合入 main 始终过集成闸 —— 角色不绕过闸,只决定谁能批准。')}
+      </div>
+    </div>
+  );
+}
+
+function Invites({fire}){
+  const [role,setRole]=useState('contributor');
+  return (
+    <div>
+      <div className="head">
+        <div><div className="t">{t('Invite & join','邀请与加入')}</div>
+          <div className="d">{t('Add a teammate by handle or email. They pick up the workspace, its ','按 handle 或邮箱加人。对方拉取工作区、其 ')}<b>viden.toml</b>{t(' policy and worktrees on join — the role + ownership you set here decide their reach on day one.',' 策略与 worktree;这里设的角色 + ownership 决定他们第一天的权限边界。')}</div>
+        </div>
+      </div>
+      <div className="invgrid">
+        <div className="card">
+          <div className="cardh">{t('Invite a member','邀请成员')}</div>
+          <div className="cardsub">{t('an invite link is sent · expires in 7 days','发送邀请链接 · 7 天过期')}</div>
+          <div className="field"><label>{t('Handle or email','Handle 或邮箱')}</label><input placeholder="lin@studio.dev  ·  @linqiao" defaultValue=""/></div>
+          <div className="field"><label>{t('Role','角色')}</label>
+            <div className="rc">
+              {Object.keys(ROLES).filter(r=>r!=='agent'&&r!=='owner').map(rk=>(
+                <div key={rk} className={"rchip "+(role===rk?'on':'')} onClick={()=>setRole(rk)}><span className="dot" style={{background:ROLES[rk].dot}}></span>{ROLES[rk].nm}</div>
+              ))}
+            </div>
+          </div>
+          <div className="field"><label>{t('Ownership scope','Ownership 范围')}</label>
+            <div className="ro"><span className="a">owner:</span> src/audio/**  <span style={{color:'var(--fg-faint)'}}>· {t('gates in this path route to them','此路径的闸路由给 ta')}</span></div>
+          </div>
+          <div className="invfoot">
+            <button className="abtn" onClick={()=>fire(t('Invite sent · pending acceptance','邀请已发 · 待接受'))}>{t('Send invite','发送邀请')}</button>
+            <span className="note">{t('Writes a proposed [ownership] entry to viden.toml — takes effect when they accept.','向 viden.toml 写入待定 [ownership] 条目 —— 对方接受后生效。')}</span>
+          </div>
+        </div>
+        <div className="card">
+          <div className="cardh">{t('Pending','待处理')} <span style={{color:'var(--fg-faint)',fontFamily:'var(--mono)',fontSize:'11px',fontWeight:400}}>· 2</span></div>
+          <div className="cardsub">{t('invited, not yet joined','已邀请,尚未加入')}</div>
+          <div className="pend"><span className="av">LQ</span><div className="bd"><div className="p1">@linqiao</div><div className="p2">Reviewer · {t('invited 2h ago','2 小时前邀请')}</div></div><span className="tag">{t('PENDING','待接受')}</span></div>
+          <div className="pend"><span className="av">?</span><div className="bd"><div className="p1">wu@studio.dev</div><div className="p2">Contributor · owner: src/ui/**</div></div><span className="tag">{t('PENDING','待接受')}</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "tab": "members"
+  }/*EDITMODE-END*/);
+  const [tab,setTab]=useState(tw.tab);
+  const [toast,setToast]=useState(null);
+  React.useEffect(()=>{ setTab(tw.tab); },[tw.tab]);
+  const fire=(m)=>{ setToast(m); setTimeout(()=>setToast(null),2600); };
+  const NAV=[['members','◍',t('Members','成员'),'5'],['permissions','▤',t('Permissions','权限'),'5×6'],['invites','＋',t('Invite & join','邀请与加入'),'2']];
+
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · D8 concept · draft 01</div>
+      <h1 className="ph1">{t('Team identity & permissions','团队身份与权限')} <span className="ac">Team & Permissions</span></h1>
+      <p className="plead">{t('V1.5 is a team product, but there was no place to see ','V1.5 是团队版,却一直没有地方回答')}<b>{t('who is on it, what they can do, or how someone joins','谁在团队里、能做什么、别人怎么加入')}</b>{t('. This fills that hole: a ','。这里补上:一个')}<b>{t('member roster (people + agent identities)','成员名册(人 + agent 身份)')}</b>{t(', a ',',一张')}<b>{t('role × capability matrix','角色 × 能力矩阵')}</b>{t(' (who approves field gates, who edits viden.toml), and an ',' (谁批实机闸、谁改 viden.toml),以及一个')}<b>{t('invite / join flow','邀请 / 加入流程')}</b>{t('. Ownership routes gates; role gates permissions.','。ownership 路由闸,角色控权限。')}</p>
+    <div className="frame" data-screen-label="D8 团队身份与权限">
+      <GuiTitleBar project="viden" branch={t('team · 5 members','团队 · 5 人')}/>
+      <div className="inner">
+        <VRail/>
+        <div className="snav">
+          <div className="sh">{t('Team settings','团队设置')}</div>
+          {NAV.map(([k,gl,lbl,n])=>(
+            <div key={k} className={"nb "+(tab===k?'on':'')} onClick={()=>setTab(k)}><span className="gl">{gl}</span>{lbl}<span className="n">{n}</span></div>
+          ))}
+          <div className="team">
+            <div className="tl">WORKSPACE</div>
+            <div className="tn">viden</div>
+            <div className="ts">{t('Museverse · game domain','Museverse · 游戏领域')}</div>
+          </div>
+        </div>
+        <div className="main">
+          {tab==='members' && <Members fire={fire}/>}
+          {tab==='permissions' && <Matrix/>}
+          {tab==='invites' && <Invites fire={fire}/>}
+        </div>
+      </div>
+      {toast && <div className="toast">✓ {toast}<span className="mono">audit: team</span></div>}
+      <GuiStatusBar right={t('5 members · 2 pending','5 人 · 2 待接受')}/>
+      <TweaksPanel>
+        <TweakSection label={t('View','视图')} />
+        <TweakRadio label={t('Section','分区')} value={tw.tab} onChange={v=>setTweak('tab',v)}
+          options={[{value:'members',label:t('Members','成员')},{value:'permissions',label:t('Perms','权限')},{value:'invites',label:t('Invite','邀请')}]} />
+      </TweaksPanel>
+    </div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

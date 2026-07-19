@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D11 · First-run & Ingest</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../i18n.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+/* 弱视觉细滚动条（主题化 · 透明轨道 + 弱色拇指，悬停略增强）*/
+*{scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+*::-webkit-scrollbar{width:9px;height:9px;}
+*::-webkit-scrollbar-track{background:transparent;}
+*::-webkit-scrollbar-thumb{background:var(--border-soft);border-radius:6px;border:2px solid transparent;background-clip:padding-box;}
+*::-webkit-scrollbar-thumb:hover{background:var(--border);}
+*::-webkit-scrollbar-corner{background:transparent;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1560px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:920px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+
+.frame{background:var(--bg-base);border:1px solid var(--win-edge);border-radius:var(--r-xl);overflow:hidden;height:880px;display:flex;flex-direction:column;min-width:1180px;box-shadow:var(--shadow-win);position:relative;}
+.vbar{height:46px;flex:none;display:flex;align-items:center;gap:13px;padding:0 14px;background:var(--bg-void);border-bottom:1px solid var(--border-soft);}
+.vbar .tl{display:flex;gap:8px;}
+.vbar .tl i{width:12px;height:12px;border-radius:50%;display:block;}
+.vbar .tl .a{background:var(--error);}.vbar .tl .b{background:var(--warning);}.vbar .tl .c{background:var(--success);}
+.vbar .wm{font-family:var(--mono);font-weight:700;font-size:13.5px;letter-spacing:.3px;}
+.vbar .wm .r{color:var(--gold);}.vbar .wm .c{color:var(--accent);}
+.vbar .projsel{font-family:var(--mono);font-size:11.5px;color:var(--fg-secondary);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:7px;padding:4px 10px;display:flex;align-items:center;gap:7px;cursor:pointer;}
+.vbar .projsel .br{color:var(--accent);}
+.vbar .sp{flex:1;}
+.vbar .vtools{display:flex;align-items:center;gap:4px;}
+.vbtn{width:30px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--fg-muted);cursor:pointer;border:1px solid transparent;}
+.vbtn:hover{color:var(--accent);background:var(--bg-panel);}
+.cmdbar{flex:none;display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--bg-void);}
+.cmdbar .t{font-size:15px;font-weight:700;display:flex;align-items:center;gap:9px;}
+.cmdbar .t .lg{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-weight:800;}
+.cmdbar .t .lg .br{color:var(--accent);} .cmdbar .t .lg .eye{color:var(--accent-bright);} .cmdbar .t .lg .v{color:var(--gold);} .cmdbar .t .lg .i{color:var(--accent);}
+.cmdbar .sub{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.cmdbar .sp{flex:1;}
+.cmdbar .meta{font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+
+.inner{flex:1;display:grid;grid-template-columns:236px 1fr var(--rail-right);min-height:0;}
+
+/* step rail */
+.steps{background:var(--bg-panel);border-right:1px solid var(--border-soft);padding:18px 0;display:flex;flex-direction:column;}
+.stp{display:flex;gap:12px;padding:11px 18px;cursor:pointer;position:relative;}
+.stp .nn{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--border);display:grid;place-items:center;font-family:var(--mono);font-size:11px;font-weight:700;color:var(--fg-muted);flex:none;background:var(--bg-base);z-index:1;}
+.stp::before{content:"";position:absolute;left:30.5px;top:38px;bottom:-12px;width:1.5px;background:var(--border-soft);}
+.stp:last-child::before{display:none;}
+.stp .t1{font-size:13px;font-weight:600;color:var(--fg-muted);}
+.stp .t2{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);margin-top:2px;line-height:1.5;}
+.stp.cur .nn{border-color:var(--accent);color:var(--accent-bright);background:var(--bg-sel);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 10%,transparent);}
+.stp.cur .t1{color:var(--fg-primary);}
+.stp.done .nn{border-color:var(--success);color:var(--success);}
+.stp.done .t1{color:var(--fg-secondary);}
+.steps .foot{margin-top:auto;padding:14px 18px 4px;border-top:1px solid var(--border-soft);font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.8;}
+.steps .foot .a{color:var(--accent);}
+
+/* main */
+.scont{min-width:0;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;background:var(--bg-base);}
+.shead{padding:18px 24px 12px;border-bottom:1px solid var(--border-soft);}
+.shead .t{font-size:17px;font-weight:700;display:flex;align-items:baseline;gap:10px;}
+.shead .t .en{font-family:var(--mono);font-size:10px;color:var(--fg-faint);letter-spacing:1px;text-transform:uppercase;}
+.shead .d{font-size:12.5px;color:var(--fg-muted);margin-top:5px;text-wrap:pretty;}
+.sbody{padding:18px 24px 26px;}
+.sec{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);display:flex;align-items:center;gap:8px;margin:20px 0 11px;}
+.sec::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.sec:first-child{margin-top:0;}
+.sec .hint{font-weight:400;letter-spacing:0;text-transform:none;color:var(--fg-faint);}
+
+/* repo input */
+.repobar{display:flex;align-items:center;gap:10px;background:var(--bg-void);border:1px solid var(--border);border-radius:10px;padding:11px 15px;}
+.repobar .pi{font-family:var(--mono);font-size:13px;color:var(--accent-bright);}
+.repobar input{flex:1;background:transparent;border:none;outline:none;color:var(--fg-primary);font-family:var(--mono);font-size:13px;}
+.repobar .br{font-size:11px;color:var(--fg-secondary);border:1px solid var(--border);border-radius:6px;padding:4px 11px;cursor:pointer;}
+.repobar .br:hover{color:var(--fg-primary);border-color:var(--fg-muted);}
+.recent{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+.rchip{font-family:var(--mono);font-size:11px;color:var(--fg-muted);border:1px solid var(--border-soft);border-radius:7px;padding:5px 11px;cursor:pointer;display:flex;align-items:center;gap:7px;}
+.rchip:hover{color:var(--fg-secondary);border-color:var(--fg-muted);}
+.rchip .dot{width:6px;height:6px;border-radius:50%;background:var(--fg-faint);}
+
+/* detect result */
+.detect{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;overflow:hidden;}
+.detect .dh{display:flex;align-items:center;gap:9px;padding:10px 15px;border-bottom:1px solid var(--border-soft);font-size:12.5px;}
+.detect .dh .spin{font-family:var(--mono);color:var(--accent);}
+.detect .dh .ok{color:var(--success);}
+.detect .dh b{font-weight:700;}
+.drow{display:flex;align-items:center;gap:12px;padding:8px 15px;border-bottom:1px solid var(--border-soft);font-size:12.5px;}
+.drow:last-child{border-bottom:none;}
+.drow .k{font-family:var(--mono);font-size:10px;color:var(--fg-faint);width:92px;flex:none;letter-spacing:.5px;text-transform:uppercase;}
+.drow .v{color:var(--fg-secondary);font-family:var(--mono);font-size:12px;}
+.drow .v b{color:var(--fg-primary);}
+.drow .v .a{color:var(--accent-bright);}
+.drow .tag{font-family:var(--mono);font-size:9px;font-weight:700;border-radius:4px;padding:1px 7px;border:1px solid;margin-left:auto;}
+.tag.warn{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 45%,transparent);background:color-mix(in srgb,var(--gold) 6%,transparent);}
+.tag.ok{color:var(--success);border-color:color-mix(in srgb,var(--success) 40%,transparent);}
+
+/* mode cards */
+.modegrid{display:flex;flex-direction:column;gap:11px;}
+.modec{display:flex;gap:13px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:12px;padding:14px 16px;cursor:pointer;position:relative;}
+.modec:hover{border-color:var(--fg-muted);}
+.modec.sel{border-color:var(--accent);background:var(--bg-sel);box-shadow:0 0 0 1px var(--accent-dim);}
+.modec .ic{width:38px;height:38px;border-radius:9px;background:var(--bg-void);border:1px solid var(--border);display:grid;place-items:center;font-size:18px;flex:none;}
+.modec .t1{font-size:14.5px;font-weight:700;display:flex;align-items:center;gap:9px;}
+.modec .t1 .en{font-family:var(--mono);font-size:9px;color:var(--fg-faint);font-weight:400;letter-spacing:.5px;}
+.modec .rec{font-family:var(--mono);font-size:8.5px;font-weight:700;color:var(--success);border:1px solid color-mix(in srgb,var(--success) 45%,transparent);background:color-mix(in srgb,var(--success) 7%,transparent);border-radius:4px;padding:1px 6px;}
+.modec .t2{font-size:12px;color:var(--fg-muted);margin-top:5px;line-height:1.55;}
+.modec .feats{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;}
+.feat{font-family:var(--mono);font-size:9.5px;color:var(--fg-secondary);border:1px solid var(--border);border-radius:5px;padding:2px 8px;}
+.feat.g{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 40%,transparent);}
+
+/* toml editor (right rail) */
+.tomlrail{background:var(--bg-void);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden;}
+.tomlrail .th{display:flex;align-items:center;gap:9px;padding:12px 16px;border-bottom:1px solid var(--border-soft);background:var(--bg-panel);}
+.tomlrail .th .fn{font-family:var(--mono);font-size:12px;color:var(--accent-bright);font-weight:600;}
+.tomlrail .th .badge{font-family:var(--mono);font-size:8.5px;color:var(--gold-bright);border:1px solid color-mix(in srgb,var(--gold) 40%,transparent);border-radius:4px;padding:1px 6px;margin-left:auto;}
+.tomlrail .code{flex:1;overflow:auto;padding:13px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.7;white-space:pre;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.tomlrail .code .sec2{color:var(--accent);}
+.tomlrail .code .k{color:var(--gold-bright);}
+.tomlrail .code .s{color:var(--success);}
+.tomlrail .code .c{color:var(--fg-faint);}
+.tomlrail .code .n{color:var(--accent-bright);}
+.tomlrail .code .hl{background:color-mix(in srgb,var(--accent) 10%,transparent);display:block;margin:0 -16px;padding:0 16px;}
+.tomlrail .tf{padding:10px 16px;border-top:1px solid var(--border-soft);font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.7;background:var(--bg-panel);}
+.tomlrail .tf .a{color:var(--accent);}
+
+/* starter lanes (step 4) */
+.lanegrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.slane{display:flex;gap:11px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:12px 14px;cursor:pointer;}
+.slane:hover{border-color:var(--fg-muted);}
+.slane.on{border-color:var(--accent);background:var(--bg-sel);}
+.slane .cb{width:17px;height:17px;border-radius:5px;border:1.5px solid var(--border);display:grid;place-items:center;font-size:10px;color:transparent;flex:none;margin-top:2px;}
+.slane.on .cb{border-color:var(--accent);background:var(--bg-sel);color:var(--accent-bright);}
+.slane .dot{width:9px;height:9px;border-radius:3px;flex:none;margin-top:5px;}
+.slane .t1{font-size:13.5px;font-weight:700;}
+.slane .t2{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-top:3px;}
+.slane .t2 .a{color:var(--accent-bright);}
+
+.done-card{background:var(--bg-panel);border:1px solid color-mix(in srgb,var(--success) 35%,transparent);border-radius:12px;padding:16px 18px;display:flex;align-items:center;gap:14px;margin-top:16px;}
+.done-card .big{font-size:26px;}
+.done-card .t1{font-size:14.5px;font-weight:700;}
+.done-card .t2{font-size:12px;color:var(--fg-muted);margin-top:3px;line-height:1.5;}
+
+/* footer */
+.wfoot{flex:none;border-top:1px solid var(--border);background:var(--bg-void);padding:12px 18px;display:flex;align-items:center;gap:12px;}
+.wfoot .prog{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+.wfoot .prog b{color:var(--fg-primary);}
+.wfoot .sp{flex:1;}
+.gbtn{font-size:12.5px;font-weight:600;border-radius:8px;padding:8px 18px;cursor:pointer;border:1px solid var(--border);color:var(--fg-secondary);background:transparent;font-family:var(--sans);}
+.gbtn:hover{color:var(--fg-primary);border-color:var(--fg-muted);}
+.gbtn:disabled{opacity:.35;cursor:not-allowed;}
+.gbtn.primary{color:#06222b;background:var(--accent);border-color:var(--accent);font-weight:700;}
+.gbtn.primary:hover{background:var(--accent-bright);border-color:var(--accent-bright);}
+.gbtn kbd{font-family:var(--mono);font-size:9px;opacity:.65;margin-left:6px;}
+.toast{position:absolute;left:50%;bottom:74px;transform:translateX(-50%);background:var(--bg-elev);border:1px solid var(--accent-dim);color:var(--fg-primary);font-size:12.5px;border-radius:9px;padding:9px 16px;box-shadow:0 10px 30px rgba(0,0,0,.45);display:flex;gap:10px;align-items:center;white-space:nowrap;z-index:5;}
+.toast .mono{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+</style>
+</head>
+<body>
+<div class="pwrap">
+  <div id="root"></div>
+</div>
+
+<script type="text/babel" src="../tweaks-panel.jsx"></script>
+<script type="text/babel" src="gui-statusbar.jsx"></script>
+<script type="text/babel">
+const {useState,useEffect} = React;
+const t = window.t || ((en,zh)=>en);
+
+const MODES=[
+  {id:'game',ic:'🎮',nm:t('Game mode','游戏模式'),en:'GAME',rec:true,pack:'musegameworkshop',
+   desc:t('Detected GDScript + Godot → recommended. Mounts MuseGameWorkshop; playtest = evidence.','检测到 GDScript + Godot → 推荐。挂 MuseGameWorkshop,试玩即证据。'),
+   feats:['Godot headless runner',t('replay-regression gate','回放回归闸'),t('gallery gate','画廊闸'),t('golden-frame/frame-budget gate','金样/帧预算闸'),t('balance-sheet contract','数值平衡表契约'),'skills ×14']},
+  {id:'ml',ic:'📈',nm:t('ML mode','ML 模式'),en:'ML / AI',rec:false,pack:'ml-pack',
+   desc:t('Training lanes (long tasks) + eval gate; remote multi-GPU target, tensorboard stream.','训练 lane(长任务)+ eval 闸;远程多卡 target、tensorboard 回传。'),
+   feats:['eval harness runner',t('eval no-regression gate','eval 不回退闸'),t('dataset-version contract','数据集版本契约'),'checkpoint artifact']},
+  {id:'robot',ic:'🤖',nm:t('Robot mode','机器人模式'),en:'ROBOTICS',rec:false,pack:'robot-pack',
+   desc:t('Sim lanes + staged hardware gate; SSH onto the board, reconnect-resume, device leases.','仿真 lane + 分级实机闸;SSH 上板、断线续会话、设备租约。'),
+   feats:['MuJoCo / Isaac runner',t('staged hardware gate sim/bench/field','分级实机闸 sim/bench/field'),t('.msg / URDF contract','.msg / URDF 契约'),t('device lock','设备占用锁')]},
+];
+
+const STARTERS=[
+  {id:'designer',nm:t('Design','策划'),color:'var(--gold)',agent:'claude',def:true},
+  {id:'gameplay',nm:'Gameplay',color:'var(--accent)',agent:'codex',def:true},
+  {id:'render',nm:t('Render / VFX','渲染 / VFX'),color:'var(--progress)',agent:'kiro',def:false},
+  {id:'content',nm:t('Content gen','内容生成'),color:'var(--success)',agent:t('built-in','内置'),def:false},
+];
+
+const STEPS=[
+  {t:t('Ingest project','接入项目'),d:t('open repo · detect','打开 repo · 检测')},
+  {t:t('Choose mode','选模式'),d:t('domain pack · recommended','领域包 · 推荐')},
+  {t:t('Generate viden.toml','生成 viden.toml'),d:t('policy as code','策略即代码')},
+  {t:t('Open first lane','开第一条 lane'),d:t('starter workstation','起手工位')},
+];
+
+function tomlFor(mode, detected){
+  const M={game:'musegameworkshop',ml:'ml-pack',robot:'robot-pack'}[mode];
+  const gates={
+    game:[['"contracts/**"','{ type="contract", strength="strong" }'],['"src/**"','{ type="replay-regression", runner="godot" }'],['"levels/**"','{ type="gallery" }'],['"merge:main"','{ type="integration", strength="strong" }']],
+    ml:[['"contracts/**"','{ type="contract", strength="strong" }'],['"eval/**"','{ type="eval-no-regress", runner="harness" }'],['"data/**"','{ type="dataset", strength="strong" }'],['"merge:main"','{ type="integration" }']],
+    robot:[['"contracts/**"','{ type="contract", strength="strong" }'],['"src/**"','{ type="sim", runner="mujoco" }'],['"field:**"','{ type="field", strength="strong", approvers=2 }'],['"merge:main"','{ type="integration", strength="strong" }']],
+  }[mode];
+  const runner={game:'godot = { bin="godot4", headless=true, version="4.3" }',ml:'harness = { cmd="python -m eval", gpus=8 }',robot:'mujoco = { scene="arm.xml", realtime=false }'}[mode];
+  return {M,gates,runner};
+}
+
+function App(){
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "autoDetect":true
+  }/*EDITMODE-END*/);
+  const [step,setStep]=useState(0);
+  const [repo,setRepo]=useState('~/dev/boss-rush');
+  const [scanning,setScanning]=useState(true);
+  const [spin,setSpin]=useState(0);
+  const [mode,setMode]=useState('game');
+  const [lanes,setLanes]=useState({designer:true,gameplay:true});
+  const [created,setCreated]=useState(false);
+  const [toast,setToast]=useState(null);
+
+  useEffect(()=>{const id=setInterval(()=>setSpin(s=>(s+1)%4),140);return()=>clearInterval(id);},[]);
+  useEffect(()=>{ if(step===0&&scanning){const id=setTimeout(()=>setScanning(false),1600);return()=>clearTimeout(id);} },[step,scanning]);
+
+  const {M,gates,runner}=tomlFor(mode);
+  const SP=['⠋','⠙','⠹','⠸'][spin];
+  const maxReached=created?4:step;
+  const nLanes=Object.values(lanes).filter(Boolean).length;
+
+  const create=()=>{ setCreated(true); setToast(t(`viden.toml written · ${nLanes} lanes created · entering cockpit`,`viden.toml 已写入 · ${nLanes} 条 lane 创建 · 进入驾驶舱`)); setTimeout(()=>setToast(null),3400); };
+
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · D11 concept · draft 01</div>
+      <h1 className="ph1">{t('First-run & ingest','首启与项目接入')} <span className="ac">open repo → first lane</span></h1>
+      <p className="plead">{t('The start of the product story: open an existing repo → detect → choose a mode (domain pack) → generate viden.toml → open the first lane. Detection auto-recommends a domain mode; ','产品叙事的起点:打开已有 repo → 检测 → 选模式(领域包)→ 生成 viden.toml → 开第一条 lane。检测自动推荐领域模式;')}<b>{t('viden.toml is policy-as-code','viden.toml 是策略即代码')}</b>{t(' made concrete — generated here, editable, and changing it later goes through the contract gate. The toml on the right grows live with your choices.','的落地,本步生成、可改,之后改它要走契约闸。右侧 toml 随选择实时长出来。')}</p>
+    <div className="frame" data-screen-label="D11 首启">
+      <div className="vbar">
+        <div className="tl"><i className="a"></i><i className="b"></i><i className="c"></i></div>
+        <span className="wm"><span style={{color:'var(--accent)'}}>[</span><span style={{color:'var(--accent-bright)'}}>◉</span><span style={{color:'var(--accent)'}}>]</span> <span className="r">v</span><span className="c">iden</span></span>
+        <span className="projsel" style={{opacity:.6}}>{t('no project','未接入项目')} ▾</span>
+        <span className="sp"></span>
+        <div className="vtools"><div className="vbtn" title="Settings"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div></div>
+      </div>
+      <div className="cmdbar">
+        <span className="t" style={{fontFamily:'var(--mono)',fontSize:13}}>{t('First-run wizard','首启向导')}</span>
+        <span className="sub">{t('ingest an existing repo','接入一个已有仓库')}</span>
+        <span className="sp"></span>
+        <span className="meta">{t('No change to your project structure · viden only adds one viden.toml + .viden/','无需改你的工程结构 · viden 只加一个 viden.toml + .viden/')}</span>
+      </div>
+      <div className="inner">
+
+        {/* step rail */}
+        <div className="steps">
+          {STEPS.map((s,i)=>(
+            <div key={i} className={"stp "+(i===step?'cur':'')+(i<maxReached?' done':'')} onClick={()=>!created&&setStep(i)}>
+              <span className="nn">{i<maxReached?'✓':i+1}</span>
+              <div><div className="t1">{s.t}</div><div className="t2">{s.d}</div></div>
+            </div>
+          ))}
+          <div className="foot">{t('Ingest is ','接入是')}<span className="a">{t('non-invasive','非侵入')}</span>{t(': it does not touch your dirs, only generates ','的:不动你的目录,只生成 ')}<span className="a">viden.toml</span>{t(' and ',' 与 ')}<span className="a">.viden/</span>{t(' (worktrees / evidence / logs).','(worktrees / 证据 / 日志)。')}</div>
+        </div>
+
+        {/* main */}
+        <div className="scont">
+          {step===0 && <div data-screen-label="步骤1 接入">
+            <div className="shead"><div className="t">{t('Ingest project','接入项目')} <span className="en">INGEST</span></div><div className="d">{t('Open an existing git repo. viden scans language / framework / git to infer which domain mode to use.','打开一个已有 git 仓库。viden 扫描语言 / 框架 / git,推断该用哪个领域模式。')}</div></div>
+            <div className="sbody">
+              <div className="sec">{t('Repo path','仓库路径')}</div>
+              <div className="repobar"><span className="pi">❯</span><input value={repo} onChange={e=>setRepo(e.target.value)}/><span className="br" onClick={()=>{setScanning(true);}}>{t('Re-scan','重新扫描')}</span><span className="br">{t('Browse…','浏览…')}</span></div>
+              <div className="recent">
+                <span className="rchip" onClick={()=>{setRepo('~/dev/boss-rush');setScanning(true);}}><span className="dot"></span>~/dev/boss-rush</span>
+                <span className="rchip"><span className="dot"></span>~/dev/spatial-lm</span>
+                <span className="rchip"><span className="dot"></span>~/dev/arm-ctrl</span>
+              </div>
+              <div className="sec">{t('Detection result','检测结果')} <span className="hint">{t('· read-only probe, writes nothing','· 只读探测,不写任何东西')}</span></div>
+              <div className="detect">
+                <div className="dh">{scanning?<React.Fragment><span className="spin">{SP}</span> {t('scanning ','扫描 ')}<b>{repo}</b> …</React.Fragment>:<React.Fragment><span className="ok">✓</span> {t('probe complete · ','探测完成 · ')}<b>{repo}</b></React.Fragment>}</div>
+                {!scanning && <React.Fragment>
+                  <div className="drow"><span className="k">{t('Language','语言')}</span><span className="v"><b>GDScript</b> · 64% · <span className="a">+ C#</span> 12%</span></div>
+                  <div className="drow"><span className="k">{t('Engine / framework','引擎 / 框架')}</span><span className="v"><b>Godot 4.3</b>(project.godot)</span><span className="tag ok">{t('runner available','runner 可用')}</span></div>
+                  <div className="drow"><span className="k">Git</span><span className="v">branch <b>main</b> @ 9f3ac21 · 1,284 commits · {t('clean','干净')}</span></div>
+                  <div className="drow"><span className="k">viden.toml</span><span className="v">{t('not found — will generate in step 3','未发现 —— 将在第 3 步生成')}</span><span className="tag warn">{t('to generate','待生成')}</span></div>
+                  <div className="drow"><span className="k">{t('Recommended mode','推荐模式')}</span><span className="v"><b className="a">{t('Game mode','游戏模式')}</b> · MuseGameWorkshop</span><span className="tag ok">{t('selected','已选')}</span></div>
+                </React.Fragment>}
+              </div>
+            </div>
+          </div>}
+
+          {step===1 && <div data-screen-label="步骤2 选模式">
+            <div className="shead"><div className="t">{t('Choose mode','选模式')} <span className="en">DOMAIN PACK</span></div><div className="d">{t('Mode = domain pack; it decides the runner, gate types, evidence form and contract schema. Detection already recommended “Game mode” — editable.','模式 = 领域包,决定 runner、闸类型、证据形态与契约 schema。检测已推荐"游戏模式",可改。')}</div></div>
+            <div className="sbody">
+              <div className="sec">{t('Domain mode','领域模式')} <span className="hint">{t('· called “mode” externally, “Domain Pack” in docs','· 对外叫"模式",文档层叫 Domain Pack')}</span></div>
+              <div className="modegrid">
+                {MODES.map(m=>(
+                  <div key={m.id} className={"modec "+(mode===m.id?'sel':'')} onClick={()=>setMode(m.id)}>
+                    <span className="ic">{m.ic}</span>
+                    <div style={{minWidth:0}}>
+                      <div className="t1">{m.nm} <span className="en">{m.en}</span> {m.rec&&<span className="rec">{t('detected pick','检测推荐')}</span>}</div>
+                      <div className="t2">{m.desc}</div>
+                      <div className="feats">{m.feats.map((f,i)=><span key={i} className={"feat"+(i>=1&&i<=2?' g':'')}>{f}</span>)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>}
+
+          {step===2 && <div data-screen-label="步骤3 生成toml">
+            <div className="shead"><div className="t">{t('Generate viden.toml','生成 viden.toml')} <span className="en">POLICY AS CODE</span></div><div className="d">{t('Generates gate policy, runner, budget and target from the mode. The file about to be written to the repo root is on the right — editable now; changing it later goes through the contract gate.','据模式生成闸策略、runner、预算、target。右侧即将写入仓库根的文件 —— 可现在改;之后改它本身要走契约闸。')}</div></div>
+            <div className="sbody">
+              <div className="sec">{t('Generated overview','生成内容概览')}</div>
+              <div className="detect">
+                <div className="drow"><span className="k">{t('Domain pack','领域包')}</span><span className="v"><b>{M}</b></span></div>
+                <div className="drow"><span className="k">{t('Gate rules','闸规则')}</span><span className="v"><b>{gates.length}</b> {t('rules · see [gates] on the right','条 · 见右侧 [gates]')}</span></div>
+                <div className="drow"><span className="k">runner</span><span className="v">{mode==='game'?'Godot headless 4.3':mode==='ml'?'eval harness':'MuJoCo'}</span></div>
+                <div className="drow"><span className="k">{t('Budget','预算')}</span><span className="v">{t('50k token / week · warn 80%','50k token / 周 · warn 80%')}</span></div>
+                <div className="drow"><span className="k">target</span><span className="v">{t('local (default)','local(默认)')}{mode!=='game'&&t(' · can add ssh remote',' · 可加 ssh 远程')}</span></div>
+              </div>
+              <div className="sec">{t('Injected conventions','注入约定')} <span className="hint">{t('· written into .viden/ and context','· 写进 .viden/ 与上下文')}</span></div>
+              <div className="detect">
+                <div className="drow"><span className="k">contracts/</span><span className="v">{t('contract dir (changes go through the contract gate)','契约目录(改动走契约闸)')}</span></div>
+                <div className="drow"><span className="k">docs/evidence/</span><span className="v">{t('evidence accrues automatically · git-native auditable','证据自动累积 · git-native 可审计')}</span></div>
+                <div className="drow"><span className="k">memos/</span><span className="v">{t('change memos (agent must ack)','变更备忘(agent 须 ack)')}</span></div>
+              </div>
+            </div>
+          </div>}
+
+          {step===3 && <div data-screen-label="步骤4 开lane">
+            <div className="shead"><div className="t">{t('Open the first lane','开第一条 lane')} <span className="en">FIRST LANE</span></div><div className="d">{t('The mode brings role presets (workstation templates). Check the starter lanes; after creation you enter the cockpit; each can be fine-tuned in the creation flow (D4).','据模式带出角色预设(工位模板)。勾选起手 lane,创建后进驾驶舱;每条都可在创建流程(D4)细调。')}</div></div>
+            <div className="sbody">
+              <div className="sec">{t('Starter workstations','起手工位')} <span className="hint">{t('· Game-mode presets ×4','· 游戏模式预设 ×4')}</span></div>
+              <div className="lanegrid">
+                {STARTERS.map(l=>(
+                  <div key={l.id} className={"slane "+(lanes[l.id]?'on':'')} onClick={()=>setLanes(p=>({...p,[l.id]:!p[l.id]}))}>
+                    <span className="cb">✓</span>
+                    <span className="dot" style={{background:l.color}}></span>
+                    <div><div className="t1">{l.nm}</div><div className="t2">agent <span className="a">{l.agent}</span></div></div>
+                  </div>
+                ))}
+              </div>
+              {created && <div className="done-card"><span className="big">✓</span><div><div className="t1">{t('boss-rush ingested · ','boss-rush 已接入 · ')}{nLanes}{t(' lanes ready',' 条 lane 就绪')}</div><div className="t2">{t('viden.toml written to repo root · daemon started · next: cockpit (D1) / Decision Center (D2). The start of the acceptance scenario.','viden.toml 写入仓库根 · daemon 启动 · 下一站:驾驶舱(D1)/ 决策中心(D2)。验收场景的起点。')}</div></div></div>}
+            </div>
+          </div>}
+        </div>
+
+        {/* toml rail */}
+        <div className="tomlrail" data-screen-label="viden.toml 预览">
+          <div className="th"><span className="fn">viden.toml</span><span className="badge">{step>=2?t('will write to repo root','将写入仓库根'):t('preview · draft','预览 · 草案')}</span></div>
+          <div className="code"><span className="c">{t('# generated by the first-run wizard · policy as code','# 由首启向导生成 · 策略即代码')}</span>{"\n"}<span className="sec2">[project]</span>{"\n"}<span className="k">name</span> = <span className="s">"boss-rush"</span>{"\n"}<span className="k">pack</span> = <span className="s">"{M}"</span>  <span className="c"># {mode==='game'?t('Game mode','游戏模式'):mode==='ml'?t('ML mode','ML 模式'):t('Robot mode','机器人模式')}</span>{"\n\n"}<span className="sec2">[gates]</span>{"\n"}{gates.map((g,i)=>(<span key={i}><span className="k">{g[0]}</span> = {g[1]}{"\n"}</span>))}{"\n"}<span className="sec2">[runner]</span>{"\n"}{runner}{"\n\n"}<span className="sec2">[budget]</span>{"\n"}<span className="k">tokens_per_week</span> = <span className="n">50000</span>{"\n"}<span className="k">warn_at</span> = <span className="n">0.8</span>{"\n\n"}<span className="sec2">[targets]</span>{"\n"}<span className="k">local</span> = {"{ "}<span className="k">default</span>=<span className="n">true</span>{" }"}{"\n"}</div>
+          <div className="tf">{t('Editing this file = editing policy, through the ','改这个文件 = 改策略,走 ')}<span className="a">{t('contract gate','契约闸')}</span>{t(' · the team can review. Gate routing, budget, target are all declared here.',' · 团队可 review。闸路由、预算、target 全在此声明。')}</div>
+        </div>
+      </div>
+
+      <div className="wfoot">
+        <span className="prog">{t('Step','步骤')} <b>{step+1}</b> / 4 · {STEPS[step].t}</span>
+        <span className="sp"></span>
+        <button className="gbtn" disabled={step===0} onClick={()=>setStep(s=>Math.max(0,s-1))}>{t('Back','上一步')}</button>
+        {step<3
+          ? <button className="gbtn primary" disabled={step===0&&scanning} onClick={()=>setStep(s=>s+1)}>{step===0&&scanning?t('Scanning…','扫描中…'):t('Next','下一步')}<kbd>⏎</kbd></button>
+          : <button className="gbtn primary" disabled={created} onClick={create}>{created?t('Ingested ✓','已接入 ✓'):t(`Write viden.toml & create ${nLanes} lanes`,`写 viden.toml 并创建 ${nLanes} 条 lane`)}<kbd>⌘⏎</kbd></button>}
+      </div>
+      {toast && <div className="toast">✓ {toast}<span className="mono">audit: project-onboarded</span></div>}
+
+      <GuiStatusBar right={t('onboarding','\u9996\u542f\u63a5\u5165')}/>
+      <TweaksPanel>
+        <TweakSection label={t('Demo','演示')} />
+        <TweakToggle label={t('Auto-detect recommended mode','自动检测推荐模式')} value={tw.autoDetect} onChange={v=>setTweak('autoDetect',v)} />
+      </TweaksPanel>
+    </div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

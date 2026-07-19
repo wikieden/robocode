@@ -2,7 +2,10 @@
 
 English version: [gui-version-functional-design.md](gui-version-functional-design.md)
 
-最后更新：2026-06-26
+最后更新：2026-07-19
+
+GUI 框架选型由 [GPUI GUI 可行性调研](gpui-gui-feasibility-research.zh-CN.md)
+单独评估。在 GPUI/Tauri 垂直切片门禁完成前，本文的产品与 runtime 契约保持框架无关。
 
 ## 目的
 

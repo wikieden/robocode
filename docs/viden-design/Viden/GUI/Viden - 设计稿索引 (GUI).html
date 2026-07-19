@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora" data-density="regular">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · GUI 设计稿索引</title>
+<link rel="icon" href="../brand-assets/favicon-64.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../tokens.css">
+<script src="../docs/screens-status.js"></script>
+<script src="../i18n.js"></script>
+<script src="../chrome.js"></script>
+<style>
+/* GUI 设计稿索引外壳 —— 左侧分组导航 + 右侧 iframe(保活秒切)。仅用 var(--*)（tokens.css 真源）。 */
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{margin:0;background:var(--bg-void);color:var(--fg-primary);font-family:var(--font-sans);-webkit-font-smoothing:antialiased;overflow:hidden;}
+.app{display:grid;grid-template-columns:256px 1fr;height:100vh;}
+
+/* ---------- 侧栏 ---------- */
+.side{display:flex;flex-direction:column;min-height:0;background:var(--bg-topbar);border-right:1px solid var(--border);}
+.side-hd{flex:none;display:flex;align-items:center;gap:9px;height:48px;padding:0 16px;border-bottom:1px solid var(--border-soft);}
+.wm{font-family:var(--font-mono);font-weight:800;font-size:15px;letter-spacing:.3px;}
+.wm .b1{color:var(--accent);} .wm .b2{color:var(--accent-bright);} .wm .r{color:var(--gold);} .wm .c{color:var(--accent);}
+.wm-sub{font-family:var(--font-mono);font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);margin-left:auto;}
+.nav{flex:1;min-height:0;overflow-y:auto;padding:10px 9px 18px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.grp{font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-faint);padding:14px 9px 5px;}
+.grp:first-child{padding-top:4px;}
+.item{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-sm);cursor:pointer;color:var(--fg-secondary);font-size:12.5px;line-height:1.3;position:relative;border-left:2px solid transparent;}
+.item:hover{background:var(--bg-panel);color:var(--fg-primary);}
+.item.on{background:var(--bg-sel);color:var(--accent-bright);border-left-color:var(--accent);}
+.item .id{font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--fg-faint);flex:none;width:34px;}
+.item.on .id{color:var(--accent);}
+.item .tx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.item .badge{font-family:var(--font-mono);font-size:8px;font-weight:700;letter-spacing:.4px;color:var(--success);border:1px solid color-mix(in srgb,var(--success) 40%,transparent);border-radius:var(--r-full);padding:1px 5px;flex:none;}
+.item .badge.ref{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent);}
+.item .badge.star{color:var(--accent-bright);border-color:var(--accent-dim);background:var(--bg-sel);}
+.item .badge.road{color:var(--fg-muted);border-color:var(--border);border-style:dashed;}
+.side-ft{flex:none;border-top:1px solid var(--border-soft);padding:9px 12px;font-family:var(--font-mono);font-size:10px;color:var(--fg-faint);line-height:1.6;}
+.side-ft a{color:var(--accent);text-decoration:none;}
+.side-ft a:hover{color:var(--accent-bright);}
+
+/* ---------- 主区 ---------- */
+.main{display:flex;flex-direction:column;min-width:0;min-height:0;}
+.bar{flex:none;display:flex;align-items:center;gap:12px;height:48px;padding:0 16px;background:var(--bg-topbar);border-bottom:1px solid var(--border);}
+.bar .crumb{font-family:var(--font-mono);font-size:12.5px;color:var(--fg-secondary);display:flex;align-items:center;gap:8px;min-width:0;}
+.bar .crumb .grpn{color:var(--fg-muted);} .bar .crumb .sep{color:var(--fg-faint);} .bar .crumb .cur{color:var(--accent-bright);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.bar .sp{flex:1;}
+.bar .open{font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);text-decoration:none;border:1px solid var(--border);border-radius:var(--r-sm);padding:5px 11px;display:inline-flex;align-items:center;gap:6px;}
+.bar .open:hover{color:var(--accent-bright);border-color:var(--accent-dim);}
+.skins{display:flex;align-items:center;gap:5px;}
+.skins .lb{font-family:var(--font-mono);font-size:8.5px;font-weight:700;letter-spacing:1px;color:var(--fg-faint);margin-right:2px;}
+.skins .dot{width:14px;height:14px;border-radius:var(--r-full);cursor:pointer;border:1.5px solid transparent;display:block;padding:0;outline:none;box-sizing:border-box;transition:transform .12s;}
+.skins .dot:hover{transform:scale(1.16);}
+.skins .dot.on{border-color:var(--fg-primary);}
+.skins .mb{font-family:var(--font-mono);font-size:11px;line-height:1;color:var(--fg-muted);border:1px solid var(--border);background:transparent;border-radius:var(--r-sm);padding:2px 6px;cursor:pointer;margin-left:2px;}
+.skins .mb:hover{color:var(--fg-secondary);border-color:var(--accent-dim);}
+.skins .mb.on{color:var(--on-accent);background:var(--accent);border-color:var(--accent);}
+.skins .mb.disabled{opacity:.3;cursor:not-allowed;pointer-events:none;}
+.stage{flex:1;min-height:0;position:relative;background:var(--bg-base);}
+.stage iframe{width:100%;height:100%;border:0;display:block;background:var(--bg-base);}
+.stage .load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);pointer-events:none;opacity:0;transition:opacity .15s;}
+.stage.loading .load{opacity:1;}
+
+@media (max-width:720px){ .app{grid-template-columns:1fr;} .side{display:none;} }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="side-hd">
+      <span class="wm"><span class="b1">[</span><span class="b2">◉</span><span class="b1">]</span> <span class="r">v</span><span class="c">iden</span></span>
+      <span class="wm-sub">GUI DOCS</span>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-ft">
+      <div data-i18n="ft1"></div>
+      <a href="../index.html" data-i18n="ft2"></a>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="bar">
+      <div class="crumb"><span class="grpn" id="cgrp"></span><span class="sep">/</span><span class="cur" id="ccur"></span></div>
+      <span class="sp"></span>
+      <a class="open" id="openNew" href="#" target="_blank" data-i18n="open"></a>
+      <a class="open" href="../Core/Viden - Aurora 主题 (Core).html" target="_blank" title="Aurora 主题 · 换肤总览">◉ <span data-zh="主题换肤">Theme</span></a>
+      <div class="skins" id="skins"><span class="lb">SKIN</span></div>
+    </div>
+    <div class="stage" id="stage">
+      <div class="load" data-i18n="loading"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var t = window.t || function(en,zh){return en;};
+var copy = {
+  ft1: ['Design docs index · GUI screens','设计稿索引 · GUI 各屏'],
+  ft2: ['← Global prototype index','← 全站原型总览'],
+  open:['Open ↗','新窗口打开 ↗'],
+  loading:['loading…','加载中…']
+};
+
+/* 分组导航。唯一真源 = docs/screens-status.js 的 docs[]（按 track 过滤·按 group 分组）。
+   file = 相对项目根全路径，srcOf strip 掉 GUI/ 前缀。badge: star/kit/ref。
+   复用既有 NAV 结构 [组标签, [[nav, 中, 英, file, kind], …]]，下方逻辑零改动 */
+var NAV = [];
+(function(){
+  var DOCS = (window.VIDEN_STATUS && window.VIDEN_STATUS.docs || []).filter(function(d){ return d.track==='GUI'; });
+  var gi = {};
+  DOCS.forEach(function(d){
+    if(!(d.groupEn in gi)){ gi[d.groupEn] = NAV.length; NAV.push([d.group+' · '+d.groupEn, []]); }
+    NAV[gi[d.groupEn]][1].push([d.nav, d.nm, d.nmEn, d.file, d.kind, d.roadmap]);
+  });
+})();
+
+var stage = document.getElementById('stage');
+var nav = document.getElementById('nav');
+var L = function(a){ return window.t ? t(a[0],a[1]) : a[0]; };
+
+Object.keys(copy).forEach(function(k){ var el=document.querySelector('[data-i18n="'+k+'"]'); if(el) el.textContent=L(copy[k]); });
+
+var KEY='viden-gui-screen';
+var flat=[]; NAV.forEach(function(g){ g[1].forEach(function(it){ flat.push({grp:g[0],it:it}); }); });
+
+/* 无白屏秒切（四件套·见 docs/PROTO-STANDARD.md §「无白屏导航引擎」）：
+   ① 常驻缓存 iframe(每屏只建一次) ② 空闲预热其余屏 ③ 全程可见 z-index 叠放(绝不 display:none/
+   visibility:hidden——隐藏会丢渲染层,再显示整页重绘闪一下) ④ 冷页就绪门控(load 后才 raise,旧屏留显不露白)。 */
+function srcOf(file){ return encodeURI(file.replace(/^[^/]+\//,'')); }  // strip <track>/ 前缀 → 相对本壳
+var frames = {}, want = null;
+function raise(){ Object.keys(frames).forEach(function(k){ frames[k].style.zIndex = (k===want ? '1' : '0'); }); }
+function make(file){
+  var rec = flat.filter(function(f){ return f.it[3]===file; })[0];
+  var fr = document.createElement('iframe');
+  fr.title = rec ? rec.it[2] : file;
+  fr.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:var(--bg-base);z-index:0;';
+  fr.addEventListener('load', function(){ fr.dataset.ready='1'; if(want===file){ stage.classList.remove('loading'); raise(); } });
+  fr.src = srcOf(file);
+  stage.appendChild(fr);
+  return (frames[file] = fr);
+}
+function show(file){
+  var rec = flat.filter(function(f){ return f.it[3]===file; })[0] || flat[0];
+  file = rec.it[3]; want = file;
+  var fr = frames[file] || make(file);
+  if(fr.dataset.ready){ stage.classList.remove('loading'); raise(); }   // 热页 → 秒切
+  else { stage.classList.add('loading'); }                              // 冷页 → 旧屏留显,load 后再 raise
+  document.getElementById('openNew').href = srcOf(file);
+  document.getElementById('cgrp').textContent = rec.grp.split(' · ')[0];
+  document.getElementById('ccur').textContent = L([rec.it[2], rec.it[1]]);
+  nav.querySelectorAll('.item').forEach(function(el){ el.classList.toggle('on', el.getAttribute('data-f')===file); });
+  try{ localStorage.setItem(KEY, file); }catch(e){}
+}
+// 空闲预热:首屏稳定后把其余屏全部建好(z:0 常驻底层),之后任意切换皆秒开
+var ric = window.requestIdleCallback || function(cb){ return setTimeout(cb, 800); };
+function prewarm(){ flat.forEach(function(f){ if(!frames[f.it[3]]) make(f.it[3]); }); }
+
+nav.innerHTML = NAV.map(function(g){
+  return '<div class="grp">'+g[0]+'</div>'+ g[1].map(function(it){
+    var b = it[4]==='ref' ? '<span class="badge ref">REF</span>' : it[4]==='star' ? '<span class="badge star">★</span>' : '<span class="badge">KIT</span>';
+    if(it[5]) b += '<span class="badge road" title="路线图·引擎无后端；设计保留，非 v1 交付">ROADMAP</span>';
+    return '<div class="item" data-f="'+it[3].replace(/"/g,'&quot;')+'"><span class="id">'+it[0]+'</span><span class="tx">'+L([it[2],it[1]])+'</span>'+b+'</div>';
+  }).join('');
+}).join('');
+nav.querySelectorAll('.item').forEach(function(el){ el.onclick=function(){ show(el.getAttribute('data-f')); }; });
+
+/* 皮肤圆点(与 chrome.js 共用 rc-scheme;切换后 reload iframe 让内嵌屏跟随) */
+var SKINS = (window.RC && window.RC.SCHEMES) || [['aurora','Aurora','',['dark','light']],['ice','Ice','',['dark','light']],['mono','Mono','',['dark','light']],['amber','Amber','',['dark']],['phosphor','Phosphor','',['dark']]];
+var skinbox=document.getElementById('skins');
+SKINS.forEach(function(s){
+  var w=document.createElement('span'); w.setAttribute('data-skin',s[0]); w.setAttribute('data-mode','dark');
+  var b=document.createElement('button'); b.className='dot'; b.title=s[1]; b.style.background='var(--accent)';
+  b.onclick=function(){ if(window.RC) RC.setSkin(s[0]); else document.documentElement.setAttribute('data-skin',s[0]); };
+  w.appendChild(b); skinbox.appendChild(w);
+});
+[['dark','☾'],['light','☀']].forEach(function(m){
+  var b=document.createElement('button'); b.className='mb'; b.setAttribute('data-md',m[0]); b.textContent=m[1]; b.title=m[0];
+  b.onclick=function(){ if(window.RC) RC.setMode(m[0]); else document.documentElement.setAttribute('data-mode',m[0]); };
+  skinbox.appendChild(b);
+});
+function syncSkins(){
+  var sk=document.documentElement.getAttribute('data-skin')||'aurora';
+  var md=document.documentElement.getAttribute('data-mode')||'dark';
+  skinbox.querySelectorAll('.dot').forEach(function(d){ d.classList.toggle('on', d.parentNode.getAttribute('data-skin')===sk); });
+  skinbox.querySelectorAll('.mb').forEach(function(b){ var m=b.getAttribute('data-md'); var ok=!window.RC||!RC.supports||RC.supports(sk,m); b.classList.toggle('on', ok&&m===md); b.classList.toggle('disabled', !ok); });
+}
+window.addEventListener('rc-state', function(){ syncSkins(); Object.keys(frames).forEach(function(k){ try{ frames[k].contentWindow.location.reload(); }catch(e){ frames[k].src = frames[k].src; } }); });
+syncSkins();
+
+var start; try{ start=localStorage.getItem(KEY); }catch(e){}
+show(start || flat[0].it[3]);
+ric(prewarm);
+</script>
+</body>
+</html>

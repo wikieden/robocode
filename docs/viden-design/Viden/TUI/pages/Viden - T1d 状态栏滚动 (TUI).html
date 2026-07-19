@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · Status Bar Ticker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../tui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1080px;margin:0 auto;padding:26px 24px 80px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:26px;margin:0 0 8px;letter-spacing:-.6px;} .ph1 .ac{color:var(--accent);}
+.plead{font-size:13.5px;color:var(--fg-secondary);margin:0 0 16px;max-width:940px;line-height:1.65;text-wrap:pretty;} .plead b{color:var(--fg-primary);font-weight:600;} .plead kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;padding:1px 6px;color:var(--accent-bright);background:var(--bg-panel);}
+.ctrl{display:flex;align-items:center;gap:10px;margin:4px 0 12px;flex-wrap:wrap;}
+.tgl{font-family:var(--mono);font-size:11.5px;border:1px solid var(--border);border-radius:8px;padding:6px 13px;cursor:pointer;color:var(--fg-secondary);background:transparent;}
+.tgl.on{color:var(--accent-bright);border-color:var(--accent-dim);background:var(--bg-sel);}
+.ctrl .hint{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);}
+
+/* terminal —— 外框改用 tui-kit .vterm（单一真源） */
+.vterm .vterm-chrome{opacity:.5;}
+
+
+.tbody{padding:13px 15px;height:150px;overflow:hidden;font-size:13px;line-height:1.5;opacity:.5;}
+.t-acc{color:var(--accent);}.t-br{color:var(--accent-bright);}.t-gold{color:var(--gold-bright);}.t-suc{color:var(--success);}.t-mut{color:var(--fg-muted);}.t-fnt{color:var(--fg-faint);}.t-pri{color:var(--fg-primary);}.t-prog{color:var(--progress);}.t-vio{color:var(--builtin);}
+.dimrow{color:var(--fg-muted);white-space:pre;}
+
+/* 状态栏 + 滚动 ticker 已迁到 tui-kit .vstatus / .vbe / .vgate-badge / .vticker / .vtk-*（删除内联 fork） */
+
+.sech{display:flex;align-items:baseline;gap:11px;margin:28px 0 12px;}
+.sech .no{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:700;} .sech h2{font-size:17px;margin:0;} .sech .en{font-family:var(--mono);font-size:10px;color:var(--fg-faint);letter-spacing:1px;text-transform:uppercase;} .sech .sp{flex:1;height:1px;background:var(--border-soft);align-self:center;}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.col{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:14px 16px;border-top:2px solid;}
+.col.pin{border-top-color:var(--gold);} .col.rot{border-top-color:var(--accent);}
+.col .h{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:4px;} .col .h .tag{font-family:var(--mono);font-size:9px;font-weight:700;border-radius:4px;padding:1px 7px;border:1px solid;}
+.col.pin .h .tag{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 40%,transparent);} .col.rot .h .tag{color:var(--accent-bright);border-color:var(--accent-dim);}
+.col .d{font-size:11.5px;color:var(--fg-muted);margin:3px 0 9px;line-height:1.5;}
+.li{display:flex;align-items:baseline;gap:9px;padding:5px 0;border-bottom:1px solid var(--border-soft);font-size:12.5px;}
+.li:last-child{border-bottom:none;} .li .ic{flex:none;width:16px;text-align:center;} .li .nm{color:var(--fg-primary);font-weight:600;} .li .ds{color:var(--fg-muted);}
+.rules{display:flex;flex-direction:column;gap:9px;margin-top:6px;}
+.rule{display:flex;gap:12px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:10px;padding:11px 15px;}
+.rule .ic{font-family:var(--mono);font-size:13px;color:var(--accent);flex:none;width:18px;text-align:center;}
+.rule .tx{font-size:13px;color:var(--fg-secondary);line-height:1.55;} .rule .tx b{color:var(--fg-primary);}
+.divnote{font-size:13px;color:var(--fg-secondary);line-height:1.65;background:var(--bg-panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:13px 17px;margin-top:14px;text-wrap:pretty;} .divnote b{color:var(--fg-primary);} .divnote .c{color:var(--accent-bright);font-family:var(--mono);font-size:12px;}
+@media(max-width:760px){.cols{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="pwrap"><div id="root"></div></div>
+<script type="text/babel">
+const {useState,useEffect,useRef} = React;
+const t = window.t || ((en,zh)=>en);
+
+function App(){
+  const ROT=[
+    {ic:'▶',c:'t-prog',s:t('3 lanes running','3 条 lane 在跑')},
+    {ic:'◷',c:'t-mut',s:t('ctx 24% · 31k/50k tok','ctx 24% · 31k/50k tok')},
+    {ic:'⊨',c:'t-mut',s:t('local · godot 4.3','local · godot 4.3')},
+    {ic:'▰',c:'t-vio',s:t('L5 train · gpu-01 · epoch 68%','L5 训练 · gpu-01 · epoch 68%')},
+    {ic:'✓',c:'t-suc',s:t('last: L2 replay ✓ 1.2s','上条:L2 回放 ✓ 1.2s')},
+    {ic:'✉',c:'t-gold',s:t('memo: design-spec v1.1 · 1 ack pending','memo:design-spec v1.1 · 1 待 ack')},
+    {ic:'☾',c:'t-mut',s:t('nightly autopilot 22:00','夜间自动驾驶 22:00')},
+  ];
+  const [paused,setPaused]=useState(false);
+
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · TUI · status ticker</div>
+      <h1 className="ph1">{t('Status-bar ticker','状态栏滚动播报')} <span className="ac">{t('one line, many signals','一行,多信号')}</span></h1>
+      <p className="plead">{t('The status bar is one line. Pin what you must act on (gates), and let ambient signals ','状态栏只有一行。把要你处理的(闸)钉住,其余环境信号 ')}<b>{t('scroll across one line','在一行里横向滚动')}</b>{t(' — run count, ctx/budget, target, train progress, last event, memos, schedule. Hover/click to pause; click to jump. Demo cycles live; EN/中 top-right.',' —— 运行数、ctx/预算、target、训练进度、上条事件、memo、日程。悬停/点暂停,点跳转。下面实时轮播;右上 EN/中。')}</p>
+
+      <div className="ctrl">
+        <button className={"tgl "+(paused?'':'on')} onClick={()=>setPaused(p=>!p)}>{paused?t('▶ resume','▶ 继续'):t('⏸ pause','⏸ 暂停')}</button>
+        <span className="hint">{t('hover the ticker to pause · click a segment to jump to it','悬停轮播区暂停 · 点某段跳过去')}</span>
+      </div>
+
+      <div className="vterm">
+        <div className="vterm-chrome"><span className="vlights"><i className="a"></i><i className="b"></i><i className="c"></i></span><span className="vtitle">{t('your terminal','你的终端')} · L2 · S1</span></div>
+        <div className="tbody">
+          <div className="dimrow">❯ {t('Bump hitstun 0.18 → 0.24 …','把受击硬直 0.18 → 0.24 …')}</div>
+          <div className="dimrow"><span className="t-gold">⡾ codex</span> · edit stagger.gd · run replay…</div>
+          <div className="dimrow"><span className="t-suc">✓</span> {t('no lock · counter 7f · ⚠ stunlock 28f','连段不卡 · 反击 7 帧 · ⚠ stunlock 28f')}</div>
+          <div className="dimrow"><span className="t-gold">⏸</span> {t('replay-regression gate formed','回放回归闸已成形')}</div>
+        </div>
+        <div className="vstatus">
+          <span className="vseg proj">◉ boss-rush</span>
+          <span className="vseg lane">L2 · S1</span>
+          <span className="vseg"><span className="vbe acp"><span className="k">ACP</span>:<span className="ag">codex</span></span></span>
+          <span className="vseg"><span className="vgate-badge" title={t('pinned · actionable · never scrolls','钉住 · 待处理 · 绝不滚动')}>⏸ 3</span></span>
+          <span className="vticker" onClick={()=>setPaused(p=>!p)} style={{cursor:'pointer'}} title={t('ambient only · click to pause','仅环境信号 · 点暂停')}>
+            <span className="vtk-track" style={paused?{animationPlayState:'paused'}:undefined}>
+              <span className="vtk-grp">{ROT.map((it,k)=>(<React.Fragment key={'a'+k}><span className={"vtk-item "+it.c}>{it.ic&&<span className="ic">{it.ic}</span>}{it.s}</span>{k<ROT.length-1&&<span className="vtk-sep">┆</span>}</React.Fragment>))}</span>
+              <span className="vtk-grp" aria-hidden="true">{ROT.map((it,k)=>(<React.Fragment key={'b'+k}><span className={"vtk-item "+it.c}>{it.ic&&<span className="ic">{it.ic}</span>}{it.s}</span>{k<ROT.length-1&&<span className="vtk-sep">┆</span>}</React.Fragment>))}</span>
+            </span>
+          </span>
+        </div>
+      </div>
+
+      <div className="sech"><span className="no">01</span><h2>{t('Pinned vs rotating','钉住 vs 轮播')}</h2><span className="en">act now vs ambient</span><span className="sp"></span></div>
+      <div className="cols">
+        <div className="col pin">
+          <div className="h">{t('Pinned — always visible','钉住 —— 常显')} <span className="tag">{t('act now','待处理')}</span></div>
+          <div className="d">{t('Actionable or identity. Never rotate these away.','要处理的或身份信息。绝不轮播掉。')}</div>
+          <div className="li"><span className="ic t-gold">⏸</span><span><span className="nm">{t('gate / ask count','闸 / 问询数')}</span> · <span className="ds">{t('what needs you','需要你的')}</span></span></div>
+          <div className="li"><span className="ic t-acc">◉</span><span><span className="nm">{t('project · lane · session','项目 · lane · 会话')}</span> · <span className="ds">{t('where you are','你在哪')}</span></span></div>
+          <div className="li"><span className="ic t-acc">⊟</span><span><span className="nm">{t('backend · mode','后端 · 模式')}</span> · <span className="ds">{t('ACP/built-in · INSERT/NORMAL','ACP/内置 · INSERT/NORMAL')}</span></span></div>
+          <div className="li"><span className="ic t-err">✗</span><span><span className="nm">{t('errors','错误')}</span> · <span className="ds">{t('pin until cleared','钉到清除')}</span></span></div>
+        </div>
+        <div className="col rot">
+          <div className="h">{t('Scrolling — horizontal','横向滚动')} <span className="tag">{t('ambient','环境')}</span></div>
+          <div className="d">{t('Glanceable, non-urgent. Cycles ~2.6s; pauses on hover.','可瞥、不急。约 2.6s 一轮;悬停暂停。')}</div>
+          <div className="li"><span className="ic t-prog">▶</span><span><span className="nm">{t('run count','运行数')}</span> · <span className="ds">{t('lanes working','在跑的 lane')}</span></span></div>
+          <div className="li"><span className="ic t-mut">◷</span><span><span className="nm">{t('ctx / budget','ctx / 预算')}</span> · <span className="ds">{t('token usage','token 用量')}</span></span></div>
+          <div className="li"><span className="ic t-vio">▰</span><span><span className="nm">{t('train / long task','训练 / 长任务')}</span> · <span className="ds">{t('progress %','进度 %')}</span></span></div>
+          <div className="li"><span className="ic t-suc">✓</span><span><span className="nm">{t('last event','上条事件')}</span> · <span className="ds">{t('recent result','最近结果')}</span></span></div>
+          <div className="li"><span className="ic t-gold">✉</span><span><span className="nm">{t('memo / schedule','memo / 日程')}</span> · <span className="ds">{t('ack pending · nightly','待 ack · 夜间')}</span></span></div>
+        </div>
+      </div>
+
+      <div className="sech"><span className="no">02</span><h2>{t('Rules','规则')}</h2><span className="en">restraint</span><span className="sp"></span></div>
+      <div className="rules">
+        <div className="rule"><span className="ic">⏸</span><span className="tx"><b>{t('Never rotate what you must act on','要处理的绝不轮播')}</b>{t(': gates, errors, permission prompts stay pinned. Rotation is for ambient only.',':闸、错误、权限提示常驻。轮播只给环境信息。')}</span></div>
+        <div className="rule"><span className="ic">◴</span><span className="tx"><b>{t('Calm cadence','节奏要稳')}</b>{t(': ~2.6–4s per item, one at a time, gentle fade — never a fast scroll that pulls the eye.',':每条 ~2.6–4s,一次一条,轻渐入 —— 不做扯眼球的快滚动。')}</span></div>
+        <div className="rule"><span className="ic">⇲</span><span className="tx"><b>{t('Pause & jump','暂停与跳转')}</b>{t(': hover/focus pauses; click a segment to act on it (train → L5, memo → ack). Dots show position.',':悬停/聚焦暂停;点某段就去处理它(训练→L5,memo→ack)。圆点示位置。')}</span></div>
+        <div className="rule"><span className="ic">↔</span><span className="tx"><b>{t('Width valve','宽度阀门')}</b>{t(': on narrow terminals the ticker is the overflow — drop least-important items first, keep pinned intact.',':窄终端下轮播区是溢出阀 —— 先丢最不重要的,钉住的不动。')}</span></div>
+        <div className="rule"><span className="ic">◑</span><span className="tx"><b>{t('Reduced-motion','减弱动效')}</b>{t(': no auto-scroll — show a condensed summary or step on key; meaning stays in text + color.',':不自动滚 —— 显精简汇总或按键步进;信息靠文字 + 颜色。')}</span></div>
+      </div>
+
+      <div className="divnote"><b>{t('Bottom line','一句话')}</b>{t(': the status bar stays one line; a single ','::状态栏仍是一行;靠一个 ')}<span className="c">{t('rotating slot','轮播位')}</span>{t(' carries the long tail of ambient signals, while ','承载环境信号的长尾,而')}<span className="c">{t('actionable stays pinned','要处理的常驻')}</span>{t('. It\u2019s a HUD ticker — calm, glanceable, never urgent. Same color semantics as T4.',' 。这是 HUD 跑马灯 —— 平静、可瞥、不制造紧迫。颜色语义沿用 T4。')}</div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

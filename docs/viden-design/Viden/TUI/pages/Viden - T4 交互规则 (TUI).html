@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · TUI Interaction Rules</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;font-size:15px;}
+.doc{max-width:1080px;margin:0 auto;padding:30px 28px 110px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+h1{font-size:30px;margin:0 0 10px;letter-spacing:-.6px;}
+h1 .ac{color:var(--accent);}
+.lead{font-size:14.5px;color:var(--fg-secondary);margin:0 0 6px;max-width:880px;line-height:1.65;text-wrap:pretty;}
+.lead b{color:var(--fg-primary);font-weight:600;}
+
+.sech{display:flex;align-items:baseline;gap:11px;margin:44px 0 6px;}
+.sech .no{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:700;}
+.sech h2{font-size:20px;margin:0;letter-spacing:-.3px;}
+.sech .en{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);letter-spacing:1px;text-transform:uppercase;}
+.sech .sp{flex:1;height:1px;background:var(--border-soft);align-self:center;}
+.subl{font-size:13px;color:var(--fg-muted);margin:6px 0 14px;line-height:1.6;text-wrap:pretty;}
+.subl b{color:var(--fg-secondary);}
+
+kbd{font-family:var(--mono);font-size:11.5px;font-weight:600;border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;padding:1px 7px;color:var(--accent-bright);background:var(--bg-panel);white-space:nowrap;display:inline-block;}
+code,.inlc{font-family:var(--mono);font-size:12.5px;color:var(--accent-bright);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:4px;padding:0 5px;}
+
+/* principles */
+.prin{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
+.pc{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:14px 17px;border-left:3px solid var(--accent);}
+.pc .n{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700;}
+.pc .t{font-size:15px;font-weight:700;margin:3px 0 5px;}
+.pc p{font-size:12.5px;color:var(--fg-secondary);line-height:1.55;margin:0;text-wrap:pretty;}
+.pc p b{color:var(--fg-primary);}
+
+/* mode diagram */
+.modes{display:flex;align-items:center;gap:0;flex-wrap:wrap;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:12px;padding:20px;justify-content:center;}
+.mbox{border:1.5px solid var(--border);border-radius:10px;padding:13px 18px;text-align:center;background:var(--bg-void);min-width:150px;}
+.mbox .mt{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent-bright);}
+.mbox .mt.norm{color:var(--accent-bright);} .mbox .mt.ins{color:var(--success);} .mbox .mt.ovl{color:var(--gold-bright);}
+.mbox .md{font-size:11px;color:var(--fg-muted);margin-top:4px;line-height:1.45;}
+.marrow{display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 14px;color:var(--fg-faint);font-family:var(--mono);font-size:10px;}
+.marrow .a{font-size:15px;color:var(--accent);}
+.marrow .lab{white-space:nowrap;}
+.mnote{font-family:var(--mono);font-size:11px;color:var(--fg-faint);text-align:center;margin-top:13px;line-height:1.6;}
+.mnote b{color:var(--fg-secondary);}
+
+/* key tables */
+.kt{width:100%;border-collapse:collapse;font-size:13.5px;margin:0;}
+.kt th{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-muted);text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);}
+.kt td{padding:8px 12px;border-bottom:1px solid var(--border-soft);color:var(--fg-secondary);vertical-align:top;line-height:1.5;}
+.kt tr:last-child td{border-bottom:none;}
+.kt td:first-child{width:118px;white-space:nowrap;}
+.kt td.act{color:var(--fg-primary);font-weight:600;width:200px;}
+.kt .nt{color:var(--fg-muted);font-size:12.5px;}
+.ktwrap{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;overflow:hidden;}
+
+/* context tabs */
+.ctabs{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;}
+.ct{font-family:var(--mono);font-size:12px;color:var(--fg-muted);padding:6px 14px;border-radius:8px;cursor:pointer;border:1px solid transparent;display:flex;align-items:center;gap:7px;}
+.ct:hover{color:var(--fg-secondary);background:var(--bg-panel);}
+.ct.on{color:var(--accent-bright);background:var(--bg-sel);border-color:var(--accent-dim);}
+.ct .led{width:7px;height:7px;border-radius:50%;}
+.cthead{font-family:var(--mono);font-size:11.5px;color:var(--fg-muted);padding:9px 13px;border-bottom:1px solid var(--border-soft);background:var(--bg-void);}
+.cthead b{color:var(--accent-bright);}
+
+/* lists / contracts */
+.rules{display:flex;flex-direction:column;gap:9px;}
+.rule{display:flex;gap:12px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:10px;padding:11px 15px;}
+.rule .ic{font-family:var(--mono);font-size:13px;color:var(--accent);flex:none;width:18px;text-align:center;}
+.rule .tx{font-size:13px;color:var(--fg-secondary);line-height:1.55;}
+.rule .tx b{color:var(--fg-primary);font-weight:600;}
+.rule .tx code{font-size:12px;}
+
+/* command grammar */
+.cmds{background:var(--bg-void);border:1px solid var(--border);border-radius:11px;padding:6px 4px;font-family:var(--mono);font-size:13px;}
+.cmdr{display:flex;gap:13px;align-items:baseline;padding:7px 14px;border-bottom:1px solid var(--border-soft);}
+.cmdr:last-child{border-bottom:none;}
+.cmdr .c{color:var(--accent-bright);font-weight:700;width:150px;flex:none;}
+.cmdr .d{color:var(--fg-secondary);font-family:var(--sans);font-size:12.5px;line-height:1.5;}
+.cmdr .d b{color:var(--fg-primary);}
+.cmdr .g{margin-left:auto;font-size:10px;color:var(--accent);white-space:nowrap;}
+
+/* semantics legend */
+.sem{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
+.semr{display:flex;align-items:center;gap:11px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:9px;padding:9px 13px;}
+.semr .sw{width:26px;height:16px;border-radius:4px;flex:none;border:1px solid color-mix(in srgb,var(--fg-primary) 10%,transparent);}
+.semr .nm{font-family:var(--mono);font-size:11.5px;color:var(--fg-primary);font-weight:600;min-width:74px;}
+.semr .mn{font-size:12px;color:var(--fg-secondary);}
+.semr .tok{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);margin-left:auto;}
+
+/* degrade */
+.deg{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
+.degc{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;padding:13px 16px;}
+.degc .h{font-size:13.5px;font-weight:700;margin-bottom:5px;display:flex;align-items:center;gap:8px;}
+.degc .h .ic{font-family:var(--mono);color:var(--accent);}
+.degc .flow{font-family:var(--mono);font-size:12px;color:var(--fg-secondary);margin:6px 0;}
+.degc .flow .hi{color:var(--accent-bright);} .degc .flow .lo{color:var(--fg-muted);}
+.degc p{font-size:12px;color:var(--fg-muted);line-height:1.5;margin:4px 0 0;}
+
+.divnote{font-size:13.5px;color:var(--fg-secondary);line-height:1.7;background:var(--bg-panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:14px 18px;margin-top:16px;text-wrap:pretty;}
+.divnote b{color:var(--fg-primary);} .divnote .c{color:var(--accent-bright);font-family:var(--mono);font-size:12.5px;}
+.links{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px;}
+.lk{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;color:var(--fg-secondary);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:8px;padding:8px 13px;text-decoration:none;}
+.lk:hover{border-color:var(--accent-dim);color:var(--fg-primary);} .lk .ar{color:var(--accent);}
+@media(max-width:820px){.prin,.sem,.deg{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="doc"><div id="root"></div></div>
+
+<script type="text/babel">
+const {useState} = React;
+const t = window.t || ((en,zh)=>en);
+
+const CTX={
+  board:{nm:'Lane board',led:'var(--accent)',sub:t('spatial lens · all-lane card wall','空间镜 · 全 lane 卡片墙'),keys:[
+    ['↑↓←→ · hjkl',t('move selection','移动选中'),t('walk between lane cards','在 lane 卡片间走')],
+    ['↵',t('enter / open','进入 / 打开'),t('run lane→session · gate lane→Decision Center','run lane→会话 · gate lane→决策中心')],
+    ['n',t('new lane','新 lane'),t('open workstation wizard (role+agent+skill+gate)','开工位向导(角色+agent+skill+闸)')],
+    ['x',t('skip / mute','跳过 / 静音'),t('mute this lane for now','本 lane 暂不提醒')],
+    ['gg / G',t('first / last','首 / 尾'),t('jump to first / last','跳到第一 / 最后一条')],
+    ['⏎ hold / o',t('follow read-only','跟车只读'),t('attach to a teammate lane to watch','attach 同事 lane 旁观')],
+  ]},
+  session:{nm:t('Session','会话'),led:'var(--success)',sub:t('work main screen · one session of the current lane','干活主屏 · 当前 lane 的一个 session'),keys:[
+    ['i / click',t('enter Insert','进 Insert'),t('start typing to the agent','开始打字给 agent')],
+    ['/',t('command','命令'),t('in-session commands (/gate /handoff…)','会话内命令(/gate /handoff…)')],
+    ['⌃C',t('interrupt','打断'),t('stop the agent current action, stay in session','停 agent 当前动作,留在会话')],
+    ['⌃R',t('session history','会话历史'),t('browse history / search','翻历史消息 / 检索')],
+    ['PgUp/PgDn · ⌃U/⌃D',t('scroll transcript','翻 transcript'),t('scroll the conversation','上下滚对话')],
+    ['1–9',t('switch session window','切会话窗口'),t('jump to status-bar session windows (= click)','状态栏会话窗口直达(等价点)')],
+  ]},
+  review:{nm:t('Decision Center','决策中心'),led:'var(--gold)',sub:t('attention lens · gate / ask / contract in one queue','注意力镜 · 闸 / 问询 / 契约同队列'),keys:[
+    ['j / k',t('queue up/down','队列上下'),t('walk between pending items','在待决策项间走')],
+    ['a',t('approve','批准'),t('merge evidence · unlock merge','并入证据 · 解锁合入')],
+    ['r',t('reject','驳回'),t('return to redo','退回重做')],
+    ['b',t('return to lane','退回原 lane'),t('bounce back with a reason','附理由打回')],
+    ['d / e',t('view diff / evidence','看 diff / 证据'),t('expand code diff · evidence dir','展开代码 diff · 证据目录')],
+    ['o','viden open',t('complex evidence opens browser (video/pixel diff)','复杂证据弹浏览器(录像/像素 diff)')],
+  ]},
+  gallery:{nm:t('Gallery review','画廊评审'),led:'var(--builtin)',sub:t('batch content keep/kill grid','批量内容 keep/kill 网格'),keys:[
+    ['←→↑↓',t('move','移动'),t('walk the variant grid','在变体网格间走')],
+    ['k','keep',t('keep · into levels/','留 · 进 levels/')],
+    ['x','kill',t('kill · archived, revivable','杀 · 归档可复活')],
+    ['u',t('undo','撤销'),t('undo the last keep/kill','撤回最近一次 keep/kill')],
+    ['space',t('preview large','预览大图'),t('sixel zoom the current variant','sixel 放大看当前变体')],
+    ['⌘↵',t('submit gallery gate','提交画廊闸'),t('write decisions + gate log (needs 0 pending)','写决定 + 闸日志(需 0 待定)')],
+  ]},
+  switcher:{nm:t('Switcher / overlay','切换器 / 浮层'),led:'var(--accent-bright)',sub:'⌃L / ⌃S / ⌃K / ? · '+t('universal contract','通用契约'),keys:[
+    ['↑↓ · jk',t('move','移动'),t('highlight walks the candidates','高亮在候选间走')],
+    ['(type)',t('fuzzy filter','模糊过滤'),t('type name / number to filter','输入名 / 编号即过滤')],
+    ['↵',t('select','选定'),t('switch to / execute','切到 / 执行')],
+    ['⌃T',t('new','新建'),t('open a new session in the session switcher','会话切换器内开新 session')],
+    ['esc',t('cancel','取消'),t('close overlay, back to place','关浮层,回原处')],
+  ]},
+};
+const ORDER=['board','session','review','gallery','switcher'];
+
+function Ctx(){
+  const [k,setK]=useState('session');
+  const c=CTX[k];
+  return (
+    <div>
+      <div className="ctabs">
+        {ORDER.map(id=>(
+          <span key={id} className={"ct "+(k===id?'on':'')} onClick={()=>setK(id)}><span className="led" style={{background:CTX[id].led}}></span>{CTX[id].nm}</span>
+        ))}
+      </div>
+      <div className="ktwrap">
+        <div className="cthead"><b>{c.nm}</b> · {c.sub} · {t('press','按')} <kbd>?</kbd> {t('to look up','现场查')}</div>
+        <table className="kt"><tbody>
+          {c.keys.map((r,i)=>{
+            const parts=r[0].split(' · ');
+            return <tr key={i}><td>{parts.map((p,j)=><React.Fragment key={j}>{j>0&&<span style={{color:'var(--fg-faint)'}}> · </span>}<kbd>{p}</kbd></React.Fragment>)}</td><td className="act">{r[1]}</td><td className="nt">{r[2]}</td></tr>;
+          })}
+        </tbody></table>
+      </div>
+    </div>
+  );
+}
+
+const HEAD = `
+  <div class="pkicker">viden · TUI · interaction rules v1</div>
+  <h1>${t('TUI interaction rules','TUI 交互规则')} <span class="ac">one grammar for the whole cockpit</span></h1>
+  <p class="lead">${t('Converge every cockpit screen (board · session · Decision Center · gallery · switcher) onto <b>one predictable interaction grammar</b>: clear modes, isomorphic lists, keyboard-first, fixed color semantics, graceful degradation. Any new screen follows the same rules — learn once, use everywhere.','把驾驶舱所有屏(board · 会话 · 决策中心 · 画廊 · 切换器)收敛到<b>一套可预测的交互语法</b>:模式清晰、列表同构、键盘优先、颜色语义固定、优雅降级。新增任何屏都照这套来,用户学一次、处处通用。')}</p>
+
+  <div class="sech"><span class="no">01</span><h2>${t('Eight principles','八条原则')}</h2><span class="en">principles</span><span class="sp"></span></div>
+  <div class="prin">
+    <div class="pc"><div class="n">P1</div><div class="t">${t('Keyboard-first, mouse optional','键盘优先,鼠标可选')}</div><p>${t('All actions <b>must have a key path</b>; the mouse is convenience only and <b>never unlocks exclusive actions</b>. Mouse capture would steal text selection/copy → keyboard-first by default.','所有操作<b>必有键路径</b>;鼠标只是便利,<b>绝不解锁独占动作</b>。开鼠标捕获会夺走选词复制 → 默认键盘优先。')}</p></div>
+    <div class="pc"><div class="n">P2</div><div class="t">${t('Content fills, chrome is 2 lines','内容吃满,chrome 2 行')}</div><p>${t('We run inside someone else terminal and can\u2019t change the emulator. <b>Persistent chrome is just 1 input line + 1 status bar</b>; everything else is content.','我们跑在别人的终端里,改不了 emulator。<b>持久 chrome 只留输入 1 行 + 状态栏 1 行</b>,其余全是内容。')}</p></div>
+    <div class="pc"><div class="n">P3</div><div class="t">${t('All lists are isomorphic','一切列表同构')}</div><p>${t('Any list / grid / queue obeys <kbd>↑↓</kbd><kbd>jk</kbd> move · <kbd>↵</kbd> select · <kbd>esc</kbd> cancel · <b>type to filter</b>. Learn once, use everywhere.','任何列表 / 网格 / 队列都遵守 <kbd>↑↓</kbd><kbd>jk</kbd> 移动 · <kbd>↵</kbd> 选定 · <kbd>esc</kbd> 取消 · <b>输入即过滤</b>。学一次,处处通用。')}</p></div>
+    <div class="pc"><div class="n">P4</div><div class="t">${t('Modes explicit & reversible','模式显式可逆')}</div><p>${t('Three states: <b>Normal / Insert / Overlay</b>. <kbd>esc</kbd> always steps back one level, never stuck; the current mode is visible in the status bar.','三态:<b>Normal / Insert / Overlay</b>。<kbd>esc</kbd> 永远退一层,永不卡死;当前模式在状态栏可见。')}</p></div>
+    <div class="pc"><div class="n">P5</div><div class="t">${t('Gates pull attention, no polling','闸拉注意力,不轮询')}</div><p>${t('You don\u2019t watch every lane. A background lane hitting a gate / ask → <b>bubbles to the Decision Center + a status-bar badge</b>, non-blocking, clear it when free.','你不盯所有 lane。后台 lane 撞闸 / 问询 → <b>冒泡到决策中心 + 状态栏徽标</b>,非阻塞,你有空再清。')}</p></div>
+    <div class="pc"><div class="n">P6</div><div class="t">${t('Reversible first, destruction confirmed','可逆优先,破坏需确认')}</div><p>${t('kill / discard always <b>archive, not delete</b> (revivable); truly destructive actions (delete lane, drop worktree) need a second confirm.','kill / discard 一律<b>归档不删除</b>(可复活);真正破坏性动作(删 lane、弃 worktree)必须二次确认。')}</p></div>
+    <div class="pc"><div class="n">P7</div><div class="t">${t('Color is state','颜色即状态')}</div><p>${t('Color semantics are <b>globally fixed</b>: gold = gate/your turn, blue = run, green = pass/done, red = fail/kill. See §08.','颜色语义<b>全局固定</b>:金=闸/待你,蓝=run,绿=通过/done,红=失败/kill。见 §08。')}</p></div>
+    <div class="pc"><div class="n">P8</div><div class="t">${t('Graceful degradation','优雅降级')}</div><p>${t('truecolor→256, sixel→ascii, wide→narrow reflow, mouse-off→keyboard-only. <b>Missing capability degrades, never breaks</b>. See §09.','truecolor→256、sixel→ascii、宽→窄 reflow、鼠标关→纯键盘。<b>能力缺失只降级不崩</b>。见 §09。')}</p></div>
+  </div>
+
+  <div class="sech"><span class="no">02</span><h2>${t('Mode model','模式模型')}</h2><span class="en">normal · insert · overlay</span><span class="sp"></span></div>
+  <p class="subl">${t('vim-style three states. In <b>Normal</b> a single key is an action; in <b>Insert</b> you type in the input line; in <b>Overlay</b> a layer (switcher/command palette/help) captures keys. <b>⌃ chords work in all three states</b> (navigation isn\u2019t blocked by mode).','vim 式三态。<b>Normal</b> 下单键即动作;<b>Insert</b> 下在输入行打字;<b>Overlay</b> 下浮层(切换器/命令面板/帮助)捕获按键。<b>⌃ 和弦在三态都生效</b>(导航不被模式挡)。')}</p>
+  <div class="modes">
+    <div class="mbox"><div class="mt norm">NORMAL</div><div class="md">${t('single key = contextual action','单键 = 上下文动作')}<br/>(↑↓ a/r/b k/x …)</div></div>
+    <div class="marrow"><span class="lab">${t('i / click input','i / 点输入')}</span><span class="a">⇄</span><span class="lab">esc</span></div>
+    <div class="mbox"><div class="mt ins">INSERT</div><div class="md">${t('type in input line','输入行打字')}<br/>${t('/ starts a command · ⏎ send','/ 起命令 · ⏎ 发送')}</div></div>
+    <div class="marrow"><span class="lab">⌃L ⌃S ⌃K ?</span><span class="a">⇄</span><span class="lab">esc / ↵</span></div>
+    <div class="mbox"><div class="mt ovl">OVERLAY</div><div class="md">${t('switcher / command palette / help','切换器 / 命令面板 / 帮助')}<br/>${t('captures keys, returns when done','捕获键,选完即回')}</div></div>
+  </div>
+  <div class="mnote">${t('<b>In Insert, single keys don\u2019t trigger contextual actions</b> (safe typing) · <b>⌃ chords pierce all modes</b> · the status bar always shows the current mode at right.','<b>Insert 下单键不触发上下文动作</b>(打字安全)· <b>⌃ 和弦穿透所有模式</b> · 状态栏右侧常显当前模式。')}</div>
+
+  <div class="sech"><span class="no">03</span><h2>${t('Global ⌃ chords','全局 ⌃ 和弦')}</h2><span class="en">work anywhere · ${t('pierce modes','穿透模式')}</span><span class="sp"></span></div>
+  <p class="subl">${t('These keys work <b>on any screen, in any mode</b> — muscle memory for navigation and dispatch, aligned with tmux / editors.','这些键<b>在任何屏、任何模式</b>都生效 —— 导航与调度的肌肉记忆,和 tmux / 编辑器对齐。')}</p>
+  <div class="ktwrap"><table class="kt"><tbody>
+    <tr><td><kbd>⌃L</kbd></td><td class="act">${t('Switch lane','切 lane')}</td><td class="nt">${t('Pops the lane list overlay (fuzzy search) · switching lanes is a big switch (changes worktree / maybe backend)','弹 lane 列表浮层(模糊搜索)· 跨 lane 是大切换(换 worktree / 可能换后端)')}</td></tr>
+    <tr><td><kbd>⌃S</kbd></td><td class="act">${t('Session list','会话列表')}</td><td class="nt">${t('Current lane session overlay · <kbd>⌃T</kbd> new · in-lane switch, light','当前 lane 的 session 浮层 · <kbd>⌃T</kbd> 新建 · lane 内切换,轻')}</td></tr>
+    <tr><td><kbd>⌃T</kbd></td><td class="act">${t('New session','新会话')}</td><td class="nt">${t('Open a session in the current lane','在当前 lane 开一个 session')}</td></tr>
+    <tr><td><kbd>⌃K</kbd></td><td class="act">${t('Command palette','命令面板')}</td><td class="nt">${t('Global commands (cross-screen jump, target, model, settings) · equivalent to <code>:</code>','全局命令(跨屏跳转、target、model、设置)· 等价 <code>:</code>')}</td></tr>
+    <tr><td><kbd>⌃B</kbd></td><td class="act">${t('Back to board','回 board')}</td><td class="nt">${t('All-lane overview (the spatial lens)','全 lane 总览(空间镜)')}</td></tr>
+    <tr><td><kbd>⌃G</kbd></td><td class="act">${t('Decision Center','决策中心')}</td><td class="nt">${t('Cross-lane gate / ask queue (the attention lens) · badge shows pending count','跨 lane 闸 / 问询队列(注意力镜)· 徽标显待批数')}</td></tr>
+    <tr><td><kbd>⌃C</kbd></td><td class="act">${t('Interrupt agent','打断 agent')}</td><td class="nt">${t('Stop the current session agent (doesn\u2019t kill the lane)','停当前 session 的 agent(不杀 lane)')}</td></tr>
+    <tr><td><kbd>⌃Z</kbd></td><td class="act">${t('Suspend to background','挂到后台')}</td><td class="nt">${t('Current lane becomes a daemon and keeps running, back to board','当前 lane 转 daemon 继续跑,回 board')}</td></tr>
+    <tr><td><kbd>⌃\\</kbd></td><td class="act">${t('Split (multi-screen)','分屏(多屏)')}</td><td class="nt">${t('opt-in · tile a second pane · see multi-lane design options','opt-in · 平铺第二格 · 见多 lane 稿设计选项')}</td></tr>
+    <tr><td><kbd>?</kbd></td><td class="act">${t('Help','帮助')}</td><td class="nt">${t('Pops the <b>current-context keymap</b> (not the full manual)','弹出<b>当前上下文键位</b>(不是全量手册)')}</td></tr>
+    <tr><td><kbd>esc</kbd></td><td class="act">${t('Step back','退一层')}</td><td class="nt">${t('Close overlay → leave Insert → cancel selection · never stuck','关浮层 → 离开 Insert → 取消选择 · 永不卡死')}</td></tr>
+    <tr><td><kbd>1</kbd>–<kbd>4</kbd></td><td class="act">${t('Switch lens','切镜')}</td><td class="nt">${t('session / board / decision / gallery · Normal mode only','会话 / board / 决策 / 画廊 · 仅 Normal 模式')}</td></tr>
+  </tbody></table></div>
+
+  <div class="sech"><span class="no">04</span><h2>${t('Per-screen context keymap','各屏上下文键位')}</h2><span class="en">context keymap · Normal mode</span><span class="sp"></span></div>
+  <p class="subl">${t('Single-key actions, triggered only in <b>Normal</b> mode (typing is safe in Insert). Press <kbd>?</kbd> on any screen to look them up.','单键动作,只在 <b>Normal</b> 模式触发(Insert 下打字安全)。每屏按 <kbd>?</kbd> 可现场查。')}</p>
+`;
+
+const TAIL = `
+  <div class="sech"><span class="no">05</span><h2>${t('Universal invariants','通用契约')}</h2><span class="en">invariants · ${t('holds everywhere','每处都成立')}</span><span class="sp"></span></div>
+  <div class="rules">
+    <div class="rule"><span class="ic">≡</span><span class="tx">${t('<b>Lists / grids / queues are isomorphic</b>: <kbd>↑↓</kbd><kbd>jk</kbd> move · <kbd>↵</kbd> select · <kbd>esc</kbd> cancel · <b>type = fuzzy filter</b> · <kbd>gg</kbd>/<kbd>G</kbd> ends. Reverse video = current item.','<b>列表 / 网格 / 队列同构</b>:<kbd>↑↓</kbd><kbd>jk</kbd> 移动 · <kbd>↵</kbd> 选定 · <kbd>esc</kbd> 取消 · <b>直接打字 = 模糊过滤</b> · <kbd>gg</kbd>/<kbd>G</kbd> 首尾。反色 = 当前项。')}</span></div>
+    <div class="rule"><span class="ic">⌫</span><span class="tx">${t('<b>Destructive actions get a second confirm</b>: delete lane / drop worktree / clear context → inline confirm bar <kbd>y</kbd> confirm <kbd>n</kbd>/<kbd>esc</kbd> cancel. <b>kill / discard aren\u2019t destructive</b> (archived, revivable, no confirm).','<b>破坏性动作二次确认</b>:删 lane / 弃 worktree / 清上下文 → 行内确认条 <kbd>y</kbd> 确认 <kbd>n</kbd>/<kbd>esc</kbd> 取消。<b>kill / discard 不算破坏</b>(归档可复活,免确认)。')}</span></div>
+    <div class="rule"><span class="ic">↩</span><span class="tx">${t('<b>Undoable</b>: gallery keep/kill, mis-approvals etc. support <kbd>u</kbd> to undo the last step; a regret window before anything is persisted.','<b>可撤销</b>:画廊 keep/kill、误批等支持 <kbd>u</kbd> 撤销最近一步;真正落盘前都给反悔窗口。')}</span></div>
+    <div class="rule"><span class="ic">⏎</span><span class="tx">${t('<b>Enter is always \u201cconfirm / enter\u201d, Esc is always \u201ccancel / exit\u201d</b> — no screen reverses this pair.','<b>Enter 永远是“确认 / 进入”,Esc 永远是“取消 / 退出”</b> —— 任何屏不反转这对语义。')}</span></div>
+    <div class="rule"><span class="ic">⌃C</span><span class="tx">${t('<b>⌃C only interrupts, doesn\u2019t exit</b>: stops the agent current action, stays in the session; exit with <kbd>esc</kbd> / <kbd>⌃Z</kbd>. Double ⌃C prompts to exit.','<b>⌃C 只打断,不退出</b>:停 agent 当前动作,留在原 session;退出用 <kbd>esc</kbd> / <kbd>⌃Z</kbd>。双击 ⌃C 才提示退出。')}</span></div>
+    <div class="rule"><span class="ic">◎</span><span class="tx">${t('<b>Focus is single and visible</b>: only one focus at a time (reverse video / bright border); in multi-screen the active pane has a bright border, keys go to it.','<b>焦点唯一且可见</b>:任一时刻只有一个焦点(反色 / 亮边框);多屏下 active pane 亮边框,键归当前 pane。')}</span></div>
+  </div>
+
+  <div class="sech"><span class="no">06</span><h2>${t('Command grammar','命令语法')}</h2><span class="en">/ in-session · ⌃K global</span><span class="sp"></span></div>
+  <p class="subl">${t('<code>/</code> in the input line starts an <b>in-session command</b> (to the agent or to dispatch this lane); <kbd>⌃K</kbd> opens the <b>global command palette</b>. Both share the same list contract (↑↓ / ↵ / esc / filter). Jumpable commands are marked <span style="color:var(--accent)">↗</span>.','<code>/</code> 在输入行起<b>会话内命令</b>(给 agent 或调度本 lane);<kbd>⌃K</kbd> 起<b>全局命令面板</b>。两者同一个列表契约(↑↓ / ↵ / esc / 过滤)。可跳转的命令标 <span style="color:var(--accent)">↗</span>。')}</p>
+  <div class="cmds">
+    <div class="cmdr"><span class="c">/gate</span><span class="d">${t('View gates this session triggered + evidence','查看本会话触发的闸 + 证据')}</span><span class="g">↗ ${t('Decision Center','决策中心')}</span></div>
+    <div class="cmdr"><span class="c">/review &lt;lane&gt;</span><span class="d">${t('Send a <b>review request</b> to another lane','对另一条 lane 发起<b>评审请求</b>')}</span><span class="g">↗</span></div>
+    <div class="cmdr"><span class="c">/handoff &lt;who&gt;</span><span class="d">${t('Hand off this lane (with session context + device lease)','移交本 lane(含会话上下文 + 设备租约)')}</span><span class="g"></span></div>
+    <div class="cmdr"><span class="c">/target &lt;name&gt;</span><span class="d">${t('Switch execution target <code>local</code> / <code>ssh:gpu-01</code> / <code>ssh:robot-01</code>','切执行目标 <code>local</code> / <code>ssh:gpu-01</code> / <code>ssh:robot-01</code>')}</span><span class="g"></span></div>
+    <div class="cmdr"><span class="c">/model &lt;id&gt;</span><span class="d">${t('Switch model / configure routing (built-in agent)','换模型 / 配路由(内置 agent)')}</span><span class="g"></span></div>
+    <div class="cmdr"><span class="c">/lanes · /board</span><span class="d">${t('Back to overview','回总览')}</span><span class="g">↗ board</span></div>
+    <div class="cmdr"><span class="c">/clear</span><span class="d">${t('Clear the current session context (<b>needs confirm</b>)','清当前会话上下文(<b>需确认</b>)')}</span><span class="g"></span></div>
+    <div class="cmdr"><span class="c">⌃K › …</span><span class="d">${t('Global: new lane, open viden.toml, settings, switch project, help…','全局:新建 lane、打开 viden.toml、设置、切项目、帮助…')}</span><span class="g">↗</span></div>
+  </div>
+
+  <div class="sech"><span class="no">07</span><h2>${t('Gate & notification rules','闸与通知规则')}</h2><span class="en">non-blocking · pull, not interrupt</span><span class="sp"></span></div>
+  <div class="rules">
+    <div class="rule"><span class="ic">⏸</span><span class="tx">${t('<b>Background lane hits a gate / ask → non-blocking</b>: status-bar <span style="color:var(--gold-bright)">⏸ N</span> badge +1, queued into the Decision Center; <b>doesn\u2019t preempt your current session</b>.','<b>后台 lane 撞闸 / 问询 → 非阻塞</b>:状态栏 <span style="color:var(--gold-bright)">⏸ N</span> 徽标 +1,决策中心队列入列;<b>不抢占你当前 session</b>。')}</span></div>
+    <div class="rule"><span class="ic">▸</span><span class="tx">${t('<b>Jump at a glance</b>: <kbd>⌃G</kbd> into the Decision Center to clear the queue; or click the status-bar badge. Gate cards carry evidence, approve <kbd>a</kbd> / reject <kbd>r</kbd> / return <kbd>b</kbd> in place.','<b>一眼可跳</b>:<kbd>⌃G</kbd> 进决策中心清队列;或状态栏点徽标直达。闸卡片自带证据,就地批 <kbd>a</kbd> / 驳 <kbd>r</kbd> / 退 <kbd>b</kbd>。')}</span></div>
+    <div class="rule"><span class="ic">⚠</span><span class="tx">${t('<b>Irreversible shell commands get a 4-tier command gate</b> (borrowed from hermes): <kbd>1</kbd> allow once · <kbd>2</kbd> this session · <kbd>3</kbd> permanent allowlist (per-repo) · <kbd>4</kbd> deny. A <b>visible countdown auto-DENIES</b> — never auto-allow; <kbd>esc</kbd> = deny. A deny is <b>never a dead-end</b>: the agent prints the exact command + the <code>/gate allow</code> re-authorize path. Live demo in T1.','<b>不可逆 shell 命令走 4 档命令闸</b>(借自 hermes):<kbd>1</kbd> 本次 · <kbd>2</kbd> 本会话 · <kbd>3</kbd> 永久白名单(按仓库)· <kbd>4</kbd> 拒绝。<b>可见倒计时超时即拒</b> —— 绝不自动放行;<kbd>esc</kbd> = 拒。拒绝<b>绝不是死胡同</b>:agent 打出确切命令 + <code>/gate allow</code> 重授权路径。T1 里有可交互 demo。')}</span></div>
+    <div class="rule"><span class="ic">!</span><span class="tx">${t('<b>Only destructive / high-risk interrupts</b>: e.g. a field hardware gate needs a human now, budget-exhausted pause — pop a <b>modal confirm</b>; everything else queues.','<b>只有破坏性 / 高危才打断</b>:如 field 实机闸需即时人盯、预算耗尽暂停 —— 弹<b>模态确认</b>;其余一律攒进队列。')}</span></div>
+    <div class="rule"><span class="ic">✉</span><span class="tx">${t('<b>Contract changes go dual-channel</b>: humans get a summary into the decision queue; the agent gets a memo injected into context and acks. Destructive contracts push immediately, the rest go into the briefing.','<b>契约变更走双通道</b>:人收摘要进决策队列;agent 收 memo 注入上下文并 ack。破坏性契约即时推,其余进简报。')}</span></div>
+    <div class="rule"><span class="ic">◷</span><span class="tx">${t('<b>Nightly / away</b>: lanes keep running as daemons, gates <b>pile up without pushing</b>; on return they queue by priority + age.','<b>夜间 / 离开</b>:lane 以 daemon 继续跑,闸<b>积压不推送</b>;回来按优先级 + 等龄排队。')}</span></div>
+  </div>
+
+  <div class="sech"><span class="no">08</span><h2>${t('Color semantics','颜色语义')}</h2><span class="en">color = state · ${t('globally fixed','全局固定')}</span><span class="sp"></span></div>
+  <p class="subl">${t('Color <b>only encodes state</b>, meaning is globally consistent and not rewritten per screen. truecolor reproduces Aurora exactly, 256-color uses nearest mapping (see §09).','颜色<b>只编码状态</b>,含义全局一致,不随屏改写。truecolor 精确还原 Aurora,256 色用就近映射(见 §09)。')}</p>
+  <div class="sem">
+    <div class="semr"><span class="sw" style="background:var(--accent)"></span><span class="nm">cyan</span><span class="mn">${t('interaction focus · current lane/item · links','交互焦点 · 当前 lane/项 · 链接')}</span><span class="tok">--accent</span></div>
+    <div class="semr"><span class="sw" style="background:var(--gold)"></span><span class="nm">gold</span><span class="mn">${t('gate · your decision · needs attention','闸 · 待你决策 · 需注意')}</span><span class="tok">--gold</span></div>
+    <div class="semr"><span class="sw" style="background:var(--progress)"></span><span class="nm">blue</span><span class="mn">${t('run · in progress · streaming','run · 进行中 · 流式')}</span><span class="tok">--progress</span></div>
+    <div class="semr"><span class="sw" style="background:var(--success)"></span><span class="nm">green</span><span class="mn">${t('done · keep · pass · ack','done · keep · 通过 · ack')}</span><span class="tok">--success</span></div>
+    <div class="semr"><span class="sw" style="background:var(--error)"></span><span class="nm">red</span><span class="mn">${t('fail · kill · reject · e-stop','失败 · kill · 驳回 · e-stop')}</span><span class="tok">--error</span></div>
+    <div class="semr"><span class="sw" style="background:var(--warning)"></span><span class="nm">amber</span><span class="mn">${t('warning · near threshold · return','警告 · 接近阈值 · 退回')}</span><span class="tok">--warning</span></div>
+    <div class="semr"><span class="sw" style="background:var(--fg-muted)"></span><span class="nm">grey</span><span class="mn">${t('wait · idle · secondary · offline','wait · 待命 · 次要 · 离线')}</span><span class="tok">--fg-muted</span></div>
+    <div class="semr"><span class="sw" style="background:var(--builtin)"></span><span class="nm">violet</span><span class="mn">${t('backend: built-in=violet · ACP=cyan · tmux=gold','后端区分:内置=紫 · ACP=青 · tmux=金')}</span><span class="tok">backend</span></div>
+  </div>
+
+  <div class="sech"><span class="no">09</span><h2>${t('Degradation rules','降级规则')}</h2><span class="en">degrade, never break</span><span class="sp"></span></div>
+  <div class="deg">
+    <div class="degc"><div class="h"><span class="ic">◧</span>${t('Color depth','色深')}</div><div class="flow"><span class="hi">truecolor</span> → <span class="lo">xterm-256</span> → <span class="lo">${t('16-color','16 色')}</span></div><p>${t('Non-truecolor terminals use nearest-256 mapping; semantics unchanged, just coarser.','非真彩终端用就近 256 映射;语义不变,只是更糙。')}</p></div>
+    <div class="degc"><div class="h"><span class="ic">▦</span>${t('Graphics','图形')}</div><div class="flow"><span class="hi">${t('kitty/sixel image','kitty/sixel 图')}</span> → <span class="lo">braille</span> → <span class="lo">ASCII</span></div><p>${t('Minimap / curves prefer inline images; if unsupported, braille, then ASCII. Also a <b>bandwidth policy</b> (remote boards default to ASCII).','小地图 / 曲线优先内联图;不支持则 braille,再退 ASCII。也是<b>带宽策略</b>(远程板默认 ASCII)。')}</p></div>
+    <div class="degc"><div class="h"><span class="ic">↔</span>${t('Width','窄宽')}</div><div class="flow">${t('wide','宽')} → <span class="lo">reflow</span> → ${t('fold secondary status segments','折叠次要状态段')}</div><p>${t('Narrow terminals reflow by character grid; the status bar drops secondary segments (ctx/clock) first, keeps lane / session / gate.','窄终端按字符格 reflow;状态栏先丢 ctx/时钟等次要段,保 lane / 会话 / 闸。')}</p></div>
+    <div class="degc"><div class="h"><span class="ic">⊟</span>${t('Mouse','鼠标')}</div><div class="flow"><span class="hi">${t('keyboard','键盘')}</span>(${t('default','默认')}) · ${t('mouse opt-in','鼠标 opt-in')}</div><p>${t('Mouse can click the switcher / tabs, but capture steals text selection → off by default, keyboard covers everything.','鼠标可点切换器 / tab,但开捕获会夺选词复制 → 默认关,键盘全覆盖。')}</p></div>
+  </div>
+
+  <div class="divnote">${t('<b>In one line</b>: <span class="c">clear modes · isomorphic lists · ⌃ chords pierce · color is state · graceful degradation</span>. Any new screen (inbox, first-run, robot telemetry…) uses this grammar — learn once, use everywhere; it\u2019s also the \u201cconstitution\u201d aligning D1–D12 with the TUI screens.','<b>一句话</b>:<span class="c">模式清晰 · 列表同构 · ⌃ 和弦穿透 · 颜色即状态 · 优雅降级</span>。任何新屏(收件箱、首启、机器人遥测…)都套这套语法 —— 用户学一次,处处可用;这也是把 D1–D12 与 TUI 各屏对齐的“宪法”。')}</div>
+
+  <div class="links">
+    <a class="lk" href="Viden - T1 会话主屏与多lane (TUI).html"><span class="ar">›</span>${t('Session main & multi-lane','会话主屏与多 lane')}</a>
+    <a class="lk" href="Viden - T0 设计总览 (TUI).html"><span class="ar">›</span>${t('TUI design overview (3 screens)','TUI 设计总览(三屏)')}</a>
+    <a class="lk" href="Viden - T5 真终端保真对比 (TUI).html"><span class="ar">›</span>${t('Real-terminal fidelity','真终端保真对比')}</a>
+    <a class="lk" href="Viden - opencode 与 hermes 借鉴 (TUI).html"><span class="ar">›</span>${t('opencode & hermes borrow-map','opencode 与 hermes 借鉴图')}</a>
+    <a class="lk" href="../../Core/Viden - 产品方案 v2 (Core).html"><span class="ar">›</span>${t('Product plan v2','产品方案 v2')}</a>
+  </div>
+`;
+
+function App(){
+  return (
+    <React.Fragment>
+      <div dangerouslySetInnerHTML={{__html:HEAD}}></div>
+      <Ctx/>
+      <div dangerouslySetInnerHTML={{__html:TAIL}}></div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

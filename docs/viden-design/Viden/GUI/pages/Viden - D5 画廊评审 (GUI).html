@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D5 · Gallery Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../gui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+
+.pwrap{max-width:1560px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:900px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+
+/* 窗口壳/标题栏/活动 rail 走 gui-kit；此处仅页面专属覆盖 */
+.frame{height:900px;min-width:1180px;position:relative;}
+
+/* cmdbar */
+.cmdbar{flex:none;display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--bg-void);flex-wrap:wrap;}
+.cmdbar .t{font-size:15px;font-weight:700;display:flex;align-items:center;gap:9px;}
+.cmdbar .t .pulse{width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px color-mix(in srgb,var(--success) 12%,transparent);}
+.cmdbar .cnt{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.cmdbar .cnt b{color:var(--fg-primary);}
+.cmdbar .cnt .a{color:var(--accent);}
+.cmdbar .sp{flex:1;}
+.cmdbar .meta{font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+.fchips{display:flex;gap:5px;}
+.fchip{font-family:var(--mono);font-size:10.5px;padding:3px 11px;border-radius:13px;color:var(--fg-muted);cursor:pointer;border:1px solid transparent;display:inline-flex;align-items:center;gap:6px;}
+.fchip .pd{width:7px;height:7px;border-radius:2px;}
+.fchip:hover{color:var(--fg-secondary);}
+.fchip.on{background:var(--bg-sel);color:var(--accent-bright);border-color:var(--accent-dim);}
+
+.inner{flex:1;display:grid;grid-template-columns:var(--rail-act) 1fr var(--rail-right);min-height:0;}
+
+/* grid */
+.gallery{min-width:0;overflow:hidden auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(196px,1fr));gap:12px;align-content:start;scrollbar-width:thin;scrollbar-color:var(--border) transparent;background:var(--bg-base);}
+.vc{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:11px;overflow:hidden;cursor:pointer;position:relative;}
+.vc:hover{border-color:var(--fg-muted);}
+.vc.cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-dim);}
+.vc.keep{border-color:color-mix(in srgb,var(--success) 55%,transparent);}
+.vc.kill{opacity:.45;}
+.vc.cur.keep{box-shadow:0 0 0 1px color-mix(in srgb,var(--success) 50%,transparent);}
+.vc .map{display:block;width:100%;background:var(--bg-void);border-bottom:1px solid var(--border-soft);}
+.vc .inf{padding:8px 11px 9px;}
+.vc .r1{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;font-weight:700;color:var(--fg-primary);}
+.vc .r1 .tn{color:var(--fg-muted);font-weight:400;font-size:10px;}
+.vc .r1 .sp{flex:1;}
+.vc .verdict{font-size:8.5px;font-weight:700;letter-spacing:.5px;border-radius:4px;padding:1px 6px;border:1px solid;}
+.vc .verdict.k{color:var(--success);border-color:color-mix(in srgb,var(--success) 50%,transparent);background:color-mix(in srgb,var(--success) 8%,transparent);}
+.vc .verdict.x{color:var(--error);border-color:color-mix(in srgb,var(--error) 45%,transparent);background:color-mix(in srgb,var(--error) 8%,transparent);}
+.vc .r2{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:9px;color:var(--fg-muted);margin-top:5px;}
+.vc .r2 .ok{color:var(--success);}
+.vc .r2 .wn{color:var(--warning);}
+.vc .acts{position:absolute;top:7px;right:7px;display:none;gap:5px;}
+.vc:hover .acts,.vc.cur .acts{display:flex;}
+.vc .ab{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;font-family:var(--mono);font-size:10.5px;font-weight:700;cursor:pointer;background:color-mix(in srgb,var(--bg-void) 85%,transparent);border:1px solid var(--border);color:var(--fg-secondary);backdrop-filter:blur(2px);}
+.vc .ab:hover{color:var(--fg-primary);border-color:var(--fg-muted);}
+.vc .ab.k:hover,.vc .ab.k.on{color:var(--success);border-color:color-mix(in srgb,var(--success) 55%,transparent);}
+.vc .ab.x:hover,.vc .ab.x.on{color:var(--error);border-color:color-mix(in srgb,var(--error) 50%,transparent);}
+
+/* detail rail */
+.detail{background:var(--bg-panel);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.detail .ph{position:sticky;top:0;z-index:2;background:var(--bg-panel);display:flex;align-items:center;gap:9px;padding:10px 16px;border-bottom:1px solid var(--border-soft);font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.detail .ph b{color:var(--fg-primary);font-weight:600;font-size:11px;}
+.detail .ph .sp{flex:1;}
+.bigmap{margin:13px 15px 0;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg-void);}
+.bigmap svg{display:block;width:100%;}
+.esec{padding:13px 15px 2px;}
+.esec .eh{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.esec .eh::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.esec .eh .src{font-weight:400;letter-spacing:0;text-transform:none;color:var(--fg-faint);}
+.etable{width:100%;border-collapse:collapse;font-size:12px;background:var(--bg-void);border:1px solid var(--border);border-radius:9px;overflow:hidden;}
+.etable td{padding:6px 11px;border-bottom:1px solid var(--border-soft);color:var(--fg-secondary);font-family:var(--mono);font-size:10.5px;}
+.etable tr:last-child td{border-bottom:none;}
+.etable td b{color:var(--fg-primary);font-weight:600;}
+.etable td.ok{color:var(--success);} .etable td.wn{color:var(--warning);}
+.prov{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.9;background:var(--bg-void);border:1px dashed var(--border);border-radius:9px;padding:9px 12px;}
+.prov .a{color:var(--accent);}
+.dactions{display:flex;gap:8px;padding:14px 15px 16px;}
+.dbtn{flex:1;font-size:12.5px;font-weight:700;border-radius:8px;padding:9px 0;cursor:pointer;border:1px solid var(--border);background:transparent;font-family:var(--sans);color:var(--fg-secondary);}
+.dbtn kbd{font-family:var(--mono);font-size:9px;opacity:.6;margin-left:5px;font-weight:400;}
+.dbtn.k{color:var(--success);border-color:color-mix(in srgb,var(--success) 45%,transparent);}
+.dbtn.k:hover,.dbtn.k.on{background:color-mix(in srgb,var(--success) 10%,transparent);}
+.dbtn.x{color:var(--error);border-color:color-mix(in srgb,var(--error) 40%,transparent);}
+.dbtn.x:hover,.dbtn.x.on{background:color-mix(in srgb,var(--error) 9%,transparent);}
+.kbdhint{margin-top:auto;border-top:1px solid var(--border-soft);padding:11px 16px;font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.9;}
+.kbdhint kbd{border:1px solid var(--border);border-radius:4px;padding:0 5px;color:var(--fg-muted);font-size:9px;}
+
+/* gate bar */
+.gatebar{flex:none;border-top:1px solid var(--border);background:var(--bg-void);padding:11px 18px;display:flex;align-items:center;gap:14px;}
+.gstat .l1{font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:10px;}
+.gstat .l1 .seg{font-family:var(--mono);font-size:10.5px;font-weight:600;}
+.gstat .l1 .seg.k{color:var(--success);} .gstat .l1 .seg.x{color:var(--error);} .gstat .l1 .seg.p{color:var(--fg-muted);}
+.gstat .l2{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);margin-top:3px;}
+.gstat .l2 .a{color:var(--accent);}
+.gbar{flex:1;height:6px;border-radius:3px;background:var(--bg-base);overflow:hidden;display:flex;min-width:120px;max-width:340px;}
+.gbar i{display:block;height:100%;}
+.gatebar .sp{flex:1;}
+.gbtn{font-size:12.5px;font-weight:600;border-radius:8px;padding:8px 18px;cursor:pointer;border:1px solid var(--border);color:var(--fg-secondary);background:transparent;font-family:var(--sans);}
+.gbtn:hover{color:var(--fg-primary);border-color:var(--fg-muted);}
+.gbtn.primary{color:var(--on-accent);background:var(--accent);border-color:var(--accent);font-weight:700;}
+.gbtn.primary:hover{background:var(--accent-bright);border-color:var(--accent-bright);}
+.gbtn.primary:disabled{opacity:.4;cursor:not-allowed;}
+.gbtn kbd{font-family:var(--mono);font-size:9px;opacity:.65;margin-left:6px;}
+.toast{position:absolute;left:50%;bottom:70px;transform:translateX(-50%);background:var(--bg-elev);border:1px solid var(--accent-dim);color:var(--fg-primary);font-size:12.5px;border-radius:9px;padding:9px 16px;box-shadow:var(--shadow-toast);display:flex;gap:10px;align-items:center;white-space:nowrap;z-index:5;}
+.toast .mono{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+</style>
+</head>
+<body>
+<div class="pwrap">
+  <div id="root"></div>
+</div>
+
+<script type="text/babel" src="../../tweaks-panel.jsx"></script>
+<script type="text/babel" src="../gui-icons.jsx"></script>
+<script type="text/babel" src="../gui-statusbar.jsx"></script>
+<script type="text/babel" src="../gui-titlebar.jsx"></script>
+<script type="text/babel">
+const {useState,useEffect} = React;
+const t = window.t || ((en,zh)=>en);
+
+/* ───── seeded rng ───── */
+function rng(seed){let a=seed>>>0;return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+const TERRAIN={
+  snow:{nm:t('Snowfield','雪原'),color:'#74a8c9',plat:'#3e6a85',hi:'#9cc8e0'},
+  cave:{nm:t('Cavern','溶洞'),color:'#9b87d4',plat:'#4a3f78',hi:'#b8a8ec'},
+  volcano:{nm:t('Volcano','火山'),color:'#e0884f',plat:'#7a4424',hi:'#f0a868'},
+  isle:{nm:t('Floating isle','浮岛'),color:'#54c0a0',plat:'#2c6856',hi:'#7fdcc0'},
+};
+
+/* 20 variants: 4 terrains × 5 (per contract §5: 4×6=24, stopped at 20 — see 决策中心 a-budget) */
+const VARIANTS=Array.from({length:20},(_,i)=>{
+  const terr=['snow','cave','volcano','isle'][i%4];
+  const r=rng(1000+i*37);
+  const rooms=3+Math.floor(r()*4);
+  const pathLen=Math.round((38+r()*42)*10)/10;
+  const enemies=4+Math.floor(r()*9);
+  const softlock=(i===6||i===13);          /* 2 个可达性警告 → 建议 kill */
+  const cost=(1.4+r()*1.4).toFixed(1);
+  return {id:i+1, terr, seed:9000+i*13, rooms, pathLen, enemies, softlock,
+          dur:(52+r()*46).toFixed(0), cost};
+});
+
+/* ───── minimap renderer (data-driven: engine minimap, not illustration) ───── */
+function Minimap({v,big}){
+  const C=16,R=9,cell=big?17:11;
+  const W=C*cell,H=R*cell;
+  const r=rng(v.seed);
+  const T=TERRAIN[v.terr];
+  const rects=[];
+  /* ground */
+  for(let x=0;x<C;x++){ if(r()>0.18) rects.push({x,y:R-1,c:T.plat}); }
+  /* platforms */
+  const nP=4+Math.floor(r()*4);
+  for(let p=0;p<nP;p++){
+    const y=1+Math.floor(r()*(R-3));
+    const x0=Math.floor(r()*(C-4));
+    const len=2+Math.floor(r()*4);
+    for(let x=x0;x<Math.min(C,x0+len);x++) rects.push({x,y,c:T.plat});
+  }
+  /* hazards */
+  const nH=2+Math.floor(r()*3);
+  const hz=[];
+  for(let h=0;h<nH;h++) hz.push({x:Math.floor(r()*C),y:R-1});
+  /* enemies */
+  const en=[];
+  for(let e=0;e<v.enemies;e++) en.push({x:Math.floor(r()*C),y:Math.floor(r()*(R-1))});
+  const exitX=C-1-Math.floor(r()*2);
+  return (
+    <svg className="map" viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{aspectRatio:`${W}/${H}`}}>
+      <rect x="0" y="0" width={W} height={H} style={{fill:'var(--term-screen)'}}/>
+      {rects.map((q,i)=><rect key={i} x={q.x*cell} y={q.y*cell} width={cell-1} height={cell-1} fill={q.c}/>)}
+      {hz.map((q,i)=><rect key={'h'+i} x={q.x*cell+2} y={q.y*cell+cell*0.45} width={cell-5} height={cell*0.4} fill={T.hi} opacity="0.55"/>)}
+      {en.map((q,i)=><circle key={'e'+i} cx={q.x*cell+cell/2} cy={q.y*cell+cell/2} r={big?3:2} fill="#e0564f"/>)}
+      <rect x={1} y={(R-2)*cell+2} width={cell-3} height={cell-3} fill="none" stroke="#54c06a" strokeWidth="1.5"/>
+      <rect x={exitX*cell+1} y={2} width={cell-3} height={cell-3} fill="none" stroke="#e3ab44" strokeWidth="1.5"/>
+      {v.softlock && <rect x={Math.floor(C/2)*cell} y={3*cell} width={cell*2} height={cell*2} fill="none" stroke="#e6b53f" strokeWidth="1.5" strokeDasharray="3 3"/>}
+    </svg>
+  );
+}
+
+function VBar(){ return <GuiTitleBar tools={['palette','popout','|','index','settings']}/>; }
+function VRail({active,badges}){
+  const order=[['chat','Conversation'],['lanes','Lanes'],['worktree','Worktrees'],['review','Review'],['gallery','Gallery'],['decide','Decision Center']];
+  return (
+    <div className="act">
+      {order.map(([k,lbl])=>(
+        <div key={k} className={"actbtn "+(active===k?'on':'')} title={lbl}>{ICONS[k]}{badges&&badges[k]&&<span className="badge" style={{background:'var(--gold)'}}>{badges[k]}</span>}</div>
+      ))}
+      <div className="actspacer"></div>
+      <div className="actbtn" title="Settings">{ICONS.settings}</div>
+    </div>
+  );
+}
+function App(){
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "thumbCols": "5 cols",
+    "showChecks": true
+  }/*EDITMODE-END*/);
+  const [cur,setCur]=useState(1);
+  const [verdict,setVerdict]=useState(()=>{const o={};o[7]='kill';return o;}); /* #07 软锁，预先标 kill 示例 */
+  const [filter,setFilter]=useState('all');
+  const [toast,setToast]=useState(null);
+  const [submitted,setSubmitted]=useState(false);
+
+  const list=VARIANTS.filter(v=>filter==='all'||v.terr===filter);
+  const v=VARIANTS.find(x=>x.id===cur);
+  const nK=VARIANTS.filter(x=>verdict[x.id]==='keep').length;
+  const nX=VARIANTS.filter(x=>verdict[x.id]==='kill').length;
+  const nP=20-nK-nX;
+  const mark=(id,m)=>setVerdict(p=>({...p,[id]:p[id]===m?undefined:m}));
+
+  useEffect(()=>{
+    const h=(e)=>{
+      const idx=list.findIndex(x=>x.id===cur);
+      if(e.key==='ArrowRight'&&idx<list.length-1){setCur(list[idx+1].id);e.preventDefault();}
+      if(e.key==='ArrowLeft'&&idx>0){setCur(list[idx-1].id);e.preventDefault();}
+      if(e.key==='k'||e.key==='K'){mark(cur,'keep');if(idx<list.length-1)setCur(list[idx+1].id);}
+      if(e.key==='x'||e.key==='X'){mark(cur,'kill');if(idx<list.length-1)setCur(list[idx+1].id);}
+    };
+    window.addEventListener('keydown',h);
+    return ()=>window.removeEventListener('keydown',h);
+  },[cur,list]);
+
+  const submit=()=>{
+    setSubmitted(true);
+    setToast(t(`Gallery gate submitted · keep ${nK} → levels/ · kill ${nX} → archived`,`画廊闸已提交 · keep ${nK} → levels/ · kill ${nX} → 归档`));
+    setTimeout(()=>setToast(null),3200);
+  };
+
+  const colStyle=tw.thumbCols==='auto'?null:{gridTemplateColumns:`repeat(${tw.thumbCols==='4 cols'?4:5},1fr)`};
+
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · D5 concept · draft 01</div>
+      <h1 className="ph1">{t('Gallery Review','画廊评审')} <span className="ac">keep / kill grid</span></h1>
+      <p className="plead">{t('The gate form for batch-generated content: ','批量生成内容的闸形态：')}<b>{t('keep / kill grid','keep / kill 网格')}</b>{t('. The L4 content-gen lane produced 20 level variants per design contract §5, each with an engine-rendered minimap, reachability check and provenance. Keyboard flow: ','。L4 内容生成 lane 按设计契约 §5 产出 20 个关卡变体，每个附引擎渲染的小地图、可达性检查与 provenance。键盘流：')}<b>{t('←→ move · K keep · X kill','←→ 移动 · K 留 · X 杀')}</b>{t('; submit writes evidence & the gate log, keep → ','；提交即写证据与闸日志，keep 进 ')}<b>levels/</b>{t(', kill is archived and recoverable.','，kill 归档可复活。')}</p>
+    <div className="frame" data-screen-label="画廊评审">
+      <VBar/>
+      <div className="cmdbar">
+        <span className="t"><span className="pulse"></span>{t('Gallery Review','画廊评审')}</span>
+        <span className="cnt">{t('source ','来源 ')}<b>{t('L4 content gen','L4 内容生成')}</b>{t(' · level-variants S2 · ',' · level-variants S2 · ')}<b>20</b>{t(' / 24 (budget wrap-up, see Decision Center) · contract ',' / 24 个（预算收口，见决策中心）· 契约 ')}<span className="a">{t('design-spec.md §5 terrain matrix','design-spec.md §5 地形矩阵')}</span></span>
+        <div className="fchips">
+          <span className={"fchip "+(filter==='all'?'on':'')} onClick={()=>setFilter('all')}>{t('All','全部')} 20</span>
+          {Object.entries(TERRAIN).map(([k,T])=>(
+            <span key={k} className={"fchip "+(filter===k?'on':'')} onClick={()=>setFilter(k)}><span className="pd" style={{background:T.color}}></span>{T.nm} 5</span>
+          ))}
+        </div>
+        <span className="sp"></span>
+        <span className="meta">{t('reachability checks 18 ✓ · 2 ⚠ · Godot headless 4.3','可达性检查 18 ✓ · 2 ⚠ · Godot headless 4.3')}</span>
+      </div>
+      <div className="inner">
+        <VRail active="gallery" badges={{decide:6,gallery:20}}/>
+
+        {/* gallery grid */}
+        <div className="gallery" style={colStyle} data-screen-label="画廊网格">
+          {list.map(x=>{
+            const T=TERRAIN[x.terr];
+            const vd=verdict[x.id];
+            return (
+              <div key={x.id} className={"vc "+(cur===x.id?'cur ':'')+(vd==='keep'?'keep':vd==='kill'?'kill':'')} onClick={()=>setCur(x.id)}>
+                <Minimap v={x}/>
+                <div className="inf">
+                  <div className="r1">#{String(x.id).padStart(2,'0')} <span className="tn" style={{color:T.color}}>{T.nm}</span><span className="sp"></span>
+                    {vd && <span className={"verdict "+(vd==='keep'?'k':'x')}>{vd==='keep'?'KEEP':'KILL'}</span>}
+                  </div>
+                  {tw.showChecks && <div className="r2">
+                    {x.softlock?<span className="wn">{t('⚠ softlock risk','⚠ 软锁风险')}</span>:<span className="ok">{t('✓ reachable','✓ 可达')}</span>}
+                    <span>{x.rooms}{t(' rooms',' 房间')}</span><span>{x.enemies}{t(' en',' 敌')}</span><span>≈{x.dur}s</span>
+                  </div>}
+                </div>
+                <div className="acts">
+                  <span className={"ab k "+(vd==='keep'?'on':'')} onClick={e=>{e.stopPropagation();mark(x.id,'keep');}}>K</span>
+                  <span className={"ab x "+(vd==='kill'?'on':'')} onClick={e=>{e.stopPropagation();mark(x.id,'kill');}}>X</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* detail rail */}
+        <div className="detail" data-screen-label="变体详情">
+          <div className="ph"><b>#{String(v.id).padStart(2,'0')} · {TERRAIN[v.terr].nm}</b><span>levels/variants/v{String(v.id).padStart(2,'0')}.tscn</span><span className="sp"></span></div>
+          <div className="bigmap"><Minimap v={v} big/></div>
+          <div className="esec"><div className="eh">{t('Checks','检查')} <span className="src">{t('runner auto-executed · gate precheck','runner 自动执行 · 闸前置')}</span></div>
+            <table className="etable"><tbody>
+              <tr><td><b>{t('Reachability','可达性')}</b></td>{v.softlock?<td className="wn">{t('⚠ mid double-platform may softlock (dashed box)','⚠ 中段双层平台可能软锁（虚线框）')}</td>:<td className="ok">{t('✓ full path start → exit reachable','✓ 起点 → 出口全路径可达')}</td>}</tr>
+              <tr><td><b>{t('Path length','路径长')}</b></td><td>{v.pathLen}{t(' units · ~',' 单位 · 预计 ')}{v.dur}s</td></tr>
+              <tr><td><b>{t('Structure','结构')}</b></td><td>{v.rooms}{t(' rooms · ',' 房间 · 敌人 ')}{v.enemies}{t(' enemies · density ',' · 密度 ')}{(v.enemies/v.rooms).toFixed(1)}{t('/room','/房')}</td></tr>
+              <tr><td><b>{t('Contract','契约符合')}</b></td><td className="ok">{t('✓ within §5 ranges (duration 45–110s · density ≤ 3.5)','✓ §5 区间内（时长 45–110s · 密度 ≤ 3.5）')}</td></tr>
+            </tbody></table>
+          </div>
+          <div className="esec"><div className="eh">Provenance <span className="src">{t('asset-brief registered','asset-brief 登记')}</span></div>
+            <div className="prov">model: gemini-2.5-pro · seed {v.seed} · cost ≈¥{v.cost}<br/>brief: <span className="a">docs/evidence/v0.6/level-gen/brief.md</span><br/>{t('generated 11:32 · L4 S2 · input: contract §5 matrix item ','生成于 11:32 · L4 S2 · 输入: 契约 §5 矩阵第 ')}{v.id}{t('',' 项')}</div>
+          </div>
+          <div className="dactions">
+            <button className={"dbtn k "+(verdict[v.id]==='keep'?'on':'')} onClick={()=>mark(v.id,'keep')}>Keep<kbd>K</kbd></button>
+            <button className={"dbtn x "+(verdict[v.id]==='kill'?'on':'')} onClick={()=>mark(v.id,'kill')}>Kill<kbd>X</kbd></button>
+          </div>
+          <div className="kbdhint"><kbd>←</kbd><kbd>→</kbd> {t('move','移动')} · <kbd>K</kbd> {t('keep & jump next','keep 并跳下一个')} · <kbd>X</kbd> {t('kill & jump next','kill 并跳下一个')}<br/>{t('kill does not delete — archived to levels/.archive/, recoverable from the evidence page.','kill 不删除 —— 归档到 levels/.archive/，可在证据页复活。')}</div>
+        </div>
+      </div>
+
+      {/* gate bar */}
+      <div className="gatebar">
+        <div className="gstat">
+          <span className="l1">⏸ {t('Gallery gate','画廊闸')}
+            <span className="seg k">keep {nK}</span><span className="seg x">kill {nX}</span><span className="seg p">{t('pending','待定')} {nP}</span>
+          </span>
+          <span className="l2">{t('Decision written to ','决定写入 ')}<span className="a">docs/evidence/v0.6/level-gen/gallery.md</span>{t(' + gate log · keep items auto-registered into the level index by L4',' + 闸日志 · keep 项由 L4 自动登记进关卡索引')}</span>
+        </div>
+        <span className="gbar">
+          <i style={{width:(nK/20*100)+'%',background:'var(--success)'}}></i>
+          <i style={{width:(nX/20*100)+'%',background:'var(--error)'}}></i>
+        </span>
+        <span className="sp"></span>
+        <button className="gbtn" onClick={()=>setVerdict({})}>{t('Clear marks','清空标记')}</button>
+        <button className="gbtn primary" disabled={nP>0||submitted} onClick={submit}>{submitted?t('Submitted ✓','已提交 ✓'):nP>0?t(`${nP} still pending`,`还有 ${nP} 个待定`):t(`Submit gallery gate (keep ${nK} · kill ${nX})`,`提交画廊闸（keep ${nK} · kill ${nX}）`)}<kbd>⌘⏎</kbd></button>
+      </div>
+      {toast && <div className="toast">✓ {toast}<span className="mono">gate-log.jsonl</span></div>}
+
+      <GuiStatusBar right={t('gallery gate','\u753b\u5eca\u95f8')}/>
+      <TweaksPanel>
+        <TweakSection label={t('Layout','布局')} />
+        <TweakRadio label={t('Thumbnail columns','缩略图列数')} value={tw.thumbCols} options={[{value:'auto',label:t('Auto','自动')},{value:'4 cols',label:t('4 cols','4 列')},{value:'5 cols',label:t('5 cols','5 列')}]} onChange={v2=>setTweak('thumbCols',v2)} />
+        <TweakSection label={t('Content','内容')} />
+        <TweakToggle label={t('Show checks on cards','卡片上显示检查结果')} value={tw.showChecks} onChange={v2=>setTweak('showChecks',v2)} />
+      </TweaksPanel>
+    </div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

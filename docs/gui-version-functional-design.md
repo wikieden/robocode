@@ -2,7 +2,12 @@
 
 Chinese version: [gui-version-functional-design.zh-CN.md](gui-version-functional-design.zh-CN.md)
 
-Last updated: 2026-06-26
+Last updated: 2026-07-19
+
+Framework selection is evaluated separately in
+[GPUI GUI Feasibility Research](gpui-gui-feasibility-research.md). The product
+and runtime contracts in this document remain framework-neutral until the
+GPUI/Tauri vertical-slice gate is complete.
 
 ## Purpose
 

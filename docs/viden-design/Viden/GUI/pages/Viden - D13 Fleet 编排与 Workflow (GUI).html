@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D13 · Fleet & Workflow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../gui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1640px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:960px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+
+/* ===== window shell (D1 同源) ===== */
+/* 窗口壳/标题栏/活动 rail 走 gui-kit；此处仅页面专属覆盖 */
+.frame{height:912px;min-width:1240px;}
+.vbody{flex:1;display:grid;grid-template-columns:var(--rail-act) 1fr var(--rail-right);min-height:0;}
+/* 活动 rail 走 gui-kit .act / .actbtn / .badge */
+
+/* ===== main ===== */
+.wfmain{min-width:0;display:flex;flex-direction:column;background:var(--bg-base);}
+/* stat strip */
+.statbar{flex:none;display:flex;align-items:center;gap:16px;padding:11px 18px;border-bottom:1px solid var(--border-soft);background:var(--bg-void);}
+.fleetpick{display:flex;align-items:center;gap:9px;}
+.fleetpick .nm{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.fleetpick .nm .bi{color:var(--gold-bright);}
+.fleetpick .goal{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.statbar .sp{flex:1;}
+.stats{display:flex;gap:18px;}
+.stat{font-family:var(--mono);font-size:10px;color:var(--fg-faint);text-transform:uppercase;letter-spacing:.6px;display:flex;flex-direction:column;gap:2px;}
+.stat b{font-family:var(--sans);font-size:17px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--fg-primary);}
+.stat.go b{color:var(--gold-bright);}
+.stat.ac b{color:var(--accent-bright);}
+
+/* pipeline */
+.pipe{flex:1;display:flex;align-items:stretch;gap:0;overflow-x:auto;padding:16px 18px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.phase{flex:none;width:228px;display:flex;flex-direction:column;min-height:0;}
+.phead{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.phead .pic{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;background:var(--bg-panel);border:1px solid var(--border-soft);color:var(--accent);flex:none;}
+.phead .pt{font-size:12.5px;font-weight:700;}
+.phead .pc{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-left:auto;}
+.pbar{height:3px;border-radius:2px;background:var(--bg-void);overflow:hidden;border:1px solid var(--border-soft);margin-bottom:11px;}
+.pbar i{display:block;height:100%;background:var(--accent);}
+.gnodes{display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:0;padding-right:2px;}
+.gnodes::-webkit-scrollbar{width:5px;}.gnodes::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.gnode{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:10px;padding:10px 11px;cursor:pointer;transition:border-color .12s,background .12s;}
+.gnode:hover{border-color:var(--accent-dim);}
+.gnode.on{border-color:var(--accent);background:var(--bg-sel);}
+.gnode .r1{display:flex;align-items:center;gap:7px;}
+.gnode .ic{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;flex:none;}
+.gnode .role{font-size:12.5px;font-weight:600;color:var(--fg-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.gnode .cnt{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent-bright);flex:none;}
+.gnode .proj{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);margin-top:5px;}
+.gnode .seg{display:flex;height:5px;border-radius:3px;overflow:hidden;margin-top:8px;background:var(--bg-void);}
+.gnode .seg i{display:block;height:100%;}
+.gnode .legend{display:flex;gap:9px;margin-top:7px;font-family:var(--mono);font-size:9px;color:var(--fg-muted);flex-wrap:wrap;}
+.gnode .legend span{display:flex;align-items:center;gap:3px;}
+.gnode .legend i{width:6px;height:6px;border-radius:50%;}
+.gnode.orch{border-color:color-mix(in srgb,var(--gold) 42%,transparent);background:color-mix(in srgb,var(--gold) 8%,var(--bg-panel));}
+.gnode.orch .role{color:var(--gold-bright);}
+.gnode.orch .cnt{color:var(--gold-bright);}
+/* flow connector */
+.flowarrow{flex:none;width:30px;display:flex;align-items:center;justify-content:center;color:var(--border-active);opacity:.5;align-self:center;}
+
+/* detail strip */
+.detail{flex:none;border-top:1px solid var(--border-soft);background:var(--bg-void);max-height:228px;display:flex;flex-direction:column;}
+.dethead{display:flex;align-items:center;gap:10px;padding:9px 18px;border-bottom:1px solid var(--border-soft);}
+.dethead .t{font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.dethead .ct{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+.dethead .x{margin-left:auto;width:22px;height:22px;display:grid;place-items:center;border-radius:6px;color:var(--fg-muted);cursor:pointer;}
+.dethead .x:hover{background:var(--bg-sel);color:var(--fg-primary);}
+.detbody{overflow-y:auto;padding:8px 12px 12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(244px,1fr));gap:7px;}
+.arow{display:flex;align-items:center;gap:9px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:8px;padding:calc(var(--row-pad-y) + 1px) 10px;font-family:var(--mono);font-size:11px;}
+.arow .dot{width:7px;height:7px;border-radius:50%;flex:none;}
+.arow .id{color:var(--fg-secondary);}
+.arow .ac2{color:var(--fg-muted);font-size:10px;margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;}
+.detmore{grid-column:1/-1;text-align:center;font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);padding:5px;}
+
+/* ===== group channel ===== */
+.channel{background:var(--bg-panel);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;min-width:0;}
+.chhead{flex:none;height:42px;display:flex;align-items:center;gap:8px;padding:0 13px;border-bottom:1px solid var(--border-soft);background:var(--bg-void);}
+.chhead .t{font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:7px;}
+.chhead .t .lv{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px color-mix(in srgb,var(--success) 16%,transparent);}
+.chhead .ct{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);margin-left:auto;}
+.chfeed{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:9px;}
+.chfeed::-webkit-scrollbar{width:6px;}.chfeed::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.cmsg{display:flex;flex-direction:column;gap:3px;}
+.cmsg .top{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;}
+.cmsg .who{font-weight:700;}
+.cmsg .who.orch{color:var(--gold-bright);}
+.cmsg .who.agent{color:var(--accent-bright);}
+.cmsg .who.gate{color:var(--warning);}
+.cmsg .tm{color:var(--fg-faint);margin-left:auto;}
+.cmsg .body{font-size:12px;color:var(--fg-secondary);line-height:1.5;padding-left:2px;}
+.cmsg .body .mono{font-family:var(--mono);font-size:11px;}
+.cmsg .body .at{color:var(--accent);}
+.cmsg.broadcast{background:color-mix(in srgb,var(--gold) 7%,transparent);border:1px solid color-mix(in srgb,var(--gold) 22%,transparent);border-radius:9px;padding:8px 10px;}
+.cmsg.gatey{background:color-mix(in srgb,var(--warning) 8%,transparent);border:1px solid color-mix(in srgb,var(--warning) 26%,transparent);border-radius:9px;padding:8px 10px;}
+.chcompose{flex:none;border-top:1px solid var(--border-soft);padding:10px 12px;background:var(--bg-void);}
+.chbox{display:flex;align-items:center;gap:8px;background:var(--bg-base);border:1px solid var(--border);border-radius:9px;padding:7px 10px;}
+.chbox .pr{color:var(--gold);font-family:var(--mono);}
+.chbox .tx{flex:1;font-family:var(--mono);font-size:11.5px;color:var(--fg-muted);}
+.chbox .snd{background:var(--gold);color:var(--on-accent);border:none;border-radius:6px;width:26px;height:26px;font-weight:700;cursor:pointer;flex:none;}
+.chmeta{display:flex;align-items:center;gap:8px;margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+.chmeta .scope{color:var(--gold);border:1px solid color-mix(in srgb,var(--gold) 40%,transparent);border-radius:5px;padding:1px 7px;cursor:pointer;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<template id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#0a1019"/><g fill="none" stroke="#34bdd9" stroke-width="3"><circle cx="50" cy="30" r="7"/><circle cx="28" cy="68" r="6"/><circle cx="50" cy="68" r="6"/><circle cx="72" cy="68" r="6"/><path d="M50 37v12M50 49L30 62M50 49l20 13M50 49v13"/></g></svg></template>
+<script type="text/babel" src="../gui-icons.jsx"></script>
+<script type="text/babel" src="../gui-statusbar.jsx"></script>
+<script type="text/babel" src="../gui-titlebar.jsx"></script>
+<script type="text/babel">
+const {useState} = React;
+
+/* ===== fleet model ===== */
+const FLEETS=[
+  {id:'rel', name:'v0.2 release push', goal:'cut 0.2 across viden + web + infra', total:1284, active:312, awaiting:6},
+  {id:'migrate', name:'lane-protocol migration', goal:'roll 0.2 lane contract to all repos', total:418, active:96, awaiting:2},
+  {id:'sweep', name:'repo-wide clippy sweep', goal:'fmt + clippy --fix, all crates', total:204, active:40, awaiting:0},
+];
+
+// status color helper
+const C={run:'var(--progress)', done:'var(--success)', gate:'var(--gold)', idle:'var(--fg-faint)'};
+
+const ROLEIC={
+  orchestrator:'⛭', planner:'◉', coder:'⚙', editor:'⚙', test:'⚗', review:'◈', doc:'¶', integrate:'⎇',
+};
+/* gate_strength = lane 契约一等事实(SPEC D-GATESTR)：●full 逐调用拦截 · ◐cooperative ACP 建议性 · ○containment 只能围栏 —— fleet 常显,告诉你这组的输出可以多信 */
+const GS_GLYPH={full:'●',cooperative:'◐',containment:'○'};
+const GS_SHORT={full:'FULL',cooperative:'COOP',containment:'CTN'};
+const GS_LABEL={
+  full:t('full gate · per-call interception (built-in)','强门控 · 逐调用拦截(built-in)'),
+  cooperative:t('cooperative · ACP advisory + worktree fence','半合作 · ACP 建议性 + worktree 兜底'),
+  containment:t('containment · worktree fence + exit-diff only','围栏兜底 · worktree + 退出 diff'),
+};
+function gIcon(role,col){
+  return <span className="ic" style={{background:'color-mix(in srgb,'+col+' 16%,transparent)',color:col}}>{ROLEIC[role]||'●'}</span>;
+}
+
+// phases of the active fleet. each group: role, count, mix {run,done,gate,idle}, proj, tok, col
+const PHASES=[
+  {key:'orch', name:'Orchestrate', nameZh:'编排', ic:'⛭', groups:[
+    {id:'orch0', role:'orchestrator', label:'main agent · built-in', count:1, proj:'workspace', tok:'48.6k', gs:'full', mix:{run:1,done:0,gate:0,idle:0}, col:'var(--gold)', orch:true},
+  ]},
+  {key:'plan', name:'Plan', nameZh:'规划', ic:'◉', groups:[
+    {id:'plan-r', role:'planner', label:'planner', count:12, proj:'all projects', tok:'31.2k', gs:'full', mix:{run:3,done:9,gate:0,idle:0}, col:'var(--accent)'},
+  ]},
+  {key:'impl', name:'Implement', nameZh:'实现', ic:'⚙', groups:[
+    {id:'ed-rc', role:'coder', label:'coder', count:210, proj:'viden', tok:'402k', gs:'cooperative', mix:{run:74,done:120,gate:6,idle:10}, col:'var(--progress)'},
+    {id:'ed-web', role:'coder', label:'coder', count:164, proj:'viden-web', tok:'288k', gs:'cooperative', mix:{run:51,done:104,gate:3,idle:6}, col:'var(--progress)'},
+    {id:'ed-inf', role:'coder', label:'coder', count:112, proj:'infra', tok:'151k', gs:'cooperative', mix:{run:30,done:74,gate:2,idle:6}, col:'var(--progress)'},
+  ]},
+  {key:'verify', name:'Verify', nameZh:'验证', ic:'⚗', groups:[
+    {id:'test', role:'test', label:'test-runner', count:520, proj:'all projects', tok:'612k', gs:'full', mix:{run:188,done:300,gate:18,idle:14}, col:'var(--accent)'},
+    {id:'bench', role:'test', label:'bench-runner', count:36, proj:'viden', tok:'77k', gs:'full', mix:{run:12,done:22,gate:0,idle:2}, col:'var(--accent)'},
+  ]},
+  {key:'review', name:'Review', nameZh:'评审', ic:'◈', groups:[
+    {id:'rev', role:'review', label:'reviewer', count:168, proj:'all projects', tok:'209k', gs:'full', mix:{run:40,done:118,gate:8,idle:2}, col:'var(--builtin)'},
+    {id:'sec', role:'review', label:'sec-audit', count:30, proj:'infra', tok:'44k', gs:'full', mix:{run:8,done:20,gate:2,idle:0}, col:'var(--builtin)'},
+  ]},
+  {key:'integrate', name:'Integrate', nameZh:'集成', ic:'⎇', groups:[
+    {id:'int', role:'integrate', label:'integrator', count:61, proj:'→ main', tok:'52k', gs:'containment', mix:{run:14,done:40,gate:5,idle:2}, col:'var(--gold)'},
+    {id:'doc', role:'doc', label:'doc-writer', count:6, proj:'docs', tok:'12k', gs:'full', mix:{run:2,done:4,gate:0,idle:0}, col:'var(--success)'},
+  ]},
+];
+
+const SAMPLE_NAMES=['Dalton','McClintock','Schrodinger','Dewey','Pasteur','Curie','Bohr','Feynman','Hopper','Lovelace','Turing','Noether','Fermi','Planck'];
+function sampleAgents(g){
+  const states=[];
+  const push=(n,s)=>{for(let i=0;i<n;i++)states.push(s);};
+  push(g.mix.gate,'gate');push(g.mix.run,'run');push(g.mix.done,'done');push(g.mix.idle,'idle');
+  return states.slice(0,8).map((s,i)=>({
+    id:g.label+'#'+String(1000+i*37+ (g.id.length*7)).slice(-4),
+    st:s,
+    act:s==='gate'?'⏸ awaiting human':s==='run'?'running step':s==='done'?'✓ green':'queued',
+    nm:SAMPLE_NAMES[(i+g.id.length)%SAMPLE_NAMES.length],
+  }));
+}
+
+const CHANNEL=[
+  {who:'orchestrator', cls:'orch', tm:'now', kind:'broadcast', body:<span><span className="at">@coders</span> implement 0.2 lane-contract across viden·web·infra · fan-out 486 · deadline T-2h</span>},
+  {who:'test-runner#0412', cls:'agent', tm:'2s', body:<span><span className="mono">config_tests</span> ✓ green · reporting to coder·viden</span>},
+  {who:'reviewer#0088', cls:'agent', tm:'9s', body:<span>diff <span className="mono">+142−31</span> approved · L7 viden-web</span>},
+  {who:'integration gate', cls:'gate', tm:'14s', kind:'gate', body:<span>⚠ conflict on <span className="mono">main</span> · bounced to lane <span className="at">L3</span> · awaiting your call</span>},
+  {who:'orchestrator', cls:'orch', tm:'31s', body:<span>rebalanced 40 test-runners viden-core→viden-web (queue depth)</span>},
+  {who:'coder#1207', cls:'agent', tm:'48s', body:<span>patched <span className="mono">src/config.rs:42</span> · spawned test-runner to verify</span>},
+  {who:'planner#03', cls:'agent', tm:'1m', body:<span>plan accepted · 6 steps · handed to coder pool</span>},
+  {who:'orchestrator', cls:'orch', tm:'1m', kind:'broadcast', body:<span><span className="at">@all</span> token budget 62% · throttling non-critical lanes to keep headroom</span>},
+  {who:'sec-audit#12', cls:'agent', tm:'2m', body:<span>infra terraform plan clean · no drift</span>},
+  {who:'doc-writer#02', cls:'agent', tm:'2m', body:<span>migration notes 3/5 sections streaming…</span>},
+];
+
+function VRail(){
+  const order=[['chat','Conversation'],['lanes','Lanes'],['fleet','Fleet & Workflow'],['worktree','Worktrees'],['decide','Decision Center']];
+  return (
+    <div className="act">
+      {order.map(([k,lbl])=>(
+        <div key={k} className={"actbtn "+(k==='fleet'?'on':'')} title={lbl}>{ICONS[k]}{k==='fleet'&&<span className="badge" style={{background:'var(--gold)'}}>6</span>}{k==='decide'&&<span className="badge" style={{background:'var(--gold)'}}>6</span>}</div>
+      ))}
+      <div className="actspacer"></div>
+      <div className="actbtn" title="Settings">{ICONS.settings}</div>
+    </div>
+  );
+}
+
+function GNode({g, on, onClick}){
+  const tot=g.count;
+  const seg=(k)=> (g.mix[k]/tot*100)+'%';
+  return (
+    <div className={"gnode "+(g.orch?'orch ':'')+(on?'on':'')} onClick={onClick}>
+      <div className="r1">
+        {gIcon(g.role,g.col)}
+        <span className="role">{g.label}</span>
+        <span className="cnt">×{g.count}</span>
+      </div>
+      <div className="proj">{g.proj} · {g.tok} tok {g.gs && <span className="gsb" title={GS_LABEL[g.gs]}>· <span style={{opacity:.9}}>{GS_GLYPH[g.gs]}</span> {GS_SHORT[g.gs]}</span>}</div>
+      <div className="seg">
+        <i style={{width:seg('gate'),background:C.gate}}></i>
+        <i style={{width:seg('run'),background:C.run}}></i>
+        <i style={{width:seg('done'),background:C.done}}></i>
+        <i style={{width:seg('idle'),background:C.idle}}></i>
+      </div>
+      <div className="legend">
+        {g.mix.run>0 && <span><i style={{background:C.run}}></i>{g.mix.run} {t('run','跑')}</span>}
+        {g.mix.done>0 && <span><i style={{background:C.done}}></i>{g.mix.done} {t('done','完')}</span>}
+        {g.mix.gate>0 && <span><i style={{background:C.gate}}></i>{g.mix.gate} {t('gate','闸')}</span>}
+        {g.mix.idle>0 && <span><i style={{background:C.idle}}></i>{g.mix.idle} {t('idle','闲')}</span>}
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const [fleet,setFleet]=useState(0);
+  const [sel,setSel]=useState(null); // selected group id
+  const F=FLEETS[fleet];
+  const selGroup = sel && PHASES.flatMap(p=>p.groups).find(g=>g.id===sel);
+  const phaseCount=(p)=>p.groups.reduce((a,g)=>a+g.count,0);
+  const phasePct=(p)=>{const tot=phaseCount(p);const done=p.groups.reduce((a,g)=>a+g.mix.done,0);return tot?Math.round(done/tot*100):0;};
+
+  return (
+    <div className="pwrap">
+      <div className="pkicker">viden · D13 concept · draft 01</div>
+      <h1 className="ph1">{t('Fleet & Workflow','Fleet 编排与 Workflow')} <span className="ac">{t('one main agent, a thousand hands','一个主脑,上千只手')}</span></h1>
+      <p className="plead">{t('The workspace ','工作区有一个')}<b>{t('built-in main agent','内置主 Agent')}</b>{t(' plans a ','规划出一个 ')}<b>fleet</b>{t(' — many heterogeneous agents collaborating across projects. Each project is worked by agents shown as ','—— 一组异构 agent 跨项目协作。每个项目由若干 agent 负责,在界面里以 ')}<b>lane {t('sessions','会话')}</b>{t(' (a main conversation that spawns background subagents). A ','呈现(一条主对话,再派生后台 subagent)。一条 ')}<b>{t('group channel','群会话通道')}</b>{t(' syncs everyone and dispatches tasks — scaling to thousands. This panel visualizes the whole workflow as a pipeline of role groups; click any group to drill into individuals.','把所有人同步起来、分派任务 —— 支撑上千 agent。本面板把整个 workflow 画成角色群组的流水线,点任意群组下钻到个体。')}</p>
+
+      <div className="frame" data-screen-label="Fleet & Workflow 总览">
+        <GuiTitleBar project={t('Viden workspace','Viden 工作区')} branch={t('18 projects','18 项目')} git={false} tools={['palette','popout','|','index','settings']}/>
+
+        <div className="vbody">
+          <VRail/>
+
+          <div className="wfmain">
+            <div className="statbar">
+              <div className="fleetpick">
+                <span className="nm"><span className="bi">⛭</span>{F.name}</span>
+                <span className="goal">· {F.goal}</span>
+              </div>
+              <span className="sp"></span>
+              <div className="stats">
+                <div className="stat">{t('agents','总 agent')}<b>{F.total.toLocaleString()}</b></div>
+                <div className="stat ac">{t('active','活跃')}<b>{F.active}</b></div>
+                <div className="stat go">{t('awaiting you','需你')}<b>{F.awaiting}</b></div>
+                <div className="stat">{t('fleets','fleet')}<b>{FLEETS.length}</b></div>
+              </div>
+            </div>
+
+            <div className="pipe">
+              {PHASES.map((p,i)=>(
+                <React.Fragment key={p.key}>
+                  {i>0 && <div className="flowarrow"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>}
+                  <div className="phase">
+                    <div className="phead">
+                      <span className="pic">{p.ic}</span>
+                      <span className="pt">{t(p.name,p.nameZh)}</span>
+                      <span className="pc">{phaseCount(p).toLocaleString()}</span>
+                    </div>
+                    <div className="pbar"><i style={{width:phasePct(p)+'%'}}></i></div>
+                    <div className="gnodes">
+                      {p.groups.map(g=>(
+                        <GNode key={g.id} g={g} on={sel===g.id} onClick={()=>setSel(sel===g.id?null:g.id)}/>
+                      ))}
+                    </div>
+                  </div>
+                </React.Fragment>
+              ))}
+            </div>
+
+            {selGroup && <div className="detail">
+              <div className="dethead">
+                <span className="t">{gIcon(selGroup.role,selGroup.col)} {selGroup.label} <span style={{color:'var(--accent-bright)'}}>×{selGroup.count}</span></span>
+                <span className="ct">{selGroup.proj} · {selGroup.tok} tok · {selGroup.mix.gate} {t('at gate','在闸')} · {selGroup.mix.run} {t('running','运行中')}</span>
+                <span className="x" onClick={()=>setSel(null)}>✕</span>
+              </div>
+              <div className="detbody">
+                {sampleAgents(selGroup).map(a=>(
+                  <div key={a.id} className="arow">
+                    <span className="dot" style={{background:C[a.st]}}></span>
+                    <span className="id">{a.id}</span>
+                    <span className="ac2">{a.nm} · {a.act}</span>
+                  </div>
+                ))}
+                <div className="detmore">+{(selGroup.count-8).toLocaleString()} {t('more agents in this group','个同组 agent')} · {t('click to expand','点击展开')}</div>
+              </div>
+            </div>}
+          </div>
+
+          <div className="channel">
+            <div className="chhead">
+              <span className="t"><span className="lv"></span>{t('Group channel','群会话通道')}</span>
+              <span className="ct">{F.total.toLocaleString()} {t('subscribed','在线')}</span>
+            </div>
+            <div className="chfeed">
+              {CHANNEL.map((m,i)=>(
+                <div key={i} className={"cmsg "+(m.kind==='broadcast'?'broadcast':m.kind==='gate'?'gatey':'')}>
+                  <div className="top">
+                    <span className={"who "+m.cls}>{m.who}</span>
+                    {m.kind==='broadcast' && <span style={{color:'var(--gold)',fontFamily:'var(--mono)',fontSize:9}}>⇶ {t('broadcast','广播')}</span>}
+                    <span className="tm">{m.tm}</span>
+                  </div>
+                  <div className="body">{m.body}</div>
+                </div>
+              ))}
+            </div>
+            <div className="chcompose">
+              <div className="chbox"><span className="pr">⛭</span><span className="tx">{t('dispatch to fleet…','向 fleet 分派…')}</span><button className="snd">↑</button></div>
+              <div className="chmeta"><span className="scope">⇶ {t('scope: @all','范围: @all')}</span><span>{t('main agent dispatches · agents report back','主 agent 分派 · agent 回报')}</span></div>
+            </div>
+          </div>
+        </div>
+      <GuiStatusBar right={t('fleet · 5 lanes','fleet \u00b7 5 \u6761 lane')}/>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

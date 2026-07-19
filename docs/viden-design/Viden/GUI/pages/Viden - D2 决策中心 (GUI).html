@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D2 · Decision Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../gui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;窗口壳/标题栏/活动 rail/badge/滚动条走 gui-kit。本页只用 var(--*)。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+
+.pwrap{max-width:1560px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:880px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+
+/* ===== app frame（窗口壳/标题栏/活动 rail/badge 走 gui-kit；此处仅页面专属覆盖）===== */
+.frame{height:920px;min-width:1180px;}
+
+/* command header */
+.cmdbar{flex:none;display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--bg-void);}
+.cmdbar .t{font-size:15px;font-weight:700;display:flex;align-items:center;gap:9px;}
+.cmdbar .t .pulse{width:8px;height:8px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 15%,transparent);}
+.cmdbar .cnt{font-family:var(--mono);font-size:11px;color:var(--fg-muted);}
+.cmdbar .cnt b{color:var(--gold-bright);font-size:13px;}
+.fchips{display:flex;gap:5px;margin-left:6px;}
+.fchip{font-family:var(--mono);font-size:10.5px;padding:3px 11px;border-radius:13px;color:var(--fg-muted);cursor:pointer;border:1px solid transparent;}
+.fchip:hover{color:var(--fg-secondary);}
+.fchip.on{background:var(--bg-sel);color:var(--accent-bright);border-color:var(--accent-dim);}
+.cmdbar .sp{flex:1;}
+.cmdbar .meta{font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+
+.inner{flex:1;display:grid;grid-template-columns:var(--rail-act) var(--rail-left) 1fr;min-height:0;}
+
+/* queue rail */
+.queue{background:var(--bg-panel);border-right:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.qsec{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);padding:13px 15px 5px;display:flex;align-items:center;gap:7px;}
+.qsec .n{color:var(--fg-faint);}
+.qitem{margin:5px 8px 0;padding:calc(var(--card-pad-y) + 1px) 11px;border-radius:9px;border:1px solid transparent;cursor:pointer;}
+.qitem:hover{background:var(--bg-base);}
+.qitem.on{background:var(--bg-sel);border-color:var(--accent-dim);}
+.qitem .r1{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--fg-primary);white-space:nowrap;overflow:hidden;}
+.qitem .r1 .ki{font-size:10px;width:16px;flex:none;text-align:center;}
+.qitem .r2{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);margin-top:4px;padding-left:23px;}
+.qitem .r2 .lid{color:var(--accent);font-weight:700;}
+.qitem .r2 .pr{display:inline-flex;align-items:center;gap:4px;color:var(--fg-secondary);}
+.qitem .r2 .pd{width:6px;height:6px;border-radius:2px;flex:none;}
+.qitem .dtag{font-size:8.5px;font-weight:700;letter-spacing:.5px;border:1px solid var(--border);border-radius:4px;padding:0 5px;color:var(--fg-secondary);}
+.qitem .age{margin-left:auto;color:var(--fg-faint);}
+.qitem .age.hot{color:var(--warning);}
+.qfoot{margin-top:auto;border-top:1px solid var(--border-soft);padding:10px 14px;font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.7;}
+.qfoot .a{color:var(--accent);}
+
+/* main */
+.main{display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative;}
+.rhead{flex:none;padding:13px 18px 11px;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:11px;flex-wrap:wrap;background:var(--bg-base);}
+.rhead .t{font-size:15.5px;font-weight:700;}
+.chip{font-family:var(--mono);font-size:10px;font-weight:600;border-radius:5px;padding:2px 8px;white-space:nowrap;border:1px solid var(--border);color:var(--fg-secondary);display:inline-flex;align-items:center;gap:5px;}
+.chip .dot{width:6px;height:6px;border-radius:50%;}
+.chip.lane{color:var(--accent);border-color:var(--accent-dim);}
+.chip.ok{color:var(--success);border-color:color-mix(in srgb,var(--success) 45%,transparent);background:color-mix(in srgb,var(--success) 6%,transparent);}
+.chip.gate{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 50%,transparent);background:color-mix(in srgb,var(--gold) 7%,transparent);}
+.chip.ask{color:var(--warning);border-color:color-mix(in srgb,var(--warning) 50%,transparent);background:color-mix(in srgb,var(--warning) 7%,transparent);}
+.rhead .sp{flex:1;}
+.rhead .meta{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+
+/* split */
+.split{flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0;}
+.pane{min-width:0;min-height:0;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.pane.code{border-right:1px solid var(--border-soft);background:var(--bg-base);}
+.pane.evid{background:var(--bg-panel);}
+.ph{position:sticky;top:0;z-index:2;background:inherit;display:flex;align-items:center;gap:9px;padding:9px 16px;border-bottom:1px solid var(--border-soft);font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.ph b{color:var(--fg-primary);font-weight:600;font-size:11px;}
+.ph .pm{color:var(--success);}
+.ph .sp{flex:1;}
+
+/* diff */
+.filetabs{display:flex;gap:4px;padding:8px 14px 0;}
+.ftab{font-family:var(--mono);font-size:10px;padding:3px 9px;border-radius:6px 6px 0 0;color:var(--fg-muted);border:1px solid var(--border-soft);border-bottom:none;cursor:pointer;background:var(--bg-panel);}
+.ftab.on{color:var(--accent-bright);background:var(--bg-void);border-color:var(--border);}
+.diffbody{margin:0 14px 16px;background:var(--bg-void);border:1px solid var(--border);border-radius:0 8px 8px 8px;padding:10px 0;font-family:var(--mono);overflow-x:auto;}
+.diffbody.rtop{border-radius:8px;margin-top:10px;}
+.dl{display:grid;grid-template-columns:42px 16px 1fr;gap:0 8px;padding:1px 12px 1px 0;line-height:1.75;white-space:pre;}
+.dl .ln{text-align:right;color:var(--fg-faint);font-size:10px;user-select:none;}
+.dl .sg{text-align:center;font-size:11px;}
+.dl .tx{color:var(--fg-secondary);}
+.dl.hk{background:color-mix(in srgb,var(--accent) 5%,transparent);}
+.dl.hk .tx{color:var(--accent);}
+.dl.add{background:color-mix(in srgb,var(--success) 7%,transparent);}
+.dl.add .sg{color:var(--success);} .dl.add .tx{color:var(--success);}
+.dl.del{background:color-mix(in srgb,var(--error) 7%,transparent);}
+.dl.del .sg{color:var(--error);} .dl.del .tx{color:var(--error);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--error) 40%,transparent);}
+
+/* transcript (ask context) */
+.trans{padding:12px 16px;}
+.msg{margin-bottom:calc(var(--msg-mb) - 3px);}
+.msg .who{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:1px;color:var(--fg-muted);margin-bottom:4px;}
+.msg .body{font-size:13px;color:var(--fg-secondary);line-height:1.65;background:var(--bg-void);border:1px solid var(--border-soft);border-radius:9px;padding:10px 13px;text-wrap:pretty;}
+.msg.user .body{border-color:var(--border);color:var(--fg-primary);}
+.tool{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);background:var(--bg-void);border:1px dashed var(--border);border-radius:8px;padding:7px 12px;margin-bottom:12px;line-height:1.8;}
+.tool .nm{color:var(--accent);font-weight:600;}
+.tool .ok{color:var(--success);} .tool .wn{color:var(--warning);}
+.loadmore{margin:10px 16px 2px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--fg-muted);border:1px dashed var(--border);border-radius:15px;padding:5px 10px;cursor:pointer;}
+.loadmore:hover{color:var(--accent);border-color:var(--accent-dim);}
+.waitmark{margin:4px 16px 16px;text-align:center;font-family:var(--mono);font-size:9.5px;color:var(--gold);border-top:1px dashed color-mix(in srgb,var(--gold) 40%,transparent);padding-top:8px;}
+.ph .open{color:var(--accent);cursor:pointer;}
+.ph .open:hover{color:var(--accent-bright);}
+
+/* evidence shared */
+.esec{padding:14px 16px 4px;}
+.esec .eh{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);display:flex;align-items:center;gap:8px;margin-bottom:9px;}
+.esec .eh::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.esec .eh .src{font-weight:400;letter-spacing:0;text-transform:none;color:var(--fg-faint);}
+.concl{margin:14px 16px 0;background:var(--bg-elev);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 9px 9px 0;padding:11px 14px;font-size:13px;line-height:1.65;color:var(--fg-primary);text-wrap:pretty;}
+.concl.warn{border-left-color:var(--warning);}
+.concl .by{display:block;font-family:var(--mono);font-size:9px;color:var(--fg-faint);margin-top:7px;}
+.chart{background:var(--bg-void);border:1px solid var(--border);border-radius:9px;padding:10px 12px 6px;}
+.chart svg{display:block;width:100%;height:auto;}
+.legend{display:flex;gap:16px;padding:7px 2px 2px;font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);flex-wrap:wrap;}
+.legend i{display:inline-block;width:16px;height:0;border-top:2px solid;margin-right:5px;vertical-align:middle;}
+.etable{width:100%;border-collapse:collapse;font-size:12px;background:var(--bg-void);border:1px solid var(--border);border-radius:9px;overflow:hidden;}
+.etable th{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-muted);text-align:left;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--bg-base);}
+.etable td{padding:6px 12px;border-bottom:1px solid var(--border-soft);color:var(--fg-secondary);font-family:var(--mono);font-size:11px;}
+.etable tr:last-child td{border-bottom:none;}
+.etable td b{color:var(--fg-primary);font-weight:600;}
+.up{color:var(--success);} .dn{color:var(--error);} .nt{color:var(--fg-faint);}
+.passrow{display:flex;align-items:center;gap:10px;background:var(--bg-void);border:1px solid var(--border);border-radius:9px;padding:9px 13px;font-family:var(--mono);font-size:11px;color:var(--fg-secondary);}
+.passrow .ok{color:var(--success);font-weight:700;}
+.passrow .bar{flex:1;height:5px;border-radius:3px;background:var(--bg-base);overflow:hidden;min-width:60px;}
+.passrow .bar i{display:block;height:100%;background:var(--success);}
+.passrow .bar i.w{background:var(--warning);}
+.stagegate{display:flex;align-items:center;background:var(--bg-void);border:1px solid var(--border);border-radius:9px;padding:11px 14px;font-family:var(--mono);font-size:10.5px;}
+.stg{display:flex;align-items:center;gap:7px;}
+.stg .ic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:10px;border:1.5px solid var(--border);color:var(--fg-muted);}
+.stg.done .ic{border-color:var(--success);color:var(--success);background:color-mix(in srgb,var(--success) 8%,transparent);}
+.stg.cur .ic{border-color:var(--gold);color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 8%,transparent);}
+.stg.lock .ic{border-style:dashed;}
+.stg .lb{color:var(--fg-secondary);} .stg.cur .lb{color:var(--gold-bright);font-weight:700;} .stg.done .lb{color:var(--fg-primary);}
+.stg .sub2{display:block;font-size:8.5px;color:var(--fg-faint);}
+.stgarr{flex:1;height:0;border-top:1.5px dashed var(--border);margin:0 10px;min-width:18px;}
+
+/* options (ask) */
+.opt{display:flex;gap:10px;background:var(--bg-void);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:9px;cursor:pointer;}
+.opt:hover{border-color:var(--fg-muted);}
+.opt.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-dim);background:var(--bg-sel);}
+.opt .key{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent);border:1px solid var(--accent-dim);border-radius:6px;width:24px;height:24px;display:grid;place-items:center;flex:none;}
+.opt .ot{font-size:13px;font-weight:600;color:var(--fg-primary);}
+.opt .od{font-size:11.5px;color:var(--fg-muted);margin-top:3px;line-height:1.55;}
+.opt .od .mono2{font-family:var(--mono);font-size:10px;}
+.replybox{width:100%;background:var(--bg-void);border:1px solid var(--border);border-radius:9px;color:var(--fg-primary);font-family:var(--sans);font-size:12.5px;padding:9px 12px;resize:none;outline:none;}
+.replybox:focus{border-color:var(--accent-dim);}
+.replybox::placeholder{color:var(--fg-faint);}
+
+/* impact list (contract) */
+.implane{display:flex;align-items:center;gap:9px;background:var(--bg-void);border:1px solid var(--border);border-radius:9px;padding:9px 13px;margin-bottom:8px;font-size:12px;}
+.implane .lid{font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--accent);}
+.implane .nm{color:var(--fg-primary);font-weight:600;}
+.implane .how{font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);margin-left:auto;text-align:right;line-height:1.5;}
+
+/* gate bar */
+.gatebar{flex:none;border-top:1px solid var(--border);background:var(--bg-void);padding:11px 18px;display:flex;align-items:center;gap:12px;}
+.gstat .l1{font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.gstat .l2{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);margin-top:3px;}
+.gstat .l2 .a{color:var(--accent);}
+.gatebar .sp{flex:1;}
+.gbtn{font-size:12.5px;font-weight:600;border-radius:8px;padding:8px 18px;cursor:pointer;border:1px solid var(--border);color:var(--fg-secondary);background:transparent;font-family:var(--sans);}
+.gbtn:hover{color:var(--fg-primary);border-color:var(--fg-muted);}
+.gbtn.reject{color:var(--error);border-color:color-mix(in srgb,var(--error) 40%,transparent);}
+.gbtn.reject:hover{background:color-mix(in srgb,var(--error) 8%,transparent);}
+.gbtn.approve{color:var(--on-accent);background:var(--accent);border-color:var(--accent);font-weight:700;}
+.gbtn.approve:hover{background:var(--accent-bright);border-color:var(--accent-bright);}
+.gbtn.approve:disabled{opacity:.4;cursor:not-allowed;}
+.gbtn kbd{font-family:var(--mono);font-size:9px;opacity:.65;margin-left:6px;}
+.toast{position:absolute;left:50%;bottom:76px;transform:translateX(-50%);background:var(--bg-elev);border:1px solid var(--accent-dim);color:var(--fg-primary);font-size:12.5px;border-radius:9px;padding:9px 16px;box-shadow:var(--shadow-toast);display:flex;gap:10px;align-items:center;white-space:nowrap;z-index:5;}
+.toast .mono{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+</style>
+</head>
+<body>
+<div class="pwrap">
+  <div id="root"></div>
+</div>
+
+<script type="text/babel" src="../../tweaks-panel.jsx"></script>
+<script type="text/babel" src="../gui-icons.jsx"></script>
+<script type="text/babel" src="../gui-statusbar.jsx"></script>
+<script type="text/babel" src="../gui-titlebar.jsx"></script>
+<script type="text/babel">
+const {useState} = React;
+const t = window.t || ((en,zh)=>en);
+
+/* ───────── chart helpers ───────── */
+function pts(fn,n,x0,x1){const a=[];for(let i=0;i<=n;i++){const x=x0+(x1-x0)*i/n;a.push([x,fn(x)]);}return a;}
+function path(p,W,H,xr,yr){const sx=x=>(x-xr[0])/(xr[1]-xr[0])*W;const sy=y=>H-(y-yr[0])/(yr[1]-yr[0])*H;return p.map((q,i)=>(i?'L':'M')+sx(q[0]).toFixed(1)+' '+sy(q[1]).toFixed(1)).join(' ');}
+const Grid=({W,H})=>(<g stroke="var(--border-soft)" strokeWidth="1">{[1,2,3].map(i=><line key={'h'+i} x1="0" x2={W} y1={H*i/4} y2={H*i/4}/>)}{[1,2,3,4,5].map(i=><line key={'v'+i} y1="0" y2={H} x1={W*i/6} x2={W*i/6}/>)}</g>);
+function ChartFrame({W=560,H=170,children,labels}){
+  return (
+    <div className="chart">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{height:H}}>
+        <Grid W={W} H={H}/>{children}
+      </svg>
+      <div className="legend">{labels.map((l,i)=><span key={i}><i style={{borderColor:l[1],borderTopStyle:l[2]||'solid'}}></i>{l[0]}</span>)}</div>
+    </div>
+  );
+}
+function JumpChart(){
+  const W=560,H=170,xr=[0,1.2],yr=[0,130];
+  const before=pts(x=>Math.max(0,118-380*Math.pow(x-0.56,2)),60,0,1.15);
+  const after =pts(x=>Math.max(0,102-260*Math.pow(x-0.63,2)),60,0,1.25).filter(p=>p[0]<=1.2);
+  return (
+    <ChartFrame W={W} H={H} labels={[[t('before · peak 118px','改动前 · 峰值 118px'),'var(--fg-muted)','dashed'],[t('after · peak 102px · +40ms airtime','改动后 · 峰值 102px · 滞空 +40ms'),'var(--accent)']]}>
+      <path d={path(before,W,H,xr,yr)} fill="none" stroke="var(--fg-muted)" strokeWidth="1.6" strokeDasharray="5 4"/>
+      <path d={path(after ,W,H,xr,yr)} fill="none" stroke="var(--accent)" strokeWidth="2.2"/>
+    </ChartFrame>
+  );
+}
+function LossChart(){
+  const W=560,H=170,xr=[0,10],yr=[1.4,4.6];
+  const noise=x=>0.06*Math.sin(x*9.1)+0.045*Math.sin(x*23.7);
+  const before=pts(x=>1.9+2.4*Math.exp(-x*0.55)+(x<2?0.55*Math.exp(-Math.pow((x-0.9)/0.3,2)):0)+noise(x),120,0.05,10);
+  const after =pts(x=>1.78+2.5*Math.exp(-x*0.62)+noise(x+3),120,0.05,10);
+  return (
+    <ChartFrame W={W} H={H} labels={[[t('before · loss spike at 2k steps','改动前 · 2k 步处 loss 尖峰'),'var(--fg-muted)','dashed'],[t('after · smooth decay post-warmup','改动后 · warmup 后平滑下降'),'var(--accent)']]}>
+      <path d={path(before,W,H,xr,yr)} fill="none" stroke="var(--fg-muted)" strokeWidth="1.6" strokeDasharray="5 4"/>
+      <path d={path(after ,W,H,xr,yr)} fill="none" stroke="var(--accent)" strokeWidth="2.2"/>
+    </ChartFrame>
+  );
+}
+function StepChart(){
+  const W=560,H=170,xr=[0,2],yr=[0,1.5];
+  const beforeFix=pts(x=>x<0.1?0:1-Math.exp(-(x-0.1)*3.0)*Math.cos((x-0.1)*13)*1.0,140,0,2);
+  const after=pts(x=>x<0.1?0:1-Math.exp(-(x-0.1)*7.5)*(Math.cos((x-0.1)*5)+0.45*Math.sin((x-0.1)*5)),140,0,2);
+  const step=[[0,0],[0.1,0],[0.1,1],[2,1]];
+  return (
+    <ChartFrame W={W} H={H} labels={[[t('target setpoint','目标 setpoint'),'var(--fg-faint)'],[t('before · overshoot 12.4%','改动前 · 超调 12.4%'),'var(--fg-muted)','dashed'],[t('after · overshoot 3.1% · settles 0.45s','改动后 · 超调 3.1% · 0.45s 稳定'),'var(--accent)']]}>
+      <path d={path(step,W,H,xr,yr)} fill="none" stroke="var(--fg-faint)" strokeWidth="1.4"/>
+      <path d={path(beforeFix,W,H,xr,yr)} fill="none" stroke="var(--fg-muted)" strokeWidth="1.6" strokeDasharray="5 4"/>
+      <path d={path(after,W,H,xr,yr)} fill="none" stroke="var(--accent)" strokeWidth="2.2"/>
+    </ChartFrame>
+  );
+}
+
+/* ───────── data ───────── */
+const D=(t,ln,sg,tx)=>({t,ln,sg,tx});
+
+/* project source · the decision center is cross-project */
+const PROJ_META={
+  'boss-rush':   {color:'var(--gold)',    full:t('Boss Rush «Counter Trial»','Boss Rush 《反击试炼》')},
+  'viden-core':  {color:'var(--accent)',  full:'Viden Core · Rust CLI'},
+  'spatial-lm':  {color:'var(--progress)',full:t('SpatialLM · training','SpatialLM · 训练')},
+  'arm-ctrl':    {color:'var(--warning)', full:t('Arm Control · robot','Arm Control · 机器人')},
+};
+
+const ITEMS=[
+  /* ════ gates ════ */
+  {
+    kind:'gate', id:'g-jump', proj:'boss-rush', dtag:'GAME', lid:'L2', agent:'codex', st:'var(--gold)', age:'12m',
+    title:t('Jump feel: lower the peak, lengthen airtime','跳跃手感：降低峰值、加长滞空'), branch:'vd/jump-feel', delta:'+9 −4', model:'gpt-5-codex',
+    gateName:t('replay-regression gate','回放回归闸'), gateState:t('auto-validation passed · awaiting human approval','自动验证通过 · 等待人工批准'),
+    file:'player.gd', files:['player.gd','jump_test.gd'],
+    diff:[
+      D('hk','','',t('@@ player.gd · jump params & launch logic 24–41 @@','@@ player.gd · 跳跃参数与起跳逻辑 24–41 @@')),
+      D('','24','','const GRAVITY := 1850.0'),
+      D('del','25','−','const JUMP_VELOCITY := -620.0'),
+      D('add','25','+','const JUMP_VELOCITY := -540.0'),
+      D('add','26','+',t('const JUMP_CUT_MULT := 0.45   # cut rise on early key release','const JUMP_CUT_MULT := 0.45   # 提前松键截断上升')),
+      D('','27','','var jump_charge := 1.0'),
+      D('del','28','−','var coyote_time := 0.08'),
+      D('add','28','+',t('var coyote_time := 0.12       # coyote grace +40ms','var coyote_time := 0.12       # 离台宽限 +40ms')),
+      D('','29','',''),
+      D('','30','','func _try_jump() -> void:'),
+      D('','31','','    if not _grounded and _coyote_left <= 0.0:'),
+      D('','32','','        return'),
+      D('del','33','−','    velocity.y = JUMP_VELOCITY'),
+      D('add','33','+','    velocity.y = JUMP_VELOCITY * jump_charge'),
+      D('add','34','+','    if Input.is_action_just_released("jump"):'),
+      D('add','35','+','        velocity.y *= JUMP_CUT_MULT'),
+    ],
+    concl:t('Jump peak 118→102px (−13%), airtime +40ms, early release cuts the rise. All 12 deterministic replays pass, max end-state deviation 0.4px; numeric contract untouched.','跳跃峰值 118→102px（−13%），滞空 +40ms，提前松键可截断上升。12 条确定性回放全部通过，结局状态最大偏差 0.4px；数值契约未触碰。'),
+    valid:'Godot headless 4.3 · replay-suite v7 · 38s',
+    evidence:'docs/evidence/v0.6/jump-feel/',
+    actions:[[t('Send back','退回修改'),''],[t('Reject','驳回'),'reject'],[t('Approve & merge','批准并合入'),'approve']],
+    body:(<React.Fragment>
+      <div className="esec"><div className="eh">{t('Behavior compare · jump trajectory','行为对比 · 跳跃轨迹')} <span className="src">{t('replay #07 · same input sequence re-run','replay #07 · 同一输入序列重演')}</span></div><JumpChart/></div>
+      <div className="esec"><div className="eh">{t('Replay regression','回放回归')} <span className="src">{t('deterministic input sequences × 12','确定性输入序列 × 12')}</span></div>
+        <div className="passrow"><span className="ok">✓ 12 / 12</span><span className="bar"><i style={{width:'100%'}}></i></span><span>{t('max end-state deviation 0.4px · clear time ±0.2s','结局状态最大偏差 0.4px · 通关时间 ±0.2s')}</span></div>
+      </div>
+      <div className="esec"><div className="eh">{t('Feel params Δ','手感参数 Δ')}</div>
+        <table className="etable"><thead><tr><th>{t('Param','参数')}</th><th>{t('Before','改动前')}</th><th>{t('After','改动后')}</th><th>Δ</th></tr></thead><tbody>
+          <tr><td><b>{t('Jump peak','跳跃峰值')}</b></td><td>118 px</td><td>102 px</td><td className="dn">−13.6%</td></tr>
+          <tr><td><b>{t('Airtime','滞空时间')}</b></td><td>0.62 s</td><td>0.66 s</td><td className="up">+40 ms</td></tr>
+          <tr><td><b>coyote time</b></td><td>80 ms</td><td>120 ms</td><td className="up">+40 ms</td></tr>
+          <tr><td><b>{t('Variable height','可变跳高')}</b></td><td className="nt">{t('none','无')}</td><td>{t('release ×0.45','松键 ×0.45')}</td><td className="up">{t('new','新增')}</td></tr>
+        </tbody></table>
+      </div>
+    </React.Fragment>)
+  },
+  {
+    kind:'gate', id:'g-ml', proj:'spatial-lm', dtag:'ML', lid:'L5', agent:'builtin', st:'var(--progress)', age:'31m',
+    title:t('Training: warmup schedule + grad clipping','训练：warmup 调度 + 梯度裁剪'), branch:'vd/lr-warmup', delta:'+6 −3', model:'deepseek-v4',
+    gateName:t('eval gate','eval 闸'), gateState:t('4/4 benchmarks no regression · awaiting human approval','4/4 基准不回退 · 等待人工批准'),
+    file:'train.py', files:['train.py','configs/run.yaml'],
+    diff:[
+      D('hk','','','@@ train.py · optimizer / scheduler 88–102 @@'),
+      D('','88','','optimizer = AdamW(model.parameters(),'),
+      D('del','89','−','                  lr=3e-4, betas=(0.9, 0.95))'),
+      D('add','89','+','                  lr=6e-4, betas=(0.9, 0.95))'),
+      D('del','90','−','scheduler = CosineLR(optimizer, T_max=cfg.steps)'),
+      D('add','90','+','scheduler = WarmupCosineLR(optimizer,'),
+      D('add','91','+','    warmup_steps=2000, T_max=cfg.steps)'),
+      D('','92','',''),
+      D('','93','','for step, batch in enumerate(loader):'),
+      D('','94','','    loss = model(batch).loss'),
+      D('','95','','    loss.backward()'),
+      D('add','96','+','    clip_grad_norm_(model.parameters(), 1.0)'),
+      D('','97','','    optimizer.step()'),
+    ],
+    concl:t('Warmup removed the loss spike in the first 2k steps; raising lr to 6e-4 converges faster without diverging. All 4 evals hold, avg +1.8; ckpt-12k archived as a candidate artifact.','warmup 消除了前 2k 步的 loss 尖峰，lr 提到 6e-4 后收敛更快且未发散。4 项 eval 全部不回退，平均 +1.8；ckpt-12k 已归档为候选产物。'),
+    valid:'eval-harness v3 · 4 benchmarks · gpu-01 (SSH) · 22min',
+    evidence:'docs/evidence/run-0612/lr-warmup/',
+    actions:[[t('Send back','退回修改'),''],[t('Reject','驳回'),'reject'],[t('Approve & merge','批准并合入'),'approve']],
+    body:(<React.Fragment>
+      <div className="esec"><div className="eh">{t('Behavior compare · loss curve','行为对比 · loss 曲线')} <span className="src">{t('same data order · seed 42','同数据序 · seed 42')}</span></div><LossChart/></div>
+      <div className="esec"><div className="eh">{t('eval benchmarks','eval 基准')} <span className="src">{t('gate rule: block if any drops > 0.5','闸规则：任一项回退 > 0.5 即拦截')}</span></div>
+        <table className="etable"><thead><tr><th>benchmark</th><th>{t('baseline ckpt-10k','基线 ckpt-10k')}</th><th>{t('this run ckpt-12k','本次 ckpt-12k')}</th><th>Δ</th></tr></thead><tbody>
+          <tr><td><b>lm-eval · arc_c</b></td><td>61.2</td><td>63.8</td><td className="up">+2.6</td></tr>
+          <tr><td><b>gsm8k</b></td><td>54.7</td><td>58.1</td><td className="up">+3.4</td></tr>
+          <tr><td><b>mmlu</b></td><td>58.9</td><td>59.3</td><td className="up">+0.4</td></tr>
+          <tr><td><b>hellaswag</b></td><td>77.4</td><td>77.2</td><td className="nt">{t('−0.2 · within tolerance','−0.2 · 容差内')}</td></tr>
+        </tbody></table>
+      </div>
+    </React.Fragment>)
+  },
+  {
+    kind:'gate', id:'g-pid', proj:'arm-ctrl', dtag:'ROBOT', lid:'L7', agent:'claude', st:'var(--warning)', age:'1h', hot:true,
+    title:t('Joint control: PID re-tune + derivative filter','关节控制：PID 重整定 + 微分滤波'), branch:'vd/pid-retune', delta:'+7 −3', model:'claude-sonnet-4.6',
+    gateName:t('staged hardware gate','分级实机闸'), gateState:t('sim passed · requesting bench (locked-axis rig)','sim 通过 · 本次申请 bench（锁轴台架）'),
+    file:'pid.rs', files:['pid.rs','joint_cfg.toml'],
+    diff:[
+      D('hk','','',t('@@ pid.rs · elbow joint gains 31–44 @@','@@ pid.rs · elbow joint 增益 31–44 @@')),
+      D('','31','','impl JointPid {'),
+      D('','32','','    pub fn elbow() -> Self {'),
+      D('del','33','−','        Self { kp: 14.0, ki: 0.0, kd: 0.6,'),
+      D('add','33','+','        Self { kp: 9.5,  ki: 0.4, kd: 1.8,'),
+      D('add','34','+',t('               d_filter_hz: 40.0,  // derivative low-pass, noise suppress','               d_filter_hz: 40.0,  // 微分低通，抑噪')),
+      D('','35','','               i_clamp: 0.3 }'),
+      D('','36','','    }'),
+      D('','37','',''),
+      D('','38','','    pub fn output(&mut self, err: f32, dt: f32) -> f32 {'),
+      D('','39','','        let u = self.kp*err + self.ki*self.i + self.kd*self.d;'),
+      D('del','40','−','        u.clamp(-1.0, 1.0)'),
+      D('add','40','+',t('        u.clamp(-0.8, 0.8)  // keep 20% torque headroom','        u.clamp(-0.8, 0.8)  // 留 20% 扭矩余量')),
+      D('','41','','    }'),
+    ],
+    concl:t('Step-response overshoot 12.4%→3.1%, settle time 0.82s→0.45s, torque noise −18dB after the low-pass. All 6 sim scenes pass; requesting bench (locked-axis rig), field still locked.','阶跃响应超调 12.4%→3.1%，稳定时间 0.82s→0.45s，微分低通后扭矩噪声 −18dB。6 个仿真场景全部通过；申请进入 bench（锁轴台架），field 仍锁定。'),
+    valid:'MuJoCo 3.2 · scene-suite ×6 · target: robot-01 (SSH)',
+    evidence:'docs/evidence/v0.6/pid-retune/',
+    actions:[[t('Send back','退回修改'),''],[t('Reject','驳回'),'reject'],[t('Approve → bench','批准进入 bench'),'approve']],
+    body:(<React.Fragment>
+      <div className="esec"><div className="eh">{t('Behavior compare · elbow step response','行为对比 · 肘关节阶跃响应')} <span className="src">{t('telemetry · 1kHz · pulled from robot-01','遥测 · 1kHz · 自 robot-01 回拉')}</span></div><StepChart/></div>
+      <div className="esec"><div className="eh">{t('Control metrics Δ','控制指标 Δ')}</div>
+        <table className="etable"><thead><tr><th>{t('Metric','指标')}</th><th>{t('Before','改动前')}</th><th>{t('After','改动后')}</th><th>Δ</th></tr></thead><tbody>
+          <tr><td><b>{t('Overshoot','超调量')}</b></td><td>12.4 %</td><td>3.1 %</td><td className="up">−9.3 pt</td></tr>
+          <tr><td><b>{t('Settle time (±2%)','稳定时间 (±2%)')}</b></td><td>0.82 s</td><td>0.45 s</td><td className="up">−45%</td></tr>
+          <tr><td><b>{t('Steady-state error','稳态误差')}</b></td><td>0.4°</td><td>0.2°</td><td className="up">−50%</td></tr>
+          <tr><td><b>{t('Torque noise','扭矩噪声')}</b></td><td>—</td><td>{t('low-pass 40Hz','低通 40Hz')}</td><td className="up">−18 dB</td></tr>
+        </tbody></table>
+      </div>
+      <div className="esec"><div className="eh">{t('Staged hardware gate','分级实机闸')} <span className="src">{t('e-stop precheck confirmed · device lease arm-01 · 14:00–14:30','e-stop 前置已确认 · 设备租约 arm-01 · 14:00–14:30')}</span></div>
+        <div className="stagegate">
+          <span className="stg done"><span className="ic">✓</span><span className="lb">{t('sim','sim 仿真')}<span className="sub2">{t('6/6 scenes pass','6/6 场景通过')}</span></span></span>
+          <span className="stgarr"></span>
+          <span className="stg cur"><span className="ic">⏸</span><span className="lb">{t('bench','bench 台架')}<span className="sub2">{t('requested · locked-axis','本次申请 · 锁轴')}</span></span></span>
+          <span className="stgarr"></span>
+          <span className="stg lock"><span className="ic"><GuiIcon name="lock" className="" style={{width:'13px',height:'13px'}}/></span><span className="lb">{t('field','field 实机')}<span className="sub2">{t('needs 2 approvers','需 2 人批准')}</span></span></span>
+        </div>
+      </div>
+    </React.Fragment>)
+  },
+
+  /* ════ asks (lane needs-input) ════ */
+  {
+    kind:'ask', id:'a-retry', proj:'viden-core', dtag:'CODE', lid:'L3', agent:'claude', st:'var(--warning)', age:'6m', hot:true,
+    title:t('Retry policy scope?','重试策略应用范围？'), branch:'vd/retry-policy', model:'claude-sonnet-4.6', session:'retry/backoff · S1', earlier:12,
+    gateName:t('lane ask','lane 问询'), gateState:t('L3 paused · resumes on reply','L3 已暂停 · 回复后立即恢复'),
+    evidence:'memos/2026-06-12-l3-retry/',
+    askQ:t('Should backoff retry apply uniformly to all providers? OpenAI 429 carries a retry-after header, Anthropic overloaded does not — a unified policy needs exponential-backoff fallback for the latter, expanding the change to 3 files.','退避重试要不要统一应用到全部 provider？OpenAI 的 429 带 retry-after 头，Anthropic 的 overloaded 不带 —— 统一策略需要为后者做指数退避兜底，改动面会扩大到 3 个文件。'),
+    options:[
+      {k:'A', t:t('Unify policy across all providers','全部 provider 统一策略'), d:t('Done in one pass, large surface (provider/*.rs ×3, ~+60 lines); unified observability','一次做完，改动面大（provider/*.rs ×3，约 +60 行）；统一的可观测性'), meta:t('+60 lines · 3 files','+60 行 · 3 文件')},
+      {k:'B', t:t('openai first, others as follow-ups','仅 openai 先行，其余开 follow-up'), d:t('Conservative landing; this branch only touches openai.rs; auto-create follow-up sessions for anthropic/google','保守落地，本支线只动 openai.rs；为 anthropic/google 自动创建后续 session'), meta:t('+18 lines · 1 file','+18 行 · 1 文件')},
+    ],
+    actions:[[t('Snooze (tomorrow)','挂起（明天再说）'),''],[t('Reply & resume lane','回复并恢复 lane'),'approve']],
+    context:(<div className="trans">
+      <div className="msg user"><div className="who">{t('YOU · TASK · 10:42','YOU · 任务下达 · 10:42')}</div><div className="body">{t('Add retry/backoff to provider calls; start with 429 and timeout; keep the change as narrow as possible.','给 provider 调用加重试/退避，先看 429 和超时两类，改动尽量窄。')}</div></div>
+      <div className="msg"><div className="who">L3 · CLAUDE · 10:42</div><div className="body">{t('Plan: ① inventory each provider’s error paths → ② draft a unified RetryPolicy → ③ tests first → ④ produce a patch through the gate. Reading code first.','计划：① 盘点各 provider 的错误路径 → ② 起草统一的 RetryPolicy → ③ 测试先行 → ④ 出 patch 走闸。先读代码。')}</div></div>
+      <div className="tool"><span className="nm">grep</span> "status() == 429" src/provider/<br/><span className="ok">✓</span> {t('hit 3 sites: openai.rs:88 · anthropic.rs:104 · google.rs:71','命中 3 处：openai.rs:88 · anthropic.rs:104 · google.rs:71')}</div>
+      <div className="tool"><span className="nm">read_file</span> src/provider/openai.rs · anthropic.rs · google.rs<br/><span className="ok">✓</span> {t('compared the error-handling paths of all 3 providers','三个 provider 的错误处理路径已对比')}</div>
+      <div className="msg"><div className="who">L3 · CLAUDE · 10:51</div><div className="body">{t('Found differences: OpenAI 429 carries retry-after (precise backoff); Anthropic overloaded does not, needs exponential-backoff fallback; Google is RESOURCE_EXHAUSTED, different semantics again. Writing tests first to pin expected behavior.','发现差异：OpenAI 的 429 带 retry-after 头，可以精确退避；Anthropic 的 overloaded 不带，需要指数退避兜底；Google 是 RESOURCE_EXHAUSTED，语义又不同。先把测试写出来固定预期行为。')}</div></div>
+      <div className="tool"><span className="nm">write_file</span> {t('tests/provider_retry.rs (+86 lines)','tests/provider_retry.rs（+86 行）')}<br/><span className="ok">✓</span> {t('covers 429 / timeout / retry-cap, 8 cases','覆盖 429 / 超时 / 重试上限 8 个用例')}</div>
+      <div className="tool"><span className="nm">cargo test</span> -p viden-cli provider_retry<br/><span className="ok">✓</span> {t('existing 14 tests pass · new retry tests drafted','现有 14 项测试通过 · 新增 retry 测试已起草')}</div>
+      <div className="msg"><div className="who">{t('L3 · CLAUDE — paused, awaiting input · 10:58','L3 · CLAUDE — 暂停等待输入 · 10:58')}</div><div className="body">{t('The three 429 semantics differ, so a unified policy expands the change to 3 files. This is a scope decision, escalated to you per gate policy — both options are fully evaluated (see right); pick one and I continue immediately.','三家 429 语义不一致，统一策略改动面会扩到 3 个文件。这是范围决策，按闸策略升级给你 —— 两个方案都已评估完（见右侧），选哪个我立即继续。')}</div></div>
+    </div>),
+    body:null
+  },
+  {
+    kind:'ask', id:'a-budget', proj:'boss-rush', dtag:'GAME', lid:'L4', agent:'builtin', st:'var(--progress)', age:'18m',
+    title:t('Content-gen budget almost exhausted','内容生成预算即将用尽'), branch:'vd/level-variants', model:'gemini-2.5-pro', session:'level-variants · S2', earlier:9,
+    gateName:t('lane ask','lane 问询'), gateState:t('L4 paused · budget policy from viden.toml','L4 已暂停 · 预算策略来自 viden.toml'),
+    evidence:'docs/evidence/v0.6/level-gen/',
+    askQ:t('20 of 24 level variants generated; token budget at 82% (41k / 50k). The remaining 4 need ~11k more, over this lane’s quota. Continue or wrap up here?','24 个关卡变体已生成 20 个，token 预算用到 82%（41k / 50k）。剩余 4 个估计还需 11k，会超出本 lane 配额。继续还是就此收口？'),
+    options:[
+      {k:'A', t:t('Add 15k budget, finish all 24','追加 15k 预算，生成完 24 个'), d:t('Full coverage of the 4-terrain × 6-variant matrix in the design contract','完整覆盖设计契约里的 4 种地形 × 6 变体矩阵'), meta:'≈ +¥4.2 · 8min'},
+      {k:'B', t:t('Stop at 20, go straight to gallery review','停在 20 个，直接进画廊评审'), d:t('The 20 already cover all 4 terrains; top up after review if needed','20 个已覆盖全部 4 种地形；评审后不够再补'), meta:t('review now','立即可评审')},
+    ],
+    actions:[[t('Snooze','挂起'),''],[t('Reply & resume lane','回复并恢复 lane'),'approve']],
+    context:(<div className="trans">
+      <div className="msg user"><div className="who">{t('YOU · TASK · 11:05','YOU · 任务下达 · 11:05')}</div><div className="body">{t('Batch-generate level variants per the terrain matrix in design contract §5; output goes to gallery review.','按设计契约 §5 的地形矩阵批量生成关卡变体，产出走画廊评审。')}</div></div>
+      <div className="tool"><span className="nm">read_file</span> contracts/design-spec.md §5<br/><span className="ok">✓</span> {t('terrain matrix 4 × 6 variants = 24 targets','地形矩阵 4 种 × 6 变体 = 24 个目标')}</div>
+      <div className="tool"><span className="nm">generate</span> {t('level-variant #01–#08 (snowfield / cavern)','level-variant #01–#08（雪原 / 溶洞）')}<br/><span className="ok">✓</span> {t('8 written to levels/variants/ · reachability check passed','8 个写入 levels/variants/ · 可达性检查通过')}</div>
+      <div className="msg"><div className="who">{t('L4 · BUILT-IN AGENT · 11:32','L4 · 内置 AGENT · 11:32')}</div><div className="body">{t('First 8 variants done. Cavern terrain averages ≈30% higher gen cost than estimated (high path complexity); monitoring budget.','前 8 个变体完成。溶洞地形的平均生成成本比预估高 ≈30%（路径复杂度高），持续监控预算。')}</div></div>
+      <div className="tool"><span className="nm">generate</span> {t('level-variant #09–#20 (volcano / floating isle)','level-variant #09–#20（火山 / 浮岛）')}<br/><span className="ok">✓</span> {t('12 written · each with thumbnail + reachability check','12 个写入 · 每个附缩略图与可达性检查')}</div>
+      <div className="tool"><span className="nm">budget</span> {t('lane L4 token quota','lane L4 token 配额')}<br/><span className="wn">{t('⚠ 41k / 50k (82%)','⚠ 41k / 50k（82%）')}</span> {t('· budget-policy warning triggered (viden.toml: budget.warn_at = 0.8)','· 触发预算策略提醒（viden.toml: budget.warn_at = 0.8）')}</div>
+      <div className="msg"><div className="who">{t('L4 · BUILT-IN AGENT — paused, awaiting input · 11:58','L4 · 内置 AGENT — 暂停等待输入 · 11:58')}</div><div className="body">{t('Budget is a policy red line; not deciding on my own. Two wrap-up options on the right, with cost estimates.','预算是策略红线，不自行决定。两个收口方案见右侧，含成本估计。')}</div></div>
+    </div>),
+    body:null
+  },
+
+  /* ════ contract ════ */
+  {
+    kind:'contract', id:'c-spec', proj:'boss-rush', dtag:'GAME', lid:'L1', agent:'claude', st:'var(--gold)', age:'25m',
+    title:t('Contract change: feel param ranges v1.0 → v1.1','契约变更：手感参数区间 v1.0 → v1.1'), branch:'contracts/design-spec.md', model:'claude-sonnet-4.6',
+    gateName:t('contract gate','契约闸'), gateState:t('L1 proposes · finalize v1.1 on approval and notify subscribers','L1 提议 · 批准后定稿 v1.1 并通知订阅方'),
+    evidence:'contracts/design-spec.md',
+    file:'design-spec.md', files:['design-spec.md'],
+    diff:[
+      D('hk','','',t('@@ design-spec.md · §4 feel param ranges @@','@@ design-spec.md · §4 手感参数区间 @@')),
+      D('','41','',t('## §4 Jump Feel','## §4 跳跃手感 Jump Feel')),
+      D('','42','',''),
+      D('del','43','−',t('- Jump peak: 110 ± 10 px','- 跳跃峰值：110 ± 10 px')),
+      D('add','43','+',t('- Jump peak: 100 ± 8 px','- 跳跃峰值：100 ± 8 px')),
+      D('del','44','−',t('- Airtime: 0.60 – 0.64 s','- 滞空时间：0.60 – 0.64 s')),
+      D('add','44','+',t('- Airtime: 0.64 – 0.70 s','- 滞空时间：0.64 – 0.70 s')),
+      D('add','45','+',t('- Variable height: release cut ×0.40 – 0.50','- 可变跳高：松键截断 ×0.40 – 0.50')),
+      D('','46','',''),
+      D('','47','',t('> Change reason: vd/jump-feel written back to the design contract after playtest validation,','> 变更理由：vd/jump-feel 试玩验证后回写设计契约，')),
+      D('','48','',t('> so the contract reflects the approved actual feel.','> 使契约反映已批准的实际手感。')),
+    ],
+    concl:t('L1 proposes aligning the §4 feel ranges to the just-approved jump-feel patch. This is "implementation written back to contract", direction is fine; on approval v1.1 is finalized and a change memo auto-injects into the two subscriber lanes.','L1 提议把 §4 的手感区间对齐到刚批准的 jump-feel patch。属"实现回写契约"，方向正常；批准后 v1.1 定稿，变更备忘自动注入两个订阅 lane。'),
+    actions:[[t('Reject','驳回'),''],[t('Approve & finalize v1.1','批准定稿 v1.1'),'approve']],
+    body:(<React.Fragment>
+      <div className="esec"><div className="eh">{t('Impact · subscribers','影响范围 · 订阅方')} <span className="src">{t('derived from the dependency graph · not broadcast','由依赖图推出 · 不广播')}</span></div>
+        <div className="implane"><span className="lid">L2</span><span className="nm">codex · gameplay</span><span className="how">{t('memo injected next session','memo 注入下次 session')}<br/>{t('expected: none (params already aligned)','预计动作：无（参数已一致）')}</span></div>
+        <div className="implane"><span className="lid">L4</span><span className="nm">{t('built-in · content gen','内置 · 内容生成')}</span><span className="how">{t('memo injected next session','memo 注入下次 session')}<br/>{t('expected: re-check level reachability against new ranges','预计动作：关卡可达性按新区间复检')}</span></div>
+      </div>
+      <div className="esec"><div className="eh">{t('Post-finalize actions','定稿后动作')} <span className="src">{t('executed by scribe','书记官 scribe 执行')}</span></div>
+        <div className="passrow"><span className="ok">→</span><span>{t('v1.1 written to contract history · change enters today’s team briefing · subscriber ack flows back here','v1.1 写入契约历史 · 变更进当日团队简报 · 订阅方 ack 状态回流本中心')}</span></div>
+      </div>
+    </React.Fragment>)
+  },
+];
+
+const KIND_META={
+  gate:{ic:'⏸',label:t('gate approval','闸审批'),chip:'gate'},
+  ask:{ic:'?',label:t('lane ask','lane 问询'),chip:'ask'},
+  contract:{ic:'§',label:t('contract confirm','契约确认'),chip:'gate'},
+};
+
+/* ───────── components ───────── */
+function Queue({items,cur,setCur,filter,done}){
+  const groups=[['gate',t('Gate approvals','闸审批')],['ask',t('Awaiting you · lane asks','等你拍板 · lane 问询')],['contract',t('Contract confirmations','契约确认')]];
+  return (
+    <div className="queue">
+      {groups.map(([k,label])=>{
+        const list=items.filter(it=>it.kind===k && (filter==='all'||filter===k));
+        if(!list.length) return null;
+        return (
+          <React.Fragment key={k}>
+            <div className="qsec">{KIND_META[k].ic} {label} <span className="n">{list.length}</span></div>
+            {list.map(it=>(
+              <div key={it.id} className={"qitem "+(cur===it.id?'on':'')} onClick={()=>setCur(it.id)} style={done[it.id]?{opacity:.45}:null}>
+                <div className="r1"><span className="ki" style={{color:it.st}}>{done[it.id]?'✓':KIND_META[it.kind].ic}</span>{it.title}</div>
+                <div className="r2"><span className="pr"><span className="pd" style={{background:PROJ_META[it.proj].color}}></span>{it.proj}</span><span className="lid">{it.lid}</span><span>{it.agent}</span><span className="dtag">{it.dtag}</span><span className={"age "+(it.hot?'hot':'')}>{it.age}</span></div>
+              </div>
+            ))}
+          </React.Fragment>
+        );
+      })}
+      <div className="qfoot">{t('One decision skeleton: ','同一套决定骨架：')}<span className="a">{t('context ‖ evidence ‖ action','上下文 ‖ 证据 ‖ 动作')}</span>{t('. Every decision is logged with its reason to the gate log (trainable format · Q6).','。每个决定连同理由写入闸日志（可训练格式 · Q6）。')}</div>
+    </div>
+  );
+}
+
+function DiffPane({r,fontSize,label}){
+  return (
+    <div className="pane code">
+      <div className="ph"><b>{label||t('Code diff','代码 Diff')}</b><span>{r.file}</span>{r.delta&&<span className="pm">{r.delta}</span>}<span className="sp"></span><span>⎇ {r.branch}</span></div>
+      <div className="filetabs">{r.files.map((f,i)=><span key={f} className={"ftab "+(i===0?'on':'')}>{f}</span>)}</div>
+      <div className="diffbody" style={{fontSize}}>
+        {r.diff.map((d,i)=>(
+          <div key={i} className={"dl "+d.t}><span className="ln">{d.ln}</span><span className="sg">{d.sg}</span><span className="tx">{d.tx}</span></div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ContextPane({r}){
+  const ref=React.useRef(null);
+  React.useEffect(()=>{const el=ref.current;if(el){el.scrollTop=el.scrollHeight;}},[r.id]);
+  return (
+    <div className="pane code" ref={ref}>
+      <div className="ph"><b>{t('Session window','会话窗口')}</b><span>{r.lid} · {r.session||r.agent}</span><span className="sp"></span><span>⎇ {r.branch}</span><span className="open">{t('Open in lane ↗','在 lane 中打开 ↗')}</span></div>
+      <div className="loadmore">{t('↑ scroll up · ','↑ 向前翻 · 还有 ')}{r.earlier}{t(' earlier messages',' 条更早消息')}</div>
+      {r.context}
+      <div className="waitmark">{t('⏸ session paused here · resumes after your reply','⏸ 会话在此暂停 · 等待你的回复后继续')}</div>
+    </div>
+  );
+}
+
+function AskDecision({r,sel,setSel}){
+  return (
+    <div className="pane evid" data-screen-label="问询决定区">
+      <div className="ph"><b>{t('Awaiting your decision','等你决定')}</b><span>{t('reply injects into lane context and resumes','回复将注入 lane 上下文并恢复运行')}</span><span className="sp"></span><span>{r.evidence}</span></div>
+      <div className="concl warn">{r.askQ}<span className="by">{t('raised by ','问题由 ')}{r.lid} {r.agent}{t(' · escalated to you per gate policy (scope/budget decisions)',' 提出 · 按闸策略升级给你（范围/预算类决策）')}</span></div>
+      <div className="esec"><div className="eh">{t('Options from the agent','agent 给出的方案')}</div>
+        {r.options.map(o=>(
+          <div key={o.k} className={"opt "+(sel===o.k?'sel':'')} onClick={()=>setSel(o.k)}>
+            <span className="key">{o.k}</span>
+            <div><div className="ot">{o.t}</div><div className="od">{o.d} · <span className="mono2">{o.meta}</span></div></div>
+          </div>
+        ))}
+      </div>
+      <div className="esec"><div className="eh">{t('Notes (optional)','补充说明（可选）')}</div>
+        <textarea className="replybox" rows="2" placeholder={t('Extra constraints or rationale — written into lane context and the decision log…','附加约束或理由，会一并写进 lane 上下文与决策日志…')}></textarea>
+      </div>
+      <div style={{height:14}}></div>
+    </div>
+  );
+}
+
+function EvidencePane({r,showConcl}){
+  return (
+    <div className="pane evid" data-screen-label={"证据·"+r.dtag}>
+      <div className="ph"><b>{r.kind==='contract'?t('Impact & evidence','影响与证据'):t('Behavior evidence','行为证据')}</b><span>{r.kind==='contract'?t('contract gate','契约闸'):r.dtag+t(' domain-pack render','领域包渲染')}</span><span className="sp"></span><span>{r.evidence}</span></div>
+      {showConcl && r.concl && <div className="concl">{r.concl}<span className="by">{t('conclusion summary · generated by the routing small-model · all evidence is traceable','结论摘要 · 由路由小模型生成 · 证据均可点开溯源')}</span></div>}
+      {r.body}
+      <div style={{height:14}}></div>
+    </div>
+  );
+}
+
+function VBar({title}){ return <GuiTitleBar/>; }
+function VRail({active,badges}){
+  const order=[['chat','Conversation'],['lanes','Lanes'],['worktree','Worktrees'],['review','Review'],['decide','Decision Center'],['gallery','Gallery'],['inbox','Inbox']];
+  return (
+    <div className="act">
+      {order.map(([k,lbl])=>(
+        <div key={k} className={"actbtn "+(active===k?'on':'')} title={lbl}>{ICONS[k]}{badges&&badges[k]&&<span className="badge" style={{background:'var(--gold)'}}>{badges[k]}</span>}</div>
+      ))}
+      <div className="actspacer"></div>
+      <div className="actbtn" title="Settings">{ICONS.settings}</div>
+    </div>
+  );
+}
+function App(){
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "codeFontSize":11,
+    "showConclusion":true,
+    "queueDensity":"standard"
+  }/*EDITMODE-END*/);
+  const [cur,setCur]=useState(ITEMS[0].id);
+  const [filter,setFilter]=useState('all');
+  const [sel,setSel]=useState(null);
+  const [done,setDone]=useState({});
+  const [toast,setToast]=useState(null);
+  const r=ITEMS.find(i=>i.id===cur);
+  const remaining=ITEMS.filter(i=>!done[i.id]).length;
+  const counts=k=>ITEMS.filter(i=>i.kind===k&&!done[i.id]).length;
+  const act=(label,kind)=>{
+    if(kind==='approve'){setDone(d=>({...d,[r.id]:true}));}
+    const isReply=r.kind==='ask'&&kind==='approve';
+    setToast(isReply&&sel?t(`Replied option ${sel}, ${r.lid} resumed`,`已回复方案 ${sel}，${r.lid} 恢复运行`):`${label} ✓`);
+    setTimeout(()=>setToast(null),2600);
+  };
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · D2 concept · {t('Decision Center','决策中心 Decision Center')}</div>
+      <h1 className="ph1">{t('Decision Center','决策中心')} <span className="ac">one queue, all decisions</span></h1>
+      <p className="plead">{t('v2: everything awaiting a human decision goes into ','v2：所有等人拍板的事进')}<b>{t('one queue','同一个队列')}</b>{t(' — gate approvals, lane asks (needs-input), contract-change confirmations, on one card skeleton: ',' —— 闸审批、lane 的问询（needs-input）、契约变更确认，统一卡片骨架：')}<b>{t('left = context (diff / session / contract), right = evidence & decision area, bottom = action bar','左 = 上下文（diff / 会话 / 契约），右 = 证据与决定区，底 = 动作栏')}</b>{t('. Filter by type at top-left.','。左上筛选器按类型过滤。')}</p>
+    <div className="frame" data-screen-label="决策中心">
+      <VBar/>
+      <div className="cmdbar">
+        <span className="t"><span className="pulse"></span>{t('Decision Center','决策中心')}</span>
+        <span className="cnt"><b>{remaining}</b> {t('awaiting you · across 4 projects · 12 lanes running team-wide','项等你 · 来自 4 个项目 · 全队 lane 12 条在跑')}</span>
+        <div className="fchips">
+          <span className={"fchip "+(filter==='all'?'on':'')} onClick={()=>setFilter('all')}>{t('All','全部')} {remaining}</span>
+          <span className={"fchip "+(filter==='gate'?'on':'')} onClick={()=>setFilter('gate')}>⏸ {t('gates','闸')} {counts('gate')}</span>
+          <span className={"fchip "+(filter==='ask'?'on':'')} onClick={()=>setFilter('ask')}>? {t('asks','问询')} {counts('ask')}</span>
+          <span className={"fchip "+(filter==='contract'?'on':'')} onClick={()=>setFilter('contract')}>§ {t('contracts','契约')} {counts('contract')}</span>
+        </div>
+        <span className="sp"></span>
+        <span className="meta">{t('gate policy viden.toml · routed to: you (owner: core)','闸策略 viden.toml · 路由给：你（owner: core）')}</span>
+      </div>
+      <div className="inner">
+        <VRail active="decide" badges={{decide:remaining,chat:'',lanes:12}}/>
+        <Queue items={ITEMS} cur={cur} setCur={id=>{setCur(id);setSel(null);}} filter={filter} done={done}/>
+        <div className="main">
+          <div className="rhead">
+            <span className="t">{r.title}</span>
+            <span className="chip" style={{color:PROJ_META[r.proj].color,borderColor:'color-mix(in srgb,'+PROJ_META[r.proj].color+' 45%,transparent)'}} title={PROJ_META[r.proj].full}><span className="dot" style={{background:PROJ_META[r.proj].color}}></span>{PROJ_META[r.proj].full} › {r.lid}</span>
+            <span className="chip lane">{r.lid} · {r.agent}</span>
+            <span className="chip">{r.model}</span>
+            {r.kind==='gate' && <span className="chip ok"><span className="dot" style={{background:'var(--success)'}}></span>{t('auto-validation passed','自动验证通过')}</span>}
+            <span className={"chip "+(r.kind==='ask'?'ask':'gate')}>{KIND_META[r.kind].ic} {r.gateName}</span>
+            <span className="sp"></span>
+            {r.valid && <span className="meta">{r.valid}</span>}
+          </div>
+          <div className="split">
+            {r.kind==='ask' ? <ContextPane r={r}/> : <DiffPane r={r} fontSize={tw.codeFontSize} label={r.kind==='contract'?t('Contract diff','契约 Diff'):t('Code diff','代码 Diff')}/>}
+            {r.kind==='ask' ? <AskDecision r={r} sel={sel} setSel={setSel}/> : <EvidencePane r={r} showConcl={tw.showConclusion}/>}
+          </div>
+          <div className="gatebar">
+            <div className="gstat">
+              <span className="l1">{KIND_META[r.kind].ic} {r.gateName}<span className="chip" style={{fontSize:9}}>{r.gateState}</span></span>
+              <span className="l2">{t('Decision & reason written to ','决策与理由写入 ')}<span className="a">{r.evidence}</span>{t(' + gate log gate-log.jsonl · rules from ',' + 闸日志 gate-log.jsonl · 规则来自 ')}<span className="a">viden.toml</span></span>
+            </div>
+            <span className="sp"></span>
+            {r.actions.map(([label,cls])=>(
+              <button key={label} className={"gbtn "+cls} disabled={cls==='approve'&&r.kind==='ask'&&!sel} onClick={()=>act(label,cls)}>{label}{cls==='approve'&&<kbd>⌘⏎</kbd>}</button>
+            ))}
+          </div>
+          {toast && <div className="toast">✓ {toast}<span className="mono">{r.evidence}gate-log.jsonl</span></div>}
+        </div>
+      </div>
+
+      <GuiStatusBar right={"\u23f8 "+remaining+t(' awaiting you','\u9879\u7b49\u4f60')}/>
+      <TweaksPanel>
+        <TweakSection label={t('Layout','布局')} />
+        <TweakSlider label={t('Code font size','代码字号')} value={tw.codeFontSize} min={10} max={14} step={0.5} unit="px" onChange={v=>setTweak('codeFontSize',v)} />
+        <TweakSection label={t('Content','内容')} />
+        <TweakToggle label={t('Show conclusion summary','显示结论摘要')} value={tw.showConclusion} onChange={v=>setTweak('showConclusion',v)} />
+      </TweaksPanel>
+    </div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

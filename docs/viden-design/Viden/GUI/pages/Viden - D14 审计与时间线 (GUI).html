@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D14 · Audit & Timeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../gui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1560px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:940px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+
+.frame{height:880px;min-width:1180px;position:relative;}
+.cmdbar{flex:none;display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--bg-void);}
+.cmdbar .t{font-size:15px;font-weight:700;display:flex;align-items:center;gap:9px;}
+.cmdbar .sub{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.cmdbar .sub .a{color:var(--accent);}
+.cmdbar .sp{flex:1;}
+.cmdbar .meta{font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+.inner{flex:1;display:grid;grid-template-columns:var(--rail-act) 1fr 372px;min-height:0;}
+
+/* filter bar */
+.fbar{flex:none;display:flex;align-items:center;gap:7px;padding:10px 18px;border-bottom:1px solid var(--border-soft);flex-wrap:wrap;}
+.fchip{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--fg-muted);border:1px solid var(--border-soft);border-radius:7px;padding:4px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:26px;}
+.fchip:hover{color:var(--fg-secondary);border-color:var(--border);}
+.fchip.on{color:var(--accent-bright);border-color:var(--accent-dim);background:var(--bg-sel);}
+.fchip .d{width:7px;height:7px;border-radius:2px;flex:none;}
+.fdiv{width:1px;height:16px;background:var(--border-soft);margin:0 4px;}
+.fsearch{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--fg-faint);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:7px;padding:5px 11px;min-width:220px;}
+.frange{font-family:var(--mono);font-size:10.5px;color:var(--fg-secondary);border:1px solid var(--border-soft);border-radius:7px;padding:4px 11px;cursor:pointer;}
+
+/* timeline main */
+.amain{min-width:0;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;display:flex;flex-direction:column;}
+.aday{position:sticky;top:0;z-index:2;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg-muted);background:var(--bg-base);display:flex;align-items:center;gap:9px;padding:13px 20px 7px;}
+.aday::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.aday .anchor{font-weight:400;letter-spacing:0;text-transform:none;color:var(--fg-faint);}
+.aday .anchor .sha{color:var(--accent);}
+.arow{display:flex;align-items:center;gap:11px;padding:calc(var(--row-pad-y) + 1px) 20px;cursor:pointer;border-left:3px solid transparent;min-height:36px;}
+.arow:hover{background:var(--bg-panel);}
+.arow.on{background:var(--bg-sel);border-left-color:var(--accent);}
+.arow .tm{font-family:var(--mono);font-size:10px;color:var(--fg-faint);width:38px;flex:none;}
+.arow .ki{font-family:var(--mono);font-size:12px;width:16px;text-align:center;flex:none;}
+.arow .who{flex:none;display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9.5px;font-weight:700;border:1px solid;border-radius:5px;padding:1px 7px;white-space:nowrap;}
+.who.you{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 45%,transparent);}
+.who.agent{color:var(--accent);border-color:var(--accent-dim);}
+.who.policy{color:var(--fg-muted);border-color:var(--border);border-style:dashed;}
+.arow .tt{font-size:12.5px;color:var(--fg-secondary);min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.arow .tt b{color:var(--fg-primary);font-weight:600;}
+.arow .tt .mono{font-family:var(--mono);font-size:11px;}
+.arow .lane-b{font-family:var(--mono);font-size:9px;color:var(--fg-muted);border:1px solid var(--border-soft);border-radius:4px;padding:1px 6px;flex:none;}
+.arow .sha2{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);flex:none;}
+
+/* right rail: record detail */
+.rail{background:var(--bg-panel);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.rail .dhead{padding:15px 17px 11px;border-bottom:1px solid var(--border-soft);}
+.rail .dhead .t1{font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.rail .dhead .t2{font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);margin-top:5px;line-height:1.6;}
+.rail .dsec{padding:11px 17px 3px;}
+.rail .dsec h5{margin:0 0 8px;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:var(--fg-muted);display:flex;align-items:center;gap:8px;}
+.rail .dsec h5::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.kv{display:flex;gap:10px;font-family:var(--mono);font-size:10.5px;padding:2.5px 0;line-height:1.6;}
+.kv .k{color:var(--fg-faint);width:86px;flex:none;}
+.kv .v{color:var(--fg-secondary);min-width:0;}
+.kv .v.hl{color:var(--fg-primary);font-weight:600;}
+.kv .v .a{color:var(--accent-bright);} .kv .v .g{color:var(--gold-bright);} .kv .v .ok{color:var(--success);} .kv .v .bad{color:var(--error);}
+.chainbox{margin:4px 0 8px;background:var(--bg-void);border:1px solid var(--border-soft);border-radius:8px;padding:9px 12px;font-family:var(--mono);font-size:10px;line-height:1.9;color:var(--fg-secondary);}
+.chainbox .sha{color:var(--accent);} .chainbox .dim{color:var(--fg-faint);}
+.evchip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9.5px;color:var(--fg-secondary);border:1px solid var(--border-soft);border-radius:6px;padding:3px 9px;margin:0 6px 6px 0;cursor:pointer;}
+.evchip:hover{border-color:var(--accent-dim);color:var(--fg-primary);}
+.rail .note{margin-top:auto;border-top:1px solid var(--border-soft);padding:12px 17px;font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.8;}
+.rail .note .a{color:var(--accent);}
+.exp{display:flex;gap:7px;flex-wrap:wrap;padding-bottom:10px;}
+.expbtn{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--fg-secondary);border:1px solid var(--border-soft);border-radius:7px;padding:5px 12px;cursor:pointer;background:transparent;min-height:28px;}
+.expbtn:hover{color:var(--fg-primary);border-color:var(--fg-muted);}
+.toast{position:absolute;left:50%;bottom:52px;transform:translateX(-50%);background:var(--bg-elev);border:1px solid var(--accent-dim);color:var(--fg-primary);font-size:12.5px;border-radius:9px;padding:9px 16px;box-shadow:var(--shadow-toast);display:flex;gap:10px;align-items:center;white-space:nowrap;z-index:5;}
+.toast .mono{font-family:var(--mono);font-size:10px;color:var(--fg-muted);}
+</style>
+</head>
+<body>
+<div class="pwrap">
+  <div id="root"></div>
+</div>
+
+<script type="text/babel" src="../../tweaks-panel.jsx"></script>
+<script type="text/babel" src="../gui-icons.jsx"></script>
+<script type="text/babel" src="../gui-statusbar.jsx"></script>
+<script type="text/babel" src="../gui-titlebar.jsx"></script>
+<script type="text/babel">
+const {useState} = React;
+const t = window.t || ((en,zh)=>en);
+
+/* 行类型:perm 权限(金) · gate 闸(金) · merge 合入(绿) · cfg 策略/配置(紫) · sess 会话/lane(蓝) */
+const TYPES = [
+  {id:'perm',  en:'Permissions', zh:'权限',  c:'var(--gold)'},
+  {id:'gate',  en:'Gates',       zh:'闸',    c:'var(--warning)'},
+  {id:'merge', en:'Merges',      zh:'合入',  c:'var(--success)'},
+  {id:'cfg',   en:'Policy',      zh:'策略',  c:'var(--builtin)'},
+  {id:'sess',  en:'Sessions',    zh:'会话',  c:'var(--progress)'},
+];
+const TC = Object.fromEntries(TYPES.map(x=>[x.id,x.c]));
+
+/* who.kind: you(金·操作者) / agent(青) / policy(灰虚线·规则自动) */
+const ROWS = [
+  {d:t('TODAY · 2 JUL','今天 · 7月2日'), anchor:'main@9f3ac21', rows:[
+    {t:'14:32', ty:'merge', ic:'⇥', who:{k:'you',nm:'you'},   tt:<span><b>{t('approved & merged','批准并合入')}</b> · <span className="mono">vd/dash-cancel</span> → main</span>, lane:'L3', sha:'9f3ac21', on:true,
+      det:{act:t('Integration gate · approve & merge','集成闸 · 批准并合入'), by:t('you (operator)','你(操作者)'), reason:t('replay-regression green after bounce+rebase','退回+rebase 后回放回归全绿'), refs:['gate #g-021','replay run 240f ✓','bounce #g-019'], chain:[['g-021',t('gate approve — you','闸批准 — 你')],['9f3ac21',t('merge commit — main','合入 commit — main')],['note',t('audit note attached (git notes)','审计注记已附(git notes)')]] }},
+    {t:'14:29', ty:'gate',  ic:'⏸', who:{k:'agent',nm:'L3 codex'}, tt:<span><b>{t('gate re-submitted','重新提交闸')}</b> · {t('after auto-rebase · no conflict','自动 rebase 后 · 无冲突')}</span>, lane:'L3', sha:'e21c04d',
+      det:{act:t('Integration gate · re-submit','集成闸 · 重新提交'), by:'L3 codex', reason:t('bounce resolved: rebased onto main, replay re-run','退回已解决:rebase 到 main,重跑回放'), refs:['gate #g-021','diff +38−12'], chain:[['e21c04d',t('lane head after rebase','rebase 后 lane 头')],['g-021',t('gate re-open','闸重开')]] }},
+    {t:'14:12', ty:'perm',  ic:'⏸', who:{k:'you',nm:'you'},   tt:<span><b>{t('permission approved (once)','权限批准(单次)')}</b> · <span className="mono">shell · cargo bench</span></span>, lane:'L1', sha:'—',
+      det:{act:t('Permission · shell command','权限 · shell 命令'), by:t('you (operator)','你(操作者)'), reason:t('Y · once — bench writes target/, in scope','Y · 单次 — bench 写 target/,在作用域内'), refs:['permission #a-039'], chain:[['a-039',t('decision_reason: RuleAsk → operator Y','决策依据:RuleAsk → 操作者 Y')]] }},
+    {t:'13:58', ty:'cfg',   ic:'§', who:{k:'you',nm:'you'},   tt:<span><b>{t('permission mode changed','权限模式变更')}</b> · L2 · Ask → <span className="mono">Auto Edit</span></span>, lane:'L2', sha:'—',
+      det:{act:t('Permission mode change','权限模式变更'), by:t('you (operator)','你(操作者)'), reason:t('trusted refactor lane · acceptEdits for this session','可信重构 lane · 本会话 acceptEdits'), refs:[], chain:[['—',t('config: permission_mode acceptEdits (session scope)','配置:permission_mode acceptEdits(会话级)')]] }},
+    {t:'13:40', ty:'gate',  ic:'↩', who:{k:'you',nm:'you'},   tt:<span><b>{t('gate bounced to origin lane','闸退回原 lane')}</b> · {t('conflict on','冲突于')} <span className="mono">dash.gd</span></span>, lane:'L3', sha:'—',
+      det:{act:t('Integration gate · bounce','集成闸 · 退回'), by:t('you (operator)','你(操作者)'), reason:t('cancel window 12f per contract §4 — keep buffer after rebase','取消窗口按契约 §4 取 12 帧 — rebase 后保留缓冲'), refs:['gate #g-019','conflict hunk ×1'], chain:[['g-019',t('bounce with reason — recorded','附理由退回 — 已记录')]] }},
+  ]},
+  {d:t('YESTERDAY · 1 JUL','昨天 · 7月1日'), anchor:'main@b8812f0', rows:[
+    {t:'18:20', ty:'merge', ic:'⇥', who:{k:'you',nm:'you'},   tt:<span><b>{t('approved & merged','批准并合入')}</b> · <span className="mono">vd/parser-fmt</span> → main</span>, lane:'L3', sha:'b8812f0',
+      det:{act:t('Integration gate · approve & merge','集成闸 · 批准并合入'), by:t('you (operator)','你(操作者)'), reason:t('clippy clean · suite 14/14','clippy 干净 · 测试 14/14'), refs:['gate #g-018','suite green 14/14'], chain:[['g-018',t('gate approve — you','闸批准 — 你')],['b8812f0',t('merge commit — main','合入 commit — main')]] }},
+    {t:'17:31', ty:'perm',  ic:'✗', who:{k:'you',nm:'you'},   tt:<span><b>{t('permission denied','权限拒绝')}</b> · <span className="mono">rm -rf target</span> · {t('redirected','已转向')}</span>, lane:'L1', sha:'—',
+      det:{act:t('Permission · shell command','权限 · shell 命令'), by:t('you (operator)','你(操作者)'), reason:t('N — use cargo clean instead','N — 改用 cargo clean'), refs:['permission #a-038'], chain:[['a-038',t('deny + redirect — agent told what to do instead','拒 + 转向 — 已告知 agent 替代做法')]] }},
+    {t:'16:44', ty:'cfg', ic:'▸', who:{k:'policy',nm:'rule'}, tt:<span><b>{t('auto-allowed by rule','规则自动放行')}</b> · <span className="mono">shell(cargo test *)</span> ×41</span>, lane:'—', sha:'—',
+      det:{act:t('Permission rule · allow (rolled up)','权限规则 · 放行(汇总)'), by:t('policy (allow rule)','策略(allow 规则)'), reason:t('41 matching calls today auto-allowed — rolled into one audit line','当日命中 41 次自动放行 — 折叠为一条审计行'), refs:['rule allow shell(cargo test *)'], chain:[['—',t('decision_reason: RuleAllow · no human in loop','决策依据:RuleAllow · 无人参与')]] }},
+    {t:'15:02', ty:'sess',  ic:'●', who:{k:'you',nm:'you'},   tt:<span><b>{t('lane created','lane 创建')}</b> · L3 · <span className="mono">vd/parser-fmt</span> · kiro</span>, lane:'L3', sha:'—',
+      det:{act:t('Lane lifecycle · create','lane 生命周期 · 创建'), by:t('you (operator)','你(操作者)'), reason:t('delegate: parser clippy sweep','委派:parser clippy 清扫'), refs:['worktree ../viden-worktrees/L3'], chain:[['—',t('worktree add · branch vd/parser-fmt','worktree add · 分支 vd/parser-fmt')]] }},
+  ]},
+];
+
+function VRail(){
+  const order=[['chat','Conversation'],['lanes','Lanes'],['review','Review'],['decide','Decision Center'],['evidence','Audit / Timeline']];
+  return (
+    <div className="act">
+      {order.map(([k,lbl])=>(
+        <div key={k} className={"actbtn "+(k==='evidence'?'on':'')} title={lbl}>{ICONS[k]}</div>
+      ))}
+      <div className="actspacer"></div>
+      <div className="actbtn" title="Settings">{ICONS.settings}</div>
+    </div>
+  );
+}
+
+function App(){
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "rollupPolicy": true,
+    "showChain": true
+  }/*EDITMODE-END*/);
+  const [fil,setFil]=useState('all');
+  const [selKey,setSel]=useState('0-0');
+  const [toast,setToast]=useState(null);
+  const sel = (()=>{ const [g,r]=selKey.split('-').map(Number); return (ROWS[g]&&ROWS[g].rows[r])||ROWS[0].rows[0]; })();
+  const fire=(m)=>{ setToast(m); setTimeout(()=>setToast(null),2600); };
+  const visible=(r)=> (fil==='all'||r.ty===fil) && (tw.rollupPolicy || r.who.k!=='policy' ? true : true);
+
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · D14 concept · draft 01</div>
+      <h1 className="ph1">{t('Audit & timeline','审计与时间线')} <span className="ac">Audit &amp; Timeline</span></h1>
+      <p className="plead">{t('The compliance answer to “','合规卖点要回答的是「')}<b>{t('who authorized what, when, and why','谁在何时、以什么理由、授权了什么')}</b>{t('”. One workspace-level, append-only timeline of every human decision and policy action: permission approvals/denials, gate approve/bounce, merges, mode & policy changes, lane lifecycle. Git-native: each entry anchors to a commit / gate id, exportable for review. Distinct from the ','」。工作区级、只追加的时间线:权限批/拒、闸批准/退回、合入、模式与策略变更、lane 生命周期。git 原生:每条锚定 commit / 闸号,可导出复查。区别于')}<b>{t('Evidence view','证据视图')}</b>{t(' (lane work products) — audit records the ','(lane 的工作产物) —— 审计记录的是')}<b>{t('decision chain','决策链')}</b>{t('.','。')}</p>
+    <div className="frame" data-screen-label="D14 审计与时间线">
+      <GuiTitleBar project="viden" branch="main"/>
+      <div className="cmdbar">
+        <span className="t">{t('Audit & timeline','审计与时间线')}</span>
+        <span className="sub">{t('workspace ','工作区 ')}<span className="a">viden</span> · {t('append-only · anchored to git','只追加 · 锚定 git')}</span>
+        <span className="sp"></span>
+        <span className="meta">{t('retention: follows repo history · nothing leaves this machine','保留:随仓库历史 · 不出本机')}</span>
+      </div>
+      <div className="inner">
+        <VRail/>
+        <div className="amain" data-screen-label="审计时间线">
+          <div className="fbar">
+            <span className={"fchip "+(fil==='all'?'on':'')} onClick={()=>setFil('all')}>{t('All','全部')}</span>
+            {TYPES.map(x=>(
+              <span key={x.id} className={"fchip "+(fil===x.id?'on':'')} onClick={()=>setFil(x.id)}>
+                <span className="d" style={{background:x.c}}></span>{t(x.en,x.zh)}
+              </span>
+            ))}
+            <span className="fdiv"></span>
+            <span className="fchip on">{t('You','你')}</span>
+            <span className="fchip">Agents</span>
+            <span className="fchip">{t('Policy','策略')}</span>
+            <span className="frange">{t('Last 7 days','近 7 天')} ▾</span>
+            <span className="fsearch">⌕ {t('search audit… ⌘F','搜索审计… ⌘F')}</span>
+          </div>
+          <div style={{flex:1,overflow:'hidden auto',scrollbarWidth:'thin'}}>
+            {ROWS.map((g,gi)=>(
+              <div key={gi}>
+                <div className="aday">{g.d}<span className="anchor">{t('anchor ','锚 ')}<span className="sha">{g.anchor}</span></span></div>
+                {g.rows.map((r,ri)=>{
+                  if(!(fil==='all'||r.ty===fil)) return null;
+                  if(!tw.rollupPolicy && r.who.k==='policy') return null;
+                  const key=gi+'-'+ri;
+                  return (
+                    <div key={key} className={"arow "+(selKey===key?'on':'')} onClick={()=>setSel(key)}>
+                      <span className="tm">{r.t}</span>
+                      <span className="ki" style={{color:TC[r.ty]}}>{r.ic}</span>
+                      <span className={"who "+r.who.k}>{r.who.nm}</span>
+                      <span className="tt">{r.tt}</span>
+                      {r.lane!=='—' && <span className="lane-b">{r.lane}</span>}
+                      {r.sha!=='—' && <span className="sha2">{r.sha}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rail" data-screen-label="审计详情">
+          <div className="dhead">
+            <div className="t1"><span style={{color:TC[sel.ty]}}>{sel.ic}</span> {sel.det.act}</div>
+            <div className="t2">{sel.t} · {sel.lane!=='—' ? sel.lane+' · ' : ''}{t('by ','操作者 ')}{sel.det.by}</div>
+          </div>
+          <div className="dsec">
+            <h5>{t('Record','记录')}</h5>
+            <div className="kv"><span className="k">{t('actor','主体')}</span><span className="v hl">{sel.det.by}</span></div>
+            <div className="kv"><span className="k">{t('reason','理由')}</span><span className="v">{sel.det.reason}</span></div>
+            {sel.sha!=='—' && <div className="kv"><span className="k">{t('git anchor','git 锚')}</span><span className="v"><span className="a">{sel.sha}</span></span></div>}
+            <div className="kv"><span className="k">{t('integrity','完整性')}</span><span className="v"><span className="ok">✓</span> {t('append-only · prev-hash linked','只追加 · 前链哈希')}</span></div>
+          </div>
+          {tw.showChain && <div className="dsec">
+            <h5>{t('Decision chain','决策链')}</h5>
+            <div className="chainbox">
+              {sel.det.chain.map((c,i)=>(
+                <div key={i}>{c[0]!=='—' && <span className="sha">{c[0]}</span>} {c[0]!=='—' && <span className="dim">·</span>} {c[1]}</div>
+              ))}
+            </div>
+          </div>}
+          {sel.det.refs.length>0 && <div className="dsec">
+            <h5>{t('Linked','关联')}</h5>
+            <div>{sel.det.refs.map((x,i)=><span key={i} className="evchip">{x}</span>)}</div>
+          </div>}
+          <div className="dsec">
+            <h5>{t('Export','导出')}</h5>
+            <div className="exp">
+              <button className="expbtn" onClick={()=>fire(t('Exported audit.jsonl · 128 entries · 7 days','已导出 audit.jsonl · 128 条 · 7 天'))}>JSONL</button>
+              <button className="expbtn" onClick={()=>fire(t('Exported audit.csv · 128 entries','已导出 audit.csv · 128 条'))}>CSV</button>
+              <button className="expbtn" onClick={()=>fire(t('git notes ref: refs/notes/viden-audit','git notes 引用:refs/notes/viden-audit'))}>{t('git notes','git notes')}</button>
+            </div>
+          </div>
+          <div className="note">{t('Every “needs a human” moment lands here with its reason — permission cards, gate calls, mode switches. Agent work products live in ','每个「需要人」时刻连同理由落在这里 —— 权限卡、闸裁决、模式切换。agent 工作产物在')}<span className="a">Evidence</span>{t('; the audit line links to them, not the other way round.',';审计行链接到它们,而不是反过来。')}</div>
+        </div>
+      </div>
+      {toast && <div className="toast">✓ {toast}<span className="mono">audit: export</span></div>}
+      <GuiStatusBar right={"⏸ 0 " + t('gates waiting','待审闸')}/>
+      <TweaksPanel>
+        <TweakSection label={t('Content','内容')} />
+        <TweakToggle label={t('Show policy auto-actions (rolled up)','显示策略自动动作(折叠汇总)')} value={tw.rollupPolicy} onChange={v=>setTweak('rollupPolicy',v)} />
+        <TweakToggle label={t('Show decision chain','显示决策链')} value={tw.showChain} onChange={v=>setTweak('showChain',v)} />
+      </TweaksPanel>
+    </div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

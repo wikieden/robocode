@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D6 · Empty & Error States</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../gui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1560px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:940px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+
+.frame{height:820px;min-width:1180px;position:relative;}
+
+/* state switcher (top bar) */
+.statebar{flex:none;display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--bg-void);overflow-x:auto;scrollbar-width:none;}
+.statebar::-webkit-scrollbar{display:none;}
+.statebar .lbl{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--fg-muted);flex:none;margin-right:4px;}
+.segbtn{flex:none;display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--fg-secondary);background:transparent;border:1px solid var(--border-soft);border-radius:8px;padding:6px 12px;cursor:pointer;transition:all .12s;}
+.segbtn:hover{border-color:var(--border-active);color:var(--fg-primary);}
+.segbtn.on{background:var(--bg-sel);border-color:var(--accent-dim);color:var(--accent-bright);}
+.segbtn .d{width:7px;height:7px;border-radius:50%;flex:none;}
+
+.inner{flex:1;display:grid;grid-template-columns:var(--rail-act) var(--rail-left) 1fr;min-height:0;}
+
+/* lanes side (mirrors D1 .side) */
+.side{background:var(--bg-panel);border-right:1px solid var(--border-soft);display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+.sidehd{flex:none;display:flex;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid var(--border-soft);font-size:12px;font-weight:700;}
+.sidehd .ic{color:var(--accent);}
+.sidehd .n{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--fg-muted);border:1px solid var(--border-soft);border-radius:8px;padding:0 7px;}
+.sidebody{flex:1;overflow:auto;padding:9px;display:flex;flex-direction:column;gap:7px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.sidefoot{flex:none;padding:9px;border-top:1px solid var(--border-soft);}
+.newlane{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;font-size:12px;font-weight:600;color:var(--accent-bright);background:var(--bg-sel);border:1px solid var(--accent-dim);border-radius:9px;padding:9px;cursor:pointer;}
+.newlane:hover{background:color-mix(in srgb,var(--accent) 14%,var(--bg-sel));}
+/* side empty hint */
+.sideempty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;color:var(--fg-faint);padding:20px;}
+.sideempty .g{font-size:26px;color:var(--fg-faint);}
+.sideempty .t1{font-size:12px;color:var(--fg-muted);}
+
+/* lane row (compact, reuse gui-kit .wslane feel) */
+.lrow{display:flex;align-items:center;gap:9px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:9px;padding:8px 10px;border-left:3px solid var(--border-soft);}
+.lrow.work{border-left-color:var(--progress);} .lrow.done{border-left-color:var(--success);}
+.lrow.stop{border-left-color:var(--error);} .lrow.need{border-left-color:var(--gold);}
+.lrow .lid{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--accent);flex:none;}
+.lrow .nm{font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lrow .st{margin-left:auto;font-family:var(--mono);font-size:9px;flex:none;}
+.lrow.work .st{color:var(--progress);} .lrow.done .st{color:var(--success);}
+.lrow.stop .st{color:var(--error);} .lrow.need .st{color:var(--gold-bright);}
+.lrow.ghost{opacity:.5;}
+
+/* central empty/error stage */
+.stage{min-width:0;position:relative;display:flex;flex-direction:column;background:var(--bg-base);overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.stagehd{flex:none;display:flex;align-items:center;gap:11px;padding:11px 18px;border-bottom:1px solid var(--border-soft);}
+.stagehd .t{font-size:13.5px;font-weight:700;}
+.stagehd .sub{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.stagehd .sub .a{color:var(--accent);}
+.stagehd .sp{flex:1;}
+.stagehd .tag{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.4px;border-radius:5px;padding:2px 9px;border:1px solid;}
+
+/* the centered state block */
+.estate{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;text-align:center;padding:40px 32px;min-height:0;}
+.eico{width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:32px;margin-bottom:22px;border:1px solid;position:relative;}
+.eico.neutral{color:var(--accent);border-color:var(--accent-dim);background:color-mix(in srgb,var(--accent) 8%,transparent);}
+.eico.info{color:var(--progress);border-color:color-mix(in srgb,var(--progress) 40%,transparent);background:color-mix(in srgb,var(--progress) 9%,transparent);}
+.eico.warn{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 45%,transparent);background:color-mix(in srgb,var(--gold) 9%,transparent);}
+.eico.err{color:var(--error);border-color:color-mix(in srgb,var(--error) 42%,transparent);background:color-mix(in srgb,var(--error) 9%,transparent);}
+.eico.ok{color:var(--success);border-color:color-mix(in srgb,var(--success) 42%,transparent);background:color-mix(in srgb,var(--success) 9%,transparent);}
+@media (prefers-reduced-motion: no-preference){
+  .eico.info::after{content:"";position:absolute;inset:-1px;border-radius:50%;border:2px solid transparent;border-top-color:var(--progress);animation:espin 1s linear infinite;}
+}
+@keyframes espin{to{transform:rotate(360deg);}}
+.etitle{font-size:20px;font-weight:700;letter-spacing:-.3px;margin-bottom:9px;}
+.ewhy{font-size:13.5px;color:var(--fg-secondary);line-height:1.6;max-width:520px;margin-bottom:6px;}
+.ewhy b{color:var(--fg-primary);font-weight:600;}
+.ewhy .mono{font-family:var(--mono);font-size:12px;color:var(--gold-bright);}
+.emeta{font-family:var(--mono);font-size:11px;color:var(--fg-faint);margin-bottom:22px;}
+
+/* detail card (evidence / usage / steps) */
+.edetail{width:100%;max-width:560px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:12px;padding:14px 16px;margin-bottom:22px;text-align:left;}
+.edetail .dh{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--fg-muted);margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+.edetail .dh .sp{flex:1;height:1px;background:var(--border-soft);}
+.drow{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;padding:4px 0;}
+.drow .k{color:var(--fg-faint);flex:none;width:88px;}
+.drow .v{color:var(--fg-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.drow .v b{color:var(--fg-primary);}
+.drow .rep{margin-left:auto;flex:none;color:var(--error);font-weight:700;}
+/* usage bar */
+.usage{margin:2px 0 4px;}
+.usage .top{display:flex;align-items:baseline;gap:8px;font-family:var(--mono);margin-bottom:7px;}
+.usage .big{font-size:22px;font-weight:800;color:var(--error);}
+.usage .cap{font-size:12px;color:var(--fg-muted);}
+.usage .pct{margin-left:auto;font-size:12px;font-weight:700;color:var(--error);}
+.ubar{height:9px;border-radius:5px;background:var(--bg-void);border:1px solid var(--border-soft);overflow:hidden;}
+.ubar i{display:block;height:100%;background:var(--error);}
+.usage .split{display:flex;gap:16px;margin-top:9px;font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.usage .split b{color:var(--fg-secondary);}
+/* connect steps */
+.csteps{display:flex;flex-direction:column;gap:2px;}
+.cstep{display:flex;align-items:center;gap:10px;font-size:12.5px;padding:5px 0;color:var(--fg-secondary);}
+.cstep .mk{font-family:var(--mono);width:16px;flex:none;text-align:center;}
+.cstep.done .mk{color:var(--success);} .cstep.done{color:var(--fg-muted);}
+.cstep.now .mk{color:var(--progress);} .cstep.now{color:var(--fg-primary);font-weight:600;}
+.cstep.wait .mk{color:var(--fg-faint);} .cstep.wait{color:var(--fg-faint);}
+
+/* action buttons */
+.eacts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;}
+.ebtn{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--fg-secondary);background:var(--bg-panel);border:1px solid var(--border);border-radius:9px;padding:9px 16px;cursor:pointer;transition:all .12s;}
+.ebtn:hover{border-color:var(--border-active);color:var(--fg-primary);}
+.ebtn .k{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);border:1px solid var(--border-soft);border-radius:4px;padding:0 5px;}
+.ebtn.primary{color:var(--on-accent);background:var(--accent);border-color:var(--accent);}
+.ebtn.primary:hover{background:var(--accent-bright);}
+.ebtn.primary .k{color:var(--on-accent);border-color:color-mix(in srgb,var(--on-accent) 40%,transparent);}
+.ebtn.danger{color:var(--error);border-color:color-mix(in srgb,var(--error) 42%,transparent);}
+.ebtn.danger:hover{background:color-mix(in srgb,var(--error) 10%,transparent);}
+.ebtn.warnb{color:var(--on-accent);background:var(--gold);border-color:var(--gold);}
+.ebtn.warnb:hover{background:var(--gold-bright);}
+
+/* toast */
+.toast{position:absolute;bottom:44px;left:50%;transform:translateX(-50%);background:var(--bg-elev);border:1px solid var(--accent-dim);border-radius:10px;padding:9px 16px;font-size:12px;color:var(--fg-primary);box-shadow:var(--shadow-pop-gui);z-index:60;display:flex;align-items:center;gap:9px;}
+.toast .mono{font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+</style>
+</head>
+<body>
+<div class="pwrap"><div id="root"></div></div>
+
+<script type="text/babel" src="../../tweaks-panel.jsx"></script>
+<script type="text/babel" src="../gui-icons.jsx"></script>
+<script type="text/babel" src="../gui-statusbar.jsx"></script>
+<script type="text/babel" src="../gui-titlebar.jsx"></script>
+<script type="text/babel">
+const {useState} = React;
+const t = window.t || ((en,zh)=>en);
+
+/* ── the six states (design source for cockpit empty / error states) ── */
+const STATES = [
+  {id:'empty',    dot:'var(--accent)',   tone:'neutral', code:'EMPTY',
+   nm:t('Empty cockpit','空驾驶舱'),      lanes:'empty'},
+  {id:'connect',  dot:'var(--progress)', tone:'info',    code:'CONNECTING',
+   nm:t('Connecting','连接中'),           lanes:'connect'},
+  {id:'discon',   dot:'var(--error)',    tone:'err',     code:'DISCONNECTED',
+   nm:t('Disconnected','连接中断'),        lanes:'discon'},
+  {id:'crash',    dot:'var(--error)',    tone:'err',     code:'AGENT STOPPED',
+   nm:t('Agent stopped','agent 停止'),     lanes:'crash'},
+  {id:'budget',   dot:'var(--gold)',     tone:'warn',    code:'BUDGET 100%',
+   nm:t('Budget exhausted','预算耗尽'),    lanes:'budget'},
+  {id:'gates',    dot:'var(--success)',  tone:'ok',      code:'QUEUE CLEAR',
+   nm:t('Gate queue empty','空闸队列'),    lanes:'gates'},
+];
+
+function VRail({badge}){
+  const order=[['chat','Conversation'],['worktree','Worktrees'],['lanes','Lane monitor'],['review','Diff review'],['decide','Decision Center'],['inbox','Team inbox']];
+  return (
+    <div className="act">
+      {order.map(([k,lbl])=>(
+        <div key={k} className={"actbtn "+(k==='chat'?'on':'')} title={lbl}>{ICONS[k]}{badge&&badge[k]&&<span className="badge" style={{background:badge[k][1]}}>{badge[k][0]}</span>}</div>
+      ))}
+      <div className="actspacer"></div>
+      <div className="actbtn" title="Settings">{ICONS.settings}</div>
+    </div>
+  );
+}
+
+/* lane sidebar per state */
+function SideLanes({state}){
+  if(state==='empty'){
+    return <div className="sideempty"><div className="g">◇</div><div className="t1">{t('No lanes yet','还没有 lane')}</div></div>;
+  }
+  const SETS={
+    connect:[['L1','codex · connecting','work','◌']],
+    discon:[['L1','provider retry/backoff','stop','✗'],['L2','parser clippy sweep','done','✓']],
+    crash:[['L1','config loader refactor','stop','✗'],['L2','provider retry/backoff','work','▶'],['L3','parser clippy sweep','done','✓']],
+    budget:[['L1','config loader refactor','need','⏸'],['L2','provider retry/backoff','need','⏸'],['L3','parser clippy sweep','need','⏸']],
+    gates:[['L1','config loader refactor','done','✓'],['L2','provider retry/backoff','done','✓'],['L3','parser clippy sweep','done','✓']],
+  };
+  const rows=SETS[state]||[];
+  return rows.map((r,i)=>(
+    <div key={i} className={"lrow "+r[2]+(state==='budget'?' ghost':'')}>
+      <span className="lid">{r[0]}</span><span className="nm">{r[1]}</span><span className="st">{r[3]}</span>
+    </div>
+  ));
+}
+
+/* central content per state */
+function Stage({state,fire}){
+  const S=STATES.find(s=>s.id===state);
+  const TAG={neutral:'var(--accent)',info:'var(--progress)',err:'var(--error)',warn:'var(--gold-bright)',ok:'var(--success)'}[S.tone];
+  const bodies = {
+    empty: <div className="estate">
+      <div className="eico neutral">◇</div>
+      <div className="etitle">{t('No lanes running yet','还没有运行中的 lane')}</div>
+      <div className="ewhy">{t('A lane is a workstation — an agent working on its own git worktree, its patches returning through the approval gate. ','lane 就是一个工位 —— 一个 agent 在自己的 git worktree 上干活,产出经审批闸返回。')}<b>{t('Open one to start.','开一个就能开始。')}</b></div>
+      <div className="emeta">viden · main @ 9f3ac21 · {t('0 lanes · 0 gates waiting','0 lane · 0 待审')}</div>
+      <div className="eacts">
+        <button className="ebtn primary" onClick={()=>fire(t('New lane · pick agent + task','新建 lane · 选 agent + 任务'))}>＋ {t('New lane','新建 lane')}<span className="k">⌘L</span></button>
+        <button className="ebtn" onClick={()=>fire(t('From template · lane-proto / review / fix-it','从模板 · lane-proto / review / fix-it'))}>▦ {t('From template','从模板')}</button>
+        <button className="ebtn" onClick={()=>fire(t('Import a project directory','导入项目目录'))}>{t('Add project…','添加项目…')}</button>
+      </div>
+    </div>,
+    connect: <div className="estate">
+      <div className="eico info">◌</div>
+      <div className="etitle">{t('Connecting to codex over ACP','正在通过 ACP 连接 codex')}</div>
+      <div className="ewhy">{t('Handshaking with the external CLI. This lane will start once the agent reports ready.','正与外部 CLI 握手。agent 就绪后 lane 即开始。')}</div>
+      <div className="edetail">
+        <div className="dh">ACP handshake<span className="sp"></span>codex-cli · gpt-5.1</div>
+        <div className="csteps">
+          <div className="cstep done"><span className="mk">✓</span>{t('spawn codex-cli process','拉起 codex-cli 进程')}</div>
+          <div className="cstep done"><span className="mk">✓</span>{t('negotiate ACP protocol v1','协商 ACP 协议 v1')}</div>
+          <div className="cstep now"><span className="mk">◌</span>{t('load workspace + AGENTS.md context','载入工作区 + AGENTS.md 上下文')}</div>
+          <div className="cstep wait"><span className="mk">·</span>{t('await session ready','等待 session 就绪')}</div>
+        </div>
+      </div>
+      <div className="eacts">
+        <button className="ebtn danger" onClick={()=>fire(t('Cancel connection','取消连接'))}>{t('Cancel','取消')}</button>
+        <button className="ebtn" onClick={()=>fire(t('Open ACP handshake log','打开 ACP 握手日志'))}>{t('View log','查看日志')}</button>
+      </div>
+    </div>,
+    discon: <div className="estate">
+      <div className="eico err">⚠</div>
+      <div className="etitle">{t('Agent disconnected','agent 连接中断')}</div>
+      <div className="ewhy">{t('The ACP bridge to ','到 ')}<b>codex</b>{t(' dropped mid-session. Work is paused; the worktree and transcript are safe. ',' 的 ACP 桥接在会话中途断开。工作已暂停;worktree 与转录都安全。')}</div>
+      <div className="emeta">{t('last heartbeat ','上次心跳 ')}<span className="mono" style={{color:'var(--fg-faint)'}}>42s ago</span> · exit code <span className="mono" style={{color:'var(--error)'}}>1</span></div>
+      <div className="edetail">
+        <div className="dh">{t('Diagnosis','诊断')}<span className="sp"></span>vd/config-loader</div>
+        <div className="drow"><span className="k">cause</span><span className="v"><b>{t('broken pipe','管道断开')}</b> · codex-cli process exited</span></div>
+        <div className="drow"><span className="k">safe</span><span className="v">{t('worktree clean · +24−6 staged · transcript kept','worktree 干净 · +24−6 暂存 · 转录保留')}</span></div>
+        <div className="drow"><span className="k">retry</span><span className="v">{t('reconnect resumes from the last committed step','重连从最后提交步骤续跑')}</span></div>
+      </div>
+      <div className="eacts">
+        <button className="ebtn primary" onClick={()=>fire(t('Reconnecting codex over ACP…','正在通过 ACP 重连 codex…'))}>↻ {t('Reconnect','重新连接')}<span className="k">R</span></button>
+        <button className="ebtn" onClick={()=>fire(t('Open agent log','打开 agent 日志'))}>{t('View log','查看日志')}</button>
+        <button className="ebtn danger" onClick={()=>fire(t('Lane closed · worktree kept','lane 已关 · worktree 保留'))}>{t('Close lane','关闭 lane')}</button>
+      </div>
+    </div>,
+    crash: <div className="estate">
+      <div className="eico err">✗</div>
+      <div className="etitle">{t('Agent stopped — loop detected','agent 已停 —— 检测到死循环')}</div>
+      <div className="ewhy">{t('Viden halted ','Viden 主动停下 ')}<b>L1 · codex</b>{t(' after the same tool call repeated with no progress. Nothing was merged.',':同一工具调用反复出现且无进展。没有任何东西被合入。')}</div>
+      <div className="edetail">
+        <div className="dh">{t('Evidence · why it was stopped','证据 · 为何被停')}<span className="sp"></span>guardrail</div>
+        <div className="drow"><span className="k">run_test</span><span className="v">cargo test -p viden-cli config_tests</span><span className="rep">×7</span></div>
+        <div className="drow"><span className="k">edit</span><span className="v">src/config/loader.rs · {t('same hunk','同一处')}</span><span className="rep">×7</span></div>
+        <div className="drow"><span className="k">spend</span><span className="v"><b>$1.94</b> {t('burned in the loop · 0 net diff','循环里烧掉 · 净 diff 为 0')}</span></div>
+      </div>
+      <div className="eacts">
+        <button className="ebtn primary" onClick={()=>fire(t('Restart lane from last good commit','从最后正常提交重启 lane'))}>↻ {t('Restart from checkpoint','从检查点重启')}</button>
+        <button className="ebtn" onClick={()=>fire(t('Inspect transcript + evidence','查看转录 + 证据'))}>{t('Inspect','排查')}</button>
+        <button className="ebtn danger" onClick={()=>fire(t('Lane killed · worktree kept for review','lane 已杀 · worktree 留待评审'))}>{t('Kill lane','杀掉 lane')}<span className="k">⌃C</span></button>
+      </div>
+    </div>,
+    budget: <div className="estate">
+      <div className="eico warn">⏸</div>
+      <div className="etitle">{t('Budget exhausted — all lanes paused','预算耗尽 —— 全部 lane 已暂停')}</div>
+      <div className="ewhy">{t('The team budget for this cycle hit 100%. Running lanes were ','本周期团队预算已到 100%。运行中的 lane 已')}<b>{t('paused, not killed','暂停,而非杀掉')}</b>{t(' — they resume the moment budget is added.',' —— 加额即恢复。')}</div>
+      <div className="edetail">
+        <div className="dh">{t('Cycle spend','周期用量')}<span className="sp"></span>viden.toml [budget]</div>
+        <div className="usage">
+          <div className="top"><span className="big">$200</span><span className="cap">/ $200 {t('cap','上限')}</span><span className="pct">100%</span></div>
+          <div className="ubar"><i style={{width:'100%'}}></i></div>
+          <div className="split"><span>{t('tokens',' tokens')} <b>318M</b></span><span>{t('lanes paused','暂停 lane')} <b>3</b></span><span>{t('resets','重置')} <b>Mon 00:00</b></span></div>
+        </div>
+      </div>
+      <div className="eacts">
+        <button className="ebtn warnb" onClick={()=>fire(t('Top up +$100 · lanes resume','加额 +$100 · lane 恢复'))}>＋ {t('Top up budget','增加预算')}</button>
+        <button className="ebtn" onClick={()=>fire(t('Route to a cheaper model for now','暂时切到更省的模型'))}>{t('Downgrade model','降配模型')}</button>
+        <button className="ebtn" onClick={()=>fire(t('Keep paused until reset','保持暂停到重置'))}>{t('Stay paused','保持暂停')}</button>
+      </div>
+    </div>,
+    gates: <div className="estate">
+      <div className="eico ok">✓</div>
+      <div className="etitle">{t('You’re all caught up','已全部处理完')}</div>
+      <div className="ewhy">{t('No gates waiting for you. Lanes keep running and will surface here — and ping your inbox — the moment one needs a human.','没有待你处理的闸。lane 继续跑,一旦需要人,会出现在这里并 ping 你的收件箱。')}</div>
+      <div className="emeta">{t('3 lanes running · last decision ','3 lane 运行中 · 上次决策 ')}<span className="mono" style={{color:'var(--fg-faint)'}}>4m ago</span></div>
+      <div className="eacts">
+        <button className="ebtn" onClick={()=>fire(t('Open lane monitor','打开 lane 监视器'))}>{t('Lane monitor','lane 监视器')}</button>
+        <button className="ebtn" onClick={()=>fire(t('Review merged work in the gallery','画廊里回看已合并的工作'))}>{t('Gallery','画廊')}</button>
+      </div>
+    </div>,
+  };
+  return (
+    <div className="stage">
+      <div className="stagehd">
+        <span className="t">{S.nm}</span>
+        <span className="sub">viden · <span className="a">main</span></span>
+        <span className="sp"></span>
+        <span className="tag" style={{color:TAG,borderColor:TAG}}>{S.code}</span>
+      </div>
+      {bodies[state]}
+    </div>
+  );
+}
+
+function App(){
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "start": "empty",
+    "showLaneSide": true
+  }/*EDITMODE-END*/);
+  const [state,setState]=useState(tw.start);
+  const [toast,setToast]=useState(null);
+  React.useEffect(()=>{ setState(tw.start); },[tw.start]);
+  const fire=(m)=>{ setToast(m); setTimeout(()=>setToast(null),2600); };
+  const S=STATES.find(s=>s.id===state);
+  const badge = state==='gates'
+    ? null
+    : state==='budget' ? {chat:['3','var(--gold)']}
+    : state==='crash'||state==='discon' ? {chat:['!','var(--error)']} : null;
+  const right = {
+    empty:'0 gates · 0 lanes', connect:'connecting…', discon:'⚠ agent offline',
+    crash:'✗ 1 lane stopped', budget:'⏸ budget 100% · 3 paused', gates:'✓ all caught up',
+  }[state];
+
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · D6 concept · draft 01</div>
+      <h1 className="ph1">{t('Empty & error states','空态与错误态')} <span className="ac">Empty / Error States</span></h1>
+      <p className="plead">{t('The states the cockpit falls into when there’s ','驾驶舱在「')}<b>{t('nothing running, nothing to do, or something wrong','没在跑 / 没事做 / 出错了')}</b>{t('. Beyond D12 (merge conflict) and D9 (reconnect), this defines the set: ','」时会落入的态。在 D12(合并冲突)、D9(重连)之外,这里定义整套:')}<b>{t('empty cockpit · connecting · disconnected · agent stopped · budget exhausted · gate queue clear','空驾驶舱 · 连接中 · 断开 · agent 停止 · 预算耗尽 · 空闸队列')}</b>{t('. Each pairs a plain cause with a clear next action. Switch states below.','。每个态都把「原因说清」配上「下一步动作」。下方切换查看。')}</p>
+    <div className="frame" data-screen-label="D6 空态与错误态">
+      <GuiTitleBar project="viden" branch={t('1 project','1 项目')}/>
+      <div className="statebar">
+        <span className="lbl">{t('State','状态')}</span>
+        {STATES.map(s=>(
+          <button key={s.id} className={"segbtn "+(state===s.id?'on':'')} onClick={()=>setState(s.id)}>
+            <span className="d" style={{background:s.dot}}></span>{s.nm}
+          </button>
+        ))}
+      </div>
+      <div className="inner">
+        <VRail badge={badge}/>
+        {tw.showLaneSide
+          ? <div className="side">
+              <div className="sidehd"><span className="ic">◆</span><span>Lanes</span><span className="n">{state==='empty'?'0':state==='connect'?'1':'3'}</span></div>
+              <div className="sidebody"><SideLanes state={state}/></div>
+              <div className="sidefoot"><button className="newlane" onClick={()=>fire(t('New lane · pick agent + task','新建 lane · 选 agent + 任务'))}>＋ {t('New lane','新建 lane')}</button></div>
+            </div>
+          : <div className="side"></div>}
+        <Stage state={state} fire={fire}/>
+      </div>
+      {toast && <div className="toast">✓ {toast}<span className="mono">demo</span></div>}
+      <GuiStatusBar right={right}/>
+      <TweaksPanel>
+        <TweakSection label={t('Preview','预览')} />
+        <TweakRadio label={t('Initial state','初始态')} value={tw.start} onChange={v=>setTweak('start',v)}
+          options={[{value:'empty',label:t('Empty','空')},{value:'discon',label:t('Disconnected','断开')},{value:'crash',label:t('Stopped','停止')},{value:'budget',label:t('Budget','预算')}]} />
+        <TweakToggle label={t('Show lanes sidebar','显示 lanes 边栏')} value={tw.showLaneSide} onChange={v=>setTweak('showLaneSide',v)} />
+      </TweaksPanel>
+    </div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

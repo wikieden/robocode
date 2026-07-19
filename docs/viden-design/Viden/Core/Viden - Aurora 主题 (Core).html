@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-density="compact">
+<html lang="en" data-mode="dark" data-skin="aurora" data-density="compact">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../tokens.css">
-<script src="i18n.js"></script>
+<script src="../i18n.js"></script>
 <style>
 /* ============================================================
    viden — Aurora Cockpit Theme — Spec Sheet
@@ -290,7 +290,7 @@ h2{font-size:27px;margin:0 0 8px;letter-spacing:-.4px;font-weight:700;}
   padding:0;overflow:hidden;
 }
 .ap-head{display:flex;align-items:center;gap:10px;padding:9px 13px;background:color-mix(in srgb,var(--warning) 12%,var(--bg-elev));border-bottom:1px solid color-mix(in srgb,var(--warning) 40%,transparent);}
-.ap-head .badge{color:var(--bg-void);background:var(--warning);font-weight:700;padding:1px 8px;border-radius:0;font-size:11px;letter-spacing:1px;}
+.ap-head .badge{color:var(--on-accent);background:var(--warning);font-weight:700;padding:1px 8px;border-radius:0;font-size:11px;letter-spacing:1px;}
 .ap-head .title{color:var(--fg-primary);font-weight:700;}
 .ap-head .perm{margin-left:auto;color:var(--warning);font-weight:600;}
 .ap-body{padding:11px 13px 12px;}
@@ -327,7 +327,7 @@ h2{font-size:27px;margin:0 0 8px;letter-spacing:-.4px;font-weight:700;}
 
 /* ===== TUI LANE MONITOR MODE ===== */
 .lm-banner{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);padding:4px 4px 7px;margin-bottom:7px;white-space:nowrap;overflow:hidden;}
-.lm-banner .mode{background:var(--accent);color:var(--bg-void);font-weight:700;font-size:11px;letter-spacing:1px;padding:1px 8px;flex:none;}
+.lm-banner .mode{background:var(--accent);color:var(--on-accent);font-weight:700;font-size:11px;letter-spacing:1px;padding:1px 8px;flex:none;}
 .lm-banner .msub{color:var(--fg-secondary);font-size:12px;overflow:hidden;text-overflow:ellipsis;}
 .lm-banner .esc{margin-left:auto;color:var(--fg-muted);font-size:12px;flex:none;}
 .lm-banner .esc b{color:var(--gold);font-weight:600;}
@@ -994,35 +994,49 @@ function renderTokens(){
 }
 renderTokens();
 
-/* ---- scheme + density controller (shared by nav button & Tweaks panel) ---- */
+/* ---- skin × mode + density controller (shared by nav button & Tweaks panel) ---- */
 const root=document.documentElement;
-const SCHEMES=[['dark','Aurora'],['amber','Amber'],['phosphor','Phosphor'],['ice','Ice'],['mono','Mono'],['light','Light']];
+const SCHEMES=[['aurora','Aurora',['dark','light']],['ice','Ice',['dark','light']],['mono','Mono',['dark','light']],['amber','Amber',['dark']],['phosphor','Phosphor',['dark']]];
+const modesFor=id=>(SCHEMES.find(s=>s[0]===id)||SCHEMES[0])[2];
+const supports=(id,m)=>modesFor(id).indexOf(m)!==-1;
+const LEGACY={dark:['aurora','dark'],light:['aurora','light'],amber:['amber','dark'],phosphor:['phosphor','dark'],ice:['ice','dark'],mono:['mono','dark']};
+function emitRC(){window.dispatchEvent(new CustomEvent('rc-state',{detail:{skin:RC.skin(),mode:RC.mode(),density:RC.density()}}));}
 const RC={
-  scheme(){return root.getAttribute('data-theme')||'dark';},
-  setScheme(v){root.setAttribute('data-theme',v);const f=(SCHEMES.find(s=>s[0]===v)||['dark','Aurora'])[1];const tl=document.getElementById('themeLabel');if(tl)tl.textContent=f;try{localStorage.setItem('rc-scheme',v);}catch(e){}window.dispatchEvent(new CustomEvent('rc-state',{detail:{scheme:v}}));},
+  skin(){return root.getAttribute('data-skin')||'aurora';},
+  mode(){return root.getAttribute('data-mode')||'dark';},
+  setSkin(v){root.setAttribute('data-skin',v);if(!supports(v,RC.mode()))RC.setMode(modesFor(v)[0],true);const f=(SCHEMES.find(s=>s[0]===v)||SCHEMES[0])[1];const tl=document.getElementById('themeLabel');if(tl)tl.textContent=f;try{localStorage.setItem('rc-skin',v);}catch(e){}emitRC();},
+  setMode(v,silent){if(!supports(RC.skin(),v))return;root.setAttribute('data-mode',v);try{localStorage.setItem('rc-mode',v);}catch(e){}if(!silent)emitRC();},
   density(){return root.getAttribute('data-density')||'compact';},
-  setDensity(v){root.setAttribute('data-density',v);try{localStorage.setItem('rc-density',v);}catch(e){}window.dispatchEvent(new CustomEvent('rc-state',{detail:{density:v}}));},
-  cycle(){const i=SCHEMES.findIndex(s=>s[0]===this.scheme());this.setScheme(SCHEMES[(i+1)%SCHEMES.length][0]);}
+  setDensity(v){root.setAttribute('data-density',v);try{localStorage.setItem('rc-density',v);}catch(e){}emitRC();},
+  cycleSkin(){const i=SCHEMES.findIndex(s=>s[0]===RC.skin());RC.setSkin(SCHEMES[(i+1)%SCHEMES.length][0]);},
+  toggleMode(){RC.setMode(RC.mode()==='dark'?'light':'dark');},
+  supports,modesFor,SCHEMES
 };
 window.RC=RC;
-try{const s=localStorage.getItem('rc-scheme');if(s)RC.setScheme(s);const d=localStorage.getItem('rc-density');if(d)RC.setDensity(d);}catch(e){}
+try{
+  let sk=localStorage.getItem('rc-skin'),md=localStorage.getItem('rc-mode');
+  if(!sk){const lg=localStorage.getItem('rc-scheme');if(lg&&LEGACY[lg]){sk=LEGACY[lg][0];md=md||LEGACY[lg][1];}}
+  if(sk)RC.setSkin(sk); if(md)RC.setMode(md);
+  const d=localStorage.getItem('rc-density');if(d)RC.setDensity(d);
+}catch(e){}
 const tg=document.getElementById('themeToggle');
-if(tg)tg.addEventListener('click',()=>RC.cycle());
+if(tg)tg.addEventListener('click',()=>RC.cycleSkin());
 </script>
 
 <!-- Tweaks panel (React) -->
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="../tweaks-panel.jsx"></script>
 <div id="tweaks-root"></div>
 <script type="text/babel">
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "scheme": "phosphor",
+  "skin": "amber",
+  "mode": "dark",
   "density": "compact",
-  "accent": "cyan"
+  "accent": "match"
 }/*EDITMODE-END*/;
-const SCHEME_OPTS=[['dark','Aurora 青'],['amber','Amber 琥珀'],['phosphor','Phosphor 绿'],['ice','Ice 冰蓝'],['mono','Mono 灰'],['light','Light 浅色']];
+const SKIN_OPTS=[['aurora','Aurora 青'],['ice','Ice 冰蓝'],['mono','Mono 灰'],['amber','Amber 琥珀'],['phosphor','Phosphor 绿']];
 const ACCENTS={cyan:['#34bdd9','#74e4f2','#1f5366'],amber:['#e09a3e','#ffc266','#6b4a1c'],green:['#41d97a','#74f2a0','#1c5630'],blue:['#5b8def','#86b0ff','#243f6b'],violet:['#a07ae0','#c3a6ff','#4a3470']};
 function applyAccent(key){
   const r=document.documentElement;
@@ -1032,18 +1046,21 @@ function applyAccent(key){
 }
 function TweaksApp(){
   const [t,setTweak]=useTweaks(TWEAK_DEFAULTS);
-  React.useEffect(()=>{ if(window.RC){window.RC.setScheme(t.scheme);window.RC.setDensity(t.density);} applyAccent(t.accent); },[]);
-  // keep panel in sync if nav button cycles scheme
+  React.useEffect(()=>{ if(window.RC){window.RC.setSkin(t.skin);window.RC.setMode(t.mode);window.RC.setDensity(t.density);} applyAccent(t.accent); },[]);
+  // keep panel in sync if nav button cycles skin / mode
   React.useEffect(()=>{
-    const h=(e)=>{ if(e.detail&&e.detail.scheme&&e.detail.scheme!==t.scheme){setTweak('scheme',e.detail.scheme);} };
+    const h=(e)=>{ if(!e.detail)return; if(e.detail.skin&&e.detail.skin!==t.skin)setTweak('skin',e.detail.skin); if(e.detail.mode&&e.detail.mode!==t.mode)setTweak('mode',e.detail.mode); };
     window.addEventListener('rc-state',h); return ()=>window.removeEventListener('rc-state',h);
   });
+  const modeOk = !window.RC || !window.RC.supports || window.RC.supports(t.skin,'light');
   return (
     <TweaksPanel>
-      <TweakSection label="配色方案 Color scheme" />
-      <TweakSelect label="Scheme" value={t.scheme} options={SCHEME_OPTS.map(s=>s[0])}
-        display={SCHEME_OPTS.reduce((m,s)=>{m[s[0]]=s[1];return m;},{})}
-        onChange={(v)=>{setTweak('scheme',v);window.RC&&window.RC.setScheme(v);}} />
+      <TweakSection label="皮肤 Skin" />
+      <TweakSelect label="Skin" value={t.skin} options={SKIN_OPTS.map(s=>s[0])}
+        display={SKIN_OPTS.reduce((m,s)=>{m[s[0]]=s[1];return m;},{})}
+        onChange={(v)=>{setTweak('skin',v);if(window.RC){window.RC.setSkin(v);setTweak('mode',window.RC.mode());}}} />
+      <TweakRadio label={modeOk?"明暗 Mode":"明暗 Mode（复古皮肤仅深色）"} value={t.mode} options={['dark','light']}
+        onChange={(v)=>{setTweak('mode',v);window.RC&&window.RC.setMode(v);}} />
       <TweakColor label="强调色 Accent" value={t.accent}
         options={['match','cyan','amber','green','blue','violet']}
         swatches={{match:['#5a7384'],cyan:ACCENTS.cyan.slice(0,2),amber:ACCENTS.amber.slice(0,2),green:ACCENTS.green.slice(0,2),blue:ACCENTS.blue.slice(0,2),violet:ACCENTS.violet.slice(0,2)}}

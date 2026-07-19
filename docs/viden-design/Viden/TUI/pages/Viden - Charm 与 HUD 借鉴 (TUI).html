@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · Borrowing from Charm & HUD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。默认 :root = dark 皮肤。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.doc{max-width:1020px;margin:0 auto;padding:30px 28px 100px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+h1{font-size:29px;margin:0 0 10px;letter-spacing:-.6px;} h1 .ac{color:var(--accent);}
+.lead{font-size:14px;color:var(--fg-secondary);margin:0 0 6px;max-width:880px;line-height:1.65;text-wrap:pretty;} .lead b{color:var(--fg-primary);font-weight:600;}
+.lead .note{font-family:var(--mono);font-size:11px;color:var(--fg-faint);margin-top:8px;}
+.sech{display:flex;align-items:baseline;gap:11px;margin:40px 0 8px;}
+.sech .no{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:700;} .sech h2{font-size:20px;margin:0;} .sech .en{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);letter-spacing:1px;text-transform:uppercase;} .sech .sp{flex:1;height:1px;background:var(--border-soft);align-self:center;}
+.subl{font-size:13px;color:var(--fg-muted);margin:6px 0 14px;line-height:1.6;}
+kbd,code{font-family:var(--mono);font-size:12px;color:var(--accent-bright);background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:4px;padding:0 5px;}
+
+.tbl{width:100%;border-collapse:collapse;font-size:13.5px;}
+.tbl th{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--fg-muted);text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);}
+.tbl td{padding:10px 12px;border-bottom:1px solid var(--border-soft);color:var(--fg-secondary);vertical-align:top;line-height:1.5;}
+.tbl .src{font-family:var(--mono);font-size:12px;color:var(--accent-bright);white-space:nowrap;} .tbl .src .sub{display:block;color:var(--fg-faint);font-size:10px;margin-top:2px;}
+.tbl .map b{color:var(--fg-primary);}
+.tier{font-family:var(--mono);font-size:9.5px;font-weight:700;border-radius:4px;padding:1px 7px;white-space:nowrap;border:1px solid;}
+.t-now{color:var(--success);border-color:color-mix(in srgb,var(--success) 40%,transparent);background:color-mix(in srgb,var(--success) 7%,transparent);}
+.t-arch{color:var(--accent-bright);border-color:var(--accent-dim);background:color-mix(in srgb,var(--accent) 7%,transparent);}
+.t-late{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 40%,transparent);background:color-mix(in srgb,var(--gold) 6%,transparent);}
+.t-avoid{color:var(--error);border-color:color-mix(in srgb,var(--error) 35%,transparent);background:color-mix(in srgb,var(--error) 6%,transparent);}
+
+.hudwrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.hcard{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:12px;padding:15px 17px;border-top:2px solid;}
+.hcard.hud{border-top-color:var(--gold);} .hcard.focus{border-top-color:var(--accent);}
+.hcard .h{font-size:15px;font-weight:700;display:flex;align-items:center;gap:9px;margin-bottom:4px;} .hcard .h .tag{font-family:var(--mono);font-size:9px;font-weight:700;border-radius:4px;padding:1px 7px;border:1px solid;}
+.hcard.hud .h .tag{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 40%,transparent);} .hcard.focus .h .tag{color:var(--accent-bright);border-color:var(--accent-dim);}
+.hcard .d{font-size:12px;color:var(--fg-muted);line-height:1.5;margin:4px 0 10px;}
+.hrow{display:flex;align-items:baseline;gap:9px;padding:6px 0;border-bottom:1px solid var(--border-soft);font-size:12.5px;}
+.hrow:last-child{border-bottom:none;}
+.hrow .ic{flex:none;width:16px;text-align:center;} .hrow .nm{color:var(--fg-primary);font-weight:600;} .hrow .ds{color:var(--fg-muted);}
+
+.layers{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;margin:6px 0;border:1px solid var(--border);border-radius:11px;overflow:hidden;}
+.lyr{padding:14px 16px;border-right:1px solid var(--border-soft);}
+.lyr:last-child{border-right:none;}
+.lyr .n{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-faint);margin-bottom:7px;}
+.lyr .tt{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;} .lyr .tt .d{width:8px;height:8px;border-radius:50%;}
+.lyr p{font-size:12px;color:var(--fg-secondary);line-height:1.5;margin:7px 0 0;} .lyr p b{color:var(--fg-primary);}
+.lyr .eg{font-family:var(--mono);font-size:10px;color:var(--fg-muted);margin-top:8px;line-height:1.6;}
+.arrow{text-align:center;color:var(--fg-faint);font-family:var(--mono);font-size:11px;margin:7px 0;}
+
+.rules{display:flex;flex-direction:column;gap:9px;margin-top:6px;}
+.rule{display:flex;gap:12px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:10px;padding:11px 15px;}
+.rule .ic{font-family:var(--mono);font-size:13px;color:var(--accent);flex:none;width:18px;text-align:center;}
+.rule .tx{font-size:13px;color:var(--fg-secondary);line-height:1.55;} .rule .tx b{color:var(--fg-primary);}
+.divnote{font-size:13.5px;color:var(--fg-secondary);line-height:1.7;background:var(--bg-panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:14px 18px;margin-top:16px;text-wrap:pretty;} .divnote b{color:var(--fg-primary);} .divnote .c{color:var(--accent-bright);font-family:var(--mono);font-size:12.5px;}
+@media(max-width:780px){.hudwrap{grid-template-columns:1fr;}.layers{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="doc"><div id="root"></div></div>
+<script type="text/babel">
+const t = window.t || ((en,zh)=>en);
+
+const ADOPT=[
+  ['Bubbles textarea','多行输入组件',[t('Multi-line composer','多行 composer')],'T1c',[t('auto-grow, bracketed paste, line gutter — reference behavior','auto-grow、bracketed paste、行号 —— 行为参照')],'now',t('NOW','现在')],
+  ['Bubbles list','模糊+分组列表',[t('Global jump ⌃P / switchers','全局跳转 ⌃P / 切换器')],'T2',[t('type-to-filter + grouped headers','输入即过滤 + 分组 header')],'now',t('NOW','现在')],
+  ['Bubbles help','分层帮助',[t('contextual keymap ?','上下文键位 ?')],'T4',[t('short line + ? expands full','短一行 + ? 展开全量')],'now',t('NOW','现在')],
+  ['Lipgloss adaptive color','自适应色',[t('truecolor → 256 degrade','truecolor → 256 降级')],'T5',[t('one style resolves per terminal — don\u2019t hand-keep two sets','一套样式按终端取色,免维护两套')],'now',t('NOW','现在')],
+  ['Wish · Soft Serve','TUI over SSH',[t('remote target / robot board','远程 target / 上板')],'D9',[t('ssh viden@gpu-01 drops into the cockpit — strategic','ssh viden@gpu-01 直接进舱 —— 战略级')],'arch','SSH ★'],
+  ['Gum','每个交互=一个 CLI flag',[t('viden run scripting + permission','viden run 脚本化 + 权限')],'T3',[t('every interaction also a one-shot flag → CI / cron','凡交互皆一次性 flag → CI / cron')],'arch','CLI ★'],
+  ['Glamour','终端渲染 Markdown',[t('Context panel · contract diff','侧栏上下文 · 契约 diff')],'T1b',[t('contracts / memos render nicely inline','契约/memo 内联渲染好看')],'late','M1+'],
+  ['Huh','表单/向导',[t('lane create / first-run','建 lane / 首启')],'D4·D11',[t('wizard flows','向导流程')],'late','M1+'],
+  ['Harmonica','弹簧动画',[t('Pip companion motion','宠物 Pip 动效')],'Pip',[t('springy but restrained','有弹性但克制')],'late','M1+'],
+  ['VHS','TUI 录制 GIF/tape',[t('design handoff / onboarding demos','设计交付 / onboarding 演示')],'—',[t('record screens as tape scripts','把屏录成 tape 脚本')],'late',t('TOOL','工具')],
+  ['(decorative gradients / heavy chrome)',t('装饰渐变 / 重 chrome',null),[t('— conflicts with content-first','— 与"内容吃满"冲突')],'—',[t('Charm loves big gradient blocks; we keep chrome = 2 lines','Charm 爱大渐变块;我们 chrome 只 2 行')],'avoid',t('AVOID','别采')],
+  ['(Bubble Tea / Elm framework)',t('Elm 框架本身',null),[t('— borrow the idea, not the stack','— 借思想不照搬')],'—',[t('we\u2019re Rust/ratatui; take unidirectional msg discipline only','我们是 Rust/ratatui;只借单向 msg 纪律')],'avoid',t('SKIP','不搬')],
+];
+const TIERCLS={now:'t-now',arch:'t-arch',late:'t-late',avoid:'t-avoid'};
+
+const HUD=[
+  ['◉',t('Pet Pip','宠物 Pip'),t('companion / mood meter — peripheral, no modal','companion / 情绪计 —— 外围、不弹模态')],
+  ['▭',t('1-line status bar','1 行状态栏'),t('heads-up strip: lane · backend · windows · ctx · gate count','抬头条:lane·后端·窗口·ctx·闸计数')],
+  ['▦',t('Monitor pop-out (D10)','监视器弹出 (D10)'),t('radar / minimap — full lane wall in a corner','雷达/小地图 —— 全 lane 墙常驻角落')],
+  ['◈',t('target bar · gate badge · sparkline','target 条·闸 badge·sparkline'),t('gauges — read trend/state, not exact numbers','仪表 —— 读趋势/状态,不读精确数')],
+  ['⠿',t('spinner / progress / spring','spinner/进度/弹簧'),t('ambient feedback (Charm: Harmonica)','环境反馈(Charm:Harmonica)')],
+];
+const FOCUS=[
+  ['▣',t('Decision Center','决策中心'),t('full-screen review — read + decide','全屏评审 —— 读 + 拍板')],
+  ['▤',t('Side panel (T1b)','侧栏 (T1b)'),t('reference pane — read + jump','参照面板 —— 读 + 跳')],
+  ['⌕',t('Command palette / jump','命令面板/跳转'),t('act on input — transient overlay','据输入动作 —— 临时浮层')],
+];
+
+function App(){
+  return (
+    <React.Fragment>
+      <div className="pkicker">viden · TUI · borrow map</div>
+      <h1>{t('Borrowing from Charm & HUD','Charm 与 HUD 借鉴')} <span className="ac">→ Viden</span></h1>
+      <p className="lead">{t('A curated map: which Charm (charm.sh) patterns to adopt and when, and which of our surfaces are ','一张取舍图:Charm(charm.sh)哪些值得采、何时采,以及我们哪些界面属于 ')}<b>HUD</b>{t(' (ambient, glanceable) vs ',' (余光、可瞥)vs ')}<b>focus UI</b>{t(' (read + act). Toggle EN/中 top-right.',' (读 + 操作)。右上 EN/中 可切。')}</p>
+      <p className="lead note">{t('Assumed “Charm” = charmbracelet (Bubble Tea / Lipgloss / Bubbles / Gum / Wish / Crush…). Say the word if you meant another TUI.','假设 hermers = Charm(charmbracelet:Bubble Tea / Lipgloss / Bubbles / Gum / Wish / Crush…)。若指别的 TUI 告诉我。')}</p>
+
+      <div className="sech"><span className="no">01</span><h2>{t('What to adopt','值得吸取的')}</h2><span className="en">adopt now · architecture · later · avoid</span><span className="sp"></span></div>
+      <table className="tbl">
+        <thead><tr><th style={{width:'20%'}}>{t('Charm','Charm 来源')}</th><th style={{width:'13%'}}>{t('Tier','档位')}</th><th style={{width:'22%'}}>{t('Maps to','映射到')}</th><th>{t('Why / how','理由 / 做法')}</th></tr></thead>
+        <tbody>
+          {ADOPT.map((r,i)=>(
+            <tr key={i}>
+              <td className="src">{r[0]}{r[1]&&<span className="sub">{r[1]}</span>}</td>
+              <td><span className={"tier "+TIERCLS[r[5]]}>{r[6]}</span></td>
+              <td className="map"><b>{r[2][0]}</b> {r[3]!=='—'&&<span style={{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--fg-faint)'}}>· {r[3]}</span>}</td>
+              <td>{r[4][0]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="sech"><span className="no">02</span><h2>{t('HUD vs focus UI','HUD vs focus UI')}</h2><span className="en">ambient vs read+act</span><span className="sp"></span></div>
+      <p className="subl">{t('HUD = peripheral, glanceable, read-only, never steals focus. Focus UI = you read AND act. Don\u2019t build a focus surface as if it were a HUD (or vice versa).','HUD = 外围、可瞥、只读、不抢焦点。Focus UI = 要读 + 操作。别把 focus 界面当 HUD 做(反之亦然)。')}</p>
+      <div className="hudwrap">
+        <div className="hcard hud">
+          <div className="h">{t('HUD — ambient','HUD —— 余光层')} <span className="tag">{t('glanceable','可瞥')}</span></div>
+          <div className="d">{t('Read with peripheral vision; color/count/motion carry meaning; dismissible.','余光读;颜色/计数/动效承载意义;可关。')}</div>
+          {HUD.map((h,i)=>(<div key={i} className="hrow"><span className="ic" style={{color:'var(--gold-bright)'}}>{h[0]}</span><span><span className="nm">{h[1]}</span> · <span className="ds">{h[2]}</span></span></div>))}
+        </div>
+        <div className="hcard focus">
+          <div className="h">{t('Focus UI — read + act','Focus UI —— 操作层')} <span className="tag">{t('engage','操作')}</span></div>
+          <div className="d">{t('Demands attention; you read details and take decisions. NOT a HUD.','要注意力;读细节、做决策。不是 HUD。')}</div>
+          {FOCUS.map((h,i)=>(<div key={i} className="hrow"><span className="ic" style={{color:'var(--accent-bright)'}}>{h[0]}</span><span><span className="nm">{h[1]}</span> · <span className="ds">{h[2]}</span></span></div>))}
+        </div>
+      </div>
+
+      <div className="sech"><span className="no">03</span><h2>{t('HUD principle: 3 layers','HUD 原则:三层')}</h2><span className="en">ambient → expand → fullscreen</span><span className="sp"></span></div>
+      <div className="layers">
+        <div className="lyr"><div className="n">{t('Layer 1 · ambient','层 1 · 余光')}</div><div className="tt"><span className="d" style={{background:'var(--gold)'}}></span>{t('Notice','察觉')}</div><p>{t('Count + color + gentle motion. Zero reading effort.','计数 + 颜色 + 微动。零阅读成本。')}</p><div className="eg">Pip · {t('status bar','状态栏')} · ⏸ 3</div></div>
+        <div className="lyr"><div className="n">{t('Layer 2 · expand','层 2 · 展开')}</div><div className="tt"><span className="d" style={{background:'var(--accent)'}}></span>{t('Triage','分诊')}</div><p>{t('Bubble / side panel names what & which. One click/key.','气泡/侧栏点名"什么、哪条"。一键。')}</p><div className="eg">{t('Pip bubble · side panel ⌃]','Pip 气泡 · 侧栏 ⌃]')}</div></div>
+        <div className="lyr"><div className="n">{t('Layer 3 · fullscreen','层 3 · 全屏')}</div><div className="tt"><span className="d" style={{background:'var(--success)'}}></span>{t('Act','拍板')}</div><p>{t('Decision Center: evidence + approve/reject. Focus UI.','决策中心:证据 + 批/驳。Focus UI。')}</p><div className="eg">⌃G · {t('Decision Center','决策中心')}</div></div>
+      </div>
+      <div className="arrow">{t('notice → triage → act · escalate only on demand','察觉 → 分诊 → 拍板 · 按需升级')}</div>
+
+      <div className="rules">
+        <div className="rule"><span className="ic">①</span><span className="tx"><b>{t('Information layering','信息分层')}</b>{t(': ambient(count/color/motion) → expand(bubble/panel) → fullscreen(decision). Never dump detail at the ambient layer.',':余光(计数/色/动)→ 展开(气泡/面板)→ 全屏(决策)。余光层绝不堆细节。')}</span></div>
+        <div className="rule"><span className="ic">②</span><span className="tx"><b>{t('Never occlude the task','永不遮主任务')}</b>{t(': Pip & status bar are read-only and never pop modals or steal focus.',':Pip 与状态栏只读,不弹模态、不抢焦点。')}</span></div>
+        <div className="rule"><span className="ic">③</span><span className="tx"><b>{t('Color = state','颜色即状态')}</b>{t(' (already fixed in interaction rules T4 §08) — the HUD\u2019s whole vocabulary.',' (交互规则 T4 §08 已定)—— HUD 的全部词汇。')}</span></div>
+        <div className="rule"><span className="ic">④</span><span className="tx"><b>{t('Dismissible','可关')}</b>{t(': HUD is help, not burden — side panel ⌃], monitor collapses, Pip can be a plain badge.',':HUD 是辅助不是负担 —— 侧栏 ⌃]、监视器可收、Pip 可降为纯 badge。')}</span></div>
+      </div>
+
+      <div className="divnote"><b>{t('Bottom line','一句话')}</b>{t(': borrow Charm at the ','::Charm 借在')}<span className="c">{t('component & architecture','组件与架构')}</span>{t(' layer (textarea / list / help / adaptive-color / Wish-over-SSH / Gum-scriptability), not its decorative flash. Treat Pip · status bar · monitor as ','层(textarea/list/help/自适应色/Wish-SSH/Gum 脚本化),别借它的装饰炫技。把 Pip·状态栏·监视器当 ')}<span className="c">HUD</span>{t(' (3-layer: notice → triage → act); keep Decision Center / panels as ',' 做(三层:察觉→分诊→拍板);决策中心/面板保持 ')}<span className="c">focus UI</span>{t('. Same color & list contracts as T4.',' 。颜色与列表契约沿用 T4。')}</div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

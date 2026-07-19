@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-density="compact">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden · 统一 TUI 原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="tui-kit.css">
+<script src="../i18n.js"></script>
+<script src="../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+/* 仅页面外壳（doc chrome）—— 所有组件类来自 tui-kit.css */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.doc{max-width:1180px;margin:0 auto;padding:30px 28px 90px;}
+.pkicker{font-family:var(--font-mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:11px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:30px;margin:0 0 10px;letter-spacing:-.6px;font-weight:700;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14.5px;color:var(--fg-secondary);margin:0 0 8px;max-width:920px;line-height:1.65;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;} .plead kbd{font-family:var(--font-mono);color:var(--gold);font-size:12.5px;}
+.try{display:flex;gap:9px;flex-wrap:wrap;margin:14px 0 18px;}
+.trybtn{font-family:var(--font-mono);font-size:11.5px;color:var(--accent-bright);border:1px solid var(--accent-dim);
+  background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:var(--r-md);padding:5px 12px;cursor:pointer;}
+.trybtn:hover{background:color-mix(in srgb,var(--accent) 12%,transparent);}
+.trybtn b{color:var(--gold);}
+/* 驾驶舱布局（消费 tui-kit 的 .vterm 等）*/
+/* 驾驶舱终端底色随皮肤换肤：把固定 --term-* 别名到当前主题的背景 token（零裸色值，换 data-theme 即换终端底） */
+#cockpit{height:min(760px,calc(100vh - 40px));--term-screen:var(--bg-void);--term-chrome:var(--bg-topbar);--term-edge:var(--border-soft);}
+.c-body{flex:1;display:grid;grid-template-columns:1fr 290px;min-height:0;transition:grid-template-columns .18s var(--ease,ease);}
+.c-body.rail-off{grid-template-columns:1fr 0;}
+.c-body.rail-off .c-rail{display:none;}
+.c-main{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--border-soft);}
+.c-head{flex:none;display:flex;align-items:center;gap:9px;padding:8px 14px;border-bottom:1px solid var(--border-soft);background:var(--term-chrome);font-family:var(--font-mono);font-size:12px;color:var(--fg-secondary);}
+.c-head .sid{color:var(--accent);font-weight:700;}
+.c-head .role{color:var(--fg-primary);}
+.c-head .branch{color:var(--fg-muted);font-size:11px;}
+.c-head .sp{flex:1;}
+/* chrome 切换 tab —— lane / cmd / decisions */
+.vchrome-tabs{display:flex;align-items:center;gap:3px;}
+.vchrome-tab{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;line-height:1;color:var(--fg-muted);background:transparent;border:1px solid transparent;border-radius:var(--r-sm);padding:4px 9px;cursor:pointer;white-space:nowrap;transition:color .12s,background .12s,border-color .12s;}
+.vchrome-tab b{color:var(--fg-faint);font-weight:700;transition:color .12s;}
+.vchrome-tab:hover{color:var(--fg-secondary);background:color-mix(in srgb,var(--accent) 7%,transparent);}
+.vchrome-tab:hover b{color:var(--fg-muted);}
+.vchrome-tab.on{color:var(--bg-void);background:var(--accent);border-color:var(--accent);}
+.vchrome-tab.on b{color:var(--bg-void);}
+.vchrome-dot{width:6px;height:6px;border-radius:var(--r-full);background:var(--gold-bright);box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 30%,transparent);}
+.vchrome-tab.on .vchrome-dot{background:var(--bg-void);box-shadow:none;}
+.c-scroll{flex:1;min-height:0;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;padding:13px 16px;font-family:var(--font-mono);font-size:13px;display:flex;flex-direction:column;gap:10px;}
+.umsg{display:flex;gap:8px;align-items:baseline;background:var(--bg-panel);border-left:2px solid var(--accent-dim);border-radius:0 var(--r-sm) var(--r-sm) 0;padding:7px 11px;}
+.umsg .p{color:var(--accent-bright);font-weight:700;}
+.amsg{color:var(--fg-secondary);line-height:1.55;} .amsg .hd{color:var(--gold-bright);font-weight:700;margin-bottom:3px;} .amsg b{color:var(--fg-primary);}
+.tool{border-left:2px solid var(--border);padding:3px 0 3px 11px;display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--fg-muted);}
+.tool .g{color:var(--accent);font-weight:700;} .tool .add{color:var(--success);} .tool .del{color:var(--error);}
+.sysline{font-size:12px;color:var(--fg-muted);} .sysline .ok{color:var(--success);} .sysline .bad{color:var(--error);}
+/* ── 富转录块（从会话页移植 · 全套交互块）────────────────── */
+.oc-thought{color:var(--gold);cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12.5px;user-select:none;width:max-content;}
+.oc-thought .tw{color:var(--gold-bright);font-weight:700;} .oc-thought .ms{color:var(--gold);font-weight:700;}
+.oc-thought:hover{color:var(--gold-bright);}
+.oc-thought-body{color:var(--fg-secondary);font-size:13px;line-height:1.6;padding-left:2px;max-width:74ch;display:none;}
+.oc-thought.open + .oc-thought-body{display:block;}
+.oc-tool{display:flex;align-items:center;gap:9px;color:var(--fg-secondary);font-size:12.5px;}
+.oc-tool .ic{color:var(--accent);} .oc-tool .nm{color:var(--fg-primary);} .oc-tool .arg{color:var(--fg-muted);}
+.oc-toolline{color:var(--fg-muted);font-size:12.5px;display:flex;align-items:center;gap:8px;}
+.oc-toolline .ar{color:var(--accent);} .oc-toolline .nm{color:var(--fg-secondary);} .oc-toolline .meta{color:var(--fg-faint);}
+.oc-block{border:1px solid var(--term-edge);border-left:2px solid var(--border);border-radius:0 var(--r-xs) var(--r-xs) 0;background:color-mix(in srgb,var(--bg-base) 60%,var(--term-screen));padding:11px 14px;display:flex;flex-direction:column;gap:2px;}
+.oc-block .cm{color:var(--fg-muted);} .oc-block .cmd{color:var(--fg-primary);} .oc-block .cmd .pr{color:var(--accent);font-weight:700;}
+.oc-block .out{color:var(--fg-secondary);white-space:pre-wrap;} .oc-block .out .h{color:var(--accent-bright);} .oc-block .out .dim{color:var(--fg-faint);}
+.oc-block .spacer{height:6px;}
+.oc-more{color:var(--fg-faint);cursor:pointer;user-select:none;width:max-content;margin-top:4px;} .oc-more:hover{color:var(--accent);}
+.oc-block .oc-hidden{display:none;} .oc-block.open .oc-hidden{display:block;} .oc-block.open .oc-more{display:none;}
+.oc-diff{border:1px solid var(--term-edge);border-radius:var(--r-xs);overflow:hidden;background:var(--term-screen);}
+.oc-diff .dh{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--term-chrome);border-bottom:1px solid var(--term-edge);font-size:11px;color:var(--fg-muted);}
+.oc-diff .dh .fn{color:var(--fg-secondary);} .oc-diff .dh .add{margin-left:auto;color:var(--success);}
+.oc-diff .dl{display:flex;font-size:12.5px;line-height:1.55;}
+.oc-diff .dl .ln{flex:none;width:46px;text-align:right;padding:0 10px 0 0;color:var(--fg-faint);user-select:none;}
+.oc-diff .dl .tx{flex:1;padding-right:12px;white-space:pre-wrap;color:var(--fg-secondary);}
+.oc-diff .dl.add{background:color-mix(in srgb,var(--success) 11%,transparent);}
+.oc-diff .dl.add .tx{color:var(--success);} .oc-diff .dl.add .tx::before{content:"+ ";color:var(--success);}
+.oc-diff .dl.ctx .tx::before{content:"  ";}
+.oc-sdiff{border:1px solid var(--term-edge);border-radius:var(--r-xs);overflow:hidden;background:var(--term-screen);}
+.oc-sdiff .dh{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--term-chrome);border-bottom:1px solid var(--term-edge);font-size:11px;color:var(--fg-muted);}
+.oc-sdiff .dh .fn{color:var(--fg-secondary);} .oc-sdiff .dh .add{margin-left:auto;color:var(--success);} .oc-sdiff .dh .del{color:var(--error);}
+.oc-sdiff .cols{display:grid;grid-template-columns:1fr 1fr;}
+.oc-sdiff .col.r{border-left:1px solid var(--term-edge);}
+.oc-sdl{display:flex;font-size:12px;line-height:1.5;}
+.oc-sdl .ln{width:30px;flex:none;text-align:right;padding-right:7px;color:var(--fg-faint);user-select:none;}
+.oc-sdl .tx{flex:1;min-width:0;padding-right:8px;white-space:pre-wrap;color:var(--fg-secondary);}
+.oc-sdl.add{background:color-mix(in srgb,var(--success) 12%,transparent);}
+.oc-sdl.add .tx{color:var(--success);} .oc-sdl.add .tx::before{content:"+ ";}
+.oc-sdl.del{background:color-mix(in srgb,var(--error) 12%,transparent);}
+.oc-sdl.del .tx{color:var(--error);} .oc-sdl.del .tx::before{content:"- ";}
+.oc-sdl.empty{background:color-mix(in srgb,var(--fg-faint) 5%,transparent);}
+.oc-sdl .md{color:var(--builtin);font-weight:700;}
+.oc-err{border:1px solid color-mix(in srgb,var(--error) 30%,transparent);border-radius:var(--r-xs);background:color-mix(in srgb,var(--error) 5%,var(--term-screen));padding:10px 13px;font-size:12px;line-height:1.6;}
+.oc-err .eh{color:var(--error);display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:5px;}
+.oc-err .body{color:var(--fg-muted);} .oc-err .body .tool{color:var(--fg-secondary);} .oc-err .body .avail{color:var(--accent);}
+.oc-hook{align-self:flex-start;max-width:62%;border-left:2px solid var(--accent-dim);background:color-mix(in srgb,var(--accent) 4%,transparent);border-radius:0 var(--r-xs) var(--r-xs) 0;padding:9px 13px;}
+.oc-hook .hh{color:var(--fg-secondary);font-weight:600;font-size:12px;margin-bottom:5px;}
+.oc-hook .hr{color:var(--fg-muted);font-size:12px;} .oc-hook .hr .ic{color:var(--accent);}
+.oc-model{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--fg-muted);margin-top:2px;}
+.oc-model .sw{width:12px;height:12px;border-radius:2px;background:var(--accent);box-shadow:0 0 8px color-mix(in srgb,var(--accent) 55%,transparent);}
+.oc-model .nm{color:var(--accent-bright);font-weight:600;} .oc-model .mo{color:var(--fg-muted);}
+.oc-user{border-left:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 5%,transparent);border-radius:0 var(--r-xs) var(--r-xs) 0;padding:9px 13px;color:var(--fg-primary);font-size:13px;}
+.oc-h{font-family:var(--font-sans);font-weight:700;font-size:13.5px;} .oc-h.violet{color:var(--builtin);} .oc-h.gold{color:var(--gold-bright);}
+.oc-h.done{color:var(--fg-primary);display:flex;align-items:center;gap:8px;} .oc-h.done .ck{color:var(--success);}
+.oc-p{color:var(--fg-secondary);font-size:13px;line-height:1.6;max-width:82ch;} .oc-p code,.oc-ul code{color:var(--accent-bright);}
+.oc-mdtable{width:100%;border-collapse:collapse;font-size:12.5px;}
+.oc-mdtable th{font-family:var(--font-sans);text-align:left;color:var(--builtin);font-weight:700;padding:8px 12px;border:1px solid var(--term-edge);background:var(--term-chrome);}
+.oc-mdtable td{padding:8px 12px;border:1px solid var(--term-edge);color:var(--fg-secondary);vertical-align:top;line-height:1.5;}
+.oc-mdtable td.k{color:var(--gold-bright);font-weight:700;} .oc-mdtable td.path{color:var(--accent-bright);} .oc-mdtable td .warn{color:var(--gold-bright);} .oc-mdtable td .ok{color:var(--success);}
+.oc-todos{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--fg-secondary);}
+.oc-todos .td{display:flex;gap:9px;align-items:baseline;} .oc-todos .bx{color:var(--fg-faint);flex:none;white-space:nowrap;}
+.oc-ul{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--fg-secondary);}
+.oc-ul .li{display:flex;gap:8px;line-height:1.5;} .oc-ul .li .d{color:var(--fg-faint);flex:none;} .oc-ul .li b{color:var(--accent-bright);} .oc-ul .li .g{color:var(--gold-bright);font-weight:700;}
+.oc-stat{font-size:12.5px;color:var(--fg-secondary);line-height:1.6;} .oc-stat .lb{color:var(--gold-bright);font-weight:700;}
+.oc-prog{color:var(--fg-muted);font-size:12.5px;display:flex;align-items:center;gap:8px;} .oc-prog .tw{color:var(--progress);font-weight:700;}
+/* 右栏 lane rail */
+.c-rail{background:var(--term-chrome);display:flex;flex-direction:column;min-height:0;}
+.rail-h{display:flex;align-items:center;gap:8px;padding:10px 13px 7px;font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-muted);}
+.rail-h .n{color:var(--accent);} .rail-h .sp{flex:1;}
+.rail-scroll{flex:1;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;padding:2px 7px 8px;}
+/* 右栏顶部 tab + 可折叠区块（同会话页设计） */
+.rail-tabs{flex:none;display:flex;border-bottom:1px solid var(--border-soft);padding:0 6px;}
+.rtab{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 4px;cursor:pointer;background:transparent;border:0;border-bottom:2px solid transparent;color:var(--fg-muted);font-family:var(--font-mono);font-size:11.5px;transition:color .12s,border-color .12s;}
+.rtab .k{font-size:9.5px;color:var(--fg-faint);}
+.rtab:hover{color:var(--fg-secondary);}
+.rtab.on{color:var(--accent-bright);border-bottom-color:var(--accent);}
+.rtab.on .k{color:var(--accent);}
+.rsec{padding:9px 11px 5px;}
+.rsec-h{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-muted);margin-bottom:7px;}
+.rsec-h[data-c]{cursor:pointer;user-select:none;}
+.rsec-h .n{color:var(--accent);}
+.rsec-h .car{font-size:9px;color:var(--fg-muted);transition:transform .15s;display:inline-block;}
+.rsec.collapsed .car{transform:rotate(-90deg);}
+.rsec.collapsed .rsec-body{display:none;}
+.rsec-h .ct{margin-left:auto;font-size:10px;color:var(--fg-faint);font-weight:400;letter-spacing:0;text-transform:none;white-space:nowrap;}
+.rctx{font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);display:flex;flex-direction:column;gap:2px;}
+.rctx .big{color:var(--fg-secondary);}
+.rctx .mdl{margin-top:6px;padding-top:6px;border-top:1px solid var(--border-soft);display:flex;align-items:center;gap:7px;color:var(--fg-secondary);}
+.rctx .mdl .sw{width:9px;height:9px;border-radius:2px;flex:none;box-shadow:0 0 7px color-mix(in srgb,var(--accent) 50%,transparent);}
+.rctx .mdl .nm{color:var(--accent-bright);font-weight:600;}
+.rctx .tps{color:var(--fg-faint);} .rctx .tps b{color:var(--fg-muted);font-weight:600;}
+.rtodo{display:flex;gap:8px;align-items:baseline;font-family:var(--font-mono);font-size:12px;color:var(--fg-secondary);padding:3px 0;line-height:1.45;}
+.rtodo .bx{flex:none;white-space:nowrap;} .rtodo.todo .bx{color:var(--fg-faint);} .rtodo.run .bx{color:var(--progress);} .rtodo.done .bx{color:var(--success);}
+.rtodo.done .tx{color:var(--fg-faint);text-decoration:line-through;}
+.rmeter{height:4px;border-radius:var(--r-full);background:color-mix(in srgb,var(--accent) 14%,var(--term-screen));overflow:hidden;margin:6px 0 2px;}
+.rmeter i{display:block;height:100%;background:var(--accent);}
+.rsrv{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--fg-secondary);padding:3px 0;}
+.rsrv .dot{width:7px;height:7px;border-radius:var(--r-full);flex:none;}
+.rsrv .st{margin-left:auto;color:var(--fg-faint);font-size:10px;}
+.rmod{display:flex;align-items:baseline;gap:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--fg-secondary);padding:3px 0;}
+.rmod .fn{word-break:break-all;} .rmod .cnt{margin-left:auto;flex:none;white-space:nowrap;} .rmod .add{color:var(--success);} .rmod .del{color:var(--error);}
+.rkv{display:flex;justify-content:space-between;gap:10px;font-family:var(--font-mono);font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--border-soft);}
+.rkv .k{color:var(--fg-muted);} .rkv .v{color:var(--fg-secondary);text-align:right;} .rkv .v b{color:var(--accent-bright);}
+/* HUD：转录右上新信息提示（余光·可关） */
+.uhud{position:absolute;top:10px;right:12px;z-index:8;display:flex;flex-direction:column;gap:6px;max-width:284px;pointer-events:none;}
+.uhud-t{pointer-events:auto;display:flex;align-items:flex-start;gap:8px;background:color-mix(in srgb,var(--gold) 9%,var(--bg-panel));border:1px solid color-mix(in srgb,var(--gold) 40%,transparent);border-radius:var(--r-sm);padding:7px 10px;font-family:var(--font-mono);font-size:11.5px;box-shadow:var(--shadow-sm);animation:uhudin .28s ease;}
+.uhud-t.info{background:color-mix(in srgb,var(--accent) 8%,var(--bg-panel));border-color:var(--accent-dim);}
+.uhud-t .ic{color:var(--gold-bright);flex:none;margin-top:1px;} .uhud-t.info .ic{color:var(--accent-bright);}
+.uhud-t .tx{color:var(--fg-secondary);line-height:1.4;} .uhud-t .tx b{color:var(--gold-bright);} .uhud-t.info .tx b{color:var(--accent-bright);}
+.uhud-t .x{flex:none;margin-left:2px;color:var(--fg-faint);cursor:pointer;}
+.uhud-t .x:hover{color:var(--fg-secondary);}
+@keyframes uhudin{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:none;}}
+/* 右栏底：后台任务常驻条 */
+.rbg{flex:none;border-top:1px solid var(--border-soft);padding:9px 12px 10px;}
+.rbg-h{display:flex;font-family:var(--font-mono);font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--fg-muted);margin-bottom:7px;}
+.rbg-h .ct{margin-left:auto;font-weight:400;letter-spacing:0;text-transform:none;color:var(--fg-faint);}
+.rbgt{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--fg-secondary);padding:3px 0;}
+.rbgt .sp{width:10px;height:10px;border-radius:var(--r-full);border:1.5px solid var(--progress);border-top-color:transparent;animation:rbgspin .7s linear infinite;flex:none;}
+.rbgt.done .sp{border:0;animation:none;color:var(--success);width:auto;height:auto;}
+.rbgt.wait .sp{border-color:var(--fg-muted);border-top-color:transparent;animation:none;} .rbgt.wait .pct{color:var(--fg-faint);}
+.rbgt .be{font-size:9px;font-weight:700;letter-spacing:.5px;padding:1px 5px;border-radius:var(--r-full);flex:none;}
+.rbg-empty{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-faint);padding:4px 0;}
+/* 皮肤切换 swatch + 密度段 */
+.rskin{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+.rskin-sw{cursor:pointer;border:1px solid var(--border-soft);border-radius:var(--r-sm);padding:5px;display:flex;flex-direction:column;gap:5px;transition:border-color .12s;}
+.rskin-sw.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+.rskin-sw .prev{height:20px;border-radius:var(--r-xs);position:relative;border:1px solid color-mix(in srgb,#ffffff 8%,transparent);display:flex;align-items:flex-end;gap:3px;padding:3px;}
+.rskin-sw .prev .dot{width:6px;height:6px;border-radius:var(--r-full);}
+.rskin-sw .lbl{font-family:var(--font-mono);font-size:9px;letter-spacing:.5px;text-transform:uppercase;color:var(--fg-muted);text-align:center;}
+.rskin-sw.on .lbl{color:var(--accent-bright);}
+.rseg{display:flex;border:1px solid var(--border-soft);border-radius:var(--r-sm);overflow:hidden;}
+.rseg button{flex:1;background:transparent;border:0;border-right:1px solid var(--border-soft);color:var(--fg-muted);font-family:var(--font-mono);font-size:10.5px;padding:5px 4px;cursor:pointer;transition:background .12s,color .12s;}
+.rseg button:last-child{border-right:0;} .rseg button:hover{color:var(--fg-secondary);}
+.rseg button.on{background:var(--accent);color:var(--bg-void);font-weight:700;}
+/* lane 行展开：在跑的后台 agent 子列表 */
+.vlane-ct{margin-left:auto;font-size:9.5px;color:var(--progress);font-family:var(--font-mono);font-weight:700;}
+.vlane-car{font-size:8px;color:var(--fg-muted);transition:transform .15s;display:inline-block;margin-left:6px;}
+.vlane.open .vlane-car{transform:rotate(0);} .vlane:not(.open) .vlane-car{transform:rotate(-90deg);}
+.vlane-agents{margin-top:7px;padding-top:6px;border-top:1px solid var(--border-soft);display:flex;flex-direction:column;gap:4px;}
+.vla{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11px;color:var(--fg-secondary);}
+.vla .sp{width:9px;height:9px;border-radius:var(--r-full);border:1.4px solid var(--progress);border-top-color:transparent;animation:rbgspin .7s linear infinite;flex:none;}
+.vla.done .sp{border:0;animation:none;color:var(--success);width:auto;height:auto;font-size:10px;}
+.vla.wait .sp{border-color:var(--fg-muted);border-top-color:transparent;animation:none;}
+.vla .be{font-size:8.5px;font-weight:700;letter-spacing:.4px;padding:1px 5px;border-radius:var(--r-full);flex:none;}
+.vla .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .vla .pct{flex:none;color:var(--fg-faint);font-size:10px;}
+.vla.done .nm{color:var(--fg-muted);} .vla.wait .nm{color:var(--fg-muted);}
+@keyframes rbgspin{to{transform:rotate(360deg);}}
+.rbgt .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .rbgt .pct{margin-left:auto;flex:none;color:var(--progress);font-size:10.5px;} .rbgt.done .pct{color:var(--success);}
+/* composer */
+.composer{flex:none;border-top:1px solid var(--border-soft);background:var(--term-chrome);padding:9px 14px;}
+.cline{display:flex;align-items:flex-end;gap:9px;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:8px 11px;}
+.cline .pr{color:var(--accent-bright);font-weight:700;font-family:var(--font-mono);line-height:1.5;align-self:flex-start;}
+.cline textarea{flex:1;background:transparent;border:0;outline:none;color:var(--fg-primary);font-family:var(--font-mono);font-size:13px;line-height:1.5;resize:none;padding:0;margin:0;display:block;max-height:97px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.cline textarea::placeholder{color:var(--fg-faint);}
+.cline .modepill{font-family:var(--font-mono);font-size:10.5px;color:var(--gold);border:1px solid color-mix(in srgb,var(--gold) 40%,transparent);border-radius:var(--r-full);padding:2px 9px;cursor:pointer;white-space:nowrap;line-height:1.5;}
+.cline .modepill:hover{border-color:var(--gold);}
+.chint{margin-top:8px;}
+/* 首屏 / 启动欢迎屏 —— 复用 Aurora .welcome + .robot 语汇 */
+.vwelcome{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:34px 20px;background:radial-gradient(120% 80% at 50% 0%,color-mix(in srgb,var(--accent) 7%,var(--bg-base)),var(--bg-base) 60%);}
+.vrobot{font-family:var(--font-mono);white-space:pre;color:var(--accent);font-size:15px;line-height:1.15;text-align:left;text-shadow:0 0 16px color-mix(in srgb,var(--accent) 45%,transparent);}
+.vrobot .eye{color:var(--accent-bright);font-weight:700;}
+.vrobot .base{color:var(--accent-dim);}
+.vwtag{font-family:var(--font-mono);color:var(--fg-muted);margin-top:16px;font-size:12.5px;letter-spacing:.4px;}
+.vwtag .r{color:var(--gold);font-weight:700;} .vwtag .c{color:var(--accent);font-weight:700;}
+.vwsel{width:100%;max-width:560px;margin-top:24px;}
+.vwsel-cue{font-family:var(--font-mono);font-size:12.5px;margin-bottom:7px;color:var(--fg-secondary);}
+.vwsel-cue .pr{color:var(--accent-bright);font-weight:700;}
+.vwcur{display:inline-block;width:7px;height:14px;background:var(--accent-bright);vertical-align:text-bottom;animation:vwblink 1.1s steps(1) infinite;}
+@keyframes vwblink{50%{opacity:0;}}
+.vwrow{display:flex;align-items:center;gap:10px;font-family:var(--font-mono);font-size:12.5px;padding:5px 10px;border-radius:var(--r-sm);color:var(--fg-secondary);cursor:pointer;border-left:2px solid transparent;}
+.vwrow:hover{color:var(--fg-primary);background:color-mix(in srgb,var(--accent) 6%,transparent);}
+.vwrow.on{background:color-mix(in srgb,var(--accent) 12%,transparent);border-left-color:var(--accent);color:var(--fg-primary);}
+.vwrow .mk{color:var(--accent-bright);font-weight:700;width:8px;}
+.vwrow .cmd{color:var(--accent);font-weight:700;min-width:118px;flex:none;}
+.vwrow.on .cmd{color:var(--accent-bright);}
+.vwrow .desc{color:var(--fg-muted);white-space:nowrap;}
+.vwfoot{display:flex;justify-content:space-between;width:100%;max-width:560px;margin-top:10px;font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted);}
+.vwfoot .k{color:var(--accent);} .vwfoot .g{color:var(--fg-faint);}
+.vhome{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);background:transparent;border:1px solid transparent;border-radius:var(--r-sm);padding:4px 8px;cursor:pointer;transition:color .12s,background .12s;}
+.vhome:hover{color:var(--accent-bright);background:color-mix(in srgb,var(--accent) 8%,transparent);}
+</style>
+</head>
+<body>
+<div class="doc">
+  <div class="pkicker" data-zh="统一原型 · 单一组件库">Unified prototype · one component kit</div>
+  <h1 class="ph1" data-zh="一个 TUI 驾驶舱,<span class='ac'>一套组件</span>">One TUI cockpit, <span class="ac">one component kit</span></h1>
+  <p class="plead" data-zh="把散在各页的终端框 / 状态栏 / 红绿灯 / lane 行 / 后端 chip / 权限闸 / 快捷键提示统一成 <b>tui-kit.css</b> 一套类名,在这个<b>可交互</b>驾驶舱里跑通。后端铁律 <b class='vk-accent'>ACP=青</b> · <b class='vk-builtin'>built-in=紫</b> · <b class='vk-gold'>tmux=金</b>;权限闸统一为 <b>4 档 + 超时自动拒</b>。试试 <kbd>⌃L</kbd> 切 lane · <kbd>⌃P</kbd> 命令面板 · <kbd>⌃G</kbd> 决策中心,或点右栏带 ⏸ 的 lane 触发审批闸。">The terminal frame / status bar / traffic lights / lane row / backend chip / permission gate / shortcut hints — scattered across pages — are unified into one class vocabulary in <b>tui-kit.css</b> and driven live in this <b>interactive</b> cockpit. Backend rule <b class="vk-accent">ACP=cyan</b> · <b class="vk-builtin">built-in=violet</b> · <b class="vk-gold">tmux=gold</b>; the gate is one <b>4-tier + auto-deny</b> model. Try <kbd>⌃L</kbd> switch lane · <kbd>⌃P</kbd> command palette · <kbd>⌃G</kbd> decision center, or click a ⏸ lane on the right to fire the approval gate.</p>
+  <div class="try" id="tryRow"></div>
+  <div id="app"></div>
+</div>
+
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback} = React;
+const t = window.t || ((en,zh)=>en);
+
+/* ── canonical 内容（与 tui-screens.jsx 同源 lane 集）────────────── */
+const BE = { acp:{k:'ACP',cls:'acp'}, builtin:{k:'BUILT-IN',cls:'builtin'}, tmux:{k:'TMUX',cls:'tmux'} };
+const LANES = [
+  {id:'L1',role:t('Design','策划'),agent:'claude',be:'acp',st:'gate',gate:t('contract gate','契约闸'),sess:t('feel params v1.0→v1.1','手感参数 v1.0→v1.1'),note:t('contract diff ready · needs you','契约 diff 就绪 · 待你')},
+  {id:'L2',role:t('Gameplay','玩法'),agent:'codex',be:'acp',st:'gate',gate:t('replay-regression gate','回放回归闸'),sess:t('S1 · hitstun 0.18→0.24s','S1 · 受击硬直 0.18→0.24s'),note:t('patched tests; rerunning cargo','已补测;重跑 cargo')},
+  {id:'L3',role:t('Gameplay','玩法'),agent:'codex',be:'acp',st:'run',sess:t('S2 · dash-cancel window','S2 · 冲刺取消窗口'),note:t('editing dash.gd · 38s','编辑 dash.gd · 38s')},
+  {id:'L4',role:t('Content gen','内容生成'),agent:'built-in',be:'builtin',st:'gate',gate:t('gallery gate','画廊闸'),sess:t('level variants ×20','关卡变体 ×20'),note:t('20 keep/kill to review','20 张 keep/kill 待评')},
+  {id:'L6',role:t('Render','渲染'),agent:'kiro',be:'tmux',st:'wait',sess:t('cavern volumetric fog','溶洞体积雾'),note:t('tmux offline · backlog','tmux 离线 · 积压')},
+  {id:'L0',role:t('Scribe','书记官'),agent:'built-in',be:'builtin',st:'done',sess:t('daily briefing','每日简报'),note:t('09:00 sent · read-only','09:00 已发 · 只读')},
+];
+const GATE_LANES = LANES.filter(l=>l.st==='gate').map(l=>l.id);
+/* 每个 lane 下在跑的后台 agent（单一真源,lane 行展开 + More 栏共用）*/
+const LANE_AGENTS = {
+  L1:[['run','doc-lint',t('spec.md · 41s','spec.md · 41s'),'acp'],['done','contract-snapshot',t('cached','已缓存'),'acp']],
+  L2:[['run','replay-regression','64%','acp'],['run','cargo test config_tests',t('running','运行中'),'acp'],['done','hook verifier.mjs','756ms','acp']],
+  L3:[['run','dash.gd autosave','38s','acp'],['run','godot-lsp index',t('running','运行中'),'acp']],
+  L4:[['run','content-gen ×20','12/20','builtin'],['wait','gallery render',t('queued','排队'),'builtin']],
+  L6:[['wait','tmux attach',t('offline','离线'),'tmux']],
+  L0:[['done','daily briefing',t('09:00 sent','09:00 已发'),'builtin']],
+};
+const beVarBg = be=>be==='acp'?'var(--accent)':be==='builtin'?'var(--builtin)':'var(--gold)';
+
+/* 命令面板（canonical 命令,见 T4）*/
+const PALETTE = [
+  {g:t('Lanes','Lane'),items:[
+    ['/lane', t('switch / fuzzy-find a lane','切 / 模糊找 lane')],
+    ['/board', t('back to overview','回总览')],
+    ['/handoff <who>', t('hand off this lane (context + device lease)','移交本 lane(上下文+设备租约)')],
+  ]},
+  {g:t('Session','会话'),items:[
+    ['/model <id>', t('switch model / routing','换模型 / 路由')],
+    ['/clear', t('clear session context (needs confirm)','清会话上下文(需确认)')],
+  ]},
+  {g:t('Targets','执行目标'),items:[
+    ['/target local', t('run on this machine','本机执行')],
+    ['/target ssh:gpu-01', t('remote GPU box','远程 GPU')],
+    ['/target ssh:robot-01', t('on-device robot board','上板机器人')],
+  ]},
+];
+
+/* 后端 chip（统一格式 TYPE:agent + 统一配色）*/
+function BeChip({be,agent}){
+  const m = BE[be]; return <span className={"vbe "+m.cls}><span className="k">{m.k}</span>:<span className="ag">{agent}</span></span>;
+}
+function statusClass(st){ return 'vlane s-'+st; }
+
+/* ── lane 行 ───────────────────────────────────────────────── */
+function LaneRow({lane,active,onClick}){
+  const [open,setOpen] = useState(false);
+  const agents = LANE_AGENTS[lane.id]||[];
+  const running = agents.filter(a=>a[0]==='run').length;
+  return (
+    <div className={statusClass(lane.st)+(active?' on':'')+(open?' open':'')} onClick={()=>{onClick();setOpen(o=>!o);}}>
+      <span className="vled-st"></span>
+      <div className="vlane-tx">
+        <div className="vlane-h"><span className="vlane-id">{lane.id}</span><span className="vlane-role">{lane.role}</span>
+          {lane.st==='gate' && <span className="vlane-gate">⏸ {t('gate','闸')}</span>}
+          {agents.length>0 && <span className="vlane-ct">{running>0? running+'▶' : agents.length}</span>}
+          {agents.length>0 && <span className="vlane-car">▾</span>}
+        </div>
+        <div className="vlane-meta"><BeChip be={lane.be} agent={lane.agent}/> · {lane.sess}</div>
+        {open && agents.length>0 && (
+          <div className="vlane-agents" onClick={e=>e.stopPropagation()}>
+            {agents.map(([st,nm,meta,be],i)=>(
+              <div className={"vla "+st} key={i}>
+                <span className="sp">{st==='done'?'✓':''}</span>
+                <span className="be" style={{background:'color-mix(in srgb,'+beVarBg(be)+' 16%,transparent)',color:beVarBg(be)}}>{BE[be].k}</span>
+                <span className="nm">{nm}</span><span className="pct">{meta}</span>
+              </div>))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── 4 档审批闸 ─────────────────────────────────────────────── */
+/* ── 右栏：tab + 可折叠区块（Lane / Project / More）───────── */
+function Hud(){
+  const [show,setShow] = useState([true,true]);
+  const items = [
+    ['◳',t('New','新'),t('L4 content-gen: 20 keep/kill ready','L4 内容生成：20 张 keep/kill 待评'),'gold'],
+    ['◆',t('Update','更新'),t('Viden 0.4.2 available · downloading','Viden 0.4.2 可用 · 下载中'),'info'],
+  ];
+  return (
+    <div className="uhud">
+      {items.map((it,i)=>show[i] && (
+        <div key={i} className={"uhud-t"+(it[3]==='info'?' info':'')}>
+          <span className="ic">{it[0]}</span><span className="tx"><b>{it[1]}</b> {it[2]}</span>
+          <span className="x" onClick={()=>setShow(s=>s.map((v,n)=>n===i?false:v))}>✕</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Rail({lanes,activeId,setActiveId}){
+  const [tab,setTab] = useState('project');
+  const [col,setCol] = useState({});
+  const SKINS=[['dark','#0a1019','#34bdd9','#e3ab44'],['light','#f5f8fb','#0c87a4','#a9750f'],['amber','#14100a','#e09a3e','#e0b24a'],['phosphor','#04140a','#41d97a','#c9d94a'],['ice','#080d17','#5b8def','#9aa7c4'],['mono','#0d1013','#34bdd9','#c9b485']];
+  const [theme,setTheme] = useState(()=>document.documentElement.dataset.theme||'dark');
+  const [dens,setDens] = useState(()=>document.documentElement.dataset.density||'compact');
+  useEffect(()=>{ try{const s=localStorage.getItem('viden-theme'); const d=localStorage.getItem('viden-density'); if(s){document.documentElement.dataset.theme=s;setTheme(s);} if(d){document.documentElement.dataset.density=d;setDens(d);}}catch(e){} },[]);
+  const applyTheme=th=>{document.documentElement.dataset.theme=th;setTheme(th);try{localStorage.setItem('viden-theme',th);}catch(e){}};
+  const applyDens=d=>{document.documentElement.dataset.density=d;setDens(d);try{localStorage.setItem('viden-density',d);}catch(e){}};
+  const tog = k=>setCol(c=>({...c,[k]:!c[k]}));
+  useEffect(()=>{
+    const h=e=>{ if(!e.altKey) return;
+      if(e.code==='Digit1'){e.preventDefault();setTab('project');}
+      else if(e.code==='Digit2'){e.preventDefault();setTab('lane');}
+      else if(e.code==='Digit3'){e.preventDefault();setTab('more');} };
+    window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
+  },[]);
+  const sec = (k,head,body,collapsible,ct)=>(
+    <div className={"rsec"+(collapsible&&col[k]?' collapsed':'')} key={k}>
+      <div className="rsec-h" data-c={collapsible?'1':undefined} onClick={collapsible?()=>tog(k):undefined}>
+        {collapsible && <span className="car">▾</span>}{head}{ct!=null && <span className="ct">{ct}</span>}
+      </div>
+      <div className="rsec-body">{body}</div>
+    </div>
+  );
+  const backends = [['claude','acp'],['codex','acp'],['built-in','builtin'],['kiro','tmux']];
+  const beVar = be=>be==='acp'?'var(--accent)':be==='builtin'?'var(--builtin)':'var(--gold)';
+  const active = lanes.find(l=>l.id===activeId)||lanes[0];
+  return (
+    <div className="c-rail">
+      <div className="rail-tabs" role="tablist">
+        <button className={"rtab"+(tab==='project'?' on':'')} onClick={()=>setTab('project')}><span>{t('Env','环境')}</span><span className="k">⌥1</span></button>
+        <button className={"rtab"+(tab==='lane'?' on':'')} onClick={()=>setTab('lane')}><span>Lane</span><span className="k">⌥2</span></button>
+        <button className={"rtab"+(tab==='more'?' on':'')} onClick={()=>setTab('more')}><span>{t('More','更多')}</span><span className="k">⌥3</span></button>
+      </div>
+      <div className="rail-scroll">
+        {tab==='lane' && sec('fleet',<React.Fragment><span className="n">LANES</span> {t('fleet','机队')}</React.Fragment>,
+          lanes.map(l=><LaneRow key={l.id} lane={l} active={l.id===activeId} onClick={()=>setActiveId(l.id)}/>),false,lanes.length)}
+        {tab==='project' && <React.Fragment>
+          {sec('ctx','CONTEXT',
+            <div className="rctx"><span className="big">23.3K / 256K {t('tokens','token')}</span>
+              <div className="rmeter"><i style={{width:'9%'}}></i></div>
+              <span>9% {t('used','已用')} · $0.04 {t('spent','花费')}</span>
+              <div className="mdl"><span className="sw" style={{background:beVar((backends.find(b=>b[0]===active.agent)||[])[1]||'acp')}}></span><span className="nm">{active.agent}</span> <span className="tps">· DeepSeek V4 Flash</span></div>
+              <span className="tps"><b>61.4 tok/s</b> · 23,314 {t('total','总计')}</span></div>,false)}
+          {(()=>{
+            const todoMap={
+              L2:[['run',t('rerun replay-regression on combo link','combo link 重跑回放回归')],['todo',t('restore dash-cancel window by 1 frame','dash-cancel 窗口补回 1 帧')],['todo',t('update combat-feel changelog','更新手感 changelog')],['done',t('bump HITSTUN 0.18 → 0.24','HITSTUN 0.18 → 0.24')]],
+              L4:[['run',t('generate 20 keep/kill cards','生成 20 张 keep/kill')],['todo',t('wire level-variant selector','接关卡变体选择器')]],
+            };
+            const td=todoMap[active.id];
+            if(!td) return null;
+            const open=td.filter(x=>x[0]!=='done').length;
+            return sec('todo',<React.Fragment><span className="n">TODO</span> · {active.id}</React.Fragment>,
+              td.map(([st,tx],i)=>(<div className={"rtodo "+st} key={i}><span className="bx">{st==='done'?'[x]':st==='run'?'[~]':'[ ]'}</span> <span className="tx">{tx}</span></div>)),
+              true,open+'/'+td.length);
+          })()}
+          {sec('be',t('BACKENDS','后端'),
+            backends.map(([ag,be])=>(<div className="rsrv" key={ag}><span className="dot" style={{background:beVar(be)}}></span><BeChip be={be} agent={ag}/><span className="st">{t('active','在线')}</span></div>)),
+            true,backends.length)}
+          {sec('mod',t('MODIFIED','已改'),
+            <React.Fragment>
+              <div className="rmod"><span className="fn">src/config.rs</span><span className="cnt"><span className="add">+120</span></span></div>
+              <div className="rmod"><span className="fn">src/dash.gd</span><span className="cnt"><span className="add">+38</span> <span className="del">-9</span></span></div>
+              <div className="rmod"><span className="fn">contracts/L1.toml</span><span className="cnt"><span className="add">+12</span></span></div>
+            </React.Fragment>,true,3)}
+        </React.Fragment>}
+        {tab==='more' && <React.Fragment>
+          {sec('sess',t('SESSION','会话'),
+            <React.Fragment>
+              <div className="rkv"><span className="k">lane</span><span className="v"><b>{active.id} {active.role}</b></span></div>
+              <div className="rkv"><span className="k">agent</span><span className="v">{active.agent}</span></div>
+              <div className="rkv"><span className="k">{t('target','目标')}</span><span className="v">⊨ local</span></div>
+              <div className="rkv"><span className="k">{t('mode','模式')}</span><span className="v">Build</span></div>
+            </React.Fragment>,false)}
+          {sec('keys',t('KEYBINDINGS','快捷键'),
+            <React.Fragment>
+              <div className="rkv"><span className="k">⌥1 / ⌥2 / ⌥3</span><span className="v">{t('panels','切面板')}</span></div>
+              <div className="rkv"><span className="k">⌃L</span><span className="v">{t('switch lane','切 lane')}</span></div>
+              <div className="rkv"><span className="k">⌃P</span><span className="v">{t('commands','命令')}</span></div>
+              <div className="rkv"><span className="k">⌃G</span><span className="v">{t('decisions','决策')}</span></div>
+            </React.Fragment>,true)}
+          {sec('skin',<React.Fragment><span className="n">SKIN</span> · {t('theme','主题')}</React.Fragment>,
+            <div className="rskin">
+              {SKINS.map(([id,bg,ac,go])=>(
+                <div key={id} className={"rskin-sw"+(theme===id?' on':'')} onClick={()=>applyTheme(id)}>
+                  <div className="prev" style={{background:bg}}><span className="dot" style={{background:ac}}></span><span className="dot" style={{background:go}}></span></div>
+                  <span className="lbl">{id}</span>
+                </div>))}
+            </div>,true)}
+          {sec('dens',<React.Fragment><span className="n">DENSITY</span> · {t('density','密度')}</React.Fragment>,
+            <div className="rseg">
+              {[['compact',t('Compact','紧凑')],['regular',t('Regular','标准')],['comfy',t('Comfy','宽松')]].map(([id,lb])=>(
+                <button key={id} className={dens===id?'on':''} onClick={()=>applyDens(id)}>{lb}</button>))}
+            </div>,true)}
+          {(()=>{
+            const bgTasks=LANE_AGENTS[active.id]||[];
+            const run=bgTasks.filter(b=>b[0]==='run').length, done=bgTasks.filter(b=>b[0]==='done').length;
+            return sec('bg',<React.Fragment><span className="n">BACKGROUND</span> · {active.id}</React.Fragment>,
+              bgTasks.length? bgTasks.map(([st,nm,meta,be],i)=>(
+                <div className={"rbgt "+st} key={i}>
+                  <span className="sp">{st==='done'?'✓':''}</span>
+                  <span className="be" style={{background:'color-mix(in srgb,'+beVarBg(be)+' 16%,transparent)',color:beVarBg(be)}}>{BE[be].k}</span>
+                  <span className="nm">{nm}</span><span className="pct">{meta}</span>
+                </div>)) : <div className="rbg-empty">{t('no background agents','无后台 agent')}</div>,
+              true, run+' run'+(done?' · '+done+' done':''));
+          })()}
+        </React.Fragment>}
+      </div>
+    </div>
+  );
+}
+
+const GATE_OPTS = [
+  ['1', t('Allow once','本次允许'), '', 'allow'],
+  ['2', t('Allow for this session','本会话允许'), '', 'allow'],
+  ['3', t('Add to allowlist','加入白名单'), t('permanent · this repo','永久 · 本仓库'), 'allow'],
+  ['4', t('Deny','拒绝'), '', 'deny'],
+];
+function GateCard({lane,onResolve}){
+  const [sel,setSel] = useState(0);
+  const [cd,setCd] = useState(47);
+  useEffect(()=>{ if(cd<=0) return; const id=setTimeout(()=>setCd(c=>c-1),1000); return ()=>clearTimeout(id); },[cd]);
+  useEffect(()=>{ if(cd===0) onResolve('deny',t('auto-deny (timed out)','超时自动拒')); },[cd]);
+  const confirm = (i)=>{ const o=GATE_OPTS[i]; onResolve(o[3], o[1]); };
+  useEffect(()=>{
+    const h=(e)=>{
+      if(['1','2','3','4'].includes(e.key)){ const i=+e.key-1; setSel(i); confirm(i); }
+      else if(e.key==='ArrowDown'){ setSel(s=>(s+1)%4); }
+      else if(e.key==='ArrowUp'){ setSel(s=>(s+3)%4); }
+      else if(e.key==='Enter'){ confirm(sel); }
+    };
+    window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
+  },[sel]);
+  return (
+    <div className="vgate">
+      <div className="vgate-head"><span className="badge">GATE</span>{t('Dangerous command · approval','危险命令 · 审批')}
+        <span className="risk">{t('risk: write','风险:写')}</span></div>
+      <div className="vgate-body">
+        <div className="vgate-cmd"><span className="g vk-accent">[write_file]</span> src/config.rs · <span className="rm">lines 1–120</span> · {lane.id} {BE[lane.be].k}:{lane.agent}</div>
+        <div className="vgate-opts">
+          {GATE_OPTS.map((o,i)=>(
+            <div key={o[0]} className={"vgate-opt"+(o[3]==='deny'?' deny':'')+(sel===i?' on':'')} onMouseEnter={()=>setSel(i)} onClick={()=>confirm(i)}>
+              <span className="n">{o[0]}</span><span>{o[1]}</span>{o[2] && <span className="sub">{o[2]}</span>}
+            </div>
+          ))}
+        </div>
+        <div className="vgate-foot"><span><b>↑↓</b> {t('select','选择')}</span><span><b>1–4</b> {t('jump','直达')}</span><span><b>⏎</b> {t('confirm','确认')}</span>
+          <span className="cd">{t('auto-deny','超时拒')} {cd}s<span className="bar"><i style={{width:(cd/47*100)+'%'}}></i></span></span></div>
+      </div>
+    </div>
+  );
+}
+
+/* ── overlays: lane 切换 / 命令面板 / 决策中心 ──────────────────── */
+function Overlay({kind,onClose,onPick}){
+  const [q,setQ] = useState('');
+  const [sel,setSel] = useState(0);
+  const rows = [];
+  if(kind==='lane'){
+    LANES.forEach(l=>rows.push({key:l.id,label:l.id+' · '+l.role,desc:l.sess,pick:()=>onPick(l.id),tag:l.st}));
+  } else if(kind==='palette'){
+    PALETTE.forEach(g=>{ rows.push({grp:g.g}); g.items.forEach(it=>rows.push({key:it[0],label:it[0],desc:it[1],pick:()=>onClose()})); });
+  } else if(kind==='decision'){
+    LANES.filter(l=>l.st==='gate').forEach(l=>rows.push({key:l.id,label:l.gate,desc:l.id+' · '+BE[l.be].k+':'+l.agent,pick:()=>onPick(l.id),tag:'gate'}));
+    rows.push({key:'ask',label:t('Ask: content-gen budget 82%, keep running?','问询:内容生成预算 82%,是否续跑'),desc:'L4 · '+t('ask','问询'),pick:()=>onClose(),tag:'ask'});
+  }
+  const pickable = rows.filter(r=>!r.grp);
+  const filtered = q ? pickable.filter(r=>(r.label+r.desc).toLowerCase().includes(q.toLowerCase())) : pickable;
+  const titles = {lane:[' ⌃L ', t('Switch lane','切 lane')], palette:['/', t('Command palette','命令面板')], decision:['⏸', t('Decision center','决策中心')]};
+  useEffect(()=>{
+    const h=(e)=>{
+      if(e.key==='Escape'){ onClose(); }
+      else if(e.key==='ArrowDown'){ e.preventDefault(); setSel(s=>Math.min(s+1,filtered.length-1)); }
+      else if(e.key==='ArrowUp'){ e.preventDefault(); setSel(s=>Math.max(s-1,0)); }
+      else if(e.key==='Enter'){ const r=filtered[sel]; if(r&&r.pick) r.pick(); }
+    };
+    window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
+  },[sel,filtered]);
+  let idx=-1;
+  return (
+    <div className="vscrim" onClick={onClose}>
+      <div className="voverlay" onClick={e=>e.stopPropagation()}>
+        <div className="voverlay-in"><span className="pr">{titles[kind][0]}</span>
+          <input autoFocus placeholder={titles[kind][1]+'…'} value={q} onChange={e=>{setQ(e.target.value);setSel(0);}}/>
+          <span className="esc">esc</span></div>
+        <div className="voverlay-list">
+          {rows.map((r,i)=>{
+            if(r.grp) return <div key={'g'+i} className="vogrp">{r.grp}</div>;
+            idx++; const on = filtered[sel] && filtered[sel].key===r.key;
+            if(q && !filtered.includes(r)) return null;
+            return (
+              <div key={r.key} className={"vorow"+(on?' on':'')} onMouseEnter={()=>setSel(filtered.indexOf(r))} onClick={r.pick}>
+                <span className="cmd">{r.label}</span><span className="desc">{r.desc}</span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="voverlay-foot"><span><b>↑↓</b> {t('move','移动')}</span><span><b>⏎</b> {t('open','打开')}</span><span><b>esc</b> {t('close','关闭')}</span></div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 滚动 ticker 状态栏（把大量指标塞进底栏,同 Core/Aurora）──────── */
+function Ticker({active,gates}){
+  const items=[
+    ['EVENTS', <span className="v">9</span>],
+    ['LANE', <span className="v"><b>{active.id} {active.agent}</b> · <span className="pr">{active.st==='gate'?t('gate ready','闸成形'):active.st==='run'?'testing 64%':active.st==='block'?t('denied','已拒'):active.st}</span></span>],
+    ['LATENCY', <span className="v">840ms <span className="vk-mut">avg 1.1s</span></span>],
+    ['TOKENS', <span className="v">42.1k↑ 8.9k↓ · 23.3K/256K</span>],
+    ['DIAG', <span className="v ok">0</span>],
+    ['TESTS', <span className="v"><span className="bad">1 failed</span> · config_tests</span>],
+    ['GIT', <span className="v">main <span className="ok">✓ clean</span></span>],
+    ['CONTEXT', <span className="v">9% · $0.04</span>],
+    ['TARGET', <span className="v">⊨ local</span>],
+    ['GATES', <span className="v g">⏸ {gates} {t('waiting','待决')}</span>],
+    ['ACTIONS', <span className="v"><b>⌃J</b> Send · <b>⌃K</b> Clr · <b>⌃R</b> Regen · <b>⌃N</b> New</span>],
+  ];
+  const grp=(k)=>items.map((it,i)=>(<React.Fragment key={k+i}><span className="vtk-item"><span className="lbl">{it[0]}</span>{it[1]}</span>{i<items.length-1 && <span className="vtk-sep">┆</span>}</React.Fragment>));
+  return (<div className="vticker"><div className="vtk-track"><span className="vtk-grp">{grp('a')}</span><span className="vtk-grp" aria-hidden="true">{grp('b')}</span></div></div>);
+}
+
+/* ── 首屏 / 启动欢迎屏 ──────────────────────────────────── */
+const WELCOME_CMDS = [
+  ['/lanes', t('Open the lane board → cockpit','进入 lane 总览 → 驾驶舱')],
+  ['/help', t('Show all commands','列出所有命令')],
+  ['/connect', t('Connect or configure providers','连接 / 配置 provider')],
+  ['/permissions', t('Select permission level','选择权限等级')],
+  ['/mode', t('Select work mode','选择工作模式')],
+  ['/setup', t('First-run wizard','首启向导')],
+];
+function Welcome({onEnter}){
+  const [sel,setSel] = useState(0);
+  useEffect(()=>{
+    const h=(e)=>{
+      if(e.key==='ArrowDown'){ e.preventDefault(); setSel(s=>(s+1)%WELCOME_CMDS.length); }
+      else if(e.key==='ArrowUp'){ e.preventDefault(); setSel(s=>(s+WELCOME_CMDS.length-1)%WELCOME_CMDS.length); }
+      else if(e.key==='Enter'){ e.preventDefault(); onEnter(); }
+    };
+    window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
+  },[onEnter]);
+  return (
+    <div className="vwelcome">
+      <div className="vrobot">{'╭───────────╮\n│  '}<span className="eye">◉</span>{'     '}<span className="eye">◉</span>{'  │\n│   '}<span className="base">─────</span>{'   │\n╰─┬───────┬─╯\n  '}<span className="base">╧       ╧</span></div>
+      <div className="vwtag"><span className="c">[◉]</span> <b><span className="r">v</span><span className="c">iden</span></b> v0.1.30 · {t('local-first coding-agent cockpit','本地优先的编码代理驾驶舱')}</div>
+      <div className="vwsel">
+        <div className="vwsel-cue"><span className="pr">›</span> /<span className="vwcur"></span></div>
+        {WELCOME_CMDS.map((c,i)=>(
+          <div key={c[0]} className={"vwrow"+(sel===i?' on':'')} onMouseEnter={()=>setSel(i)} onClick={onEnter}>
+            <span className="mk">{sel===i?'›':' '}</span><span className="cmd">{c[0]}</span><span className="desc">{c[1]}</span>
+          </div>
+        ))}
+      </div>
+      <div className="vwfoot">
+        <span><span className="g">~/dev/boss-rush</span><span className="k">:main</span></span>
+        <span><span className="k">◎</span> 6 lanes&nbsp;&nbsp;<span className="g">↑↓ · enter 驾驶舱 · esc</span></span>
+      </div>
+    </div>
+  );
+}
+
+/* ── 富转录块辅助组件（折叠思考 / 可展开命令块）────────── */
+function Thought({ms,children}){
+  const [open,setOpen] = useState(false);
+  return (
+    <React.Fragment>
+      <div className={"oc-thought"+(open?' open':'')} onClick={()=>setOpen(o=>!o)}><span className="tw">+</span> {t('Thought','思考')}: <span className="ms">{ms}</span></div>
+      <div className="oc-thought-body">{children}</div>
+    </React.Fragment>
+  );
+}
+function CmdBlock({head,hidden}){
+  const [open,setOpen] = useState(false);
+  return (
+    <div className={"oc-block"+(open?' open':'')}>
+      {head}
+      {hidden && <React.Fragment><div className="oc-hidden">{hidden}</div><div className="oc-more" onClick={()=>setOpen(true)}>{t('Click to expand','点击展开')}</div></React.Fragment>}
+    </div>
+  );
+}
+
+/* ── 主驾驶舱 ───────────────────────────── */
+function Cockpit(){
+  const [view,setView] = useState('welcome');   // 'welcome' | 'cockpit'
+  const [activeId,setActiveId] = useState('L2');
+  const [overlay,setOverlay] = useState(null);   // 'lane' | 'palette' | 'decision' | 'gate'
+  const [lanes,setLanes] = useState(LANES);
+  const [resolved,setResolved] = useState(null); // {id,kind,label}
+  const [railOpen,setRailOpen] = useState(true);
+  const active = lanes.find(l=>l.id===activeId);
+  const gateCount = lanes.filter(l=>l.st==='gate').length + 1; // +1 ask
+
+  const pickLane = (id)=>{ setActiveId(id); setOverlay(null); };
+  const resolveGate = (kind,label)=>{
+    setLanes(ls=>ls.map(l=>l.id===activeId?{...l,st:kind==='deny'?'block':'run',gate:null,note:kind==='deny'?label:t('approved · merged','已批 · 合入')}:l));
+    setResolved({id:activeId,kind,label}); setOverlay(null);
+    setTimeout(()=>setResolved(null),3200);
+  };
+
+  useEffect(()=>{
+    const h=(e)=>{
+      if(view!=='cockpit') return;
+      if(!(e.ctrlKey||e.metaKey)) return;
+      const k=e.key.toLowerCase();
+      if(k==='l'){ e.preventDefault(); setOverlay(o=>o==='lane'?null:'lane'); }
+      else if(k==='p'){ e.preventDefault(); setOverlay(o=>o==='palette'?null:'palette'); }
+      else if(k==='g'){ e.preventDefault(); setOverlay(o=>o==='decision'?null:'decision'); }
+      else if(k==='b'){ e.preventDefault(); setRailOpen(v=>!v); }
+    };
+    window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
+  },[view]);
+
+  return (
+    <div className="vterm" id="cockpit">
+      <div className="vterm-chrome">
+        <span className="vlights"><i className="a"></i><i className="b"></i><i className="c"></i></span>
+        <span className="vtitle">{view==='welcome' ? 'viden — welcome — 142×40' : 'viden — fish — ~/dev/boss-rush:main — 142×40'}</span>
+        <span className="vsp"></span>
+        {view==='cockpit' && (
+        <div className="vchrome-tabs" role="tablist">
+          <button className="vhome" onClick={()=>{setView('welcome');setOverlay(null);}} title={t('Welcome','首屏')}><b>⌂</b> {t('home','首屏')}</button>
+          {[
+            {id:'lane',k:'⌃L',en:'lane',zh:'lane'},
+            {id:'palette',k:'⌃P',en:'cmd',zh:'命令'},
+            {id:'decision',k:'⌃G',en:'decisions',zh:'决策'},
+          ].map(tab=>(
+            <button key={tab.id} role="tab" aria-selected={overlay===tab.id}
+              className={"vchrome-tab"+(overlay===tab.id?' on':'')}
+              onClick={()=>setOverlay(o=>o===tab.id?null:tab.id)}>
+              <b>{tab.k}</b> {t(tab.en,tab.zh)}{tab.id==='decision'&&gateCount>0&&<span className="vchrome-dot"></span>}
+            </button>
+          ))}
+        </div>
+        )}
+      </div>
+      {view==='welcome'
+        ? <Welcome onEnter={()=>setView('cockpit')}/>
+        : (
+      <div className="vterm-body">
+        <div className={"c-body"+(railOpen?'':' rail-off')}>
+          {/* center */}
+          <div className="c-main">
+            <Hud/>
+            <div className="c-head">
+              <span className="sid">{active.id}</span>
+              <span className="role">{active.role}</span>
+              <BeChip be={active.be} agent={active.agent}/>
+              {active.st==='gate' && <span className="vk-gold vb">⏸ {t('waiting','待审')}</span>}
+              <span className="sp"></span>
+              <span className="branch">{active.agent}</span>
+            </div>
+            <div className="c-scroll">
+              <div className="umsg"><span className="p">›</span><span>{t('Bump hitstun from 0.18 to 0.24, run replay-regression, show me the diff before applying.','把受击硬直 0.18 调到 0.24,跑回放回归,改之前给我看 diff。')}</span></div>
+
+              <Thought ms="0.4s">{t('Locate the HITSTUN constant, change it, run the deterministic replay suite, then surface the diff before writing.','定位 HITSTUN 常量 → 改值 → 跑确定性回放套件 → 写入前先给出 diff。')}</Thought>
+
+              <div className="amsg"><div className="hd">⚒ {active.agent} · <BeChip be={active.be} agent={active.agent}/></div>
+                {t('Plan: change the','方案:改')} <b>HITSTUN</b> {t('constant → run deterministic replay → check assertions.','常量 → 跑确定性回放 → 校断言。')}</div>
+
+              <div className="oc-tool"><span className="ic">⊙</span> <span className="nm">read</span> <span className="arg">src/config.rs</span></div>
+              <CmdBlock
+                head={<React.Fragment>
+                  <div className="cm"># {t('combat feel constants','手感常量')}</div>
+                  <div className="spacer"></div>
+                  <div className="out">pub const HITSTUN: f32 = 0.18;
+pub const DASH_CANCEL: f32 = 0.12;
+pub const KNOCKBACK: f32 = 6.4;</div>
+                </React.Fragment>}
+                hidden={<div className="out">pub const PARRY_WINDOW: f32 = 0.10;
+pub const IFRAME: f32 = 0.30;
+pub const COMBO_DECAY: f32 = 0.45;</div>}/>
+
+              <div className="oc-toolline"><span className="ar">←</span> <span className="nm">Edit</span> <span className="meta">src/config.rs</span></div>
+              <div className="oc-sdiff">
+                <div className="dh"><span className="fn">src/config.rs</span><span className="add">+1</span> <span className="del">-1</span></div>
+                <div className="cols">
+                  <div className="col l">
+                    <div className="oc-sdl"><span className="ln">11</span><span className="tx">// combat feel</span></div>
+                    <div className="oc-sdl del"><span className="ln">12</span><span className="tx">pub const HITSTUN: f32 = 0.18;</span></div>
+                    <div className="oc-sdl"><span className="ln">13</span><span className="tx">pub const DASH_CANCEL: f32 = 0.12;</span></div>
+                  </div>
+                  <div className="col r">
+                    <div className="oc-sdl"><span className="ln">11</span><span className="tx">// combat feel</span></div>
+                    <div className="oc-sdl add"><span className="ln">12</span><span className="tx">pub const HITSTUN: f32 = 0.24;</span></div>
+                    <div className="oc-sdl"><span className="ln">13</span><span className="tx">pub const DASH_CANCEL: f32 = 0.12;</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="oc-hook">
+                <div className="hh">PostToolUse Hook Executed</div>
+                <div className="hr"><span className="ic">▶</span> Skill replay-regression.rs: 1468ms</div>
+              </div>
+
+              <div className="oc-toolline"><span className="ar">→</span> <span className="nm">Run</span> <span className="meta">cargo replay --suite combat</span></div>
+              <table className="oc-mdtable">
+                <thead><tr><th data-zh="回放场景">Replay scenario</th><th>0.18</th><th>0.24</th></tr></thead>
+                <tbody>
+                  <tr><td className="k" data-zh="连段衔接">combo link</td><td><span className="warn">drop 2/10</span></td><td><span className="ok">0/10 ✓</span></td></tr>
+                  <tr><td className="k" data-zh="霸体 boss">super-armor boss</td><td>stable</td><td>stable</td></tr>
+                  <tr><td className="k" data-zh="冲刺取消">dash-cancel</td><td><span className="ok">ok</span></td><td><span className="warn" data-zh="窗口 -1f">window -1f</span></td></tr>
+                </tbody>
+              </table>
+
+              <div className="oc-err">
+                <div className="eh"><span>⊘</span> <span data-zh="无效调用">invalid</span></div>
+                <div className="body">[tool=<span className="tool">glob</span>, error=unavailable tool <span className="tool">'glob'</span>. <span className="avail" data-zh="可用工具">Available</span>: read, write_file, edit, bash, run, lane_switch, gate … <span data-zh="（已改用 bash find）">(used bash find instead)</span>]</div>
+              </div>
+
+              <div className="oc-tool"><span className="ic">✎</span> <span className="nm">write_file</span> <span className="arg">src/config.rs · {t('lines 1–120','行 1–120')}</span></div>
+              <div className="tool"><span><span className="g">[write_file]</span> src/config.rs · <span className="del">lines 1–120</span></span>
+                <span>{t('gate:','闸:')} {active.st==='gate'? <span className="vk-gold vb">{t('waiting for you','待你')}</span> : active.st==='block'? <span className="vk-error vb">{t('denied','已拒')}</span> : <span className="vk-success vb">{t('approved','已批')}</span>}</span></div>
+              <div className="sysline">{t('Test:','测试:')} <span className="bad">{t('1 failed','1 失败')}</span> · cargo test config_tests · src/config.rs:42</div>
+              {active.st==='gate' && (
+                <div style={{marginTop:'4px'}}>
+                  <GateCard lane={active} onResolve={resolveGate}/>
+                </div>
+              )}
+              {resolved && resolved.id===activeId && (
+                <div className="sysline" style={{marginTop:'2px'}}>{resolved.kind==='deny'
+                  ? <span className="bad">✗ {resolved.label} · {t('command printed for you to run','已打印命令供你自行执行')}</span>
+                  : <span className="ok">✓ {resolved.label} · {t('merge unlocked','合入解锁')}</span>}</div>
+              )}
+
+              <div className="oc-h done"><span className="ck">✅</span> <span data-zh="改完后续">Follow-ups</span></div>
+              <div className="oc-todos">
+                <div className="td"><span className="bx">[ ]</span> <span data-zh="把 dash-cancel 窗口补回 1 帧">restore dash-cancel window by 1 frame</span></div>
+                <div className="td"><span className="bx">[ ]</span> <span data-zh="更新 combat 手感 changelog">update combat-feel changelog</span></div>
+                <div className="td"><span className="bx">[x]</span> <span data-zh="回放回归通过 combo link">replay-regression: combo link passes</span></div>
+              </div>
+              <div className="oc-toolline"><span className="ar">→</span> <span className="nm">Skill</span> <span className="meta">“replay-suite”</span></div>
+              <div className="oc-stat"><span className="lb" data-zh="统计变化">Net change</span><span data-zh="：HITSTUN 0.18→0.24 · combo link 掉帧 2→0 · 待审 1 处写入。">: HITSTUN 0.18→0.24 · combo-link drops 2→0 · 1 write awaiting gate.</span></div>
+              <div className="oc-model"><span className="sw"></span> <span className="nm">{active.agent}</span> <span className="mo">· ACP · 1m 12s</span></div>
+            </div>
+            <div className="composer">
+              <div className="cline"><span className="pr">›</span>
+                <textarea rows={2} placeholder={t('Reply to ','回复 ')+active.id+'… ('+t('try /model or /target','试 /model 或 /target')+')'}
+                  onInput={e=>{const el=e.target;el.style.height='auto';el.style.height=Math.min(el.scrollHeight,97)+'px';}}
+                  onKeyDown={e=>{if(e.key==='/'&&!e.target.value){e.preventDefault();setOverlay('palette');}}}></textarea>
+                <span className="modepill" onClick={()=>setOverlay('palette')}>MODE Build ▾</span></div>
+              <div className="vhints chint">
+                <span className="h"><b>⌃L</b> {t('lane','切 lane')}</span><span className="h"><b>⌃P</b> {t('commands','命令')}</span>
+                <span className="h"><b>⌃G</b> {t('decisions','决策')}</span><span className="sp"></span>
+                <span className="h"><b>⌃J</b> {t('send','发送')}</span></div>
+            </div>
+          </div>
+          {/* lane rail */}
+          <Rail lanes={lanes} activeId={activeId} setActiveId={setActiveId}/>
+        </div>
+        {/* status bar */}
+        <div className="vstatus">
+          <span className="vseg proj">◉ boss-rush</span>
+          <Ticker active={active} gates={gateCount}/>
+          <span className="vseg r"><span className="vgate-badge" onClick={()=>setOverlay('decision')}>⏸ {gateCount}</span></span>
+          <span className="vhelp" onClick={()=>setRailOpen(v=>!v)} title={t('toggle rail (⌃B)','切换右栏 (⌃B)')} style={{cursor:'pointer',opacity:railOpen?1:.6}}>{railOpen?'▦':'▢'} {t('rail','右栏')} <b style={{color:'var(--fg-faint)',fontWeight:700}}>⌃B</b></span>
+          <span className="vhelp" onClick={()=>setOverlay('palette')}>? help</span>
+        </div>
+      </div>
+        )}
+      {view==='cockpit' && overlay && overlay!=='gate' && <Overlay kind={overlay} onClose={()=>setOverlay(null)} onPick={pickLane}/>}
+    </div>
+  );
+}
+
+function TryRow(){
+  const fire=(combo)=>{ const e=new KeyboardEvent('keydown',{key:combo,ctrlKey:true,bubbles:true}); window.dispatchEvent(e); };
+  return (<>
+    <button className="trybtn" onClick={()=>fire('l')}><b>⌃L</b> {t('switch lane','切 lane')}</button>
+    <button className="trybtn" onClick={()=>fire('p')}><b>⌃P</b> {t('command palette','命令面板')}</button>
+    <button className="trybtn" onClick={()=>fire('g')}><b>⌃G</b> {t('decision center','决策中心')}</button>
+  </>);
+}
+
+ReactDOM.createRoot(document.getElementById('app')).render(<Cockpit/>);
+ReactDOM.createRoot(document.getElementById('tryRow')).render(<TryRow/>);
+</script>
+<script>
+(function(){if(window.vLang==='zh'){document.querySelectorAll('[data-zh]').forEach(function(el){el.innerHTML=el.getAttribute('data-zh');});}})();
+</script>
+</body>
+</html>

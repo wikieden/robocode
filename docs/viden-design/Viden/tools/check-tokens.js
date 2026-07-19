@@ -31,8 +31,23 @@
  *  要把当前所有违规重新固化为 baseline，把下方 args 设成 ['--write-baseline']。
  *
  * ─────────────────────────────────────────────────────────────
+ *  ⚠ CJK / 括号文件名盲区（run_script 沙箱）
+ * ─────────────────────────────────────────────────────────────
+ *  run_script 的 readFile 拒绝路径里含 CJK 或 `()` 的文件（报 "disallowed
+ *  characters"）—— 本项目所有设计页（中文名 + (GUI)/(TUI)）都中招。ls 能
+ *  列名、readFile 读不了。旧版静默跳过 = 守卫对正经设计页全盲。
+ *  现在：这类文件被显式收集为「覆盖缺口」，缺口未消 → RESULT: BLOCKED。
+ *
+ *  消缺口 = ASCII 暂存扫描（一次性，三步）：
+ *   1) 本脚本 BLOCKED 时会打印 ready-to-paste 的 copy_files 清单（real→_scan/N.html）
+ *      + 一份 _scan/_manifest.json（index→真实路径）。先按清单 copy_files 暂存。
+ *   2) 重跑本脚本：检测到 _scan/_manifest.json → 读 ASCII 暂存副本扫描，命中
+ *      按真实路径记账、与 baseline diff（暂存副本内容/行号与原件一致）。
+ *   3) 扫完 delete _scan/。
+ *
+ * ─────────────────────────────────────────────────────────────
  *  怎么跑：read_file 本文件 → 整个粘到 run_script。
- *  只用沙箱 helper：readFile / saveFile / ls / log。末行 `RESULT: PASS|FAIL`。
+ *  只用沙箱 helper：readFile / saveFile / ls / log。末行 `RESULT: PASS|FAIL|BLOCKED`。
  * ═════════════════════════════════════════════════════════════*/
 
 // ─── 配置（接手第一件事：按你的项目改这里）──────────────────────
@@ -104,26 +119,50 @@ async function collectFiles() {
 // ─── 扫描 ──────────────────────────────────────────────────────
 
 const PARALLEL_BATCH = 24;
+const STAGE_DIR = '_scan';   // ASCII 暂存目录（消 CJK/括号盲区用）
 
-async function scanAll(files) {
+// run_script 沙箱拒收的路径（CJK / 括号）—— 与读不到内容的「空文件」区分开
+function isSandboxBlocked(path) { return /[()]/.test(path) || /[^\x00-\x7F]/.test(path); }
+
+function scanText(src, file, readPath) {
+  // src=用于行号/regex 的内容；file=记账用真实路径；readPath=实际读取的路径（定扩展名）
+  const hits = [];
+  const ext = extOf(readPath || file);
+  const cleaned = strip(src, ext);
+  let m; RE.lastIndex = 0;
+  while ((m = RE.exec(cleaned)) !== null) {
+    hits.push({ file, line: lineOf(src, m.index), kind: classify(m[0]), match: m[0] });
+  }
+  return hits;
+}
+
+// 读 _scan/_manifest.json（{ "真实路径": "_scan/N.html" }）—— 有则用暂存副本补扫 CJK 文件
+async function readStageManifest() {
+  try { return JSON.parse(await readFile(STAGE_DIR + '/_manifest.json')); }
+  catch { return null; }
+}
+
+async function scanAll(files, stage) {
   const allHits = [];
+  const blocked = [];        // 沙箱读不到 且 未暂存 → 覆盖缺口
+  stage = stage || {};
   for (let i = 0; i < files.length; i += PARALLEL_BATCH) {
     const batch = files.slice(i, i + PARALLEL_BATCH);
-    const contents = await Promise.all(batch.map(async f => {
-      try { return { f, src: await readFile(f) }; }
-      catch { return { f, src: null }; }
-    }));
-    for (const { f, src } of contents) {
-      if (!src) continue;
-      const ext = extOf(f);
-      const cleaned = strip(src, ext);
-      let m; RE.lastIndex = 0;
-      while ((m = RE.exec(cleaned)) !== null) {
-        allHits.push({ file: f, line: lineOf(src, m.index), kind: classify(m[0]), match: m[0] });
+    await Promise.all(batch.map(async f => {
+      // 沙箱拒收的路径：若 manifest 提供了 ASCII 暂存副本，读副本按真实路径记账
+      if (isSandboxBlocked(f)) {
+        const staged = stage[f];
+        if (staged) {
+          try { const src = await readFile(staged); allHits.push(...scanText(src, f, staged)); return; }
+          catch { blocked.push(f); return; }
+        }
+        blocked.push(f); return;
       }
-    }
+      try { const src = await readFile(f); allHits.push(...scanText(src, f, f)); }
+      catch { /* 真·读不到（空/二进制）：忽略 */ }
+    }));
   }
-  return allHits;
+  return { allHits, blocked };
 }
 
 // ─── Baseline diff ─────────────────────────────────────────────
@@ -161,10 +200,22 @@ function buildBaseline(hits, reason) {
 const writeBaseline = args.includes('--write-baseline');
 
 const files = await collectFiles();
-const hits = await scanAll(files);
-log(`scanned ${files.length} files · ${hits.length} violations`);
+const stage = await readStageManifest();
+const { allHits: hits, blocked } = await scanAll(files, stage);
+log(`scanned ${files.length} files · ${hits.length} violations` + (stage ? ` · 暂存补扫生效` : '') + (blocked.length ? ` · ⚠ ${blocked.length} 覆盖缺口` : ''));
 
-if (writeBaseline) {
+// ── 覆盖缺口：有沙箱读不到且未暂存的文件 → BLOCKED，并吐出 ASCII 暂存清单 ──
+if (blocked.length > 0) {
+  log(`\n✗ ${blocked.length} 个文件 run_script 读不到（路径含 CJK / 括号），未被扫描。`);
+  log(`  这些是正经设计页 —— 不能静默跳过。按下面清单 ASCII 暂存后重跑：`);
+  const cf = blocked.map((f, i) => ({ asset: '', dest: `${STAGE_DIR}/${i}.html`, src: f }));
+  const manifest = {};
+  blocked.forEach((f, i) => { manifest[f] = `${STAGE_DIR}/${i}.html`; });
+  log(`\n【步骤 1】copy_files 参数 files=\n` + JSON.stringify(cf, null, 0));
+  log(`\n【步骤 2】把以下写入 ${STAGE_DIR}/_manifest.json（saveFile），再重跑本脚本：\n` + JSON.stringify(manifest, null, 0));
+  log(`\n【步骤 3】扫完 delete_file ["${STAGE_DIR}"]。`);
+  log(`\nRESULT: BLOCKED`);
+} else if (writeBaseline) {
   await saveFile(BASELINE_PATH, JSON.stringify(buildBaseline(hits, 'manual --write-baseline'), null, 2) + '\n');
   log(`✓ baseline rewritten: ${BASELINE_PATH} (${hits.length} entries)`);
 } else {
