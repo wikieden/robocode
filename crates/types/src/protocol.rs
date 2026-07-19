@@ -209,9 +209,17 @@ impl<'de> Deserialize<'de> for RuntimeWireEvent {
             .ok_or_else(|| serde::de::Error::custom("runtime event kind must contain type"))?;
 
         if is_known_runtime_event_type(event_type) {
-            return serde_json::from_value(raw)
-                .map(Self::Known)
-                .map_err(serde::de::Error::custom);
+            match serde_json::from_value(raw.clone()) {
+                Ok(event) => return Ok(Self::Known(event)),
+                Err(error) if event_type != "command_accepted" => {
+                    return Err(serde::de::Error::custom(error));
+                }
+                Err(_) => {
+                    // CommandAccepted embeds RuntimeCommand. A schema-v1 client may know the
+                    // outer event while not knowing a newer command variant; preserve that
+                    // extension payload instead of dropping the entire replay stream.
+                }
+            }
         }
 
         // Preserve forward-compatible payloads so older clients can inspect a stream event
@@ -248,6 +256,7 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "approval_requested"
             | "approval_resolved"
             | "command_accepted"
+            | "lane_command_accepted"
             | "command_rejected"
             | "transcript_page_loaded"
             | "input_queued"

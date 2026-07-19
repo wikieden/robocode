@@ -1286,6 +1286,29 @@ fn runtime_v1_unknown_event_is_preserved() {
 }
 
 #[test]
+fn runtime_v1_known_event_with_unknown_nested_command_is_preserved() {
+    let raw = r#"{
+        "sequence": 9,
+        "timestamp": 17,
+        "kind": {
+            "type": "command_accepted",
+            "payload": {
+                "command_id": "command-future",
+                "command": {"type": "future_lane_command", "lane_id": "lane-a"}
+            }
+        }
+    }"#;
+
+    let decoded: RuntimeWireEvent = serde_json::from_str(raw).unwrap();
+    assert!(matches!(
+        decoded,
+        RuntimeWireEvent::Unknown { ref event_type, ref payload }
+            if event_type == "command_accepted"
+                && payload["command_id"] == "command-future"
+    ));
+}
+
+#[test]
 fn approval_response_legacy_bool_decodes_but_structured_serialization_omits_approved() {
     let legacy_allow: ApprovalResponse =
         serde_json::from_str(r#"{"approved":true,"feedback":"ok"}"#).unwrap();

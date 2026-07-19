@@ -1,8 +1,10 @@
 use std::sync::{
     Arc, Mutex,
-    mpsc::{self, Sender},
+    atomic::{AtomicBool, Ordering},
+    mpsc::{self, RecvTimeoutError, Sender},
 };
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use viden_permissions::PermissionEngine;
 use viden_types::{
@@ -16,6 +18,18 @@ use crate::lane_runtime::{LaneEffectExecutor, LaneEffectRequest};
 use crate::lane_supervisor::LanePersistence;
 
 pub(crate) type LaneEventSink = Arc<dyn Fn(RuntimeOwner, RuntimeEventKind) + Send + Sync>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LaneTerminalKind {
+    Archived,
+    Cleaned,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LaneTerminalCompletion {
+    pub(crate) kind: LaneTerminalKind,
+    pub(crate) lane: AgentLaneRecord,
+}
 
 pub(crate) enum LaneWorkerMessage {
     Command {
@@ -35,6 +49,8 @@ pub(crate) enum LaneWorkerMessage {
 pub(crate) struct LaneWorkerHandle {
     pub(crate) owner: RuntimeOwner,
     pending_approval: Arc<Mutex<Option<String>>>,
+    terminal_completion: Arc<Mutex<Option<LaneTerminalCompletion>>>,
+    registered: Arc<AtomicBool>,
     sender: Sender<LaneWorkerMessage>,
     worker: Option<JoinHandle<()>>,
 }
@@ -50,10 +66,15 @@ impl LaneWorkerHandle {
         effects: Arc<dyn LaneEffectExecutor>,
         events: LaneEventSink,
         approval_ttl_secs: u64,
+        registered: bool,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
         let pending_approval = Arc::new(Mutex::new(None));
+        let terminal_completion = Arc::new(Mutex::new(None));
+        let registered = Arc::new(AtomicBool::new(registered));
         let worker_pending_approval = Arc::clone(&pending_approval);
+        let worker_terminal_completion = Arc::clone(&terminal_completion);
+        let worker_registered = Arc::clone(&registered);
         let worker_owner = owner.clone();
         let worker_lane = lane.clone();
         let worker = thread::spawn(move || {
@@ -67,14 +88,25 @@ impl LaneWorkerHandle {
                 events,
                 pending_mutation: None,
                 pending_approval: worker_pending_approval,
+                terminal_completion: worker_terminal_completion,
+                registered: worker_registered,
                 approval_ttl_secs,
                 runtime_active: false,
             };
-            while let Ok(message) = receiver.recv() {
-                if matches!(message, LaneWorkerMessage::Shutdown) {
-                    break;
+            loop {
+                match receiver.recv_timeout(Duration::from_millis(25)) {
+                    Ok(LaneWorkerMessage::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
+                    Ok(message) => {
+                        runtime.handle(message);
+                        if runtime.terminal_completed() {
+                            while let Ok(message) = receiver.try_recv() {
+                                runtime.reject_after_terminal(message);
+                            }
+                            break;
+                        }
+                    }
+                    Err(RecvTimeoutError::Timeout) => runtime.expire_pending_approval(),
                 }
-                runtime.handle(message);
             }
             if runtime.runtime_active {
                 let _ = runtime.effects.shutdown_lane(&runtime.lane.id);
@@ -83,6 +115,8 @@ impl LaneWorkerHandle {
         Self {
             owner,
             pending_approval,
+            terminal_completion,
+            registered,
             sender,
             worker: Some(worker),
         }
@@ -98,6 +132,22 @@ impl LaneWorkerHandle {
         self.pending_approval
             .lock()
             .is_ok_and(|pending| pending.as_deref() == Some(request_id))
+    }
+
+    pub(crate) fn take_terminal_completion(&self) -> Option<LaneTerminalCompletion> {
+        self.terminal_completion
+            .lock()
+            .ok()
+            .and_then(|mut completion| completion.take())
+    }
+
+    pub(crate) fn is_registered(&self) -> bool {
+        self.registered.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_finished(&self) -> bool {
+        self.worker.as_ref().is_none_or(JoinHandle::is_finished)
     }
 }
 
@@ -124,8 +174,13 @@ struct PendingMutation {
 }
 
 enum PendingOperation {
+    Create(LaneEffectRequest),
     Start(LaneEffectRequest),
+    Stop,
+    SendInput(LaneEffectRequest),
     Apply(LaneEffectRequest),
+    Archive { summary: String },
+    Cleanup(LaneEffectRequest),
 }
 
 struct LaneWorker {
@@ -138,11 +193,19 @@ struct LaneWorker {
     events: LaneEventSink,
     pending_mutation: Option<PendingMutation>,
     pending_approval: Arc<Mutex<Option<String>>>,
+    terminal_completion: Arc<Mutex<Option<LaneTerminalCompletion>>>,
+    registered: Arc<AtomicBool>,
     approval_ttl_secs: u64,
     runtime_active: bool,
 }
 
 impl LaneWorker {
+    fn terminal_completed(&self) -> bool {
+        self.terminal_completion
+            .lock()
+            .is_ok_and(|completion| completion.is_some())
+    }
+
     fn handle(&mut self, message: LaneWorkerMessage) {
         match message {
             LaneWorkerMessage::Command {
@@ -158,8 +221,45 @@ impl LaneWorker {
         }
     }
 
+    fn reject_after_terminal(&self, message: LaneWorkerMessage) {
+        match message {
+            LaneWorkerMessage::Command { command_id, .. }
+            | LaneWorkerMessage::Cancel { command_id } => {
+                self.reject(command_id, "lane already reached a durable terminal state")
+            }
+            LaneWorkerMessage::ResumeApproval { .. } | LaneWorkerMessage::Shutdown => {}
+        }
+    }
+
     fn handle_command(&mut self, command_id: String, command: RuntimeCommand) {
+        if self.pending_mutation.is_some() {
+            self.reject(command_id, "lane mutation approval is already pending");
+            return;
+        }
+        if self.lane.status == LaneStatus::Archived
+            && !matches!(
+                command,
+                RuntimeCommand::ArchiveLane { .. } | RuntimeCommand::CleanupLane { .. }
+            )
+        {
+            self.reject(command_id, "archived lane is terminal");
+            return;
+        }
         match command {
+            RuntimeCommand::CreateLane { .. } => {
+                if self.registered.load(Ordering::Acquire) {
+                    self.reject(command_id, "lane is already durably registered");
+                    return;
+                }
+                self.dispatch_mutation(
+                    command_id,
+                    "lane_create",
+                    PendingOperation::Create(LaneEffectRequest::Create {
+                        repo: self.repo.clone(),
+                        lane: self.lane.clone(),
+                    }),
+                );
+            }
             RuntimeCommand::StartLane {
                 command,
                 args,
@@ -188,12 +288,7 @@ impl LaneWorker {
                 self.dispatch_mutation(command_id, "lane_start", PendingOperation::Start(request));
             }
             RuntimeCommand::StopLane { .. } => {
-                if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
-                    self.fail(error);
-                } else {
-                    self.runtime_active = false;
-                    let _ = self.change_status(LaneStatus::Detached, "lane stopped");
-                }
+                self.dispatch_mutation(command_id, "lane_stop", PendingOperation::Stop);
             }
             RuntimeCommand::AttachLane { .. } => {
                 let _ = self.change_status(LaneStatus::Attached, "lane attached");
@@ -202,26 +297,14 @@ impl LaneWorker {
                 let _ = self.change_status(LaneStatus::Detached, "lane detached");
             }
             RuntimeCommand::SendLaneInput { input, .. } => {
-                let input_id = fresh_id("lane-input");
-                self.emit(RuntimeEventKind::InputQueued {
-                    input: viden_types::QueuedInputView {
-                        id: input_id.clone(),
-                        content_preview: input.chars().take(160).collect(),
-                        created_at: Some(now_timestamp()),
-                    },
-                });
-                let result = self.effects.execute(LaneEffectRequest::SendInput {
-                    lane_id: self.lane.id.clone(),
-                    input,
-                });
-                self.emit(RuntimeEventKind::InputDequeued { input_id });
-                match result {
-                    Ok(result) => {
-                        self.output("receipt", result.output);
-                        let _ = self.change_status(self.lane.status, "lane input delivered");
-                    }
-                    Err(error) => self.fail(error),
-                }
+                self.dispatch_mutation(
+                    command_id,
+                    "lane_send_input",
+                    PendingOperation::SendInput(LaneEffectRequest::SendInput {
+                        lane_id: self.lane.id.clone(),
+                        input,
+                    }),
+                );
             }
             RuntimeCommand::AcceptLaneOutput { summary, .. } => {
                 let _ = self.change_status(LaneStatus::Done, summary);
@@ -273,50 +356,22 @@ impl LaneWorker {
                 );
             }
             RuntimeCommand::ArchiveLane { summary, .. } => {
-                if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
-                    self.fail(error);
-                    return;
-                }
-                self.runtime_active = false;
-                let _ = self.change_status(LaneStatus::Archived, summary);
+                self.dispatch_mutation(
+                    command_id,
+                    "lane_archive",
+                    PendingOperation::Archive { summary },
+                );
             }
             RuntimeCommand::CleanupLane { force, .. } => {
-                // Persist cleanup intent before the irreversible worktree removal. If the
-                // completion append fails, replay leaves the lane in Starting with this
-                // recovery summary instead of claiming that removed bytes were restored.
-                if self
-                    .change_status(LaneStatus::Starting, "lane cleanup intent persisted")
-                    .is_err()
-                {
-                    return;
-                }
-                if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
-                    self.fail(error);
-                    return;
-                }
-                self.runtime_active = false;
-                match self.effects.execute(LaneEffectRequest::Cleanup {
-                    repo: self.repo.clone(),
-                    lane: self.lane.clone(),
-                    force,
-                }) {
-                    Ok(result) => {
-                        self.output("receipt", result.output);
-                        if self
-                            .change_status(LaneStatus::Archived, "lane cleaned up")
-                            .is_err()
-                        {
-                            self.emit(RuntimeEventKind::LaneRecoveryRequired {
-                                lane_id: self.lane.id.clone(),
-                                reason: "cleanup completed but durable completion append failed"
-                                    .to_string(),
-                                next_action: "replay cleanup intent and reconcile the worktree"
-                                    .to_string(),
-                            });
-                        }
-                    }
-                    Err(error) => self.fail(error),
-                }
+                self.dispatch_mutation(
+                    command_id,
+                    "lane_cleanup",
+                    PendingOperation::Cleanup(LaneEffectRequest::Cleanup {
+                        repo: self.repo.clone(),
+                        lane: self.lane.clone(),
+                        force,
+                    }),
+                );
             }
             _ => self.reject(command_id, "command is not a lane lifecycle command"),
         }
@@ -339,10 +394,9 @@ impl LaneWorker {
             name: tool_name.to_string(),
             description: format!("Core-owned mutation for lane `{}`", self.lane.id),
             is_mutating: true,
-            input_schema_hint: "path=<canonical lane scope>".to_string(),
+            input_schema_hint: "path=<actual target>; operation metadata is redacted".to_string(),
         };
-        let mut input = ToolInput::new();
-        input.insert("path".to_string(), self.repo.to_string_lossy().to_string());
+        let input = self.permission_input(&operation);
         let permission = match self.permissions.lock() {
             Ok(permissions) => permissions.decide(&tool, &input),
             Err(_) => {
@@ -353,7 +407,8 @@ impl LaneWorker {
         match permission {
             PermissionDecision::Deny(denial) => self.reject(command_id, denial.message),
             PermissionDecision::Allow(_)
-                if self.lane.mutation_policy == viden_types::MutationPolicy::Autonomous =>
+                if self.lane.mutation_policy == viden_types::MutationPolicy::Autonomous
+                    || matches!(&operation, PendingOperation::Create(_)) =>
             {
                 self.execute_pending_operation(operation);
             }
@@ -382,12 +437,15 @@ impl LaneWorker {
         if let Some(session_id) = self.owner.session_id.clone() {
             allowed_scopes.push(ApprovalScope::Session { session_id });
         }
-        allowed_scopes.push(ApprovalScope::RepoAllowlist {
-            paths: vec![self.repo.to_string_lossy().to_string()],
-        });
-        if self
-            .change_status(LaneStatus::WaitingApproval, "lane mutation awaits approval")
-            .is_err()
+        if let Some(path) = input.get("path") {
+            allowed_scopes.push(ApprovalScope::RepoAllowlist {
+                paths: vec![path.clone()],
+            });
+        }
+        if self.registered.load(Ordering::Acquire)
+            && self
+                .change_status(LaneStatus::WaitingApproval, "lane mutation awaits approval")
+                .is_err()
         {
             return;
         }
@@ -419,11 +477,123 @@ impl LaneWorker {
         self.emit(RuntimeEventKind::ApprovalRequested { approval });
     }
 
+    fn permission_input(&self, operation: &PendingOperation) -> ToolInput {
+        let mut input = ToolInput::new();
+        let lane_path = lane_target_path(&self.repo, &self.lane);
+        match operation {
+            PendingOperation::Create(_) => {
+                input.insert("path".to_string(), lane_path);
+                input.insert(
+                    "branch".to_string(),
+                    self.lane.branch.clone().unwrap_or_default(),
+                );
+            }
+            PendingOperation::Start(LaneEffectRequest::Start {
+                command,
+                args,
+                env,
+                output_log,
+                ..
+            }) => {
+                input.insert("path".to_string(), lane_path);
+                input.insert(
+                    "command".to_string(),
+                    format!("{} bytes [REDACTED]", command.len()),
+                );
+                input.insert(
+                    "args".to_string(),
+                    format!("{} argument(s) [REDACTED]", args.len()),
+                );
+                input.insert(
+                    "env".to_string(),
+                    env.iter()
+                        .map(|(key, _)| format!("{key}=[REDACTED]"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+                input.insert(
+                    "output_log".to_string(),
+                    output_log
+                        .clone()
+                        .unwrap_or_else(|| format!(".viden/lanes/{}.log", self.lane.id)),
+                );
+            }
+            PendingOperation::Stop => {
+                input.insert("path".to_string(), lane_path);
+                input.insert("lane_id".to_string(), self.lane.id.clone());
+            }
+            PendingOperation::SendInput(LaneEffectRequest::SendInput {
+                input: content, ..
+            }) => {
+                input.insert("path".to_string(), lane_path);
+                input.insert(
+                    "input_summary".to_string(),
+                    format!("{} bytes [REDACTED]", content.len()),
+                );
+            }
+            PendingOperation::Apply(LaneEffectRequest::Apply { cwd, unified_diff }) => {
+                input.insert("path".to_string(), cwd.to_string_lossy().to_string());
+                input.insert(
+                    "diff_summary".to_string(),
+                    format!(
+                        "{} bytes, {} lines, payload [REDACTED]",
+                        unified_diff.len(),
+                        unified_diff.lines().count()
+                    ),
+                );
+            }
+            PendingOperation::Archive { summary } => {
+                input.insert("path".to_string(), lane_path);
+                input.insert("summary".to_string(), summary.clone());
+            }
+            PendingOperation::Cleanup(LaneEffectRequest::Cleanup { force, .. }) => {
+                input.insert("path".to_string(), lane_path);
+                input.insert("force".to_string(), force.to_string());
+            }
+            _ => {
+                input.insert("path".to_string(), lane_path);
+            }
+        }
+        input
+    }
+
     fn execute_pending_operation(&mut self, operation: PendingOperation) {
         match operation {
+            PendingOperation::Create(request) => self.create(request),
             PendingOperation::Start(request) => self.start(request),
+            PendingOperation::Stop => self.stop(),
+            PendingOperation::SendInput(request) => self.send_input(request),
             PendingOperation::Apply(request) => self.apply(request),
+            PendingOperation::Archive { summary } => self.archive(summary),
+            PendingOperation::Cleanup(request) => self.cleanup(request),
         }
+    }
+
+    fn expire_pending_approval(&mut self) {
+        let expired = self
+            .pending_mutation
+            .as_ref()
+            .is_some_and(|pending| now_timestamp() >= pending.expires_at);
+        if !expired {
+            return;
+        }
+        let pending = self
+            .pending_mutation
+            .take()
+            .expect("expired approval was checked above");
+        if let Ok(mut approval) = self.pending_approval.lock() {
+            *approval = None;
+        }
+        self.emit(RuntimeEventKind::ApprovalResolved {
+            request_id: pending.request_id,
+            decision: ApprovalDecision::Deny,
+            owner: self.owner.clone(),
+            audit_id: pending.audit_id,
+        });
+        if self.registered.load(Ordering::Acquire) {
+            let _ = self.change_status(pending.previous_status, "lane mutation approval expired");
+        }
+        self.reject(pending.command_id, "lane mutation approval expired");
     }
 
     fn resume_approval(&mut self, request_id: String, response: ApprovalResponse) {
@@ -478,7 +648,10 @@ impl LaneWorker {
         if permission_allowed {
             self.execute_pending_operation(pending.operation);
         } else {
-            let _ = self.change_status(pending.previous_status, "lane mutation approval denied");
+            if self.registered.load(Ordering::Acquire) {
+                let _ =
+                    self.change_status(pending.previous_status, "lane mutation approval denied");
+            }
             let reason = if !unexpired {
                 "lane mutation approval expired"
             } else if !valid_scope {
@@ -533,7 +706,79 @@ impl LaneWorker {
                 {
                     let _ = self.effects.shutdown_lane(&self.lane.id);
                     self.runtime_active = false;
+                    let _ = self.change_status(
+                        LaneStatus::Detached,
+                        "lane start requires retry after persistence failure",
+                    );
                 }
+            }
+            Err(error) => self.fail(error),
+        }
+    }
+
+    fn create(&mut self, request: LaneEffectRequest) {
+        let result = match self.effects.execute(request) {
+            Ok(result) => result,
+            Err(error) => {
+                self.error(error);
+                return;
+            }
+        };
+        let event = LaneEvent::created(
+            fresh_id("lane-event"),
+            self.lane.clone(),
+            now_timestamp(),
+            self.owner.session_id.clone(),
+        );
+        if let Err(error) = self.persistence.append(&event) {
+            let compensation = self.effects.compensate_create(&self.repo, &self.lane);
+            self.emit(RuntimeEventKind::LaneRecoveryRequired {
+                lane_id: self.lane.id.clone(),
+                reason: error.clone(),
+                next_action: if compensation.is_ok() {
+                    "retry lane registration".to_string()
+                } else {
+                    "remove the orphan worktree, then retry lane registration".to_string()
+                },
+            });
+            self.error(error);
+            return;
+        }
+        self.registered.store(true, Ordering::Release);
+        self.output("receipt", result.output);
+        self.emit(RuntimeEventKind::LaneUpdated {
+            lane: self.lane.clone(),
+        });
+    }
+
+    fn stop(&mut self) {
+        if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
+            self.fail(error);
+        } else {
+            self.runtime_active = false;
+            let _ = self.change_status(LaneStatus::Detached, "lane stopped");
+        }
+    }
+
+    fn send_input(&mut self, request: LaneEffectRequest) {
+        let LaneEffectRequest::SendInput { input, .. } = &request else {
+            self.error("lane input operation received the wrong request".to_string());
+            return;
+        };
+        let input_id = fresh_id("lane-input");
+        self.emit(RuntimeEventKind::InputQueued {
+            input: viden_types::QueuedInputView {
+                id: input_id.clone(),
+                content_preview: input.chars().take(160).collect(),
+                created_at: Some(now_timestamp()),
+            },
+        });
+        let result = self.effects.execute(request);
+        self.emit(RuntimeEventKind::InputDequeued { input_id });
+        match result {
+            Ok(result) => {
+                self.output("receipt", result.output);
+                let _ = self.change_status(self.lane.status, "lane input delivered");
             }
             Err(error) => self.fail(error),
         }
@@ -568,6 +813,61 @@ impl LaneWorker {
                 let _ = self.change_status(LaneStatus::Blocked, "lane patch conflict");
             }
             Err(error) => self.fail(error),
+        }
+    }
+
+    fn archive(&mut self, summary: String) {
+        if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
+            self.fail(error);
+            return;
+        }
+        self.runtime_active = false;
+        if self.change_status(LaneStatus::Archived, summary).is_ok() {
+            self.mark_terminal(LaneTerminalKind::Archived);
+        }
+    }
+
+    fn cleanup(&mut self, request: LaneEffectRequest) {
+        // Persist cleanup intent before irreversible worktree removal. A failed completion
+        // append therefore remains retryable through the same live worker and after replay.
+        if self
+            .change_status(LaneStatus::Starting, "lane cleanup intent persisted")
+            .is_err()
+        {
+            return;
+        }
+        if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
+            self.fail(error);
+            return;
+        }
+        self.runtime_active = false;
+        match self.effects.execute(request) {
+            Ok(result) => {
+                self.output("receipt", result.output);
+                if self
+                    .change_status(LaneStatus::Archived, "lane cleaned up")
+                    .is_err()
+                {
+                    self.emit(RuntimeEventKind::LaneRecoveryRequired {
+                        lane_id: self.lane.id.clone(),
+                        reason: "cleanup completed but durable completion append failed"
+                            .to_string(),
+                        next_action: "replay cleanup intent and reconcile the worktree".to_string(),
+                    });
+                } else {
+                    self.mark_terminal(LaneTerminalKind::Cleaned);
+                }
+            }
+            Err(error) => self.fail(error),
+        }
+    }
+
+    fn mark_terminal(&self, kind: LaneTerminalKind) {
+        if let Ok(mut completion) = self.terminal_completion.lock() {
+            *completion = Some(LaneTerminalCompletion {
+                kind,
+                lane: self.lane.clone(),
+            });
         }
     }
 
@@ -631,6 +931,25 @@ impl LaneWorker {
     fn emit(&self, kind: RuntimeEventKind) {
         (self.events)(self.owner.clone(), kind);
     }
+}
+
+fn lane_target_path(repo: &std::path::Path, lane: &AgentLaneRecord) -> String {
+    // Keep the same absolute spelling as PermissionEngine's scoped cwd. macOS may expose
+    // `/var` as `/private/var`; canonicalizing only one side would create a false escape.
+    let root = repo.to_path_buf();
+    lane.worktree
+        .as_deref()
+        .map(std::path::PathBuf::from)
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                root.join(path)
+            }
+        })
+        .unwrap_or(root)
+        .to_string_lossy()
+        .to_string()
 }
 
 #[allow(clippy::too_many_arguments)]

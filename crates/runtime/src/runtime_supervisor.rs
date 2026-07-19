@@ -274,6 +274,28 @@ impl RuntimeSupervisor {
             lane_mode,
             approval_ttl_secs,
         ));
+        for lane in lane_supervisor.hydration_recoveries() {
+            let owner = RuntimeOwner {
+                lane_id: Some(lane.id.clone()),
+                session_id: lane.active_session_ids.first().cloned(),
+                ..RuntimeOwner::default()
+            };
+            emit_event(
+                &event_bus,
+                owner.clone(),
+                RuntimeEventKind::LaneUpdated { lane: lane.clone() },
+            );
+            emit_event(
+                &event_bus,
+                owner,
+                RuntimeEventKind::LaneRecoveryRequired {
+                    lane_id: lane.id.clone(),
+                    reason: lane.summary.clone(),
+                    next_action: "inspect the interrupted lane and explicitly resume or reconcile"
+                        .to_string(),
+                },
+            );
+        }
 
         install_runtime_event_sink(&mut engine, event_bus.clone(), RuntimeOwner::default());
 
@@ -342,6 +364,11 @@ impl RuntimeSupervisor {
         lane_persistence: Arc<dyn LanePersistence>,
     ) -> Self {
         Self::start_with_effects_and_persistence(engine, 300, lane_effects, Some(lane_persistence))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn lane_worker_finished_for_test(&self, lane_id: &str) -> bool {
+        self.lane_supervisor.worker_finished_for_test(lane_id)
     }
 
     pub fn send_command(
@@ -809,6 +836,12 @@ fn run_supervisor_worker(
                 command,
             } => {
                 if LaneSupervisor::handles(&command) {
+                    if let Err(error) =
+                        lane_supervisor.sync_permissions(engine.lane_permission_engine())
+                    {
+                        emit_error(&event_bus, owner, error);
+                        continue;
+                    }
                     if let Err(error) = lane_supervisor.send(owner.clone(), command_id, command) {
                         emit_error(&event_bus, owner, error);
                     }
@@ -873,6 +906,11 @@ fn run_supervisor_worker(
                             Err(err) => emit_error(&event_bus, owner, err),
                         }
                     }
+                }
+                if let Err(error) =
+                    lane_supervisor.sync_permissions(engine.lane_permission_engine())
+                {
+                    emit_error(&event_bus, RuntimeOwner::default(), error);
                 }
             }
             SupervisorMessage::ResumeContextRetrieval {

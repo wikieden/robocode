@@ -62,10 +62,20 @@ The Core 0.3.1 candidate advertises the additive
 Clients written against Core 0.3.0 continue to require only the frozen set and
 must preserve unsupported schema-1 events as `RuntimeWireEvent::Unknown`. A
 client enables the 13 lane lifecycle commands and the `LaneUpdated`,
-`LaneOutputAppended`, `LaneConflictDetected`, and `LaneRecoveryRequired` event
-projections only after negotiating `runtime.lane_lifecycle`. Empty extension
+`LaneCommandAccepted`, `LaneOutputAppended`, `LaneConflictDetected`, and
+`LaneRecoveryRequired` event projections only after negotiating
+`runtime.lane_lifecycle`. Lane command receipts use the extension-specific
+top-level event so a 0.3.0 client preserves the whole payload as unknown rather
+than failing on a nested command variant. Empty extension
 projection vectors are omitted during serialization, so replaying the frozen
 0.3.0 corpus retains its recorded canonical bytes and digests.
+
+Core owns lane permission evaluation and refreshes it from the current runtime
+mode before every lane command. Side-effecting commands are evaluated against
+their actual worktree or repository target; approval previews redact command,
+argument, environment, input, and diff payloads. Interrupted starting, running,
+or approval-waiting lanes hydrate as blocked recovery facts and remain bound to
+their durable session owner.
 
 ## Client Boundary
 

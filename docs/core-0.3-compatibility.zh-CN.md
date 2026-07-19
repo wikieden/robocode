@@ -56,9 +56,16 @@ fixture 会在兼容性验证中失败；malformed 或 ambiguous legacy input �
 
 基于 Core 0.3.0 编写的客户端仍然只要求冻结集合，并把不支持的 schema-1 事件保留为
 `RuntimeWireEvent::Unknown`。新客户端只有在协商到 `runtime.lane_lifecycle` 后，才启用
-13 个 Lane 生命周期命令以及 `LaneUpdated`、`LaneOutputAppended`、
-`LaneConflictDetected`、`LaneRecoveryRequired` 投影。扩展投影为空时不会参与序列化，
+13 个 Lane 生命周期命令以及 `LaneUpdated`、`LaneCommandAccepted`、
+`LaneOutputAppended`、`LaneConflictDetected`、`LaneRecoveryRequired` 投影。Lane 命令回执
+使用扩展专属的顶层事件，因此 0.3.0 客户端会把整个 payload 保留为 unknown，而不会因
+内嵌的新命令变体导致解码失败。扩展投影为空时不会参与序列化，
 因此重放冻结的 0.3.0 corpus 仍保持已记录的 canonical bytes 与 digest。
+
+Core 负责 Lane 权限判定，并在每个 Lane 命令前从当前 runtime mode 刷新权限状态。
+所有有副作用的命令都按真实 worktree 或 repository target 判定；审批预览会红写 command、
+arguments、environment、input 和 diff payload。重启时，处于 starting、running 或等待
+审批状态的 Lane 会恢复为 blocked recovery fact，并继续绑定其持久化 session owner。
 
 ## Client 边界
 

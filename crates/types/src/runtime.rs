@@ -450,6 +450,10 @@ pub enum RuntimeEventKind {
         command_id: String,
         command: RuntimeCommand,
     },
+    LaneCommandAccepted {
+        command_id: String,
+        command: RuntimeCommand,
+    },
     CommandRejected {
         command_id: String,
         reason: String,
@@ -678,6 +682,10 @@ impl RuntimeViewState {
                     .retain(|approval| approval.id != *request_id);
             }
             RuntimeEventKind::CommandAccepted {
+                command_id,
+                command,
+            }
+            | RuntimeEventKind::LaneCommandAccepted {
                 command_id,
                 command,
             } => {

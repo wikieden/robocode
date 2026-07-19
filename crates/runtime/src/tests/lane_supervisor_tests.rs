@@ -7,18 +7,19 @@ use std::time::{Duration, Instant};
 use viden_provider::ModelProvider;
 use viden_types::{
     AgentLaneRecord, AgentRole, AgentRoute, DataEgressPolicy, EventCursor, ExecutionTarget,
-    FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneStatus, MutationPolicy, RuntimeCommand,
-    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
-    RuntimeViewState, RuntimeWireEvent, WorkMode,
+    FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneStatus, MutationPolicy, PermissionLevel,
+    RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
+    RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, WorkMode,
 };
 use viden_workflows::{lanes::LaneEvent, stores::WorkflowStore};
 
 use crate::{
     RuntimeSupervisor, SessionEngine,
     lane_runtime::{
-        LaneEffectExecutor, LaneEffectRequest, LaneEffectResult, resolve_lane_output_log,
+        LaneEffectExecutor, LaneEffectRequest, LaneEffectResult, LocalLaneEffectExecutor,
+        resolve_lane_output_log,
     },
-    lane_supervisor::LanePersistence,
+    lane_supervisor::{LanePersistence, WorkflowLanePersistence},
 };
 
 use super::{SequenceProvider, temp_dir};
@@ -215,6 +216,26 @@ fn lane_supervisor_plan_mode_rejects_effectful_commands_before_effects() {
                 force: true,
             },
         ),
+        (
+            "cmd_archive_plan",
+            RuntimeCommand::ArchiveLane {
+                lane_id: "lane-plan".to_string(),
+                summary: "archive".to_string(),
+            },
+        ),
+        (
+            "cmd_accept_plan",
+            RuntimeCommand::AcceptLaneOutput {
+                lane_id: "lane-plan".to_string(),
+                summary: "accept".to_string(),
+            },
+        ),
+        (
+            "cmd_attach_plan",
+            RuntimeCommand::AttachLane {
+                lane_id: "lane-plan".to_string(),
+            },
+        ),
     ];
     for (command_id, command) in commands {
         supervisor
@@ -235,7 +256,7 @@ fn lane_supervisor_plan_mode_rejects_effectful_commands_before_effects() {
                 )
             })
             .count()
-            == 4
+            == 7
     });
     assert_eq!(effects.calls.load(Ordering::SeqCst), 0);
     assert!(
@@ -243,6 +264,64 @@ fn lane_supervisor_plan_mode_rejects_effectful_commands_before_effects() {
             .iter()
             .all(|envelope| envelope.owner == lane_owner)
     );
+}
+
+#[test]
+fn lane_supervisor_approval_expires_without_a_response() {
+    let cwd = temp_dir("lane_active_expiry_cwd");
+    let home = temp_dir("lane_active_expiry_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_and_approval_ttl_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+        0,
+    );
+    let owner = owner("lane-active-expiry");
+    create_and_mark_done(&supervisor, &owner, "lane-active-expiry");
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "apply_active_expiry",
+            RuntimeCommand::ApplyLaneChanges {
+                lane_id: "lane-active-expiry".to_string(),
+                unified_diff: "diff --git a/a b/a\n".to_string(),
+            },
+        )
+        .unwrap();
+
+    let events = collect_envelopes_until(&supervisor, |events| {
+        let resolved = events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalResolved {
+                        decision: viden_types::ApprovalDecision::Deny,
+                        ..
+                    },
+                    ..
+                })
+            )
+        });
+        let restored = events.iter().any(|envelope| {
+            matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneUpdated { lane }, .. }) if lane.id == "lane-active-expiry" && lane.status == LaneStatus::Done)
+        });
+        resolved && restored
+    });
+    assert!(events.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::LaneUpdated { lane },
+                ..
+            }) if lane.id == "lane-active-expiry" && lane.status == LaneStatus::Done
+        )
+    }));
+    assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
 }
 
 #[test]
@@ -352,6 +431,188 @@ fn lane_supervisor_apply_enforces_state_and_mutation_policy_before_effect() {
     });
     assert!(approval.iter().any(|envelope| envelope.owner == owner));
     assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
+}
+
+#[test]
+fn lane_supervisor_syncs_dynamic_permissions_and_redacts_real_start_target() {
+    let cwd = temp_dir("lane_dynamic_permission_cwd");
+    let home = temp_dir("lane_dynamic_permission_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::BypassPermissions)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let owner = owner("lane-dynamic-permission");
+    let mut autonomous = lane("lane-dynamic-permission");
+    autonomous.mutation_policy = MutationPolicy::Autonomous;
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "create_dynamic_permission",
+            RuntimeCommand::CreateLane { lane: autonomous },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneUpdated { lane }, .. }) if lane.id == "lane-dynamic-permission"))
+    });
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "permission_back_to_ask",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Ask,
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "start_after_permission_change",
+            RuntimeCommand::StartLane {
+                lane_id: "lane-dynamic-permission".to_string(),
+                command: "runner --token super-secret".to_string(),
+                args: vec!["--password".to_string(), "super-secret".to_string()],
+                env: vec![("API_TOKEN".to_string(), "super-secret".to_string())],
+                output_log: Some("logs/worker.log".to_string()),
+            },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalRequested { approval }, .. }) if approval.tool_name == "lane_start"))
+    });
+    let approval = events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ApprovalRequested { approval },
+                ..
+            }) if approval.tool_name == "lane_start" => Some(approval),
+            _ => None,
+        })
+        .unwrap();
+    let lane_path = cwd.join(".worktrees/lane-dynamic-permission");
+    assert!(
+        approval
+            .input_preview
+            .contains(&lane_path.to_string_lossy().to_string())
+    );
+    assert!(approval.input_preview.contains("API_TOKEN=[REDACTED]"));
+    assert!(approval.input_preview.contains("logs/worker.log"));
+    assert!(approval.allowed_scopes.iter().any(|scope| matches!(scope, viden_types::ApprovalScope::RepoAllowlist { paths } if paths == &vec![lane_path.to_string_lossy().to_string()])));
+    assert!(
+        !serde_json::to_string(&events)
+            .unwrap()
+            .contains("super-secret")
+    );
+    assert!(
+        !effects
+            .calls
+            .lock()
+            .unwrap()
+            .contains(&"start:lane-dynamic-permission".to_string())
+    );
+}
+
+#[test]
+fn lane_supervisor_create_and_cleanup_use_permission_targets_before_effects() {
+    let cwd = temp_dir("lane_create_cleanup_permission_cwd");
+    let home = temp_dir("lane_create_cleanup_permission_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let create_owner = owner("lane-create-permission");
+    let mut autonomous = lane("lane-create-permission");
+    autonomous.mutation_policy = MutationPolicy::Autonomous;
+    supervisor
+        .send_command_from_owner(
+            create_owner,
+            "create_requires_permission",
+            RuntimeCommand::CreateLane { lane: autonomous },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalRequested { approval }, .. }) if approval.tool_name == "lane_create"))
+    });
+    let serialized = serde_json::to_string(&events).unwrap();
+    assert!(serialized.contains(".worktrees/lane-create-permission"));
+    assert!(
+        !effects
+            .calls
+            .lock()
+            .unwrap()
+            .contains(&"create:lane-create-permission".to_string())
+    );
+    drop(supervisor);
+
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        provider,
+        Some(temp_dir("lane_cleanup_permission_home")),
+    )
+    .unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::BypassPermissions)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let owner = owner("lane-cleanup-permission");
+    let mut autonomous = lane("lane-cleanup-permission");
+    autonomous.mutation_policy = MutationPolicy::Autonomous;
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "create_cleanup_permission",
+            RuntimeCommand::CreateLane { lane: autonomous },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneUpdated { lane }, .. }) if lane.id == "lane-cleanup-permission"))
+    });
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cleanup_permission_to_ask",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Ask,
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cleanup_requires_permission",
+            RuntimeCommand::CleanupLane {
+                lane_id: "lane-cleanup-permission".to_string(),
+                force: true,
+            },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalRequested { approval }, .. }) if approval.tool_name == "lane_cleanup"))
+    });
+    let serialized = serde_json::to_string(&events).unwrap();
+    assert!(serialized.contains(".worktrees/lane-cleanup-permission"));
+    assert!(serialized.contains("force: true"));
+    assert!(
+        !effects
+            .calls
+            .lock()
+            .unwrap()
+            .contains(&"cleanup:lane-cleanup-permission".to_string())
+    );
 }
 
 #[test]
@@ -609,6 +870,20 @@ fn lane_supervisor_rejects_duplicate_start_and_retires_archived_worker() {
             }) if command_id == "start_retire_duplicate"
         )
     }));
+    assert!(supervisor.lane_worker_finished_for_test("lane-retire"));
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "archive_retire_again",
+            RuntimeCommand::ArchiveLane {
+                lane_id: "lane-retire".to_string(),
+                summary: "duplicate archive".to_string(),
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::CommandRejected { command_id, reason }, .. }) if command_id == "archive_retire_again" && reason.contains("terminal")))
+    });
     let calls = effects.calls.lock().unwrap();
     assert_eq!(
         calls
@@ -633,7 +908,10 @@ fn lane_supervisor_hydrates_persisted_lane_for_restart_commands() {
     let owner = owner("lane-restart");
     {
         let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
-        let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+        engine
+            .set_permission_mode(viden_types::PermissionMode::DontAsk)
+            .unwrap();
         let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
             engine,
             Arc::new(RecordingLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
@@ -700,13 +978,191 @@ fn lane_supervisor_hydrates_persisted_lane_for_restart_commands() {
 }
 
 #[test]
+fn lane_supervisor_hydration_failure_blocks_duplicate_create_effects() {
+    let cwd = temp_dir("lane_hydration_failure_cwd");
+    let home = temp_dir("lane_hydration_failure_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    let persistence = Arc::new(InjectableLanePersistence::with_load_failure(store));
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_and_persistence_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+        persistence,
+    );
+
+    supervisor
+        .send_command_from_owner(
+            owner("lane-load-fail"),
+            "create_after_load_failure",
+            RuntimeCommand::CreateLane {
+                lane: lane("lane-load-fail"),
+            },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        let rejected = events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { reason, .. },
+                    ..
+                }) if reason.contains("hydration")
+            )
+        });
+        let errored = events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::Error { .. },
+                    ..
+                })
+            )
+        });
+        rejected && errored
+    });
+    assert!(events.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::Error { error },
+                ..
+            }) if error.recoverable
+        )
+    }));
+    assert!(effects.calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn lane_hydration_keeps_first_persisted_origin_as_legacy_owner() {
+    let cwd = temp_dir("lane_legacy_origin_cwd");
+    let home = temp_dir("lane_legacy_origin_home");
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    store
+        .append_lane_event_checked(&LaneEvent::created(
+            "lane-origin-created",
+            lane("lane-origin"),
+            1,
+            Some("session-origin".to_string()),
+        ))
+        .unwrap();
+    store
+        .append_lane_event_checked(&LaneEvent::status_changed(
+            "lane-origin-updated",
+            "lane-origin",
+            LaneStatus::Done,
+            "updated elsewhere",
+            2,
+            Some("session-unrelated".to_string()),
+        ))
+        .unwrap();
+
+    let hydrated = WorkflowLanePersistence(store).load_lanes().unwrap();
+    assert_eq!(
+        hydrated["lane-origin"].active_session_ids,
+        vec!["session-origin".to_string()]
+    );
+}
+
+#[test]
+fn lane_supervisor_hydration_marks_active_lane_recoverable_and_enforces_session_owner() {
+    let cwd = temp_dir("lane_hydration_owner_cwd");
+    let home = temp_dir("lane_hydration_owner_home");
+    let first_owner = owner("lane-hydration-owner");
+    let store = WorkflowStore::new(home.clone(), &cwd).unwrap();
+    {
+        let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+        engine
+            .set_permission_mode(viden_types::PermissionMode::DontAsk)
+            .unwrap();
+        let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+            engine,
+            Arc::new(RecordingLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
+        );
+        supervisor
+            .send_command_from_owner(
+                first_owner.clone(),
+                "create_hydration_owner",
+                RuntimeCommand::CreateLane {
+                    lane: lane("lane-hydration-owner"),
+                },
+            )
+            .unwrap();
+        collect_envelopes_until(&supervisor, |events| {
+            events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneUpdated { lane }, .. }) if lane.id == "lane-hydration-owner"))
+        });
+    }
+    store
+        .append_lane_event_checked(&LaneEvent::status_changed(
+            "lane-event-active",
+            "lane-hydration-owner",
+            LaneStatus::Running,
+            "runtime was active",
+            viden_types::now_timestamp(),
+            first_owner.session_id.clone(),
+        ))
+        .unwrap();
+
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        Arc::new(RecordingLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
+    );
+    let snapshot = supervisor.snapshot_envelope().unwrap();
+    assert!(snapshot.view.lanes.iter().any(|lane| {
+        lane.id == "lane-hydration-owner"
+            && lane.status == LaneStatus::Blocked
+            && lane.summary.contains("recovery")
+    }));
+    assert!(snapshot.view.lane_recoveries.iter().any(|recovery| {
+        recovery.lane_id == "lane-hydration-owner" && recovery.reason.contains("recovery")
+    }));
+    let mut unrelated = first_owner.clone();
+    unrelated.session_id = Some("session-unrelated".to_string());
+    unrelated.turn_id = Some("turn-unrelated".to_string());
+    supervisor
+        .send_command_from_owner(
+            unrelated,
+            "accept_unrelated_hydrated_lane",
+            RuntimeCommand::AcceptLaneOutput {
+                lane_id: "lane-hydration-owner".to_string(),
+                summary: "steal lane".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::CommandRejected { command_id, reason }, .. }) if command_id == "accept_unrelated_hydrated_lane" && reason.contains("owner mismatch")))
+    });
+    assert!(events.iter().any(|envelope| matches!(
+        &envelope.event,
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::CommandRejected { .. },
+            ..
+        })
+    )));
+    let recovered = store.load_lane_state().unwrap();
+    let recovered = recovered.lane("lane-hydration-owner").unwrap();
+    assert_eq!(recovered.status, LaneStatus::Blocked);
+    assert!(recovered.summary.contains("recovery"));
+}
+
+#[test]
 fn lane_supervisor_compensates_create_and_start_and_preserves_cleanup_intent() {
     // Create: the worktree created by this command is removed when the first
     // durable event append fails.
     let cwd = temp_dir("lane_create_compensation_cwd");
     let home = temp_dir("lane_create_compensation_home");
     let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let persistence = Arc::new(InjectableLanePersistence::new(store, [1]));
     let effects = Arc::new(RecordingLaneEffects::default());
@@ -715,9 +1171,10 @@ fn lane_supervisor_compensates_create_and_start_and_preserves_cleanup_intent() {
         effects.clone() as Arc<dyn LaneEffectExecutor>,
         persistence,
     );
+    let create_owner = owner("lane-create-fail");
     supervisor
         .send_command_from_owner(
-            owner("lane-create-fail"),
+            create_owner.clone(),
             "create_fail",
             RuntimeCommand::CreateLane {
                 lane: lane("lane-create-fail"),
@@ -741,6 +1198,28 @@ fn lane_supervisor_compensates_create_and_start_and_preserves_cleanup_intent() {
             .lock()
             .unwrap()
             .contains(&"compensate_create:lane-create-fail".to_string())
+    );
+    supervisor
+        .send_command_from_owner(
+            create_owner,
+            "create_retry",
+            RuntimeCommand::CreateLane {
+                lane: lane("lane-create-fail"),
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneUpdated { lane }, .. }) if lane.id == "lane-create-fail"))
+    });
+    assert_eq!(
+        effects
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|call| *call == "create:lane-create-fail")
+            .count(),
+        2
     );
     drop(supervisor);
 
@@ -773,7 +1252,7 @@ fn lane_supervisor_compensates_create_and_start_and_preserves_cleanup_intent() {
         .unwrap();
     supervisor
         .send_command_from_owner(
-            start_owner,
+            start_owner.clone(),
             "start_fail",
             RuntimeCommand::StartLane {
                 lane_id: "lane-start-fail".to_string(),
@@ -803,6 +1282,32 @@ fn lane_supervisor_compensates_create_and_start_and_preserves_cleanup_intent() {
         1
     );
     drop(calls);
+    supervisor
+        .send_command_from_owner(
+            start_owner,
+            "start_retry",
+            RuntimeCommand::StartLane {
+                lane_id: "lane-start-fail".to_string(),
+                command: "worker".to_string(),
+                args: Vec::new(),
+                env: Vec::new(),
+                output_log: None,
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneUpdated { lane }, .. }) if lane.id == "lane-start-fail" && lane.status == LaneStatus::Running))
+    });
+    assert_eq!(
+        effects
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|call| *call == "start:lane-start-fail")
+            .count(),
+        2
+    );
     drop(supervisor);
 
     // Cleanup: completion failure leaves the durable pre-effect Starting
@@ -810,7 +1315,10 @@ fn lane_supervisor_compensates_create_and_start_and_preserves_cleanup_intent() {
     let cwd = temp_dir("lane_cleanup_intent_cwd");
     let home = temp_dir("lane_cleanup_intent_home");
     let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let persistence = Arc::new(InjectableLanePersistence::new(store.clone(), [3]));
     let effects = Arc::new(RecordingLaneEffects::default());
@@ -820,18 +1328,18 @@ fn lane_supervisor_compensates_create_and_start_and_preserves_cleanup_intent() {
         persistence,
     );
     let owner = owner("lane-cleanup-fail");
+    let mut cleanup_lane = lane("lane-cleanup-fail");
+    cleanup_lane.mutation_policy = MutationPolicy::Autonomous;
     supervisor
         .send_command_from_owner(
             owner.clone(),
             "create_cleanup_fail",
-            RuntimeCommand::CreateLane {
-                lane: lane("lane-cleanup-fail"),
-            },
+            RuntimeCommand::CreateLane { lane: cleanup_lane },
         )
         .unwrap();
     supervisor
         .send_command_from_owner(
-            owner,
+            owner.clone(),
             "cleanup_fail",
             RuntimeCommand::CleanupLane {
                 lane_id: "lane-cleanup-fail".to_string(),
@@ -857,6 +1365,129 @@ fn lane_supervisor_compensates_create_and_start_and_preserves_cleanup_intent() {
             .unwrap()
             .status,
         LaneStatus::Starting
+    );
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cleanup_retry",
+            RuntimeCommand::CleanupLane {
+                lane_id: "lane-cleanup-fail".to_string(),
+                force: true,
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneUpdated { lane }, .. }) if lane.id == "lane-cleanup-fail" && lane.status == LaneStatus::Archived))
+    });
+    assert_eq!(
+        effects
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|call| *call == "cleanup:lane-cleanup-fail")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn lane_supervisor_retries_real_cleanup_after_completion_append_failure() {
+    let cwd = temp_dir("lane_real_cleanup_retry_cwd");
+    let home = temp_dir("lane_real_cleanup_retry_home");
+    for args in [
+        vec!["init"],
+        vec!["config", "user.email", "test@example.com"],
+        vec!["config", "user.name", "Viden Test"],
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&cwd)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    std::fs::write(cwd.join("README.md"), "root\n").unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&cwd)
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    let persistence = Arc::new(InjectableLanePersistence::new(store.clone(), [3]));
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_and_persistence_for_test(
+        engine,
+        Arc::new(LocalLaneEffectExecutor::default()) as Arc<dyn LaneEffectExecutor>,
+        persistence,
+    );
+    let owner = owner("lane-real-cleanup");
+    let mut autonomous = lane("lane-real-cleanup");
+    autonomous.mutation_policy = MutationPolicy::Autonomous;
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "create_real_cleanup",
+            RuntimeCommand::CreateLane { lane: autonomous },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneUpdated { lane }, .. }) if lane.id == "lane-real-cleanup"))
+    });
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cleanup_real_failure",
+            RuntimeCommand::CleanupLane {
+                lane_id: "lane-real-cleanup".to_string(),
+                force: true,
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneRecoveryRequired { reason, .. }, .. }) if reason.contains("completion")))
+    });
+    assert!(!cwd.join(".worktrees/lane-real-cleanup").exists());
+
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cleanup_real_retry",
+            RuntimeCommand::CleanupLane {
+                lane_id: "lane-real-cleanup".to_string(),
+                force: true,
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneUpdated { lane }, .. }) if lane.id == "lane-real-cleanup" && lane.status == LaneStatus::Archived))
+    });
+    assert_eq!(
+        store
+            .load_lane_state()
+            .unwrap()
+            .lane("lane-real-cleanup")
+            .unwrap()
+            .status,
+        LaneStatus::Archived
     );
 }
 
@@ -1157,6 +1788,7 @@ struct InjectableLanePersistence {
     store: WorkflowStore,
     append_count: AtomicUsize,
     fail_at: Vec<usize>,
+    fail_load: bool,
 }
 
 impl InjectableLanePersistence {
@@ -1165,6 +1797,16 @@ impl InjectableLanePersistence {
             store,
             append_count: AtomicUsize::new(0),
             fail_at: fail_at.into_iter().collect(),
+            fail_load: false,
+        }
+    }
+
+    fn with_load_failure(store: WorkflowStore) -> Self {
+        Self {
+            store,
+            append_count: AtomicUsize::new(0),
+            fail_at: Vec::new(),
+            fail_load: true,
         }
     }
 }
@@ -1180,6 +1822,9 @@ impl LanePersistence for InjectableLanePersistence {
     }
 
     fn load_lanes(&self) -> Result<std::collections::BTreeMap<String, AgentLaneRecord>, String> {
+        if self.fail_load {
+            return Err("injected lane hydration failure".to_string());
+        }
         self.store
             .load_lane_state()
             .map(|state| state.lanes().clone())

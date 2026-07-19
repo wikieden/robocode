@@ -7,5 +7,5 @@ capabilities = ["runtime.lane_lifecycle"]
 
 [runtime_lane_lifecycle]
 command_count = 13
-events = ["lane_updated", "lane_output_appended", "lane_conflict_detected", "lane_recovery_required"]
+events = ["lane_command_accepted", "lane_updated", "lane_output_appended", "lane_conflict_detected", "lane_recovery_required"]
 legacy_clients = "require frozen capabilities only; preserve unsupported event payloads as unknown"

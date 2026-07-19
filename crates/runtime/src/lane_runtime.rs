@@ -247,6 +247,15 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
                 let Some(path) = lane.worktree else {
                     return Ok(LaneEffectResult::success("lane cleanup completed"));
                 };
+                let configured = PathBuf::from(&path);
+                let resolved = if configured.is_absolute() {
+                    configured
+                } else {
+                    repo.join(configured)
+                };
+                if !resolved.exists() {
+                    return Ok(LaneEffectResult::success("lane cleanup already reconciled"));
+                }
                 let outcome = self
                     .worktrees
                     .remove_worktree(&WorktreeRemoveRequest { repo, path, force })
