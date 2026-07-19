@@ -296,11 +296,13 @@ branch must update this section when that behavior ships.
 - `?`: open help when the composer is empty.
 - `Esc` or `Ctrl-C`: exit.
 - `/quit` or `/exit`: exit from command input.
-- `/`: open command suggestions. Use `Up` / `Down`, `Tab`, `Enter`, or click a
-  visible suggestion row. Long suggestion lists scroll as the selection moves
-  so keyboard and mouse behavior stay aligned.
-- Transcript history: use `PageUp` / `PageDown` or the mouse wheel to browse
-  older transcript rows. `Ctrl-Home` jumps to the oldest visible history and
+- `/`: open command suggestions. Use `Up` / `Down`, `Tab`, or `Enter`. Mouse
+  capture is disabled by default, so click selection is not active in the
+  current CoreClient TUI.
+- Transcript history: use `PageUp` / `PageDown` to browse older transcript
+  rows. Mouse-wheel navigation is disabled by default; any future mouse mode
+  must be an explicit opt-in with complete approval and selector hit-testing.
+  `Ctrl-Home` jumps to the oldest visible history and
   `Ctrl-End` returns to the live tail. When history mode is active, the
   transcript panel badge changes from `live session` to `history N`.
 - Approval modal: `y` approve, `n` deny, `d` focus diff, `Tab` / arrows move

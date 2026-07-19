@@ -122,10 +122,10 @@ fn lane_visibility_counts(lanes: &[super::state::TerminalLane]) -> LaneVisibilit
             "queued" | "starting" | "running" | "attached" | "needs_input" | "manual" => {
                 counts.active += 1;
             }
-            "completed" | "accepted" | "reviewing" | "revise" => {
+            "completed" | "accepted" | "reviewing" | "waiting_approval" | "revise" => {
                 counts.review += 1;
             }
-            "failed" | "apply_conflict" => {
+            "failed" | "blocked" | "apply_conflict" => {
                 counts.blocked += 1;
             }
             "applied" | "archived" | "discarded" | "detached" | "stopped" | "done" | "idle" => {
@@ -204,8 +204,8 @@ fn lane_agent_state(lane: &super::state::TerminalLane) -> &'static str {
         "queued" | "starting" => "thinking",
         "running" => running_lane_state(lane),
         "attached" | "manual" | "needs_input" => "needs input",
-        "reviewing" | "accepted" | "revise" => "reviewing",
-        "apply_conflict" | "failed" => "blocked",
+        "reviewing" | "waiting_approval" | "accepted" | "revise" => "reviewing",
+        "apply_conflict" | "blocked" | "failed" => "blocked",
         "done" | "completed" | "applied" | "discarded" | "detached" | "stopped" | "idle"
         | "archived" => "done",
         _ => "thinking",
@@ -520,6 +520,31 @@ mod tests {
         assert!(rendered.contains("NEXT watch or attach with `tmux attach -t viden-session-l1`"));
         assert!(rendered.contains("tail patched failing tests"));
         assert!(rendered.contains("artifact none"));
+    }
+
+    #[test]
+    fn typed_core_lane_states_drive_side_counts_and_state_rows() {
+        let mut lanes = TerminalLane::preview_lanes();
+        lanes.truncate(2);
+        lanes[0].id = "L-review".to_string();
+        lanes[0].status = "waiting_approval".to_string();
+        lanes[1].id = "L-blocked".to_string();
+        lanes[1].status = "blocked".to_string();
+        let state = TuiState {
+            lanes,
+            ..TuiState::default()
+        };
+
+        let counts = lane_visibility_row(&state.lanes);
+        assert!(counts.contains("active 0/2"));
+        assert!(counts.contains("review 1"));
+        assert!(counts.contains("blocked 1"));
+        assert!(counts.contains("done 0"));
+        assert!(!counts.contains("other"));
+
+        let rendered = terminal_lane_detail_rows(&state).join("\n");
+        assert!(rendered.contains("L-review") && rendered.contains("STATE reviewing"));
+        assert!(rendered.contains("L-blocked") && rendered.contains("STATE blocked"));
     }
 
     #[test]

@@ -256,9 +256,10 @@ DeepSeek 开发场景 smoke 会产生真实费用，会写出 `usage.json` 和 `
 - `?`：输入区为空时打开帮助。
 - `Esc` 或 `Ctrl-C`：退出。
 - `/quit` 或 `/exit`：从命令输入退出。
-- `/`：打开命令提示。可以用 `Up` / `Down`、`Tab`、`Enter`，也可以点击可见提示行。
-- 长命令提示列表会随着键盘选择滚动，保证选中行可见，鼠标点击和键盘选择看到的是同一组行。
-- transcript 历史：用 `PageUp` / `PageDown` 或鼠标滚轮浏览更早的 transcript 行。
+- `/`：打开命令提示。可以用 `Up` / `Down`、`Tab` 或 `Enter`。当前 CoreClient TUI
+  默认关闭鼠标捕获，因此不启用点击选择。
+- transcript 历史：用 `PageUp` / `PageDown` 浏览更早的 transcript 行。鼠标滚轮导航
+  默认关闭；后续如提供鼠标模式，必须显式选择启用，并完整支持审批和选择器命中测试。
   `Ctrl-Home` 跳到最早可见历史，`Ctrl-End` 回到实时尾部。进入历史模式时，
   transcript 面板角标会从 `live session` 变成 `history N`。
 - 审批弹窗：`y` 通过，`n` 拒绝，`d` 聚焦 diff，`Tab` / 方向键移动焦点。
