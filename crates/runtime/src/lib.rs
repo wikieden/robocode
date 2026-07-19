@@ -13,6 +13,7 @@ mod brief_commands;
 mod command_dispatch;
 mod context_bundle;
 mod doctor;
+mod event_journal;
 mod extension_commands;
 mod formatting;
 mod git_commands;

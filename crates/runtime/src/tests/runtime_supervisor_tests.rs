@@ -9,9 +9,11 @@ use viden_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
     AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalDecision, ApprovalResponse,
-    ApprovalScope, ContextBundleRecord, MergeGateStatus, ModelEvent, ModelRequest,
-    PermissionBehavior, PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand,
-    RuntimeEvent, RuntimeEventKind, RuntimeOwner, ToolCall, ToolInput, WorkMode,
+    ApprovalScope, ContextBundleRecord, EventCursor, FRONTEND_SCHEMA_V1, MergeGateStatus,
+    ModelEvent, ModelRequest, PermissionBehavior, PermissionRule, PermissionRuleSource,
+    PermissionRuleValue, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEvent,
+    RuntimeEventKind, RuntimeOwner, RuntimeWireEvent, ToolCall, ToolInput, TranscriptPageRequest,
+    WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -177,6 +179,123 @@ impl ModelProvider for RecordingProvider {
             content: "recorded".to_string(),
         }])
     }
+}
+
+#[test]
+fn runtime_supervisor_envelopes_are_contiguous_owned_and_replayable_before_visibility() {
+    let cwd = temp_dir("runtime_supervisor_envelope_cwd");
+    let home = temp_dir("runtime_supervisor_envelope_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("envelope");
+
+    supervisor
+        .send_command_envelope(RuntimeCommandEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            client_id: "client-envelope".to_string(),
+            command_id: "cmd-envelope".to_string(),
+            owner: owner.clone(),
+            command: RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+        })
+        .unwrap();
+
+    let first = supervisor
+        .recv_event_envelope_timeout(Duration::from_secs(2))
+        .expect("first event envelope");
+    assert_eq!(first.owner, owner);
+    assert_eq!(first.cursor.sequence, 1);
+    assert_eq!(
+        match &first.event {
+            RuntimeWireEvent::Known(event) => event.sequence,
+            RuntimeWireEvent::Unknown { .. } => 0,
+        },
+        first.cursor.sequence
+    );
+
+    let replay = supervisor
+        .replay_events(ReplayRequest {
+            after: EventCursor {
+                stream_id: first.cursor.stream_id.clone(),
+                sequence: 0,
+            },
+            limit: 10,
+        })
+        .unwrap();
+    assert_eq!(replay.events.first(), Some(&first));
+
+    let second = supervisor
+        .recv_event_envelope_timeout(Duration::from_secs(2))
+        .expect("second event envelope");
+    assert_eq!(second.owner, owner);
+    assert_eq!(second.cursor.sequence, 2);
+    assert_eq!(
+        match &second.event {
+            RuntimeWireEvent::Known(event) => event.sequence,
+            RuntimeWireEvent::Unknown { .. } => 0,
+        },
+        second.cursor.sequence
+    );
+}
+
+#[test]
+fn runtime_supervisor_snapshot_pairs_transient_live_view_with_exact_cursor() {
+    let cwd = temp_dir("runtime_supervisor_snapshot_boundary_cwd");
+    let home = temp_dir("runtime_supervisor_snapshot_boundary_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command("cmd-no-active", RuntimeCommand::CancelActiveTurn)
+        .unwrap();
+    let event = supervisor
+        .recv_event_envelope_timeout(Duration::from_secs(2))
+        .expect("transient command rejection");
+    assert!(matches!(
+        &event.event,
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::CommandRejected { command_id, .. },
+            ..
+        }) if command_id == "cmd-no-active"
+    ));
+
+    let snapshot = supervisor.snapshot_envelope().unwrap();
+    assert_eq!(snapshot.cursor, event.cursor);
+    assert!(snapshot.view.errors.iter().any(|error| {
+        error
+            .message
+            .contains("command cmd-no-active rejected: no active turn to cancel")
+    }));
+}
+
+#[test]
+fn runtime_supervisor_transcript_page_query_does_not_advance_event_journal() {
+    let cwd = temp_dir("runtime_supervisor_transcript_page_cwd");
+    let home = temp_dir("runtime_supervisor_transcript_page_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let session_id = engine.session_id().to_string();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let before = supervisor.snapshot_envelope().unwrap();
+
+    let page = supervisor
+        .load_transcript_page(TranscriptPageRequest {
+            session_id: session_id.clone(),
+            before: None,
+            limit: 20,
+        })
+        .unwrap();
+    let after = supervisor.snapshot_envelope().unwrap();
+
+    assert_eq!(after.cursor, before.cursor);
+    assert!(
+        page.rows
+            .iter()
+            .all(|row| row.cursor.session_id == session_id)
+    );
 }
 
 #[test]

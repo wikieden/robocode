@@ -32,8 +32,8 @@ use viden_types::{
     PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
     PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand,
     RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
-    RuntimeViewState, TokenCostView, TokenUsage, ToolCallId, ToolInput, WorkMode,
-    canonical_evidence_status, default_gate_strength, fresh_id, legacy_lane_role,
+    RuntimeViewState, TokenCostView, TokenUsage, ToolCallId, ToolInput, TranscriptPageRequest,
+    WorkMode, canonical_evidence_status, default_gate_strength, fresh_id, legacy_lane_role,
     legacy_lane_route, now_timestamp, truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
@@ -152,6 +152,13 @@ impl SessionEngine {
             view.apply_event(&event);
         }
         view
+    }
+
+    pub fn load_transcript_page(
+        &self,
+        request: &TranscriptPageRequest,
+    ) -> Result<viden_types::TranscriptPage, String> {
+        self.store.load_transcript_page(request)
     }
 
     pub fn runtime_events_for_engine_events(&self, events: &[EngineEvent]) -> Vec<RuntimeEvent> {

@@ -1,9 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 use std::sync::OnceLock;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicU64, Ordering},
     mpsc::{self, Receiver, Sender},
 };
 use std::thread::{self, JoinHandle};
@@ -12,12 +11,16 @@ use std::time::Duration;
 use viden_provider::ModelRequestControl;
 use viden_types::{
     ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk,
-    ApprovalScope, ApprovalTarget, PermissionPrompt, RuntimeCommand, RuntimeErrorView,
-    RuntimeEvent, RuntimeEventKind, RuntimeOwner, fresh_id, now_timestamp,
+    ApprovalScope, ApprovalTarget, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1, GapRecovery,
+    PermissionPrompt, ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
+    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, TranscriptPage,
+    TranscriptPageRequest, fresh_id, now_timestamp,
 };
 
 use crate::{
     SessionEngine,
+    event_journal::RuntimeEventJournal,
     runtime_contract::{
         ContextRetrievalJob, SupervisorContextRetrievalPreparation, execute_context_retrieval_job,
         redacted_runtime_command_for_event,
@@ -58,10 +61,20 @@ struct ActiveRuntimeControl {
 }
 
 struct SupervisorShared<'a> {
-    event_sender: &'a Sender<RuntimeEvent>,
-    sequence: &'a Arc<AtomicU64>,
+    event_bus: &'a RuntimeEventBus,
     active_control: &'a Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &'a Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+}
+
+#[derive(Clone)]
+struct RuntimeEventBus {
+    sender: Sender<RuntimeEventEnvelope>,
+    state: Arc<Mutex<RuntimeEventState>>,
+}
+
+struct RuntimeEventState {
+    journal: RuntimeEventJournal,
+    live_view: RuntimeViewState,
 }
 
 #[cfg(test)]
@@ -113,14 +126,20 @@ enum SupervisorMessage {
         audit_id: String,
         job: Box<ContextRetrievalJob>,
     },
+    Snapshot {
+        response: Sender<Result<RuntimeSnapshotEnvelope, String>>,
+    },
+    TranscriptPage {
+        request: TranscriptPageRequest,
+        response: Sender<Result<TranscriptPage, String>>,
+    },
     Shutdown,
 }
 
 pub struct RuntimeSupervisor {
     commands: Sender<SupervisorMessage>,
-    events: Receiver<RuntimeEvent>,
-    event_sender: Sender<RuntimeEvent>,
-    sequence: Arc<AtomicU64>,
+    events: Receiver<RuntimeEventEnvelope>,
+    event_bus: RuntimeEventBus,
     active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     _worker: JoinHandle<()>,
@@ -134,26 +153,26 @@ impl RuntimeSupervisor {
     fn start_with_approval_ttl(mut engine: SessionEngine, approval_ttl_secs: u64) -> Self {
         let (command_sender, command_receiver) = mpsc::channel();
         let (event_sender, event_receiver) = mpsc::channel();
-        let sequence = Arc::new(AtomicU64::new(1));
-        let active_control = Arc::new(Mutex::new(None));
+        let active_control: Arc<Mutex<Option<ActiveRuntimeControl>>> = Arc::new(Mutex::new(None));
         let pending_approvals = Arc::new(Mutex::new(BTreeMap::new()));
+        let event_bus = RuntimeEventBus {
+            sender: event_sender,
+            state: Arc::new(Mutex::new(RuntimeEventState {
+                journal: RuntimeEventJournal::default_with_stream(fresh_id("runtime-stream")),
+                live_view: engine.runtime_view_state(),
+            })),
+        };
 
-        let sink_event_sender = event_sender.clone();
-        let sink_sequence = Arc::clone(&sequence);
-        engine.set_runtime_event_sink(Some(Arc::new(move |events| {
-            emit_events(&sink_event_sender, &sink_sequence, events);
-        })));
+        install_runtime_event_sink(&mut engine, event_bus.clone(), RuntimeOwner::default());
 
-        let worker_event_sender = event_sender.clone();
-        let worker_sequence = Arc::clone(&sequence);
+        let worker_event_bus = event_bus.clone();
         let worker_active_control = Arc::clone(&active_control);
         let worker_pending_approvals = Arc::clone(&pending_approvals);
         let worker = thread::spawn(move || {
             run_supervisor_worker(
                 engine,
                 command_receiver,
-                worker_event_sender,
-                worker_sequence,
+                worker_event_bus,
                 worker_active_control,
                 worker_pending_approvals,
                 approval_ttl_secs,
@@ -163,8 +182,7 @@ impl RuntimeSupervisor {
         Self {
             commands: command_sender,
             events: event_receiver,
-            event_sender,
-            sequence,
+            event_bus,
             active_control,
             pending_approvals,
             _worker: worker,
@@ -212,8 +230,8 @@ impl RuntimeSupervisor {
                     .clone()
                 else {
                     emit_event(
-                        &self.event_sender,
-                        &self.sequence,
+                        &self.event_bus,
+                        owner.clone(),
                         RuntimeEventKind::CommandRejected {
                             command_id,
                             reason: "no active turn to cancel".to_string(),
@@ -223,8 +241,8 @@ impl RuntimeSupervisor {
                 };
                 if control.owner != owner {
                     emit_event(
-                        &self.event_sender,
-                        &self.sequence,
+                        &self.event_bus,
+                        owner.clone(),
                         RuntimeEventKind::CommandRejected {
                             command_id,
                             reason: format!(
@@ -240,16 +258,15 @@ impl RuntimeSupervisor {
                     resolve_pending_approval_by_id(
                         request_id,
                         ApprovalDecision::Deny,
-                        &self.event_sender,
-                        &self.sequence,
+                        &self.event_bus,
                         &self.active_control,
                         &self.pending_approvals,
                         None,
                     );
                 }
                 emit_event(
-                    &self.event_sender,
-                    &self.sequence,
+                    &self.event_bus,
+                    owner.clone(),
                     RuntimeEventKind::CommandAccepted {
                         command_id,
                         command: redacted_runtime_command_for_event(
@@ -270,8 +287,8 @@ impl RuntimeSupervisor {
                         .map_err(|_| "approval lock poisoned".to_string())?;
                     let Some(pending) = approvals.get(&request_id) else {
                         emit_event(
-                            &self.event_sender,
-                            &self.sequence,
+                            &self.event_bus,
+                            owner.clone(),
                             RuntimeEventKind::CommandRejected {
                                 command_id,
                                 reason: format!("approval request `{request_id}` is not pending"),
@@ -281,8 +298,8 @@ impl RuntimeSupervisor {
                     };
                     if pending.owner != owner {
                         emit_event(
-                            &self.event_sender,
-                            &self.sequence,
+                            &self.event_bus,
+                            owner.clone(),
                             RuntimeEventKind::CommandRejected {
                                 command_id,
                                 reason: format!("approval request `{request_id}` owner mismatch"),
@@ -292,8 +309,8 @@ impl RuntimeSupervisor {
                     }
                     if !approval_decision_is_allowed_by_request(&response.decision, pending) {
                         emit_event(
-                            &self.event_sender,
-                            &self.sequence,
+                            &self.event_bus,
+                            owner.clone(),
                             RuntimeEventKind::CommandRejected {
                                 command_id,
                                 reason: format!(
@@ -306,8 +323,8 @@ impl RuntimeSupervisor {
                     approvals.remove(&request_id).expect("pending approval")
                 };
                 emit_event(
-                    &self.event_sender,
-                    &self.sequence,
+                    &self.event_bus,
+                    owner.clone(),
                     RuntimeEventKind::CommandAccepted {
                         command_id,
                         command: redacted_runtime_command_for_event(
@@ -326,8 +343,8 @@ impl RuntimeSupervisor {
                             let _ = mark_active_running(&self.active_control, &owner_id);
                         }
                         emit_event(
-                            &self.event_sender,
-                            &self.sequence,
+                            &self.event_bus,
+                            pending_owner.clone(),
                             approval_resolved_event(
                                 &request_id,
                                 response.decision.clone(),
@@ -344,22 +361,22 @@ impl RuntimeSupervisor {
                             let mut job = *job;
                             job.permission_decision = "approved".to_string();
                             if let Err(err) = mark_active_running(&self.active_control, &owner_id) {
-                                emit_error(&self.event_sender, &self.sequence, err);
+                                emit_error(&self.event_bus, pending_owner.clone(), err);
                                 return Ok(());
                             }
                             let Some(control) =
                                 active_control_for_owner(&self.active_control, &owner_id)
                             else {
                                 emit_error(
-                                    &self.event_sender,
-                                    &self.sequence,
+                                    &self.event_bus,
+                                    pending_owner.clone(),
                                     format!("active runtime job `{owner_id}` is no longer running"),
                                 );
                                 return Ok(());
                             };
                             emit_event(
-                                &self.event_sender,
-                                &self.sequence,
+                                &self.event_bus,
+                                pending_owner.clone(),
                                 approval_resolved_event(
                                     &request_id,
                                     response.decision.clone(),
@@ -373,32 +390,32 @@ impl RuntimeSupervisor {
                                     .send(SupervisorMessage::ResumeContextRetrieval {
                                         owner_id: owner_id.clone(),
                                         request_id,
-                                        owner: pending_owner,
-                                        audit_id: pending_audit_id,
+                                        owner: pending_owner.clone(),
+                                        audit_id: pending_audit_id.clone(),
                                         job: Box::new(job),
                                     })
                             {
                                 clear_active_control(&self.active_control, &owner_id);
                                 emit_error(
-                                    &self.event_sender,
-                                    &self.sequence,
+                                    &self.event_bus,
+                                    pending_owner.clone(),
                                     format!("runtime supervisor stopped: {err}"),
                                 );
                             }
                         } else {
                             emit_event(
-                                &self.event_sender,
-                                &self.sequence,
+                                &self.event_bus,
+                                pending_owner.clone(),
                                 approval_resolved_event(
                                     &request_id,
                                     response.decision.clone(),
-                                    pending_owner,
+                                    pending_owner.clone(),
                                     pending_audit_id,
                                 ),
                             );
                             emit_error(
-                                &self.event_sender,
-                                &self.sequence,
+                                &self.event_bus,
+                                pending_owner.clone(),
                                 "User denied the permission request".to_string(),
                             );
                             clear_active_control(&self.active_control, &owner_id);
@@ -412,8 +429,8 @@ impl RuntimeSupervisor {
             | RuntimeCommand::RetrieveContext { .. } => {
                 if let Some(owner_id) = active_owner_id(&self.active_control) {
                     emit_event(
-                        &self.event_sender,
-                        &self.sequence,
+                        &self.event_bus,
+                        owner.clone(),
                         RuntimeEventKind::CommandRejected {
                             command_id,
                             reason: format!("active runtime job `{owner_id}` is already running"),
@@ -441,15 +458,66 @@ impl RuntimeSupervisor {
     }
 
     pub fn recv_event_timeout(&self, timeout: Duration) -> Option<RuntimeEvent> {
+        self.recv_event_envelope_timeout(timeout)
+            .and_then(|envelope| match envelope.event {
+                RuntimeWireEvent::Known(event) => Some(event),
+                RuntimeWireEvent::Unknown { .. } => None,
+            })
+    }
+
+    pub fn send_command_envelope(&self, envelope: RuntimeCommandEnvelope) -> Result<(), String> {
+        if envelope.schema_version != FRONTEND_SCHEMA_V1 {
+            return Err(format!(
+                "unsupported frontend schema {}",
+                envelope.schema_version.0
+            ));
+        }
+        self.send_command_from_owner(envelope.owner, envelope.command_id, envelope.command)
+    }
+
+    pub fn recv_event_envelope_timeout(&self, timeout: Duration) -> Option<RuntimeEventEnvelope> {
         self.events.recv_timeout(timeout).ok()
+    }
+
+    pub fn snapshot_envelope(&self) -> Result<RuntimeSnapshotEnvelope, String> {
+        let (response, receiver) = mpsc::channel();
+        self.commands
+            .send(SupervisorMessage::Snapshot { response })
+            .map_err(|err| format!("runtime supervisor stopped: {err}"))?;
+        receiver
+            .recv()
+            .map_err(|err| format!("runtime supervisor snapshot failed: {err}"))?
+    }
+
+    pub fn replay_events(&self, request: ReplayRequest) -> Result<ReplayBatch, GapRecovery> {
+        self.event_bus
+            .state
+            .lock()
+            .map_err(|_| GapRecovery::SnapshotRequired {
+                reason_code: "journal_unavailable".to_string(),
+            })?
+            .journal
+            .replay(request)
+    }
+
+    pub fn load_transcript_page(
+        &self,
+        request: TranscriptPageRequest,
+    ) -> Result<TranscriptPage, String> {
+        let (response, receiver) = mpsc::channel();
+        self.commands
+            .send(SupervisorMessage::TranscriptPage { request, response })
+            .map_err(|err| format!("runtime supervisor stopped: {err}"))?;
+        receiver
+            .recv()
+            .map_err(|err| format!("runtime supervisor transcript page failed: {err}"))?
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn expire_pending_approvals_for_test(&self, now: u64) {
         expire_pending_approvals_at(
             now,
-            &self.event_sender,
-            &self.sequence,
+            &self.event_bus,
             &self.active_control,
             &self.pending_approvals,
         );
@@ -465,8 +533,7 @@ impl Drop for RuntimeSupervisor {
 fn run_supervisor_worker(
     mut engine: SessionEngine,
     command_receiver: Receiver<SupervisorMessage>,
-    event_sender: Sender<RuntimeEvent>,
-    sequence: Arc<AtomicU64>,
+    event_bus: RuntimeEventBus,
     active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_ttl_secs: u64,
@@ -478,62 +545,65 @@ fn run_supervisor_worker(
                 owner,
                 command_id,
                 command,
-            } => match command {
-                RuntimeCommand::SubmitUserInput { content } => {
-                    run_supervised_input(
-                        &mut engine,
-                        owner,
-                        command_id,
-                        content,
-                        &event_sender,
-                        &sequence,
-                        &active_control,
-                        &pending_approvals,
-                        approval_ttl_secs,
-                    );
-                }
-                RuntimeCommand::StartAgentTask { task_id } => {
-                    run_supervised_agent_task(
-                        &mut engine,
-                        owner,
-                        command_id,
-                        task_id,
-                        &event_sender,
-                        &sequence,
-                        &active_control,
-                        &pending_approvals,
-                        approval_ttl_secs,
-                    );
-                }
-                RuntimeCommand::RetrieveContext { handle_id, reason } => {
-                    run_supervised_context_retrieval(
-                        &mut engine,
-                        owner,
-                        command_id,
-                        handle_id,
-                        reason,
-                        SupervisorShared {
-                            event_sender: &event_sender,
-                            sequence: &sequence,
-                            active_control: &active_control,
-                            pending_approvals: &pending_approvals,
-                        },
-                        approval_ttl_secs,
-                    );
-                }
-                command => {
-                    let mut approver = |_prompt: PermissionPrompt| {
-                        ApprovalResponse::deny(Some(
-                            "runtime supervisor command path does not own this approval"
-                                .to_string(),
-                        ))
-                    };
-                    match engine.handle_runtime_command(command_id, command, &mut approver) {
-                        Ok(events) => emit_events(&event_sender, &sequence, events),
-                        Err(err) => emit_error(&event_sender, &sequence, err),
+            } => {
+                // Background engine work clones the installed sink, so bind
+                // owner identity at command dispatch rather than consulting a
+                // later active-owner value when the event finally arrives.
+                install_runtime_event_sink(&mut engine, event_bus.clone(), owner.clone());
+                match command {
+                    RuntimeCommand::SubmitUserInput { content } => {
+                        run_supervised_input(
+                            &mut engine,
+                            owner,
+                            command_id,
+                            content,
+                            &event_bus,
+                            &active_control,
+                            &pending_approvals,
+                            approval_ttl_secs,
+                        );
+                    }
+                    RuntimeCommand::StartAgentTask { task_id } => {
+                        run_supervised_agent_task(
+                            &mut engine,
+                            owner,
+                            command_id,
+                            task_id,
+                            &event_bus,
+                            &active_control,
+                            &pending_approvals,
+                            approval_ttl_secs,
+                        );
+                    }
+                    RuntimeCommand::RetrieveContext { handle_id, reason } => {
+                        run_supervised_context_retrieval(
+                            &mut engine,
+                            owner,
+                            command_id,
+                            handle_id,
+                            reason,
+                            SupervisorShared {
+                                event_bus: &event_bus,
+                                active_control: &active_control,
+                                pending_approvals: &pending_approvals,
+                            },
+                            approval_ttl_secs,
+                        );
+                    }
+                    command => {
+                        let mut approver = |_prompt: PermissionPrompt| {
+                            ApprovalResponse::deny(Some(
+                                "runtime supervisor command path does not own this approval"
+                                    .to_string(),
+                            ))
+                        };
+                        match engine.handle_runtime_command(command_id, command, &mut approver) {
+                            Ok(events) => emit_events(&event_bus, owner, events),
+                            Err(err) => emit_error(&event_bus, owner, err),
+                        }
                     }
                 }
-            },
+            }
             SupervisorMessage::ResumeContextRetrieval {
                 owner_id,
                 request_id,
@@ -548,13 +618,56 @@ fn run_supervisor_worker(
                     owner,
                     audit_id,
                     *job,
-                    &event_sender,
-                    &sequence,
+                    &event_bus,
                     &active_control,
                 );
             }
+            SupervisorMessage::Snapshot { response } => {
+                let envelope = match event_bus.state.lock() {
+                    Ok(state) => {
+                        // Cursor and live projection share one lock so a
+                        // reconnect cannot pair a newer transient event with
+                        // an older snapshot boundary.
+                        Ok(RuntimeSnapshotEnvelope {
+                            schema_version: FRONTEND_SCHEMA_V1,
+                            capabilities: runtime_frontend_capabilities(),
+                            cursor: state.journal.current_cursor(),
+                            snapshot: state.live_view.snapshot.clone(),
+                            view: state.live_view.clone(),
+                        })
+                    }
+                    Err(_) => Err("runtime event journal lock poisoned".to_string()),
+                };
+                let _ = response.send(envelope);
+            }
+            SupervisorMessage::TranscriptPage { request, response } => {
+                let _ = response.send(engine.load_transcript_page(&request));
+            }
         }
     }
+}
+
+fn install_runtime_event_sink(
+    engine: &mut SessionEngine,
+    event_bus: RuntimeEventBus,
+    owner: RuntimeOwner,
+) {
+    engine.set_runtime_event_sink(Some(Arc::new(move |events| {
+        emit_events(&event_bus, owner.clone(), events);
+    })));
+}
+
+fn runtime_frontend_capabilities() -> BTreeSet<CapabilityId> {
+    [
+        "runtime.commands",
+        "runtime.events",
+        "runtime.snapshot",
+        "runtime.replay",
+        "runtime.transcript_page",
+    ]
+    .into_iter()
+    .map(|capability| CapabilityId(capability.to_string()))
+    .collect()
 }
 
 fn run_supervised_context_retrieval(
@@ -568,8 +681,8 @@ fn run_supervised_context_retrieval(
 ) {
     if let Some(owner_id) = active_owner_id(shared.active_control) {
         emit_event(
-            shared.event_sender,
-            shared.sequence,
+            shared.event_bus,
+            owner.clone(),
             RuntimeEventKind::CommandRejected {
                 command_id,
                 reason: format!("active runtime job `{owner_id}` is already running"),
@@ -581,8 +694,8 @@ fn run_supervised_context_retrieval(
         Ok(prepared) => prepared,
         Err(err) => {
             emit_event(
-                shared.event_sender,
-                shared.sequence,
+                shared.event_bus,
+                owner.clone(),
                 RuntimeEventKind::CommandRejected {
                     command_id,
                     reason: err,
@@ -602,8 +715,8 @@ fn run_supervised_context_retrieval(
                 ActiveJobState::Running,
             ) {
                 emit_event(
-                    shared.event_sender,
-                    shared.sequence,
+                    shared.event_bus,
+                    owner.clone(),
                     RuntimeEventKind::CommandRejected {
                         command_id,
                         reason: err,
@@ -612,8 +725,8 @@ fn run_supervised_context_retrieval(
                 return;
             }
             emit_event(
-                shared.event_sender,
-                shared.sequence,
+                shared.event_bus,
+                owner.clone(),
                 RuntimeEventKind::CommandAccepted {
                     command_id: command_id.clone(),
                     command: redacted_runtime_command_for_event(&RuntimeCommand::RetrieveContext {
@@ -622,13 +735,13 @@ fn run_supervised_context_retrieval(
                     }),
                 },
             );
-            emit_events(shared.event_sender, shared.sequence, prepared.pre_events);
+            emit_events(shared.event_bus, owner.clone(), prepared.pre_events);
             start_context_retrieval_worker(
                 command_id,
                 prepared.job,
                 control,
-                shared.event_sender,
-                shared.sequence,
+                owner.clone(),
+                shared.event_bus,
                 shared.active_control,
             );
         }
@@ -648,8 +761,8 @@ fn run_supervised_context_retrieval(
                 },
             ) {
                 emit_event(
-                    shared.event_sender,
-                    shared.sequence,
+                    shared.event_bus,
+                    owner.clone(),
                     RuntimeEventKind::CommandRejected {
                         command_id,
                         reason: err,
@@ -658,8 +771,8 @@ fn run_supervised_context_retrieval(
                 return;
             }
             emit_event(
-                shared.event_sender,
-                shared.sequence,
+                shared.event_bus,
+                owner.clone(),
                 RuntimeEventKind::CommandAccepted {
                     command_id: command_id.clone(),
                     command: redacted_runtime_command_for_event(&RuntimeCommand::RetrieveContext {
@@ -670,8 +783,7 @@ fn run_supervised_context_retrieval(
             );
             insert_pending_approval(
                 shared.pending_approvals,
-                shared.event_sender,
-                shared.sequence,
+                shared.event_bus,
                 shared.active_control,
                 approval.id.clone(),
                 PendingApproval {
@@ -686,8 +798,8 @@ fn run_supervised_context_retrieval(
                 },
             );
             emit_event(
-                shared.event_sender,
-                shared.sequence,
+                shared.event_bus,
+                owner,
                 RuntimeEventKind::ApprovalRequested { approval },
             );
         }
@@ -698,12 +810,11 @@ fn start_context_retrieval_worker(
     owner_id: String,
     job: ContextRetrievalJob,
     control: ModelRequestControl,
-    event_sender: &Sender<RuntimeEvent>,
-    sequence: &Arc<AtomicU64>,
+    owner: RuntimeOwner,
+    event_bus: &RuntimeEventBus,
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
 ) {
-    let worker_event_sender = event_sender.clone();
-    let worker_sequence = Arc::clone(sequence);
+    let worker_event_bus = event_bus.clone();
     let worker_active_control = Arc::clone(active_control);
     thread::spawn(move || {
         let result = execute_context_retrieval_job(job, &control);
@@ -711,16 +822,16 @@ fn start_context_retrieval_worker(
         match result {
             Ok(events) => {
                 if control.check_cancelled().is_ok() {
-                    emit_events(&worker_event_sender, &worker_sequence, events);
+                    emit_events(&worker_event_bus, owner.clone(), events);
                 } else {
                     emit_error(
-                        &worker_event_sender,
-                        &worker_sequence,
+                        &worker_event_bus,
+                        owner.clone(),
                         "Model request cancelled".to_string(),
                     );
                 }
             }
-            Err(err) => emit_error(&worker_event_sender, &worker_sequence, err),
+            Err(err) => emit_error(&worker_event_bus, owner, err),
         }
     });
 }
@@ -796,8 +907,7 @@ fn mark_active_pending(
 
 fn insert_pending_approval(
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
-    event_sender: &Sender<RuntimeEvent>,
-    sequence: &Arc<AtomicU64>,
+    event_bus: &RuntimeEventBus,
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     request_id: String,
     pending: PendingApproval,
@@ -809,8 +919,7 @@ fn insert_pending_approval(
     schedule_approval_expiry(
         request_id,
         expires_at,
-        event_sender,
-        sequence,
+        event_bus,
         active_control,
         pending_approvals,
     );
@@ -819,13 +928,11 @@ fn insert_pending_approval(
 fn schedule_approval_expiry(
     request_id: String,
     expires_at: u64,
-    event_sender: &Sender<RuntimeEvent>,
-    sequence: &Arc<AtomicU64>,
+    event_bus: &RuntimeEventBus,
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 ) {
-    let event_sender = event_sender.clone();
-    let sequence = Arc::clone(sequence);
+    let event_bus = event_bus.clone();
     let active_control = Arc::clone(active_control);
     let pending_approvals = Arc::clone(pending_approvals);
     thread::spawn(move || {
@@ -836,8 +943,7 @@ fn schedule_approval_expiry(
         resolve_pending_approval_by_id(
             &request_id,
             ApprovalDecision::Deny,
-            &event_sender,
-            &sequence,
+            &event_bus,
             &active_control,
             &pending_approvals,
             Some("Approval expired; default action deny".to_string()),
@@ -847,8 +953,7 @@ fn schedule_approval_expiry(
 
 fn expire_pending_approvals_at(
     now: u64,
-    event_sender: &Sender<RuntimeEvent>,
-    sequence: &Arc<AtomicU64>,
+    event_bus: &RuntimeEventBus,
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 ) {
@@ -866,8 +971,7 @@ fn expire_pending_approvals_at(
         resolve_pending_approval_by_id(
             &request_id,
             ApprovalDecision::Deny,
-            event_sender,
-            sequence,
+            event_bus,
             active_control,
             pending_approvals,
             Some("Approval expired; default action deny".to_string()),
@@ -878,8 +982,7 @@ fn expire_pending_approvals_at(
 fn resolve_pending_approval_by_id(
     request_id: &str,
     decision: ApprovalDecision,
-    event_sender: &Sender<RuntimeEvent>,
-    sequence: &Arc<AtomicU64>,
+    event_bus: &RuntimeEventBus,
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     error_message: Option<String>,
@@ -893,8 +996,7 @@ fn resolve_pending_approval_by_id(
             request_id,
             pending,
             decision,
-            event_sender,
-            sequence,
+            event_bus,
             active_control,
             error_message,
         );
@@ -905,8 +1007,7 @@ fn resolve_removed_pending_approval(
     request_id: &str,
     pending: PendingApproval,
     decision: ApprovalDecision,
-    event_sender: &Sender<RuntimeEvent>,
-    sequence: &Arc<AtomicU64>,
+    event_bus: &RuntimeEventBus,
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     error_message: Option<String>,
 ) {
@@ -914,9 +1015,10 @@ fn resolve_removed_pending_approval(
         PendingApprovalTarget::Channel { owner_id, .. } => owner_id.clone(),
         PendingApprovalTarget::ContextRetrieval { owner_id, .. } => owner_id.clone(),
     };
+    let owner = pending.owner.clone();
     emit_event(
-        event_sender,
-        sequence,
+        event_bus,
+        owner.clone(),
         approval_resolved_event(
             request_id,
             decision.clone(),
@@ -936,7 +1038,7 @@ fn resolve_removed_pending_approval(
         }
         PendingApprovalTarget::ContextRetrieval { .. } => {
             if let Some(message) = error_message {
-                emit_error(event_sender, sequence, message);
+                emit_error(event_bus, owner, message);
             }
         }
     }
@@ -960,38 +1062,30 @@ fn resume_context_retrieval_after_approval(
     engine: &mut SessionEngine,
     owner_id: String,
     _request_id: String,
-    _owner: RuntimeOwner,
+    owner: RuntimeOwner,
     _audit_id: String,
     job: ContextRetrievalJob,
-    event_sender: &Sender<RuntimeEvent>,
-    sequence: &Arc<AtomicU64>,
+    event_bus: &RuntimeEventBus,
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
 ) {
     let Some(control) = active_control_for_owner(active_control, &owner_id) else {
         emit_error(
-            event_sender,
-            sequence,
+            event_bus,
+            owner,
             format!("active runtime job `{owner_id}` is no longer pending"),
         );
         return;
     };
     if let Err(err) = engine.validate_context_retrieval_job_for_supervisor(&job) {
         clear_active_control(active_control, &owner_id);
-        emit_error(event_sender, sequence, err);
+        emit_error(event_bus, owner, err);
         return;
     }
     if let Err(err) = mark_active_running(active_control, &owner_id) {
-        emit_error(event_sender, sequence, err);
+        emit_error(event_bus, owner, err);
         return;
     }
-    start_context_retrieval_worker(
-        owner_id,
-        job,
-        control,
-        event_sender,
-        sequence,
-        active_control,
-    );
+    start_context_retrieval_worker(owner_id, job, control, owner, event_bus, active_control);
 }
 
 fn active_owner_id(active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>) -> Option<String> {
@@ -1017,8 +1111,7 @@ fn run_supervised_agent_task(
     owner: RuntimeOwner,
     command_id: String,
     task_id: String,
-    event_sender: &Sender<RuntimeEvent>,
-    sequence: &Arc<AtomicU64>,
+    event_bus: &RuntimeEventBus,
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_ttl_secs: u64,
@@ -1032,8 +1125,8 @@ fn run_supervised_agent_task(
         ActiveJobState::Running,
     ) {
         emit_event(
-            event_sender,
-            sequence,
+            event_bus,
+            owner.clone(),
             RuntimeEventKind::CommandRejected {
                 command_id,
                 reason: err,
@@ -1042,8 +1135,8 @@ fn run_supervised_agent_task(
         return;
     }
     emit_event(
-        event_sender,
-        sequence,
+        event_bus,
+        owner.clone(),
         RuntimeEventKind::CommandAccepted {
             command_id: command_id.clone(),
             command: redacted_runtime_command_for_event(&RuntimeCommand::StartAgentTask {
@@ -1060,8 +1153,7 @@ fn run_supervised_agent_task(
         let _ = mark_active_pending(active_control, &command_id, request_id.clone());
         insert_pending_approval(
             pending_approvals,
-            event_sender,
-            sequence,
+            event_bus,
             active_control,
             request_id.clone(),
             PendingApproval {
@@ -1076,8 +1168,8 @@ fn run_supervised_agent_task(
             },
         );
         emit_event(
-            event_sender,
-            sequence,
+            event_bus,
+            owner.clone(),
             RuntimeEventKind::ApprovalRequested {
                 approval: approval.clone(),
             },
@@ -1092,8 +1184,8 @@ fn run_supervised_agent_task(
     let result = engine.run_agent_task_with_control(&task_id, &mut approver, &control);
     clear_active_control(active_control, &command_id);
     match result {
-        Ok(events) => emit_events(event_sender, sequence, events),
-        Err(err) => emit_error(event_sender, sequence, err),
+        Ok(events) => emit_events(event_bus, owner.clone(), events),
+        Err(err) => emit_error(event_bus, owner, err),
     }
 }
 
@@ -1103,8 +1195,7 @@ fn run_supervised_input(
     owner: RuntimeOwner,
     command_id: String,
     content: String,
-    event_sender: &Sender<RuntimeEvent>,
-    sequence: &Arc<AtomicU64>,
+    event_bus: &RuntimeEventBus,
     active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_ttl_secs: u64,
@@ -1118,8 +1209,8 @@ fn run_supervised_input(
         ActiveJobState::Running,
     ) {
         emit_event(
-            event_sender,
-            sequence,
+            event_bus,
+            owner.clone(),
             RuntimeEventKind::CommandRejected {
                 command_id,
                 reason: err,
@@ -1128,8 +1219,8 @@ fn run_supervised_input(
         return;
     }
     emit_event(
-        event_sender,
-        sequence,
+        event_bus,
+        owner.clone(),
         RuntimeEventKind::CommandAccepted {
             command_id: command_id.clone(),
             command: redacted_runtime_command_for_event(&RuntimeCommand::SubmitUserInput {
@@ -1146,8 +1237,7 @@ fn run_supervised_input(
         let _ = mark_active_pending(active_control, &command_id, request_id.clone());
         insert_pending_approval(
             pending_approvals,
-            event_sender,
-            sequence,
+            event_bus,
             active_control,
             request_id.clone(),
             PendingApproval {
@@ -1162,8 +1252,8 @@ fn run_supervised_input(
             },
         );
         emit_event(
-            event_sender,
-            sequence,
+            event_bus,
+            owner.clone(),
             RuntimeEventKind::ApprovalRequested {
                 approval: approval.clone(),
             },
@@ -1179,11 +1269,11 @@ fn run_supervised_input(
     clear_active_control(active_control, &command_id);
     match result {
         Ok(events) => emit_events(
-            event_sender,
-            sequence,
+            event_bus,
+            owner.clone(),
             engine.runtime_events_for_engine_events(&events),
         ),
-        Err(err) => emit_error(event_sender, sequence, err),
+        Err(err) => emit_error(event_bus, owner, err),
     }
 }
 
@@ -1247,20 +1337,16 @@ fn approval_resolved_event(
     }
 }
 
-fn emit_events(
-    sender: &Sender<RuntimeEvent>,
-    sequence: &Arc<AtomicU64>,
-    events: Vec<RuntimeEvent>,
-) {
+fn emit_events(bus: &RuntimeEventBus, owner: RuntimeOwner, events: Vec<RuntimeEvent>) {
     for event in events {
-        emit_event(sender, sequence, event.kind);
+        emit_known_event(bus, owner.clone(), event);
     }
 }
 
-fn emit_error(sender: &Sender<RuntimeEvent>, sequence: &Arc<AtomicU64>, message: String) {
+fn emit_error(bus: &RuntimeEventBus, owner: RuntimeOwner, message: String) {
     emit_event(
-        sender,
-        sequence,
+        bus,
+        owner,
         RuntimeEventKind::Error {
             error: RuntimeErrorView {
                 message,
@@ -1271,7 +1357,28 @@ fn emit_error(sender: &Sender<RuntimeEvent>, sequence: &Arc<AtomicU64>, message:
     );
 }
 
-fn emit_event(sender: &Sender<RuntimeEvent>, sequence: &Arc<AtomicU64>, kind: RuntimeEventKind) {
-    let event = RuntimeEvent::new(sequence.fetch_add(1, Ordering::SeqCst), kind);
-    let _ = sender.send(event);
+fn emit_event(bus: &RuntimeEventBus, owner: RuntimeOwner, kind: RuntimeEventKind) {
+    let event = RuntimeEvent::new(0, kind);
+    emit_known_event(bus, owner, event);
+}
+
+fn emit_known_event(bus: &RuntimeEventBus, owner: RuntimeOwner, event: RuntimeEvent) {
+    let Ok(mut state) = bus.state.lock() else {
+        return;
+    };
+    let envelope = state.journal.record(RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner,
+        cursor: EventCursor {
+            stream_id: String::new(),
+            sequence: event.sequence,
+        },
+        event: RuntimeWireEvent::Known(event),
+    });
+    if let RuntimeWireEvent::Known(event) = &envelope.event {
+        state.live_view.apply_event(event);
+    }
+    // The send remains inside the journal critical section so concurrent
+    // producers cannot make a later envelope visible first.
+    let _ = bus.sender.send(envelope);
 }
