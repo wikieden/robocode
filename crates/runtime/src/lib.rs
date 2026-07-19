@@ -9,6 +9,7 @@ use std::{
 };
 
 mod agent_commands;
+mod bootstrap;
 mod brief_commands;
 mod command_dispatch;
 mod context_bundle;
@@ -35,6 +36,10 @@ mod trust_loop;
 mod web_commands;
 mod workflow_commands;
 
+pub use bootstrap::{
+    RuntimeBootstrap, RuntimeBootstrapRequest, bootstrap_runtime,
+    bootstrap_runtime_with_resolved_config,
+};
 #[cfg(test)]
 pub(crate) use doctor::DependencyStatus;
 pub(crate) use doctor::{DoctorReport, system_dependency_status};

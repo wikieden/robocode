@@ -48,13 +48,15 @@ flowchart TB
 
 ## Workspace Layout
 
-- `apps/cli`: executable entrypoint, flags, config bootstrap, and current CLI/TUI launcher.
+- `apps/cli`: executable entrypoint, flags, preview commands, and current CLI/TUI launcher.
 - `apps/tui`: terminal frontend app boundary. The full TUI render/input
   loop should move here over follow-up slices.
-- `crates/core`: stable runtime facade for clients; re-exports the core
-  runtime and shared contract types without TUI or GUI dependencies.
+- `crates/core`: stable runtime facade for clients; owns the production
+  `LocalCoreHost` workspace binding and re-exports the shared client/contract
+  types without TUI or GUI dependencies.
 - `crates/config`: config loading, merge precedence, and startup defaults.
-- `crates/runtime`: session engine and turn orchestration.
+- `crates/runtime`: shared startup bootstrap, session engine, and turn
+  orchestration.
 - `crates/provider`: provider host/runtime, HTTP adapters, provider registry, and tool-calling protocol translation.
 - `crates/plugin-api`: shared plugin manifests, capabilities, permissions, provider descriptors, and ABI symbols.
 - `crates/plugin-host`: plugin discovery, registry, validation, and lifecycle boundary.
@@ -190,7 +192,9 @@ Version ownership is `0.2.1` for native context/cost, `0.2.3` for canonical
 evidence, `0.2.4` for optional adapters, and `0.2.5` for the DeepSeek A/B gate.
 TUI/GUI apps consume this state through `viden-core` and shared contracts; they
 must not depend directly on context, runtime, provider, tool, or workflow
-internals. CLI may retain direct bootstrap dependencies.
+internals. CLI now uses the same `viden-runtime` bootstrap path that
+`LocalCoreHost` uses before wrapping the supervisor in the transport-neutral
+Core client.
 
 ## Terminal Presentation
 

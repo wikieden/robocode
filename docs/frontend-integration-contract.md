@@ -54,6 +54,11 @@ self-referential inside the payload commit.
 - Frontend code imports the transport-neutral `CoreClient` boundary and public
   protocol/view contracts from `viden-core`. It must not import runtime,
   provider, tool, permission, session, or workflow internals.
+- Local frontends open a project through `viden_core::LocalCoreHost`, which
+  canonicalizes an existing workspace directory, runs the shared runtime
+  bootstrap, starts a `RuntimeSupervisor`, and returns a bound `CoreClient`.
+  Rebinding to another workspace creates an independent binding and stream; it
+  must not mutate an existing client's cursor or snapshot.
 - Frontends send intent through `RuntimeCommand`; they do not call tools,
   providers, or permission engines directly.
 - `RuntimeViewState::apply_event` is the canonical reducer for client-visible
@@ -70,6 +75,7 @@ self-referential inside the payload commit.
 
 | Core module | Frontend surface | Primary facts | Commands / actions | Status |
 | --- | --- | --- | --- | --- |
+| Workspace host | first-run project open, workspace rebind | `WorkspaceBinding.canonical_root`, `session_id`, `stream_id` | `LocalCoreHost::open_workspace` | additive Core `0.3.2` candidate |
 | Compatibility and transport | client bootstrap, reconnect, compatibility error | `CoreHandshake`, schema version, capability set, `EventCursor`, snapshot/replay envelopes | `CoreClient::discover`, `snapshot`, `replay`, `recv`, `transcript_page` | frozen in Core `0.3.0` |
 | Runtime supervisor | activity rail, live work indicator, cancellation affordance | `RuntimeEvent`, `RuntimeViewState`, `RuntimeErrorView` | `SubmitUserInput`, `QueueFollowUp`, `CancelActiveTurn` | landed |
 | Mode and permissions | top bar, approval panel, permission picker | `RuntimeSnapshot.work_mode`, `RuntimeSnapshot.permission_level`, `ApprovalRequestView` | `SetWorkMode`, `SetPermissionLevel`, `RespondToApproval` | landed |
