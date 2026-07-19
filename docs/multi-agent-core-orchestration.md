@@ -55,6 +55,17 @@ Implementation checkpoint:
   conflict events and leave files unchanged. Scoped role Git staging now allows
   in-scope `git_add` while denying unscoped staging and high-risk Git
   mutations.
+- Landed trust-loop slice: handoff acceptance, review requests, contract
+  confirmation, and dependency block/unblock are typed owner-bound facts.
+  Merge gates carry typed policy, validator, decision, conflict, applied-change,
+  recovery-snapshot, and audit fields. Provider summaries are display-only;
+  canonical evidence binds real ContextStore bytes to a Core-issued permission
+  receipt. Independent validators accept the exact evidence id/hash set.
+  Conflicts bounce to the originating lane, and only that lane can submit a
+  changed receipt for explicit bounce-linked revalidation before a fresh
+  acceptance. Trust mutations complete pure preflight before approval;
+  merge/revert use a private content-addressed recovery snapshot and durable
+  precommit so audited revert remains available after restart.
 - Remaining: live LSP references enrichment for role-specific ContextBundle
   selection, release/publish Git rules, evidence collection reducers, richer
   patch formats such as rename/delete/binary and three-way conflict handling,
@@ -227,10 +238,17 @@ Proposed `RuntimeCommand` additions:
 | `ResumeAgentDag` | Resume scheduling from durable DAG state. |
 | `RespondToAgentApproval` | Apply a user approval decision to a pending task/tool action. |
 | `AcceptMergeGate` | Mark a merge gate accepted and persist the operator decision. |
-| `RejectMergeGate` | Mark a merge gate as needing changes and persist the reason. |
+| `RejectMergeGate` | Mark a merge gate as needing changes and persist the authorized actor and reason. |
 | `AcceptAgentArtifact` | Accept an artifact/evidence id into the merge-gate candidate set. |
-| `RejectAgentArtifact` | Reject an artifact/evidence id with reason and requested follow-up. |
+| `RejectAgentArtifact` | Reject a gate-bound artifact/evidence id with authorized actor, reason, and requested follow-up. |
 | `MergeAgentPatch` | Apply accepted unified-diff patch evidence, mark it merged on success, or return the gate to needs-changes on conflict. |
+| `CreateHandoff` | Record typed accepted/rejected ownership transfer between distinct lanes. |
+| `RequestReview` | Bind an independent reviewer and evidence set to a merge gate. |
+| `ConfirmContract` | Record typed contract confirmation/rejection for a task. |
+| `SetDependency` | Persist deterministic dependency block/unblock state. |
+| `BounceMergeConflict` | Return a structured conflict to its originating lane. |
+| `RevalidateMergeConflict` | Bind a changed canonical receipt from the originating lane to the exact conflict bounce. |
+| `RevertAppliedChange` | Restore pre-apply bytes and record a typed audited revert. |
 
 Proposed `RuntimeEvent` additions:
 
@@ -247,6 +265,12 @@ Proposed `RuntimeEvent` additions:
 | `AgentTaskFailed` | yes | Records failure class and recovery suggestion. |
 | `EvidenceGateUpdated` | yes | Records verification state changes. |
 | `MergeGateUpdated` | yes | Records accept/reject/request-change/merge decisions. |
+| `HandoffUpdated` | yes | Records typed cross-lane acceptance and owner identity. |
+| `ReviewRequestUpdated` | yes | Records pending/accepted/rejected independent review. |
+| `ContractUpdated` | yes | Records typed task contract decisions. |
+| `DependencyUpdated` | yes | Records task dependency block/unblock state. |
+| `MergeConflictBounced` | yes | Records originating-lane conflict and revalidation state. |
+| `RevertRecorded` | yes | Records rollback, restored paths, owner, and audit id. |
 
 Live progress events should be coalesced by the runtime supervisor. UI clients
 must not infer business state from animation-only events.
@@ -356,6 +380,12 @@ Merge rules:
 - Docs and tests are first-class evidence, not optional release polish.
 - If multiple agents edit overlapping files, the merge gate must serialize,
   rebase, or reject the conflicting artifact explicitly.
+- Evidence summaries are display-only. Acceptance requires canonical content
+  verification, and a conflict-bounced change must be revalidated and accepted
+  again before merge.
+- Merge and revert use `validate -> permission -> prepare -> durable precommit
+  -> file effect -> typed fact commit`; failures restore transaction bytes and
+  projections and expose structured recovery.
 
 ## Version Plan
 

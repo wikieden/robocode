@@ -52,6 +52,12 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 - 前端代码只从 `viden-core` 导入 transport-neutral `CoreClient` 边界和公共
   protocol/view contracts。不能导入 runtime、provider、tool、permission、session
   或 workflow 内部模块。
+- pre-release 前端分支通过 `viden_core::LocalCoreHost` 打开项目。它会
+  canonicalize 已存在的 workspace 目录，运行共享 runtime bootstrap，启动
+  `RuntimeSupervisor`，并返回已绑定的 `CoreClient`。重新绑定到另一 workspace
+  会创建独立 binding 和 stream，不能改变已有 client 的 cursor 或 snapshot。
+  这是 Core `0.3.2` 的内部候选服务；在最终 Task 6 compatibility gate 之前，
+  它不会作为 handshake capability 对外公布，也不改变 `0.3.1` manifest。
 - 前端通过 `RuntimeCommand` 发送意图；不能直接调用 tools、providers 或
   permission engines。
 - `RuntimeViewState::apply_event` 是 client-visible state 的标准 reducer。TUI、
@@ -67,6 +73,8 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 
 | 核心模块 | 前端区域 | 主要事实 | Commands / actions | 状态 |
 | --- | --- | --- | --- | --- |
+| Workspace host | first-run project open、workspace rebind | `WorkspaceBinding.canonical_root`、`session_id`、`stream_id` | `LocalCoreHost::open_workspace` | 内部 pre-release service；Task 6 前不是 handshake capability |
+| Trusted credential staging | provider credential 输入、platform-secret bridge | `CredentialRequestId`、`CredentialHandle`、`ProviderHealthView.credential` | `BoundCoreClient::stage_credential`，然后发送 `StoreCredentialHandle` | 内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
 | Compatibility and transport | client bootstrap、reconnect、compatibility error | `CoreHandshake`、schema version、capability set、`EventCursor`、snapshot/replay envelopes | `CoreClient::discover`、`snapshot`、`replay`、`recv`、`transcript_page` | Core `0.3.0` 已冻结 |
 | Runtime supervisor | activity rail、live work indicator、cancel 操作 | `RuntimeEvent`、`RuntimeViewState`、`RuntimeErrorView` | `SubmitUserInput`、`QueueFollowUp`、`CancelActiveTurn` | 已落地 |
 | Mode and permissions | top bar、approval panel、permission picker | `RuntimeSnapshot.work_mode`、`RuntimeSnapshot.permission_level`、`ApprovalRequestView` | `SetWorkMode`、`SetPermissionLevel`、`RespondToApproval` | 已落地 |
@@ -76,10 +84,11 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Agent workflow visibility | Mission Control board、workflow strip、plan/now/done/acceptance/blocked columns | `AgentDagRecord`、`AgentTaskRecord`、`EvidenceView`、`MergeGateRecord`、`RuntimeErrorView` | 现有 workflow/task/evidence/merge commands | 提案 |
 | ContextBundle | context panel、token pressure meter、omitted-source list | `ContextBundleRecord`、`ContextSourceRecord`、token budgets | 当前无直接 mutation；后续增加 context-policy commands | 部分落地 |
 | Evidence and merge gate | evidence center、diff/test/review checklist、merge gate card | `EvidenceView`、`MergeGateRecord` | `RecordAgentEvidence`、`AcceptMergeGate`、`RejectMergeGate`、`AcceptAgentArtifact`、`RejectAgentArtifact`、`MergeAgentPatch` | `0.2.3` reducer 第一刀已落地 |
+| 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevalidateMergeConflict`、`RevertAppliedChange` | 增量 `runtime.trust_loop` 候选 |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.1` 增量候选 |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
-| UI preferences | locale、skin/mode、density、motion | `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`、preference diagnostics | 通过 Core-owned config path 配置 | schema `1` 已冻结 |
+| UI preferences | locale、skin/mode、density、motion | 同步的 `RuntimeViewState.ui_preferences` 与 `RuntimeSnapshot.ui_preferences`、`UiPreferencesUpdated` | `SetUiPreferences`、`ResetUiPreferences` | schema `1` 上的内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
 
 ## Event 消费规则
 
@@ -100,7 +109,9 @@ flowchart LR
 - `ToolCallStarted` 插入 active tool call；`ToolCallFinished` 移除 active tool
   call，并可能追加 evidence。
 - `TaskUpdated`、`AgentDagUpdated`、`LaneUpdated`、`EvidenceRecorded`、
-  `ContextUpdated` 和 `MergeGateUpdated` 按 id upsert records。
+  `ContextUpdated`、`MergeGateUpdated`、`HandoffUpdated`、
+  `ReviewRequestUpdated`、`ContractUpdated`、`DependencyUpdated`、
+  `MergeConflictBounced` 和 `RevertRecorded` 按 id upsert records。
 - `ApprovalRequested` 和 `ApprovalResolved` 维护 pending approvals。
 - `InputQueued` 和 `InputDequeued` 维护 follow-up input state。
 - `ProviderHealthUpdated`、`TokenCostUpdated` 和 `Error` 更新侧栏或状态区，不能阻塞
@@ -129,17 +140,28 @@ flowchart LR
 | 批准或拒绝 tool | `RespondToApproval` | decision recording 和 gated execution |
 | 记录 gate evidence | `RecordAgentEvidence` | evidence validation、`EvidenceRecorded`、gate reducer、workflow event |
 | 审核 merge gate | merge/artifact commands | gate state、workflow events、patch application |
+| 协调跨 Lane trust | handoff/review/contract/dependency commands | typed owner/audit facts、dependency state、validator policy 与 replay |
+| 恢复 apply | `BounceMergeConflict`、revalidated evidence、`RevertAppliedChange` | 回到原 Lane、workflow write-ahead fact、byte rollback 与 typed recovery |
 | 配置 provider/model | provider/model commands | config persistence、registry validation、health |
 | 探测并接入项目 | `ProbeProject`、`PreviewProjectConfig`、`ConfirmProjectConfig` | Git/config probe、精确审阅字节/hash、权限控制写入与 replay |
 | 保存 credential 引用 | 带 opaque ingress id 的 `StoreCredentialHandle` | 注入 backend、安全 handle fact、provider health 与 secret 隔离 |
 
 `PreviewProjectConfig` 是只读命令。有效 preview 包含其 SHA-256 所描述的精确 UTF-8
-内容；无效或携带 secret 字段的候选不返回这些内容，也不能 confirm。序列化后的
+内容；无效或携带 secret 字段的候选不返回这些内容，也不能 confirm。此类
 仓库根 `viden.toml` 只接受 D11 的 `project`、`gates`、`runner`、`budget`、`targets`
 schema，未知 root/nested field 一律拒绝。Provider、backend 与 ingress 标识必须是有长度
-上限的 opaque ASCII id，不能是 path 或 secret-like label。序列化后的 credential
+上限的 opaque ASCII id，不能是 path 或 secret-like label。序列化的 credential
 commands、events、transcript rows 与 workflow audit 都不得包含 credential
 secret bytes。
+
+对于本地前端，credential bytes 只能穿过可信 host API：
+`BoundCoreClient::stage_credential(provider_id, backend_id, SecretBytes)` 返回可序列化的
+`CredentialRequestId`。`SecretBytes` 不能 clone、不能 debug 打印、不能序列化，并在
+drop 时清零。staged request 绑定 workspace、provider 和 backend，五分钟后过期，受 host
+capacity 限制，并且只在调用 platform credential sink 前精确移除一次。错误的
+workspace/provider/backend 不能消费其他 workspace 的 request id；sink 失败会消费该
+request，避免重放 secret bytes。在注入 platform sink 之前，production `LocalCoreHost`
+返回 typed unavailable error，而不是保存 secret。
 
 前端发送 command 后不能自行合成成功状态。必须等待 `CommandAccepted` 和后续状态事件。
 如果 command 被拒绝，渲染 `CommandRejected.reason`。
@@ -186,7 +208,14 @@ secret bytes。
 - `required_evidence` 声明 checklist。
 - `evidence_ids` 记录已收集 evidence。
 - `status` 控制 action surface。
-- `decision` 存储最新 operator 或 runtime decision。
+- `gate_type`、`owner`、`validator` 与 `policy_snapshot` 保存 decision 使用的
+  authority 和 policy。
+- `decision` 是包含 reason、实际 actor、精确 reviewed evidence id/hash 绑定、review
+  request id、audit id 和 timestamp 的 typed outcome。Schema-1 的旧 string decision
+  只作为 migration fact 读取；新写入不再序列化 string。
+- `conflict`、`applied_change_id`、`recovery_snapshot` 与 `audit_ids` 连接 bounce、
+  apply、跨重启 revert recovery 与 audit，前端不能自行推断。`recovery_snapshot`
+  只暴露安全 snapshot id 与 manifest hash；恢复 bytes 保留在 workflow 私有存储中。
 
 当前 `0.2.3` reducer 行为：
 
@@ -195,12 +224,33 @@ secret bytes。
   `agent_evidence_recorded` workflow event。
 - `MergeGateRecord.status` 由已记录 evidence 的 kind 归约，不由前端本地 checklist
   状态或 evidence id 后缀推断。
-- 缺少 required evidence 时 gate 保持 `collecting_evidence`。
-- required evidence 全部满足后 gate 自动进入 `accepted`。
+- 缺少 required evidence 或只有 summary 时 gate 保持 `collecting_evidence`；只有已验证的
+  canonical reference 能满足 required evidence。
+- Provider/assistant task output 始终只是展示用 `task_summary` evidence，即使内容包含
+  diff，或声称 hash、verification、test、permission 状态也不例外。Canonical evidence
+  必须绑定真实 ContextStore bytes 与 Core 签发的 permission receipt。
+- canonical evidence 全部满足后，基础 gate 可以进入 `accepted`。要求 independent review
+  的 gate 或 conflict 后重新验证的 gate，必须由指定 validator 对当前精确 evidence
+  id/hash 集再次显式 typed accept，之后才能 merge。
+- `RequestReview.owner` 必须完整匹配发起请求的 gate owner scope
+  （`workspace_id`、`project_id`、`lane_id`、`task_id`），不能只匹配 lane 字符串；
+  它也不是 validator。Core 从 `reviewer_lane_id` 派生 validator lane，因此 reviewer
+  不能创建自我授权的 review request。`dependency_id` 绑定唯一
+  `(task_id, depends_on_task_id)` edge，包含 `Unblocked` 更新在内都不能重绑到另一条
+  edge。
 - evidence 被 reject 后 gate 进入 `needs_changes`，并从 gate/task evidence 列表移除该
-  evidence id。
+  evidence id。`RejectMergeGate` 和 `RejectAgentArtifact` 带显式 `actor`；Core 会在
+  approval 前拒绝缺失或未授权 actor，并把通过校验的真实 actor 写入 typed decision。
 - `AcceptAgentArtifact` 只接受已记录的 evidence id。未知 evidence id 会被拒绝，前端不能
-  把该命令当成隐式创建 evidence 的入口。
+  把该命令当成隐式创建 evidence 的入口。`RejectAgentArtifact` 只能 reject 已绑定到当前
+  gate 的 evidence。
+- Trust-loop mutation 使用正常 supervisor approval flow。Owner、dependency、decision、
+  receipt 与 canonical bytes 的纯 preflight 必须在 `ApprovalRequested` 前完成。Merge 在
+  文件 effect 前发布私有 content-addressed recovery snapshot 和 durable precommit；
+  conflict bounce 必须绑定 gate owner 原 Lane 和已验证 canonical baseline。revert 在
+  approval 前验证 snapshot 与当前 postimage，重启后同样适用。Recovery snapshot load
+  是只读路径：缺失 recovery store 会返回 validation error，不创建私有目录、lock 或
+  chmod 副作用；私有 recovery tree 内的 symlink 会在读取或恢复 bytes 前被拒绝。
 
 第一批一等 required evidence kind 是 `patch`、`test_result`、`review`、`doc_update`
 和 `release_artifact`。客户端可以显示其他 runtime kind，但 checklist 分组应优先覆盖这组
@@ -245,9 +295,14 @@ Approval 使用 `ApprovalRequestView` 和 `RespondToApproval`。
 
 Schema `1` 暴露两端都需要的配置值，但不规定布局：
 
-- 前端消费的 effective fact 是
+- 前端消费的 effective fact 是同步的 `RuntimeViewState.ui_preferences` 与
   `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`；前端只渲染该值，不能在
   本地重新解析偏好优先级；
+- client 通过 `SetUiPreferences` 发送 typed `UiPreferencePatch`，或通过
+  `ResetUiPreferences` 删除完整的用户 `[ui]` table。本地视觉 preview 不代表持久化成功；
+- 只有成功的 `UiPreferencesUpdated { resolved, persisted, diagnostics }` 才确认写入。
+  reset 后 `persisted` 为 `None`，`resolved` 仍会反映安全 CLI override 或 system/内置
+  fallback；
 
 - 内置 effective locale：`en`、`zh-CN`；`system` 是解析输入，不是第三套内置翻译；
 - skin：`aurora`、`ice`、`mono`、`amber`、`phosphor`；
@@ -256,9 +311,20 @@ Schema `1` 暴露两端都需要的配置值，但不规定布局：
 - density：`compact`、`regular`、`comfy`；
 - motion policy：`system`、`reduced`、`full`。
 
-`amber` 与 `phosphor` 仅支持 dark。无效 effective pair 回退到安全的
-`aurora/dark` + regular density，并发出 `ui.invalid_skin_mode_pair` diagnostic。
-偏好优先级是 CLI、user、project、client default。
+`amber` 与 `phosphor` 仅支持 dark。持久化 mutation 会在任何 approval prompt 或文件
+effect 之前校验完整结果；`amber/light` 这样的无效组合会直接被拒绝。旧版无效输入在
+启动时仍会回退到安全的 `aurora/dark` + regular density，并发出稳定的
+`ui.invalid_skin_mode_pair` diagnostic。
+
+个人偏好优先级为安全 CLI UI override、已存储 user `[ui]`、system 解析、内置英文。
+Project `.viden/config.toml` 绝不决定个人 locale、外观、density 或 motion，也绝不作为
+个人偏好写入目标。Core 只修改五个已知 `[ui]` keys，保留无关 top-level 与未来
+`[ui]` keys，并通过同目录 `0600` temp、file sync、atomic replacement 与 directory sync
+完成写入。TOML 损坏、profile 无效，或 Plan/Review/Explore 拒绝时，bytes、mtime 与
+temp-file 状态都保持不变。
+
+恢复权威是 user config。`UiPreferencesUpdated` 只属于当前 runtime/frontend journal
+projection，不会再复制一份到 project workflow JSONL。
 
 设计入口层级是规范，不得被旧截图或生成式截图替代：
 

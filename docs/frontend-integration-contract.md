@@ -54,6 +54,14 @@ self-referential inside the payload commit.
 - Frontend code imports the transport-neutral `CoreClient` boundary and public
   protocol/view contracts from `viden-core`. It must not import runtime,
   provider, tool, permission, session, or workflow internals.
+- Pre-release frontend branches open a project through `viden_core::LocalCoreHost`, which
+  canonicalizes an existing workspace directory, runs the shared runtime
+  bootstrap, starts a `RuntimeSupervisor`, and returns a bound `CoreClient`.
+  Rebinding to another workspace creates an independent binding and stream; it
+  must not mutate an existing client's cursor or snapshot. This is an internal
+  Core `0.3.2` candidate service; it is not advertised as a handshake
+  capability and does not change the `0.3.1` manifest before the final Task 6
+  compatibility gate.
 - Frontends send intent through `RuntimeCommand`; they do not call tools,
   providers, or permission engines directly.
 - `RuntimeViewState::apply_event` is the canonical reducer for client-visible
@@ -70,6 +78,8 @@ self-referential inside the payload commit.
 
 | Core module | Frontend surface | Primary facts | Commands / actions | Status |
 | --- | --- | --- | --- | --- |
+| Workspace host | first-run project open, workspace rebind | `WorkspaceBinding.canonical_root`, `session_id`, `stream_id` | `LocalCoreHost::open_workspace` | internal pre-release service; not a handshake capability until Task 6 |
+| Trusted credential staging | provider credential entry, platform-secret bridge | `CredentialRequestId`, `CredentialHandle`, `ProviderHealthView.credential` | `BoundCoreClient::stage_credential`, then `StoreCredentialHandle` | internal Core `0.3.2` candidate; not a handshake capability until Task 6 |
 | Compatibility and transport | client bootstrap, reconnect, compatibility error | `CoreHandshake`, schema version, capability set, `EventCursor`, snapshot/replay envelopes | `CoreClient::discover`, `snapshot`, `replay`, `recv`, `transcript_page` | frozen in Core `0.3.0` |
 | Runtime supervisor | activity rail, live work indicator, cancellation affordance | `RuntimeEvent`, `RuntimeViewState`, `RuntimeErrorView` | `SubmitUserInput`, `QueueFollowUp`, `CancelActiveTurn` | landed |
 | Mode and permissions | top bar, approval panel, permission picker | `RuntimeSnapshot.work_mode`, `RuntimeSnapshot.permission_level`, `ApprovalRequestView` | `SetWorkMode`, `SetPermissionLevel`, `RespondToApproval` | landed |
@@ -79,10 +89,11 @@ self-referential inside the payload commit.
 | Agent workflow visibility | Mission Control board, workflow strip, plan/now/done/acceptance/blocked columns | `AgentDagRecord`, `AgentTaskRecord`, `EvidenceView`, `MergeGateRecord`, `RuntimeErrorView` | existing workflow/task/evidence/merge commands | proposed |
 | ContextBundle | context panel, token pressure meter, omitted-source list | `ContextBundleRecord`, `ContextSourceRecord`, token budgets | no direct mutation; future context-policy commands | partial |
 | Evidence and merge gate | evidence center, diff/test/review checklist, merge gate card | `EvidenceView`, `MergeGateRecord` | `RecordAgentEvidence`, `AcceptMergeGate`, `RejectMergeGate`, `AcceptAgentArtifact`, `RejectAgentArtifact`, `MergeAgentPatch` | reducer first slice landed in `0.2.3` |
+| Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | additive `runtime.trust_loop` candidate |
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | additive Core `0.3.1` candidate |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
-| UI preferences | locale, skin/mode, density, motion | `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`, preference diagnostics | configuration through Core-owned config path | frozen in schema `1` |
+| UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | internal Core `0.3.2` candidate on schema `1`; not a handshake capability until Task 6 |
 
 ## Event Consumption Rules
 
@@ -103,7 +114,9 @@ flowchart LR
 - `ToolCallStarted` inserts an active tool call; `ToolCallFinished` removes it
   and may append evidence.
 - `TaskUpdated`, `AgentDagUpdated`, `LaneUpdated`, `EvidenceRecorded`,
-  `ContextUpdated`, and `MergeGateUpdated` upsert their records by id.
+  `ContextUpdated`, `MergeGateUpdated`, `HandoffUpdated`,
+  `ReviewRequestUpdated`, `ContractUpdated`, `DependencyUpdated`,
+  `MergeConflictBounced`, and `RevertRecorded` upsert their records by id.
 - `ApprovalRequested` and `ApprovalResolved` maintain pending approvals.
 - `InputQueued` and `InputDequeued` maintain follow-up input state.
 - `ProviderHealthUpdated`, `TokenCostUpdated`, and `Error` update side panels
@@ -134,6 +147,8 @@ flowchart LR
 | Approve or deny a tool | `RespondToApproval` | decision recording and gated execution |
 | Record evidence for a gate | `RecordAgentEvidence` | evidence validation, `EvidenceRecorded`, gate reducer, workflow event |
 | Review a merge gate | merge/artifact commands | gate state, workflow events, patch application |
+| Coordinate cross-lane trust | handoff/review/contract/dependency commands | typed owner/audit facts, dependency state, validator policy, replay |
+| Recover an apply | `BounceMergeConflict`, revalidated evidence, `RevertAppliedChange` | originating-lane bounce, write-ahead workflow fact, byte rollback, typed recovery |
 | Configure provider/model | provider/model commands | config persistence, registry validation, health |
 | Probe and onboard a project | `ProbeProject`, `PreviewProjectConfig`, `ConfirmProjectConfig` | Git/config probe, exact reviewed bytes/hash, permission-gated write and replay |
 | Store a credential reference | `StoreCredentialHandle` with opaque ingress id | injected backend access, safe handle fact, provider health and secret exclusion |
@@ -146,6 +161,17 @@ nested fields are rejected. Provider, backend, and ingress identifiers must be
 bounded opaque ASCII identifiers, not paths or secret-like labels. Serialized credential commands,
 events, transcript rows, and workflow audit never contain credential secret
 bytes.
+
+For local frontends, credential bytes cross only the trusted host API:
+`BoundCoreClient::stage_credential(provider_id, backend_id, SecretBytes)` returns
+a serializable `CredentialRequestId`. `SecretBytes` is not cloneable,
+debug-printable, or serializable and is zeroized on drop. The staged request is
+workspace-, provider-, and backend-bound, expires after five minutes, is capped
+by host capacity, and is removed exactly once before the platform credential
+sink is called. A wrong workspace/provider/backend cannot consume another
+workspace's request id; a sink failure does consume the request so replay cannot
+retry secret bytes. Until a platform sink is injected, production
+`LocalCoreHost` returns a typed unavailable error rather than storing secrets.
 
 Frontends must not synthesize successful state after sending a command. They
 should wait for `CommandAccepted` plus subsequent state events. If the command
@@ -198,7 +224,16 @@ Evidence is append-only from the frontend point of view.
 - `required_evidence` declares the checklist.
 - `evidence_ids` records collected evidence.
 - `status` controls the action surface.
-- `decision` stores the latest operator or runtime decision.
+- `gate_type`, `owner`, `validator`, and `policy_snapshot` preserve the
+  authority and policy used for a decision.
+- `decision` is a typed outcome with reason, actual actor, exact reviewed
+  evidence id/hash bindings, review-request id, audit id, and timestamp. Legacy
+  schema-1 string decisions are read-only migration facts; new writes never
+  serialize strings.
+- `conflict`, `applied_change_id`, `recovery_snapshot`, and `audit_ids` connect
+  bounce, apply, restart-safe revert recovery, and audit without frontend
+  inference. `recovery_snapshot` exposes only a safe snapshot id and manifest
+  hash; recovery bytes remain in the workflow-owned private store.
 
 Current `0.2.3` reducer behavior:
 
@@ -207,13 +242,42 @@ Current `0.2.3` reducer behavior:
   `agent_evidence_recorded` workflow event.
 - `MergeGateRecord.status` is reduced from recorded evidence kinds, not from
   frontend-local checklist state or evidence id suffixes.
-- Missing required evidence keeps the gate in `collecting_evidence`.
-- Complete required evidence moves the gate to `accepted`.
+- Missing required evidence or summary-only evidence keeps the gate in
+  `collecting_evidence`; only verified canonical references satisfy required
+  evidence.
+- Provider/assistant task output is always display-only `task_summary`
+  evidence, even when it contains a diff or claims hashes, verification, test,
+  or permission status. Canonical evidence requires real ContextStore bytes and
+  a Core-issued permission receipt.
+- Complete canonical evidence may move a basic gate to `accepted`. A gate with
+  an independent review policy, or a gate revalidated after conflict, requires
+  an explicit typed acceptance by the assigned validator over the exact current
+  evidence id/hash set before merge.
+- `RequestReview.owner` must exactly match the requesting gate owner scope
+  (`workspace_id`, `project_id`, `lane_id`, and `task_id`), not just the lane
+  string, and is not the validator. Core derives the validator lane from
+  `reviewer_lane_id`, so a reviewer cannot create a self-authorizing review
+  request. `dependency_id` is bound to one `(task_id, depends_on_task_id)` edge
+  and cannot be rebound to another edge, including by an `Unblocked` update.
 - Rejected evidence moves the gate to `needs_changes` and removes that evidence
-  id from the gate/task evidence lists.
+  id from the gate/task evidence lists. `RejectMergeGate` and
+  `RejectAgentArtifact` carry an explicit `actor`; Core rejects missing or
+  unauthorized actors before approval and records the accepted actor on the
+  typed decision.
 - `AcceptAgentArtifact` only accepts an already recorded evidence id. Unknown
   evidence ids are rejected and must not be used by frontends as implicit
-  evidence creation.
+  evidence creation. `RejectAgentArtifact` only rejects evidence already bound
+  to the selected gate.
+- Trust-loop mutations use the normal supervisor approval flow. Pure owner,
+  dependency, decision, receipt, and canonical-byte preflight completes before
+  `ApprovalRequested`. Merge publishes a private, content-addressed recovery
+  snapshot and durable precommit before file effects; conflict bounce requires
+  the gate owner origin lane plus a verified canonical baseline. Revert verifies
+  the snapshot and current postimage before approval, including after restart.
+  Recovery snapshot load is read-only: a missing recovery store returns a
+  validation error without creating private directories, locks, or chmod side
+  effects, and symlinks inside the private recovery tree are rejected before
+  bytes are read or restored.
 
 The first supported required evidence kinds are `patch`, `test_result`,
 `review`, `doc_update`, and `release_artifact`. Clients may display other
@@ -262,9 +326,16 @@ Frontends must not call the underlying tool after approval. They send
 Schema `1` exposes configuration values needed by both frontends without
 prescribing their layout:
 
-- the effective frontend fact is
+- the effective frontend fact is the synchronized
+  `RuntimeViewState.ui_preferences` and
   `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`; frontends render it
   and do not re-resolve preference precedence locally;
+- clients send a typed `UiPreferencePatch` through `SetUiPreferences`, or send
+  `ResetUiPreferences` to delete the complete user `[ui]` table. A local visual
+  preview is not persistence confirmation;
+- only a successful `UiPreferencesUpdated { resolved, persisted, diagnostics }`
+  confirms the write. `persisted` is `None` after reset, while `resolved` still
+  reflects a safe CLI override or the system/built-in fallback;
 
 - built-in effective locales: `en` and `zh-CN`; `system` is a resolver input,
   not a third built-in translation catalog;
@@ -275,10 +346,24 @@ prescribing their layout:
 - densities: `compact`, `regular`, and `comfy`;
 - motion policies: `system`, `reduced`, and `full`.
 
-`amber` and `phosphor` are dark-only. An invalid effective pair falls back to
-the safe `aurora/dark`, regular-density combination and emits a
-`ui.invalid_skin_mode_pair` diagnostic. Preference precedence is CLI, user,
-project, then client default.
+`amber` and `phosphor` are dark-only. Persisted preference mutations validate
+the complete resulting profile before any approval prompt or filesystem
+effect; an invalid pair such as `amber/light` is rejected. Startup fallback for
+legacy invalid input remains the safe `aurora/dark`, regular-density profile
+with a stable `ui.invalid_skin_mode_pair` diagnostic.
+
+Personal preference precedence is safe CLI UI override, stored user `[ui]`,
+system resolution, then built-in English. Project `.viden/config.toml` never
+selects personal locale, appearance, density, or motion and is never the
+personal preference write target. Core writes only the five known `[ui]` keys,
+preserves unrelated top-level and future `[ui]` keys, and uses a same-directory
+`0600` temporary file, file sync, atomic replacement, and directory sync.
+Corrupt TOML, invalid profiles, and Plan/Review/Explore denial leave bytes,
+mtime, and temporary-file state unchanged.
+
+The user config is the recovery authority. `UiPreferencesUpdated` is a current
+runtime/frontend journal projection and is intentionally not duplicated into
+the project workflow JSONL log.
 
 The design entry hierarchy is normative and must not be replaced by old or
 generated screenshots:

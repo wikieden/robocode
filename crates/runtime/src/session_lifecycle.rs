@@ -1,9 +1,10 @@
 use viden_permissions::PermissionEngine;
 use viden_session::SessionStore;
 use viden_types::{
-    AgentDagTaskSpec, AgentNextAction, CanonicalEvidenceReference, ContextBundleRecord,
-    ContextItemRecord, ContextOmittedSourceRecord, ContextScope, ContextSourceRecord,
-    CostUsageRecord, Message, PermissionLevel, PermissionMode, Role, RuntimeEvent,
+    AgentDagTaskSpec, AgentNextAction, CanonicalEvidenceReference, ConflictBounce,
+    ContextBundleRecord, ContextItemRecord, ContextOmittedSourceRecord, ContextScope,
+    ContextSourceRecord, ContractRecord, CostUsageRecord, DependencyRecord, HandoffRecord, Message,
+    PermissionLevel, PermissionMode, RevertRecord, ReviewRequestRecord, Role, RuntimeEvent,
     RuntimeEventKind, SessionMetaEntry, SessionSummary, TranscriptEntry, WorkMode, fresh_id,
     now_timestamp, truncate_for_preview,
 };
@@ -14,6 +15,55 @@ use crate::SessionEngine;
 const WORKFLOW_PROJECTION_SCHEMA_VERSION: &str = "1";
 const WORKFLOW_PROJECTION_EVENT_CAP: usize = 256;
 const WORKFLOW_PROJECTION_BYTES_CAP: usize = 512 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeResumeRequest {
+    ExactSessionId(String),
+    Selector(String),
+    Latest,
+}
+
+impl RuntimeResumeRequest {
+    pub fn exact_session_id(session_id: impl Into<String>) -> Self {
+        Self::ExactSessionId(session_id.into())
+    }
+
+    pub fn selector(selector: impl Into<String>) -> Self {
+        Self::Selector(selector.into())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeResumeResult {
+    pub session_id: String,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeResumeError {
+    NotFound { selector: String },
+    Ambiguous { selector: String, sessions: String },
+    InvalidIndex { selector: String, message: String },
+    Load(String),
+}
+
+impl std::fmt::Display for RuntimeResumeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound { selector } => write!(formatter, "session `{selector}` not found"),
+            Self::Ambiguous { selector, sessions } => {
+                write!(
+                    formatter,
+                    "session selector `{selector}` is ambiguous.\n\n{sessions}"
+                )
+            }
+            Self::InvalidIndex { message, .. } => formatter.write_str(message),
+            Self::Load(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for RuntimeResumeError {}
 
 impl SessionEngine {
     pub(super) fn handle_sessions(&self) -> Result<String, String> {
@@ -28,28 +78,78 @@ impl SessionEngine {
         if selector == "list" {
             return self.handle_sessions();
         }
-        let loaded = match selector {
-            "latest" => self.store.load_latest_for_cwd()?,
-            other => self.resolve_resume_selector(other)?,
+        let request = match selector {
+            "latest" => RuntimeResumeRequest::Latest,
+            other => RuntimeResumeRequest::Selector(other.to_string()),
         };
-        let Some((summary, entries)) = loaded else {
-            return Ok("No resumable sessions found for the current project.".to_string());
+        let resumed = match self.resume_session(request) {
+            Ok(resumed) => resumed,
+            Err(RuntimeResumeError::NotFound { .. }) => {
+                return Ok("No resumable sessions found for the current project.".to_string());
+            }
+            Err(err) => return Err(err.to_string()),
         };
+        Ok(format!(
+            "Resumed session {} ({})",
+            resumed.session_id,
+            resumed.title.unwrap_or_else(|| "untitled".to_string())
+        ))
+    }
+
+    pub fn resume_session(
+        &mut self,
+        request: RuntimeResumeRequest,
+    ) -> Result<RuntimeResumeResult, RuntimeResumeError> {
+        let (summary, entries) = self.resolve_typed_resume_request(request)?;
+        self.activate_resolved_session(summary, entries)
+    }
+
+    pub(crate) fn resolve_typed_resume_request(
+        &self,
+        request: RuntimeResumeRequest,
+    ) -> Result<(SessionSummary, Vec<TranscriptEntry>), RuntimeResumeError> {
+        match request {
+            RuntimeResumeRequest::ExactSessionId(session_id) => self
+                .store
+                .load_by_id_for_cwd(&session_id)
+                .map_err(RuntimeResumeError::Load)?
+                .ok_or(RuntimeResumeError::NotFound {
+                    selector: session_id,
+                }),
+            RuntimeResumeRequest::Latest => self
+                .store
+                .load_latest_for_cwd()
+                .map_err(RuntimeResumeError::Load)?
+                .ok_or(RuntimeResumeError::NotFound {
+                    selector: "latest".to_string(),
+                }),
+            RuntimeResumeRequest::Selector(selector) => self.resolve_resume_selector(&selector),
+        }
+    }
+
+    pub(crate) fn activate_resolved_session(
+        &mut self,
+        summary: SessionSummary,
+        entries: Vec<TranscriptEntry>,
+    ) -> Result<RuntimeResumeResult, RuntimeResumeError> {
         let resumed_store = SessionStore::new_with_home(
             self.store.home_dir().to_path_buf(),
             self.cwd.clone(),
             Some(summary.session_id.clone()),
-        )?;
+        )
+        .map_err(RuntimeResumeError::Load)?;
         let legacy_lanes_path = self.cwd.join(".viden").join("lanes.tsv");
         if legacy_lanes_path.is_file() {
             // A legacy TUI can write the TSV after this engine was created.
             // Import before activating the resumed session so migration failure
             // cannot leave the in-memory session boundary half-switched.
-            self.workflows.import_legacy_lanes_tsv_once(
-                &legacy_lanes_path,
-                now_timestamp(),
-                Some(summary.session_id.clone()),
-            )?;
+            self.workflows
+                .import_legacy_lanes_tsv_once(
+                    &legacy_lanes_path,
+                    now_timestamp(),
+                    Some(summary.session_id.clone()),
+                )
+                .map_err(RuntimeResumeError::Load)?;
         }
         self.store = resumed_store;
         self.messages.clear();
@@ -57,26 +157,35 @@ impl SessionEngine {
         self.last_test = None;
         self.provider_cost_usage.clear();
         self.permissions = PermissionEngine::new(&self.cwd);
-        self.hydrate(entries)?;
-        self.hydrate_workflow_agent_projection()?;
-        Ok(format!(
-            "Resumed session {} ({})",
-            summary.session_id,
-            summary.title.unwrap_or_else(|| "untitled".to_string())
-        ))
+        self.hydrate(entries).map_err(RuntimeResumeError::Load)?;
+        self.hydrate_workflow_agent_projection()
+            .map_err(RuntimeResumeError::Load)?;
+        Ok(RuntimeResumeResult {
+            session_id: summary.session_id,
+            title: summary.title,
+        })
     }
 
     fn resolve_resume_selector(
         &self,
         selector: &str,
-    ) -> Result<Option<(SessionSummary, Vec<TranscriptEntry>)>, String> {
-        let sessions = self.store.list_sessions_for_cwd()?;
+    ) -> Result<(SessionSummary, Vec<TranscriptEntry>), RuntimeResumeError> {
+        let sessions = self
+            .store
+            .list_sessions_for_cwd()
+            .map_err(RuntimeResumeError::Load)?;
         if sessions.is_empty() {
-            return Ok(None);
+            return Err(RuntimeResumeError::NotFound {
+                selector: selector.to_string(),
+            });
         }
 
-        if let Some(loaded) = self.store.load_by_id_for_cwd(selector)? {
-            return Ok(Some(loaded));
+        if let Some(loaded) = self
+            .store
+            .load_by_id_for_cwd(selector)
+            .map_err(RuntimeResumeError::Load)?
+        {
+            return Ok(loaded);
         }
 
         let matches: Vec<_> = sessions
@@ -96,13 +205,14 @@ impl SessionEngine {
             [summary] => {
                 let entries = SessionStore::load_entries_from_path(std::path::Path::new(
                     &summary.transcript_path,
-                ))?;
-                Ok(Some((summary.clone(), entries)))
+                ))
+                .map_err(RuntimeResumeError::Load)?;
+                Ok((summary.clone(), entries))
             }
-            _ => Err(format!(
-                "Session selector `{selector}` is ambiguous.\n\n{}",
-                self.render_session_list(matches.as_slice())
-            )),
+            _ => Err(RuntimeResumeError::Ambiguous {
+                selector: selector.to_string(),
+                sessions: self.render_session_list(matches.as_slice()),
+            }),
         }
     }
 
@@ -110,21 +220,30 @@ impl SessionEngine {
         &self,
         sessions: &[SessionSummary],
         selector: &str,
-    ) -> Result<Option<(SessionSummary, Vec<TranscriptEntry>)>, String> {
+    ) -> Result<(SessionSummary, Vec<TranscriptEntry>), RuntimeResumeError> {
         let index_selector = selector.strip_prefix('#').unwrap_or(selector);
         let Ok(index) = index_selector.parse::<usize>() else {
-            return Ok(None);
+            return Err(RuntimeResumeError::NotFound {
+                selector: selector.to_string(),
+            });
         };
         if index == 0 {
-            return Err("Session indexes start at 1.".to_string());
+            return Err(RuntimeResumeError::InvalidIndex {
+                selector: selector.to_string(),
+                message: "Session indexes start at 1.".to_string(),
+            });
         }
         if let Some(summary) = sessions.get(index - 1) {
             let entries = SessionStore::load_entries_from_path(std::path::Path::new(
                 &summary.transcript_path,
-            ))?;
-            return Ok(Some((summary.clone(), entries)));
+            ))
+            .map_err(RuntimeResumeError::Load)?;
+            return Ok((summary.clone(), entries));
         }
-        Err(format!("No session found at index {index}."))
+        Err(RuntimeResumeError::InvalidIndex {
+            selector: selector.to_string(),
+            message: format!("No session found at index {index}."),
+        })
     }
 
     fn hydrate(&mut self, entries: Vec<TranscriptEntry>) -> Result<(), String> {
@@ -439,6 +558,45 @@ impl SessionEngine {
                     .unwrap_or_else(|| "project-agent-runtime".to_string()),
                 Some(gate.task_id.clone()),
             )),
+            RuntimeEventKind::HandoffUpdated { handoff } => Some((
+                self.dag_id_for_task_projection(&handoff.task_id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(handoff.task_id.clone()),
+            )),
+            RuntimeEventKind::ReviewRequestUpdated { review } => Some((
+                self.dag_id_for_task_projection(&review.task_id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(review.task_id.clone()),
+            )),
+            RuntimeEventKind::ContractUpdated { contract } => Some((
+                self.dag_id_for_task_projection(&contract.task_id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(contract.task_id.clone()),
+            )),
+            RuntimeEventKind::DependencyUpdated { dependency } => Some((
+                self.dag_id_for_task_projection(&dependency.task_id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(dependency.task_id.clone()),
+            )),
+            RuntimeEventKind::MergeConflictBounced { conflict } => Some((
+                self.dag_id_for_task_projection(&conflict.task_id)
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                Some(conflict.task_id.clone()),
+            )),
+            RuntimeEventKind::RevertRecorded { revert } => {
+                let task_id = self
+                    .runtime_merge_gates
+                    .iter()
+                    .find(|gate| gate.gate_id == revert.gate_id)
+                    .map(|gate| gate.task_id.clone());
+                Some((
+                    task_id
+                        .as_deref()
+                        .and_then(|id| self.dag_id_for_task_projection(id))
+                        .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                    task_id,
+                ))
+            }
             RuntimeEventKind::ContextBundleBuilt { scope, .. } => {
                 let task_id = task_id_for_context_scope(scope);
                 Some((
@@ -613,6 +771,24 @@ impl SessionEngine {
                     self.runtime_merge_gates.push(gate);
                 }
             }
+            RuntimeEventKind::HandoffUpdated { handoff } => {
+                upsert_handoff(&mut self.runtime_handoffs, handoff)
+            }
+            RuntimeEventKind::ReviewRequestUpdated { review } => {
+                upsert_review(&mut self.runtime_review_requests, review)
+            }
+            RuntimeEventKind::ContractUpdated { contract } => {
+                upsert_contract(&mut self.runtime_contracts, contract)
+            }
+            RuntimeEventKind::DependencyUpdated { dependency } => {
+                upsert_dependency(&mut self.runtime_dependencies, dependency)
+            }
+            RuntimeEventKind::MergeConflictBounced { conflict } => {
+                upsert_conflict(&mut self.runtime_conflict_bounces, conflict)
+            }
+            RuntimeEventKind::RevertRecorded { revert } => {
+                upsert_revert(&mut self.runtime_reverts, revert)
+            }
             RuntimeEventKind::ProjectConfigConfirmed { preview } => {
                 self.confirmed_project_config = Some(preview);
             }
@@ -663,6 +839,12 @@ fn runtime_projection_kind_name(kind: &RuntimeEventKind) -> &'static str {
         RuntimeEventKind::EvidenceRecorded { .. } => "evidence_recorded",
         RuntimeEventKind::EvidenceCanonicalized { .. } => "evidence_canonicalized",
         RuntimeEventKind::MergeGateUpdated { .. } => "merge_gate_updated",
+        RuntimeEventKind::HandoffUpdated { .. } => "handoff_updated",
+        RuntimeEventKind::ReviewRequestUpdated { .. } => "review_request_updated",
+        RuntimeEventKind::ContractUpdated { .. } => "contract_updated",
+        RuntimeEventKind::DependencyUpdated { .. } => "dependency_updated",
+        RuntimeEventKind::MergeConflictBounced { .. } => "merge_conflict_bounced",
+        RuntimeEventKind::RevertRecorded { .. } => "revert_recorded",
         RuntimeEventKind::ProjectConfigConfirmed { .. } => "project_config_confirmed",
         RuntimeEventKind::CredentialHandleStored { .. } => "credential_handle_stored",
         _ => "runtime_event",
@@ -724,11 +906,27 @@ fn sanitized_runtime_event_for_workflow_projection(event: &RuntimeEvent) -> Runt
             *content_sha256 = sanitize_projection_hash(content_sha256);
         }
         RuntimeEventKind::MergeGateUpdated { gate } => {
-            gate.decision = gate
-                .decision
-                .as_deref()
-                .map(|decision| sanitize_projection_text(decision, 240))
-                .filter(|decision| !decision.is_empty());
+            if let Some(decision) = &mut gate.decision {
+                decision.reason = sanitize_projection_text(&decision.reason, 240);
+            }
+            if let Some(conflict) = &mut gate.conflict {
+                conflict.reason = sanitize_projection_text(&conflict.reason, 500);
+            }
+        }
+        RuntimeEventKind::HandoffUpdated { handoff } => {
+            handoff.summary = sanitize_projection_text(&handoff.summary, 500);
+        }
+        RuntimeEventKind::ContractUpdated { contract } => {
+            contract.summary = sanitize_projection_text(&contract.summary, 500);
+        }
+        RuntimeEventKind::DependencyUpdated { dependency } => {
+            dependency.reason = sanitize_projection_text(&dependency.reason, 240);
+        }
+        RuntimeEventKind::MergeConflictBounced { conflict } => {
+            conflict.reason = sanitize_projection_text(&conflict.reason, 500);
+        }
+        RuntimeEventKind::RevertRecorded { revert } => {
+            revert.reason = sanitize_projection_text(&revert.reason, 500);
         }
         RuntimeEventKind::ContextUpdated { context } => sanitize_projection_context(context),
         RuntimeEventKind::ContextItemStored { item } => sanitize_projection_context_item(item),
@@ -925,6 +1123,72 @@ fn safe_project_relative_projection_path(path: &str) -> Option<String> {
     )
 }
 
+fn upsert_handoff(records: &mut Vec<HandoffRecord>, record: HandoffRecord) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.handoff_id == record.handoff_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_review(records: &mut Vec<ReviewRequestRecord>, record: ReviewRequestRecord) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.review_id == record.review_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_contract(records: &mut Vec<ContractRecord>, record: ContractRecord) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.contract_id == record.contract_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_dependency(records: &mut Vec<DependencyRecord>, record: DependencyRecord) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.dependency_id == record.dependency_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_conflict(records: &mut Vec<ConflictBounce>, record: ConflictBounce) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.bounce_id == record.bounce_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_revert(records: &mut Vec<RevertRecord>, record: RevertRecord) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|existing| existing.revert_id == record.revert_id)
+    {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
 fn is_durable_runtime_domain_event(kind: &RuntimeEventKind) -> bool {
     // These facts rebuild runtime DAG/evidence/gate state. Transient command
     // acknowledgements stay out of JSONL so replay remains append-only domain state.
@@ -942,6 +1206,12 @@ fn is_durable_runtime_domain_event(kind: &RuntimeEventKind) -> bool {
             | RuntimeEventKind::EvidenceRecorded { .. }
             | RuntimeEventKind::EvidenceCanonicalized { .. }
             | RuntimeEventKind::MergeGateUpdated { .. }
+            | RuntimeEventKind::HandoffUpdated { .. }
+            | RuntimeEventKind::ReviewRequestUpdated { .. }
+            | RuntimeEventKind::ContractUpdated { .. }
+            | RuntimeEventKind::DependencyUpdated { .. }
+            | RuntimeEventKind::MergeConflictBounced { .. }
+            | RuntimeEventKind::RevertRecorded { .. }
             | RuntimeEventKind::ProjectConfigConfirmed { .. }
             | RuntimeEventKind::CredentialHandleStored { .. }
     )

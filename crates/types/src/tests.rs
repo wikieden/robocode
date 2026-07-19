@@ -126,6 +126,81 @@ fn ui_preferences_valid_skin_mode_pairs_are_exactly_eight() {
 }
 
 #[test]
+fn ui_preferences_patch_serializes_as_schema_one_safe_values() {
+    let patch = UiPreferencePatch {
+        locale: Some(LocaleId::ZhCn),
+        skin: Some(UiSkin::Ice),
+        mode: Some(UiColorMode::Light),
+        density: Some(UiDensity::Compact),
+        motion: Some(UiMotion::Reduced),
+    };
+
+    assert_eq!(
+        serde_json::to_value(patch).unwrap(),
+        serde_json::json!({
+            "locale": "zh-CN",
+            "skin": "ice",
+            "mode": "light",
+            "density": "compact",
+            "motion": "reduced"
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<UiPreferencePatch>(serde_json::json!({})).unwrap(),
+        UiPreferencePatch::default()
+    );
+}
+
+#[test]
+fn ui_preferences_runtime_protocol_is_backward_compatible_schema_one_extension() {
+    let command = RuntimeCommand::SetUiPreferences {
+        patch: UiPreferencePatch {
+            skin: Some(UiSkin::Mono),
+            mode: Some(UiColorMode::Light),
+            ..UiPreferencePatch::default()
+        },
+    };
+    let encoded_command = serde_json::to_value(&command).unwrap();
+    assert_eq!(encoded_command["type"], "set_ui_preferences");
+    assert_eq!(encoded_command["patch"]["skin"], "mono");
+    assert!(!encoded_command.to_string().contains("api_key"));
+
+    let resolved = ResolvedUiPreferences {
+        locale: LocaleId::En,
+        skin: UiSkin::Mono,
+        mode: UiColorMode::Light,
+        density: UiDensity::Regular,
+        motion: UiMotion::Reduced,
+        diagnostics: Vec::new(),
+    };
+    let event = RuntimeEventKind::UiPreferencesUpdated {
+        resolved: resolved.clone(),
+        persisted: Some(UiPreferences {
+            locale: LocaleId::En,
+            skin: UiSkin::Mono,
+            mode: UiColorMode::Light,
+            density: UiDensity::Regular,
+            motion: UiMotion::Reduced,
+        }),
+        diagnostics: Vec::new(),
+    };
+    let encoded_event = serde_json::to_value(&event).unwrap();
+    assert_eq!(encoded_event["type"], "ui_preferences_updated");
+    assert_eq!(
+        serde_json::from_value::<RuntimeEventKind>(encoded_event).unwrap(),
+        event
+    );
+
+    let snapshot = runtime_snapshot_for_contract();
+    let live_view = RuntimeViewState::new(snapshot);
+    assert_eq!(live_view.ui_preferences, live_view.snapshot.ui_preferences);
+    let legacy_view = serde_json::to_value(live_view).unwrap();
+    assert!(legacy_view.get("ui_preferences").is_none());
+    let decoded: RuntimeViewState = serde_json::from_value(legacy_view).unwrap();
+    assert_eq!(decoded.ui_preferences, ResolvedUiPreferences::default());
+}
+
+#[test]
 fn ui_preferences_resolve_system_locale_density_and_reduced_motion() {
     let resolved = resolve_ui_preferences(
         None,
@@ -827,7 +902,15 @@ fn agent_dag_context_evidence_and_merge_gate_roundtrip_json() {
         status: MergeGateStatus::CollectingEvidence,
         required_evidence: vec!["plan".to_string(), "review".to_string()],
         evidence_ids: vec![evidence.evidence_id.clone()],
+        gate_type: MergeGateType::Artifact,
+        owner: RuntimeOwner::default(),
+        validator: None,
+        policy_snapshot: MergeGatePolicySnapshot::default(),
         decision: None,
+        conflict: None,
+        applied_change_id: None,
+        recovery_snapshot: None,
+        audit_ids: Vec::new(),
         updated_at: Some(13),
     };
 
@@ -845,6 +928,224 @@ fn agent_dag_context_evidence_and_merge_gate_roundtrip_json() {
     assert_eq!(decoded_dag.tasks[0].role, AgentRole::Planner);
     assert_eq!(decoded_evidence.kind, EvidenceKind::Plan);
     assert_eq!(decoded_gate.status, MergeGateStatus::CollectingEvidence);
+}
+
+#[test]
+fn schema_one_merge_gate_accepts_legacy_decisions_and_unknown_fields() {
+    let gate: MergeGateRecord = serde_json::from_value(serde_json::json!({
+        "gate_id": "gate_legacy",
+        "task_id": "task_legacy",
+        "status": "accepted",
+        "required_evidence": ["patch"],
+        "evidence_ids": ["evidence_patch"],
+        "decision": "accepted before typed trust records",
+        "updated_at": 13,
+        "future_schema_one_field": {"ignored": true}
+    }))
+    .unwrap();
+
+    let decision = gate
+        .decision
+        .clone()
+        .expect("legacy decision should migrate");
+    assert_eq!(decision.outcome, MergeGateDecisionOutcome::Legacy);
+    assert_eq!(decision.reason, "accepted before typed trust records");
+    assert_eq!(gate.gate_type, MergeGateType::Artifact);
+    assert_eq!(gate.owner, RuntimeOwner::default());
+    let legacy_encoded = serde_json::to_value(&gate).unwrap();
+    assert_eq!(
+        legacy_encoded["decision"],
+        "accepted before typed trust records"
+    );
+    assert!(legacy_encoded.get("gate_type").is_none());
+    assert!(legacy_encoded.get("owner").is_none());
+
+    let encoded = serde_json::to_value(MergeGateRecord {
+        gate_id: "gate_typed".to_string(),
+        task_id: "task_typed".to_string(),
+        status: MergeGateStatus::Accepted,
+        required_evidence: vec!["patch".to_string()],
+        evidence_ids: vec!["evidence_patch".to_string()],
+        gate_type: MergeGateType::Patch,
+        owner: RuntimeOwner {
+            workspace_id: "workspace".to_string(),
+            project_id: "project".to_string(),
+            task_id: Some("task_typed".to_string()),
+            ..RuntimeOwner::default()
+        },
+        validator: None,
+        policy_snapshot: MergeGatePolicySnapshot::default(),
+        decision: Some(MergeGateDecision {
+            outcome: MergeGateDecisionOutcome::Accepted,
+            reason: "typed acceptance".to_string(),
+            owner: RuntimeOwner::default(),
+            evidence_ids: vec!["evidence_patch".to_string()],
+            reviewed_evidence: Vec::new(),
+            review_request_id: None,
+            audit_id: "audit_typed".to_string(),
+            decided_at: 14,
+        }),
+        conflict: None,
+        applied_change_id: None,
+        recovery_snapshot: None,
+        audit_ids: vec!["audit_typed".to_string()],
+        updated_at: Some(14),
+    })
+    .unwrap();
+
+    assert_eq!(encoded["decision"]["outcome"], "accepted");
+    assert!(encoded["decision"].is_object());
+}
+
+#[test]
+fn schema_one_trust_loop_commands_roundtrip_as_additive_typed_variants() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-trust".to_string(),
+        project_id: "project-trust".to_string(),
+        lane_id: Some("lane-reviewer".to_string()),
+        session_id: Some("session-reviewer".to_string()),
+        task_id: Some("task-trust".to_string()),
+        turn_id: None,
+    };
+    let commands = vec![
+        RuntimeCommand::CreateHandoff {
+            handoff_id: "handoff-trust".to_string(),
+            task_id: "task-trust".to_string(),
+            from_lane_id: "lane-coder".to_string(),
+            to_lane_id: "lane-reviewer".to_string(),
+            owner: owner.clone(),
+            summary: "ready for review".to_string(),
+            acceptance: HandoffAcceptance::Accepted,
+        },
+        RuntimeCommand::RequestReview {
+            review_id: "review-trust".to_string(),
+            gate_id: "gate-trust".to_string(),
+            requester_lane_id: "lane-coder".to_string(),
+            reviewer_lane_id: "lane-reviewer".to_string(),
+            owner: owner.clone(),
+            evidence_ids: vec!["evidence-trust".to_string()],
+        },
+        RuntimeCommand::ConfirmContract {
+            contract_id: "contract-trust".to_string(),
+            task_id: "task-trust".to_string(),
+            owner: owner.clone(),
+            summary: "contract confirmed".to_string(),
+            decision: ContractDecision::Confirmed,
+        },
+        RuntimeCommand::SetDependency {
+            dependency_id: "dependency-trust".to_string(),
+            task_id: "task-trust".to_string(),
+            depends_on_task_id: "task-base".to_string(),
+            owner: owner.clone(),
+            state: DependencyState::Blocked,
+            reason: "waiting for base".to_string(),
+        },
+        RuntimeCommand::BounceMergeConflict {
+            gate_id: "gate-trust".to_string(),
+            original_lane_id: "lane-coder".to_string(),
+            owner: owner.clone(),
+            reason: "context mismatch".to_string(),
+        },
+        RuntimeCommand::RevalidateMergeConflict {
+            gate_id: "gate-trust".to_string(),
+            bounce_id: "bounce-trust".to_string(),
+            actor: owner.clone(),
+            evidence: ReviewedEvidenceBinding {
+                evidence_id: "evidence-trust".to_string(),
+                source_hash: "ab".repeat(32),
+            },
+        },
+        RuntimeCommand::RevertAppliedChange {
+            gate_id: "gate-trust".to_string(),
+            owner,
+            reason: "verification failed".to_string(),
+        },
+    ];
+
+    let encoded = serde_json::to_string(&commands).unwrap();
+    let decoded: Vec<RuntimeCommand> = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, commands);
+    for command_type in [
+        "create_handoff",
+        "request_review",
+        "confirm_contract",
+        "set_dependency",
+        "bounce_merge_conflict",
+        "revalidate_merge_conflict",
+        "revert_applied_change",
+    ] {
+        assert!(encoded.contains(command_type));
+    }
+}
+
+#[test]
+fn schema_one_reject_commands_default_missing_actor_for_legacy_json() {
+    let reject_gate: RuntimeCommand = serde_json::from_value(serde_json::json!({
+        "type": "reject_merge_gate",
+        "gate_id": "gate-legacy",
+        "reason": "legacy rejection"
+    }))
+    .unwrap();
+    assert!(matches!(
+        reject_gate,
+        RuntimeCommand::RejectMergeGate { actor, .. } if actor == RuntimeOwner::default()
+    ));
+
+    let reject_artifact: RuntimeCommand = serde_json::from_value(serde_json::json!({
+        "type": "reject_agent_artifact",
+        "gate_id": "gate-legacy",
+        "evidence_id": "evidence-legacy",
+        "reason": "legacy artifact rejection"
+    }))
+    .unwrap();
+    assert!(matches!(
+        reject_artifact,
+        RuntimeCommand::RejectAgentArtifact { actor, .. } if actor == RuntimeOwner::default()
+    ));
+}
+
+#[test]
+fn trust_decisions_bind_actor_reviewed_hashes_and_durable_recovery_reference() {
+    let actor = RuntimeOwner {
+        workspace_id: "workspace-trust".to_string(),
+        project_id: "project-trust".to_string(),
+        lane_id: Some("lane-reviewer".to_string()),
+        session_id: Some("session-reviewer".to_string()),
+        task_id: Some("task-trust".to_string()),
+        turn_id: None,
+    };
+    let binding = ReviewedEvidenceBinding {
+        evidence_id: "evidence-patch".to_string(),
+        source_hash: "ab".repeat(32),
+    };
+    let command = RuntimeCommand::AcceptMergeGate {
+        gate_id: "gate-trust".to_string(),
+        actor: actor.clone(),
+        reviewed_evidence: vec![binding.clone()],
+        decision: Some("reviewed exact patch bytes".to_string()),
+    };
+    let recovery = RecoverySnapshotReference {
+        snapshot_id: "recovery-change-1".to_string(),
+        manifest_sha256: "cd".repeat(32),
+    };
+
+    let command_json = serde_json::to_value(&command).unwrap();
+    assert_eq!(command_json["actor"]["lane_id"], "lane-reviewer");
+    assert_eq!(
+        command_json["reviewed_evidence"][0]["source_hash"],
+        "ab".repeat(32)
+    );
+    assert_eq!(
+        serde_json::from_value::<RuntimeCommand>(command_json).unwrap(),
+        command
+    );
+    assert_eq!(
+        serde_json::from_value::<RecoverySnapshotReference>(
+            serde_json::to_value(&recovery).unwrap()
+        )
+        .unwrap(),
+        recovery
+    );
 }
 
 #[test]
@@ -1481,10 +1782,13 @@ fn agent_dag_runtime_command_roundtrips_json() {
         },
         RuntimeCommand::AcceptMergeGate {
             gate_id: "gate-task_planner".to_string(),
+            actor: RuntimeOwner::default(),
+            reviewed_evidence: Vec::new(),
             decision: Some("required evidence complete".to_string()),
         },
         RuntimeCommand::RejectMergeGate {
             gate_id: "gate-task_planner".to_string(),
+            actor: RuntimeOwner::default(),
             reason: "missing test evidence".to_string(),
         },
         RuntimeCommand::RecordAgentEvidence {
@@ -1499,15 +1803,19 @@ fn agent_dag_runtime_command_roundtrips_json() {
         RuntimeCommand::AcceptAgentArtifact {
             gate_id: "gate-task_planner".to_string(),
             evidence_id: "evidence-task_planner-plan".to_string(),
+            actor: RuntimeOwner::default(),
+            source_hash: String::new(),
             decision: Some("artifact evidence accepted".to_string()),
         },
         RuntimeCommand::RejectAgentArtifact {
             gate_id: "gate-task_planner".to_string(),
             evidence_id: "evidence-task_planner-plan".to_string(),
+            actor: RuntimeOwner::default(),
             reason: "artifact is stale".to_string(),
         },
         RuntimeCommand::MergeAgentPatch {
             gate_id: "gate-task_planner".to_string(),
+            actor: RuntimeOwner::default(),
             decision: Some("merge accepted artifact".to_string()),
         },
     ];
@@ -2155,7 +2463,15 @@ fn runtime_view_state_replays_agent_dag_and_merge_gate_events() {
         status: MergeGateStatus::Proposed,
         required_evidence: vec!["plan".to_string()],
         evidence_ids: Vec::new(),
+        gate_type: MergeGateType::Artifact,
+        owner: RuntimeOwner::default(),
+        validator: None,
+        policy_snapshot: MergeGatePolicySnapshot::default(),
         decision: None,
+        conflict: None,
+        applied_change_id: None,
+        recovery_snapshot: None,
+        audit_ids: Vec::new(),
         updated_at: Some(2),
     };
     let mut view = RuntimeViewState::new(snapshot);

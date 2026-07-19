@@ -2,9 +2,21 @@
 use std::sync::{Arc, Mutex, OnceLock};
 use std::{
     collections::BTreeSet,
-    fs,
+    fs::{self, File},
+    io::Read,
     path::{Path, PathBuf},
 };
+#[cfg(unix)]
+use std::{
+    ffi::CString,
+    os::unix::{
+        ffi::OsStrExt,
+        fs::PermissionsExt,
+        io::{AsRawFd, FromRawFd},
+    },
+};
+
+use sha2::{Digest, Sha256};
 
 use crate::agent_commands::{tracked_agent_job_runtime_events, tracked_agent_job_tasks};
 use crate::context_bundle::{ContextBuildMode, redact_context_summary_for_event};
@@ -12,7 +24,7 @@ use crate::lsp_tools::render_lsp_diagnostics;
 use crate::{CostAttribution, EngineEvent, ProviderTelemetry, SessionEngine};
 use viden_config::ProviderConfigUpdate;
 use viden_context::{
-    ContextEngine, ContextError as EngineContextError, ContextPutRequest, ReductionPolicy, reduce,
+    ContextEngine, ContextError as EngineContextError, ReductionPolicy, reduce,
     store::ContextError as StoreContextError,
 };
 use viden_lsp::SemanticProvider;
@@ -29,15 +41,19 @@ use viden_types::{
     CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord, ContextItemRecord,
     ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome, CostUsageRecord,
     EvidenceCanonicalReasonCode, EvidenceCanonicalStatus, EvidenceCanonicalStatusReport,
-    EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
-    EvidenceView, MergeGateRecord, MergeGateStatus, PermissionBehavior, PermissionDecision,
-    PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
-    PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
-    RuntimeViewState, TokenCostView, TokenUsage, ToolCallId, ToolInput, TranscriptPageRequest,
-    WorkMode, canonical_evidence_status, fresh_id, now_timestamp, truncate_for_preview,
+    EvidenceQualityStatus, EvidenceVerificationState, EvidenceView, MergeGateDecisionOutcome,
+    MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, PermissionBehavior,
+    PermissionDecision, PermissionDecisionReason, PermissionLevel, PermissionMode,
+    PermissionPrompt, PermissionRule, PermissionRuleSource, PermissionRuleValue,
+    ProviderHealthView, QueuedInputView, ReviewRequestStatus, RuntimeCommand, RuntimeErrorView,
+    RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState, TokenCostView,
+    TokenUsage, ToolCallId, ToolInput, TranscriptPageRequest, WorkMode, canonical_evidence_status,
+    fresh_id, now_timestamp, truncate_for_preview,
 };
-use viden_workflows::stores::WorkflowAgentEvent;
+use viden_workflows::{
+    recovery::{LoadedRecoverySnapshot, RecoverySnapshotEntry},
+    stores::WorkflowAgentEvent,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct QueuedRuntimeInput {
@@ -66,6 +82,13 @@ struct RuntimeDomainSnapshot {
     agent_dags: Vec<AgentDagRecord>,
     merge_gates: Vec<MergeGateRecord>,
     evidence: Vec<EvidenceView>,
+    handoffs: Vec<viden_types::HandoffRecord>,
+    review_requests: Vec<viden_types::ReviewRequestRecord>,
+    contracts: Vec<viden_types::ContractRecord>,
+    dependencies: Vec<viden_types::DependencyRecord>,
+    conflict_bounces: Vec<viden_types::ConflictBounce>,
+    reverts: Vec<viden_types::RevertRecord>,
+    applied_change_rollbacks: std::collections::BTreeMap<String, Vec<crate::FileRollback>>,
     pending_project_previews:
         std::collections::BTreeMap<String, crate::project_runtime::PendingProjectConfig>,
     confirmed_project_config: Option<viden_types::ProjectConfigPreview>,
@@ -303,6 +326,9 @@ impl SessionEngine {
             self.persist_runtime_domain_events(&events)?;
             return Ok(events);
         }
+        if let Err(reason) = self.validate_trust_command(&command) {
+            return Ok(vec![command_rejected(command_id, reason)]);
+        }
 
         let persist_after_match = true;
         // Merge gate decisions are valid only when both workflow and session facts
@@ -352,6 +378,28 @@ impl SessionEngine {
                 approver,
             ) {
                 Ok(credential_events) => append_resequenced(&mut events, credential_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
+            RuntimeCommand::SetUiPreferences { patch } => {
+                match self.set_ui_preferences(&patch, approver) {
+                    Ok(preference_events) => append_resequenced(&mut events, preference_events),
+                    Err(err) => {
+                        return self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        );
+                    }
+                }
+            }
+            RuntimeCommand::ResetUiPreferences => match self.reset_ui_preferences(approver) {
+                Ok(preference_events) => append_resequenced(&mut events, preference_events),
                 Err(err) => {
                     return self.command_rejected_after_transaction_rollback(
                         &transaction_snapshot,
@@ -488,13 +536,119 @@ impl SessionEngine {
                     );
                 }
             },
-            RuntimeCommand::AcceptMergeGate { gate_id, decision } => {
+            RuntimeCommand::CreateHandoff {
+                handoff_id,
+                task_id,
+                from_lane_id,
+                to_lane_id,
+                owner,
+                summary,
+                acceptance,
+            } => match self.create_handoff(
+                handoff_id,
+                task_id,
+                from_lane_id,
+                to_lane_id,
+                owner,
+                summary,
+                acceptance,
+                approver,
+            ) {
+                Ok(trust_events) => append_resequenced(&mut events, trust_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
+            RuntimeCommand::RequestReview {
+                review_id,
+                gate_id,
+                requester_lane_id,
+                reviewer_lane_id,
+                owner,
+                evidence_ids,
+            } => match self.request_review(
+                review_id,
+                gate_id,
+                requester_lane_id,
+                reviewer_lane_id,
+                owner,
+                evidence_ids,
+                approver,
+            ) {
+                Ok(trust_events) => append_resequenced(&mut events, trust_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
+            RuntimeCommand::ConfirmContract {
+                contract_id,
+                task_id,
+                owner,
+                summary,
+                decision,
+            } => match self.confirm_contract(
+                contract_id,
+                task_id,
+                owner,
+                summary,
+                decision,
+                approver,
+            ) {
+                Ok(trust_events) => append_resequenced(&mut events, trust_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
+            RuntimeCommand::SetDependency {
+                dependency_id,
+                task_id,
+                depends_on_task_id,
+                owner,
+                state,
+                reason,
+            } => match self.set_dependency(
+                dependency_id,
+                task_id,
+                depends_on_task_id,
+                owner,
+                state,
+                reason,
+                approver,
+            ) {
+                Ok(trust_events) => append_resequenced(&mut events, trust_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
+            RuntimeCommand::AcceptMergeGate {
+                gate_id,
+                actor,
+                reviewed_evidence,
+                decision,
+            } => {
                 match self.decide_merge_gate(
                     &gate_id,
                     MergeGateStatus::Accepted,
+                    Some(actor),
+                    reviewed_evidence,
                     decision.unwrap_or_else(|| "accepted".to_string()),
-                    "merge_gate_accepted",
-                    "decision",
+                    approver,
                 ) {
                     Ok(decision_events) => append_resequenced(&mut events, decision_events),
                     Err(err) => {
@@ -506,13 +660,18 @@ impl SessionEngine {
                     }
                 }
             }
-            RuntimeCommand::RejectMergeGate { gate_id, reason } => {
+            RuntimeCommand::RejectMergeGate {
+                gate_id,
+                actor,
+                reason,
+            } => {
                 match self.decide_merge_gate(
                     &gate_id,
                     MergeGateStatus::NeedsChanges,
+                    Some(actor),
+                    Vec::new(),
                     reason,
-                    "merge_gate_rejected",
-                    "reason",
+                    approver,
                 ) {
                     Ok(decision_events) => append_resequenced(&mut events, decision_events),
                     Err(err) => {
@@ -533,15 +692,18 @@ impl SessionEngine {
                 source,
                 canonical,
             } => {
-                let record_result = self.record_agent_evidence(RecordAgentEvidenceRequest {
-                    gate_id: &gate_id,
-                    evidence_id,
-                    kind,
-                    summary,
-                    path,
-                    source,
-                    canonical,
-                });
+                let record_result = self.record_agent_evidence(
+                    RecordAgentEvidenceRequest {
+                        gate_id: &gate_id,
+                        evidence_id,
+                        kind,
+                        summary,
+                        path,
+                        source,
+                        canonical,
+                    },
+                    approver,
+                );
                 match record_result {
                     Ok(evidence_events) => append_resequenced(&mut events, evidence_events),
                     Err(err) => {
@@ -556,12 +718,17 @@ impl SessionEngine {
             RuntimeCommand::AcceptAgentArtifact {
                 gate_id,
                 evidence_id,
+                actor,
+                source_hash,
                 decision,
             } => {
                 match self.accept_agent_artifact(
                     &gate_id,
                     evidence_id,
+                    actor,
+                    source_hash,
                     decision.unwrap_or_else(|| "artifact accepted".to_string()),
+                    approver,
                 ) {
                     Ok(artifact_events) => append_resequenced(&mut events, artifact_events),
                     Err(err) => {
@@ -576,21 +743,30 @@ impl SessionEngine {
             RuntimeCommand::RejectAgentArtifact {
                 gate_id,
                 evidence_id,
+                actor,
                 reason,
-            } => match self.reject_agent_artifact(&gate_id, &evidence_id, reason) {
-                Ok(artifact_events) => append_resequenced(&mut events, artifact_events),
-                Err(err) => {
-                    return self.command_rejected_after_transaction_rollback(
-                        &transaction_snapshot,
-                        command_id,
-                        err,
-                    );
+            } => {
+                match self.reject_agent_artifact(&gate_id, &evidence_id, actor, reason, approver) {
+                    Ok(artifact_events) => append_resequenced(&mut events, artifact_events),
+                    Err(err) => {
+                        return self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        );
+                    }
                 }
-            },
-            RuntimeCommand::MergeAgentPatch { gate_id, decision } => {
+            }
+            RuntimeCommand::MergeAgentPatch {
+                gate_id,
+                actor,
+                decision,
+            } => {
                 match self.merge_agent_patch(
                     &gate_id,
+                    actor,
                     decision.unwrap_or_else(|| "patch merged".to_string()),
+                    approver,
                 ) {
                     Ok(merge_events) => append_resequenced(&mut events, merge_events),
                     Err(err) => {
@@ -602,6 +778,56 @@ impl SessionEngine {
                     }
                 }
             }
+            RuntimeCommand::RevalidateMergeConflict {
+                gate_id,
+                bounce_id,
+                actor,
+                evidence,
+            } => {
+                match self.revalidate_merge_conflict(gate_id, bounce_id, actor, evidence, approver)
+                {
+                    Ok(trust_events) => append_resequenced(&mut events, trust_events),
+                    Err(err) => {
+                        return self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        );
+                    }
+                }
+            }
+            RuntimeCommand::BounceMergeConflict {
+                gate_id,
+                original_lane_id,
+                owner,
+                reason,
+            } => {
+                match self.bounce_merge_conflict(gate_id, original_lane_id, owner, reason, approver)
+                {
+                    Ok(trust_events) => append_resequenced(&mut events, trust_events),
+                    Err(err) => {
+                        return self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        );
+                    }
+                }
+            }
+            RuntimeCommand::RevertAppliedChange {
+                gate_id,
+                owner,
+                reason,
+            } => match self.revert_applied_change(gate_id, owner, reason, approver) {
+                Ok(trust_events) => append_resequenced(&mut events, trust_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
             RuntimeCommand::LoadTranscriptPage { request } => {
                 match self.store.load_transcript_page(&request) {
                     Ok(page) => events.push(RuntimeEvent::new(
@@ -643,7 +869,21 @@ impl SessionEngine {
         if persist_after_match && let Err(err) = self.persist_runtime_domain_events(&events) {
             self.restore_transaction_snapshot(&transaction_snapshot)
                 .map_err(|rollback| format!("{err}; rollback failed: {rollback}"))?;
-            return Ok(vec![command_rejected(command_id, err)]);
+            let mut recovery = vec![command_rejected(command_id, err.clone())];
+            recovery.push(RuntimeEvent::new(
+                2,
+                RuntimeEventKind::Error {
+                    error: RuntimeErrorView {
+                        message: format!("runtime transaction failed before durable commit: {err}"),
+                        recoverable: true,
+                        hint: Some(
+                            "in-memory facts and staged file bytes were restored; retry the command after checking workflow storage"
+                                .to_string(),
+                        ),
+                    },
+                },
+            ));
+            return Ok(recovery);
         }
         self.commit_transaction_snapshot(&transaction_snapshot);
         Ok(events)
@@ -663,6 +903,13 @@ impl SessionEngine {
             agent_dags: self.runtime_agent_dags.clone(),
             merge_gates: self.runtime_merge_gates.clone(),
             evidence: self.runtime_evidence.clone(),
+            handoffs: self.runtime_handoffs.clone(),
+            review_requests: self.runtime_review_requests.clone(),
+            contracts: self.runtime_contracts.clone(),
+            dependencies: self.runtime_dependencies.clone(),
+            conflict_bounces: self.runtime_conflict_bounces.clone(),
+            reverts: self.runtime_reverts.clone(),
+            applied_change_rollbacks: self.applied_change_rollbacks.clone(),
             pending_project_previews: self.pending_project_previews.clone(),
             confirmed_project_config: self.confirmed_project_config.clone(),
             credential_handles: self.credential_handles.clone(),
@@ -685,6 +932,13 @@ impl SessionEngine {
         self.runtime_agent_dags = snapshot.agent_dags;
         self.runtime_merge_gates = snapshot.merge_gates;
         self.runtime_evidence = snapshot.evidence;
+        self.runtime_handoffs = snapshot.handoffs;
+        self.runtime_review_requests = snapshot.review_requests;
+        self.runtime_contracts = snapshot.contracts;
+        self.runtime_dependencies = snapshot.dependencies;
+        self.runtime_conflict_bounces = snapshot.conflict_bounces;
+        self.runtime_reverts = snapshot.reverts;
+        self.applied_change_rollbacks = snapshot.applied_change_rollbacks;
         self.pending_project_previews = snapshot.pending_project_previews;
         self.confirmed_project_config = snapshot.confirmed_project_config;
         self.credential_handles = snapshot.credential_handles;
@@ -721,7 +975,23 @@ impl SessionEngine {
     ) -> Result<Vec<RuntimeEvent>, String> {
         self.restore_transaction_snapshot(snapshot)
             .map_err(|rollback| format!("{err}; rollback failed: {rollback}"))?;
-        Ok(vec![command_rejected(command_id, err)])
+        let mut events = vec![command_rejected(command_id, err.clone())];
+        if snapshot.is_some() {
+            events.push(RuntimeEvent::new(
+                2,
+                RuntimeEventKind::Error {
+                    error: RuntimeErrorView {
+                        message: format!("runtime transaction did not commit: {err}"),
+                        recoverable: true,
+                        hint: Some(
+                            "transaction facts and any staged file bytes remain unchanged or were restored"
+                                .to_string(),
+                        ),
+                    },
+                },
+            ));
+        }
+        Ok(events)
     }
 
     fn persist_cost_usage_events(&mut self, events: &[RuntimeEvent]) -> Result<(), String> {
@@ -1266,6 +1536,54 @@ impl SessionEngine {
                 RuntimeEventKind::MergeGateUpdated { gate: gate.clone() },
             ));
         }
+        for handoff in &self.runtime_handoffs {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::HandoffUpdated {
+                    handoff: handoff.clone(),
+                },
+            ));
+        }
+        for review in &self.runtime_review_requests {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::ReviewRequestUpdated {
+                    review: review.clone(),
+                },
+            ));
+        }
+        for contract in &self.runtime_contracts {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::ContractUpdated {
+                    contract: contract.clone(),
+                },
+            ));
+        }
+        for dependency in &self.runtime_dependencies {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::DependencyUpdated {
+                    dependency: dependency.clone(),
+                },
+            ));
+        }
+        for conflict in &self.runtime_conflict_bounces {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::MergeConflictBounced {
+                    conflict: conflict.clone(),
+                },
+            ));
+        }
+        for revert in &self.runtime_reverts {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::RevertRecorded {
+                    revert: revert.clone(),
+                },
+            ));
+        }
         events
     }
 
@@ -1275,66 +1593,6 @@ impl SessionEngine {
             context_engine_root: self.context_engine_root.clone(),
             context_bundles: view.context_bundles,
         }
-    }
-
-    fn canonicalize_agent_evidence(
-        &mut self,
-        task_id: &str,
-        evidence_id: &str,
-        evidence_kind: &str,
-        summary: &str,
-        producer_role: AgentRole,
-    ) -> Option<(CanonicalEvidenceReference, Vec<RuntimeEvent>)> {
-        let scope = ContextScope::Task(task_id.to_string());
-        let mut engine = ContextEngine::open(&self.context_engine_root).ok()?;
-        let stored = engine
-            .store(ContextPutRequest {
-                scope: scope.clone(),
-                kind: evidence_context_kind(evidence_kind),
-                content: summary.as_bytes(),
-                evidence_id: Some(evidence_id.to_string()),
-            })
-            .ok()?;
-        let mut item = stored.item;
-        item.title = format!("canonical {evidence_kind} evidence");
-        item.summary = canonical_evidence_summary(evidence_kind, summary);
-        item.token_count = summary.len() as u64;
-        let bundle_id = format!("bundle-{evidence_id}");
-        let canonical = CanonicalEvidenceReference {
-            item_id: item.item_id.clone(),
-            bundle_id: bundle_id.clone(),
-            source_hash: item.content_sha256.clone(),
-            producer: EvidenceProducer {
-                identity: producer_role.as_str().to_string(),
-                role: producer_role.as_str().to_string(),
-                task_id: task_id.to_string(),
-            },
-            permission_snapshot_id: Some(format!(
-                "permission-{task_id}-{}",
-                producer_role.as_str()
-            )),
-            permission_scope: scope.clone(),
-            evidence_scope: scope.clone(),
-            verification: EvidenceVerificationState::Verified,
-            quality: EvidenceQualityFacts {
-                status: EvidenceQualityStatus::Pass,
-                reason_codes: Vec::new(),
-            },
-        };
-        let events = vec![
-            RuntimeEvent::new(
-                1,
-                RuntimeEventKind::ContextBundleBuilt {
-                    bundle_id,
-                    scope,
-                    handle_ids: vec![stored.handle.handle_id],
-                    estimated_tokens: item.token_count,
-                },
-            ),
-            RuntimeEvent::new(2, RuntimeEventKind::ContextItemStored { item }),
-        ];
-        self.last_context_runtime_events.extend(events.clone());
-        Some((canonical, events))
     }
 
     fn start_agent_dag(
@@ -1380,7 +1638,31 @@ impl SessionEngine {
                 status: MergeGateStatus::Proposed,
                 required_evidence: spec.required_evidence.clone(),
                 evidence_ids: Vec::new(),
+                gate_type: if spec
+                    .required_evidence
+                    .iter()
+                    .any(|kind| canonical_required_evidence_kind(kind) == "patch")
+                {
+                    MergeGateType::Patch
+                } else {
+                    MergeGateType::Artifact
+                },
+                owner: RuntimeOwner {
+                    task_id: Some(spec.task_id.clone()),
+                    ..RuntimeOwner::default()
+                },
+                validator: None,
+                policy_snapshot: MergeGatePolicySnapshot {
+                    required_evidence: spec.required_evidence.clone(),
+                    permission_snapshot_id: None,
+                    requires_independent_validator: false,
+                    captured_at: Some(now),
+                },
                 decision: None,
+                conflict: None,
+                applied_change_id: None,
+                recovery_snapshot: None,
+                audit_ids: Vec::new(),
                 updated_at: Some(now),
             };
             self.runtime_merge_gates.push(gate.clone());
@@ -1628,35 +1910,22 @@ impl SessionEngine {
             RuntimeEventKind::ContextUpdated { context },
         ));
 
-        let evidence_kind = evidence_kind_for_role(spec.role);
+        // Assistant text is display state, never an artifact or effect receipt.
+        // Canonical evidence enters through the permissioned artifact ingestion path.
+        let evidence_kind = "task_summary";
         let evidence_id = format!("evidence-{task_id}-{evidence_kind}");
         let summary = if assistant_output.trim().is_empty() {
             format!("{} completed without assistant text", spec.role)
         } else {
             assistant_output.clone()
         };
-        let canonicalized = self.canonicalize_agent_evidence(
-            task_id,
-            &evidence_id,
-            evidence_kind,
-            &summary,
-            spec.role,
-        );
-        if let Some((_, canonical_events)) = &canonicalized {
-            for event in canonical_events {
-                events.push(RuntimeEvent::new(
-                    next_sequence(&events),
-                    event.kind.clone(),
-                ));
-            }
-        }
         let evidence = EvidenceView {
             id: evidence_id.clone(),
             kind: evidence_kind.to_string(),
-            summary: canonical_evidence_summary(evidence_kind, &summary),
+            summary: sanitize_evidence_summary_for_event(&summary),
             path: None,
             source: Some(spec.role.as_str().to_string()),
-            canonical: canonicalized.map(|(canonical, _)| canonical),
+            canonical: None,
             metadata: None,
             timestamp: Some(now_timestamp()),
         };
@@ -1710,7 +1979,28 @@ impl SessionEngine {
             }
             let report = reduce_merge_gate_status(gate, &runtime_evidence, &validation_facts);
             gate.status = merge_gate_status_from_canonical(report.status);
-            gate.decision = canonical_reason_summary(&report);
+            let independent_review_pending = report.status == EvidenceCanonicalStatus::Verified
+                && gate.policy_snapshot.requires_independent_validator
+                && gate
+                    .validator
+                    .as_ref()
+                    .is_none_or(|validator| validator.validated_at.is_none());
+            if independent_review_pending {
+                gate.status = MergeGateStatus::CollectingEvidence;
+            }
+            gate.decision = canonical_reason_summary(&report)
+                .or_else(|| {
+                    independent_review_pending.then(|| "independent_review_required".to_string())
+                })
+                .map(|reason| {
+                    crate::trust_loop::merge_gate_decision(
+                        MergeGateDecisionOutcome::AwaitingEvidence,
+                        reason,
+                        gate.owner.clone(),
+                        gate.evidence_ids.clone(),
+                        fresh_id("audit"),
+                    )
+                });
             gate.updated_at = Some(now_timestamp());
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -1853,20 +2143,7 @@ impl SessionEngine {
         _dag_id: &str,
         spec: &AgentDagTaskSpec,
     ) -> Result<Option<Vec<RuntimeEvent>>, String> {
-        let Some(blocking_dependency) = spec.dependencies.iter().find(|dependency| {
-            self.runtime_tasks
-                .iter()
-                .find(|task| task.id == **dependency)
-                .map(|task| {
-                    !matches!(
-                        task.status,
-                        AgentTaskStatus::Done
-                            | AgentTaskStatus::Applied
-                            | AgentTaskStatus::Archived
-                    )
-                })
-                .unwrap_or(true)
-        }) else {
+        let Some(blocking_dependency) = self.blocking_dependency_for_task(&spec.task_id) else {
             return Ok(None);
         };
 
@@ -1887,15 +2164,354 @@ impl SessionEngine {
         )]))
     }
 
-    fn decide_merge_gate(
+    pub(crate) fn validated_evidence_bindings_for_ids(
+        &self,
+        gate_index: usize,
+        evidence_ids: &[String],
+    ) -> Result<Vec<viden_types::ReviewedEvidenceBinding>, String> {
+        let gate = &self.runtime_merge_gates[gate_index];
+        let facts = self.merge_gate_validation_facts();
+        let mut bindings = Vec::with_capacity(evidence_ids.len());
+        for evidence_id in evidence_ids {
+            let evidence = self
+                .runtime_evidence
+                .iter()
+                .find(|evidence| evidence.id == *evidence_id)
+                .ok_or_else(|| format!("review evidence `{evidence_id}` does not exist"))?;
+            let report = validate_canonical_evidence_for_gate(gate, evidence, &facts);
+            if report.status != EvidenceCanonicalStatus::Verified {
+                return Err(format!(
+                    "review evidence `{evidence_id}` is not canonical: {}",
+                    canonical_reason_summary(&report)
+                        .unwrap_or_else(|| "canonical_evidence_invalid".to_string())
+                ));
+            }
+            let canonical = evidence
+                .canonical
+                .as_ref()
+                .ok_or_else(|| format!("review evidence `{evidence_id}` is not canonical"))?;
+            bindings.push(viden_types::ReviewedEvidenceBinding {
+                evidence_id: evidence_id.clone(),
+                source_hash: canonical.source_hash.clone(),
+            });
+        }
+        bindings.sort();
+        bindings.dedup();
+        Ok(bindings)
+    }
+
+    pub(crate) fn preflight_accept_merge_gate(
+        &self,
+        gate_id: &str,
+        actor: &RuntimeOwner,
+        reviewed_evidence: &[viden_types::ReviewedEvidenceBinding],
+    ) -> Result<(), String> {
+        let gate_index = self
+            .runtime_merge_gates
+            .iter()
+            .position(|gate| gate.gate_id == gate_id)
+            .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
+        let gate = &self.runtime_merge_gates[gate_index];
+        let report = reduce_merge_gate_status(
+            gate,
+            &self.runtime_evidence,
+            &self.merge_gate_validation_facts(),
+        );
+        if report.status != EvidenceCanonicalStatus::Verified {
+            return Err(format!(
+                "merge gate `{gate_id}` cannot be accepted: {}",
+                canonical_reason_summary(&report)
+                    .unwrap_or_else(|| "canonical_evidence_invalid".to_string())
+            ));
+        }
+        if gate
+            .conflict
+            .as_ref()
+            .is_some_and(|conflict| conflict.status == viden_types::ConflictBounceStatus::Pending)
+        {
+            return Err(format!(
+                "merge gate `{gate_id}` has a pending conflict that requires origin-lane revalidation"
+            ));
+        }
+        let current_bindings =
+            self.validated_evidence_bindings_for_ids(gate_index, &gate.evidence_ids)?;
+        let mut reviewed_evidence = reviewed_evidence.to_vec();
+        reviewed_evidence.sort();
+        reviewed_evidence.dedup();
+        if let Some(validator) = &gate.validator {
+            if !validator.independent {
+                return Err(format!(
+                    "merge gate `{gate_id}` requires an independent validator"
+                ));
+            }
+            if !runtime_owner_matches_validator_lane(actor, &validator.owner) {
+                return Err(
+                    "merge gate acceptance actor does not match validator owner".to_string()
+                );
+            }
+            let review = self
+                .runtime_review_requests
+                .iter()
+                .find(|review| review.review_id == validator.review_request_id)
+                .ok_or_else(|| "merge gate validator review request does not exist".to_string())?;
+            if review.status != ReviewRequestStatus::Pending {
+                return Err("merge gate review request is not pending".to_string());
+            }
+            if current_bindings != review.evidence_bindings
+                || reviewed_evidence != review.evidence_bindings
+            {
+                return Err("merge gate reviewed evidence changed after review request".to_string());
+            }
+        } else {
+            if gate.policy_snapshot.requires_independent_validator {
+                return Err(format!(
+                    "merge gate `{gate_id}` requires an independent validator"
+                ));
+            }
+            if actor != &gate.owner {
+                return Err("merge gate acceptance actor does not match gate owner".to_string());
+            }
+            if gate.owner != RuntimeOwner::default() && reviewed_evidence != current_bindings {
+                return Err("merge gate acceptance requires exact reviewed evidence".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn preflight_accept_agent_artifact(
+        &self,
+        gate_id: &str,
+        evidence_id: &str,
+        actor: &RuntimeOwner,
+        source_hash: &str,
+    ) -> Result<(), String> {
+        let gate_index = self
+            .runtime_merge_gates
+            .iter()
+            .position(|gate| gate.gate_id == gate_id)
+            .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
+        let gate = &self.runtime_merge_gates[gate_index];
+        if gate.policy_snapshot.requires_independent_validator || gate.validator.is_some() {
+            return Err(
+                "agent artifact shortcut cannot bypass independent review policy".to_string(),
+            );
+        }
+        if gate.conflict.is_some() {
+            return Err("agent artifact shortcut cannot accept a conflicted gate".to_string());
+        }
+        if gate.evidence_ids.len() != 1 || gate.evidence_ids[0] != evidence_id {
+            return Err(
+                "agent artifact shortcut requires a single exact gate evidence binding".to_string(),
+            );
+        }
+        self.preflight_accept_merge_gate(
+            gate_id,
+            actor,
+            &[viden_types::ReviewedEvidenceBinding {
+                evidence_id: evidence_id.to_string(),
+                source_hash: source_hash.to_string(),
+            }],
+        )
+    }
+
+    pub(crate) fn preflight_reject_merge_gate(
+        &self,
+        gate_id: &str,
+        actor: &RuntimeOwner,
+    ) -> Result<(), String> {
+        let gate_index = self
+            .runtime_merge_gates
+            .iter()
+            .position(|gate| gate.gate_id == gate_id)
+            .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
+        let gate = &self.runtime_merge_gates[gate_index];
+        validate_reject_actor(gate, actor, "merge gate rejection")
+    }
+
+    pub(crate) fn preflight_reject_agent_artifact(
+        &self,
+        gate_id: &str,
+        evidence_id: &str,
+        actor: &RuntimeOwner,
+    ) -> Result<(), String> {
+        if evidence_id.trim().is_empty() {
+            return Err("agent artifact evidence id cannot be empty".to_string());
+        }
+        let gate_index = self
+            .runtime_merge_gates
+            .iter()
+            .position(|gate| gate.gate_id == gate_id)
+            .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
+        if !self
+            .runtime_evidence
+            .iter()
+            .any(|evidence| evidence.id == evidence_id)
+        {
+            return Err(format!(
+                "agent artifact evidence `{evidence_id}` does not exist"
+            ));
+        }
+        if !self.runtime_merge_gates[gate_index]
+            .evidence_ids
+            .iter()
+            .any(|id| id == evidence_id)
+        {
+            return Err(format!(
+                "agent artifact evidence `{evidence_id}` is not bound to the gate evidence set"
+            ));
+        }
+        validate_reject_actor(
+            &self.runtime_merge_gates[gate_index],
+            actor,
+            "agent artifact rejection",
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn preflight_merge_agent_patch(
+        &self,
+        gate_id: &str,
+        actor: &RuntimeOwner,
+    ) -> Result<String, String> {
+        let gate_index = self
+            .runtime_merge_gates
+            .iter()
+            .position(|gate| gate.gate_id == gate_id)
+            .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
+        let gate = &self.runtime_merge_gates[gate_index];
+        let _dag_id = self.dag_id_for_task(&gate.task_id)?;
+        if actor != &gate.owner {
+            return Err("patch merge actor does not match gate owner".to_string());
+        }
+        if gate.status != MergeGateStatus::Accepted {
+            return Err(format!(
+                "merge gate `{gate_id}` must be accepted before patch merge"
+            ));
+        }
+        let decision = gate
+            .decision
+            .as_ref()
+            .ok_or_else(|| "accepted merge gate is missing a typed decision".to_string())?;
+        if decision.outcome != MergeGateDecisionOutcome::Accepted {
+            return Err("patch merge requires a typed Accepted decision".to_string());
+        }
+        let current_bindings =
+            self.validated_evidence_bindings_for_ids(gate_index, &gate.evidence_ids)?;
+        let mut decided_bindings = decision.reviewed_evidence.clone();
+        decided_bindings.sort();
+        decided_bindings.dedup();
+        if decided_bindings != current_bindings {
+            return Err(
+                "accepted merge decision no longer binds exact canonical evidence".to_string(),
+            );
+        }
+        if let Some(validator) = &gate.validator {
+            if !validator.independent || validator.validated_at.is_none() {
+                return Err("patch merge requires completed independent validation".to_string());
+            }
+            let review = self
+                .runtime_review_requests
+                .iter()
+                .find(|review| review.review_id == validator.review_request_id)
+                .ok_or_else(|| "merge gate validator review request does not exist".to_string())?;
+            if review.status != ReviewRequestStatus::Accepted
+                || review.evidence_bindings != current_bindings
+                || decision.review_request_id.as_deref() != Some(review.review_id.as_str())
+            {
+                return Err("patch merge requires the accepted exact-evidence review".to_string());
+            }
+        }
+        if gate
+            .conflict
+            .as_ref()
+            .is_some_and(|conflict| conflict.status == viden_types::ConflictBounceStatus::Pending)
+        {
+            return Err("patch merge cannot bypass an unresolved conflict bounce".to_string());
+        }
+        let report = reduce_merge_gate_status(
+            gate,
+            &self.runtime_evidence,
+            &self.merge_gate_validation_facts(),
+        );
+        if report.status != EvidenceCanonicalStatus::Verified {
+            return Err(format!(
+                "patch canonical preflight failed: {}",
+                canonical_reason_summary(&report)
+                    .unwrap_or_else(|| "canonical_evidence_invalid".to_string())
+            ));
+        }
+        let patch_evidence = self
+            .patch_evidence_for_gate(gate_index)
+            .ok_or_else(|| "accepted merge gate has no patch evidence".to_string())?;
+        self.verified_patch_content(patch_evidence)
+            .map_err(|error| format!("patch canonical preflight failed: {error}"))
+    }
+
+    pub(crate) fn preflight_record_agent_evidence(
+        &self,
+        gate_id: &str,
+        evidence_id: Option<&str>,
+        kind: &str,
+        canonical: Option<&CanonicalEvidenceReference>,
+    ) -> Result<(), String> {
+        let gate_index = self
+            .runtime_merge_gates
+            .iter()
+            .position(|gate| gate.gate_id == gate_id)
+            .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
+        if normalize_evidence_kind(kind).is_empty() {
+            return Err("agent evidence kind cannot be empty".to_string());
+        }
+        let Some(canonical) = canonical else {
+            return Ok(());
+        };
+        let mut canonical = validate_external_canonical_evidence_reference(canonical.clone())?;
+        canonical.permission_snapshot_id = Some("permission-preflight".to_string());
+        canonical.permission_scope = canonical.evidence_scope.clone();
+        canonical.verification = EvidenceVerificationState::Verified;
+        canonical.quality.status = EvidenceQualityStatus::Pass;
+        canonical.quality.reason_codes.clear();
+        let evidence = EvidenceView {
+            id: evidence_id.unwrap_or("evidence-preflight").to_string(),
+            kind: normalize_evidence_kind(kind),
+            summary: "preflight".to_string(),
+            path: None,
+            source: None,
+            canonical: Some(canonical),
+            metadata: None,
+            timestamp: None,
+        };
+        let report = validate_canonical_evidence_for_gate(
+            &self.runtime_merge_gates[gate_index],
+            &evidence,
+            &self.merge_gate_validation_facts(),
+        );
+        if report.status != EvidenceCanonicalStatus::Verified {
+            return Err(format!(
+                "agent evidence canonical preflight failed: {}",
+                canonical_reason_summary(&report)
+                    .unwrap_or_else(|| "canonical_evidence_invalid".to_string())
+            ));
+        }
+        Ok(())
+    }
+
+    fn decide_merge_gate<F>(
         &mut self,
         gate_id: &str,
         status: MergeGateStatus,
+        actor: Option<RuntimeOwner>,
+        mut reviewed_evidence: Vec<viden_types::ReviewedEvidenceBinding>,
         decision: String,
-        _event_type: &str,
-        _payload_key: &str,
-    ) -> Result<Vec<RuntimeEvent>, String> {
+        approver: &mut F,
+    ) -> Result<Vec<RuntimeEvent>, String>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+    {
         let decision = sanitize_runtime_domain_text(&decision, 240);
+        if decision.trim().is_empty() {
+            return Err("merge gate decision cannot be empty".to_string());
+        }
         let gate_index = self
             .runtime_merge_gates
             .iter()
@@ -1908,6 +2524,7 @@ impl SessionEngine {
             .find(|dag| dag.tasks.iter().any(|task| task.task_id == task_id))
             .map(|dag| dag.dag_id.clone())
             .ok_or_else(|| format!("agent DAG for task `{task_id}` does not exist"))?;
+        let mut accepted_review_request_id = None;
         if status == MergeGateStatus::Accepted {
             let report = reduce_merge_gate_status(
                 &self.runtime_merge_gates[gate_index],
@@ -1921,19 +2538,156 @@ impl SessionEngine {
                         .unwrap_or_else(|| "canonical_evidence_invalid".to_string())
                 ));
             }
+            if self.runtime_merge_gates[gate_index]
+                .policy_snapshot
+                .requires_independent_validator
+                && !self.runtime_merge_gates[gate_index]
+                    .validator
+                    .as_ref()
+                    .is_some_and(|validator| validator.independent)
+            {
+                return Err(format!(
+                    "merge gate `{gate_id}` requires an independent validator"
+                ));
+            }
+            if self.runtime_merge_gates[gate_index]
+                .conflict
+                .as_ref()
+                .is_some_and(|conflict| {
+                    conflict.status == viden_types::ConflictBounceStatus::Pending
+                })
+            {
+                return Err(format!(
+                    "merge gate `{gate_id}` has a pending conflict that requires origin-lane revalidation"
+                ));
+            }
+
+            let actor = actor
+                .as_ref()
+                .ok_or_else(|| "merge gate acceptance requires an actor".to_string())?;
+            let gate = &self.runtime_merge_gates[gate_index];
+            let current_bindings =
+                self.validated_evidence_bindings_for_ids(gate_index, &gate.evidence_ids)?;
+            reviewed_evidence.sort();
+            reviewed_evidence.dedup();
+            if let Some(validator) = &gate.validator {
+                if !runtime_owner_matches_validator_lane(actor, &validator.owner) {
+                    return Err(
+                        "merge gate acceptance actor does not match validator owner".to_string()
+                    );
+                }
+                let review = self
+                    .runtime_review_requests
+                    .iter()
+                    .find(|review| review.review_id == validator.review_request_id)
+                    .ok_or_else(|| {
+                        "merge gate validator review request does not exist".to_string()
+                    })?;
+                if review.status != ReviewRequestStatus::Pending {
+                    return Err("merge gate review request is not pending".to_string());
+                }
+                if current_bindings != review.evidence_bindings
+                    || reviewed_evidence != review.evidence_bindings
+                {
+                    return Err(
+                        "merge gate reviewed evidence changed after review request".to_string()
+                    );
+                }
+                accepted_review_request_id = Some(review.review_id.clone());
+            } else {
+                if actor != &gate.owner {
+                    return Err("merge gate acceptance actor does not match gate owner".to_string());
+                }
+                if gate.owner != RuntimeOwner::default() && reviewed_evidence != current_bindings {
+                    return Err(
+                        "merge gate acceptance requires exact reviewed evidence".to_string()
+                    );
+                }
+                if gate.owner == RuntimeOwner::default() && reviewed_evidence.is_empty() {
+                    reviewed_evidence = current_bindings;
+                }
+            }
+        } else {
+            let actor = actor
+                .as_ref()
+                .ok_or_else(|| "merge gate rejection requires an actor".to_string())?;
+            validate_reject_actor(
+                &self.runtime_merge_gates[gate_index],
+                actor,
+                "merge gate rejection",
+            )?;
         }
+
+        self.require_trust_permission(
+            if status == MergeGateStatus::Accepted {
+                "accept_merge_gate"
+            } else {
+                "reject_merge_gate"
+            },
+            &format!("gate={gate_id}"),
+            approver,
+        )?;
 
         let now = now_timestamp();
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.status = status;
-        gate.decision = Some(decision.clone());
+        let audit_id = fresh_id("audit");
+        let owner = actor.unwrap_or_else(|| gate.owner.clone());
+        let reviewed_evidence_ids = reviewed_evidence
+            .iter()
+            .map(|binding| binding.evidence_id.clone())
+            .collect::<Vec<_>>();
+        let mut typed_decision = crate::trust_loop::merge_gate_decision(
+            if status == MergeGateStatus::Accepted {
+                MergeGateDecisionOutcome::Accepted
+            } else {
+                MergeGateDecisionOutcome::Rejected
+            },
+            decision.clone(),
+            owner,
+            reviewed_evidence_ids.clone(),
+            audit_id.clone(),
+        );
+        typed_decision.reviewed_evidence = reviewed_evidence;
+        typed_decision.review_request_id = accepted_review_request_id.clone();
+        gate.decision = Some(typed_decision);
+        if status == MergeGateStatus::Accepted
+            && let Some(validator) = &mut gate.validator
+        {
+            validator.validated_at = Some(now);
+        }
+        gate.audit_ids.push(audit_id);
         gate.updated_at = Some(now);
+        let review_request_id = accepted_review_request_id.or_else(|| {
+            gate.validator
+                .as_ref()
+                .map(|validator| validator.review_request_id.clone())
+        });
         let gate = gate.clone();
 
         let mut events = vec![RuntimeEvent::new(
             1,
             RuntimeEventKind::MergeGateUpdated { gate },
         )];
+        if let Some(review_request_id) = review_request_id
+            && let Some(review) = self
+                .runtime_review_requests
+                .iter_mut()
+                .find(|review| review.review_id == review_request_id)
+        {
+            review.status = if status == MergeGateStatus::Accepted {
+                ReviewRequestStatus::Accepted
+            } else {
+                ReviewRequestStatus::Rejected
+            };
+            review.updated_at = now;
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::ReviewRequestUpdated {
+                    review: review.clone(),
+                },
+            ));
+        }
         if let Some(mut task) = self
             .runtime_tasks
             .iter()
@@ -1964,10 +2718,14 @@ impl SessionEngine {
         Ok(events)
     }
 
-    fn record_agent_evidence(
+    fn record_agent_evidence<F>(
         &mut self,
         request: RecordAgentEvidenceRequest<'_>,
-    ) -> Result<Vec<RuntimeEvent>, String> {
+        approver: &mut F,
+    ) -> Result<Vec<RuntimeEvent>, String>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+    {
         let RecordAgentEvidenceRequest {
             gate_id,
             evidence_id,
@@ -1993,7 +2751,7 @@ impl SessionEngine {
             .map(|source| sanitize_evidence_source_for_event(&source))
             .filter(|source| !source.is_empty());
         let summary = sanitize_evidence_summary_for_event(&summary);
-        let canonical = canonical
+        let mut canonical = canonical
             .map(validate_external_canonical_evidence_reference)
             .transpose()?;
 
@@ -2004,6 +2762,24 @@ impl SessionEngine {
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
         let _dag_id = self.dag_id_for_task(&task_id)?;
+        self.preflight_record_agent_evidence(
+            gate_id,
+            evidence_id.as_deref(),
+            &kind,
+            canonical.as_ref(),
+        )?;
+        self.require_trust_permission(
+            "record_agent_evidence",
+            &format!("gate={gate_id} kind={kind}"),
+            approver,
+        )?;
+        if let Some(canonical) = &mut canonical {
+            canonical.permission_snapshot_id = Some(fresh_id("permission-receipt"));
+            canonical.permission_scope = canonical.evidence_scope.clone();
+            canonical.verification = EvidenceVerificationState::Verified;
+            canonical.quality.status = EvidenceQualityStatus::Pass;
+            canonical.quality.reason_codes.clear();
+        }
         let evidence_id = evidence_id
             .map(|id| id.trim().to_string())
             .filter(|id| !id.is_empty())
@@ -2023,15 +2799,56 @@ impl SessionEngine {
 
         let runtime_evidence = self.runtime_evidence.clone();
         let validation_facts = self.merge_gate_validation_facts();
-        let gate = &mut self.runtime_merge_gates[gate_index];
-        if !gate.evidence_ids.contains(&evidence_id) {
-            gate.evidence_ids.push(evidence_id.clone());
+        {
+            let gate = &mut self.runtime_merge_gates[gate_index];
+            if !gate.evidence_ids.contains(&evidence_id) {
+                gate.evidence_ids.push(evidence_id.clone());
+            }
         }
-        let report = reduce_merge_gate_status(gate, &runtime_evidence, &validation_facts);
+        let report = reduce_merge_gate_status(
+            &self.runtime_merge_gates[gate_index],
+            &runtime_evidence,
+            &validation_facts,
+        );
         let gate_status = merge_gate_status_from_canonical(report.status);
         let canonical_reasons = canonical_reason_summary(&report).unwrap_or_default();
+        let independent_review_pending = report.status == EvidenceCanonicalStatus::Verified
+            && self.runtime_merge_gates[gate_index]
+                .policy_snapshot
+                .requires_independent_validator
+            && self.runtime_merge_gates[gate_index]
+                .validator
+                .as_ref()
+                .is_none_or(|validator| validator.validated_at.is_none());
+        let conflict_pending = self.runtime_merge_gates[gate_index]
+            .conflict
+            .as_ref()
+            .is_some_and(|conflict| conflict.status == viden_types::ConflictBounceStatus::Pending);
+        let gate = &mut self.runtime_merge_gates[gate_index];
         gate.status = gate_status;
-        gate.decision = (!canonical_reasons.is_empty()).then_some(canonical_reasons.clone());
+        if conflict_pending {
+            gate.status = MergeGateStatus::NeedsChanges;
+        } else if independent_review_pending {
+            gate.status = MergeGateStatus::CollectingEvidence;
+        }
+        if !conflict_pending {
+            gate.decision = if !canonical_reasons.is_empty() || independent_review_pending {
+                let reason = if independent_review_pending {
+                    "independent_review_required".to_string()
+                } else {
+                    canonical_reasons.clone()
+                };
+                Some(crate::trust_loop::merge_gate_decision(
+                    MergeGateDecisionOutcome::AwaitingEvidence,
+                    reason,
+                    gate.owner.clone(),
+                    gate.evidence_ids.clone(),
+                    fresh_id("audit"),
+                ))
+            } else {
+                None
+            };
+        }
         gate.updated_at = Some(now);
         let gate = gate.clone();
 
@@ -2076,13 +2893,22 @@ impl SessionEngine {
         Ok(events)
     }
 
-    fn accept_agent_artifact(
+    fn accept_agent_artifact<F>(
         &mut self,
         gate_id: &str,
         evidence_id: String,
+        actor: RuntimeOwner,
+        source_hash: String,
         decision: String,
-    ) -> Result<Vec<RuntimeEvent>, String> {
+        approver: &mut F,
+    ) -> Result<Vec<RuntimeEvent>, String>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+    {
         let decision = sanitize_runtime_domain_text(&decision, 240);
+        if decision.trim().is_empty() {
+            return Err("agent artifact decision cannot be empty".to_string());
+        }
         if evidence_id.trim().is_empty() {
             return Err("agent artifact evidence id cannot be empty".to_string());
         }
@@ -2093,74 +2919,62 @@ impl SessionEngine {
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
         let _dag_id = self.dag_id_for_task(&task_id)?;
+        let gate = &self.runtime_merge_gates[gate_index];
+        if gate.policy_snapshot.requires_independent_validator || gate.validator.is_some() {
+            return Err(
+                "agent artifact shortcut cannot bypass independent review policy".to_string(),
+            );
+        }
+        if gate.conflict.is_some() {
+            return Err("agent artifact shortcut cannot accept a conflicted gate".to_string());
+        }
+        if gate.evidence_ids.len() != 1 || gate.evidence_ids[0] != evidence_id {
+            return Err(
+                "agent artifact shortcut requires a single exact gate evidence binding".to_string(),
+            );
+        }
         let evidence = self
             .runtime_evidence
             .iter()
             .find(|evidence| evidence.id == evidence_id)
             .cloned()
             .ok_or_else(|| format!("agent artifact evidence `{evidence_id}` does not exist"))?;
-        let mut artifact_gate = self.runtime_merge_gates[gate_index].clone();
-        artifact_gate.evidence_ids = vec![evidence_id.clone()];
-        artifact_gate.required_evidence = vec![canonical_required_evidence_kind(&evidence.kind)];
-        let report = reduce_merge_gate_status(
-            &artifact_gate,
-            &self.runtime_evidence,
-            &self.merge_gate_validation_facts(),
-        );
-        if report.status != EvidenceCanonicalStatus::Verified {
-            return Err(format!(
-                "agent artifact evidence `{evidence_id}` cannot be accepted: {}",
-                canonical_reason_summary(&report)
-                    .unwrap_or_else(|| "canonical_evidence_invalid".to_string())
-            ));
+        let canonical = evidence
+            .canonical
+            .as_ref()
+            .ok_or_else(|| format!("agent artifact evidence `{evidence_id}` is not canonical"))?;
+        if source_hash != canonical.source_hash {
+            return Err("agent artifact source hash does not match canonical bytes".to_string());
         }
-        let now = now_timestamp();
-        let runtime_evidence = self.runtime_evidence.clone();
-        let validation_facts = self.merge_gate_validation_facts();
-        let gate = &mut self.runtime_merge_gates[gate_index];
-        if !gate.evidence_ids.contains(&evidence_id) {
-            gate.evidence_ids.push(evidence_id.clone());
-        }
-        let report = reduce_merge_gate_status(gate, &runtime_evidence, &validation_facts);
-        gate.status = merge_gate_status_from_canonical(report.status);
-        gate.decision = canonical_reason_summary(&report);
-        gate.decision = Some(decision.clone());
-        gate.updated_at = Some(now);
-        let gate = gate.clone();
-
-        let mut events = vec![RuntimeEvent::new(
-            1,
-            RuntimeEventKind::MergeGateUpdated { gate },
-        )];
-        if let Some(mut task) = self
-            .runtime_tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .cloned()
-        {
-            if !task.evidence.contains(&evidence_id) {
-                task.evidence.push(evidence_id.clone());
-            }
-            task.decision = Some(decision.clone());
-            task.activity = format!("artifact accepted: {decision}");
-            task.updated_at = Some(now.saturating_mul(1000));
-            self.upsert_agent_task(task.clone());
-            events.push(RuntimeEvent::new(
-                next_sequence(&events),
-                RuntimeEventKind::TaskUpdated { task },
-            ));
-        }
-
-        Ok(events)
+        self.decide_merge_gate(
+            gate_id,
+            MergeGateStatus::Accepted,
+            Some(actor),
+            vec![viden_types::ReviewedEvidenceBinding {
+                evidence_id,
+                source_hash,
+            }],
+            decision,
+            approver,
+        )
     }
 
-    fn reject_agent_artifact(
+    fn reject_agent_artifact<F>(
         &mut self,
         gate_id: &str,
         evidence_id: &str,
+        actor: RuntimeOwner,
         reason: String,
-    ) -> Result<Vec<RuntimeEvent>, String> {
+        approver: &mut F,
+    ) -> Result<Vec<RuntimeEvent>, String>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+    {
         let reason = sanitize_runtime_domain_text(&reason, 240);
+        if reason.trim().is_empty() {
+            return Err("agent artifact rejection reason cannot be empty".to_string());
+        }
+        self.preflight_reject_agent_artifact(gate_id, evidence_id, &actor)?;
         let gate_index = self
             .runtime_merge_gates
             .iter()
@@ -2168,11 +2982,22 @@ impl SessionEngine {
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
         let _dag_id = self.dag_id_for_task(&task_id)?;
+        self.require_trust_permission(
+            "reject_agent_artifact",
+            &format!("gate={gate_id} evidence={evidence_id}"),
+            approver,
+        )?;
         let now = now_timestamp();
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.evidence_ids.retain(|id| id != evidence_id);
         gate.status = MergeGateStatus::NeedsChanges;
-        gate.decision = Some(reason.clone());
+        gate.decision = Some(crate::trust_loop::merge_gate_decision(
+            MergeGateDecisionOutcome::Rejected,
+            reason.clone(),
+            actor,
+            gate.evidence_ids.clone(),
+            fresh_id("audit"),
+        ));
         gate.updated_at = Some(now);
         let gate = gate.clone();
 
@@ -2206,12 +3031,21 @@ impl SessionEngine {
         Ok(events)
     }
 
-    fn merge_agent_patch(
+    fn merge_agent_patch<F>(
         &mut self,
         gate_id: &str,
+        actor: RuntimeOwner,
         decision: String,
-    ) -> Result<Vec<RuntimeEvent>, String> {
+        approver: &mut F,
+    ) -> Result<Vec<RuntimeEvent>, String>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+    {
         let decision = sanitize_runtime_domain_text(&decision, 240);
+        if decision.trim().is_empty() {
+            return Err("patch merge decision cannot be empty".to_string());
+        }
+        let patch_content = self.preflight_merge_agent_patch(gate_id, &actor)?;
         let gate_index = self
             .runtime_merge_gates
             .iter()
@@ -2219,48 +3053,7 @@ impl SessionEngine {
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
         let dag_id = self.dag_id_for_task(&task_id)?;
-        if self.runtime_merge_gates[gate_index].status != MergeGateStatus::Accepted {
-            return Err(format!(
-                "merge gate `{gate_id}` must be accepted before patch merge"
-            ));
-        }
-        let report = reduce_merge_gate_status(
-            &self.runtime_merge_gates[gate_index],
-            &self.runtime_evidence,
-            &self.merge_gate_validation_facts(),
-        );
-        if report.status != EvidenceCanonicalStatus::Verified {
-            return self.mark_agent_patch_conflict(
-                gate_index,
-                &dag_id,
-                &task_id,
-                format!(
-                    "patch conflict: {}",
-                    canonical_reason_summary(&report)
-                        .unwrap_or_else(|| "canonical_evidence_invalid".to_string())
-                ),
-            );
-        }
-        let patch_evidence = self.patch_evidence_for_gate(gate_index).cloned();
-        let Some(patch_evidence) = patch_evidence else {
-            return self.mark_agent_patch_conflict(
-                gate_index,
-                &dag_id,
-                &task_id,
-                "patch conflict: accepted merge gate has no patch evidence".to_string(),
-            );
-        };
-        let patch_content = match self.verified_patch_content(&patch_evidence) {
-            Ok(content) => content,
-            Err(err) => {
-                return self.mark_agent_patch_conflict(
-                    gate_index,
-                    &dag_id,
-                    &task_id,
-                    format!("patch conflict: {err}"),
-                );
-            }
-        };
+        self.require_trust_permission("merge_agent_patch", &format!("gate={gate_id}"), approver)?;
         let patch_backend = LocalPatchBackend;
         let patch_application = match patch_backend.prepare(&PatchRequest {
             cwd: self.cwd.clone(),
@@ -2277,6 +3070,17 @@ impl SessionEngine {
             }
         };
         self.stage_patch_rollback(&patch_application)?;
+        let applied_change_id = fresh_id("change");
+        let recovery_entries = self.recovery_entries_for_patch(&patch_application)?;
+        let recovery_snapshot = self
+            .workflows
+            .write_recovery_snapshot(&applied_change_id, &recovery_entries)?;
+        {
+            let gate = &mut self.runtime_merge_gates[gate_index];
+            gate.applied_change_id = Some(applied_change_id.clone());
+            gate.recovery_snapshot = Some(recovery_snapshot);
+        }
+        self.persist_merge_gate_precommit(gate_index, "audit-merge-precommit")?;
         if let Err(err) = patch_backend.write_application(&patch_application) {
             self.restore_transaction_files()?;
             return self.mark_agent_patch_conflict(
@@ -2286,11 +3090,34 @@ impl SessionEngine {
                 format!("patch conflict: {}", err),
             );
         }
+        if let Err(err) = self.verify_patch_postimages(&patch_application) {
+            self.restore_transaction_files()?;
+            return self.mark_agent_patch_conflict(
+                gate_index,
+                &dag_id,
+                &task_id,
+                format!("patch postimage verification failed: {err}"),
+            );
+        }
 
         let now = now_timestamp();
+        self.applied_change_rollbacks.insert(
+            applied_change_id.clone(),
+            self.transaction_file_rollback.borrow().clone(),
+        );
+        let resolved_conflict = self.mark_conflict_resolved(gate_index);
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.status = MergeGateStatus::Merged;
-        gate.decision = Some(decision.clone());
+        let audit_id = fresh_id("audit");
+        gate.decision = Some(crate::trust_loop::merge_gate_decision(
+            MergeGateDecisionOutcome::Merged,
+            decision.clone(),
+            gate.owner.clone(),
+            gate.evidence_ids.clone(),
+            audit_id.clone(),
+        ));
+        gate.applied_change_id = Some(applied_change_id);
+        gate.audit_ids.push(audit_id);
         gate.updated_at = Some(now);
         let gate = gate.clone();
 
@@ -2298,6 +3125,12 @@ impl SessionEngine {
             1,
             RuntimeEventKind::MergeGateUpdated { gate },
         )];
+        if let Some(conflict) = resolved_conflict {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::MergeConflictBounced { conflict },
+            ));
+        }
         if let Some(mut task) = self
             .runtime_tasks
             .iter()
@@ -2320,11 +3153,137 @@ impl SessionEngine {
     }
 
     fn stage_patch_rollback(&self, application: &PatchApplication) -> Result<(), String> {
+        let paths = application
+            .write_paths()
+            .map(Path::to_path_buf)
+            .collect::<Vec<_>>();
+        self.stage_rollback_paths(&paths)
+    }
+
+    fn recovery_entries_for_patch(
+        &self,
+        application: &PatchApplication,
+    ) -> Result<Vec<RecoverySnapshotEntry>, String> {
+        let rollbacks = self.transaction_file_rollback.borrow();
+        let mut entries = Vec::with_capacity(rollbacks.len());
+        for (path, postimage) in application.planned_postimages() {
+            let rollback = rollbacks
+                .iter()
+                .find(|rollback| rollback.path == path)
+                .ok_or_else(|| format!("missing staged rollback for `{}`", path.display()))?;
+            let relative_path = path
+                .strip_prefix(&rollback.root)
+                .map_err(|_| format!("recovery path `{}` escaped workspace", path.display()))?
+                .to_path_buf();
+            let created_parent_dirs = rollback
+                .created_parent_dirs
+                .iter()
+                .map(|parent| {
+                    parent
+                        .strip_prefix(&rollback.root)
+                        .map(Path::to_path_buf)
+                        .map_err(|_| {
+                            format!("recovery parent `{}` escaped workspace", parent.display())
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            #[cfg(unix)]
+            let unix_mode = {
+                use std::os::unix::fs::PermissionsExt;
+                rollback.permissions.as_ref().map(|mode| mode.mode())
+            };
+            #[cfg(not(unix))]
+            let unix_mode = None;
+            entries.push(RecoverySnapshotEntry {
+                relative_path,
+                preimage: rollback.contents.clone(),
+                unix_mode,
+                expected_postimage_sha256: postimage.map(runtime_sha256),
+                created_parent_dirs,
+            });
+        }
+        Ok(entries)
+    }
+
+    fn verify_patch_postimages(&self, application: &PatchApplication) -> Result<(), String> {
+        for (path, expected) in application.planned_postimages() {
+            let root = fs::canonicalize(&self.cwd)
+                .map_err(|err| format!("{}: {err}", self.cwd.display()))?;
+            verify_expected_postimage(&root, path, expected.map(runtime_sha256).as_deref())?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn load_recovery_rollbacks_for_gate(
+        &self,
+        gate_index: usize,
+    ) -> Result<Vec<crate::FileRollback>, String> {
+        let gate = &self.runtime_merge_gates[gate_index];
+        let reference = gate.recovery_snapshot.as_ref().ok_or_else(|| {
+            format!(
+                "merge gate `{}` has no durable recovery snapshot",
+                gate.gate_id
+            )
+        })?;
+        let loaded = self.workflows.load_recovery_snapshot(reference)?;
+        self.recovery_rollbacks_from_loaded(loaded)
+    }
+
+    fn recovery_rollbacks_from_loaded(
+        &self,
+        loaded: LoadedRecoverySnapshot,
+    ) -> Result<Vec<crate::FileRollback>, String> {
+        let root = fs::canonicalize(&self.cwd)
+            .map_err(|error| format!("{}: {error}", self.cwd.display()))?;
+        let mut rollbacks = Vec::with_capacity(loaded.entries.len());
+        for entry in loaded.entries {
+            let path = root.join(&entry.relative_path);
+            ensure_transaction_path_inside_root(&root, &path)?;
+            verify_expected_postimage(&root, &path, entry.expected_postimage_sha256.as_deref())?;
+            #[cfg(unix)]
+            let permissions = entry.unix_mode.map(|mode| {
+                use std::os::unix::fs::PermissionsExt;
+                fs::Permissions::from_mode(mode)
+            });
+            #[cfg(not(unix))]
+            let permissions = None;
+            rollbacks.push(crate::FileRollback {
+                root: root.clone(),
+                path,
+                contents: entry.preimage,
+                permissions,
+                created_parent_dirs: entry
+                    .created_parent_dirs
+                    .into_iter()
+                    .map(|parent| root.join(parent))
+                    .collect(),
+            });
+        }
+        Ok(rollbacks)
+    }
+
+    pub(crate) fn persist_merge_gate_precommit(
+        &mut self,
+        gate_index: usize,
+        audit_prefix: &str,
+    ) -> Result<(), String> {
+        let audit_id = fresh_id(audit_prefix);
+        let gate = &mut self.runtime_merge_gates[gate_index];
+        gate.audit_ids.push(audit_id);
+        gate.updated_at = Some(now_timestamp());
+        let event = RuntimeEvent::new(1, RuntimeEventKind::MergeGateUpdated { gate: gate.clone() });
+        // This write-ahead gate fact is durable before filesystem effects. If
+        // the later commit fails, transaction compensation restores bytes and
+        // the precommit remains an auditable marker of the interrupted intent.
+        self.persist_runtime_domain_events(&[event])
+    }
+
+    pub(crate) fn stage_rollback_paths(&self, paths: &[PathBuf]) -> Result<(), String> {
         let mut rollback = self.transaction_file_rollback.borrow_mut();
         rollback.clear();
         let root =
             fs::canonicalize(&self.cwd).map_err(|err| format!("{}: {err}", self.cwd.display()))?;
-        for path in application.write_paths() {
+        for path in paths {
             // Capture only missing parents: rollback may remove transaction-created
             // empty directories, but never a directory that predated the patch.
             ensure_transaction_path_inside_root(&root, path)?;
@@ -2337,9 +3296,8 @@ impl SessionEngine {
                             path.display()
                         ));
                     }
-                    let contents =
-                        fs::read(path).map_err(|err| format!("{}: {err}", path.display()))?;
-                    (Some(contents), Some(metadata.permissions()))
+                    let existing = read_existing_private_file(&root, path)?;
+                    (Some(existing.bytes), Some(existing.permissions))
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => (None, None),
                 Err(err) => return Err(format!("{}: {err}", path.display())),
@@ -2356,7 +3314,14 @@ impl SessionEngine {
     }
 
     fn restore_transaction_files(&self) -> Result<(), String> {
-        for file in self.transaction_file_rollback.borrow().iter().rev() {
+        self.restore_file_rollbacks(&self.transaction_file_rollback.borrow())
+    }
+
+    pub(crate) fn restore_file_rollbacks(
+        &self,
+        rollbacks: &[crate::FileRollback],
+    ) -> Result<(), String> {
+        for file in rollbacks.iter().rev() {
             ensure_transaction_path_inside_root(&file.root, &file.path)?;
             match &file.contents {
                 Some(contents) => {
@@ -2428,40 +3393,12 @@ impl SessionEngine {
         task_id: &str,
         reason: String,
     ) -> Result<Vec<RuntimeEvent>, String> {
-        let now = now_timestamp();
-        let gate = &mut self.runtime_merge_gates[gate_index];
-        gate.status = MergeGateStatus::NeedsChanges;
-        gate.decision = Some(reason.clone());
-        gate.updated_at = Some(now);
-        let gate = gate.clone();
-        let mut events = vec![RuntimeEvent::new(
-            1,
-            RuntimeEventKind::MergeGateUpdated { gate },
-        )];
-
-        if let Some(mut task) = self
-            .runtime_tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .cloned()
-        {
-            task.status = AgentTaskStatus::NeedsInput;
-            task.activity = reason.clone();
-            task.decision = Some(reason.clone());
-            task.next_action = Some(AgentNextAction {
-                label: "revise patch".to_string(),
-                command: Some(format!("/agent start {task_id}")),
-                reason: Some("merge gate could not apply the accepted patch".to_string()),
-            });
-            task.updated_at = Some(now.saturating_mul(1000));
-            self.upsert_agent_task(task.clone());
-            events.push(RuntimeEvent::new(
-                next_sequence(&events),
-                RuntimeEventKind::TaskUpdated { task },
-            ));
-        }
-
-        Ok(events)
+        let gate_owner = self.runtime_merge_gates[gate_index].owner.clone();
+        let original_lane_id = gate_owner
+            .lane_id
+            .clone()
+            .unwrap_or_else(|| format!("lane-{task_id}"));
+        self.record_conflict_bounce(gate_index, original_lane_id, gate_owner, reason)
     }
 
     fn dag_id_for_task(&self, task_id: &str) -> Result<String, String> {
@@ -2592,18 +3529,6 @@ fn assistant_output_from_events(events: &[RuntimeEvent]) -> String {
         })
         .collect::<Vec<_>>()
         .join("")
-}
-
-fn evidence_kind_for_role(role: AgentRole) -> &'static str {
-    match role {
-        AgentRole::Planner => "plan",
-        AgentRole::Coder => "patch",
-        AgentRole::Reviewer => "review",
-        AgentRole::Tester => "test_result",
-        AgentRole::DocWriter => "doc_update",
-        AgentRole::Researcher => "research",
-        AgentRole::ReleaseOperator => "release_artifact",
-    }
 }
 
 fn role_guidance_context_source(role: AgentRole) -> ContextSourceRecord {
@@ -3226,7 +4151,182 @@ fn transactional_runtime_command(command: &RuntimeCommand) -> bool {
             | RuntimeCommand::AcceptAgentArtifact { .. }
             | RuntimeCommand::RejectAgentArtifact { .. }
             | RuntimeCommand::MergeAgentPatch { .. }
+            | RuntimeCommand::RevalidateMergeConflict { .. }
+            | RuntimeCommand::CreateHandoff { .. }
+            | RuntimeCommand::RequestReview { .. }
+            | RuntimeCommand::ConfirmContract { .. }
+            | RuntimeCommand::SetDependency { .. }
+            | RuntimeCommand::BounceMergeConflict { .. }
+            | RuntimeCommand::RevertAppliedChange { .. }
     )
+}
+
+fn runtime_sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+struct ExistingPrivateFile {
+    bytes: Vec<u8>,
+    permissions: fs::Permissions,
+}
+
+fn read_existing_private_file(root: &Path, path: &Path) -> Result<ExistingPrivateFile, String> {
+    ensure_transaction_path_inside_root(root, path)?;
+    #[cfg(unix)]
+    {
+        read_existing_private_file_openat(root, path)
+    }
+    #[cfg(not(unix))]
+    {
+        read_existing_private_file_by_path(path)
+    }
+}
+
+#[cfg(not(unix))]
+fn read_existing_private_file_by_path(path: &Path) -> Result<ExistingPrivateFile, String> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    let mut file = options
+        .open(path)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    read_open_private_file(path, &mut file)
+}
+
+#[cfg(unix)]
+fn read_existing_private_file_openat(
+    root: &Path,
+    path: &Path,
+) -> Result<ExistingPrivateFile, String> {
+    let relative = path.strip_prefix(root).map_err(|_| {
+        format!(
+            "transaction rollback target `{}` is outside `{}`",
+            path.display(),
+            root.display()
+        )
+    })?;
+    let mut components = relative.components().peekable();
+    let root_c = cstring_for_open(root.as_os_str(), root)?;
+    let root_fd = unsafe {
+        libc::open(
+            root_c.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if root_fd < 0 {
+        return Err(format!(
+            "{}: {}",
+            root.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    let mut current = unsafe { File::from_raw_fd(root_fd) };
+    while let Some(component) = components.next() {
+        let std::path::Component::Normal(segment) = component else {
+            return Err(format!(
+                "unsafe transaction rollback target `{}`",
+                path.display()
+            ));
+        };
+        let name = cstring_for_open(segment, path)?;
+        let final_component = components.peek().is_none();
+        let flags = if final_component {
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW
+        } else {
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW
+        };
+        let fd = unsafe { libc::openat(current.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err(format!(
+                "{}: {}",
+                path.display(),
+                std::io::Error::last_os_error()
+            ));
+        }
+        let mut opened = unsafe { File::from_raw_fd(fd) };
+        if final_component {
+            return read_open_private_file(path, &mut opened);
+        }
+        let metadata = opened
+            .metadata()
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        if !metadata.file_type().is_dir() {
+            return Err(format!(
+                "transaction rollback target crosses non-directory `{}`",
+                path.display()
+            ));
+        }
+        current = opened;
+    }
+    Err("transaction rollback target cannot be the workspace root".to_string())
+}
+
+#[cfg(unix)]
+fn cstring_for_open(value: &std::ffi::OsStr, display_path: &Path) -> Result<CString, String> {
+    CString::new(value.as_bytes()).map_err(|_| {
+        format!(
+            "transaction rollback target `{}` contains a NUL byte",
+            display_path.display()
+        )
+    })
+}
+
+fn read_open_private_file(path: &Path, file: &mut File) -> Result<ExistingPrivateFile, String> {
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    if !metadata.file_type().is_file() {
+        return Err(format!(
+            "unsafe transaction rollback target `{}`",
+            path.display()
+        ));
+    }
+    #[cfg(unix)]
+    {
+        // The mode is captured from the same descriptor that supplies bytes;
+        // this prevents check-then-reopen swaps from changing rollback facts.
+        let _mode = metadata.permissions().mode();
+    }
+    let size = usize::try_from(metadata.len())
+        .map_err(|_| format!("{} is too large to snapshot safely", path.display()))?;
+    let mut bytes = Vec::with_capacity(size);
+    file.read_to_end(&mut bytes)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(ExistingPrivateFile {
+        bytes,
+        permissions: metadata.permissions(),
+    })
+}
+
+fn verify_expected_postimage(
+    root: &Path,
+    path: &Path,
+    expected_sha256: Option<&str>,
+) -> Result<(), String> {
+    match expected_sha256 {
+        Some(expected) => {
+            let existing = read_existing_private_file(root, path).map_err(|error| {
+                format!("postimage `{}` is unavailable: {error}", path.display())
+            })?;
+            let actual = runtime_sha256(&existing.bytes);
+            if actual != expected {
+                return Err(format!(
+                    "postimage `{}` changed after merge",
+                    path.display()
+                ));
+            }
+        }
+        None => match fs::symlink_metadata(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(_) => {
+                return Err(format!(
+                    "postimage `{}` was expected to be absent",
+                    path.display()
+                ));
+            }
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        },
+    }
+    Ok(())
 }
 
 fn evidence_by_id(evidence: &[EvidenceView]) -> std::collections::BTreeMap<&str, &EvidenceView> {
@@ -3422,26 +4522,6 @@ fn canonical_required_evidence_kind(kind: &str) -> String {
     }
 }
 
-fn evidence_context_kind(kind: &str) -> ContextContentKind {
-    match canonical_required_evidence_kind(kind).as_str() {
-        "patch" => ContextContentKind::Diff,
-        "test" => ContextContentKind::Log,
-        "review" | "doc" | "release" => ContextContentKind::Text,
-        _ => ContextContentKind::Text,
-    }
-}
-
-fn canonical_evidence_summary(kind: &str, content: &str) -> String {
-    let line_count = content.lines().count();
-    let byte_count = content.len();
-    format!(
-        "canonical {} evidence ({} bytes, {} lines)",
-        canonical_required_evidence_kind(kind),
-        byte_count,
-        line_count
-    )
-}
-
 fn normalize_evidence_kind(kind: &str) -> String {
     kind.trim().replace('-', "_").to_ascii_lowercase()
 }
@@ -3546,7 +4626,42 @@ fn validate_agent_dag_tasks(tasks: &[AgentDagTaskSpec]) -> Result<(), String> {
             }
         }
     }
+    let edges = tasks
+        .iter()
+        .map(|task| (task.task_id.as_str(), task.dependencies.as_slice()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for task in tasks {
+        for dependency in &task.dependencies {
+            if dependency_path_exists_in_specs(&edges, dependency, &task.task_id) {
+                return Err(format!(
+                    "agent DAG dependency cycle connects `{}` and `{dependency}`",
+                    task.task_id
+                ));
+            }
+        }
+    }
     Ok(())
+}
+
+fn dependency_path_exists_in_specs<'a>(
+    edges: &std::collections::BTreeMap<&'a str, &'a [String]>,
+    start: &'a str,
+    target: &str,
+) -> bool {
+    let mut pending = vec![start];
+    let mut visited = std::collections::BTreeSet::new();
+    while let Some(node) = pending.pop() {
+        if node == target {
+            return true;
+        }
+        if !visited.insert(node) {
+            continue;
+        }
+        if let Some(dependencies) = edges.get(node) {
+            pending.extend(dependencies.iter().map(String::as_str));
+        }
+    }
+    false
 }
 
 fn agent_task_record_from_spec(
@@ -4294,6 +5409,10 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
             backend_id: redact_identifier_for_event(backend_id),
             credential_request_id: redact_identifier_for_event(credential_request_id),
         },
+        RuntimeCommand::SetUiPreferences { patch } => {
+            RuntimeCommand::SetUiPreferences { patch: *patch }
+        }
+        RuntimeCommand::ResetUiPreferences => RuntimeCommand::ResetUiPreferences,
         RuntimeCommand::SubmitUserInput { content } => RuntimeCommand::SubmitUserInput {
             content: redact_command_text(content),
         },
@@ -4453,12 +5572,87 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         RuntimeCommand::CancelAgentTask { task_id } => RuntimeCommand::CancelAgentTask {
             task_id: redact_identifier_for_event(task_id),
         },
-        RuntimeCommand::AcceptMergeGate { gate_id, decision } => RuntimeCommand::AcceptMergeGate {
+        RuntimeCommand::CreateHandoff {
+            handoff_id,
+            task_id,
+            from_lane_id,
+            to_lane_id,
+            owner,
+            summary,
+            acceptance,
+        } => RuntimeCommand::CreateHandoff {
+            handoff_id: redact_identifier_for_event(handoff_id),
+            task_id: redact_identifier_for_event(task_id),
+            from_lane_id: redact_identifier_for_event(from_lane_id),
+            to_lane_id: redact_identifier_for_event(to_lane_id),
+            owner: redacted_runtime_owner(owner),
+            summary: redact_command_text(summary),
+            acceptance: *acceptance,
+        },
+        RuntimeCommand::RequestReview {
+            review_id,
+            gate_id,
+            requester_lane_id,
+            reviewer_lane_id,
+            owner,
+            evidence_ids,
+        } => RuntimeCommand::RequestReview {
+            review_id: redact_identifier_for_event(review_id),
             gate_id: redact_identifier_for_event(gate_id),
+            requester_lane_id: redact_identifier_for_event(requester_lane_id),
+            reviewer_lane_id: redact_identifier_for_event(reviewer_lane_id),
+            owner: redacted_runtime_owner(owner),
+            evidence_ids: evidence_ids
+                .iter()
+                .map(|id| redact_identifier_for_event(id))
+                .collect(),
+        },
+        RuntimeCommand::ConfirmContract {
+            contract_id,
+            task_id,
+            owner,
+            summary,
+            decision,
+        } => RuntimeCommand::ConfirmContract {
+            contract_id: redact_identifier_for_event(contract_id),
+            task_id: redact_identifier_for_event(task_id),
+            owner: redacted_runtime_owner(owner),
+            summary: redact_command_text(summary),
+            decision: *decision,
+        },
+        RuntimeCommand::SetDependency {
+            dependency_id,
+            task_id,
+            depends_on_task_id,
+            owner,
+            state,
+            reason,
+        } => RuntimeCommand::SetDependency {
+            dependency_id: redact_identifier_for_event(dependency_id),
+            task_id: redact_identifier_for_event(task_id),
+            depends_on_task_id: redact_identifier_for_event(depends_on_task_id),
+            owner: redacted_runtime_owner(owner),
+            state: *state,
+            reason: redact_command_text(reason),
+        },
+        RuntimeCommand::AcceptMergeGate {
+            gate_id,
+            actor,
+            reviewed_evidence,
+            decision,
+        } => RuntimeCommand::AcceptMergeGate {
+            gate_id: redact_identifier_for_event(gate_id),
+            actor: redacted_runtime_owner(actor),
+            reviewed_evidence: reviewed_evidence.clone(),
             decision: decision.as_deref().map(redact_command_text),
         },
-        RuntimeCommand::RejectMergeGate { gate_id, reason } => RuntimeCommand::RejectMergeGate {
+        RuntimeCommand::RejectMergeGate {
+            gate_id,
+            actor,
+            reason,
+        } => RuntimeCommand::RejectMergeGate {
             gate_id: redact_identifier_for_event(gate_id),
+            actor: redacted_runtime_owner(actor),
             reason: redact_command_text(reason),
         },
         RuntimeCommand::RecordAgentEvidence {
@@ -4479,25 +5673,78 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         RuntimeCommand::AcceptAgentArtifact {
             gate_id,
             evidence_id,
+            actor,
+            source_hash,
             decision,
         } => RuntimeCommand::AcceptAgentArtifact {
             gate_id: redact_identifier_for_event(gate_id),
             evidence_id: redact_identifier_for_event(evidence_id),
+            actor: redacted_runtime_owner(actor),
+            source_hash: source_hash.clone(),
             decision: decision.as_deref().map(redact_command_text),
         },
         RuntimeCommand::RejectAgentArtifact {
             gate_id,
             evidence_id,
+            actor,
             reason,
         } => RuntimeCommand::RejectAgentArtifact {
             gate_id: redact_identifier_for_event(gate_id),
             evidence_id: redact_identifier_for_event(evidence_id),
+            actor: redacted_runtime_owner(actor),
             reason: redact_command_text(reason),
         },
-        RuntimeCommand::MergeAgentPatch { gate_id, decision } => RuntimeCommand::MergeAgentPatch {
+        RuntimeCommand::MergeAgentPatch {
+            gate_id,
+            actor,
+            decision,
+        } => RuntimeCommand::MergeAgentPatch {
             gate_id: redact_identifier_for_event(gate_id),
+            actor: redacted_runtime_owner(actor),
             decision: decision.as_deref().map(redact_command_text),
         },
+        RuntimeCommand::RevalidateMergeConflict {
+            gate_id,
+            bounce_id,
+            actor,
+            evidence,
+        } => RuntimeCommand::RevalidateMergeConflict {
+            gate_id: redact_identifier_for_event(gate_id),
+            bounce_id: redact_identifier_for_event(bounce_id),
+            actor: redacted_runtime_owner(actor),
+            evidence: evidence.clone(),
+        },
+        RuntimeCommand::BounceMergeConflict {
+            gate_id,
+            original_lane_id,
+            owner,
+            reason,
+        } => RuntimeCommand::BounceMergeConflict {
+            gate_id: redact_identifier_for_event(gate_id),
+            original_lane_id: redact_identifier_for_event(original_lane_id),
+            owner: redacted_runtime_owner(owner),
+            reason: redact_command_text(reason),
+        },
+        RuntimeCommand::RevertAppliedChange {
+            gate_id,
+            owner,
+            reason,
+        } => RuntimeCommand::RevertAppliedChange {
+            gate_id: redact_identifier_for_event(gate_id),
+            owner: redacted_runtime_owner(owner),
+            reason: redact_command_text(reason),
+        },
+    }
+}
+
+fn redacted_runtime_owner(owner: &RuntimeOwner) -> RuntimeOwner {
+    RuntimeOwner {
+        workspace_id: redact_identifier_for_event(&owner.workspace_id),
+        project_id: redact_identifier_for_event(&owner.project_id),
+        lane_id: owner.lane_id.as_deref().map(redact_identifier_for_event),
+        session_id: owner.session_id.as_deref().map(redact_identifier_for_event),
+        task_id: owner.task_id.as_deref().map(redact_identifier_for_event),
+        turn_id: owner.turn_id.as_deref().map(redact_identifier_for_event),
     }
 }
 
@@ -4709,6 +5956,35 @@ fn append_resequenced(target: &mut Vec<RuntimeEvent>, source: Vec<RuntimeEvent>)
         event.sequence = next_sequence(target);
         target.push(event);
     }
+}
+
+fn runtime_owner_matches_validator_lane(actor: &RuntimeOwner, validator: &RuntimeOwner) -> bool {
+    actor.workspace_id == validator.workspace_id
+        && actor.project_id == validator.project_id
+        && actor.task_id == validator.task_id
+        && actor.lane_id.is_some()
+        && actor.lane_id == validator.lane_id
+}
+
+fn validate_reject_actor(
+    gate: &MergeGateRecord,
+    actor: &RuntimeOwner,
+    action: &str,
+) -> Result<(), String> {
+    if actor == &RuntimeOwner::default() {
+        return Err(format!("{action} requires an actor"));
+    }
+    if let Some(validator) = &gate.validator
+        && runtime_owner_matches_validator_lane(actor, &validator.owner)
+    {
+        return Ok(());
+    }
+    if actor == &gate.owner {
+        return Ok(());
+    }
+    Err(format!(
+        "{action} actor is not authorized for the merge gate"
+    ))
 }
 
 fn merge_approval_events(

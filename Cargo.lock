@@ -481,8 +481,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "viden-config",
  "viden-provider",
  "viden-runtime",
+ "viden-session",
  "viden-types",
 ]
 
@@ -542,6 +544,7 @@ dependencies = [
 name = "viden-runtime"
 version = "0.1.30"
 dependencies = [
+ "libc",
  "serde_json",
  "sha2",
  "viden-config",
@@ -598,8 +601,10 @@ name = "viden-workflows"
 version = "0.1.30"
 dependencies = [
  "fs2",
+ "libc",
  "serde",
  "serde_json",
+ "sha2",
  "viden-session",
  "viden-types",
 ]

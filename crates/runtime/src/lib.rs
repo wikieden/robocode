@@ -9,6 +9,7 @@ use std::{
 };
 
 mod agent_commands;
+mod bootstrap;
 mod brief_commands;
 mod command_dispatch;
 mod context_bundle;
@@ -16,6 +17,7 @@ mod doctor;
 mod event_journal;
 mod extension_commands;
 mod formatting;
+mod frontend_services;
 mod git_commands;
 mod lane_runtime;
 mod lane_supervisor;
@@ -31,15 +33,21 @@ mod runtime_tasks;
 mod runtime_views;
 mod session_lifecycle;
 mod test_commands;
+mod trust_loop;
 mod web_commands;
 mod workflow_commands;
 
+pub use bootstrap::{
+    RuntimeBootstrap, RuntimeBootstrapRequest, bootstrap_runtime,
+    bootstrap_runtime_with_resolved_config,
+};
 #[cfg(test)]
 pub(crate) use doctor::DependencyStatus;
 pub(crate) use doctor::{DoctorReport, system_dependency_status};
 use formatting::{format_relative_age, render_resume_context, render_task_detail};
 pub use project_runtime::CredentialBackend;
 pub use runtime_supervisor::RuntimeSupervisor;
+pub use session_lifecycle::{RuntimeResumeError, RuntimeResumeRequest, RuntimeResumeResult};
 use viden_lsp::{LspRuntime, LspServerRegistry};
 use viden_permissions::PermissionEngine;
 use viden_plugin_api::{ContextReducerAdapterConfig, ContextReducerDescriptor};
@@ -50,9 +58,11 @@ use viden_tools::ToolRegistry;
 #[cfg(test)]
 use viden_types::PermissionRule;
 use viden_types::{
-    AgentDagRecord, AgentTaskRecord, ContextBundleRecord, CostScope, CostUsageRecord, EvidenceView,
-    MemoryEntry, MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode,
-    ResolvedUiPreferences, RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode, now_timestamp,
+    AgentDagRecord, AgentTaskRecord, ConflictBounce, ContextBundleRecord, ContractRecord,
+    CostScope, CostUsageRecord, DependencyRecord, EvidenceView, HandoffRecord, MemoryEntry,
+    MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode, ResolvedUiPreferences,
+    RevertRecord, ReviewRequestRecord, RuntimeEvent, RuntimeSnapshot, TaskRecord, UiPreferences,
+    WorkMode, now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -284,6 +294,8 @@ pub struct SessionEngine {
     provider_request_timeout_secs: u64,
     provider_max_retries: u32,
     user_config_path_override: Option<PathBuf>,
+    ui_cli_override: Option<UiPreferences>,
+    ui_system_context: UiPreferences,
     tools: ToolRegistry,
     permissions: PermissionEngine,
     store: SessionStore,
@@ -297,6 +309,12 @@ pub struct SessionEngine {
     runtime_agent_dags: Vec<AgentDagRecord>,
     runtime_merge_gates: Vec<MergeGateRecord>,
     runtime_evidence: Vec<EvidenceView>,
+    runtime_handoffs: Vec<HandoffRecord>,
+    runtime_review_requests: Vec<ReviewRequestRecord>,
+    runtime_contracts: Vec<ContractRecord>,
+    runtime_dependencies: Vec<DependencyRecord>,
+    runtime_conflict_bounces: Vec<ConflictBounce>,
+    runtime_reverts: Vec<RevertRecord>,
     pending_project_previews: BTreeMap<String, project_runtime::PendingProjectConfig>,
     confirmed_project_config: Option<viden_types::ProjectConfigPreview>,
     credential_handles: Vec<viden_types::CredentialHandle>,
@@ -306,6 +324,7 @@ pub struct SessionEngine {
     provider_telemetry: ProviderTelemetry,
     provider_cost_usage: Vec<CostUsageRecord>,
     transaction_file_rollback: RefCell<Vec<FileRollback>>,
+    applied_change_rollbacks: BTreeMap<String, Vec<FileRollback>>,
     cost_workflow_id: Option<String>,
     cost_smoke_run_id: Option<String>,
     active_cost_attribution: Option<CostAttribution>,
@@ -384,10 +403,26 @@ impl SessionEngine {
         home_override: Option<PathBuf>,
         runtime_snapshot: RuntimeSnapshot,
     ) -> Result<Self, String> {
+        Self::new_with_home_session_and_snapshot(
+            cwd,
+            provider,
+            home_override,
+            None,
+            runtime_snapshot,
+        )
+    }
+
+    pub fn new_with_home_session_and_snapshot(
+        cwd: impl Into<PathBuf>,
+        provider: Box<dyn ModelProvider>,
+        home_override: Option<PathBuf>,
+        session_id: Option<String>,
+        runtime_snapshot: RuntimeSnapshot,
+    ) -> Result<Self, String> {
         let cwd = cwd.into();
         let store = match home_override {
-            Some(home) => SessionStore::new_with_home(home, &cwd, None)?,
-            None => SessionStore::new(&cwd, None)?,
+            Some(home) => SessionStore::new_with_home(home, &cwd, session_id)?,
+            None => SessionStore::new(&cwd, session_id)?,
         };
         let workflows = WorkflowStore::new(store.home_dir().to_path_buf(), &cwd)?;
         let legacy_lanes_path = cwd.join(".viden").join("lanes.tsv");
@@ -411,6 +446,8 @@ impl SessionEngine {
             provider_request_timeout_secs: 90,
             provider_max_retries: 1,
             user_config_path_override: None,
+            ui_cli_override: None,
+            ui_system_context: UiPreferences::client_default(),
             tools: ToolRegistry::builtin(),
             permissions: PermissionEngine::new(&cwd),
             store,
@@ -424,6 +461,12 @@ impl SessionEngine {
             runtime_agent_dags: Vec::new(),
             runtime_merge_gates: Vec::new(),
             runtime_evidence: Vec::new(),
+            runtime_handoffs: Vec::new(),
+            runtime_review_requests: Vec::new(),
+            runtime_contracts: Vec::new(),
+            runtime_dependencies: Vec::new(),
+            runtime_conflict_bounces: Vec::new(),
+            runtime_reverts: Vec::new(),
             pending_project_previews: BTreeMap::new(),
             confirmed_project_config: None,
             credential_handles: Vec::new(),
@@ -433,6 +476,7 @@ impl SessionEngine {
             provider_telemetry: ProviderTelemetry::default(),
             provider_cost_usage: Vec::new(),
             transaction_file_rollback: RefCell::new(Vec::new()),
+            applied_change_rollbacks: BTreeMap::new(),
             cost_workflow_id,
             cost_smoke_run_id: None,
             active_cost_attribution: None,
@@ -653,7 +697,7 @@ impl SessionEngine {
             .unwrap_or_default()
     }
 
-    #[cfg(test)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn set_user_config_path_override(&mut self, path: PathBuf) {
         self.user_config_path_override = Some(path);
     }

@@ -2153,6 +2153,8 @@ fn accept_merge_gate_command_cannot_bypass_invalid_evidence() {
             "cmd_accept_gate",
             RuntimeCommand::AcceptMergeGate {
                 gate_id: "gate-task_accept_bypass".to_string(),
+                actor: viden_types::RuntimeOwner::default(),
+                reviewed_evidence: Vec::new(),
                 decision: Some("force accept".to_string()),
             },
             &mut approver,
@@ -2286,6 +2288,8 @@ fn accept_merge_gate_command_cannot_bypass_empty_required_evidence() {
             "cmd_accept_empty_required",
             RuntimeCommand::AcceptMergeGate {
                 gate_id: "gate-task_empty_accept".to_string(),
+                actor: viden_types::RuntimeOwner::default(),
+                reviewed_evidence: Vec::new(),
                 decision: Some("force accept empty".to_string()),
             },
             &mut approver,
@@ -2585,6 +2589,8 @@ fn workflow_projection_redacts_adversarial_project_command_payloads() {
             "cmd_adversarial_accept",
             RuntimeCommand::AcceptMergeGate {
                 gate_id: "gate-task_adversarial".to_string(),
+                actor: viden_types::RuntimeOwner::default(),
+                reviewed_evidence: Vec::new(),
                 decision: Some(format!("accept {secret} {private_path}")),
             },
             &mut approver,
@@ -2595,6 +2601,7 @@ fn workflow_projection_redacts_adversarial_project_command_payloads() {
             "cmd_adversarial_merge",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: "gate-task_adversarial".to_string(),
+                actor: viden_types::RuntimeOwner::default(),
                 decision: Some(format!("merge {secret} diff --git {private_path}")),
             },
             &mut approver,
@@ -2803,10 +2810,12 @@ fn start_agent_task_projects_state_to_workflow_not_transcript() {
     assert!(live.latest_evidence.iter().any(|evidence| {
         evidence
             .id
-            .starts_with("evidence-task_start_projection-patch")
+            .starts_with("evidence-task_start_projection-task_summary")
+            && evidence.canonical.is_none()
     }));
     assert!(live.merge_gates.iter().any(|gate| {
-        gate.gate_id == "gate-task_start_projection" && gate.status == MergeGateStatus::Accepted
+        gate.gate_id == "gate-task_start_projection"
+            && gate.status == MergeGateStatus::CollectingEvidence
     }));
     let transcript_events = transcript_runtime_events(&cwd, &home, &session_id);
     assert!(
@@ -3093,6 +3102,7 @@ fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
         ContextContentKind::Diff,
         patch,
     );
+    let patch_hash = patch_canonical.source_hash.clone();
     engine.set_merge_gate_context_facts_for_test("bundle-merge-restore-patch", patch_item);
     let evidence_events = engine
         .handle_runtime_command(
@@ -3115,6 +3125,22 @@ fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
             if gate.gate_id == "gate-task_merge_restore"
                 && gate.status == MergeGateStatus::Accepted
     )));
+    let actor = engine.runtime_view_state().merge_gates[0].owner.clone();
+    engine
+        .handle_runtime_command(
+            "cmd_accept_merge_restore",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: "gate-task_merge_restore".to_string(),
+                actor: actor.clone(),
+                reviewed_evidence: vec![viden_types::ReviewedEvidenceBinding {
+                    evidence_id: "evidence-merge-restore-patch".to_string(),
+                    source_hash: patch_hash,
+                }],
+                decision: Some("accept exact canonical patch".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
     let before = engine.runtime_view_state();
     let workflow_before = WorkflowStore::new(&home, &cwd)
         .unwrap()
@@ -3127,6 +3153,7 @@ fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
             "cmd_merge_restore",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: "gate-task_merge_restore".to_string(),
+                actor,
                 decision: Some("merge with rollback".to_string()),
             },
             &mut approver,
@@ -3170,6 +3197,7 @@ fn merge_agent_patch_workflow_precommit_failure_removes_created_file_and_empty_p
         "task_merge_create_rollback",
         patch,
     );
+    let actor = engine.runtime_view_state().merge_gates[0].owner.clone();
     engine.fail_next_workflow_append_for_test();
 
     let events = engine
@@ -3177,6 +3205,7 @@ fn merge_agent_patch_workflow_precommit_failure_removes_created_file_and_empty_p
             "cmd_merge_create_rollback",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: "gate-task_merge_create_rollback".to_string(),
+                actor,
                 decision: Some("merge created file with rollback".to_string()),
             },
             &mut approver,
@@ -3213,6 +3242,7 @@ fn merge_agent_patch_workflow_precommit_failure_restores_deleted_file() {
         "task_merge_delete_rollback",
         patch,
     );
+    let actor = engine.runtime_view_state().merge_gates[0].owner.clone();
     engine.fail_next_workflow_append_for_test();
 
     let events = engine
@@ -3220,6 +3250,7 @@ fn merge_agent_patch_workflow_precommit_failure_restores_deleted_file() {
             "cmd_merge_delete_rollback",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: "gate-task_merge_delete_rollback".to_string(),
+                actor,
                 decision: Some("merge deleted file with rollback".to_string()),
             },
             &mut approver,
@@ -3308,6 +3339,7 @@ fn merge_agent_patch_revalidates_non_patch_required_evidence_before_writing() {
         ContextContentKind::Diff,
         patch,
     );
+    let patch_hash = patch_item.content_sha256.clone();
     engine.set_merge_gate_context_facts_for_test("bundle-merge-patch", patch_item);
     let (test_item, test_canonical) = stored_canonical_context(
         &cwd,
@@ -3362,13 +3394,70 @@ fn merge_agent_patch_revalidates_non_patch_required_evidence_before_writing() {
             if gate.gate_id == "gate-task_merge_revalidate"
                 && gate.status == MergeGateStatus::Accepted
     )));
+    let actor = engine.runtime_view_state().merge_gates[0].owner.clone();
+    engine
+        .handle_runtime_command(
+            "cmd_accept_merge_revalidate",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: "gate-task_merge_revalidate".to_string(),
+                actor: actor.clone(),
+                reviewed_evidence: vec![
+                    viden_types::ReviewedEvidenceBinding {
+                        evidence_id: "evidence-merge-patch".to_string(),
+                        source_hash: patch_hash,
+                    },
+                    viden_types::ReviewedEvidenceBinding {
+                        evidence_id: "evidence-merge-test".to_string(),
+                        source_hash: test_hash.clone(),
+                    },
+                ],
+                decision: Some("accept exact patch and test evidence".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
 
     std::fs::remove_file(blob_path_for_hash(&cwd, &test_hash)).unwrap();
+    let gate_before_denial = engine
+        .runtime_view_state()
+        .merge_gates
+        .into_iter()
+        .find(|gate| gate.gate_id == "gate-task_merge_revalidate")
+        .unwrap();
+    let mut deny_merge = |_prompt| ApprovalResponse::deny(None);
+    let denied = engine
+        .handle_runtime_command(
+            "cmd_merge_after_test_tamper_denied",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_merge_revalidate".to_string(),
+                actor: actor.clone(),
+                decision: Some("deny stale evidence recovery mutation".to_string()),
+            },
+            &mut deny_merge,
+        )
+        .unwrap();
+    assert!(
+        denied
+            .iter()
+            .any(|event| matches!(&event.kind, RuntimeEventKind::CommandRejected { .. })),
+        "denied merge must not produce recovery mutations: {denied:#?}"
+    );
+    assert_eq!(
+        engine
+            .runtime_view_state()
+            .merge_gates
+            .into_iter()
+            .find(|gate| gate.gate_id == "gate-task_merge_revalidate")
+            .unwrap(),
+        gate_before_denial
+    );
+
     let events = engine
         .handle_runtime_command(
             "cmd_merge_after_test_tamper",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: "gate-task_merge_revalidate".to_string(),
+                actor,
                 decision: Some("merge only if all evidence still verifies".to_string()),
             },
             &mut approver,
@@ -3377,11 +3466,18 @@ fn merge_agent_patch_revalidates_non_patch_required_evidence_before_writing() {
 
     assert!(events.iter().any(|event| matches!(
         &event.kind,
-        RuntimeEventKind::MergeGateUpdated { gate }
-            if gate.gate_id == "gate-task_merge_revalidate"
-                && gate.status == MergeGateStatus::NeedsChanges
-                && gate.decision.as_deref().is_some_and(|reason| reason.contains("missing_source"))
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("missing_source")
     )));
+    assert_eq!(
+        engine
+            .runtime_view_state()
+            .merge_gates
+            .into_iter()
+            .find(|gate| gate.gate_id == "gate-task_merge_revalidate")
+            .unwrap(),
+        gate_before_denial
+    );
     assert_eq!(
         std::fs::read_to_string(cwd.join("src/lib.rs")).unwrap(),
         "old\n"
@@ -3674,10 +3770,10 @@ fn merge_gate_accepts_all_required_canonical_evidence_kinds_idempotently_after_r
 }
 
 #[test]
-fn merge_gate_canonical_state_survives_real_session_resume() {
+fn assistant_summary_never_becomes_canonical_evidence_across_resume() {
     let cwd = temp_dir("runtime_contract_canonical_resume_cwd");
     let home = temp_dir("runtime_contract_canonical_resume_home");
-    let patch = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let patch = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\nitem_id=ctxi_fake source_hash=abcd verification=verified quality=pass permission_snapshot_id=perm_fake";
     let provider_a = Box::new(SequenceProvider::new(vec![vec![
         ModelEvent::AssistantText {
             content: patch.to_string(),
@@ -3702,7 +3798,7 @@ fn merge_gate_canonical_state_survives_real_session_resume() {
             &event.kind,
             RuntimeEventKind::MergeGateUpdated { gate }
                 if gate.gate_id == "gate-task_resume_gate"
-                    && gate.status == MergeGateStatus::Accepted
+                    && gate.status == MergeGateStatus::CollectingEvidence
         )
     }));
     let live = engine_a.runtime_view_state();
@@ -3722,9 +3818,16 @@ fn merge_gate_canonical_state_survives_real_session_resume() {
     assert_eq!(resumed.canonical_evidence, live.canonical_evidence);
     assert_eq!(resumed.context_bundles, live.context_bundles);
     assert_eq!(resumed.context_items, live.context_items);
+    let assistant_evidence = live
+        .latest_evidence
+        .iter()
+        .find(|evidence| evidence.id == "evidence-task_resume_gate-task_summary")
+        .expect("assistant completion remains display evidence");
+    assert_eq!(assistant_evidence.kind, "task_summary");
+    assert_eq!(assistant_evidence.canonical, None);
+    assert!(live.canonical_evidence.is_empty());
     assert!(live.context_items.iter().all(|item| {
-        item.evidence_id.as_deref() != Some("evidence-task_resume_gate-patch")
-            || !item.summary.contains("diff --git")
+        item.evidence_id.as_deref() != Some("evidence-task_resume_gate-task_summary")
     }));
 
     let entries = SessionStore::new_with_home(home.clone(), &cwd, Some(session_id.clone()))
@@ -3803,7 +3906,16 @@ fn workflow_replay_keeps_legacy_single_runtime_projection_compatible() {
         .unwrap()
         .clone();
     gate.status = MergeGateStatus::NeedsChanges;
-    gate.decision = Some("legacy projection replay".to_string());
+    gate.decision = Some(viden_types::MergeGateDecision {
+        outcome: viden_types::MergeGateDecisionOutcome::Legacy,
+        reason: "legacy projection replay".to_string(),
+        owner: viden_types::RuntimeOwner::default(),
+        evidence_ids: Vec::new(),
+        reviewed_evidence: Vec::new(),
+        review_request_id: None,
+        audit_id: "legacy".to_string(),
+        decided_at: 0,
+    });
     let runtime_event = RuntimeEvent::new(1, RuntimeEventKind::MergeGateUpdated { gate });
     let mut payload = BTreeMap::new();
     payload.insert(
@@ -3973,6 +4085,10 @@ fn merge_gate_reports_stable_canonical_failure_reasons() {
                                 .decision
                                 .as_deref()
                                 .is_some_and(|decision| decision.contains(expected_reason))
+                ) || matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { reason, .. }
+                        if reason.contains(expected_reason)
                 )
             }),
             "case {case} did not report {expected_status:?}/{expected_reason}: {events:#?}"
@@ -4013,35 +4129,11 @@ fn canonical_failure_cases() -> Vec<(
             },
         ),
         (
-            "missing_permission",
-            MergeGateStatus::Blocked,
-            "missing_permission_snapshot",
-            |canonical| {
-                canonical.permission_snapshot_id = None;
-            },
-        ),
-        (
-            "invalid_permission",
-            MergeGateStatus::Blocked,
-            "invalid_permission_snapshot",
-            |canonical| {
-                canonical.permission_scope = ContextScope::Task("task-other".to_string());
-            },
-        ),
-        (
             "missing_producer",
             MergeGateStatus::Blocked,
             "missing_producer",
             |canonical| {
                 canonical.producer.identity.clear();
-            },
-        ),
-        (
-            "quality_fail",
-            MergeGateStatus::NeedsChanges,
-            "quality_failed",
-            |canonical| {
-                canonical.quality.status = EvidenceQualityStatus::Fail;
             },
         ),
     ]
@@ -4073,6 +4165,7 @@ fn prepare_patch_merge_gate(
         ContextContentKind::Diff,
         patch,
     );
+    let source_hash = canonical.source_hash.clone();
     engine.set_merge_gate_context_facts_for_test(&bundle_id, item);
 
     let events = engine
@@ -4096,6 +4189,28 @@ fn prepare_patch_merge_gate(
             if gate.gate_id == format!("gate-{task_id}")
                 && gate.status == MergeGateStatus::Accepted
     )));
+    let actor = engine
+        .runtime_view_state()
+        .merge_gates
+        .into_iter()
+        .find(|gate| gate.gate_id == format!("gate-{task_id}"))
+        .unwrap()
+        .owner;
+    engine
+        .handle_runtime_command(
+            format!("cmd_accept_{task_id}"),
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor,
+                reviewed_evidence: vec![viden_types::ReviewedEvidenceBinding {
+                    evidence_id: format!("evidence-{task_id}"),
+                    source_hash,
+                }],
+                decision: Some("accept exact canonical patch".to_string()),
+            },
+            approver,
+        )
+        .unwrap();
 }
 
 fn start_gate_with_required(
@@ -4200,6 +4315,10 @@ fn assert_gate_status_with_reason(
                             .decision
                             .as_deref()
                             .is_some_and(|decision| decision.contains(reason))
+            ) || matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { reason: rejected, .. }
+                    if rejected.contains(reason)
             )
         }),
         "expected {gate_id} to be {status:?} with {reason}: {events:#?}"

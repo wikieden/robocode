@@ -212,8 +212,14 @@ impl SessionEngine {
 
     pub(crate) fn prepare_project_mutation_for_supervisor(
         &self,
+        envelope_owner: &viden_types::RuntimeOwner,
         command: &RuntimeCommand,
     ) -> Result<SupervisorProjectMutationPreparation, String> {
+        if let Some(command_actor) = supervised_command_actor(command)
+            && command_actor != envelope_owner
+        {
+            return Err("runtime command actor does not match envelope owner".to_string());
+        }
         let (action, preview) = match command {
             RuntimeCommand::ConfirmProjectConfig {
                 preview_id,
@@ -238,7 +244,12 @@ impl SessionEngine {
                     format!("provider={provider_id} backend={backend_id}"),
                 )
             }
-            _ => return Err("command is not a project onboarding mutation".to_string()),
+            _ => match self.ui_preference_mutation_descriptor(command)? {
+                Some(descriptor) => descriptor,
+                None => self
+                    .trust_mutation_permission_descriptor(command)?
+                    .ok_or_else(|| "command is not a supervised runtime mutation".to_string())?,
+            },
         };
         let tool_name = format!("workflow_{action}");
         let tool = ToolSpec {
@@ -377,6 +388,24 @@ impl SessionEngine {
             return Err("project config preview is invalid".to_string());
         }
         Ok(())
+    }
+}
+
+fn supervised_command_actor(command: &RuntimeCommand) -> Option<&viden_types::RuntimeOwner> {
+    match command {
+        RuntimeCommand::CreateHandoff { owner, .. }
+        | RuntimeCommand::RequestReview { owner, .. }
+        | RuntimeCommand::ConfirmContract { owner, .. }
+        | RuntimeCommand::SetDependency { owner, .. }
+        | RuntimeCommand::BounceMergeConflict { owner, .. }
+        | RuntimeCommand::RevertAppliedChange { owner, .. } => Some(owner),
+        RuntimeCommand::AcceptMergeGate { actor, .. }
+        | RuntimeCommand::AcceptAgentArtifact { actor, .. }
+        | RuntimeCommand::RejectMergeGate { actor, .. }
+        | RuntimeCommand::RejectAgentArtifact { actor, .. }
+        | RuntimeCommand::MergeAgentPatch { actor, .. }
+        | RuntimeCommand::RevalidateMergeConflict { actor, .. } => Some(actor),
+        _ => None,
     }
 }
 

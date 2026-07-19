@@ -48,13 +48,19 @@ flowchart TB
 
 ## Workspace Layout
 
-- `apps/cli`: executable entrypoint, flags, config bootstrap, and current CLI/TUI launcher.
+- `apps/cli`: executable entrypoint, flags, preview commands, and current CLI/TUI launcher.
 - `apps/tui`: terminal frontend app boundary. The full TUI render/input
   loop should move here over follow-up slices.
-- `crates/core`: stable runtime facade for clients; re-exports the core
-  runtime and shared contract types without TUI or GUI dependencies.
-- `crates/config`: config loading, merge precedence, and startup defaults.
-- `crates/runtime`: session engine and turn orchestration.
+- `crates/core`: stable runtime facade for clients; owns the internal
+  pre-release `LocalCoreHost` workspace binding and re-exports the shared
+  client/contract types without TUI or GUI dependencies. The host also owns
+  trusted one-use credential staging so secret bytes never enter serialized
+  commands, events, transcripts, or workflow audit. These host services are not
+  advertised as frontend handshake capabilities until the Core 0.3.2 gate.
+- `crates/config`: config loading, merge precedence, startup defaults, and
+  preservation-safe atomic user UI preference persistence.
+- `crates/runtime`: shared startup bootstrap, session engine, and turn
+  orchestration.
 - `crates/provider`: provider host/runtime, HTTP adapters, provider registry, and tool-calling protocol translation.
 - `crates/plugin-api`: shared plugin manifests, capabilities, permissions, provider descriptors, and ABI symbols.
 - `crates/plugin-host`: plugin discovery, registry, validation, and lifecycle boundary.
@@ -79,6 +85,12 @@ Startup config is resolved through a fixed precedence chain:
 3. Project-local `.viden/config.toml`
 4. Global config file
 5. Built-in defaults
+
+That general chain governs provider and runtime configuration. Personal UI
+preferences deliberately use a separate chain: safe CLI UI override, stored
+user `[ui]`, system resolution, then built-in English. Project-local
+`.viden/config.toml` cannot select or persist a person's locale, skin/mode,
+density, or motion.
 
 The resolved config currently covers:
 
@@ -190,7 +202,22 @@ Version ownership is `0.2.1` for native context/cost, `0.2.3` for canonical
 evidence, `0.2.4` for optional adapters, and `0.2.5` for the DeepSeek A/B gate.
 TUI/GUI apps consume this state through `viden-core` and shared contracts; they
 must not depend directly on context, runtime, provider, tool, or workflow
-internals. CLI may retain direct bootstrap dependencies.
+internals. CLI now uses the same `viden-runtime` bootstrap path that
+`LocalCoreHost` uses before wrapping the supervisor in the transport-neutral
+Core client.
+
+Credential ingress follows the same boundary. Local frontends stage raw bytes
+only through the bound host client, receive an opaque request id, and then send
+`StoreCredentialHandle` through the runtime command path. Runtime persists only
+safe `CredentialHandle` metadata; the platform credential sink receives the
+secret after workspace/provider/backend binding, TTL, and one-use checks.
+
+Personal UI preference mutation follows the runtime boundary as well.
+`SetUiPreferences` and `ResetUiPreferences` validate before supervised
+permission, recheck permission at execution, atomically update the user config,
+then emit `UiPreferencesUpdated`. The reducer updates both the top-level view
+fact and snapshot copy. User config remains the recovery authority; the event
+is not added to project workflow JSONL as a second persistence authority.
 
 ## Terminal Presentation
 

@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use viden_types::{
     CommandLogEntry, CostScope, CostUsageOutcome, CostUsageRecord, Message, PermissionLogEntry,
     Role, RuntimeEvent, RuntimeEventKind, SessionMetaEntry, TokenUsage, ToolCall, ToolResult,
@@ -9,6 +11,49 @@ fn temp_home(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("viden_test_{name}_{}", fresh_id("tmp")));
     fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+#[test]
+fn open_existing_for_query_does_not_create_pristine_home() {
+    let base = temp_home("readonly_query_pristine_base");
+    let home = base.join("missing-home");
+    let cwd = base.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+
+    let query = SessionStore::open_existing_for_query(&home, &cwd).unwrap();
+
+    assert!(query.is_none());
+    assert!(
+        !home.exists(),
+        "read-only session query must not create the home directory"
+    );
+}
+
+#[test]
+fn open_existing_for_query_preserves_existing_empty_home() {
+    let home = temp_home("readonly_query_existing_home");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let sentinel = home.join("sentinel.txt");
+    fs::write(&sentinel, "unchanged").unwrap();
+    let before = fs::metadata(&sentinel).unwrap();
+
+    let query = SessionStore::open_existing_for_query(&home, &cwd).unwrap();
+
+    assert!(query.is_none());
+    assert_eq!(fs::read_to_string(&sentinel).unwrap(), "unchanged");
+    assert_eq!(fs::metadata(&sentinel).unwrap().len(), before.len());
+    #[cfg(unix)]
+    assert_eq!(
+        fs::metadata(&sentinel).unwrap().permissions().mode(),
+        before.permissions().mode()
+    );
+    assert_eq!(
+        fs::metadata(&sentinel).unwrap().permissions().readonly(),
+        before.permissions().readonly()
+    );
+    assert!(!home.join("projects").exists());
+    assert!(!home.join("index.sqlite3").exists());
 }
 
 #[test]

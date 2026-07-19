@@ -6,6 +6,7 @@
 
 mod client;
 mod compatibility;
+mod host;
 mod local_transport;
 
 pub use client::{CoreClient, CoreClientError, CoreTransport, StatefulCoreClient};
@@ -13,22 +14,27 @@ pub use compatibility::{
     CORE_CLIENT_CAPABILITIES, CORE_CLIENT_VERSION, CORE_EXTENSION_CAPABILITIES,
     frontend_capabilities, local_core_handshake, validate_handshake, validate_schema_version,
 };
+pub use host::{
+    BoundCoreClient, CoreHostError, LocalCoreHost, SecretBytes, WorkspaceBinding,
+    WorkspaceOpenOverrides, WorkspaceOpenRequest,
+};
 pub use local_transport::LocalCoreTransport;
 pub use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentRole, AgentRoute,
     AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
     ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
     CommandAction, ContextBundleRecord, ContextOmittedSourceRecord, ContextSourceRecord,
-    CoreHandshake, CostLedgerTotals, CostUsageRecord, CredentialHandle, CredentialStatus,
-    DataEgressPolicy, EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery,
-    GateStrength, LaneBudget, LaneStatus, LocaleId, MergeGateRecord, MergeGateStatus,
-    MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState,
-    ProjectProbe, ProviderHealthView, QueuedInputView, ReplayBatch, ReplayRequest,
-    ResolvedUiPreferences, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent,
-    RuntimeEventEnvelope, RuntimeEventKind, RuntimeSnapshot, RuntimeSnapshotEnvelope,
-    RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView, ToolCallView, TranscriptPage,
-    TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
-    UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode,
+    CoreHandshake, CostLedgerTotals, CostUsageRecord, CredentialHandle, CredentialRequestId,
+    CredentialStatus, DataEgressPolicy, EventCursor, EvidenceView, ExecutionTarget,
+    FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget, LaneStatus, LocaleId,
+    MergeGateRecord, MergeGateStatus, MutationPolicy, PermissionLevel, PermissionMode,
+    ProjectConfigPreview, ProjectConfigState, ProjectProbe, ProviderHealthView, QueuedInputView,
+    ReplayBatch, ReplayRequest, ResolvedUiPreferences, RuntimeCommand, RuntimeCommandEnvelope,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeSnapshot,
+    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView,
+    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
+    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
+    UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -63,6 +69,7 @@ mod tests {
         assert!(std::any::type_name::<AgentTaskStatus>().contains("AgentTaskStatus"));
         assert!(std::any::type_name::<MergeGateStatus>().contains("MergeGateStatus"));
         assert!(std::any::type_name::<ResolvedUiPreferences>().contains("ResolvedUiPreferences"));
+        assert!(std::any::type_name::<UiPreferencePatch>().contains("UiPreferencePatch"));
         assert!(std::any::type_name::<UiSkin>().contains("UiSkin"));
         assert!(std::any::type_name::<WorkMode>().contains("WorkMode"));
         assert!(std::any::type_name::<ProjectProbe>().contains("ProjectProbe"));

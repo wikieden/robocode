@@ -56,6 +56,16 @@ impl PatchApplication {
     pub fn write_paths(&self) -> impl Iterator<Item = &Path> {
         self.changes.iter().map(PatchChange::path)
     }
+
+    /// Returns the exact bytes (or expected absence for deletes) that a
+    /// prepared patch will publish. Recovery snapshots bind these postimages
+    /// before mutation so a later revert cannot overwrite unrelated edits.
+    pub fn planned_postimages(&self) -> impl Iterator<Item = (&Path, Option<&[u8]>)> {
+        self.changes.iter().map(|change| match change {
+            PatchChange::Write { path, contents } => (path.as_path(), Some(contents.as_bytes())),
+            PatchChange::Delete { path } => (path.as_path(), None),
+        })
+    }
 }
 
 impl LocalPatchBackend {

@@ -43,6 +43,15 @@ runtime、context、provider、tool 或 workflow internals。
   将 accepted patch evidence 应用到 workspace；context mismatch 会产生 durable
   patch conflict events，并保持文件不变。scoped role Git staging 现在允许
   scope 内 `git_add`，并拒绝越界 staging 和高风险 Git mutation。
+- 已落地 trust-loop slice：handoff acceptance、review request、contract confirmation 与
+  dependency block/unblock 都是绑定 owner 的 typed facts。Merge gate 携带 typed
+  policy、validator、decision、conflict、applied-change、recovery-snapshot 与 audit 字段。
+  Provider summary 只用于展示；canonical evidence 将真实 ContextStore bytes 绑定到 Core
+  签发的 permission receipt。Independent validator 必须接受精确 evidence id/hash 集。
+  Conflict 会回到原 Lane，只有该 Lane 能为精确 bounce 提交 changed receipt 并显式
+  revalidate，之后还需 fresh acceptance。Trust mutation 在 approval 前完成纯 preflight；
+  merge/revert 使用私有 content-addressed recovery snapshot 与 durable precommit，确保
+  重启后仍能执行 audited revert。
 - 未完成：基于 live LSP references 的 role-specific ContextBundle enrichment、
   release/publish Git rules、evidence collection reducers、rename/delete/binary
   等更完整 patch 格式、三方冲突处理，以及面向 Claude、Codex、Kiro CLI 的
@@ -197,10 +206,17 @@ session 或 workflow state 时有 durable log 支撑。
 | `ResumeAgentDag` | 从 durable DAG state 恢复调度。 |
 | `RespondToAgentApproval` | 把用户审批决策应用到 pending task/tool action。 |
 | `AcceptMergeGate` | 标记 merge gate accepted，并持久化 operator decision。 |
-| `RejectMergeGate` | 标记 merge gate needs changes，并持久化原因。 |
+| `RejectMergeGate` | 标记 merge gate needs changes，并持久化已授权 actor 与原因。 |
 | `AcceptAgentArtifact` | 将 artifact/evidence id 接受到 merge-gate candidate set。 |
-| `RejectAgentArtifact` | 带原因拒绝 artifact/evidence id，并请求后续动作。 |
+| `RejectAgentArtifact` | 带已授权 actor 和原因拒绝 gate-bound artifact/evidence id，并请求后续动作。 |
 | `MergeAgentPatch` | 应用 accepted unified-diff patch evidence；成功时标记 merged，冲突时退回 needs-changes。 |
+| `CreateHandoff` | 在不同 Lane 间记录 typed accepted/rejected ownership transfer。 |
+| `RequestReview` | 把 independent reviewer 与 evidence set 绑定到 merge gate。 |
+| `ConfirmContract` | 记录 task 的 typed contract confirmation/rejection。 |
+| `SetDependency` | 持久化确定性的 dependency block/unblock state。 |
+| `BounceMergeConflict` | 把 structured conflict 返回原 Lane。 |
+| `RevalidateMergeConflict` | 将原 Lane 的 changed canonical receipt 绑定到精确 conflict bounce。 |
+| `RevertAppliedChange` | 恢复 apply 前 bytes，并记录 typed audited revert。 |
 
 建议新增的 `RuntimeEvent`：
 
@@ -217,6 +233,12 @@ session 或 workflow state 时有 durable log 支撑。
 | `AgentTaskFailed` | 是 | 记录 failure class 和 recovery suggestion。 |
 | `EvidenceGateUpdated` | 是 | 记录 verification state changes。 |
 | `MergeGateUpdated` | 是 | 记录 accept/reject/request-change/merge decisions。 |
+| `HandoffUpdated` | 是 | 记录 typed cross-lane acceptance 与 owner identity。 |
+| `ReviewRequestUpdated` | 是 | 记录 pending/accepted/rejected independent review。 |
+| `ContractUpdated` | 是 | 记录 typed task contract decisions。 |
+| `DependencyUpdated` | 是 | 记录 task dependency block/unblock state。 |
+| `MergeConflictBounced` | 是 | 记录原 Lane conflict 与 revalidation state。 |
+| `RevertRecorded` | 是 | 记录 rollback、restored paths、owner 与 audit id。 |
 
 live progress events 应由 runtime supervisor 合并节流。UI 客户端不能从纯动画事件推断业务状态。
 
@@ -314,6 +336,11 @@ Merge 规则：
 - failed checks 必须作为 evidence 可见，不能被 generic error 隐藏。
 - docs 和 tests 是一等 evidence，不是发布前的可选修饰。
 - 多个 agent 修改重叠文件时，merge gate 必须显式 serialize、rebase 或 reject 冲突 artifact。
+- Evidence summary 只用于显示；acceptance 必须验证 canonical content。Conflict-bounced
+  change 必须重新验证并再次 accept 后才能 merge。
+- Merge 与 revert 使用 `validate -> permission -> prepare -> durable precommit -> file
+  effect -> typed fact commit`；失败会恢复 transaction bytes/projections 并显示 structured
+  recovery。
 
 ## 版本计划
 

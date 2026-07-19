@@ -18,9 +18,10 @@ use viden_plugin_api::{
 use viden_plugin_host::builtin_agent_descriptors;
 use viden_types::{
     AgentCapabilityRecord, AgentNextAction, AgentRole, AgentRoute, AgentTaskKind, AgentTaskRecord,
-    AgentTaskStatus, ApprovalResponse, EvidenceView, MergeGateRecord, MergeGateStatus,
-    PermissionDecision, PermissionLogEntry, RuntimeEvent, RuntimeEventKind, ToolInput, ToolSpec,
-    TranscriptEntry, now_timestamp, truncate_for_preview,
+    AgentTaskStatus, ApprovalResponse, EvidenceView, MergeGateDecisionOutcome,
+    MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, PermissionDecision,
+    PermissionLogEntry, RuntimeEvent, RuntimeEventKind, RuntimeOwner, ToolInput, ToolSpec,
+    TranscriptEntry, fresh_id, now_timestamp, truncate_for_preview,
 };
 
 const SHELL_SCRIPT_THRESHOLD: usize = 32 * 1024;
@@ -4157,18 +4158,43 @@ fn acp_session_merge_gate(
     status: MergeGateStatus,
     evidence_ids: &[String],
 ) -> MergeGateRecord {
+    let now = now_timestamp();
+    let task_id = format!("acp-session-{session_id}");
+    let required_evidence = acp_session_required_evidence(evidence_ids);
     MergeGateRecord {
         gate_id: format!("gate-acp-session-{session_id}"),
-        task_id: format!("acp-session-{session_id}"),
+        task_id: task_id.clone(),
         status,
-        required_evidence: acp_session_required_evidence(evidence_ids),
+        required_evidence: required_evidence.clone(),
         evidence_ids: evidence_ids.to_vec(),
+        gate_type: MergeGateType::Artifact,
+        owner: RuntimeOwner {
+            task_id: Some(task_id),
+            ..RuntimeOwner::default()
+        },
+        validator: None,
+        policy_snapshot: MergeGatePolicySnapshot {
+            required_evidence,
+            permission_snapshot_id: None,
+            requires_independent_validator: false,
+            captured_at: Some(now),
+        },
         decision: if status == MergeGateStatus::CollectingEvidence && !evidence_ids.is_empty() {
-            Some("missing_canonical".to_string())
+            Some(crate::trust_loop::merge_gate_decision(
+                MergeGateDecisionOutcome::AwaitingEvidence,
+                "missing_canonical".to_string(),
+                RuntimeOwner::default(),
+                evidence_ids.to_vec(),
+                fresh_id("audit"),
+            ))
         } else {
             None
         },
-        updated_at: Some(now_timestamp()),
+        conflict: None,
+        applied_change_id: None,
+        recovery_snapshot: None,
+        audit_ids: Vec::new(),
+        updated_at: Some(now),
     }
 }
 

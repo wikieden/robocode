@@ -1248,7 +1248,22 @@ fn run_supervisor_worker(
                         );
                     }
                     command @ (RuntimeCommand::ConfirmProjectConfig { .. }
-                    | RuntimeCommand::StoreCredentialHandle { .. }) => {
+                    | RuntimeCommand::StoreCredentialHandle { .. }
+                    | RuntimeCommand::SetUiPreferences { .. }
+                    | RuntimeCommand::ResetUiPreferences
+                    | RuntimeCommand::CreateHandoff { .. }
+                    | RuntimeCommand::RequestReview { .. }
+                    | RuntimeCommand::ConfirmContract { .. }
+                    | RuntimeCommand::SetDependency { .. }
+                    | RuntimeCommand::AcceptMergeGate { .. }
+                    | RuntimeCommand::RejectMergeGate { .. }
+                    | RuntimeCommand::RecordAgentEvidence { .. }
+                    | RuntimeCommand::AcceptAgentArtifact { .. }
+                    | RuntimeCommand::RejectAgentArtifact { .. }
+                    | RuntimeCommand::MergeAgentPatch { .. }
+                    | RuntimeCommand::RevalidateMergeConflict { .. }
+                    | RuntimeCommand::BounceMergeConflict { .. }
+                    | RuntimeCommand::RevertAppliedChange { .. }) => {
                         run_supervised_project_mutation(
                             &mut engine,
                             owner,
@@ -1463,7 +1478,7 @@ fn run_supervised_project_mutation(
         );
         return;
     }
-    match engine.prepare_project_mutation_for_supervisor(&command) {
+    match engine.prepare_project_mutation_for_supervisor(&owner, &command) {
         Ok(SupervisorProjectMutationPreparation::Ready) => {
             let mut approver = |_prompt: PermissionPrompt| {
                 ApprovalResponse::deny(Some("unexpected project mutation approval".to_string()))
