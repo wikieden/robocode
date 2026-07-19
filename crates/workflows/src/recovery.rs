@@ -1,7 +1,15 @@
 use std::collections::BTreeSet;
-use std::fs;
-use std::io::Write;
+use std::fs::{self, File};
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
+#[cfg(unix)]
+use std::{
+    ffi::CString,
+    os::unix::{
+        ffi::OsStrExt,
+        io::{AsRawFd, FromRawFd},
+    },
+};
 
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -135,13 +143,27 @@ impl WorkflowStore {
         validate_sha256(&reference.manifest_sha256)?;
         let recovery_root = self.paths().project_dir.join("recovery");
         require_plain_directory(&recovery_root)?;
-        let lock = open_existing_private_file(&recovery_root.join("recovery.lock"))?;
+        let recovery_dir = open_existing_private_directory(&recovery_root)?;
+        let lock = open_existing_private_file_at(
+            &recovery_dir,
+            Path::new("recovery.lock"),
+            &recovery_root.join("recovery.lock"),
+        )?
+        .file;
         lock.lock_shared().map_err(|error| error.to_string())?;
-        let snapshot_dir = recovery_root.join(&reference.snapshot_id);
-        require_plain_directory(&snapshot_dir)?;
-        let manifest_path = snapshot_dir.join("manifest.json");
-        require_plain_file(&manifest_path)?;
-        let manifest_bytes = fs::read(&manifest_path).map_err(|error| error.to_string())?;
+        let snapshot_dir_path = recovery_root.join(&reference.snapshot_id);
+        let snapshot_dir = open_existing_private_directory_at(
+            &recovery_dir,
+            Path::new(&reference.snapshot_id),
+            &snapshot_dir_path,
+        )?;
+        let manifest_path = snapshot_dir_path.join("manifest.json");
+        let manifest_bytes = read_existing_private_file_at(
+            &snapshot_dir,
+            Path::new("manifest.json"),
+            &manifest_path,
+        )?
+        .bytes;
         if sha256_hex(&manifest_bytes) != reference.manifest_sha256 {
             return Err("recovery manifest hash mismatch".to_string());
         }
@@ -163,9 +185,16 @@ impl WorkflowStore {
             let preimage = match entry.preimage_sha256 {
                 Some(hash) => {
                     validate_sha256(&hash)?;
-                    let blob_path = snapshot_dir.join("blobs").join(&hash[..2]).join(&hash);
-                    require_plain_file(&blob_path)?;
-                    let bytes = fs::read(blob_path).map_err(|error| error.to_string())?;
+                    let blob_dir_path = snapshot_dir_path.join("blobs").join(&hash[..2]);
+                    let blob_dir = open_existing_private_directory_at(
+                        &snapshot_dir,
+                        Path::new("blobs").join(&hash[..2]).as_path(),
+                        &blob_dir_path,
+                    )?;
+                    let blob_path = blob_dir_path.join(&hash);
+                    let bytes =
+                        read_existing_private_file_at(&blob_dir, Path::new(&hash), &blob_path)?
+                            .bytes;
                     if sha256_hex(&bytes) != hash {
                         return Err("recovery blob hash mismatch".to_string());
                     }
@@ -273,16 +302,184 @@ fn open_private_file(path: &Path, create_new: bool) -> Result<fs::File, String> 
     Ok(file)
 }
 
-fn open_existing_private_file(path: &Path) -> Result<fs::File, String> {
-    require_plain_file(path)?;
-    let mut options = fs::OpenOptions::new();
-    options.read(true);
+struct OpenPrivateFile {
+    file: File,
+    bytes: Vec<u8>,
+}
+
+fn open_existing_private_directory(path: &Path) -> Result<File, String> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
+        open_existing_private_directory_unix(path)
     }
-    options.open(path).map_err(|error| error.to_string())
+    #[cfg(not(unix))]
+    {
+        require_plain_directory(path)?;
+        File::open(path).map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(unix)]
+fn open_existing_private_directory_unix(path: &Path) -> Result<File, String> {
+    reject_symlink_ancestors(path)?;
+    let c_path = cstring_for_open(path.as_os_str(), path)?;
+    let fd = unsafe {
+        libc::open(
+            c_path.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        return Err(format!(
+            "{}: {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    let file = unsafe { File::from_raw_fd(fd) };
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if !metadata.file_type().is_dir() {
+        return Err(format!(
+            "recovery path `{}` is not a plain directory",
+            path.display()
+        ));
+    }
+    Ok(file)
+}
+
+fn open_existing_private_directory_at(
+    root: &File,
+    relative: &Path,
+    display_path: &Path,
+) -> Result<File, String> {
+    #[cfg(unix)]
+    {
+        open_private_path_at_unix(root, relative, display_path, true)
+    }
+    #[cfg(not(unix))]
+    {
+        require_plain_directory(display_path)?;
+        File::open(display_path).map_err(|error| error.to_string())
+    }
+}
+
+fn read_existing_private_file_at(
+    root: &File,
+    relative: &Path,
+    display_path: &Path,
+) -> Result<OpenPrivateFile, String> {
+    #[cfg(unix)]
+    {
+        let mut file = open_private_path_at_unix(root, relative, display_path, false)?;
+        let bytes = read_open_private_file(display_path, &mut file)?;
+        Ok(OpenPrivateFile { file, bytes })
+    }
+    #[cfg(not(unix))]
+    {
+        let mut file = File::open(display_path).map_err(|error| error.to_string())?;
+        validate_open_private_file(display_path, &file)?;
+        let bytes = read_open_private_file(display_path, &mut file)?;
+        Ok(OpenPrivateFile { file, bytes })
+    }
+}
+
+fn open_existing_private_file_at(
+    root: &File,
+    relative: &Path,
+    display_path: &Path,
+) -> Result<OpenPrivateFile, String> {
+    read_existing_private_file_at(root, relative, display_path)
+}
+
+#[cfg(unix)]
+fn open_private_path_at_unix(
+    root: &File,
+    relative: &Path,
+    display_path: &Path,
+    directory: bool,
+) -> Result<File, String> {
+    let mut components = relative.components().peekable();
+    let mut current = root.try_clone().map_err(|error| error.to_string())?;
+    while let Some(component) = components.next() {
+        let Component::Normal(segment) = component else {
+            return Err(format!(
+                "recovery path `{}` contains unsafe traversal",
+                display_path.display()
+            ));
+        };
+        let name = cstring_for_open(segment, display_path)?;
+        let final_component = components.peek().is_none();
+        let flags = if final_component && !directory {
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW
+        } else {
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW
+        };
+        let fd = unsafe { libc::openat(current.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err(format!(
+                "{}: {}",
+                display_path.display(),
+                std::io::Error::last_os_error()
+            ));
+        }
+        let opened = unsafe { File::from_raw_fd(fd) };
+        let metadata = opened.metadata().map_err(|error| error.to_string())?;
+        if final_component {
+            if directory && !metadata.file_type().is_dir() {
+                return Err(format!(
+                    "recovery path `{}` is not a plain directory",
+                    display_path.display()
+                ));
+            }
+            if !directory && !metadata.file_type().is_file() {
+                return Err(format!(
+                    "recovery path `{}` is not a plain file",
+                    display_path.display()
+                ));
+            }
+            return Ok(opened);
+        }
+        if !metadata.file_type().is_dir() {
+            return Err(format!(
+                "recovery path `{}` crosses non-directory ancestor",
+                display_path.display()
+            ));
+        }
+        current = opened;
+    }
+    Err("recovery relative path cannot be empty".to_string())
+}
+
+fn validate_open_private_file(path: &Path, file: &File) -> Result<(), String> {
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if !metadata.file_type().is_file() {
+        return Err(format!(
+            "recovery path `{}` is not a plain file",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn read_open_private_file(path: &Path, file: &mut File) -> Result<Vec<u8>, String> {
+    validate_open_private_file(path, file)?;
+    let len = file.metadata().map_err(|error| error.to_string())?.len();
+    let capacity = usize::try_from(len)
+        .map_err(|_| format!("recovery file `{}` is too large", path.display()))?;
+    let mut bytes = Vec::with_capacity(capacity);
+    file.read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    Ok(bytes)
+}
+
+#[cfg(unix)]
+fn cstring_for_open(value: &std::ffi::OsStr, display_path: &Path) -> Result<CString, String> {
+    CString::new(value.as_bytes()).map_err(|_| {
+        format!(
+            "recovery path `{}` contains a NUL byte",
+            display_path.display()
+        )
+    })
 }
 
 fn write_private_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -295,8 +492,15 @@ fn write_private_content_addressed(path: &Path, bytes: &[u8]) -> Result<(), Stri
     match write_private_new(path, bytes) {
         Ok(()) => Ok(()),
         Err(_) if path.exists() => {
-            require_plain_file(path)?;
-            let existing = fs::read(path).map_err(|read_error| read_error.to_string())?;
+            let parent = path
+                .parent()
+                .ok_or_else(|| "recovery blob path has no parent".to_string())?;
+            let file_name = path
+                .file_name()
+                .ok_or_else(|| "recovery blob path has no file name".to_string())?;
+            let parent_dir = open_existing_private_directory(parent)?;
+            let existing =
+                read_existing_private_file_at(&parent_dir, Path::new(file_name), path)?.bytes;
             if existing == bytes {
                 Ok(())
             } else {
@@ -309,10 +513,6 @@ fn write_private_content_addressed(path: &Path, bytes: &[u8]) -> Result<(), Stri
 
 fn require_plain_directory(path: &Path) -> Result<(), String> {
     require_plain_path(path, true)
-}
-
-fn require_plain_file(path: &Path) -> Result<(), String> {
-    require_plain_path(path, false)
 }
 
 fn require_plain_path(path: &Path, directory: bool) -> Result<(), String> {
@@ -521,6 +721,40 @@ mod tests {
             .map(|prefix| fs::read_dir(prefix.unwrap().path()).unwrap().count())
             .sum::<usize>();
         assert_eq!(blob_count, 1);
+    }
+
+    #[test]
+    fn recovery_snapshot_loader_uses_single_handle_source_guard() {
+        let source = include_str!("recovery.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production recovery module");
+        assert!(production.contains("lock.lock_shared()"));
+        assert!(production.contains("read_existing_private_file_at"));
+        assert!(production.contains("read_open_private_file"));
+        assert!(production.contains(".metadata()"));
+        assert!(production.contains(".read_to_end("));
+        assert!(
+            !production.contains("fs::read("),
+            "production recovery loading must not reopen by path after metadata checks"
+        );
+        assert!(
+            !production.contains("require_plain_file("),
+            "production recovery file loading must validate metadata from the opened handle"
+        );
+        assert!(
+            !production.contains("open_existing_private_file(display_path)"),
+            "non-Unix recovery branch must not reference the removed path-check helper"
+        );
+        assert!(production.contains("File::open(display_path)"));
+        assert!(production.contains("validate_open_private_file(display_path, &file)"));
+        #[cfg(unix)]
+        {
+            assert!(production.contains("libc::openat"));
+            assert!(production.contains("libc::O_NOFOLLOW"));
+            assert!(production.contains("libc::O_DIRECTORY"));
+        }
     }
 
     #[cfg(unix)]
