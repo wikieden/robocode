@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     mpsc::{self, Sender},
 };
 use std::thread::{self, JoinHandle};
@@ -31,6 +31,7 @@ pub(crate) enum LaneWorkerMessage {
 
 pub(crate) struct LaneWorkerHandle {
     pub(crate) owner: RuntimeOwner,
+    pending_approval: Arc<Mutex<Option<String>>>,
     sender: Sender<LaneWorkerMessage>,
     _worker: JoinHandle<()>,
 }
@@ -45,6 +46,8 @@ impl LaneWorkerHandle {
         events: LaneEventSink,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
+        let pending_approval = Arc::new(Mutex::new(None));
+        let worker_pending_approval = Arc::clone(&pending_approval);
         let worker_owner = owner.clone();
         let worker_lane = lane.clone();
         let worker = thread::spawn(move || {
@@ -56,6 +59,7 @@ impl LaneWorkerHandle {
                 effects,
                 events,
                 pending_start: None,
+                pending_approval: worker_pending_approval,
             };
             while let Ok(message) = receiver.recv() {
                 if matches!(message, LaneWorkerMessage::Shutdown) {
@@ -66,6 +70,7 @@ impl LaneWorkerHandle {
         });
         Self {
             owner,
+            pending_approval,
             sender,
             _worker: worker,
         }
@@ -75,6 +80,12 @@ impl LaneWorkerHandle {
         self.sender
             .send(message)
             .map_err(|error| format!("lane worker stopped: {error}"))
+    }
+
+    pub(crate) fn owns_pending_approval(&self, request_id: &str) -> bool {
+        self.pending_approval
+            .lock()
+            .is_ok_and(|pending| pending.as_deref() == Some(request_id))
     }
 }
 
@@ -98,6 +109,7 @@ struct LaneWorker {
     effects: Arc<dyn LaneEffectExecutor>,
     events: LaneEventSink,
     pending_start: Option<PendingStart>,
+    pending_approval: Arc<Mutex<Option<String>>>,
 }
 
 impl LaneWorker {
@@ -148,10 +160,13 @@ impl LaneWorker {
                         }
                         let approval = lane_approval(&request_id, &self.owner, &self.lane);
                         self.pending_start = Some(PendingStart {
-                            request_id,
+                            request_id: request_id.clone(),
                             command_id,
                             request,
                         });
+                        if let Ok(mut pending) = self.pending_approval.lock() {
+                            *pending = Some(request_id);
+                        }
                         self.emit(RuntimeEventKind::ApprovalRequested { approval });
                     }
                     viden_types::MutationPolicy::ReadOnly => {
@@ -230,6 +245,9 @@ impl LaneWorker {
             self.pending_start = Some(pending);
             return;
         }
+        if let Ok(mut approval) = self.pending_approval.lock() {
+            *approval = None;
+        }
         self.emit(RuntimeEventKind::ApprovalResolved {
             request_id,
             decision: response.decision.clone(),
@@ -246,6 +264,9 @@ impl LaneWorker {
 
     fn cancel(&mut self, command_id: String) {
         if let Some(pending) = self.pending_start.take() {
+            if let Ok(mut approval) = self.pending_approval.lock() {
+                *approval = None;
+            }
             self.emit(RuntimeEventKind::ApprovalResolved {
                 request_id: pending.request_id,
                 decision: ApprovalDecision::Deny,

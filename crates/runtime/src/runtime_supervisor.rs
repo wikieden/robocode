@@ -63,9 +63,34 @@ struct ActiveRuntimeControl {
     state: ActiveJobState,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct RuntimeOwnerKey {
+    workspace_id: String,
+    project_id: String,
+    lane_id: Option<String>,
+    session_id: Option<String>,
+    task_id: Option<String>,
+    turn_id: Option<String>,
+}
+
+impl From<&RuntimeOwner> for RuntimeOwnerKey {
+    fn from(owner: &RuntimeOwner) -> Self {
+        Self {
+            workspace_id: owner.workspace_id.clone(),
+            project_id: owner.project_id.clone(),
+            lane_id: owner.lane_id.clone(),
+            session_id: owner.session_id.clone(),
+            task_id: owner.task_id.clone(),
+            turn_id: owner.turn_id.clone(),
+        }
+    }
+}
+
+type ActiveControlRegistry = Arc<Mutex<BTreeMap<RuntimeOwnerKey, ActiveRuntimeControl>>>;
+
 struct SupervisorShared<'a> {
     event_bus: &'a RuntimeEventBus,
-    active_control: &'a Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &'a ActiveControlRegistry,
     pending_approvals: &'a Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 }
 
@@ -145,7 +170,7 @@ pub struct RuntimeSupervisor {
     commands: Sender<SupervisorMessage>,
     events: Receiver<RuntimeEventEnvelope>,
     event_bus: RuntimeEventBus,
-    active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: ActiveControlRegistry,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     lane_supervisor: Arc<LaneSupervisor>,
     worker_alive: Arc<AtomicBool>,
@@ -172,7 +197,7 @@ impl RuntimeSupervisor {
     ) -> Self {
         let (command_sender, command_receiver) = mpsc::channel();
         let (event_sender, event_receiver) = mpsc::channel();
-        let active_control: Arc<Mutex<Option<ActiveRuntimeControl>>> = Arc::new(Mutex::new(None));
+        let active_control: ActiveControlRegistry = Arc::new(Mutex::new(BTreeMap::new()));
         let pending_approvals = Arc::new(Mutex::new(BTreeMap::new()));
         let worker_alive = Arc::new(AtomicBool::new(true));
         let event_bus = RuntimeEventBus {
@@ -286,7 +311,8 @@ impl RuntimeSupervisor {
                     .active_control
                     .lock()
                     .map_err(|_| "active turn lock poisoned".to_string())?
-                    .clone()
+                    .get(&RuntimeOwnerKey::from(&owner))
+                    .cloned()
                 else {
                     emit_event(
                         &self.event_bus,
@@ -341,6 +367,7 @@ impl RuntimeSupervisor {
             } => {
                 if self.lane_supervisor.respond_to_approval(
                     &owner,
+                    &command_id,
                     &request_id,
                     response.clone(),
                 )? {
@@ -506,7 +533,7 @@ impl RuntimeSupervisor {
             RuntimeCommand::SubmitUserInput { .. }
             | RuntimeCommand::StartAgentTask { .. }
             | RuntimeCommand::RetrieveContext { .. } => {
-                if let Some(owner_id) = active_owner_id(&self.active_control) {
+                if let Some(owner_id) = active_owner_id(&self.active_control, &owner) {
                     emit_event(
                         &self.event_bus,
                         owner.clone(),
@@ -654,7 +681,7 @@ fn run_supervisor_worker(
     mut engine: SessionEngine,
     command_receiver: Receiver<SupervisorMessage>,
     event_bus: RuntimeEventBus,
-    active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: ActiveControlRegistry,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_ttl_secs: u64,
     worker_alive: Arc<AtomicBool>,
@@ -809,7 +836,7 @@ fn run_supervised_context_retrieval(
     shared: SupervisorShared<'_>,
     approval_ttl_secs: u64,
 ) {
-    if let Some(owner_id) = active_owner_id(shared.active_control) {
+    if let Some(owner_id) = active_owner_id(shared.active_control, &owner) {
         emit_event(
             shared.event_bus,
             owner.clone(),
@@ -942,7 +969,7 @@ fn start_context_retrieval_worker(
     control: ModelRequestControl,
     owner: RuntimeOwner,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
 ) {
     let worker_event_bus = event_bus.clone();
     let worker_active_control = Arc::clone(active_control);
@@ -967,49 +994,57 @@ fn start_context_retrieval_worker(
 }
 
 fn acquire_active_job(
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     owner_id: String,
     owner: RuntimeOwner,
     control: ModelRequestControl,
     state: ActiveJobState,
 ) -> Result<(), String> {
-    let mut slot = active_control
+    let mut controls = active_control
         .lock()
         .map_err(|_| "active turn lock poisoned".to_string())?;
-    if let Some(active) = slot.as_ref() {
+    let key = RuntimeOwnerKey::from(&owner);
+    if let Some(active) = controls.get(&key) {
         return Err(format!(
             "active runtime job `{}` is already running",
             active.owner_id
         ));
     }
-    *slot = Some(ActiveRuntimeControl {
-        owner_id,
-        owner,
-        control,
-        state,
-    });
+    controls.insert(
+        key,
+        ActiveRuntimeControl {
+            owner_id,
+            owner,
+            control,
+            state,
+        },
+    );
     Ok(())
 }
 
 fn active_control_for_owner(
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     owner_id: &str,
 ) -> Option<ModelRequestControl> {
-    active_control.lock().ok().and_then(|slot| {
-        slot.as_ref()
-            .filter(|active| active.owner_id == owner_id)
+    active_control.lock().ok().and_then(|controls| {
+        controls
+            .values()
+            .find(|active| active.owner_id == owner_id)
             .map(|active| active.control.clone())
     })
 }
 
 fn mark_active_running(
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     owner_id: &str,
 ) -> Result<(), String> {
-    let mut slot = active_control
+    let mut controls = active_control
         .lock()
         .map_err(|_| "active turn lock poisoned".to_string())?;
-    let Some(active) = slot.as_mut().filter(|active| active.owner_id == owner_id) else {
+    let Some(active) = controls
+        .values_mut()
+        .find(|active| active.owner_id == owner_id)
+    else {
         return Err(format!(
             "active runtime job `{owner_id}` is no longer pending"
         ));
@@ -1019,14 +1054,17 @@ fn mark_active_running(
 }
 
 fn mark_active_pending(
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     owner_id: &str,
     request_id: String,
 ) -> Result<(), String> {
-    let mut slot = active_control
+    let mut controls = active_control
         .lock()
         .map_err(|_| "active turn lock poisoned".to_string())?;
-    let Some(active) = slot.as_mut().filter(|active| active.owner_id == owner_id) else {
+    let Some(active) = controls
+        .values_mut()
+        .find(|active| active.owner_id == owner_id)
+    else {
         return Err(format!(
             "active runtime job `{owner_id}` is no longer running"
         ));
@@ -1038,7 +1076,7 @@ fn mark_active_pending(
 fn insert_pending_approval(
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     request_id: String,
     pending: PendingApproval,
 ) {
@@ -1059,7 +1097,7 @@ fn schedule_approval_expiry(
     request_id: String,
     expires_at: u64,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 ) {
     let event_bus = event_bus.clone();
@@ -1084,7 +1122,7 @@ fn schedule_approval_expiry(
 fn expire_pending_approvals_at(
     now: u64,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
 ) {
     let expired_ids = pending_approvals
@@ -1113,7 +1151,7 @@ fn resolve_pending_approval_by_id(
     request_id: &str,
     decision: ApprovalDecision,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     error_message: Option<String>,
 ) {
@@ -1138,7 +1176,7 @@ fn resolve_removed_pending_approval(
     pending: PendingApproval,
     decision: ApprovalDecision,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     error_message: Option<String>,
 ) {
     let owner_id = match &pending.target {
@@ -1196,7 +1234,7 @@ fn resume_context_retrieval_after_approval(
     _audit_id: String,
     job: ContextRetrievalJob,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
 ) {
     let Some(control) = active_control_for_owner(active_control, &owner_id) else {
         emit_error(
@@ -1218,20 +1256,17 @@ fn resume_context_retrieval_after_approval(
     start_context_retrieval_worker(owner_id, job, control, owner, event_bus, active_control);
 }
 
-fn active_owner_id(active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>) -> Option<String> {
-    active_control
-        .lock()
-        .ok()
-        .and_then(|slot| slot.as_ref().map(|active| active.owner_id.clone()))
+fn active_owner_id(active_control: &ActiveControlRegistry, owner: &RuntimeOwner) -> Option<String> {
+    active_control.lock().ok().and_then(|controls| {
+        controls
+            .get(&RuntimeOwnerKey::from(owner))
+            .map(|active| active.owner_id.clone())
+    })
 }
 
-fn clear_active_control(active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>, owner_id: &str) {
-    if let Ok(mut slot) = active_control.lock()
-        && slot
-            .as_ref()
-            .is_some_and(|active| active.owner_id == owner_id)
-    {
-        *slot = None;
+fn clear_active_control(active_control: &ActiveControlRegistry, owner_id: &str) {
+    if let Ok(mut controls) = active_control.lock() {
+        controls.retain(|_, active| active.owner_id != owner_id);
     }
 }
 
@@ -1242,7 +1277,7 @@ fn run_supervised_agent_task(
     command_id: String,
     task_id: String,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_ttl_secs: u64,
 ) {
@@ -1326,7 +1361,7 @@ fn run_supervised_input(
     command_id: String,
     content: String,
     event_bus: &RuntimeEventBus,
-    active_control: &Arc<Mutex<Option<ActiveRuntimeControl>>>,
+    active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_ttl_secs: u64,
 ) {

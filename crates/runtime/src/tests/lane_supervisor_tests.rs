@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -241,9 +241,234 @@ fn lane_supervisor_plan_mode_rejects_effectful_commands_before_effects() {
     );
 }
 
+#[test]
+fn lane_supervisor_keeps_waiting_lane_isolated_and_routes_owner_events() {
+    let cwd = temp_dir("lane_supervisor_owner_routing_cwd");
+    let home = temp_dir("lane_supervisor_owner_routing_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let owner_a = owner("lane-a");
+    let owner_b = owner("lane-b");
+    let mut lane_b = lane("lane-b");
+    lane_b.mutation_policy = MutationPolicy::Autonomous;
+
+    supervisor
+        .send_command_from_owner(
+            owner_a.clone(),
+            "cmd_create_a",
+            RuntimeCommand::CreateLane {
+                lane: lane("lane-a"),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner_b.clone(),
+            "cmd_create_b",
+            RuntimeCommand::CreateLane { lane: lane_b },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner_a.clone(),
+            "cmd_start_a",
+            RuntimeCommand::StartLane {
+                lane_id: "lane-a".to_string(),
+                command: "worker-a".to_string(),
+                args: Vec::new(),
+                env: Vec::new(),
+                output_log: None,
+            },
+        )
+        .unwrap();
+
+    let mut envelopes = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalRequested { .. },
+                    ..
+                })
+            )
+        })
+    });
+    let approval_id = envelopes
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ApprovalRequested { approval },
+                ..
+            }) => Some(approval.id.clone()),
+            _ => None,
+        })
+        .unwrap();
+
+    supervisor
+        .send_command_from_owner(
+            owner_b.clone(),
+            "cmd_wrong_owner_approval",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval_id,
+                response: viden_types::ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner_b.clone(),
+            "cmd_start_b",
+            RuntimeCommand::StartLane {
+                lane_id: "lane-b".to_string(),
+                command: "worker-b".to_string(),
+                args: Vec::new(),
+                env: Vec::new(),
+                output_log: None,
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner_b.clone(),
+            "cmd_input_b",
+            RuntimeCommand::SendLaneInput {
+                lane_id: "lane-b".to_string(),
+                input: "continue\n".to_string(),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner_b.clone(),
+            "cmd_accept_b",
+            RuntimeCommand::AcceptLaneOutput {
+                lane_id: "lane-b".to_string(),
+                summary: "lane B complete".to_string(),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner_a.clone(),
+            "cmd_cancel_a",
+            RuntimeCommand::CancelActiveTurn,
+        )
+        .unwrap();
+
+    envelopes.extend(collect_envelopes_until(&supervisor, |events| {
+        let has_b_done = events.iter().any(|envelope| {
+            envelope.owner == owner_b
+                && matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::LaneUpdated { lane },
+                        ..
+                    }) if lane.id == "lane-b" && lane.status == LaneStatus::Done
+                )
+        });
+        let has_a_cancelled = events.iter().any(|envelope| {
+            envelope.owner == owner_a
+                && matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::LaneUpdated { lane },
+                        ..
+                    }) if lane.id == "lane-a" && lane.status == LaneStatus::Cancelled
+                )
+        });
+        has_b_done && has_a_cancelled
+    }));
+
+    let calls = effects.calls.lock().unwrap().clone();
+    assert!(calls.contains(&"create:lane-a".to_string()));
+    assert!(calls.contains(&"create:lane-b".to_string()));
+    assert!(calls.contains(&"start:lane-b".to_string()));
+    assert!(calls.contains(&"input:lane-b".to_string()));
+    assert!(!calls.contains(&"start:lane-a".to_string()));
+    assert!(!calls.contains(&"stop:lane-a".to_string()));
+
+    assert!(envelopes.iter().any(|envelope| {
+        envelope.owner == owner_b
+            && matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { command_id, reason },
+                    ..
+                }) if command_id == "cmd_wrong_owner_approval" && reason.contains("owner mismatch")
+            )
+    }));
+    assert!(envelopes.iter().any(|envelope| {
+        envelope.owner == owner_b
+            && matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::InputQueued { .. },
+                    ..
+                })
+            )
+    }));
+    assert!(envelopes.iter().any(|envelope| {
+        envelope.owner == owner_b
+            && matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::Error { .. },
+                    ..
+                })
+            )
+    }));
+    assert!(envelopes.iter().all(|envelope| match &envelope.event {
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::ApprovalRequested { approval },
+            ..
+        }) => envelope.owner == owner_a && approval.owner == owner_a,
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::ApprovalResolved { owner, .. },
+            ..
+        }) => envelope.owner == owner_a && owner == &owner_a,
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::LaneUpdated { lane },
+            ..
+        }) => envelope.owner.lane_id.as_deref() == Some(lane.id.as_str()),
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::LaneOutputAppended { lane_id, .. },
+            ..
+        }) => envelope.owner.lane_id.as_deref() == Some(lane_id.as_str()),
+        _ => true,
+    }));
+}
+
 #[derive(Default)]
 struct CountingLaneEffects {
     calls: AtomicUsize,
+}
+
+#[derive(Default)]
+struct RecordingLaneEffects {
+    calls: Mutex<Vec<String>>,
+}
+
+impl LaneEffectExecutor for RecordingLaneEffects {
+    fn execute(&self, request: LaneEffectRequest) -> Result<LaneEffectResult, String> {
+        let call = match request {
+            LaneEffectRequest::Create { lane, .. } => format!("create:{}", lane.id),
+            LaneEffectRequest::Start { lane, .. } => format!("start:{}", lane.id),
+            LaneEffectRequest::Stop { lane_id } => format!("stop:{lane_id}"),
+            LaneEffectRequest::SendInput { lane_id, .. } => {
+                self.calls.lock().unwrap().push(format!("input:{lane_id}"));
+                return Err(format!("lane `{lane_id}` input channel closed"));
+            }
+            LaneEffectRequest::Apply { .. } => "apply".to_string(),
+            LaneEffectRequest::Cleanup { lane, .. } => format!("cleanup:{}", lane.id),
+        };
+        self.calls.lock().unwrap().push(call);
+        Ok(LaneEffectResult::success("effect completed"))
+    }
 }
 
 impl LaneEffectExecutor for CountingLaneEffects {

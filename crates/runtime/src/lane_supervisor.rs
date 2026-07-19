@@ -121,21 +121,27 @@ impl LaneSupervisor {
     pub(crate) fn respond_to_approval(
         &self,
         owner: &RuntimeOwner,
+        command_id: &str,
         request_id: &str,
         response: ApprovalResponse,
     ) -> Result<bool, String> {
-        let Some(lane_id) = owner.lane_id.as_deref() else {
-            return Ok(false);
-        };
         let lanes = self
             .lanes
             .lock()
             .map_err(|_| "lane registry poisoned".to_string())?;
-        let Some(worker) = lanes.get(lane_id) else {
+        let Some((lane_id, worker)) = lanes
+            .iter()
+            .find(|(_, worker)| worker.owns_pending_approval(request_id))
+        else {
             return Ok(false);
         };
         if &worker.owner != owner {
-            return Err(format!("lane `{lane_id}` owner mismatch"));
+            self.reject(
+                owner.clone(),
+                command_id.to_string(),
+                format!("approval request `{request_id}` owner mismatch for lane `{lane_id}`"),
+            );
+            return Ok(true);
         }
         worker.send(LaneWorkerMessage::ResumeApproval {
             request_id: request_id.to_string(),
