@@ -3,7 +3,6 @@
 English version: [gui-version-functional-design.md](gui-version-functional-design.md)
 
 最后更新：2026-07-19
-
 GUI 框架选型由 [GPUI GUI 可行性调研](gpui-gui-feasibility-research.zh-CN.md)
 单独评估。在 GPUI/Tauri 垂直切片门禁完成前，本文的产品与 runtime 契约保持框架无关。
 
@@ -32,9 +31,10 @@ Viden GUI 是“可视化编码操作台”，不是传统 IDE。
 用户仍然可以继续使用自己的编辑器、终端和 Git 工具。GUI 的价值在于把 Viden runtime 中
 的任务、上下文、权限、证据和成本变成清晰的操作界面。
 
-视觉和交互源现在以 `docs/viden-design/Viden/` 下接受的 Viden 设计源为准。主要 GUI 目标图是
-`docs/viden-design/Viden/screenshots/d1v2.png` 和
-`docs/viden-design/Viden/screenshots/s13.png`。
+视觉和交互行为遵循 [Viden 设计接入](viden-design-adoption.zh-CN.md) 中的真源映射。D1 与
+GUI 组件库定义外壳和组件词汇；D2、D4、D10、D11、D12、D13、D14 分别定义对应流程。
+评审快照位于 `docs/viden-design/reference-shots/`。`docs/viden-design/Viden/screenshots/`
+下的旧文件不再是目标。
 
 ## 前置条件
 
@@ -45,13 +45,13 @@ TUI 按 [Viden 并发开发计划](parallel-development-plan.zh-CN.md) 拆到独
 | --- | --- | --- |
 | `0.2.0` | 架构切分与核心结构重构 | GUI 等待 `viden-core`、event stream 和 command bus 边界 |
 | `0.2.1` | Context、token/cost、evidence 和 runtime fact model | GUI 显示 context bundle、预算、压缩、省略、费用和证据 |
-| `0.2.2` | 受监督 Agent 执行闭环 | GUI 展示 planner、builder、tester、reviewer、doc-writer 的任务状态 |
+| `0.2.2` | 受监督 Agent 执行闭环 | GUI 展示 planner、coder、reviewer、tester、doc-writer、researcher、release-operator 的任务状态 |
 | `0.2.3` | Plugin runtime 和真实开发 gate | GUI 显示 plugin health、release gate、smoke、token/cost 和失败分类证据 |
 | `0.3.0` | Runtime/UI contract freeze 与 Viden migration plan | GUI 获得稳定 API/event/command schema 和迁移约束 |
-| `0.3.1` | TUI 与 GUI 并行实现 | GUI 作为完整可操作 Tauri/Web client 在独立分支开发 |
+| `0.3.1` | TUI 与 GUI 并行实现 | 在 `codex/v3-gui-client` 开发 framework-neutral GUI client |
 | `0.3.2` | 集成候选版 | GUI 和 TUI 基于同一 runtime facts 通过 parity fixtures |
 | `0.3.3` | 可操作 GUI beta 与 compatibility hardening | composer、approval、provider/model、context recovery、Viden/Viden migration |
-| `0.3.4` | Visual fidelity gate | Storybook、Playwright、TUI previews 和 accepted target deviations |
+| `0.3.4` | Visual fidelity gate | component gallery、screenshot harness、TUI regression evidence 和 accepted target deviations |
 
 ## 非目标
 
@@ -73,27 +73,25 @@ TUI 按 [Viden 并发开发计划](parallel-development-plan.zh-CN.md) 拆到独
 
 ## 信息架构
 
-GUI 顶层由六个主要区域组成。
+D1 是应用外壳。Activity rail 承载稳定的顶层导航；各 D 编号页面承载专用流程，不再建立
+第二套并列导航系统。
 
 ```mermaid
 flowchart TD
-    A["Viden GUI"] --> B["Start Center"]
-    A --> C["Workspace Cockpit"]
-    A --> D["Plan Studio"]
-    A --> E["Agent Board"]
-    A --> F["Evidence Center"]
-    A --> G["Settings And Connect"]
-
-    C --> H["Transcript"]
-    C --> I["Composer"]
-    C --> J["Live Work"]
-    C --> K["Context And Cost"]
-    C --> L["Diff And Tests"]
-
-    G --> M["Providers"]
-    G --> N["Models"]
-    G --> O["Permissions"]
-    G --> P["Runtime Preferences"]
+    A["D1 Cockpit shell"] --> B["Activity rail"]
+    B --> C["Conversation"]
+    B --> D["Worktrees"]
+    B --> E["Lanes"]
+    B --> F["Review"]
+    B --> G["Evidence"]
+    B --> H["Diagnostics"]
+    B --> I["Inbox"]
+    B --> J["Settings"]
+    A --> K["D2 Decision Center"]
+    A --> L["D4 Lane creation"]
+    A --> M["D10 Lane Monitor"]
+    A --> N["D12 Conflict bounce"]
+    A --> O["D14 Audit timeline"]
 ```
 
 GUI 把长期层级统一为：
@@ -107,7 +105,7 @@ Workspace -> Project -> Lane / Session -> Subagent
 
 ## 核心页面
 
-### 1. Start Center
+### 1. D11 首启与项目接入
 
 启动页是安静的任务入口。用户没有开始真实任务前，GUI 应一直停留在这里。
 
@@ -116,7 +114,7 @@ Workspace -> Project -> Lane / Session -> Subagent
 - 显示 Viden logo、当前 workspace、provider/model、mode、permission。
 - 主 composer 支持自然语言任务、slash commands 和快速入口。
 - `/connect`、`/models`、`/settings`、`/permissions` 打开面板后，保存或取消都回到
-  Start Center，不自动进入工作会话。
+  D11 接入页，不自动进入工作会话。
 - 显示最近项目、最近会话、最近失败的恢复动作。
 - 如果 provider 缺 key、endpoint 不可用或 model 不可用，用轻量 banner 提示，不阻塞输入。
 
@@ -126,13 +124,14 @@ Workspace -> Project -> Lane / Session -> Subagent
 - 光标默认在 composer 输入位置。
 - 没有真实任务前，不显示 transcript、side rail 或 active task。
 
-### 2. Workspace Cockpit
+### 2. D1 Workspace Cockpit
 
 Cockpit 是真实任务开始后的主工作区。首版视觉合同必须来自被接受的设计源和截图 baseline。
 
 功能要求：
 
-- 左侧为 workspace/project/lane 导航，支持 Lanes / Workspace 切换、lane 展开和 subagent 列表。
+- 固定 52 px activity rail 提供稳定导航。lane rail 默认 hover 浮出，可 pinned；focus
+  mode 下隐藏。宽度由 shared tokens 控制，不在 feature code 里复制数值。
 - 中间为当前 lane streaming transcript、tool events、diff/test/evidence。
 - Composer 始终可输入。active turn 运行时，Enter 将 follow-up 放入 queue。
 - Live Work 区显示当前阶段：planning、building context、editing、running tool、
@@ -150,12 +149,14 @@ Cockpit 是真实任务开始后的主工作区。首版视觉合同必须来自
 - Live Work 文案描述 Viden 或内部角色，不显示 `DeepSeek is thinking` 这类 provider
   心智泄漏。
 - long-running task、resize、idle 后 UI 不错位、不黑屏、不丢 scrollback。
-- Cockpit token、窗口 chrome、lane row、Environment、Inspector 和 composer 在视觉目标被接受后
-  必须有 Storybook/Playwright baseline。
+- Cockpit token、窗口 chrome、lane row、Environment、Inspector、composer、
+  float/pinned/focus 状态与按需 dock，在视觉目标被接受后都需要 component-gallery 和
+  screenshot baseline。
 
-### 3. Plan Studio
+### 3. Plan View
 
-Plan Studio 是只读规划界面，服务于产品需求、架构、实现方案和任务拆解。
+Plan View 是 activity rail 下的只读规划界面，服务于产品需求、架构、实现方案和任务拆解，
+不是另一套顶层应用外壳。
 
 功能要求：
 
@@ -171,14 +172,14 @@ Plan Studio 是只读规划界面，服务于产品需求、架构、实现方�
 - Plan 结束后 composer 仍可输入。
 - 从 Plan 到 Build 的切换是显式动作，不自动执行。
 
-### 4. Agent Board
+### 4. Agent Board View
 
 Agent Board 展示可监督的 agent 执行闭环。
 
 功能要求：
 
-- 展示 Planner、Context Builder、Builder、Tester、Reviewer、Doc Writer、Lane
-  Supervisor 等角色。
+- 展示 planner、coder、reviewer、tester、doc-writer、researcher、release-operator。
+  Context building 和 lane supervision 是 runtime capability，不是用户可选 agent role。
 - 每个 agent 显示 task、input、output、evidence、状态、失败分类和 next action。
 - 支持查看 agent 的事件 timeline。
 - 支持暂停、取消、重试、降级为 manual、切换 model 或请求用户补充信息。
@@ -209,9 +210,9 @@ Context 与费用面板是 GUI 的核心差异化能力之一。
 - 每次真实 provider turn 后可查看 token/cost 摘要。
 - 失败恢复动作不只是一段说明，而是可点击或可执行的 action。
 
-### 6. Evidence Center
+### 6. Evidence View
 
-Evidence Center 是完成态信任的核心。
+Evidence View 是 activity rail 下的完成态信任界面。
 
 功能要求：
 
@@ -249,19 +250,25 @@ Provider/model 设置必须是直接操作界面。
 - 配置后可以立即选择默认模型和 active models。
 - 删除 key 后 provider health 和 model availability 立即更新。
 
-### 8. Permissions And Approval
+### 8. Permission、Decision、Conflict 与 Audit
 
-权限界面必须解释“为什么需要批准”，而不是只弹一个命令。GUI approval 使用由 runtime facts
-支撑的 decision surface。
+GUI 明确区分四类契约：D1 执行前 permission、D2 产出后 decision、D12 merge conflict
+recovery、D14 append-only audit。
 
 功能要求：
 
-- 全局 permission mode：read-only、suggest、auto-edit、manual、dangerous 等。
-- 对每个 mutating action 展示 scope、risk、preview、diff、command、path、default action。
-- 支持 deny、read-only、approve once、allow scope、open evidence、edit command、cancel task。
-- decision surface 必须能从 command、diff、risk、scope、history、evidence 和 timeout policy 做判断。
+- GUI 全局标签使用 Ask、Auto Edit、Read Only、Full Access，并映射到 shared Core
+  permission mode，不改变 CLI compatibility identifier。
+- D1 在 composer 上沿显示阻塞式 inline permission dock。每个请求展示 command/path、
+  scope、risk、reason、preview、expiry/default action，并在 policy 允许时提供 Once、
+  Session、Always、Edit、Deny。
+- D2 排队处理产出后的 gate decision、lane ask、review decision 与 contract confirmation，
+  并关联 command、diff、evidence、risk、scope、history 和 policy facts。
+- D12 把 merge conflict 退回所属 lane 修正并重新验证，再次提交 gate。
+- D14 把 permission、gate、policy 和 lane lifecycle decision 写入 append-only audit
+  timeline。Evidence 只保存 lane 产物并通过 stable ID 关联，不等同于 audit log。
 - Plan mode 下 mutating action 默认不可批准，除非用户退出 Plan mode。
-- 所有 approval decisions 写入 transcript/evidence。
+- 所有 decision 写入 audit timeline，并在适当位置由 transcript 或 evidence 关联。
 
 验收标准：
 
@@ -307,7 +314,7 @@ History 负责恢复、审计和复盘。
 
 ```mermaid
 flowchart TD
-    A["Open Viden GUI"] --> B["Start Center"]
+    A["Open Viden GUI"] --> B["D11 intake"]
     B --> C{"Provider configured?"}
     C -->|no| D["Open Connect"]
     D --> E["Choose Provider"]
@@ -323,14 +330,14 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["User opens Plan Studio"] --> B["Submit planning prompt"]
+    A["User opens Plan View"] --> B["Submit planning prompt"]
     B --> C["Planner produces requirements and design"]
     C --> D["User reviews plan"]
     D --> E{"Approved?"}
     E -->|revise| B
     E -->|yes| F["Create Build Task"]
-    F --> G["Switch to Workspace Cockpit"]
-    G --> H["Builder starts with approved plan"]
+    F --> G["Switch to D1 Cockpit"]
+    G --> H["Coder starts with approved plan"]
 ```
 
 ### 活跃任务和输入排队
@@ -356,20 +363,21 @@ sequenceDiagram
     API->>RT: Start queued follow-up
 ```
 
-### Approval 与证据
+### Inline Permission 与 Audit
 
 ```mermaid
 flowchart TD
     A["Runtime requests mutation"] --> B["Permission layer creates request"]
-    B --> C["GUI shows approval detail"]
+    B --> C["D1 shows inline permission dock"]
     C --> D{"User decision"}
     D -->|approve| E["Runtime executes action"]
     D -->|deny| F["Runtime records denial"]
-    D -->|inspect| G["Open Evidence Center"]
+    D -->|edit| G["Edit command or scope"]
     G --> C
-    E --> H["Evidence appended"]
+    E --> H["D14 audit event appended"]
     F --> H
-    H --> I["Task next action updates"]
+    H --> I["Transcript/evidence link by stable id"]
+    I --> J["Task next action updates"]
 ```
 
 ### Context 失败恢复
@@ -421,14 +429,14 @@ GUI 不允许：
 
 ### GUI-1：并行可操作客户端
 
-- Start Center。
-- Workspace Cockpit：D1 lane/session navigation、transcript、live work、agent board、
-  Environment、context/cost、provider health。
+- D11 首启/项目接入与 D4 lane 创建。
+- D1 cockpit shell：activity rail、floating/pinned lane rail、transcript、live work、
+  Environment、context/cost、provider health 与按需 dock。
 - Composer submit、queue follow-up、cancel。
 - Connect/model settings。
-- Approval panel。
-- Evidence Center。
-- Plan Studio 与 plan/build handoff。
+- Inline permission dock 与 D2 Decision Center。
+- Evidence view 与 D14 audit links。
+- Plan View 与显式 plan/build handoff。
 - 所有 mutating action 都必须通过 `viden-core` command actions 和 permission gates。
 
 ### GUI-2：集成候选版
@@ -441,14 +449,16 @@ GUI 不允许：
 ### GUI-3：生产级 Operator
 
 - Plan -> Build handoff。
-- Agent Board 控制：pause/retry/cancel/switch model。
+- Agent Board View 控制：pause/retry/cancel/switch model。
 - Context pin/omit/retry。
 - Release/Test Center。
-- Lane supervision 和外部 agent evidence。
+- D10 lane supervision、D12 conflict bounce 和外部 agent evidence。
 
 ### GUI-4：设计保真 Gate
 
-- 每个 GUI 核心屏幕有设计源、Storybook story、Playwright screenshot 和 accepted baseline。
+- 每个 GUI 核心屏幕有设计源、framework-neutral component gallery、screenshot harness 和
+  accepted baseline。Tauri candidate 可以使用 Storybook/Playwright；GPUI candidate 使用
+  native gallery 与 capture harness。
 - token mapping 可检查，组件不写裸色值、散落字号或临时间距。
 - 差异记录为 accepted deviation；未解释差异不能进入 release。
 
@@ -463,8 +473,8 @@ GUI 不允许：
 
 | 优先级 | 功能 |
 | --- | --- |
-| P0 | Start Center、Cockpit、composer 可用、streaming transcript、live work、provider/model setup、approval、evidence |
-| P1 | Plan Studio、Agent Board、context/cost、history/replay、release/test center |
+| P0 | D11 接入、D4 lane 创建、D1 cockpit、可用 composer、streaming transcript、live work、provider/model setup、inline permission、evidence |
+| P1 | D2 Decision Center、Plan View、Agent Board View、D10/D12/D14、context/cost、history/replay、release/test center |
 | P2 | lane supervision、GUI notifications、team handoff、IDE/web surfaces |
 
 ## 成功标准

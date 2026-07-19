@@ -39,7 +39,10 @@ English version: 暂缺(本报告先以中文定稿,英文版待设计结论被�
 4. **快照命名三名并存**:`RuntimeViewSnapshot` / `RuntimeSnapshot` / `RuntimeViewState`(实际落地)。以代码为准统一为 `RuntimeViewState` + `runtime_snapshot` API,其余文档批量更名。
 5. crate 路径新旧混用、Viden/Viden 品牌混用、loop readiness 是否带 L-编号——低风险,随下一次文档轮清理。
 
-另有一处**资产路径漂移**:gui-functional-design 引用的视觉目标图 `docs/viden-design/Viden/screenshots/d1v2.png` 实际已落库在 `docs/design/canvas-export/screenshots/d1v2.png`,需更新引用。
+原评审记录中的 GUI 资产路径漂移已经由最新设计目录收敛。当前 D1 活体真源在
+`docs/viden-design/Viden/GUI/`，评审快照是
+`docs/viden-design/reference-shots/GUI-D1-桌面驾驶舱.png`；已经删除的
+`docs/design/canvas-export/` 与旧 `screenshots/d1v2.png` 都不能继续作为目标。
 
 ### 1.3 两个所有权问题的裁决建议
 
@@ -109,11 +112,19 @@ English version: 暂缺(本报告先以中文定稿,英文版待设计结论被�
 
 Zed 的天花板是 **thread-centric**:Threads Sidebar 回答「有哪些会话」,但不回答「任务拓扑长什么样、谁 blocked 谁、哪个门在等我」。Viden 的界面应该 **task/topology-centric**,具体设计原则:
 
-1. **主屏是舰队不是对话**。TUI 默认视图应为 Agent Fleet Matrix(每 lane 一行;列:route、gate_strength、当前动作、touched paths、cost、最新 evidence、blocker/next action),chat 是从行下钻进去的二级视图。Zed 里 chat 是主体、监督是配件;Viden 反过来。
+1. **主屏是监督驾驶舱，不是单独的舰队矩阵**。D1/TUI 统一原型以当前 lane 的 transcript、
+   composer、live work 和环境事实为中央工作面；Fleet Matrix 属于 D13/D10 的专用编排/监视
+   视图，可以下钻到会话，但不能替代默认驾驶舱。
 2. **四视图共享同一 runtime facts**:Chat/Thread(说了什么)、Board(任务拓扑与所有权)、Loop(什么会再跑、什么限制)、Review(改了什么、什么在等批)——设计文档已定,评审确认这个切法对,且**每个视图必须能从 `RuntimeViewState` replay 重建**,不允许任何视图私藏状态。
-3. **注意力经济是第一设计约束**。监督 N 个 agent 的瓶颈是人的注意力:approval 必须是 inbox 不是阻塞弹窗(已定);`waiting_for_approval / blocked / budget_exhausted / needs attention` 必须是一等状态直接反映在 lane 行的状态灯上(借 Zed Terminal Thread 的注意力通知,但升级为结构化状态而非 toast)。
+3. **注意力经济是第一设计约束**。监督 N 个 agent 的瓶颈是人的注意力：执行前
+   permission 在 D1/composer 上沿就地阻塞；产出后的 gate、lane ask 与 contract decision
+   进入 D2 队列。`waiting_for_approval / blocked / budget_exhausted / needs attention` 必须是
+   一等状态，直接反映在 lane 行的状态灯上，而不是只靠 toast。
 4. **门控强度可视**:每条 lane 常显 `full / cooperative / containment` 门控等级徽标(对应 native/ACP/terminal),让用户对「这条 lane 的输出可以多信」有直觉——这是 Zed 完全没有、而 Viden 定位必须有的差异化。
-5. **设计资产已就绪**:`docs/design/canvas-export/` 里的 D1 驾驶舱(lane 侧栏 + 转录 + Environment)、D13 Fleet 编排 DAG、D2 决策中心、TUI 统一原型(⌃L/⌃P/⌃G + 4 档审批闸)已经画出了上述大部分界面。**缺的不是设计,是 runtime facts**——先把事件打通,UI 按已有稿实现。
+5. **设计资产已就绪**：`docs/viden-design/Viden/` 里的 D1 驾驶舱、D13 Fleet、D2
+   决策中心与 TUI 统一原型已经画出上述主要界面；具体状态与入口以
+   `docs/screens-status.js` 为准。**缺的不是另一套视觉目标，而是 runtime facts**——先把事件
+   打通，UI 按已登记活体稿实现。
 
 ### 3.2 七个 surface 的优先级
 

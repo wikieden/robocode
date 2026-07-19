@@ -2,7 +2,7 @@
 
 Chinese version: [tui-interaction-flow-design.zh-CN.md](tui-interaction-flow-design.zh-CN.md)
 
-Last updated: 2026-06-09
+Last updated: 2026-07-19
 
 ## Purpose
 
@@ -39,6 +39,9 @@ runtime cannot explain.
   pages. Selecting or editing inside the panel applies the change.
 - Transcript history must remain browsable while streaming continues. New output
   marks the badge; it does not yank the user back to the bottom.
+- Input has three explicit modes: Normal for cockpit navigation, Insert for
+  composer editing, and Overlay for selectors, panels, and approvals. `Esc`
+  unwinds one layer at a time; `Ctrl-C` interrupts active work.
 
 ## Top-Level State Model
 
@@ -117,7 +120,7 @@ and provider turns from stealing the keyboard.
 ```mermaid
 flowchart TD
     A["Input Event"] --> B{"Has modal approval?"}
-    B -->|yes| C["Approval keymap<br/>y/n/d/tab/arrows/esc"]
+    B -->|yes| C["Approval keymap<br/>1-4/arrows/enter/esc"]
     B -->|no| D{"Interaction panel open?"}
     D -->|yes| E["Panel keymap<br/>search/edit/select/save/cancel"]
     D -->|no| F{"Command palette open?"}
@@ -209,16 +212,20 @@ flowchart TD
     B --> C["TurnController emits PendingApproval"]
     C --> D["TUI renders approval panel"]
     D --> E{"User action"}
-    E -->|approve| F["resolve_approval(approve)"]
-    E -->|deny| G["resolve_approval(deny)"]
-    E -->|inspect diff| H["Focus evidence/diff"]
-    E -->|scroll/resize/type| I["Still handled by main loop"]
-    H --> D
-    I --> D
-    F --> J["Runtime continues"]
-    G --> K["Runtime records denial"]
-    J --> L["LIVE WORK updates"]
-    K --> L
+    E -->|1 allow once| F["resolve_approval(once)"]
+    E -->|2 allow session| G["resolve_approval(session)"]
+    E -->|3 repo allowlist| H["resolve_approval(repo scope)"]
+    E -->|4 / esc / timeout| I["resolve_approval(deny)"]
+    E -->|inspect diff| J["Focus evidence/diff"]
+    E -->|scroll/resize/type| K["Still handled by main loop"]
+    J --> D
+    K --> D
+    F --> L["Runtime continues"]
+    G --> L
+    H --> L
+    I --> M["Runtime records denial"]
+    L --> N["LIVE WORK updates"]
+    M --> N
 ```
 
 ## Model And Provider Panels

@@ -283,6 +283,11 @@ setting `VIDEN_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
 
 ## TUI Controls
 
+The controls below describe the current `0.1.x` implementation, not the next
+TUI visual/interaction target. The accepted target is the T4 contract linked
+from [Viden Design Adoption](viden-design-adoption.md); the `v3-tui-client`
+branch must update this section when that behavior ships.
+
 - `Enter`: submit composer.
 - `Ctrl-J`: explicit send action.
 - `Ctrl-K`: clear composer.

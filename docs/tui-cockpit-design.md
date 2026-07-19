@@ -14,9 +14,11 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
   cockpit theme instead of introducing a separate palette.
 - Viden visual sources are binding after review through
   [Viden Design Adoption](viden-design-adoption.md).
-- Primary target images are `docs/viden-design/Viden/screenshots/cockpit-final.png`,
-  `docs/viden-design/Viden/screenshots/welcome-watcher.png`, and
-  `docs/viden-design/Viden/screenshots/lane-monitor-wide.png`.
+- The live baseline is `docs/viden-design/Viden/TUI/Viden - 统一原型
+  (TUI).html`; component and interaction behavior comes from the TUI component
+  kit and T4 interaction rules. Review snapshots are
+  `docs/viden-design/reference-shots/TUI-统一原型驾驶舱.png` and
+  `docs/viden-design/reference-shots/TUI-组件库.png`.
 - Layout target: dense terminal cockpit, not a landing page. The first screen
   should be useful immediately for coding, reviewing, approval, and agent lane
   supervision.
@@ -34,15 +36,16 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
   terminal frame, status bar, lane row, approval gate, and overlay.
 - Status bar uses a ticker: fixed workspace/lane/provider on the left, scrolling
   status metrics in the center, and fixed help/decision entry on the right.
-- Right rail uses Project / Lane / More tabs, is collapsible, and can be hidden;
+- Right rail uses Env / Lane / More tabs, is collapsible, and can be hidden;
   when hidden, transcript fills the available space.
 - Lane rows can expand to show subagents under the current lane.
-- Composer behaves like a multiline textarea: two rows by default, up to roughly
-  five rows, then internal scroll.
+- Composer behavior follows the canonical T1c component: multiline editing,
+  bracketed paste, bounded growth, then internal scroll. This document does not
+  define a second row-count limit.
 - Welcome screen uses the Viden identity and command selector; configuration
   actions return to welcome until real work starts.
-- Approval gate uses four decisions: deny, read-only, allow once, allow scope,
-  with timeout-deny support.
+- Approval gate uses four decisions: allow once, allow for the session, add a
+  repository allowlist rule, or deny, with timeout-deny support.
 
 ## Main Screen
 
@@ -53,12 +56,12 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
 - Live activity: a prominent `LIVE WORK` strip inside the transcript area,
   directly after the latest visible conversation entry, that answers what
   Viden is doing right now with phase, signal, and next-action guidance.
-- Right rail: Project / Lane / More tabs, compacting workspace, active tasks,
+- Right rail: Env / Lane / More tabs, compacting workspace, active tasks,
   context, MCP, LSP, Todo, diagnostics, provider health, recent files, usage,
   and keybindings.
-- Composer: always visible at the bottom, with a taller three-row input well,
-  native blinking bar cursor placed inside the input row, action hints, work
-  mode chips, and permission level chips.
+- Composer: always visible at the bottom, following the canonical T1c sizing
+  and internal-scroll behavior, with a native blinking bar cursor, action
+  hints, work mode chips, and permission level chips.
 - Bottom status: connection, session, event count, active lanes, context window,
   theme/help hints. Token, cost, and rate metrics should appear only after real
   provider telemetry is wired.
@@ -180,21 +183,20 @@ Rendering contract:
   targets, `/git stash pop/drop` suggests stash refs, `/git worktree remove`
   suggests worktree paths, and `/lsp` suggests workspace file paths.
 
-## Approval Modal
+## Approval Gate
 
-Approval is an interactive overlay, not a passive transcript card.
+Approval is an interactive overlay in the same event loop, not a passive
+transcript card or a nested input loop.
 
-- `Tab` / `Shift-Tab` and arrow keys move focus across apply-all, deny,
-  diff, and approve controls.
-- Default focus is `Approve`, so `Enter` accepts the common case immediately.
-- `Enter` activates the focused control.
-- `Space` toggles apply-all when the checkbox is focused.
-- `y` approves, `n` / `Esc` / `Ctrl-C` denies.
-- Mouse clicks focus controls; releasing on deny or approve resolves the
-  prompt.
-- `d` focuses the diff/evidence region. That region must render the current
-  approval prompt's real preview or evidence lines when present, with a small
-  fallback only for prompts that do not carry preview content.
+- `1` allows once, `2` allows for the current session, `3` adds the displayed
+  repository allowlist rule, and `4` denies.
+- Arrow keys move the selection and `Enter` activates it.
+- `Esc` and timeout deny safely. `Ctrl-C` remains the active-work interrupt and
+  is not an approval answer.
+- Mouse input is optional; when enabled, it selects the same four actions.
+- Inspecting diff/evidence never resolves the gate. The panel must render the
+  request's real command, scope, risk, expiry/default action, and preview or
+  evidence when present.
 - After approval or denial, the pending modal must disappear immediately and
   the transcript/right rail should redraw without style residue.
 

@@ -28,7 +28,8 @@ flowchart LR
 - [frontend-integration-contract.zh-CN.md](frontend-integration-contract.zh-CN.md)：TUI/GUI 必须消费的 runtime contract。
 - [architecture.zh-CN.md](architecture.zh-CN.md)：模块边界和核心架构。
 - [gui-version-functional-design.zh-CN.md](gui-version-functional-design.zh-CN.md)：GUI 功能设计。
-- [docs/viden-design/Viden/docs/DESIGN-REF.md](viden-design/Viden/docs/DESIGN-REF.md)：Viden 视觉设计源。
+- [Viden 设计接入](viden-design-adoption.zh-CN.md)：视觉真源优先级与 TUI/GUI 目标映射。
+- [DESIGN-REF](viden-design/Viden/docs/DESIGN-REF.md)：token 与组件注册表。
 - [Context、Evidence 与 Cost Engine 设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)：
   canonical context、evidence、cost 与 client projection 规则。
 
@@ -73,9 +74,9 @@ contracts。`apps/cli` 可以保留 bootstrap 所需的直接依赖。
 
 | 分支 | Owner | 范围 |
 | --- | --- | --- |
-| `codex/viden-core-runtime` | core owner | runtime contract、plugin protocol、migration、bugfix |
-| `codex/viden-tui-client` | TUI owner | terminal rendering、keyboard/input、panes、scrollback、status、errors |
-| `codex/viden-gui-tauri-client` | GUI owner | Tauri/Web cockpit、settings、agent board、evidence、approval、provider/model |
+| `codex/v3-core-runtime` | core owner | runtime contract、plugin protocol、migration、bugfix |
+| `codex/v3-tui-client` | TUI owner | terminal rendering、keyboard/input、panes、scrollback、status、errors |
+| `codex/v3-gui-client` | GUI owner | framework-neutral cockpit、settings、decision、evidence、provider/model |
 | `codex/integration-v0.3.x` | integration owner | 合并 core/TUI/GUI，跑 parity 和 release gates |
 
 短期功能分支命名：
@@ -275,7 +276,7 @@ TUI 不能：
 
 ## GUI 开发规则
 
-GUI 是未来 Tauri/Web client。GUI 不能复制 runtime。
+GUI 是 framework-neutral desktop client。GUI 不能复制 runtime。
 
 GUI 必须：
 
@@ -296,9 +297,13 @@ GUI 不能：
 
 当前有效设计源：
 
+- `docs/viden-design/Viden/docs/SPEC.md`
 - `docs/viden-design/Viden/docs/DESIGN-REF.md`
-- `docs/viden-design/Viden/TUI/`
-- `docs/viden-design/Viden/GUI/`
+- `docs/viden-design/Viden/docs/screens-status.js`
+- `docs/viden-design/Viden/tokens.css`
+- TUI 统一原型、组件库与 T4 交互规则；
+- GUI D1、组件库以及 D2/D4/D10/D11/D12/D13/D14；
+- `docs/viden-design/reference-shots/` 只作为活体源的评审快照。
 
 无效方向：
 
@@ -331,7 +336,8 @@ cargo fmt --all --check
 cargo test -p viden-tui
 ```
 
-同时补 deterministic preview/screenshot。具体命令以 `docs/previews/README.md` 和现有 scripts 为准。
+同时补 deterministic preview/screenshot。生成物只属于实现回归证据，输出到测试 artifact
+目录；当前视觉目标始终回链到 [Viden 设计接入](viden-design-adoption.zh-CN.md)。
 
 改 GUI：
 

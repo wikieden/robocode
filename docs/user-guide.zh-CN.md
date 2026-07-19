@@ -244,6 +244,10 @@ DeepSeek 开发场景 smoke 会产生真实费用，会写出 `usage.json` 和 `
 
 ## TUI 操作
 
+以下快捷键描述当前 `0.1.x` 实现，不是下一版 TUI 视觉/交互目标。接受目标是
+[Viden 设计接入](viden-design-adoption.zh-CN.md) 所链接的 T4 契约；`v3-tui-client`
+分支交付对应行为时，必须同步更新本节。
+
 - `Enter`：提交输入区。
 - `Ctrl-J`：显式发送。
 - `Ctrl-K`：清空输入区。

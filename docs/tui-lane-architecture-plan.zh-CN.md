@@ -1,16 +1,23 @@
 # TUI 与终端 Lane 架构开发计划
 
-最后刷新：2026-05-25
+最后刷新：2026-07-19
+
+状态：历史 lane 实施计划。当前分支所有权与交付 gate 以
+[Viden Core / TUI / GUI 三分支开发计划](parallel-development-plan.zh-CN.md) 为准；下文视觉
+细节若与接受设计源冲突，全部被新设计覆盖。
 
 ## 目的
 
 这份计划把已确认的 Viden TUI 设计落到可执行架构上。目标不只是做一个更好看的全屏终端界面，而是做一个本地优先的 coding-agent cockpit：主屏管理主会话、审批和上下文，副屏承载真实 side work，并能监督 `codex`、`claude`、`junie`、`gemini` 或用户自定义命令。
 
-设计来源：
+当前设计来源：
 
-- `DESIGN.md`：视觉与产品契约。
+- `docs/viden-design-adoption.zh-CN.md`：视觉真源优先级与目标映射。
+- `docs/viden-design/Viden/TUI/Viden - 统一原型 (TUI).html`：TUI 集成目标。
+- `docs/viden-design/Viden/TUI/tui-kit.css` 与 T4：组件和交互契约。
+- `docs/viden-design/Viden/tokens.css`：skin、mode、density 与语义 token。
+- `docs/viden-design/reference-shots/`：评审快照，不是独立目标。
 - `docs/code-agent-benchmark.md`：竞品/大厂 coding agent 对标。
-- `docs/previews/`：视觉参考与真实桌面预览。
 - `docs/architecture.md`：当前系统边界。
 
 ## 目标架构
@@ -264,12 +271,12 @@ Template 占位符：
 
 ### Phase 1: 主屏 TUI Foundation
 
-交付已确认的单主屏 UI：
+以下原里程碑只保留历史上下文。当前渲染必须跟随统一原型和组件库：
 
-- 顶部状态栏；
+- canonical 终端框与底部 status ticker；
 - transcript timeline；
-- 右侧 workspace、active tasks、LSP diagnostics、provider health、recent files；
-- 中央审批 modal；
+- Env / Lane / More 右栏与 runtime-backed facts；
+- 同一 event loop 内的四档审批闸；
 - composer 和底部状态栏；
 - compact、normal、wide 终端尺寸的渲染快照测试。
 
@@ -282,9 +289,10 @@ Template 占位符：
 
 ### Phase 2: 主题和布局 Token
 
-新增：
+从当前双轴 token 系统派生主题：
 
-- 内置 `aurora-cyan`、`ember-gold`、`plasma-violet`、`monochrome-ice`；
+- `aurora`、`ice`、`mono` 支持 dark/light；
+- `amber`、`phosphor` 只支持 dark；
 - token fallback；
 - active theme 配置；
 - panel drawing primitives。
@@ -293,7 +301,8 @@ Template 占位符：
 
 - 主题切换只影响颜色，不破坏布局状态；
 - custom theme 缺 token 时安全 fallback；
-- 默认 cyan 主题贴合 `DESIGN.md`。
+- 默认主题和每个有效 skin/mode 组合都匹配 `tokens.css`，并在 truecolor、ANSI 256、
+  ANSI 16 下保持语义不变。
 
 ### Phase 3: Screen Registry
 

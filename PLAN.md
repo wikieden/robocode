@@ -201,13 +201,13 @@ Next release planning (`0.2.x` and `0.3.x`):
   must not become a parallel execution path.
 - GUI functional design is tracked in
   `docs/gui-version-functional-design.md` and
-  `docs/gui-version-functional-design.zh-CN.md`: Start Center, Workspace
-  Cockpit, Plan Studio, Agent Board, Evidence Center, provider/model setup,
-  permissions, context/cost, history/replay, and release/test center all depend
-  on the shared runtime contract.
-- New TUI/GUI visual sources must be re-imported through reviewed source
-  assets before they become product contracts. Discarded design imports and
-  generated visual output must not be referenced by roadmap or release gates.
+  `docs/gui-version-functional-design.zh-CN.md`: D11 intake, D4 lane creation,
+  the D1 cockpit shell and activity views, D2 decisions, D10 monitoring, D12
+  conflict recovery, D14 audit, provider/model setup, context/cost,
+  history/replay, and release/test all depend on the shared runtime contract.
+- TUI/GUI visual work follows `docs/viden-design-adoption.md`. Discarded design
+  imports and generated implementation previews must not become roadmap or
+  release-gate visual targets.
 - The first 0.3.x frontend sequence follows
   `docs/parallel-development-plan.md`: contract freeze, parallel TUI/GUI
   branches, integration candidate, operable GUI beta, and visual fidelity gate.

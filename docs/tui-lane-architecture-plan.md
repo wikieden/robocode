@@ -1,16 +1,24 @@
 # TUI and Terminal Lane Architecture Plan
 
-Last refreshed: 2026-05-25
+Last refreshed: 2026-07-19
+
+Status: historical lane implementation plan. Current branch ownership and
+delivery gates are defined in [Viden Core / TUI / GUI Three-Branch Development
+Plan](parallel-development-plan.md). Visual details below are superseded when
+they conflict with the accepted design source.
 
 ## Purpose
 
 This plan turns the approved Viden TUI design into an implementation path. The goal is not only a better full-screen terminal UI; the goal is a local coding-agent cockpit that can supervise side work in companion screens and external terminal tools such as `codex`, `claude`, `junie`, `gemini`, or user-defined commands.
 
-Design sources:
+Current design sources:
 
-- `DESIGN.md`: canonical visual/product contract.
+- `docs/viden-design-adoption.md`: visual source precedence and target map.
+- `docs/viden-design/Viden/TUI/Viden - 统一原型 (TUI).html`: integrated TUI target.
+- `docs/viden-design/Viden/TUI/tui-kit.css` and T4: components and interaction.
+- `docs/viden-design/Viden/tokens.css`: skin, mode, density, and semantic tokens.
+- `docs/viden-design/reference-shots/`: review snapshots, not an independent target.
 - `docs/code-agent-benchmark.md`: competitive benchmark and capability alignment.
-- `docs/previews/`: visual references and workstation previews.
 - `docs/architecture.md`: current subsystem boundaries.
 
 ## Target Architecture
@@ -266,12 +274,13 @@ Current implemented slice:
 
 ### Phase 1: Main TUI Foundation
 
-Deliver the approved single-screen main UI:
+The original milestone below is retained for historical context. Current
+rendering must follow the integrated prototype and component kit:
 
-- top status rail;
+- canonical terminal frame and bottom status ticker;
 - transcript timeline;
-- right rail with workspace, active tasks, LSP diagnostics, provider health, recent files;
-- centered approval modal;
+- Env / Lane / More rail with runtime-backed facts;
+- four-option approval gate in the shared event loop;
 - composer and bottom status bar;
 - responsive render snapshots for compact, normal, and wide terminals.
 
@@ -284,9 +293,10 @@ Acceptance criteria:
 
 ### Phase 2: Theme and Layout Tokens
 
-Add:
+Derive theme data from the current two-axis token system:
 
-- built-in `aurora-cyan`, `ember-gold`, `plasma-violet`, `monochrome-ice`;
+- `aurora`, `ice`, and `mono` in dark and light modes;
+- `amber` and `phosphor` in dark mode only;
 - token fallback rules;
 - config selection for active theme;
 - panel drawing primitives.
@@ -295,7 +305,8 @@ Acceptance criteria:
 
 - theme selection changes rendered colors without changing layout state;
 - missing custom tokens fall back safely;
-- primary cyan theme matches `DESIGN.md` as the default.
+- the default and every valid skin/mode combination match `tokens.css` and
+  degrade through truecolor, ANSI 256, and ANSI 16 without changing semantics.
 
 ### Phase 3: Screen Registry
 

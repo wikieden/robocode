@@ -32,7 +32,10 @@ flowchart LR
   contract consumed by TUI/GUI.
 - [Architecture](architecture.md): module boundaries.
 - [GUI Version Functional Design](gui-version-functional-design.md): GUI product design.
-- [Viden Design Reference](viden-design/Viden/docs/DESIGN-REF.md): visual source.
+- [Viden Design Adoption](viden-design-adoption.md): visual source precedence
+  and TUI/GUI target map.
+- [Viden Design Reference](viden-design/Viden/docs/DESIGN-REF.md): token and
+  component registry.
 - [Context, Evidence, And Cost Engine
   Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md):
   canonical context, evidence, cost, and client projection rules.
@@ -70,9 +73,9 @@ Use isolated `codex/*` branches and `.worktrees/*` worktrees. Recommended owners
 
 | Branch | Owner | Scope |
 | --- | --- | --- |
-| `codex/viden-core-runtime` | Core | Runtime contract, plugins, migration, fixes. |
-| `codex/viden-tui-client` | TUI | Rendering, input, panes, scrollback, status, errors. |
-| `codex/viden-gui-tauri-client` | GUI | Settings, agent board, evidence, approvals, providers/models. |
+| `codex/v3-core-runtime` | Core | Runtime contract, plugins, migration, fixes. |
+| `codex/v3-tui-client` | TUI | Rendering, input, panes, scrollback, status, errors. |
+| `codex/v3-gui-client` | GUI | Framework-neutral cockpit, settings, decisions, evidence, providers/models. |
 | `codex/integration-v0.3.x` | Integration | Core/TUI/GUI merge, parity, and release gates. |
 
 Merge core/runtime first, then TUI, GUI, docs/release gates, and finally main.

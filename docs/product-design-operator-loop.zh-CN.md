@@ -123,7 +123,7 @@ Viden 应该让用户随时能回答：
 ## 产品原则
 
 - **Viden 是行动主体。** Provider 是基础设施。UI 应该说 `Viden working`、
-  `Builder is editing`、`Tester is running tests`，而不是默认说 `DeepSeek is thinking`。
+  `Coder is editing`、`Tester is running tests`，而不是默认说 `DeepSeek is thinking`。
 - **配置是直接操作。** Provider、model、permission、theme 都应该是可搜索、可编辑、
   选择即生效的面板，不应该让用户猜下一条命令怎么写。
 - **默认流式输出。** 模型内容应该边返回边显示。Transcript 必须保留历史，只在用户位于底部时
@@ -152,12 +152,13 @@ Viden 应该让用户随时能回答：
 | --- | --- | --- | --- | --- |
 | 1. Intake | 我想让 Viden 做什么？ | `UserIntent` | welcome composer 或 cockpit composer | 捕获任务 |
 | 2. Shape | 这是聊天、规划、编辑、测试、审查还是 delegation？ | `TaskEnvelope` | inline plan/status row | 模式和路由 |
-| 3. Context | Agent 会看到什么？省略了什么？ | `ContextBundle` | context pressure row 和 side-2 detail | bundle、budget、compaction notes |
+| 3. Context | Agent 会看到什么？省略了什么？ | `ContextBundle` | context pressure row 和 Environment/Context view | bundle、budget、compaction notes |
 | 4. Dispatch | 谁来做？ | `AgentTask`、`AgentLane`、`LaneSession` | LIVE WORK、lane list、Agent Board | active work item |
 | 5. Execute | 现在具体发生什么？ | runtime events | streaming transcript 和 lane tail | partial response、tool calls、logs |
-| 6. Gate | 这个动作安全吗？ | `PermissionRequest`、`Decision` | decision center 或 4 档 approval gate | approve、deny、inspect、retry |
-| 7. Verify | 改了什么？是否通过？ | `Evidence`、`Artifact` | diff/test/evidence panels | 可审查证据 |
-| 8. Resolve | 应该 apply、discard、retry 还是记忆？ | `NextAction`、`MemoryCandidate` | action panel | applied change、discarded lane、retry、memory/task update |
+| 6. Permit | 这个动作能否执行？ | `PermissionRequest` | inline permission dock 或 TUI 四档闸 | once、session、scope/always、edit、deny |
+| 7. Decide | 已完成产出能否前进？ | `Decision`、`MergeGate` | D2 Decision Center 或紧凑 TUI decision queue | accept、revise、reject、retry |
+| 8. Verify | 改了什么？是否通过？ | `Evidence`、`Artifact` | diff/test/evidence panels | 可审查证据 |
+| 9. Resolve | 应该 apply、discard、retry 还是记忆？ | `NextAction`、`MemoryCandidate` | action panel | applied change、discarded lane、retry、memory/task update |
 
 ### 关键流程图
 
@@ -370,9 +371,9 @@ flowchart TD
 1. 创建 task envelope：requirements、constraints、design decisions、test expectations、
    known risks。
 2. 构建带 source priority 的 ContextBundle。
-3. 派发到一个或多个 lane：planner、builder、reviewer、tester 或 external coding
+3. 派发到一个或多个 lane：planner、coder、reviewer、tester 或 external coding
    agents。
-4. 在 side-1 和 side-2 里保持 lane evidence 可见。
+4. 在 Lane 和 Evidence view 中保持 lane evidence 可见。
 5. 只在 review/apply 决策后合并。
 
 `/plan` 应该在 transcript 中产出 inline plan，并保持 composer 可输入。它不应写文件，也不能在
@@ -396,19 +397,22 @@ Welcome 应该像一个等待任务的 operator console，而不是 splash scree
 
 ## 主 Cockpit
 
-真正任务开始后，cockpit 应围绕工作组织：
+真正任务开始后，两个客户端都围绕工作组织，但各自遵循接受的外壳。
+
+TUI 跟随统一原型：
 
 - 顶栏：product、session、Git branch、permission mode、active lanes、context pressure、
   provider/model summary。
 - Transcript：左侧主区域，展示流式对话、tool events 和 durable history。
 - Inline activity：醒目的 `LIVE WORK` strip 直接追加在最近可见对话内容之后，不使用突兀的
   中间大卡片。
-- 右栏：workspace、active tasks、diagnostics、provider health、recent files、budgets。
-  只有真实数据存在时才显示预算/健康值。
+- 右栏：Env / Lane / More，只显示真实 runtime facts。
 - Composer：更高、光标清晰、IME 位置稳定、支持 follow-up queue。
 - 底栏：connection/session/events/lanes/context/help。
-- Side-1：lane console 和 delegated agent timeline。
-- Side-2：evidence、context、diagnostics、provider ops、hooks、extension probes。
+
+GUI 跟随 D1：固定 activity rail、浮动或 pinned lane rail、中央工作面、Environment/context
+rail、inline permission dock，以及按需 dock 或 Inspector。D2、D10、D12、D14 分别承载
+decision、monitoring、conflict、audit 流程，不能替代 D1 外壳。
 
 ## Live Status 与动画
 
@@ -417,8 +421,9 @@ strip，并使用更多阶段化表达、证据信号和下一步 guidance。
 
 规范：
 
-- 使用 Viden 内部角色名：`Operator`、`Planner`、`Context Builder`、`Builder`、
-  `Reviewer`、`Tester`、`Lane Supervisor`、`Release Captain`。
+- 使用已登记角色名：`planner`、`coder`、`reviewer`、`tester`、`doc-writer`、
+  `researcher`、`release-operator`。Context building 和 lane supervision 是 runtime
+  operation，不是 agent role。
 - 除 provider health 或 provider-specific error，不默认展示 provider 名。
 - 不显示假进度百分比。只有真实进度才展示 percent。
 - 使用小 pulse/spinner glyph 加变化文案，不用大面积 blocking card。
@@ -428,12 +433,12 @@ strip，并使用更多阶段化表达、证据信号和下一步 guidance。
 
 - `Viden is mapping the request`
 - `Planner is shaping the task`
-- `Context Builder is trimming logs`
-- `Builder is editing src/render.rs`
+- `Context engine is trimming logs`
+- `Coder is editing src/render.rs`
 - `Tester is running cargo test`
 - `Reviewer is checking diff evidence`
 - `Operator is waiting for approval`
-- `Lane Supervisor is watching codex lane`
+- `Lane monitor is watching codex lane`
 - `Viden is reducing context after a 413 response`
 
 长任务在最新对话内容下显示 live row：
@@ -531,7 +536,7 @@ Provider 错误应分类成可执行恢复状态：
 - Rate limited：展示等待时间和可替代 model/provider。
 - Tool replay mismatch：先修复 provider/tool-call history，再 retry。
 
-错误应该 inline 出现在 transcript 和 side-2 evidence 中；除非需要用户决策，不使用突兀的
+错误应该 inline 出现在 transcript 和 Evidence view 中；除非需要用户决策，不使用突兀的
 中间 modal。
 
 ## Evidence 与 Review
@@ -575,7 +580,7 @@ Lane 要求：
   event stream、apply/reject。
 - Lanes 需要声明 isolation needs：worktree、env、ports、caches、databases、services、
   teardown。
-- Side-1 控制 lane 执行，Side-2 解释 lane 结果为什么可信。
+- Lane Monitor 控制 lane 执行，Evidence 解释 lane 结果为什么可信。
 
 ## Plugin、Skill、MCP 与 ACP 设计
 
@@ -650,7 +655,7 @@ ContextBundle 应变得可见、可控制：
 - 把 task envelope/spec artifacts 提升为产品流程。
 - 让 ContextBundle 可检查、可人工裁剪。
 - 把 diff/test/evidence 作为默认完成面。
-- 让 side-1 lane control 和 side-2 evidence 成为真实 action surfaces。
+- 让 Lane Monitor 和 Evidence 成为真实 action surfaces。
 - 加入 per-lane budgets 和 stop conditions。
 
 ### 再下一步：External Agent Interoperability

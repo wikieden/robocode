@@ -2,7 +2,7 @@
 
 English version: [tui-interaction-flow-design.md](tui-interaction-flow-design.md)
 
-最后更新：2026-06-09
+最后更新：2026-07-19
 
 ## 目的
 
@@ -34,6 +34,8 @@ input loop，也不能编造 core runtime 无法解释的状态。
   或编辑后应直接生效。
 - Streaming 时 transcript history 必须仍可浏览。新输出只更新 badge，不把用户强行拉回
   底部。
+- 输入包含三个明确模式：Normal 负责 cockpit 导航，Insert 负责 composer 编辑，Overlay
+  负责 selector、panel 与审批。`Esc` 每次只退出一层，`Ctrl-C` 只打断活动工作。
 
 ## 顶层状态模型
 
@@ -110,7 +112,7 @@ side screen。这能避免 Plan 模式和 provider turn 抢走键盘。
 ```mermaid
 flowchart TD
     A["Input Event"] --> B{"Has modal approval?"}
-    B -->|yes| C["Approval keymap<br/>y/n/d/tab/arrows/esc"]
+    B -->|yes| C["Approval keymap<br/>1-4/arrows/enter/esc"]
     B -->|no| D{"Interaction panel open?"}
     D -->|yes| E["Panel keymap<br/>search/edit/select/save/cancel"]
     D -->|no| F{"Command palette open?"}
@@ -199,16 +201,20 @@ flowchart TD
     B --> C["TurnController emits PendingApproval"]
     C --> D["TUI renders approval panel"]
     D --> E{"User action"}
-    E -->|approve| F["resolve_approval(approve)"]
-    E -->|deny| G["resolve_approval(deny)"]
-    E -->|inspect diff| H["Focus evidence/diff"]
-    E -->|scroll/resize/type| I["Still handled by main loop"]
-    H --> D
-    I --> D
-    F --> J["Runtime continues"]
-    G --> K["Runtime records denial"]
-    J --> L["LIVE WORK updates"]
-    K --> L
+    E -->|1 allow once| F["resolve_approval(once)"]
+    E -->|2 allow session| G["resolve_approval(session)"]
+    E -->|3 repo allowlist| H["resolve_approval(repo scope)"]
+    E -->|4 / esc / timeout| I["resolve_approval(deny)"]
+    E -->|inspect diff| J["Focus evidence/diff"]
+    E -->|scroll/resize/type| K["Still handled by main loop"]
+    J --> D
+    K --> D
+    F --> L["Runtime continues"]
+    G --> L
+    H --> L
+    I --> M["Runtime records denial"]
+    L --> N["LIVE WORK updates"]
+    M --> N
 ```
 
 ## Model 与 Provider 面板

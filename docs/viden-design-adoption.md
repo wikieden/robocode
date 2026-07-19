@@ -1,90 +1,100 @@
-# Viden Design Adoption
+# Viden Design Adoption And Visual Source Map
 
 Chinese version: [viden-design-adoption.zh-CN.md](viden-design-adoption.zh-CN.md)
 
-Last updated: 2026-06-26
+Last updated: 2026-07-19
 
 ## Decision
 
-Viden is the active product direction. The older Viden product framing is a
-legacy implementation plan and should no longer guide product, TUI, or GUI
-decisions.
+The latest design directory under `docs/viden-design/Viden/` is the accepted
+source for Viden product visuals and interaction behavior. Active product,
+TUI, and GUI documents must derive from it instead of preserving independent
+visual targets.
 
-This is a product and design decision first. It does not immediately rename
-Rust crates, binaries, package artifacts, transcript paths, or compatibility
-commands. Those names remain implementation migration work until a dedicated
-rename plan is approved.
+This decision does not by itself rename Rust crates, binaries, configuration
+paths, release artifacts, or compatibility commands. Those remain migration
+work.
 
-## Accepted Design Source
+## Source Precedence
 
-The accepted design source is:
+Use the following order whenever sources disagree:
 
-- `docs/viden-design/Viden/CLAUDE.md`
-- `docs/viden-design/Viden/docs/DESIGN-REF.md`
-- `docs/viden-design/Viden/tokens.css`
-- `docs/viden-design/Viden/TUI/tui-kit.css`
-- `docs/viden-design/Viden/screenshots/`
-- `docs/viden-design/Viden/Core/`
-- `docs/viden-design/Viden/TUI/`
-- `docs/viden-design/Viden/GUI/`
+1. `docs/viden-design/Viden/docs/SPEC.md` and
+   `docs/viden-design/Viden/docs/screens-status.js` define accepted decisions,
+   open questions, roadmap status, and the screen registry.
+2. `docs/viden-design/Viden/tokens.css` defines visual values.
+3. Live prototypes plus `tui-kit.css` / `gui-kit.css` define current layout,
+   components, states, and interaction behavior.
+4. `docs/viden-design/reference-shots/` provides review snapshots of those live
+   sources.
+5. Functional documents and roadmaps translate the design into requirements.
+6. Generated previews and release screenshots are implementation or historical
+   evidence only.
 
-The old `docs/design/canvas-export` import is deleted and must not be used as a
-design source.
+If a reference shot conflicts with a live prototype, the live prototype wins.
+If a functional document conflicts with `SPEC.md`, `SPEC.md` wins.
 
-## Product Mapping
+The deleted `docs/design/canvas-export`, old files under
+`docs/viden-design/Viden/screenshots/`, and `docs/previews/` must not be used as
+current visual targets.
 
-| Legacy term | Viden direction |
-| --- | --- |
-| Viden product | Viden product |
-| Viden cockpit | Viden cockpit |
-| Viden TUI / GUI | Viden TUI / GUI |
-| Viden visual identity | Viden Aurora identity |
-| Generated canvas export | Reviewed Viden design source |
+## TUI Target Map
 
-Implementation-specific names such as crates, binary names, config paths, and
-release artifacts can keep their current names until a migration plan covers
-backward compatibility, Homebrew, GitHub releases, config migration, and user
-data migration.
+| Purpose | Canonical source | Review snapshot |
+| --- | --- | --- |
+| Integrated cockpit and welcome | `docs/viden-design/Viden/TUI/Viden - 统一原型 (TUI).html` | `docs/viden-design/reference-shots/TUI-统一原型驾驶舱.png` |
+| Reusable components and states | `docs/viden-design/Viden/TUI/Viden - 组件库 (TUI).html` and `docs/viden-design/Viden/TUI/tui-kit.css` | `docs/viden-design/reference-shots/TUI-组件库.png` |
+| Input, focus, overlay, and approval behavior | `docs/viden-design/Viden/TUI/pages/Viden - T4 交互规则 (TUI).html` | Use the integrated prototype and component snapshot together |
+| Screen inventory | `docs/viden-design/Viden/TUI.html` and `docs/viden-design/Viden/docs/screens-status.js` | No independent target image |
 
-## Target Screens
+The interaction contract is Normal / Insert / Overlay, keyboard-first with an
+optional mouse, `Esc` unwinding one layer, and `Ctrl-C` interrupting active
+work. The four-option approval gate uses `1` through `4`, arrow keys, `Enter`,
+and safe deny on `Esc` or timeout.
 
-Primary TUI target:
+## GUI Target Map
 
-- `docs/viden-design/Viden/screenshots/cockpit-final.png`
-- `docs/viden-design/Viden/screenshots/welcome-watcher.png`
-- `docs/viden-design/Viden/screenshots/lane-monitor-wide.png`
+| Purpose | Canonical source | Review snapshot |
+| --- | --- | --- |
+| D1 desktop cockpit shell | `docs/viden-design/Viden/GUI/Viden - 桌面驾驶舱 (GUI).html` | `docs/viden-design/reference-shots/GUI-D1-桌面驾驶舱.png` |
+| GUI component vocabulary | `docs/viden-design/Viden/GUI/Viden - 组件库 (GUI).html` and `docs/viden-design/Viden/GUI/gui-kit.css` | `docs/viden-design/reference-shots/GUI-KIT-组件库.png` |
+| D2 Decision Center | `docs/viden-design/Viden/GUI/pages/Viden - D2 决策中心 (GUI).html` | `docs/viden-design/reference-shots/GUI-D2-决策中心.png` |
+| D4 Lane creation | `docs/viden-design/Viden/GUI/pages/Viden - D4 Lane创建流程 (GUI).html` | `docs/viden-design/reference-shots/GUI-D4-Lane创建流程.png` |
+| D10 Lane Monitor | `docs/viden-design/Viden/GUI/pages/Viden - D10 Lane监视器 (GUI).html` | `docs/viden-design/reference-shots/GUI-D10-Lane监视器.png` |
+| D11 onboarding | `docs/viden-design/Viden/GUI/pages/Viden - D11 首启与项目接入 (GUI).html` | `docs/viden-design/reference-shots/GUI-D11-首启与项目接入.png` |
+| D12 conflict bounce | `docs/viden-design/Viden/GUI/pages/Viden - D12 集成闸冲突退回 (GUI).html` | `docs/viden-design/reference-shots/GUI-D12-集成闸冲突退回.png` |
+| D13 Fleet and workflow | `docs/viden-design/Viden/GUI/pages/Viden - D13 Fleet 编排与 Workflow (GUI).html` | `docs/viden-design/reference-shots/GUI-D13-Fleet编排.png` |
+| D14 audit timeline | `docs/viden-design/Viden/GUI/pages/Viden - D14 审计与时间线 (GUI).html` | `docs/viden-design/reference-shots/GUI-D14-审计与时间线.png` |
+| D5 gallery and D6 system states | Matching files under `docs/viden-design/Viden/GUI/pages/` | Matching `GUI-D5-*` and `GUI-D6-*` snapshots |
 
-Primary GUI target:
+D7, D8, and D9 are roadmap screens. D2h, D3, and Pip are concepts or decorative
+extensions. A built design artifact is not automatically a first-release
+requirement; `screens-status.js` and `SPEC.md` decide its status.
 
-- `docs/viden-design/Viden/screenshots/d1v2.png`
-- `docs/viden-design/Viden/screenshots/s13.png`
-
-These images define visual direction and information architecture, not pixel
-implementation by themselves. Implementation must still pass component, token,
-screenshot, and runtime-state acceptance gates.
+The D1 cockpit is the GUI shell: fixed activity rail, floating or pinned lane
+rail, central work surface, Environment/context rail, and on-demand dock or
+inspector. Permission is an inline, pre-execution dock. D2 owns asynchronous
+gate and review decisions, D12 owns merge conflict recovery, and D14 owns the
+append-only audit trail. Evidence remains a linked artifact, not a synonym for
+the audit log.
 
 ## Implementation Rules
 
-- TUI and GUI must consume the shared runtime facts: `RuntimeSnapshot`, event
-  stream, tasks, lanes, approvals, provider health, context, cost, and evidence.
-- UI must not invent business state that the runtime cannot replay.
-- New UI work must use the Viden token source and component vocabulary before
-  adding new styles.
-- When source designs and current implementation disagree, the Viden source
-  wins for product direction; current implementation wins only for compatibility
-  until the migration is explicitly planned.
-- The product name shown in user-facing design and planning docs should be
-  Viden. Viden should appear only when discussing legacy implementation
-  names or migration compatibility.
+- TUI and GUI consume shared Core facts, commands, events, snapshots, replay,
+  tasks, lanes, permissions, context, cost, evidence, and audit identity.
+- Frontends must not invent business state or create a second execution path.
+- Visual values come from `tokens.css`; reusable components use the registered
+  component vocabulary before adding local styles.
+- Current implementation previews may be compared with target snapshots for
+  regression review, but they do not become a new design source.
+- Historical release documents retain the meaning of their original evidence;
+  do not replace historical screenshots with current target images.
+- Any accepted deviation records the affected source, reason, owner, and
+  follow-up gate.
 
-## Open Migration Work
+## Governance
 
-1. Decide whether and when to rename the binary, crates, config directories,
-   release artifacts, and Homebrew formula.
-2. Define compatibility policy for existing `viden` commands and
-   `.viden` user data.
-3. Convert active PRD, roadmap, TUI, and GUI documents from Viden framing to
-   Viden framing.
-4. Build screenshot baselines from the accepted Viden target images.
-5. Add a release gate that fails when UI screenshots drift from accepted Viden
-   targets without a documented deviation.
+Changes to the design directory must update the relevant live source and, when
+required, `DESIGN-REF.md`, `SPEC.md`, `screens-status.js`, token baselines,
+design checks, and the design changelog. Consumer documents link back here
+instead of copying a separate visual baseline.

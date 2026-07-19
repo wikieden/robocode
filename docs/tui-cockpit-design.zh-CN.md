@@ -11,9 +11,10 @@ TUI 决策。
 
 - 主视觉状态：**无弹窗态**。所有弹窗必须继承同一套 cockpit 主题，不再出现另一套配色。
 - Viden 视觉源通过 [Viden 设计接入决策](viden-design-adoption.zh-CN.md) review 后生效。
-- 主要目标图是 `docs/viden-design/Viden/screenshots/cockpit-final.png`、
-  `docs/viden-design/Viden/screenshots/welcome-watcher.png` 和
-  `docs/viden-design/Viden/screenshots/lane-monitor-wide.png`。
+- 活体基线是 `docs/viden-design/Viden/TUI/Viden - 统一原型 (TUI).html`；组件与交互行为
+  以 TUI 组件库和 T4 交互规则为准。评审快照是
+  `docs/viden-design/reference-shots/TUI-统一原型驾驶舱.png` 和
+  `docs/viden-design/reference-shots/TUI-组件库.png`。
 - 布局目标：高密度终端 cockpit，不是介绍页。首屏应立即服务于编码、审查、
   审批和子 agent lane 监控。
 - 配色方向：dark cockpit 为主，青色为主交互焦点，金色表示需要人类决策或权限，绿色成功、
@@ -27,11 +28,13 @@ TUI 决策。
   approval gate 和 overlay。
 - 状态栏采用 ticker：左侧固定 workspace/lane/provider，中央滚动大量状态指标，右侧固定帮助和
   decision entry。
-- 右栏采用 Project / Lane / More tabs，可折叠，可隐藏；隐藏后 transcript 铺满。
+- 右栏采用 Env / Lane / More tabs，可折叠，可隐藏；隐藏后 transcript 铺满。
 - lane 行支持展开显示当前 lane 下的 subagents。
-- composer 是多行 textarea 语义：默认 2 行，最多约 5 行，溢出内部滚动。
+- composer 行为跟随 canonical T1c 组件：多行编辑、bracketed paste、有限增高，随后内部
+  滚动。本文不再单独定义另一套行数上限。
 - welcome screen 使用 Viden 身份和命令选择器，配置动作结束后回到 welcome，不自动进入会话。
-- approval gate 使用 4 档决策：deny、read-only、allow once、allow scope，并支持倒计时自动拒绝。
+- approval gate 使用 4 档决策：allow once、allow for session、加入 repo allowlist、deny，
+  并支持倒计时自动拒绝。
 
 ## 主屏幕
 
@@ -40,11 +43,10 @@ TUI 决策。
 - Transcript：左侧主面板，时间线式消息，最近内容固定留在底部可见。
 - Live activity：transcript 区内部在最近可见对话内容后追加醒目的 `LIVE WORK` strip，
   用 phase、signal 和下一步 guidance 直接回答 Viden 正在干什么。
-- 右侧栏：Project / Lane / More tabs，压缩展示 workspace、active tasks、context、MCP、LSP、
+- 右侧栏：Env / Lane / More tabs，压缩展示 workspace、active tasks、context、MCP、LSP、
   Todo、diagnostics、provider health、recent files、usage 和 keybindings。
-- Composer：始终在底部可见，输入区是更高的三行输入槽，输入光标位于输入行内
-  并使用原生 blinking bar cursor，带 action hints、work mode chips 和 permission
-  level chips。
+- Composer：始终在底部可见，尺寸和内部滚动行为跟随 canonical T1c，输入光标位于输入行内
+  并使用原生 blinking bar cursor，带 action hints、work mode chips 和 permission level chips。
 - 底部状态栏：连接状态、session、event 数量、active lanes、context window、
   theme/help 提示。token、cost、rate 指标只有接入真实 provider telemetry 后才能显示。
 
@@ -142,18 +144,16 @@ Workspace -> Project -> Lane / Session -> Subagent
   `/git stash pop/drop` 会提示 stash ref，
   `/git worktree remove` 会提示 worktree 路径，`/lsp` 会提示 workspace 文件路径。
 
-## 审批弹窗
+## 审批闸
 
-审批弹窗是可交互 overlay，不是被动 transcript 卡片。
+审批闸是同一个事件循环里的可交互 overlay，不是被动 transcript 卡片或嵌套 input loop。
 
-- `Tab` / `Shift-Tab` 和方向键在 apply-all、deny、diff、approve 间移动焦点。
-- 默认焦点在 `Approve`，所以常见场景直接按 `Enter` 即可通过。
-- `Enter` 执行当前焦点控件。
-- checkbox 获得焦点时，`Space` 切换 apply-all。
-- `y` 批准，`n` / `Esc` / `Ctrl-C` 拒绝。
-- 鼠标点击可聚焦控件；在 deny 或 approve 上释放鼠标会完成审批。
-- `d` 会聚焦 diff/evidence 区域。该区域优先展示当前 approval prompt 携带的真实
-  preview 或 evidence 行；只有 prompt 没有 preview 内容时才使用小 fallback。
+- `1` 仅本次允许，`2` 当前 session 允许，`3` 加入界面所示 repo allowlist，`4` 拒绝。
+- 方向键移动选项，`Enter` 执行当前选项。
+- `Esc` 和超时都安全拒绝。`Ctrl-C` 仍只负责打断活动工作，不是审批答案。
+- 鼠标为可选输入；启用后也只选择同一组四档动作。
+- 查看 diff/evidence 不会自动处理审批。面板必须展示真实 command、scope、risk、
+  expiry/default action，以及存在时的 preview 或 evidence。
 - 批准或拒绝后，pending 弹窗必须立即消失，transcript 和右栏不能留下样式残影。
 
 ## 多屏方向

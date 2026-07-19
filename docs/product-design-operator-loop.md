@@ -140,7 +140,7 @@ Every visible feature should help answer at least one of those questions.
 ## Product Principles
 
 - **Viden is the actor.** Providers are infrastructure. The UI should say
-  "Viden working", "Builder is editing", or "Tester is running tests", not
+  "Viden working", "Coder is editing", or "Tester is running tests", not
   default to "DeepSeek is thinking."
 - **Configuration is direct manipulation.** Provider, model, permission, and
   theme surfaces should be searchable panels where selection or editing applies
@@ -177,12 +177,13 @@ Every visible feature should help answer at least one of those questions.
 | --- | --- | --- | --- | --- |
 | 1. Intake | What do I want Viden to do? | `UserIntent` | Welcome composer or cockpit composer | Captured task |
 | 2. Shape | Is this chat, planning, edit, test, review, or delegation? | `TaskEnvelope` | Inline plan/status row | Mode and route |
-| 3. Context | What will the agent see and what was omitted? | `ContextBundle` | Context pressure row and side-2 detail | Bundle, budget, compaction notes |
+| 3. Context | What will the agent see and what was omitted? | `ContextBundle` | Context pressure row and Environment/Context view | Bundle, budget, compaction notes |
 | 4. Dispatch | Who should do the work? | `AgentTask`, `AgentLane`, `LaneSession` | LIVE WORK, lane list, Agent Board | Active work item |
 | 5. Execute | What is happening live? | Runtime events | Streaming transcript and lane tail | Partial response, tool calls, logs |
-| 6. Gate | Is this action safe? | `PermissionRequest`, `Decision` | Decision center or four-level approval gate | Approve, deny, inspect, retry |
-| 7. Verify | What changed and did it pass? | `Evidence`, `Artifact` | Diff/test/evidence panels | Reviewable proof |
-| 8. Resolve | Should this be applied, discarded, retried, or remembered? | `NextAction`, `MemoryCandidate` | Action panel | Applied change, discarded lane, retry, memory/task update |
+| 6. Permit | May this action execute? | `PermissionRequest` | Inline permission dock or TUI four-option gate | Once, session, scope/always, edit, deny |
+| 7. Decide | Should completed output advance? | `Decision`, `MergeGate` | D2 Decision Center or compact TUI decision queue | Accept, revise, reject, retry |
+| 8. Verify | What changed and did it pass? | `Evidence`, `Artifact` | Diff/test/evidence panels | Reviewable proof |
+| 9. Resolve | Should this be applied, discarded, retried, or remembered? | `NextAction`, `MemoryCandidate` | Action panel | Applied change, discarded lane, retry, memory/task update |
 
 ### Key Flow Diagrams
 
@@ -403,9 +404,9 @@ For broader implementation, Viden should use a spec-driven operator loop:
 1. Create a task envelope with requirements, constraints, design decisions,
    test expectations, and known risks.
 2. Build a ContextBundle with source priorities.
-3. Dispatch one or more lanes: planner, builder, reviewer, tester, or external
+3. Dispatch one or more lanes: planner, coder, reviewer, tester, or external
    coding agents.
-4. Keep lane evidence visible in side-1 and side-2.
+4. Keep lane evidence visible from the Lane and Evidence views.
 5. Merge only after review/apply decisions.
 
 `/plan` should produce an inline plan in the transcript and keep the composer
@@ -433,9 +434,12 @@ Welcome requirements:
 The welcome screen should feel like an operator console waiting for intent, not
 a splash screen.
 
-## Main Cockpit
+## Main Cockpits
 
-After a real task begins, the cockpit should be organized around work:
+After a real task begins, both clients organize the cockpit around work, but
+they follow their own accepted shells.
+
+TUI follows the unified prototype:
 
 - Top bar: product, session, Git branch, permission mode, active lanes, context
   pressure, provider/model summary.
@@ -443,14 +447,15 @@ After a real task begins, the cockpit should be organized around work:
   durable history.
 - Inline activity: a prominent `LIVE WORK` strip directly after the latest
   visible conversation content, not as a detached center card.
-- Right rail: workspace, active tasks, diagnostics, provider health, recent
-  files, and budgets only when real data exists.
+- Right rail: Env / Lane / More views with real runtime facts only.
 - Composer: taller, visible cursor, stable IME placement, queued follow-up
   support.
 - Bottom bar: connection/session/events/lanes/context/help.
-- Side-1: lane console and delegated agent timeline.
-- Side-2: evidence, context, diagnostics, provider ops, hooks, and extension
-  probes.
+
+GUI follows D1: fixed activity rail, floating or pinned lane rail, central work
+surface, Environment/context rail, inline permission dock, and on-demand dock
+or Inspector. D2, D10, D12, and D14 own decision, monitoring, conflict, and
+audit workflows; they are not replacements for the D1 shell.
 
 ## Live Status And Animation
 
@@ -460,8 +465,9 @@ signals, and next-action guidance.
 
 Guidelines:
 
-- Use Viden role names: `Operator`, `Planner`, `Context Builder`,
-  `Builder`, `Reviewer`, `Tester`, `Lane Supervisor`, `Release Captain`.
+- Use the registered role names: `planner`, `coder`, `reviewer`, `tester`,
+  `doc-writer`, `researcher`, and `release-operator`. Context building and lane
+  supervision are runtime operations, not agent roles.
 - Avoid provider names unless the user is looking at provider health or a
   provider-specific error.
 - Do not show fake progress percentages for provider thinking; show real phase,
@@ -476,12 +482,12 @@ Example phrases:
 
 - `Viden is mapping the request`
 - `Planner is shaping the task`
-- `Context Builder is trimming logs`
-- `Builder is editing src/render.rs`
+- `Context engine is trimming logs`
+- `Coder is editing src/render.rs`
 - `Tester is running cargo test`
 - `Reviewer is checking diff evidence`
 - `Operator is waiting for approval`
-- `Lane Supervisor is watching codex lane`
+- `Lane monitor is watching codex lane`
 - `Viden is reducing context after a 413 response`
 
 For long-running work, the transcript should show a live row under the latest
@@ -588,7 +594,7 @@ Provider errors should be classified into actionable recovery states:
 - Rate limited: show wait time and model/provider alternatives.
 - Tool replay mismatch: repair provider/tool-call history before retry.
 
-Errors should appear inline in the transcript and side-2 evidence, not as a
+Errors should appear inline in the transcript and Evidence view, not as a
 surprising center modal unless user action is required.
 
 ## Evidence And Review
@@ -632,8 +638,8 @@ Lane requirements:
   capabilities, session, event stream, apply/reject.
 - Lanes should declare isolation needs: worktree, env, ports, caches, databases,
   services, and teardown.
-- Side-1 controls lane execution. Side-2 explains whether the lane result can be
-  trusted.
+- Lane Monitor controls execution. Evidence explains whether the lane result
+  can be trusted.
 
 ## Plugin, Skill, MCP, And ACP Design
 
@@ -710,7 +716,7 @@ No feature should be called complete if the visible control is not executable.
 - Promote task envelope/spec artifacts into the product flow.
 - Make ContextBundle inspectable and user-curatable.
 - Make diff/test/evidence the default completion surface.
-- Make side-1 lane control and side-2 evidence real action surfaces.
+- Make Lane Monitor and Evidence real action surfaces.
 - Add per-lane budgets and stop conditions.
 
 ### Then: External Agent Interoperability
