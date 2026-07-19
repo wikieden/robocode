@@ -10,7 +10,6 @@ mod indicators;
 #[allow(dead_code)]
 mod input;
 mod keymap;
-#[cfg(test)]
 #[allow(dead_code)]
 mod lane;
 mod lane_presenter;
@@ -19,9 +18,9 @@ mod modal;
 mod ops_screen;
 mod panel;
 mod preview;
+mod projection;
 mod render;
 mod right_rail;
-#[cfg(test)]
 #[allow(dead_code)]
 mod screen;
 mod side_screen;
@@ -37,6 +36,7 @@ mod text;
 mod theme;
 mod topbar;
 mod transcript;
+mod ui_state;
 
 pub use app::{TuiError, TuiOptions, run_tui};
 pub use preview::{

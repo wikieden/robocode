@@ -1,710 +1,106 @@
 use super::{
     canvas::Frame,
-    indicators::{progress_bar, status_dot},
-    lane_presenter::{
-        command_hint, interaction_hint, lane_next_action, pid_hint, pty_label, status_badge,
-        terminal_label,
-    },
     panel::panel,
-    state::{TuiState, agent_lanes, lane_runtime_evidence},
+    state::{TuiState, agent_lanes, provider_status},
     statusbar::BOTTOM_BAR_HEIGHT,
-    text::{pad, truncate},
+    text::truncate,
 };
-use std::fs;
 
 pub(super) fn render_side_body(frame: &mut Frame, state: &TuiState) {
     let body_top = 3;
-    let body_bottom = frame.height - BOTTOM_BAR_HEIGHT - 1;
-    let body_height = body_bottom.saturating_sub(body_top) + 1;
-    let lane_height = body_height.saturating_mul(8).saturating_div(20).max(12);
-    let output_height = body_height.saturating_mul(6).saturating_div(20).max(8);
-    let provider_height = body_height
-        .saturating_sub(lane_height + output_height)
-        .max(6);
-
-    let lane_panel = panel(
-        "AGENT LANES",
-        terminal_lane_detail_rows(state),
-        frame.width,
-        lane_height,
-        Some("side-1"),
+    let body_height = frame.height.saturating_sub(body_top + BOTTOM_BAR_HEIGHT);
+    let lane_height = body_height.saturating_mul(2).saturating_div(3).max(8);
+    frame.write_block(
+        body_top,
+        0,
+        &panel(
+            "AGENT LANES",
+            lane_rows(state),
+            frame.width,
+            lane_height,
+            None,
+        ),
     );
-    frame.write_block(body_top, 0, &lane_panel);
-
-    let output_top = body_top + lane_height;
-    let output_panel = panel(
-        "LIVE OUTPUT",
-        agent_output_rows(state),
-        frame.width,
-        output_height,
-        Some("tail"),
+    frame.write_block(
+        body_top + lane_height,
+        0,
+        &panel(
+            "SIDE STATUS",
+            side_status_rows(state),
+            frame.width,
+            body_height.saturating_sub(lane_height).max(5),
+            None,
+        ),
     );
-    frame.write_block(output_top, 0, &output_panel);
+}
 
-    let provider_top = output_top + output_height;
-    let provider_panel = panel(
-        "SIDE STATUS",
-        side_status_rows(state),
-        frame.width,
-        provider_height,
-        Some(state.provider_status.connection.as_str()),
-    );
-    frame.write_block(provider_top, 0, &provider_panel);
+fn lane_rows(state: &TuiState) -> Vec<String> {
+    let mut rows = agent_lanes(state)
+        .into_iter()
+        .map(|lane| {
+            format!(
+                "{:<12} {:<10} {}",
+                truncate(&lane.id, 12),
+                lane.status,
+                truncate(&lane.summary, 44)
+            )
+        })
+        .collect::<Vec<_>>();
+    if rows.is_empty() {
+        rows.push("no Core lanes".to_string());
+    }
+    rows
 }
 
 pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
     let lanes = agent_lanes(state);
-    let active_lanes = lanes.iter().filter(|lane| lane.is_active()).count();
-    let route_hint = lanes
-        .iter()
-        .find(|lane| lane.is_active())
-        .map(|lane| {
-            format!(
-                "{} {} {} {} {}",
-                lane.screen, lane.id, lane.agent, lane.transport, lane.status
-            )
-        })
-        .unwrap_or_else(|| "main idle".to_string());
+    let status = provider_status(state);
     vec![
-        format!("PROVIDER  {} / {}", state.provider, state.model),
-        format!("WORKSPACE {}", truncate(&state.workspace.display_root, 28)),
         format!(
-            "SCREENS   main online   {}   {}   lanes {active_lanes}/{}",
-            companion_screen_label(state, "side-1"),
-            companion_screen_label(state, "side-2"),
+            "PROVIDER  {} / {}",
+            state.runtime.snapshot.provider_family, state.runtime.snapshot.model_label
+        ),
+        format!(
+            "WORKSPACE {}",
+            truncate(&state.runtime.snapshot.cwd.display().to_string(), 28)
+        ),
+        format!(
+            "LANES     active {}/{}",
+            lanes.iter().filter(|lane| lane.is_active()).count(),
             lanes.len()
         ),
-        lane_visibility_row(&state.lanes),
-        format!("ROUTE    {}", truncate(&route_hint, 56)),
-        format!(
-            "TELEMETRY {}   EVENTS {}",
-            state.provider_status.telemetry,
-            state.entries.len(),
-        ),
-        format!(
-            "CONTEXT   {}   DIAGNOSTICS {}",
-            state.provider_status.context_window,
-            state.workspace.diagnostics.len(),
-        ),
-        format!("DIAG      ok   THEME {}", state.theme_name),
+        format!("TELEMETRY {}", status.telemetry),
+        format!("CONTEXT   {}", status.context_window),
+        format!("THEME     {}", state.theme_name),
     ]
-}
-
-#[derive(Default)]
-struct LaneVisibilityCounts {
-    total: usize,
-    active: usize,
-    review: usize,
-    blocked: usize,
-    done: usize,
-    other: usize,
-}
-
-fn lane_visibility_row(lanes: &[super::state::TerminalLane]) -> String {
-    let counts = lane_visibility_counts(lanes);
-    let mut row = format!(
-        "LANES    active {}/{}   review {}   blocked {}   done {}",
-        counts.active, counts.total, counts.review, counts.blocked, counts.done
-    );
-    if counts.other > 0 {
-        row.push_str(&format!("   other {}", counts.other));
-    }
-    row
-}
-
-fn lane_visibility_counts(lanes: &[super::state::TerminalLane]) -> LaneVisibilityCounts {
-    let mut counts = LaneVisibilityCounts {
-        total: lanes.len(),
-        ..LaneVisibilityCounts::default()
-    };
-    for lane in lanes {
-        match lane.status.as_str() {
-            "queued" | "starting" | "running" | "attached" | "needs_input" | "manual" => {
-                counts.active += 1;
-            }
-            "completed" | "accepted" | "reviewing" | "waiting_approval" | "revise" => {
-                counts.review += 1;
-            }
-            "failed" | "blocked" | "apply_conflict" => {
-                counts.blocked += 1;
-            }
-            "applied" | "archived" | "discarded" | "detached" | "stopped" | "done" | "idle" => {
-                counts.done += 1;
-            }
-            _ => {
-                counts.other += 1;
-            }
-        }
-    }
-    counts
-}
-
-fn companion_screen_label(state: &TuiState, id: &str) -> String {
-    let Some(screen) = state.screens.iter().find(|screen| screen.id == id) else {
-        return format!("{id} off");
-    };
-    let pid = screen.pid.map(|pid| format!(":{pid}")).unwrap_or_default();
-    format!("{} {}{}", screen.id, screen.status, pid)
-}
-
-fn terminal_lane_detail_rows(state: &TuiState) -> Vec<String> {
-    if state.lanes.is_empty() {
-        return vec![
-            "○ no terminal lanes attached".to_string(),
-            "open main screen and run /lane codex <task>".to_string(),
-        ];
-    }
-    let mut rows = Vec::new();
-    for lane in &state.lanes {
-        let badge = status_badge(&lane.status);
-        let terminal = terminal_label(&lane.tool);
-        rows.push(format!(
-            "┌ {} {} {:<10} TRANSPORT {:<8} STATE {:<11}",
-            status_dot(&lane.status),
-            pad(&format!("{} {}", lane.id, terminal), 14),
-            badge,
-            lane_transport(lane),
-            lane_agent_state(lane)
-        ));
-        rows.push(format!(
-            "│ PTY {}  PID {:<5}  ATTACH {}",
-            pty_label(&lane.tool),
-            pid_hint(lane),
-            interaction_hint(lane)
-        ));
-        rows.push(format!(
-            "└ CMD {} │ TASK {}",
-            truncate(&command_hint(&lane.tool, &lane.title), 24),
-            truncate(&lane.title, 36)
-        ));
-        rows.push(format!("  NEXT {}", truncate(&lane_next_action(lane), 66)));
-        rows.push(format!(
-            "  tail {} │ artifact {}",
-            truncate(&lane.summary, 26),
-            truncate(&lane_artifact_hint(state, &lane.id), 32)
-        ));
-    }
-    rows
-}
-
-fn lane_transport(lane: &super::state::TerminalLane) -> &'static str {
-    if lane.target.starts_with("tmux ") {
-        "tmux"
-    } else if lane.target.contains(" pty ") || lane.target.starts_with("pty ") {
-        "pty"
-    } else if matches!(lane.tool.as_str(), "run" | "shell") {
-        "shell"
-    } else {
-        "template"
-    }
-}
-
-fn lane_agent_state(lane: &super::state::TerminalLane) -> &'static str {
-    match lane.status.as_str() {
-        "queued" | "starting" => "thinking",
-        "running" => running_lane_state(lane),
-        "attached" | "manual" | "needs_input" => "needs input",
-        "reviewing" | "waiting_approval" | "accepted" | "revise" => "reviewing",
-        "apply_conflict" | "blocked" | "failed" => "blocked",
-        "done" | "completed" | "applied" | "discarded" | "detached" | "stopped" | "idle"
-        | "archived" => "done",
-        _ => "thinking",
-    }
-}
-
-fn running_lane_state(lane: &super::state::TerminalLane) -> &'static str {
-    let lower = format!("{} {}", lane.title, lane.summary).to_ascii_lowercase();
-    if ["test", "cargo", "pytest", "npm test"]
-        .iter()
-        .any(|needle| lower.contains(needle))
-    {
-        "testing"
-    } else if ["edit", "write", "patch", "diff", "file"]
-        .iter()
-        .any(|needle| lower.contains(needle))
-    {
-        "editing"
-    } else {
-        "thinking"
-    }
-}
-
-fn lane_artifact_hint(state: &TuiState, lane_id: &str) -> String {
-    let Some(store) = state.lane_store.as_deref() else {
-        return "none".to_string();
-    };
-    let Some(dir) = store.parent().map(|path| path.join("lanes")) else {
-        return "none".to_string();
-    };
-    let candidates = [
-        ("conflict", "apply-conflict.md"),
-        ("apply", "apply.md"),
-        ("decision", "decision.md"),
-        ("tmux", "tmux.md"),
-        ("attach", "attach.md"),
-        ("pty", "pty.md"),
-        ("task", "envelope.md"),
-    ];
-    candidates
-        .iter()
-        .find_map(|(label, suffix)| {
-            let path = dir.join(format!("{lane_id}.{suffix}"));
-            fs::metadata(&path)
-                .ok()
-                .map(|_| format!("{label} {lane_id}.{suffix}"))
-        })
-        .unwrap_or_else(|| "none".to_string())
-}
-
-fn agent_output_rows(state: &TuiState) -> Vec<String> {
-    let mut rows = vec!["LANES tail persisted logs │ CONTROL inspect stop route".to_string()];
-    for lane in &state.lanes {
-        let terminal = terminal_label(&lane.tool);
-        rows.push(format!(
-            "{} {:<10} {:<10} {} │ {}",
-            lane.id,
-            terminal,
-            status_badge(&lane.status),
-            progress_bar(lane.progress)
-                .split_whitespace()
-                .next()
-                .unwrap_or("░░░░░"),
-            truncate(
-                &format!("{} :: {}", interaction_hint(lane), lane.summary),
-                50
-            )
-        ));
-        rows.extend(lane_log_tail_rows(state, &lane.id, 70, 2));
-    }
-    if rows.len() == 1 {
-        rows.push("○ no lane output yet".to_string());
-    }
-    rows
-}
-
-fn lane_log_tail_rows(
-    state: &TuiState,
-    lane_id: &str,
-    max_width: usize,
-    max_lines: usize,
-) -> Vec<String> {
-    let Some(evidence) = state
-        .lane_store
-        .as_deref()
-        .and_then(|store| lane_runtime_evidence(store, lane_id))
-    else {
-        return Vec::new();
-    };
-    let keep_from = evidence.log_tail.len().saturating_sub(max_lines);
-    evidence
-        .log_tail
-        .iter()
-        .skip(keep_from)
-        .map(|line| format!("  │ {}", truncate(line, max_width)))
-        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::state::{
-        CompanionScreen, ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot, lane_store_path,
-    };
-    use std::{
-        fs,
-        time::{SystemTime, UNIX_EPOCH},
-    };
 
     #[test]
-    fn side_status_rows_reflect_tracked_companion_screens() {
-        let state = TuiState {
-            session_id: "session".to_string(),
-            provider: "deepseek".to_string(),
-            model: "deepseek-v4-flash".to_string(),
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            provider_status: ProviderStatus::configured(),
-            theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: 0,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            entries: Vec::<TuiEntry>::new(),
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: vec![CompanionScreen {
-                id: "side-1".to_string(),
-                title: "Agent lanes".to_string(),
-                status: "launched".to_string(),
-                pid: Some(4242),
-                summary: "test screen".to_string(),
-            }],
-            lanes: Vec::<TerminalLane>::new(),
-            lane_store: None,
-            focused_lane: None,
-            interaction_panel: None,
-        };
-
-        let rows = side_status_rows(&state);
-        let screen_row = rows
-            .iter()
-            .find(|row| row.contains("SCREENS"))
-            .expect("screen row");
-
-        assert!(screen_row.contains("side-1 launched:4242"));
-        assert!(screen_row.contains("side-2 off"));
-    }
-
-    #[test]
-    fn side_status_rows_summarize_lane_background_counts() {
-        let state = TuiState {
-            session_id: "session".to_string(),
-            provider: "deepseek".to_string(),
-            model: "deepseek-v4-flash".to_string(),
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            provider_status: ProviderStatus::configured(),
-            theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: 0,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            entries: Vec::<TuiEntry>::new(),
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: Vec::new(),
-            lanes: vec![
-                TerminalLane {
-                    id: "L1".to_string(),
-                    tool: "codex".to_string(),
-                    title: "queued lane".to_string(),
-                    status: "queued".to_string(),
-                    target: "main".to_string(),
-                    progress: 0,
-                    summary: "waiting for slot".to_string(),
-                    worktree: None,
-                },
-                TerminalLane {
-                    id: "L2".to_string(),
-                    tool: "claude".to_string(),
-                    title: "running lane".to_string(),
-                    status: "running".to_string(),
-                    target: "tmux viden-l2".to_string(),
-                    progress: 45,
-                    summary: "checking tests".to_string(),
-                    worktree: None,
-                },
-                TerminalLane {
-                    id: "L3".to_string(),
-                    tool: "codex".to_string(),
-                    title: "completed lane".to_string(),
-                    status: "completed".to_string(),
-                    target: "main".to_string(),
-                    progress: 100,
-                    summary: "ready for acceptance".to_string(),
-                    worktree: Some(std::path::PathBuf::from("/tmp/L3")),
-                },
-                TerminalLane {
-                    id: "L4".to_string(),
-                    tool: "codex".to_string(),
-                    title: "accepted lane".to_string(),
-                    status: "accepted".to_string(),
-                    target: "main".to_string(),
-                    progress: 100,
-                    summary: "ready to apply".to_string(),
-                    worktree: Some(std::path::PathBuf::from("/tmp/L4")),
-                },
-                TerminalLane {
-                    id: "L5".to_string(),
-                    tool: "claude".to_string(),
-                    title: "conflict lane".to_string(),
-                    status: "apply_conflict".to_string(),
-                    target: "main".to_string(),
-                    progress: 100,
-                    summary: "needs conflict resolution".to_string(),
-                    worktree: Some(std::path::PathBuf::from("/tmp/L5")),
-                },
-                TerminalLane {
-                    id: "L6".to_string(),
-                    tool: "run".to_string(),
-                    title: "failed lane".to_string(),
-                    status: "failed".to_string(),
-                    target: "shell".to_string(),
-                    progress: 100,
-                    summary: "command failed".to_string(),
-                    worktree: None,
-                },
-                TerminalLane {
-                    id: "L7".to_string(),
-                    tool: "codex".to_string(),
-                    title: "applied lane".to_string(),
-                    status: "applied".to_string(),
-                    target: "main".to_string(),
-                    progress: 100,
-                    summary: "applied cleanly".to_string(),
-                    worktree: Some(std::path::PathBuf::from("/tmp/L7")),
-                },
-                TerminalLane {
-                    id: "L8".to_string(),
-                    tool: "shell".to_string(),
-                    title: "archived lane".to_string(),
-                    status: "archived".to_string(),
-                    target: "shell".to_string(),
-                    progress: 100,
-                    summary: "artifact kept".to_string(),
-                    worktree: None,
-                },
-            ],
-            lane_store: None,
-            focused_lane: None,
-            interaction_panel: None,
-        };
-
-        let rows = side_status_rows(&state);
-        let lane_row = rows
-            .iter()
-            .find(|row| row.contains("LANES"))
-            .expect("lane count row");
-
-        assert!(lane_row.contains("active 2/8"));
-        assert!(lane_row.contains("review 2"));
-        assert!(lane_row.contains("blocked 2"));
-        assert!(lane_row.contains("done 2"));
-    }
-
-    #[test]
-    fn side_lane_rows_surface_tmux_attach_command() {
-        let mut state = TuiState {
-            session_id: "session".to_string(),
-            provider: "deepseek".to_string(),
-            model: "deepseek-v4-flash".to_string(),
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            provider_status: ProviderStatus::configured(),
-            theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: 0,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            entries: Vec::<TuiEntry>::new(),
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: Vec::new(),
-            lanes: TerminalLane::preview_lanes(),
-            lane_store: None,
-            focused_lane: None,
-            interaction_panel: None,
-        };
-        state.lanes[0].target = "tmux viden-session-l1".to_string();
-
-        let rendered = terminal_lane_detail_rows(&state).join("\n");
-
-        assert!(rendered.contains("TRANSPORT tmux"));
-        assert!(rendered.contains("STATE testing"));
-        assert!(rendered.contains("ATTACH tmux attach -t viden-session-l1"));
-        assert!(rendered.contains("NEXT watch or attach with `tmux attach -t viden-session-l1`"));
-        assert!(rendered.contains("tail patched failing tests"));
-        assert!(rendered.contains("artifact none"));
+    fn side_rows_use_runtime_snapshot() {
+        let mut state = TuiState::default();
+        state.runtime.snapshot.provider_family = "structured-provider".to_string();
+        state.runtime.snapshot.model_label = "structured-model".to_string();
+        assert!(side_status_rows(&state)[0].contains("structured-provider / structured-model"));
     }
 
     #[test]
     fn typed_core_lane_states_drive_side_counts_and_state_rows() {
-        let mut lanes = TerminalLane::preview_lanes();
-        lanes.truncate(2);
-        lanes[0].id = "L-review".to_string();
-        lanes[0].status = "waiting_approval".to_string();
-        lanes[1].id = "L-blocked".to_string();
-        lanes[1].status = "blocked".to_string();
-        let state = TuiState {
-            lanes,
-            ..TuiState::default()
-        };
+        let mut state = TuiState::default();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lane fixture");
 
-        let counts = lane_visibility_row(&state.lanes);
-        assert!(counts.contains("active 0/2"));
-        assert!(counts.contains("review 1"));
-        assert!(counts.contains("blocked 1"));
-        assert!(counts.contains("done 0"));
-        assert!(!counts.contains("other"));
+        let rows = lane_rows(&state);
+        let status = side_status_rows(&state);
 
-        let rendered = terminal_lane_detail_rows(&state).join("\n");
-        assert!(rendered.contains("L-review") && rendered.contains("STATE reviewing"));
-        assert!(rendered.contains("L-blocked") && rendered.contains("STATE blocked"));
-    }
-
-    #[test]
-    fn side_lane_rows_surface_operator_artifacts() {
-        let root = temp_root("side-lane-artifacts");
-        let lane_store = lane_store_path(&root);
-        let artifact_dir = root.join(".viden").join("lanes");
-        fs::create_dir_all(&artifact_dir).expect("artifact dir");
-        fs::write(artifact_dir.join("L1.apply-conflict.md"), "conflict").expect("conflict");
-        let mut state = TuiState {
-            session_id: "session".to_string(),
-            provider: "deepseek".to_string(),
-            model: "deepseek-v4-flash".to_string(),
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            provider_status: ProviderStatus::configured(),
-            theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: 0,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            entries: Vec::<TuiEntry>::new(),
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: Vec::new(),
-            lanes: TerminalLane::preview_lanes(),
-            lane_store: Some(lane_store),
-            focused_lane: None,
-            interaction_panel: None,
-        };
-        state.lanes.truncate(1);
-        state.lanes[0].status = "apply_conflict".to_string();
-
-        let rendered = terminal_lane_detail_rows(&state).join("\n");
-
-        assert!(rendered.contains("STATE blocked"));
-        assert!(rendered.contains("NEXT resolve main/lane conflicts"));
-        assert!(rendered.contains("artifact conflict L1.apply-conflict.md"));
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn side_lane_rows_render_closed_operator_states_as_done() {
-        let state = TuiState {
-            session_id: "session".to_string(),
-            provider: "deepseek".to_string(),
-            model: "deepseek-v4-flash".to_string(),
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            provider_status: ProviderStatus::configured(),
-            theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: 0,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            entries: Vec::<TuiEntry>::new(),
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: Vec::new(),
-            lanes: vec![
-                TerminalLane {
-                    id: "L1".to_string(),
-                    tool: "codex".to_string(),
-                    title: "applied lane".to_string(),
-                    status: "applied".to_string(),
-                    target: "main".to_string(),
-                    progress: 100,
-                    summary: "main workspace already patched".to_string(),
-                    worktree: Some(std::path::PathBuf::from("/tmp/L1")),
-                },
-                TerminalLane {
-                    id: "L2".to_string(),
-                    tool: "claude".to_string(),
-                    title: "discarded lane".to_string(),
-                    status: "discarded".to_string(),
-                    target: "main".to_string(),
-                    progress: 100,
-                    summary: "operator discarded this lane".to_string(),
-                    worktree: Some(std::path::PathBuf::from("/tmp/L2")),
-                },
-            ],
-            lane_store: None,
-            focused_lane: None,
-            interaction_panel: None,
-        };
-
-        let rows = terminal_lane_detail_rows(&state);
-
-        assert!(
-            rows.iter()
-                .any(|row| row.contains("L1") && row.contains("STATE done"))
-        );
-        assert!(
-            rows.iter()
-                .any(|row| row.contains("L2") && row.contains("STATE done"))
-        );
-    }
-
-    #[test]
-    fn side_output_rows_replay_persisted_lane_log_tail() {
-        let root = temp_root("side-output-tail");
-        let lane_store = lane_store_path(&root);
-        let artifact_dir = root.join(".viden").join("lanes");
-        fs::create_dir_all(&artifact_dir).expect("artifact dir");
-        fs::write(
-            artifact_dir.join("L1.log"),
-            "compile started\nrunning cargo test\nall tests green\n",
-        )
-        .expect("lane log");
-        let mut state = TuiState {
-            session_id: "session".to_string(),
-            provider: "deepseek".to_string(),
-            model: "deepseek-v4-flash".to_string(),
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            provider_status: ProviderStatus::configured(),
-            theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: 0,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            entries: Vec::<TuiEntry>::new(),
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: Vec::new(),
-            lanes: TerminalLane::preview_lanes(),
-            lane_store: Some(lane_store),
-            focused_lane: None,
-            interaction_panel: None,
-        };
-        state.lanes.truncate(1);
-
-        let rendered = agent_output_rows(&state).join("\n");
-
-        assert!(rendered.contains("L1"));
-        assert!(rendered.contains("running cargo test"));
-        assert!(rendered.contains("all tests green"));
-        let _ = fs::remove_dir_all(root);
-    }
-
-    fn temp_root(suffix: &str) -> std::path::PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        std::env::temp_dir().join(format!("viden-side-screen-test-{nanos}-{suffix}"))
+        assert!(rows.iter().any(|row| row.contains("L-start")));
+        assert!(rows.iter().any(|row| row.contains("starting")));
+        assert!(rows.iter().any(|row| row.contains("detached")));
+        assert!(status.iter().any(|row| row.contains("active 4/4")));
     }
 }

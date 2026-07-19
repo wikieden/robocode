@@ -1,7 +1,6 @@
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use viden_core::{
-    AgentLaneRecord, AgentRoute, ApprovalResponse, CoreClient, EventCursor, ExecutionTarget,
-    GateStrength, LaneStatus, RuntimeCommand, RuntimeViewState, TuiColorDepth,
+    ApprovalResponse, CoreClient, EventCursor, RuntimeCommand, RuntimeViewState, TuiColorDepth,
 };
 
 use super::client::{PumpOutcome, TuiClientDriver, TuiClientError};
@@ -12,10 +11,7 @@ use super::command_palette::{
 use super::input::{ApprovalKeyEffect, apply_approval_key, close_focus_on_escape};
 use super::keymap::{InputIntent, InputMode, reduce_input};
 use super::modal::{interaction_panel_choice_count, selected_interaction_command};
-use super::state::{
-    AgentTask, InteractionPanel, PendingTurn, ProviderStatus, TerminalLane, TuiEntry, TuiState,
-    WorkspaceSnapshot,
-};
+use super::state::{InteractionPanel, TuiEntry, TuiState};
 use super::terminal::TerminalGuard;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,18 +118,9 @@ fn detect_color_depth() -> TuiColorDepth {
 }
 
 fn state_from_driver<C: CoreClient>(driver: &TuiClientDriver<C>, options: &TuiOptions) -> TuiState {
-    let snapshot = &driver.view().snapshot;
-    let mut state = TuiState {
-        session_id: driver.cursor().stream_id.clone(),
-        provider: snapshot.provider_family.clone(),
-        model: snapshot.model_label.clone(),
-        provider_status: ProviderStatus::configured(),
-        theme_name: ui_profile_label(&snapshot.ui_preferences),
-        workspace: WorkspaceSnapshot::from_core_cwd(snapshot.cwd.clone()),
-        ..TuiState::default()
-    };
-    state.provider_status.work_mode = snapshot.work_mode;
-    state.provider_status.permission_level = snapshot.permission_level;
+    let mut state = TuiState::new(driver.view().clone());
+    state.ui.session_id = driver.cursor().stream_id.clone();
+    state.ui.theme_name = ui_profile_label(&state.runtime.snapshot.ui_preferences);
     state.entries.push(TuiEntry {
         label: "system".to_string(),
         body: options.startup_summary.clone(),
@@ -176,222 +163,8 @@ fn ui_profile_label(preferences: &viden_core::ResolvedUiPreferences) -> String {
 /// Replaces TUI runtime presentation from the Core-owned projection while
 /// preserving only local input/layout state and the startup/user transcript.
 fn project_runtime_view(state: &mut TuiState, view: &RuntimeViewState, cursor: &EventCursor) {
-    state.session_id = cursor.stream_id.clone();
-    state.provider = view.snapshot.provider_family.clone();
-    state.model = view.snapshot.model_label.clone();
-    state.workspace = WorkspaceSnapshot::from_core_cwd(view.snapshot.cwd.clone());
-    state.provider_status.work_mode = view.snapshot.work_mode;
-    state.provider_status.permission_level = view.snapshot.permission_level;
-
-    if let Some(provider) = &view.provider {
-        state.provider_status.connection = provider.status.clone();
-        state.provider_status.request_count = provider.request_count;
-        state.provider_status.failure_count = provider.error_count;
-        state.provider_status.success_count =
-            provider.request_count.saturating_sub(provider.error_count);
-        state.provider_status.last_latency_ms = provider.last_latency_ms.map(u128::from);
-        state.provider_status.average_latency_ms = provider.average_latency_ms.map(u128::from);
-        state.provider_status.last_tokens_per_second = provider.tokens_per_second;
-        state.provider_status.telemetry = format!(
-            "{} req / {} ok / {} err",
-            state.provider_status.request_count,
-            state.provider_status.success_count,
-            state.provider_status.failure_count
-        );
-    }
-    let token_cost = view.token_cost.as_ref();
-    state.provider_status.last_input_tokens = token_cost.map(|cost| cost.input_tokens);
-    state.provider_status.last_output_tokens = token_cost.map(|cost| cost.output_tokens);
-    state.provider_status.last_total_tokens = token_cost.map(|cost| cost.total_tokens);
-    state.provider_status.last_cost_micro_usd = token_cost.and_then(|cost| cost.cost_micro_usd);
-    state.provider_status.total_tokens = view.cost_ledger.total_tokens;
-    state.provider_status.total_cost_micro_usd = view
-        .cost_ledger
-        .total_actual_cost_micro_usd
-        .or(Some(view.cost_ledger.total_estimated_cost_micro_usd));
-    state.provider_status.last_event_count = cursor.sequence as usize;
-    state.provider_status.context_window = view
-        .context
-        .as_ref()
-        .map(|context| format!("{}/{}", context.estimated_tokens, context.hard_token_limit))
-        .unwrap_or_else(|| "-".to_string());
-
-    state.streaming_assistant =
-        (!view.assistant_stream.is_empty()).then(|| view.assistant_stream.clone());
-    state.runtime_tasks = view.tasks.iter().map(agent_task_from_core).collect();
-    state.lanes = view.lanes.iter().map(terminal_lane_from_core).collect();
-
-    state.entries.retain(|entry| {
-        matches!(entry.label.as_str(), "system" | "user") && !entry.body.starts_with("runtime:")
-    });
-    state
-        .entries
-        .extend(view.active_tool_calls.iter().map(|tool| TuiEntry {
-            label: "tool-call".to_string(),
-            body: format!("{}\n{}", tool.name, tool.input_preview),
-        }));
-    state
-        .entries
-        .extend(view.latest_evidence.iter().map(|evidence| TuiEntry {
-            label: "tool-result".to_string(),
-            body: evidence.summary.clone(),
-        }));
-    state
-        .entries
-        .extend(view.pending_approvals.iter().map(|approval| TuiEntry {
-            label: "approval".to_string(),
-            body: format!(
-                "Permission request for `{}`\npath: {}\n{}\n{}\nPress y to approve or n to deny.",
-                approval.tool_name,
-                approval.target.display,
-                approval.message,
-                approval.input_preview
-            ),
-        }));
-    state
-        .entries
-        .extend(view.errors.iter().map(|error| TuiEntry {
-            label: "error".to_string(),
-            body: format!(
-            "{}{}",
-            error.message,
-            error
-                .hint
-                .as_deref()
-                .map(|hint| format!("\n{hint}"))
-                .unwrap_or_default()
-        ),
-        }));
-    state
-        .entries
-        .extend(view.merge_gates.iter().map(|gate| TuiEntry {
-            label: "system".to_string(),
-            body: format!("runtime: merge gate {} {:?}", gate.gate_id, gate.status),
-        }));
-
-    let has_active_runtime = !view.active_tool_calls.is_empty()
-        || !view.pending_approvals.is_empty()
-        || view.tasks.iter().any(|task| task.is_active())
-        || view.lanes.iter().any(AgentLaneRecord::is_active)
-        || !view.queued_inputs.is_empty()
-        || !view.assistant_stream.is_empty();
-    if has_active_runtime {
-        let mut turn = state.pending_turn.take().unwrap_or_else(|| {
-            PendingTurn::new(
-                &state.session_id,
-                &state.provider,
-                &state.model,
-                "runtime activity",
-                &state.workspace.display_root,
-            )
-        });
-        turn.queued_inputs = view
-            .queued_inputs
-            .iter()
-            .map(|input| input.content_preview.clone())
-            .collect();
-        if !view.pending_approvals.is_empty() {
-            turn.phase = "approval required".to_string();
-            turn.next_action = "approve or deny".to_string();
-        } else if !view.active_tool_calls.is_empty() {
-            turn.phase = "running tool".to_string();
-            turn.next_action = "wait".to_string();
-        } else {
-            turn.phase = "streaming".to_string();
-            turn.next_action = "wait".to_string();
-        }
-        state.pending_turn = Some(turn);
-    } else {
-        state.pending_turn = None;
-    }
-}
-
-fn terminal_lane_from_core(lane: &AgentLaneRecord) -> TerminalLane {
-    TerminalLane {
-        id: lane.id.clone(),
-        tool: lane.role.to_string(),
-        title: lane
-            .task_id
-            .clone()
-            .unwrap_or_else(|| format!("{} lane", lane.role)),
-        status: lane_status_name(lane.status).to_string(),
-        target: format!(
-            "{}/{} · {}",
-            lane_route_name(lane.route),
-            execution_target_name(&lane.target),
-            gate_strength_name(lane.gate_strength)
-        ),
-        progress: u8::from(matches!(lane.status, LaneStatus::Done)) * 100,
-        summary: lane.summary.clone(),
-        worktree: lane.worktree.as_deref().map(std::path::PathBuf::from),
-    }
-}
-
-fn lane_status_name(status: LaneStatus) -> &'static str {
-    match status {
-        LaneStatus::Draft => "draft",
-        LaneStatus::Queued => "queued",
-        LaneStatus::Starting => "starting",
-        LaneStatus::Running => "running",
-        LaneStatus::WaitingApproval => "waiting_approval",
-        LaneStatus::NeedsInput => "needs_input",
-        LaneStatus::Blocked => "blocked",
-        LaneStatus::Attached => "attached",
-        LaneStatus::Detached => "detached",
-        LaneStatus::Done => "done",
-        LaneStatus::Failed => "failed",
-        LaneStatus::Cancelled => "cancelled",
-        LaneStatus::Archived => "archived",
-    }
-}
-
-fn lane_route_name(route: AgentRoute) -> &'static str {
-    match route {
-        AgentRoute::BuiltIn => "built_in",
-        AgentRoute::Acp => "acp",
-        AgentRoute::Terminal => "terminal",
-        AgentRoute::Tmux => "tmux",
-    }
-}
-
-fn execution_target_name(target: &ExecutionTarget) -> String {
-    match target {
-        ExecutionTarget::Local => "local".to_string(),
-        ExecutionTarget::Ssh { host } => format!("ssh:{host}"),
-    }
-}
-
-fn gate_strength_name(gate: GateStrength) -> &'static str {
-    match gate {
-        GateStrength::Full => "full",
-        GateStrength::Cooperative => "cooperative",
-        GateStrength::Containment => "containment",
-    }
-}
-
-fn agent_task_from_core(task: &viden_core::AgentTaskRecord) -> AgentTask {
-    AgentTask {
-        id: task.id.clone(),
-        parent_id: task.parent_id.clone(),
-        agent: task.role.to_string(),
-        kind: task.kind.to_string(),
-        transport: format!("{:?}", task.route).to_ascii_lowercase(),
-        title: task.title.clone(),
-        status: task.status.as_str().to_string(),
-        progress: task.progress,
-        activity: task.activity.clone(),
-        summary: task.summary.clone(),
-        evidence: task.evidence.clone(),
-        next_action: task.next_action.clone(),
-        started_at: task.started_at,
-        updated_at: task.updated_at,
-        workspace: task.workspace.clone(),
-        permissions: task.permissions.clone(),
-        decision: task.decision.clone(),
-        result: task.result.clone(),
-        resume_handle: task.resume_handle.clone(),
-        pid: task.pid,
-    }
+    state.runtime = view.clone();
+    state.ui.session_id = cursor.stream_id.clone();
 }
 
 pub(super) fn dispatch_intent<C: CoreClient>(
@@ -480,7 +253,7 @@ fn handle_ui_key<C: CoreClient>(
     controller: &mut TuiInputController,
     key: KeyEvent,
 ) -> Result<UiEventOutcome, TuiError> {
-    let has_active_work = state.pending_turn.is_some();
+    let has_active_work = runtime_has_active_work(&state.runtime);
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         dispatch_intent(driver, RuntimeCommand::CancelActiveTurn)?;
         state.entries.push(TuiEntry {
@@ -608,9 +381,6 @@ fn submit_composer<C: CoreClient>(
         return Ok(());
     }
     let command = command_for_composer(state, &content);
-    if state.pending_turn.is_none() {
-        state.pending_turn = Some(PendingTurn::for_input(&content));
-    }
     state.entries.push(TuiEntry {
         label: "user".to_string(),
         body: content,
@@ -668,17 +438,23 @@ fn interaction_selected(state: &TuiState) -> usize {
 }
 
 fn cycle_agent_focus(state: &mut TuiState) {
-    if state.lanes.is_empty() {
+    if state.runtime.lanes.is_empty() {
         state.focused_lane = None;
         return;
     }
     let next = state
         .focused_lane
         .as_deref()
-        .and_then(|focused| state.lanes.iter().position(|lane| lane.id == focused))
-        .map(|index| (index + 1) % state.lanes.len())
+        .and_then(|focused| {
+            state
+                .runtime
+                .lanes
+                .iter()
+                .position(|lane| lane.id == focused)
+        })
+        .map(|index| (index + 1) % state.runtime.lanes.len())
         .unwrap_or(0);
-    state.focused_lane = Some(state.lanes[next].id.clone());
+    state.focused_lane = Some(state.runtime.lanes[next].id.clone());
 }
 
 fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
@@ -764,7 +540,7 @@ fn looks_like_terminal_escape_residue(input: &str) -> bool {
 }
 
 fn command_for_composer(state: &TuiState, content: &str) -> RuntimeCommand {
-    if state.pending_turn.is_some() {
+    if runtime_has_active_work(&state.runtime) {
         RuntimeCommand::QueueFollowUp {
             content: content.to_string(),
         }
@@ -773,6 +549,15 @@ fn command_for_composer(state: &TuiState, content: &str) -> RuntimeCommand {
             content: content.to_string(),
         }
     }
+}
+
+fn runtime_has_active_work(view: &RuntimeViewState) -> bool {
+    !view.active_tool_calls.is_empty()
+        || !view.pending_approvals.is_empty()
+        || !view.assistant_stream.is_empty()
+        || view.tasks.iter().any(|task| task.is_active())
+        || view.lanes.iter().any(|lane| lane.is_active())
+        || !view.queued_inputs.is_empty()
 }
 
 fn approval_command(view: &RuntimeViewState, allow: bool) -> Option<RuntimeCommand> {
@@ -812,8 +597,9 @@ mod tests {
         frontend_capabilities, local_core_handshake,
     };
     use viden_types::{
-        AgentLaneRecord, FRONTEND_SCHEMA_V1, PermissionLevel, PermissionMode, ReplayBatch,
-        ReplayRequest, RuntimeSnapshot, TranscriptPage, TranscriptPageRequest, WorkMode,
+        AgentLaneRecord, FRONTEND_SCHEMA_V1, LaneStatus, PermissionLevel, PermissionMode,
+        ReplayBatch, ReplayRequest, RuntimeSnapshot, ToolCallView, TranscriptPage,
+        TranscriptPageRequest, WorkMode,
     };
 
     #[derive(Default)]
@@ -1004,15 +790,20 @@ mod tests {
             ..FakeCoreClient::default()
         };
         let mut driver = TuiClientDriver::connect(client).expect("connect");
-        let mut state = TuiState {
-            pending_turn: Some(PendingTurn::for_input("hello")),
-            ..TuiState::default()
-        };
+        let mut state = TuiState::default();
+        state.entries.push(TuiEntry {
+            label: "user".to_string(),
+            body: "hello".to_string(),
+        });
 
         let outcome = driver.pump().expect("command receipt");
         apply_pump_outcome(&mut state, outcome);
 
-        assert!(state.pending_turn.is_some());
+        assert_eq!(
+            state.entries.len(),
+            1,
+            "receipt must not invent transcript facts"
+        );
         assert!(driver.view().last_command.is_some());
     }
 
@@ -1038,9 +829,10 @@ mod tests {
 
         assert!(
             state
-                .entries
+                .runtime
+                .errors
                 .iter()
-                .any(|entry| entry.body.contains("forbidden"))
+                .any(|error| error.message.contains("forbidden"))
         );
     }
 
@@ -1129,7 +921,10 @@ mod tests {
             UiEventOutcome::Redraw
         );
         assert_eq!(state.input, "first\nsecond");
-        assert!(state.pending_turn.is_none(), "paste must never submit");
+        assert!(
+            !super::super::state::has_active_work(&state),
+            "paste must never submit"
+        );
 
         for event in [Event::FocusLost, Event::FocusGained, Event::Resize(100, 30)] {
             assert_eq!(
@@ -1263,10 +1058,12 @@ mod tests {
         let mut driver =
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
                 .expect("connect");
-        let mut state = TuiState {
-            pending_turn: Some(PendingTurn::for_input("slow request")),
-            ..TuiState::default()
-        };
+        let mut state = TuiState::default();
+        state.runtime.active_tool_calls.push(ToolCallView {
+            tool_call_id: "tool-1".to_string(),
+            name: "slow".to_string(),
+            input_preview: "request".to_string(),
+        });
         let mut controller = TuiInputController {
             mode: InputMode::Insert,
         };
@@ -1281,7 +1078,7 @@ mod tests {
         .expect("composer remains responsive");
 
         assert_eq!(state.input, "继");
-        assert!(state.pending_turn.is_some());
+        assert!(super::super::state::has_active_work(&state));
     }
 
     #[test]
@@ -1347,10 +1144,8 @@ mod tests {
         let mut driver =
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
                 .expect("connect");
-        let mut state = TuiState {
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            ..TuiState::default()
-        };
+        let mut state = TuiState::default();
+        state.ui.provider_catalog = crate::tui::state::ProviderOption::fixture();
         let mut controller = TuiInputController::default();
         handle_ui_event(
             &mut driver,
@@ -1402,16 +1197,8 @@ mod tests {
             .expect("open and select model");
         }
         assert!(state.interaction_panel.is_none());
-        assert!(
-            state
-                .entries
-                .iter()
-                .any(|entry| { entry.label == "user" && entry.body.starts_with("/models ") })
-        );
-        assert!(
-            state.pending_turn.is_some(),
-            "selection dispatches through Core"
-        );
+        assert!(state.interaction_panel.is_none());
+        assert!(state.entries.iter().all(|entry| entry.label != "assistant"));
     }
 
     #[test]
@@ -1419,14 +1206,11 @@ mod tests {
         let mut driver =
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
                 .expect("connect");
-        let mut state = TuiState {
-            lanes: TerminalLane::preview_lanes(),
-            ..TuiState::default()
-        };
-        let rendered = crate::tui::render::render_frame(&state, 140, 40);
-        assert!(rendered.contains("tab agents"));
-        assert!(rendered.contains("ctrl+p commands"));
-
+        let mut state = TuiState::default();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
         let mut controller = TuiInputController::default();
         handle_ui_event(
             &mut driver,
@@ -1439,10 +1223,9 @@ mod tests {
         assert_eq!(state.input, "/");
         assert!(is_command_palette_visible(&state));
 
-        let mut agent_state = TuiState {
-            lanes: TerminalLane::preview_lanes(),
-            ..TuiState::default()
-        };
+        let mut agent_state = state.clone();
+        agent_state.ui.focused_lane = None;
+        agent_state.ui.input.clear();
         handle_ui_event(
             &mut driver,
             &mut agent_state,
@@ -1451,7 +1234,7 @@ mod tests {
             (140, 40),
         )
         .expect("agent shortcut");
-        assert_eq!(agent_state.focused_lane.as_deref(), Some("L1"));
+        assert_eq!(agent_state.focused_lane.as_deref(), Some("L-start"));
     }
 
     #[test]
@@ -1493,24 +1276,16 @@ mod tests {
 
         let state = state_from_driver(&driver, &TuiOptions::new("startup"));
 
-        assert_eq!(state.workspace.root, PathBuf::from("workspace/viden"));
+        assert_eq!(state.runtime.snapshot.cwd, PathBuf::from("workspace/viden"));
+        assert_eq!(state.runtime.assistant_stream, "D1 cockpit state");
+        assert!(!state.runtime.pending_approvals.is_empty());
+        assert!(!state.runtime.errors.is_empty());
         assert_eq!(
-            state.streaming_assistant.as_deref(),
-            Some("D1 cockpit state")
+            state.runtime.queued_inputs[0].content_preview,
+            "continue with tests"
         );
-        assert!(state.entries.iter().any(|entry| entry.label == "approval"));
-        assert!(state.entries.iter().any(|entry| entry.label == "error"));
-        assert_eq!(
-            state
-                .pending_turn
-                .as_ref()
-                .expect("active runtime facts")
-                .queued_inputs,
-            vec!["continue with tests".to_string()]
-        );
-        assert_eq!(state.runtime_tasks.len(), 1);
-        assert!(state.provider_status.total_tokens > 0);
-        assert!(state.provider_status.total_cost_micro_usd.is_some());
+        assert_eq!(state.runtime.tasks.len(), 1);
+        assert!(state.runtime.cost_ledger.total_tokens > 0);
     }
 
     #[test]
@@ -1539,29 +1314,30 @@ mod tests {
 
         let state = state_from_driver(&driver, &TuiOptions::new("startup"));
 
-        assert_eq!(state.lanes.len(), 2);
+        assert_eq!(state.runtime.lanes.len(), 2);
         let core = state
+            .runtime
             .lanes
             .iter()
             .find(|lane| lane.id == "lane_core")
             .expect("core lane");
-        assert_eq!(core.status, "running");
-        assert_eq!(core.tool, "coder", "role is the visible lane owner");
-        assert_eq!(core.title, "task_core");
-        assert_eq!(core.target, "terminal/local · containment");
+        assert_eq!(core.status, LaneStatus::Running);
         assert_eq!(
-            core.worktree.as_deref(),
-            Some(std::path::Path::new(".worktrees/lane_core"))
+            core.role.to_string(),
+            "coder",
+            "role is the visible lane owner"
         );
+        assert_eq!(core.task_id.as_deref(), Some("task_core"));
+        assert_eq!(core.worktree.as_deref(), Some(".worktrees/lane_core"));
 
         let review = state
+            .runtime
             .lanes
             .iter()
             .find(|lane| lane.id == "lane_review")
             .expect("review lane");
-        assert_eq!(review.status, "waiting_approval");
-        assert_eq!(review.tool, "reviewer");
-        assert_eq!(review.target, "acp/ssh:review.example.test · cooperative");
+        assert_eq!(review.status, LaneStatus::WaitingApproval);
+        assert_eq!(review.role.to_string(), "reviewer");
     }
 
     #[test]
@@ -1592,16 +1368,20 @@ mod tests {
 
         let state = state_from_driver(&driver, &TuiOptions::new("startup"));
 
-        assert_eq!(state.lanes.len(), 4);
+        assert_eq!(state.runtime.lanes.len(), 4);
         let detached = state
+            .runtime
             .lanes
             .iter()
             .find(|lane| lane.id == "L-detached")
             .expect("detached lane");
-        assert_eq!(detached.status, "detached");
-        assert_eq!(detached.tool, "coder", "role is the visible lane owner");
-        assert_eq!(detached.title, "task_detached");
-        assert_eq!(detached.target, "tmux/local · containment");
+        assert_eq!(detached.status, LaneStatus::Detached);
+        assert_eq!(
+            detached.role.to_string(),
+            "coder",
+            "role is the visible lane owner"
+        );
+        assert_eq!(detached.task_id.as_deref(), Some("task_detached"));
         assert_eq!(detached.summary, "legacy detached lane");
     }
 
@@ -1646,12 +1426,12 @@ mod tests {
         let rendered = crate::tui::render::render_side_frame(&state, 100, 70);
 
         assert!(rendered.contains("L-done"));
-        assert!(rendered.contains("[done]"));
+        assert!(rendered.contains("done"));
         assert!(rendered.contains("L-review"));
-        assert!(rendered.contains("[review]"));
-        assert!(rendered.contains("pending approval"));
+        assert!(rendered.contains("waitingapproval"));
+        assert!(rendered.contains("approval pending"));
         assert!(rendered.contains("L-blocked"));
-        assert!(rendered.contains("[blocked]"));
+        assert!(rendered.contains("blocked"));
         assert!(rendered.contains("blocker"));
     }
 
@@ -1686,10 +1466,12 @@ mod tests {
 
     #[test]
     fn active_turn_enter_queues_follow_up_instead_of_submitting_second_turn() {
-        let state = TuiState {
-            pending_turn: Some(PendingTurn::for_input("first")),
-            ..TuiState::default()
-        };
+        let mut state = TuiState::default();
+        state.runtime.active_tool_calls.push(ToolCallView {
+            tool_call_id: "tool-1".to_string(),
+            name: "first".to_string(),
+            input_preview: "{}".to_string(),
+        });
 
         assert!(matches!(
             command_for_composer(&state, "second"),

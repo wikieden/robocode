@@ -126,11 +126,12 @@ fn main_transcript_rows(state: &TuiState, width: usize, max_rows: usize) -> Vec<
 
 fn transcript_status_label(state: &TuiState) -> String {
     if state.transcript_scroll > 0 {
-        let marker = if state.streaming_assistant.is_some() || state.pending_turn.is_some() {
-            " · new output"
-        } else {
-            ""
-        };
+        let marker =
+            if !state.runtime.assistant_stream.is_empty() || super::state::has_active_work(state) {
+                " · new output"
+            } else {
+                ""
+            };
         format!("history {}{marker}", state.transcript_scroll)
     } else {
         "live session".to_string()
@@ -265,6 +266,17 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
         };
     }
 
+    if !state.runtime.assistant_stream.is_empty() {
+        return LiveActivityStatus {
+            summary: "Viden working".to_string(),
+            evidence: "live provider request".to_string(),
+            details: vec![truncate(&state.runtime.assistant_stream, 72)],
+            phase: Some("streaming".to_string()),
+            next_action: Some("type next step anytime".to_string()),
+            is_live: true,
+        };
+    }
+
     if let Some(entry) = state.entries.last() {
         return LiveActivityStatus {
             summary: compact_activity_label(entry.label.as_str()).to_string(),
@@ -276,18 +288,21 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
         };
     }
 
-    let provider_state = if state.provider_status.request_count == 0 {
+    let provider_state = if super::state::provider_status(state).request_count == 0 {
         "idle; no provider request yet".to_string()
     } else {
         format!(
             "idle; last provider status {}",
-            state.provider_status.connection
+            super::state::provider_status(state).connection
         )
     };
     LiveActivityStatus {
         summary: provider_state,
         evidence: "provider telemetry".to_string(),
-        details: vec![format!("{} / {}", state.provider, state.model)],
+        details: vec![format!(
+            "{} / {}",
+            state.runtime.snapshot.provider_family, state.runtime.snapshot.model_label
+        )],
         phase: None,
         next_action: None,
         is_live: false,
@@ -596,892 +611,139 @@ fn is_loose_timeline_connector(row: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+mod structured_runtime_tests {
     use super::*;
-    use crate::tui::state::ProviderTelemetry;
-    use crate::tui::{
-        state::{
-            AgentJob, InteractionPanel, PendingTurn, ProviderStatus, TerminalLane, TuiEntry,
-            TuiState, WorkspaceSnapshot,
-        },
-        text::char_width,
-    };
-    use viden_types::{TaskPriority, TaskRecord, TaskStatus};
+    use crate::tui::state::{TuiEntry, TuiState};
+    use viden_types::{ProviderHealthView, RuntimeErrorView, ToolCallView};
 
-    fn render_state() -> TuiState {
-        TuiState {
-            session_id: "session_123".to_string(),
-            provider: "fallback".to_string(),
-            model: "test-local".to_string(),
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            provider_status: ProviderStatus::configured(),
-            theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: 0,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: Vec::new(),
-            lanes: Vec::new(),
-            lane_store: None,
-            focused_lane: None,
-            interaction_panel: None,
-            entries: vec![TuiEntry {
-                label: "assistant".to_string(),
-                body: "hello".to_string(),
-            }],
-        }
-    }
-
-    fn preview_like_state() -> TuiState {
-        let mut state = render_state();
-        state.session_id = "c4f2b7e".to_string();
-        state.lanes = TerminalLane::preview_lanes();
-        state.input = "Add tests for load_config and summarize the diff".to_string();
-        state.entries = vec![
-            TuiEntry {
-                label: "assistant".to_string(),
-                body: "Tests are staged. I found one parser edge case.".to_string(),
-            },
-            TuiEntry {
-                label: "tool-call".to_string(),
-                body: "write_file path: src/config.rs lines: 1-120".to_string(),
-            },
-            TuiEntry {
-                label: "approval".to_string(),
-                body: "Permission request for `write_file`\npath: src/config.rs\nPress y to allow, n/Esc to deny.".to_string(),
-            },
-        ];
+    fn state() -> TuiState {
+        let mut state = TuiState::default();
+        state.ui.session_id = "session-structured".to_string();
+        state.ui.theme_name = "aurora/dark".to_string();
+        state.runtime.snapshot.cwd = "/workspace/viden".into();
+        state.runtime.snapshot.provider_family = "fallback".to_string();
+        state.runtime.snapshot.model_label = "test-local".to_string();
+        state.ui.entries.push(TuiEntry {
+            label: "assistant".to_string(),
+            body: "hello".to_string(),
+        });
         state
     }
 
     #[test]
-    fn transcript_status_marks_new_output_while_viewing_history() {
-        let mut state = render_state();
-        state.transcript_scroll = 8;
-        state.pending_turn = Some(PendingTurn::new(
-            "session_123",
-            "fallback",
-            "test-local",
-            "fix tests",
-            "/repo",
-        ));
-        state.streaming_assistant = Some("working".to_string());
-
-        assert_eq!(transcript_status_label(&state), "history 8 · new output");
-
-        state.transcript_scroll = 0;
-        assert_eq!(transcript_status_label(&state), "live session");
-    }
-
-    fn assert_no_visual_regressions(rendered: &str) {
-        let forbidden = [
-            "SIDE MONITOR",
-            "OPS MONITOR",
-            "TERMINAL LANES DETAIL",
-            "AGENT OUTPUT",
-            "SYSTEM STATUS",
-            "WORKSPACE MAP",
-            "RECENT ACTIVITY",
-            "PROVIDER / LIMITS",
-            "Permission request for `write_file`",
-        ];
-        for fragment in forbidden {
-            assert!(!rendered.contains(fragment), "{fragment}");
-        }
-        for line in rendered.lines() {
-            assert_eq!(
-                line.matches('[').count(),
-                line.matches(']').count(),
-                "{line}"
-            );
-        }
-    }
-
-    #[test]
-    fn render_frame_includes_status_transcript_and_input() {
-        let mut state = render_state();
-        state.input = "/help".to_string();
-
-        let rendered = render_frame(&state, 48, 10);
-
-        assert!(rendered.contains("Viden"));
-        assert!(rendered.contains("TRANSCRIPT"));
-        assert!(rendered.contains("ASSISTANT"));
-        assert!(rendered.contains("hello"));
-        assert!(rendered.contains("› /help"));
-        assert!(rendered.contains("/help"));
-        assert!(rendered.contains("MODE"));
-        assert!(rendered.contains("PERM"));
-        assert!(rendered.contains("CONNECTED"));
-        for line in rendered.lines() {
-            assert_eq!(
-                line.matches('[').count(),
-                line.matches(']').count(),
-                "{line}"
-            );
-        }
-    }
-
-    #[test]
-    fn render_frame_uses_welcome_layout_for_first_empty_session() {
-        let mut state = render_state();
-        state.entries = vec![TuiEntry {
-            label: "system".to_string(),
-            body: "Viden TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
-        }];
-        state.input = String::new();
-
-        let rendered = render_frame(&state, 140, 40);
-
-        assert!(rendered.contains("Ask anything... \"Fix broken tests\""));
-        assert!(rendered.contains("Viden - Operator"));
-        assert!(rendered.contains("ctrl+p commands"));
-        assert!(rendered.contains("v"));
-        assert!(!rendered.contains("TRANSCRIPT"));
-        assert!(!rendered.contains("WORKSPACE"));
-        assert!(!rendered.contains("APPROVAL MODE:"));
-    }
-
-    #[test]
-    fn render_frame_keeps_welcome_after_setup_until_real_prompt() {
-        let mut state = render_state();
-        state.entries = vec![
-            TuiEntry {
-                label: "system".to_string(),
-                body: "Viden TUI ready. Enter submits.".to_string(),
-            },
-            TuiEntry {
-                label: "user".to_string(),
-                body: "/connect".to_string(),
-            },
-            TuiEntry {
-                label: "settings".to_string(),
-                body: "Provider switched to deepseek.".to_string(),
-            },
-        ];
-
-        let rendered = render_frame(&state, 140, 40);
-
-        assert!(rendered.contains("Ask anything"));
-        assert!(!rendered.contains("TRANSCRIPT"));
-
-        state.entries.push(TuiEntry {
-            label: "user".to_string(),
-            body: "fix broken tests".to_string(),
-        });
-
-        let rendered = render_frame(&state, 140, 40);
-        assert!(rendered.contains("TRANSCRIPT"));
-    }
-
-    #[test]
-    fn render_frame_keeps_welcome_after_immediate_plan_command() {
-        let mut state = render_state();
-        state.entries = vec![
-            TuiEntry {
-                label: "system".to_string(),
-                body: "Viden TUI ready. Enter submits.".to_string(),
-            },
-            TuiEntry {
-                label: "user".to_string(),
-                body: "/plan".to_string(),
-            },
-            TuiEntry {
-                label: "command".to_string(),
-                body: "Plan mode is now on".to_string(),
-            },
-        ];
-
-        let rendered = render_frame(&state, 140, 40);
-
-        assert!(rendered.contains("Ask anything"));
-        assert!(rendered.contains("Viden - Operator"));
-        assert!(!rendered.contains("TRANSCRIPT"));
-        assert!(!rendered.contains("WORKSPACE"));
-    }
-
-    #[test]
-    fn welcome_interaction_modal_clears_underlying_hint_text() {
-        let mut state = render_state();
-        state.entries = vec![TuiEntry {
-            label: "system".to_string(),
-            body: "Viden TUI ready. Enter submits.".to_string(),
-        }];
-        state.input = "/connect".to_string();
-        state.interaction_panel = Some(InteractionPanel::ConnectProvider {
-            search: String::new(),
-            selected: 0,
-        });
-
-        let rendered = render_frame(&state, 140, 40);
-
-        assert!(rendered.contains("Connect a provider"));
-        assert!(
-            !rendered
-                .lines()
-                .any(|line| line.contains("ommands") || line.contains("commands   /connect")),
-            "{rendered}"
-        );
-    }
-
-    #[test]
-    fn render_frame_uses_cockpit_right_rail_when_wide() {
-        let mut state = render_state();
-        state.session_id = "session_123456789".to_string();
-        state.provider = "deepseek".to_string();
-        state.model = "deepseek-v4-flash".to_string();
-        state.lanes = TerminalLane::preview_lanes();
-        state.entries = vec![
-            TuiEntry {
-                label: "assistant".to_string(),
-                body: "I'll update the renderer and keep the layout stable.".to_string(),
-            },
-            TuiEntry {
-                label: "tool-call".to_string(),
-                body: "write_file path: src/config.rs".to_string(),
-            },
-        ];
-
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(rendered.contains("Ask"));
-        assert!(rendered.contains("PERM"));
-        assert!(rendered.contains("WORK"));
-        assert!(rendered.contains("WORKSPACE"));
-        assert!(rendered.contains("ACTIVE TASKS"));
-        assert!(rendered.contains("LSP DIAGNOSTICS"));
-        assert!(rendered.contains("diagnostics unavailable"));
-        assert!(rendered.contains("PROVIDER HEALTH"));
-        assert!(rendered.contains("LATENCY"));
-        assert!(rendered.contains("unavailable"));
-        assert!(rendered.contains("TELEMETRY"));
-        assert!(rendered.contains("CONTEXT"));
-        assert!(!rendered.contains("312 ms"));
-        assert!(!rendered.contains("28.4 t/s"));
-        assert!(!rendered.contains("Implement load_config"));
-        assert!(rendered.contains("L1 ⛭ codex"));
-        assert!(rendered.contains("L2 ◆ claude"));
-        assert!(rendered.contains("TOOL CALL"));
-        assert!(rendered.contains("FILES    128"));
-        assert!(rendered.contains("viden/"));
-        assert!(rendered.contains("LANGUAGE Rust"));
-        assert!(rendered.contains("EDITION   2024"));
-        assert!(rendered.contains("[GIT main"));
-        assert!(!rendered.contains("[SYNC"));
-        assert!(rendered.contains("EVENTS"));
-        assert!(rendered.contains("LANES"));
-        assert!(!rendered.contains("COST"));
-        assert!(!rendered.contains("TIME"));
-        assert!(rendered.contains("CONNECTED"));
-        assert!(rendered.contains("Press ? for help"));
-        assert!(rendered.contains("ACTIVE TASKS"));
-        assert!(rendered.contains("[^R Regenerate]"));
-        assert!(rendered.contains("[^N New Task]"));
-        assert!(rendered.contains("MODE [Build]"));
-        assert!(rendered.contains("PERM [Ask]"));
-
-        let lines = rendered.lines().collect::<Vec<_>>();
-        let recent_index = lines
-            .iter()
-            .position(|line| line.contains("RECENT FILES"))
-            .expect("recent files panel");
-        let composer_index = lines
-            .iter()
-            .position(|line| line.contains("Viden >_"))
-            .expect("composer panel");
-        assert!(composer_index > recent_index);
-        assert!(lines[composer_index - 1].contains('└'));
-        assert!(rendered.contains("[Rs] src/config.rs"));
-    }
-
-    #[test]
-    fn render_frame_keeps_live_activity_visible_for_running_request() {
-        let mut state = render_state();
-        state.provider = "deepseek".to_string();
-        state.model = "deepseek-v4-flash".to_string();
-        state.entries.push(TuiEntry {
-            label: "user".to_string(),
-            body: "add tests and summarize".to_string(),
-        });
-
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(rendered.contains("LIVE WORK"));
-        assert!(rendered.contains("Viden working"));
-        assert!(rendered.contains("phase planning"));
-        assert!(rendered.contains("type next step anytime"));
-        assert!(!rendered.contains("Viden is planning"));
-        assert!(!rendered.contains("15%"));
-        assert!(rendered.contains("reply-"));
-        assert!(!rendered.contains("Viden is thinking"));
-        assert!(!rendered.contains("DeepSeek is thinking"));
-        assert!(!rendered.contains("┌ NOW WORKING"));
-
-        let lines = rendered.lines().collect::<Vec<_>>();
-        let user_index = lines
-            .iter()
-            .position(|line| line.contains("add tests and summarize"))
-            .expect("latest user transcript row");
-        let activity_index = lines
-            .iter()
-            .position(|line| line.contains("LIVE WORK"))
-            .expect("live work strip");
-        assert!(activity_index > user_index);
-    }
-
-    #[test]
-    fn render_frame_clears_synthetic_planning_after_tool_result() {
-        let mut state = render_state();
-        state.provider = "deepseek".to_string();
-        state.model = "deepseek-v4-flash".to_string();
-        state.entries = vec![
-            TuiEntry {
-                label: "user".to_string(),
-                body: "plan and run a formatting check".to_string(),
-            },
-            TuiEntry {
-                label: "tool-result".to_string(),
-                body: "Command exited with exit status: 1".to_string(),
-            },
-        ];
-
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(!rendered.contains("Viden is planning"));
-        assert!(!rendered.contains("latest user turn"));
-        assert!(rendered.contains("TOOL RESULT"));
-        assert!(rendered.contains("Command exited with exit status: 1"));
-    }
-
-    #[test]
-    fn render_frame_keeps_live_activity_visible_for_lanes_and_tool_calls() {
-        let mut state = render_state();
-        state.lanes = TerminalLane::preview_lanes();
-        state.entries.push(TuiEntry {
-            label: "tool-call".to_string(),
-            body: "write_file path: src/render.rs lines: 1-20".to_string(),
-        });
-
-        let lane_rendered = render_frame(&state, 140, 36);
-
-        assert!(lane_rendered.contains("LIVE WORK"));
-        assert!(lane_rendered.contains("Supervising 2 agents: claude needs input"));
-        assert!(lane_rendered.contains("claude needs input"));
-        assert!(!lane_rendered.contains("┌ NOW WORKING"));
-
-        state.lanes.clear();
-        let tool_rendered = render_frame(&state, 140, 36);
-
-        assert!(tool_rendered.contains("Editing src/render.rs"));
-    }
-
-    #[test]
-    fn render_frame_surfaces_failed_tests_after_approval_is_closed() {
-        let mut state = render_state();
-        state.entries = vec![
-            TuiEntry {
-                label: "approval".to_string(),
-                body: "Permission request for `write_file`\npath: src/config.rs\nPress y to allow, n/Esc to deny.".to_string(),
-            },
-            TuiEntry {
-                label: "approval".to_string(),
-                body: "Approved `write_file`.".to_string(),
-            },
-            TuiEntry {
-                label: "command".to_string(),
-                body: [
-                    "Test result:",
-                    "  status: failed",
-                    "  exit code: 101",
-                    "  command: cargo test -p viden-cli config_tests",
-                    "  duration: 42ms",
-                    "  failure summary:",
-                    "    - assertion failed in config_tests",
-                    "  failing files:",
-                    "    - src/config.rs:12:5",
-                    "  output tail:",
-                    "    thread 'config_tests' panicked at src/config.rs:12:5",
-                ]
-                .join("\n"),
-            },
-        ];
-
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(rendered.contains("Tests failed: cargo test -p viden-cli config_tests"));
-        assert!(rendered.contains("failure assertion failed in config_tests"));
-        assert!(rendered.contains("next open failure, patch, rerun tests"));
-        assert!(!rendered.contains("Approval needed"));
-        assert!(!rendered.contains("APPROVAL REQUIRED"));
-    }
-
-    #[test]
-    fn render_frame_surfaces_lane_conflict_as_operator_blocker() {
-        let mut state = render_state();
-        state.lanes = vec![TerminalLane {
-            id: "L9".to_string(),
-            tool: "codex".to_string(),
-            title: "apply config loader".to_string(),
-            status: "apply_conflict".to_string(),
-            target: "main".to_string(),
-            progress: 78,
-            summary: "conflict error: patch failed: src/config.rs:42".to_string(),
-            worktree: None,
-        }];
-
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(rendered.contains("Supervising 1 agent: blocked on"));
-        assert!(rendered.contains("summary conflict error: patch failed"));
-        assert!(rendered.contains("next inspect conflict and revise/apply manually"));
-    }
-
-    #[test]
-    fn render_frame_surfaces_diff_as_review_action() {
-        let mut state = render_state();
-        state.entries = vec![TuiEntry {
-            label: "command".to_string(),
-            body: [
-                "Latest diff:",
-                "  Summary: files=2 additions=12 deletions=3",
-                "",
-                "Diff:",
-                "diff --git a/src/config.rs b/src/config.rs",
-                "diff --git a/tests/config_tests.rs b/tests/config_tests.rs",
-            ]
-            .join("\n"),
-        }];
-
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(rendered.contains("review diff: 2 file(s) +12 -3"));
-        assert!(rendered.contains("next review diff, then test or commit"));
-        assert!(rendered.contains("files 2"));
-    }
-
-    #[test]
-    fn render_frame_surfaces_active_codex_jobs() {
-        let mut state = render_state();
-        state.workspace.agent_jobs = vec![AgentJob {
-            id: "codex-123".to_string(),
-            kind: "run".to_string(),
-            status: "running".to_string(),
-            task: "review payment refactor".to_string(),
-            pid: Some(4242),
-            log_path: None,
-            result_path: None,
-            evidence: vec!["thread thread_123".to_string(), "turn turn_123".to_string()],
-            updated_at: 1,
-        }];
-
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(rendered.contains("Supervising 1 agent: codex thinking"));
-        assert!(rendered.contains("codex thinking · 65%"));
-        assert!(rendered.contains("thread thread_123"));
-        assert!(rendered.contains("codex"));
-    }
-
-    #[test]
-    fn render_frame_surfaces_pending_provider_turn() {
-        let mut state = render_state();
-        state.provider = "deepseek".to_string();
-        state.model = "deepseek-v4-flash".to_string();
-        state.pending_turn = Some(PendingTurn {
-            id: "turn-session-42".to_string(),
-            provider: "deepseek".to_string(),
-            model: "deepseek-v4-flash".to_string(),
-            prompt: "implement config loader".to_string(),
-            workspace: "/tmp/project".to_string(),
-            started_at: 42,
-            phase: "Waiting for provider response".to_string(),
-            next_action: "wait".to_string(),
-            queued_inputs: Vec::new(),
-        });
-
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(rendered.contains("LIVE WORK"));
-        assert!(rendered.contains("Viden working"));
-        assert!(rendered.contains("phase planning"));
-        assert!(rendered.contains("type next step anytime"));
-        assert!(rendered.contains("live provider request"));
-        assert!(rendered.contains("Viden planning"));
-        assert!(!rendered.contains("15%"));
-        assert!(!rendered.contains("Viden is planning"));
-        assert!(!rendered.contains("Viden is thinking"));
-        assert!(!rendered.contains("DeepSeek is thinking"));
-        assert!(!rendered.contains("┌ NOW WORKING"));
-    }
-
-    #[test]
-    fn render_provider_health_uses_real_request_telemetry() {
-        let mut state = render_state();
-        state.provider_status = ProviderStatus::from_telemetry(&ProviderTelemetry {
+    fn frame_renders_local_transcript_and_structured_runtime_status() {
+        let mut state = state();
+        state.runtime.provider = Some(ProviderHealthView {
+            provider_id: "fallback".to_string(),
+            model: "test-local".to_string(),
+            status: "healthy".to_string(),
             request_count: 2,
-            success_count: 1,
-            failure_count: 1,
+            error_count: 0,
             last_latency_ms: Some(42),
-            average_latency_ms: Some(21),
-            last_event_count: 3,
-            last_error: Some("provider timeout".to_string()),
-            ..ProviderTelemetry::default()
+            average_latency_ms: Some(30),
+            tokens_per_second: Some(20),
+        });
+        state.runtime.active_tool_calls.push(ToolCallView {
+            tool_call_id: "tool-1".to_string(),
+            name: "search".to_string(),
+            input_preview: "src".to_string(),
         });
 
-        let rendered = render_frame(&state, 180, 36);
+        let rendered = render_frame(&state, 140, 36);
 
-        assert!(rendered.contains("STATUS     Error"));
-        assert!(rendered.contains("REQUESTS   1 ok / 1 err"));
-        assert!(rendered.contains("LATENCY    last 42ms avg 21ms"));
-        assert!(rendered.contains("ERROR      provider timeout"));
-        assert!(!rendered.contains("312 ms"));
-        assert!(!rendered.contains("28.4 t/s"));
+        assert!(rendered.contains("hello"));
+        assert!(rendered.contains("search"));
+        assert!(rendered.contains("PROVIDER healthy"));
     }
 
     #[test]
-    fn render_provider_health_shows_real_usage_when_available() {
-        let mut state = render_state();
-        state.provider_status = ProviderStatus::from_telemetry(&ProviderTelemetry {
-            request_count: 1,
-            success_count: 1,
-            last_latency_ms: Some(500),
-            average_latency_ms: Some(500),
-            last_event_count: 2,
-            last_total_tokens: Some(1200),
-            total_tokens: 2400,
-            last_tokens_per_second: Some(2400),
-            ..ProviderTelemetry::default()
+    fn transcript_wording_cannot_create_runtime_errors() {
+        let mut state = state();
+        state.ui.entries.push(TuiEntry {
+            label: "assistant".to_string(),
+            body: "provider failed with invented error".to_string(),
         });
+        let without_error = render_ops_frame(&state, 80, 36);
 
-        let rendered = render_frame(&state, 180, 36);
+        state.runtime.errors.push(RuntimeErrorView {
+            message: "canonical failure".to_string(),
+            recoverable: true,
+            hint: Some("retry".to_string()),
+        });
+        let with_error = render_ops_frame(&state, 80, 36);
 
-        assert!(rendered.contains("TOKENS     last 1.2k total 2.4k"));
-        assert!(rendered.contains("RATE       2.4k/s"));
+        assert!(without_error.contains("ERRORS   0"));
+        assert!(with_error.contains("ERRORS   1"));
     }
 
     #[test]
-    fn render_right_rail_uses_real_workflow_tasks() {
-        let mut state = render_state();
-        state.tasks = vec![task_record(
-            "task_active",
-            "Ship active task panel",
-            TaskStatus::InProgress,
-        )];
+    fn rendered_rows_keep_terminal_cell_width_with_unicode() {
+        let mut state = state();
+        state.runtime.snapshot.model_label = "模型-👋🏻".to_string();
+        state.ui.input = "检查中文输入宽度".to_string();
+        let width = 140usize;
 
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(rendered.contains("ACTIVE TASKS"));
-        assert!(rendered.contains("task_ac/prog"));
-        assert!(rendered.contains("Ship active task"));
-        assert!(!rendered.contains("○ no active tasks"));
-    }
-
-    #[test]
-    fn render_right_rail_uses_real_cached_lsp_diagnostics() {
-        let mut state = render_state();
-        state.workspace.diagnostics =
-            vec!["src/lib.rs:7:2 warning [rust-analyzer/E0308] mismatched types".to_string()];
-
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(rendered.contains("LSP DIAGNOSTICS"));
-        assert!(rendered.contains("src/lib.rs:7:2 warning"));
-        assert!(!rendered.contains("diagnostics unavailable"));
-    }
-
-    #[test]
-    fn render_frame_keeps_recent_transcript_rows_visible() {
-        let mut state = render_state();
-        state.entries = (0..12)
-            .map(|index| TuiEntry {
-                label: "assistant".to_string(),
-                body: format!("event {index}"),
-            })
-            .collect();
-
-        let rendered = render_frame(&state, 90, 24);
-
-        assert!(rendered.contains("event 11"));
-        assert!(!rendered.contains("event 0"));
-    }
-
-    fn task_record(task_id: &str, title: &str, status: TaskStatus) -> TaskRecord {
-        TaskRecord {
-            task_id: task_id.to_string(),
-            title: title.to_string(),
-            description: None,
-            status,
-            priority: TaskPriority::Medium,
-            labels: Vec::new(),
-            assignee_hint: None,
-            parent_task_id: None,
-            dependency_ids: Vec::new(),
-            blocked_by: None,
-            notes: Vec::new(),
-            created_at: 1,
-            updated_at: 2,
-            last_session_id: None,
-            last_seen_at: None,
-            archived_at: None,
-        }
-    }
-
-    #[test]
-    fn render_frame_does_not_start_visible_transcript_on_connector() {
-        let state = preview_like_state();
-
-        let rendered = render_frame(&state, 140, 36);
-        let lines = rendered.lines().collect::<Vec<_>>();
-        let transcript_top = lines
-            .iter()
-            .position(|line| line.contains("TRANSCRIPT"))
-            .expect("transcript panel");
-        let first_content = lines[transcript_top + 1];
-
-        assert!(!first_content.contains("│   │  ·"), "{first_content}");
-        assert!(
-            first_content.contains("USER")
-                || first_content.contains("ASSISTANT")
-                || first_content.contains("TOOL")
-                || first_content.contains("APPROVAL")
-                || first_content.contains("✦"),
-            "{first_content}"
-        );
-    }
-
-    #[test]
-    fn render_frame_keeps_wide_transcript_text_inside_terminal_width() {
-        let mut state = render_state();
-        state.entries = vec![TuiEntry {
-            label: "assistant".to_string(),
-            body: "我是 **Viden**，一个运行在终端里的 AI 编程助手 🤖\n有什么需要帮忙的吗？"
-                .to_string(),
-        }];
-
-        let width = 202usize;
-        let rendered = render_frame(&state, width as u16, 58);
+        let rendered = render_frame(&state, width as u16, 36);
 
         for line in rendered.lines() {
-            assert!(
-                char_width(line) <= width,
-                "line display width {} exceeded {width}: {line}",
-                char_width(line)
-            );
-        }
-        assert!(rendered.contains("PROVIDER HEALTH"));
-        assert!(rendered.contains("RECENT FILES"));
-    }
-
-    #[test]
-    fn render_frame_keeps_unicode_rows_at_terminal_cell_width() {
-        let mut state = render_state();
-        state.provider = "deepseek".to_string();
-        state.model = "deepseek-v4-flash-中文👋🏻".to_string();
-        state.input = "你好，帮我检查右侧栏是否会跑偏".to_string();
-        state.workspace.display_root = "~/项目/viden".to_string();
-        state.workspace.git_branch = "feature/中文-ui".to_string();
-        state.workspace.recent_files[0].path = "src/界面/输入法.rs".to_string();
-        state.workspace.top_files[0] = "src/界面/".to_string();
-        state.workspace.primary_language = "Rust🦀".to_string();
-        state.entries = vec![TuiEntry {
-            label: "assistant".to_string(),
-            body: "可以，我会先检查中文输入、emoji 👋🏻 和长路径是否把右侧栏挤歪。这里是一段没有空格的中文文本用于触发按显示宽度换行。".to_string(),
-        }];
-
-        let width = 202usize;
-        let rendered = render_frame(&state, width as u16, 58);
-
-        for line in rendered.lines() {
-            assert_eq!(
-                char_width(line),
-                width,
-                "line display width {} differed from {width}: {line}",
-                char_width(line)
-            );
-        }
-        assert!(rendered.contains("PROVIDER HEALTH"));
-        assert!(rendered.contains("RECENT FILES"));
-    }
-
-    #[test]
-    fn render_frame_overlays_approval_modal() {
-        let mut state = render_state();
-        state.entries = vec![TuiEntry {
-            label: "approval".to_string(),
-            body: "Permission request for `write_file`\npath: src/lib.rs\nPress y to allow, n/Esc to deny.".to_string(),
-        }];
-
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(rendered.contains("APPROVAL REQUIRED"));
-        assert!(rendered.contains("ID: call_7f2a9c1e"));
-        assert!(rendered.contains("ACTION  Write (new content)"));
-        assert!(rendered.contains("MODIFIES FILE"));
-        assert!(rendered.contains("PREVIEW (first lines)"));
-        assert!(rendered.contains("SIZE    +48 lines"));
-        assert!(rendered.contains("│ + 1 │"));
-        assert!(rendered.contains("load_config"));
-        assert!(rendered.contains("Apply to all write_file calls"));
-        assert!(rendered.contains("write_file"));
-        assert!(rendered.contains("src/lib.rs"));
-        assert!(rendered.contains("[Approve (y)]"));
-        assert!(rendered.contains("[Deny (n)]"));
-        assert!(rendered.contains("[Diff]"));
-        assert!(!rendered.contains("click"));
-        assert!(rendered.contains("MODE [Build]"));
-        assert!(rendered.contains("PERM [Ask]"));
-    }
-
-    #[test]
-    fn render_frame_overlays_focused_lane_modal() {
-        let mut state = render_state();
-        state.lanes = TerminalLane::preview_lanes();
-        state.focused_lane = Some("L1".to_string());
-
-        let rendered = render_frame(&state, 140, 36);
-
-        assert!(rendered.contains("LANE DETAIL"));
-        assert!(rendered.contains("L1 codex"));
-        assert!(rendered.contains("[codex tty]"));
-        assert!(rendered.contains("PTY    pty/01"));
-        assert!(rendered.contains("PID ----"));
-        assert!(rendered.contains("ROUTE main→side-1"));
-        assert!(rendered.contains("STATE"));
-        assert!(rendered.contains("CMD    codex exec test fixes"));
-        assert!(rendered.contains("ATTACH /lane tmux L1"));
-        assert!(rendered.contains("patched failing tests"));
-        assert!(rendered.contains("CONTROL [stop] [tmux] [pty] [send] [inspect]"));
-        assert!(rendered.contains("--tui-screen side-1"));
-        for line in rendered.lines() {
-            assert_eq!(
-                line.matches('[').count(),
-                line.matches(']').count(),
-                "{line}"
-            );
+            assert_eq!(super::super::text::char_width(line), width, "{line}");
         }
     }
 
     #[test]
-    fn render_frame_shows_slash_command_suggestions_above_composer() {
-        let mut state = render_state();
-        state.input = "/p".to_string();
+    fn slash_commands_render_above_composer() {
+        let mut state = state();
+        state.ui.input = "/p".to_string();
 
         let rendered = render_frame(&state, 140, 36);
 
         assert!(rendered.contains("COMMANDS"));
-        assert!(rendered.contains("↑↓ tab enter esc"));
-        assert!(rendered.contains("› /provider"));
-        assert!(rendered.contains("/plan"));
-        assert!(rendered.contains("List or switch providers"));
+        assert!(rendered.contains("/permissions"));
     }
 
     #[test]
-    fn render_frame_keeps_fixed_width_outer_edges() {
-        let mut state = render_state();
-        state.input = "Add tests for load_config and summarize the diff".to_string();
+    fn render_frame_uses_welcome_layout_for_first_empty_session() {
+        let mut state = TuiState::default();
+        state.ui.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: "Viden TUI ready".to_string(),
+        });
 
-        let rendered = render_frame(&state, 140, 36);
-        let lines = rendered.lines().collect::<Vec<_>>();
+        let rendered = render_frame(&state, 140, 40);
 
-        assert_eq!(lines.len(), 36);
-        for line in lines {
-            assert_eq!(char_width(line), 140, "{line}");
-        }
+        assert!(rendered.contains("Ask anything"));
+        assert!(!rendered.contains("TRANSCRIPT"));
     }
 
     #[test]
-    fn render_cockpit_screens_avoid_legacy_or_half_chip_text() {
-        let state = preview_like_state();
-        let main = render_frame(&state, 140, 36);
-        let side = render_side_frame(&state, 80, 36);
-        let ops = render_ops_frame(&state, 80, 36);
+    fn render_frame_keeps_live_activity_visible_for_lanes_and_tool_calls() {
+        let mut state = state();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        state.runtime.active_tool_calls.push(ToolCallView {
+            tool_call_id: "tool-1".to_string(),
+            name: "search".to_string(),
+            input_preview: "src".to_string(),
+        });
 
-        assert_no_visual_regressions(&main);
-        assert_no_visual_regressions(&side);
-        assert_no_visual_regressions(&ops);
-        assert!(main.contains("[WORK"));
-        assert!(main.contains("[PERM"));
-        assert!(side.contains("[FOCUS tail]"));
-        assert!(ops.contains("TESTS / LSP"));
-        assert!(ops.contains("LSP     0 diagnostic(s)"));
+        let rendered = render_frame(&state, 140, 40);
+
+        assert!(rendered.contains("LIVE WORK"));
+        assert!(rendered.contains("L-start"));
+        assert!(rendered.contains("search"));
     }
 
     #[test]
-    fn render_side_frame_focuses_on_lane_monitoring() {
-        let mut state = render_state();
-        state.lanes = TerminalLane::preview_lanes();
+    fn agent_tasks_do_not_keep_failed_provider_turn_active() {
+        let mut state = state();
+        state.runtime.errors.push(RuntimeErrorView {
+            message: "provider failed".to_string(),
+            recoverable: true,
+            hint: Some("retry".to_string()),
+        });
 
-        let rendered = render_side_frame(&state, 80, 36);
-
-        assert!(rendered.contains("SIDE-1"));
-        assert!(rendered.contains("[LINK main]"));
-        assert!(rendered.contains("AGENT LANES"));
-        assert!(rendered.contains("LIVE OUTPUT"));
-        assert!(rendered.contains("SIDE STATUS"));
-        assert!(rendered.contains("┌ ● L1 codex"));
-        assert!(rendered.contains("PTY pty/01"));
-        assert!(rendered.contains("PID ----"));
-        assert!(rendered.contains("ATTACH /lane tmux L1"));
-        assert!(rendered.contains("└ CMD codex exec test fixes"));
-        assert!(rendered.contains("TASK test fixes"));
-        assert!(rendered.contains("tail patched failing tests"));
-        assert!(rendered.contains("LANES tail persisted logs"));
-        assert!(rendered.contains("CONTROL inspect stop route"));
-        assert!(rendered.contains("tmux attach -t viden-c4f2b7e-l2"));
-        assert!(rendered.contains("tmux session ready"));
-        assert!(rendered.contains("patched failing tests"));
-        assert!(!rendered.contains("approval write_file"));
-        assert!(rendered.contains("CONTEXT"));
-        assert!(!rendered.contains("Type instruction"));
-
-        let lines = rendered.lines().collect::<Vec<_>>();
-        assert_eq!(lines.len(), 36);
-        for line in lines {
-            assert_eq!(line.chars().count(), 80, "{line}");
-        }
-    }
-
-    #[test]
-    fn render_ops_frame_focuses_on_workspace_and_diagnostics() {
-        let mut state = render_state();
-        state.lanes = TerminalLane::preview_lanes();
-        state.entries = vec![TuiEntry {
-            label: "approval".to_string(),
-            body: "Permission request for `write_file`\npath: src/config.rs\nPress y to allow, n/Esc to deny.".to_string(),
-        }];
-
-        let rendered = render_ops_frame(&state, 80, 36);
-
-        assert!(rendered.contains("SIDE-2"));
-        assert!(rendered.contains("[LINK side-1]"));
-        assert!(rendered.contains("TESTS / LSP"));
-        assert!(rendered.contains("MCP / CONTEXT"));
-        assert!(rendered.contains("EXTENSIONS"));
-        assert!(rendered.contains("RECENT EVIDENCE"));
-        assert!(rendered.contains("workspace"));
-        assert!(rendered.contains("files 128"));
-        assert!(rendered.contains("TEST    no /test evidence yet"));
-        assert!(rendered.contains("LSP     0 diagnostic(s)"));
-        assert!(rendered.contains("auto-checks or /lsp diagnostics"));
-        assert!(rendered.contains("approval-1 viden waiting_approval"));
-        assert!(rendered.contains("next approve, deny, or inspect diff"));
-        assert!(rendered.contains("L1 codex testing"));
-        assert!(rendered.contains("L2 claude needs_input"));
-        assert!(rendered.contains("evidence path: src/config.rs"));
-        assert!(!rendered.contains("Type instruction"));
-
-        let lines = rendered.lines().collect::<Vec<_>>();
-        assert_eq!(lines.len(), 36);
-        for line in lines {
-            assert_eq!(line.chars().count(), 80, "{line}");
-        }
+        assert!(!super::super::state::has_active_work(&state));
     }
 }

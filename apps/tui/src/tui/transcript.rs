@@ -1,245 +1,82 @@
 use super::{
     state::{TuiEntry, TuiState},
-    text::{char_width, truncate, wrap_words},
+    text::wrap_words,
 };
 
 pub(super) fn transcript_rows(state: &TuiState, width: usize) -> Vec<String> {
     let mut rows = Vec::new();
-    let mut visible_entries = state
-        .entries
-        .iter()
-        .filter(|entry| !(entry.label == "approval" && entry.body.contains("Press y")))
-        .collect::<Vec<_>>();
-    let streaming_entry;
-    if let Some(streaming) = state
-        .streaming_assistant
-        .as_deref()
-        .filter(|content| !content.trim().is_empty())
-    {
-        streaming_entry = TuiEntry {
-            label: "assistant".to_string(),
-            body: streaming.to_string(),
-        };
-        visible_entries.push(&streaming_entry);
+    for entry in &state.entries {
+        append_entry(&mut rows, entry, width);
     }
-    let total = visible_entries.len();
-    for (index, entry) in visible_entries.iter().enumerate() {
-        let (icon, label) = transcript_role(entry.label.as_str());
-        rows.push(header_row(
-            icon,
-            label,
-            &stable_entry_label(index, total),
+    if !state.runtime.assistant_stream.is_empty() {
+        append_entry(
+            &mut rows,
+            &TuiEntry {
+                label: "assistant".to_string(),
+                body: state.runtime.assistant_stream.clone(),
+            },
             width,
-        ));
-        rows.extend(body_rows(entry, width));
-        if index + 1 < total {
-            rows.push(separator_row(width));
-        }
+        );
+    }
+    for tool in &state.runtime.active_tool_calls {
+        append_entry(
+            &mut rows,
+            &TuiEntry {
+                label: "tool-call".to_string(),
+                body: format!("{}\n{}", tool.name, tool.input_preview),
+            },
+            width,
+        );
+    }
+    for evidence in &state.runtime.latest_evidence {
+        append_entry(
+            &mut rows,
+            &TuiEntry {
+                label: "evidence".to_string(),
+                body: evidence.summary.clone(),
+            },
+            width,
+        );
+    }
+    for error in &state.runtime.errors {
+        append_entry(
+            &mut rows,
+            &TuiEntry {
+                label: "error".to_string(),
+                body: error.message.clone(),
+            },
+            width,
+        );
     }
     rows
 }
 
-fn header_row(icon: &str, label: &str, time: &str, width: usize) -> String {
-    let left = format!("  {icon}  ┊  {label}");
-    let left_width = char_width(&left);
-    let time_width = char_width(time);
-    if left_width + time_width + 1 >= width {
-        return truncate(&format!("{left} {time}"), width);
-    }
-    format!(
-        "{left}{}{}",
-        " ".repeat(width.saturating_sub(left_width + time_width)),
-        time
-    )
-}
-
-fn body_rows(entry: &TuiEntry, width: usize) -> Vec<String> {
-    if entry.label == "tool-call" {
-        return tool_call_rows(&entry.body, width);
-    }
-    if entry.label == "approval" && entry.body.contains("Press y") {
-        return Vec::new();
-    }
-    entry
-        .body
-        .lines()
-        .flat_map(|line| body_rows_wrapped(entry, line, width))
-        .collect()
-}
-
-fn body_rows_wrapped(entry: &TuiEntry, line: &str, width: usize) -> Vec<String> {
-    let content = match entry.label.as_str() {
-        "tool-result" => compact_tool_result(line),
-        _ => line.to_string(),
-    };
-    wrap_words(&content, width.saturating_sub(8))
-        .into_iter()
-        .map(|line| format!("     ┊  {line}"))
-        .map(|line| truncate(&line, width))
-        .collect()
-}
-
-fn tool_call_rows(body: &str, width: usize) -> Vec<String> {
-    body.lines()
-        .flat_map(|line| structured_tool_call(line, width))
-        .collect()
-}
-
-fn structured_tool_call(line: &str, width: usize) -> Vec<String> {
-    let Some((tool, rest)) = line.split_once(" path: ") else {
-        return vec![format!(
-            "  ┊    {}",
-            truncate(line, width.saturating_sub(7))
-        )];
-    };
-    let (path, lines) = rest.split_once(" lines: ").unwrap_or((rest, "-"));
-    let content_width = width.saturating_sub(5);
-    vec![
-        format!(
-            "     ┊  [{:<10}] path: {}",
-            truncate(tool, 10),
-            truncate(path, content_width.saturating_sub(char_width(tool) + 18))
-        ),
-        format!(
-            "     ┊  {:>12} lines: {:<9} gate: waiting",
-            "",
-            truncate(lines, 9)
-        ),
-    ]
-    .into_iter()
-    .map(|line| truncate(&line, width))
-    .collect()
-}
-
-fn compact_tool_result(line: &str) -> String {
-    if line.ends_with("completed") {
-        return format!("✓ {line}");
-    }
-    if line.starts_with("Wrote ") {
-        return format!("• {line}");
-    }
-    line.to_string()
-}
-
-fn transcript_role(label: &str) -> (&'static str, &'static str) {
-    match label {
-        "user" => ("♙", "USER"),
-        "assistant" => ("✣", "ASSISTANT"),
-        "tool-call" => ("⚒", "TOOL CALL"),
-        "tool-result" => ("✓", "TOOL RESULT"),
-        "approval" => ("◆", "APPROVAL"),
-        _ => ("·", "SYSTEM"),
-    }
-}
-
-fn separator_row(width: usize) -> String {
-    let rule_width = width.saturating_sub(8).min(88);
-    truncate(&format!("     ┊  {}", "┄".repeat(rule_width)), width)
-}
-
-fn stable_entry_label(index: usize, total: usize) -> String {
-    if index + 1 == total {
-        "latest".to_string()
-    } else {
-        format!("#{:03}", index + 1)
-    }
+fn append_entry(rows: &mut Vec<String>, entry: &TuiEntry, width: usize) {
+    rows.push(entry.label.to_ascii_uppercase());
+    rows.extend(
+        wrap_words(&entry.body, width.saturating_sub(2))
+            .into_iter()
+            .map(|line| format!("  {line}")),
+    );
+    rows.push(String::new());
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::state::{ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot};
-
-    fn state(entries: Vec<TuiEntry>) -> TuiState {
-        TuiState {
-            session_id: "session_123".to_string(),
-            provider: "fallback".to_string(),
-            model: "test-local".to_string(),
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            provider_status: ProviderStatus::configured(),
-            theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: 0,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            entries,
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: Vec::new(),
-            lanes: TerminalLane::preview_lanes(),
-            lane_store: None,
-            focused_lane: None,
-            interaction_panel: None,
-        }
-    }
 
     #[test]
-    fn transcript_rows_render_status_badges_and_tool_cards() {
-        let rendered = transcript_rows(
-            &state(vec![
-                TuiEntry {
-                    label: "user".to_string(),
-                    body: "change config loader".to_string(),
-                },
-                TuiEntry {
-                    label: "tool-call".to_string(),
-                    body: "write_file path: src/config.rs lines: 1-120".to_string(),
-                },
-                TuiEntry {
-                    label: "tool-result".to_string(),
-                    body: "write_file completed\npath: src/config.rs\nsize: 2.1 KB\neffect: wrote 48 lines".to_string(),
-                },
-            ]),
-            96,
-        )
-        .join("\n");
-
-        assert!(rendered.contains("USER"));
-        assert!(rendered.contains("TOOL CALL"));
-        assert!(rendered.contains("[write_file]"));
-        assert!(rendered.contains("path: src/config.rs"));
-        assert!(rendered.contains("gate: waiting"));
-        assert!(rendered.contains("TOOL RESULT"));
-        assert!(!rendered.contains("[done]"));
-        assert!(rendered.contains("✓ write_file completed"));
-        assert!(rendered.contains("path: src/config.rs"));
-        assert!(rendered.contains("size: 2.1 KB"));
-        assert!(rendered.contains("effect: wrote 48 lines"));
-    }
-
-    #[test]
-    fn transcript_rows_wrap_long_messages_without_hard_cutoff() {
-        let rendered = transcript_rows(
-            &state(vec![TuiEntry {
-                label: "assistant".to_string(),
-                body: "This message should wrap across multiple transcript rows instead of disappearing at the panel edge.".to_string(),
-            }]),
-            58,
+    fn transcript_copy_cannot_invent_runtime_errors() {
+        let mut state = TuiState::default();
+        state.entries.push(TuiEntry {
+            label: "assistant".to_string(),
+            body: "ERROR fake".to_string(),
+        });
+        assert!(state.runtime.errors.is_empty());
+        assert!(
+            transcript_rows(&state, 40)
+                .join("\n")
+                .contains("ERROR fake")
         );
-
-        assert!(rendered.iter().any(|line| line.contains("wrap across")));
-        assert!(rendered.iter().any(|line| line.contains("panel edge.")));
-        assert!(rendered.len() > 2);
-    }
-
-    #[test]
-    fn transcript_rows_include_streaming_assistant_draft() {
-        let mut state = state(vec![TuiEntry {
-            label: "user".to_string(),
-            body: "write a summary".to_string(),
-        }]);
-        state.streaming_assistant = Some("partial answer".to_string());
-
-        let rendered = transcript_rows(&state, 80).join("\n");
-
-        assert!(rendered.contains("ASSISTANT"));
-        assert!(rendered.contains("partial answer"));
-        assert!(rendered.contains("latest"));
     }
 }

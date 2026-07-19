@@ -26,6 +26,7 @@ impl Frame {
         self.write_at(row, 0, &pad(line, self.width));
     }
 
+    #[allow(dead_code)]
     pub(super) fn fill_rect_pattern(
         &mut self,
         row: usize,

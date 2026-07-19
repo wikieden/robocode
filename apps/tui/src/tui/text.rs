@@ -1,5 +1,6 @@
 const HORIZONTAL: char = '─';
 
+#[allow(dead_code)]
 pub(super) fn top_border(width: usize) -> String {
     full_border(width, '┌', '┐')
 }
@@ -40,6 +41,7 @@ pub(super) fn truncate(value: &str, width: usize) -> String {
     output
 }
 
+#[allow(dead_code)]
 pub(super) fn compact_middle(value: &str, width: usize) -> String {
     if char_width(value) <= width {
         return value.to_string();
@@ -131,6 +133,7 @@ fn push_wrapped_token(rows: &mut Vec<String>, current: &mut String, token: &str,
     }
 }
 
+#[allow(dead_code)]
 fn suffix_by_width(value: &str, width: usize) -> String {
     let mut used = 0usize;
     let mut chars = Vec::new();

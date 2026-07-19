@@ -78,7 +78,6 @@ pub(super) fn should_exit(key: KeyEvent) -> bool {
 #[cfg(test)]
 mod tests {
     use super::super::modal::DEFAULT_APPROVAL_FOCUS;
-    use super::super::state::{ProviderStatus, TerminalLane, WorkspaceSnapshot};
     use super::*;
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -86,32 +85,12 @@ mod tests {
     }
 
     fn state_with_focus() -> TuiState {
-        TuiState {
-            session_id: "session_123".to_string(),
-            provider: "fallback".to_string(),
-            model: "test-local".to_string(),
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            provider_status: ProviderStatus::configured(),
-            theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: 0,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            entries: Vec::new(),
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: Vec::new(),
-            lanes: TerminalLane::preview_lanes(),
-            lane_store: None,
-            focused_lane: Some("L1".to_string()),
-            interaction_panel: None,
-        }
+        let mut state = TuiState::default();
+        state.ui.session_id = "session_123".to_string();
+        state.ui.provider_catalog = crate::tui::state::ProviderOption::fixture();
+        state.ui.theme_name = "aurora-cyan".to_string();
+        state.ui.focused_lane = Some("L1".to_string());
+        state
     }
 
     #[test]

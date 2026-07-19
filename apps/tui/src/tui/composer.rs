@@ -10,6 +10,7 @@ const WELCOME_BOX_MAX_WIDTH: usize = 96;
 const WELCOME_BOX_MIN_WIDTH: usize = 48;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(super) struct ComposerAnchor {
     pub(super) left: usize,
     pub(super) input_row: usize,
@@ -18,7 +19,7 @@ pub(super) struct ComposerAnchor {
 
 pub(super) fn should_render_welcome(state: &TuiState) -> bool {
     state.focused_lane.is_none()
-        && state.pending_turn.is_none()
+        && !super::state::has_active_work(state)
         && !state.entries.iter().any(is_session_entry)
 }
 
@@ -75,13 +76,14 @@ pub(super) fn render_composer(frame: &mut Frame, state: &TuiState, bottom_bar_he
 fn composer_input_row(state: &TuiState, width: usize) -> String {
     let value = if !state.input.is_empty() {
         state.input.clone()
-    } else if let Some(turn) = &state.pending_turn {
-        if turn.queued_inputs.is_empty() {
+    } else if super::state::has_active_work(state) {
+        let count = state.runtime.queued_inputs.len();
+        if count == 0 {
             "Type next prompt while Viden works...".to_string()
         } else {
             format!(
                 "{} queued; type another prompt...",
-                queued_prompt_count_label(turn.queued_inputs.len())
+                queued_prompt_count_label(count)
             )
         }
     } else {
@@ -95,7 +97,10 @@ fn composer_input_row(state: &TuiState, width: usize) -> String {
             content_width.saturating_sub(6)
         )
     );
-    let mode_chip = format!("MODE {} ▾", state.provider_status.work_mode.label());
+    let mode_chip = format!(
+        "MODE {} ▾",
+        super::state::provider_status(state).work_mode.label()
+    );
     format!(
         "│ {}│ {} │",
         pad(&input, width.saturating_sub(18)),
@@ -137,6 +142,7 @@ pub(super) fn composer_cursor_position(
     (column as u16, row as u16)
 }
 
+#[allow(dead_code)]
 pub(super) fn composer_anchor(
     state: &TuiState,
     width: usize,
@@ -166,10 +172,12 @@ pub(super) fn composer_anchor(
 fn composer_actions(state: &TuiState, width: usize) -> String {
     let left = format!(
         "MODE [{}]  PERM [{}]",
-        state.provider_status.work_mode.label(),
-        state.provider_status.permission_level.label()
+        super::state::provider_status(state).work_mode.label(),
+        super::state::provider_status(state)
+            .permission_level
+            .label()
     );
-    let right = if state.pending_turn.is_some() {
+    let right = if super::state::has_active_work(state) {
         "ACTIONS: [^J Queue] [^C Cancel] [PgUp History] [? Help]"
     } else {
         "ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help]"
@@ -189,8 +197,10 @@ fn composer_actions(state: &TuiState, width: usize) -> String {
     truncate(
         &format!(
             "MODE {}  PERMISSIONS {}",
-            state.provider_status.work_mode.label(),
-            state.provider_status.permission_level.label()
+            super::state::provider_status(state).work_mode.label(),
+            super::state::provider_status(state)
+                .permission_level
+                .label()
         ),
         width,
     )
@@ -275,7 +285,10 @@ fn welcome_spacer_row(box_width: usize) -> String {
 
 fn welcome_context_row(state: &TuiState, box_width: usize) -> String {
     let provider = provider_display_name(state);
-    let content = format!("▌ Viden - Operator · {} {}", state.model, provider);
+    let content = format!(
+        "▌ Viden - Operator · {} {}",
+        state.runtime.snapshot.model_label, provider
+    );
     truncate(&pad(&content, box_width), box_width)
 }
 
@@ -290,13 +303,10 @@ fn welcome_hint_row(box_width: usize) -> String {
 
 fn welcome_status_row(state: &TuiState, width: usize) -> String {
     let left = truncate(
-        &format!(
-            "{}:{}",
-            state.workspace.display_root, state.workspace.git_branch
-        ),
+        &format!("{}:{}", state.runtime.snapshot.cwd.display(), "core"),
         width.saturating_mul(45) / 100,
     );
-    let middle = format!("◎ {} lanes  /status", state.lanes.len());
+    let middle = format!("◎ {} lanes  /status", state.runtime.lanes.len());
     let right = format!("v{}", env!("CARGO_PKG_VERSION"));
     let left_width = char_width(&left);
     let middle_width = char_width(&middle);
@@ -322,9 +332,9 @@ fn provider_display_name(state: &TuiState) -> String {
     state
         .provider_catalog
         .iter()
-        .find(|provider| provider.provider_id == state.provider)
+        .find(|provider| provider.provider_id == state.runtime.snapshot.provider_family)
         .map(|provider| provider.display_name.clone())
-        .unwrap_or_else(|| state.provider.clone())
+        .unwrap_or_else(|| state.runtime.snapshot.provider_family.clone())
 }
 
 fn centered_line(width: usize, value: &str) -> String {
@@ -341,39 +351,29 @@ fn positioned_line(width: usize, left: usize, value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::state::{ProviderStatus, TerminalLane, WorkspaceSnapshot};
-    use viden_types::{PermissionLevel, WorkMode};
+    use viden_types::{PermissionLevel, QueuedInputView, ToolCallView, WorkMode};
 
     fn state_with_input(input: &str) -> TuiState {
-        TuiState {
-            session_id: "session_123".to_string(),
-            provider: "fallback".to_string(),
-            model: "test-local".to_string(),
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            provider_status: ProviderStatus::configured(),
-            theme_name: "aurora-cyan".to_string(),
-            input: input.to_string(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: 0,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            entries: vec![super::super::state::TuiEntry {
-                label: "assistant".to_string(),
-                body: "hello".to_string(),
-            }],
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: Vec::new(),
-            lanes: TerminalLane::preview_lanes(),
-            lane_store: None,
-            focused_lane: None,
-            interaction_panel: None,
-        }
+        let mut state = TuiState::default();
+        state.ui.session_id = "session_123".to_string();
+        state.runtime.snapshot.provider_family = "fallback".to_string();
+        state.runtime.snapshot.model_label = "test-local".to_string();
+        state.ui.provider_catalog = crate::tui::state::ProviderOption::fixture();
+        state.ui.theme_name = "aurora-cyan".to_string();
+        state.ui.input = input.to_string();
+        state.ui.entries = vec![super::super::state::TuiEntry {
+            label: "assistant".to_string(),
+            body: "hello".to_string(),
+        }];
+        state
+    }
+
+    fn mark_active(state: &mut TuiState) {
+        state.runtime.active_tool_calls.push(ToolCallView {
+            tool_call_id: "tool-1".to_string(),
+            name: "test".to_string(),
+            input_preview: "{}".to_string(),
+        });
     }
 
     #[test]
@@ -407,8 +407,8 @@ mod tests {
     #[test]
     fn composer_actions_use_runtime_mode_and_permission_state() {
         let mut state = state_with_input("hello");
-        state.provider_status.work_mode = WorkMode::Plan;
-        state.provider_status.permission_level = PermissionLevel::ReadOnly;
+        state.runtime.snapshot.work_mode = WorkMode::Plan;
+        state.runtime.snapshot.permission_level = PermissionLevel::ReadOnly;
 
         let mut frame = Frame::new(120, 40);
         render_composer(&mut frame, &state, 1);
@@ -423,13 +423,7 @@ mod tests {
     #[test]
     fn composer_invites_next_prompt_during_active_turn() {
         let mut state = state_with_input("");
-        state.pending_turn = Some(super::super::state::PendingTurn::new(
-            "session",
-            "deepseek",
-            "deepseek-v4-flash",
-            "first task",
-            "/tmp/project",
-        ));
+        mark_active(&mut state);
 
         let mut frame = Frame::new(120, 40);
         render_composer(&mut frame, &state, 1);
@@ -437,12 +431,11 @@ mod tests {
 
         assert!(rendered.contains("Type next prompt while Viden works"));
 
-        state
-            .pending_turn
-            .as_mut()
-            .expect("pending turn")
-            .queued_inputs
-            .push("follow up".to_string());
+        state.runtime.queued_inputs.push(QueuedInputView {
+            id: "queue-1".to_string(),
+            content_preview: "follow up".to_string(),
+            created_at: None,
+        });
         let mut frame = Frame::new(120, 40);
         render_composer(&mut frame, &state, 1);
         let rendered = frame.to_string();
@@ -453,13 +446,7 @@ mod tests {
     #[test]
     fn composer_actions_show_queue_and_cancel_during_active_turn() {
         let mut state = state_with_input("");
-        state.pending_turn = Some(super::super::state::PendingTurn::new(
-            "session",
-            "deepseek",
-            "deepseek-v4-flash",
-            "first task",
-            "/tmp/project",
-        ));
+        mark_active(&mut state);
 
         let mut frame = Frame::new(120, 40);
         render_composer(&mut frame, &state, 1);
