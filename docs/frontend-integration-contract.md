@@ -232,12 +232,17 @@ Current `0.2.3` reducer behavior:
   an independent review policy, or a gate revalidated after conflict, requires
   an explicit typed acceptance by the assigned validator over the exact current
   evidence id/hash set before merge.
-- `RequestReview.owner` is the requesting gate owner, not the validator. Core
-  derives the validator lane from `reviewer_lane_id`, so a reviewer cannot
-  create a self-authorizing review request. `dependency_id` is bound to one
-  `(task_id, depends_on_task_id)` edge and cannot be rebound to another edge.
+- `RequestReview.owner` must exactly match the requesting gate owner scope
+  (`workspace_id`, `project_id`, `lane_id`, and `task_id`), not just the lane
+  string, and is not the validator. Core derives the validator lane from
+  `reviewer_lane_id`, so a reviewer cannot create a self-authorizing review
+  request. `dependency_id` is bound to one `(task_id, depends_on_task_id)` edge
+  and cannot be rebound to another edge, including by an `Unblocked` update.
 - Rejected evidence moves the gate to `needs_changes` and removes that evidence
-  id from the gate/task evidence lists.
+  id from the gate/task evidence lists. `RejectMergeGate` and
+  `RejectAgentArtifact` carry an explicit `actor`; Core rejects missing or
+  unauthorized actors before approval and records the accepted actor on the
+  typed decision.
 - `AcceptAgentArtifact` only accepts an already recorded evidence id. Unknown
   evidence ids are rejected and must not be used by frontends as implicit
   evidence creation. `RejectAgentArtifact` only rejects evidence already bound
@@ -248,6 +253,10 @@ Current `0.2.3` reducer behavior:
   snapshot and durable precommit before file effects; conflict bounce requires
   the gate owner origin lane plus a verified canonical baseline. Revert verifies
   the snapshot and current postimage before approval, including after restart.
+  Recovery snapshot load is read-only: a missing recovery store returns a
+  validation error without creating private directories, locks, or chmod side
+  effects, and symlinks inside the private recovery tree are rejected before
+  bytes are read or restored.
 
 The first supported required evidence kinds are `patch`, `test_result`,
 `review`, `doc_update`, and `release_artifact`. Clients may display other

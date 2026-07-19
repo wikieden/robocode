@@ -13,6 +13,13 @@ impl SessionEngine {
         &self,
         command: &viden_types::RuntimeCommand,
     ) -> Result<Option<(&'static str, String)>, String> {
+        self.validate_trust_command(command)
+    }
+
+    pub(crate) fn validate_trust_command(
+        &self,
+        command: &viden_types::RuntimeCommand,
+    ) -> Result<Option<(&'static str, String)>, String> {
         let descriptor = match command {
             viden_types::RuntimeCommand::CreateHandoff {
                 handoff_id,
@@ -48,15 +55,8 @@ impl SessionEngine {
                 validate_review_requester(
                     &self.runtime_merge_gates[gate_index],
                     requester_lane_id,
-                )?;
-                validate_owner(
                     owner,
-                    Some(requester_lane_id),
-                    &self.runtime_merge_gates[gate_index].task_id,
-                )
-                .map_err(|_| {
-                    "review request owner must match the requesting gate owner lane".to_string()
-                })?;
+                )?;
                 for evidence_id in evidence_ids {
                     validate_trust_id("evidence_id", evidence_id)?;
                     if !self
@@ -118,8 +118,8 @@ impl SessionEngine {
                 self.preflight_accept_merge_gate(gate_id, actor, reviewed_evidence)?;
                 ("accept_merge_gate", format!("gate={gate_id}"))
             }
-            viden_types::RuntimeCommand::RejectMergeGate { gate_id, .. } => {
-                self.require_merge_gate_index(gate_id)?;
+            viden_types::RuntimeCommand::RejectMergeGate { gate_id, actor, .. } => {
+                self.preflight_reject_merge_gate(gate_id, actor)?;
                 ("reject_merge_gate", format!("gate={gate_id}"))
             }
             viden_types::RuntimeCommand::RecordAgentEvidence {
@@ -156,9 +156,10 @@ impl SessionEngine {
             viden_types::RuntimeCommand::RejectAgentArtifact {
                 gate_id,
                 evidence_id,
+                actor,
                 ..
             } => {
-                self.preflight_reject_agent_artifact(gate_id, evidence_id)?;
+                self.preflight_reject_agent_artifact(gate_id, evidence_id, actor)?;
                 (
                     "reject_agent_artifact",
                     format!("gate={gate_id} evidence={evidence_id}"),
@@ -193,6 +194,7 @@ impl SessionEngine {
                     owner.lane_id.as_deref(),
                     &self.runtime_merge_gates[gate_index].task_id,
                 )?;
+                self.validate_conflict_bounce(gate_index, original_lane_id, owner)?;
                 (
                     "bounce_merge_conflict",
                     format!("gate={gate_id} origin={original_lane_id}"),
@@ -338,10 +340,11 @@ impl SessionEngine {
         )?;
         let gate_index = self.require_merge_gate_index(&gate_id)?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
-        validate_review_requester(&self.runtime_merge_gates[gate_index], &requester_lane_id)?;
-        validate_owner(&owner, Some(&requester_lane_id), &task_id).map_err(|_| {
-            "review request owner must match the requesting gate owner lane".to_string()
-        })?;
+        validate_review_requester(
+            &self.runtime_merge_gates[gate_index],
+            &requester_lane_id,
+            &owner,
+        )?;
         if evidence_ids.is_empty() {
             return Err("review request requires canonical evidence bindings".to_string());
         }
@@ -524,10 +527,6 @@ impl SessionEngine {
         if task_id == depends_on_task_id {
             return Err(format!("agent task `{task_id}` cannot depend on itself"));
         }
-        if state == DependencyState::Unblocked {
-            return Ok(());
-        }
-
         let mut edges = std::collections::BTreeMap::<String, Vec<String>>::new();
         for dag in &self.runtime_agent_dags {
             for task in &dag.tasks {
@@ -554,6 +553,9 @@ impl SessionEngine {
                     .or_default()
                     .push(dependency.depends_on_task_id.clone());
             }
+        }
+        if state == DependencyState::Unblocked {
+            return Ok(());
         }
         edges
             .entry(task_id.to_string())
@@ -1011,11 +1013,17 @@ fn validate_owner(
 fn validate_review_requester(
     gate: &viden_types::MergeGateRecord,
     requester_lane_id: &str,
+    owner: &RuntimeOwner,
 ) -> Result<(), String> {
     if let Some(owner_lane_id) = gate.owner.lane_id.as_deref()
         && owner_lane_id != requester_lane_id
     {
         return Err("review requester does not own the merge gate".to_string());
+    }
+    if &gate.owner != owner {
+        return Err(
+            "review request owner must match the complete merge gate owner scope".to_string(),
+        );
     }
     Ok(())
 }

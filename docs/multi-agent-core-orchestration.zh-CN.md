@@ -206,9 +206,9 @@ session 或 workflow state 时有 durable log 支撑。
 | `ResumeAgentDag` | 从 durable DAG state 恢复调度。 |
 | `RespondToAgentApproval` | 把用户审批决策应用到 pending task/tool action。 |
 | `AcceptMergeGate` | 标记 merge gate accepted，并持久化 operator decision。 |
-| `RejectMergeGate` | 标记 merge gate needs changes，并持久化原因。 |
+| `RejectMergeGate` | 标记 merge gate needs changes，并持久化已授权 actor 与原因。 |
 | `AcceptAgentArtifact` | 将 artifact/evidence id 接受到 merge-gate candidate set。 |
-| `RejectAgentArtifact` | 带原因拒绝 artifact/evidence id，并请求后续动作。 |
+| `RejectAgentArtifact` | 带已授权 actor 和原因拒绝 gate-bound artifact/evidence id，并请求后续动作。 |
 | `MergeAgentPatch` | 应用 accepted unified-diff patch evidence；成功时标记 merged，冲突时退回 needs-changes。 |
 | `CreateHandoff` | 在不同 Lane 间记录 typed accepted/rejected ownership transfer。 |
 | `RequestReview` | 把 independent reviewer 与 evidence set 绑定到 merge gate。 |

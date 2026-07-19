@@ -1004,6 +1004,32 @@ fn schema_one_trust_loop_commands_roundtrip_as_additive_typed_variants() {
 }
 
 #[test]
+fn schema_one_reject_commands_default_missing_actor_for_legacy_json() {
+    let reject_gate: RuntimeCommand = serde_json::from_value(serde_json::json!({
+        "type": "reject_merge_gate",
+        "gate_id": "gate-legacy",
+        "reason": "legacy rejection"
+    }))
+    .unwrap();
+    assert!(matches!(
+        reject_gate,
+        RuntimeCommand::RejectMergeGate { actor, .. } if actor == RuntimeOwner::default()
+    ));
+
+    let reject_artifact: RuntimeCommand = serde_json::from_value(serde_json::json!({
+        "type": "reject_agent_artifact",
+        "gate_id": "gate-legacy",
+        "evidence_id": "evidence-legacy",
+        "reason": "legacy artifact rejection"
+    }))
+    .unwrap();
+    assert!(matches!(
+        reject_artifact,
+        RuntimeCommand::RejectAgentArtifact { actor, .. } if actor == RuntimeOwner::default()
+    ));
+}
+
+#[test]
 fn trust_decisions_bind_actor_reviewed_hashes_and_durable_recovery_reference() {
     let actor = RuntimeOwner {
         workspace_id: "workspace-trust".to_string(),
@@ -1687,6 +1713,7 @@ fn agent_dag_runtime_command_roundtrips_json() {
         },
         RuntimeCommand::RejectMergeGate {
             gate_id: "gate-task_planner".to_string(),
+            actor: RuntimeOwner::default(),
             reason: "missing test evidence".to_string(),
         },
         RuntimeCommand::RecordAgentEvidence {
@@ -1708,6 +1735,7 @@ fn agent_dag_runtime_command_roundtrips_json() {
         RuntimeCommand::RejectAgentArtifact {
             gate_id: "gate-task_planner".to_string(),
             evidence_id: "evidence-task_planner-plan".to_string(),
+            actor: RuntimeOwner::default(),
             reason: "artifact is stale".to_string(),
         },
         RuntimeCommand::MergeAgentPatch {

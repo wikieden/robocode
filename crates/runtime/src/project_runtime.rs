@@ -398,6 +398,8 @@ fn supervised_command_actor(command: &RuntimeCommand) -> Option<&viden_types::Ru
         | RuntimeCommand::RevertAppliedChange { owner, .. } => Some(owner),
         RuntimeCommand::AcceptMergeGate { actor, .. }
         | RuntimeCommand::AcceptAgentArtifact { actor, .. }
+        | RuntimeCommand::RejectMergeGate { actor, .. }
+        | RuntimeCommand::RejectAgentArtifact { actor, .. }
         | RuntimeCommand::MergeAgentPatch { actor, .. }
         | RuntimeCommand::RevalidateMergeConflict { actor, .. } => Some(actor),
         _ => None,

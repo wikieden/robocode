@@ -316,6 +316,9 @@ impl SessionEngine {
             self.persist_runtime_domain_events(&events)?;
             return Ok(events);
         }
+        if let Err(reason) = self.validate_trust_command(&command) {
+            return Ok(vec![command_rejected(command_id, reason)]);
+        }
 
         let persist_after_match = true;
         // Merge gate decisions are valid only when both workflow and session facts
@@ -625,11 +628,15 @@ impl SessionEngine {
                     }
                 }
             }
-            RuntimeCommand::RejectMergeGate { gate_id, reason } => {
+            RuntimeCommand::RejectMergeGate {
+                gate_id,
+                actor,
+                reason,
+            } => {
                 match self.decide_merge_gate(
                     &gate_id,
                     MergeGateStatus::NeedsChanges,
-                    None,
+                    Some(actor),
                     Vec::new(),
                     reason,
                     approver,
@@ -704,17 +711,20 @@ impl SessionEngine {
             RuntimeCommand::RejectAgentArtifact {
                 gate_id,
                 evidence_id,
+                actor,
                 reason,
-            } => match self.reject_agent_artifact(&gate_id, &evidence_id, reason, approver) {
-                Ok(artifact_events) => append_resequenced(&mut events, artifact_events),
-                Err(err) => {
-                    return self.command_rejected_after_transaction_rollback(
-                        &transaction_snapshot,
-                        command_id,
-                        err,
-                    );
+            } => {
+                match self.reject_agent_artifact(&gate_id, &evidence_id, actor, reason, approver) {
+                    Ok(artifact_events) => append_resequenced(&mut events, artifact_events),
+                    Err(err) => {
+                        return self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        );
+                    }
                 }
-            },
+            }
             RuntimeCommand::MergeAgentPatch {
                 gate_id,
                 actor,
@@ -2272,10 +2282,25 @@ impl SessionEngine {
         )
     }
 
+    pub(crate) fn preflight_reject_merge_gate(
+        &self,
+        gate_id: &str,
+        actor: &RuntimeOwner,
+    ) -> Result<(), String> {
+        let gate_index = self
+            .runtime_merge_gates
+            .iter()
+            .position(|gate| gate.gate_id == gate_id)
+            .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
+        let gate = &self.runtime_merge_gates[gate_index];
+        validate_reject_actor(gate, actor, "merge gate rejection")
+    }
+
     pub(crate) fn preflight_reject_agent_artifact(
         &self,
         gate_id: &str,
         evidence_id: &str,
+        actor: &RuntimeOwner,
     ) -> Result<(), String> {
         if evidence_id.trim().is_empty() {
             return Err("agent artifact evidence id cannot be empty".to_string());
@@ -2303,6 +2328,11 @@ impl SessionEngine {
                 "agent artifact evidence `{evidence_id}` is not bound to the gate evidence set"
             ));
         }
+        validate_reject_actor(
+            &self.runtime_merge_gates[gate_index],
+            actor,
+            "agent artifact rejection",
+        )?;
         Ok(())
     }
 
@@ -2545,6 +2575,15 @@ impl SessionEngine {
                     reviewed_evidence = current_bindings;
                 }
             }
+        } else {
+            let actor = actor
+                .as_ref()
+                .ok_or_else(|| "merge gate rejection requires an actor".to_string())?;
+            validate_reject_actor(
+                &self.runtime_merge_gates[gate_index],
+                actor,
+                "merge gate rejection",
+            )?;
         }
 
         self.require_trust_permission(
@@ -2892,6 +2931,7 @@ impl SessionEngine {
         &mut self,
         gate_id: &str,
         evidence_id: &str,
+        actor: RuntimeOwner,
         reason: String,
         approver: &mut F,
     ) -> Result<Vec<RuntimeEvent>, String>
@@ -2902,7 +2942,7 @@ impl SessionEngine {
         if reason.trim().is_empty() {
             return Err("agent artifact rejection reason cannot be empty".to_string());
         }
-        self.preflight_reject_agent_artifact(gate_id, evidence_id)?;
+        self.preflight_reject_agent_artifact(gate_id, evidence_id, &actor)?;
         let gate_index = self
             .runtime_merge_gates
             .iter()
@@ -2922,7 +2962,7 @@ impl SessionEngine {
         gate.decision = Some(crate::trust_loop::merge_gate_decision(
             MergeGateDecisionOutcome::Rejected,
             reason.clone(),
-            gate.owner.clone(),
+            actor,
             gate.evidence_ids.clone(),
             fresh_id("audit"),
         ));
@@ -5433,8 +5473,13 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
             reviewed_evidence: reviewed_evidence.clone(),
             decision: decision.as_deref().map(redact_command_text),
         },
-        RuntimeCommand::RejectMergeGate { gate_id, reason } => RuntimeCommand::RejectMergeGate {
+        RuntimeCommand::RejectMergeGate {
+            gate_id,
+            actor,
+            reason,
+        } => RuntimeCommand::RejectMergeGate {
             gate_id: redact_identifier_for_event(gate_id),
+            actor: redacted_runtime_owner(actor),
             reason: redact_command_text(reason),
         },
         RuntimeCommand::RecordAgentEvidence {
@@ -5468,10 +5513,12 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         RuntimeCommand::RejectAgentArtifact {
             gate_id,
             evidence_id,
+            actor,
             reason,
         } => RuntimeCommand::RejectAgentArtifact {
             gate_id: redact_identifier_for_event(gate_id),
             evidence_id: redact_identifier_for_event(evidence_id),
+            actor: redacted_runtime_owner(actor),
             reason: redact_command_text(reason),
         },
         RuntimeCommand::MergeAgentPatch {
@@ -5744,6 +5791,27 @@ fn runtime_owner_matches_validator_lane(actor: &RuntimeOwner, validator: &Runtim
         && actor.task_id == validator.task_id
         && actor.lane_id.is_some()
         && actor.lane_id == validator.lane_id
+}
+
+fn validate_reject_actor(
+    gate: &MergeGateRecord,
+    actor: &RuntimeOwner,
+    action: &str,
+) -> Result<(), String> {
+    if actor == &RuntimeOwner::default() {
+        return Err(format!("{action} requires an actor"));
+    }
+    if let Some(validator) = &gate.validator
+        && runtime_owner_matches_validator_lane(actor, &validator.owner)
+    {
+        return Ok(());
+    }
+    if actor == &gate.owner {
+        return Ok(());
+    }
+    Err(format!(
+        "{action} actor is not authorized for the merge gate"
+    ))
 }
 
 fn merge_approval_events(

@@ -173,6 +173,8 @@ pub enum RuntimeCommand {
     },
     RejectMergeGate {
         gate_id: MergeGateId,
+        #[serde(default)]
+        actor: RuntimeOwner,
         reason: String,
     },
     RecordAgentEvidence {
@@ -197,6 +199,8 @@ pub enum RuntimeCommand {
     RejectAgentArtifact {
         gate_id: MergeGateId,
         evidence_id: EvidenceId,
+        #[serde(default)]
+        actor: RuntimeOwner,
         reason: String,
     },
     MergeAgentPatch {

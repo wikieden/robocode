@@ -4835,12 +4835,46 @@ fn runtime_supervisor_accepts_and_rejects_merge_gate_decisions() {
             )
         })
     });
+    let planner_owner = RuntimeOwner {
+        workspace_id: "workspace-1".to_string(),
+        project_id: "project-1".to_string(),
+        lane_id: Some("lane-planner".to_string()),
+        session_id: Some("session-planner".to_string()),
+        task_id: Some("task_planner".to_string()),
+        turn_id: None,
+    };
+    supervisor
+        .send_command_from_owner(
+            planner_owner.clone(),
+            "cmd_handoff_planner_gate",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-planner-gate".to_string(),
+                task_id: "task_planner".to_string(),
+                from_lane_id: "lane-seed".to_string(),
+                to_lane_id: "lane-planner".to_string(),
+                owner: planner_owner.clone(),
+                summary: "planner owns merge gate decisions".to_string(),
+                acceptance: viden_types::HandoffAcceptance::Accepted,
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::MergeGateUpdated { gate }
+                    if gate.gate_id == "gate-task_planner" && gate.owner == planner_owner
+            )
+        })
+    });
 
     supervisor
-        .send_command(
+        .send_command_from_owner(
+            planner_owner.clone(),
             "cmd_reject_gate",
             RuntimeCommand::RejectMergeGate {
                 gate_id: "gate-task_planner".to_string(),
+                actor: planner_owner,
                 reason: "needs reviewer evidence".to_string(),
             },
         )
@@ -5219,6 +5253,38 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
             )
         })
     });
+    let coder_owner = RuntimeOwner {
+        workspace_id: "workspace-1".to_string(),
+        project_id: "project-1".to_string(),
+        lane_id: Some("lane-coder".to_string()),
+        session_id: Some("session-coder".to_string()),
+        task_id: Some("task_coder".to_string()),
+        turn_id: None,
+    };
+    supervisor
+        .send_command_from_owner(
+            coder_owner.clone(),
+            "cmd_handoff_coder_gate",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-coder-gate".to_string(),
+                task_id: "task_coder".to_string(),
+                from_lane_id: "lane-seed".to_string(),
+                to_lane_id: "lane-coder".to_string(),
+                owner: coder_owner.clone(),
+                summary: "coder owns artifact gate decisions".to_string(),
+                acceptance: viden_types::HandoffAcceptance::Accepted,
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::MergeGateUpdated { gate }
+                    if gate.gate_id == "gate-task_coder" && gate.owner == coder_owner
+            )
+        })
+    });
 
     supervisor
         .send_command(
@@ -5304,11 +5370,13 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
     }));
 
     supervisor
-        .send_command(
+        .send_command_from_owner(
+            coder_owner.clone(),
             "cmd_reject_artifact",
             RuntimeCommand::RejectAgentArtifact {
                 gate_id: "gate-task_coder".to_string(),
                 evidence_id: "manual-test_result".to_string(),
+                actor: coder_owner,
                 reason: "test output was from the wrong package".to_string(),
             },
         )

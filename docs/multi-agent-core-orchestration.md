@@ -238,9 +238,9 @@ Proposed `RuntimeCommand` additions:
 | `ResumeAgentDag` | Resume scheduling from durable DAG state. |
 | `RespondToAgentApproval` | Apply a user approval decision to a pending task/tool action. |
 | `AcceptMergeGate` | Mark a merge gate accepted and persist the operator decision. |
-| `RejectMergeGate` | Mark a merge gate as needing changes and persist the reason. |
+| `RejectMergeGate` | Mark a merge gate as needing changes and persist the authorized actor and reason. |
 | `AcceptAgentArtifact` | Accept an artifact/evidence id into the merge-gate candidate set. |
-| `RejectAgentArtifact` | Reject an artifact/evidence id with reason and requested follow-up. |
+| `RejectAgentArtifact` | Reject a gate-bound artifact/evidence id with authorized actor, reason, and requested follow-up. |
 | `MergeAgentPatch` | Apply accepted unified-diff patch evidence, mark it merged on success, or return the gate to needs-changes on conflict. |
 | `CreateHandoff` | Record typed accepted/rejected ownership transfer between distinct lanes. |
 | `RequestReview` | Bind an independent reviewer and evidence set to a merge gate. |

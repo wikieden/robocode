@@ -766,6 +766,145 @@ fn trust_loop_request_review_requires_gate_owner_as_requester() {
 }
 
 #[test]
+fn trust_loop_request_review_rejects_cross_workspace_same_lane_owner() {
+    let cwd = temp_dir("trust_loop_request_review_cross_workspace_cwd");
+    let home = temp_dir("trust_loop_request_review_cross_workspace_home");
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    let task_id = "task-review-scope";
+    start_gate(&mut engine, &mut allow, task_id, vec!["patch".to_string()]);
+    engine
+        .handle_runtime_command(
+            "handoff-review-scope",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-review-scope".to_string(),
+                task_id: task_id.to_string(),
+                from_lane_id: "lane-planner".to_string(),
+                to_lane_id: "lane-origin".to_string(),
+                owner: owner("lane-origin", task_id),
+                summary: "origin owns full scoped review request".to_string(),
+                acceptance: HandoffAcceptance::Accepted,
+            },
+            &mut allow,
+        )
+        .unwrap();
+    let binding = record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    );
+    let mut cross_workspace_owner = owner("lane-origin", task_id);
+    cross_workspace_owner.workspace_id = "workspace-2".to_string();
+
+    let mut approval_calls = 0;
+    let rejected = engine
+        .handle_runtime_command(
+            "cross-workspace-review-request",
+            RuntimeCommand::RequestReview {
+                review_id: "review-cross-workspace".to_string(),
+                gate_id: format!("gate-{task_id}"),
+                requester_lane_id: "lane-origin".to_string(),
+                reviewer_lane_id: "lane-reviewer".to_string(),
+                owner: cross_workspace_owner,
+                evidence_ids: vec![binding.evidence_id],
+            },
+            &mut |_prompt| {
+                approval_calls += 1;
+                ApprovalResponse::allow_once(None)
+            },
+        )
+        .unwrap();
+
+    assert!(rejected.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("complete merge gate owner scope")
+    )));
+    assert_eq!(approval_calls, 0);
+    assert!(engine.runtime_view_state().review_requests.is_empty());
+}
+
+#[test]
+fn trust_loop_reject_gate_requires_authorized_actor_and_records_actor() {
+    let cwd = temp_dir("trust_loop_reject_gate_actor_cwd");
+    let home = temp_dir("trust_loop_reject_gate_actor_home");
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    let task_id = "task-reject-gate-actor";
+    start_gate(&mut engine, &mut allow, task_id, vec!["patch".to_string()]);
+    engine
+        .handle_runtime_command(
+            "handoff-reject-gate-actor",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-reject-gate-actor".to_string(),
+                task_id: task_id.to_string(),
+                from_lane_id: "lane-planner".to_string(),
+                to_lane_id: "lane-origin".to_string(),
+                owner: owner("lane-origin", task_id),
+                summary: "origin owns rejection authority".to_string(),
+                acceptance: HandoffAcceptance::Accepted,
+            },
+            &mut allow,
+        )
+        .unwrap();
+
+    let mut approval_calls = 0;
+    let attacker = engine
+        .handle_runtime_command(
+            "reject-gate-attacker",
+            RuntimeCommand::RejectMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-attacker", task_id),
+                reason: "attacker cannot reject".to_string(),
+            },
+            &mut |_prompt| {
+                approval_calls += 1;
+                ApprovalResponse::allow_once(None)
+            },
+        )
+        .unwrap();
+    assert!(attacker.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("not authorized")
+    )));
+    assert_eq!(approval_calls, 0);
+
+    let accepted = engine
+        .handle_runtime_command(
+            "reject-gate-origin",
+            RuntimeCommand::RejectMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-origin", task_id),
+                reason: "needs focused verification".to_string(),
+            },
+            &mut allow,
+        )
+        .unwrap();
+    assert!(accepted.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::MergeGateUpdated { gate }
+            if gate.status == MergeGateStatus::NeedsChanges
+                && gate.decision.as_ref().is_some_and(|decision| {
+                    decision.outcome == MergeGateDecisionOutcome::Rejected
+                        && decision.owner == owner("lane-origin", task_id)
+                })
+    )));
+}
+
+#[test]
 fn trust_loop_dependency_id_cannot_be_rebound_to_different_endpoints() {
     let cwd = temp_dir("trust_loop_dependency_rebind_cwd");
     let home = temp_dir("trust_loop_dependency_rebind_home");
@@ -811,6 +950,34 @@ fn trust_loop_dependency_id_cannot_be_rebound_to_different_endpoints() {
         )
         .unwrap();
     assert!(rebound.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("dependency id") && reason.contains("endpoints")
+    )));
+    assert_eq!(approval_calls, 0);
+    let view = engine.runtime_view_state();
+    assert_eq!(view.dependencies.len(), 1);
+    assert_eq!(view.dependencies[0].depends_on_task_id, "task-b");
+
+    let mut approval_calls = 0;
+    let unblocked_rebound = engine
+        .handle_runtime_command(
+            "unblock-rebind-a-on-c",
+            RuntimeCommand::SetDependency {
+                dependency_id: "dependency-fixed-edge".to_string(),
+                task_id: "task-a".to_string(),
+                depends_on_task_id: "task-c".to_string(),
+                owner: owner("lane-a", "task-a"),
+                state: DependencyState::Unblocked,
+                reason: "same id cannot unblock a different edge".to_string(),
+            },
+            &mut |_prompt| {
+                approval_calls += 1;
+                ApprovalResponse::allow_once(None)
+            },
+        )
+        .unwrap();
+    assert!(unblocked_rebound.iter().any(|event| matches!(
         &event.kind,
         RuntimeEventKind::CommandRejected { reason, .. }
             if reason.contains("dependency id") && reason.contains("endpoints")
@@ -1135,6 +1302,7 @@ fn trust_loop_reject_agent_artifact_requires_gate_bound_evidence_before_permissi
             RuntimeCommand::RejectAgentArtifact {
                 gate_id: "gate-task-reject-artifact-a".to_string(),
                 evidence_id: other_binding.evidence_id,
+                actor: owner("lane-origin", "task-reject-artifact-a"),
                 reason: "cannot reject another gate evidence".to_string(),
             },
             &mut |_prompt| {

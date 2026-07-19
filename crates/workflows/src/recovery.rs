@@ -134,7 +134,8 @@ impl WorkflowStore {
         validate_snapshot_id(&reference.snapshot_id)?;
         validate_sha256(&reference.manifest_sha256)?;
         let recovery_root = self.paths().project_dir.join("recovery");
-        let lock = open_private_file(&recovery_root.join("recovery.lock"), false)?;
+        require_plain_directory(&recovery_root)?;
+        let lock = open_existing_private_file(&recovery_root.join("recovery.lock"))?;
         lock.lock_shared().map_err(|error| error.to_string())?;
         let snapshot_dir = recovery_root.join(&reference.snapshot_id);
         require_plain_directory(&snapshot_dir)?;
@@ -239,7 +240,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 fn create_private_dir(path: &Path) -> Result<(), String> {
     fs::create_dir_all(path).map_err(|error| error.to_string())?;
-    require_plain_directory(path)?;
+    require_plain_path(path, true)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -272,6 +273,18 @@ fn open_private_file(path: &Path, create_new: bool) -> Result<fs::File, String> 
     Ok(file)
 }
 
+fn open_existing_private_file(path: &Path) -> Result<fs::File, String> {
+    require_plain_file(path)?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    options.open(path).map_err(|error| error.to_string())
+}
+
 fn write_private_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut file = open_private_file(path, true)?;
     file.write_all(bytes).map_err(|error| error.to_string())?;
@@ -295,23 +308,59 @@ fn write_private_content_addressed(path: &Path, bytes: &[u8]) -> Result<(), Stri
 }
 
 fn require_plain_directory(path: &Path) -> Result<(), String> {
+    require_plain_path(path, true)
+}
+
+fn require_plain_file(path: &Path) -> Result<(), String> {
+    require_plain_path(path, false)
+}
+
+fn require_plain_path(path: &Path, directory: bool) -> Result<(), String> {
+    reject_symlink_ancestors(path)?;
     let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+    let wrong_kind = if directory {
+        !metadata.is_dir()
+    } else {
+        !metadata.is_file()
+    };
+    if metadata.file_type().is_symlink() || wrong_kind {
         return Err(format!(
-            "recovery path `{}` is not a plain directory",
-            path.display()
+            "recovery path `{}` is not a plain {}",
+            path.display(),
+            if directory { "directory" } else { "file" }
         ));
     }
     Ok(())
 }
 
-fn require_plain_file(path: &Path) -> Result<(), String> {
-    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err(format!(
-            "recovery path `{}` is not a plain file",
-            path.display()
-        ));
+fn reject_symlink_ancestors(path: &Path) -> Result<(), String> {
+    let mut current = PathBuf::new();
+    let mut components = path.components().peekable();
+    let mut inside_recovery_tree = false;
+    while let Some(component) = components.next() {
+        current.push(component.as_os_str());
+        if components.peek().is_none() {
+            break;
+        }
+        if !inside_recovery_tree {
+            inside_recovery_tree =
+                matches!(component, Component::Normal(segment) if segment == "recovery");
+            if !inside_recovery_tree {
+                continue;
+            }
+        }
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(format!(
+                    "recovery path `{}` crosses symlink ancestor `{}`",
+                    path.display(),
+                    current.display()
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
     }
     Ok(())
 }
@@ -326,7 +375,7 @@ fn sync_dir(path: &Path) -> Result<(), String> {
 mod tests {
     use std::fs;
 
-    use viden_types::fresh_id;
+    use viden_types::{RecoverySnapshotReference, fresh_id};
 
     use super::*;
     use crate::stores::WorkflowStore;
@@ -532,5 +581,102 @@ mod tests {
             0o644,
             "opening recovery.lock must not follow symlinks or chmod the target"
         );
+    }
+
+    #[test]
+    fn recovery_snapshot_load_missing_store_is_read_only() {
+        let home = temp_dir("load_missing_store_home");
+        let cwd = temp_dir("load_missing_store_cwd");
+        let store = WorkflowStore::new(&home, &cwd).unwrap();
+        let recovery_root = store.paths().project_dir.join("recovery");
+        assert!(!recovery_root.exists());
+
+        let result = store.load_recovery_snapshot(&RecoverySnapshotReference {
+            snapshot_id: "missing-snapshot".to_string(),
+            manifest_sha256: "0".repeat(64),
+        });
+
+        assert!(result.is_err());
+        assert!(
+            !recovery_root.exists(),
+            "read-only load must not create recovery root, lock, or private dirs"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recovery_snapshot_load_rejects_symlinked_blob_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let home = temp_dir("load_blob_ancestor_home");
+        let cwd = temp_dir("load_blob_ancestor_cwd");
+        let store = WorkflowStore::new(&home, &cwd).unwrap();
+        let reference = store
+            .write_recovery_snapshot(
+                "recovery-blob-ancestor-symlink",
+                &[RecoverySnapshotEntry {
+                    relative_path: PathBuf::from("src/lib.rs"),
+                    preimage: Some(b"secret".to_vec()),
+                    unix_mode: None,
+                    expected_postimage_sha256: None,
+                    created_parent_dirs: vec![],
+                }],
+            )
+            .unwrap();
+        let snapshot_dir = store
+            .paths()
+            .project_dir
+            .join("recovery")
+            .join(&reference.snapshot_id);
+        let blob_root = snapshot_dir.join("blobs");
+        let first_prefix = fs::read_dir(&blob_root)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let redirected = temp_dir("load_blob_ancestor_redirect");
+        fs::remove_dir_all(&first_prefix).unwrap();
+        symlink(&redirected, &first_prefix).unwrap();
+
+        let result = store.load_recovery_snapshot(&reference);
+
+        assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recovery_snapshot_load_rejects_symlinked_manifest_file() {
+        use std::os::unix::fs::symlink;
+
+        let home = temp_dir("load_manifest_symlink_home");
+        let cwd = temp_dir("load_manifest_symlink_cwd");
+        let store = WorkflowStore::new(&home, &cwd).unwrap();
+        let reference = store
+            .write_recovery_snapshot(
+                "recovery-manifest-symlink",
+                &[RecoverySnapshotEntry {
+                    relative_path: PathBuf::from("src/lib.rs"),
+                    preimage: Some(b"secret".to_vec()),
+                    unix_mode: None,
+                    expected_postimage_sha256: None,
+                    created_parent_dirs: vec![],
+                }],
+            )
+            .unwrap();
+        let snapshot_dir = store
+            .paths()
+            .project_dir
+            .join("recovery")
+            .join(&reference.snapshot_id);
+        let manifest = snapshot_dir.join("manifest.json");
+        let redirected_manifest = temp_dir("load_manifest_symlink_redirect").join("manifest.json");
+        fs::write(&redirected_manifest, b"{}").unwrap();
+        fs::remove_file(&manifest).unwrap();
+        symlink(&redirected_manifest, &manifest).unwrap();
+
+        let result = store.load_recovery_snapshot(&reference);
+
+        assert!(result.is_err());
     }
 }
