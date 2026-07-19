@@ -555,6 +555,90 @@ fn fifty_thousand_rows_page_through_core_with_a_bounded_stable_anchor() {
     assert!(state.transcript_max_returned <= 240);
 }
 
+#[test]
+fn fifty_thousand_rows_round_trip_every_page_without_caching_row_history() {
+    let fixture = fixture();
+    let (transport, state) = FixtureTransport::new();
+    state.lock().unwrap().transcript_total_rows = 50_000;
+    let mut adapter = connected_adapter(&fixture, transport, &state);
+    let latest_anchor = TranscriptRowId("session-d1:49880".to_string());
+    adapter
+        .open_transcript_page(
+            TranscriptPageRequest {
+                session_id: "session-d1".to_string(),
+                before: None,
+                limit: 500,
+            },
+            Some(&latest_anchor),
+        )
+        .unwrap();
+
+    assert!(adapter.transcript_viewport().rows().len() <= 240);
+    assert!(
+        state
+            .lock()
+            .unwrap()
+            .transcript_requests
+            .last()
+            .unwrap()
+            .limit
+            <= 240
+    );
+    let mut page_anchors = vec![latest_anchor.clone()];
+    while adapter.load_older_transcript_page().unwrap() {
+        assert!(adapter.transcript_viewport().rows().len() <= 240);
+        assert!(
+            state
+                .lock()
+                .unwrap()
+                .transcript_requests
+                .last()
+                .unwrap()
+                .limit
+                <= 240
+        );
+        page_anchors.push(adapter.transcript_viewport().anchor().unwrap().clone());
+    }
+
+    assert_eq!(page_anchors.len(), 209);
+    assert_eq!(
+        adapter.transcript_viewport().rows().first().unwrap().id.0,
+        "session-d1:0"
+    );
+
+    for expected_anchor in page_anchors[..page_anchors.len() - 1].iter().rev() {
+        assert!(
+            adapter.load_newer_transcript_page().unwrap(),
+            "every older page must retain a compact route back to the newest page"
+        );
+        assert!(adapter.transcript_viewport().rows().len() <= 240);
+        assert_eq!(
+            adapter.transcript_viewport().anchor(),
+            Some(expected_anchor)
+        );
+        assert!(
+            state
+                .lock()
+                .unwrap()
+                .transcript_requests
+                .last()
+                .unwrap()
+                .limit
+                <= 240
+        );
+    }
+
+    assert!(!adapter.load_newer_transcript_page().unwrap());
+    assert_eq!(adapter.transcript_viewport().anchor(), Some(&latest_anchor));
+    assert_eq!(
+        adapter.transcript_viewport().rows().last().unwrap().id.0,
+        "session-d1:49999"
+    );
+    let state = state.lock().unwrap();
+    assert_eq!(state.transcript_requests.len(), 417);
+    assert!(state.transcript_max_returned <= 240);
+}
+
 fn transcript_page(request: &TranscriptPageRequest, count: u64) -> TranscriptPage {
     let limit = u64::from(request.limit.clamp(1, 500));
     let end = request

@@ -2,7 +2,9 @@ use std::collections::VecDeque;
 
 use viden_core::{TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId};
 
-const MAX_NAVIGATION_HISTORY: usize = 64;
+// The 50k framework gate spans 209 pages at the 240-row viewport limit. Each
+// breadcrumb stores only a Core request and row id, never transcript rows.
+const MAX_NAVIGATION_HISTORY: usize = 209;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PageLocation {
