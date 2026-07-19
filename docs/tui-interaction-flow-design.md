@@ -2,7 +2,7 @@
 
 Chinese version: [tui-interaction-flow-design.zh-CN.md](tui-interaction-flow-design.zh-CN.md)
 
-Last updated: 2026-07-19
+Last updated: 2026-07-20
 
 ## Purpose
 
@@ -60,8 +60,13 @@ stateDiagram-v2
 
     Cockpit --> ActiveTurn: submit prompt
     ActiveTurn --> ActiveTurn: stream delta / tool event / queued follow-up
-    ActiveTurn --> ApprovalPanel: permission request
-    ApprovalPanel --> ActiveTurn: approve / deny / inspect
+    ActiveTurn --> ActiveTurn: permission request pinned
+    ActiveTurn --> Decisions: ctrl-g
+    Decisions --> ApprovalFocus: select concrete request
+    Decisions --> ActiveTurn: esc
+    ApprovalFocus --> ActiveTurn: y approve once / n deny / esc close (still pinned)
+    ApprovalFocus --> EvidenceFocus: d diff/evidence
+    EvidenceFocus --> ApprovalFocus: close / return
     ActiveTurn --> ErrorRecovery: provider/tool failure
     ErrorRecovery --> Cockpit: retry / switch model / run doctor / continue
     ActiveTurn --> Cockpit: assistant result / cancelled
@@ -90,7 +95,7 @@ flowchart TD
     F -->|composer| G["ComposerAction<br/>edit/submit/queue/cancel"]
     F -->|palette| H["PaletteAction<br/>filter/select/close"]
     F -->|panel| I["PanelAction<br/>edit/select/apply/cancel"]
-    F -->|approval| J["ApprovalAction<br/>approve/deny/inspect"]
+    F -->|explicit approval focus| J["ApprovalAction<br/>approve once/deny/diff/close"]
     F -->|transcript| K["HistoryAction<br/>scroll/follow live"]
     F -->|side screen| L["SideAction<br/>focus/select/close"]
 
@@ -119,8 +124,8 @@ and provider turns from stealing the keyboard.
 
 ```mermaid
 flowchart TD
-    A["Input Event"] --> B{"Has modal approval?"}
-    B -->|yes| C["Approval keymap<br/>1-4/arrows/enter/esc"]
+    A["Input Event"] --> B{"Has explicit approval focus?"}
+    B -->|yes| C["Approval keymap<br/>y/n/d/arrows/enter/esc"]
     B -->|no| D{"Interaction panel open?"}
     D -->|yes| E["Panel keymap<br/>search/edit/select/save/cancel"]
     D -->|no| F{"Command palette open?"}
@@ -129,6 +134,8 @@ flowchart TD
     H -->|yes| I["History keymap<br/>page/wheel/ctrl-end"]
     H -->|no| J["Composer keymap"]
 
+    J --> Q{"Ctrl-G?"}
+    Q -->|yes| R["Open Decisions<br/>select concrete request"]
     J --> K{"Enter while active turn?"}
     K -->|yes| L["Queue follow-up<br/>clear composer"]
     K -->|no| M["Start new turn"]
@@ -210,40 +217,41 @@ sequenceDiagram
 ## Approval Flow
 
 Approval is a focus target in the same event loop. It must not call a separate
-blocking input loop.
+blocking input loop. Pending approvals are pinned but do not own input.
+Composer `y`, `n`, `d`, and `Enter` remain ordinary draft/submission input until
+the operator opens Decisions with `Ctrl-G` and selects a concrete request.
 
 ```mermaid
 flowchart TD
     A["Runtime requests mutation"] --> B["Permission layer builds ApprovalRequest"]
     B --> C["TurnController emits PendingApproval"]
-    C --> D["TUI renders approval panel"]
-    D --> E{"User action"}
-    E -->|1 allow once| F["resolve_approval(once)"]
-    E -->|2 allow session| G["resolve_approval(session)"]
-    E -->|3 repo allowlist| H["resolve_approval(repo scope)"]
-    E -->|n / timeout| I["resolve_approval(deny)"]
-    E -->|esc| O["Close explicit approval focus"]
-    E -->|inspect diff| J["Focus evidence/diff"]
-    E -->|scroll/resize/type| K["Still handled by main loop"]
-    J --> D
-    K --> D
-    F --> L["Runtime continues"]
-    G --> L
-    H --> L
-    I --> M["Runtime records denial"]
-    L --> N["LIVE WORK updates"]
-    M --> N
+    C --> D["Pin request<br/>composer retains input"]
+    D --> E["Ctrl-G opens Decisions"]
+    E --> F["Select concrete request"]
+    F --> G["Explicit approval focus"]
+    G -->|y| H["resolve_approval(once)"]
+    G -->|n| I["resolve_approval(deny)"]
+    G -->|d| J["Focus request diff/evidence"]
+    G -->|arrows| K["Move selected action"]
+    K -->|Enter| L["Activate selected action"]
+    G -->|Esc| M["Close focus<br/>request stays pinned"]
+    J --> G
+    H --> N["Runtime continues"]
+    I --> O["Runtime records denial"]
+    L --> P["Dispatch selected current action"]
+    N --> Q["LIVE WORK updates"]
+    O --> Q
+    P --> Q
 ```
+
+Session-scoped approval and repository allowlisting remain future Core-gated
+actions. The TUI must not expose them until typed Core contracts provide those
+scopes.
 
 ## Model And Provider Panels
 
 Provider setup and model selection are direct panels. They should not be hidden
 behind command-completion semantics.
-
-Pending approvals are pinned but do not own input. Composer `y`, `n`, `d`, and
-`Enter` remain ordinary draft/submission input until the operator explicitly
-opens Decisions and selects an approval. Only that `OverlayKind::Approval`
-focus accepts approval shortcuts; `Esc` closes focus without denying.
 
 ```mermaid
 flowchart TD
@@ -353,8 +361,10 @@ flowchart LR
 - Plan mode turn: the provider only produces requirements, architecture,
   implementation approach, test strategy, and development plans; mutating tools
   are blocked by permission/runtime policy; composer input continues to work.
-- Approval request: approval panel handles approve/deny/inspect, while resize,
-  scroll, and typed follow-up remain routed through the main loop.
+- Approval request: the request stays pinned without owning composer input;
+  `Ctrl-G` opens Decisions, selecting a concrete request creates explicit focus,
+  `y` approves once, `n` denies, `d` opens diff/evidence, `Enter` activates the
+  selected action, and `Esc` only closes focus.
 - Streaming while scrolled up: transcript badge shows new output; scrollback
   does not jump.
 - Provider failure: inline recovery shows concrete next action; TUI remains
@@ -369,7 +379,8 @@ flowchart LR
 ## Implementation Implications
 
 - Keep one interaction router and one event loop.
-- Promote approval into non-blocking `InteractionPanel` state.
+- Keep pending approvals as pinned runtime facts and create non-blocking
+  `OverlayKind::Approval` state only after a concrete Decisions selection.
 - Centralize active turn state in a `TurnController`-style runtime boundary.
 - Derive all TUI text from a stable view model.
 - Make preview and regression tests cover welcome, active turn, queued input,

@@ -35,8 +35,8 @@ TUI 决策。
   滚动。本文不再单独定义另一套行数上限。
 - welcome screen 使用 Viden 身份和命令选择器。`/setup` 打开 Core-backed onboarding，
   `/lanes` 打开 Core lane board，普通输入进入 unified cockpit。
-- approval gate 使用 4 档决策：allow once、allow for session、加入 repo allowlist、deny，
-  并支持倒计时自动拒绝。
+- Pending approval 保持 pinned，但不接管 composer。`Ctrl-G` 打开 Decisions；选中一条
+  具体 request 后才进入显式 approval focus。
 
 ## 主屏幕
 
@@ -148,15 +148,23 @@ Workspace -> Project -> Lane / Session -> Subagent
 
 ## 审批闸
 
-审批闸是同一个事件循环里的可交互 overlay，不是被动 transcript 卡片或嵌套 input loop。
+审批闸使用同一个事件循环里的显式 focus overlay，不是被动 transcript 卡片或嵌套 input loop。
 
-- `1` 仅本次允许，`2` 当前 session 允许，`3` 加入界面所示 repo allowlist，`4` 拒绝。
-- 方向键移动选项，`Enter` 执行当前选项。
-- `Esc` 和超时都安全拒绝。`Ctrl-C` 仍只负责打断活动工作，不是审批答案。
-- 鼠标为可选输入；启用后也只选择同一组四档动作。
+- Pending approval 只保持 pinned，不接管 composer。Composer 中的 `y`、`n`、`d` 和
+  `Enter` 保持普通编辑/提交语义。
+- `Ctrl-G` 打开 Decisions。选中一条具体 pending request 后，只为该 request 打开显式
+  approval focus。
+- 显式 focus 中，`y` 仅本次允许，`n` 拒绝，`d` 打开该 request 的 diff/evidence；
+  方向键移动当前 action，`Enter` 执行选中 action。
+- `Esc` 只关闭显式 approval focus，绝不拒绝或以其他方式处理 request。`Ctrl-C` 仍只负责
+  打断活动工作，不是审批答案。
+- Session 级允许和 repository allowlist 属于未来 Core-gated action。在 typed Core contract
+  暴露这些 scope 前，TUI 不得把它们显示为当前选项。
+- 鼠标为可选输入；启用后也只选择当前可用 action。
 - 查看 diff/evidence 不会自动处理审批。面板必须展示真实 command、scope、risk、
   expiry/default action，以及存在时的 preview 或 evidence。
-- 批准或拒绝后，pending 弹窗必须立即消失，transcript 和右栏不能留下样式残影。
+- Core 报告 approval resolution 后，pinned request 及其匹配的显式 focus 必须消失，
+  transcript 和右栏不能留下样式残影。
 
 ## 多屏方向
 

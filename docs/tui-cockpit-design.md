@@ -47,8 +47,8 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
 - Welcome screen uses the Viden identity and command selector. `/setup` opens
   Core-backed onboarding, `/lanes` opens the Core lane board, and normal input
   opens the unified cockpit.
-- Approval gate uses four decisions: allow once, allow for the session, add a
-  repository allowlist rule, or deny, with timeout-deny support.
+- Pending approvals stay pinned without owning composer input. `Ctrl-G` opens
+  Decisions; choosing a concrete request creates explicit approval focus.
 
 ## Main Screen
 
@@ -192,20 +192,28 @@ Rendering contract:
 
 ## Approval Gate
 
-Approval is an interactive overlay in the same event loop, not a passive
+Approval uses an explicit-focus overlay in the same event loop, not a passive
 transcript card or a nested input loop.
 
-- `1` allows once, `2` allows for the current session, `3` adds the displayed
-  repository allowlist rule, and `4` denies.
-- Arrow keys move the selection and `Enter` activates it.
-- `Esc` and timeout deny safely. `Ctrl-C` remains the active-work interrupt and
-  is not an approval answer.
-- Mouse input is optional; when enabled, it selects the same four actions.
+- A pending approval remains pinned and does not own the composer. Composer
+  `y`, `n`, `d`, and `Enter` retain their normal edit/submission meaning.
+- `Ctrl-G` opens Decisions. Selecting a concrete pending request opens explicit
+  approval focus for that request only.
+- In explicit focus, `y` approves once, `n` denies, and `d` opens the request's
+  diff/evidence. Arrow keys move the selected action and `Enter` activates it.
+- `Esc` only closes explicit approval focus; it never denies or otherwise
+  resolves the request. `Ctrl-C` remains the active-work interrupt and is not
+  an approval answer.
+- Session-scoped approval and repository allowlisting are future Core-gated
+  actions. The TUI must not present them as current choices until typed Core
+  contracts expose those scopes.
+- Mouse input is optional; when enabled, it selects the same current actions.
 - Inspecting diff/evidence never resolves the gate. The panel must render the
   request's real command, scope, risk, expiry/default action, and preview or
   evidence when present.
-- After approval or denial, the pending modal must disappear immediately and
-  the transcript/right rail should redraw without style residue.
+- After Core reports approval resolution, the pinned request and any matching
+  explicit focus must disappear, and the transcript/right rail should redraw
+  without style residue.
 
 ## Multi-Screen Direction
 

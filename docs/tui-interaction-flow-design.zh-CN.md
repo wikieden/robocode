@@ -2,7 +2,7 @@
 
 English version: [tui-interaction-flow-design.md](tui-interaction-flow-design.md)
 
-最后更新：2026-07-19
+最后更新：2026-07-20
 
 ## 目的
 
@@ -54,8 +54,13 @@ stateDiagram-v2
 
     Cockpit --> ActiveTurn: submit prompt
     ActiveTurn --> ActiveTurn: stream delta / tool event / queued follow-up
-    ActiveTurn --> ApprovalPanel: permission request
-    ApprovalPanel --> ActiveTurn: approve / deny / inspect
+    ActiveTurn --> ActiveTurn: permission request pinned
+    ActiveTurn --> Decisions: ctrl-g
+    Decisions --> ApprovalFocus: select concrete request
+    Decisions --> ActiveTurn: esc
+    ApprovalFocus --> ActiveTurn: y approve once / n deny / esc close（仍 pinned）
+    ApprovalFocus --> EvidenceFocus: d diff/evidence
+    EvidenceFocus --> ApprovalFocus: close / return
     ActiveTurn --> ErrorRecovery: provider/tool failure
     ErrorRecovery --> Cockpit: retry / switch model / run doctor / continue
     ActiveTurn --> Cockpit: assistant result / cancelled
@@ -83,7 +88,7 @@ flowchart TD
     F -->|composer| G["ComposerAction<br/>edit/submit/queue/cancel"]
     F -->|palette| H["PaletteAction<br/>filter/select/close"]
     F -->|panel| I["PanelAction<br/>edit/select/apply/cancel"]
-    F -->|approval| J["ApprovalAction<br/>approve/deny/inspect"]
+    F -->|explicit approval focus| J["ApprovalAction<br/>approve once/deny/diff/close"]
     F -->|transcript| K["HistoryAction<br/>scroll/follow live"]
     F -->|side screen| L["SideAction<br/>focus/select/close"]
 
@@ -111,8 +116,8 @@ side screen。这能避免 Plan 模式和 provider turn 抢走键盘。
 
 ```mermaid
 flowchart TD
-    A["Input Event"] --> B{"Has modal approval?"}
-    B -->|yes| C["Approval keymap<br/>1-4/arrows/enter/esc"]
+    A["Input Event"] --> B{"Has explicit approval focus?"}
+    B -->|yes| C["Approval keymap<br/>y/n/d/arrows/enter/esc"]
     B -->|no| D{"Interaction panel open?"}
     D -->|yes| E["Panel keymap<br/>search/edit/select/save/cancel"]
     D -->|no| F{"Command palette open?"}
@@ -121,6 +126,8 @@ flowchart TD
     H -->|yes| I["History keymap<br/>page/wheel/ctrl-end"]
     H -->|no| J["Composer keymap"]
 
+    J --> Q{"Ctrl-G?"}
+    Q -->|yes| R["打开 Decisions<br/>选择具体 request"]
     J --> K{"Enter while active turn?"}
     K -->|yes| L["Queue follow-up<br/>clear composer"]
     K -->|no| M["Start new turn"]
@@ -198,38 +205,39 @@ sequenceDiagram
 
 ## Approval 流程
 
-Approval 是同一个事件循环里的 focus target，不能调用第二套阻塞式 input loop。
+Approval 是同一个事件循环里的 focus target，不能调用第二套阻塞式 input loop。Pending
+approval 只保持 pinned，不接管输入。操作者用 `Ctrl-G` 打开 Decisions 并选中一条具体
+request 前，composer 中的 `y`、`n`、`d`、`Enter` 都是普通草稿/提交输入。
 
 ```mermaid
 flowchart TD
     A["Runtime requests mutation"] --> B["Permission layer builds ApprovalRequest"]
     B --> C["TurnController emits PendingApproval"]
-    C --> D["TUI renders approval panel"]
-    D --> E{"User action"}
-    E -->|1 allow once| F["resolve_approval(once)"]
-    E -->|2 allow session| G["resolve_approval(session)"]
-    E -->|3 repo allowlist| H["resolve_approval(repo scope)"]
-    E -->|n / timeout| I["resolve_approval(deny)"]
-    E -->|esc| O["关闭显式 approval focus"]
-    E -->|inspect diff| J["Focus evidence/diff"]
-    E -->|scroll/resize/type| K["Still handled by main loop"]
-    J --> D
-    K --> D
-    F --> L["Runtime continues"]
-    G --> L
-    H --> L
-    I --> M["Runtime records denial"]
-    L --> N["LIVE WORK updates"]
-    M --> N
+    C --> D["Pin request<br/>composer 保持输入权"]
+    D --> E["Ctrl-G 打开 Decisions"]
+    E --> F["选择具体 request"]
+    F --> G["显式 approval focus"]
+    G -->|y| H["resolve_approval(once)"]
+    G -->|n| I["resolve_approval(deny)"]
+    G -->|d| J["打开 request diff/evidence"]
+    G -->|方向键| K["移动选中 action"]
+    K -->|Enter| L["执行选中 action"]
+    G -->|Esc| M["关闭 focus<br/>request 继续 pinned"]
+    J --> G
+    H --> N["Runtime continues"]
+    I --> O["Runtime records denial"]
+    L --> P["派发选中的当前 action"]
+    N --> Q["LIVE WORK updates"]
+    O --> Q
+    P --> Q
 ```
+
+Session 级允许和 repository allowlist 仍属于未来 Core-gated action。只有 typed Core
+contract 提供这些 scope 后，TUI 才能暴露它们。
 
 ## Model 与 Provider 面板
 
 Provider setup 和 model selection 都是直接操作面板，不应该隐藏在 command completion 语义后面。
-
-Pending approval 只保持 pinned，不自动取得输入焦点。操作者明确打开 Decisions 并选中某条
-approval 之前，composer 中的 `y`、`n`、`d`、`Enter` 都是普通草稿/提交输入。只有显式
-`OverlayKind::Approval` focus 才接受 approval 快捷键；`Esc` 仅关闭焦点，不代表拒绝。
 
 ```mermaid
 flowchart TD
@@ -337,8 +345,9 @@ flowchart LR
 - Provider turn 期间输入：`Enter` 把 follow-up 入队并清空 composer。
 - Plan mode turn：provider 只产出需求、架构、实现方案、测试策略和开发计划；mutating tools
   被 permission/runtime policy 拦截；composer 不锁死。
-- Approval request：approval panel 处理 approve/deny/inspect，同时 resize、scroll 和
-  typed follow-up 仍走主循环。
+- Approval request：request 保持 pinned 且不接管 composer；`Ctrl-G` 打开 Decisions，选中
+  具体 request 后进入显式 focus，`y` 仅本次允许、`n` 拒绝、`d` 打开 diff/evidence、
+  `Enter` 执行选中 action，`Esc` 只关闭 focus。
 - Scrolled-up streaming：transcript badge 显示 new output；scrollback 不跳到底部。
 - Provider failure：inline recovery 显示具体下一步；TUI 保持打开，composer 可用。
 - `/connect`：provider 列表只显示供应商；选择后进入可编辑 key/endpoint/default-model flow。
@@ -349,7 +358,8 @@ flowchart LR
 ## 实现影响
 
 - 保持一个 interaction router 和一个 event loop。
-- 把 approval 提升成非阻塞 `InteractionPanel` 状态。
+- Pending approval 保持为 pinned runtime fact；只有 Decisions 选中具体 request 后才创建
+  非阻塞 `OverlayKind::Approval` 状态。
 - 用 `TurnController` 风格 runtime 边界集中 active turn state。
 - 所有 TUI 文案从稳定 view model 派生。
 - Preview 和 regression tests 覆盖 welcome、active turn、queued input、approval、
