@@ -22,11 +22,13 @@ use crate::{
     },
     lane_supervisor::{LanePersistence, WorkflowLanePersistence},
     lane_worker::set_before_lane_approval_resume_hook,
+    runtime_supervisor::set_before_supervisor_command_hook,
 };
 
 use super::{SequenceProvider, temp_dir};
 
 static LANE_APPROVAL_RESUME_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static SUPERVISOR_COMMAND_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[test]
 fn lane_supervisor_protocol_round_trips_all_lifecycle_commands() {
@@ -1374,6 +1376,127 @@ fn lane_supervisor_rejects_approval_after_permission_epoch_round_trip() {
     });
 
     assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
+}
+
+#[test]
+fn lane_supervisor_pairs_applied_engine_with_its_applied_epoch() {
+    let _guard = SUPERVISOR_COMMAND_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap();
+    let cases = [
+        (
+            "permission",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Ask,
+            },
+            vec![RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Auto,
+            }],
+        ),
+        (
+            "work-mode",
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Build,
+            },
+            vec![
+                RuntimeCommand::SetWorkMode {
+                    mode: WorkMode::Plan,
+                },
+                RuntimeCommand::SetWorkMode {
+                    mode: WorkMode::Build,
+                },
+            ],
+        ),
+    ];
+
+    for (case, first_control, later_controls) in cases {
+        let lane_id = format!("lane-applied-epoch-{case}");
+        let cwd = temp_dir(&format!("lane_applied_epoch_{case}_cwd"));
+        let home = temp_dir(&format!("lane_applied_epoch_{case}_home"));
+        persist_done_propose_lane(&home, &cwd, &lane_id);
+        let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        engine
+            .set_permission_mode(viden_types::PermissionMode::DontAsk)
+            .unwrap();
+        let effects = Arc::new(RecordingLaneEffects::default());
+        let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+            engine,
+            effects.clone() as Arc<dyn LaneEffectExecutor>,
+        );
+        let lane_owner = owner(&lane_id);
+        let first_command_id = format!("first_control_{case}");
+        let (entered_sender, entered_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let release_receiver = Arc::new(Mutex::new(release_receiver));
+        let expected_command_id = first_command_id.clone();
+        set_before_supervisor_command_hook(Some(Arc::new(move |command_id| {
+            if command_id == expected_command_id {
+                let _ = entered_sender.send(());
+                let _ = release_receiver.lock().unwrap().recv();
+            }
+        })));
+
+        supervisor
+            .send_command_from_owner(lane_owner.clone(), first_command_id, first_control)
+            .unwrap();
+        entered_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("supervisor paused before applying the first control command");
+        supervisor
+            .send_command_from_owner(
+                lane_owner.clone(),
+                format!("apply_between_controls_{case}"),
+                RuntimeCommand::ApplyLaneChanges {
+                    lane_id: lane_id.clone(),
+                    unified_diff: "diff --git a/a b/a\n".to_string(),
+                },
+            )
+            .unwrap();
+        for (index, control) in later_controls.into_iter().enumerate() {
+            supervisor
+                .send_command_from_owner(
+                    lane_owner.clone(),
+                    format!("later_control_{case}_{index}"),
+                    control,
+                )
+                .unwrap();
+        }
+        release_sender.send(()).unwrap();
+        let requested = collect_envelopes_until(&supervisor, |events| {
+            events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalRequested { approval }, .. }) if approval.tool_name == "lane_apply"))
+        });
+        let request_id = requested
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalRequested { approval },
+                    ..
+                }) if approval.tool_name == "lane_apply" => Some(approval.id.clone()),
+                _ => None,
+            })
+            .unwrap();
+        supervisor
+            .send_command_from_owner(
+                lane_owner,
+                format!("allow_stale_applied_epoch_{case}"),
+                RuntimeCommand::RespondToApproval {
+                    request_id: request_id.clone(),
+                    response: viden_types::ApprovalResponse::allow_once(None),
+                },
+            )
+            .unwrap();
+        collect_envelopes_until(&supervisor, |events| {
+            events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalResolved { request_id: resolved, decision: viden_types::ApprovalDecision::Deny, .. }, .. }) if resolved == &request_id))
+        });
+        set_before_supervisor_command_hook(None);
+
+        assert!(
+            !effects.calls.lock().unwrap().contains(&"apply".to_string()),
+            "{case} stale approval must not execute after later controls apply"
+        );
+    }
 }
 
 #[test]

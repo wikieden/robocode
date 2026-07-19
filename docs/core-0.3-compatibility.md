@@ -81,11 +81,15 @@ payloads. Interrupted starting, running, or approval-waiting lanes hydrate as
 blocked recovery facts and remain bound to their durable session owner.
 
 Ordinary tool and lane approval responses observe supervisor command ordering
-with permission and mode changes. Ordinary tools consult the ordered permission
-control generation, while each lane request captures the same generation with
-its permission snapshot. Any intervening permission or work-mode generation
-change invalidates the pending approval even if the visible flags later return
-to their original values. Once a lane response is accepted, the supervisor waits
+with permission and mode changes, but use two deliberately different generation
+semantics. Ordinary tools consult the submitted permission-control generation,
+so an accepted permission or work-mode command invalidates a blocked approval
+immediately, even before the worker applies that command. Lane requests instead
+capture the worker's applied generation atomically with the permission engine it
+describes; that generation advances only after the queued control command is
+successfully applied. Any intervening applied permission or work-mode generation
+change invalidates the pending lane approval even if the visible flags later
+return to their original values. Once a lane response is accepted, the supervisor waits
 for its terminal `ApprovalResolved` and effect/persistence completion before it
 processes or publishes a later permission snapshot. Lane approval-derived
 session/repository allow rules are kept

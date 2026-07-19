@@ -82,7 +82,7 @@ impl PermissionControlState {
         self.epoch
     }
 
-    fn apply(&mut self, command: &RuntimeCommand) {
+    fn apply(&mut self, command: &RuntimeCommand) -> u64 {
         match command {
             RuntimeCommand::SetWorkMode { mode } => {
                 self.work_mode = *mode;
@@ -104,6 +104,7 @@ impl PermissionControlState {
             }
             _ => {}
         }
+        self.epoch
     }
 }
 
@@ -209,6 +210,39 @@ fn before_context_resume_enqueue_for_test(control: &ModelRequestControl) {
 #[cfg(not(test))]
 fn before_context_resume_enqueue_for_test(_control: &ModelRequestControl) {}
 
+#[cfg(test)]
+type BeforeSupervisorCommandHook = Arc<dyn Fn(&str) + Send + Sync>;
+
+#[cfg(test)]
+static BEFORE_SUPERVISOR_COMMAND_HOOK: std::sync::OnceLock<
+    Mutex<Option<BeforeSupervisorCommandHook>>,
+> = std::sync::OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn set_before_supervisor_command_hook(hook: Option<BeforeSupervisorCommandHook>) {
+    if let Ok(mut slot) = BEFORE_SUPERVISOR_COMMAND_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+    {
+        *slot = hook;
+    }
+}
+
+#[cfg(test)]
+fn before_supervisor_command_for_test(command_id: &str) {
+    let hook = BEFORE_SUPERVISOR_COMMAND_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone());
+    if let Some(hook) = hook {
+        hook(command_id);
+    }
+}
+
+#[cfg(not(test))]
+fn before_supervisor_command_for_test(_command_id: &str) {}
+
 // Internal channel payload mirrors RuntimeCommand construction. Boxing command
 // variants would add indirection at every supervisor send site without changing
 // the protocol boundary.
@@ -218,6 +252,7 @@ enum SupervisorMessage {
         owner: RuntimeOwner,
         command_id: String,
         command: RuntimeCommand,
+        submitted_permission_epoch: Option<u64>,
     },
     ResumeContextRetrieval {
         owner_id: String,
@@ -459,15 +494,19 @@ impl RuntimeSupervisor {
         command_id: String,
         command: RuntimeCommand,
     ) -> Result<(), String> {
-        if matches!(
+        let submitted_permission_epoch = if matches!(
             command,
             RuntimeCommand::SetWorkMode { .. } | RuntimeCommand::SetPermissionLevel { .. }
         ) {
-            self.permission_control
-                .lock()
-                .map_err(|_| "permission control state poisoned".to_string())?
-                .apply(&command);
-        }
+            Some(
+                self.permission_control
+                    .lock()
+                    .map_err(|_| "permission control state poisoned".to_string())?
+                    .apply(&command),
+            )
+        } else {
+            None
+        };
         match command {
             RuntimeCommand::CancelActiveTurn => {
                 if self.lane_supervisor.cancel(&owner, command_id.clone())? {
@@ -750,6 +789,7 @@ impl RuntimeSupervisor {
                         owner,
                         command_id,
                         command,
+                        submitted_permission_epoch,
                     })
                     .map_err(|err| format!("runtime supervisor stopped: {err}"))
             }
@@ -759,6 +799,7 @@ impl RuntimeSupervisor {
                     owner,
                     command_id,
                     command,
+                    submitted_permission_epoch,
                 })
                 .map_err(|err| format!("runtime supervisor stopped: {err}")),
         }
@@ -916,6 +957,10 @@ fn run_supervisor_worker(
     worker_alive: Arc<AtomicBool>,
 ) {
     let _liveness = WorkerLivenessGuard(Arc::clone(&worker_alive));
+    // Submitted permission generations invalidate ordinary pending approvals
+    // immediately. Lane approvals instead observe this worker-owned generation,
+    // which advances only with the SessionEngine state it describes.
+    let mut applied_permission_epoch = 0_u64;
     while let Ok(message) = command_receiver.recv() {
         match message {
             SupervisorMessage::Shutdown { response } => {
@@ -929,10 +974,12 @@ fn run_supervisor_worker(
                 owner,
                 command_id,
                 command,
+                submitted_permission_epoch,
             } => {
+                before_supervisor_command_for_test(&command_id);
                 if LaneSupervisor::handles(&command) {
                     if let Err(error) =
-                        sync_lane_permissions(&lane_supervisor, &engine, &permission_control)
+                        sync_lane_permissions(&lane_supervisor, &engine, applied_permission_epoch)
                     {
                         emit_error(&event_bus, owner, error);
                         continue;
@@ -1000,13 +1047,18 @@ fn run_supervisor_worker(
                             ))
                         };
                         match engine.handle_runtime_command(command_id, command, &mut approver) {
-                            Ok(events) => emit_events(&event_bus, owner, events),
+                            Ok(events) => {
+                                if let Some(epoch) = submitted_permission_epoch {
+                                    applied_permission_epoch = epoch;
+                                }
+                                emit_events(&event_bus, owner, events);
+                            }
                             Err(err) => emit_error(&event_bus, owner, err),
                         }
                     }
                 }
                 if let Err(error) =
-                    sync_lane_permissions(&lane_supervisor, &engine, &permission_control)
+                    sync_lane_permissions(&lane_supervisor, &engine, applied_permission_epoch)
                 {
                     emit_error(&event_bus, RuntimeOwner::default(), error);
                 }
@@ -1018,7 +1070,7 @@ fn run_supervisor_worker(
                 response,
             } => {
                 if let Err(error) =
-                    sync_lane_permissions(&lane_supervisor, &engine, &permission_control)
+                    sync_lane_permissions(&lane_supervisor, &engine, applied_permission_epoch)
                 {
                     emit_error(&event_bus, owner, error);
                     continue;
@@ -1100,13 +1152,9 @@ fn run_supervisor_worker(
 fn sync_lane_permissions(
     lane_supervisor: &LaneSupervisor,
     engine: &SessionEngine,
-    permission_control: &Arc<Mutex<PermissionControlState>>,
+    applied_permission_epoch: u64,
 ) -> Result<(), String> {
-    let permission_epoch = permission_control
-        .lock()
-        .map_err(|_| "permission control state poisoned".to_string())?
-        .epoch();
-    lane_supervisor.sync_permissions(engine.lane_permission_engine(), permission_epoch)
+    lane_supervisor.sync_permissions(engine.lane_permission_engine(), applied_permission_epoch)
 }
 
 struct WorkerLivenessGuard(Arc<AtomicBool>);
