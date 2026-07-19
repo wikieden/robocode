@@ -10,6 +10,7 @@ mod lsp;
 mod protocol;
 mod runtime;
 mod transcript;
+mod ui_preferences;
 mod workflow;
 
 pub use context::{
@@ -33,6 +34,10 @@ pub use runtime::{
     RuntimeEventKind, RuntimeViewState, TokenCostView, ToolCallView, canonical_evidence_status,
 };
 pub use transcript::{CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptEntry};
+pub use ui_preferences::{
+    LocaleId, ResolvedUiPreferences, TuiColorDepth, UiColorMode, UiDensity, UiMotion,
+    UiPreferenceDiagnostic, UiPreferences, UiSkin, resolve_ui_preferences,
+};
 pub use workflow::{
     MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, ResumeContextSnapshot,
     TaskPriority, TaskRecord, TaskStatus,

@@ -1,5 +1,6 @@
 use super::*;
 use std::collections::BTreeMap;
+use viden_types::{LocaleId, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin};
 
 fn default_config_path_for_test(root: &Path) -> PathBuf {
     if cfg!(windows) {
@@ -22,6 +23,144 @@ fn map_env(values: &[(&str, &str)]) -> BTreeMap<String, String> {
         .iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))
         .collect()
+}
+
+#[test]
+fn ui_preferences_cli_user_project_client_precedence_is_whole_profile() {
+    let root = std::env::temp_dir().join(format!("viden_ui_precedence_{}", std::process::id()));
+    let global_config_path = default_config_path_for_test(&root);
+    let project_config_path = root.join("project").join(".viden").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
+    fs::create_dir_all(project_config_path.parent().unwrap()).unwrap();
+    fs::write(
+        &global_config_path,
+        r#"
+[ui]
+locale = "en"
+skin = "mono"
+mode = "dark"
+density = "compact"
+motion = "full"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &project_config_path,
+        r#"
+[ui]
+locale = "zh-CN"
+skin = "ice"
+mode = "light"
+density = "comfy"
+motion = "reduced"
+"#,
+    )
+    .unwrap();
+
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let user_config =
+        load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+            env_map.get(key).cloned()
+        })
+        .unwrap();
+
+    assert_eq!(user_config.ui.locale, LocaleId::En);
+    assert_eq!(user_config.ui.skin, UiSkin::Mono);
+    assert_eq!(user_config.ui.mode, UiColorMode::Dark);
+    assert_eq!(user_config.ui.density, UiDensity::Compact);
+    assert_eq!(user_config.ui.motion, UiMotion::Full);
+
+    let cli = CliOverrides {
+        ui: Some(UiPreferences {
+            locale: LocaleId::ZhCn,
+            skin: UiSkin::Aurora,
+            mode: UiColorMode::Light,
+            density: UiDensity::Regular,
+            motion: UiMotion::Reduced,
+        }),
+        ..CliOverrides::default()
+    };
+    let cli_config = load_config_with_env(&root.join("project"), &cli, &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(cli_config.ui.locale, LocaleId::ZhCn);
+    assert_eq!(cli_config.ui.skin, UiSkin::Aurora);
+    assert_eq!(cli_config.ui.mode, UiColorMode::Light);
+    assert_eq!(cli_config.ui.density, UiDensity::Regular);
+    assert_eq!(cli_config.ui.motion, UiMotion::Reduced);
+}
+
+#[test]
+fn ui_preferences_project_default_resolves_system_locale_from_environment() {
+    let root =
+        std::env::temp_dir().join(format!("viden_ui_project_default_{}", std::process::id()));
+    let project_config_path = root.join("project").join(".viden").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(project_config_path.parent().unwrap()).unwrap();
+    fs::write(
+        &project_config_path,
+        r#"
+[ui]
+locale = "system"
+skin = "aurora"
+mode = "system"
+density = "regular"
+motion = "reduced"
+"#,
+    )
+    .unwrap();
+
+    let env_map = map_env(&[
+        ("HOME", root.to_string_lossy().as_ref()),
+        ("LC_ALL", "zh_CN.UTF-8"),
+    ]);
+    let config = load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.ui.locale, LocaleId::ZhCn);
+    assert_eq!(config.ui.mode, UiColorMode::Dark);
+    assert_eq!(config.ui.motion, UiMotion::Reduced);
+    assert!(config.ui_diagnostics.is_empty());
+}
+
+#[test]
+fn ui_preferences_corrupt_table_preserves_file_and_returns_one_diagnostic() {
+    let root = std::env::temp_dir().join(format!("viden_ui_corrupt_{}", std::process::id()));
+    let path = root.join(".viden").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let original = r#"
+provider = "deepseek"
+
+[ui]
+locale = "zh-CN"
+skin = "amber"
+mode = "light"
+density = 3
+motion = "reduced"
+"#;
+    fs::write(&path, original).unwrap();
+
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let config = load_config_with_env(&root, &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    assert_eq!(config.provider, "deepseek");
+    assert_eq!(config.ui.locale, LocaleId::ZhCn);
+    assert_eq!(config.ui.skin, UiSkin::Aurora);
+    assert_eq!(config.ui.mode, UiColorMode::Dark);
+    assert_eq!(config.ui.density, UiDensity::Regular);
+    assert_eq!(config.ui.motion, UiMotion::Reduced);
+    assert_eq!(config.ui_diagnostics.len(), 1);
+    assert_eq!(config.ui_diagnostics[0].key, "density");
 }
 
 #[test]

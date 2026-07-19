@@ -2,6 +2,153 @@ use super::*;
 use std::collections::BTreeSet;
 
 #[test]
+fn ui_preferences_serde_names_are_stable() {
+    let cases = [
+        (serde_json::to_value(LocaleId::System).unwrap(), "system"),
+        (serde_json::to_value(LocaleId::En).unwrap(), "en"),
+        (serde_json::to_value(LocaleId::ZhCn).unwrap(), "zh-CN"),
+        (serde_json::to_value(UiSkin::Aurora).unwrap(), "aurora"),
+        (serde_json::to_value(UiSkin::Ice).unwrap(), "ice"),
+        (serde_json::to_value(UiSkin::Mono).unwrap(), "mono"),
+        (serde_json::to_value(UiSkin::Amber).unwrap(), "amber"),
+        (serde_json::to_value(UiSkin::Phosphor).unwrap(), "phosphor"),
+        (serde_json::to_value(UiColorMode::System).unwrap(), "system"),
+        (serde_json::to_value(UiColorMode::Dark).unwrap(), "dark"),
+        (serde_json::to_value(UiColorMode::Light).unwrap(), "light"),
+        (serde_json::to_value(UiDensity::Compact).unwrap(), "compact"),
+        (serde_json::to_value(UiDensity::Regular).unwrap(), "regular"),
+        (serde_json::to_value(UiDensity::Comfy).unwrap(), "comfy"),
+        (serde_json::to_value(UiMotion::System).unwrap(), "system"),
+        (serde_json::to_value(UiMotion::Reduced).unwrap(), "reduced"),
+        (serde_json::to_value(UiMotion::Full).unwrap(), "full"),
+        (
+            serde_json::to_value(TuiColorDepth::Truecolor).unwrap(),
+            "truecolor",
+        ),
+        (
+            serde_json::to_value(TuiColorDepth::Ansi256).unwrap(),
+            "ansi256",
+        ),
+        (
+            serde_json::to_value(TuiColorDepth::Ansi16).unwrap(),
+            "ansi16",
+        ),
+    ];
+
+    for (encoded, expected) in cases {
+        assert_eq!(encoded, serde_json::Value::String(expected.to_string()));
+    }
+}
+
+#[test]
+fn ui_preferences_valid_skin_mode_pairs_are_exactly_eight() {
+    let pairs: Vec<_> = UiSkin::ALL
+        .iter()
+        .copied()
+        .flat_map(|skin| {
+            [UiColorMode::Dark, UiColorMode::Light]
+                .into_iter()
+                .map(move |mode| (skin, mode))
+        })
+        .filter(|(skin, mode)| UiPreferences::is_valid_effective_pair(*skin, *mode))
+        .collect();
+
+    assert_eq!(pairs.len(), 8);
+    assert!(pairs.contains(&(UiSkin::Aurora, UiColorMode::Dark)));
+    assert!(pairs.contains(&(UiSkin::Aurora, UiColorMode::Light)));
+    assert!(pairs.contains(&(UiSkin::Ice, UiColorMode::Dark)));
+    assert!(pairs.contains(&(UiSkin::Ice, UiColorMode::Light)));
+    assert!(pairs.contains(&(UiSkin::Mono, UiColorMode::Dark)));
+    assert!(pairs.contains(&(UiSkin::Mono, UiColorMode::Light)));
+    assert!(pairs.contains(&(UiSkin::Amber, UiColorMode::Dark)));
+    assert!(pairs.contains(&(UiSkin::Phosphor, UiColorMode::Dark)));
+    assert!(!pairs.contains(&(UiSkin::Amber, UiColorMode::Light)));
+    assert!(!pairs.contains(&(UiSkin::Phosphor, UiColorMode::Light)));
+}
+
+#[test]
+fn ui_preferences_resolve_system_locale_density_and_reduced_motion() {
+    let resolved = resolve_ui_preferences(
+        None,
+        None,
+        Some(UiPreferences {
+            locale: LocaleId::System,
+            skin: UiSkin::Ice,
+            mode: UiColorMode::System,
+            density: UiDensity::Comfy,
+            motion: UiMotion::Reduced,
+        }),
+        UiPreferences {
+            locale: LocaleId::ZhCn,
+            skin: UiSkin::Aurora,
+            mode: UiColorMode::Light,
+            density: UiDensity::Regular,
+            motion: UiMotion::System,
+        },
+    );
+
+    assert_eq!(resolved.locale, LocaleId::ZhCn);
+    assert_eq!(resolved.skin, UiSkin::Ice);
+    assert_eq!(resolved.mode, UiColorMode::Light);
+    assert_eq!(resolved.density, UiDensity::Comfy);
+    assert_eq!(resolved.motion, UiMotion::Reduced);
+    assert!(resolved.diagnostics.is_empty());
+}
+
+#[test]
+fn ui_preferences_invalid_dark_only_light_pair_falls_back_once() {
+    let resolved = resolve_ui_preferences(
+        Some(UiPreferences {
+            locale: LocaleId::ZhCn,
+            skin: UiSkin::Amber,
+            mode: UiColorMode::Light,
+            density: UiDensity::Compact,
+            motion: UiMotion::Reduced,
+        }),
+        None,
+        None,
+        UiPreferences::client_default(),
+    );
+
+    assert_eq!(resolved.locale, LocaleId::ZhCn);
+    assert_eq!(resolved.skin, UiSkin::Aurora);
+    assert_eq!(resolved.mode, UiColorMode::Dark);
+    assert_eq!(resolved.density, UiDensity::Regular);
+    assert_eq!(resolved.motion, UiMotion::Reduced);
+    assert_eq!(resolved.diagnostics.len(), 1);
+    assert_eq!(resolved.diagnostics[0].code, "ui.invalid_skin_mode_pair");
+    assert_eq!(resolved.diagnostics[0].field.as_deref(), Some("ui.mode"));
+}
+
+#[test]
+fn ui_preferences_project_cannot_override_user_profile() {
+    let resolved = resolve_ui_preferences(
+        None,
+        Some(UiPreferences {
+            locale: LocaleId::En,
+            skin: UiSkin::Mono,
+            mode: UiColorMode::Dark,
+            density: UiDensity::Compact,
+            motion: UiMotion::Full,
+        }),
+        Some(UiPreferences {
+            locale: LocaleId::ZhCn,
+            skin: UiSkin::Ice,
+            mode: UiColorMode::Light,
+            density: UiDensity::Comfy,
+            motion: UiMotion::Reduced,
+        }),
+        UiPreferences::client_default(),
+    );
+
+    assert_eq!(resolved.locale, LocaleId::En);
+    assert_eq!(resolved.skin, UiSkin::Mono);
+    assert_eq!(resolved.mode, UiColorMode::Dark);
+    assert_eq!(resolved.density, UiDensity::Compact);
+    assert_eq!(resolved.motion, UiMotion::Full);
+}
+
+#[test]
 fn work_modes_and_permission_levels_parse_cli_names() {
     assert_eq!(WorkMode::parse_cli("plan"), Some(WorkMode::Plan));
     assert_eq!(WorkMode::parse_cli("build"), Some(WorkMode::Build));

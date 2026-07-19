@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use toml::{Value, map::Map};
-use viden_types::PermissionMode;
+use viden_types::{
+    LocaleId, PermissionMode, ResolvedUiPreferences, UiColorMode, UiDensity, UiMotion,
+    UiPreferenceDiagnostic, UiPreferences, UiSkin, resolve_ui_preferences,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct CliOverrides {
@@ -18,6 +21,7 @@ pub struct CliOverrides {
     pub request_timeout_secs: Option<u64>,
     pub max_retries: Option<u32>,
     pub config_path: Option<PathBuf>,
+    pub ui: Option<UiPreferences>,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +36,8 @@ pub struct ResolvedConfig {
     pub request_timeout_secs: u64,
     pub max_retries: u32,
     pub loaded_files: Vec<PathBuf>,
+    pub ui: ResolvedUiPreferences,
+    pub ui_diagnostics: Vec<UiPreferenceDiagnostic>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -65,6 +71,8 @@ impl Default for ResolvedConfig {
             request_timeout_secs: 90,
             max_retries: 1,
             loaded_files: Vec::new(),
+            ui: resolve_ui_preferences(None, None, None, UiPreferences::client_default()),
+            ui_diagnostics: Vec::new(),
         }
     }
 }
@@ -113,6 +121,8 @@ struct FileConfig {
     request_timeout_secs: Option<u64>,
     max_retries: Option<u32>,
     providers: Option<ProvidersFileConfig>,
+    #[serde(skip)]
+    ui_raw: Option<Value>,
 }
 
 pub fn load_config(cwd: &Path, cli: &CliOverrides) -> Result<ResolvedConfig, String> {
@@ -410,9 +420,23 @@ where
     let mut resolved = ResolvedConfig::default();
     let mut loaded_files = Vec::new();
     let mut merged_providers = ProvidersFileConfig::default();
+    let mut user_ui = None;
+    let mut project_ui = None;
+    let mut ui_diagnostics = Vec::new();
 
+    // UI preferences are personal state: project config may provide a default,
+    // but it must never participate in the normal project-over-user merge.
     for path in config_paths(cwd, cli, env_lookup)? {
         if let Some(file_config) = read_config_file(&path, env_lookup)? {
+            let (ui_profile, ui_diagnostic) = ui_profile_from_file_config(&file_config);
+            if let Some(diagnostic) = ui_diagnostic {
+                ui_diagnostics.push(diagnostic);
+            }
+            if is_project_config_path(cwd, &path) {
+                project_ui = ui_profile;
+            } else {
+                user_ui = ui_profile;
+            }
             if let Some(providers) = file_config.providers.clone() {
                 merge_provider_configs(&mut merged_providers, providers);
             }
@@ -427,6 +451,28 @@ where
     apply_provider_specific_env_config(&mut resolved, env_lookup);
     apply_provider_scoped_config(&mut resolved, &provider, &merged_providers, env_lookup);
     apply_cli_config(&mut resolved, cli);
+    let client_ui = UiPreferences {
+        locale: detect_system_locale(env_lookup),
+        skin: UiSkin::Aurora,
+        mode: UiColorMode::System,
+        density: UiDensity::Regular,
+        motion: UiMotion::System,
+    };
+    resolved.ui = resolve_ui_preferences(cli.ui, user_ui, project_ui, client_ui);
+    if ui_diagnostics.is_empty() {
+        resolved.ui_diagnostics = resolved.ui.diagnostics.clone();
+    } else {
+        resolved.ui = ResolvedUiPreferences {
+            locale: resolved.ui.locale,
+            skin: UiSkin::Aurora,
+            mode: UiColorMode::Dark,
+            density: UiDensity::Regular,
+            motion: resolved.ui.motion,
+            diagnostics: ui_diagnostics.clone(),
+        };
+        resolved.ui_diagnostics = ui_diagnostics;
+        resolved.ui.diagnostics = resolved.ui_diagnostics.clone();
+    }
     resolved.loaded_files = loaded_files;
     Ok(resolved)
 }
@@ -483,14 +529,220 @@ where
     }
     let contents = fs::read_to_string(path)
         .map_err(|err| format!("Failed to read config {}: {err}", path.display()))?;
+    let raw_value: Value = toml::from_str(&contents)
+        .map_err(|err| format!("Failed to parse config {}: {err}", path.display()))?;
     let mut config: FileConfig = toml::from_str(&contents)
         .map_err(|err| format!("Failed to parse config {}: {err}", path.display()))?;
+    config.ui_raw = raw_value.get("ui").cloned();
     if config.api_key.is_none()
         && let Some(name) = config.api_key_env.as_deref()
     {
         config.api_key = env_lookup(name);
     }
     Ok(Some(config))
+}
+
+fn ui_profile_from_file_config(
+    file_config: &FileConfig,
+) -> (Option<UiPreferences>, Option<UiPreferenceDiagnostic>) {
+    file_config
+        .ui_raw
+        .as_ref()
+        .map(parse_ui_preferences)
+        .unwrap_or((None, None))
+}
+
+fn parse_ui_preferences(raw: &Value) -> (Option<UiPreferences>, Option<UiPreferenceDiagnostic>) {
+    let Some(table) = raw.as_table() else {
+        return (
+            Some(UiPreferences::client_default()),
+            Some(UiPreferenceDiagnostic::new(
+                "ui.invalid_type",
+                "ui",
+                "ui",
+                Some(value_kind(raw).to_string()),
+            )),
+        );
+    };
+
+    let mut diagnostic = None;
+    let locale = parse_locale_field(table, "locale", &mut diagnostic);
+    let skin = parse_skin_field(table, "skin", &mut diagnostic);
+    let mode = parse_mode_field(table, "mode", &mut diagnostic);
+    let density = parse_density_field(table, "density", &mut diagnostic);
+    let motion = parse_motion_field(table, "motion", &mut diagnostic);
+
+    (
+        Some(UiPreferences {
+            locale,
+            skin,
+            mode,
+            density,
+            motion,
+        }),
+        diagnostic,
+    )
+}
+
+fn parse_locale_field(
+    table: &Map<String, Value>,
+    key: &str,
+    diagnostic: &mut Option<UiPreferenceDiagnostic>,
+) -> LocaleId {
+    match table.get(key).and_then(Value::as_str) {
+        Some("system") => LocaleId::System,
+        Some("en") => LocaleId::En,
+        Some("zh-CN") | Some("zh_CN") | Some("zh-Hans-CN") => LocaleId::ZhCn,
+        Some(value) => {
+            record_ui_diagnostic(diagnostic, key, value);
+            LocaleId::System
+        }
+        None if table.contains_key(key) => {
+            record_ui_type_diagnostic(diagnostic, table, key);
+            LocaleId::System
+        }
+        None => LocaleId::System,
+    }
+}
+
+fn parse_skin_field(
+    table: &Map<String, Value>,
+    key: &str,
+    diagnostic: &mut Option<UiPreferenceDiagnostic>,
+) -> UiSkin {
+    match table.get(key).and_then(Value::as_str) {
+        Some("aurora") => UiSkin::Aurora,
+        Some("ice") => UiSkin::Ice,
+        Some("mono") => UiSkin::Mono,
+        Some("amber") => UiSkin::Amber,
+        Some("phosphor") => UiSkin::Phosphor,
+        Some(value) => {
+            record_ui_diagnostic(diagnostic, key, value);
+            UiSkin::Aurora
+        }
+        None if table.contains_key(key) => {
+            record_ui_type_diagnostic(diagnostic, table, key);
+            UiSkin::Aurora
+        }
+        None => UiSkin::Aurora,
+    }
+}
+
+fn parse_mode_field(
+    table: &Map<String, Value>,
+    key: &str,
+    diagnostic: &mut Option<UiPreferenceDiagnostic>,
+) -> UiColorMode {
+    match table.get(key).and_then(Value::as_str) {
+        Some("system") => UiColorMode::System,
+        Some("dark") => UiColorMode::Dark,
+        Some("light") => UiColorMode::Light,
+        Some(value) => {
+            record_ui_diagnostic(diagnostic, key, value);
+            UiColorMode::System
+        }
+        None if table.contains_key(key) => {
+            record_ui_type_diagnostic(diagnostic, table, key);
+            UiColorMode::System
+        }
+        None => UiColorMode::System,
+    }
+}
+
+fn parse_density_field(
+    table: &Map<String, Value>,
+    key: &str,
+    diagnostic: &mut Option<UiPreferenceDiagnostic>,
+) -> UiDensity {
+    match table.get(key).and_then(Value::as_str) {
+        Some("compact") => UiDensity::Compact,
+        Some("regular") => UiDensity::Regular,
+        Some("comfy") => UiDensity::Comfy,
+        Some(value) => {
+            record_ui_diagnostic(diagnostic, key, value);
+            UiDensity::Regular
+        }
+        None if table.contains_key(key) => {
+            record_ui_type_diagnostic(diagnostic, table, key);
+            UiDensity::Regular
+        }
+        None => UiDensity::Regular,
+    }
+}
+
+fn parse_motion_field(
+    table: &Map<String, Value>,
+    key: &str,
+    diagnostic: &mut Option<UiPreferenceDiagnostic>,
+) -> UiMotion {
+    match table.get(key).and_then(Value::as_str) {
+        Some("system") => UiMotion::System,
+        Some("reduced") => UiMotion::Reduced,
+        Some("full") => UiMotion::Full,
+        Some(value) => {
+            record_ui_diagnostic(diagnostic, key, value);
+            UiMotion::System
+        }
+        None if table.contains_key(key) => {
+            record_ui_type_diagnostic(diagnostic, table, key);
+            UiMotion::System
+        }
+        None => UiMotion::System,
+    }
+}
+
+fn record_ui_diagnostic(diagnostic: &mut Option<UiPreferenceDiagnostic>, key: &str, value: &str) {
+    if diagnostic.is_none() {
+        *diagnostic = Some(UiPreferenceDiagnostic::new(
+            "ui.invalid_value",
+            key,
+            format!("ui.{key}"),
+            Some(value.to_string()),
+        ));
+    }
+}
+
+fn record_ui_type_diagnostic(
+    diagnostic: &mut Option<UiPreferenceDiagnostic>,
+    table: &Map<String, Value>,
+    key: &str,
+) {
+    if diagnostic.is_none() {
+        *diagnostic = Some(UiPreferenceDiagnostic::new(
+            "ui.invalid_type",
+            key,
+            format!("ui.{key}"),
+            table.get(key).map(value_kind).map(str::to_string),
+        ));
+    }
+}
+
+fn value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::String(_) => "string",
+        Value::Integer(_) => "integer",
+        Value::Float(_) => "float",
+        Value::Boolean(_) => "boolean",
+        Value::Datetime(_) => "datetime",
+        Value::Array(_) => "array",
+        Value::Table(_) => "table",
+    }
+}
+
+fn detect_system_locale<F>(env_lookup: &F) -> LocaleId
+where
+    F: Fn(&str) -> Option<String>,
+{
+    env_lookup("LC_ALL")
+        .or_else(|| env_lookup("LC_MESSAGES"))
+        .or_else(|| env_lookup("LANG"))
+        .as_deref()
+        .map(LocaleId::from_system_locale)
+        .unwrap_or(LocaleId::En)
+}
+
+fn is_project_config_path(cwd: &Path, path: &Path) -> bool {
+    path == cwd.join(".viden").join("config.toml")
 }
 
 fn apply_file_config(
