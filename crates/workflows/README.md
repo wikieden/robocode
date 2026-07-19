@@ -38,13 +38,14 @@ Owns `LaneEvent`, `LaneState`, and `reduce_lane_events`. Lane lifecycle facts ar
 
 ### `stores`
 
-Owns `WorkflowStore`, `WorkflowPaths`, `WorkflowTaskEvent`, and `WorkflowMemoryEvent`. Stores canonical workflow logs in `tasks.jsonl`, `memory.jsonl`, and `lanes.jsonl`, creates `workflow.sqlite3`, and validates checked appends before writing.
+Owns `WorkflowStore`, `WorkflowPaths`, `WorkflowTaskEvent`, and `WorkflowMemoryEvent`. Stores canonical workflow logs in `tasks.jsonl`, `memory.jsonl`, and `lanes.jsonl`, creates `workflow.sqlite3`, and validates checked appends before writing. Lane load/reduce/append transactions use a project-scoped advisory lock so concurrent sessions cannot duplicate a legacy import or lose a lifecycle event.
 
 ## Invariants
 
 - Workflow JSONL is canonical.
 - SQLite is derived and rebuildable.
 - Invalid task, memory, or lane events must not be appended.
+- A corrupt lane log must remain visible as a recoverable runtime error; clients must not silently render an empty lane set.
 - Workflow state and transcript state are separate but share project identity.
 
 ## Reference Alignment

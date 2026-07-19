@@ -289,6 +289,8 @@ pub fn parse_legacy_lanes_tsv(raw: &str) -> Result<Vec<AgentLaneRecord>, String>
 mod tests {
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
 
     use viden_types::{LaneStatus, fresh_id};
 
@@ -337,6 +339,45 @@ mod tests {
             state.lane("L-detached").unwrap().status,
             LaneStatus::Detached
         );
+    }
+
+    #[test]
+    fn concurrent_legacy_lane_import_publishes_one_valid_event() {
+        let home = temp_dir("concurrent_migration_home");
+        let cwd = temp_dir("concurrent_migration_cwd");
+        let legacy_path = cwd.join(".viden").join("lanes.tsv");
+        fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
+        fs::write(&legacy_path, LEGACY_LANES).unwrap();
+        let store = WorkflowStore::new(&home, &cwd).unwrap();
+        let barrier = Arc::new(Barrier::new(8));
+
+        let handles = (0..8)
+            .map(|index| {
+                let store = store.clone();
+                let barrier = Arc::clone(&barrier);
+                let legacy_path = legacy_path.clone();
+                thread::spawn(move || {
+                    barrier.wait();
+                    store.import_legacy_lanes_tsv_once(
+                        &legacy_path,
+                        10 + index,
+                        Some(format!("session_{index}")),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let outcomes = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(
+            outcomes.iter().filter(|outcome| outcome.imported).count(),
+            1
+        );
+        assert_eq!(store.load_lane_events().unwrap().len(), 1);
+        assert_eq!(store.load_lane_state().unwrap().lanes().len(), 4);
     }
 
     #[test]

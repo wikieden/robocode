@@ -2,9 +2,11 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use viden_session::project_key_for_path;
 
@@ -24,6 +26,7 @@ pub struct WorkflowPaths {
     pub memory_log: PathBuf,
     pub agent_log: PathBuf,
     pub lanes_log: PathBuf,
+    pub lanes_lock: PathBuf,
     pub index_db_path: PathBuf,
 }
 
@@ -73,6 +76,7 @@ impl WorkflowStore {
             memory_log: project_dir.join("memory.jsonl"),
             agent_log: project_dir.join("agents.jsonl"),
             lanes_log: project_dir.join("lanes.jsonl"),
+            lanes_lock: project_dir.join("lanes.lock"),
             index_db_path: project_dir.join("workflow.sqlite3"),
             home_dir,
             projects_dir,
@@ -149,18 +153,21 @@ impl WorkflowStore {
     }
 
     pub fn append_lane_event(&self, event: &LaneEvent) -> Result<(), String> {
-        append_json_line(&self.paths.lanes_log, event)
+        let _lock = self.lock_lanes_exclusive()?;
+        self.append_lane_event_unlocked(event)
     }
 
     pub fn append_lane_event_checked(&self, event: &LaneEvent) -> Result<(), String> {
-        let mut events = self.load_lane_events()?;
+        let _lock = self.lock_lanes_exclusive()?;
+        let mut events = self.load_lane_events_unlocked()?;
         events.push(event.clone());
         reduce_lane_events(&events)?;
-        self.append_lane_event(event)
+        self.append_lane_event_unlocked(event)
     }
 
     pub fn load_lane_events(&self) -> Result<Vec<LaneEvent>, String> {
-        load_json_lines(&self.paths.lanes_log)
+        let _lock = self.lock_lanes_shared()?;
+        self.load_lane_events_unlocked()
     }
 
     pub fn load_lane_state(&self) -> Result<LaneState, String> {
@@ -173,7 +180,12 @@ impl WorkflowStore {
         timestamp: u64,
         origin_session_id: Option<String>,
     ) -> Result<LegacyLaneImportOutcome, String> {
-        let state = self.load_lane_state()?;
+        // Import check, parse validation, reducer validation, and append share
+        // one cross-process critical section so concurrent session startup can
+        // never publish duplicate migration events.
+        let _lock = self.lock_lanes_exclusive()?;
+        let mut events = self.load_lane_events_unlocked()?;
+        let state = reduce_lane_events(&events)?;
         if let Some(audit) = state.migration(LEGACY_LANES_MIGRATION_ID) {
             return Ok(LegacyLaneImportOutcome {
                 imported: false,
@@ -198,11 +210,33 @@ impl WorkflowStore {
             timestamp,
             origin_session_id,
         );
-        self.append_lane_event_checked(&event)?;
+        events.push(event.clone());
+        reduce_lane_events(&events)?;
+        self.append_lane_event_unlocked(&event)?;
         Ok(LegacyLaneImportOutcome {
             imported: true,
             lane_count,
         })
+    }
+
+    fn append_lane_event_unlocked(&self, event: &LaneEvent) -> Result<(), String> {
+        append_json_line(&self.paths.lanes_log, event)
+    }
+
+    fn load_lane_events_unlocked(&self) -> Result<Vec<LaneEvent>, String> {
+        load_json_lines(&self.paths.lanes_log)
+    }
+
+    fn lock_lanes_exclusive(&self) -> Result<fs::File, String> {
+        let lock = open_lock_file(&self.paths.lanes_lock)?;
+        lock.lock_exclusive().map_err(|error| error.to_string())?;
+        Ok(lock)
+    }
+
+    fn lock_lanes_shared(&self) -> Result<fs::File, String> {
+        let lock = open_lock_file(&self.paths.lanes_lock)?;
+        lock.lock_shared().map_err(|error| error.to_string())?;
+        Ok(lock)
     }
 
     pub fn rebuild_index(&self) -> Result<(), String> {
@@ -228,17 +262,23 @@ where
 {
     let mut payload = serde_json::to_string(value).map_err(|err| err.to_string())?;
     payload.push('\n');
-    if path.exists() {
-        use std::io::Write;
-        let mut file = fs::OpenOptions::new()
-            .append(true)
-            .open(path)
-            .map_err(|err| err.to_string())?;
-        file.write_all(payload.as_bytes())
-            .map_err(|err| err.to_string())
-    } else {
-        fs::write(path, payload).map_err(|err| err.to_string())
-    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|err| err.to_string())?;
+    file.write_all(payload.as_bytes())
+        .map_err(|err| err.to_string())
+}
+
+fn open_lock_file(path: &Path) -> Result<fs::File, String> {
+    fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|error| error.to_string())
 }
 
 fn load_json_lines<T>(path: &Path) -> Result<Vec<T>, String>
@@ -313,6 +353,7 @@ mod tests {
         );
         assert_eq!(store.paths().agent_log.file_name().unwrap(), "agents.jsonl");
         assert_eq!(store.paths().lanes_log.file_name().unwrap(), "lanes.jsonl");
+        assert_eq!(store.paths().lanes_lock.file_name().unwrap(), "lanes.lock");
         assert_eq!(
             store.paths().index_db_path.file_name().unwrap(),
             "workflow.sqlite3"

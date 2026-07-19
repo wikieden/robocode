@@ -4120,6 +4120,24 @@ fn runtime_view_state_emits_lane_facts_from_core_store_legacy_lane_statuses() {
 }
 
 #[test]
+fn runtime_view_state_reports_corrupt_lane_store() {
+    let cwd = temp_dir("runtime_contract_corrupt_lane_cwd");
+    let home = temp_dir("runtime_contract_corrupt_lane_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let workflow_store = WorkflowStore::new(&home, &cwd).unwrap();
+    fs::write(&workflow_store.paths().lanes_log, "{not-json}\n").unwrap();
+
+    let view = engine.runtime_view_state();
+
+    assert!(view.errors.iter().any(|error| {
+        error.recoverable
+            && error.message.contains("lane_state_unavailable")
+            && error.hint.as_deref() == Some("Repair or restore the project's lanes.jsonl log.")
+    }));
+}
+
+#[test]
 fn runtime_view_state_emits_tracked_acp_session_jobs() {
     let cwd = temp_dir("runtime_contract_acp_job_cwd");
     let home = temp_dir("runtime_contract_acp_job_home");

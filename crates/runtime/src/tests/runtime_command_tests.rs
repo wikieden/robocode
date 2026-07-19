@@ -4,6 +4,7 @@ use std::{fs, path::Path};
 use crate::{DependencyStatus, DoctorReport, EngineEvent, SessionEngine};
 use viden_provider::ProviderHost;
 use viden_types::{AgentTaskKind, AgentTaskStatus, ApprovalResponse, PermissionMode, WorkMode};
+use viden_workflows::stores::WorkflowStore;
 
 use super::{SequenceProvider, temp_dir};
 
@@ -181,6 +182,29 @@ fn status_command_reports_dirty_files_active_tasks_and_lanes() {
                 && text.contains("Lanes:")
                 && text.contains("Active lanes: 1/1")
                 && text.contains("L1 coder running checking status output")
+    )));
+}
+
+#[test]
+fn status_command_reports_corrupt_lane_store_reason() {
+    let home = temp_dir("status_corrupt_lane_home");
+    let cwd = temp_dir("status_corrupt_lane_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let store = WorkflowStore::new(&home, &cwd).unwrap();
+    fs::write(&store.paths().lanes_log, "{not-json}\n").unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+
+    let output = engine
+        .process_input_with_approval("/status", &mut approver)
+        .unwrap();
+
+    assert!(output.iter().any(|event| matches!(
+        event,
+        EngineEvent::Command(text)
+            if text.contains("Lanes:")
+                && text.contains("Active lanes: <unavailable:")
+                && text.contains("line 1 column")
     )));
 }
 

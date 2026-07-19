@@ -1114,13 +1114,28 @@ impl SessionEngine {
                 RuntimeEventKind::AgentDagUpdated { dag: dag.clone() },
             ));
         }
-        if let Ok(lane_state) = self.workflows.load_lane_state() {
-            for lane in lane_state.lanes().values() {
-                events.push(RuntimeEvent::new(
-                    next_sequence(&events),
-                    RuntimeEventKind::LaneUpdated { lane: lane.clone() },
-                ));
+        match self.workflows.load_lane_state() {
+            Ok(lane_state) => {
+                for lane in lane_state.lanes().values() {
+                    events.push(RuntimeEvent::new(
+                        next_sequence(&events),
+                        RuntimeEventKind::LaneUpdated { lane: lane.clone() },
+                    ));
+                }
             }
+            Err(error) => events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::Error {
+                    error: RuntimeErrorView {
+                        message: format!(
+                            "lane_state_unavailable: {}",
+                            truncate_for_preview(&error, 240)
+                        ),
+                        recoverable: true,
+                        hint: Some("Repair or restore the project's lanes.jsonl log.".to_string()),
+                    },
+                },
+            )),
         }
         for task in tracked_agent_job_tasks(&self.runtime_snapshot.cwd) {
             events.push(RuntimeEvent::new(

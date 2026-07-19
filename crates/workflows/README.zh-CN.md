@@ -38,13 +38,14 @@
 
 ### `stores`
 
-负责 `WorkflowStore`、`WorkflowPaths`、`WorkflowTaskEvent`、`WorkflowMemoryEvent`。把 canonical workflow logs 存到 `tasks.jsonl`、`memory.jsonl` 和 `lanes.jsonl`，创建 `workflow.sqlite3`，并在 checked append 前校验事件有效性。
+负责 `WorkflowStore`、`WorkflowPaths`、`WorkflowTaskEvent`、`WorkflowMemoryEvent`。把 canonical workflow logs 存到 `tasks.jsonl`、`memory.jsonl` 和 `lanes.jsonl`，创建 `workflow.sqlite3`，并在 checked append 前校验事件有效性。Lane 的 load/reduce/append 事务使用项目级 advisory lock，避免并发 session 重复导入旧格式或丢失生命周期事件。
 
 ## 不变量
 
 - Workflow JSONL 是 canonical。
 - SQLite 是 derived 且可重建。
 - 无效 task、memory 或 lane events 不允许 append。
+- Lane 日志损坏必须作为可恢复 runtime error 暴露，客户端不能静默渲染为空 lane 集合。
 - Workflow state 和 transcript state 分离，但共享 project identity。
 
 ## `.ref` 对齐
