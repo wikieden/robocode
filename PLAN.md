@@ -185,9 +185,11 @@ Next release planning (`0.2.x` and `0.3.x`):
 - `0.3.0`: Multi-frontend contract freeze and Viden migration plan. Freeze the
   UI/runtime contract before parallel UI work and define `viden` binary/config
   migration plus the `viden` compatibility shim.
-- `0.3.1`: Parallel TUI and GUI implementation. Split work into independent
-  worktrees/branches for core/runtime, TUI client, and Tauri/Web GUI client;
-  at most three owners work concurrently against the shared contract.
+- `0.3.1`: Parallel TUI and GUI implementation. Use the independent
+  `codex/v3-core-runtime`, `codex/v3-tui-client`, and
+  `codex/v3-gui-client` worktrees/branches, with at most three owners working
+  against the shared contract. The GUI branch remains framework-neutral until
+  the Tauri/GPUI vertical-slice gate selects the production client framework.
 - `0.3.2`: Integration release candidate. Merge core, then TUI, then GUI, and
   run TUI/GUI parity, migration, plugin, and real development gates.
 - `0.3.3`: Operable GUI beta and compatibility hardening.

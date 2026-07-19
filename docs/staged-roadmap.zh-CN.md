@@ -366,8 +366,9 @@ quick/full release gates 已通过，GitHub Release 与 Homebrew validation 全�
   contract，定义 `viden` binary/config migration 和 `viden` compatibility shim。
   freeze 范围包含 [前端对接契约](frontend-integration-contract.zh-CN.md)，用于把已完成
   core modules 映射到 TUI/GUI 消费规则。
-- `0.3.1`：TUI 与 GUI 并行实现。Core/runtime、TUI client、Tauri/Web GUI client
-  拆到独立 branch/worktree，最多三个 active owner 同时开发。
+- `0.3.1`：TUI 与 GUI 并行实现。使用独立的 `codex/v3-core-runtime`、
+  `codex/v3-tui-client`、`codex/v3-gui-client` branch/worktree，最多三个 active
+  owner 同时开发。GUI 分支在 Tauri/GPUI 同契约垂直切片门禁完成前保持框架中立。
 - `0.3.2`：集成候选版。先合 core，再合 TUI，最后合 GUI，并跑 TUI/GUI parity、
   migration、plugin 和真实开发 gates。
 - `0.3.3`：可操作 GUI beta 与 compatibility hardening。

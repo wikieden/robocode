@@ -432,9 +432,11 @@ Next planned:
   `viden` compatibility shim. The freeze includes
   [Frontend Integration Contract](frontend-integration-contract.md), which maps
   completed core modules to TUI/GUI consumption rules.
-- `0.3.1`: Parallel TUI and GUI implementation. Split core/runtime, TUI client,
-  and Tauri/Web GUI client into independent branches/worktrees, with at most
-  three active owners.
+- `0.3.1`: Parallel TUI and GUI implementation. Use independent
+  `codex/v3-core-runtime`, `codex/v3-tui-client`, and
+  `codex/v3-gui-client` branches/worktrees, with at most three active owners.
+  Keep the GUI branch framework-neutral until the shared-contract Tauri/GPUI
+  vertical-slice gate selects the production framework.
 - `0.3.2`: Integration release candidate. Merge core first, then TUI, then GUI,
   and run TUI/GUI parity, migration, plugin, and real development gates.
 - `0.3.3`: Operable GUI beta and compatibility hardening.
