@@ -529,6 +529,7 @@ dependencies = [
 name = "viden-runtime"
 version = "0.1.30"
 dependencies = [
+ "libc",
  "serde_json",
  "sha2",
  "viden-config",

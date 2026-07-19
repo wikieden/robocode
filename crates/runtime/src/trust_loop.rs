@@ -27,6 +27,7 @@ impl SessionEngine {
                 from_lane_id,
                 to_lane_id,
                 owner,
+                summary,
                 ..
             } => {
                 validate_trust_id("handoff_id", handoff_id)?;
@@ -34,6 +35,20 @@ impl SessionEngine {
                 validate_trust_id("from_lane_id", from_lane_id)?;
                 validate_trust_id("to_lane_id", to_lane_id)?;
                 validate_owner(owner, Some(to_lane_id), task_id)?;
+                if from_lane_id == to_lane_id {
+                    return Err(
+                        "handoff requires distinct source and destination lanes".to_string()
+                    );
+                }
+                self.require_runtime_task(task_id)?;
+                validate_trust_text("handoff summary", summary.clone(), 500)?;
+                ensure_unique(
+                    self.runtime_handoffs
+                        .iter()
+                        .any(|record| record.handoff_id == *handoff_id),
+                    "handoff",
+                    handoff_id,
+                )?;
                 (
                     "create_handoff",
                     format!("task={task_id} from={from_lane_id} to={to_lane_id}"),
@@ -57,6 +72,19 @@ impl SessionEngine {
                     requester_lane_id,
                     owner,
                 )?;
+                if requester_lane_id == reviewer_lane_id {
+                    return Err("review requires an independent lane".to_string());
+                }
+                ensure_unique(
+                    self.runtime_review_requests
+                        .iter()
+                        .any(|record| record.review_id == *review_id),
+                    "review request",
+                    review_id,
+                )?;
+                if evidence_ids.is_empty() {
+                    return Err("review request requires canonical evidence bindings".to_string());
+                }
                 for evidence_id in evidence_ids {
                     validate_trust_id("evidence_id", evidence_id)?;
                     if !self
@@ -67,6 +95,7 @@ impl SessionEngine {
                         return Err(format!("review evidence `{evidence_id}` does not exist"));
                     }
                 }
+                self.validated_evidence_bindings_for_ids(gate_index, evidence_ids)?;
                 (
                     "request_review",
                     format!("gate={gate_id} reviewer={reviewer_lane_id}"),
@@ -76,11 +105,21 @@ impl SessionEngine {
                 contract_id,
                 task_id,
                 owner,
+                summary,
                 ..
             } => {
                 validate_trust_id("contract_id", contract_id)?;
                 validate_trust_id("task_id", task_id)?;
                 validate_owner(owner, owner.lane_id.as_deref(), task_id)?;
+                self.require_runtime_task(task_id)?;
+                ensure_unique(
+                    self.runtime_contracts
+                        .iter()
+                        .any(|record| record.contract_id == *contract_id),
+                    "contract",
+                    contract_id,
+                )?;
+                validate_trust_text("contract summary", summary.clone(), 500)?;
                 (
                     "confirm_contract",
                     format!("task={task_id} contract={contract_id}"),
@@ -92,7 +131,7 @@ impl SessionEngine {
                 depends_on_task_id,
                 owner,
                 state,
-                ..
+                reason,
             } => {
                 validate_trust_id("dependency_id", dependency_id)?;
                 validate_trust_id("task_id", task_id)?;
@@ -104,6 +143,7 @@ impl SessionEngine {
                     depends_on_task_id,
                     *state,
                 )?;
+                validate_trust_text("dependency reason", reason.clone(), 240)?;
                 (
                     "set_dependency",
                     format!("task={task_id} dependency={depends_on_task_id} state={state:?}"),
@@ -113,12 +153,20 @@ impl SessionEngine {
                 gate_id,
                 actor,
                 reviewed_evidence,
-                ..
+                decision,
             } => {
+                if let Some(decision) = decision {
+                    validate_trust_text("merge gate decision", decision.clone(), 240)?;
+                }
                 self.preflight_accept_merge_gate(gate_id, actor, reviewed_evidence)?;
                 ("accept_merge_gate", format!("gate={gate_id}"))
             }
-            viden_types::RuntimeCommand::RejectMergeGate { gate_id, actor, .. } => {
+            viden_types::RuntimeCommand::RejectMergeGate {
+                gate_id,
+                actor,
+                reason,
+            } => {
+                validate_trust_text("merge gate decision", reason.clone(), 240)?;
                 self.preflight_reject_merge_gate(gate_id, actor)?;
                 ("reject_merge_gate", format!("gate={gate_id}"))
             }
@@ -145,8 +193,11 @@ impl SessionEngine {
                 evidence_id,
                 actor,
                 source_hash,
-                ..
+                decision,
             } => {
+                if let Some(decision) = decision {
+                    validate_trust_text("agent artifact decision", decision.clone(), 240)?;
+                }
                 self.preflight_accept_agent_artifact(gate_id, evidence_id, actor, source_hash)?;
                 (
                     "accept_agent_artifact",
@@ -157,15 +208,23 @@ impl SessionEngine {
                 gate_id,
                 evidence_id,
                 actor,
-                ..
+                reason,
             } => {
+                validate_trust_text("agent artifact rejection reason", reason.clone(), 240)?;
                 self.preflight_reject_agent_artifact(gate_id, evidence_id, actor)?;
                 (
                     "reject_agent_artifact",
                     format!("gate={gate_id} evidence={evidence_id}"),
                 )
             }
-            viden_types::RuntimeCommand::MergeAgentPatch { gate_id, actor, .. } => {
+            viden_types::RuntimeCommand::MergeAgentPatch {
+                gate_id,
+                actor,
+                decision,
+            } => {
+                if let Some(decision) = decision {
+                    validate_trust_text("patch merge decision", decision.clone(), 240)?;
+                }
                 self.preflight_merge_agent_patch(gate_id, actor)?;
                 ("merge_agent_patch", format!("gate={gate_id}"))
             }
@@ -185,7 +244,7 @@ impl SessionEngine {
                 gate_id,
                 original_lane_id,
                 owner,
-                ..
+                reason,
             } => {
                 let gate_index = self.require_merge_gate_index(gate_id)?;
                 validate_trust_id("original_lane_id", original_lane_id)?;
@@ -194,19 +253,31 @@ impl SessionEngine {
                     owner.lane_id.as_deref(),
                     &self.runtime_merge_gates[gate_index].task_id,
                 )?;
+                validate_trust_text("conflict reason", reason.clone(), 500)?;
                 self.validate_conflict_bounce(gate_index, original_lane_id, owner)?;
                 (
                     "bounce_merge_conflict",
                     format!("gate={gate_id} origin={original_lane_id}"),
                 )
             }
-            viden_types::RuntimeCommand::RevertAppliedChange { gate_id, owner, .. } => {
+            viden_types::RuntimeCommand::RevertAppliedChange {
+                gate_id,
+                owner,
+                reason,
+            } => {
                 let gate_index = self.require_merge_gate_index(gate_id)?;
                 validate_owner(
                     owner,
                     owner.lane_id.as_deref(),
                     &self.runtime_merge_gates[gate_index].task_id,
                 )?;
+                if self.runtime_merge_gates[gate_index].status
+                    != viden_types::MergeGateStatus::Merged
+                {
+                    return Err(format!(
+                        "merge gate `{gate_id}` has no applied change to revert"
+                    ));
+                }
                 let change_id = self.runtime_merge_gates[gate_index]
                     .applied_change_id
                     .as_deref()
@@ -223,6 +294,7 @@ impl SessionEngine {
                         "applied change `{change_id}` has no recovery snapshot"
                     ));
                 }
+                validate_trust_text("revert reason", reason.clone(), 500)?;
                 (
                     "revert_applied_change",
                     format!("gate={gate_id} change={change_id}"),

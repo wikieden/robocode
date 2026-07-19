@@ -4960,6 +4960,195 @@ fn runtime_supervisor_accepts_and_rejects_merge_gate_decisions() {
 }
 
 #[test]
+fn runtime_supervisor_rejects_invalid_trust_mutations_before_approval() {
+    let cwd = temp_dir("runtime_supervisor_invalid_trust_preflight_cwd");
+    let home = temp_dir("runtime_supervisor_invalid_trust_preflight_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command(
+            "cmd_invalid_trust_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Validate trust mutation preflight".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_preflight".to_string(),
+                    role: AgentRole::Coder,
+                    title: "Preflight task".to_string(),
+                    objective: "exercise trust command validation".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec!["src".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["patch".to_string()],
+                    permission_policy: "scoped_mutation".to_string(),
+                }],
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentDagUpdated { .. }))
+    });
+    supervisor
+        .send_command(
+            "cmd_invalid_trust_start",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_preflight".to_string(),
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::MergeGateUpdated { gate }
+                    if gate.gate_id == "gate-task_preflight"
+            )
+        })
+    });
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-1".to_string(),
+        project_id: "project-1".to_string(),
+        lane_id: Some("lane-preflight".to_string()),
+        session_id: Some("session-preflight".to_string()),
+        task_id: Some("task_preflight".to_string()),
+        turn_id: None,
+    };
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_invalid_trust_owner",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-preflight-owner".to_string(),
+                task_id: "task_preflight".to_string(),
+                from_lane_id: "lane-seed".to_string(),
+                to_lane_id: "lane-preflight".to_string(),
+                owner: owner.clone(),
+                summary: "assign gate owner before invalid preflight checks".to_string(),
+                acceptance: viden_types::HandoffAcceptance::Accepted,
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::MergeGateUpdated { gate }
+                    if gate.gate_id == "gate-task_preflight" && gate.owner == owner
+            )
+        })
+    });
+    supervisor
+        .send_command(
+            "cmd_invalid_trust_ask",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Ask,
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_invalid_trust_ask"
+            )
+        })
+    });
+    let _ = collect_events_for(&supervisor, Duration::from_millis(150));
+    let before = supervisor.snapshot_envelope().unwrap().snapshot;
+
+    let cases = vec![
+        (
+            "cmd_invalid_handoff_same_lane",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-same-lane".to_string(),
+                task_id: "task_preflight".to_string(),
+                from_lane_id: "lane-preflight".to_string(),
+                to_lane_id: "lane-preflight".to_string(),
+                owner: owner.clone(),
+                summary: "same lane should not reach permission".to_string(),
+                acceptance: viden_types::HandoffAcceptance::Accepted,
+            },
+            "distinct source and destination",
+        ),
+        (
+            "cmd_invalid_review_empty_evidence",
+            RuntimeCommand::RequestReview {
+                review_id: "review-empty-evidence".to_string(),
+                gate_id: "gate-task_preflight".to_string(),
+                requester_lane_id: "lane-preflight".to_string(),
+                reviewer_lane_id: "lane-reviewer".to_string(),
+                owner: owner.clone(),
+                evidence_ids: Vec::new(),
+            },
+            "canonical evidence bindings",
+        ),
+        (
+            "cmd_invalid_reject_empty_reason",
+            RuntimeCommand::RejectMergeGate {
+                gate_id: "gate-task_preflight".to_string(),
+                actor: owner.clone(),
+                reason: "   ".to_string(),
+            },
+            "merge gate decision",
+        ),
+        (
+            "cmd_invalid_merge_empty_decision",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_preflight".to_string(),
+                actor: owner.clone(),
+                decision: Some("".to_string()),
+            },
+            "patch merge decision",
+        ),
+        (
+            "cmd_invalid_revert_unmerged",
+            RuntimeCommand::RevertAppliedChange {
+                gate_id: "gate-task_preflight".to_string(),
+                owner: owner.clone(),
+                reason: "revert unmerged gate".to_string(),
+            },
+            "no applied change to revert",
+        ),
+    ];
+
+    for (command_id, command, expected_reason) in cases {
+        supervisor
+            .send_command_from_owner(owner.clone(), command_id, command)
+            .unwrap();
+        let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { command_id: rejected, reason }
+                        if rejected == command_id && reason.contains(expected_reason)
+                )
+            })
+        });
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. })),
+            "{command_id} must reject before permission approval: {events:#?}"
+        );
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event.kind, RuntimeEventKind::SnapshotUpdated { .. })),
+            "{command_id} must not mutate runtime snapshot: {events:#?}"
+        );
+        assert_eq!(supervisor.snapshot_envelope().unwrap().snapshot, before);
+    }
+}
+
+#[test]
 fn runtime_supervisor_rejects_unknown_agent_artifact_evidence() {
     let cwd = temp_dir("runtime_supervisor_unknown_artifact_evidence_cwd");
     let home = temp_dir("runtime_supervisor_unknown_artifact_evidence_home");

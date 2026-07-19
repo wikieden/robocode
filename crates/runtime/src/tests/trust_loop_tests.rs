@@ -578,6 +578,42 @@ fn trust_loop_merge_rejects_stale_canonical_bytes_before_permission() {
 }
 
 #[test]
+fn recovery_snapshot_readers_use_open_file_handle_source_guard() {
+    let source = include_str!("../runtime_contract.rs");
+    let helper_start = source
+        .find("fn read_existing_private_file(")
+        .expect("recovery reader helper exists");
+    let helper_end = source[helper_start..]
+        .find("fn evidence_by_id(")
+        .map(|offset| helper_start + offset)
+        .expect("helper guard end exists");
+    let helper = &source[helper_start..helper_end];
+    assert!(helper.contains("read_existing_private_file_openat"));
+    assert!(helper.contains("libc::openat"));
+    assert!(helper.contains("libc::O_NOFOLLOW"));
+    assert!(helper.contains(".metadata()"));
+    assert!(helper.contains(".read_to_end("));
+    assert!(
+        !helper.contains("fs::read("),
+        "recovery/postimage readers must not re-open by path after metadata checks"
+    );
+
+    let stage_start = source
+        .find("pub(crate) fn stage_rollback_paths")
+        .expect("stage rollback function exists");
+    let stage_end = source[stage_start..]
+        .find("fn restore_transaction_files")
+        .map(|offset| stage_start + offset)
+        .expect("stage guard end exists");
+    let stage = &source[stage_start..stage_end];
+    assert!(stage.contains("read_existing_private_file(&root, path)"));
+    assert!(
+        !stage.contains("fs::read("),
+        "rollback staging must capture bytes through the held file descriptor"
+    );
+}
+
+#[test]
 fn trust_loop_restart_revert_uses_durable_recovery_snapshot() {
     let cwd = temp_dir("trust_loop_restart_recovery_cwd");
     let home = temp_dir("trust_loop_restart_recovery_home");

@@ -2,8 +2,18 @@
 use std::sync::{Arc, Mutex, OnceLock};
 use std::{
     collections::BTreeSet,
-    fs,
+    fs::{self, File},
+    io::Read,
     path::{Path, PathBuf},
+};
+#[cfg(unix)]
+use std::{
+    ffi::CString,
+    os::unix::{
+        ffi::OsStrExt,
+        fs::PermissionsExt,
+        io::{AsRawFd, FromRawFd},
+    },
 };
 
 use sha2::{Digest, Sha256};
@@ -3175,7 +3185,9 @@ impl SessionEngine {
 
     fn verify_patch_postimages(&self, application: &PatchApplication) -> Result<(), String> {
         for (path, expected) in application.planned_postimages() {
-            verify_expected_postimage(path, expected.map(runtime_sha256).as_deref())?;
+            let root = fs::canonicalize(&self.cwd)
+                .map_err(|err| format!("{}: {err}", self.cwd.display()))?;
+            verify_expected_postimage(&root, path, expected.map(runtime_sha256).as_deref())?;
         }
         Ok(())
     }
@@ -3205,7 +3217,7 @@ impl SessionEngine {
         for entry in loaded.entries {
             let path = root.join(&entry.relative_path);
             ensure_transaction_path_inside_root(&root, &path)?;
-            verify_expected_postimage(&path, entry.expected_postimage_sha256.as_deref())?;
+            verify_expected_postimage(&root, &path, entry.expected_postimage_sha256.as_deref())?;
             #[cfg(unix)]
             let permissions = entry.unix_mode.map(|mode| {
                 use std::os::unix::fs::PermissionsExt;
@@ -3262,9 +3274,8 @@ impl SessionEngine {
                             path.display()
                         ));
                     }
-                    let contents =
-                        fs::read(path).map_err(|err| format!("{}: {err}", path.display()))?;
-                    (Some(contents), Some(metadata.permissions()))
+                    let existing = read_existing_private_file(&root, path)?;
+                    (Some(existing.bytes), Some(existing.permissions))
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => (None, None),
                 Err(err) => return Err(format!("{}: {err}", path.display())),
@@ -4132,13 +4143,149 @@ fn runtime_sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn verify_expected_postimage(path: &Path, expected_sha256: Option<&str>) -> Result<(), String> {
+struct ExistingPrivateFile {
+    bytes: Vec<u8>,
+    permissions: fs::Permissions,
+}
+
+fn read_existing_private_file(root: &Path, path: &Path) -> Result<ExistingPrivateFile, String> {
+    ensure_transaction_path_inside_root(root, path)?;
+    #[cfg(unix)]
+    {
+        read_existing_private_file_openat(root, path)
+    }
+    #[cfg(not(unix))]
+    {
+        read_existing_private_file_by_path(path)
+    }
+}
+
+#[cfg(not(unix))]
+fn read_existing_private_file_by_path(path: &Path) -> Result<ExistingPrivateFile, String> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    let mut file = options
+        .open(path)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    read_open_private_file(path, &mut file)
+}
+
+#[cfg(unix)]
+fn read_existing_private_file_openat(
+    root: &Path,
+    path: &Path,
+) -> Result<ExistingPrivateFile, String> {
+    let relative = path.strip_prefix(root).map_err(|_| {
+        format!(
+            "transaction rollback target `{}` is outside `{}`",
+            path.display(),
+            root.display()
+        )
+    })?;
+    let mut components = relative.components().peekable();
+    let root_c = cstring_for_open(root.as_os_str(), root)?;
+    let root_fd = unsafe {
+        libc::open(
+            root_c.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if root_fd < 0 {
+        return Err(format!(
+            "{}: {}",
+            root.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    let mut current = unsafe { File::from_raw_fd(root_fd) };
+    while let Some(component) = components.next() {
+        let std::path::Component::Normal(segment) = component else {
+            return Err(format!(
+                "unsafe transaction rollback target `{}`",
+                path.display()
+            ));
+        };
+        let name = cstring_for_open(segment, path)?;
+        let final_component = components.peek().is_none();
+        let flags = if final_component {
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW
+        } else {
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW
+        };
+        let fd = unsafe { libc::openat(current.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err(format!(
+                "{}: {}",
+                path.display(),
+                std::io::Error::last_os_error()
+            ));
+        }
+        let mut opened = unsafe { File::from_raw_fd(fd) };
+        if final_component {
+            return read_open_private_file(path, &mut opened);
+        }
+        let metadata = opened
+            .metadata()
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        if !metadata.file_type().is_dir() {
+            return Err(format!(
+                "transaction rollback target crosses non-directory `{}`",
+                path.display()
+            ));
+        }
+        current = opened;
+    }
+    Err("transaction rollback target cannot be the workspace root".to_string())
+}
+
+#[cfg(unix)]
+fn cstring_for_open(value: &std::ffi::OsStr, display_path: &Path) -> Result<CString, String> {
+    CString::new(value.as_bytes()).map_err(|_| {
+        format!(
+            "transaction rollback target `{}` contains a NUL byte",
+            display_path.display()
+        )
+    })
+}
+
+fn read_open_private_file(path: &Path, file: &mut File) -> Result<ExistingPrivateFile, String> {
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    if !metadata.file_type().is_file() {
+        return Err(format!(
+            "unsafe transaction rollback target `{}`",
+            path.display()
+        ));
+    }
+    #[cfg(unix)]
+    {
+        // The mode is captured from the same descriptor that supplies bytes;
+        // this prevents check-then-reopen swaps from changing rollback facts.
+        let _mode = metadata.permissions().mode();
+    }
+    let size = usize::try_from(metadata.len())
+        .map_err(|_| format!("{} is too large to snapshot safely", path.display()))?;
+    let mut bytes = Vec::with_capacity(size);
+    file.read_to_end(&mut bytes)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(ExistingPrivateFile {
+        bytes,
+        permissions: metadata.permissions(),
+    })
+}
+
+fn verify_expected_postimage(
+    root: &Path,
+    path: &Path,
+    expected_sha256: Option<&str>,
+) -> Result<(), String> {
     match expected_sha256 {
         Some(expected) => {
-            let bytes = fs::read(path).map_err(|error| {
+            let existing = read_existing_private_file(root, path).map_err(|error| {
                 format!("postimage `{}` is unavailable: {error}", path.display())
             })?;
-            let actual = runtime_sha256(&bytes);
+            let actual = runtime_sha256(&existing.bytes);
             if actual != expected {
                 return Err(format!(
                     "postimage `{}` changed after merge",
