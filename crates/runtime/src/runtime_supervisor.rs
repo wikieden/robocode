@@ -92,6 +92,33 @@ struct SupervisorShared<'a> {
     event_bus: &'a RuntimeEventBus,
     active_control: &'a ActiveControlRegistry,
     pending_approvals: &'a Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &'a Arc<ApprovalTimerRegistry>,
+}
+
+#[derive(Default)]
+struct ApprovalTimerRegistry {
+    shutdown: AtomicBool,
+    workers: Mutex<Vec<JoinHandle<()>>>,
+}
+
+impl ApprovalTimerRegistry {
+    fn push(&self, worker: JoinHandle<()>) {
+        if let Ok(mut workers) = self.workers.lock() {
+            workers.push(worker);
+        }
+    }
+
+    fn shutdown_and_join(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        let workers = self
+            .workers
+            .lock()
+            .map(|mut workers| std::mem::take(&mut *workers))
+            .unwrap_or_default();
+        for worker in workers {
+            let _ = worker.join();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -172,9 +199,10 @@ pub struct RuntimeSupervisor {
     event_bus: RuntimeEventBus,
     active_control: ActiveControlRegistry,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: Arc<ApprovalTimerRegistry>,
     lane_supervisor: Arc<LaneSupervisor>,
     worker_alive: Arc<AtomicBool>,
-    _worker: JoinHandle<()>,
+    worker: Option<JoinHandle<()>>,
 }
 
 impl RuntimeSupervisor {
@@ -199,6 +227,7 @@ impl RuntimeSupervisor {
         let (event_sender, event_receiver) = mpsc::channel();
         let active_control: ActiveControlRegistry = Arc::new(Mutex::new(BTreeMap::new()));
         let pending_approvals = Arc::new(Mutex::new(BTreeMap::new()));
+        let approval_timers = Arc::new(ApprovalTimerRegistry::default());
         let worker_alive = Arc::new(AtomicBool::new(true));
         let event_bus = RuntimeEventBus {
             sender: event_sender,
@@ -237,6 +266,7 @@ impl RuntimeSupervisor {
         let worker_event_bus = event_bus.clone();
         let worker_active_control = Arc::clone(&active_control);
         let worker_pending_approvals = Arc::clone(&pending_approvals);
+        let worker_approval_timers = Arc::clone(&approval_timers);
         let worker_lane_supervisor = Arc::clone(&lane_supervisor);
         let worker_liveness = Arc::clone(&worker_alive);
         let worker = thread::spawn(move || {
@@ -246,6 +276,7 @@ impl RuntimeSupervisor {
                 worker_event_bus,
                 worker_active_control,
                 worker_pending_approvals,
+                worker_approval_timers,
                 worker_lane_supervisor,
                 approval_ttl_secs,
                 worker_liveness,
@@ -258,9 +289,10 @@ impl RuntimeSupervisor {
             event_bus,
             active_control,
             pending_approvals,
+            approval_timers,
             lane_supervisor,
             worker_alive,
-            _worker: worker,
+            worker: Some(worker),
         }
     }
 
@@ -696,18 +728,44 @@ impl RuntimeSupervisor {
 
 impl Drop for RuntimeSupervisor {
     fn drop(&mut self) {
+        if let Ok(controls) = self.active_control.lock() {
+            for active in controls.values() {
+                active.control.cancel();
+            }
+        }
+        let pending_ids = self
+            .pending_approvals
+            .lock()
+            .map(|pending| pending.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for request_id in pending_ids {
+            resolve_pending_approval_by_id(
+                &request_id,
+                ApprovalDecision::Deny,
+                &self.event_bus,
+                &self.active_control,
+                &self.pending_approvals,
+                Some("runtime supervisor shutting down".to_string()),
+            );
+        }
         let _ = self
             .commands
             .send(SupervisorMessage::Shutdown { response: None });
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        self.approval_timers.shutdown_and_join();
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_supervisor_worker(
     mut engine: SessionEngine,
     command_receiver: Receiver<SupervisorMessage>,
     event_bus: RuntimeEventBus,
     active_control: ActiveControlRegistry,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: Arc<ApprovalTimerRegistry>,
     lane_supervisor: Arc<LaneSupervisor>,
     approval_ttl_secs: u64,
     worker_alive: Arc<AtomicBool>,
@@ -747,6 +805,7 @@ fn run_supervisor_worker(
                             &event_bus,
                             &active_control,
                             &pending_approvals,
+                            &approval_timers,
                             approval_ttl_secs,
                         );
                     }
@@ -759,6 +818,7 @@ fn run_supervisor_worker(
                             &event_bus,
                             &active_control,
                             &pending_approvals,
+                            &approval_timers,
                             approval_ttl_secs,
                         );
                     }
@@ -773,6 +833,7 @@ fn run_supervisor_worker(
                                 event_bus: &event_bus,
                                 active_control: &active_control,
                                 pending_approvals: &pending_approvals,
+                                approval_timers: &approval_timers,
                             },
                             approval_ttl_secs,
                         );
@@ -974,6 +1035,7 @@ fn run_supervised_context_retrieval(
                 shared.pending_approvals,
                 shared.event_bus,
                 shared.active_control,
+                shared.approval_timers,
                 approval.id.clone(),
                 PendingApproval {
                     owner: approval.owner.clone(),
@@ -1109,6 +1171,7 @@ fn insert_pending_approval(
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     event_bus: &RuntimeEventBus,
     active_control: &ActiveControlRegistry,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
     request_id: String,
     pending: PendingApproval,
 ) {
@@ -1122,6 +1185,7 @@ fn insert_pending_approval(
         event_bus,
         active_control,
         pending_approvals,
+        approval_timers,
     );
 }
 
@@ -1131,14 +1195,22 @@ fn schedule_approval_expiry(
     event_bus: &RuntimeEventBus,
     active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
 ) {
     let event_bus = event_bus.clone();
     let active_control = Arc::clone(active_control);
     let pending_approvals = Arc::clone(pending_approvals);
-    thread::spawn(move || {
-        let now = now_timestamp();
-        if expires_at > now {
-            thread::sleep(Duration::from_secs(expires_at - now));
+    let timers = Arc::clone(approval_timers);
+    let timer_control = Arc::clone(approval_timers);
+    let worker = thread::spawn(move || {
+        while expires_at > now_timestamp() {
+            if timer_control.shutdown.load(Ordering::Acquire) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        if timer_control.shutdown.load(Ordering::Acquire) {
+            return;
         }
         resolve_pending_approval_by_id(
             &request_id,
@@ -1149,6 +1221,7 @@ fn schedule_approval_expiry(
             Some("Approval expired; default action deny".to_string()),
         );
     });
+    timers.push(worker);
 }
 
 fn expire_pending_approvals_at(
@@ -1311,6 +1384,7 @@ fn run_supervised_agent_task(
     event_bus: &RuntimeEventBus,
     active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
     approval_ttl_secs: u64,
 ) {
     let control = ModelRequestControl::new();
@@ -1352,6 +1426,7 @@ fn run_supervised_agent_task(
             pending_approvals,
             event_bus,
             active_control,
+            approval_timers,
             request_id.clone(),
             PendingApproval {
                 owner: approval.owner.clone(),
@@ -1395,6 +1470,7 @@ fn run_supervised_input(
     event_bus: &RuntimeEventBus,
     active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
     approval_ttl_secs: u64,
 ) {
     let control = ModelRequestControl::new();
@@ -1436,6 +1512,7 @@ fn run_supervised_input(
             pending_approvals,
             event_bus,
             active_control,
+            approval_timers,
             request_id.clone(),
             PendingApproval {
                 owner: approval.owner.clone(),

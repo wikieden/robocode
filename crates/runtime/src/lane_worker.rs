@@ -19,7 +19,7 @@ pub(crate) type LaneEventSink = Arc<dyn Fn(RuntimeOwner, RuntimeEventKind) + Sen
 pub(crate) enum LaneWorkerMessage {
     Command {
         command_id: String,
-        command: RuntimeCommand,
+        command: Box<RuntimeCommand>,
     },
     ResumeApproval {
         request_id: String,
@@ -39,6 +39,7 @@ pub(crate) struct LaneWorkerHandle {
 }
 
 impl LaneWorkerHandle {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn(
         owner: RuntimeOwner,
         lane: AgentLaneRecord,
@@ -66,6 +67,7 @@ impl LaneWorkerHandle {
                 pending_mutation: None,
                 pending_approval: worker_pending_approval,
                 approval_ttl_secs,
+                runtime_active: false,
             };
             while let Ok(message) = receiver.recv() {
                 if matches!(message, LaneWorkerMessage::Shutdown) {
@@ -73,7 +75,9 @@ impl LaneWorkerHandle {
                 }
                 runtime.handle(message);
             }
-            let _ = runtime.effects.shutdown_lane(&runtime.lane.id);
+            if runtime.runtime_active {
+                let _ = runtime.effects.shutdown_lane(&runtime.lane.id);
+            }
         });
         Self {
             owner,
@@ -134,6 +138,7 @@ struct LaneWorker {
     pending_mutation: Option<PendingMutation>,
     pending_approval: Arc<Mutex<Option<String>>>,
     approval_ttl_secs: u64,
+    runtime_active: bool,
 }
 
 impl LaneWorker {
@@ -142,7 +147,7 @@ impl LaneWorker {
             LaneWorkerMessage::Command {
                 command_id,
                 command,
-            } => self.handle_command(command_id, command),
+            } => self.handle_command(command_id, *command),
             LaneWorkerMessage::ResumeApproval {
                 request_id,
                 response,
@@ -182,13 +187,12 @@ impl LaneWorker {
                 self.dispatch_mutation(command_id, "lane_start", PendingOperation::Start(request));
             }
             RuntimeCommand::StopLane { .. } => {
-                self.execute_effect(
-                    LaneEffectRequest::Stop {
-                        lane_id: self.lane.id.clone(),
-                    },
-                    LaneStatus::Detached,
-                    "lane stopped",
-                );
+                if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
+                    self.fail(error);
+                } else {
+                    self.runtime_active = false;
+                    let _ = self.change_status(LaneStatus::Detached, "lane stopped");
+                }
             }
             RuntimeCommand::AttachLane { .. } => {
                 let _ = self.change_status(LaneStatus::Attached, "lane attached");
@@ -272,22 +276,46 @@ impl LaneWorker {
                     self.fail(error);
                     return;
                 }
+                self.runtime_active = false;
                 let _ = self.change_status(LaneStatus::Archived, summary);
             }
             RuntimeCommand::CleanupLane { force, .. } => {
+                // Persist cleanup intent before the irreversible worktree removal. If the
+                // completion append fails, replay leaves the lane in Starting with this
+                // recovery summary instead of claiming that removed bytes were restored.
+                if self
+                    .change_status(LaneStatus::Starting, "lane cleanup intent persisted")
+                    .is_err()
+                {
+                    return;
+                }
                 if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
                     self.fail(error);
                     return;
                 }
-                self.execute_effect(
-                    LaneEffectRequest::Cleanup {
-                        repo: self.repo.clone(),
-                        lane: self.lane.clone(),
-                        force,
-                    },
-                    LaneStatus::Archived,
-                    "lane cleaned up",
-                );
+                self.runtime_active = false;
+                match self.effects.execute(LaneEffectRequest::Cleanup {
+                    repo: self.repo.clone(),
+                    lane: self.lane.clone(),
+                    force,
+                }) {
+                    Ok(result) => {
+                        self.output("receipt", result.output);
+                        if self
+                            .change_status(LaneStatus::Archived, "lane cleaned up")
+                            .is_err()
+                        {
+                            self.emit(RuntimeEventKind::LaneRecoveryRequired {
+                                lane_id: self.lane.id.clone(),
+                                reason: "cleanup completed but durable completion append failed"
+                                    .to_string(),
+                                next_action: "replay cleanup intent and reconcile the worktree"
+                                    .to_string(),
+                            });
+                        }
+                    }
+                    Err(error) => self.fail(error),
+                }
             }
             _ => self.reject(command_id, "command is not a lane lifecycle command"),
         }
@@ -474,13 +502,12 @@ impl LaneWorker {
             });
             let _ = self.change_status(LaneStatus::Cancelled, "lane mutation cancelled");
         } else {
-            self.execute_effect(
-                LaneEffectRequest::Stop {
-                    lane_id: self.lane.id.clone(),
-                },
-                LaneStatus::Cancelled,
-                "lane cancelled",
-            );
+            if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
+                self.fail(error);
+            } else {
+                self.runtime_active = false;
+                let _ = self.change_status(LaneStatus::Cancelled, "lane cancelled");
+            }
         }
         self.emit(RuntimeEventKind::CommandAccepted {
             command_id,
@@ -495,14 +522,41 @@ impl LaneWorker {
         {
             return;
         }
-        self.execute_effect(request, LaneStatus::Running, "lane running");
+        match self.effects.execute(request) {
+            Ok(result) => {
+                self.runtime_active = true;
+                self.output("receipt", result.output);
+                if self
+                    .change_status(LaneStatus::Running, "lane running")
+                    .is_err()
+                {
+                    let _ = self.effects.shutdown_lane(&self.lane.id);
+                    self.runtime_active = false;
+                }
+            }
+            Err(error) => self.fail(error),
+        }
     }
 
     fn apply(&mut self, request: LaneEffectRequest) {
-        match self.effects.execute(request) {
+        let event = LaneEvent::status_changed(
+            fresh_id("lane-event"),
+            self.lane.id.clone(),
+            LaneStatus::Done,
+            "lane changes applied",
+            now_timestamp(),
+            self.owner.session_id.clone(),
+        );
+        let workflows = self.workflows.clone();
+        let mut persist = || workflows.append_lane_event_checked(&event);
+        match self.effects.apply_transactionally(request, &mut persist) {
             Ok(result) if result.conflict_paths.is_empty() => {
                 self.output("receipt", result.output);
-                let _ = self.change_status(LaneStatus::Done, "lane changes applied");
+                self.lane.status = LaneStatus::Done;
+                self.lane.summary = "lane changes applied".to_string();
+                self.emit(RuntimeEventKind::LaneUpdated {
+                    lane: self.lane.clone(),
+                });
             }
             Ok(result) => {
                 self.emit(RuntimeEventKind::LaneConflictDetected {
@@ -511,16 +565,6 @@ impl LaneWorker {
                     paths: result.conflict_paths,
                 });
                 let _ = self.change_status(LaneStatus::Blocked, "lane patch conflict");
-            }
-            Err(error) => self.fail(error),
-        }
-    }
-
-    fn execute_effect(&mut self, request: LaneEffectRequest, status: LaneStatus, summary: &str) {
-        match self.effects.execute(request) {
-            Ok(result) => {
-                self.output("receipt", result.output);
-                let _ = self.change_status(status, summary);
             }
             Err(error) => self.fail(error),
         }
@@ -588,6 +632,7 @@ impl LaneWorker {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lane_approval(
     request_id: &str,
     audit_id: &str,

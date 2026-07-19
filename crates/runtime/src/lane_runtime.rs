@@ -62,11 +62,27 @@ impl LaneEffectResult {
 pub(crate) trait LaneEffectExecutor: Send + Sync {
     fn execute(&self, request: LaneEffectRequest) -> Result<LaneEffectResult, String>;
 
+    fn apply_transactionally(
+        &self,
+        request: LaneEffectRequest,
+        persist: &mut dyn FnMut() -> Result<(), String>,
+    ) -> Result<LaneEffectResult, String> {
+        let result = self.execute(request)?;
+        if result.conflict_paths.is_empty() {
+            persist()?;
+        }
+        Ok(result)
+    }
+
     fn shutdown_lane(&self, lane_id: &str) -> Result<(), String> {
         self.execute(LaneEffectRequest::Stop {
             lane_id: lane_id.to_string(),
         })
         .map(|_| ())
+    }
+
+    fn compensate_create(&self, _repo: &Path, _lane: &AgentLaneRecord) -> Result<(), String> {
+        Ok(())
     }
 }
 
@@ -255,6 +271,54 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
         }
         .map_err(|error| error.to_string())
     }
+
+    fn apply_transactionally(
+        &self,
+        request: LaneEffectRequest,
+        persist: &mut dyn FnMut() -> Result<(), String>,
+    ) -> Result<LaneEffectResult, String> {
+        let LaneEffectRequest::Apply { cwd, unified_diff } = request else {
+            return Err("transactional lane apply requires an apply request".to_string());
+        };
+        let outcome = self
+            .patches
+            .apply_transactionally(&PatchRequest { cwd, unified_diff }, persist)
+            .map_err(|error| error.to_string())?;
+        if outcome.applied {
+            Ok(LaneEffectResult::success(format!(
+                "applied {} lane path(s)",
+                outcome.writes.len()
+            )))
+        } else {
+            Ok(LaneEffectResult {
+                output: outcome
+                    .conflicts
+                    .iter()
+                    .map(|conflict| conflict.message.clone())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+                conflict_paths: outcome
+                    .conflicts
+                    .iter()
+                    .map(|conflict| conflict.path.to_string_lossy().to_string())
+                    .collect(),
+            })
+        }
+    }
+
+    fn compensate_create(&self, repo: &Path, lane: &AgentLaneRecord) -> Result<(), String> {
+        let Some(path) = lane.worktree.clone() else {
+            return Ok(());
+        };
+        self.worktrees
+            .remove_worktree(&WorktreeRemoveRequest {
+                repo: repo.to_path_buf(),
+                path,
+                force: true,
+            })
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
 }
 
 fn lane_working_directory(repo: &Path, lane: &AgentLaneRecord) -> Result<PathBuf, String> {
@@ -313,4 +377,35 @@ pub(crate) fn resolve_lane_output_log(
         return Err(format!("lane output log `{raw}` escapes the lane root"));
     }
     Ok(candidate)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_lane_apply_rolls_back_bytes_when_persistence_fails() {
+        let root = std::env::temp_dir().join(format!(
+            "viden-lane-transaction-{}",
+            viden_types::fresh_id("test")
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("demo.txt");
+        std::fs::write(&path, "old\n").unwrap();
+        let executor = LocalLaneEffectExecutor::default();
+        let mut persist = || Err("injected lane persistence failure".to_string());
+        let result = executor.apply_transactionally(
+            LaneEffectRequest::Apply {
+                cwd: root.clone(),
+                unified_diff: "diff --git a/demo.txt b/demo.txt\n--- a/demo.txt\n+++ b/demo.txt\n@@ -1 +1 @@\n-old\n+new\n".to_string(),
+            },
+            &mut persist,
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .contains("injected lane persistence failure")
+        );
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "old\n");
+    }
 }

@@ -154,7 +154,7 @@ impl LaneSupervisor {
         );
         worker.send(LaneWorkerMessage::Command {
             command_id,
-            command,
+            command: Box::new(command),
         })?;
         if terminal {
             lanes.remove(&lane_id);
@@ -267,13 +267,17 @@ impl LaneSupervisor {
             owner.session_id.clone(),
         );
         if let Err(error) = self.workflows.append_lane_event_checked(&event) {
+            let compensation = self.effects.compensate_create(&self.repo, &lane);
             self.emit(
                 owner.clone(),
                 RuntimeEventKind::LaneRecoveryRequired {
                     lane_id: lane.id.clone(),
                     reason: error.clone(),
-                    next_action: "remove the orphan worktree or retry lane registration"
-                        .to_string(),
+                    next_action: if compensation.is_ok() {
+                        "retry lane registration".to_string()
+                    } else {
+                        "remove the orphan worktree, then retry lane registration".to_string()
+                    },
                 },
             );
             self.error(owner, error);

@@ -530,6 +530,174 @@ fn lane_supervisor_plan_transition_precedes_queued_apply_effect() {
 }
 
 #[test]
+fn lane_supervisor_rejects_duplicate_start_and_retires_archived_worker() {
+    let cwd = temp_dir("lane_lifecycle_retire_cwd");
+    let home = temp_dir("lane_lifecycle_retire_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let owner = owner("lane-retire");
+    let mut autonomous = lane("lane-retire");
+    autonomous.mutation_policy = MutationPolicy::Autonomous;
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "create_retire",
+            RuntimeCommand::CreateLane { lane: autonomous },
+        )
+        .unwrap();
+    for command_id in ["start_retire", "start_retire_duplicate"] {
+        supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                command_id,
+                RuntimeCommand::StartLane {
+                    lane_id: "lane-retire".to_string(),
+                    command: "worker".to_string(),
+                    args: Vec::new(),
+                    env: Vec::new(),
+                    output_log: None,
+                },
+            )
+            .unwrap();
+    }
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "archive_retire",
+            RuntimeCommand::ArchiveLane {
+                lane_id: "lane-retire".to_string(),
+                summary: "archived".to_string(),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "attach_after_archive",
+            RuntimeCommand::AttachLane {
+                lane_id: "lane-retire".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { command_id, .. },
+                    ..
+                }) if command_id == "attach_after_archive"
+            )
+        })
+    });
+    assert!(events.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandRejected { command_id, .. },
+                ..
+            }) if command_id == "start_retire_duplicate"
+        )
+    }));
+    let calls = effects.calls.lock().unwrap();
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| *call == "start:lane-retire")
+            .count(),
+        1
+    );
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| *call == "stop:lane-retire")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn lane_supervisor_hydrates_persisted_lane_for_restart_commands() {
+    let cwd = temp_dir("lane_restart_hydrate_cwd");
+    let home = temp_dir("lane_restart_hydrate_home");
+    let owner = owner("lane-restart");
+    {
+        let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+        let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+        let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+            engine,
+            Arc::new(RecordingLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
+        );
+        supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                "create_restart",
+                RuntimeCommand::CreateLane {
+                    lane: lane("lane-restart"),
+                },
+            )
+            .unwrap();
+        collect_envelopes_until(&supervisor, |events| {
+            events.iter().any(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::LaneUpdated { lane },
+                        ..
+                    }) if lane.id == "lane-restart"
+                )
+            })
+        });
+    }
+
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        Arc::new(RecordingLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
+    );
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .lanes
+            .iter()
+            .any(|lane| lane.id == "lane-restart")
+    );
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "accept_after_restart",
+            RuntimeCommand::AcceptLaneOutput {
+                lane_id: "lane-restart".to_string(),
+                summary: "resumed".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-restart" && lane.status == LaneStatus::Done
+            )
+        })
+    });
+    assert!(events.iter().all(|envelope| envelope.owner == owner));
+}
+
+#[test]
 fn lane_supervisor_keeps_waiting_lane_isolated_and_routes_owner_events() {
     let cwd = temp_dir("lane_supervisor_owner_routing_cwd");
     let home = temp_dir("lane_supervisor_owner_routing_home");
