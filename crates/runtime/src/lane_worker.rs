@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::sync::OnceLock;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -9,15 +11,49 @@ use std::time::Duration;
 use viden_permissions::PermissionEngine;
 use viden_types::{
     AgentLaneRecord, ApprovalDecision, ApprovalRequestView, ApprovalResponse, ApprovalScope,
-    LaneStatus, PermissionDecision, RuntimeCommand, RuntimeErrorView, RuntimeEventKind,
-    RuntimeOwner, ToolInput, ToolSpec, fresh_id, now_timestamp,
+    LaneStatus, PermissionDecision, PermissionMode, PermissionRuleSource, RuntimeCommand,
+    RuntimeErrorView, RuntimeEventKind, RuntimeOwner, ToolInput, ToolSpec, fresh_id, now_timestamp,
 };
 use viden_workflows::lanes::LaneEvent;
 
-use crate::lane_runtime::{LaneEffectExecutor, LaneEffectRequest};
+use crate::lane_runtime::{
+    LaneEffectExecutor, LaneEffectRequest, canonical_repo_root, resolve_lane_target,
+};
 use crate::lane_supervisor::LanePersistence;
 
 pub(crate) type LaneEventSink = Arc<dyn Fn(RuntimeOwner, RuntimeEventKind) + Send + Sync>;
+
+#[cfg(test)]
+type BeforeLaneApprovalResumeHook = Arc<dyn Fn(&str) + Send + Sync>;
+
+#[cfg(test)]
+static BEFORE_LANE_APPROVAL_RESUME_HOOK: OnceLock<Mutex<Option<BeforeLaneApprovalResumeHook>>> =
+    OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn set_before_lane_approval_resume_hook(hook: Option<BeforeLaneApprovalResumeHook>) {
+    if let Ok(mut slot) = BEFORE_LANE_APPROVAL_RESUME_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+    {
+        *slot = hook;
+    }
+}
+
+#[cfg(test)]
+fn before_lane_approval_resume_for_test(request_id: &str) {
+    let hook = BEFORE_LANE_APPROVAL_RESUME_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone());
+    if let Some(hook) = hook {
+        hook(request_id);
+    }
+}
+
+#[cfg(not(test))]
+fn before_lane_approval_resume_for_test(_request_id: &str) {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LaneTerminalKind {
@@ -39,6 +75,7 @@ pub(crate) enum LaneWorkerMessage {
     ResumeApproval {
         request_id: String,
         response: ApprovalResponse,
+        permissions: PermissionEngine,
     },
     Cancel {
         command_id: String,
@@ -50,6 +87,7 @@ pub(crate) struct LaneWorkerHandle {
     pub(crate) owner: RuntimeOwner,
     pending_approval: Arc<Mutex<Option<String>>>,
     terminal_completion: Arc<Mutex<Option<LaneTerminalCompletion>>>,
+    permissions: Arc<Mutex<PermissionEngine>>,
     registered: Arc<AtomicBool>,
     sender: Sender<LaneWorkerMessage>,
     worker: Option<JoinHandle<()>>,
@@ -62,7 +100,7 @@ impl LaneWorkerHandle {
         lane: AgentLaneRecord,
         repo: std::path::PathBuf,
         persistence: Arc<dyn LanePersistence>,
-        permissions: Arc<Mutex<PermissionEngine>>,
+        permissions: PermissionEngine,
         effects: Arc<dyn LaneEffectExecutor>,
         events: LaneEventSink,
         approval_ttl_secs: u64,
@@ -72,9 +110,11 @@ impl LaneWorkerHandle {
         let (sender, receiver) = mpsc::channel();
         let pending_approval = Arc::new(Mutex::new(None));
         let terminal_completion = Arc::new(Mutex::new(None));
+        let permissions = Arc::new(Mutex::new(permissions));
         let registered = Arc::new(AtomicBool::new(registered));
         let worker_pending_approval = Arc::clone(&pending_approval);
         let worker_terminal_completion = Arc::clone(&terminal_completion);
+        let worker_permissions = Arc::clone(&permissions);
         let worker_registered = Arc::clone(&registered);
         let worker_owner = owner.clone();
         let worker_lane = lane.clone();
@@ -84,7 +124,7 @@ impl LaneWorkerHandle {
                 lane: worker_lane,
                 repo,
                 persistence,
-                permissions,
+                permissions: worker_permissions,
                 effects,
                 events,
                 pending_mutation: None,
@@ -118,6 +158,7 @@ impl LaneWorkerHandle {
             owner,
             pending_approval,
             terminal_completion,
+            permissions,
             registered,
             sender,
             worker: Some(worker),
@@ -145,6 +186,39 @@ impl LaneWorkerHandle {
 
     pub(crate) fn is_registered(&self) -> bool {
         self.registered.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn sync_permissions(
+        &self,
+        mut authoritative: PermissionEngine,
+    ) -> Result<(), String> {
+        let mut installed = self
+            .permissions
+            .lock()
+            .map_err(|_| "lane permission state poisoned".to_string())?;
+        let approved_rules = installed
+            .context_snapshot()
+            .allow_rules
+            .into_iter()
+            .filter(|rule| rule.source == PermissionRuleSource::Session);
+        let mut context = authoritative.context_snapshot();
+        if context.mode != PermissionMode::Plan {
+            for rule in approved_rules {
+                if !context.allow_rules.contains(&rule) {
+                    context.allow_rules.push(rule);
+                }
+            }
+        }
+        authoritative.restore_context(context);
+        *installed = authoritative;
+        Ok(())
+    }
+
+    pub(crate) fn permission_snapshot(&self) -> Result<PermissionEngine, String> {
+        self.permissions
+            .lock()
+            .map(|permissions| permissions.clone())
+            .map_err(|_| "lane permission state poisoned".to_string())
     }
 
     #[cfg(test)]
@@ -218,7 +292,11 @@ impl LaneWorker {
             LaneWorkerMessage::ResumeApproval {
                 request_id,
                 response,
-            } => self.resume_approval(request_id, response),
+                permissions,
+            } => {
+                before_lane_approval_resume_for_test(&request_id);
+                self.resume_approval(request_id, response, permissions);
+            }
             LaneWorkerMessage::Cancel { command_id } => self.cancel(command_id),
             LaneWorkerMessage::Shutdown => {}
         }
@@ -434,7 +512,13 @@ impl LaneWorker {
             is_mutating: true,
             input_schema_hint: "path=<actual target>; operation metadata is redacted".to_string(),
         };
-        let input = self.permission_input(&operation);
+        let input = match self.permission_input(&operation) {
+            Ok(input) => input,
+            Err(error) => {
+                self.reject(command_id, error);
+                return;
+            }
+        };
         let permission = match self.permissions.lock() {
             Ok(permissions) => permissions.decide(&tool, &input),
             Err(_) => {
@@ -512,9 +596,18 @@ impl LaneWorker {
         self.emit(RuntimeEventKind::ApprovalRequested { approval });
     }
 
-    fn permission_input(&self, operation: &PendingOperation) -> ToolInput {
+    fn permission_input(&self, operation: &PendingOperation) -> Result<ToolInput, String> {
         let mut input = ToolInput::new();
-        let lane_path = lane_target_path(&self.repo, &self.lane);
+        let lane_path = match operation {
+            PendingOperation::Apply(LaneEffectRequest::Apply { cwd, .. }) => {
+                canonical_repo_root(cwd)?
+            }
+            PendingOperation::Start(_) => resolve_lane_target(&self.repo, &self.lane, true)?,
+            PendingOperation::SendInput(_) => resolve_lane_target(&self.repo, &self.lane, true)?,
+            _ => resolve_lane_target(&self.repo, &self.lane, true)?,
+        }
+        .to_string_lossy()
+        .to_string();
         match operation {
             PendingOperation::Create(_) => {
                 input.insert("path".to_string(), lane_path);
@@ -575,7 +668,8 @@ impl LaneWorker {
                 );
             }
             PendingOperation::Apply(LaneEffectRequest::Apply { cwd, unified_diff }) => {
-                input.insert("path".to_string(), cwd.to_string_lossy().to_string());
+                let _ = cwd;
+                input.insert("path".to_string(), lane_path);
                 input.insert(
                     "diff_summary".to_string(),
                     format!(
@@ -597,7 +691,7 @@ impl LaneWorker {
                 input.insert("path".to_string(), lane_path);
             }
         }
-        input
+        Ok(input)
     }
 
     fn execute_pending_operation(&mut self, operation: PendingOperation) {
@@ -642,7 +736,12 @@ impl LaneWorker {
         self.reject(pending.command_id, "lane mutation approval expired");
     }
 
-    fn resume_approval(&mut self, request_id: String, response: ApprovalResponse) {
+    fn resume_approval(
+        &mut self,
+        request_id: String,
+        response: ApprovalResponse,
+        mut permissions: PermissionEngine,
+    ) {
         let Some(pending) = self.pending_mutation.take() else {
             return;
         };
@@ -659,24 +758,19 @@ impl LaneWorker {
         };
         let unexpired = now_timestamp() < pending.expires_at;
         let permission_allowed = if valid_scope && unexpired && response.is_allowed() {
-            self.permissions
-                .lock()
-                .map(
-                    |mut permissions| match permissions.decide(&pending.tool, &pending.input) {
-                        PermissionDecision::Deny(_) => false,
-                        PermissionDecision::Allow(_) => true,
-                        PermissionDecision::Ask(ask) => matches!(
-                            permissions.apply_approval(
-                                response.clone(),
-                                &ask,
-                                &pending.tool,
-                                &pending.input,
-                            ),
-                            PermissionDecision::Allow(_)
-                        ),
-                    },
-                )
-                .unwrap_or(false)
+            match permissions.decide(&pending.tool, &pending.input) {
+                PermissionDecision::Deny(_) => false,
+                PermissionDecision::Allow(_) => true,
+                PermissionDecision::Ask(ask) => matches!(
+                    permissions.apply_approval(
+                        response.clone(),
+                        &ask,
+                        &pending.tool,
+                        &pending.input,
+                    ),
+                    PermissionDecision::Allow(_)
+                ),
+            }
         } else {
             false
         };
@@ -692,6 +786,22 @@ impl LaneWorker {
             audit_id: pending.audit_id.clone(),
         });
         if permission_allowed {
+            if let Ok(mut installed) = self.permissions.lock()
+                && installed.mode() != PermissionMode::Plan
+            {
+                let mut context = installed.context_snapshot();
+                for rule in permissions
+                    .context_snapshot()
+                    .allow_rules
+                    .into_iter()
+                    .filter(|rule| rule.source == PermissionRuleSource::Session)
+                {
+                    if !context.allow_rules.contains(&rule) {
+                        context.allow_rules.push(rule);
+                    }
+                }
+                installed.restore_context(context);
+            }
             self.execute_pending_operation(pending.operation);
         } else {
             if self.registered.load(Ordering::Acquire) {
@@ -979,25 +1089,6 @@ impl LaneWorker {
     fn emit(&self, kind: RuntimeEventKind) {
         (self.events)(self.owner.clone(), kind);
     }
-}
-
-fn lane_target_path(repo: &std::path::Path, lane: &AgentLaneRecord) -> String {
-    // Keep the same absolute spelling as PermissionEngine's scoped cwd. macOS may expose
-    // `/var` as `/private/var`; canonicalizing only one side would create a false escape.
-    let root = repo.to_path_buf();
-    lane.worktree
-        .as_deref()
-        .map(std::path::PathBuf::from)
-        .map(|path| {
-            if path.is_absolute() {
-                path
-            } else {
-                root.join(path)
-            }
-        })
-        .unwrap_or(root)
-        .to_string_lossy()
-        .to_string()
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -63,15 +63,20 @@ fixture 会在兼容性验证中失败；malformed 或 ambiguous legacy input �
 因此重放冻结的 0.3.0 corpus 仍保持已记录的 canonical bytes 与 digest。
 
 Core 负责 Lane 权限判定，并在每个 Lane 命令前从当前 runtime mode 刷新权限状态。
-所有有副作用的命令都按真实 worktree 或 repository target 判定；审批预览会红写 command、
-arguments、environment、input 和 diff payload。重启时，处于 starting、running 或等待
-审批状态的 Lane 会恢复为 blocked recovery fact，并继续绑定其持久化 session owner。
+所有有副作用的命令都使用 permission check 与 effect executor 共享的 canonical worktree
+或 repository target 判定。已有 symlink 只能解析到仓库内；缺失 target 通过最近的真实父目录
+解析，拒绝 symlink parent 与 `..`，并在本地 effect 前再次校验。审批预览会红写 command、
+arguments、environment、input 和 diff payload。重启时，处于 starting、running 或等待审批
+状态的 Lane 会恢复为 blocked recovery fact，并继续绑定其持久化 session owner。
 
-审批响应与 permission/mode 变更共用 supervisor command queue，因此排队中的权限降级会
-先于 Lane mutation 恢复生效。审批产生的 session/repository allow rule 会在常规权威权限
-刷新后保留，但 Plan/ReadOnly 刷新会立即丢弃这些 rule。Create 与 Lane 状态迁移和其他
-持久化 effect 使用同一 permission 与 mutation-policy gate。终态 worker 通过 completion
-reaper 自动注销并 join，不需要等待下一条 Lane 命令。
+普通 tool 与 Lane 的审批响应都会按 supervisor 中 permission/mode 变更的命令顺序判定。
+普通 tool 读取有序的 permission control state；每条 Lane 响应还会冻结一份 permission
+decision snapshot：较早的降级即使在 worker 恢复前切回 Build 也会拒绝 mutation；较早的
+Build 决策则先于后续降级完成。审批产生的 session/repository allow rule 只保存在所属 Lane
+worker 内，因此会在该 Lane 的常规权威权限刷新后保留，但不会授权另一条 Lane 或 owner；
+Plan/ReadOnly 刷新会立即丢弃这些 rule。Create 与 Lane 状态迁移和其他持久化 effect 使用
+同一 permission 与 mutation-policy gate。终态 worker 通过 completion reaper 自动注销并
+join，不需要等待下一条 Lane 命令。
 
 ## Client 边界
 

@@ -10,10 +10,10 @@ use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
     AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalDecision, ApprovalResponse,
     ApprovalScope, ContextBundleRecord, EventCursor, FRONTEND_SCHEMA_V1, MergeGateStatus,
-    ModelEvent, ModelRequest, PermissionBehavior, PermissionRule, PermissionRuleSource,
-    PermissionRuleValue, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEvent,
-    RuntimeEventKind, RuntimeOwner, RuntimeWireEvent, ToolCall, ToolInput, TranscriptPageRequest,
-    WorkMode,
+    ModelEvent, ModelRequest, PermissionBehavior, PermissionLevel, PermissionRule,
+    PermissionRuleSource, PermissionRuleValue, ReplayRequest, RuntimeCommand,
+    RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeWireEvent,
+    ToolCall, ToolInput, TranscriptPageRequest, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -2124,6 +2124,87 @@ fn runtime_supervisor_approval_production_timer_auto_denies_pending_tool() {
     assert!(events.iter().all(|event| {
         !matches!(
             &event.kind,
+            RuntimeEventKind::ToolCallFinished { success: true, .. }
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_permission_downgrade_precedes_pending_tool_allow() {
+    let cwd = temp_dir("runtime_supervisor_permission_epoch_cwd");
+    let home = temp_dir("runtime_supervisor_permission_epoch_home");
+    let output = cwd.join("should-not-run.txt");
+    let mut input = ToolInput::new();
+    input.insert(
+        "command".to_string(),
+        format!("printf blocked > {}", output.display()),
+    );
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_shell_permission_epoch".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-permission-epoch");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_input_permission_epoch",
+            RuntimeCommand::SubmitUserInput {
+                content: "run one mutating tool".to_string(),
+            },
+        )
+        .unwrap();
+    let requested = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let request_id = approval_id(&requested);
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_read_only_before_tool_allow",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::ReadOnly,
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_allow_after_read_only",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    request_id: resolved,
+                    decision: ApprovalDecision::Deny,
+                    ..
+                } if resolved == &request_id
+            )
+        })
+    });
+
+    assert!(
+        !output.exists(),
+        "permission downgrade must prevent tool mutation"
+    );
+    assert!(events.iter().all(|event| {
+        !matches!(
+            event.kind,
             RuntimeEventKind::ToolCallFinished { success: true, .. }
         )
     }));

@@ -72,15 +72,23 @@ projection vectors are omitted during serialization, so replaying the frozen
 
 Core owns lane permission evaluation and refreshes it from the current runtime
 mode before every lane command. Side-effecting commands are evaluated against
-their actual worktree or repository target; approval previews redact command,
-argument, environment, input, and diff payloads. Interrupted starting, running,
-or approval-waiting lanes hydrate as blocked recovery facts and remain bound to
-their durable session owner.
+one canonical worktree or repository target shared by permission checks and the
+effect executor. Existing symlinks may resolve only inside the repository;
+missing targets resolve through their nearest real parent, reject symlink
+parents and `..`, and are revalidated immediately before local effects.
+Approval previews redact command, argument, environment, input, and diff
+payloads. Interrupted starting, running, or approval-waiting lanes hydrate as
+blocked recovery facts and remain bound to their durable session owner.
 
-Approval responses share the supervisor command queue with permission and mode
-changes, so a queued downgrade takes effect before a lane mutation resumes.
-Approval-derived session/repository allow rules survive normal authoritative
-permission refreshes, but Plan/ReadOnly refreshes discard them immediately.
+Ordinary tool and lane approval responses observe supervisor command ordering
+with permission and mode changes. Ordinary tools consult the ordered permission
+control state, while each lane response captures a permission decision snapshot:
+an earlier downgrade denies the mutation even if Build is restored before the
+worker resumes, while an earlier Build decision completes before a later
+downgrade. Lane approval-derived session/repository allow rules are kept
+inside the owning lane worker, so they survive normal authoritative permission
+refreshes for that lane without authorizing another lane or owner; Plan/ReadOnly
+refreshes discard them immediately.
 Create and lane status transitions follow the same permission and mutation-policy
 gate as other durable effects. Terminal workers unregister and join through the
 completion reaper without waiting for another lane command.

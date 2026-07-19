@@ -5,8 +5,8 @@ use std::thread::{self, JoinHandle};
 
 use viden_permissions::PermissionEngine;
 use viden_types::{
-    AgentLaneRecord, ApprovalResponse, PermissionMode, PermissionRuleSource, RuntimeCommand,
-    RuntimeEventKind, RuntimeOwner, WorkMode, fresh_id, now_timestamp,
+    AgentLaneRecord, ApprovalResponse, RuntimeCommand, RuntimeEventKind, RuntimeOwner, WorkMode,
+    fresh_id, now_timestamp,
 };
 use viden_workflows::{
     lanes::{LaneEvent, LaneEventKind},
@@ -83,6 +83,16 @@ impl LaneSupervisor {
         work_mode: Arc<dyn Fn() -> WorkMode + Send + Sync>,
         approval_ttl_secs: u64,
     ) -> Self {
+        let repo = repo.canonicalize().unwrap_or(repo);
+        let permissions = permissions
+            .lock()
+            .map(|permissions| {
+                let mut scoped = PermissionEngine::new(repo.clone());
+                scoped.restore_context(permissions.context_snapshot());
+                scoped
+            })
+            .unwrap_or_else(|_| PermissionEngine::new(repo.clone()));
+        let permissions = Arc::new(Mutex::new(permissions));
         let (mut hydrated_lanes, mut hydration_error) = match persistence.load_lanes() {
             Ok(lanes) => (lanes, None),
             Err(error) => (
@@ -196,29 +206,28 @@ impl LaneSupervisor {
         &self.hydration_recoveries
     }
 
-    pub(crate) fn sync_permissions(&self, mut permissions: PermissionEngine) -> Result<(), String> {
-        let mut installed = self
+    pub(crate) fn sync_permissions(&self, permissions: PermissionEngine) -> Result<(), String> {
+        let mut scoped = PermissionEngine::new(self.repo.clone());
+        scoped.restore_context(permissions.context_snapshot());
+        *self
             .permissions
             .lock()
-            .map_err(|_| "lane permission registry poisoned".to_string())?;
-        let approved_rules = installed
-            .context_snapshot()
-            .allow_rules
-            .into_iter()
-            .filter(|rule| rule.source == PermissionRuleSource::Session);
-        let mut context = permissions.context_snapshot();
-        // Approval-derived allow rules belong to the lane permission session, while a
-        // fresh Plan/ReadOnly snapshot must tighten immediately and discard them.
-        if context.mode != PermissionMode::Plan {
-            for rule in approved_rules {
-                if !context.allow_rules.contains(&rule) {
-                    context.allow_rules.push(rule);
-                }
-            }
+            .map_err(|_| "lane permission registry poisoned".to_string())? = scoped.clone();
+        let lanes = self
+            .lanes
+            .lock()
+            .map_err(|_| "lane registry poisoned".to_string())?;
+        for worker in lanes.values() {
+            worker.sync_permissions(scoped.clone())?;
         }
-        permissions.restore_context(context);
-        *installed = permissions;
         Ok(())
+    }
+
+    fn permission_template(&self) -> Result<PermissionEngine, String> {
+        self.permissions
+            .lock()
+            .map(|permissions| permissions.clone())
+            .map_err(|_| "lane permission registry poisoned".to_string())
     }
 
     #[cfg(test)]
@@ -327,7 +336,7 @@ impl LaneSupervisor {
                         lane,
                         self.repo.clone(),
                         Arc::clone(&self.persistence),
-                        Arc::clone(&self.permissions),
+                        self.permission_template()?,
                         Arc::clone(&self.effects),
                         Arc::clone(&self.events),
                         self.approval_ttl_secs,
@@ -395,9 +404,11 @@ impl LaneSupervisor {
             );
             return Ok(Some(false));
         }
+        let permissions = worker.permission_snapshot()?;
         worker.send(LaneWorkerMessage::ResumeApproval {
             request_id: request_id.to_string(),
             response,
+            permissions,
         })?;
         Ok(Some(true))
     }
@@ -503,7 +514,7 @@ impl LaneSupervisor {
             lane.clone(),
             self.repo.clone(),
             Arc::clone(&self.persistence),
-            Arc::clone(&self.permissions),
+            self.permission_template()?,
             Arc::clone(&self.effects),
             Arc::clone(&self.events),
             self.approval_ttl_secs,

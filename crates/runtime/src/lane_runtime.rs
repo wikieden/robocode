@@ -108,16 +108,23 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
     fn execute(&self, request: LaneEffectRequest) -> Result<LaneEffectResult, String> {
         match request {
             LaneEffectRequest::Create { repo, lane } => {
-                let Some(path) = lane.worktree else {
+                if lane.worktree.is_none() {
                     return Ok(LaneEffectResult::success(
                         "lane registered without a worktree",
                     ));
-                };
+                }
+                let mut lane = lane;
+                lane.worktree = Some(
+                    resolve_lane_target(&repo, &lane, true)?
+                        .to_string_lossy()
+                        .to_string(),
+                );
+                let repo = canonical_repo_root(&repo)?;
                 let outcome = self
                     .worktrees
                     .create_worktree(&WorktreeCreateRequest {
                         repo,
-                        path,
+                        path: lane.worktree.expect("resolved lane worktree"),
                         create_branch: lane.branch.is_some(),
                         branch: lane.branch,
                     })
@@ -218,6 +225,7 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
                 Ok(LaneEffectResult::success("lane input delivered"))
             }
             LaneEffectRequest::Apply { cwd, unified_diff } => {
+                let cwd = canonical_repo_root(&cwd)?;
                 let outcome = self
                     .patches
                     .apply(&PatchRequest { cwd, unified_diff })
@@ -244,21 +252,22 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
                 }
             }
             LaneEffectRequest::Cleanup { repo, lane, force } => {
-                let Some(path) = lane.worktree else {
+                if lane.worktree.is_none() {
                     return Ok(LaneEffectResult::success("lane cleanup completed"));
-                };
-                let configured = PathBuf::from(&path);
-                let resolved = if configured.is_absolute() {
-                    configured
-                } else {
-                    repo.join(configured)
-                };
+                }
+                let mut lane = lane;
+                let resolved = resolve_lane_target(&repo, &lane, true)?;
                 if !resolved.exists() {
                     return Ok(LaneEffectResult::success("lane cleanup already reconciled"));
                 }
+                lane.worktree = Some(resolved.to_string_lossy().to_string());
                 let outcome = self
                     .worktrees
-                    .remove_worktree(&WorktreeRemoveRequest { repo, path, force })
+                    .remove_worktree(&WorktreeRemoveRequest {
+                        repo: canonical_repo_root(&repo)?,
+                        path: lane.worktree.expect("resolved lane worktree"),
+                        force,
+                    })
                     .map_err(|error| error.to_string())?;
                 Ok(LaneEffectResult::success(outcome.output))
             }
@@ -289,6 +298,7 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
         let LaneEffectRequest::Apply { cwd, unified_diff } = request else {
             return Err("transactional lane apply requires an apply request".to_string());
         };
+        let cwd = canonical_repo_root(&cwd)?;
         let outcome = self
             .patches
             .apply_transactionally(&PatchRequest { cwd, unified_diff }, persist)
@@ -316,13 +326,19 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
     }
 
     fn compensate_create(&self, repo: &Path, lane: &AgentLaneRecord) -> Result<(), String> {
-        let Some(path) = lane.worktree.clone() else {
+        if lane.worktree.is_none() {
             return Ok(());
-        };
+        }
+        let mut lane = lane.clone();
+        lane.worktree = Some(
+            resolve_lane_target(repo, &lane, true)?
+                .to_string_lossy()
+                .to_string(),
+        );
         self.worktrees
             .remove_worktree(&WorktreeRemoveRequest {
-                repo: repo.to_path_buf(),
-                path,
+                repo: canonical_repo_root(repo)?,
+                path: lane.worktree.expect("resolved lane worktree"),
                 force: true,
             })
             .map(|_| ())
@@ -331,21 +347,93 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
 }
 
 fn lane_working_directory(repo: &Path, lane: &AgentLaneRecord) -> Result<PathBuf, String> {
-    let configured = lane
-        .worktree
-        .as_deref()
-        .map(PathBuf::from)
-        .map(|path| {
-            if path.is_absolute() {
-                path
-            } else {
-                repo.join(path)
+    resolve_lane_target(repo, lane, false)
+}
+
+pub(crate) fn canonical_repo_root(repo: &Path) -> Result<PathBuf, String> {
+    repo.canonicalize()
+        .map_err(|error| format!("invalid repository root `{}`: {error}", repo.display()))
+}
+
+/// Resolve the filesystem object that both permission checks and local effects use.
+/// Missing create/cleanup targets are anchored through their nearest real parent so
+/// symlinks and `..` cannot turn an in-repo spelling into an out-of-repo effect.
+pub(crate) fn resolve_lane_target(
+    repo: &Path,
+    lane: &AgentLaneRecord,
+    allow_missing: bool,
+) -> Result<PathBuf, String> {
+    let root = canonical_repo_root(repo)?;
+    let Some(raw) = lane.worktree.as_deref() else {
+        return Ok(root);
+    };
+    let configured = Path::new(raw);
+    if configured
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(format!("lane target `{raw}` escapes repository root"));
+    }
+    let candidate = if configured.is_absolute() {
+        configured.to_path_buf()
+    } else {
+        root.join(configured)
+    };
+    let resolved = if std::fs::symlink_metadata(&candidate).is_ok() {
+        candidate
+            .canonicalize()
+            .map_err(|error| format!("invalid lane target `{}`: {error}", candidate.display()))?
+    } else if allow_missing {
+        if !candidate.starts_with(&root) {
+            return Err(format!(
+                "lane target `{}` escapes repository root `{}`",
+                candidate.display(),
+                root.display()
+            ));
+        }
+        let mut parent = candidate.parent();
+        while let Some(path) = parent {
+            if path == root {
+                break;
             }
-        })
-        .unwrap_or_else(|| repo.to_path_buf());
-    configured
-        .canonicalize()
-        .map_err(|error| format!("invalid lane root `{}`: {error}", configured.display()))
+            if std::fs::symlink_metadata(path)
+                .is_ok_and(|metadata| metadata.file_type().is_symlink())
+            {
+                return Err(format!(
+                    "lane target `{}` has a symlink parent `{}`",
+                    candidate.display(),
+                    path.display()
+                ));
+            }
+            parent = path.parent();
+        }
+        let mut ancestor = candidate.as_path();
+        while std::fs::symlink_metadata(ancestor).is_err() {
+            ancestor = ancestor.parent().ok_or_else(|| {
+                format!("lane target `{}` has no scoped parent", candidate.display())
+            })?;
+        }
+        let suffix = candidate
+            .strip_prefix(ancestor)
+            .map_err(|_| format!("lane target `{}` has no scoped parent", candidate.display()))?;
+        ancestor
+            .canonicalize()
+            .map_err(|error| format!("invalid lane target `{}`: {error}", candidate.display()))?
+            .join(suffix)
+    } else {
+        return Err(format!(
+            "invalid lane target `{}`: path does not exist",
+            candidate.display()
+        ));
+    };
+    if !resolved.starts_with(&root) {
+        return Err(format!(
+            "lane target `{}` escapes repository root `{}`",
+            resolved.display(),
+            root.display()
+        ));
+    }
+    Ok(resolved)
 }
 
 /// Resolve one output path for every local lane route. The nearest existing

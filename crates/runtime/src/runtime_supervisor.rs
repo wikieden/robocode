@@ -13,11 +13,11 @@ use viden_provider::ModelRequestControl;
 use viden_types::{
     ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk,
     ApprovalScope, ApprovalTarget, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1,
-    FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, PermissionPrompt,
-    ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView,
-    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
-    RuntimeViewState, RuntimeWireEvent, TranscriptPage, TranscriptPageRequest, fresh_id,
-    now_timestamp,
+    FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, PermissionLevel,
+    PermissionPrompt, ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
+    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, TranscriptPage,
+    TranscriptPageRequest, WorkMode, fresh_id, now_timestamp,
 };
 
 use crate::{
@@ -62,6 +62,43 @@ struct ActiveRuntimeControl {
     owner: RuntimeOwner,
     control: ModelRequestControl,
     state: ActiveJobState,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PermissionControlState {
+    work_mode: WorkMode,
+    permission_level: PermissionLevel,
+    epoch: u64,
+}
+
+impl PermissionControlState {
+    fn blocks_mutation(self) -> bool {
+        self.work_mode != WorkMode::Build || self.permission_level == PermissionLevel::ReadOnly
+    }
+
+    fn apply(&mut self, command: &RuntimeCommand) {
+        match command {
+            RuntimeCommand::SetWorkMode { mode } => {
+                self.work_mode = *mode;
+                if *mode == WorkMode::Build && self.permission_level == PermissionLevel::ReadOnly {
+                    self.permission_level = PermissionLevel::Ask;
+                } else if *mode != WorkMode::Build {
+                    self.permission_level = PermissionLevel::ReadOnly;
+                }
+                self.epoch = self.epoch.saturating_add(1);
+            }
+            RuntimeCommand::SetPermissionLevel { level } => {
+                self.permission_level = *level;
+                if *level == PermissionLevel::ReadOnly {
+                    self.work_mode = WorkMode::Plan;
+                } else if self.work_mode == WorkMode::Plan {
+                    self.work_mode = WorkMode::Build;
+                }
+                self.epoch = self.epoch.saturating_add(1);
+            }
+            _ => {}
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -208,6 +245,7 @@ pub struct RuntimeSupervisor {
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_timers: Arc<ApprovalTimerRegistry>,
     lane_supervisor: Arc<LaneSupervisor>,
+    permission_control: Arc<Mutex<PermissionControlState>>,
     worker_alive: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
@@ -241,6 +279,11 @@ impl RuntimeSupervisor {
         lane_effects: Arc<dyn LaneEffectExecutor>,
         lane_persistence: Option<Arc<dyn LanePersistence>>,
     ) -> Self {
+        let permission_control = Arc::new(Mutex::new(PermissionControlState {
+            work_mode: engine.work_mode(),
+            permission_level: engine.permission_level(),
+            epoch: 0,
+        }));
         let (command_sender, command_receiver) = mpsc::channel();
         let (event_sender, event_receiver) = mpsc::channel();
         let active_control: ActiveControlRegistry = Arc::new(Mutex::new(BTreeMap::new()));
@@ -333,6 +376,7 @@ impl RuntimeSupervisor {
             pending_approvals,
             approval_timers,
             lane_supervisor,
+            permission_control,
             worker_alive,
             worker: Some(worker),
         }
@@ -406,6 +450,15 @@ impl RuntimeSupervisor {
         command_id: String,
         command: RuntimeCommand,
     ) -> Result<(), String> {
+        if matches!(
+            command,
+            RuntimeCommand::SetWorkMode { .. } | RuntimeCommand::SetPermissionLevel { .. }
+        ) {
+            self.permission_control
+                .lock()
+                .map_err(|_| "permission control state poisoned".to_string())?
+                .apply(&command);
+        }
         match command {
             RuntimeCommand::CancelActiveTurn => {
                 if self.lane_supervisor.cancel(&owner, command_id.clone())? {
@@ -545,6 +598,20 @@ impl RuntimeSupervisor {
                         return Ok(());
                     }
                     approvals.remove(&request_id).expect("pending approval")
+                };
+                let response = if matches!(&pending.target, PendingApprovalTarget::Channel { .. })
+                    && response.is_allowed()
+                    && self
+                        .permission_control
+                        .lock()
+                        .map_err(|_| "permission control state poisoned".to_string())?
+                        .blocks_mutation()
+                {
+                    ApprovalResponse::deny(Some(
+                        "permission or work mode changed before approval resumed".to_string(),
+                    ))
+                } else {
+                    response
                 };
                 emit_event(
                     &self.event_bus,
