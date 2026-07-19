@@ -11,12 +11,14 @@ use viden_types::{
     RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
     RuntimeViewState, RuntimeWireEvent, WorkMode,
 };
+use viden_workflows::{lanes::LaneEvent, stores::WorkflowStore};
 
 use crate::{
     RuntimeSupervisor, SessionEngine,
     lane_runtime::{
         LaneEffectExecutor, LaneEffectRequest, LaneEffectResult, resolve_lane_output_log,
     },
+    lane_supervisor::LanePersistence,
 };
 
 use super::{SequenceProvider, temp_dir};
@@ -698,6 +700,167 @@ fn lane_supervisor_hydrates_persisted_lane_for_restart_commands() {
 }
 
 #[test]
+fn lane_supervisor_compensates_create_and_start_and_preserves_cleanup_intent() {
+    // Create: the worktree created by this command is removed when the first
+    // durable event append fails.
+    let cwd = temp_dir("lane_create_compensation_cwd");
+    let home = temp_dir("lane_create_compensation_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    let persistence = Arc::new(InjectableLanePersistence::new(store, [1]));
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_and_persistence_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+        persistence,
+    );
+    supervisor
+        .send_command_from_owner(
+            owner("lane-create-fail"),
+            "create_fail",
+            RuntimeCommand::CreateLane {
+                lane: lane("lane-create-fail"),
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneRecoveryRequired { .. },
+                    ..
+                })
+            )
+        })
+    });
+    assert!(
+        effects
+            .calls
+            .lock()
+            .unwrap()
+            .contains(&"compensate_create:lane-create-fail".to_string())
+    );
+    drop(supervisor);
+
+    // Start: a failed Running append stops exactly the runtime spawned by the
+    // command, so a handle cannot leak or be overwritten.
+    let cwd = temp_dir("lane_start_compensation_cwd");
+    let home = temp_dir("lane_start_compensation_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    let persistence = Arc::new(InjectableLanePersistence::new(store, [3]));
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_and_persistence_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+        persistence,
+    );
+    let start_owner = owner("lane-start-fail");
+    let mut autonomous = lane("lane-start-fail");
+    autonomous.mutation_policy = MutationPolicy::Autonomous;
+    supervisor
+        .send_command_from_owner(
+            start_owner.clone(),
+            "create_start_fail",
+            RuntimeCommand::CreateLane { lane: autonomous },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            start_owner,
+            "start_fail",
+            RuntimeCommand::StartLane {
+                lane_id: "lane-start-fail".to_string(),
+                command: "worker".to_string(),
+                args: Vec::new(),
+                env: Vec::new(),
+                output_log: None,
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneRecoveryRequired { lane_id, .. }, .. }) if lane_id == "lane-start-fail"))
+    });
+    let calls = effects.calls.lock().unwrap();
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| *call == "start:lane-start-fail")
+            .count(),
+        1
+    );
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| *call == "stop:lane-start-fail")
+            .count(),
+        1
+    );
+    drop(calls);
+    drop(supervisor);
+
+    // Cleanup: completion failure leaves the durable pre-effect Starting
+    // intent replayable. No fake recreation is attempted after force removal.
+    let cwd = temp_dir("lane_cleanup_intent_cwd");
+    let home = temp_dir("lane_cleanup_intent_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    let persistence = Arc::new(InjectableLanePersistence::new(store.clone(), [3]));
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_and_persistence_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+        persistence,
+    );
+    let owner = owner("lane-cleanup-fail");
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "create_cleanup_fail",
+            RuntimeCommand::CreateLane {
+                lane: lane("lane-cleanup-fail"),
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cleanup_fail",
+            RuntimeCommand::CleanupLane {
+                lane_id: "lane-cleanup-fail".to_string(),
+                force: true,
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneRecoveryRequired { reason, .. }, .. }) if reason.contains("completion")))
+    });
+    assert!(
+        effects
+            .calls
+            .lock()
+            .unwrap()
+            .contains(&"cleanup:lane-cleanup-fail".to_string())
+    );
+    assert_eq!(
+        store
+            .load_lane_state()
+            .unwrap()
+            .lane("lane-cleanup-fail")
+            .unwrap()
+            .status,
+        LaneStatus::Starting
+    );
+}
+
+#[test]
 fn lane_supervisor_keeps_waiting_lane_isolated_and_routes_owner_events() {
     let cwd = temp_dir("lane_supervisor_owner_routing_cwd");
     let home = temp_dir("lane_supervisor_owner_routing_home");
@@ -975,6 +1138,51 @@ impl LaneEffectExecutor for RecordingLaneEffects {
         };
         self.calls.lock().unwrap().push(call);
         Ok(LaneEffectResult::success("effect completed"))
+    }
+
+    fn compensate_create(
+        &self,
+        _repo: &std::path::Path,
+        lane: &AgentLaneRecord,
+    ) -> Result<(), String> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("compensate_create:{}", lane.id));
+        Ok(())
+    }
+}
+
+struct InjectableLanePersistence {
+    store: WorkflowStore,
+    append_count: AtomicUsize,
+    fail_at: Vec<usize>,
+}
+
+impl InjectableLanePersistence {
+    fn new(store: WorkflowStore, fail_at: impl IntoIterator<Item = usize>) -> Self {
+        Self {
+            store,
+            append_count: AtomicUsize::new(0),
+            fail_at: fail_at.into_iter().collect(),
+        }
+    }
+}
+
+impl LanePersistence for InjectableLanePersistence {
+    fn append(&self, event: &LaneEvent) -> Result<(), String> {
+        let append = self.append_count.fetch_add(1, Ordering::SeqCst) + 1;
+        if self.fail_at.contains(&append) {
+            Err(format!("injected lane append failure at {append}"))
+        } else {
+            self.store.append_lane_event_checked(event)
+        }
+    }
+
+    fn load_lanes(&self) -> Result<std::collections::BTreeMap<String, AgentLaneRecord>, String> {
+        self.store
+            .load_lane_state()
+            .map(|state| state.lanes().clone())
     }
 }
 

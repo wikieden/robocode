@@ -1878,6 +1878,43 @@ fn runtime_supervisor_approval_request_and_resolution_share_owner_and_audit_id()
 }
 
 #[test]
+fn runtime_supervisor_drop_joins_pending_approval_timer_and_worker() {
+    let cwd = temp_dir("runtime_supervisor_drop_join_cwd");
+    let home = temp_dir("runtime_supervisor_drop_join_home");
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "printf pending".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_pending_drop".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "cmd_pending_drop",
+            RuntimeCommand::SubmitUserInput {
+                content: "run pending command".to_string(),
+            },
+        )
+        .unwrap();
+    collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let started = Instant::now();
+    drop(supervisor);
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "supervisor drop left a worker or approval timer detached"
+    );
+}
+
+#[test]
 fn runtime_supervisor_approval_wrong_owner_is_rejected_without_resolving_pending_request() {
     let cwd = temp_dir("runtime_supervisor_approval_owner_cwd");
     let home = temp_dir("runtime_supervisor_approval_owner_home");

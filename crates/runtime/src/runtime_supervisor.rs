@@ -24,7 +24,7 @@ use crate::{
     SessionEngine,
     event_journal::RuntimeEventJournal,
     lane_runtime::{LaneEffectExecutor, LocalLaneEffectExecutor},
-    lane_supervisor::LaneSupervisor,
+    lane_supervisor::{LanePersistence, LaneSupervisor, WorkflowLanePersistence},
     runtime_contract::{
         ContextRetrievalJob, SupervisorContextRetrievalPreparation, execute_context_retrieval_job,
         redacted_runtime_command_for_event,
@@ -212,17 +212,28 @@ impl RuntimeSupervisor {
     }
 
     fn start_with_approval_ttl(engine: SessionEngine, approval_ttl_secs: u64) -> Self {
-        Self::start_with_effects(
+        Self::start_with_effects_and_persistence(
             engine,
             approval_ttl_secs,
             Arc::new(LocalLaneEffectExecutor::default()),
+            None,
         )
     }
 
+    #[cfg(test)]
     fn start_with_effects(
+        engine: SessionEngine,
+        approval_ttl_secs: u64,
+        lane_effects: Arc<dyn LaneEffectExecutor>,
+    ) -> Self {
+        Self::start_with_effects_and_persistence(engine, approval_ttl_secs, lane_effects, None)
+    }
+
+    fn start_with_effects_and_persistence(
         mut engine: SessionEngine,
         approval_ttl_secs: u64,
         lane_effects: Arc<dyn LaneEffectExecutor>,
+        lane_persistence: Option<Arc<dyn LanePersistence>>,
     ) -> Self {
         let (command_sender, command_receiver) = mpsc::channel();
         let (event_sender, event_receiver) = mpsc::channel();
@@ -239,7 +250,9 @@ impl RuntimeSupervisor {
         };
 
         let lane_repo = engine.cwd().to_path_buf();
-        let lane_workflows = engine.workflow_store();
+        let lane_persistence = lane_persistence.unwrap_or_else(|| {
+            Arc::new(WorkflowLanePersistence(engine.workflow_store())) as Arc<dyn LanePersistence>
+        });
         let lane_permissions = Arc::new(Mutex::new(engine.lane_permission_engine()));
         let lane_event_bus = event_bus.clone();
         let lane_events = Arc::new(move |owner, kind| {
@@ -254,7 +267,7 @@ impl RuntimeSupervisor {
         });
         let lane_supervisor = Arc::new(LaneSupervisor::new(
             lane_repo,
-            lane_workflows,
+            lane_persistence,
             lane_permissions,
             lane_effects,
             lane_events,
@@ -320,6 +333,15 @@ impl RuntimeSupervisor {
         approval_ttl_secs: u64,
     ) -> Self {
         Self::start_with_effects(engine, approval_ttl_secs, lane_effects)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_with_lane_effects_and_persistence_for_test(
+        engine: SessionEngine,
+        lane_effects: Arc<dyn LaneEffectExecutor>,
+        lane_persistence: Arc<dyn LanePersistence>,
+    ) -> Self {
+        Self::start_with_effects_and_persistence(engine, 300, lane_effects, Some(lane_persistence))
     }
 
     pub fn send_command(

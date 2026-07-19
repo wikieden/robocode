@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use viden_core::{CORE_CLIENT_CAPABILITIES, CORE_EXTENSION_CAPABILITIES, frontend_capabilities};
+use viden_core::{
+    CORE_CLIENT_CAPABILITIES, CORE_CLIENT_VERSION, CORE_EXTENSION_CAPABILITIES,
+    frontend_capabilities, local_core_handshake,
+};
 use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
     AgentRoute, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
@@ -122,6 +125,8 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
     assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
     assert!(extension_manifest.contains("candidate_component_version = \"0.3.1\""));
     assert!(extension_manifest.contains("compatibility = \"additive_capability_gated\""));
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.1");
+    assert_eq!(local_core_handshake().core_version, "0.3.1");
 }
 
 #[test]

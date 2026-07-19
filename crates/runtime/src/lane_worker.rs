@@ -10,9 +10,10 @@ use viden_types::{
     LaneStatus, PermissionAskDecision, PermissionDecision, RuntimeCommand, RuntimeErrorView,
     RuntimeEventKind, RuntimeOwner, ToolInput, ToolSpec, fresh_id, now_timestamp,
 };
-use viden_workflows::{lanes::LaneEvent, stores::WorkflowStore};
+use viden_workflows::lanes::LaneEvent;
 
 use crate::lane_runtime::{LaneEffectExecutor, LaneEffectRequest};
+use crate::lane_supervisor::LanePersistence;
 
 pub(crate) type LaneEventSink = Arc<dyn Fn(RuntimeOwner, RuntimeEventKind) + Send + Sync>;
 
@@ -44,7 +45,7 @@ impl LaneWorkerHandle {
         owner: RuntimeOwner,
         lane: AgentLaneRecord,
         repo: std::path::PathBuf,
-        workflows: WorkflowStore,
+        persistence: Arc<dyn LanePersistence>,
         permissions: Arc<Mutex<PermissionEngine>>,
         effects: Arc<dyn LaneEffectExecutor>,
         events: LaneEventSink,
@@ -60,7 +61,7 @@ impl LaneWorkerHandle {
                 owner: worker_owner,
                 lane: worker_lane,
                 repo,
-                workflows,
+                persistence,
                 permissions,
                 effects,
                 events,
@@ -131,7 +132,7 @@ struct LaneWorker {
     owner: RuntimeOwner,
     lane: AgentLaneRecord,
     repo: std::path::PathBuf,
-    workflows: WorkflowStore,
+    persistence: Arc<dyn LanePersistence>,
     permissions: Arc<Mutex<PermissionEngine>>,
     effects: Arc<dyn LaneEffectExecutor>,
     events: LaneEventSink,
@@ -547,8 +548,8 @@ impl LaneWorker {
             now_timestamp(),
             self.owner.session_id.clone(),
         );
-        let workflows = self.workflows.clone();
-        let mut persist = || workflows.append_lane_event_checked(&event);
+        let persistence = Arc::clone(&self.persistence);
+        let mut persist = || persistence.append(&event);
         match self.effects.apply_transactionally(request, &mut persist) {
             Ok(result) if result.conflict_paths.is_empty() => {
                 self.output("receipt", result.output);
@@ -580,7 +581,7 @@ impl LaneWorker {
             now_timestamp(),
             self.owner.session_id.clone(),
         );
-        if let Err(error) = self.workflows.append_lane_event_checked(&event) {
+        if let Err(error) = self.persistence.append(&event) {
             self.emit(RuntimeEventKind::LaneRecoveryRequired {
                 lane_id: self.lane.id.clone(),
                 reason: error.clone(),

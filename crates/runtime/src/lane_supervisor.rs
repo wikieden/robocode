@@ -13,9 +13,26 @@ use crate::lane_runtime::{LaneEffectExecutor, LaneEffectRequest};
 use crate::lane_worker::{LaneEventSink, LaneWorkerHandle, LaneWorkerMessage};
 use crate::runtime_contract::redacted_runtime_command_for_event;
 
+pub(crate) trait LanePersistence: Send + Sync {
+    fn append(&self, event: &LaneEvent) -> Result<(), String>;
+    fn load_lanes(&self) -> Result<BTreeMap<String, AgentLaneRecord>, String>;
+}
+
+pub(crate) struct WorkflowLanePersistence(pub(crate) WorkflowStore);
+
+impl LanePersistence for WorkflowLanePersistence {
+    fn append(&self, event: &LaneEvent) -> Result<(), String> {
+        self.0.append_lane_event_checked(event)
+    }
+
+    fn load_lanes(&self) -> Result<BTreeMap<String, AgentLaneRecord>, String> {
+        self.0.load_lane_state().map(|state| state.lanes().clone())
+    }
+}
+
 pub(crate) struct LaneSupervisor {
     repo: PathBuf,
-    workflows: WorkflowStore,
+    persistence: Arc<dyn LanePersistence>,
     permissions: Arc<Mutex<PermissionEngine>>,
     effects: Arc<dyn LaneEffectExecutor>,
     events: LaneEventSink,
@@ -28,20 +45,17 @@ pub(crate) struct LaneSupervisor {
 impl LaneSupervisor {
     pub(crate) fn new(
         repo: PathBuf,
-        workflows: WorkflowStore,
+        persistence: Arc<dyn LanePersistence>,
         permissions: Arc<Mutex<PermissionEngine>>,
         effects: Arc<dyn LaneEffectExecutor>,
         events: LaneEventSink,
         work_mode: Arc<dyn Fn() -> WorkMode + Send + Sync>,
         approval_ttl_secs: u64,
     ) -> Self {
-        let hydrated_lanes = workflows
-            .load_lane_state()
-            .map(|state| state.lanes().clone())
-            .unwrap_or_default();
+        let hydrated_lanes = persistence.load_lanes().unwrap_or_default();
         Self {
             repo,
-            workflows,
+            persistence,
             permissions,
             effects,
             events,
@@ -120,7 +134,7 @@ impl LaneSupervisor {
                         owner.clone(),
                         lane,
                         self.repo.clone(),
-                        self.workflows.clone(),
+                        Arc::clone(&self.persistence),
                         Arc::clone(&self.permissions),
                         Arc::clone(&self.effects),
                         Arc::clone(&self.events),
@@ -266,7 +280,7 @@ impl LaneSupervisor {
             now_timestamp(),
             owner.session_id.clone(),
         );
-        if let Err(error) = self.workflows.append_lane_event_checked(&event) {
+        if let Err(error) = self.persistence.append(&event) {
             let compensation = self.effects.compensate_create(&self.repo, &lane);
             self.emit(
                 owner.clone(),
@@ -287,7 +301,7 @@ impl LaneSupervisor {
             owner.clone(),
             lane.clone(),
             self.repo.clone(),
-            self.workflows.clone(),
+            Arc::clone(&self.persistence),
             Arc::clone(&self.permissions),
             Arc::clone(&self.effects),
             Arc::clone(&self.events),
