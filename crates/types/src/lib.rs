@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod context;
 mod lsp;
+mod protocol;
 mod runtime;
 mod transcript;
 mod workflow;
@@ -17,6 +18,11 @@ pub use context::{
     ProviderCacheObservationRecord, TokenUsage,
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
+pub use protocol::{
+    CapabilityId, CoreHandshake, EventCursor, FRONTEND_SCHEMA_V1, GapRecovery, ReplayBatch,
+    ReplayRequest, RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeOwner,
+    RuntimeSnapshotEnvelope, RuntimeWireEvent, SchemaVersion,
+};
 pub use runtime::{
     ApprovalRequestView, CanonicalEvidenceReference, CommandAction, EvidenceCanonicalReasonCode,
     EvidenceCanonicalStatus, EvidenceCanonicalStatusReport, EvidenceProducer, EvidenceQualityFacts,

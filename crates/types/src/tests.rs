@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 #[test]
 fn work_modes_and_permission_levels_parse_cli_names() {
@@ -481,6 +482,111 @@ fn runtime_snapshot_for_contract() -> RuntimeSnapshot {
         loaded_config_files: vec![PathBuf::from("/tmp/viden/config.toml")],
         startup_overrides: vec!["--provider=deepseek".to_string()],
     }
+}
+
+#[test]
+fn runtime_v1_envelopes_roundtrip_owner_cursor_and_capabilities() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-a".to_string(),
+        project_id: "project-a".to_string(),
+        lane_id: Some("lane-a".to_string()),
+        session_id: Some("session-a".to_string()),
+        task_id: Some("task-a".to_string()),
+        turn_id: Some("turn-a".to_string()),
+    };
+    let cursor = EventCursor {
+        stream_id: "stream-a".to_string(),
+        sequence: 7,
+    };
+    let capabilities = BTreeSet::from([
+        CapabilityId("runtime.replay".to_string()),
+        CapabilityId("runtime.snapshot".to_string()),
+    ]);
+    let event = RuntimeEvent::with_timestamp(
+        cursor.sequence,
+        Some(17),
+        RuntimeEventKind::AssistantDelta {
+            message_id: "message-a".to_string(),
+            task_id: owner.task_id.clone(),
+            content: "hello".to_string(),
+        },
+    );
+    let command = RuntimeCommandEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        client_id: "tui-a".to_string(),
+        command_id: "command-a".to_string(),
+        owner: owner.clone(),
+        command: RuntimeCommand::QueueFollowUp {
+            content: "continue".to_string(),
+        },
+    };
+    let event = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: owner.clone(),
+        cursor: cursor.clone(),
+        event: RuntimeWireEvent::Known(event),
+    };
+    let snapshot = RuntimeSnapshotEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        capabilities: capabilities.clone(),
+        cursor: cursor.clone(),
+        snapshot: runtime_snapshot_for_contract(),
+        view: RuntimeViewState::new(runtime_snapshot_for_contract()),
+    };
+    let handshake = CoreHandshake {
+        core_version: "0.3.0".to_string(),
+        supported_schema_versions: vec![FRONTEND_SCHEMA_V1],
+        active_schema_version: FRONTEND_SCHEMA_V1,
+        capabilities,
+    };
+
+    let encoded = serde_json::to_string(&(command, event, snapshot, handshake)).unwrap();
+    let (command, event, snapshot, handshake): (
+        RuntimeCommandEnvelope,
+        RuntimeEventEnvelope,
+        RuntimeSnapshotEnvelope,
+        CoreHandshake,
+    ) = serde_json::from_str(&encoded).unwrap();
+
+    assert_eq!(command.schema_version, SchemaVersion(1));
+    assert_eq!(command.owner, owner);
+    assert_eq!(event.cursor, cursor);
+    assert!(matches!(event.event, RuntimeWireEvent::Known(ref event) if event.sequence == 7));
+    assert_eq!(snapshot.capabilities, handshake.capabilities);
+}
+
+#[test]
+fn runtime_v1_unknown_event_is_preserved() {
+    let raw = r#"{
+        "schema_version": 1,
+        "owner": {
+            "workspace_id": "workspace-a",
+            "project_id": "project-a",
+            "lane_id": "lane-a",
+            "session_id": "session-a",
+            "task_id": "task-a",
+            "turn_id": "turn-a"
+        },
+        "cursor": {"stream_id": "stream-a", "sequence": 9},
+        "event": {
+            "sequence": 9,
+            "timestamp": 17,
+            "kind": {"type": "future_event", "payload": {"x": 1}}
+        }
+    }"#;
+
+    let decoded: RuntimeEventEnvelope = serde_json::from_str(raw).unwrap();
+    assert_eq!(decoded.schema_version, FRONTEND_SCHEMA_V1);
+    assert_eq!(decoded.cursor.stream_id, "stream-a");
+    assert!(matches!(
+        decoded.event,
+        RuntimeWireEvent::Unknown { ref event_type, ref payload }
+            if event_type == "future_event" && payload == &serde_json::json!({"x": 1})
+    ));
+
+    let encoded = serde_json::to_string(&decoded).unwrap();
+    let replayed: RuntimeEventEnvelope = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(replayed, decoded);
 }
 
 #[test]
