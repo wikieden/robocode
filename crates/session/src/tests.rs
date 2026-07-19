@@ -465,6 +465,54 @@ fn transcript_page_rejects_wrong_session_cursor_and_loads_exact_other_session() 
 }
 
 #[test]
+fn transcript_page_exact_lookup_recovers_project_jsonl_when_sqlite_index_is_stale() {
+    let home = temp_home("transcript_page_stale_index");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store_a = SessionStore::new_with_home(&home, &cwd, Some("session_a".into())).unwrap();
+    store_a
+        .append_entry(&TranscriptEntry::Message {
+            message: message_with_id("msg-a", Role::User, "indexed", 1),
+        })
+        .unwrap();
+    if !sqlite_available() {
+        return;
+    }
+    let store_b = SessionStore::new_with_home(&home, &cwd, Some("session_b".into())).unwrap();
+    fs::write(
+        store_b.transcript_path(),
+        TranscriptEntry::Message {
+            message: message_with_id("msg-b", Role::User, "jsonl only", 2),
+        }
+        .to_json_line()
+            + "\n",
+    )
+    .unwrap();
+
+    let indexed = store_a.list_sessions_from_sqlite().unwrap();
+    assert!(
+        indexed
+            .iter()
+            .any(|summary| summary.session_id == "session_a")
+    );
+    assert!(
+        !indexed
+            .iter()
+            .any(|summary| summary.session_id == "session_b")
+    );
+
+    let page = store_a
+        .load_transcript_page(&TranscriptPageRequest {
+            session_id: "session_b".to_string(),
+            before: None,
+            limit: 25,
+        })
+        .unwrap();
+    assert_eq!(page.rows.len(), 1);
+    assert_eq!(page.rows[0].id.0, "session_b:0");
+}
+
+#[test]
 fn transcript_page_rebuild_and_reconnect_preserve_ids_order_and_anchors() {
     let home = temp_home("transcript_page_reconnect");
     let cwd = home.join("workspace");

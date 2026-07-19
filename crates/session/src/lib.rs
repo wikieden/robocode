@@ -308,6 +308,15 @@ impl SessionStore {
                 return Ok(Some((summary, entries)));
             }
         }
+        // A non-empty SQLite index can be stale while a valid project JSONL
+        // already exists. Exact lookup falls back to the safe project inventory
+        // instead of constructing a path from an untrusted session id.
+        for summary in self.list_sessions_from_project_dir()? {
+            if summary.session_id == session_id {
+                let entries = Self::load_entries_from_path(Path::new(&summary.transcript_path))?;
+                return Ok(Some((summary, entries)));
+            }
+        }
         Ok(None)
     }
 
