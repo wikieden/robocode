@@ -16,6 +16,8 @@ pub struct LocalCoreTransport {
 }
 
 impl LocalCoreTransport {
+    /// Wraps the supervisor at process bootstrap without exposing it through
+    /// the transport-neutral [`CoreTransport`] or [`crate::CoreClient`] APIs.
     pub fn new(supervisor: RuntimeSupervisor) -> Self {
         Self { supervisor }
     }
@@ -33,7 +35,9 @@ impl CoreTransport for LocalCoreTransport {
     }
 
     fn recv(&mut self, timeout: Duration) -> Result<Option<RuntimeEventEnvelope>, CoreClientError> {
-        Ok(self.supervisor.recv_event_envelope_timeout(timeout))
+        self.supervisor
+            .recv_event_envelope(timeout)
+            .map_err(CoreClientError::Transport)
     }
 
     fn snapshot(&mut self) -> Result<RuntimeSnapshotEnvelope, CoreClientError> {

@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 use std::sync::{
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
     mpsc::{self, Receiver, Sender},
 };
 use std::thread::{self, JoinHandle};
@@ -133,7 +134,9 @@ enum SupervisorMessage {
         request: TranscriptPageRequest,
         response: Sender<Result<TranscriptPage, String>>,
     },
-    Shutdown,
+    Shutdown {
+        response: Option<Sender<()>>,
+    },
 }
 
 pub struct RuntimeSupervisor {
@@ -142,6 +145,7 @@ pub struct RuntimeSupervisor {
     event_bus: RuntimeEventBus,
     active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    worker_alive: Arc<AtomicBool>,
     _worker: JoinHandle<()>,
 }
 
@@ -155,6 +159,7 @@ impl RuntimeSupervisor {
         let (event_sender, event_receiver) = mpsc::channel();
         let active_control: Arc<Mutex<Option<ActiveRuntimeControl>>> = Arc::new(Mutex::new(None));
         let pending_approvals = Arc::new(Mutex::new(BTreeMap::new()));
+        let worker_alive = Arc::new(AtomicBool::new(true));
         let event_bus = RuntimeEventBus {
             sender: event_sender,
             state: Arc::new(Mutex::new(RuntimeEventState {
@@ -168,6 +173,7 @@ impl RuntimeSupervisor {
         let worker_event_bus = event_bus.clone();
         let worker_active_control = Arc::clone(&active_control);
         let worker_pending_approvals = Arc::clone(&pending_approvals);
+        let worker_liveness = Arc::clone(&worker_alive);
         let worker = thread::spawn(move || {
             run_supervisor_worker(
                 engine,
@@ -176,6 +182,7 @@ impl RuntimeSupervisor {
                 worker_active_control,
                 worker_pending_approvals,
                 approval_ttl_secs,
+                worker_liveness,
             );
         });
 
@@ -185,6 +192,7 @@ impl RuntimeSupervisor {
             event_bus,
             active_control,
             pending_approvals,
+            worker_alive,
             _worker: worker,
         }
     }
@@ -475,8 +483,34 @@ impl RuntimeSupervisor {
         self.send_command_from_owner(envelope.owner, envelope.command_id, envelope.command)
     }
 
+    pub fn recv_event_envelope(
+        &self,
+        timeout: Duration,
+    ) -> Result<Option<RuntimeEventEnvelope>, String> {
+        match self.events.try_recv() {
+            Ok(envelope) => return Ok(Some(envelope)),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                return Err("runtime supervisor event stream stopped".to_string());
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+        }
+        if !self.worker_alive.load(Ordering::Acquire) {
+            return Err("runtime supervisor event stream stopped".to_string());
+        }
+
+        match self.events.recv_timeout(timeout) {
+            Ok(envelope) => Ok(Some(envelope)),
+            Err(mpsc::RecvTimeoutError::Timeout) if self.worker_alive.load(Ordering::Acquire) => {
+                Ok(None)
+            }
+            Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => {
+                Err("runtime supervisor event stream stopped".to_string())
+            }
+        }
+    }
+
     pub fn recv_event_envelope_timeout(&self, timeout: Duration) -> Option<RuntimeEventEnvelope> {
-        self.events.recv_timeout(timeout).ok()
+        self.recv_event_envelope(timeout).ok().flatten()
     }
 
     pub fn snapshot_envelope(&self) -> Result<RuntimeSnapshotEnvelope, String> {
@@ -522,11 +556,26 @@ impl RuntimeSupervisor {
             &self.pending_approvals,
         );
     }
+
+    #[cfg(test)]
+    pub(crate) fn stop_worker_for_test(&self) {
+        let (response, receiver) = mpsc::channel();
+        self.commands
+            .send(SupervisorMessage::Shutdown {
+                response: Some(response),
+            })
+            .expect("runtime supervisor test shutdown");
+        receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("runtime supervisor worker stopped");
+    }
 }
 
 impl Drop for RuntimeSupervisor {
     fn drop(&mut self) {
-        let _ = self.commands.send(SupervisorMessage::Shutdown);
+        let _ = self
+            .commands
+            .send(SupervisorMessage::Shutdown { response: None });
     }
 }
 
@@ -537,10 +586,18 @@ fn run_supervisor_worker(
     active_control: Arc<Mutex<Option<ActiveRuntimeControl>>>,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_ttl_secs: u64,
+    worker_alive: Arc<AtomicBool>,
 ) {
+    let _liveness = WorkerLivenessGuard(Arc::clone(&worker_alive));
     while let Ok(message) = command_receiver.recv() {
         match message {
-            SupervisorMessage::Shutdown => break,
+            SupervisorMessage::Shutdown { response } => {
+                worker_alive.store(false, Ordering::Release);
+                if let Some(response) = response {
+                    let _ = response.send(());
+                }
+                break;
+            }
             SupervisorMessage::Command {
                 owner,
                 command_id,
@@ -644,6 +701,14 @@ fn run_supervisor_worker(
                 let _ = response.send(engine.load_transcript_page(&request));
             }
         }
+    }
+}
+
+struct WorkerLivenessGuard(Arc<AtomicBool>);
+
+impl Drop for WorkerLivenessGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
     }
 }
 

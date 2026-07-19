@@ -299,6 +299,33 @@ fn runtime_supervisor_transcript_page_query_does_not_advance_event_journal() {
 }
 
 #[test]
+fn runtime_supervisor_transport_receive_distinguishes_timeout_from_stopped_worker() {
+    let cwd = temp_dir("runtime_supervisor_receive_disconnect_cwd");
+    let home = temp_dir("runtime_supervisor_receive_disconnect_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    assert_eq!(
+        supervisor
+            .recv_event_envelope(Duration::from_millis(1))
+            .unwrap(),
+        None
+    );
+
+    supervisor.stop_worker_for_test();
+    let error = supervisor
+        .recv_event_envelope(Duration::from_millis(1))
+        .unwrap_err();
+    assert!(error.contains("event stream stopped"));
+    assert_eq!(
+        supervisor.recv_event_envelope_timeout(Duration::from_millis(1)),
+        None,
+        "legacy callers retain Option semantics"
+    );
+}
+
+#[test]
 fn runtime_supervisor_cancels_active_provider_turn_and_keeps_worker_alive() {
     let cwd = temp_dir("runtime_supervisor_cancel_cwd");
     let home = temp_dir("runtime_supervisor_cancel_home");

@@ -4,9 +4,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use viden_core::{
-    CoreClient, CoreClientError, CoreTransport, LocalCoreTransport, ModelProvider,
-    RuntimeSupervisor, SessionEngine, StatefulCoreClient, frontend_capabilities,
+    CoreClient, CoreClientError, CoreTransport, LocalCoreTransport, StatefulCoreClient,
+    frontend_capabilities,
 };
+use viden_provider::ModelProvider;
+use viden_runtime::{RuntimeSupervisor, SessionEngine};
 use viden_types::{
     CapabilityId, CoreHandshake, EventCursor, FRONTEND_SCHEMA_V1, ModelEvent, ModelRequest,
     PermissionLevel, PermissionMode, ReplayBatch, ReplayRequest, RuntimeCommand,
@@ -630,8 +632,12 @@ fn core_client_local_transport_supports_full_boundary_surface() {
         SessionEngine::new_with_home(&cwd, Box::new(DoneProvider), Some(home.clone())).unwrap();
     let session_id = engine.session_id().to_string();
     let supervisor = RuntimeSupervisor::start(engine);
-    let mut client: Box<dyn CoreClient> =
-        Box::new(StatefulCoreClient::new(LocalCoreTransport::new(supervisor)));
+    let mut transport = LocalCoreTransport::new(supervisor);
+    assert_eq!(
+        CoreTransport::recv(&mut transport, Duration::ZERO).unwrap(),
+        None
+    );
+    let mut client: Box<dyn CoreClient> = Box::new(StatefulCoreClient::new(transport));
 
     let handshake = client.discover().unwrap();
     assert_eq!(handshake.active_schema_version, FRONTEND_SCHEMA_V1);
